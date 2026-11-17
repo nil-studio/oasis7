@@ -569,9 +569,14 @@ impl NodeRuntime {
         let worker = self
             .runtime_worker_spawner(thread::Builder::new().name(worker_name))
             .spawn(move || {
+                let mut initial = true;
                 loop {
-                    let wait_duration =
-                        engine.next_tick_wait_duration(now_unix_ms(), tick_interval);
+                    let wait_duration = if initial {
+                        initial = false;
+                        Duration::ZERO
+                    } else {
+                        engine.next_tick_wait_duration(now_unix_ms(), tick_interval)
+                    };
                     match stop_rx.recv_timeout(wait_duration) {
                         Ok(()) => break,
                         Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -708,11 +713,15 @@ impl NodeRuntime {
                                             max_committed_action_batch_bytes,
                                         );
                                     }
+                                    drop(current);
+
                                     if let Some(store) = pos_state_store.as_ref()
                                         && let Err(err) = store.save_engine_state(&engine)
-                                        && current.last_error.is_none()
                                     {
-                                        current.last_error = Some(err.to_string());
+                                        let mut current = lock_state(&state);
+                                        if current.last_error.is_none() {
+                                            current.last_error = Some(err.to_string());
+                                        }
                                     }
                                 }
                                 Err(err) => {
