@@ -2234,6 +2234,9 @@ def ordinary_delivery_layout(manifest, plan, diagnostic=False):
             paths.add(path)
             files[owner][path] = binary['sha256']
     resources = list(manifest['libraries'].items())
+    if runtime_worker_test_selected(manifest):
+        worker = manifest['worker_companion']
+        resources.append((worker['path'], worker['sha256']))
     if preview_provider_required(manifest):
         provider = manifest.get('preview_provider')
         if not isinstance(provider, dict):

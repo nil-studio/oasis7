@@ -1941,6 +1941,145 @@ class OrdinaryArtifactDelivery(unittest.TestCase):
                 archive.addfile(member, io.BytesIO(raw) if raw is not None else None)
         return destination
 
+    def install_worker_companion(self, selected=True):
+        component = self.manifest['binaries']['component']
+        case = ('world::incremental_genesis::tests::module_execution::action_body::'
+                'actual_queued_body_actions_match_world_and_read_prior_current_write')
+        component['tests'] = [case] if selected else ['actual_behavior']
+        text = ('#!' + sys.executable + '\nimport sys\n'
+                'names = ' + repr(component['tests']) + '\n'
+                'if "--ignored" not in sys.argv:\n'
+                '    for name in names: print(name + ": test")\n')
+        self.file(component['path'], text.encode(), executable=True)
+        component['sha256'] = artifacts.digest(self.bundle / component['path'])
+        # Real temporary files exercise the original resource validator and
+        # transport. They do not stand in for a compiled Rust worker behavior.
+        worker = self.file(artifacts.RUNTIME_WORKER_PATH, b'worker transport fixture', True)
+        library = self.file('lib/worker.so', b'worker-only dynamic dependency', True)
+        self.manifest['worker_companion'] = dict(worker, package='oasis7_wasm_executor',
+            target='oasis7-wasm-worker', target_kind=['bin'], test=False,
+            profile=dict(opt_level='0', debuginfo=0, debug_assertions=True,
+                         overflow_checks=True, test=False),
+            features=['wasmtime'], requested_features=['wasmtime'],
+            original_executable=str(self.root / 'target/debug/oasis7-wasm-worker'),
+            libraries=[library['path']])
+        self.manifest['libraries'][library['path']] = library['sha256']
+        self.write_parent()
+        return worker, library
+
+    @unittest.skipUnless(sys.platform == 'linux', 'Runtime worker companion requires Linux')
+    def test_shared_worker_preserves_parent_files_and_selected_consumer_environment(self):
+        worker, library = self.install_worker_companion()
+        whole = self.root / 'ordinary-worker.tar.gz'
+        artifacts.pack(self.bundle, whole, suite='ordinary', plan=self.plan)
+        with tarfile.open(whole) as archive:
+            parent = archive.extractfile('manifest.json').read()
+            expected = {member.name: hashlib.sha256(archive.extractfile(member).read()).hexdigest()
+                        for member in archive if member.name != 'manifest.json'}
+        report = self.pack()
+        self.assertEqual(report['parent_manifest_sha256'], hashlib.sha256(parent).hexdigest())
+        actual, selected_owners = {}, []
+        for owner in ('common', *self.plan['ordinary_partitions'][1:]):
+            with tarfile.open(self.archives / (owner + '.tar.gz')) as archive:
+                if owner == 'common':
+                    self.assertEqual(archive.extractfile('manifest.json').read(), parent)
+                payload = {member.name: hashlib.sha256(archive.extractfile(member).read()).hexdigest()
+                           for member in archive
+                           if member.name not in ('manifest.json', *artifacts.ORDINARY_DELIVERY_RECEIPTS)}
+            self.assertFalse(set(actual) & set(payload))
+            actual.update(payload)
+            for resource in (worker, library):
+                self.assertEqual(resource['path'] in payload, owner == 'common')
+            if owner == 'common':
+                continue
+            destination, receipt = self.unpack(owner)
+            with patch.dict(os.environ, {artifacts.RUNTIME_WORKER_VARIABLE: 'untrusted-inherited-path'}):
+                loaded, env = artifacts.load(destination, 'ordinary', plan=self.plan,
+                                             ordinary_artifact_partition=owner)
+            self.assertEqual((destination / 'manifest.json').read_bytes(), parent)
+            self.assertEqual(loaded['worker_companion'], self.manifest['worker_companion'])
+            for resource in (worker, library):
+                self.assertEqual(artifacts.digest(destination / resource['path']), resource['sha256'])
+            if 'component' in receipt['included_binaries']:
+                selected_owners.append(owner)
+                self.assertEqual(env[artifacts.RUNTIME_WORKER_VARIABLE],
+                                 str((destination / worker['path']).resolve()))
+            else:
+                self.assertNotIn(artifacts.RUNTIME_WORKER_VARIABLE, env)
+        self.assertEqual(actual, expected)
+        self.assertEqual(len(selected_owners), 1)
+
+    @unittest.skipUnless(sys.platform == 'linux', 'Runtime worker companion requires Linux')
+    def test_shared_worker_keeps_missing_corrupt_and_overlapping_resource_rejection(self):
+        worker, library = self.install_worker_companion()
+        self.pack()
+        owner = next(owner for owner in self.plan['ordinary_partitions'][1:]
+                     if any(entry['binary'] == 'component'
+                            for entry in artifacts.ordinary_artifact_entries(self.manifest, self.plan, owner)))
+        destination, _ = self.unpack(owner)
+        for resource in (worker, library):
+            for damaged_root in (self.bundle, destination):
+                path = damaged_root / resource['path']
+                original = path.read_bytes()
+                for damage in ('missing', 'corrupt'):
+                    if damage == 'missing':
+                        path.unlink()
+                    else:
+                        path.write_bytes(b'corrupt resource bytes')
+                    error, message = ValueError, 'missing, invalid or corrupt executable/library'
+                    if damaged_root == destination and resource == library:
+                        error, message = ((FileNotFoundError, re.escape(str(path))) if damage == 'missing'
+                                          else (ValueError, 'invalid dynamic library'))
+                    with self.subTest(resource=resource['path'], root=damaged_root.name, damage=damage), \
+                         self.assertRaisesRegex(error, message):
+                        if damaged_root == self.bundle:
+                            self.pack()
+                        else:
+                            artifacts.load(destination, 'ordinary', plan=self.plan,
+                                           ordinary_artifact_partition=owner)
+                    path.write_bytes(original)
+                    path.chmod(0o755)
+        shutil.rmtree(destination)
+        for resource in (worker, library):
+            def append(members):
+                member = tarfile.TarInfo(resource['path'])
+                member.mode = 0o755
+                members.append((member, (self.bundle / resource['path']).read_bytes()))
+            damaged = self.mutate_archive(self.archives / (owner + '.tar.gz'), append)
+            with self.subTest(payload_resource=resource['path']), self.assertRaisesRegex(
+                    ValueError, 'unexpected or duplicate ordinary delivery file'):
+                self.unpack(owner, payload=damaged)
+        helper = self.manifest['binaries']['required-executable-helper']
+        helper.update(path=worker['path'], sha256=worker['sha256'])
+        with self.assertRaisesRegex(ValueError, 'ordinary delivery resource path overlaps another role'):
+            self.pack()
+        helper['sha256'] = '0' * 64
+        with self.assertRaisesRegex(ValueError, 'conflicting artifact file identities'):
+            self.pack()
+
+    @unittest.skipUnless(sys.platform == 'linux', 'Runtime worker companion requires Linux')
+    def test_unselected_worker_is_omitted_from_original_and_split_closures(self):
+        worker, library = self.install_worker_companion(selected=False)
+        self.pack()
+        with tarfile.open(self.archives / 'common.tar.gz') as archive:
+            parent = json.loads(archive.extractfile('manifest.json').read())
+            self.assertNotIn('worker_companion', parent)
+            self.assertNotIn(library['path'], parent['libraries'])
+            for resource in (worker, library):
+                self.assertNotIn(resource['path'], archive.getnames())
+        owner = next(owner for owner in self.plan['ordinary_partitions'][1:]
+                     if any(entry['binary'] == 'component'
+                            for entry in artifacts.ordinary_artifact_entries(self.manifest, self.plan, owner)))
+        destination, _ = self.unpack(owner)
+        with patch.dict(os.environ, {artifacts.RUNTIME_WORKER_VARIABLE: 'untrusted-inherited-path'}):
+            _, env = artifacts.load(destination, 'ordinary', plan=self.plan,
+                                    ordinary_artifact_partition=owner)
+        self.assertNotIn(artifacts.RUNTIME_WORKER_VARIABLE, env)
+        self.assertTrue((destination / 'lib/runtime.so').is_file())
+        for resource in (worker, library):
+            self.assertFalse((destination / resource['path']).exists())
+
+
     def test_transport_preserves_parent_union_snapshots_helpers_libraries_and_prior_attempt(self):
         report = self.pack()
         ordinary = self.root / 'ordinary.tar.gz'
@@ -2338,6 +2477,18 @@ class OrdinaryExclusiveExecution(unittest.TestCase):
 
 
 class CasePartitionArtifactDelivery(unittest.TestCase):
+    install_worker_companion = OrdinaryArtifactDelivery.install_worker_companion
+
+    def test_shared_worker_preserves_parent_files_and_selected_consumer_environment(self):
+        OrdinaryArtifactDelivery.test_shared_worker_preserves_parent_files_and_selected_consumer_environment(self)
+
+    def test_shared_worker_keeps_missing_corrupt_and_overlapping_resource_rejection(self):
+        OrdinaryArtifactDelivery.test_shared_worker_keeps_missing_corrupt_and_overlapping_resource_rejection(self)
+
+    def test_unselected_worker_is_omitted_from_original_and_split_closures(self):
+        OrdinaryArtifactDelivery.test_unselected_worker_is_omitted_from_original_and_split_closures(self)
+
+
     file = OrdinaryArtifactDelivery.file
     write_parent = OrdinaryArtifactDelivery.write_parent
     pack = OrdinaryArtifactDelivery.pack
