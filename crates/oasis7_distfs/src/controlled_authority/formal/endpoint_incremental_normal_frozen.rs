@@ -278,8 +278,7 @@ impl PaidAcceptedGenesisHostSourceV1 {
             source,
             original,
             reservation,
-            provider,
-            policy,
+            FrozenProviderPolicy { provider, policy },
             memory,
             work,
             stop,
@@ -304,16 +303,22 @@ fn failure(
         reservation: Some(reservation),
     }
 }
+/// Borrowed publication inputs, unpacked before the existing Frozen flow.
+struct FrozenProviderPolicy<'provider, 'policy> {
+    provider: &'provider RemoteMonotonicEndpointProvider,
+    policy: &'policy TrustedFencingPolicyV1,
+}
+
 fn finish_freeze(
     mut source: NormalFrozenTransactionV1,
     original: PaidRequestStateV1,
     reservation: ReservedValue<VerifiedFormalReservationV1>,
-    provider: &RemoteMonotonicEndpointProvider,
-    policy: &TrustedFencingPolicyV1,
+    publication: FrozenProviderPolicy<'_, '_>,
     memory: &MemoryBudget,
     work: &FormalArchiveReadWorkV1,
     stop: &mut dyn FnMut() -> bool,
 ) -> Result<PaidNormalFrozenEndpointV1, NormalFrozenFailureV1> {
+    let FrozenProviderPolicy { provider, policy } = publication;
     let update = match source
         .endpoint
         .store
@@ -508,8 +513,7 @@ impl NormalFrozenFailureV1 {
                 recovery.source,
                 original,
                 reservation,
-                provider,
-                policy,
+                FrozenProviderPolicy { provider, policy },
                 memory,
                 work,
                 stop,
