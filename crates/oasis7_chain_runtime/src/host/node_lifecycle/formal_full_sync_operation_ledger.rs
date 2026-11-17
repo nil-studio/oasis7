@@ -11,6 +11,9 @@ use std::time::{Duration, Instant};
 
 #[path = "formal_full_sync_operation_initialization.rs"]
 mod initialization;
+#[path = "formal_full_sync_operation_installation.rs"]
+mod installation;
+use installation::Installation;
 
 const API: &str = "oasis7.formal-full-sync-operation-ledger/v1";
 const MAX_WINDOW: u64 = 64 * 1024;
@@ -182,6 +185,10 @@ pub(super) struct Snapshot {
     pub publication: Option<Publication>,
     #[serde(default)]
     pub publication_journal_version: Option<u32>,
+    #[serde(default)]
+    pub installation_journal_version: Option<u32>,
+    #[serde(default)]
+    pub installation: Option<Installation>,
     pub proof_pages: u64,
     pub proof_bytes: u64,
     pub material_limit: u64,
@@ -217,6 +224,7 @@ impl Snapshot {
 
     fn validate(&self) -> Result<(), String> {
         self.policy.validate()?;
+        installation::validate(self)?;
         if self
             .publication_journal_version
             .is_some_and(|version| version != 1)
@@ -387,6 +395,11 @@ pub(super) struct AttemptPermit {
     deadline: Instant,
 }
 impl AttemptPermit {
+    #[cfg(test)]
+    pub fn expire_for_test(&mut self) {
+        self.deadline = Instant::now();
+    }
+
     pub fn deadline(&self) -> Instant {
         self.deadline
     }

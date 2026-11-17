@@ -122,12 +122,15 @@ pub(super) fn supervise(
     };
     let (worker_result_tx, worker_result_rx) = mpsc::channel();
     let ownership = Arc::new(ownership);
+    let worker_ownership = Arc::clone(&ownership);
+    let worker_data = data.to_path_buf();
     let worker = spawn_owned_worker(Arc::clone(&ownership), move || {
         let result = (|| {
             let mut next_poll = Instant::now();
-            let mut restored_world: Option<oasis7_runtime::World> = None;
+            let mut restored_world = None;
+            let mut single_operation_consumed = false;
             while !worker_stop.load(Ordering::SeqCst) {
-                if Instant::now() >= next_poll {
+                if !single_operation_consumed && Instant::now() >= next_poll {
                     drop(restored_world.take());
                     session.begin_poll();
                     {
@@ -140,9 +143,18 @@ pub(super) fn supervise(
                         io::write(&status_path, session.status())?;
                     }
                     match session.sync_latest() {
-                        Ok(restored) => restored_world = Some(restored.world),
+                        Ok(restored) => restored_world = Some(restored),
                         Err(_) => restored_world = None,
                     }
+                    single_operation_consumed = session.is_single_operation();
+                    let verified = if single_operation_consumed {
+                        restored_world
+                            .as_ref()
+                            .map(|restored| session.verify_retained_candidate(restored))
+                            .transpose()?
+                    } else {
+                        None
+                    };
                     session.set_world_loaded(restored_world.is_some());
                     if session.status().ready
                         && (!session.status().state_root_verified || restored_world.is_none())
@@ -152,6 +164,14 @@ pub(super) fn supervise(
                     let _status_guard = worker_status_gate
                         .lock()
                         .map_err(|error| error.to_string())?;
+                    if worker_stop.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    if let Some(verified) = verified {
+                        worker_ownership.require_directory(&worker_data)?;
+                        session.acknowledge_retained_candidate(verified)?;
+                    }
+                    // Stop may arrive while the durable acknowledgement writes.
                     if worker_stop.load(Ordering::SeqCst) {
                         break;
                     }

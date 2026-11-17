@@ -353,9 +353,34 @@ pub(super) fn stabilize_loaded_world_pins(store: &LocalCasStore) -> Result<(), S
     .map_err(|error| error.to_string())
 }
 
+/// Read the exact loaded-world shard without repairing or republishing it.
+pub(super) fn verify_loaded_world_pins(
+    store: &LocalCasStore,
+    expected: &BTreeSet<String>,
+) -> Result<(), String> {
+    // The retaining supervisor owns the operation; this check does not acquire
+    // the CAS writer lock (which can create files or block without a deadline).
+    let path = store
+        .root()
+        .join("pin_scopes")
+        .join(FULL_SYNC_PIN_SCOPE)
+        .join(format!("{LOADED_WORLD_PIN_SHARD}.json"));
+    if read_pin_shard(&path)?.as_ref() != Some(expected) {
+        return Err("retained World pins differ from published candidate".into());
+    }
+    Ok(())
+}
+
 fn read_pin_shard(path: &Path) -> Result<Option<BTreeSet<String>>, String> {
     super::super::local_io::reject_symlinks(path)?;
-    let file = match File::open(path) {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let file = match options.open(path) {
         Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(format!("read full-sync pin shard: {error}")),

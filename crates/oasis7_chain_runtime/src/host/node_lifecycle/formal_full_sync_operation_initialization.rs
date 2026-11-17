@@ -76,6 +76,8 @@ impl Ledger {
             verified_target_json: None,
             publication: None,
             publication_journal_version: Some(1),
+            installation_journal_version: Some(1),
+            installation: None,
             proof_pages: 0,
             proof_bytes: 0,
             material_limit,

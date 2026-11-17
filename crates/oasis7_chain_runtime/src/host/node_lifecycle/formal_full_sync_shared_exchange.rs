@@ -277,6 +277,36 @@ impl FullSyncExchange for SharedOperationExchange {
             .complete_publication(&active.attempt, cut, roots, manifest)
             .map_err(WorldServiceClientError::Transport)
     }
+    fn begin_installation(
+        &self,
+        cut: &serde_json::Value,
+        roots: &std::collections::BTreeSet<String>,
+        manifest: &oasis7_game_client::formal_sync_exchange::FullSyncManifestReference,
+    ) -> Result<(), WorldServiceClientError> {
+        let mut guard = self.active.try_lock().map_err(|_| {
+            WorldServiceClientError::Transport("operation occupied or poisoned".into())
+        })?;
+        let active = &mut *guard;
+        active
+            .ledger
+            .begin_installation(&active.attempt, cut, roots, manifest)
+            .map_err(WorldServiceClientError::Transport)
+    }
+    fn complete_installation(
+        &self,
+        cut: &serde_json::Value,
+        roots: &std::collections::BTreeSet<String>,
+        manifest: &oasis7_game_client::formal_sync_exchange::FullSyncManifestReference,
+    ) -> Result<(), WorldServiceClientError> {
+        let mut guard = self.active.try_lock().map_err(|_| {
+            WorldServiceClientError::Transport("operation occupied or poisoned".into())
+        })?;
+        let active = &mut *guard;
+        active
+            .ledger
+            .complete_installation(&active.attempt, cut, roots, manifest)
+            .map_err(WorldServiceClientError::Transport)
+    }
     fn check_active(&self) -> Result<(), WorldServiceClientError> {
         let guard = self.active.try_lock().map_err(|_| {
             WorldServiceClientError::Transport("operation occupied or poisoned".into())

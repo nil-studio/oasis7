@@ -50,6 +50,20 @@ pub trait FullSyncExchange: Send + Sync {
         roots: &std::collections::BTreeSet<String>,
         manifest: &FullSyncManifestReference,
     ) -> Result<(), WorldServiceClientError>;
+    /// Separate retaining-consumer intent; pins alone are not installation.
+    fn begin_installation(
+        &self,
+        cut: &serde_json::Value,
+        roots: &std::collections::BTreeSet<String>,
+        manifest: &FullSyncManifestReference,
+    ) -> Result<(), WorldServiceClientError>;
+    /// Acknowledge the live retained candidate and atomically consume its permit.
+    fn complete_installation(
+        &self,
+        cut: &serde_json::Value,
+        roots: &std::collections::BTreeSet<String>,
+        manifest: &FullSyncManifestReference,
+    ) -> Result<(), WorldServiceClientError>;
     fn check_active(&self) -> Result<(), WorldServiceClientError>;
     fn finish_attempt(&self) -> Result<(), WorldServiceClientError>;
     fn charge_proof(&self, encoded_proof_bytes: u64) -> Result<(), WorldServiceClientError>;

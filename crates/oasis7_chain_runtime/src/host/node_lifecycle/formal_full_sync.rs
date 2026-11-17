@@ -66,6 +66,8 @@ mod failover;
 mod grant_reconcile;
 #[path = "formal_full_sync_history.rs"]
 pub(super) mod history_chain;
+#[path = "formal_full_sync_install_handoff.rs"]
+mod install_handoff;
 #[path = "formal_full_sync_local_closure.rs"]
 mod local_closure;
 #[path = "formal_full_sync_manifest.rs"]
@@ -317,8 +319,8 @@ impl FormalFullSyncSession {
     }
 
     pub(crate) fn set_world_loaded(&mut self, loaded: bool) {
-        self.status.world_loaded = loaded;
-        if !loaded {
+        self.status.world_loaded = loaded && self.shared_exchange.is_none();
+        if !loaded || self.shared_exchange.is_some() {
             self.status.ready = false;
         }
     }
@@ -327,7 +329,8 @@ impl FormalFullSyncSession {
     pub(crate) fn sync_latest(&mut self) -> Result<RestoredFormalFullSyncWorldV1, String> {
         self.check_operation_active()?;
         let result = self.sync_latest_owned();
-        if let Some(exchange) = &self.shared_exchange
+        if result.is_err()
+            && let Some(exchange) = &self.shared_exchange
             && let Err(error) = exchange.finish_attempt()
         {
             let error = error.to_string();
@@ -480,7 +483,8 @@ impl FormalFullSyncSession {
                 self.status.lag_positions = Some(lag);
                 self.status.catch_up_pending = lag > 0;
                 self.status.state = "qualified_full_state_read_only".into();
-                self.status.ready = true;
+                self.prepare_installation(&restored)?;
+                self.status.ready = self.shared_exchange.is_none();
                 self.status.state_root_verified = true;
                 self.status.error = None;
                 Ok(restored)

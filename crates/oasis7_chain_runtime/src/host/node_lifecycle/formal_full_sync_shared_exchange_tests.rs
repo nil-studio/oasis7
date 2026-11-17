@@ -336,6 +336,74 @@ fn exercise_shared_operation(failover: bool, recover: bool, selected: bool, head
                 > target.position
         );
     }
+    // Publication alone must not consume the live permit or expose readiness.
+    assert!(!session.status().ready);
+    assert!(shared.snapshot().active_attempt_nonce.is_some());
+    assert!(!shared.snapshot().installation.as_ref().unwrap().completed);
+    let token = session.verify_retained_candidate(&restored).unwrap();
+    // Same request and cut are insufficient: another operation has a distinct
+    // ledger/permit and must not consume this consumer's verification token.
+    let other_dir = TestPrivateDir::new();
+    let mut other_identity = identity.clone();
+    other_identity.operation_id = local_io::random_id().unwrap();
+    let mut other_ledger = Ledger::create_with_material_limit(
+        &other_dir.0.join("other.json"),
+        other_identity,
+        policy.clone(),
+        config.max_total_sync_bytes,
+    )
+    .unwrap();
+    other_ledger
+        .bind_original_request(&original_request)
+        .unwrap();
+    let other_permit = other_ledger.begin_attempt().unwrap();
+    other_ledger
+        .bind_verified_target(
+            &other_permit,
+            shared.snapshot().verified_target_json.as_ref().unwrap(),
+        )
+        .unwrap();
+    let candidate_cut = serde_json::to_value(&restored.cut).unwrap();
+    other_ledger
+        .begin_publication(
+            &other_permit,
+            &candidate_cut,
+            &restored.retained_cas_hashes,
+            &restored.manifest_reference,
+        )
+        .unwrap();
+    other_ledger
+        .complete_publication(
+            &other_permit,
+            &candidate_cut,
+            &restored.retained_cas_hashes,
+            &restored.manifest_reference,
+        )
+        .unwrap();
+    other_ledger
+        .begin_installation(
+            &other_permit,
+            &candidate_cut,
+            &restored.retained_cas_hashes,
+            &restored.manifest_reference,
+        )
+        .unwrap();
+    let other_prepared = PreparedTransport::prepare_builtin_trust(&endpoints).unwrap();
+    let other_shared = Arc::new(other_prepared.admit(other_ledger, other_permit).unwrap());
+    let other_before = other_shared.snapshot();
+    session.shared_exchange = Some(other_shared.clone());
+    assert!(
+        session
+            .acknowledge_retained_candidate(token)
+            .unwrap_err()
+            .contains("belongs to another operation")
+    );
+    assert_eq!(other_shared.snapshot(), other_before);
+    session.shared_exchange = Some(shared.clone());
+    let token = session.verify_retained_candidate(&restored).unwrap();
+    session.acknowledge_retained_candidate(token).unwrap();
+    assert!(session.status().ready && session.status().world_loaded);
+    assert!(shared.snapshot().installation.as_ref().unwrap().completed);
     let after_sync = shared.snapshot();
     assert_eq!(after_sync.identity, identity);
     assert_eq!(after_sync.attempts_used, if recover { 2 } else { 1 });

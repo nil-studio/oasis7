@@ -1045,3 +1045,99 @@ fn publication_manifest_reference_is_pinned_and_bound_to_intent() {
     local_io::write(&path, &corrupted).unwrap();
     assert!(Ledger::open(&path, &identity, &policy, 0).is_err());
 }
+
+#[test]
+fn installation_receipt_consumes_one_permit_and_never_grants_replay() {
+    for outcome in ["ack", "pending", "conflict", "expired"] {
+        let temp = TestDir::new();
+        let path = temp.path().join("operation.json");
+        let policy = policy();
+        let identity = identity(&policy);
+        let mut ledger = Ledger::create(&path, identity.clone(), policy.clone()).unwrap();
+        let mut permit = ledger.begin_attempt().unwrap();
+        let cut = serde_json::json!({"record_id": "original"});
+        let target = serde_json::to_vec(&(cut.clone(), serde_json::json!({}))).unwrap();
+        let roots = std::collections::BTreeSet::from(["ab".repeat(32)]);
+        let manifest = oasis7_game_client::formal_sync_exchange::FullSyncManifestReference {
+            content_hash: "ab".repeat(32),
+            size_bytes: 1,
+        };
+        ledger.bind_verified_target(&permit, &target).unwrap();
+        assert!(
+            ledger
+                .begin_installation(&permit, &cut, &roots, &manifest)
+                .is_err()
+        );
+        ledger
+            .begin_publication(&permit, &cut, &roots, &manifest)
+            .unwrap();
+        assert!(
+            ledger
+                .begin_installation(&permit, &cut, &roots, &manifest)
+                .is_err()
+        );
+        ledger
+            .complete_publication(&permit, &cut, &roots, &manifest)
+            .unwrap();
+        ledger
+            .begin_installation(&permit, &cut, &roots, &manifest)
+            .unwrap();
+        let pending = ledger.snapshot().clone();
+        assert!(!pending.installation.as_ref().unwrap().completed);
+        assert!(
+            ledger
+                .begin_installation(&permit, &cut, &roots, &manifest)
+                .is_err()
+        );
+        let mut changed = manifest.clone();
+        changed.size_bytes += 1;
+        assert!(
+            ledger
+                .complete_installation(&permit, &cut, &roots, &changed)
+                .is_err()
+        );
+        assert_eq!(ledger.snapshot(), &pending);
+        if outcome == "ack" {
+            ledger
+                .complete_installation(&permit, &cut, &roots, &manifest)
+                .unwrap();
+            assert!(ledger.snapshot().installation.as_ref().unwrap().completed);
+            assert!(ledger.snapshot().active_attempt_nonce.is_none());
+            assert!(
+                ledger
+                    .complete_installation(&permit, &cut, &roots, &manifest)
+                    .is_err()
+            );
+        } else if outcome == "conflict" {
+            let mut disk = pending.clone();
+            disk.revision += 1;
+            local_io::write(&path, &disk).unwrap();
+            assert!(
+                ledger
+                    .complete_installation(&permit, &cut, &roots, &manifest)
+                    .is_err()
+            );
+            assert!(!ledger.snapshot().installation.as_ref().unwrap().completed);
+        } else if outcome == "expired" {
+            permit.expire_for_test();
+            assert!(
+                ledger
+                    .complete_installation(&permit, &cut, &roots, &manifest)
+                    .is_err()
+            );
+            assert_eq!(ledger.snapshot(), &pending);
+        }
+        drop(ledger);
+        let mut reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
+        assert_eq!(
+            reopened.snapshot().installation.as_ref().unwrap().completed,
+            outcome == "ack"
+        );
+        assert!(reopened.begin_attempt().is_err());
+        assert!(
+            reopened
+                .complete_installation(&permit, &cut, &roots, &manifest)
+                .is_err()
+        );
+    }
+}
