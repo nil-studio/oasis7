@@ -66,9 +66,23 @@ pub trait AgentEventOriginalV1 {
 struct Allocator<'a> {
     memory: &'a MemoryBudget,
     error: RefCell<Option<MemoryLimitExceeded>>,
+    debit: Option<&'a dyn Fn(u64, u64) -> Result<(), BodyMutationError>>,
+    debit_error: RefCell<Option<BodyMutationError>>,
 }
 impl CanonicalCborAllocator for Allocator<'_> {
     type Charge = MemoryReservation;
+    fn charge_work(&self, steps: u64, bytes: u64) -> Result<(), CanonicalCborStreamError> {
+        let Some(debit) = self.debit else {
+            return Ok(());
+        };
+        if self.debit_error.borrow().is_some() {
+            return Err(CanonicalCborStreamError::Poisoned);
+        }
+        debit(steps, bytes).map_err(|error| {
+            *self.debit_error.borrow_mut() = Some(error);
+            CanonicalCborStreamError::ResourceLimited("agent original caller work")
+        })
+    }
     fn reserve(&self, bytes: usize) -> Result<Self::Charge, CanonicalCborStreamError> {
         self.memory
             .reserve(bytes, MemoryClass::Ordinary)
@@ -126,6 +140,7 @@ fn encode<T: Serialize + ?Sized, C: FnMut() -> bool>(
     cancel: &mut C,
     max: u64,
     output: &mut dyn Write,
+    debit: Option<&dyn Fn(u64, u64) -> Result<(), BodyMutationError>>,
 ) -> Result<([u8; 32], u64), BodyMutationError> {
     if cancel() {
         return Err(ValueTreeError::Cancelled.into());
@@ -133,6 +148,8 @@ fn encode<T: Serialize + ?Sized, C: FnMut() -> bool>(
     let allocator = Allocator {
         memory,
         error: RefCell::new(None),
+        debit,
+        debit_error: RefCell::new(None),
     };
     let placeholder = CanonicalCborWorkV1 {
         visits_remaining: 0,
@@ -152,8 +169,26 @@ fn encode<T: Serialize + ?Sized, C: FnMut() -> bool>(
         max,
         exceeded: false,
     };
-    let result = stream_canonical_cbor_v1(event, &mut encoding, &mut sink);
+    let result = if debit.is_some() {
+        // The metered caller must reconcile its actual legacy counters even
+        // when the work hook or sink unwinds. The original no-hook path keeps
+        // its existing behavior; neither branch retries the one-shot stream.
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            stream_canonical_cbor_v1(event, &mut encoding, &mut sink)
+        })) {
+            Ok(result) => result,
+            Err(payload) => {
+                *work = encoding.work;
+                std::panic::resume_unwind(payload)
+            }
+        }
+    } else {
+        stream_canonical_cbor_v1(event, &mut encoding, &mut sink)
+    };
     *work = encoding.work;
+    if let Some(error) = allocator.debit_error.borrow_mut().take() {
+        return Err(error);
+    }
     if let Some(memory) = allocator.error.borrow_mut().take() {
         return Err(ExecutionError::Memory(memory).into());
     }
@@ -178,6 +213,7 @@ struct Stream<'a, T: Serialize + ?Sized> {
     length: u64,
     attempted: bool,
     complete: bool,
+    debit: Option<&'a dyn Fn(u64, u64) -> Result<(), BodyMutationError>>,
 }
 impl<T: Serialize + ?Sized> AgentEventOriginalStreamV1 for Stream<'_, T> {
     fn original_id(&self) -> [u8; 32] {
@@ -199,6 +235,7 @@ impl<T: Serialize + ?Sized> AgentEventOriginalStreamV1 for Stream<'_, T> {
             &mut || (self.cancel)(),
             self.length,
             output,
+            self.debit,
         )?;
         if actual != (self.id, self.length) {
             return Err(BodyMutationError::Invalid(
@@ -237,10 +274,41 @@ pub fn measure_serializable<'a, T: Serialize + ?Sized, C: FnMut() -> bool>(
     cancel: &mut C,
     max: usize,
 ) -> Result<Measured<'a, T>, BodyMutationError> {
+    measure_inner(event, memory, work, cancel, max, None)
+}
+/// The same concrete WorldEvent source and original two-pass engine, with a
+/// scoped work-only debit at every actual codec hook, including key comparison
+/// bytes. The fixed concrete caller uses the same hook for its actual output.
+pub fn measure_with_work_debit<'a, C: FnMut() -> bool>(
+    event: &'a WorldEvent,
+    memory: &MemoryBudget,
+    work: &mut CanonicalCborWorkV1,
+    cancel: &mut C,
+    max: usize,
+    debit: &dyn Fn(u64, u64) -> Result<(), BodyMutationError>,
+) -> Result<Measured<'a>, BodyMutationError> {
+    measure_inner(event, memory, work, cancel, max, Some(debit))
+}
+fn measure_inner<'a, T: Serialize + ?Sized, C: FnMut() -> bool>(
+    event: &'a T,
+    memory: &MemoryBudget,
+    work: &mut CanonicalCborWorkV1,
+    cancel: &mut C,
+    max: usize,
+    debit: Option<&dyn Fn(u64, u64) -> Result<(), BodyMutationError>>,
+) -> Result<Measured<'a, T>, BodyMutationError> {
     let scratch = memory
         .reserve(8 << 10, MemoryClass::Ordinary)
         .map_err(ExecutionError::Memory)?;
-    let (id, length) = encode(event, memory, work, cancel, max as u64, &mut io::sink())?;
+    let (id, length) = encode(
+        event,
+        memory,
+        work,
+        cancel,
+        max as u64,
+        &mut io::sink(),
+        debit,
+    )?;
     Ok(Measured {
         event,
         id,
@@ -284,17 +352,20 @@ impl<'a, C: FnMut() -> bool, T: Serialize + ?Sized> Producer<'a, C, T> {
         }
         Ok(())
     }
-}
-impl<C: FnMut() -> bool, T: Serialize + ?Sized> AgentEventOriginalV1 for Producer<'_, C, T> {
-    fn original_id(&self) -> [u8; 32] {
-        self.measured.id
-    }
-    fn original_bytes(&self) -> u64 {
-        self.measured.length
-    }
-    fn persist_to(
+    /// Same one-shot attempt and finish checks, with only the codec work hook
+    /// added by a fixed concrete caller. Existing producer/measurement types
+    /// keep their original fields and auto traits.
+    pub fn persist_to_with_work_debit(
         &mut self,
         sink: &mut dyn AgentEventOriginalSinkV1,
+        debit: &dyn Fn(u64, u64) -> Result<(), BodyMutationError>,
+    ) -> Result<(), BodyMutationError> {
+        self.persist_with_debit(sink, Some(debit))
+    }
+    fn persist_with_debit(
+        &mut self,
+        sink: &mut dyn AgentEventOriginalSinkV1,
+        debit: Option<&dyn Fn(u64, u64) -> Result<(), BodyMutationError>>,
     ) -> Result<(), BodyMutationError> {
         self.complete = false;
         if self.attempted {
@@ -315,6 +386,7 @@ impl<C: FnMut() -> bool, T: Serialize + ?Sized> AgentEventOriginalV1 for Produce
                 length: self.measured.length,
                 attempted: false,
                 complete: false,
+                debit,
             };
             sink.finish_original(&mut stream, &mut || cancelled())?;
             if cancelled() {
@@ -329,5 +401,19 @@ impl<C: FnMut() -> bool, T: Serialize + ?Sized> AgentEventOriginalV1 for Produce
         }
         self.complete = true;
         Ok(())
+    }
+}
+impl<C: FnMut() -> bool, T: Serialize + ?Sized> AgentEventOriginalV1 for Producer<'_, C, T> {
+    fn original_id(&self) -> [u8; 32] {
+        self.measured.id
+    }
+    fn original_bytes(&self) -> u64 {
+        self.measured.length
+    }
+    fn persist_to(
+        &mut self,
+        sink: &mut dyn AgentEventOriginalSinkV1,
+    ) -> Result<(), BodyMutationError> {
+        self.persist_with_debit(sink, None)
     }
 }

@@ -296,25 +296,34 @@ fn prepare_iws_genesis_for_endpoints_inner_v1(
             Ok(receipt.original_id())
         };
     let result = match common {
-        Some((common, retention_work)) => prepare_projected_runtime_genesis_index_with_writer_v1(
-            world,
-            source,
-            config,
-            context,
-            producer,
-            RuntimeGenesisIndexBudgetsV1 {
-                index_reads,
-                index_writes,
-                index,
-            },
-            &mut fanout,
-            &mut persist_artifact,
-            &mut persist_action,
-            &mut mailbox_original,
-            retention_work,
-            common,
-        )
-        .map(GenesisEndpointOutputV1::Projected),
+        Some((common, retention_work)) => {
+            let mut journal_original = |event: &oasis7_world_state::WorldEvent,
+                                        common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>| {
+                originals
+                    .borrow_mut()
+                    .event_bounded(event, &mut canonical.borrow_mut(), common)
+            };
+            prepare_projected_runtime_genesis_index_with_writer_v1(
+                world,
+                source,
+                config,
+                context,
+                producer,
+                RuntimeGenesisIndexBudgetsV1 {
+                    index_reads,
+                    index_writes,
+                    index,
+                },
+                &mut fanout,
+                &mut persist_artifact,
+                &mut persist_action,
+                &mut mailbox_original,
+                retention_work,
+                &mut journal_original,
+                common,
+            )
+            .map(GenesisEndpointOutputV1::Projected)
+        }
         None => prepare_runtime_genesis_index_with_writer_v1(
             world,
             source,

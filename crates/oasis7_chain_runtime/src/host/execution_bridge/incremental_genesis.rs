@@ -174,6 +174,7 @@ pub(crate) struct ProvisionalProjectedRuntimeGenesisIndexV1 {
     projected: oasis7_runtime::incremental_genesis_projection::RuntimeProjectedGenesisV1,
     retention:
         ReservedValue<oasis7_formal_protocol::incremental_retention::RetentionLedgerManifestV1>,
+    journal_originals: ReservedValue<Vec<OriginalArtifactRefV1>>,
 }
 impl ProvisionalProjectedRuntimeGenesisIndexV1 {
     /// Initialize the original business index from this very physical GEN
@@ -230,6 +231,27 @@ impl ProvisionalProjectedRuntimeGenesisIndexV1 {
     ) -> &oasis7_runtime::incremental_genesis_projection::RuntimeProjectedGenesisV1 {
         &self.projected
     }
+
+    /// Actual originals in complete Journal order from the same immutable GEN
+    /// borrow. This is paid provisional DATA, not History location or acceptance.
+    pub(crate) fn journal_originals_bounded_v1(
+        &self,
+        common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+    ) -> Result<&ReservedValue<Vec<OriginalArtifactRefV1>>, BodyMutationError> {
+        self.projected.validate_context_bounded_v1(common)?;
+        common
+            .consume_steps(1)
+            .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
+        if !self.outer.uses_budget(common.memory())
+            || !self.roots.uses_budget(common.memory())
+            || !self.journal_originals.uses_budget(common.memory())
+        {
+            return Err(BodyMutationError::Invalid(
+                "physical GEN journal owner pool",
+            ));
+        }
+        Ok(&self.journal_originals)
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -252,6 +274,10 @@ pub(crate) fn prepare_projected_runtime_genesis_index_with_writer_v1<
     persist_action: &mut A,
     mailbox_original: &mut L,
     retention_work: &mut oasis7_world_state::incremental_cognition_retention_ledger::CognitionRetentionWorkV1<'_>,
+    journal_original: &mut dyn FnMut(
+        &oasis7_world_state::WorldEvent,
+        &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+    ) -> Result<OriginalArtifactRefV1, BodyMutationError>,
     common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
 ) -> Result<ProvisionalProjectedRuntimeGenesisIndexV1, RuntimeGenesisPhysicalErrorV1> {
     if context.cancelled.load(Ordering::Acquire) {
@@ -311,11 +337,61 @@ pub(crate) fn prepare_projected_runtime_genesis_index_with_writer_v1<
         retention_work,
         common,
     )?;
+    let source_error = |error| {
+        RuntimeGenesisPhysicalErrorV1::Projected(
+            oasis7_runtime::incremental_genesis_projection::RuntimeProjectedGenesisErrorV1::Source(
+                error,
+            ),
+        )
+    };
+    let (_, count) = projected
+        .formal_event_commitment_bounded_v1(common)
+        .map_err(source_error)?;
+    if count != world.journal().events.len() {
+        return Err(source_error(BodyMutationError::Invalid(
+            "GEN journal capture count",
+        )));
+    }
+    let bytes = count
+        .checked_mul(std::mem::size_of::<OriginalArtifactRefV1>())
+        .ok_or_else(|| source_error(BodyMutationError::Invalid("GEN journal refs length")))?;
+    let byte_work = u64::try_from(bytes)
+        .map_err(|_| source_error(BodyMutationError::Invalid("GEN journal refs width")))?;
+    common
+        .charge(1, byte_work)
+        .map_err(|error| source_error(BodyMutationError::Original(Box::new(error))))?;
+    // The reservation precedes the raw Vec, so every Err/unwind drops the
+    // allocation before its fee. The outer reservation already covers metadata.
+    let refs_fee = common
+        .memory()
+        .reserve(bytes, oasis7_proto::memory_budget::MemoryClass::Ordinary)
+        .map_err(ValueTreeError::Memory)?;
+    let mut refs = Vec::new();
+    refs.try_reserve_exact(count)
+        .map_err(|_| source_error(BodyMutationError::Invalid("GEN journal refs allocation")))?;
+    if refs.capacity() != count {
+        return Err(source_error(BodyMutationError::Invalid(
+            "GEN journal refs capacity",
+        )));
+    }
+    for event in &world.journal().events {
+        common
+            .charge(1, std::mem::size_of::<OriginalArtifactRefV1>() as u64)
+            .map_err(|error| source_error(BodyMutationError::Original(Box::new(error))))?;
+        refs.push(journal_original(event, common).map_err(source_error)?);
+    }
+    projected
+        .validate_context_bounded_v1(common)
+        .map_err(source_error)?;
+    if cancelled.load(Ordering::Acquire) {
+        return Err(ValueTreeError::Cancelled.into());
+    }
     Ok(ProvisionalProjectedRuntimeGenesisIndexV1 {
         outer,
         roots,
         projected,
         retention,
+        journal_originals: refs_fee.retain(refs),
     })
 }
 

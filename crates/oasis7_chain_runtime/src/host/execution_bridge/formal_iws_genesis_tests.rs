@@ -259,3 +259,6 @@ fn a_replica_page_failure_returns_no_genesis_root_and_preserves_prior_bytes() {
 
 #[path = "formal_iws_genesis_business_tests.rs"]
 mod business;
+
+#[path = "formal_iws_genesis_event_original_tests.rs"]
+mod journal_originals;

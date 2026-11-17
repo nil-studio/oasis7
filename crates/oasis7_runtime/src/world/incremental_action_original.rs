@@ -65,6 +65,27 @@ pub fn persist_world_event_original_v1(
 ) -> Result<WorldEventOriginalReceiptV1, BodyMutationError> {
     persist(event, memory, work, cancelled, max_event_bytes, sink)
 }
+/// Meter every actual canonical work request on both passes, including map
+/// comparison bytes. The fixed hook receives work only; it cannot replace the
+/// event, wire, digest or completion state. Legacy callers keep their old API.
+pub fn persist_world_event_original_with_work_v1(
+    event: &crate::WorldEvent,
+    memory: &MemoryBudget,
+    work: &mut CanonicalCborWorkV1,
+    cancelled: &mut impl FnMut() -> bool,
+    max_event_bytes: usize,
+    sink: &mut dyn ActionOriginalSinkV1,
+    debit: &dyn Fn(u64, u64) -> Result<(), BodyMutationError>,
+) -> Result<WorldEventOriginalReceiptV1, BodyMutationError> {
+    let measured =
+        original::measure_with_work_debit(event, memory, work, cancelled, max_event_bytes, debit)?;
+    let mut producer = original::Producer::new(measured, memory, work, cancelled);
+    let id = producer.original_id();
+    let bytes = producer.original_bytes();
+    producer.persist_to_with_work_debit(sink, debit)?;
+    producer.check_complete()?;
+    Ok(ActionOriginalReceiptV1 { id, bytes })
+}
 #[cfg(test)]
 #[path = "incremental_action_original_tests.rs"]
 mod tests;

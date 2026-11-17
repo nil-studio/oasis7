@@ -4,11 +4,23 @@ use oasis7_distfs::incremental_page_store::{
     PageIoBudget, PageStoreError,
     objects::{IncrementalObjectStore, ObjectIo, ObjectStreamWriteError},
 };
-use oasis7_formal_protocol::incremental_value::{ValueIoBudget, ValueTreeError};
+use oasis7_formal_protocol::{
+    controlled_authority::formal::{
+        FormalError,
+        bounded_context::{ChildLeaseV1, FormalBoundedChargeErrorV1, FormalBoundedContextV1},
+    },
+    incremental_artifacts::OriginalArtifactRefV1,
+    incremental_value::{ValueIoBudget, ValueTreeError},
+};
 use oasis7_proto::memory_budget::MemoryClass;
-use oasis7_runtime::{BodyMutationError, incremental_action_original::ActionOriginalStreamV1};
+use oasis7_runtime::{
+    BodyMutationError,
+    incremental_action_original::{
+        ActionOriginalStreamV1, persist_world_event_original_with_work_v1,
+    },
+};
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     io::{self, Write},
     sync::atomic::AtomicBool,
 };
@@ -64,7 +76,205 @@ impl Write for Tee<'_> {
         Ok(())
     }
 }
+
+fn context_error(error: FormalError) -> BodyMutationError {
+    BodyMutationError::Original(Box::new(error))
+}
+
+/// A finite share of the ORIGINAL child, not another Core or caller account.
+/// The codec calls this before every actual work request, including its map
+/// comparison allowance, which is absent from canonical.bytes_remaining.
+struct CodecShare<'a> {
+    initial: [u64; 2],
+    remaining: Cell<[u64; 2]>,
+    stop: RefCell<&'a mut dyn FnMut() -> bool>,
+    cancelled: Cell<bool>,
+}
+impl CodecShare<'_> {
+    fn cancelled(&self) -> bool {
+        if self.cancelled.get() || (self.stop.borrow_mut())() {
+            self.cancelled.set(true);
+            true
+        } else {
+            false
+        }
+    }
+    fn charge(&self, steps: u64, bytes: u64) -> Result<(), BodyMutationError> {
+        if self.cancelled() {
+            return Err(context_error(FormalBoundedChargeErrorV1::Cancelled.into()));
+        }
+        let before = self.remaining.get();
+        self.remaining.set([
+            before[0].saturating_sub(steps),
+            before[1].saturating_sub(bytes),
+        ]);
+        if before[0] < steps {
+            return Err(context_error(FormalBoundedChargeErrorV1::StepLimit.into()));
+        }
+        if before[1] < bytes {
+            return Err(context_error(FormalBoundedChargeErrorV1::ByteLimit.into()));
+        }
+        Ok(())
+    }
+}
+
+struct EventMeterFrame<'a> {
+    before: [[u64; 7]; 3],
+    capped: [[u64; 7]; 3],
+    after: [[u64; 7]; 3],
+    used: [u64; 2],
+    codec: CodecShare<'a>,
+    lease: ChildLeaseV1<'a>,
+}
+
 impl Originals<'_, '_, '_> {
+    fn counters(&self) -> [[u64; 7]; 3] {
+        std::array::from_fn(|i| {
+            [
+                self.physical[i].reads_remaining,
+                self.physical[i].writes_remaining,
+                self.logical[i].nodes_remaining,
+                self.physical[i].read_bytes_remaining,
+                self.physical[i].write_bytes_remaining,
+                self.logical[i].read_bytes_remaining,
+                self.logical[i].write_bytes_remaining,
+            ]
+        })
+    }
+    fn install(&mut self, values: &[[u64; 7]; 3]) {
+        for (i, v) in values.iter().enumerate() {
+            self.physical[i].reads_remaining = v[0];
+            self.physical[i].writes_remaining = v[1];
+            self.logical[i].nodes_remaining = v[2];
+            self.physical[i].read_bytes_remaining = v[3];
+            self.physical[i].write_bytes_remaining = v[4];
+            self.logical[i].read_bytes_remaining = v[5];
+            self.logical[i].write_bytes_remaining = v[6];
+        }
+    }
+
+    /// The complete measurement + begin + stream + finish attempt stays under
+    /// one child. A count refusal after measurement still spends that real work.
+    /// Targets retain their own pools; only the actual source uses Common's pool.
+    pub(super) fn event_bounded(
+        &mut self,
+        event: &oasis7_world_state::WorldEvent,
+        canonical: &mut oasis7_wasm_abi::CanonicalCborWorkV1,
+        common: &mut FormalBoundedContextV1<'_>,
+    ) -> Result<OriginalArtifactRefV1, BodyMutationError> {
+        common.consume_steps(1).map_err(context_error)?;
+        if !self.stores[0].uses_budget(common.memory()) {
+            return Err(BodyMutationError::Invalid(
+                "GEN journal original source pool",
+            ));
+        }
+        // Seven fixed passes over the 21 real IO scalars: snapshot, cap,
+        // install, snapshot, validate, reconcile, install. Two codec scalars
+        // are reconciled once. Reserve the actual live adapter frame by type.
+        let frame_bytes = std::mem::size_of::<EventMeterFrame<'_>>();
+        common
+            .charge(7 * (3 * 7) + 2, frame_bytes as u64)
+            .map_err(context_error)?;
+        let _frame_fee = common
+            .memory()
+            .reserve(frame_bytes, MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
+        let (memory, work, stop) = common.parts();
+        let lease = work.begin_child().map_err(context_error)?;
+        // Nine IO step lanes + codec; twelve IO byte lanes + codec. These
+        // limits partition this very lease, without debiting unused allowance.
+        let limits = [
+            lease.remaining_steps() / 10,
+            lease.remaining_read_bytes() / 13,
+        ];
+        let mut frame = EventMeterFrame {
+            before: self.counters(),
+            capped: [[0; 7]; 3],
+            after: [[0; 7]; 3],
+            used: [0; 2],
+            codec: CodecShare {
+                initial: limits,
+                remaining: Cell::new(limits),
+                stop: RefCell::new(stop),
+                cancelled: Cell::new(false),
+            },
+            lease,
+        };
+        for i in 0..3 {
+            for j in 0..7 {
+                frame.capped[i][j] = frame.before[i][j].min(limits[usize::from(j >= 3)]);
+            }
+        }
+        self.install(&frame.capped);
+        let cancelled = self.cancelled;
+        let max_bytes = self.max_bytes;
+        let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            persist_world_event_original_with_work_v1(
+                event,
+                memory,
+                canonical,
+                &mut || {
+                    cancelled.load(std::sync::atomic::Ordering::Acquire) || frame.codec.cancelled()
+                },
+                max_bytes,
+                &mut |source: &mut dyn ActionOriginalStreamV1, poll: &mut dyn FnMut() -> bool| {
+                    self.stream(source, poll)
+                },
+                &|steps, bytes| frame.codec.charge(steps, bytes),
+            )
+        })) {
+            Ok(result) => result,
+            Err(payload) => {
+                self.install(&[[0; 7]; 3]);
+                drop(frame); // abandoned ChildLease drains the original Core
+                std::panic::resume_unwind(payload)
+            }
+        };
+        frame.after = self.counters();
+        if (0..3).any(|i| (0..7).any(|j| frame.after[i][j] > frame.capped[i][j])) {
+            self.install(&[[0; 7]; 3]);
+            drop(frame);
+            return Err(BodyMutationError::Invalid(
+                "GEN journal original lane increased",
+            ));
+        }
+        for i in 0..3 {
+            for j in 0..7 {
+                let used = frame.capped[i][j] - frame.after[i][j];
+                // Each lane is bounded by its original lease share, so the
+                // nine/twelve IO sums plus the codec share cannot overflow.
+                frame.used[usize::from(j >= 3)] += used;
+                frame.after[i][j] = frame.before[i][j] - used;
+            }
+        }
+        self.install(&frame.after);
+        let remaining = frame.codec.remaining.get();
+        for (i, remaining) in remaining.into_iter().enumerate() {
+            frame.used[i] += frame.codec.initial[i] - remaining;
+        }
+        let debit = frame
+            .lease
+            .consume(frame.used[0], frame.used[1])
+            .map_err(context_error);
+        frame.lease.finish();
+        let receipt = match result {
+            Err(BodyMutationError::Value(ValueTreeError::Cancelled))
+                if frame.codec.cancelled.get() =>
+            {
+                return Err(context_error(FormalBoundedChargeErrorV1::Cancelled.into()));
+            }
+            Err(error) => return Err(error),
+            Ok(receipt) => {
+                debit?;
+                receipt
+            }
+        };
+        Ok(OriginalArtifactRefV1 {
+            id: receipt.original_id(),
+            byte_len: receipt.original_bytes(),
+        })
+    }
+
     fn begin(&mut self, length: u64) -> Result<(), BodyMutationError> {
         if self.cancelled.load(std::sync::atomic::Ordering::Acquire) {
             return Err(ValueTreeError::Cancelled.into());
