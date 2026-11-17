@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import select
 import shutil
 import signal
 import stat
@@ -126,6 +127,8 @@ RUNTIME_WORKER_BUILD = 'runtime-worker-companion'
 RUNTIME_WORKER_PATH = 'bin/oasis7-wasm-worker'
 RUNTIME_WORKER_VARIABLE = 'OASIS7_WASM_WORKER_TEST_EXE'
 RUNTIME_WORKER_FEATURE = 'wasmtime'
+RUNTIME_WORKER_ELF_TIMEOUT = 5
+RUNTIME_WORKER_ELF_OUTPUT_LIMIT = 32 * 1024
 
 class ProviderArtifact:
     subprocess = subprocess
@@ -1460,6 +1463,62 @@ class BuildObservation:
         return False
 
 
+def observe_runtime_worker_elf(worker_path, manifest):
+    """Read bounded diagnostics from the validated image without changing admission."""
+    command = ['readelf', '--wide', '--section-headers', '--program-headers',
+               '--string-dump=.comment', str(worker_path)]
+    record = dict(path=str(worker_path), sha256=manifest['worker_companion']['sha256'],
+                  source_sha=manifest['source_sha'], tested_sha=manifest['tested_sha'],
+                  timeout_seconds=RUNTIME_WORKER_ELF_TIMEOUT,
+                  output_limit_bytes=RUNTIME_WORKER_ELF_OUTPUT_LIMIT,
+                  status='failed', exit_code=None)
+    process, output = None, bytearray()
+    try:
+        process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                   stderr=subprocess.STDOUT, bufsize=0,
+                                   env=dict(os.environ, LC_ALL='C'))
+        deadline = time.monotonic() + RUNTIME_WORKER_ELF_TIMEOUT
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not select.select([process.stdout], [], [], remaining)[0]:
+                raise subprocess.TimeoutExpired(command, RUNTIME_WORKER_ELF_TIMEOUT)
+            chunk = os.read(process.stdout.fileno(),
+                            min(4096, RUNTIME_WORKER_ELF_OUTPUT_LIMIT + 1 - len(output)))
+            if not chunk:
+                code = process.wait(timeout=max(0, deadline - time.monotonic()))
+                record['status'] = 'success' if code == 0 else 'failed'
+                break
+            output.extend(chunk)
+            if len(output) > RUNTIME_WORKER_ELF_OUTPUT_LIMIT:
+                record['status'] = 'truncated'
+                break
+    except subprocess.TimeoutExpired:
+        record['status'] = 'timeout'
+    except (OSError, ValueError) as error:
+        record['error_type'] = type(error).__name__
+    finally:
+        if process is not None:
+            try:
+                if process.poll() is None:
+                    process.kill()
+                process.wait(timeout=1)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                record.update(status='failed', cleanup_error=type(error).__name__)
+            finally:
+                record['exit_code'] = process.returncode
+                try:
+                    process.stdout.close()
+                except OSError as error:
+                    record.update(status='failed', cleanup_error=type(error).__name__)
+    record.update(truncated=len(output) > RUNTIME_WORKER_ELF_OUTPUT_LIMIT,
+                  retained_output_bytes=min(len(output), RUNTIME_WORKER_ELF_OUTPUT_LIMIT),
+                  output=output[:RUNTIME_WORKER_ELF_OUTPUT_LIMIT].decode('utf-8', errors='replace'))
+    try:
+        print('runtime_worker_elf_observation=' + json.dumps(record), flush=True)
+    except OSError:
+        pass  # Optional diagnostics must not replace the build/validation result.
+
+
 def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir=None, ordinary_partition=None):
     validate_plan_identity(plan)
     if ordinary_partition is not None:
@@ -1673,6 +1732,7 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
             sha256=worker_companion['sha256'], profile=worker_companion['profile'],
             features=worker_companion['features'], source_sha=manifest['source_sha'],
             tested_sha=manifest['tested_sha'])), flush=True)
+        observe_runtime_worker_elf(worker_path, manifest)
     manifest['included_binaries'] = sorted(binaries)
     manifest['selection'] = None
     if scope in ('ordinary', 'all') and preview_provider_required(dict(manifest, selection={'suite': 'ordinary'})):

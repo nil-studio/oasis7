@@ -5108,7 +5108,11 @@ class RuntimeWorkerCompanionContracts(unittest.TestCase):
             def wait(self):
                 return self.returncode
 
+        original_popen = artifacts.subprocess.Popen
+
         def cargo(command, **kwargs):
+            if command[0] != 'cargo':
+                return original_popen(command, **kwargs)
             commands.append(command)
             if command[1] == 'build':
                 items = [] if worker_error == 'missing' else [worker_message]
@@ -5146,6 +5150,156 @@ class RuntimeWorkerCompanionContracts(unittest.TestCase):
             ignored_cases = ignored
             artifacts.build(bundle, 'ordinary', root / 'cache-state.json', plan=plan)
         return json.loads((bundle / 'manifest.json').read_text()), bundle, commands, observed, recorded
+
+    def readelf_fixture(self, body):
+        directory = self.root / 'readelf-bin'
+        directory.mkdir(exist_ok=True)
+        executable = directory / 'readelf'
+        executable.write_text('#!' + sys.executable + '\n'
+                              'import hashlib, json, os, sys, time\n'
+                              'from pathlib import Path\n' + body)
+        executable.chmod(0o755)
+        return directory
+
+    def test_builder_observes_elf_only_after_validation_and_identity_on_the_same_path(self):
+        marker = self.root / 'readelf-called.json'
+        tool = self.readelf_fixture(
+            'path = Path(sys.argv[-1])\n'
+            'result = dict(path=str(path), sha256=hashlib.sha256(path.read_bytes()).hexdigest(), '
+            'args=sys.argv[1:])\n'
+            f'Path({str(marker)!r}).write_text(json.dumps(result))\n'
+            'print(json.dumps(result))\n')
+        captured = io.StringIO()
+        validated = []
+        original = artifacts.validate_runtime_worker_companion
+
+        def validate(bundle, manifest):
+            self.assertFalse(marker.exists())
+            self.assertNotIn('runtime_worker_elf_observation=', captured.getvalue())
+            path = original(bundle, manifest)
+            validated.append(path)
+            return path
+
+        with patch.object(artifacts, 'validate_runtime_worker_companion', side_effect=validate), \
+             patch.dict(os.environ, PATH=str(tool)), redirect_stdout(captured):
+            manifest, bundle, commands, _, _ = self.build_fixture()
+        lines = captured.getvalue().splitlines()
+        records = [json.loads(line.split('=', 1)[1]) for line in lines
+                   if line.startswith('runtime_worker_elf_observation=')]
+        self.assertEqual(len(records), 1)
+        record = records[0]
+        worker = bundle / artifacts.RUNTIME_WORKER_PATH
+        self.assertEqual(validated, [worker])
+        self.assertEqual(record['path'], str(worker))
+        self.assertEqual(record['sha256'], manifest['worker_companion']['sha256'])
+        self.assertEqual(record['source_sha'], 'source')
+        self.assertEqual(record['tested_sha'], 'host: fixture')
+        self.assertEqual(record['status'], 'success')
+        self.assertEqual(record['exit_code'], 0)
+        self.assertFalse(record['truncated'])
+        actual = json.loads(marker.read_text())
+        self.assertEqual(actual, json.loads(record['output']))
+        self.assertEqual(actual['path'], str(worker))
+        self.assertEqual(actual['sha256'], record['sha256'])
+        self.assertEqual(actual['args'], ['--wide', '--section-headers', '--program-headers',
+                                         '--string-dump=.comment', str(worker)])
+        identity_index = next(i for i, line in enumerate(lines)
+                              if line.startswith('runtime_worker_companion_observation='))
+        elf_index = next(i for i, line in enumerate(lines)
+                         if line.startswith('runtime_worker_elf_observation='))
+        self.assertLess(identity_index, elf_index)
+        self.assertEqual(len(commands), 2)
+        self.assertNotIn('runtime_worker_elf_observation', manifest)
+
+    def test_elf_observer_is_not_started_for_rejected_or_unselected_workers(self):
+        marker = self.root / 'unexpected-readelf'
+        tool = self.readelf_fixture(f'Path({str(marker)!r}).write_text("called")\n')
+        original = artifacts.validate_runtime_worker_companion
+        for fault, error in (('hash', 'corrupt executable/library'),
+                             ('bytes', 'corrupt executable/library'),
+                             ('library', 'corrupt executable/library'),
+                             ('mode', 'not executable')):
+            with self.subTest(fault=fault):
+                captured = io.StringIO()
+
+                def validate(bundle, manifest):
+                    worker = manifest['worker_companion']
+                    path = bundle / worker['path']
+                    if fault == 'hash':
+                        worker['sha256'] = '0' * 64
+                    elif fault == 'bytes':
+                        path.write_bytes(b'changed worker bytes')
+                    elif fault == 'library':
+                        (bundle / worker['libraries'][0]).write_bytes(b'changed library bytes')
+                    else:
+                        path.chmod(0o644)
+                    return original(bundle, manifest)
+
+                with patch.object(artifacts, 'validate_runtime_worker_companion', side_effect=validate), \
+                     patch.dict(os.environ, PATH=str(tool)), redirect_stdout(captured), \
+                     self.assertRaisesRegex(ValueError, error):
+                    self.build_fixture()
+                self.assertFalse(marker.exists())
+                self.assertNotIn('runtime_worker_elf_observation=', captured.getvalue())
+                self.assertFalse((self.last_build_bundle / 'manifest.json').exists())
+        captured = io.StringIO()
+        with patch.dict(os.environ, PATH=str(tool)), redirect_stdout(captured):
+            manifest, _, _, _, _ = self.build_fixture(cases=['unrelated_case'])
+        self.assertFalse(marker.exists())
+        self.assertNotIn('worker_companion', manifest)
+        self.assertNotIn('runtime_worker_elf_observation=', captured.getvalue())
+
+    def test_elf_tool_failure_timeout_and_output_limit_preserve_the_original_build(self):
+        limit = artifacts.RUNTIME_WORKER_ELF_OUTPUT_LIMIT
+        marker = self.root / 'readelf-pid'
+        cases = (
+            ('nonzero', 'failed', 'print("partial ELF headers", flush=True)\nsys.exit(7)\n'),
+            ('timeout', 'timeout', 'print("partial ELF headers", flush=True)\ntime.sleep(60)\n'),
+            ('limit', 'truncated', f'sys.stdout.buffer.write(b"x" * {limit + 4096})\n'
+                                   'sys.stdout.buffer.flush()\ntime.sleep(60)\n'),
+            ('exact', 'success', f'sys.stdout.buffer.write(b"x" * {limit})\n'),
+            ('missing', 'failed', None),
+        )
+        for name, status, body in cases:
+            with self.subTest(case=name):
+                marker.unlink(missing_ok=True)
+                tool = self.readelf_fixture(
+                    f'Path({str(marker)!r}).write_text(str(os.getpid()))\n' + (body or ''))
+                if body is None:
+                    (tool / 'readelf').unlink()
+                captured = io.StringIO()
+                with patch.dict(os.environ, PATH=str(tool)), redirect_stdout(captured), \
+                     patch.object(artifacts, 'RUNTIME_WORKER_ELF_TIMEOUT', 0.5):
+                    manifest, bundle, commands, _, _ = self.build_fixture()
+                records = [json.loads(line.split('=', 1)[1]) for line in captured.getvalue().splitlines()
+                           if line.startswith('runtime_worker_elf_observation=')]
+                self.assertEqual(len(records), 1)
+                record = records[0]
+                worker = bundle / artifacts.RUNTIME_WORKER_PATH
+                self.assertEqual(record['status'], status)
+                self.assertEqual(record['path'], str(worker))
+                self.assertEqual(record['sha256'], artifacts.digest(worker))
+                self.assertEqual(record['sha256'], manifest['worker_companion']['sha256'])
+                self.assertEqual(worker.read_bytes(), b'oasis7-wasm-worker')
+                self.assertTrue((bundle / 'manifest.json').is_file())
+                self.assertNotIn('runtime_worker_elf_observation', manifest)
+                self.assertEqual(len(commands), 2)
+                self.assertEqual(record['output_limit_bytes'], limit)
+                self.assertLessEqual(record['retained_output_bytes'], limit)
+                self.assertEqual(record['retained_output_bytes'], len(record['output'].encode()))
+                self.assertEqual(record['truncated'], name == 'limit')
+                self.assertNotIn('cleanup_error', record)
+                if name in ('exact', 'limit'):
+                    self.assertEqual(record['output'], 'x' * limit)
+                elif name in ('nonzero', 'timeout'):
+                    self.assertEqual(record['output'], 'partial ELF headers\n')
+                else:
+                    self.assertEqual(record['error_type'], 'FileNotFoundError')
+                if name == 'nonzero':
+                    self.assertEqual(record['exit_code'], 7)
+                if marker.exists():
+                    with self.assertRaises(ProcessLookupError):
+                        os.kill(int(marker.read_text()), 0)
 
     def test_builder_observes_only_the_validated_worker_bytes_and_identity(self):
         captured = io.StringIO()
