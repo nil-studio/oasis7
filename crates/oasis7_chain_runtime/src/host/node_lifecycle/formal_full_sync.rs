@@ -612,6 +612,14 @@ impl FormalFullSyncSession {
         if tree_leaves != retained.index_root.leaf_count {
             return Err("full-sync retained tree leaf count mismatch".into());
         }
+        local_closure::verify_retained(
+            &self.cas,
+            &retained.index_root,
+            self.config.max_total_sync_bytes,
+            std::time::Instant::now()
+                .checked_add(Duration::from_millis(self.config.request_timeout_ms))
+                .ok_or("local retained readback deadline overflow")?,
+        )?;
         let reader = Arc::new(LocalVerifiedBusinessIndexReader {
             store: Arc::clone(&self.cas),
             integrity_poisoned: Arc::clone(&self.cas_integrity_poisoned),

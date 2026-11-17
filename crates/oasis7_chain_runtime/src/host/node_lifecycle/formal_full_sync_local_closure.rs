@@ -72,6 +72,19 @@ fn read_blob(
     expected_size: u64,
     deadline: Instant,
 ) -> Result<Vec<u8>, String> {
+    let bytes = read_blob_bounded(store, digest, expected_size, deadline)?;
+    if bytes.len() as u64 != expected_size {
+        return Err("original local record object size mismatch".into());
+    }
+    Ok(bytes)
+}
+
+fn read_blob_bounded(
+    store: &LocalCasStore,
+    digest: &str,
+    maximum_size: u64,
+    deadline: Instant,
+) -> Result<Vec<u8>, String> {
     let check_deadline = || {
         if Instant::now() >= deadline {
             Err("local closure recovery deadline expired".to_string())
@@ -80,7 +93,7 @@ fn read_blob(
         }
     };
     check_deadline()?;
-    if !valid_hex(digest, 32) || expected_size > MAX_FULL_SYNC_RECORD_BYTES as u64 {
+    if !valid_hex(digest, 32) || maximum_size > MAX_FULL_SYNC_RECORD_BYTES as u64 {
         return Err("local closure object exceeds supported bound".into());
     }
     super::super::local_io::reject_symlinks(store.root())?;
@@ -105,9 +118,9 @@ fn read_blob(
     // Bypass range caches: recovery requires this disk object's current
     // complete decoded bytes, including actual EOF and the declared length.
     let limit =
-        usize::try_from(expected_size).map_err(|_| "local record size does not fit memory")?;
+        usize::try_from(maximum_size).map_err(|_| "local record size does not fit memory")?;
     let mut bytes = Vec::new();
-    let receipt = oasis7_runtime::decode_local_blob_into(
+    oasis7_runtime::decode_local_blob_into(
         store.hash_algorithm(),
         digest,
         input,
@@ -116,9 +129,6 @@ fn read_blob(
     )
     .map_err(|error| format!("decode original local record object: {error:?}"))?;
     check_deadline()?;
-    if receipt.decoded_bytes as u64 != expected_size {
-        return Err("original local record object size mismatch".into());
-    }
     Ok(bytes)
 }
 
@@ -148,4 +158,65 @@ pub(super) fn verify_native(
         budget.add(digest, bytes.len() as u64)?;
         Ok(bytes)
     })
+}
+
+/// Re-read every retained node from disk before World construction. No cached
+/// node, network fallback, pin mutation, or persistent budget adjustment.
+pub(super) fn verify_retained(
+    store: &LocalCasStore,
+    root: &BusinessIndexRootV1,
+    material_limit: u64,
+    deadline: Instant,
+) -> Result<(), String> {
+    root.validate()?;
+    let mut budget = CasBudget::new(material_limit);
+    let mut pending = vec![(root.node_root.clone(), Vec::<bool>::new())];
+    let mut leaves = 0u64;
+    while let Some((digest, prefix)) = pending.pop() {
+        if Instant::now() >= deadline {
+            return Err("local retained recovery deadline expired".into());
+        }
+        let depth = prefix.len();
+        if digest == BusinessIndexRootV1::empty_subtree_hash(depth)? {
+            continue;
+        }
+        if depth > 256 || budget.visited_paths >= cas_lifecycle::MAX_RETAINED_TREE_NODES {
+            return Err("local retained recovery path bound".into());
+        }
+        budget.visited_paths += 1;
+        let bytes = read_blob_bounded(store, &digest, MAX_FULL_SYNC_RECORD_BYTES as u64, deadline)?;
+        budget.add(&digest, bytes.len() as u64)?;
+        match BusinessIndexNodeV1::decode(&bytes)?.kind {
+            BusinessIndexNodeKindV1::Branch {
+                depth: node_depth,
+                left_hash,
+                right_hash,
+            } if depth < 256 && usize::from(node_depth) == depth => {
+                for (right, child) in [(true, right_hash), (false, left_hash)] {
+                    let mut next = prefix.clone();
+                    next.push(right);
+                    pending.push((child, next));
+                }
+            }
+            BusinessIndexNodeKindV1::Leaf(leaf) if depth == 256 => {
+                let key = hex::decode(&leaf.key_digest).map_err(|e| e.to_string())?;
+                if key.len() != 32
+                    || prefix
+                        .iter()
+                        .enumerate()
+                        .any(|(i, right)| (key[i / 8] & (0x80 >> (i % 8)) != 0) != *right)
+                {
+                    return Err("local retained leaf differs from authenticated path".into());
+                }
+                leaves = leaves
+                    .checked_add(1)
+                    .ok_or("local retained leaf overflow")?;
+            }
+            _ => return Err("local retained node has invalid shape or depth".into()),
+        }
+    }
+    if leaves != root.leaf_count {
+        return Err("local retained leaf count mismatch".into());
+    }
+    Ok(())
 }

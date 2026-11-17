@@ -254,3 +254,72 @@ fn local_native_closure_requires_original_chunks_and_combined_material_budget() 
     assert!(!store.pins_path().exists());
     assert!(!store.root().join("pin_scopes").exists());
 }
+
+#[test]
+fn local_retained_readback_checks_original_path_count_and_disk_bytes() {
+    use oasis7_distfs::controlled_authority::formal::business_index::{
+        BusinessIndexLeafKindV1, BusinessIndexLeafV1,
+    };
+    let directory = TestPrivateDir::new();
+    let store = LocalCasStore::new(directory.0.join("cas"));
+    let deadline = || Instant::now() + Duration::from_secs(10);
+    let leaf = BusinessIndexNodeV1::leaf(BusinessIndexLeafV1 {
+        key_digest: "00".repeat(32),
+        kind: BusinessIndexLeafKindV1::Outcome,
+        canonical_value: vec![0xf6],
+    })
+    .unwrap();
+    let leaf_bytes = leaf.encode().unwrap();
+    let leaf_digest = leaf.digest().unwrap();
+    let mut digest = leaf_digest.clone();
+    let mut total = leaf_bytes.len() as u64;
+    for depth in (0..256).rev() {
+        let node = BusinessIndexNodeV1::branch(
+            depth,
+            digest,
+            BusinessIndexRootV1::empty_subtree_hash(depth + 1).unwrap(),
+        )
+        .unwrap();
+        let bytes = node.encode().unwrap();
+        digest = node.digest().unwrap();
+        store.put(&digest, &bytes).unwrap();
+        total += bytes.len() as u64;
+    }
+    let root = BusinessIndexRootV1 {
+        node_root: digest,
+        leaf_count: 1,
+    };
+    assert!(local_closure::verify_retained(&store, &root, total, deadline()).is_err());
+    store.put(&leaf_digest, &leaf_bytes).unwrap();
+    local_closure::verify_retained(&store, &root, total, deadline()).unwrap();
+    assert!(local_closure::verify_retained(&store, &root, total - 1, deadline()).is_err());
+    assert!(local_closure::verify_retained(&store, &root, total, Instant::now()).is_err());
+    let wrong_count = BusinessIndexRootV1 {
+        leaf_count: 2,
+        ..root.clone()
+    };
+    assert!(local_closure::verify_retained(&store, &wrong_count, total, deadline()).is_err());
+    let wrong_depth = BusinessIndexNodeV1::branch(
+        1,
+        root.node_root.clone(),
+        BusinessIndexRootV1::empty_subtree_hash(2).unwrap(),
+    )
+    .unwrap();
+    store
+        .put(
+            &wrong_depth.digest().unwrap(),
+            &wrong_depth.encode().unwrap(),
+        )
+        .unwrap();
+    let bad = BusinessIndexRootV1 {
+        node_root: wrong_depth.digest().unwrap(),
+        leaf_count: 1,
+    };
+    assert!(local_closure::verify_retained(&store, &bad, total, deadline()).is_err());
+    let path = store.blobs_dir().join(format!("{leaf_digest}.blob"));
+    std::fs::write(&path, b"corrupt retained original").unwrap();
+    assert!(local_closure::verify_retained(&store, &root, total, deadline()).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), b"corrupt retained original");
+    assert!(!store.root().join("pins.json").exists());
+    assert!(!store.root().join("pin_scopes").exists());
+}
