@@ -1088,8 +1088,8 @@ describe("viewer web ui automation baseline", () => {
     const stagePanel = container.querySelector("#viewer-stage-panel");
     const targetsPanel = container.querySelector("#viewer-targets-panel");
     const claimButtons = [
-      ...within(stagePanel).getAllByRole("button", { name: /Claim First Agent|Waiting for result|Result unknown/ }),
-      ...within(targetsPanel).getAllByRole("button", { name: /Claim First Agent|Waiting for result|Result unknown/ }),
+      ...within(stagePanel).getAllByRole("button", { name: /Claim First Agent|Waiting for result|Result unknown/i }),
+      ...within(targetsPanel).getAllByRole("button", { name: /Claim First Agent|Waiting for result|Result unknown/i }),
     ];
     expect(claimButtons.length).toBeGreaterThan(1);
     claimButtons.forEach((button) => expect(button).toBeDisabled());

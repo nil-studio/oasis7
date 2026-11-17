@@ -132,7 +132,7 @@ class Production(unittest.TestCase):
         helper = self.official / 'qlpacks/codeql/suite-helpers/1.0.61'
         helper.mkdir(parents=True)
         (helper / 'qlpack.yml').write_text('name: codeql/suite-helpers\nversion: 1.0.61\nlibrary: false\ndependencies: {}\n')
-        self.calls, self.guard_manifests = [], []
+        self.calls, self.guard_manifests, self.call_options = [], [], []
         self.bad_closure = self.query_failure = self.mutate_source = self.missing_result = False
         self.bad_shared_closure = False
         self.mutate_private = self.mutate_receipt = self.mutate_mode = None
@@ -187,6 +187,7 @@ class Production(unittest.TestCase):
                 terminal['stage'] = name
                 args_list = list(map(str, argv))
                 fixture.calls.append((name, args_list))
+                fixture.call_options.append((name, dict(options)))
                 value = {}
                 if name == 'version':
                     value = {'version': m.VERSION}
@@ -277,6 +278,8 @@ class Production(unittest.TestCase):
         argv = [phase, '--codeql', str(self.codeql), '--source', str(self.source), '--source-sha', self.source_sha,
                 '--database', str(self.database), '--work', str(self.work), '--output', str(self.output),
                 '--sarif', str(self.sarif), '--analysis-deadline', str(self.deadline if deadline is None else deadline)]
+        if hasattr(self, 'mode'):
+            argv += ['--mode', self.mode]
         if phase == 'run':
             argv += ['--extraction-outcome', outcome]
         with patch.dict(os.environ, self.env), redirect_stdout(io.StringIO()):
@@ -287,6 +290,98 @@ class Production(unittest.TestCase):
 
     def prepare_ok(self):
         self.assertEqual(self.invoke('prepare'), 0, self.terminal('prepare'))
+
+    def observation(self):
+        self.mode = m.action_deadline.FIXED_SOURCE_MODE
+        self.env.update(OASIS7_CODEQL_PRODUCTION_MODE=self.mode, GITHUB_SHA='d' * 40,
+                        COMPARE_QUALIFIER_PATCH='false',
+                        GITHUB_WORKFLOW_SHA='d' * 40, GITHUB_REPOSITORY='example/repo',
+                        GITHUB_WORKFLOW_REF='example/repo/.github/workflows/codeql-rust-capacity.yml@refs/heads/main',
+                        CODEQL_THREADS='4', CODEQL_RAM='14570')
+        self.budget_receipt.update(mode=self.mode, tool_sha='d' * 40)
+        (self.runner / 'codeql-rust-production-budget.json').write_text(json.dumps(self.budget_receipt))
+        self.stack.enter_context(patch.object(m.action_deadline, 'FIXED_SOURCE', self.source_sha))
+        # The separate real-process tests exercise the staged helper/layout closure.
+        # This fixture keeps the real mode/source guard and complete query consumer.
+        self.stack.enter_context(patch.object(m.action_deadline, 'fixed_source_provenance',
+            side_effect=lambda source, source_sha: m.action_deadline.fixed_source_identity(source_sha)))
+
+    def test_fixed_source_uses_all_37_and_original_diagnostics_core_with_separate_identity(self):
+        self.observation()
+        self.prepare_ok()
+        self.assertEqual(self.invoke('run'), 0, self.terminal('run'))
+        terminal = self.terminal('run')
+        self.assertEqual((terminal['source_sha'], terminal['tool_sha']), (self.source_sha, 'd' * 40))
+        self.assertEqual(terminal['mode'], self.mode)
+        self.assertEqual(terminal['acceptance_scope'], 'FIXED_SOURCE_OBSERVATION_ONLY')
+        self.assertEqual(terminal['upload_status'], 'DISABLED_FOR_OBSERVATION')
+        self.assertEqual(terminal['analysis_deadline'], self.deadline)
+        self.assertEqual(len(m.read_json(self.output / 'default-results.json')), 37)
+        self.assertEqual(len(list(self.output.glob('decoded-*.log'))), 37)
+        batch = next(argv for name, argv in self.calls if name == 'default-query-batch')
+        self.assertIn('--threads=4', batch)
+        self.assertIn('--ram=14570', batch)
+        self.assertEqual([name for name, options in self.call_options if options.get('resource_details')],
+                         ['default-query-batch'])
+        self.supervision.assert_called_once_with(self.output, self.source, self.source_sha,
+                                                 self.deadline, mode=self.mode)
+
+    def test_fixed_source_resource_drift_is_recorded_before_queries(self):
+        self.observation()
+        self.env['CODEQL_RAM'] = '4096'
+        self.assertEqual(self.invoke('prepare'), 1)
+        self.assertEqual(m.read_json(self.output / 'resources.json')['CODEQL_RAM'], 4096)
+        self.assertIn('resources differ', self.terminal('prepare')['primary_failure']['error'])
+        self.assertEqual(self.calls, [])
+
+    def test_fixed_source_requires_its_own_trusted_workflow(self):
+        self.observation()
+        self.env['GITHUB_WORKFLOW_REF'] = 'example/repo/.github/workflows/codeql.yml@refs/heads/main'
+        self.assertEqual(self.invoke('prepare'), 1)
+        self.assertIn('fixed-source', self.terminal('prepare')['primary_failure']['error'])
+        self.assertEqual(self.calls, [])
+
+    def test_fixed_source_run_cannot_consume_changed_tool_or_layout_provenance(self):
+        self.observation()
+        self.prepare_ok()
+        value = m.read_json(self.output / 'fixed-source-provenance.json')
+        value['tool_sha'] = 'e' * 40
+        (self.output / 'fixed-source-provenance.json').write_text(json.dumps(value))
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('tool/layout identity', self.terminal('run')['primary_failure']['error'])
+
+    def test_observation_preparation_cannot_be_restored_as_production(self):
+        self.observation()
+        self.prepare_ok()
+        self.mode = m.MODE
+        self.env.update(OASIS7_CODEQL_PRODUCTION_MODE=m.MODE, GITHUB_SHA=self.source_sha)
+        value = m.read_json(self.output / 'production-budget.json')
+        value['mode'] = m.MODE
+        (self.output / 'production-budget.json').write_text(json.dumps(value))
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('preparation identity', self.terminal('run')['primary_failure']['error'])
+
+    def test_default_production_keeps_current_event_sha_binding(self):
+        self.env['GITHUB_SHA'] = 'd' * 40
+        self.assertEqual(self.invoke('prepare'), 1)
+        self.assertIn('trusted main', self.terminal('prepare')['primary_failure']['error'])
+        self.assertEqual(self.calls, [])
+
+    def test_production_preparation_cannot_be_restored_as_observation(self):
+        self.prepare_ok()
+        self.observation()
+        (self.output / 'production-budget.json').write_text(json.dumps(self.budget_receipt))
+        with patch.dict(os.environ, self.env):
+            provenance = m.action_deadline.fixed_source_identity(self.source_sha)
+        (self.output / 'fixed-source-provenance.json').write_text(json.dumps(provenance))
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('preparation identity', self.terminal('run')['primary_failure']['error'])
 
     def test_unset_action_temp_uses_official_runner_temp_default(self):
         (self.action / 'config').rename(self.runner / 'config')
@@ -472,6 +567,8 @@ class Production(unittest.TestCase):
         self.assertEqual(len(batch), 1)
         self.assertIn('--no-use-precompiled', batch[0])
         self.assertEqual(sum(item.endswith('.ql') for item in batch[0]), 37)
+        self.assertEqual([name for name, options in self.call_options if options.get('resource_details')],
+                         ['default-query-batch'])
         self.assertEqual(len(m.read_json(self.output / 'default-results.json')), 37)
 
     def test_failed_extraction_never_starts_queries_but_keeps_failure_and_coverage(self):

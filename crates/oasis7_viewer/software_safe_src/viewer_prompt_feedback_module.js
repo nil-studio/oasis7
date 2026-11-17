@@ -165,10 +165,52 @@ export function createViewerPromptFeedbackModule({ feedbackBadgeClass, isLocaleZ
     return description;
   }
 
+  function describePromptVersionState(state, feedback = state?.lastPromptFeedback, locale = state?.uiLocale) {
+    const currentVersion = Math.max(0, Math.floor(Number(state?.promptDraft?.currentVersion || 0)));
+    const nextRollbackTargetVersion = Math.max(
+      0,
+      Math.floor(Number(state?.promptDraft?.rollbackTargetVersion || 0)),
+    );
+    const responseVersion = Number(feedback?.response?.version);
+    const ackVersion = Number.isFinite(responseVersion) ? Math.max(0, Math.floor(responseVersion)) : currentVersion;
+    const responseRollbackVersion = Number(feedback?.response?.rolled_back_to_version);
+    const restoredFromVersion =
+      feedback?.stage === "rollback_ack" && Number.isFinite(responseRollbackVersion)
+        ? Math.max(0, Math.floor(responseRollbackVersion))
+        : null;
+    const summary = restoredFromVersion == null
+      ? (isLocaleZh(locale)
+          ? `当前生效 prompt 版本是 ${formatPromptVersionLabel(currentVersion)}。`
+          : `Active prompt version is ${formatPromptVersionLabel(currentVersion)}.`)
+      : (isLocaleZh(locale)
+          ? `当前生效 prompt 版本是 ${formatPromptVersionLabel(currentVersion)}；内容恢复自 ${formatPromptVersionLabel(restoredFromVersion)}。`
+          : `Active prompt version is ${formatPromptVersionLabel(currentVersion)}; content was restored from ${formatPromptVersionLabel(restoredFromVersion)}.`);
+    const detail = restoredFromVersion == null
+      ? (isLocaleZh(locale)
+          ? `回滚输入框默认指向下一次目标 ${formatPromptVersionLabel(nextRollbackTargetVersion)}。`
+          : `The rollback input defaults to the next target ${formatPromptVersionLabel(nextRollbackTargetVersion)}.`)
+      : (isLocaleZh(locale)
+          ? `这次回滚生成了新的保存版本 ${formatPromptVersionLabel(ackVersion)}。下面输入框现在指向下一次目标 ${formatPromptVersionLabel(nextRollbackTargetVersion)}，不是刚恢复的版本。`
+          : `The rollback created a new saved version ${formatPromptVersionLabel(ackVersion)}. The input below now points to the next target ${formatPromptVersionLabel(nextRollbackTargetVersion)}, not the restored version.`);
+    return {
+      currentVersion,
+      nextRollbackTargetVersion,
+      ackVersion,
+      restoredFromVersion,
+      summary,
+      detail,
+    };
+  }
+
   return {
     describePromptResult,
+    describePromptVersionState,
     promptResultStatus,
     redactPromptControlResponse,
     semanticPromptFeedbackCode,
   };
+}
+
+export function formatPromptVersionLabel(value) {
+  return `v${Math.max(0, Math.floor(Number(value || 0)))}`;
 }
