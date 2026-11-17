@@ -4,16 +4,22 @@ use super::super::incremental_genesis::{
     ProvisionalProjectedRuntimeGenesisIndexV1, RuntimeGenesisPhysicalErrorV1,
 };
 use super::{IwsGenesisTransferErrorV1 as Error, IwsGenesisTransferWorkV1};
-use oasis7::world_service::formal_result::PaidFormalBusinessErrorV1;
+use oasis7::world_service::formal_result::{
+    PaidFormalBusinessDescriptorV1, PaidFormalBusinessErrorV1,
+};
 use oasis7_distfs::incremental_page_store::{
     IncrementalPageStore, PageStoreError,
     objects::{IncrementalObjectStore, ObjectIo},
 };
-use oasis7_formal_protocol::controlled_authority::formal::{
-    FormalError, bounded_context::FormalBoundedContextV1,
-    business_index::PaidBusinessIndexNodeReaderV1,
+use oasis7_formal_protocol::{
+    controlled_authority::formal::{
+        FormalError,
+        bounded_context::FormalBoundedContextV1,
+        business_index::{PaidBusinessIndexDeltaV1, PaidBusinessIndexNodeReaderV1},
+    },
+    incremental_artifacts::OriginalArtifactRefV1,
 };
-use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
+use oasis7_proto::memory_budget::{MemoryClass, MemoryReservation, ReservedValue};
 use oasis7_runtime::BodyMutationError;
 use std::{
     mem::size_of,
@@ -21,6 +27,61 @@ use std::{
 };
 
 type Result<T> = std::result::Result<T, Error>;
+
+/// The exact projected owner and its completed original business DATA. Only
+/// this module's successful fanout can construct the pairing; it is not an
+/// accepted source, namespace lease, output locator or publication permit.
+pub(crate) struct ProvisionalProjectedGenesisBusinessV1 {
+    projected: ProvisionalProjectedRuntimeGenesisIndexV1,
+    descriptor: PaidFormalBusinessDescriptorV1,
+    delta: PaidBusinessIndexDeltaV1,
+    descriptor_wire: ReservedValue<Vec<u8>>,
+    delta_wire: ReservedValue<Vec<u8>>,
+    descriptor_ref: OriginalArtifactRefV1,
+    delta_ref: OriginalArtifactRefV1,
+    allocation: MemoryReservation,
+}
+
+impl ProvisionalProjectedGenesisBusinessV1 {
+    pub(crate) fn projected(&self) -> &ProvisionalProjectedRuntimeGenesisIndexV1 {
+        &self.projected
+    }
+
+    pub(crate) fn descriptor(&self) -> &PaidFormalBusinessDescriptorV1 {
+        &self.descriptor
+    }
+
+    pub(crate) fn delta(&self) -> &PaidBusinessIndexDeltaV1 {
+        &self.delta
+    }
+
+    pub(crate) fn descriptor_original(&self) -> (OriginalArtifactRefV1, &ReservedValue<Vec<u8>>) {
+        (self.descriptor_ref, &self.descriptor_wire)
+    }
+
+    pub(crate) fn delta_original(&self) -> (OriginalArtifactRefV1, &ReservedValue<Vec<u8>>) {
+        (self.delta_ref, &self.delta_wire)
+    }
+
+    pub(crate) fn validate_context(&self, common: &mut FormalBoundedContextV1<'_>) -> Result<()> {
+        self.projected
+            .projected()
+            .validate_context_bounded_v1(common)
+            .map_err(Error::Body)?;
+        self.descriptor
+            .validate_context(common)
+            .map_err(context_error)?;
+        self.delta.validate_context(common).map_err(context_error)?;
+        common.consume_steps(1).map_err(context_error)?;
+        if !self.allocation.uses_budget(common.memory())
+            || !self.descriptor_wire.uses_budget(common.memory())
+            || !self.delta_wire.uses_budget(common.memory())
+        {
+            return Err(PageStoreError::Corrupt("GEN business retained originals pool").into());
+        }
+        Ok(())
+    }
+}
 
 fn context_error(error: FormalError) -> Error {
     Error::Body(BodyMutationError::Original(Box::new(error)))
@@ -149,7 +210,7 @@ fn write_original(
     work: &mut IwsGenesisTransferWorkV1,
     common: &mut FormalBoundedContextV1<'_>,
     stop: &AtomicBool,
-) -> Result<()> {
+) -> Result<OriginalArtifactRefV1> {
     cancelled(stop)?;
     common.consume_steps(1).map_err(context_error)?;
     if bytes.len() > work.max_original_bytes {
@@ -188,7 +249,11 @@ fn write_original(
         }
     }
     cancelled(stop)?;
-    common.consume_steps(1).map_err(context_error)
+    common.consume_steps(1).map_err(context_error)?;
+    Ok(OriginalArtifactRefV1 {
+        id,
+        byte_len: bytes.len() as u64,
+    })
 }
 
 fn open_store<'pages>(
@@ -228,7 +293,8 @@ fn open_store<'pages>(
 
 /// Consume the genuine producer output while its business source borrows it.
 /// Every error drops that provisional output. Only successful fanout returns
-/// the same owner; it still grants no Ready/Accepted or durable closure proof.
+/// the same owner together with its original paid business graph and wires;
+/// it still grants no Ready/Accepted or durable closure proof.
 /// As with the original GEN fanout, each target pays for its actual local copy
 /// from its own PageStore pool. The projection keeps the original source pool.
 pub(crate) fn persist_projected_genesis_business_v1(
@@ -238,12 +304,18 @@ pub(crate) fn persist_projected_genesis_business_v1(
     work: &mut IwsGenesisTransferWorkV1,
     common: &mut FormalBoundedContextV1<'_>,
     stop: &AtomicBool,
-) -> Result<ProvisionalProjectedRuntimeGenesisIndexV1> {
+) -> Result<ProvisionalProjectedGenesisBusinessV1> {
     cancelled(stop)?;
     if !common.memory().same_pool(source.memory_budget()) {
         return Err(PageStoreError::Corrupt("GEN business source pool").into());
     }
-    {
+    let bytes = size_of::<ProvisionalProjectedGenesisBusinessV1>();
+    common.charge(1, bytes as u64).map_err(context_error)?;
+    let allocation = common
+        .memory()
+        .reserve(bytes, MemoryClass::Ordinary)
+        .map_err(PageStoreError::Memory)?;
+    let (descriptor, delta, descriptor_wire, delta_wire, descriptor_ref, delta_ref) = {
         let business = projected
             .prepare_business_output_bounded_v1(&NoPriorNodes, common, &mut work.canonical)
             .map_err(Error::Genesis)?;
@@ -258,8 +330,8 @@ pub(crate) fn persist_projected_genesis_business_v1(
             open_store(targets[0], 1, work, common, stop)?,
             open_store(targets[1], 2, work, common, stop)?,
         ];
-        write_original(&objects, &descriptor, None, work, common, stop)?;
-        write_original(&objects, &delta, None, work, common, stop)?;
+        let descriptor_ref = write_original(&objects, &descriptor, None, work, common, stop)?;
+        let delta_ref = write_original(&objects, &delta, None, work, common, stop)?;
         for node in &business.delta().node_writes {
             common
                 .charge(1, node.digest.len() as u64)
@@ -269,9 +341,30 @@ pub(crate) fn persist_projected_genesis_business_v1(
                 .map_err(|_| PageStoreError::Corrupt("GEN business node ID"))?;
             write_original(&objects, &node.bytes, Some(expected), work, common, stop)?;
         }
-        business.validate_context(common).map_err(business_error)?;
-    }
+        // Consume the same update at the original final source-check boundary.
+        // This ends its borrow of projected without releasing either graph.
+        let (owned_descriptor, owned_delta) = business
+            .into_owned_data_bounded_v1(common)
+            .map_err(business_error)?;
+        (
+            owned_descriptor,
+            owned_delta,
+            descriptor,
+            delta,
+            descriptor_ref,
+            delta_ref,
+        )
+    };
     cancelled(stop)?;
     common.consume_steps(1).map_err(context_error)?;
-    Ok(projected)
+    Ok(ProvisionalProjectedGenesisBusinessV1 {
+        projected,
+        descriptor,
+        delta,
+        descriptor_wire,
+        delta_wire,
+        descriptor_ref,
+        delta_ref,
+        allocation,
+    })
 }

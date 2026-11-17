@@ -63,6 +63,27 @@ impl PaidGenesisFormalBusinessResultUpdateV1<'_> {
         self.validate_context(common)?;
         record_matches(&self.tree, record, common)
     }
+
+    /// End the actual GEN source borrow without copying its completed business
+    /// graph. Both original phases remain owned; these outputs are only DATA.
+    pub fn into_owned_data_bounded_v1(
+        self,
+        common: &mut FormalBoundedContextV1<'_>,
+    ) -> Result<(PaidFormalBusinessDescriptorV1, PaidBusinessIndexDeltaV1), PaidFormalBusinessErrorV1>
+    {
+        self.validate_context(common)?;
+        let Self {
+            source,
+            tree,
+            delta,
+            core,
+            phase,
+        } = self;
+        // Only the temporary source's after string and its own fee end here.
+        // The descriptor aliases and complete delta already own their graphs.
+        drop(source);
+        Ok((PaidFormalBusinessDescriptorV1 { tree, core, phase }, delta))
+    }
 }
 struct GenesisFacts<'a, 'b, 'c, 'd> {
     state: &'a RefCell<BuildState<'b, 'c>>,

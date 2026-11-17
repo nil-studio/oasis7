@@ -104,8 +104,9 @@ pub(crate) fn prepare_iws_genesis_for_endpoints_v1(
 }
 
 /// The same physical GEN fanout plus actual business descriptor/delta/node
-/// originals in all three namespaces. Returned projection data is provisional;
-/// acceptance, output locator assembly and cache promotion keep their own gates.
+/// originals in all three namespaces. Retain their original paid graph/wires
+/// with the exact projected owner. Acceptance, output locator assembly and
+/// cache promotion keep their own gates.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn prepare_projected_iws_genesis_for_endpoints_v1(
     world: &World,
@@ -118,7 +119,7 @@ pub(crate) fn prepare_projected_iws_genesis_for_endpoints_v1(
     work: &mut IwsGenesisTransferWorkV1,
     retention_work: &mut oasis7_world_state::incremental_cognition_retention_ledger::CognitionRetentionWorkV1<'_>,
     common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
-) -> Result<ProvisionalProjectedRuntimeGenesisIndexV1, IwsGenesisTransferErrorV1> {
+) -> Result<business_originals::ProvisionalProjectedGenesisBusinessV1, IwsGenesisTransferErrorV1> {
     match prepare_iws_genesis_for_endpoints_inner_v1(
         world,
         source,

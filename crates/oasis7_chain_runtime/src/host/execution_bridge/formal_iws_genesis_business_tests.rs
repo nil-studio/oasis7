@@ -9,7 +9,7 @@ use oasis7_distfs::{
 };
 use oasis7_formal_protocol::controlled_authority::formal::{
     FormalError,
-    bounded_context::{FormalBoundedContextV1, WorkIdentityV1},
+    bounded_context::{FormalBoundedContextV1, FormalBoundedWorkV1, WorkIdentityV1},
     business_index::{
         BUSINESS_INDEX_MAX_LEAF_BYTES, PaidBusinessIndexNodeReaderV1,
         canonical_business_index_root_bounded_v1, decode_business_index_delta_bounded_v1,
@@ -311,7 +311,8 @@ fn real_projected_genesis_business_output_roundtrips_both_independent_endpoints(
         steps_remaining: 1_000_000,
         bytes_remaining: 64 << 20,
     };
-    let projected = prepare_projected_iws_genesis_for_endpoints_v1(
+    let live_before_owner = memory.used();
+    let material = prepare_projected_iws_genesis_for_endpoints_v1(
         &world,
         &stores[0],
         [&stores[1], &stores[2]],
@@ -335,14 +336,19 @@ fn real_projected_genesis_business_output_roundtrips_both_independent_endpoints(
         &mut common,
     )
     .unwrap();
+    // The producer's borrowed update has ended. Its exact projected source,
+    // typed graph, encoded originals and all their original fees moved here.
+    material.validate_context(&mut common).unwrap();
+    let projected = material.projected();
     assert_eq!(projected.roots().height, 0);
     common.charge(32, 1024).unwrap();
     let roots_digest = projected.roots().digest().unwrap();
     assert_eq!(projected.retention_manifest().roots, roots_digest);
-    let business = projected
-        .prepare_business_output_bounded_v1(&NoPriorNodes, &mut common, &mut transfer.canonical)
-        .unwrap();
-    assert_eq!(business.actual_source().world_result_count(), 0);
+    let source = projected.business_source_bounded_v1(&mut common).unwrap();
+    assert_eq!(source.world_result_count(), 0);
+    drop(source);
+    let business = material.descriptor();
+    let business_delta = material.delta().delta();
     assert_eq!(business.tree().index_root().leaf_count, 1);
     let metadata = business.tree().metadata();
     assert_eq!(metadata.world_id, cfg.world_id);
@@ -358,20 +364,23 @@ fn real_projected_genesis_business_output_roundtrips_both_independent_endpoints(
     assert_eq!(side.as_slice(), expected_side.as_slice());
 
     let result_root = business.root_bounded(&mut common).unwrap();
-    let descriptor = business.descriptor_cbor_bounded(&mut common).unwrap();
-    let delta = business.delta_cbor_bounded(&mut common).unwrap();
-    let descriptor_id = digest(&descriptor, &mut common);
-    let delta_id = digest(&delta, &mut common);
-    assert_eq!(business.delta().new_root.as_str(), result_root.as_str());
-    assert!(!business.delta().node_writes.is_empty());
-    for node in &business.delta().node_writes {
+    let (descriptor_ref, descriptor) = material.descriptor_original();
+    let (delta_ref, delta) = material.delta_original();
+    let descriptor_id = digest(descriptor, &mut common);
+    let delta_id = digest(delta, &mut common);
+    assert_eq!(descriptor_ref.id, descriptor_id);
+    assert_eq!(descriptor_ref.byte_len, descriptor.len() as u64);
+    assert_eq!(delta_ref.id, delta_id);
+    assert_eq!(delta_ref.byte_len, delta.len() as u64);
+    assert_eq!(business_delta.new_root.as_str(), result_root.as_str());
+    assert!(!business_delta.node_writes.is_empty());
+    for node in &business_delta.node_writes {
         let actual = digest(&node.bytes, &mut common);
         assert_eq!(hex::encode(actual), node.digest);
     }
     let originals = || {
         [descriptor.as_slice(), delta.as_slice()].into_iter().chain(
-            business
-                .delta()
+            business_delta
                 .node_writes
                 .iter()
                 .map(|node| node.bytes.as_slice()),
@@ -471,6 +480,124 @@ fn real_projected_genesis_business_output_roundtrips_both_independent_endpoints(
     assert!(!common.work().is_child_active());
     assert!(archive.remaining_steps() < STEPS);
     assert!(archive.remaining_read_bytes() < BYTES);
+    assert_owned_genesis_business_data(&material, &mut common, &mut transfer.canonical);
+    drop(empty_root);
+    drop(empty);
+    drop(result_root);
+    drop(side);
+    assert!(memory.used() > live_before_owner);
+    drop(material);
+    assert_eq!(memory.used(), live_before_owner);
+}
+
+// Exercise the consuming public boundary using this same genuine GEN source
+// and continuing Common. No fixture, physical read or producer allowance is
+// recreated; only refusal contexts use a foreign Core/pool.
+fn assert_owned_genesis_business_data(
+    material: &business_originals::ProvisionalProjectedGenesisBusinessV1,
+    common: &mut FormalBoundedContextV1<'_>,
+    canonical: &mut CanonicalCborWorkV1,
+) {
+    let memory = common.memory().clone();
+    let before = memory.used();
+    let business = material
+        .projected()
+        .prepare_business_output_bounded_v1(&NoPriorNodes, common, canonical)
+        .unwrap();
+    let descriptor_allocation = business.tree().metadata().world_id.as_ptr();
+    let nodes_allocation = business.delta().node_writes.as_ptr();
+    let first_node_allocation = business.delta().node_writes[0].bytes.as_ptr();
+    let before_move = memory.used();
+    let (descriptor, delta) = business.into_owned_data_bounded_v1(common).unwrap();
+    assert_eq!(
+        descriptor.tree().metadata().world_id.as_ptr(),
+        descriptor_allocation
+    );
+    assert_eq!(delta.delta().node_writes.as_ptr(), nodes_allocation);
+    assert_eq!(
+        delta.delta().node_writes[0].bytes.as_ptr(),
+        first_node_allocation
+    );
+    assert_eq!(descriptor.tree().index_root(), &delta.delta().new);
+    // The separately built original kernel output must still match the
+    // producer's retained result, not only its own encoded roundtrip.
+    common
+        .charge(
+            2,
+            (material.descriptor_original().1.len() + material.delta_original().1.len()) as u64,
+        )
+        .unwrap();
+    assert_eq!(descriptor.tree(), material.descriptor().tree());
+    assert_eq!(delta.delta(), material.delta().delta());
+    descriptor.validate_context(common).unwrap();
+    delta.validate_context(common).unwrap();
+    assert!(memory.used() < before_move);
+    assert!(memory.used() > before);
+
+    // The descriptor may end first. The last live delta retains its entire
+    // actual node graph and original phase independently of the source fee.
+    drop(descriptor);
+    assert_eq!(memory.used(), before + delta.reserved_bytes());
+    let node = &delta.delta().node_writes[0];
+    assert_eq!(hex::encode(digest(&node.bytes, common)), node.digest);
+    drop(delta);
+    assert_eq!(memory.used(), before);
+
+    let original = common.work();
+    let foreign =
+        FormalBoundedWorkV1::new(original.remaining_steps(), original.remaining_read_bytes())
+            .unwrap();
+    let foreign_memory = MemoryBudget::new(512 << 20, 32 << 20).unwrap();
+    for (foreign_core, foreign_pool, cancelled) in [
+        (true, false, false),
+        (false, true, false),
+        (false, false, true),
+    ] {
+        let before = memory.used();
+        let business = material
+            .projected()
+            .prepare_business_output_bounded_v1(&NoPriorNodes, common, canonical)
+            .unwrap();
+        let core = if foreign_core { &foreign } else { original };
+        let pool = if foreign_pool {
+            &foreign_memory
+        } else {
+            &memory
+        };
+        let mut stop = || cancelled;
+        let mut refused = FormalBoundedContextV1::new(pool, core, &mut stop);
+        assert!(material.validate_context(&mut refused).is_err());
+        let before_steps = original.remaining_steps();
+        let before_bytes = original.remaining_read_bytes();
+        let error = match business.into_owned_data_bounded_v1(&mut refused) {
+            Err(error) => error,
+            Ok(_) => panic!("foreign or cancelled GEN source returned owned DATA"),
+        };
+        if cancelled {
+            assert!(
+                matches!(error.body_error(), Some(BodyMutationError::Original(cause))
+                if cause.to_string().contains("bounded archive read cancelled"))
+            );
+        } else {
+            assert!(matches!(
+                error.body_error(),
+                Some(BodyMutationError::Invalid(
+                    "actual normal business commitment source"
+                ))
+            ));
+        }
+        if foreign_core || cancelled {
+            assert_eq!(original.remaining_steps(), before_steps);
+        } else {
+            assert!(original.remaining_steps() < before_steps);
+        }
+        assert_eq!(original.remaining_read_bytes(), before_bytes);
+        drop(error);
+        assert_eq!(memory.used(), before);
+        assert_eq!(foreign_memory.used(), 0);
+        assert!(!original.is_child_active());
+    }
+    material.validate_context(common).unwrap();
 }
 
 fn remaining_object_work(work: &IwsGenesisTransferWorkV1) -> [[u64; 7]; 3] {

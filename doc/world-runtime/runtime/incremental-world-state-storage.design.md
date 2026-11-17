@@ -1646,6 +1646,8 @@ GEN 与 authenticated cold 的投影缓存初始化必须重新计算完整原�
 
 生产端必须向两个真实命名空间写入并读回这些原件和新节点。冷读取从当前 CommitBody 的直接引用定位，核对定位原件的 CommitBody、内容哈希及长度，然后沿原 descriptor、metadata leaf 和 delta 验证核验证正式 record/result_root 与真实前驱；图 references 本身不授予信任。不能尝试任意 CBOR 对象并吞掉预算或取消错误，也不能只保留进程内业务描述而冒持久化完成。
 
+GEN 业务原件写入后，固定生产器可在最后一次完整来源校验成功时消费借用的业务 update，将原 descriptor、完整 delta 与新节点及其 reservation 原样移交给自持 DATA。该 DATA 与同次实际 projected GEN owner、已编码的原件字节和真实写入引用一起保留；组合器不接受外部替换这些成员。借用 wrapper 结束时只释放其自身临时数据费用，所有仍存活的 typed/wire 图与组合器元数据继续由原 Common/pool 付费。此移动不重建账户、不重新编码业务图，也不生成 Header、Ready 或 Accepted 资格；后续 locator、独立命名空间冷读和正式接受仍沿各自真实来源与验证门执行。
+
 
 #### 正式输出的只读来源稳定性
 
