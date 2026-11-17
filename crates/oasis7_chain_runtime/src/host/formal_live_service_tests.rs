@@ -796,3 +796,195 @@ fn fixed_formal_lookup_selects_exact_publication_and_rejects_identity_or_signatu
 
 #[path = "formal_live_read_error_tests.rs"]
 mod read_error_tests;
+
+#[test]
+fn poisoned_error_state_blocks_signed_http_admission_until_explicit_repair() {
+    fn exchange<T: DeserializeOwned + Serialize>(
+        address: std::net::SocketAddr,
+        path: &str,
+        body: Option<&[u8]>,
+        status: u16,
+        digest: &str,
+        signer: &SigningKey,
+    ) -> T {
+        let mut stream = TcpStream::connect(address).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let method = if body.is_some() { "POST" } else { "GET" };
+        let body = body.unwrap_or_default();
+        write!(
+            stream,
+            "{method} {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n",
+            body.len()
+        )
+        .unwrap();
+        stream.write_all(body).unwrap();
+        let mut bytes = Vec::new();
+        stream.read_to_end(&mut bytes).unwrap();
+        let split = bytes
+            .windows(4)
+            .position(|part| part == b"\r\n\r\n")
+            .unwrap()
+            + 4;
+        let headers = std::str::from_utf8(&bytes[..split]).unwrap();
+        assert_eq!(
+            headers.split_whitespace().nth(1),
+            Some(status.to_string().as_str())
+        );
+        let response: SignedServiceResponse<T> = serde_json::from_slice(&bytes[split..]).unwrap();
+        verify_service_response(
+            path,
+            digest,
+            &response,
+            &hex::encode(signer.verifying_key().to_bytes()),
+        )
+        .unwrap();
+        response.payload
+    }
+
+    let (base_world, trust, anchor) = fixture_trust();
+    let (world, owner) = world_with_owner();
+    let node = live_node(&anchor.head().record().world.world_id);
+    // Match the existing admission-only fixture. This does not establish a
+    // production World/anchor or claim a durable business commit.
+    let published = Arc::new(PublishedReadState {
+        current: Mutex::new(Some(PublishedReadCut {
+            world: world.clone(),
+            anchor: anchor.clone(),
+        })),
+        ..PublishedReadState::default()
+    });
+    let resolver = Arc::new(CurrentOnlyResolver::new(base_world, anchor.clone()));
+    let (service, state, signer) = live_service(
+        world.clone(),
+        anchor,
+        trust,
+        resolver,
+        node.clone(),
+        published.clone(),
+    );
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    drop(listener);
+    let mut server = Arc::new(service).serve_loopback(address).unwrap();
+    let status_digest = authority::request_digest(CHAIN_STATUS_PATH, &()).unwrap();
+    let before: FormalLiveStatusV1 = exchange(
+        address,
+        CHAIN_STATUS_PATH,
+        None,
+        200,
+        &status_digest,
+        &signer,
+    );
+    assert!(before.ready && before.can_propose && before.node_running);
+
+    let errors = state.last_error.clone();
+    assert!(
+        thread::spawn(move || {
+            let _guard = errors.lock().unwrap();
+            panic!("simulate panic while updating runtime error state");
+        })
+        .join()
+        .is_err()
+    );
+    assert!(state.last_error.is_poisoned());
+    let blocked: FormalLiveStatusV1 = exchange(
+        address,
+        CHAIN_STATUS_PATH,
+        None,
+        200,
+        &status_digest,
+        &signer,
+    );
+    assert!(!blocked.ready && !blocked.can_propose);
+    assert!(blocked.node_running);
+    assert_eq!(blocked.state, "degraded");
+    assert_eq!(
+        blocked.last_error.as_deref(),
+        Some("formal error state lock poisoned")
+    );
+    assert_eq!(blocked.committed_record_id, before.committed_record_id);
+    assert_eq!(blocked.committed_position, before.committed_position);
+    let health: FormalHealthV1 = exchange(
+        address,
+        SERVICE_READINESS_PATH,
+        None,
+        200,
+        &authority::request_digest(SERVICE_READINESS_PATH, &()).unwrap(),
+        &signer,
+    );
+    assert!(!health.ready);
+    let request = valid_submit(&owner);
+    let request_digest = authority::request_digest(SUBMIT_PATH, &request).unwrap();
+    let body = serde_json::to_vec(&request).unwrap();
+    let rejected: FormalServiceErrorV1 = exchange(
+        address,
+        SUBMIT_PATH,
+        Some(&body),
+        503,
+        &request_digest,
+        &signer,
+    );
+    assert_eq!(rejected.code, "not_ready");
+    assert_eq!(
+        node.lock()
+            .unwrap()
+            .snapshot()
+            .consensus
+            .pending_consensus_actions
+            .submit_buffer_action_count,
+        0
+    );
+    assert_eq!(
+        published.current().unwrap().world.snapshot(),
+        world.snapshot()
+    );
+    assert!(
+        state.last_error.is_poisoned(),
+        "observation cannot silently repair the state"
+    );
+
+    // Test-only explicit repair of a known empty diagnostic. No production
+    // path clears poisoning or infers that protected/P-R recovery succeeded.
+    *state.last_error.lock().unwrap_err().into_inner() = None;
+    state.last_error.clear_poison();
+    let repaired: FormalLiveStatusV1 = exchange(
+        address,
+        CHAIN_STATUS_PATH,
+        None,
+        200,
+        &status_digest,
+        &signer,
+    );
+    assert!(repaired.ready && repaired.can_propose);
+    let accepted: IntentResponse<serde_json::Value> = exchange(
+        address,
+        SUBMIT_PATH,
+        Some(&body),
+        200,
+        &request_digest,
+        &signer,
+    );
+    assert!(matches!(
+        accepted.outcome,
+        IntentOutcome::Received {
+            durability: AdmissionDurability::Volatile
+        }
+    ));
+    assert_eq!(
+        node.lock()
+            .unwrap()
+            .snapshot()
+            .consensus
+            .pending_consensus_actions
+            .submit_buffer_action_count,
+        1
+    );
+    assert_eq!(
+        published.current().unwrap().world.snapshot(),
+        world.snapshot()
+    );
+    server.stop().unwrap();
+    stop_test_node(&node);
+}
