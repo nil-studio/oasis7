@@ -31,13 +31,13 @@ fn connect_oracle(address: &SocketAddr, timeout: Duration) -> Result<TcpStream, 
     Ok(stream)
 }
 
+#[path = "fencing_remote_durable_set.rs"]
+mod durable_set_client;
 #[path = "fencing_remote_lease_failure.rs"]
 mod lease_failure;
 #[cfg(test)]
 #[path = "fencing_remote_lease_failure_tests.rs"]
 mod lease_failure_tests;
-#[path = "fencing_remote_durable_set.rs"]
-mod durable_set_client;
 #[path = "fencing_remote_protected.rs"]
 mod protected_client;
 #[derive(Debug, Clone, Serialize, Deserialize)]
