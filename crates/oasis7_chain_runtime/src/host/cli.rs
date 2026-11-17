@@ -114,6 +114,9 @@ pub(super) struct CliOptions {
     /// One-time receiver floor bootstrap action; deliberately not persisted in runtime config.
     pub initialize_peer_record_receiver: bool,
     pub upgrade_peer_record_receiver: bool,
+    pub prune_peer_record_receiver: bool,
+    pub peer_record_trusted_time_unix_ms: Option<i64>,
+    pub peer_record_retained_peers: Vec<String>,
     /// One-startup durable publisher action; deliberately not persisted in runtime config.
     pub withdraw_peer_record_publication: bool,
     pub resume_peer_record_publication: bool,
@@ -263,6 +266,20 @@ pub(super) fn parse_options<'a>(args: impl Iterator<Item = &'a str>) -> Result<C
             }
             "--upgrade-peer-record-receiver" => {
                 options.upgrade_peer_record_receiver = true;
+            }
+            "--prune-peer-record-receiver" => {
+                options.prune_peer_record_receiver = true;
+            }
+            "--peer-record-trusted-time-unix-ms" => {
+                let raw = parse_required_value(&mut iter, "--peer-record-trusted-time-unix-ms")?;
+                let value = raw.parse::<i64>().map_err(|error| {
+                    format!("invalid --peer-record-trusted-time-unix-ms value '{raw}': {error}")
+                })?;
+                options.peer_record_trusted_time_unix_ms = Some(value);
+            }
+            "--peer-record-retained-peer" => {
+                let raw = parse_required_value(&mut iter, "--peer-record-retained-peer")?;
+                options.peer_record_retained_peers.push(raw.to_string());
             }
             "--initialize-peer-record-receiver" => {
                 options.initialize_peer_record_receiver = true;
@@ -666,6 +683,7 @@ pub(super) fn parse_options<'a>(args: impl Iterator<Item = &'a str>) -> Result<C
             && options.network_tier_manifest_path.is_none())
     {
         let has_one_shot_peer_record_action = options.upgrade_peer_record_receiver
+            || options.prune_peer_record_receiver
             || options.initialize_peer_record_publication
             || options.initialize_peer_record_receiver
             || options.withdraw_peer_record_publication

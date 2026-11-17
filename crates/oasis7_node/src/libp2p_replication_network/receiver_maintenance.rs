@@ -29,4 +29,22 @@ impl Libp2pReplicationNetwork {
             ..Libp2pNetworkConfig::default()
         })
     }
+
+    /// Explicitly prune expired floors from the existing receiver ledger without networking.
+    pub fn prune_peer_record_receiver(
+        config: &Libp2pReplicationNetworkConfig,
+        trusted_now_ms: i64,
+        retained_peers: &std::collections::BTreeSet<String>,
+    ) -> Result<usize, WorldError> {
+        Libp2pNetwork::prune_peer_record_receiver(
+            &Libp2pNetworkConfig {
+                keypair: config.keypair.clone(),
+                peer_record: config.peer_record.clone(),
+                peer_record_receiver: config.peer_record_receiver.clone(),
+                ..Libp2pNetworkConfig::default()
+            },
+            trusted_now_ms,
+            retained_peers,
+        )
+    }
 }

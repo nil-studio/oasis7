@@ -20,6 +20,7 @@ pub(super) fn validate_options(options: &CliOptions) -> Result<(), String> {
         }
         if options.initialize_peer_record_publication
             || options.initialize_peer_record_receiver
+            || options.prune_peer_record_receiver
             || options.withdraw_peer_record_publication
             || options.resume_peer_record_publication
         {
@@ -27,6 +28,42 @@ pub(super) fn validate_options(options: &CliOptions) -> Result<(), String> {
                 "--upgrade-peer-record-receiver cannot be combined with other peer-record actions"
                     .into(),
             );
+        }
+    }
+    if options.prune_peer_record_receiver {
+        if options.p2p_peer_record_reception
+            == DevelopmentPeerRecordReceptionModeV1::LegacyCompatible
+        {
+            return Err(
+                "--prune-peer-record-receiver requires --p2p-peer-record-reception v2_durable_compatible or v2_only"
+                    .into(),
+            );
+        }
+        if options.formal_live_config.is_some() || options.guarded_initial_config.is_some() {
+            return Err(
+                "--prune-peer-record-receiver applies only to the development host runtime"
+                    .into(),
+            );
+        }
+        if options.initialize_peer_record_publication
+            || options.initialize_peer_record_receiver
+            || options.upgrade_peer_record_receiver
+            || options.withdraw_peer_record_publication
+            || options.resume_peer_record_publication
+        {
+            return Err(
+                "--prune-peer-record-receiver cannot be combined with other peer-record actions"
+                    .into(),
+            );
+        }
+        match options.peer_record_trusted_time_unix_ms {
+            Some(time) if time > 0 => {}
+            _ => {
+                return Err(
+                    "--prune-peer-record-receiver requires --peer-record-trusted-time-unix-ms with a positive timestamp"
+                        .into(),
+                );
+            }
         }
     }
     let has_publication_transition =
@@ -74,6 +111,7 @@ pub(super) fn validate_options(options: &CliOptions) -> Result<(), String> {
         && options.p2p_peer_record_publication == DevelopmentPeerRecordPublicationModeV1::V1Legacy
         && !options.initialize_peer_record_receiver
         && !options.upgrade_peer_record_receiver
+        && !options.prune_peer_record_receiver
     {
         return Err(
             "V2-only peer-record reception requires durable V2 peer-record publication for normal host startup"

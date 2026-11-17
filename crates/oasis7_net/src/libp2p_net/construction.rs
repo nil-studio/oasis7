@@ -1151,6 +1151,7 @@ impl Libp2pNetwork {
             reachability,
             traffic_metrics,
             wire_byte_counters,
+            peer_record_receiver,
             _shutdown_guard: Arc::new(drop_support::ShutdownGuard::new(command_tx)),
         })
     }

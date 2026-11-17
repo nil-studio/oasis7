@@ -212,6 +212,7 @@ pub(super) fn open(
         _lock: lock,
         ledger,
         poisoned: false,
+        last_trusted_now_ms: None,
     })
 }
 

@@ -1,6 +1,7 @@
 #![cfg(all(test, unix))]
 
 use super::*;
+use crate::{Libp2pNetwork, Libp2pNetworkConfig};
 use libp2p::{PeerId, identity::Keypair};
 use oasis7_proto::distributed_dht::{
     PeerDeploymentMode, PeerNodeRole, PeerRecord, PeerRecordPublicationStateV2,
@@ -875,4 +876,345 @@ mod policy_upgrade {
             );
         }
     }
+}
+
+#[test]
+fn pruning_reclaims_expired_floors_and_allows_new_peers_at_capacity() {
+    let fixture = fixture();
+    let mut floors = BTreeMap::new();
+    let base_time: i64 = 1_000_000;
+    let old_keys: Vec<Keypair> = (0..20).map(|_| Keypair::generate_ed25519()).collect();
+
+    // 20 old floors that are expired and prunable
+    for (index, key) in old_keys.iter().enumerate() {
+        let mut record = record_body(key, &format!("prunable-peer-{index}"));
+        record.published_at_ms = base_time;
+        record.ttl_ms = 60_000;
+        let signed = super::super::peer_record::sign_peer_record_v2(
+            &record,
+            PeerRecordPublicationV2 {
+                schema_version: 2,
+                sequence: 1,
+                state: PeerRecordPublicationStateV2::Live,
+            },
+            key,
+        )
+        .expect("sign record");
+        let publication = signed.publication.as_ref().expect("publication");
+        let identity = record_identity(&signed, publication).expect("identity");
+        floors.insert(
+            record.peer_id.clone(),
+            PeerFloorV2 {
+                sequence: 1,
+                signing_payload_digest_hex: encode_digest(&identity),
+                primary_signed_record_cbor: canonical_record_bytes(&signed).expect("cbor"),
+                conflict_signed_record_cbor: None,
+                isolated: false,
+            },
+        );
+    }
+
+    // Remaining 1004 floors that are fresh (published at base_time + 10_000_000)
+    for index in 0..(MAX_RECEIVER_FLOORS - 20) {
+        let key = Keypair::generate_ed25519();
+        let mut record = record_body(&key, &format!("fresh-peer-{index}"));
+        record.published_at_ms = base_time + 10_000_000;
+        record.ttl_ms = 60_000;
+        let signed = super::super::peer_record::sign_peer_record_v2(
+            &record,
+            PeerRecordPublicationV2 {
+                schema_version: 2,
+                sequence: 1,
+                state: PeerRecordPublicationStateV2::Live,
+            },
+            &key,
+        )
+        .expect("sign record");
+        let publication = signed.publication.as_ref().expect("publication");
+        let identity = record_identity(&signed, publication).expect("identity");
+        floors.insert(
+            record.peer_id.clone(),
+            PeerFloorV2 {
+                sequence: 1,
+                signing_payload_digest_hex: encode_digest(&identity),
+                primary_signed_record_cbor: canonical_record_bytes(&signed).expect("cbor"),
+                conflict_signed_record_cbor: None,
+                isolated: false,
+            },
+        );
+    }
+    assert_eq!(floors.len(), MAX_RECEIVER_FLOORS);
+
+    let ledger = ReceiverLedgerV2 {
+        schema_version: RECEIVER_SCHEMA_VERSION,
+        binding: receiver_binding(&fixture.template, &fixture.local_key).expect("binding"),
+        mode: fixture.config.mode,
+        floors,
+    };
+    write_state(&fixture, &state_bytes(&ledger));
+    let receiver = open(&fixture);
+    assert_eq!(receiver.floor_count().unwrap(), MAX_RECEIVER_FLOORS);
+
+    // 1025th peer is rejected with capacity error
+    let untracked_key = Keypair::generate_ed25519();
+    let untracked = signed(&untracked_key, 1, "peer-1025");
+    let error = receiver
+        .admit_serialized(&untracked)
+        .expect_err("capacity exhausted must reject 1025th peer");
+    assert!(format!("{error:?}").contains("capacity"));
+
+    // Attempting to prune without sufficient time lower bound reclaims 0 floors
+    let too_early_now = base_time + 60_000;
+    let pruned = receiver
+        .prune_floors(too_early_now, &BTreeSet::new())
+        .expect("prune too early");
+    assert_eq!(pruned, 0, "must not prune before published_at_ms + MAX_TTL + MAX_FUTURE_SKEW");
+    assert_eq!(receiver.floor_count().unwrap(), MAX_RECEIVER_FLOORS);
+
+    // Prune with verified trusted time lower bound >= published_at_ms + MAX_RECORD_TTL_MS + MAX_FUTURE_SKEW_MS
+    let trusted_now = base_time + MAX_RECORD_TTL_MS + MAX_FUTURE_SKEW_MS + 100;
+    let pruned = receiver
+        .prune_floors(trusted_now, &BTreeSet::new())
+        .expect("prune expired floors");
+    assert_eq!(pruned, 20, "exactly 20 old floors must be reclaimed");
+    assert_eq!(receiver.floor_count().unwrap(), MAX_RECEIVER_FLOORS - 20);
+
+    // Now the 1025th peer can be admitted into the newly freed capacity!
+    assert_eq!(
+        receiver.admit_serialized(&untracked).expect("admit newly permitted peer"),
+        ReceiverAdmission::Accepted
+    );
+    assert_eq!(receiver.floor_count().unwrap(), MAX_RECEIVER_FLOORS - 20 + 1);
+    assert!(receiver.lease_guard(&untracked).is_ok());
+}
+
+#[test]
+fn retained_peers_and_conflict_isolated_peers_are_never_pruned() {
+    let fixture = fixture();
+    let receiver = open(&fixture);
+    let base_time: i64 = 1_000_000;
+
+    // Peer A: expired, but in retained_peers (active session or trusted seed)
+    let key_a = Keypair::generate_ed25519();
+    let peer_a_id = PeerId::from(key_a.public()).to_string();
+    let mut rec_a = record_body(&key_a, "peer-a-seed");
+    rec_a.published_at_ms = base_time;
+    rec_a.ttl_ms = 60_000;
+    let signed_a = super::super::peer_record::sign_peer_record_v2(
+        &rec_a,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 1,
+            state: PeerRecordPublicationStateV2::Live,
+        },
+        &key_a,
+    )
+    .unwrap();
+    receiver.admit_serialized(&signed_a).unwrap();
+
+    // Peer B: expired, but isolated after a conflict
+    let key_b = Keypair::generate_ed25519();
+    let peer_b_id = PeerId::from(key_b.public()).to_string();
+    let mut rec_b1 = record_body(&key_b, "peer-b-fork-1");
+    rec_b1.published_at_ms = base_time;
+    rec_b1.ttl_ms = 60_000;
+    let signed_b1 = super::super::peer_record::sign_peer_record_v2(
+        &rec_b1,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 1,
+            state: PeerRecordPublicationStateV2::Live,
+        },
+        &key_b,
+    )
+    .unwrap();
+    receiver.admit_serialized(&signed_b1).unwrap();
+
+    let mut rec_b2 = record_body(&key_b, "peer-b-fork-2");
+    rec_b2.published_at_ms = base_time;
+    rec_b2.ttl_ms = 60_000;
+    rec_b2.direct_addrs = vec!["/ip4/127.0.0.1/tcp/9999".into()];
+    let signed_b2 = super::super::peer_record::sign_peer_record_v2(
+        &rec_b2,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 1,
+            state: PeerRecordPublicationStateV2::Live,
+        },
+        &key_b,
+    )
+    .unwrap();
+    assert_eq!(
+        receiver.admit_serialized(&signed_b2).unwrap(),
+        ReceiverAdmission::Conflict
+    );
+
+    // Peer C: expired, not retained, not isolated -> PRUNABLE
+    let key_c = Keypair::generate_ed25519();
+    let peer_c_id = PeerId::from(key_c.public()).to_string();
+    let mut rec_c = record_body(&key_c, "peer-c-inactive");
+    rec_c.published_at_ms = base_time;
+    rec_c.ttl_ms = 60_000;
+    let signed_c = super::super::peer_record::sign_peer_record_v2(
+        &rec_c,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 1,
+            state: PeerRecordPublicationStateV2::Live,
+        },
+        &key_c,
+    )
+    .unwrap();
+    receiver.admit_serialized(&signed_c).unwrap();
+
+    assert_eq!(receiver.floor_count().unwrap(), 3);
+
+    let mut retained_peers = BTreeSet::new();
+    retained_peers.insert(peer_a_id.clone());
+
+    let trusted_now = base_time + MAX_RECORD_TTL_MS + MAX_FUTURE_SKEW_MS + 500;
+    let pruned = receiver.prune_floors(trusted_now, &retained_peers).unwrap();
+    assert_eq!(pruned, 1, "only peer C should be pruned");
+
+    assert!(receiver.contains_floor(&peer_a_id).unwrap(), "retained peer A must remain");
+    assert!(receiver.contains_floor(&peer_b_id).unwrap(), "isolated peer B must remain");
+    assert!(!receiver.contains_floor(&peer_c_id).unwrap(), "unretained peer C was pruned");
+    assert_eq!(receiver.floor_count().unwrap(), 2);
+}
+
+#[test]
+fn pruning_rejects_missing_negative_or_backward_moving_trusted_time() {
+    let fixture = fixture();
+    let receiver = open(&fixture);
+    let retained = BTreeSet::new();
+
+    let err_zero = receiver.prune_floors(0, &retained).unwrap_err();
+    assert!(format!("{err_zero:?}").contains("trusted time must be positive"));
+
+    let err_neg = receiver.prune_floors(-500, &retained).unwrap_err();
+    assert!(format!("{err_neg:?}").contains("trusted time must be positive"));
+
+    // Advance to 10_000_000
+    receiver.prune_floors(10_000_000, &retained).unwrap();
+
+    // Attempting to move backward must fail
+    let err_backward = receiver.prune_floors(9_999_999, &retained).unwrap_err();
+    assert!(format!("{err_backward:?}").contains("trusted time moved backward"));
+
+    // Monotonic advance succeeds
+    assert!(receiver.prune_floors(10_000_001, &retained).is_ok());
+}
+
+#[test]
+fn pruned_peer_cannot_resurrect_stale_records_tombstone_or_v1() {
+    let fixture = fixture();
+    let receiver = open(&fixture);
+    let base_time: i64 = 1_000_000;
+    let key = Keypair::generate_ed25519();
+    let peer_id = PeerId::from(key.public()).to_string();
+
+    let mut record = record_body(&key, "peer-prune-resurrect");
+    record.published_at_ms = base_time;
+    record.ttl_ms = 60_000;
+    let signed_live = super::super::peer_record::sign_peer_record_v2(
+        &record,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 5,
+            state: PeerRecordPublicationStateV2::Live,
+        },
+        &key,
+    )
+    .unwrap();
+    receiver.admit_serialized(&signed_live).unwrap();
+    assert!(receiver.contains_floor(&peer_id).unwrap());
+
+    // Prune floor at trusted time
+    let trusted_now = base_time + MAX_RECORD_TTL_MS + MAX_FUTURE_SKEW_MS + 1000;
+    let pruned = receiver.prune_floors(trusted_now, &BTreeSet::new()).unwrap();
+    assert_eq!(pruned, 1);
+    assert!(!receiver.contains_floor(&peer_id).unwrap());
+
+    // Replay of old live record (seq 5, published at base_time):
+    // Clock evaluation at trusted_now rejects it as expired!
+    let clock = super::super::peer_record_time::DiscoveryClock::default();
+    let clock_check = clock.check_at(&signed_live.record, trusted_now, std::time::Instant::now());
+    assert!(clock_check.is_err());
+    assert!(format!("{clock_check:?}").contains("record expired"));
+
+    // Replay of old tombstone at base_time:
+    let mut tombstone_rec = record_body(&key, "peer-tombstone");
+    tombstone_rec.direct_addrs.clear();
+    tombstone_rec.published_at_ms = base_time;
+    tombstone_rec.ttl_ms = 60_000;
+    let tombstone = super::super::peer_record::sign_peer_record_v2(
+        &tombstone_rec,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 5,
+            state: PeerRecordPublicationStateV2::Tombstone,
+        },
+        &key,
+    )
+    .unwrap();
+    let tombstone_clock = clock.check_at(&tombstone.record, trusted_now, std::time::Instant::now());
+    assert!(tombstone_clock.is_err());
+    assert!(format!("{tombstone_clock:?}").contains("record expired"));
+
+    // Replay of old V1 record at base_time:
+    let mut v1_rec = record_body(&key, "peer-v1");
+    v1_rec.published_at_ms = base_time;
+    v1_rec.ttl_ms = 60_000;
+    let v1 = super::super::peer_record::sign_peer_record(&v1_rec, &key).unwrap();
+    let v1_clock = clock.check_at(&v1.record, trusted_now, std::time::Instant::now());
+    assert!(v1_clock.is_err());
+    assert!(format!("{v1_clock:?}").contains("record expired"));
+}
+
+#[test]
+fn pruning_persists_atomically_and_survives_reopen() {
+    let fixture = fixture();
+    let base_time: i64 = 1_000_000;
+    let old_key = Keypair::generate_ed25519();
+    let old_peer_id = PeerId::from(old_key.public()).to_string();
+
+    {
+        let receiver = open(&fixture);
+        let mut rec = record_body(&old_key, "offline-peer");
+        rec.published_at_ms = base_time;
+        rec.ttl_ms = 60_000;
+        let signed = super::super::peer_record::sign_peer_record_v2(
+            &rec,
+            PeerRecordPublicationV2 {
+                schema_version: 2,
+                sequence: 1,
+                state: PeerRecordPublicationStateV2::Live,
+            },
+            &old_key,
+        )
+        .unwrap();
+        receiver.admit_serialized(&signed).unwrap();
+        assert_eq!(receiver.floor_count().unwrap(), 1);
+    }
+
+    // Run offline pruning via Libp2pNetwork::prune_peer_record_receiver
+    let net_config = Libp2pNetworkConfig {
+        keypair: Some(fixture.local_key.clone()),
+        peer_record: Some(fixture.template.clone()),
+        peer_record_receiver: fixture.config.clone(),
+        ..Libp2pNetworkConfig::default()
+    };
+    let trusted_now = base_time + MAX_RECORD_TTL_MS + MAX_FUTURE_SKEW_MS + 1000;
+    let pruned = Libp2pNetwork::prune_peer_record_receiver(
+        &net_config,
+        trusted_now,
+        &BTreeSet::new(),
+    )
+    .expect("offline prune via Libp2pNetwork");
+    assert_eq!(pruned, 1);
+
+    // Reopen and verify floor is gone and state is valid canonical CBOR
+    let reopened = open(&fixture);
+    assert_eq!(reopened.floor_count().unwrap(), 0);
+    assert!(!reopened.contains_floor(&old_peer_id).unwrap());
 }

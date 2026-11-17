@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -22,6 +22,8 @@ pub(super) const MAX_RECEIVER_RECORD_BYTES: usize =
     super::peer_record::MAX_SIGNED_PEER_RECORD_BYTES;
 const RECEIVER_SCHEMA_VERSION: u16 = 2;
 const RECEIVER_STATE_MAX_BYTES: usize = 64 * 1024 * 1024;
+const MAX_RECORD_TTL_MS: i64 = 3_600_000;
+const MAX_FUTURE_SKEW_MS: i64 = 30_000;
 
 pub(super) type SharedPeerRecordReceiver = Arc<PeerRecordReceiver>;
 
@@ -60,6 +62,7 @@ struct DurableReceiver {
     _lock: File,
     ledger: ReceiverLedgerV2,
     poisoned: bool,
+    last_trusted_now_ms: Option<i64>,
 }
 
 #[derive(Debug)]
@@ -475,6 +478,74 @@ impl PeerRecordReceiver {
         Ok(Some(signed))
     }
 
+    pub(super) fn prune_floors(
+        &self,
+        trusted_now_ms: i64,
+        retained_peers: &BTreeSet<String>,
+    ) -> Result<usize, WorldError> {
+        if self.state.mode == PeerRecordReceiverMode::Legacy {
+            return Ok(0);
+        }
+        let _ingress = self.begin_ingress()?;
+        let mut durable = self.durable_lock_required()?;
+        ensure_durable_usable(&durable)?;
+        if trusted_now_ms <= 0 {
+            return Err(protocol_error("trusted time must be positive".into()));
+        }
+        if let Some(last) = durable.last_trusted_now_ms {
+            if trusted_now_ms < last {
+                return Err(protocol_error("trusted time moved backward".into()));
+            }
+        }
+        durable.last_trusted_now_ms = Some(trusted_now_ms);
+
+        let mut prunable_peers = Vec::new();
+        for (peer_id, floor) in &durable.ledger.floors {
+            if is_floor_prunable(peer_id, floor, trusted_now_ms, retained_peers)? {
+                prunable_peers.push(peer_id.clone());
+            }
+        }
+        if prunable_peers.is_empty() {
+            return Ok(0);
+        }
+        let mut next = durable.ledger.clone();
+        for peer_id in &prunable_peers {
+            next.floors.remove(peer_id);
+        }
+        persist_next(&mut durable, next)?;
+        Ok(prunable_peers.len())
+    }
+
+    pub(super) fn prune_offline(
+        config: &PeerRecordReceiverConfig,
+        keypair: &Keypair,
+        template: &PeerRecord,
+        trusted_now_ms: i64,
+        retained_peers: &BTreeSet<String>,
+    ) -> Result<usize, WorldError> {
+        let receiver = Self::open(config, keypair, Some(template))?;
+        receiver.prune_floors(trusted_now_ms, retained_peers)
+    }
+
+    pub(super) fn floor_count(&self) -> Result<usize, WorldError> {
+        let durable = self.durable_lock()?;
+        if let Some(durable) = durable.as_ref() {
+            ensure_durable_usable(durable)?;
+            return Ok(durable.ledger.floors.len());
+        }
+        Ok(0)
+    }
+
+    #[allow(dead_code)]
+    pub(super) fn contains_floor(&self, peer_id: &str) -> Result<bool, WorldError> {
+        let durable = self.durable_lock()?;
+        if let Some(durable) = durable.as_ref() {
+            ensure_durable_usable(durable)?;
+            return Ok(durable.ledger.floors.contains_key(peer_id));
+        }
+        Ok(false)
+    }
+
     fn durable_lock(&self) -> Result<Option<MutexGuard<'_, DurableReceiver>>, WorldError> {
         let Some(durable) = self.state.durable.as_ref() else {
             return Ok(None);
@@ -489,6 +560,37 @@ impl PeerRecordReceiver {
         self.durable_lock()?
             .ok_or_else(|| protocol_error("durable receiver state is unavailable".into()))
     }
+}
+
+fn is_floor_prunable(
+    peer_id: &str,
+    floor: &PeerFloorV2,
+    trusted_now_ms: i64,
+    retained_peers: &BTreeSet<String>,
+) -> Result<bool, WorldError> {
+    if floor.isolated || floor.conflict_signed_record_cbor.is_some() {
+        return Ok(false);
+    }
+    if retained_peers.contains(peer_id) {
+        return Ok(false);
+    }
+    let primary = decode_stored_record(&floor.primary_signed_record_cbor)?;
+    let expiry = primary
+        .record
+        .expires_at_ms()
+        .map_err(|reason| protocol_error(format!("invalid stored record expiry: {reason}")))?;
+    if trusted_now_ms < expiry {
+        return Ok(false);
+    }
+    let max_possible_expiry = primary
+        .record
+        .published_at_ms
+        .saturating_add(MAX_RECORD_TTL_MS)
+        .saturating_add(MAX_FUTURE_SKEW_MS);
+    if trusted_now_ms < max_possible_expiry {
+        return Ok(false);
+    }
+    Ok(true)
 }
 
 /// Reject malformed or identity-mismatched paths before a durable floor update.

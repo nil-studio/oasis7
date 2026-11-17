@@ -44,6 +44,7 @@ pub struct Libp2pNetwork {
     pub(super) reachability: Arc<Mutex<Libp2pReachabilitySnapshot>>,
     pub(super) traffic_metrics: SharedLibp2pTrafficMetrics,
     pub(super) wire_byte_counters: SharedLibp2pWireByteCounters,
+    pub(super) peer_record_receiver: super::receiver_floor::SharedPeerRecordReceiver,
     pub(super) _shutdown_guard: Arc<super::drop_support::ShutdownGuard>,
 }
 const LIBP2P_COMMAND_RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -55,6 +56,23 @@ impl Libp2pNetwork {
 
     pub fn keypair(&self) -> &libp2p::identity::Keypair {
         &self.keypair
+    }
+
+    pub fn peer_record_receiver_floor_count(&self) -> Result<usize, WorldError> {
+        self.peer_record_receiver.floor_count()
+    }
+
+    pub fn prune_peer_record_receiver_live(
+        &self,
+        trusted_now_ms: i64,
+        retained_peers: &std::collections::BTreeSet<String>,
+    ) -> Result<usize, WorldError> {
+        let mut all_retained = retained_peers.clone();
+        for peer in self.connected_peers() {
+            all_retained.insert(peer.to_string());
+        }
+        self.peer_record_receiver
+            .prune_floors(trusted_now_ms, &all_retained)
     }
 
     pub fn published(&self) -> Vec<NetworkMessage> {

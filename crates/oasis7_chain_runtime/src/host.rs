@@ -250,7 +250,7 @@ use traffic_profile::feedback_p2p_config_for_role;
 mod replication_network;
 use replication_network::{
     attach_default_replication_network, initialize_default_peer_record_publication,
-    initialize_default_peer_record_receiver,
+    initialize_default_peer_record_receiver, prune_default_peer_record_receiver,
 };
 #[cfg(test)]
 use replication_network::{
@@ -420,6 +420,10 @@ pub fn run_cli(raw_args: Vec<String>) -> Result<(), String> {
         let mut upgrade_options = options;
         apply_network_tier_manifest_defaults(&mut upgrade_options);
         initialize_default_peer_record_receiver(&upgrade_options)
+    } else if options.prune_peer_record_receiver {
+        let mut prune_options = options;
+        apply_network_tier_manifest_defaults(&mut prune_options);
+        prune_default_peer_record_receiver(&prune_options)
     } else {
         run_chain_runtime(options)
     };
