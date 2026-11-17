@@ -31,6 +31,8 @@ IWS_RULE_CORE_TESTS = frozenset((
     'selected_core_rejected_move_settles_general_cost_without_pricing_cost',
     'selected_core_insufficient_rule_cost_preserves_position_and_balance',
     'selected_core_genuine_rule_denial_preserves_balance_and_position',
+    'selected_rule_modify_form_alliance_to_material_transfer_keeps_guard_and_current_effects',
+    'selected_rule_modify_form_alliance_to_resource_transfer_keeps_guard_and_current_effects',
 ))
 # Observation label for an inventory-selected test resource, never a planned
 # test variant or a dependency-cache warming context.

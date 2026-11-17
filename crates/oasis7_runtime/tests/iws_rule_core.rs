@@ -17,3 +17,13 @@ fn selected_core_insufficient_rule_cost_preserves_position_and_balance() {
 fn selected_core_genuine_rule_denial_preserves_balance_and_position() {
     run_iws_rule_core_case_v1(IwsRuleCoreCaseV1::Deny);
 }
+
+#[test]
+fn selected_rule_modify_form_alliance_to_material_transfer_keeps_guard_and_current_effects() {
+    run_iws_rule_core_case_v1(IwsRuleCoreCaseV1::ModifyAllianceToMaterialTransfer);
+}
+
+#[test]
+fn selected_rule_modify_form_alliance_to_resource_transfer_keeps_guard_and_current_effects() {
+    run_iws_rule_core_case_v1(IwsRuleCoreCaseV1::ModifyAllianceToResourceTransfer);
+}

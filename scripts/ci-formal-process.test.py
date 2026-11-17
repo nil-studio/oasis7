@@ -593,6 +593,7 @@ class RiskTargetInventory(unittest.TestCase):
         with self.assertRaises(ValueError):
             artifacts.validate_ordinary_selection(expanded)
 
+    # Keep the historical test identity stable as the registered cases expand.
     def test_iws_rule_full_supplement_keeps_four_cases_and_one_worker_owner(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
         target = next(item for item in config['ordinary_scale_contract']['targets']
@@ -627,7 +628,7 @@ class RiskTargetInventory(unittest.TestCase):
                                if binary == 'iws-rule-core')
         self.assertEqual(len(owners), 1)
         # The generic fixture also has an unlisted active regression: the
-        # minimum four-case contract must not trim the actual whole harness.
+        # minimum registered-case contract must not trim the actual whole harness.
         self.assertCountEqual(covered, full['tests'])
         self.assertTrue(set(target['cases']) <= set(covered))
         for damage in ('missing', 'empty', 'ignored'):
@@ -5076,6 +5077,13 @@ class RuntimeWorkerCompanionContracts(unittest.TestCase):
         with patch.object(artifacts.sys, 'platform', 'linux'):
             self.assertTrue(artifacts.runtime_worker_test_selected(manifest))
             self.assertFalse(artifacts.runtime_worker_test_selected(manifest, ['viewer']))
+            for case in sorted(artifacts.IWS_RULE_CORE_TESTS):
+                selected = copy.deepcopy(manifest)
+                selected['binaries']['runtime-module-tests'].update(tests=[case], ignored_tests=[])
+                with self.subTest(case=case):
+                    self.assertTrue(artifacts.runtime_worker_test_selected(selected))
+                    selected['binaries']['runtime-module-tests']['ignored_tests'] = [case]
+                    self.assertFalse(artifacts.runtime_worker_test_selected(selected))
             for field, value in (('package', 'oasis7_runtime_iws_tests'), ('target', 'different_target'),
                                  ('target_kind', ['lib']), ('ordinary', False), ('test', False),
                                  ('tests', []), ('tests', ['unrelated_case']),

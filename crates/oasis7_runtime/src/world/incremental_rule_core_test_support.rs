@@ -1,5 +1,5 @@
 //! Nondefault Linux RuleVM artifact: minimum original fixture dependency closure.
-//! Only the closed four-case runner is public; no World, qualification, cache,
+//! Only the closed six-case runner is public; no World, qualification, cache,
 //! Selected source, Rule outcome, arbitrary budget or callback escapes this module.
 use super::*;
 use crate::world::{
@@ -617,6 +617,8 @@ mod action_body {
         }
     }
 }
+#[path = "incremental_rule_modify_transfer_test_fixture.rs"]
+mod modify_transfer;
 #[path = "incremental_module_execution_rule_phase_fixture_run.rs"]
 mod rule_cases;
 #[path = "incremental_rule_core_test_runner.rs"]

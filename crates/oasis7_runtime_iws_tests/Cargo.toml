@@ -6,7 +6,7 @@ license = "MIT"
 publish = false
 
 # Keep this non-shipping library's Cargo identity until the next producer rebuild.
-# The four executable Rule cases now belong to oasis7_runtime's integration target.
+# The executable Rule cases now belong to oasis7_runtime's integration target.
 [lib]
 test = false
 doctest = false

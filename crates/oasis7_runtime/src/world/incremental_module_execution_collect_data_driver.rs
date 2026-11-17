@@ -121,7 +121,6 @@ where
             let applied = settlement.applied();
             let rejection = settlement.take_rejection();
             let live = live_owner();
-            let guard = self.ctx.transaction.guard();
             settlement
                 .validate(
                     selected,
@@ -143,6 +142,8 @@ where
                     live_owner,
                 )?;
             }
+            let live = live_owner();
+            let guard = self.ctx.transaction.guard();
             let completed = {
                 let mut step = IwsStepContext::borrow_counted_at(
                     self.ctx.transaction,

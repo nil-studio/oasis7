@@ -388,7 +388,7 @@ run_oasis7_iws_host_native_tests() {
 }
 
 run_oasis7_iws_host_native_after_full_tests() {
-  # The successful full Runtime harness already executed all four Rule cases.
+  # The successful full Runtime harness already executed all Rule cases.
   verify_oasis7_iws_host_native_fixture || return
   run_oasis7_iws_host_native_target
 }

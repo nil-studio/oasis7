@@ -30,7 +30,8 @@ where
 {
     /// The caller runs genuine admission and Rule first, and re-reads Current
     /// admission after Rule/Modify contributions. The existing economy resolver
-    /// leaves TransferMaterial unchanged; this lane has no selective Accepted.
+    /// leaves effective TransferMaterial unchanged. Selective Accepted still
+    /// belongs to the original selected action after a cross-family Modify.
     /// Routed or non-Agent transfers still require their own genuine business
     /// owners; this caller does not convert them to ordinary action rejection.
     #[allow(clippy::too_many_arguments)]
@@ -171,7 +172,6 @@ where
             let applied = settlement.applied();
             let rejection = settlement.take_rejection();
             let live = live_owner();
-            let guard = self.ctx.transaction.guard();
             settlement
                 .validate(
                     selected,
@@ -198,6 +198,8 @@ where
                     live_owner,
                 )?;
             }
+            let live = live_owner();
+            let guard = self.ctx.transaction.guard();
             let completed = {
                 let mut step = IwsStepContext::borrow_counted_at(
                     self.ctx.transaction,
