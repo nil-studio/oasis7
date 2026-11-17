@@ -2,7 +2,7 @@
 //! Recovery here is Node recovery; product-validation resume is independent.
 use oasis7_formal_protocol::controlled_authority::formal::{
     FormalError,
-    bounded_context::{FormalBoundedContextV1, WorkIdentityV1},
+    bounded_context::{FormalBoundedChargeErrorV1, FormalBoundedContextV1, WorkIdentityV1},
     context_wire,
 };
 use oasis7_node::{VerifiedNodeLocalContinuationV1, VerifiedNodeRestoredContinuationV1};
@@ -11,6 +11,21 @@ use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 enum NodeOrigin {
     Fresh,
     Restored,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NodeOriginContextErrorV1 {
+    Work(FormalBoundedChargeErrorV1),
+    ForeignContext,
+}
+impl From<NodeOriginContextErrorV1> for FormalError {
+    fn from(error: NodeOriginContextErrorV1) -> Self {
+        match error {
+            NodeOriginContextErrorV1::Work(error) => error.into(),
+            NodeOriginContextErrorV1::ForeignContext => {
+                FormalError::Invalid("normal Node origin pool/Core".into())
+            }
+        }
+    }
 }
 pub(crate) struct PaidNodeInputOriginV1 {
     input: ReservedValue<Vec<u8>>,
@@ -69,9 +84,16 @@ impl PaidNodeInputOriginV1 {
         &self,
         ctx: &mut FormalBoundedContextV1<'_>,
     ) -> Result<(), FormalError> {
-        ctx.consume_steps(1)?;
+        self.validate_context_typed(ctx).map_err(FormalError::from)
+    }
+    pub(crate) fn validate_context_typed(
+        &self,
+        ctx: &mut FormalBoundedContextV1<'_>,
+    ) -> Result<(), NodeOriginContextErrorV1> {
+        ctx.consume_steps_typed(1)
+            .map_err(NodeOriginContextErrorV1::Work)?;
         if self.identity != ctx.work().identity() || !self.uses_budget(ctx.memory()) {
-            return Err(FormalError::Invalid("normal Node origin pool/Core".into()));
+            return Err(NodeOriginContextErrorV1::ForeignContext);
         }
         Ok(())
     }
@@ -90,3 +112,7 @@ impl PaidNodeInputOriginV1 {
         matches!(self.origin, NodeOrigin::Restored)
     }
 }
+
+#[cfg(test)]
+#[path = "iws_normal_input_origin_tests.rs"]
+mod tests;
