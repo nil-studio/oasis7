@@ -18,8 +18,17 @@ try:
     if not isinstance(advisories, dict) or not isinstance(bans, dict):
         raise ValueError("advisories and bans must be tables")
     ignored = advisories.get("ignore")
-    if not isinstance(ignored, list) or ignored:
-        raise ValueError("advisories.ignore must be an empty array; no RustSec exceptions are approved")
+    # cargo-deny remains the advisory evaluator. This guard only constrains the
+    # approved config, never filters findings or grants path-specific exemptions.
+    if not isinstance(ignored, list):
+        raise ValueError("advisories.ignore must be empty or the single approved maintenance exception")
+    if ignored:
+        if (len(ignored) != 1 or not isinstance(ignored[0], dict)
+                or set(ignored[0]) != {"id", "reason"}
+                or ignored[0]["id"] != "RUSTSEC-2026-0543"
+                or not isinstance(ignored[0]["reason"], str)
+                or not ignored[0]["reason"].strip()):
+            raise ValueError("advisories.ignore must be empty or the single approved maintenance exception")
     denied = bans.get("deny")
     if not isinstance(denied, list):
         raise ValueError("bans.deny must be an array")
@@ -46,5 +55,5 @@ except (OSError, ValueError, TypeError, KeyError, subprocess.CalledProcessError)
     print(f"error: {error}", file=sys.stderr)
     raise SystemExit(1)
 
-print("ok: RustSec exceptions are empty; retired packages are banned and absent from all repository lockfiles")
+print("ok: RustSec exceptions limited to the approved chrono maintenance ID; retired packages are banned and absent from all repository lockfiles")
 PYTHON
