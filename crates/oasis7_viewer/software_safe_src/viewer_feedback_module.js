@@ -740,8 +740,8 @@ export function createViewerFeedbackModule({
       if (firstAgentClaimSyncPending && ["received", "pending", "unknown"].includes(pendingClaim?.stage)) {
         return localeText(
           locale,
-          "认领请求结果待确认，请先刷新快照核对原请求的权威结果；请勿重复提交认领。",
-          "Claim request outcome is unconfirmed; refresh the snapshot to verify the authoritative result, and do not resubmit.",
+          "认领请求结果待确认，请刷新快照或继续等待链上 committed 快照同步；请勿重复提交认领。",
+          "Claim request outcome is unconfirmed; refresh the snapshot or keep waiting for the committed chain snapshot to sync. Do not resubmit.",
         );
       }
       if (pendingEmptyWorldClaimSync) {

@@ -98,7 +98,7 @@ export function isClaimAction(action) {
 export function claimActionAwaitingSync(fb) {
   if (!fb || !isClaimAction(fb.action)) return false;
   const stage = String(fb.stage || "").trim().toLowerCase();
-  return ["accepted", "submitted", "queued", "ack", "registering", "signing", "sent", "committed"].includes(stage);
+  return ["accepted", "submitted", "queued", "ack", "registering", "signing", "sent", "committed", "received", "pending", "unknown"].includes(stage);
 }
 
 export function resolveGameplayExecutionCause(executionState, pendingEmptyWorldClaimSync, emptyEntityBlocker, gameplay, locale, localeText) {

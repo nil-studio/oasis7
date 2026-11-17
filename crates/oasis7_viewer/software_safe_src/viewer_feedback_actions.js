@@ -61,8 +61,8 @@ export function normalizeViewerAvailableActions({
     const pendingClaimUnconfirmedReason = firstAgentClaimSyncPending && actionId === "claim_first_agent"
       ? localeText(
         locale,
-        "原认领请求结果待确认；请刷新快照或等待权威结果，请勿重复提交。",
-        "Original claim request outcome is unconfirmed; refresh the snapshot or wait for authoritative result instead of resubmitting.",
+        "原认领请求结果待确认，请刷新快照或继续等待链上 committed 快照同步；请勿重复提交。",
+        "Original claim request outcome is unconfirmed; refresh the snapshot or keep waiting for the committed chain snapshot to sync instead of resubmitting.",
       )
       : null;
     const shouldKeepRuntimeDisabledReason =

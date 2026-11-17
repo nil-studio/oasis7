@@ -8443,7 +8443,10 @@ function claimActionAwaitingSync(fb) {
 		"registering",
 		"signing",
 		"sent",
-		"committed"
+		"committed",
+		"received",
+		"pending",
+		"unknown"
 	].includes(stage);
 }
 function resolveGameplayExecutionCause(executionState, pendingEmptyWorldClaimSync, emptyEntityBlocker, gameplay, locale, localeText) {
@@ -8564,7 +8567,7 @@ function normalizeViewerAvailableActions({ gameplay, locale, localeText, agentEx
 	return (Array.isArray(gameplay?.available_actions) ? gameplay.available_actions : Array.isArray(gameplay?.availableActions) ? gameplay.availableActions : []).map((action) => {
 		const { actionId, label, protocolAction, targetAgentId, disabledReason } = normalizeViewerAvailableActionFields(action);
 		const starterOcMissingAgentReason = actionId === "claim_starter_oc" && !agentExists(targetAgentId) ? localeText(locale, "第一个 Agent 认领已提交，正在等待 committed 快照创建 Agent；请先推进或刷新一次。", "First Agent claim submitted; waiting for the committed snapshot to create the Agent. Advance or refresh once first.") : null;
-		const pendingClaimUnconfirmedReason = firstAgentClaimSyncPending && actionId === "claim_first_agent" ? localeText(locale, "原认领请求结果待确认；请刷新快照或等待权威结果，请勿重复提交。", "Original claim request outcome is unconfirmed; refresh the snapshot or wait for authoritative result instead of resubmitting.") : null;
+		const pendingClaimUnconfirmedReason = firstAgentClaimSyncPending && actionId === "claim_first_agent" ? localeText(locale, "原认领请求结果待确认，请刷新快照或继续等待链上 committed 快照同步；请勿重复提交。", "Original claim request outcome is unconfirmed; refresh the snapshot or keep waiting for the committed chain snapshot to sync instead of resubmitting.") : null;
 		return {
 			actionId,
 			label,
@@ -13288,7 +13291,7 @@ function createViewerFeedbackModule({ clone, feedbackBadgeClass, hostedActionPol
 				"received",
 				"pending",
 				"unknown"
-			].includes(pendingClaim?.stage)) return localeText(locale, "认领请求结果待确认，请先刷新快照核对原请求的权威结果；请勿重复提交认领。", "Claim request outcome is unconfirmed; refresh the snapshot to verify the authoritative result, and do not resubmit.");
+			].includes(pendingClaim?.stage)) return localeText(locale, "认领请求结果待确认，请刷新快照或继续等待链上 committed 快照同步；请勿重复提交认领。", "Claim request outcome is unconfirmed; refresh the snapshot or keep waiting for the committed chain snapshot to sync. Do not resubmit.");
 			if (pendingEmptyWorldClaimSync) return localeText(locale, "系统已经收到认领请求，正在等待链上 committed 快照把新 Agent 同步到 viewer。", "The system has accepted the claim and is waiting for the committed chain snapshot to sync the new Agent into the viewer.");
 			return localeText(locale, "先提交一个玩法动作，再看系统如何确认、推进或阻塞它。", "Submit one gameplay action first, then read how the system confirms, advances, or blocks it.");
 		})();
