@@ -145,30 +145,6 @@ pub use source::*;
 #[path = "incremental_cognition_retention_ledger_projection.rs"]
 mod projection;
 pub use projection::*;
-fn codec<T>(
-    common: &mut FormalBoundedContextV1<'_>,
-    run: impl FnOnce(
-        &MemoryBudget,
-        &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
-    ) -> Result<T, ExecutionError>,
-) -> Result<T, ValueTreeError> {
-    let memory = common.memory().clone();
-    let mut first = None;
-    let mut pay = |s, b| match common.charge(s, b) {
-        Ok(()) => Ok(()),
-        Err(e) => {
-            if first.is_none() {
-                first = Some(formal(e))
-            }
-            Err(ExecutionError::Aborted)
-        }
-    };
-    let result = run(&memory, &mut pay);
-    match first {
-        Some(error) => Err(error),
-        None => result.map_err(execution),
-    }
-}
 fn member(error: MemberRecordError) -> ValueTreeError {
     match error {
         MemberRecordError::Value(e) => e,
