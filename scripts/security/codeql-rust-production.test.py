@@ -132,7 +132,7 @@ class Production(unittest.TestCase):
         helper = self.official / 'qlpacks/codeql/suite-helpers/1.0.61'
         helper.mkdir(parents=True)
         (helper / 'qlpack.yml').write_text('name: codeql/suite-helpers\nversion: 1.0.61\nlibrary: false\ndependencies: {}\n')
-        self.calls, self.guard_manifests = [], []
+        self.calls, self.guard_manifests, self.call_options = [], [], []
         self.bad_closure = self.query_failure = self.mutate_source = self.missing_result = False
         self.bad_shared_closure = False
         self.mutate_private = self.mutate_receipt = self.mutate_mode = None
@@ -187,6 +187,7 @@ class Production(unittest.TestCase):
                 terminal['stage'] = name
                 args_list = list(map(str, argv))
                 fixture.calls.append((name, args_list))
+                fixture.call_options.append((name, dict(options)))
                 value = {}
                 if name == 'version':
                     value = {'version': m.VERSION}
@@ -472,6 +473,8 @@ class Production(unittest.TestCase):
         self.assertEqual(len(batch), 1)
         self.assertIn('--no-use-precompiled', batch[0])
         self.assertEqual(sum(item.endswith('.ql') for item in batch[0]), 37)
+        self.assertEqual([name for name, options in self.call_options if options.get('resource_details')],
+                         ['default-query-batch'])
         self.assertEqual(len(m.read_json(self.output / 'default-results.json')), 37)
 
     def test_failed_extraction_never_starts_queries_but_keeps_failure_and_coverage(self):

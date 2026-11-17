@@ -96,7 +96,7 @@ class Runner:
                     if key not in ('GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER')}
 
     def __call__(self, argv, name, limit=None, *, observer=None,
-                 restricted_output=True, reap_orphans=False):
+                 restricted_output=True, reap_orphans=False, resource_details=False):
         self.terminal['stage'] = name
         remaining = self.end - time.monotonic()
         if remaining <= 0:
@@ -105,7 +105,7 @@ class Runner:
                            self.args.output / (name + '.log'), self.end,
                            min(remaining, limit or remaining), self.args.output, self.env,
                            file_limit=None, observer=observer, restricted_output=restricted_output,
-                           reap_orphans=reap_orphans)
+                           reap_orphans=reap_orphans, resource_details=resource_details)
 
 
 def save(args, name, value, *, terminal=False):
@@ -376,7 +376,7 @@ def run_queries(args, terminal, run):
     run([args.codeql, 'database', 'run-queries', *query_options(closure, args.work, 'batch'),
          '--no-use-precompiled', '--threads=' + str(resources['CODEQL_THREADS']),
          '--ram=' + str(resources['CODEQL_RAM']), '--', args.database,
-         *[record['path'] for record in records]], 'default-query-batch')
+         *[record['path'] for record in records]], 'default-query-batch', resource_details=True)
     terminal['queries_status'] = 'COMPUTED_UNVERIFIED'
     verified = []
     for index, record in enumerate(records):
