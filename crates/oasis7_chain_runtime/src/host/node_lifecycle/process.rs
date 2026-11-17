@@ -10,7 +10,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::os::fd::AsRawFd;
 use std::os::unix::{
-    fs::{FileTypeExt, OpenOptionsExt, PermissionsExt},
+    fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt},
     net::{UnixListener, UnixStream},
     process::CommandExt,
 };
@@ -85,7 +85,51 @@ pub(super) fn admission_lock(data: &Path) -> Result<AdmissionLock, String> {
         .map_err(|_| "native action admission writer busy".to_string())?;
     Ok(AdmissionLock(file))
 }
-pub(super) fn lock(data: &Path) -> Result<File, String> {
+/// Lifetime ownership of one exact local directory and lock inode. Only the
+/// native lock acquisition path can construct this value; arbitrary files and
+/// persisted PID/incarnation strings are not ownership capabilities.
+/// There is deliberately no unlock, raw-file conversion, or Clone operation.
+/// Path checks detect existing mismatches; they do not pin future path lookups
+/// against concurrent directory replacement or authorize operation recovery.
+pub(super) struct ProcessOwnership {
+    file: File,
+    directory: PathBuf,
+    directory_identity: (u64, u64),
+}
+impl ProcessOwnership {
+    pub(super) fn binding_digest(&self) -> Result<String, String> {
+        self.require_current_directory()?;
+        let held = self.file.metadata().map_err(|e| e.to_string())?;
+        io::digest(&(
+            "oasis7.native-owner-binding/v1",
+            &self.directory,
+            self.directory_identity,
+            held.dev(),
+            held.ino(),
+        ))
+    }
+    pub(super) fn require_current_directory(&self) -> Result<(), String> {
+        self.require_directory(&self.directory)
+    }
+
+    pub(super) fn require_directory(&self, data: &Path) -> Result<(), String> {
+        io::reject_symlinks(data)?;
+        let directory = fs::canonicalize(data).map_err(|e| e.to_string())?;
+        let metadata = fs::metadata(&directory).map_err(|e| e.to_string())?;
+        let path = directory.join("process.lock");
+        io::regular(&path)?;
+        let current = fs::metadata(&path).map_err(|e| e.to_string())?;
+        let held = self.file.metadata().map_err(|e| e.to_string())?;
+        if directory != self.directory
+            || (metadata.dev(), metadata.ino()) != self.directory_identity
+            || (current.dev(), current.ino()) != (held.dev(), held.ino())
+        {
+            return Err("native ownership does not bind this exact data directory".into());
+        }
+        Ok(())
+    }
+}
+pub(super) fn lock(data: &Path) -> Result<ProcessOwnership, String> {
     let path = data.join("process.lock");
     io::regular(&path)?;
     super::super::controlled_live_config::require_private_owned(&path, false)?;
@@ -96,7 +140,15 @@ pub(super) fn lock(data: &Path) -> Result<File, String> {
         .map_err(|e| e.to_string())?;
     file.try_lock()
         .map_err(|_| "another process retains this exact local node ownership lock".to_string())?;
-    Ok(file)
+    let directory = fs::canonicalize(data).map_err(|e| e.to_string())?;
+    let metadata = fs::metadata(&directory).map_err(|e| e.to_string())?;
+    let ownership = ProcessOwnership {
+        file,
+        directory,
+        directory_identity: (metadata.dev(), metadata.ino()),
+    };
+    ownership.require_directory(data)?;
+    Ok(ownership)
 }
 pub(super) fn read_instance(data: &Path) -> Result<Option<Instance>, String> {
     let path = data.join(INSTANCE_FILE);
@@ -620,10 +672,11 @@ fn log_file(path: &Path) -> Result<File, String> {
 fn supervise_formal_public_observer(
     config: &NodeConfig,
     intent: &mut ActionRecord,
-    ownership: File,
+    ownership: ProcessOwnership,
     observer_config: &super::formal_observer::FormalObserverConfigV1,
 ) -> Result<(), String> {
     let data = &config.identity.data_dir;
+    ownership.require_directory(data)?;
     let socket_dir = control_dir(data)?;
     io::private_dir(&socket_dir)?;
     let socket_path = control_path(data)?;
@@ -913,11 +966,12 @@ pub(super) fn supervise(path: &Path, incarnation: &str) -> Result<(), String> {
 fn supervise_command(
     config: &NodeConfig,
     intent: &mut ActionRecord,
-    ownership: File,
+    ownership: ProcessOwnership,
     mut command: Command,
     signal_stop: Arc<AtomicBool>,
 ) -> Result<(), String> {
     let data = &config.identity.data_dir;
+    ownership.require_directory(data)?;
     let socket_dir = control_dir(data)?;
     io::private_dir(&socket_dir)?;
     let socket_path = control_path(data)?;
@@ -934,7 +988,7 @@ fn supervise_command(
     // Retain this SAME lock description in the owned runtime child. A killed
     // supervisor leaves an unresolved live runtime holding the lock; a new
     // incarnation cannot start, and stop never guesses from a reused PID.
-    let descriptor = ownership.as_raw_fd();
+    let descriptor = ownership.file.as_raw_fd();
     unsafe {
         command.pre_exec(move || {
             let inherited = libc::fcntl(descriptor, libc::F_DUPFD, 3);

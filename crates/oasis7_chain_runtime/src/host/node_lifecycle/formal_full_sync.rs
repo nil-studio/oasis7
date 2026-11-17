@@ -54,28 +54,42 @@ mod attempt;
 pub(super) mod cas_lifecycle;
 #[path = "formal_full_sync_compatibility.rs"]
 mod compatibility;
-#[cfg(all(test, unix))]
+#[cfg(unix)]
 #[path = "formal_full_sync_direct_http.rs"]
 mod direct_http;
+#[cfg(unix)]
+#[path = "formal_full_sync_dns.rs"]
+mod dns;
 #[path = "formal_full_sync_failover.rs"]
 mod failover;
 #[path = "formal_full_sync_grant_reconcile.rs"]
 mod grant_reconcile;
 #[path = "formal_full_sync_history.rs"]
 pub(super) mod history_chain;
-#[cfg(all(test, unix))]
+#[cfg(unix)]
 #[path = "formal_full_sync_metered_io.rs"]
 mod metered_io;
 #[path = "formal_full_sync_native.rs"]
 mod native_environment;
-#[cfg(all(test, unix))]
+#[cfg(unix)]
 #[path = "formal_full_sync_operation_ledger.rs"]
 mod operation_ledger;
 #[cfg(all(test, unix))]
 #[path = "formal_full_sync_operation_tests.rs"]
 mod operation_tests;
+#[path = "formal_full_sync_session_init.rs"]
+mod session_init;
 #[path = "formal_full_sync_providers.rs"]
 mod providers;
+#[cfg(unix)]
+#[path = "formal_full_sync_shared_exchange.rs"]
+mod shared_exchange;
+#[cfg(unix)]
+#[path = "formal_full_sync_tls_http.rs"]
+mod tls_http;
+#[cfg(unix)]
+#[path = "formal_full_sync_tls_io.rs"]
+mod tls_io;
 use attempt::{
     FullSyncAttemptV1, cut_from_anchor, native_role, nondecreasing_cut, now_unix_ms, object_bytes,
     valid_hex, verified_anchor, verified_local_object,
@@ -248,10 +262,13 @@ pub(crate) struct RestoredFormalFullSyncWorldV1 {
 }
 
 pub(crate) struct FormalFullSyncSession {
+    #[cfg(unix)]
+    cas_root: std::path::PathBuf,
     config: FormalFullSyncConfigV1,
     client: RemoteWorldServiceClient,
     http: HttpClient,
     active_provider_index: usize,
+    shared_exchange: Option<Arc<dyn oasis7_game_client::formal_sync_exchange::FullSyncExchange>>,
     node_private_key_hex: String,
     node_public_key_hex: String,
     cas: Arc<LocalCasStore>,
@@ -266,97 +283,6 @@ pub(crate) struct FormalFullSyncSession {
 pub(crate) mod tests;
 
 impl FormalFullSyncSession {
-    /// Construct from an already loaded, privately held node identity. The
-    /// grant must bind that key; local process ownership alone grants nothing.
-    pub(crate) fn new(
-        config: FormalFullSyncConfigV1,
-        node_private_key_hex: String,
-        cas_root: &Path,
-        instance: &super::LocalInstance,
-    ) -> Result<Self, String> {
-        config.validate()?;
-        let signed = authority::sign_read_request(
-            "formal-full-sync-node-key-check",
-            (),
-            &node_private_key_hex,
-        )?;
-        if config
-            .grant
-            .as_ref()
-            .is_some_and(|grant| signed.subject_public_key != grant.body.node_public_key)
-        {
-            return Err("full-sync node key differs from issuer grant".into());
-        }
-        super::local_io::private_dir(cas_root)?;
-        let providers = config.providers();
-        let active_provider = providers
-            .first()
-            .ok_or("full-sync has no configured provider")?;
-        let timeout = Duration::from_millis(config.request_timeout_ms);
-        let client =
-            providers::build_read_client(&config, active_provider, &node_private_key_hex, timeout)?;
-        let http = HttpClient::builder()
-            .connect_timeout(timeout)
-            .timeout(timeout)
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .map_err(|error| error.to_string())?;
-        let node_public_key_hex = signed.subject_public_key;
-        let cas = Arc::new(LocalCasStore::new(cas_root));
-        let cas_integrity_poisoned = Arc::new(AtomicBool::new(false));
-        let history = history_chain::PersistedFormalReadHistoryV1::open(
-            &config,
-            &client,
-            Arc::clone(&cas),
-            cas_root,
-        )?;
-        cas_lifecycle::stabilize_loaded_world_pins(&cas)?;
-        cas_lifecycle::prune_unpinned(&cas)?;
-        let status = FormalFullSyncStatusV1 {
-            api_version: "oasis7.formal-full-sync-status/v1".into(),
-            runtime_profile: PROFILE.into(),
-            state: if config.grant.is_some() {
-                "starting"
-            } else {
-                "blocked_missing_issuer_grant"
-            }
-            .into(),
-            ready: false,
-            can_propose: false,
-            state_root_verified: false,
-            world_loaded: false,
-            sync_scope: "issuer_granted_full_state_read_only".into(),
-            world_id: config.world_id.clone(),
-            chain_id: config.chain_id.clone(),
-            node_public_key: node_public_key_hex.clone(),
-            incarnation: instance.incarnation.clone(),
-            generation: instance.generation,
-            config_digest: instance.config_digest.clone(),
-            grant_epoch: config.grant.as_ref().map(|grant| grant.body.grant_epoch),
-            last_verified_cut: None,
-            loaded_cut: None,
-            lag_positions: None,
-            catch_up_pending: false,
-            last_checked_unix_ms: None,
-            error: None,
-        };
-        let mut session = Self {
-            config,
-            client,
-            http,
-            active_provider_index: 0,
-            node_private_key_hex,
-            node_public_key_hex,
-            cas,
-            cas_integrity_poisoned,
-            history,
-            cas_publication_poisoned: false,
-            status,
-        };
-        session.status.last_verified_cut = session.history.last_verified_cut().cloned();
-        Ok(session)
-    }
-
     pub(crate) fn status(&self) -> &FormalFullSyncStatusV1 {
         &self.status
     }
@@ -393,6 +319,30 @@ impl FormalFullSyncSession {
 
     /// Cold-restores the qualified snapshot; a failed poll withdraws readiness.
     pub(crate) fn sync_latest(&mut self) -> Result<RestoredFormalFullSyncWorldV1, String> {
+        self.check_operation_active()?;
+        let result = self.sync_latest_owned();
+        if let Some(exchange) = &self.shared_exchange {
+            if let Err(error) = exchange.finish_attempt() {
+                let error = error.to_string();
+                self.fail(&error);
+                return Err(error);
+            }
+        }
+        result
+    }
+
+    fn check_operation_active(&mut self) -> Result<(), String> {
+        if let Some(exchange) = &self.shared_exchange {
+            if let Err(error) = exchange.check_active() {
+                let error = error.to_string();
+                self.fail(&error);
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    fn sync_latest_owned(&mut self) -> Result<RestoredFormalFullSyncWorldV1, String> {
         if self.config.grant.is_none() {
             self.status.ready = false;
             self.status.can_propose = false;
@@ -473,6 +423,7 @@ impl FormalFullSyncSession {
                     );
                     return Err(error.into());
                 }
+                self.check_operation_active()?;
                 if let Err(error) = cas_lifecycle::replace_loaded_world_pins(
                     &self.cas,
                     &restored.retained_cas_hashes,
@@ -493,6 +444,7 @@ impl FormalFullSyncSession {
                         ),
                     });
                 }
+                self.check_operation_active()?;
                 let lag = latest.position.saturating_sub(restored.cut.position);
                 self.status.last_verified_cut = Some(latest);
                 self.status.loaded_cut = Some(restored.cut.clone());
@@ -578,6 +530,13 @@ impl FormalFullSyncSession {
         if attempt.target.is_none() {
             // Pin only after the cut passed the independent anchor and grant
             // checks; an invalid first target must not block other providers.
+            if let Some(exchange) = &self.shared_exchange {
+                let original = serde_json::to_vec(&(&cut, anchor.head().record()))
+                    .map_err(|error| error.to_string())?;
+                exchange
+                    .bind_verified_target(&original)
+                    .map_err(|error| error.to_string())?;
+            }
             attempt.pin_target(anchor.clone(), cut.clone());
         }
 
@@ -632,6 +591,7 @@ impl FormalFullSyncSession {
             store: Arc::clone(&self.cas),
             integrity_poisoned: Arc::clone(&self.cas_integrity_poisoned),
         });
+        self.check_operation_active()?;
         let world = oasis7::runtime_host::world::from_verified_formal_snapshot(
             snapshot, journal, parent, reader,
         )
@@ -1048,27 +1008,47 @@ impl FormalFullSyncSession {
             .get(self.active_provider_index)
             .cloned()
             .ok_or("active full-sync provider is missing")?;
-        let url = format!("{}{}", provider.endpoint.trim_end_matches('/'), path);
-        let response = self
-            .http
-            .post(url)
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .json(&signed)
-            .send()
-            .map_err(|error| format!("full-sync transport: {error}"))?;
-        let status = response.status();
-        let mut bytes = Vec::new();
-        response
-            .take(response_bound as u64 + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|error| error.to_string())?;
+        let (status, bytes) = if let Some(exchange) = &self.shared_exchange {
+            let body = serde_json::to_vec(&signed).map_err(|e| e.to_string())?;
+            if body.len() > 256 * 1024 {
+                return Err("full-sync request exceeds encoded body bound".into());
+            }
+            let response = exchange
+                .exchange(
+                    oasis7_game_client::formal_sync_exchange::EncodedFullSyncExchange {
+                        endpoint: &provider.endpoint,
+                        path,
+                        signed_body: &body,
+                        response_bound,
+                        request_timeout: Duration::from_millis(self.config.request_timeout_ms),
+                    },
+                )
+                .map_err(|e| e.to_string())?;
+            (response.status, response.body)
+        } else {
+            let url = format!("{}{}", provider.endpoint.trim_end_matches('/'), path);
+            let response = self
+                .http
+                .post(url)
+                .header(reqwest::header::CONTENT_TYPE, "application/json")
+                .json(&signed)
+                .send()
+                .map_err(|error| format!("full-sync transport: {error}"))?;
+            let status = response.status().as_u16();
+            let mut bytes = Vec::new();
+            response
+                .take(response_bound as u64 + 1)
+                .read_to_end(&mut bytes)
+                .map_err(|error| error.to_string())?;
+            (status, bytes)
+        };
         if bytes.len() > response_bound {
             return Err("full-sync response exceeds endpoint-specific bound".into());
         }
-        if !status.is_success() {
+        if !(200..300).contains(&status) {
             let envelope: StrictServiceEnvelope<FormalFullSyncServiceErrorV1> =
                 serde_json::from_slice(&bytes)
-                    .map_err(|_| format!("full-sync service HTTP {}", status.as_u16()))?;
+                    .map_err(|_| format!("full-sync service HTTP {}", status))?;
             let response = envelope.into_signed();
             authority::verify_service_response(
                 path,
@@ -1082,7 +1062,7 @@ impl FormalFullSyncSession {
             return Err(format!(
                 "full-sync service {} (HTTP {}): {}",
                 response.payload.code,
-                status.as_u16(),
+                status,
                 response
                     .payload
                     .message

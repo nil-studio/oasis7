@@ -13,6 +13,7 @@ impl FormalFullSyncSession {
         // The target cut and charged material bytes belong to this whole
         // `sync_latest()` call, not to an individual provider attempt.
         let mut attempt = FullSyncAttemptV1::new(self.config.max_total_sync_bytes);
+        attempt.budget.shared_exchange = self.shared_exchange.clone();
         for offset in 0..provider_count {
             let provider_index = (starting_provider + offset) % provider_count;
             if offset > 0
@@ -63,6 +64,13 @@ impl FormalFullSyncSession {
             &self.node_private_key_hex,
             Duration::from_millis(self.config.request_timeout_ms),
         )?;
+        let client = if let Some(exchange) = &self.shared_exchange {
+            client
+                .with_full_sync_exchange(exchange.clone())
+                .map_err(|e| e.to_string())?
+        } else {
+            client
+        };
         self.history
             .replay_into_fresh_client(&self.config, &client)?;
         self.client = client;

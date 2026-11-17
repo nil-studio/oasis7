@@ -112,7 +112,7 @@ fn real_tcp_body_accounting_survives_original_identity_reopen() {
     assert_eq!(ledger.snapshot().encoded_rx_actual, 5);
     ledger.finish_attempt(&attempt).unwrap();
     drop(ledger);
-    let restored = Ledger::open(&path, &identity, &policy).unwrap();
+    let restored = Ledger::open(&path, &identity, &policy, 0).unwrap();
     assert_eq!(restored.snapshot().encoded_tx_actual, 7);
     assert_eq!(restored.snapshot().encoded_rx_actual, 5);
 }
@@ -130,7 +130,7 @@ fn unresolved_reservation_is_not_refunded_by_reopen() {
         .reserve(&attempt, &request, Direction::Rx, 32)
         .unwrap();
     drop(ledger); // no settlement: models process death at the I/O boundary
-    let mut restored = Ledger::open(&path, &identity, &policy).unwrap();
+    let mut restored = Ledger::open(&path, &identity, &policy, 0).unwrap();
     assert_eq!(restored.snapshot().reservation.as_ref(), Some(&token));
     assert_eq!(restored.snapshot().encoded_rx_actual, 0);
     assert!(restored.settle(&token, 0).is_err());
@@ -164,7 +164,7 @@ fn foreign_token_and_policy_changes_are_rejected() {
     drop(first);
     let mut changed = policy.clone();
     changed.max_encoded_io_bytes += 1;
-    assert!(Ledger::open(&temp.path().join("a.json"), &original, &changed).is_err());
+    assert!(Ledger::open(&temp.path().join("a.json"), &original, &changed, 0).is_err());
 }
 
 #[test]
@@ -223,9 +223,307 @@ fn initial_duplex_credit_survives_crash_and_foreign_finish_cannot_release_it() {
     assert_eq!(b.snapshot().tx_credit, 0);
     assert_eq!(b.snapshot().rx_credit, 0);
     drop(a);
-    let restored = Ledger::open(&a_path, &a_id, &policy).unwrap();
+    let restored = Ledger::open(&a_path, &a_id, &policy, 0).unwrap();
     assert_eq!(restored.snapshot().tx_credit, 17);
     assert_eq!(restored.snapshot().rx_credit, 29);
     assert_eq!(restored.snapshot().encoded_tx_actual, 0);
     assert_eq!(restored.snapshot().encoded_rx_actual, 0);
+}
+
+#[test]
+fn proof_and_material_charges_are_durable_and_exhaustion_does_not_reset_them() {
+    let temp = TestDir::new();
+    let path = temp.path().join("operation.json");
+    let policy = policy();
+    let identity = identity(&policy);
+    let mut ledger =
+        Ledger::create_with_material_limit(&path, identity.clone(), policy.clone(), 7).unwrap();
+    let attempt = ledger.begin_attempt().unwrap();
+    ledger.charge_proof(&attempt, 512).unwrap();
+    ledger.charge_proof(&attempt, 512).unwrap();
+    let before = ledger.snapshot().clone();
+    assert!(ledger.charge_proof(&attempt, 1).is_err());
+    assert_eq!(ledger.snapshot(), &before);
+    let digest = "ab".repeat(32);
+    ledger.charge_material(&attempt, &digest, 7).unwrap();
+    let charged = ledger.snapshot().clone();
+    ledger.charge_material(&attempt, &digest, 7).unwrap();
+    assert_eq!(ledger.snapshot(), &charged);
+    assert!(ledger.charge_material(&attempt, &digest, 6).is_err());
+    assert!(
+        ledger
+            .charge_material(&attempt, &"cd".repeat(32), 1)
+            .is_err()
+    );
+    assert_eq!(ledger.snapshot(), &charged);
+    ledger.finish_attempt(&attempt).unwrap();
+    assert!(ledger.check_attempt(&attempt).is_err());
+    let final_state = ledger.snapshot().clone();
+    drop(ledger);
+    assert!(Ledger::open(&path, &identity, &policy, 6).is_err());
+    let reopened = Ledger::open(&path, &identity, &policy, 7).unwrap();
+    assert_eq!(reopened.snapshot(), &final_state);
+}
+
+#[test]
+fn uncertain_proof_persistence_invalidates_active_permit() {
+    let temp = TestDir::new();
+    let path = temp.path().join("operation.json");
+    let policy = policy();
+    let identity = identity(&policy);
+    let mut ledger = Ledger::create(&path, identity, policy).unwrap();
+    let attempt = ledger.begin_attempt().unwrap();
+    std::fs::write(&path, b"{broken").unwrap();
+    assert!(ledger.charge_proof(&attempt, 1).is_err());
+    assert!(ledger.check_attempt(&attempt).is_err());
+    assert!(ledger.finish_attempt(&attempt).is_err());
+    assert!(ledger.begin_attempt().is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), b"{broken");
+}
+
+#[test]
+fn original_verified_target_is_durable_and_cannot_be_replaced() {
+    let temp = TestDir::new();
+    let path = temp.path().join("operation.json");
+    let policy = policy();
+    let identity = identity(&policy);
+    let mut ledger = Ledger::create(&path, identity.clone(), policy.clone()).unwrap();
+    let attempt = ledger.begin_attempt().unwrap();
+    // Ledger retains caller-verified bytes; it does not confer proof validity.
+    let target = br#"[{"position":7},{"record":"original"}]"#;
+    ledger.bind_verified_target(&attempt, target).unwrap();
+    let original = ledger.snapshot().clone();
+    ledger.bind_verified_target(&attempt, target).unwrap();
+    assert_eq!(ledger.snapshot(), &original);
+    assert!(
+        ledger
+            .bind_verified_target(&attempt, br#"[{"position":8},{}]"#)
+            .is_err()
+    );
+    assert_eq!(ledger.snapshot(), &original);
+    drop(ledger);
+    let reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
+    assert_eq!(reopened.snapshot(), &original);
+}
+
+#[test]
+fn original_request_is_retained_exactly_and_tampering_blocks_reopen() {
+    let temp = TestDir::new();
+    let path = temp.path().join("operation.json");
+    let policy = policy();
+    let request = serde_json::json!({"origin":"https://example.invalid","minimum":{"position":7}});
+    let mut identity = identity(&policy);
+    identity.request_digest = local_io::digest(&request).unwrap();
+    let mut ledger = Ledger::create(&path, identity.clone(), policy.clone()).unwrap();
+    ledger.bind_original_request(&request).unwrap();
+    let original = ledger.snapshot().clone();
+    assert_eq!(
+        original.original_request_json,
+        Some(serde_json::to_vec(&request).unwrap())
+    );
+    ledger.bind_original_request(&request).unwrap();
+    assert_eq!(ledger.snapshot(), &original);
+    assert!(
+        ledger
+            .bind_original_request(&serde_json::json!({"minimum":6}))
+            .is_err()
+    );
+    assert_eq!(ledger.snapshot(), &original);
+    drop(ledger);
+    let reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
+    assert_eq!(reopened.snapshot(), &original);
+    drop(reopened);
+    let mut corrupted = original;
+    corrupted.original_request_json = Some(b"{}".to_vec());
+    local_io::write(&path, &corrupted).unwrap();
+    assert!(Ledger::open(&path, &identity, &policy, 0).is_err());
+}
+
+#[test]
+fn original_request_cannot_be_backfilled_after_attempt_start() {
+    let temp = TestDir::new();
+    let path = temp.path().join("operation.json");
+    let policy = policy();
+    let request = serde_json::json!({"original":"request"});
+    let mut identity = identity(&policy);
+    identity.request_digest = local_io::digest(&request).unwrap();
+    let mut ledger = Ledger::create(&path, identity, policy).unwrap();
+    let _attempt = ledger.begin_attempt().unwrap();
+    let before = ledger.snapshot().clone();
+    assert!(ledger.bind_original_request(&request).is_err());
+    assert_eq!(ledger.snapshot(), &before);
+}
+
+#[test]
+fn pre_target_recovery_preserves_unknown_credit_and_original_owner() {
+    let temp = TestDir::new();
+    drop(local_io::private_file(&temp.path().join("process.lock")).unwrap());
+    local_io::private_dir(&temp.path().join("state")).unwrap();
+    let state = temp.path().join("state/full-sync");
+    local_io::private_dir(&state).unwrap();
+    let path = state.join("operation.json");
+    let policy = policy();
+    let request = serde_json::json!({"minimum": 5});
+    let mut id = identity(&policy);
+    id.request_digest = local_io::digest(&request).unwrap();
+    let owner = std::sync::Arc::new(super::super::process::lock(temp.path()).unwrap());
+    let mut original = Ledger::create(&path, id.clone(), policy.clone()).unwrap();
+    original.bind_owner(owner.clone(), temp.path()).unwrap();
+    original.bind_original_request(&request).unwrap();
+    let attempt = original.begin_attempt().unwrap();
+    let request_permit = original.begin_exchange(&attempt, 19, 23).unwrap();
+    let pending_window = original
+        .reserve(&attempt, &request_permit, Direction::Tx, 10)
+        .unwrap();
+    let before = original.snapshot().clone();
+    drop(original);
+    drop(owner);
+    let owner = std::sync::Arc::new(super::super::process::lock(temp.path()).unwrap());
+    let mut reopened = Ledger::open(&path, &id, &policy, 0).unwrap();
+    assert!(
+        reopened
+            .resume_before_target(
+                owner.clone(),
+                temp.path(),
+                &serde_json::json!({"minimum": 4})
+            )
+            .is_err()
+    );
+    assert_eq!(reopened.snapshot(), &before);
+    // A copied ledger cannot borrow a different native directory's valid lock.
+    let other = TestDir::new();
+    local_io::private_dir(&other.path().join("state")).unwrap();
+    local_io::private_dir(&other.path().join("state/full-sync")).unwrap();
+    drop(local_io::private_file(&other.path().join("process.lock")).unwrap());
+    let copied_path = other.path().join("state/full-sync/operation.json");
+    std::fs::copy(&path, &copied_path).unwrap();
+    let copied_owner = std::sync::Arc::new(super::super::process::lock(other.path()).unwrap());
+    let mut copied = Ledger::open(&copied_path, &id, &policy, 0).unwrap();
+    assert!(
+        copied
+            .resume_before_target(copied_owner, other.path(), &request)
+            .is_err()
+    );
+    assert_eq!(copied.snapshot(), &before);
+    drop(copied);
+    let next = reopened
+        .resume_before_target(owner.clone(), temp.path(), &request)
+        .unwrap();
+    let after = reopened.snapshot();
+    assert_eq!(after.revision, before.revision + 1);
+    assert_eq!(after.attempts_used, 2);
+    assert_eq!(after.interrupted_attempts.len(), 1);
+    assert_eq!(
+        serde_json::to_value(&after.interrupted_attempts[0]).unwrap()["reservation"],
+        serde_json::to_value(&pending_window).unwrap()
+    );
+    assert_eq!(after.encoded_tx_actual, before.encoded_tx_actual);
+    assert_eq!(after.encoded_rx_actual, before.encoded_rx_actual);
+    assert_eq!(after.unknown_final_charged, 0);
+    // 42 unresolved bytes still count against the original 1024 cap.
+    assert!(reopened.begin_exchange(&next, 500, 500).is_err());
+    drop(owner);
+    assert!(super::super::process::lock(temp.path()).is_err());
+    drop(reopened);
+    drop(super::super::process::lock(temp.path()).unwrap());
+    let mut observed = Ledger::open(&path, &id, &policy, 0).unwrap();
+    assert!(observed.begin_attempt().is_err());
+    assert_eq!(observed.snapshot().interrupted_attempts.len(), 1);
+}
+
+#[test]
+fn pre_target_recovery_rejects_selected_expired_changed_or_replaced_state() {
+    for case in ["selected", "expired", "predecessor", "owner", "unbound"] {
+        let temp = TestDir::new();
+        drop(local_io::private_file(&temp.path().join("process.lock")).unwrap());
+        local_io::private_dir(&temp.path().join("state")).unwrap();
+        local_io::private_dir(&temp.path().join("state/full-sync")).unwrap();
+        let path = temp.path().join("state/full-sync/operation.json");
+        let mut policy = policy();
+        policy.reopen_timeout_ms = if case == "expired" { 100 } else { 10_000 };
+        let request = serde_json::json!({"minimum": 9});
+        let mut id = identity(&policy);
+        id.request_digest = local_io::digest(&request).unwrap();
+        let owner = std::sync::Arc::new(super::super::process::lock(temp.path()).unwrap());
+        let mut ledger = Ledger::create(&path, id.clone(), policy.clone()).unwrap();
+        if case != "unbound" {
+            ledger.bind_owner(owner.clone(), temp.path()).unwrap();
+        }
+        ledger.bind_original_request(&request).unwrap();
+        let attempt = ledger.begin_attempt().unwrap();
+        if case == "selected" {
+            ledger
+                .bind_verified_target(&attempt, b"{\"cut\":10}")
+                .unwrap();
+        }
+        drop(ledger);
+        let mut reopened = Ledger::open(&path, &id, &policy, 0).unwrap();
+        if case == "expired" {
+            std::thread::sleep(Duration::from_millis(120));
+        }
+        if case == "predecessor" {
+            let mut replaced = reopened.snapshot().clone();
+            replaced.revision += 1;
+            local_io::write(&path, &replaced).unwrap();
+        }
+        if case == "owner" {
+            std::fs::rename(
+                temp.path().join("process.lock"),
+                temp.path().join("old.lock"),
+            )
+            .unwrap();
+            drop(local_io::private_file(&temp.path().join("process.lock")).unwrap());
+        }
+        let before = std::fs::read(&path).unwrap();
+        assert!(
+            reopened
+                .resume_before_target(owner, temp.path(), &request)
+                .is_err(),
+            "{case}"
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before, "{case}");
+        assert!(reopened.begin_attempt().is_err(), "{case}");
+    }
+}
+
+#[test]
+fn pre_target_recovery_never_admits_fifth_attempt() {
+    let temp = TestDir::new();
+    drop(local_io::private_file(&temp.path().join("process.lock")).unwrap());
+    local_io::private_dir(&temp.path().join("state")).unwrap();
+    local_io::private_dir(&temp.path().join("state/full-sync")).unwrap();
+    let path = temp.path().join("state/full-sync/operation.json");
+    let mut policy = policy();
+    policy.max_attempts = 4;
+    let request = serde_json::json!({"minimum": 11});
+    let mut id = identity(&policy);
+    id.request_digest = local_io::digest(&request).unwrap();
+    let owner = std::sync::Arc::new(super::super::process::lock(temp.path()).unwrap());
+    let mut ledger = Ledger::create(&path, id.clone(), policy.clone()).unwrap();
+    ledger.bind_owner(owner.clone(), temp.path()).unwrap();
+    ledger.bind_original_request(&request).unwrap();
+    let first = ledger.begin_attempt().unwrap();
+    ledger.begin_exchange(&first, 3, 4).unwrap();
+    for attempt_no in 2..=4 {
+        drop(ledger);
+        ledger = Ledger::open(&path, &id, &policy, 0).unwrap();
+        let attempt = ledger
+            .resume_before_target(owner.clone(), temp.path(), &request)
+            .unwrap();
+        assert_eq!(ledger.snapshot().attempts_used, attempt_no);
+        assert_eq!(
+            ledger.snapshot().interrupted_attempts.len() as u64,
+            attempt_no - 1
+        );
+        ledger.begin_exchange(&attempt, 3, 4).unwrap();
+    }
+    drop(ledger);
+    let mut reopened = Ledger::open(&path, &id, &policy, 0).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    assert!(
+        reopened
+            .resume_before_target(owner, temp.path(), &request)
+            .is_err()
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before);
 }

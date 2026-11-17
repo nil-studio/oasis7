@@ -44,7 +44,10 @@ impl<P: FormalReadProjection> RemoteWorldServiceReader<P> {
             .map_err(|_| WorldServiceClientError::Assurance("formal cache poisoned".into()))?
             .replay_cursor()
             .map_err(WorldServiceClientError::Assurance)?;
-        let fresh = Self::new(self.config.clone())?;
+        let mut fresh = Self::new(self.config.clone())?;
+        if let Some(exchange) = &self.transport.full_sync_exchange {
+            fresh = fresh.with_full_sync_exchange(exchange.clone())?;
+        }
         let observed = fresh.read_view(ReadWorldViewRequest {
             observation_nonce: None,
             formal_anchor: None,
@@ -470,8 +473,28 @@ impl<P: FormalReadProjection> RemoteWorldServiceReader<P> {
                 let mut verifier = verifier.lock().map_err(|_| {
                     WorldServiceClientError::Assurance("formal verifier cache is poisoned".into())
                 })?;
-                P::verify_response(&mut verifier, &response, request, reader)
-                    .map_err(WorldServiceClientError::Assurance)?
+                if let Some(exchange) = &self.transport.full_sync_exchange {
+                    let proof = response.formal_proof.as_ref().ok_or_else(|| {
+                        WorldServiceClientError::Assurance("formal proof missing".into())
+                    })?;
+                    proof
+                        .validate()
+                        .map_err(|e| WorldServiceClientError::Assurance(e.to_string()))?;
+                    crate::formal_read::FormalReadHistoryV1::decode_hex(&proof.history_cbor_hex)
+                        .map_err(WorldServiceClientError::Assurance)?;
+                    exchange.charge_proof((proof.history_cbor_hex.len() / 2) as u64)?;
+                }
+                if let Some(exchange) = &self.transport.full_sync_exchange {
+                    let mut next = verifier.clone();
+                    let observation = P::verify_response(&mut next, &response, request, reader)
+                        .map_err(WorldServiceClientError::Assurance)?;
+                    exchange.check_active()?;
+                    *verifier = next;
+                    observation
+                } else {
+                    P::verify_response(&mut verifier, &response, request, reader)
+                        .map_err(WorldServiceClientError::Assurance)?
+                }
             };
             VerifiedWorldView::new_formal_verified(response, request, observation)
         } else {

@@ -4,6 +4,7 @@
 //! delivery to the peer. A pending reservation survives restart unchanged.
 use super::super::local_io;
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -75,19 +76,51 @@ pub(super) struct Reservation {
     pub bytes: u64,
 }
 
+/// An interrupted attempt retains unresolved credits under its original identity.
+/// These bytes are neither confirmed actual nor a refundable balance.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct InterruptedAttempt {
+    attempt_no: u64,
+    attempt_nonce: String,
+    request: Option<(u64, u64)>,
+    request_nonce: Option<String>,
+    tx_credit: u64,
+    rx_credit: u64,
+    reservation: Option<Reservation>,
+}
+impl InterruptedAttempt {
+    fn charged(&self) -> Option<u64> {
+        self.tx_credit
+            .checked_add(self.rx_credit)?
+            .checked_add(self.reservation.as_ref().map_or(0, |r| r.bytes))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Snapshot {
     api_version: String,
     pub identity: Identity,
+    #[serde(default)]
+    pub owner_binding: Option<String>,
     pub revision: u64,
     pub policy: Policy,
     pub encoded_tx_actual: u64,
     pub encoded_rx_actual: u64,
     pub unknown_final_charged: u64,
     pub exchanges_started: u64,
+    pub original_request_json: Option<Vec<u8>>,
+    pub verified_target_json: Option<Vec<u8>>,
+    pub proof_pages: u64,
+    pub proof_bytes: u64,
+    pub material_limit: u64,
+    pub material_bytes: u64,
+    pub materials: std::collections::BTreeMap<String, u64>,
     pub window_seq: u64,
     pub attempts_used: u64,
+    #[serde(default)]
+    pub interrupted_attempts: Vec<InterruptedAttempt>,
     pub active_attempt_nonce: Option<String>,
     pub active_request: Option<(u64, u64)>,
     pub active_request_nonce: Option<String>,
@@ -101,6 +134,11 @@ impl Snapshot {
         self.encoded_tx_actual
             .checked_add(self.encoded_rx_actual)
             .and_then(|n| n.checked_add(self.unknown_final_charged))
+            .and_then(|n| {
+                self.interrupted_attempts
+                    .iter()
+                    .try_fold(n, |n, old| n.checked_add(old.charged()?))
+            })
             .and_then(|n| n.checked_add(self.tx_credit))
             .and_then(|n| n.checked_add(self.rx_credit))
             .and_then(|n| n.checked_add(self.reservation.as_ref().map_or(0, |r| r.bytes)))
@@ -109,8 +147,60 @@ impl Snapshot {
 
     fn validate(&self) -> Result<(), String> {
         self.policy.validate()?;
+        let mut previous = 0;
+        for old in &self.interrupted_attempts {
+            if old.attempt_no <= previous
+                || old.attempt_no >= self.attempts_used
+                || old.attempt_nonce.len() != 32
+                || !old.attempt_nonce.bytes().all(|c| c.is_ascii_hexdigit())
+                || old.tx_credit > MAX_REQUEST_BODY
+                || old.rx_credit > MAX_WINDOW
+                || old.request.is_some() != old.request_nonce.is_some()
+                || old.request.is_none()
+                    && (old.tx_credit != 0 || old.rx_credit != 0 || old.reservation.is_some())
+                || old.request.is_some_and(|(a, r)| {
+                    a != old.attempt_no || r == 0 || r > self.exchanges_started
+                })
+                || old
+                    .request_nonce
+                    .as_ref()
+                    .is_some_and(|n| n.len() != 32 || !n.bytes().all(|c| c.is_ascii_hexdigit()))
+                || old.reservation.as_ref().is_some_and(|r| {
+                    r.identity != self.identity
+                        || Some((r.attempt_no, r.request_seq)) != old.request
+                        || old.request_nonce.as_ref() != Some(&r.request_nonce)
+                        || r.bytes == 0
+                        || r.bytes > MAX_WINDOW
+                        || r.nonce.len() != 32
+                        || !r.nonce.bytes().all(|c| c.is_ascii_hexdigit())
+                        || r.window_seq > self.window_seq
+                })
+            {
+                return Err("invalid interrupted attempt accounting".into());
+            }
+            previous = old.attempt_no;
+        }
+        if self.interrupted_attempts.len() > 4 {
+            return Err("interrupted attempt capacity".into());
+        }
+        if let Some(bytes) = &self.original_request_json {
+            if bytes.is_empty()
+                || bytes.len() > 64 * 1024
+                || hex::encode(sha2::Sha256::digest(bytes)) != self.identity.request_digest
+                || serde_json::from_slice::<serde_json::Value>(bytes).is_err()
+            {
+                return Err("original operation request binding mismatch".into());
+            }
+        }
         if local_io::digest(&self.policy)? != self.identity.policy_digest {
             return Err("operation policy digest mismatch".into());
+        }
+        if self
+            .owner_binding
+            .as_ref()
+            .is_some_and(|v| v.len() != 64 || !v.bytes().all(|c| c.is_ascii_hexdigit()))
+        {
+            return Err("invalid native owner binding".into());
         }
         if self.api_version != API
             || self.identity.operation_id.len() != 32
@@ -144,6 +234,24 @@ impl Snapshot {
                 .active_request_nonce
                 .as_ref()
                 .is_some_and(|v| v.len() != 32 || !v.bytes().all(|c| c.is_ascii_hexdigit()))
+            || self.proof_pages > self.policy.max_proof_pages
+            || self.proof_bytes > self.policy.max_proof_bytes
+            || self.verified_target_json.as_ref().is_some_and(|v| {
+                v.is_empty()
+                    || v.len() > 64 * 1024
+                    || serde_json::from_slice::<serde_json::Value>(v).is_err()
+            })
+            || self.material_limit > 512 * 1024 * 1024
+            || self.material_bytes > self.material_limit
+            || self.materials.len() > 65_536
+            || self.materials.iter().any(|(digest, bytes)| {
+                *bytes == 0 || digest.len() != 64 || !digest.bytes().all(|c| c.is_ascii_hexdigit())
+            })
+            || self
+                .materials
+                .values()
+                .try_fold(0u64, |sum, n| sum.checked_add(*n))
+                != Some(self.material_bytes)
             || self.exchanges_started > self.policy.max_exchanges
             || self.charged()? > self.policy.max_encoded_io_bytes
         {
@@ -203,11 +311,22 @@ pub(super) struct Ledger {
     state: Snapshot,
     poisoned: bool,
     recovered: bool,
+    reopen_deadline: Option<Instant>,
+    owner: Option<std::sync::Arc<super::super::process::ProcessOwnership>>,
 }
 
 impl Ledger {
     /// Explicit first initialization only; never called as an open fallback.
     pub fn create(path: &Path, identity: Identity, policy: Policy) -> Result<Self, String> {
+        Self::create_with_material_limit(path, identity, policy, 0)
+    }
+
+    pub fn create_with_material_limit(
+        path: &Path,
+        identity: Identity,
+        policy: Policy,
+        material_limit: u64,
+    ) -> Result<Self, String> {
         let lock = Self::lock(path)?;
         if path.try_exists().map_err(|e| e.to_string())? {
             return Err("operation ledger already exists; reopen its original identity".into());
@@ -215,14 +334,23 @@ impl Ledger {
         let state = Snapshot {
             api_version: API.into(),
             identity,
+            owner_binding: None,
             revision: 0,
             policy,
             encoded_tx_actual: 0,
             encoded_rx_actual: 0,
             unknown_final_charged: 0,
             exchanges_started: 0,
+            original_request_json: None,
+            verified_target_json: None,
+            proof_pages: 0,
+            proof_bytes: 0,
+            material_limit,
+            material_bytes: 0,
+            materials: Default::default(),
             window_seq: 0,
             attempts_used: 0,
+            interrupted_attempts: Vec::new(),
             active_attempt_nonce: None,
             active_request: None,
             active_request_nonce: None,
@@ -244,15 +372,36 @@ impl Ledger {
             state,
             poisoned: false,
             recovered: false,
+            reopen_deadline: None,
+            owner: None,
         })
     }
 
-    pub fn open(path: &Path, expected: &Identity, policy: &Policy) -> Result<Self, String> {
+    /// Bounded observation of the original ledger only. This does not authorize
+    /// resuming an interrupted attempt or reclaiming an unresolved reservation.
+    pub fn open(
+        path: &Path,
+        expected: &Identity,
+        policy: &Policy,
+        material_limit: u64,
+    ) -> Result<Self, String> {
+        policy.validate()?;
+        let deadline = Instant::now()
+            .checked_add(Duration::from_millis(policy.reopen_timeout_ms))
+            .ok_or("operation reopen deadline overflow")?;
         let lock = Self::lock(path)?;
         let state: Snapshot = local_io::read(path)?;
         state.validate()?;
-        if &state.policy != policy || &state.identity != expected {
+        if &state.policy != policy
+            || &state.identity != expected
+            || state.material_limit != material_limit
+        {
             return Err("operation identity differs from original request".into());
+        }
+        // A synchronous filesystem call may return late. Never turn its late
+        // completion into successful recovery or manufacture a fresh deadline.
+        if Instant::now() >= deadline {
+            return Err("operation_reopen_expired".into());
         }
         Ok(Self {
             path: path.into(),
@@ -260,6 +409,8 @@ impl Ledger {
             state,
             poisoned: false,
             recovered: true,
+            reopen_deadline: Some(deadline),
+            owner: None,
         })
     }
 
@@ -273,12 +424,19 @@ impl Ledger {
         &self.state
     }
 
-    fn save(&mut self, mut next: Snapshot) -> Result<(), String> {
+    fn save(&mut self, next: Snapshot) -> Result<(), String> {
         if self.recovered {
             return Err("operation_recovery_required: reopened handle is observation-only until explicit fenced attempt admission".into());
         }
         if self.poisoned {
             return Err("operation_recovery_required: uncertain prior persistence".into());
+        }
+        self.save_exact(next)
+    }
+
+    fn save_exact(&mut self, mut next: Snapshot) -> Result<(), String> {
+        if let Some(owner) = &self.owner {
+            owner.require_current_directory()?;
         }
         // Check the complete predecessor, not merely a revision supplied by
         // the caller. Unknown responses poison this handle before any I/O.
@@ -297,9 +455,166 @@ impl Ledger {
         if actual != next {
             return Err("operation_recovery_required: persistence readback mismatch".into());
         }
+        if let Some(owner) = &self.owner {
+            owner.require_current_directory()?;
+        }
         self.state = next;
         self.poisoned = false;
         Ok(())
+    }
+
+    /// Bind and retain the complete original request before first admission.
+    /// Hash-only ledgers remain useful for observing old experimental state,
+    /// but cannot be attached to the shared operation transport.
+    pub fn bind_original_request<T: Serialize>(&mut self, request: &T) -> Result<(), String> {
+        if self.recovered || self.poisoned {
+            return Err("operation_recovery_required: request binding unavailable".into());
+        }
+        let bytes = serde_json::to_vec(request).map_err(|error| error.to_string())?;
+        if bytes.is_empty()
+            || bytes.len() > 64 * 1024
+            || hex::encode(sha2::Sha256::digest(&bytes)) != self.state.identity.request_digest
+        {
+            return Err("original operation request binding mismatch".into());
+        }
+        if let Some(original) = &self.state.original_request_json {
+            return if original == &bytes {
+                Ok(())
+            } else {
+                Err("original operation request changed".into())
+            };
+        }
+        if self.state.attempts_used != 0 || self.state.active_attempt_nonce.is_some() {
+            return Err("original request must precede attempt admission".into());
+        }
+        let mut next = self.state.clone();
+        next.original_request_json = Some(bytes);
+        self.save(next)
+    }
+
+    /// Freeze native ownership before the first attempt. Old unbound ledgers
+    /// cannot be upgraded during recovery or after any network admission.
+    pub(super) fn bind_owner(
+        &mut self,
+        owner: std::sync::Arc<super::super::process::ProcessOwnership>,
+        data: &Path,
+    ) -> Result<(), String> {
+        if self.recovered
+            || self.poisoned
+            || self.state.attempts_used != 0
+            || self.state.owner_binding.is_some()
+        {
+            return Err("operation_recovery_required: owner binding must precede execution".into());
+        }
+        self.require_owner_path(&owner, data)?;
+        let mut next = self.state.clone();
+        next.owner_binding = Some(owner.binding_digest()?);
+        self.owner = Some(owner);
+        self.save(next)
+    }
+
+    fn require_owner_path(
+        &self,
+        owner: &super::super::process::ProcessOwnership,
+        data: &Path,
+    ) -> Result<(), String> {
+        owner.require_directory(data)?;
+        local_io::reject_symlinks(&self.path)?;
+        local_io::reject_symlinks(&data.join("state/full-sync"))?;
+        if self
+            .path
+            .parent()
+            .ok_or("ledger parent missing")?
+            .canonicalize()
+            .map_err(|e| e.to_string())?
+            != data
+                .join("state/full-sync")
+                .canonicalize()
+                .map_err(|e| e.to_string())?
+        {
+            return Err("operation belongs to a different native directory".into());
+        }
+        Ok(())
+    }
+
+    /// Narrow recovery before a target was selected. The caller must first
+    /// reconstruct the original request from its verified local session. This
+    /// never recovers an installed/selected target or authorizes a new cut.
+    pub(super) fn resume_before_target(
+        &mut self,
+        owner: std::sync::Arc<super::super::process::ProcessOwnership>,
+        data: &Path,
+        request: &serde_json::Value,
+    ) -> Result<AttemptPermit, String> {
+        let deadline = self.reopen_deadline.ok_or("not a reopened operation")?;
+        if !self.recovered || self.poisoned || Instant::now() >= deadline {
+            return Err("operation_recovery_required: reopen unavailable or expired".into());
+        }
+        self.require_owner_path(&owner, data)?;
+        if self.state.owner_binding.as_ref() != Some(&owner.binding_digest()?) {
+            return Err(
+                "operation_recovery_required: original native owner binding unavailable".into(),
+            );
+        }
+        let expected_parent = data.join("state/full-sync");
+        local_io::reject_symlinks(&self.path)?;
+        if self
+            .path
+            .parent()
+            .ok_or("ledger parent missing")?
+            .canonicalize()
+            .map_err(|e| e.to_string())?
+            != expected_parent.canonicalize().map_err(|e| e.to_string())?
+            || self.state.original_request_json.as_ref()
+                != Some(&serde_json::to_vec(request).map_err(|e| e.to_string())?)
+            || self.state.verified_target_json.is_some()
+        {
+            return Err(
+                "operation_recovery_required: original pre-target continuity unavailable".into(),
+            );
+        }
+        if self.state.attempts_used >= self.state.policy.max_attempts {
+            return Err("operation_budget_exhausted: attempts".into());
+        }
+        let mut next = self.state.clone();
+        if let Some(nonce) = next.active_attempt_nonce.take() {
+            next.interrupted_attempts.push(InterruptedAttempt {
+                attempt_no: next.attempts_used,
+                attempt_nonce: nonce,
+                request: next.active_request.take(),
+                request_nonce: next.active_request_nonce.take(),
+                tx_credit: std::mem::take(&mut next.tx_credit),
+                rx_credit: std::mem::take(&mut next.rx_credit),
+                reservation: next.reservation.take(),
+            });
+        }
+        next.attempts_used += 1;
+        let nonce = local_io::random_id()?;
+        next.active_attempt_nonce = Some(nonce.clone());
+        if next.charged()? != self.state.charged()? {
+            return Err("recovery changed charged budget".into());
+        }
+        owner.require_directory(data)?;
+        if Instant::now() >= deadline {
+            return Err("operation_reopen_expired".into());
+        }
+        // Retain the actual native lifetime fence before the only durable CAS.
+        self.owner = Some(owner);
+        self.save_exact(next)?;
+        if Instant::now() >= deadline {
+            self.poisoned = true;
+            return Err("operation_reopen_expired".into());
+        }
+        self.recovered = false;
+        self.reopen_deadline = None;
+        Ok(AttemptPermit {
+            identity: self.state.identity.clone(),
+            number: self.state.attempts_used,
+            nonce,
+            deadline: Instant::now()
+                .checked_add(Duration::from_millis(self.state.policy.attempt_timeout_ms))
+                .ok_or("attempt deadline overflow")?,
+        })
     }
 
     pub fn begin_attempt(&mut self) -> Result<AttemptPermit, String> {
@@ -330,8 +645,12 @@ impl Ledger {
         })
     }
 
-    fn check_attempt(&self, permit: &AttemptPermit) -> Result<(), String> {
+    pub(super) fn check_attempt(&self, permit: &AttemptPermit) -> Result<(), String> {
+        if let Some(owner) = &self.owner {
+            owner.require_current_directory()?;
+        }
         if self.recovered
+            || self.poisoned
             || permit.identity != self.state.identity
             || permit.number != self.state.attempts_used
             || self.state.active_attempt_nonce.as_ref() != Some(&permit.nonce)
@@ -348,6 +667,7 @@ impl Ledger {
         // Expiry terminates rather than renews an attempt; only exact identity,
         // no live I/O, and no outstanding reservation authorize this transition.
         if self.recovered
+            || self.poisoned
             || permit.identity != self.state.identity
             || permit.number != self.state.attempts_used
             || self.state.active_attempt_nonce.as_ref() != Some(&permit.nonce)
@@ -358,6 +678,79 @@ impl Ledger {
         }
         let mut next = self.state.clone();
         next.active_attempt_nonce = None;
+        self.save(next)
+    }
+
+    pub fn bind_verified_target(
+        &mut self,
+        permit: &AttemptPermit,
+        target_json: &[u8],
+    ) -> Result<(), String> {
+        self.check_attempt(permit)?;
+        if target_json.is_empty() || target_json.len() > 64 * 1024 {
+            return Err("operation target record exceeds supported bound".into());
+        }
+        serde_json::from_slice::<serde_json::Value>(target_json).map_err(|e| e.to_string())?;
+        if let Some(original) = &self.state.verified_target_json {
+            return if original == target_json {
+                Ok(())
+            } else {
+                Err("operation target differs from original verified record".into())
+            };
+        }
+        let mut next = self.state.clone();
+        next.verified_target_json = Some(target_json.to_vec());
+        self.save(next)
+    }
+
+    pub fn charge_proof(&mut self, permit: &AttemptPermit, bytes: u64) -> Result<(), String> {
+        self.check_attempt(permit)?;
+        if bytes == 0 || bytes > 4 * 1024 * 1024 {
+            return Err("invalid canonical proof size".into());
+        }
+        let mut next = self.state.clone();
+        next.proof_pages = next
+            .proof_pages
+            .checked_add(1)
+            .ok_or("proof page overflow")?;
+        next.proof_bytes = next
+            .proof_bytes
+            .checked_add(bytes)
+            .ok_or("proof bytes overflow")?;
+        if next.proof_pages > next.policy.max_proof_pages
+            || next.proof_bytes > next.policy.max_proof_bytes
+        {
+            return Err("operation_budget_exhausted: proof".into());
+        }
+        self.save(next)
+    }
+
+    pub fn charge_material(
+        &mut self,
+        permit: &AttemptPermit,
+        digest: &str,
+        bytes: u64,
+    ) -> Result<(), String> {
+        self.check_attempt(permit)?;
+        if digest.len() != 64 || !digest.bytes().all(|b| b.is_ascii_hexdigit()) || bytes == 0 {
+            return Err("invalid verified material identity".into());
+        }
+        if let Some(old) = self.state.materials.get(digest) {
+            return if *old == bytes {
+                Ok(())
+            } else {
+                Err("material size changed for original digest".into())
+            };
+        }
+        let mut next = self.state.clone();
+        next.material_bytes = next
+            .material_bytes
+            .checked_add(bytes)
+            .ok_or("material bytes overflow")?;
+        if next.material_bytes > next.material_limit || next.materials.len() >= 65_536 {
+            return Err("operation_budget_exhausted: material".into());
+        }
+        next.materials.insert(digest.into(), bytes);
         self.save(next)
     }
 
@@ -544,6 +937,7 @@ impl Ledger {
     ) -> Result<(), String> {
         self.check_exchange(request)?;
         if self.recovered
+            || self.poisoned
             || permit.identity != self.state.identity
             || permit.number != self.state.attempts_used
             || self.state.active_attempt_nonce.as_ref() != Some(&permit.nonce)
