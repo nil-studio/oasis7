@@ -11,6 +11,10 @@ use oasis7_formal_protocol::controlled_authority::formal::bounded_context::{
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use std::mem::size_of;
 type ResultV<T> = Result<T, BoundedAcquireErrorV1>;
+struct ProviderPolicyRefs<'provider, 'policy> {
+    provider: &'provider RemoteMonotonicEndpointProvider,
+    policy: &'policy TrustedFencingPolicyV1,
+}
 fn add(a: usize, b: usize) -> Result<usize, FormalError> {
     a.checked_add(b)
         .ok_or_else(|| invalid("GEN receipt layout"))
@@ -399,8 +403,7 @@ fn admit(
     endpoint: &mut FileFormalEndpoint,
     candidate: &FormalCandidateMaterialV1,
     context: &VerifiedCandidateContextV1,
-    provider: &RemoteMonotonicEndpointProvider,
-    policy: &TrustedFencingPolicyV1,
+    ProviderPolicyRefs { provider, policy }: ProviderPolicyRefs<'_, '_>,
     memory: &MemoryBudget,
     work: &FormalArchiveReadWorkV1,
     stop: &mut dyn FnMut() -> bool,
@@ -645,9 +648,8 @@ fn next_state(
 fn persist(
     store: &mut store::Store,
     next: Next<'_>,
-    provider: &RemoteMonotonicEndpointProvider,
+    ProviderPolicyRefs { provider, policy }: ProviderPolicyRefs<'_, '_>,
     instance: &fencing::EndpointInstanceBindingV1,
-    policy: &TrustedFencingPolicyV1,
     memory: &MemoryBudget,
     work: &FormalArchiveReadWorkV1,
     stop: &mut dyn FnMut() -> bool,

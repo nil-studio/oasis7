@@ -42,7 +42,13 @@ impl FileFormalEndpoint {
             }
         }
         admit(
-            self, candidate, context, provider, policy, memory, work, stop,
+            self,
+            candidate,
+            context,
+            ProviderPolicyRefs { provider, policy },
+            memory,
+            work,
+            stop,
         )?;
         let capability = self
             .iws_page_store
@@ -89,9 +95,8 @@ impl FileFormalEndpoint {
                 candidate,
                 receipt: None,
             },
-            provider,
+            ProviderPolicyRefs { provider, policy },
             instance,
-            policy,
             memory,
             work,
             stop,
@@ -123,9 +128,8 @@ impl FileFormalEndpoint {
                 candidate,
                 receipt: Some(receipt.receipt()),
             },
-            provider,
+            ProviderPolicyRefs { provider, policy },
             instance,
-            policy,
             memory,
             work,
             stop,
@@ -169,7 +173,13 @@ impl FileFormalEndpoint {
             }
         }
         admit(
-            self, candidate, context, provider, policy, memory, work, stop,
+            self,
+            candidate,
+            context,
+            ProviderPolicyRefs { provider, policy },
+            memory,
+            work,
+            stop,
         )?;
         let capability = self
             .iws_page_store
@@ -273,9 +283,8 @@ impl FileFormalEndpoint {
                 prepare,
                 receipt: receipt.receipt(),
             },
-            provider,
+            ProviderPolicyRefs { provider, policy },
             instance,
-            policy,
             memory,
             work,
             stop,
@@ -363,7 +372,13 @@ impl FileFormalEndpoint {
             }
         }
         admit(
-            self, candidate, context, provider, policy, memory, work, stop,
+            self,
+            candidate,
+            context,
+            ProviderPolicyRefs { provider, policy },
+            memory,
+            work,
+            stop,
         )?;
         let capability = self
             .iws_page_store
@@ -463,9 +478,8 @@ impl FileFormalEndpoint {
                 decision,
                 complete: None,
             },
-            provider,
+            ProviderPolicyRefs { provider, policy },
             instance,
-            policy,
             memory,
             work,
             stop,
@@ -502,9 +516,8 @@ impl FileFormalEndpoint {
                 decision,
                 complete: Some(receipt.receipt()),
             },
-            provider,
+            ProviderPolicyRefs { provider, policy },
             instance,
-            policy,
             memory,
             work,
             stop,
