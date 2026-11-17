@@ -1,8 +1,12 @@
 //! Only authenticated changed registrations feed the resident contract directory.
 use super::*;
 use crate::{
-    incremental_typed_record_diff::{TypedCellRefV1, key, root, visit_entries},
-    world_rules::WorldRuleReceiptV1,
+    incremental_record_value_read::{
+        RecordReadLabelsV1, RecordReadProfileV1, RecordValueV1, read_record_value_v1,
+    },
+    incremental_typed_record_diff::{
+        TypedCellRefV1, key, point_typed_column_v1, point_typed_entry_v1, root, visit_entries,
+    },
 };
 #[path = "incremental_world_rule_requests_result_index.rs"]
 pub(crate) mod index;
@@ -134,10 +138,85 @@ pub(super) fn update<
             };
             if let Some(new) = new {
                 let body = root(&p, new, d)?;
-                let value = recover_typed_record_body_v1::<WorldRuleReceiptV1, _, _, _, _>(
-                    &body, &p, d.ctx, d.scan, d.work,
+                let TypedCellRefV1::Entry(outer) = new else {
+                    return Err(invalid());
+                };
+                // The owner has already accepted the complete closed receipt.
+                // Its resident result metadata may exceed a selected DTO heap;
+                // admit that exact output and stream the original Text into it.
+                let max_heap = d.work.max_tree_heap;
+                let actor = point_typed_column_v1(&p, &body, "actor_id", d, max_heap)?;
+                let request = point_typed_column_v1(&p, &body, "request_id", d, max_heap)?;
+                let (ColumnCellV1::Text(actor), ColumnCellV1::Text(request)) =
+                    (&actor.cell, &request.cell)
+                else {
+                    return Err(invalid());
+                };
+                let result = point_typed_entry_v1(&p, &body, "result_id", d)?;
+                let parsed = WorldFieldKeyV1::from_bytes(&result.entry.key)
+                    .map_err(ValueTreeError::Invalid)?;
+                let expected = WorldFieldKeyV1::new(
+                    p.field,
+                    WorldFieldRecordKindV1::Entry,
+                    parsed.semantic_key,
+                )
+                .map_err(ValueTreeError::Invalid)?;
+                let header = read_member_record_header_v1(
+                    &result.entry.value,
+                    &expected,
+                    &mut d.ctx.values,
+                    MemberRecordLimitsV1 {
+                        semantic_bytes: d.ctx.semantic_bytes,
+                        payload_bytes: d.ctx.record_bytes,
+                        record_bytes: d.ctx.record_bytes,
+                    },
+                    &mut d.ctx.cancelled,
                 )?;
-                builder.put(id, value.value(), &mut |s, b| {
+                if header.codec != MemberPayloadCodecV1::Text
+                    || header.semantic_bytes != result.semantic_bytes
+                {
+                    return Err(invalid());
+                }
+                let mut pending = builder.prepare(
+                    id,
+                    actor,
+                    request,
+                    usize::try_from(header.payload_bytes).map_err(|_| invalid())?,
+                    outer.value,
+                    &mut |s, b| spend(d.scan, &mut d.ctx.cancelled, s, b),
+                )?;
+                let mut output = std::io::Cursor::new(pending.result_bytes());
+                let decoded = read_record_value_v1(
+                    &result.entry.value,
+                    &(expected, result.semantic_bytes),
+                    &mut d.ctx.records(),
+                    header.payload_bytes,
+                    &mut output,
+                    RecordReadProfileV1 {
+                        codec: MemberPayloadCodecV1::Text,
+                        nullable: false,
+                        integer_max: u64::MAX,
+                        labels: RecordReadLabelsV1 {
+                            utf8: "request result UTF8",
+                            ledger_utf8: "request result ledger",
+                            ledger_frame: "request result ledger",
+                            boolean: "request result bool",
+                            fixed: "request result fixed",
+                            profile: "request result codec",
+                            integer: "request result integer",
+                        },
+                    },
+                )?;
+                if decoded
+                    != (RecordValueV1::Text {
+                        utf8_bytes: header.payload_bytes,
+                    })
+                    || output.position() != header.payload_bytes
+                {
+                    return Err(invalid());
+                }
+                d.check()?;
+                builder.put(pending, &mut |s, b| {
                     spend(d.scan, &mut d.ctx.cancelled, s, b)
                 })?;
             } else {

@@ -925,4 +925,4 @@ pub(crate) use tagged::tagged_choice_v1;
 
 #[path = "incremental_typed_record_point.rs"]
 mod point;
-pub(crate) use point::point_typed_column_v1;
+pub(crate) use point::{point_typed_column_v1, point_typed_entry_v1};

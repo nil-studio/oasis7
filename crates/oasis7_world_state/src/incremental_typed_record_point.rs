@@ -1,6 +1,11 @@
 //! Authenticated selected columns share the diff reader and its finite scan
 //! budget. This grants no complete record or field qualification.
 use super::*;
+use oasis7_proto::memory_budget::ReservedValue;
+pub(crate) struct PointedTypedEntryV1 {
+    pub(crate) entry: StateEntryV1,
+    pub(crate) semantic_bytes: u64,
+}
 pub(crate) fn point_typed_column_v1<
     M: MerkleNodeReader,
     R: ValueNodeReader,
@@ -16,16 +21,53 @@ pub(crate) fn point_typed_column_v1<
     oasis7_proto::memory_budget::ReservedValue<crate::incremental_record_columns_read::ColumnRowV1>,
     ValueTreeError,
 > {
+    let selected = point_typed_entry_v1(profile, body, name, d)?;
+    let ctx = &mut *d.ctx;
+    let mut records = crate::incremental_inventory_value_read::InventoryValueReader {
+        values: &mut ctx.values,
+        key_work: &mut *ctx.key_work,
+        semantic_bytes: ctx.semantic_bytes,
+        record_bytes: ctx.record_bytes,
+        cancelled: &mut ctx.cancelled,
+    };
+    let row = crate::incremental_record_columns_read::read_column_row_v1(
+        ColumnReadProfileV1 {
+            field: profile.field,
+            schema: profile.schema,
+            groups: &[],
+            reference_schema: profile.reference_schema,
+        },
+        &selected.entry,
+        &mut records,
+        max_heap,
+    )?;
+    d.check()?;
+    Ok(row)
+}
+/// Retain the original point workspace with the authenticated leaf. A caller
+/// may stream a selected primitive without hydrating an unrelated DTO.
+pub(crate) fn point_typed_entry_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+    K: crate::incremental_semantic_key::SemanticKeyV1 + ?Sized,
+>(
+    profile: &TypedRecordProfileV1,
+    body: &StateRootV1,
+    name: &K,
+    d: &mut ChangeDecoder<'_, '_, M, R, E, C>,
+) -> Result<ReservedValue<PointedTypedEntryV1>, ValueTreeError> {
     d.check()?;
     body.validate().map_err(|_| invalid())?;
     if body.namespace != profile.namespace()? {
         return Err(invalid());
     }
-    let _point = d.ctx.values.memory.reserve(8192, d.ctx.values.class)?;
-    let (key, _) = d
-        .ctx
-        .records()
-        .key(profile.field, WorldFieldRecordKindV1::Entry, name)?;
+    let point = d.ctx.values.memory.reserve(8192, d.ctx.values.class)?;
+    let (key, semantic_bytes) =
+        d.ctx
+            .records()
+            .key(profile.field, WorldFieldRecordKindV1::Entry, name)?;
     let probe = StateEntryV1 {
         namespace: body.namespace,
         key: key.as_bytes().to_vec(),
@@ -56,27 +98,10 @@ pub(crate) fn point_typed_column_v1<
                 {
                     return Err(invalid());
                 }
-                let ctx = &mut *d.ctx;
-                let mut records = crate::incremental_inventory_value_read::InventoryValueReader {
-                    values: &mut ctx.values,
-                    key_work: &mut *ctx.key_work,
-                    semantic_bytes: ctx.semantic_bytes,
-                    record_bytes: ctx.record_bytes,
-                    cancelled: &mut ctx.cancelled,
-                };
-                let row = crate::incremental_record_columns_read::read_column_row_v1(
-                    ColumnReadProfileV1 {
-                        field: profile.field,
-                        schema: profile.schema,
-                        groups: &[],
-                        reference_schema: profile.reference_schema,
-                    },
-                    &entry,
-                    &mut records,
-                    max_heap,
-                )?;
-                d.check()?;
-                return Ok(row);
+                return Ok(point.retain(PointedTypedEntryV1 {
+                    entry,
+                    semantic_bytes,
+                }));
             }
             _ => return Err(invalid()),
         }

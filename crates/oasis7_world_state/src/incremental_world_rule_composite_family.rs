@@ -563,5 +563,6 @@ pub use current_scope::{CurrentContinuityRiskV1, observe_current_continuity_risk
 #[path = "incremental_world_rule_requests_result_current.rs"]
 mod requests_result_current;
 pub use requests_result_current::{
-    CurrentRequestsResultSourcesV1, observe_current_requests_result_sources_v1,
+    CurrentRequestsResultReceiptV1, CurrentRequestsResultSourceV1, CurrentRequestsResultSourcesV1,
+    observe_current_requests_result_sources_v1, read_current_requests_result_receipt_v1,
 };

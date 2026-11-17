@@ -4,9 +4,8 @@ use super::invalid;
 use std::collections::{BTreeMap,BTreeSet};
 use oasis7_formal_protocol::incremental_value::{ValueNodeReader,ValueTreeError};
 use oasis7_world_state::{incremental_field_overlay::WorldFieldOverlayContextV1,incremental_field_read::WorldFieldReadContextV1,
- incremental_diplomacy::*,world_rules::*,incremental_world_rule_composite_family::{bind_current_agent_orders_v1,observe_current_requests_result_sources_v1},
- incremental_world_rule_organization::root::{observe_current_organization_risk_v1,read_current_organization_estate_v1},
- incremental_world_rule_requests_current::read_current_world_rule_request_v1};
+ incremental_diplomacy::*,world_rules::*,incremental_world_rule_composite_family::{bind_current_agent_orders_v1,observe_current_requests_result_sources_v1,read_current_requests_result_receipt_v1},
+ incremental_world_rule_organization::root::{observe_current_organization_risk_v1,read_current_organization_estate_v1}};
 use crate::world::{incremental_factory_directory_orders::{AcceptedFactoryOrderDirectoryV1,open_current_factory_order_directory_v1},
  incremental_industrial_eligibility::{CurrentStateOwnerSourcesV1,resolve_current_state_owner_v1},
  incremental_normal_gameplay_cycles::{read_current_diplomacy_text_with_limit_v1 as text,read_current_diplomacy_member_text_with_limit_v1 as member_text,read_current_diplomacy_member_length_v1 as member_length},
@@ -83,12 +82,13 @@ where M:MerkleNodeReader,P:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<
  insert_agent_id(&mut agent_ids,&deposit.deposit().contributor_id,&mut allocations,tail)?;
  let guard=ctx.transaction.guard();
  let selected=observe_current_requests_result_sources_v1(&deposit.deposit().id,sources.native().rules().requests(),roots,state,ctx,&mut work.scan,&mut work.read,&guard,live).map_err(infra)?;
- for(actor,request)in selected.requests(){let guard=ctx.transaction.guard();let receipt=read_current_world_rule_request_v1(actor,request,sources.native().rules().requests(),roots,state,ctx,&mut work.scan,&mut work.read,&guard,live).map_err(infra)?;
- let value=receipt.value().ok_or_else(||invalid("indexed organization receipt absent"))?;
+ for source in selected.requests(){let guard=ctx.transaction.guard();let receipt=read_current_requests_result_receipt_v1(&source,sources.native().rules().requests(),roots,state,ctx,&mut work.scan,&mut work.read,&guard,live).map_err(infra)?;
+ let value=receipt.value();
  if value.result_id!=deposit.deposit().id{return Err(invalid("organization result index mismatch"))}
  let receipt_bytes=receipt.retained_allocation_bytes_v1(&mut work.cells_remaining,&mut ctx.cancelled)?;
- allocations.admit(super::admission::add(super::admission::tree_entry::<String,WorldRuleReceiptV1>()?,super::admission::add(receipt_bytes,512)?)?,tail)?;
- requests_by_outer.insert(oasis7_world_state::world_rules::request_key(actor,request),value.clone());}
+ allocations.admit(super::admission::add(super::admission::tree_entry::<String,WorldRuleReceiptV1>()?,super::admission::add(receipt_bytes,source.outer_key().len())?)?,tail)?;
+ let outer=source.outer_key().to_owned();if outer.capacity()>source.outer_key().len(){return Err(invalid("organization receipt outer capacity"))}
+ requests_by_outer.insert(outer,value.clone());}
  let value=deposit.deposit();
  let deposit_bytes=value.id.len().checked_mul(2).and_then(|n|n.checked_add(value.organization_id.len())).and_then(|n|n.checked_add(value.contributor_id.len())).and_then(|n|n.checked_add(value.material.len())).and_then(|n|n.checked_add(value.effect_receipt.as_ref().map_or(0,String::len))).ok_or_else(||invalid("estate copy allocation"))?;
  allocations.admit(super::admission::add(super::admission::tree_entry::<String,OrganizationCurrentEstateFactV1>()?,deposit_bytes)?,tail)?;

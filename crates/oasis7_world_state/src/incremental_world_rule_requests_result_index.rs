@@ -1,4 +1,4 @@
-//! Complete resident receipt result->actor/request outer-key directory.
+//! Complete resident receipt result->original outer-key directory.
 //! This is paid metadata, never a settlement/event permission.
 use oasis7_formal_protocol::incremental_value::ValueTreeError;
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation, ReservedValue};
@@ -25,14 +25,58 @@ fn arc<T>() -> Result<usize, ValueTreeError> {
         add(2 * size_of::<usize>(), 2 * align_of::<ReservedValue<T>>())?,
     )
 }
-// result_and_request[0] is the exact result_id; result_and_request[1] is request_id.
-// outer retains the authenticated request map key for sparse replacement.
+// Both the exact outer key and its authenticated value remain available to a
+// selected Current reader. Neither actor/request nor a result hash substitutes
+// for the original map entry.
 struct Row {
     outer: String,
     organization: String,
-    result_and_request: Vec<String>,
+    request: String,
+    result: String,
+    value: [u8; 32],
 }
 type Held = Arc<ReservedValue<Row>>;
+pub(crate) struct SelectedRequestV1(Held);
+impl SelectedRequestV1 {
+    pub(crate) fn outer(&self) -> &str {
+        &self.0.outer
+    }
+    pub(crate) fn value(&self) -> [u8; 32] {
+        self.0.value
+    }
+    pub(crate) fn validate_receipt(
+        &self,
+        receipt: &crate::world_rules::WorldRuleReceiptV1,
+        fee: &mut Fee<'_>,
+    ) -> Result<(), ValueTreeError> {
+        for (expected, actual) in [
+            (&self.0.organization, &receipt.actor_id),
+            (&self.0.request, &receipt.request_id),
+            (&self.0.result, &receipt.result_id),
+        ] {
+            fee(1, u(add(expected.len(), actual.len())?)?)?;
+            if expected != actual {
+                return Err(ValueTreeError::Invalid("request result source binding"));
+            }
+        }
+        Ok(())
+    }
+}
+/// The result payload is written directly into its prepaid final allocation.
+/// Data precedes the reservation so every failure drops bytes before capacity.
+pub(crate) struct PendingRowV1 {
+    outer: String,
+    organization: String,
+    request: String,
+    result: Vec<u8>,
+    value: [u8; 32],
+    charge: MemoryReservation,
+}
+impl PendingRowV1 {
+    pub(crate) fn result_bytes(&mut self) -> &mut [u8] {
+        self.result.as_mut_slice()
+    }
+}
 struct Backing {
     rows: Vec<Held>,
     _vector: MemoryReservation,
@@ -101,58 +145,63 @@ impl Builder {
         }
         Ok(())
     }
+    pub(crate) fn prepare(
+        &self,
+        outer: &str,
+        actor: &str,
+        request: &str,
+        result_bytes: usize,
+        value: [u8; 32],
+        fee: &mut Fee<'_>,
+    ) -> Result<PendingRowV1, ValueTreeError> {
+        fee(1, u(add(actor.len(), request.len())?)?)?;
+        let mut bytes = add(arc::<Row>()?, add(outer.len(), actor.len())?)?;
+        for length in [result_bytes, request.len()] {
+            fee(1, u(length)?)?;
+            bytes = add(bytes, length)?;
+        }
+        fee(1, u(add(outer.len(), actor.len())?)?)?;
+        let paid = self.memory.reserve(bytes, self.class)?;
+        // Charge the actual payload copy before allocating or reading it. A
+        // failed read cannot publish this incomplete row or refund spent work.
+        fee(1, u(result_bytes)?)?;
+        fee(1, u(request.len())?)?;
+        let result = vec![0; result_bytes];
+        let outer = outer.to_owned();
+        let organization = actor.to_owned();
+        let request_copy = request.to_owned();
+        if result.capacity() > result_bytes
+            || outer.capacity() > outer.len()
+            || organization.capacity() > actor.len()
+            || request_copy.capacity() > request.len()
+        {
+            return Err(limit());
+        }
+        Ok(PendingRowV1 {
+            outer,
+            organization,
+            request: request_copy,
+            result,
+            value,
+            charge: paid,
+        })
+    }
     pub(crate) fn put(
         &mut self,
-        outer: &str,
-        receipt: &crate::world_rules::WorldRuleReceiptV1,
+        mut row: PendingRowV1,
         fee: &mut Fee<'_>,
     ) -> Result<(), ValueTreeError> {
-        fee(
-            1,
-            u(add(receipt.actor_id.len(), receipt.request_id.len())?)?,
-        )?;
-        let key_fee = self
-            .memory
-            .reserve(outer.len().checked_add(512).ok_or_else(limit)?, self.class)?;
-        if crate::world_rules::request_key(&receipt.actor_id, &receipt.request_id) != outer {
-            return Err(ValueTreeError::Invalid(
-                "request result index outer binding",
-            ));
-        }
-        drop(key_fee);
-        let mut bytes = add(arc::<Row>()?, add(outer.len(), receipt.actor_id.len())?)?;
-        bytes = add(bytes, mul(2, size_of::<String>())?)?;
-        for id in [&receipt.result_id, &receipt.request_id] {
-            fee(1, u(id.len())?)?;
-            bytes = add(bytes, id.len())?;
-        }
-        fee(1, u(add(outer.len(), receipt.actor_id.len())?)?)?;
-        let paid = self.memory.reserve(bytes, self.class)?;
-        let mut result_and_request = Vec::with_capacity(2);
-        if result_and_request.capacity() > 2 {
-            return Err(limit());
-        }
-        for id in [&receipt.result_id, &receipt.request_id] {
-            fee(1, u(id.len())?)?;
-            let value = id.clone();
-            if value.capacity() > id.len() {
-                return Err(limit());
-            }
-            result_and_request.push(value);
-        }
-        let outer_copy = outer.to_owned();
-        let organization = receipt.actor_id.clone();
-        if outer_copy.capacity() > outer.len() || organization.capacity() > receipt.actor_id.len() {
-            return Err(limit());
-        }
-        self.remove(outer, fee)?;
+        fee(1, u(row.result.len())?)?;
+        let result = String::from_utf8(std::mem::take(&mut row.result))
+            .map_err(|_| ValueTreeError::Invalid("request result UTF8"))?;
+        self.remove(&row.outer, fee)?;
         self.capacity(add(self.rows.len(), 1)?)?;
         // Original requests.values() traverses outer BTree keys. Preserve that
         // order after sparse replacement as well as after cold construction.
         let mut position = self.rows.len();
-        for (index, row) in self.rows.iter().enumerate() {
-            fee(1, u(add(row.outer.len(), outer.len())?)?)?;
-            if row.outer.as_str() > outer {
+        for (index, existing) in self.rows.iter().enumerate() {
+            fee(1, u(add(existing.outer.len(), row.outer.len())?)?)?;
+            if existing.outer.as_str() > row.outer.as_str() {
                 position = index;
                 break;
             }
@@ -160,10 +209,12 @@ impl Builder {
         fee(1, u(mul(self.rows.len() - position, size_of::<Held>())?)?)?;
         self.rows.insert(
             position,
-            Arc::new(paid.retain(Row {
-                outer: outer_copy,
-                organization,
-                result_and_request,
+            Arc::new(row.charge.retain(Row {
+                outer: row.outer,
+                organization: row.organization,
+                request: row.request,
+                result,
+                value: row.value,
             })),
         );
         Ok(())
@@ -224,33 +275,29 @@ impl RequestsResultIndexV1 {
         out.capacity(self.data.rows.len())?;
         for row in &self.data.rows {
             let mut bytes = add(arc::<Row>()?, add(row.outer.len(), row.organization.len())?)?;
-            bytes = add(
-                bytes,
-                mul(row.result_and_request.len(), size_of::<String>())?,
-            )?;
-            for text in &row.result_and_request {
+            for text in [&row.result, &row.request] {
                 fee(1, u(text.len())?)?;
                 bytes = add(bytes, text.len())?;
             }
             let paid = memory.reserve(bytes, MemoryClass::Ordinary)?;
             fee(1, u(add(row.outer.len(), row.organization.len())?)?)?;
-            let result_and_request = row.result_and_request.clone();
+            let result = row.result.clone();
+            let request = row.request.clone();
             let outer = row.outer.clone();
             let organization = row.organization.clone();
-            if result_and_request.capacity() > row.result_and_request.len()
-                || outer.capacity() > row.outer.len()
+            if outer.capacity() > row.outer.len()
                 || organization.capacity() > row.organization.len()
-                || result_and_request
-                    .iter()
-                    .zip(&row.result_and_request)
-                    .any(|(a, b)| a.capacity() > b.len())
+                || result.capacity() > row.result.len()
+                || request.capacity() > row.request.len()
             {
                 return Err(limit());
             }
             out.rows.push(Arc::new(paid.retain(Row {
                 outer,
                 organization,
-                result_and_request,
+                request,
+                result,
+                value: row.value,
             })));
         }
         out.finish()
@@ -261,56 +308,44 @@ impl RequestsResultIndexV1 {
         memory: &MemoryBudget,
         class: MemoryClass,
         fee: &mut Fee<'_>,
-    ) -> Result<ReservedValue<Vec<(String, String)>>, ValueTreeError> {
+    ) -> Result<ReservedValue<Vec<SelectedRequestV1>>, ValueTreeError> {
         let mut count = 0usize;
-        let mut payload = 0usize;
-        self.visit_matching(contract, memory, class, fee, &mut |outer, organization| {
+        self.visit_matching(contract, memory, class, fee, &mut |_, _| {
             count = add(count, 1)?;
-            payload = add(payload, add(outer.len(), organization.len())?)?;
             Ok(())
         })?;
         let bytes = add(
-            size_of::<Vec<(String, String)>>(),
-            add(mul(count, size_of::<(String, String)>())?, payload)?,
+            size_of::<Vec<SelectedRequestV1>>(),
+            mul(count, size_of::<SelectedRequestV1>())?,
         )?;
         let paid = memory.reserve(bytes, class)?;
         let mut rows = Vec::with_capacity(count);
         if rows.capacity() > count {
             return Err(limit());
         }
-        self.visit_matching(contract, memory, class, fee, &mut |outer, organization| {
-            let a = outer.to_owned();
-            let b = organization.to_owned();
-            if a.capacity() > outer.len() || b.capacity() > organization.len() {
-                return Err(limit());
-            }
-            rows.push((a, b));
+        self.visit_matching(contract, memory, class, fee, &mut |row, fee| {
+            fee(1, u(size_of::<SelectedRequestV1>())?)?;
+            rows.push(SelectedRequestV1(row.clone()));
             Ok(())
         })?;
         Ok(paid.retain(rows))
     }
     /// Scans only the resident directory. Selected Current DTO reads happen after
     /// this method, never by traversing all receipt pages on each action.
-    pub(crate) fn visit_matching(
+    fn visit_matching(
         &self,
         contract: &str,
         memory: &MemoryBudget,
         class: MemoryClass,
         fee: &mut Fee<'_>,
-        visit: &mut dyn FnMut(&str, &str) -> Result<(), ValueTreeError>,
+        visit: &mut dyn FnMut(&Held, &mut Fee<'_>) -> Result<(), ValueTreeError>,
     ) -> Result<(), ValueTreeError> {
         let _proof = self.share(memory, class)?;
         for row in &self.data.rows {
-            for id in row.result_and_request.iter().take(1) {
-                fee(1, u(add(id.len(), contract.len())?)?)?;
-                if id == contract {
-                    fee(1, u(add(row.outer.len(), row.organization.len())?)?)?;
-                    visit(
-                        &row.organization,
-                        row.result_and_request.get(1).ok_or_else(limit)?,
-                    )?;
-                    break;
-                }
+            fee(1, u(add(row.result.len(), contract.len())?)?)?;
+            if row.result == contract {
+                fee(1, u(add(row.outer.len(), row.organization.len())?)?)?;
+                visit(row, fee)?;
             }
         }
         Ok(())
