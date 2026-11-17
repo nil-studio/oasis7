@@ -8,6 +8,9 @@ use sha2::Digest;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+#[path = "formal_full_sync_operation_initialization.rs"]
+mod initialization;
+
 const API: &str = "oasis7.formal-full-sync-operation-ledger/v1";
 const MAX_WINDOW: u64 = 64 * 1024;
 const MAX_REQUEST_BODY: u64 = 256 * 1024;
@@ -348,69 +351,6 @@ pub(super) struct Ledger {
 }
 
 impl Ledger {
-    /// Explicit first initialization only; never called as an open fallback.
-    pub fn create(path: &Path, identity: Identity, policy: Policy) -> Result<Self, String> {
-        Self::create_with_material_limit(path, identity, policy, 0)
-    }
-
-    pub fn create_with_material_limit(
-        path: &Path,
-        identity: Identity,
-        policy: Policy,
-        material_limit: u64,
-    ) -> Result<Self, String> {
-        let lock = Self::lock(path)?;
-        if path.try_exists().map_err(|e| e.to_string())? {
-            return Err("operation ledger already exists; reopen its original identity".into());
-        }
-        let state = Snapshot {
-            api_version: API.into(),
-            identity,
-            owner_binding: None,
-            revision: 0,
-            policy,
-            encoded_tx_actual: 0,
-            encoded_rx_actual: 0,
-            unknown_final_charged: 0,
-            exchanges_started: 0,
-            original_request_json: None,
-            verified_target_json: None,
-            publication: None,
-            publication_journal_version: Some(1),
-            proof_pages: 0,
-            proof_bytes: 0,
-            material_limit,
-            material_bytes: 0,
-            materials: Default::default(),
-            window_seq: 0,
-            attempts_used: 0,
-            interrupted_attempts: Vec::new(),
-            active_attempt_nonce: None,
-            active_request: None,
-            active_request_nonce: None,
-            tx_credit: 0,
-            rx_credit: 0,
-            reservation: None,
-        };
-        state.validate()?;
-        // Failure may have published the file. The caller must reconcile it,
-        // not retry create or generate another operation identity.
-        local_io::write(path, &state)?;
-        let actual: Snapshot = local_io::read(path)?;
-        if actual != state {
-            return Err("operation initialization readback mismatch".into());
-        }
-        Ok(Self {
-            path: path.into(),
-            _lock: lock,
-            state,
-            poisoned: false,
-            recovered: false,
-            reopen_deadline: None,
-            owner: None,
-        })
-    }
-
     /// Bounded observation of the original ledger only. This does not authorize
     /// resuming an interrupted attempt or reclaiming an unresolved reservation.
     pub fn open(
@@ -552,11 +492,18 @@ impl Ledger {
         owner: &super::super::process::ProcessOwnership,
         data: &Path,
     ) -> Result<(), String> {
+        Self::validate_owner_path(&self.path, owner, data)
+    }
+
+    fn validate_owner_path(
+        path: &Path,
+        owner: &super::super::process::ProcessOwnership,
+        data: &Path,
+    ) -> Result<(), String> {
         owner.require_directory(data)?;
-        local_io::reject_symlinks(&self.path)?;
+        local_io::reject_symlinks(path)?;
         local_io::reject_symlinks(&data.join("state/full-sync"))?;
-        if self
-            .path
+        if path
             .parent()
             .ok_or("ledger parent missing")?
             .canonicalize()

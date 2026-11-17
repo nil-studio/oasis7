@@ -662,3 +662,98 @@ fn legacy_selected_ledger_does_not_acquire_publication_capability() {
     let after: serde_json::Value = local_io::read(&path).unwrap();
     assert_eq!(after, old);
 }
+
+#[test]
+fn bound_initialization_persists_request_and_owner_before_first_attempt() {
+    let temp = TestDir::new();
+    drop(local_io::private_file(&temp.path().join("process.lock")).unwrap());
+    let state = temp.path().join("state/full-sync");
+    local_io::private_dir(&temp.path().join("state")).unwrap();
+    local_io::private_dir(&state).unwrap();
+    let path = state.join("operation.json");
+    let policy = policy();
+    let request = serde_json::json!({"minimum": 5});
+    let mut id = identity(&policy);
+    id.request_digest = local_io::digest(&request).unwrap();
+    let owner = std::sync::Arc::new(super::super::process::lock(temp.path()).unwrap());
+    let ledger = Ledger::create_bound(
+        &path,
+        id.clone(),
+        policy.clone(),
+        0,
+        &request,
+        owner.clone(),
+        temp.path(),
+    )
+    .unwrap();
+    let initial = ledger.snapshot().clone();
+    assert_eq!(initial.revision, 0);
+    assert_eq!(initial.attempts_used, 0);
+    assert_eq!(
+        initial.original_request_json,
+        Some(serde_json::to_vec(&request).unwrap())
+    );
+    assert_eq!(initial.owner_binding, Some(owner.binding_digest().unwrap()));
+    let saved = std::fs::read(&path).unwrap();
+    drop(ledger);
+    // Model losing the create response: the caller opens the original identity,
+    // not an empty replacement or a newly generated operation.
+    let mut reopened = Ledger::open(&path, &id, &policy, 0).unwrap();
+    assert_eq!(reopened.snapshot(), &initial);
+    reopened
+        .guard_pre_target_initialization(owner.clone(), temp.path())
+        .unwrap();
+    let attempt = reopened
+        .resume_before_target(owner.clone(), temp.path(), &request)
+        .unwrap();
+    assert_eq!(reopened.snapshot().attempts_used, 1);
+    reopened.finish_attempt(&attempt).unwrap();
+    drop(reopened);
+    let settled = std::fs::read(&path).unwrap();
+    assert_ne!(saved, settled);
+    assert!(Ledger::create_bound(&path, id, policy, 0, &request, owner, temp.path()).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), settled);
+}
+
+#[test]
+fn bound_initialization_rejects_bad_request_without_publishing_ledger() {
+    let temp = TestDir::new();
+    drop(local_io::private_file(&temp.path().join("process.lock")).unwrap());
+    local_io::private_dir(&temp.path().join("state")).unwrap();
+    let state = temp.path().join("state/full-sync");
+    local_io::private_dir(&state).unwrap();
+    let path = state.join("operation.json");
+    let policy = policy();
+    let owner = std::sync::Arc::new(super::super::process::lock(temp.path()).unwrap());
+    assert!(
+        Ledger::create_bound(
+            &path,
+            identity(&policy),
+            policy,
+            0,
+            &serde_json::json!({"wrong": "original request"}),
+            owner,
+            temp.path(),
+        )
+        .is_err()
+    );
+    assert!(!path.exists());
+}
+
+#[test]
+fn bound_initialization_rejects_foreign_directory_before_creating_lock() {
+    let owner_dir = TestDir::new();
+    drop(local_io::private_file(&owner_dir.path().join("process.lock")).unwrap());
+    local_io::private_dir(&owner_dir.path().join("state")).unwrap();
+    local_io::private_dir(&owner_dir.path().join("state/full-sync")).unwrap();
+    let foreign_dir = TestDir::new();
+    let path = foreign_dir.path().join("operation.json");
+    let policy = policy();
+    let request = serde_json::json!({"minimum": 5});
+    let mut id = identity(&policy);
+    id.request_digest = local_io::digest(&request).unwrap();
+    let owner = std::sync::Arc::new(super::super::process::lock(owner_dir.path()).unwrap());
+    assert!(Ledger::create_bound(&path, id, policy, 0, &request, owner, owner_dir.path()).is_err());
+    assert!(!path.exists());
+    assert!(!path.with_extension("lock").exists());
+}
