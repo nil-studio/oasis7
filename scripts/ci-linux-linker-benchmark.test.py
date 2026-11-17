@@ -40,6 +40,17 @@ def alive(pid):
     return value[value.rindex(')') + 2:].split()[0] != 'Z'
 
 
+def wait_for_exit(pid, timeout=2):
+    # Pipe EOF may precede the kernel's observable zombie/disappeared state.
+    deadline = time.monotonic() + timeout
+    while alive(pid):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(min(0.01, remaining))
+    return True
+
+
 class Contracts(unittest.TestCase):
     def test_normalization_removes_linker_and_compiler_cache_overrides(self):
         poisoned = {'RUSTFLAGS': '-Clinker=false', 'CARGO_ENCODED_RUSTFLAGS': 'wrong',
@@ -145,7 +156,9 @@ class Contracts(unittest.TestCase):
                                             time.monotonic() + 5, root / 'timeout', limit=0.3)
                 self.assertFalse(result['success'])
                 self.assertTrue(result['timed_out'])
-                self.assertFalse(alive(int(pidfile.read_text())))
+                child = int(pidfile.read_text())
+                self.assertTrue(wait_for_exit(child), f'owned child {child} survived cleanup')
+                self.assertFalse(wait_for_exit(foreign.pid, timeout=0.03))
                 self.assertIsNone(foreign.poll())
                 record = json.loads((root / 'timeout.invocation.json').read_text())
                 self.assertTrue(record['timed_out'])
@@ -241,7 +254,8 @@ class RealRust(unittest.TestCase):
             self.assertFalse(report['success'])
             self.assertIn('signal', report['error'])
             self.assertNotIn('comparison', report)
-            self.assertFalse(alive(int(pidfile.read_text())))
+            child = int(pidfile.read_text())
+            self.assertTrue(wait_for_exit(child), f'owned child {child} survived cancellation')
             self.assertTrue((out / 'logs/prefetch.invocation.json').is_file())
             worktrees = subprocess.check_output(['git', 'worktree', 'list', '--porcelain'], cwd=self.repo, text=True)
             self.assertEqual(worktrees.count('worktree '), 1)
