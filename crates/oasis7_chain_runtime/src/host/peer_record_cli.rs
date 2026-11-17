@@ -5,6 +5,30 @@ use oasis7::development_node_config::{
 use super::cli::CliOptions;
 
 pub(super) fn validate_options(options: &CliOptions) -> Result<(), String> {
+    if options.upgrade_peer_record_receiver {
+        if options.p2p_peer_record_reception != DevelopmentPeerRecordReceptionModeV1::V2Only {
+            return Err(
+                "--upgrade-peer-record-receiver requires --p2p-peer-record-reception v2_only"
+                    .into(),
+            );
+        }
+        if options.formal_live_config.is_some() || options.guarded_initial_config.is_some() {
+            return Err(
+                "--upgrade-peer-record-receiver applies only to the development host runtime"
+                    .into(),
+            );
+        }
+        if options.initialize_peer_record_publication
+            || options.initialize_peer_record_receiver
+            || options.withdraw_peer_record_publication
+            || options.resume_peer_record_publication
+        {
+            return Err(
+                "--upgrade-peer-record-receiver cannot be combined with other peer-record actions"
+                    .into(),
+            );
+        }
+    }
     let has_publication_transition =
         options.withdraw_peer_record_publication || options.resume_peer_record_publication;
     if options.withdraw_peer_record_publication && options.resume_peer_record_publication {
@@ -49,6 +73,7 @@ pub(super) fn validate_options(options: &CliOptions) -> Result<(), String> {
     if options.p2p_peer_record_reception == DevelopmentPeerRecordReceptionModeV1::V2Only
         && options.p2p_peer_record_publication == DevelopmentPeerRecordPublicationModeV1::V1Legacy
         && !options.initialize_peer_record_receiver
+        && !options.upgrade_peer_record_receiver
     {
         return Err(
             "V2-only peer-record reception requires durable V2 peer-record publication for normal host startup"

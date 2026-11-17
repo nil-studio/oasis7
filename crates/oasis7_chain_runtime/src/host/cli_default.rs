@@ -22,6 +22,7 @@ impl Default for CliOptions {
                 oasis7::development_node_config::DevelopmentPeerRecordReceptionModeV1::LegacyCompatible,
             initialize_peer_record_publication: false,
             initialize_peer_record_receiver: false,
+            upgrade_peer_record_receiver: false,
             withdraw_peer_record_publication: false,
             resume_peer_record_publication: false,
             p2p_accept_public_entry: false,

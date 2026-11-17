@@ -378,3 +378,94 @@ fn compatible_receiver_policy_remains_independent_from_legacy_publisher() {
     );
     assert_eq!(options.world_id, DEFAULT_WORLD_ID);
 }
+
+#[test]
+#[cfg(unix)]
+fn host_explicit_receiver_upgrade_preserves_state_and_is_not_runtime_config() {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root =
+        std::env::temp_dir().join(format!("receiver-upgrade-{}-{nonce}", std::process::id()));
+    std::fs::create_dir(&root).unwrap();
+    let scratch = root.canonicalize().unwrap();
+    let runtime_root = scratch.join("runtime");
+    let config_path = scratch.join("config.json");
+    let common = [
+        "--runtime-root",
+        runtime_root.to_str().unwrap(),
+        "--config",
+        config_path.to_str().unwrap(),
+        "--p2p-peer-record-reception",
+        "v2_durable_compatible",
+        "--initialize-peer-record-receiver",
+    ];
+    let initial = parse_options(common.into_iter()).unwrap();
+    super::run_chain_runtime(initial.clone()).unwrap();
+    let upgrade = parse_options(
+        [
+            "--runtime-root",
+            runtime_root.to_str().unwrap(),
+            "--config",
+            config_path.to_str().unwrap(),
+            "--p2p-peer-record-reception",
+            "v2_only",
+            "--upgrade-peer-record-receiver",
+        ]
+        .into_iter(),
+    )
+    .unwrap();
+    let run_upgrade = |options: CliOptions| {
+        super::run_cli(vec![
+            "--runtime-root".into(),
+            runtime_root.to_str().unwrap().into(),
+            "--config".into(),
+            options.config_path,
+            "--p2p-peer-record-reception".into(),
+            "v2_only".into(),
+            "--upgrade-peer-record-receiver".into(),
+        ])
+    };
+    let missing_identity = scratch.join("missing-identity.toml");
+    let mut missing = upgrade.clone();
+    missing.config_path = missing_identity.to_str().unwrap().to_owned();
+    assert!(run_upgrade(missing).is_err());
+    assert!(
+        !missing_identity.exists(),
+        "upgrade must not provision a replacement identity"
+    );
+    assert!(upgrade.upgrade_peer_record_receiver);
+    let typed = super::development_runtime::from_options(&upgrade).unwrap();
+    assert!(
+        !serde_json::to_string(&typed)
+            .unwrap()
+            .contains("upgrade_peer_record_receiver")
+    );
+    let state = runtime_root.join("p2p/peer-record-receiver/peer-record-receiver-v2.state.cbor");
+    let before = std::fs::read(&state).unwrap();
+    run_upgrade(upgrade.clone()).unwrap();
+    let after = std::fs::read(&state).unwrap();
+    assert_ne!(before, after);
+    run_upgrade(upgrade).unwrap();
+    assert_eq!(after, std::fs::read(state).unwrap());
+    assert!(
+        super::run_chain_runtime(initial).is_err(),
+        "initializer cannot reset upgraded ledger"
+    );
+    assert!(!runtime_root.join("p2p/peer-record-publication").exists());
+    assert!(parse_options(["--upgrade-peer-record-receiver"].into_iter()).is_err());
+    assert!(
+        parse_options(
+            [
+                "--p2p-peer-record-reception",
+                "v2_only",
+                "--upgrade-peer-record-receiver",
+                "--initialize-peer-record-receiver",
+            ]
+            .into_iter()
+        )
+        .is_err()
+    );
+    std::fs::remove_dir_all(root).unwrap();
+}

@@ -416,7 +416,14 @@ pub fn run_cli(raw_args: Vec<String>) -> Result<(), String> {
         }
     };
 
-    if let Err(err) = run_chain_runtime(options) {
+    let result = if options.upgrade_peer_record_receiver {
+        let mut upgrade_options = options;
+        apply_network_tier_manifest_defaults(&mut upgrade_options);
+        initialize_default_peer_record_receiver(&upgrade_options)
+    } else {
+        run_chain_runtime(options)
+    };
+    if let Err(err) = result {
         error!(error = %err, "oasis7_chain_runtime failed");
         return Err(err);
     }
