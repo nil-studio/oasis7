@@ -220,3 +220,29 @@ pub(super) fn verify_retained(
     }
     Ok(())
 }
+
+/// Read the pinned canonical manifest by its exact journal reference. A caller
+/// must still verify all record/native/retained material before any installation.
+pub(super) fn read_manifest(
+    store: &LocalCasStore,
+    reference: &oasis7_game_client::formal_sync_exchange::FullSyncManifestReference,
+    cut: &FormalFullSyncCutV1,
+    deadline: Instant,
+) -> Result<FormalFullSyncManifestV1, String> {
+    if reference.size_bytes == 0 {
+        return Err("empty manifest original".into());
+    }
+    let bytes = read_blob(
+        store,
+        &reference.content_hash,
+        reference.size_bytes,
+        deadline,
+    )?;
+    let manifest: FormalFullSyncManifestV1 =
+        serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+    manifest.validate()?;
+    if manifest.cut != *cut || serde_json::to_vec(&manifest).map_err(|e| e.to_string())? != bytes {
+        return Err("manifest original differs from canonical selected cut".into());
+    }
+    Ok(manifest)
+}

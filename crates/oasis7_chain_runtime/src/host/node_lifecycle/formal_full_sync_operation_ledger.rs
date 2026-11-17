@@ -3,6 +3,7 @@
 //! This is local controlled-v2 accounting, not protected storage or a claim of
 //! delivery to the peer. A pending reservation survives restart unchanged.
 use super::super::local_io;
+use oasis7_game_client::formal_sync_exchange::FullSyncManifestReference;
 use serde::{Deserialize, Serialize};
 use sha2::Digest;
 use std::path::{Path, PathBuf};
@@ -106,6 +107,8 @@ impl InterruptedAttempt {
 pub(super) struct PublicationCandidate {
     pub cut: serde_json::Value,
     pub roots: std::collections::BTreeSet<String>,
+    #[serde(default)]
+    pub manifest: Option<FullSyncManifestReference>,
 }
 impl PublicationCandidate {
     fn validate(&self, target_json: &[u8], intent_digest: &str) -> Result<(), String> {
@@ -124,11 +127,27 @@ impl PublicationCandidate {
         if target
             .as_array()
             .is_none_or(|parts| parts.len() != 2 || parts.first() != Some(&self.cut))
-            || local_io::digest(&(&self.cut, local_io::digest(&self.roots)?))? != intent_digest
+            || self.intent_digest()? != intent_digest
         {
             return Err("publication candidate differs from original target or intent".into());
         }
+        if let Some(manifest) = &self.manifest
+            && (manifest.size_bytes == 0
+                || manifest.size_bytes > 8 * 1024 * 1024
+                || !self.roots.contains(&manifest.content_hash))
+        {
+            return Err("manifest original is not bounded and pinned".into());
+        }
         Ok(())
+    }
+
+    fn intent_digest(&self) -> Result<String, String> {
+        match &self.manifest {
+            Some(manifest) => {
+                local_io::digest(&(&self.cut, local_io::digest(&self.roots)?, manifest))
+            }
+            None => local_io::digest(&(&self.cut, local_io::digest(&self.roots)?)),
+        }
     }
 }
 
@@ -803,6 +822,7 @@ impl Ledger {
         permit: &AttemptPermit,
         cut: &serde_json::Value,
         roots: &std::collections::BTreeSet<String>,
+        manifest: &FullSyncManifestReference,
     ) -> Result<(), String> {
         self.check_attempt(permit)?;
         if self.state.publication_journal_version != Some(1)
@@ -828,8 +848,9 @@ impl Ledger {
         let candidate = PublicationCandidate {
             cut: cut.clone(),
             roots: roots.clone(),
+            manifest: Some(manifest.clone()),
         };
-        let intent_digest = local_io::digest(&(cut, local_io::digest(roots)?))?;
+        let intent_digest = candidate.intent_digest()?;
         candidate.validate(
             self.state
                 .verified_target_json
@@ -854,6 +875,7 @@ impl Ledger {
         permit: &AttemptPermit,
         cut: &serde_json::Value,
         roots: &std::collections::BTreeSet<String>,
+        manifest: &FullSyncManifestReference,
     ) -> Result<(), String> {
         self.check_attempt(permit)?;
         let mut next = self.state.clone();
@@ -863,7 +885,8 @@ impl Ledger {
             .ok_or("missing publication intent")?;
         if publication.completed
             || publication.attempt_no != permit.number
-            || publication.intent_digest != local_io::digest(&(cut, local_io::digest(roots)?))?
+            || publication.intent_digest
+                != local_io::digest(&(cut, local_io::digest(roots)?, manifest))?
         {
             return Err("publication completion differs from original intent".into());
         }

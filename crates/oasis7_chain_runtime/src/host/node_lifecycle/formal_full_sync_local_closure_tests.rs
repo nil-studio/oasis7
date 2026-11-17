@@ -323,3 +323,52 @@ fn local_retained_readback_checks_original_path_count_and_disk_bytes() {
     assert!(!store.root().join("pins.json").exists());
     assert!(!store.root().join("pin_scopes").exists());
 }
+
+#[test]
+fn manifest_original_cold_read_requires_exact_digest_length_cut_and_encoding() {
+    use oasis7_game_client::formal_sync_exchange::FullSyncManifestReference;
+    let (_, _, anchor, material, _) = full_sync_fixture();
+    let manifest = manifest_for(&anchor, &material);
+    let directory = TestPrivateDir::new();
+    let store = LocalCasStore::new(directory.0.join("cas"));
+    let bytes = serde_json::to_vec(&manifest).unwrap();
+    let reference = FullSyncManifestReference {
+        content_hash: blake3::hash(&bytes).to_hex().to_string(),
+        size_bytes: bytes.len() as u64,
+    };
+    let deadline = || Instant::now() + Duration::from_secs(10);
+    assert!(local_closure::read_manifest(&store, &reference, &manifest.cut, deadline()).is_err());
+    assert!(!store.root().exists());
+    store.put(&reference.content_hash, &bytes).unwrap();
+    let reread =
+        local_closure::read_manifest(&store, &reference, &manifest.cut, deadline()).unwrap();
+    assert_eq!(serde_json::to_vec(&reread).unwrap(), bytes);
+    let wrong_length = FullSyncManifestReference {
+        size_bytes: reference.size_bytes + 1,
+        ..reference.clone()
+    };
+    assert!(
+        local_closure::read_manifest(&store, &wrong_length, &manifest.cut, deadline()).is_err()
+    );
+    let mut wrong_cut = manifest.cut.clone();
+    wrong_cut.position += 1;
+    assert!(local_closure::read_manifest(&store, &reference, &wrong_cut, deadline()).is_err());
+    assert!(
+        local_closure::read_manifest(&store, &reference, &manifest.cut, Instant::now()).is_err()
+    );
+    let mut noncanonical = bytes.clone();
+    noncanonical.push(b' ');
+    let other = FullSyncManifestReference {
+        content_hash: blake3::hash(&noncanonical).to_hex().to_string(),
+        size_bytes: noncanonical.len() as u64,
+    };
+    store.put(&other.content_hash, &noncanonical).unwrap();
+    assert!(local_closure::read_manifest(&store, &other, &manifest.cut, deadline()).is_err());
+    let path = store
+        .blobs_dir()
+        .join(format!("{}.blob", reference.content_hash));
+    std::fs::write(&path, b"damaged manifest").unwrap();
+    assert!(local_closure::read_manifest(&store, &reference, &manifest.cut, deadline()).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), b"damaged manifest");
+    assert!(!store.root().join("pin_scopes").exists());
+}

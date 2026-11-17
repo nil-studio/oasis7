@@ -553,7 +553,19 @@ fn publication_intent_is_exact_and_unknown_reopen_cannot_replay() {
     let target =
         serde_json::to_vec(&(cut.clone(), serde_json::json!({"original_record": true}))).unwrap();
     let roots = std::collections::BTreeSet::from(["ab".repeat(32)]);
-    assert!(ledger.begin_publication(&attempt, &cut, &roots).is_err());
+    assert!(
+        ledger
+            .begin_publication(
+                &attempt,
+                &cut,
+                &roots,
+                &oasis7_game_client::formal_sync_exchange::FullSyncManifestReference {
+                    content_hash: "ab".repeat(32),
+                    size_bytes: 1
+                }
+            )
+            .is_err()
+    );
     ledger.bind_verified_target(&attempt, &target).unwrap();
     let selected = ledger.snapshot().clone();
     assert!(
@@ -561,12 +573,26 @@ fn publication_intent_is_exact_and_unknown_reopen_cannot_replay() {
             .begin_publication(
                 &attempt,
                 &serde_json::json!({"record_id":"replacement"}),
-                &roots
+                &roots,
+                &oasis7_game_client::formal_sync_exchange::FullSyncManifestReference {
+                    content_hash: "ab".repeat(32),
+                    size_bytes: 1
+                }
             )
             .is_err()
     );
     assert_eq!(ledger.snapshot(), &selected);
-    ledger.begin_publication(&attempt, &cut, &roots).unwrap();
+    ledger
+        .begin_publication(
+            &attempt,
+            &cut,
+            &roots,
+            &oasis7_game_client::formal_sync_exchange::FullSyncManifestReference {
+                content_hash: "ab".repeat(32),
+                size_bytes: 1,
+            },
+        )
+        .unwrap();
     let pending = ledger.snapshot().clone();
     assert!(!pending.publication.as_ref().unwrap().completed);
     let candidate = pending
@@ -582,13 +608,29 @@ fn publication_intent_is_exact_and_unknown_reopen_cannot_replay() {
         pending.verified_target_json.as_deref(),
         Some(target.as_slice())
     );
-    assert!(ledger.begin_publication(&attempt, &cut, &roots).is_err());
+    assert!(
+        ledger
+            .begin_publication(
+                &attempt,
+                &cut,
+                &roots,
+                &oasis7_game_client::formal_sync_exchange::FullSyncManifestReference {
+                    content_hash: "ab".repeat(32),
+                    size_bytes: 1
+                }
+            )
+            .is_err()
+    );
     assert!(
         ledger
             .complete_publication(
                 &attempt,
                 &cut,
-                &std::collections::BTreeSet::from(["cd".repeat(32)])
+                &std::collections::BTreeSet::from(["cd".repeat(32)]),
+                &oasis7_game_client::formal_sync_exchange::FullSyncManifestReference {
+                    content_hash: "ab".repeat(32),
+                    size_bytes: 1
+                }
             )
             .is_err()
     );
@@ -596,7 +638,19 @@ fn publication_intent_is_exact_and_unknown_reopen_cannot_replay() {
     drop(ledger);
     let mut ledger = Ledger::open(&path, &identity, &policy, 0).unwrap();
     assert_eq!(ledger.snapshot(), &pending);
-    assert!(ledger.complete_publication(&attempt, &cut, &roots).is_err());
+    assert!(
+        ledger
+            .complete_publication(
+                &attempt,
+                &cut,
+                &roots,
+                &oasis7_game_client::formal_sync_exchange::FullSyncManifestReference {
+                    content_hash: "ab".repeat(32),
+                    size_bytes: 1
+                }
+            )
+            .is_err()
+    );
     assert!(ledger.begin_attempt().is_err());
     assert_eq!(ledger.snapshot(), &pending);
 }
@@ -614,10 +668,42 @@ fn publication_acknowledgement_is_durable_but_not_install_authority() {
         serde_json::to_vec(&(cut.clone(), serde_json::json!({"original_record":true}))).unwrap();
     let roots = std::collections::BTreeSet::from(["ab".repeat(32)]);
     ledger.bind_verified_target(&attempt, &target).unwrap();
-    ledger.begin_publication(&attempt, &cut, &roots).unwrap();
-    ledger.complete_publication(&attempt, &cut, &roots).unwrap();
+    ledger
+        .begin_publication(
+            &attempt,
+            &cut,
+            &roots,
+            &oasis7_game_client::formal_sync_exchange::FullSyncManifestReference {
+                content_hash: "ab".repeat(32),
+                size_bytes: 1,
+            },
+        )
+        .unwrap();
+    ledger
+        .complete_publication(
+            &attempt,
+            &cut,
+            &roots,
+            &oasis7_game_client::formal_sync_exchange::FullSyncManifestReference {
+                content_hash: "ab".repeat(32),
+                size_bytes: 1,
+            },
+        )
+        .unwrap();
     assert!(ledger.snapshot().publication.as_ref().unwrap().completed);
-    assert!(ledger.complete_publication(&attempt, &cut, &roots).is_err());
+    assert!(
+        ledger
+            .complete_publication(
+                &attempt,
+                &cut,
+                &roots,
+                &oasis7_game_client::formal_sync_exchange::FullSyncManifestReference {
+                    content_hash: "ab".repeat(32),
+                    size_bytes: 1
+                }
+            )
+            .is_err()
+    );
     ledger.finish_attempt(&attempt).unwrap();
     let completed = ledger.snapshot().clone();
     assert!(ledger.begin_attempt().is_err());
@@ -639,11 +725,33 @@ fn publication_ack_failure_keeps_pending_and_poisoned() {
     let target = serde_json::to_vec(&(cut.clone(), serde_json::json!({}))).unwrap();
     let roots = std::collections::BTreeSet::from(["ab".repeat(32)]);
     ledger.bind_verified_target(&attempt, &target).unwrap();
-    ledger.begin_publication(&attempt, &cut, &roots).unwrap();
+    ledger
+        .begin_publication(
+            &attempt,
+            &cut,
+            &roots,
+            &oasis7_game_client::formal_sync_exchange::FullSyncManifestReference {
+                content_hash: "ab".repeat(32),
+                size_bytes: 1,
+            },
+        )
+        .unwrap();
     let mut disk = ledger.snapshot().clone();
     disk.revision += 1;
     local_io::write(&path, &disk).unwrap();
-    assert!(ledger.complete_publication(&attempt, &cut, &roots).is_err());
+    assert!(
+        ledger
+            .complete_publication(
+                &attempt,
+                &cut,
+                &roots,
+                &oasis7_game_client::formal_sync_exchange::FullSyncManifestReference {
+                    content_hash: "ab".repeat(32),
+                    size_bytes: 1
+                }
+            )
+            .is_err()
+    );
     assert!(ledger.check_attempt(&attempt).is_err());
     assert!(ledger.finish_attempt(&attempt).is_err());
     drop(ledger);
@@ -676,7 +784,11 @@ fn legacy_selected_ledger_does_not_acquire_publication_capability() {
             .begin_publication(
                 &attempt,
                 &serde_json::json!({}),
-                &std::collections::BTreeSet::from(["ab".repeat(32)])
+                &std::collections::BTreeSet::from(["ab".repeat(32)]),
+                &oasis7_game_client::formal_sync_exchange::FullSyncManifestReference {
+                    content_hash: "ab".repeat(32),
+                    size_bytes: 1
+                }
             )
             .is_err()
     );
@@ -794,9 +906,31 @@ fn publication_candidate_cold_read_rejects_changed_references() {
     let roots = std::collections::BTreeSet::from(["ab".repeat(32)]);
     let before = std::fs::read(&path).unwrap();
     let invalid = std::collections::BTreeSet::from(["../not-a-cas-reference".into()]);
-    assert!(ledger.begin_publication(&attempt, &cut, &invalid).is_err());
+    assert!(
+        ledger
+            .begin_publication(
+                &attempt,
+                &cut,
+                &invalid,
+                &oasis7_game_client::formal_sync_exchange::FullSyncManifestReference {
+                    content_hash: "ab".repeat(32),
+                    size_bytes: 1
+                }
+            )
+            .is_err()
+    );
     assert_eq!(std::fs::read(&path).unwrap(), before);
-    ledger.begin_publication(&attempt, &cut, &roots).unwrap();
+    ledger
+        .begin_publication(
+            &attempt,
+            &cut,
+            &roots,
+            &oasis7_game_client::formal_sync_exchange::FullSyncManifestReference {
+                content_hash: "ab".repeat(32),
+                size_bytes: 1,
+            },
+        )
+        .unwrap();
     let original = ledger.snapshot().clone();
     drop(ledger);
     for replace_cut in [false, true] {
@@ -825,4 +959,89 @@ fn publication_candidate_cold_read_rejects_changed_references() {
     let mut reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
     assert!(reopened.begin_attempt().is_err());
     assert_eq!(reopened.snapshot(), &legacy);
+}
+
+#[test]
+fn publication_manifest_reference_is_pinned_and_bound_to_intent() {
+    use oasis7_game_client::formal_sync_exchange::FullSyncManifestReference;
+    let temp = TestDir::new();
+    let path = temp.path().join("operation.json");
+    let policy = policy();
+    let identity = identity(&policy);
+    let mut ledger = Ledger::create(&path, identity.clone(), policy.clone()).unwrap();
+    let attempt = ledger.begin_attempt().unwrap();
+    let cut = serde_json::json!({"record_id":"original"});
+    ledger
+        .bind_verified_target(
+            &attempt,
+            &serde_json::to_vec(&(cut.clone(), serde_json::json!({}))).unwrap(),
+        )
+        .unwrap();
+    let roots = std::collections::BTreeSet::from(["ab".repeat(32)]);
+    let manifest = FullSyncManifestReference {
+        content_hash: "ab".repeat(32),
+        size_bytes: 100,
+    };
+    let before = std::fs::read(&path).unwrap();
+    for invalid in [
+        FullSyncManifestReference {
+            content_hash: "cd".repeat(32),
+            ..manifest.clone()
+        },
+        FullSyncManifestReference {
+            size_bytes: 0,
+            ..manifest.clone()
+        },
+        FullSyncManifestReference {
+            size_bytes: 8 * 1024 * 1024 + 1,
+            ..manifest.clone()
+        },
+    ] {
+        assert!(
+            ledger
+                .begin_publication(&attempt, &cut, &roots, &invalid)
+                .is_err()
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+    }
+    ledger
+        .begin_publication(&attempt, &cut, &roots, &manifest)
+        .unwrap();
+    let changed = FullSyncManifestReference {
+        size_bytes: 101,
+        ..manifest.clone()
+    };
+    assert!(
+        ledger
+            .complete_publication(&attempt, &cut, &roots, &changed)
+            .is_err()
+    );
+    let pending = ledger.snapshot().clone();
+    drop(ledger);
+    let reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
+    assert_eq!(
+        reopened
+            .snapshot()
+            .publication
+            .as_ref()
+            .unwrap()
+            .candidate
+            .as_ref()
+            .unwrap()
+            .manifest
+            .as_ref(),
+        Some(&manifest)
+    );
+    drop(reopened);
+    let mut corrupted = pending;
+    corrupted
+        .publication
+        .as_mut()
+        .unwrap()
+        .candidate
+        .as_mut()
+        .unwrap()
+        .manifest = Some(changed);
+    local_io::write(&path, &corrupted).unwrap();
+    assert!(Ledger::open(&path, &identity, &policy, 0).is_err());
 }

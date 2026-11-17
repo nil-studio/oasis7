@@ -13,6 +13,14 @@ pub struct EncodedFullSyncExchange<'a> {
     pub request_timeout: Duration,
 }
 
+/// Exact canonical manifest object retained in the same candidate pin set.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FullSyncManifestReference {
+    pub content_hash: String,
+    pub size_bytes: u64,
+}
+
 pub struct FullSyncHttpResponse {
     pub status: u16,
     pub retry_after: Option<String>,
@@ -34,11 +42,13 @@ pub trait FullSyncExchange: Send + Sync {
         &self,
         cut: &serde_json::Value,
         roots: &std::collections::BTreeSet<String>,
+        manifest: &FullSyncManifestReference,
     ) -> Result<(), WorldServiceClientError>;
     fn complete_publication(
         &self,
         cut: &serde_json::Value,
         roots: &std::collections::BTreeSet<String>,
+        manifest: &FullSyncManifestReference,
     ) -> Result<(), WorldServiceClientError>;
     fn check_active(&self) -> Result<(), WorldServiceClientError>;
     fn finish_attempt(&self) -> Result<(), WorldServiceClientError>;

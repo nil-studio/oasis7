@@ -68,6 +68,8 @@ mod grant_reconcile;
 pub(super) mod history_chain;
 #[path = "formal_full_sync_local_closure.rs"]
 mod local_closure;
+#[path = "formal_full_sync_manifest.rs"]
+mod manifest_original;
 #[cfg(unix)]
 #[path = "formal_full_sync_metered_io.rs"]
 mod metered_io;
@@ -261,6 +263,7 @@ pub(crate) struct RestoredFormalFullSyncWorldV1 {
     pub world: World,
     pub cut: FormalFullSyncCutV1,
     retained_cas_hashes: std::collections::BTreeSet<String>,
+    manifest_reference: oasis7_game_client::formal_sync_exchange::FullSyncManifestReference,
 }
 
 pub(crate) struct FormalFullSyncSession {
@@ -431,7 +434,7 @@ impl FormalFullSyncSession {
                     let cut = serde_json::to_value(&restored.cut).map_err(|e| e.to_string())?;
                     let roots = restored.retained_cas_hashes.clone();
                     exchange
-                        .begin_publication(&cut, &roots)
+                        .begin_publication(&cut, &roots, &restored.manifest_reference)
                         .map_err(|e| e.to_string())?;
                     Some((cut, roots))
                 } else {
@@ -460,7 +463,8 @@ impl FormalFullSyncSession {
                     });
                 }
                 if let (Some(exchange), Some((cut, roots))) = (&self.shared_exchange, publication)
-                    && let Err(error) = exchange.complete_publication(&cut, &roots)
+                    && let Err(error) =
+                        exchange.complete_publication(&cut, &roots, &restored.manifest_reference)
                 {
                     // Pins may already be durable; do not clean them up or
                     // retry installation after an uncertain journal write.
@@ -654,6 +658,8 @@ impl FormalFullSyncSession {
                     .into(),
             );
         }
+        let manifest_reference =
+            self.persist_manifest_original(&manifest, &cut, &mut attempt.budget)?;
         // A failed provider may have charged a digest that it never persisted.
         // Pinning those charges would make a healthy alternate fail later at
         // `stored_blob_bytes`. Only objects that actually exist in the local
@@ -674,6 +680,7 @@ impl FormalFullSyncSession {
             world,
             cut,
             retained_cas_hashes,
+            manifest_reference,
         })
     }
 
@@ -817,29 +824,6 @@ impl FormalFullSyncSession {
             }
         }
         latest_view.ok_or_else(|| "HistoryUnavailable: no verified full-sync view".into())
-    }
-
-    fn fetch_manifest(
-        &self,
-        cut: &FormalFullSyncCutV1,
-    ) -> Result<FormalFullSyncManifestV1, String> {
-        let request = FormalFullSyncManifestRequestV1 {
-            schema_version: 1,
-            grant: self
-                .config
-                .grant
-                .clone()
-                .ok_or("full-sync issuer grant missing")?,
-            cut: cut.clone(),
-        };
-        request.validate()?;
-        let manifest: FormalFullSyncManifestV1 =
-            self.post_signed(FORMAL_FULL_SYNC_MANIFEST_PATH, request, 8 * 1024 * 1024)?;
-        manifest.validate()?;
-        if manifest.cut != *cut {
-            return Err("full-sync manifest differs from independently verified cut".into());
-        }
-        Ok(manifest)
     }
 
     fn fetch_retained_tree(

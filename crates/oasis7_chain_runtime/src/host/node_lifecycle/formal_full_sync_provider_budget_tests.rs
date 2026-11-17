@@ -158,10 +158,17 @@ fn http_response(body: &[u8]) -> Vec<u8> {
 fn formal_full_sync_real_provider_charges_survive_failover_and_fresh_call_recovers() {
     let (world, trust, initial_anchor, initial_material, proof) = full_sync_fixture();
     let target = same_epoch_successor_fixture(&world, &initial_anchor, &initial_material);
-    let (mut server, endpoint, key, runtime, published, history) =
-        start_live_service(world, trust.clone(), initial_anchor, initial_material, proof);
+    let (mut server, endpoint, key, runtime, published, history) = start_live_service(
+        world,
+        trust.clone(),
+        initial_anchor,
+        initial_material,
+        proof,
+    );
     history.push(target.clone());
-    published.publish(target.world.clone(), target.anchor.clone()).unwrap();
+    published
+        .publish(target.world.clone(), target.anchor.clone())
+        .unwrap();
     // A real C0 -> C1 page must survive rejected material and client rebuild.
     // C0 alone intentionally has no persisted last_verified_cut.
     let anchor = target.anchor;
@@ -184,6 +191,36 @@ fn formal_full_sync_real_provider_charges_survive_failover_and_fresh_call_recove
     let snapshot_hash = material.roots[&ArtifactRole::Snapshot].clone();
     let hostile = hostile_provider(endpoint.clone(), junk.clone(), late_hash.clone());
     let node_key = test_key(92);
+    // Size the newly retained canonical manifest from the real authenticated
+    // provider, rather than padding the budget or duplicating its serializer.
+    let probe_dir = TestPrivateDir::new();
+    let probe = FormalFullSyncSession::new(
+        config(
+            endpoint.clone(),
+            key.clone(),
+            vec![],
+            trust.clone(),
+            &node_key,
+        ),
+        hex::encode(node_key.to_bytes()),
+        &probe_dir.0.join("full-sync"),
+        &local_instance("manifest-budget-probe"),
+    )
+    .unwrap();
+    let manifest = probe.fetch_manifest(&cut(&anchor)).unwrap();
+    let manifest_bytes = serde_json::to_vec(&manifest).unwrap();
+    let manifest_hash = blake3_hex(&manifest_bytes);
+    let declared = declared
+        + if material
+            .objects
+            .iter()
+            .any(|o| o.content_hash == manifest_hash)
+        {
+            0
+        } else {
+            manifest_bytes.len() as u64
+        };
+    drop(probe);
     for spare in [0, junk.len() as u64] {
         hostile.requests.lock().unwrap().clear();
         let mut config = config(
@@ -215,7 +252,8 @@ fn formal_full_sync_real_provider_charges_survive_failover_and_fresh_call_recove
                 .err()
                 .expect("failed-provider charge must consume this call's budget");
             assert!(
-                error.starts_with("provider[0]: full-sync object chunk has inconsistent total size"),
+                error
+                    .starts_with("provider[0]: full-sync object chunk has inconsistent total size"),
                 "{error}"
             );
             assert!(
@@ -226,8 +264,20 @@ fn formal_full_sync_real_provider_charges_survive_failover_and_fresh_call_recove
             assert_eq!(session.status().loaded_cut, None);
             assert!(!session.status().ready);
             assert_eq!(session.status().last_verified_cut, Some(cut(&anchor)));
-            assert!(!session.cas.list_effective_pins().unwrap().contains(&snapshot_hash));
-            assert!(!session.cas.list_effective_pins().unwrap().contains(&junk_hash));
+            assert!(
+                !session
+                    .cas
+                    .list_effective_pins()
+                    .unwrap()
+                    .contains(&snapshot_hash)
+            );
+            assert!(
+                !session
+                    .cas
+                    .list_effective_pins()
+                    .unwrap()
+                    .contains(&junk_hash)
+            );
             // A reconstructed client and new call reuse the same CAS/history,
             // but do not inherit the previous call's material charges.
             drop(session);
@@ -244,7 +294,10 @@ fn formal_full_sync_real_provider_charges_survive_failover_and_fresh_call_recove
             assert_eq!(restored.cut, cut(&anchor));
             let restored_bytes =
                 oasis7_world_state::codec::snapshot_cbor(&restored.world.snapshot()).unwrap();
-            assert_eq!(blake3_hex(&restored_bytes), anchor.head().record().after_state_root);
+            assert_eq!(
+                blake3_hex(&restored_bytes),
+                anchor.head().record().after_state_root
+            );
         } else {
             let restored = result.unwrap();
             assert_eq!(restored.cut, cut(&anchor));
@@ -253,7 +306,20 @@ fn formal_full_sync_real_provider_charges_survive_failover_and_fresh_call_recove
         }
         assert_eq!(session.status().loaded_cut, Some(cut(&anchor)));
         assert!(session.status().ready);
-        assert!(!session.cas.list_effective_pins().unwrap().contains(&junk_hash));
+        assert!(
+            session
+                .cas
+                .list_effective_pins()
+                .unwrap()
+                .contains(&manifest_hash)
+        );
+        assert!(
+            !session
+                .cas
+                .list_effective_pins()
+                .unwrap()
+                .contains(&junk_hash)
+        );
     }
     drop(hostile);
     server.stop().unwrap();

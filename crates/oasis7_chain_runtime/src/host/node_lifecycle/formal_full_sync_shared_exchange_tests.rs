@@ -562,6 +562,10 @@ fn recovery_checks_publication_before_session_can_prune_cas() {
                     &attempt,
                     &serde_json::json!({}),
                     &std::collections::BTreeSet::from(["ab".repeat(32)]),
+                    &oasis7_game_client::formal_sync_exchange::FullSyncManifestReference {
+                        content_hash: "ab".repeat(32),
+                        size_bytes: 1,
+                    },
                 )
                 .unwrap();
         }
@@ -571,6 +575,10 @@ fn recovery_checks_publication_before_session_can_prune_cas() {
                     &attempt,
                     &serde_json::json!({}),
                     &std::collections::BTreeSet::from(["ab".repeat(32)]),
+                    &oasis7_game_client::formal_sync_exchange::FullSyncManifestReference {
+                        content_hash: "ab".repeat(32),
+                        size_bytes: 1,
+                    },
                 )
                 .unwrap();
         }
