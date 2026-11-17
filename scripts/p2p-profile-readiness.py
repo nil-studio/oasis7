@@ -243,6 +243,7 @@ def project_bft_observation(status, source, now, result):
             or status.get("protected_services_readiness") != "unknown"
             or status.get("can_propose") is not False
             or type(status.get("running")) is not bool
+            or "blocker" not in status
             or status.get("blocker") not in (None, "runtime_not_running", "runtime_blocked")):
         return finish("unknown", "invalid_bft_observation")
     result.update(runtime_profile="bft/version=1", protected_services_readiness="unknown",

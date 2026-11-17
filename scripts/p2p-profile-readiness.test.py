@@ -74,6 +74,16 @@ class BftDiagnosticsTests(unittest.TestCase):
         self.assertNotIn("DO_NOT_COPY",json.dumps(result))
         self.assertTrue(self.project(value,"file")["replay"])
 
+    def test_missing_blocker_is_unknown_not_an_unblocked_observation(self):
+        for source in ("http", "file"):
+            status = bft_fixture()
+            del status["blocker"]
+            result = self.project(status, source)
+            self.assertEqual(result["status"], "unknown")
+            self.assertEqual(result["reason"], "invalid_bft_observation")
+            self.assertFalse(result["can_propose"])
+            self.assertNotIn("producer_blocker", result)
+
     def test_invalid_claims_missing_facts_and_stale_observation_fail_closed(self):
         for field,value in (("can_propose",True),("qualification","ready"),("running",1),
                             ("protected_services_readiness","ready"),("incarnation","")):
