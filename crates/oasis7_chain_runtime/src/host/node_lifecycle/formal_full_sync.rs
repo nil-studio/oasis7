@@ -457,15 +457,15 @@ impl FormalFullSyncSession {
                         ),
                     });
                 }
-                if let (Some(exchange), Some((cut, roots))) = (&self.shared_exchange, publication) {
-                    if let Err(error) = exchange.complete_publication(&cut, &roots) {
-                        // Pins may already be durable; do not clean them up or
-                        // retry installation after an uncertain journal write.
-                        self.cas_publication_poisoned = true;
-                        let error = error.to_string();
-                        self.fail(&error);
-                        return Err(error);
-                    }
+                if let (Some(exchange), Some((cut, roots))) = (&self.shared_exchange, publication)
+                    && let Err(error) = exchange.complete_publication(&cut, &roots)
+                {
+                    // Pins may already be durable; do not clean them up or
+                    // retry installation after an uncertain journal write.
+                    self.cas_publication_poisoned = true;
+                    let error = error.to_string();
+                    self.fail(&error);
+                    return Err(error);
                 }
                 self.check_operation_active()?;
                 let lag = latest.position.saturating_sub(restored.cut.position);

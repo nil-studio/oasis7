@@ -169,8 +169,8 @@ impl Snapshot {
         {
             return Err("unsupported publication journal version".into());
         }
-        if let Some(publication) = &self.publication {
-            if self.publication_journal_version != Some(1)
+        if let Some(publication) = &self.publication
+            && (self.publication_journal_version != Some(1)
                 || self.verified_target_json.is_none()
                 || publication.attempt_no == 0
                 || publication.attempt_no > self.attempts_used
@@ -178,10 +178,9 @@ impl Snapshot {
                 || !publication
                     .intent_digest
                     .bytes()
-                    .all(|c| c.is_ascii_hexdigit())
-            {
-                return Err("invalid operation publication identity".into());
-            }
+                    .all(|c| c.is_ascii_hexdigit()))
+        {
+            return Err("invalid operation publication identity".into());
         }
         let mut previous = 0;
         for old in &self.interrupted_attempts {
