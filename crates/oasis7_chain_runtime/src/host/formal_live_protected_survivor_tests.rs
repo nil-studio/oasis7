@@ -20,8 +20,11 @@ use std::{
 
 #[path = "formal_live_survivor_next_request_tests.rs"]
 mod next_request_tests;
+#[path = "formal_live_survivor_participant_tests.rs"]
+pub(crate) mod governed_participant;
 
 pub(in super::super) struct SurvivorResources {
+    pub governed_participant: bool,
     pub primary_child: super::EndpointChild,
     pub replica_child: super::EndpointChild,
     pub pdir: PathBuf,
@@ -474,6 +477,11 @@ pub(in super::super) fn run(
             Duration::from_secs(120),
             "survivor_before_reopen",
         )?;
+    }
+    if resources.governed_participant {
+        return governed_participant::submit_after_recovery(
+            config, owner, world, request, original_ref.as_ref().ok_or("survivor original result missing")?,
+        );
     }
     next_request_tests::submit_after_recovery(
         config,

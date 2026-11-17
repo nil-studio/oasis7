@@ -2,6 +2,7 @@
   "schema_version": 2,
   "case_shards": {
     "runtime-tests": {
+      "formal_live_runtime::tests::protected_process_tests::oracle_support::survivor_tests::governed_participant::protected_endpoint_children_governed_registration_after_survivor_and_cold_identity_recovery": "storage-recovery",
       "formal_live_runtime::tests::protected_process_tests::durable_set_tests::formal_protected_healthy_durable_set_cold_original_lookup_after_restart": "storage-recovery",
       "formal_live_runtime::tests::protected_process_tests::healthy_operation_tests::formal_protected_healthy_durable_set_operation_cli_owner_and_original_result": "lifecycle-cli",
       "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::node_execution_tests::node_network_tests::membership_cases::wire3_membership_actual_world_noise_follower_installs_at_h_plus_two": "healthy-set",
@@ -19,6 +20,11 @@
   },
   "suites": {
     "runtime-protocol": [
+      {
+        "binary": "runtime-tests",
+        "name": "formal_live_runtime::tests::protected_process_tests::oracle_support::survivor_tests::governed_participant::protected_endpoint_children_governed_registration_after_survivor_and_cold_identity_recovery",
+        "ignored": true
+      },
       {
         "binary": "runtime-tests",
         "name": "formal_live_runtime::tests::protected_process_tests::protected_endpoint_children_submit_qualify_restart_and_read_from_external_pin",

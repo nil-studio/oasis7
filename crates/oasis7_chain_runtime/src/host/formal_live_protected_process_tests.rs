@@ -233,6 +233,7 @@ enum FixtureCase {
     FullNodeStorage,
     AttemptRelease,
     InitialLostResponse,
+    GovernedParticipant,
 }
 
 fn run_protected_runtime_case(
@@ -422,8 +423,11 @@ fn run_protected_runtime_fixture(
         &owner_key,
         fixture_case,
     )?;
-    let (world, module_emits_initial) =
+    let (mut world, module_emits_initial) =
         snapshot_and_restore_fixture_world(world, &identity, genesis_mode)?;
+    if fixture_case == FixtureCase::GovernedParticipant {
+        oracle_support::survivor_tests::governed_participant::install_genesis_policy(&mut world, &identity)?;
+    }
 
     let mut definition = seed_anchor.authority().definition().clone();
     let recovery = seed_anchor.authority().policy().clone();
@@ -736,6 +740,7 @@ fn run_protected_runtime_fixture(
             &owner_request,
             module_emits_initial,
             oracle_support::survivor_tests::SurvivorResources {
+                governed_participant: fixture_case == FixtureCase::GovernedParticipant,
                 primary_child,
                 replica_child,
                 pdir,
