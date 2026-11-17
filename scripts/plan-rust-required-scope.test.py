@@ -549,6 +549,77 @@ class Selection(unittest.TestCase):
                 self.assertIn('net', plan['groups'])
                 self.assertEqual(plan['scope'], 'targeted')
 
+    def test_tablestore_patch_selects_real_launcher_native_consumers(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            for leaf in ('src/lib.rs', 'src/model/time.rs', 'tests/time.rs',
+                         'LICENSE', 'upstream-source-sha256.json', '.gitignore'):
+                with self.subTest(leaf=leaf):
+                    base = self.git('rev-parse', 'HEAD')
+                    self.write('vendor-aliyun-tablestore-rs-0.1.2/' + leaf, 'SDK input\n')
+                    head = self.commit()
+                    plan = selector.select(config, base, head, profile='pr-fast')
+                    self.assertEqual(plan['scope'], 'targeted')
+                    self.assertTrue({'rust_baseline', 'oasis7_required', 'launcher_web'}.issubset(plan['groups']))
+                    self.assertIn('oasis7_launcher_backend', plan['oasis7_required_packages'])
+                    self.assertNotIn('ordinary_fast_targets', plan)
+
+    def test_tablestore_modify_delete_rename_and_manifest_keep_validation(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        source = 'vendor-aliyun-tablestore-rs-0.1.2/src/lib.rs'
+        renamed = 'vendor-aliyun-tablestore-rs-0.1.2/src/time.rs'
+        self.write(source, 'original\n')
+        self.base = self.commit()
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            for operation in ('modify', 'rename', 'delete', 'manifest'):
+                with self.subTest(operation=operation):
+                    if operation == 'modify':
+                        self.write(source, 'changed\n')
+                    elif operation == 'rename':
+                        self.git('mv', source, renamed)
+                    elif operation == 'delete':
+                        self.git('rm', renamed)
+                    else:
+                        self.write('vendor-aliyun-tablestore-rs-0.1.2/Cargo.toml',
+                                   '[package]\nname="aliyun-tablestore-rs"\nversion="0.1.2"\n')
+                    head = self.commit()
+                    plan = selector.select(config, self.base, head, profile='pr-fast')
+                    self.assertEqual(plan['scope'], 'full' if operation == 'manifest' else 'targeted')
+                    self.assertTrue({'rust_baseline', 'oasis7_required', 'launcher_web'}.issubset(plan['groups']))
+                    self.assertIn('oasis7_launcher_backend', plan['oasis7_required_packages'])
+                    self.base = head
+
+    def test_tablestore_candidate_cannot_grant_its_own_registration(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        old = copy.deepcopy(config)
+        old['rules'] = [r for r in old['rules'] if r.get('reason') != 'tablestore_patch_consumers']
+        self.write('vendor-aliyun-tablestore-rs-0.1.2/src/lib.rs', 'SDK input\n')
+        self.write('scripts/ci-required-scope.json', json.dumps(config) + '\n')
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(old, self.base, self.commit(), profile='pr-fast')
+
+    def test_tablestore_neighbors_and_unknown_rename_endpoints_remain_rejected(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        known = 'vendor-aliyun-tablestore-rs-0.1.2/src/lib.rs'
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            for unknown in ('vendor-aliyun-tablestore-rs-0.1.3/src/lib.rs',
+                            'vendor-aliyun-tablestore-rs-0.1.2-extra/src/lib.rs',
+                            'vendor-other/src/lib.rs'):
+                self.write(unknown, 'SDK input\n')
+                head = self.commit()
+                with self.assertRaises(selector.UnknownInputsError):
+                    selector.select(config, self.base, head)
+                self.git('rm', unknown)
+                self.base = self.commit()
+            self.write(known, 'SDK input\n')
+            self.base = self.commit()
+            unknown = 'vendor-aliyun-tablestore-rs-0.1.3/src/lib.rs'
+            Path(unknown).parent.mkdir(parents=True, exist_ok=True)
+            self.git('mv', known, unknown)
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(config, self.base, self.commit())
+
     def test_quic_patch_inputs_select_network_consumers_without_self_authority(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
         old = copy.deepcopy(config)
