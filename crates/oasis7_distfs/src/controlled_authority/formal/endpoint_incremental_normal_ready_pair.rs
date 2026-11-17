@@ -332,7 +332,7 @@ impl PaidNormalAcceptedPairV1 {
 }
 pub struct NormalReadyPublicationFailureV1 {
     ready: Option<PaidNormalReadyPairV1>,
-    primary: Option<PaidAcceptedGenesisHostSourceV1>,
+    _primary: Option<PaidAcceptedGenesisHostSourceV1>,
     cause: BoundedAcquireErrorV1,
 }
 impl std::fmt::Debug for NormalReadyPublicationFailureV1 {
@@ -422,7 +422,7 @@ impl PaidNormalReadyPairV1 {
             Err(cause) => {
                 return Err(NormalReadyPublicationFailureV1 {
                     ready: Some(self),
-                    primary: None,
+                    _primary: None,
                     cause,
                 });
             }
@@ -443,7 +443,7 @@ impl PaidNormalReadyPairV1 {
             Err(cause) => {
                 return Err(NormalReadyPublicationFailureV1 {
                     ready: None,
-                    primary: None,
+                    _primary: None,
                     cause,
                 });
             }
@@ -460,7 +460,7 @@ impl PaidNormalReadyPairV1 {
             Err(cause) => {
                 return Err(NormalReadyPublicationFailureV1 {
                     ready: None,
-                    primary: Some(primary),
+                    _primary: Some(primary),
                     cause,
                 });
             }
