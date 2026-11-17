@@ -157,13 +157,10 @@ dependencies = [
 [[package]]
 name = "aliyun-tablestore-rs"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b4ed7ec37de593bb94baf7f0fa7589af4cc525542d5b3ab49b653ca9601e85c"
 dependencies = [
  "base64 0.22.1",
  "byteorder",
  "bytes",
- "chrono",
  "crc32c",
  "flatbuffers",
  "hex",
@@ -179,6 +176,7 @@ dependencies = [
  "sha1 0.10.7",
  "sha2 0.10.9",
  "thiserror 2.0.20",
+ "time",
  "tokio",
  "url",
 ]
@@ -6502,6 +6500,7 @@ dependencies = [
  "serde_json",
  "sha1 0.10.7",
  "sha2 0.11.0",
+ "time",
  "tokio",
  "toml",
  "tracing",

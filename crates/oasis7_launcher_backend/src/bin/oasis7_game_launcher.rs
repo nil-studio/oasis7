@@ -1156,3 +1156,7 @@ mod oasis7_game_launcher_tests;
 #[cfg(test)]
 #[path = "oasis7_game_launcher/environment_contract_tests.rs"]
 mod environment_contract_tests;
+
+#[cfg(test)]
+#[path = "oasis7_game_launcher/tablestore_sdk_time_tests.rs"]
+mod tablestore_sdk_time_tests;

@@ -1,0 +1,61 @@
+[package]
+name = "aliyun-tablestore-rs"
+version = "0.1.2"
+edition = "2021"
+license = "MIT"
+rust-version = "1.80.1"
+description = "阿里云表格存储（OTS）Rust SDK。 Aliyun Tablestore Rust SDK"
+authors = ["Yuan YQ <yuqiang.yuan@163.com>"]
+repository = "https://github.com/yuqiang-yuan/aliyun-tablestore-rs"
+documentation = "https://docs.rs/aliyun-tablestore-rs"
+keywords = ["aliyun", "tablestore", "ots", "ali"]
+categories = ["api-bindings", "web-programming"]
+
+[dependencies]
+base64 = "0.22.1"
+byteorder = "1.5.0"
+bytes = "1.10.1"
+chrono = "0.4.40"
+crc32c = "0.6.8"
+flatbuffers = "25.2.10"
+hex = "0.4.3"
+hmac = "0.12.1"
+hmac-sha1 = "0.2.2"
+log = "0.4.26"
+md5 = "0.7.0"
+proc-macro2 = "1.0.95"
+prost = "0.13.5"
+regex = "1.11.1"
+reqwest = {version = "0.12.13", default-features = false, features = ["stream"]}
+sha1 = "0.10.6"
+sha2 = "0.10.8"
+thiserror = "2.0.12"
+tokio = { version = "1.44.0", features = ["full"] }
+url = "2.5.4"
+
+[[example]]
+name = "gen_data"
+path = "examples/gen_data.rs"
+
+[[example]]
+name = "get_range_example"
+path = "examples/get_range_example.rs"
+
+[build-dependencies]
+prost-build = "0.13.5"
+
+[dev-dependencies]
+dotenvy = "0.15.7"
+fake = { version = "4.0.0", features = ["uuid"] }
+md5 = "0.7.0"
+rand = "0.9.0"
+simple_logger = "5.0.0"
+
+
+[features]
+# Default features, enable `native-tls` for `reqwest` crate
+default=["native-tls"]
+
+# Enable `rustls-tls` feature on `reqwest` crate
+rust-tls = ["reqwest/rustls-tls"]
+native-tls = ["reqwest/native-tls"]
