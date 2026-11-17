@@ -267,6 +267,7 @@ impl Store {
             stop,
         )?;
         let mut ctx = work.bounded_context(memory, stop);
+        lease.validate_current_binding(instance, &self.checkpoint, policy, &mut ctx)?;
         let signed = sign_native_checkpoint_bounded_v1(provider, lease, draft, &mut ctx)?;
         let checkpoint =
             super::bounded_signed_checkpoint::prepare_signed_native_checkpoint_bounded_v1(
