@@ -100,6 +100,10 @@ enum RecordRef<'a> {
     Legacy,
     Paid(&'a ReservedValue<Vec<u8>>),
 }
+struct LocalClosureSources<'provider, 'record> {
+    guard: ProviderRef<'provider>,
+    original: RecordRef<'record>,
+}
 fn read_record(
     endpoint: &FileFormalEndpoint,
     memory: &MemoryBudget,
@@ -208,8 +212,10 @@ pub(in super::super) fn recover_authenticated_local_closure_v1(
 ) -> Result<ReservedValue<AuthenticatedLocalClosureV1>, FormalError> {
     recover_with_sources(
         endpoint,
-        ProviderRef::Legacy(guard),
-        RecordRef::Legacy,
+        LocalClosureSources {
+            guard: ProviderRef::Legacy(guard),
+            original: RecordRef::Legacy,
+        },
         head,
         cache,
         pages,
@@ -229,8 +235,10 @@ pub(in super::super) fn recover_authenticated_local_closure_paid_v1(
 ) -> Result<ReservedValue<AuthenticatedLocalClosureV1>, FormalError> {
     recover_with_sources(
         endpoint,
-        ProviderRef::Paid(lease),
-        RecordRef::Paid(raw),
+        LocalClosureSources {
+            guard: ProviderRef::Paid(lease),
+            original: RecordRef::Paid(raw),
+        },
         head,
         cache,
         pages,
@@ -240,8 +248,7 @@ pub(in super::super) fn recover_authenticated_local_closure_paid_v1(
 }
 fn recover_with_sources(
     endpoint: &FileFormalEndpoint,
-    guard: ProviderRef<'_>,
-    original: RecordRef<'_>,
+    LocalClosureSources { guard, original }: LocalClosureSources<'_, '_>,
     head: &VerifiedFormalCommitV1,
     cache: &AcceptedCandidateCache,
     pages: &IncrementalPageStore,
