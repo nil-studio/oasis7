@@ -97,6 +97,15 @@ impl InterruptedAttempt {
     }
 }
 
+/// Durable local CAS publication intent, not World installation or readiness.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Publication {
+    pub intent_digest: String,
+    pub attempt_no: u64,
+    pub completed: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Snapshot {
@@ -112,6 +121,10 @@ pub(super) struct Snapshot {
     pub exchanges_started: u64,
     pub original_request_json: Option<Vec<u8>>,
     pub verified_target_json: Option<Vec<u8>>,
+    #[serde(default)]
+    pub publication: Option<Publication>,
+    #[serde(default)]
+    pub publication_journal_version: Option<u32>,
     pub proof_pages: u64,
     pub proof_bytes: u64,
     pub material_limit: u64,
@@ -147,6 +160,26 @@ impl Snapshot {
 
     fn validate(&self) -> Result<(), String> {
         self.policy.validate()?;
+        if self
+            .publication_journal_version
+            .is_some_and(|version| version != 1)
+        {
+            return Err("unsupported publication journal version".into());
+        }
+        if let Some(publication) = &self.publication {
+            if self.publication_journal_version != Some(1)
+                || self.verified_target_json.is_none()
+                || publication.attempt_no == 0
+                || publication.attempt_no > self.attempts_used
+                || publication.intent_digest.len() != 64
+                || !publication
+                    .intent_digest
+                    .bytes()
+                    .all(|c| c.is_ascii_hexdigit())
+            {
+                return Err("invalid operation publication identity".into());
+            }
+        }
         let mut previous = 0;
         for old in &self.interrupted_attempts {
             if old.attempt_no <= previous
@@ -343,6 +376,8 @@ impl Ledger {
             exchanges_started: 0,
             original_request_json: None,
             verified_target_json: None,
+            publication: None,
+            publication_journal_version: Some(1),
             proof_pages: 0,
             proof_bytes: 0,
             material_limit,
@@ -537,6 +572,34 @@ impl Ledger {
         Ok(())
     }
 
+    /// Admit only inspection/initialization of the original pre-target CAS.
+    /// This must run before Session construction can stabilize or prune roots.
+    pub(super) fn guard_pre_target_initialization(
+        &mut self,
+        owner: std::sync::Arc<super::super::process::ProcessOwnership>,
+        data: &Path,
+    ) -> Result<(), String> {
+        let deadline = self.reopen_deadline.ok_or("not a reopened operation")?;
+        if !self.recovered || self.poisoned || Instant::now() >= deadline {
+            return Err("operation_recovery_required: initialization unavailable".into());
+        }
+        self.require_owner_path(&owner, data)?;
+        if self.state.owner_binding.as_ref() != Some(&owner.binding_digest()?)
+            || self.state.publication_journal_version != Some(1)
+            || self.state.publication.is_some()
+            || self.state.verified_target_json.is_some()
+            || self.state.original_request_json.is_none()
+        {
+            return Err("operation_recovery_required: publication/target must be reconciled before CAS initialization".into());
+        }
+        if self.state.attempts_used >= self.state.policy.max_attempts {
+            return Err("operation_budget_exhausted: attempts before CAS initialization".into());
+        }
+        // Keep the native lock alive across all constructor side effects.
+        self.owner = Some(owner);
+        Ok(())
+    }
+
     /// Narrow recovery before a target was selected. The caller must first
     /// reconstruct the original request from its verified local session. This
     /// never recovers an installed/selected target or authorizes a new cut.
@@ -619,6 +682,7 @@ impl Ledger {
 
     pub fn begin_attempt(&mut self) -> Result<AttemptPermit, String> {
         if self.recovered
+            || self.state.publication.is_some()
             || self.state.active_attempt_nonce.is_some()
             || self.state.active_request.is_some()
         {
@@ -700,6 +764,70 @@ impl Ledger {
         }
         let mut next = self.state.clone();
         next.verified_target_json = Some(target_json.to_vec());
+        self.save(next)
+    }
+
+    /// Persist before changing loaded-world pins. Even an identical existing
+    /// intent is not replay permission: its external effect may already exist.
+    pub fn begin_publication(
+        &mut self,
+        permit: &AttemptPermit,
+        cut: &serde_json::Value,
+        roots_digest: &str,
+    ) -> Result<(), String> {
+        self.check_attempt(permit)?;
+        if self.state.publication_journal_version != Some(1)
+            || self.state.publication.is_some()
+            || self.state.active_request.is_some()
+            || self.state.reservation.is_some()
+            || roots_digest.len() != 64
+            || !roots_digest.bytes().all(|c| c.is_ascii_hexdigit())
+        {
+            return Err("operation_recovery_required: publication unavailable".into());
+        }
+        let target: serde_json::Value = serde_json::from_slice(
+            self.state
+                .verified_target_json
+                .as_ref()
+                .ok_or("publication has no selected target")?,
+        )
+        .map_err(|e| e.to_string())?;
+        if target
+            .as_array()
+            .is_none_or(|parts| parts.len() != 2 || parts.first() != Some(cut))
+        {
+            return Err("publication differs from the original selected cut".into());
+        }
+        let mut next = self.state.clone();
+        next.publication = Some(Publication {
+            intent_digest: local_io::digest(&(cut, roots_digest))?,
+            attempt_no: permit.number,
+            completed: false,
+        });
+        self.save(next)
+    }
+
+    /// Only the same live attempt may record a positively acknowledged pin
+    /// publication. Reopen never turns an unknown publication into success.
+    pub fn complete_publication(
+        &mut self,
+        permit: &AttemptPermit,
+        cut: &serde_json::Value,
+        roots_digest: &str,
+    ) -> Result<(), String> {
+        self.check_attempt(permit)?;
+        let mut next = self.state.clone();
+        let publication = next
+            .publication
+            .as_mut()
+            .ok_or("missing publication intent")?;
+        if publication.completed
+            || publication.attempt_no != permit.number
+            || publication.intent_digest != local_io::digest(&(cut, roots_digest))?
+        {
+            return Err("publication completion differs from original intent".into());
+        }
+        publication.completed = true;
         self.save(next)
     }
 

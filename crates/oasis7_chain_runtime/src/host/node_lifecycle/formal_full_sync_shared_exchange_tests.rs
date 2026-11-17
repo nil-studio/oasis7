@@ -118,13 +118,6 @@ fn exercise_shared_operation(failover: bool, recover: bool) {
         drop(session);
         drop(local_io::private_file(&directory.0.join("process.lock")).unwrap());
         let owner = Arc::new(super::super::super::process::lock(&directory.0).unwrap());
-        session = FormalFullSyncSession::new(
-            config.clone(),
-            hex::encode(node_key.to_bytes()),
-            &sync_root,
-            &instance,
-        )
-        .unwrap();
         let reopened = Ledger::open(
             &ledger_path,
             &identity,
@@ -132,9 +125,18 @@ fn exercise_shared_operation(failover: bool, recover: bool) {
             config.max_total_sync_bytes,
         )
         .unwrap();
-        session
-            .resume_pre_target_operation(reopened, owner, &directory.0, prepared)
-            .unwrap()
+        let (recovered_session, exchange) = FormalFullSyncSession::recover_pre_target(
+            config.clone(),
+            hex::encode(node_key.to_bytes()),
+            &instance,
+            reopened,
+            owner,
+            &directory.0,
+            prepared,
+        )
+        .unwrap();
+        session = recovered_session;
+        exchange
     } else {
         Arc::new(prepared.admit(ledger, attempt).unwrap())
     };
@@ -186,6 +188,7 @@ fn exercise_shared_operation(failover: bool, recover: bool) {
     assert_eq!(after_sync.attempts_used, if recover { 2 } else { 1 });
     assert_eq!(after_sync.interrupted_attempts.len(), usize::from(recover));
     assert!(after_sync.verified_target_json.is_some());
+    assert!(after_sync.publication.as_ref().unwrap().completed);
     assert!(after_sync.proof_pages > 0 && after_sync.proof_bytes > 0);
     assert!(after_sync.material_bytes > 0 && !after_sync.materials.is_empty());
     assert!(after_sync.exchanges_started > after_view.exchanges_started);
@@ -310,4 +313,138 @@ fn original_request_cannot_be_attached_to_another_transport_policy() {
     let reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
     assert_eq!(reopened.snapshot(), &before);
     assert_eq!(reopened.snapshot().exchanges_started, 0);
+}
+
+#[test]
+fn recovery_checks_publication_before_session_can_prune_cas() {
+    use oasis7_runtime::BlobStore;
+    for phase in [
+        "selected",
+        "pending",
+        "acknowledged",
+        "legacy",
+        "changed-config",
+        "minimum-record",
+        "minimum-cut",
+        "exhausted",
+    ] {
+        let (_, trust, _, _, _) = full_sync_fixture();
+        let node_key = test_key(92);
+        let mut config = config(
+            "http://127.0.0.1:1".into(),
+            hex::encode(test_key(93).verifying_key().to_bytes()),
+            vec![],
+            trust,
+            &node_key,
+        );
+        let directory = TestPrivateDir::new();
+        let sync_root = directory.0.join("state/full-sync");
+        local_io::private_dir(&directory.0.join("state")).unwrap();
+        local_io::private_dir(&sync_root).unwrap();
+        drop(local_io::private_file(&directory.0.join("process.lock")).unwrap());
+        let owner = Arc::new(super::super::super::process::lock(&directory.0).unwrap());
+        let original_session = FormalFullSyncSession::new(
+            config.clone(),
+            hex::encode(node_key.to_bytes()),
+            &sync_root,
+            &local_instance("guarded-recovery"),
+        )
+        .unwrap();
+        let store = LocalCasStore::new(&sync_root);
+        let orphan = store
+            .put_bytes(b"must survive refused recovery initialization")
+            .unwrap();
+        let prepared =
+            PreparedTransport::prepare_builtin_trust(&[config.endpoint.clone()]).unwrap();
+        let policy = Policy {
+            api_version: "oasis7.formal-full-sync-transfer-policy/v1".into(),
+            attempt_timeout_ms: 10_000,
+            max_attempts: if phase == "exhausted" { 1 } else { 2 },
+            max_encoded_io_bytes: 1024,
+            max_exchanges: 2,
+            max_proof_pages: 1,
+            max_proof_bytes: 1024,
+            max_inflight_requests: 1,
+            reopen_timeout_ms: 10_000,
+        };
+        let mut request = original_session
+            .prepare_operation_request(&policy, &prepared)
+            .unwrap();
+        drop(original_session);
+        if phase == "minimum-record" {
+            request["initial_minimum_record"] = serde_json::Value::Null;
+        }
+        if phase == "minimum-cut" {
+            request["initial_minimum"]["position"] = serde_json::json!(u64::MAX);
+        }
+        let identity = Identity {
+            operation_id: local_io::random_id().unwrap(),
+            request_digest: local_io::digest(&request).unwrap(),
+            policy_digest: local_io::digest(&policy).unwrap(),
+            binding_digest: "11".repeat(32),
+        };
+        let path = sync_root.join("operation.json");
+        let mut ledger = Ledger::create_with_material_limit(
+            &path,
+            identity.clone(),
+            policy.clone(),
+            config.max_total_sync_bytes,
+        )
+        .unwrap();
+        ledger.bind_original_request(&request).unwrap();
+        ledger.bind_owner(owner.clone(), &directory.0).unwrap();
+        let attempt = ledger.begin_attempt().unwrap();
+        if matches!(phase, "selected" | "pending" | "acknowledged" | "legacy") {
+            ledger.bind_verified_target(&attempt, b"[{},{}]").unwrap();
+        }
+        if phase == "pending" || phase == "acknowledged" {
+            ledger
+                .begin_publication(&attempt, &serde_json::json!({}), &"ab".repeat(32))
+                .unwrap();
+        }
+        if phase == "acknowledged" {
+            ledger
+                .complete_publication(&attempt, &serde_json::json!({}), &"ab".repeat(32))
+                .unwrap();
+        }
+        drop(ledger);
+        if phase == "legacy" {
+            let mut old: serde_json::Value = local_io::read(&path).unwrap();
+            old.as_object_mut()
+                .unwrap()
+                .remove("publication_journal_version");
+            local_io::write(&path, &old).unwrap();
+        }
+        if phase == "changed-config" {
+            config.poll_interval_ms += 1;
+        }
+        let before = std::fs::read(&path).unwrap();
+        let ledger = Ledger::open(&path, &identity, &policy, config.max_total_sync_bytes).unwrap();
+        let error = match FormalFullSyncSession::recover_pre_target(
+            config,
+            hex::encode(node_key.to_bytes()),
+            &local_instance("guarded-recovery"),
+            ledger,
+            owner,
+            &directory.0,
+            prepared,
+        ) {
+            Ok(_) => panic!("unsafe recovery constructor accepted {phase}"),
+            Err(error) => error,
+        };
+        assert!(
+            error.contains(match phase {
+                "changed-config" => "differs from original",
+                "minimum-cut" => "minimum",
+                _ => "before CAS initialization",
+            }),
+            "{phase}: {error}"
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert_eq!(
+            store.get(&orphan).unwrap(),
+            b"must survive refused recovery initialization",
+            "{phase}: refused recovery changed CAS"
+        );
+    }
 }

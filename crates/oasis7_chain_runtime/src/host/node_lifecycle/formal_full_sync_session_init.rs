@@ -202,6 +202,103 @@ impl FormalFullSyncSession {
         Ok(())
     }
 
+    /// Recovery entry with journal admission preceding any CAS mutation.
+    /// A pending, acknowledged or legacy publication cannot enter the ordinary
+    /// constructor, whose pin stabilization/pruning is not recovery authority.
+    #[cfg(unix)]
+    pub(in super::super) fn recover_pre_target(
+        config: FormalFullSyncConfigV1,
+        node_private_key_hex: String,
+        instance: &super::super::LocalInstance,
+        mut ledger: operation_ledger::Ledger,
+        owner: Arc<super::super::process::ProcessOwnership>,
+        data: &Path,
+        transport: shared_exchange::PreparedTransport,
+    ) -> Result<(Self, Arc<shared_exchange::SharedOperationExchange>), String> {
+        ledger.guard_pre_target_initialization(owner.clone(), data)?;
+        let original: serde_json::Value = serde_json::from_slice(
+            ledger
+                .snapshot()
+                .original_request_json
+                .as_ref()
+                .ok_or("missing original request")?,
+        )
+        .map_err(|e| e.to_string())?;
+        let signed = authority::sign_read_request(
+            "formal-full-sync-node-key-check",
+            (),
+            &node_private_key_hex,
+        )?;
+        if original.get("config")
+            != Some(&serde_json::to_value(&config).map_err(|e| e.to_string())?)
+            || original
+                .get("node_public_key")
+                .and_then(serde_json::Value::as_str)
+                != Some(signed.subject_public_key.as_str())
+            || original
+                .get("transport_binding")
+                .and_then(serde_json::Value::as_str)
+                != Some(transport.binding_digest())
+        {
+            return Err("recovery constructor differs from original operation".into());
+        }
+        // Replay without pin publication or garbage collection. Both the full
+        // original record and exact minimum must still be the local head for
+        // this pre-target path; a later head needs selected-target recovery.
+        let providers = config.providers();
+        let endpoints: Vec<_> = providers.iter().map(|p| p.endpoint.clone()).collect();
+        if ledger.snapshot().material_limit != config.max_total_sync_bytes
+            || !transport.matches_endpoints(&endpoints)
+        {
+            return Err("recovery budget/providers differ before CAS initialization".into());
+        }
+        let provider = providers.first().ok_or("missing recovery provider")?;
+        let client = providers::build_read_client(
+            &config,
+            provider,
+            &node_private_key_hex,
+            Duration::from_millis(config.request_timeout_ms),
+        )?;
+        let minimum: FormalFullSyncCutV1 = serde_json::from_value(
+            original
+                .get("initial_minimum")
+                .cloned()
+                .ok_or("missing original minimum")?,
+        )
+        .map_err(|e| e.to_string())?;
+        let root = data.join("state/full-sync");
+        history_chain::PersistedFormalReadHistoryV1::verify_read_only_at_least(
+            &config,
+            &client,
+            Arc::new(LocalCasStore::new(&root)),
+            &root,
+            Some(&minimum),
+        )?;
+        let anchor = client.formal_current_anchor().map_err(|e| e.to_string())?;
+        if cut_from_anchor(&anchor)? != minimum
+            || original.get("initial_minimum_record")
+                != Some(&serde_json::to_value(anchor.head().record()).map_err(|e| e.to_string())?)
+        {
+            return Err("original minimum/record differs before CAS initialization".into());
+        }
+        let expected = serde_json::json!({
+            "api_version": "oasis7.full-sync-original-operation-request/v1",
+            "config": &config,
+            "transfer_policy": &ledger.snapshot().policy,
+            "node_public_key": &signed.subject_public_key,
+            "initial_minimum": minimum,
+            "initial_minimum_record": anchor.head().record(),
+            "transport_binding": transport.binding_digest(),
+        });
+        if original != expected {
+            return Err("original request differs before CAS initialization".into());
+        }
+        ledger.guard_pre_target_initialization(owner.clone(), data)?;
+        let mut session = Self::new(config, node_private_key_hex, &root, instance)?;
+        let exchange = session.resume_pre_target_operation(ledger, owner, data, transport)?;
+        Ok((session, exchange))
+    }
+
     /// Recover only an original pre-target operation on its exact native node.
     /// A selected/installed target requires the separate history/install recovery
     /// path and is rejected here rather than replaced with a fresh request.

@@ -247,6 +247,34 @@ impl FullSyncExchange for SharedOperationExchange {
             .bind_verified_target(&active.attempt, target_json)
             .map_err(WorldServiceClientError::Transport)
     }
+    fn begin_publication(
+        &self,
+        cut: &serde_json::Value,
+        roots_digest: &str,
+    ) -> Result<(), WorldServiceClientError> {
+        let mut guard = self.active.try_lock().map_err(|_| {
+            WorldServiceClientError::Transport("operation occupied or poisoned".into())
+        })?;
+        let active = &mut *guard;
+        active
+            .ledger
+            .begin_publication(&active.attempt, cut, roots_digest)
+            .map_err(WorldServiceClientError::Transport)
+    }
+    fn complete_publication(
+        &self,
+        cut: &serde_json::Value,
+        roots_digest: &str,
+    ) -> Result<(), WorldServiceClientError> {
+        let mut guard = self.active.try_lock().map_err(|_| {
+            WorldServiceClientError::Transport("operation occupied or poisoned".into())
+        })?;
+        let active = &mut *guard;
+        active
+            .ledger
+            .complete_publication(&active.attempt, cut, roots_digest)
+            .map_err(WorldServiceClientError::Transport)
+    }
     fn check_active(&self) -> Result<(), WorldServiceClientError> {
         let guard = self.active.try_lock().map_err(|_| {
             WorldServiceClientError::Transport("operation occupied or poisoned".into())
