@@ -341,6 +341,8 @@ def validate_workerd_capture(node, summary):
         raise ValueError('standard GDB process contracts must actually run on the hosted consumer')
     uploads = [step for step in steps if 'name: custody-workerd-fault-' in step]
     if (len(uploads) != 1 or 'if: always()' not in uploads[0]
+            or not re.search(r'^        timeout-minutes: 5$', uploads[0], re.M)
+            or 'continue-on-error' in uploads[0]
             or 'name: custody-workerd-fault-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}' not in uploads[0]
             or 'overwrite:' in uploads[0]
             or '/workerd-fault/records.jsonl' not in uploads[0]
@@ -4892,6 +4894,19 @@ class OrdinaryDeliveryWorkflow(unittest.TestCase):
 
 
 class WorkerdFaultCapture(unittest.TestCase):
+    def test_evidence_upload_is_bounded_without_masking_failure(self):
+        node, summary = JOBS['custody-node'], JOBS['workspace-support']
+        marker = '      - name: Preserve workerd evidence for this attempt\n'
+        self.assertEqual(node.count(marker), 1)
+        before, upload = node.split(marker)
+        validate_workerd_capture(node, summary)
+        for replacement in ('', '        timeout-minutes: 0\n',
+                            '        timeout-minutes: 60\n',
+                            '        timeout-minutes: 5\n        continue-on-error: true\n'):
+            with self.subTest(replacement=replacement), self.assertRaises(ValueError):
+                validate_workerd_capture(before + marker + upload.replace(
+                    '        timeout-minutes: 5\n', replacement, 1), summary)
+
     def test_real_capture_and_attempt_scoped_artifacts_are_required(self):
         validate_workerd_capture(JOBS['custody-node'], JOBS['workspace-support'])
         for path in ('scripts/ci-custody-workerd-capture.py', 'scripts/ci-custody-workerd-gdb.py',
