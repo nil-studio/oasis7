@@ -25,6 +25,88 @@ import shlex
 RUNTIME_WORKER_TEST = 'actual_scheduled_module_vm_fee_policy_state_effect_visual_lifecycle_and_counter'
 RUNTIME_WORKER_PACKAGE = 'oasis7_runtime'
 RUNTIME_WORKER_TARGET = 'oasis7_runtime'
+# Exact libtest names whose fixtures open the real sealed worker image. The
+# shared Rule fixture is also used without Runtime's wasmtime feature. Match
+# complete cases from the active inventory, never their module prefix or package.
+RUNTIME_WORKER_LIB_TESTS = frozenset(
+    'world::incremental_genesis::tests::module_execution::' + case for case in (
+        'action_body::actual_queued_body_actions_match_world_and_read_prior_current_write',
+        'action_body::collect_data::selected_collect_data_foreign_overflow_sink_cancellation_and_work_fail_closed',
+        'action_body::collect_data::selected_non_auth_collect_data_matches_world_and_current_resources',
+        'action_body::material_transfer::insufficient_transfer_precedes_corrupt_current_profile_priority',
+        'action_body::material_transfer::selected_destination_overflow_matches_world_preflight_and_aborts_seal',
+        'action_body::material_transfer::selected_direct_material_transfer_matches_world_and_current_owner_sinks',
+        'action_body::selected_body_actions_reject_foreign_stale_cross_action_cancel_and_work_exhaustion',
+        'action_body::transfer_resource::alliance_actions::queued_alliance_lifecycle_preserves_outer_risk_war_rejections_and_exact_world_originals',
+        'action_body::transfer_resource::auth_current_tests::selected_authenticated_claim_and_nonce_match_legacy_and_consume_current_replay',
+        'action_body::transfer_resource::auth_signature_tests::selected_auth_signature_preserves_legacy_rejection_without_minting_binding',
+        'action_body::transfer_resource::authenticated_data_tests::overflow::authenticated_data_overflow_preserves_original_stock_error_and_aborts_without_result',
+        'action_body::transfer_resource::authenticated_data_tests::selected_authenticated_collect_data_matches_world_originals_resources_and_nonce',
+        'action_body::transfer_resource::contract_accept_actions::queued_contract_accept_accepted_persist_retains_exact_sentinel_and_has_no_event',
+        'action_body::transfer_resource::contract_accept_actions::queued_contract_accept_cancel_before_selection_has_no_input_or_event_and_aborts',
+        'action_body::transfer_resource::contract_accept_actions::queued_contract_accept_full_oracle_both_empty_creates_world_group',
+        'action_body::transfer_resource::contract_accept_actions::queued_contract_accept_full_oracle_legacy_material_fallback',
+        'action_body::transfer_resource::contract_accept_actions::queued_contract_accept_full_oracle_world_ledger_wins',
+        'action_body::transfer_resource::contract_accept_actions::queued_contract_accept_steps_exhausted_preserves_input_without_accepted_or_result_original',
+        'action_body::transfer_resource::contract_lifecycle::queued_war_contract_lifecycle_preserves_current_finances_limits_cooldown_and_originals',
+        'action_body::transfer_resource::crisis_actions::queued_crisis_accepted_persist_retains_exact_sentinel_and_has_no_event',
+        'action_body::transfer_resource::crisis_actions::queued_crisis_cancel_before_selection_has_no_input_or_event_and_aborts',
+        'action_body::transfer_resource::crisis_actions::queued_crisis_preserves_legacy_accepted_originals_current_state_and_mailboxes',
+        'action_body::transfer_resource::crisis_actions::queued_crisis_steps_exhausted_preserves_input_without_accepted_or_result_original',
+        'action_body::transfer_resource::data_access_actions::queued_data_access_actions_match_world_and_current_permissions',
+        'action_body::transfer_resource::factory_lifecycle_actions::boundary::queued_factory_duplicate_salvage_keeps_stack_order_and_flooring',
+        'action_body::transfer_resource::factory_lifecycle_actions::boundary::queued_factory_matching_retired_receipt_replays_without_touch_or_output_group',
+        'action_body::transfer_resource::factory_lifecycle_actions::boundary::queued_factory_pause_busy_priority_and_nonidle_match_legacy',
+        'action_body::transfer_resource::factory_lifecycle_actions::boundary::queued_factory_pause_resets_actual_snapshot_and_rejects_second_pause',
+        'action_body::transfer_resource::factory_lifecycle_actions::boundary::queued_factory_rejection_priority_and_future_pending_recipe_match_legacy',
+        'action_body::transfer_resource::factory_lifecycle_actions::boundary::queued_factory_requested_fallback_and_actual_consumption_match_legacy',
+        'action_body::transfer_resource::factory_lifecycle_actions::failure::fifo_factory_cancel_before_selection_has_no_input_or_event_and_aborts',
+        'action_body::transfer_resource::factory_lifecycle_actions::failure::fifo_factory_normalized_add_overflow_preserves_later_old_typed_error',
+        'action_body::transfer_resource::factory_lifecycle_actions::failure::fifo_factory_original_persist_retains_exact_sentinel_and_aborts',
+        'action_body::transfer_resource::factory_lifecycle_actions::failure::fifo_factory_raw_preflight_overflow_preserves_old_typed_error',
+        'action_body::transfer_resource::factory_lifecycle_actions::failure::fifo_factory_receipt_conflict_precedes_retired_replay',
+        'action_body::transfer_resource::factory_lifecycle_actions::queued_factory_lifecycle_matches_legacy_originals_and_prior_current_writes',
+        'action_body::transfer_resource::failure_tests::selected_transfer_resource_foreign_overflow_sink_cancellation_and_work_fail_closed',
+        'action_body::transfer_resource::logistics_registration::queued_route_registration_preserves_tuple_order_outer_ids_and_same_tx_duplicates',
+        'action_body::transfer_resource::meta_progress_actions::failure::queued_meta_accepted_persist_retains_exact_sentinel_and_has_no_event',
+        'action_body::transfer_resource::meta_progress_actions::failure::queued_meta_cancel_before_selection_has_no_input_or_event_and_aborts',
+        'action_body::transfer_resource::meta_progress_actions::failure::queued_meta_generated_identifier_cap_rejects_before_any_accepted_or_result_original',
+        'action_body::transfer_resource::meta_progress_actions::queued_meta_progress_preserves_legacy_accepted_originals_current_state_and_mailboxes',
+        'action_body::transfer_resource::normal_extension::queued_normal_extensions_match_original_events_body_rows_and_mailboxes',
+        'action_body::transfer_resource::root_empty_fifo_cancellation_is_not_normal_exhaustion',
+        'action_body::transfer_resource::route_availability::queued_route_availability_matches_legacy_originals_and_prior_current_writes',
+        'action_body::transfer_resource::selected_transfer_resource_matches_world_balances_mailboxes_and_native_rejections',
+        'action_execution_tests::selected_common_admission_revision_change_rejects_prepare_and_aborts',
+        'action_execution_tests::selected_core_settlement_preserves_source_error_and_aborts_prefix',
+        'action_execution_tests::selected_core_success_and_rejections_match_original_world_bytes',
+        'action_execution_tests::selected_core_uses_real_rules_and_preserves_counted_result_owner',
+        'actual_scheduled_module_vm_fee_policy_state_effect_visual_lifecycle_and_counter',
+        'commit_directories::real_commit_apply_seal_history_candidate_directory_binding_and_failure_boundaries',
+        'directory_bundle::actual_final_directory_bundle_seal_binding_and_foreign_revision_transaction_pool_rejection',
+        'factory_depreciation_reduce::prepared_factory_reducer_matches_original_world_material_maps_and_missing_factory',
+        'factory_phase::completed_factory_prologue_gates_fifo_and_preserves_current_and_legacy_originals',
+        'factory_phase::real_factory_phase_uses_accepted_caches_current_deltas_and_original_world_oracle',
+        'override_audit::actual_rule_modify_publishes_original_override_after_world_drop',
+        'pre_action::actual_persisted_event_uses_current_directory_and_preserves_legacy_input',
+        'pre_action::actual_post_action_uses_current_directory_and_preserves_legacy_input',
+        'pre_action::actual_pre_action_regex_uses_same_sealed_worker_and_preserves_legacy_input',
+        'pre_action::actual_pre_action_selected_invocation_uses_sealed_vm_after_world_drop',
+        'rule_phase::actual_rule_invalid_first_of_two_emits_preserves_first_error',
+        'rule_phase::actual_rule_invalid_payload_preserves_json_error_event',
+        'rule_phase::actual_rule_modify_runs_nonempty_pricing_on_derived_input',
+        'rule_phase::actual_rule_multiple_emits_preserves_error_event',
+        'rule_phase::actual_rule_phase_matches_legacy_after_world_drop',
+        'rule_phase::actual_rule_wrong_action_id_preserves_error_event',
+        'rule_phase::actual_rule_wrong_id_first_of_two_emits_preserves_first_error',
+        'rule_phase::selected_core_consumes_actual_nonempty_rule_modify_and_pricing',
+        'rule_phase::selected_core_genuine_rule_denial_preserves_balance_and_position',
+        'rule_phase::selected_core_insufficient_rule_cost_preserves_position_and_balance',
+        'rule_phase::selected_core_rejected_move_settles_general_cost_without_pricing_cost',
+        'signed_safe_alternative::normal_transits_due::signed_normal_parent_executes_actual_due_material_transit_against_world_oracle',
+        'signed_safe_alternative::real_signed_matching_genesis_scope_core_rejection_and_exact_retry',
+    )
+)
+
 IWS_RULE_CORE_TARGET = 'iws_rule_core'
 IWS_RULE_CORE_TESTS = frozenset((
     'selected_core_consumes_actual_nonempty_rule_modify_and_pricing',
@@ -1211,7 +1293,8 @@ def build_variants(scope, plan=None, ordinary_partition=None):
 
 def runtime_worker_case_selected(cases):
     return any(isinstance(case, str) and
-               (case == RUNTIME_WORKER_TEST or case.endswith('::' + RUNTIME_WORKER_TEST))
+               (case in RUNTIME_WORKER_LIB_TESTS or case == RUNTIME_WORKER_TEST
+                or case.endswith('::' + RUNTIME_WORKER_TEST))
                for case in cases)
 
 

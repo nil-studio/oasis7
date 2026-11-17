@@ -5122,6 +5122,120 @@ class RuntimeWorkerCompanionContracts(unittest.TestCase):
 
 
 
+    def test_exact_worker_consumers_require_active_runtime_library_inventory(self):
+        prefix = 'world::incremental_genesis::tests::module_execution::'
+        # Independent source cases exercise every Image/helper family, including
+        # required/no-default cases without the legacy wasmtime-gated marker.
+        consumers = (
+            'action_body::actual_queued_body_actions_match_world_and_read_prior_current_write',
+            'action_body::material_transfer::selected_direct_material_transfer_matches_world_and_current_owner_sinks',
+            'action_body::collect_data::selected_non_auth_collect_data_matches_world_and_current_resources',
+            'action_body::transfer_resource::root_empty_fifo_cancellation_is_not_normal_exhaustion',
+            'action_body::transfer_resource::factory_lifecycle_actions::failure::fifo_factory_cancel_before_selection_has_no_input_or_event_and_aborts',
+            'action_execution_tests::selected_core_uses_real_rules_and_preserves_counted_result_owner',
+            'factory_depreciation_reduce::prepared_factory_reducer_matches_original_world_material_maps_and_missing_factory',
+            'factory_phase::real_factory_phase_uses_accepted_caches_current_deltas_and_original_world_oracle',
+            'factory_phase::completed_factory_prologue_gates_fifo_and_preserves_current_and_legacy_originals',
+            'directory_bundle::actual_final_directory_bundle_seal_binding_and_foreign_revision_transaction_pool_rejection',
+            'commit_directories::real_commit_apply_seal_history_candidate_directory_binding_and_failure_boundaries',
+            'signed_safe_alternative::real_signed_matching_genesis_scope_core_rejection_and_exact_retry',
+            'signed_safe_alternative::normal_transits_due::signed_normal_parent_executes_actual_due_material_transit_against_world_oracle',
+            'pre_action::actual_pre_action_selected_invocation_uses_sealed_vm_after_world_drop',
+            'rule_phase::actual_rule_phase_matches_legacy_after_world_drop',
+            'override_audit::actual_rule_modify_publishes_original_override_after_world_drop',
+        )
+        manifest = self.manifest(include_companion=False)
+        binary = manifest['binaries']['runtime-module-tests']
+        with patch.object(artifacts.sys, 'platform', 'linux'):
+            for relative in consumers:
+                case = prefix + relative
+                binary.update(tests=[case], ignored_tests=[])
+                with self.subTest(case=case):
+                    self.assertTrue(artifacts.runtime_worker_test_selected(manifest))
+                    self.assertFalse(artifacts.runtime_worker_test_selected(manifest, ['viewer']))
+                    binary['ignored_tests'] = [case]
+                    self.assertFalse(artifacts.runtime_worker_test_selected(manifest))
+                    self.assertFalse(artifacts.runtime_worker_case_selected([relative]))
+                    self.assertFalse(artifacts.runtime_worker_case_selected(['other::' + relative]))
+            # These neighbors use pure data/index/arithmetic or with_rules=false.
+            for relative in (
+                    'action_body::transfer_resource::data_access_current::current_data_access_group_size_tracks_typed_membership_deltas',
+                    'action_body::transfer_resource::starter_binding_integration::starter_binding_whole_genesis_and_current_preserve_duplicate_and_revision_semantics',
+                    'action_body::transfer_resource::diplomacy_integration::diplomacy_whole_genesis_observes_multiple_memberships_and_only_active_wars',
+                    'action_body::transfer_resource::factory_lifecycle_actions::lifecycle_scalar_arithmetic_has_independent_integer_oracles',
+                    'action_execution_tests::safe_alternative_action_index_comes_from_genesis_and_current_records',
+                    'action_execution_tests::real_queued_register_then_move_consumes_originals_and_updates_current_position',
+                    'action_body::unregistered_case'):
+                binary.update(tests=[prefix + relative], ignored_tests=[])
+                with self.subTest(nonconsumer=relative):
+                    self.assertFalse(artifacts.runtime_worker_test_selected(manifest))
+            binary.update(tests=[prefix + consumers[0]], ignored_tests=[])
+            for field, value in (('package', 'oasis7_world_state'), ('target', 'pr_fast_incremental'),
+                                 ('target_kind', ['test']), ('ordinary', False), ('test', False)):
+                rejected = copy.deepcopy(manifest)
+                rejected['binaries']['runtime-module-tests'][field] = value
+                with self.subTest(field=field, value=value):
+                    self.assertFalse(artifacts.runtime_worker_test_selected(rejected))
+            self.assertFalse(artifacts.runtime_worker_case_selected([None, {}, 1]))
+        for platform in ('darwin', 'win32'):
+            with self.subTest(platform=platform), patch.object(artifacts.sys, 'platform', platform):
+                self.assertFalse(artifacts.runtime_worker_test_selected(manifest))
+
+    def test_required_consumer_builds_hashed_worker_without_legacy_marker_or_plan_case(self):
+        case = ('world::incremental_genesis::tests::module_execution::action_body::'
+                'actual_queued_body_actions_match_world_and_read_prior_current_write')
+        manifest, bundle, commands, observed, _ = self.build_fixture(
+            cases=[case, 'unrelated_case'], minimum=['unrelated_case'])
+        self.assertIn('worker_companion', manifest)
+        harness = next(iter(manifest['binaries'].values()))
+        self.assertEqual(harness['features'], ['test_tier_required'])
+        self.assertNotIn(artifacts.RUNTIME_WORKER_TEST, harness['tests'])
+        self.assertEqual(commands[1], ['cargo', 'build', '-p', 'oasis7_wasm_executor',
+            '--no-default-features', '--features', 'wasmtime', '--bin', 'oasis7-wasm-worker',
+            '--locked', '--message-format=json-render-diagnostics'])
+        worker = manifest['worker_companion']
+        self.assertEqual(worker['sha256'], artifacts.digest(bundle / artifacts.RUNTIME_WORKER_PATH))
+        self.assertEqual(worker['features'], ['wasmtime'])
+        self.assertEqual(worker['requested_features'], ['wasmtime'])
+        self.assertEqual(worker['libraries'], ['lib/libexecutor_fixture.so'])
+        self.assertEqual(manifest['libraries']['lib/libexecutor_fixture.so'],
+                         artifacts.digest(bundle / 'lib/libexecutor_fixture.so'))
+        self.assertEqual(observed, ['required-fast-0', artifacts.RUNTIME_WORKER_BUILD])
+        for changes in (dict(ignored=[case]), dict(platform='darwin'), dict(package='oasis7_world_state')):
+            with self.subTest(changes=changes):
+                rejected, _, rejected_commands, _, _ = self.build_fixture(cases=[case], **changes)
+                self.assertNotIn('worker_companion', rejected)
+                self.assertEqual(len(rejected_commands), 1)
+
+    def test_required_consumer_pack_load_preserves_worker_and_library_validation(self):
+        case = ('world::incremental_genesis::tests::module_execution::action_body::'
+                'actual_queued_body_actions_match_world_and_read_prior_current_write')
+        manifest = self.manifest()
+        manifest['binaries']['runtime-module-tests']['tests'] = [case]
+        archive, consumer, environment = self.publish_and_load(manifest)
+        with tarfile.open(archive) as packed:
+            self.assertIn(artifacts.RUNTIME_WORKER_PATH, packed.getnames())
+            self.assertIn('lib/libexecutor_fixture.so', packed.getnames())
+        self.assertEqual(environment[artifacts.RUNTIME_WORKER_VARIABLE],
+                         str((consumer / artifacts.RUNTIME_WORKER_PATH).resolve()))
+        with patch.object(artifacts, 'CONFIG', self.config), \
+             patch.object(artifacts.sys, 'platform', 'linux'):
+            missing = copy.deepcopy(manifest)
+            del missing['worker_companion']
+            (self.bundle / 'manifest.json').write_text(json.dumps(missing))
+            with self.assertRaisesRegex(ValueError, 'missing Runtime worker companion'):
+                artifacts.pack(self.bundle, self.root / 'missing-required-worker.tar.gz', suite='ordinary')
+            (self.bundle / 'manifest.json').write_text(json.dumps(manifest))
+            original_worker = self.worker.read_bytes()
+            self.worker.write_bytes(b'corrupt worker')
+            with self.assertRaisesRegex(ValueError, 'corrupt executable'):
+                artifacts.pack(self.bundle, self.root / 'corrupt-required-worker.tar.gz', suite='ordinary')
+            self.worker.write_bytes(original_worker)
+            self.library.write_bytes(b'corrupt worker library')
+            with self.assertRaisesRegex(ValueError, 'corrupt executable/library'):
+                artifacts.pack(self.bundle, self.root / 'corrupt-required-library.tar.gz', suite='ordinary')
+
+
 class WorkspaceCacheSelection(unittest.TestCase):
     """Cargo JSON fixtures cover unit selection without requiring a toolchain."""
 
