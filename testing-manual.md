@@ -168,6 +168,21 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 
 脚本在自有临时 worktree/target 中预取锁定依赖，依次执行 seed、同命令 no-op 和固定 Viewer 注释变更重建。报告目录必须在 checkout 外，不能清空开发 target 造冷样本。核对来源、patch、profile/features/flags、Fresh/rebuilt 及实际重建闭包；比较不同功能修订时注明混杂因素。真实跨 run 加速仍需可信 main producer 保存成功和独立 consumer 恢复后的实际编译/包身份，PR 分支始终只读。具体测量协议见[性能设计](doc/testing/performance/compile-metrics-v2-warm-check.design.md#113-executable-ecs-native-build-and-viewer-experiment)。
 
+<a id="linux-linker-ab-validation"></a>
+### Linux 同一输入链接器对照
+
+手动执行 `Compile Metrics`，选择 `measurement_mode=linux-linker-ab`，其余输入保持默认（baseline/warm threshold 留空、warm check 为 false）。它固定比较 `oasis7_newapi_bridge_service` 的同一组链接输入，不使用源码 baseline 或原 V2 阈值；冲突输入会被拒绝。下载 `compile-metrics-linux-linker-ab` artifact，查看 `summary.md`、`report.json`、`capture.tar`、`inputs.json` 和 `logs/`。
+
+已有 Linux x86_64/Rust 1.96.0 环境和统一 `setup-linux-mold` 安装的 mold 3.0.0 时，可直接执行：
+
+```bash
+python3 scripts/ci-linux-linker-benchmark.py --out-dir <external-new-report-directory>
+```
+
+脚本从已导出的 host linker 路径旁或 `PATH` 查找 mold；本地也可用 `--mold <absolute-path-to-installed-mold>` 指定同一安装产物。以 dev/default features、incremental/debug info/native LTO 关闭的配置准备一次 Cargo 构建，捕获 Rust 默认 LLD 的完整输入，再直接用 LLD 和固定 mold 重链；默认一对预热、四对交替 AB/BA 测量。CLI 的 `--pairs` 仅接受 2 至 10 的偶数。报告目录必须在 checkout 外且为新目录，临时 target 与解包输入由本次运行持有；不要清空开发 target 或共享缓存。
+
+核对每轮真实调用、新 ELF 的链接器身份、`--help` 成功、输入摘要不变及所有原始样本。输入哈希会预热页缓存，所得墙钟是预热输入的链接重放；安装、预取和一次 Cargo 准备不属于 A/B 链接时间。它不代表整体构建或 CI 提速，也不替代 NewAPI 业务测试；失败或未完成样本不能当作成功对照。具体边界见[性能设计](doc/testing/performance/compile-metrics-v2-warm-check.design.md#linux-linker-ab)。
+
 ## 当前实现分布（2026-02-18 基线）
 
 ### 应用主链（world + runtime + simulator + viewer 协议）

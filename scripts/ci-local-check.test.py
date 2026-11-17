@@ -239,6 +239,44 @@ class InputCapture(GitFixture):
 
 
 class Evidence(unittest.TestCase):
+    def test_compile_metrics_requires_the_linker_contract_receipt_without_running_the_benchmark(self):
+        expected = ('ci-compile-metrics-contract.test.sh', 'ci-linux-linker-benchmark.test.py',
+                    'ci-ecs-build-metrics.test.py', 'ci-ecs-cache.test.py')
+        driver = (HERE / 'ci-tests.sh').read_text().split('run_compile_metrics_contract_tests() {\n', 1)[1].split('\n}', 1)[0]
+        self.assertIn('run python3 ./scripts/ci-linux-linker-benchmark.test.py', driver)
+        self.assertNotIn('scripts/ci-linux-linker-benchmark.py', driver)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'scripts').mkdir()
+            (root / 'scripts/ci-tests.sh').write_text((HERE / 'ci-tests.sh').read_text())
+            for omit_linker in (False, True):
+                directory = root / str(omit_linker)
+                directory.mkdir()
+                result = dict(groups=[dict(name='compile_metrics')], base_sha='a' * 40,
+                              source_sha='b' * 40, checks_executed=0)
+
+                def receipts(argv, checkout, env, group_dir, label, timeout):
+                    commands = group_dir / 'commands'
+                    commands.mkdir()
+                    for index, name in enumerate(expected):
+                        if omit_linker and name == 'ci-linux-linker-benchmark.test.py':
+                            continue
+                        payload = dict(argv=['python3' if name.endswith('.py') else 'bash', 'scripts/' + name],
+                                       started_at=index, status='passed', tests_executed=2, tests_expected=2,
+                                       business_tests_executed=0)
+                        (commands / f'{index}.json').write_text(json.dumps(payload))
+                    return dict(passed=True, cancelled=False, timeout=False)
+
+                with mock.patch.object(entry, 'preflight'), mock.patch.object(entry, 'invoke', side_effect=receipts):
+                    if omit_linker:
+                        with self.assertRaisesRegex(entry.Failed, 'incomplete command inventory'):
+                            entry.execute(root, SimpleNamespace(timeout_seconds=5), result, directory, {})
+                    else:
+                        entry.execute(root, SimpleNamespace(timeout_seconds=5), result, directory, {})
+                        self.assertEqual(result['status'], 'passed')
+                        self.assertEqual(result['checks_expected'], 4)
+                        self.assertEqual(result['groups'][0]['tests_executed'], 8)
+
     def test_structured_completion_rejects_boolean_counts_and_truthy_flags(self):
         argv = ['python3', 'scripts/ci-python-control-contracts.py', 'local-contract']
         valid = dict(expected_count=2, passed=True, count_ok=True)

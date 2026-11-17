@@ -1120,6 +1120,8 @@
     "scripts/ci-worker-build.test.py": ["workflow_governance"],
     "scripts/ci-ecs-build-metrics.py": ["compile_metrics"],
     "scripts/ci-ecs-build-metrics.test.py": ["compile_metrics"],
+    "scripts/ci-linux-linker-benchmark.py": ["compile_metrics"],
+    "scripts/ci-linux-linker-benchmark.test.py": ["compile_metrics"],
     "scripts/ci-ecs-cache.py": ["compile_metrics"],
     "scripts/ci-ecs-cache.test.py": ["compile_metrics"],
     "scripts/ci-fast-preview.py": ["workflow_governance"],
@@ -1347,6 +1349,18 @@
       "group": "compile_metrics",
       "tests": [
         "scripts/ci-ecs-build-metrics.test.py"
+      ]
+    },
+    "scripts/ci-linux-linker-benchmark.py": {
+      "group": "compile_metrics",
+      "tests": [
+        "scripts/ci-linux-linker-benchmark.test.py"
+      ]
+    },
+    "scripts/ci-linux-linker-benchmark.test.py": {
+      "group": "compile_metrics",
+      "tests": [
+        "scripts/ci-linux-linker-benchmark.test.py"
       ]
     },
     "scripts/ci-ecs-cache.py": {

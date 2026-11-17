@@ -2205,6 +2205,12 @@ workflow = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 
 if not isinstance(workflow, dict):
     raise SystemExit("workflow YAML must parse as a mapping")
+triggers = workflow.get("on", workflow.get("true"))
+if not isinstance(triggers, dict) or set(triggers) != {"workflow_dispatch"}:
+    raise SystemExit("compile metrics must remain a manual-only workflow")
+mode = triggers["workflow_dispatch"]["inputs"]["measurement_mode"]
+if mode.get("default") != "source-comparison" or mode.get("options") != ["source-comparison", "linux-linker-ab"]:
+    raise SystemExit("compile metrics must keep source comparison as its default mode")
 jobs = workflow.get("jobs")
 if not isinstance(jobs, dict) or not isinstance(jobs.get("compile-metrics"), dict):
     raise SystemExit("workflow YAML must define the compile-metrics job")
@@ -2227,6 +2233,45 @@ if len(validation_steps) != 1 or not isinstance(validation_steps[0].get("run"), 
     raise SystemExit(
         "compile-metrics input validation must be one parsed YAML run step"
     )
+if jobs["compile-metrics"].get("if") != "inputs.measurement_mode != 'linux-linker-ab'":
+    raise SystemExit("Linux linker A/B must skip the source-comparison platform matrix")
+linker = jobs.get("linux-linker-ab", {})
+if (linker.get("if") != "inputs.measurement_mode == 'linux-linker-ab'"
+        or linker.get("runs-on") != "ubuntu-24.04" or linker.get("timeout-minutes") != 45
+        or linker.get("cache-mode") != "none" or "strategy" in linker):
+    raise SystemExit("linker A/B must run serially in one bounded, cache-free Linux job")
+linker_steps = linker.get("steps", [])
+linker_names = [step.get("name") for step in linker_steps]
+checkout = linker_steps[0]
+if (not checkout.get("uses", "").startswith("actions/checkout@")
+        or checkout.get("with", {}) != {"ref": "${{ github.sha }}", "fetch-depth": 1,
+                                        "persist-credentials": False}):
+    raise SystemExit("linker A/B must use the fixed current source with a shallow checkout")
+measure = linker_names.index("Measure Linux linker A/B")
+validate = linker_names.index("Validate Linux linker A/B inputs")
+rust = linker_names.index("Install pinned Rust toolchain")
+mold = linker_names.index("Configure mold for Linux host linking")
+if not validate < rust < measure or not validate < mold < measure:
+    raise SystemExit("linker inputs and both linker prerequisites must precede measurement")
+if linker_steps[mold].get("uses") != "./.github/actions/setup-linux-mold":
+    raise SystemExit("linker A/B must use the production pinned mold installer")
+if (linker_steps[measure].get("run") !=
+        'python3 scripts/ci-linux-linker-benchmark.py --out-dir "$RUNNER_TEMP/linker-benchmark"'):
+    raise SystemExit("linker A/B must use its fixed real benchmark entrypoint")
+for forbidden in ("Swatinem/rust-cache", "actions/cache", "ci-compile-metrics-gate.py", "continue-on-error"):
+    if forbidden in json.dumps(linker):
+        raise SystemExit("linker A/B must not restore production targets or apply the V2 gate: " + forbidden)
+for name in ("Append Linux linker A/B summary", "Upload Linux linker A/B artifact"):
+    step = linker_steps[linker_names.index(name)]
+    if step.get("if") != "always()" or linker_names.index(name) <= measure:
+        raise SystemExit("linker A/B must preserve reports on measurement failure")
+artifact = linker_steps[linker_names.index("Upload Linux linker A/B artifact")]["with"]
+if artifact != {"name": "compile-metrics-linux-linker-ab", "path": "${{ runner.temp }}/linker-benchmark",
+                "if-no-files-found": "error"}:
+    raise SystemExit("linker A/B must upload the complete raw benchmark report directory")
+if (jobs["summarize"].get("needs") != ["compile-metrics", "linux-linker-ab"]
+        or jobs["summarize"].get("if") != "always()"):
+    raise SystemExit("combined summary must collect either measurement mode after failure or success")
 print("workflow YAML parse/validation contract: OK")
 PY
 
@@ -2258,6 +2303,7 @@ threshold_names = (
 
 def invoke(measure_warm_check, updates=None):
     environment = os.environ.copy()
+    environment["MEASUREMENT_MODE"] = "source-comparison"
     environment["MEASURE_WARM_CHECK"] = measure_warm_check
     for name in threshold_names:
         environment[name] = ""
@@ -2271,6 +2317,9 @@ def invoke(measure_warm_check, updates=None):
     )
 
 
+unknown_mode = invoke("false", {"MEASUREMENT_MODE": "unknown"})
+if unknown_mode.returncode == 0 or "unsupported measurement_mode" not in unknown_mode.stderr:
+    raise SystemExit("workflow validator must reject unknown measurement modes")
 invalid_mode = invoke("maybe")
 if invalid_mode.returncode == 0 or "must be a boolean" not in invalid_mode.stderr:
     raise SystemExit(
@@ -2317,6 +2366,64 @@ if valid_warm.returncode != 0:
         f"{valid_warm.stdout}{valid_warm.stderr}"
     )
 print("workflow input-validator executable rejection contract: OK")
+PY
+
+# The linker mode has a fixed target and no performance threshold. Execute its
+# validator and report preservation paths without starting a project build.
+python3 - "$workflow_json" "$tmp_dir" <<'PY'
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+workflow = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+inputs = workflow.get("on", workflow.get("true"))["workflow_dispatch"]["inputs"]
+steps = workflow["jobs"]["linux-linker-ab"]["steps"]
+validator = next(step for step in steps if step.get("name") == "Validate Linux linker A/B inputs")
+environment = os.environ.copy()
+for name, binding in validator["env"].items():
+    input_name = binding.removeprefix("${{ inputs.").removesuffix(" }}")
+    value = inputs[input_name]["default"]
+    environment[name] = str(value).lower() if isinstance(value, bool) else str(value)
+
+def invoke(updates=None):
+    return subprocess.run(["bash", "-c", validator["run"]], env=dict(environment, **(updates or {})),
+                          capture_output=True, text=True, check=False)
+
+valid = invoke()
+if valid.returncode != 0 or "report-only" not in valid.stdout:
+    raise SystemExit("linker validator must accept the dispatch defaults and disclose report-only mode")
+invalid_inputs = {
+    "BASELINE_REF": "old-source",
+    "METRIC_TARGET": "oasis7_default_features",
+    "MEASURE_WARM_CHECK": "true",
+    "MAX_PACKAGE_COUNT_REGRESSION_PCT": "6",
+    "MAX_CARGO_CHECK_REGRESSION_PCT": "26",
+    "MAX_CARGO_BUILD_RELEASE_REGRESSION_PCT": "26",
+    "MAX_RELEASE_BINARY_BYTES_REGRESSION_PCT": "4",
+    "MAX_CARGO_CHECK_WARM_REGRESSION_PCT": "5",
+}
+for name, value in invalid_inputs.items():
+    invalid = invoke({name: value})
+    if invalid.returncode == 0 or f"{name.lower()} applies only to source-comparison" not in invalid.stderr:
+        raise SystemExit(f"linker validator silently ignored {name}={value!r}: {invalid.stderr}")
+
+summary_step = next(step for step in steps if step.get("name") == "Append Linux linker A/B summary")
+runner_temp = Path(sys.argv[2]) / "linker-workflow-fixture"
+runner_temp.mkdir()
+summary_path = runner_temp / "step-summary.md"
+summary_env = dict(environment, RUNNER_TEMP=str(runner_temp), GITHUB_STEP_SUMMARY=str(summary_path))
+missing = subprocess.run(["bash", "-c", summary_step["run"]], env=summary_env, capture_output=True, text=True)
+report = runner_temp / "linker-benchmark/summary.md"
+if missing.returncode == 0 or "report unavailable" not in summary_path.read_text() or not report.is_file():
+    raise SystemExit("missing benchmark summary must fail visibly and leave an uploadable failure report")
+report.write_text("# Actual linker result\n\nFour pairs recorded.\n")
+summary_path.unlink()
+present = subprocess.run(["bash", "-c", summary_step["run"]], env=summary_env, capture_output=True, text=True)
+if present.returncode != 0 or summary_path.read_text() != report.read_text():
+    raise SystemExit("linker summary must preserve the actual harness report")
+print("Linux linker A/B workflow rejection/report preservation contract: OK")
 PY
 
 # Execute the parsed workflow gate step against the generated current-only

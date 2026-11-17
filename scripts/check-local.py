@@ -51,7 +51,8 @@ ENGINEERING_CHECKS = {
         'check-launcher-p2p-dependency-surface.test.sh', 'cargo-dev-architecture.test.py',
         'runtime-module-routing-perf-harness.test.py', 'cargo-dev-lib.test.sh',
         'check-standalone-tool-lockfiles.test.sh', 'check-standalone-tool-lockfiles.sh'),
-    'compile_metrics': ('ci-compile-metrics-contract.test.sh', 'ci-ecs-build-metrics.test.py', 'ci-ecs-cache.test.py'),
+    'compile_metrics': ('ci-compile-metrics-contract.test.sh', 'ci-linux-linker-benchmark.test.py',
+        'ci-ecs-build-metrics.test.py', 'ci-ecs-cache.test.py'),
 }
 VIEWER_GROUPS = frozenset(('viewer_js_required', 'viewer_performance_report'))
 CARGO_GROUPS = RUST_GROUPS | VIEWER_GROUPS

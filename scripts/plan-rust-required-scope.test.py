@@ -5311,6 +5311,21 @@ class PythonControlContracts(unittest.TestCase):
         self.write(path, content)
         return self.commit()
 
+    def test_linker_benchmark_changes_select_only_the_registered_contract(self):
+        config = self.trusted()
+        test = 'scripts/ci-linux-linker-benchmark.test.py'
+        for path in ('scripts/ci-linux-linker-benchmark.py', test):
+            with self.subTest(path=path):
+                head = self.change(path)
+                plan = selector.select(config, self.base, head, profile='pr-fast')
+                self.assertEqual(plan['scope'], 'targeted')
+                self.assertEqual(set(plan['groups']), {'baseline', 'workflow_governance', 'compile_metrics'})
+                self.assertEqual(plan['python_control_tests'], {'compile_metrics': [test]})
+                self.assertEqual(plan['oasis7_required_packages'], [])
+                self.base = head
+        head = self.change('.github/workflows/compile-metrics.yml')
+        self.assertEqual(selector.select(config, self.base, head, profile='pr-fast')['scope'], 'full')
+
     def test_local_check_adapter_selects_its_trusted_contract(self):
         config = self.trusted()
         test = 'scripts/ci-local-check-plan.test.py'

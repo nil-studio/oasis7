@@ -1042,6 +1042,7 @@ run_codex_agent_config_validation() {
 
 run_compile_metrics_contract_tests() {
   run bash ./scripts/ci-compile-metrics-contract.test.sh
+  run python3 ./scripts/ci-linux-linker-benchmark.test.py
   run python3 ./scripts/ci-ecs-build-metrics.test.py
   run python3 ./scripts/ci-ecs-cache.test.py
 }

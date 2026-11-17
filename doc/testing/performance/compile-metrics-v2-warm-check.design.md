@@ -3,7 +3,7 @@
 - Testing module authority: [`doc/testing/prd.md`](../prd.md)
 - Current performance coverage authority: [`performance-coverage-gap-matrix-2026-06-09.md`](performance-coverage-gap-matrix-2026-06-09.md)
 - Approval and acceptance source: [GitHub Issue #3606](https://github.com/eng-cc/oasis7/issues/3606)
-- Implementation surfaces: [`scripts/ci-compile-metrics.sh`](../../../scripts/ci-compile-metrics.sh), [`scripts/ci-compile-metrics-gate.py`](../../../scripts/ci-compile-metrics-gate.py), [`scripts/ci-compile-metrics-contract.test.sh`](../../../scripts/ci-compile-metrics-contract.test.sh), and [`.github/workflows/compile-metrics.yml`](../../../.github/workflows/compile-metrics.yml)
+- Implementation surfaces: [`scripts/ci-compile-metrics.sh`](../../../scripts/ci-compile-metrics.sh), [`scripts/ci-compile-metrics-gate.py`](../../../scripts/ci-compile-metrics-gate.py), [`scripts/ci-compile-metrics-contract.test.sh`](../../../scripts/ci-compile-metrics-contract.test.sh), [`scripts/ci-linux-linker-benchmark.py`](../../../scripts/ci-linux-linker-benchmark.py), and [`.github/workflows/compile-metrics.yml`](../../../.github/workflows/compile-metrics.yml)
 
 This document records the technical contract and current behavior for the
 approved first Compile Metrics V2 slice: an opt-in warm/no-op `cargo check`
@@ -44,6 +44,8 @@ planner, and default workflow behavior remain unchanged.
 
 §11.4 另定义普通 PR、Formal、ECS 与本地开发之间的构建复用测量方法。它复用本文件已有观察入口，并明确还未采集的场景；不扩展上述 V2 check schema 或默认阈值。
 
+§11.5 定义 Linux 上重放同一冻结输入的 LLD/mold 链接器对照。它单独报告实际链接进程墙钟，不使用 V2 check schema、源码 baseline 或编译阈值。
+
 ## 2. Current facts and evidence boundary
 
 These facts describe the current repository behavior. The warm option, manual
@@ -55,7 +57,7 @@ following sections specify their contract and boundaries.
 | `ci-compile-metrics.sh` | Measures one offline/locked cold `cargo check` per checkout by default. With `--measure-warm-check`, it immediately measures an identical no-op check after the cold check. Optional release build and binary size remain separate. It records commit OIDs, package identity, feature mode, and metric values. | `cargo_check_seconds` remains the cold value; warm duration and its identity bit are recorded separately. |
 | Cargo target isolation | Each current/baseline checkout has a separate run-owned external check target. Cold and warm checks reuse that target within the same checkout; release builds use a separate target. `CARGO_HOME` may be shared for registry/source data. | Reuse stays within one checkout; current and baseline never share target outputs. |
 | Measurement environment | Cargo calls normalize `CARGO_INCREMENTAL=0`, development/test debug settings, and an unset `RUSTC_WRAPPER`. Timed check/build commands run `--offline --locked` after host-target prefetch. | The warm check must use the same normalization and must not introduce network or wrapper-dependent timing. |
-| `.github/workflows/compile-metrics.yml` | `workflow_dispatch` runs a three-platform matrix. `baseline_ref` is optional. `measure_warm_check` defaults to `false`; the warm threshold defaults to empty and is rejected unless warm measurement is enabled. | Warm measurement remains manual and opt-in. It does not add an automatic PR trigger or required check. |
+| `.github/workflows/compile-metrics.yml` | The default `source-comparison` mode of `workflow_dispatch` runs a three-platform matrix. `baseline_ref` is optional. `measure_warm_check` defaults to `false`; the warm threshold defaults to empty and is rejected unless warm measurement is enabled. The separate `linux-linker-ab` mode follows §11.5. | Warm measurement remains manual and opt-in. It does not add an automatic PR trigger or required check. |
 | `ci-compile-metrics-gate.py` | Validates V2 warm identity/value fields and metric rows fail-closed. It evaluates a warm threshold only when explicitly supplied with a baseline; without a baseline, the summary reports that the threshold was skipped. | Warm reporting has no default threshold; selected thresholds retain fail-closed validation and comparison. |
 | Performance matrix | Compile metrics remain `on-demand`; warm/no-op collection is opt-in and report-only unless a caller explicitly supplies a warm threshold. | Keep this manual path separate from required-gate and do not infer a default threshold. |
 
@@ -70,6 +72,7 @@ in Section 11.
 | --- | --- | --- | --- | --- |
 | [Testing technical specifications](../prd.md#4-technical-specifications) | Keep compile measurements scoped to their selected surface and distinguish manual performance evidence from required-gate or release claims. | [Warm measurement rollout](#9-rollout-and-rollback) | `qa_engineer`; compile-metrics workflow maintainers | No touched-source incremental claim, live hosted-runner baseline, or release-readiness claim follows from a warm/no-op sample. |
 | Trace refs: O7-REQ-a1babf5b-78ec-4c34-8daf-3546abcacc7b；[跨入口构建复用测量](../prd.md#compile-reuse-measurement) | 固定入口兼容身份、有限对照与真实 Cargo 单元，核算全部复用成本及退出结论 | [跨入口有界测量](#cross-entry-build-reuse-measurement) | QA 与构建维护者；引用既有 ECS 缓存和 hosted CI 验收 | 产品适用性：N/A；reason=工程编译成本诊断；scope=本节入口及样本。当前仅方法设计，跨入口数据与采用结论尚未取得 |
+| [CI 量测与交付判定](../ci/ci-tiered-execution.prd.md#ci-install-measurement) | 固定同一链接输入、工具与 runner，分开准备和链接成本，保留全部样本与失败，不以局部观察宣称稳定收益 | [同一输入的 Linux 链接器对照](#linux-linker-ab) | QA 与构建维护者；统一 mold installer、Rust 自带 LLD | 产品适用性：N/A；reason=工程链接成本诊断；scope=单一 NewAPI bridge dev 输入。不证明完整 Cargo 构建、CI 关键路径或运行时性能 |
 
 ## 3. Non-goals and invariants
 
@@ -573,6 +576,7 @@ updating this authority.
 | --- | --- | --- | --- | --- | --- |
 | [Testing technical specifications](../prd.md#4-technical-specifications) | [Warm measurement rollout](#9-rollout-and-rollback) | Verify that the default run records cold-only metrics, opt-in mode records a separate no-op warm check, and only an explicit supported threshold can evaluate a paired warm comparison. | Run `bash ./scripts/ci-compile-metrics-contract.test.sh` ([contract test](../../../scripts/ci-compile-metrics-contract.test.sh)); its fake-Cargo fixtures cover the disabled default, command/target identity, report-only output, selected threshold, and failure behavior on this candidate. | The implementation PR and actual checks for the tested source; Issue #4065 is historical provenance, not a required task or receipt. | Does not establish hosted-runner performance, platform noise bounds, or release readiness. |
 | Trace refs: O7-REQ-a1babf5b-78ec-4c34-8daf-3546abcacc7b；[跨入口构建复用测量](../prd.md#compile-reuse-measurement) | [跨入口有界测量](#cross-entry-build-reuse-measurement) | 配置/兼容矩阵、计划到实际编译单元、失效正反例、总成本与采用/不采用/补证结论 | 按 §11.4 的固定候选、缓存状态与成对协议人工核对真实工件；ECS 的既有执行入口见 [测试手册](../../../testing-manual.md#ecs-缓存与完整-native-构建测量)，其他场景保留确切 argv 与采集缺口 | 实际测量 PR/任务中的原始日志、单元/字节、样本条件与计算；本次文档没有运行数据 | 工具 fixture 不代签性能；ECS consumer、hosted 十分钟/P95 与发布验证仍须各自完成 |
+| [CI 量测与交付判定](../ci/ci-tiered-execution.prd.md#ci-install-measurement) | [同一输入的 Linux 链接器对照](#linux-linker-ab) | 确认实际执行、输入不变、顺序平衡、计时边界、产物验证及失败传播 | `python3 scripts/ci-linux-linker-benchmark.test.py` 验证 harness 合同；按[测试手册](../../../testing-manual.md#linux-linker-ab-validation)在固定 Linux x86_64/Rust 环境执行真实输入，核对报告、捕获包与原始日志 | 实际候选的 PR/CI artifact：`report.json`、`summary.md`、`capture.tar`、`inputs.json`、`logs/` | fixture 不证明真实性能；`--help` 不代替业务测试；单一输入不代表 Bevy、ECS、release/LTO、其他平台或整体 CI |
 
 Warm/no-op is a prerequisite observation, not the final developer inner-loop
 metric. A later Compile Metrics V2 slice may add these independent scenarios:
@@ -712,6 +716,36 @@ python3 scripts/ci-ecs-build-metrics.py --current-ref "$CANDIDATE_SHA" --baselin
 
 [#4992](https://github.com/nil-studio/oasis7/issues/4992) 继续拥有 ECS producer 保存、兼容 consumer Fresh 与总成本验收，本文引用相同运行，不另开一对重复验收；[#5374](https://github.com/nil-studio/oasis7/issues/5374) 继续拥有 hosted 十分钟/P95。[#5004](https://github.com/nil-studio/oasis7/issues/5004) 的本地 incremental/sccache 已有策略是对照基线；[#5012](https://github.com/nil-studio/oasis7/issues/5012) 是收益未证实而关闭的实验，不能计为成功优化，也不因本计划重启同一改造。本文档交付只完成测量方法，不完成这些真实运行义务。
 
+<a id="linux-linker-ab"></a>
+### 11.5 同一输入的 Linux 链接器对照
+
+本模式回答：在同一台 Linux x86_64 runner 上，LLD 与 mold 对同一组已生成的对象文件、库和链接参数进行链接，各自需要多少墙钟时间。固定 package/bin 为 `oasis7_newapi_bridge_service`，使用 Rust 1.96.0、`dev` profile、默认 features、`CARGO_INCREMENTAL=0`、`CARGO_PROFILE_DEV_DEBUG=0`、`CARGO_PROFILE_TEST_DEBUG=0` 与 `CARGO_PROFILE_DEV_LTO=false`。本目标的 Rust 默认链接器是 LLD，不能把它标为 GNU ld；mold 使用统一 installer 的固定版本与摘要。报告记录实际工具版本、源提交、Cargo.lock、命令与输入身份。
+
+#### 一次捕获与输入边界
+
+脚本在自有临时 target 中执行一次真实 `cargo rustc`，移除外来 wrapper、flags 和 target linker 覆盖，以 Rust 自带 LLD 的 `--reproduce` 捕获该 binary 的完整链接输入。锁定依赖的预取和这次 Cargo 准备分别计时；它们不是对照样本，也不能被当作两个链接器的完整构建 A/B。不能为准备捕获包清空开发 target。
+
+解包后的同一 response file、对象文件与库供两侧直接重放。捕获包、相对路径集合和内容摘要保留在报告目录；不可变输入集合不包含新生成的链接输出。每轮在计时外核对输入摘要，任何变化都使比较失效。只在首次捕获时运行 Cargo；重放阶段不调用 Cargo，不依赖 Cargo Fresh/no-op 判定，也不需要为两侧维护两份编译 target。
+
+#### 顺序、计时与有效样本
+
+A 为 Rust 自带 LLD，B 为固定 mold。先执行一对预热且不计入统计，默认再执行四对测量，顺序交替为 AB、BA、AB、BA。CLI 可将 `--pairs` 设为 2 至 10 的偶数；workflow 固定默认负载。各轮串行执行，使用相同 cwd、response 与输入，仅替换链接器 executable，不为某一侧追加有利的优化参数。
+
+每轮先删除同一相对路径的输出，再实际启动链接器，并要求成功生成新的 ELF。以单调时钟包围链接命令及其 stdout/stderr 的 `communicate()`，直到进程结束且管道读到 EOF；保留 mold 默认 fork 行为，不能只计父进程提前退出的时长或让下一轮与其重叠。计时外核对 ELF `.comment` 中的链接器身份并成功运行产物的 `--help`。记录每轮顺序、墙钟、退出结果、输出身份和日志；链接失败、缺少新输出、身份不符、smoke 失败、输入变化或取消都不能成为有效成功样本。
+
+输入摘要检查会把文件读入页缓存，因此本模式是预热输入后的链接重放。AB/BA 只能缓和顺序偏差，不能消除 runner 调度和页缓存波动；不以清理全局缓存制造冷样本。固定同一 runner 的可用 CPU 与其他负载条件，保留链接器各自默认并行策略。结果不报告未经采集的 CPU/RSS，也不从 Cargo 总时间、timings 或两段时间相减推导“链接耗时”。
+
+#### 输出、失败与判读
+
+`report.json` 与 `summary.md` 保留运行身份、准备成本、所有预热和测量样本及统计口径；`capture.tar`、`inputs.json` 与 `logs/` 保留可复核输入及 Cargo/link/smoke 原始记录。任何中位数、范围或相对变化必须能回到完整样本，不能只保留最快一轮、删除回退样本或把缺失时间补零。失败时保留已取得的报告和日志，不将部分完成包装为完整比较。自有解包目录和 Cargo target 在结束后清理，不随 artifact 上传；清理异常时报告错误与保留路径，不能改报完整成功或强制删除未知内容。
+
+链接墙钟仅包括上述实际链接命令，不包括安装、预取、Cargo 编译、输入哈希、ELF 校验或 `--help`。这些准备与验证步骤的存在不能被隐藏为整体 CI 提速；本结果不证明冷/热 Cargo 构建收益、跨 run 缓存收益、测试时间或 CI 关键路径缩短。`--help` 仅提供产物可启动的最低检查，业务正确性仍由原有测试负责。NewAPI bridge 的单个 dev 输入也不代表 Bevy/Viewer、Formal/ECS 负载、release/LTO、WASM、macOS 或 Windows。
+
+#### 入口与采用边界
+
+本地入口为 `python3 scripts/ci-linux-linker-benchmark.py --out-dir <external-new-report-directory>`，完整用法见[测试手册](../../../testing-manual.md#linux-linker-ab-validation)。手动 `Compile Metrics` workflow 选择 `measurement_mode=linux-linker-ab`，只运行 Linux 对照并上传整个报告目录为 `compile-metrics-linux-linker-ab`。原 `source-comparison` 默认模式及其三平台 V2 行为保持。
+
+此模式不使用 `baseline_ref`、`metric_target`、warm check 或原 V2 阈值。workflow 要求 baseline 与 warm threshold 留空、warm check 为 false、其他原输入保持默认，并拒绝冲突配置；保留的默认输入不影响固定 NewAPI 负载，也不启用 V2 gate。性能结果为按需 report-only，但采集或验证失败仍使该运行失败。样本只支持注明条件的有限观察，不能自行增加默认性能阈值、改写必要 CI 门禁或宣称稳定收益；扩展输入、profile 或阈值时需另行明确可比条件。
 
 ## 12. Residual risk and deferred-debt trigger
 
@@ -742,4 +776,4 @@ slice in place.
 
 ## 范围、结构边界与风险
 
-本设计范围是 cold/warm/no-op 编译量测、已有 ECS 原生构建实验及 §11.4 的跨入口复用测量方法；结构、采样身份、缓存条件、rollout 与验证沿用各节。主要风险是把不同候选、缓存或 runner 条件的样本混比，或把 no-op 改善当作触源码增量、hosted 性能或发布就绪证明；必须保留原始测量及未证明范围，跨入口方法不代表已经取得对照数据。
+本设计范围是 cold/warm/no-op 编译量测、已有 ECS 原生构建实验、§11.4 的跨入口复用测量方法与 §11.5 的同输入 Linux 链接器对照；结构、采样身份、缓存条件、rollout 与验证沿用各节。主要风险是把不同候选、缓存或 runner 条件的样本混比，把 no-op 改善当作触源码增量，或把单一输入的链接墙钟当作整体构建、hosted 性能或发布就绪证明；必须保留原始测量及未证明范围，方法或工具的存在不代表已经取得对照数据。

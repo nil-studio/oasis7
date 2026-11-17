@@ -3,13 +3,21 @@ name: Compile Metrics
 on:
   workflow_dispatch:
     inputs:
+      measurement_mode:
+        description: "Source comparison or fixed NewAPI bridge Linux linker A/B (report-only)"
+        required: true
+        default: source-comparison
+        type: choice
+        options:
+          - source-comparison
+          - linux-linker-ab
       baseline_ref:
-        description: "Optional baseline git ref or SHA to compare against. Empty runs current-only metrics."
+        description: "Source comparison only: optional baseline ref/SHA. Leave empty for Linux linker A/B."
         required: false
         default: ""
         type: string
       metric_target:
-        description: "Rust package compile surface to measure"
+        description: "Source comparison package. Leave launcher for Linux linker A/B; its NewAPI target is fixed."
         required: true
         default: launcher
         type: choice
@@ -19,32 +27,32 @@ on:
           - oasis7_node_default_features
           - oasis7_default_features
       max_package_count_regression_pct:
-        description: "Allowed package closure regression percentage"
+        description: "Source comparison package closure threshold. Keep default for Linux linker A/B."
         required: false
         default: "5"
         type: string
       max_cargo_check_regression_pct:
-        description: "Allowed cold cargo check regression percentage"
+        description: "Source comparison cold check threshold. Keep default for Linux linker A/B."
         required: false
         default: "25"
         type: string
       max_cargo_build_release_regression_pct:
-        description: "Allowed cold cargo build --release regression percentage"
+        description: "Source comparison release build threshold. Keep default for Linux linker A/B."
         required: false
         default: "25"
         type: string
       max_release_binary_bytes_regression_pct:
-        description: "Allowed release binary size regression percentage"
+        description: "Source comparison binary size threshold. Keep default for Linux linker A/B."
         required: false
         default: "3"
         type: string
       measure_warm_check:
-        description: "Measure an identical no-op cargo check after the cold check"
+        description: "Source comparison only: measure an identical no-op check after the cold check"
         required: false
         default: false
         type: boolean
       max_cargo_check_warm_regression_pct:
-        description: "Optional allowed warm cargo check regression percentage"
+        description: "Source comparison only: optional warm check threshold. Leave empty for Linux linker A/B."
         required: false
         default: ""
         type: string
@@ -65,6 +73,7 @@ cache-mode: read
 jobs:
   compile-metrics:
     name: compile-metrics-${{ matrix.platform }}
+    if: inputs.measurement_mode != 'linux-linker-ab'
     strategy:
       fail-fast: false
       matrix:
@@ -93,6 +102,7 @@ jobs:
       - name: Validate compile metrics inputs
         shell: bash
         env:
+          MEASUREMENT_MODE: ${{ inputs.measurement_mode }}
           MEASURE_WARM_CHECK: ${{ inputs.measure_warm_check }}
           MAX_PACKAGE_COUNT_REGRESSION_PCT: ${{ inputs.max_package_count_regression_pct }}
           MAX_CARGO_CHECK_REGRESSION_PCT: ${{ inputs.max_cargo_check_regression_pct }}
@@ -101,6 +111,10 @@ jobs:
           MAX_CARGO_CHECK_WARM_REGRESSION_PCT: ${{ inputs.max_cargo_check_warm_regression_pct }}
         run: |
           set -euo pipefail
+          if [[ "${MEASUREMENT_MODE}" != "source-comparison" ]]; then
+            echo "error: unsupported measurement_mode: ${MEASUREMENT_MODE}" >&2
+            exit 2
+          fi
           if [[ "${MEASURE_WARM_CHECK}" != "true" && "${MEASURE_WARM_CHECK}" != "false" ]]; then
             echo "error: measure_warm_check must be a boolean" >&2
             exit 2
@@ -297,9 +311,94 @@ jobs:
           path: output/compile-metrics/${{ matrix.platform }}
           if-no-files-found: error
 
+  linux-linker-ab:
+    name: compile-metrics-linux-linker-ab
+    if: inputs.measurement_mode == 'linux-linker-ab'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    cache-mode: none
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate Linux linker A/B inputs
+        shell: bash
+        env:
+          BASELINE_REF: ${{ inputs.baseline_ref }}
+          METRIC_TARGET: ${{ inputs.metric_target }}
+          MEASURE_WARM_CHECK: ${{ inputs.measure_warm_check }}
+          MAX_PACKAGE_COUNT_REGRESSION_PCT: ${{ inputs.max_package_count_regression_pct }}
+          MAX_CARGO_CHECK_REGRESSION_PCT: ${{ inputs.max_cargo_check_regression_pct }}
+          MAX_CARGO_BUILD_RELEASE_REGRESSION_PCT: ${{ inputs.max_cargo_build_release_regression_pct }}
+          MAX_RELEASE_BINARY_BYTES_REGRESSION_PCT: ${{ inputs.max_release_binary_bytes_regression_pct }}
+          MAX_CARGO_CHECK_WARM_REGRESSION_PCT: ${{ inputs.max_cargo_check_warm_regression_pct }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+
+          defaults = {
+              "BASELINE_REF": "",
+              "METRIC_TARGET": "launcher",
+              "MEASURE_WARM_CHECK": "false",
+              "MAX_PACKAGE_COUNT_REGRESSION_PCT": "5",
+              "MAX_CARGO_CHECK_REGRESSION_PCT": "25",
+              "MAX_CARGO_BUILD_RELEASE_REGRESSION_PCT": "25",
+              "MAX_RELEASE_BINARY_BYTES_REGRESSION_PCT": "3",
+              "MAX_CARGO_CHECK_WARM_REGRESSION_PCT": "",
+          }
+          for name, expected in defaults.items():
+              if os.environ[name] != expected:
+                  raise SystemExit(
+                      f"error: {name.lower()} applies only to source-comparison; "
+                      f"keep its default {expected!r} for linux-linker-ab"
+                  )
+          print("Linux linker A/B uses the fixed NewAPI bridge binary, dev/debug=0, "
+                "and four paired relinks. Source-comparison selectors and thresholds "
+                "are not applied; results are report-only.")
+          PY
+
+      - name: Install pinned Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal
+          rustup default "${RUST_TOOLCHAIN}"
+
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
+
+      - name: Measure Linux linker A/B
+        shell: bash
+        run: python3 scripts/ci-linux-linker-benchmark.py --out-dir "$RUNNER_TEMP/linker-benchmark"
+
+      - name: Append Linux linker A/B summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          summary="$RUNNER_TEMP/linker-benchmark/summary.md"
+          if [[ ! -f "$summary" ]]; then
+            mkdir -p "$(dirname "$summary")"
+            printf '# Linux linker A/B\n\nBenchmark report unavailable; inspect the failed setup or measurement step.\n' > "$summary"
+            cat "$summary" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          cat "$summary" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Linux linker A/B artifact
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: compile-metrics-linux-linker-ab
+          path: ${{ runner.temp }}/linker-benchmark
+          if-no-files-found: error
+
   summarize:
     name: summarize-compile-metrics
-    needs: compile-metrics
+    needs: [compile-metrics, linux-linker-ab]
     if: always()
     runs-on: ubuntu-24.04
     steps:
