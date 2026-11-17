@@ -297,6 +297,52 @@ fn hash(value: &str) -> Result<(), String> {
 mod capacity_tests {
     use super::*;
     #[test]
+    fn prefix_writer_releases_claims_with_inherited_descriptors() {
+        use crate::node_operations::admission_tests::{InheritedDescriptors, isolate_fork_test};
+        if isolate_fork_test() {
+            return;
+        }
+        for unwind in [false, true] {
+            let mut random = [0u8; 16];
+            getrandom::fill(&mut random).unwrap();
+            let root = std::env::temp_dir()
+                .canonicalize()
+                .unwrap()
+                .join(format!("oasis7-prefix-fork-{}", hex::encode(random)));
+            let mut ledger = Ledger::open(&root, true, 0).unwrap();
+            ledger.bind(&"a".repeat(64), 3).unwrap();
+            let inherited = InheritedDescriptors::fork();
+            if unwind {
+                assert!(
+                    std::panic::catch_unwind(move || {
+                        let _ledger = ledger;
+                        panic!("exercise BFT writer unwind");
+                    })
+                    .is_err()
+                );
+            } else {
+                drop(ledger);
+            }
+            let waiting = inherited.is_waiting();
+            let reopened = Ledger::open(&root, false, 0);
+            let reopened_ok = reopened.is_ok();
+            let exclusive_before_exit = Ledger::open(&root, false, 0).is_err();
+            drop(inherited);
+            let exclusive_after_exit = Ledger::open(&root, false, 0).is_err();
+            drop(reopened);
+            let final_open = Ledger::open(&root, false, 0).is_ok();
+            let _ = fs::remove_dir_all(&root);
+            assert!(
+                waiting
+                    && reopened_ok
+                    && exclusive_before_exit
+                    && exclusive_after_exit
+                    && final_open
+            );
+        }
+    }
+
+    #[test]
     fn completed_origin_rejects_replaced_os_lock_carriers_on_fresh_open() {
         use std::os::unix::fs::OpenOptionsExt;
         struct Root(PathBuf);

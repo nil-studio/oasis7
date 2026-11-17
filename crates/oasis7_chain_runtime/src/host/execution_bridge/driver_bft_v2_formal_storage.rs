@@ -14,8 +14,7 @@ use oasis7_proto::distributed_bft::v2::{BFT_MAX_SIGNED_MATERIAL_BYTES_V2, BftBlo
 use oasis7_runtime::{LocalCasStore, blake3_hex};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File, OpenOptions};
-use std::os::fd::AsRawFd;
+use std::fs::{self, OpenOptions};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
@@ -152,8 +151,8 @@ pub(super) struct PreloadedBusinessIndexNodes {
 
 pub(super) struct FormalBftReadLedgerV1 {
     dir: PathBuf,
-    _lock: File,
-    _format_lock: File,
+    _lock: common_storage::BftLock,
+    _format_lock: common_storage::BftLock,
     pin: FormalBftReadPinV1,
     record: Option<FormalBftReadRecordV1>,
 }
@@ -301,11 +300,12 @@ impl FormalBftReadLedgerV1 {
             .open(lock_path.as_path())
             .map_err(|error| format!("open formal BFT read writer lock: {error}"))?;
         crate::controlled_live_config::require_private_owned(lock_path.as_path(), false)?;
-        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-            return Err("formal BFT read ledger is already open by another writer".into());
-        }
+        let lock = common_storage::BftLock::acquire(
+            lock,
+            "formal BFT read ledger is already open by another writer",
+        )?;
         let lock_metadata = lock
-            .metadata()
+            .file_metadata()
             .map_err(|error| format!("inspect formal BFT read writer lock: {error}"))?;
         if !lock_metadata.is_file() || lock_metadata.len() != 0 {
             return Err("formal BFT read writer lock is malformed".into());
@@ -449,6 +449,8 @@ impl FormalBftReadLedgerV1 {
         store: &LocalCasStore,
         before_record: impl FnOnce() -> Result<(), String>,
     ) -> Result<&FormalBftReadRecordV1, String> {
+        self._format_lock.ensure_owner()?;
+        self._lock.ensure_owner()?;
         let expected_height = self
             .pin
             .handoff_head
@@ -800,15 +802,15 @@ mod tests {
         let second_ref = store.put_bytes(b"second formal ledger material").unwrap();
         let first = FormalBftReadLedgerV1 {
             dir: root.join("first"),
-            _lock: File::open("/dev/null").unwrap(),
-            _format_lock: File::open("/dev/null").unwrap(),
+            _lock: common_storage::BftLock::test_placeholder(),
+            _format_lock: common_storage::BftLock::test_placeholder(),
             pin: pin(31),
             record: None,
         };
         let second = FormalBftReadLedgerV1 {
             dir: root.join("second"),
-            _lock: File::open("/dev/null").unwrap(),
-            _format_lock: File::open("/dev/null").unwrap(),
+            _lock: common_storage::BftLock::test_placeholder(),
+            _format_lock: common_storage::BftLock::test_placeholder(),
             pin: pin(32),
             record: None,
         };

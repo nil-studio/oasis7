@@ -211,9 +211,16 @@ fn cli_case(process_output_failure: bool, deadline: Option<Instant>) {
             true,
             deadline.unwrap(),
         );
-        assert!(!status.success());
-        assert!(stderr.contains("public header Node report delivery failed"));
-        assert!(stderr.contains("do not resubmit"));
+        let delivery_warning = stderr.contains("public header Node report delivery failed");
+        let retry_warning = stderr.contains("do not resubmit");
+        assert!(
+            status.code() == Some(1) && delivery_warning && retry_warning,
+            "shipping output failure: exit={:?}, stderr_bytes={}, delivery_warning={}, retry_warning={}",
+            status.code(),
+            stderr.len(),
+            delivery_warning,
+            retry_warning
+        );
     } else {
         crate::identity_receipt::dispatch(
             [
