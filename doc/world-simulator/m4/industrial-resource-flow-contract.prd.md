@@ -65,6 +65,7 @@ Trace refs: O7-REQ-b99516b0-4b36-4aa1-84e4-efc07837cd95; O7-REQ-9a0630f6-b261-42
 
 另测本地/世界富余、一盈一缺、精确覆盖、普通短缺、重复材料、factory 与 Agent 余额不同，以及合法正数 Agent→Location 电力转移拒绝时源仍保留原余额。保留低电力、最小产出、推荐量、只读 quote、正常转移、自转移和余额不足；这些样例定义预期，不表示当前实现已经通过。系统映射见[配对设计](industrial-resource-flow-contract.design.md#industrial-quote-calculation-design)。
 
+<a id="industrial-externality-authority"></a>
 ### 工业外部性与 `operational_mitigation` authority（target-only）
 
 本节只为未来可选的 profile-declared `industrial_externality` 建立 M4/domain authority 边界，不代表当前工厂或配方已有该能力。M4/domain eventual authority 负责 profile 在 factory/recipe/operation scope 的外部性事实、受影响范围、`operational_mitigation` 的可用/已占用容量，以及一次性的 externality ledger 与 impact receipt/disposition；产品层拥有玩家承诺，gameplay 拥有选择与机会成本，M4 不新增污染或治理规则。

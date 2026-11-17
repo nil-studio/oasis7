@@ -13,7 +13,7 @@
 
 ## 2. 上游约束与相关角色
 
-产品 [SC-33](../../product/world-rules-core-gameplay/prd.md#sc-33)拥有完整适用条件及目标/当前边界；[外部性玩法合同](../../game/gameplay/gameplay-industrial-externality-contract.prd.md#2-玩家循环)拥有选择和机会成本；[M4 外部性 authority](../../world-simulator/m4/industrial-resource-flow-contract.prd.md#工业外部性与-operational_mitigation-authority（target-only）)拥有局部事实、容量、评估及处置类别；runtime 拥有排序、身份、事务和恢复。工业工作图提供原 root/revision/work node，本文不另建工作图。
+产品 [SC-33](../../product/world-rules-core-gameplay/prd.md#sc-33)拥有完整适用条件及目标/当前边界；[外部性玩法合同](../../game/gameplay/gameplay-industrial-externality-contract.prd.md#2-玩家循环)拥有选择和机会成本；[M4 外部性 authority](../../world-simulator/m4/industrial-resource-flow-contract.prd.md#industrial-externality-authority)拥有局部事实、容量、评估及处置类别；runtime 拥有排序、身份、事务和恢复。工业工作图提供原 root/revision/work node，本文不另建工作图。
 
 ### 2.1 需求承接与分配表
 
@@ -122,7 +122,9 @@ Viewer、pure API 与 Agent 读取同一 root/revision 和来源快照，分别�
 <a id="externality-recovery"></a>
 ### 7.1 事务、重放和恢复边界
 
-接受、生产完成和后续处置可以是不同事务；每个事务共同验证原工作节点 revision、profile/authority/capacity、义务状态及领域资源，并原子写入自己的工作状态、容量变化、去重结果和 receipt。生产完成事务还须共同提交独立 production 与 externality result。事务准备不改变已发布状态，journal 提交失败不保留半组结果。顺序读取后一项失败时不允许只撤销一部分经济效果。
+接受、生产完成和后续处置可以是不同事务；每个事务共同验证原工作节点 revision、profile/authority/capacity、义务状态及领域资源，并原子写入自己的工作状态、容量变化、去重结果和 receipt。生产完成事务还须共同提交独立 production 与 externality result。事务准备不改变已发布状态；只有确认未提交时才能丢弃整组候选，不能把任何保存错误都解释成无效果。顺序读取后一项失败时不允许只撤销一部分经济效果。
+
+持久化结果沿[既有 G1 提交判定与安装](runtime-storage-footprint-governance.design.md#storage-generation-g1-design)处理：`NotCommitted` 丢弃候选并保留旧 World；`Committed` 安装精确候选并保留原 production/disposition receipt，后续维护失败不回滚效果；`StatusUnknown` 保留原业务键和完整候选，在原持久化发布边界阻止旧 World 的后续 mutator/save 及依赖未决结果的外部派发，核对提交并对齐内存后才解除。不能把该边界缩成一个 externality operation 的锁。单纯响应丢失或查询失败只按原身份查结果，不自行推断底层 `StatusUnknown`。
 
 相同 semantic effect key 同内容返回原记录；同键不同数量、profile 或目的地冲突。缓解占用分配共享一个当前容量账本；多个 operation 竞争时按权威提交序及原资源分配规则处理，不能各自用同一预览余额透支，也不在此新增公平或优先政策。
 
@@ -134,7 +136,7 @@ snapshot+journal 同时保留 profile binding、全部被引用 profile 版本�
 
 可选 facet 通过明确支持的 registry、WASM/API 版本及 runtime 能力协商启用，不以客户端猜测启用。模块被允许提出局部缓解结果也不代表具有区域/治理权；shared environment、radiation、crisis、quality 等写入类型在 externality 提交路径不可达。
 
-缺 profile/证据、落后快照、容量服务失效、超时或不支持版本只阻断有关 operation。无 profile legacy 与不受影响工业操作继续；未知状态不能触发免费 cleanup 或全世界停机。真实跨节点和重启证据须由原持久化/共识路径取得，单进程 fixture 不证明部署可用。
+业务层缺 profile/证据、落后快照、容量不可用或不支持版本只阻断有关 operation；只读超时保持观察未知。无 profile legacy 与不受影响工业操作沿原规则继续，未知不触发免费 cleanup。若底层实际报告 `StatusUnknown`，适用 §7.1 的旧 World 写入围栏，不能以业务隔离为由继续从该旧状态写入；该围栏不改变世界时间规则，也不阻断其他独立世界。真实跨节点和重启证据须由原持久化/共识路径取得，单进程 fixture 不证明部署可用。
 
 ## 9. 质量与容量
 
@@ -161,6 +163,8 @@ snapshot+journal 同时保留 profile binding、全部被引用 profile 版本�
 
 <a id="ext-verify-003"></a>
 **EXT-VERIFY-003（存量、幂等与恢复）**：在[工作图处置合同](industrial-work-graph-and-recipe-lifecycle.design.md#recipe-work-disposition)的代表性未开始/WIP/transit/buffer/terminal 节点分别撤销授权、更新 profile、竞争完成/处置并丢失响应；扩展[恢复回归](../../../crates/oasis7_runtime/src/tests/persistence_recovery_tests.rs)验证 snapshot、reorder、replay、重连和 Agent retry。核对每个原 node/义务/容量/receipt；terminal 六项字段保留至 matching settlement 或合法处置。原 required 不删除任一恢复或 parity 子义务；full 多阶段、长期、区域影响只按未来独立专业 authority 和实际环境验收。
+
+在同一生产/处置候选上分别注入已知替换前失败、index 替换后同步未知、已提交后维护失败及仅响应丢失；按 [G1 验证矩阵](runtime-storage-footprint-governance.design.md#storage-generation-validation-matrix)核对旧 World 是否允许后续无关账户写入、安装的候选身份、原 receipt 和业务去重。未知提交不能继续写旧 World，已提交维护失败不能释放已消费容量或重新生产；普通 profile 缺证与只读超时不误触发提交未知。
 
 ### 11.1 验证映射表
 
