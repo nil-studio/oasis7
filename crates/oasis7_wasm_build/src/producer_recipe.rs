@@ -234,6 +234,7 @@ fn validate_dockerfile(root: &Path) -> Result<(), SourceHashError> {
         "COPY --chmod=0755 vendor-if-watch-3.2.2 /opt/oasis7/vendor-if-watch-3.2.2",
         "COPY --chmod=0755 vendor-libp2p-swarm-0.48.0 /opt/oasis7/vendor-libp2p-swarm-0.48.0",
         "COPY --chmod=0755 vendor-libp2p-rendezvous-0.18.1 /opt/oasis7/vendor-libp2p-rendezvous-0.18.1",
+        "COPY --chmod=0755 vendor-aliyun-tablestore-rs-0.1.2 /opt/oasis7/vendor-aliyun-tablestore-rs-0.1.2",
         "COPY --chmod=0755 tools/scenario_test_runner /opt/oasis7/tools/scenario_test_runner",
         "COPY --chmod=0755 tools/wasm_build_suite /opt/oasis7/tools/wasm_build_suite",
         "COPY --chmod=0755 tools/wasm_module_observe /opt/oasis7/tools/wasm_module_observe",
@@ -573,6 +574,18 @@ mod tests {
         let path = dir.join("docker/wasm-builder/Dockerfile");
         fs::write(&path, &original).unwrap();
         validate_dockerfile(&dir).unwrap();
+        let vendor_copy = "COPY --chmod=0755 vendor-aliyun-tablestore-rs-0.1.2 /opt/oasis7/vendor-aliyun-tablestore-rs-0.1.2";
+        assert_eq!(original.matches(vendor_copy).count(), 1);
+        for replacement in [
+            "",
+            "COPY --chmod=0755 vendor-aliyun-tablestore-rs-0.1.2/src /opt/oasis7/vendor-aliyun-tablestore-rs-0.1.2/src",
+            "COPY --chmod=0755 vendor-aliyun-tablestore-rs-0.1.2 /opt/oasis7/tools/wasm_build_suite",
+            "COPY --chmod=0755 vendor-other /opt/oasis7/vendor-other",
+            "COPY vendor-aliyun-tablestore-rs-0.1.2 /opt/oasis7/vendor-aliyun-tablestore-rs-0.1.2",
+        ] {
+            fs::write(&path, original.replace(vendor_copy, replacement)).unwrap();
+            assert!(validate_dockerfile(&dir).is_err(), "accepted {replacement}");
+        }
         fs::write(
             &path,
             format!("# Ordinary comment with key=value\n{original}"),
@@ -596,6 +609,7 @@ mod tests {
         );
         for addition in [
             "COPY .cargo /opt/oasis7/.cargo",
+            vendor_copy,
             "copy . /opt/oasis7",
             "ADD external /opt/oasis7/input",
             "RUN cp /external/config /opt/oasis7/.cargo/config",
