@@ -1,5 +1,6 @@
 //! This authenticates the fixed native subset; it deliberately does not grant WorldReady.
 use super::*;
+use crate::incremental_world_field_key::{WorldFieldKeyV1, WorldFieldRecordKindV1};
 use family::WorldNativeFieldReadWorkV1;
 use oasis7_formal_protocol::incremental_execution::{
     AuthorityBinding, ExecutionParent, ExecutionTransaction, TransactionLimits,
@@ -87,14 +88,43 @@ fn install_native(
     roots
 }
 #[test]
-fn native_all23_scope_qualifies_replays_and_selects_original_value_without_generic_mint() {
+fn native_all24_scope_qualifies_replays_and_selects_original_value_without_generic_mint() {
     let memory = MemoryBudget::new(256 << 20, 16 << 20).unwrap();
     let _fixture = memory.reserve(4 << 20, MemoryClass::Ordinary).unwrap();
     let pages = Pages::with_limit(&memory, 65536);
     let mut source = crate::WorldState::default();
     let catalogue = world_native_field_descriptors_v1().unwrap();
-    assert_eq!(catalogue.len(), 23);
+    // The original field identities are the oracle, including the independent
+    // bootstrap rotation history; another field cannot stand in for one of them.
+    let expected = [
+        "product_validation_receipts",
+        "product_profiles",
+        "latest_product_validation",
+        "recipe_profiles",
+        "factory_profiles",
+        "factory_construction_receipts",
+        "product_validation_attempts",
+        "factory_recycle_receipts",
+        "industry_progress",
+        "gameplay_policy",
+        "agent_claims",
+        "starter_oc_claims",
+        "meta_progress",
+        "module_admission_freezes",
+        "module_release_requests",
+        "module_release_manifest_mappings",
+        "governance_finality_signer_registry",
+        "governance_validator_admissions",
+        "governance_finality_key_rotations",
+        "governance_bootstrap_finality_key_rotations",
+        "governance_main_token_controller_registry",
+        "main_token_node_points_bridge_records",
+        "main_token_treasury_distribution_records",
+        "restricted_starter_claim_liveops_pool_top_up_records",
+    ];
+    assert_eq!(catalogue.len(), expected.len());
     for (index, descriptor) in catalogue.iter().enumerate() {
+        assert!(expected.contains(&descriptor.name));
         assert!(crate::incremental_projection::WORLD_STATE_FIELDS.contains(descriptor));
         assert!(
             catalogue[..index]
@@ -123,9 +153,27 @@ fn native_all23_scope_qualifies_replays_and_selects_original_value_without_gener
             &mut work()
         )
         .is_err(),
-        "one native field must never stand in for all 23"
+        "one native field must never stand in for the full native catalogue"
     );
     let mut before_rows = native_rows(&memory, &pages, &source);
+    let bootstrap = FieldDescriptor {
+        owner: FieldOwner::WorldState,
+        name: "governance_bootstrap_finality_key_rotations",
+        shape: FieldShape::Map,
+        destination: FieldDestination::State(StateNamespaceV1::Authorization),
+    };
+    assert!(catalogue.contains(&bootstrap));
+    let metadata = WorldFieldKeyV1::new(bootstrap, WorldFieldRecordKindV1::Metadata, None).unwrap();
+    assert_eq!(
+        before_rows
+            .iter()
+            .filter(|row| {
+                row.namespace == StateNamespaceV1::Authorization
+                    && row.mutation.key.as_slice() == metadata.as_bytes()
+            })
+            .count(),
+        1
+    );
     let roots = install_native(&memory, &pages, &mut before_rows);
     let mut quota = io();
     let mut keys = SemanticKeyBudget {
@@ -146,6 +194,11 @@ fn native_all23_scope_qualifies_replays_and_selects_original_value_without_gener
     )
     .unwrap();
     proof.validate_binding(&roots).unwrap();
+    let bootstrap_proof = &proof.governance_bootstrap_finality_key_rotations;
+    assert_eq!(bootstrap_proof.records(), 0);
+    assert!(bootstrap_proof.uses_budget(&memory));
+    assert_eq!(bootstrap_proof.allocation_class(), MemoryClass::Ordinary);
+    assert!(bootstrap_proof.reserved_bytes() >= 512);
     source.gameplay_policy.electricity_tax_bps = 65123;
     let after_rows = native_rows(&memory, &pages, &source);
     let parent = ExecutionParent {
@@ -239,6 +292,12 @@ fn native_all23_scope_qualifies_replays_and_selects_original_value_without_gener
     .unwrap();
     inherited.validate_binding(&prepared.record.after).unwrap();
     assert!(inherited.validate_binding(&roots).is_err());
+    assert_eq!(
+        inherited
+            .governance_bootstrap_finality_key_rotations
+            .records(),
+        0
+    );
     let recovered = recover_gameplay_policy_v1(&(), &mut after, &mut scan(), &mut work.typed)
         .unwrap()
         .unwrap();
