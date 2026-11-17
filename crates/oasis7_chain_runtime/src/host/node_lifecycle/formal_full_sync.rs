@@ -76,6 +76,9 @@ mod operation_ledger;
 mod operation_tests;
 #[path = "formal_full_sync_providers.rs"]
 mod providers;
+#[cfg(all(test, unix))]
+#[path = "formal_full_sync_tls_io.rs"]
+mod tls_io;
 use attempt::{
     FullSyncAttemptV1, cut_from_anchor, native_role, nondecreasing_cut, now_unix_ms, object_bytes,
     valid_hex, verified_anchor, verified_local_object,
