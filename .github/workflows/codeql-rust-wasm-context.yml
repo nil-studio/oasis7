@@ -44,7 +44,8 @@ jobs:
                      'codeql-rust-wasm-metadata.py', 'codeql-rust-model-diagnostic.py',
                      'codeql-rust-shared-constraint.patch',
                      'codeql_rust_cargo_guard.py', 'codeql_rust_capacity_layout.py',
-                     'codeql_rust_capacity_evidence.py', 'codeql_rust_diagnostic_runtime.py')
+                     'codeql_rust_capacity_evidence.py', 'codeql_rust_diagnostic_runtime.py',
+                     'setup-linux-mold.py')
           WORKFLOW = '.github/workflows/codeql-rust-wasm-context.yml'
           JOB_NAME = 'WASM CodeQL context diagnostic'
           BOOTSTRAP_CAP = 512 * 1024
@@ -321,7 +322,8 @@ jobs:
               tree, _ = api.get('tool-tree', api.tree)
               if tree.get('truncated') is not False or tree['sha'] != api.tree or len(tree['tree']) > 30000:
                   raise Rejected()
-              wanted = {f'scripts/security/{name}': name for name in HELPERS}
+              wanted = {f'scripts/security/{name}': name for name in HELPERS if name != 'setup-linux-mold.py'}
+              wanted['.github/actions/setup-linux-mold/setup.py'] = 'setup-linux-mold.py'
               wanted[WORKFLOW] = 'workflow.yml'
               selected = [x for x in tree['tree'] if x['path'] in wanted]
               if len(selected) != len(wanted) or len({x['path'] for x in selected}) != len(wanted):

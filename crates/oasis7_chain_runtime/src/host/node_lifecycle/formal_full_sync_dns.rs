@@ -131,6 +131,8 @@ mod tests {
     use hickory_resolver::config::{ConnectionConfig, NameServerConfig};
     use std::net::UdpSocket;
 
+    // Use an ordinary DNS name with the local-only resolver below. The .invalid
+    // special-use suffix is rejected locally by Hickory without sending a query.
     fn local_config(address: SocketAddr) -> ResolverConfig {
         let mut connection = ConnectionConfig::udp();
         connection.port = address.port();
@@ -148,7 +150,7 @@ mod tests {
         let start = Instant::now();
         assert!(
             resolve_configured(
-                "budget.invalid",
+                "budget.example.com",
                 443,
                 start + Duration::from_millis(100),
                 Duration::from_secs(2),
@@ -206,7 +208,7 @@ mod tests {
             socket.send_to(&response, peer).unwrap();
         });
         let result = resolve_configured(
-            "budget.invalid",
+            "budget.example.com",
             8443,
             Instant::now() + Duration::from_secs(2),
             Duration::from_secs(1),

@@ -6,31 +6,82 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import signal
 import sys
 import time
 
 import codeql_rust_diagnostic_runtime as runtime
+import codeql_rust_capacity_layout as layout
 from codeql_rust_capacity_layout import ACTION_SHA, _read_regular
 
 MODE = 'candidate-workload-research'
 PRODUCTION_MODE = 'rust-default-production'
+FIXED_SOURCE_MODE = 'rust-default-fixed-source-observation'
+NEGATIVE_PROJECTION_MODE = 'rust-default-negative-projection-observation'
+OBSERVATION_MODES = (FIXED_SOURCE_MODE, NEGATIVE_PROJECTION_MODE)
+FIXED_SOURCE = '2bcc4edafdc615f395c9138a0b39ede366726d34'
+FIXED_SOURCE_WORKFLOW = '.github/workflows/codeql-rust-capacity.yml'
 SOURCE = '7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef'
 MAIN_BLOB = '8b8462e5a06f394cd0504d57868488cebc7030c9'
 OFFICIAL_CAP = 256 * 1024**2
+
+
+def fixed_source_identity(source_sha, *, mode=FIXED_SOURCE_MODE):
+    """Only this closed workflow may pair an old business tree with new main tools."""
+    tool_sha = os.environ.get('GITHUB_SHA', '')
+    workflow_ref = os.environ.get('GITHUB_REPOSITORY', '') + '/' + FIXED_SOURCE_WORKFLOW + '@refs/heads/main'
+    if (mode not in OBSERVATION_MODES or source_sha != FIXED_SOURCE
+            or not re.fullmatch(r'[0-9a-f]{40}', tool_sha)
+            or os.environ.get('GITHUB_EVENT_NAME') != 'workflow_dispatch'
+            or os.environ.get('GITHUB_REF') != 'refs/heads/main'
+            or os.environ.get('GITHUB_WORKFLOW_SHA') != tool_sha
+            or os.environ.get('GITHUB_WORKFLOW_REF') != workflow_ref
+            or not os.environ.get('GITHUB_REPOSITORY') or os.environ.get('CAPACITY_MODE')
+            or os.environ.get('COMPARE_QUALIFIER_PATCH') != 'false'
+            or os.environ.get('OASIS7_CODEQL_PRODUCTION_MODE') != mode):
+        raise RuntimeError('fixed-source observation requires its trusted main workflow and separate fixed business source')
+    return dict(mode=mode, source_sha=source_sha, tool_sha=tool_sha,
+                workflow_ref=workflow_ref, workflow_sha=tool_sha)
+
+
+def fixed_source_resources():
+    if (os.environ.get('CODEQL_THREADS') != '4' or os.environ.get('CODEQL_RAM') != '14570'):
+        raise RuntimeError('fixed-source observation Action resources differ from 4 threads / 14570 MiB')
+
+
+def fixed_source_provenance(source, source_sha, *, mode=FIXED_SOURCE_MODE):
+    identity = fixed_source_identity(source_sha, mode=mode)
+    runner = Path(os.environ['RUNNER_TEMP']).resolve()
+    tools, out = runner / 'codeql-rust-fixed-source-helper', runner / 'codeql-rust-fixed-source-layout'
+    paths, errors = layout._paths(source, tools)
+    if Path(__file__).resolve().parent != tools:
+        errors.append('FIXED_SOURCE_HELPER_NOT_FROM_EXTERNAL_SNAPSHOT')
+    snapshot_errors, observed = layout._check_snapshot(tools, out, paths, production_default=True)
+    errors.extend(snapshot_errors)
+    checked = read_json(out / 'collection-layout.json')
+    if (checked.get('status') != 'PASS' or checked.get('source_sha') != source_sha
+            or checked.get('paths') != paths or checked.get('observed_tools') != observed
+            or checked.get('identity', {}).get('actual_head') != source_sha):
+        errors.append('FIXED_SOURCE_COLLECTION_LAYOUT_DIFFERS')
+    if errors:
+        raise RuntimeError('fixed-source observation tool/layout identity differs: ' + '; '.join(errors))
+    return dict(identity, tools_root=str(tools),
+                tool_snapshot_sha256=runtime.digest(out / 'tool-snapshot.json'),
+                collection_layout_sha256=runtime.digest(out / 'collection-layout.json'))
 
 
 def shared_budget(value, deadline, analysis_deadline, now, monotonic, *, mode=MODE):
     """Translate persisted absolute clocks; never allocate a new analysis window."""
     allocated = value.get('analysis_allocated_at')
     minutes = value.get('analysis_allocated_minutes')
-    if (mode not in (MODE, PRODUCTION_MODE)
+    if (mode not in (MODE, PRODUCTION_MODE, *OBSERVATION_MODES)
             or any(type(v) not in (int, float) or not math.isfinite(v) for v in (deadline, analysis_deadline, allocated, now))
             or type(minutes) is not int or not 1 <= minutes <= 75
             or value.get('mode') != mode or value.get('job_budget_seconds') != 5400
             or value.get('fixed_job_deadline') != deadline or value.get('analysis_deadline') != analysis_deadline
             or value.get('post_analysis_reserve_seconds') != 600
-            or value.get('helper_terminal_and_upload_reserve_seconds') != (90 if mode == PRODUCTION_MODE else 120)
+            or value.get('helper_terminal_and_upload_reserve_seconds') != (120 if mode == MODE else 90)
             or not 0 < deadline - allocated <= 5400 or allocated > now
             or not allocated < analysis_deadline <= min(deadline - 600, allocated + minutes * 60)
             or deadline - now > 5400):
@@ -88,6 +139,12 @@ def _admit(out, source, deadline, mode, source_sha, budget_file):
     terminal = read_json(out / 'action-deadline-terminal.json')
     result = read_json(out / 'action-main.log.result.json')
     start = read_json(out / 'action-deadline-start.json')
+    if mode in OBSERVATION_MODES:
+        identity = fixed_source_identity(source_sha, mode=mode)
+        if (any(terminal.get(key) != value for key, value in identity.items() if key != 'source_sha')
+                or any(start.get(key) != value for key, value in identity.items())
+                or budget.get('tool_sha') != identity['tool_sha']):
+            raise RuntimeError('fixed-source Action tool/source supervision differs')
     if (terminal.get('status') != 'ACTION_MAIN_COMPLETED_WITHIN_DEADLINE'
             or terminal.get('mode') != mode or terminal.get('source') != source_sha
             or terminal.get('source_root') != str(source) or terminal.get('fixed_job_deadline') != deadline
@@ -115,25 +172,30 @@ def admit(out, source, deadline):
     return _admit(out, source, deadline, MODE, SOURCE, 'capacity-budget.json')
 
 
-def admit_production(out, source, source_sha, analysis_deadline):
+def admit_production(out, source, source_sha, analysis_deadline, *, mode=PRODUCTION_MODE):
     budget = read_json(out / 'production-budget.json')
     if (budget.get('source_sha') != source_sha or budget.get('analysis_deadline') != analysis_deadline
             or not isinstance(source_sha, str) or len(source_sha) != 40
             or any(c not in '0123456789abcdef' for c in source_sha)):
         raise RuntimeError('production Action budget source differs')
     deadline = budget.get('fixed_job_deadline')
-    shared_budget(budget, deadline, analysis_deadline, time.time(), time.monotonic(), mode=PRODUCTION_MODE)
-    return _admit(out, source, deadline, PRODUCTION_MODE, source_sha, 'production-budget.json')
+    if mode not in (PRODUCTION_MODE, *OBSERVATION_MODES):
+        raise RuntimeError('unexpected default query Action mode')
+    shared_budget(budget, deadline, analysis_deadline, time.time(), time.monotonic(), mode=mode)
+    return _admit(out, source, deadline, mode, source_sha, 'production-budget.json')
 
 
 def main():
     # Only the frozen preload calls this entry, with no shell or arbitrary executable selection.
     runner = Path(os.environ['RUNNER_TEMP']).resolve()
-    production = os.environ.get('OASIS7_CODEQL_PRODUCTION_MODE') == PRODUCTION_MODE
-    mode = PRODUCTION_MODE if production else MODE
-    source_sha = os.environ.get('OASIS7_CODEQL_PRODUCTION_SOURCE', '') if production else SOURCE
-    budget_file = 'production-budget.json' if production else 'capacity-budget.json'
-    out = runner / ('codeql-rust-production-evidence' if production else 'rust-capacity-evidence')
+    requested = os.environ.get('OASIS7_CODEQL_PRODUCTION_MODE', '')
+    production = requested == PRODUCTION_MODE
+    observation = requested in OBSERVATION_MODES
+    default_queries = production or observation
+    mode = requested or MODE
+    source_sha = os.environ.get('OASIS7_CODEQL_PRODUCTION_SOURCE', '') if default_queries else SOURCE
+    budget_file = 'production-budget.json' if default_queries else 'capacity-budget.json'
+    out = runner / ('codeql-rust-production-evidence' if default_queries else 'rust-capacity-evidence')
     source = Path(os.environ['GITHUB_WORKSPACE']).resolve()
     if (out.resolve() != out or not out.is_dir() or out.is_relative_to(source)
             or (out / 'hashes.json').exists() or (out / 'action-deadline-terminal.json').exists()):
@@ -146,8 +208,16 @@ def main():
     previous_signals = {}
     analysis_end = None
     try:
-        if production:
-            if (os.environ.get('CAPACITY_MODE') == MODE
+        if requested not in ('', PRODUCTION_MODE, *OBSERVATION_MODES):
+            raise RuntimeError('unknown default query Action mode')
+        if observation:
+            provenance = fixed_source_provenance(source, source_sha, mode=mode)
+            fixed_source_resources()
+            terminal.update(fixed_source_identity(source_sha, mode=mode))
+            if read_json(out / 'fixed-source-provenance.json') != provenance:
+                raise RuntimeError('fixed-source Action preparation provenance differs')
+        elif production:
+            if (os.environ.get('CAPACITY_MODE')
                     or os.environ.get('GITHUB_EVENT_NAME') not in ('workflow_dispatch', 'schedule')
                     or os.environ.get('GITHUB_REF') != 'refs/heads/main'
                     or os.environ.get('GITHUB_SHA') != source_sha or len(source_sha) != 40
@@ -163,7 +233,7 @@ def main():
         argv, monitor = invocation(json.loads(sys.argv[1]), source)
         budget_raw = _read_regular(out / budget_file, limit=256 * 1024)
         budget = json.loads(budget_raw)
-        if production:
+        if default_queries:
             deadline = budget.get('fixed_job_deadline')
             analysis_deadline = float(os.environ['RUST_ANALYSIS_DEADLINE'])
             prepared = read_json(out / 'production-prepare.json')
@@ -171,6 +241,11 @@ def main():
                     or prepared.get('source_sha') != source_sha or prepared.get('source') != str(source)
                     or prepared.get('analysis_deadline') != analysis_deadline):
                 raise RuntimeError('production Action preparation/budget binding differs')
+            if observation and (budget.get('tool_sha') != provenance['tool_sha']
+                    or prepared.get('mode') != mode or prepared.get('tool_sha') != provenance['tool_sha']):
+                raise RuntimeError('fixed-source Action preparation/budget mode or tool differs')
+            if production and prepared.get('mode', PRODUCTION_MODE) != PRODUCTION_MODE:
+                raise RuntimeError('production Action cannot consume observation preparation')
         else:
             deadline = float(os.environ['CAPACITY_DEADLINE'])
             analysis_deadline = float(os.environ['CAPACITY_ANALYSIS_DEADLINE'])
