@@ -4,7 +4,10 @@ use super::*;
 use oasis7::development_node_config::{
     DevelopmentPeerRecordPublicationModeV1, DevelopmentPeerRecordReceptionModeV1,
 };
-use oasis7_proto::distributed_dht::DistributedDht;
+use oasis7_proto::distributed_dht::{
+    DistributedDht, PeerRecordPublicationStateV2, PeerRecordPublicationV2, SignedPeerRecord,
+};
+use serde::Serialize;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -121,6 +124,7 @@ fn receiver_upgrade_process_child_entry() {
             }
             drop(network);
         }
+        "seed" => seed_nonempty(&root),
         "cold" => cold_consume(&root),
         _ => panic!("unknown child role"),
     }
@@ -167,6 +171,7 @@ fn cold_consume(root: &Path) {
         );
         std::thread::sleep(Duration::from_millis(20));
     }
+    assert_cold_matrix(root, &network);
 }
 
 #[test]
@@ -182,8 +187,11 @@ fn receiver_upgrade_rejects_live_process_then_cold_reopens_v2() {
     let root = root.canonicalize().unwrap();
     spawn(&root, "initialize").wait();
     assert!(root.join("done-initialize").exists());
+    spawn(&root, "seed").wait();
+    assert!(root.join("done-seed").exists());
     let state = root.join("runtime/p2p/peer-record-receiver/peer-record-receiver-v2.state.cbor");
     let original = fs::read(&state).unwrap();
+    fs::write(root.join("original.cbor"), &original).unwrap();
     let original_config = fs::read(root.join("config.json")).unwrap();
     let receiver_directory = state.parent().unwrap();
     let original_files = receiver_files(receiver_directory);
@@ -214,6 +222,12 @@ fn receiver_upgrade_rejects_live_process_then_cold_reopens_v2() {
     assert!(root.join("done-upgrade").exists());
     let upgraded = fs::read(&state).unwrap();
     assert_ne!(original, upgraded);
+    let mut expected_ledger: serde_cbor::Value = serde_cbor::from_slice(&original).unwrap();
+    let serde_cbor::Value::Map(ref mut fields) = expected_ledger else {
+        panic!("ledger map");
+    };
+    fields.insert(serde_cbor::Value::Text("mode".into()), serde_cbor::value::to_value(oasis7_node::PeerRecordReceiverMode::V2Only).unwrap());
+    assert_eq!(expected_ledger, serde_cbor::from_slice::<serde_cbor::Value>(&upgraded).unwrap());
     let mut expected_files = original_files.clone();
     expected_files.insert(state.file_name().unwrap().to_str().unwrap().into(), upgraded.clone());
     assert_eq!(expected_files, receiver_files(receiver_directory));
@@ -241,4 +255,148 @@ fn receiver_upgrade_rejects_live_process_then_cold_reopens_v2() {
     };
     assert!(floors.contains_key(&serde_cbor::Value::Text(consumed.record.peer_id)));
     fs::remove_dir_all(root).unwrap();
+}
+
+// Independent signed wire fixtures enter the real DHT admission path. Never edit
+// receiver state to manufacture floors or isolation evidence.
+fn signed_fixture(
+    root: &Path,
+    peer: u8,
+    sequence: Option<u64>,
+    state: PeerRecordPublicationStateV2,
+    label: &str,
+) -> SignedPeerRecord {
+    let key = oasis7_node::derive_libp2p_identity_keypair(&hex::encode([peer; 32])).unwrap();
+    let mut record = super::replication_network::build_default_peer_record(&options(root));
+    record.peer_id = key.public().to_peer_id().to_string();
+    record.node_id = label.into();
+    record.published_at_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis()
+        .try_into()
+        .unwrap();
+    let publication = sequence.map(|sequence| PeerRecordPublicationV2 {
+        schema_version: 2,
+        sequence,
+        state,
+    });
+    let mut payload = if publication.is_some() {
+        b"oasis7-peer-record-v2|".to_vec()
+    } else {
+        b"oasis7-peer-record-v1|".to_vec()
+    };
+    let value = match &publication {
+        Some(p) => serde_cbor::value::to_value((p.schema_version, p.sequence, p.state, &record)).unwrap(),
+        None => serde_cbor::value::to_value(&record).unwrap(),
+    };
+    let mut canonical = Vec::new();
+    let mut serializer = serde_cbor::ser::Serializer::new(&mut canonical);
+    serializer.self_describe().unwrap();
+    value.serialize(&mut serializer).unwrap();
+    payload.extend(canonical);
+    SignedPeerRecord {
+        record,
+        identity_public_key_protobuf_hex: hex::encode(key.public().encode_protobuf()),
+        signature_hex: hex::encode(key.sign(&payload).unwrap()),
+        publication,
+    }
+}
+
+fn put_accepted(network: &oasis7_node::Libp2pReplicationNetwork, record: &SignedPeerRecord) {
+    if let Err(error) = network.put_peer_record(&record.record.world_id, record) {
+        assert!(format!("{error:?}").contains("kad put_record failed: the quorum failed; needed 1 peers"), "unexpected admission error: {error:?}");
+    }
+}
+
+fn put_rejected(network: &oasis7_node::Libp2pReplicationNetwork, record: &SignedPeerRecord) {
+    let error = network.put_peer_record(&record.record.world_id, record).unwrap_err();
+    assert!(format!("{error:?}").contains("the value is too large to be stored"), "wrong rejection: {error:?}");
+}
+
+fn seed_nonempty(root: &Path) {
+    let options = options(root);
+    let key = node_keypair_config::read_existing_legacy_keypair(Path::new(&options.config_path)).unwrap();
+    let paths = super::resolve_runtime_paths(&options);
+    let network = super::create_default_replication_network(&options, &key, &paths).unwrap();
+    use PeerRecordPublicationStateV2::{Live, Tombstone};
+    let legacy = signed_fixture(root, 11, None, Live, "retired");
+    put_accepted(&network, &legacy);
+    assert_eq!(network.get_peer_record(&options.world_id, &legacy.record.peer_id).unwrap(), Some(legacy.clone()));
+    put_accepted(&network, &signed_fixture(root, 11, Some(7), Live, "live"));
+    put_rejected(&network, &legacy);
+    put_accepted(&network, &signed_fixture(root, 12, Some(3), Tombstone, "withdrawn"));
+    put_accepted(&network, &signed_fixture(root, 13, Some(4), Live, "first"));
+    put_rejected(&network, &signed_fixture(root, 13, Some(4), Live, "fork"));
+    let state = root.join("runtime/p2p/peer-record-receiver/peer-record-receiver-v2.state.cbor");
+    let value: serde_cbor::Value = serde_cbor::from_slice(&fs::read(state).unwrap()).unwrap();
+    let serde_cbor::Value::Map(fields) = value else {
+        panic!("ledger map");
+    };
+    let serde_cbor::Value::Map(floors) = &fields[&serde_cbor::Value::Text("floors".into())] else {
+        panic!("floors map");
+    };
+    assert_eq!(floors.len(), 3, "all three real signed fixtures must persist");
+    for (peer, sequence, isolated) in [(11, 7, false), (12, 3, false), (13, 4, true)] {
+        let id = signed_fixture(root, peer, Some(sequence), Live, "probe").record.peer_id;
+        let serde_cbor::Value::Map(floor) = &floors[&serde_cbor::Value::Text(id)] else {
+        panic!("floor map");
+    };
+        assert_eq!(floor[&serde_cbor::Value::Text("sequence".into())], serde_cbor::Value::Integer(sequence.into()));
+        assert_eq!(floor[&serde_cbor::Value::Text("isolated".into())], serde_cbor::Value::Bool(isolated));
+    }
+}
+
+fn assert_cold_matrix(root: &Path, network: &oasis7_node::Libp2pReplicationNetwork) {
+    use PeerRecordPublicationStateV2::Live;
+    let state = root.join("runtime/p2p/peer-record-receiver/peer-record-receiver-v2.state.cbor");
+    let before = fs::read(&state).unwrap();
+    assert_original_floors(root, &before, false);
+    for record in [
+        signed_fixture(root, 11, None, Live, "retired"),
+        signed_fixture(root, 14, None, Live, "unseen-v1"),
+        signed_fixture(root, 11, Some(6), Live, "regressed"),
+        signed_fixture(root, 12, Some(2), Live, "stale-live"),
+        signed_fixture(root, 13, Some(5), Live, "isolated-higher"),
+    ] {
+        put_rejected(network, &record);
+    }
+    assert_eq!(before, fs::read(&state).unwrap(), "rejections must not change original floors");
+    let higher = signed_fixture(root, 11, Some(8), Live, "higher");
+    put_accepted(network, &higher);
+    assert_eq!(network.get_peer_record(&higher.record.world_id, &higher.record.peer_id).unwrap(), Some(higher));
+    assert_original_floors(root, &fs::read(&state).unwrap(), true);
+}
+
+fn assert_original_floors(root: &Path, current: &[u8], advanced: bool) {
+    let original: serde_cbor::Value = serde_cbor::from_slice(&fs::read(root.join("original.cbor")).unwrap()).unwrap();
+    let current: serde_cbor::Value = serde_cbor::from_slice(current).unwrap();
+    let serde_cbor::Value::Map(original) = original else {
+        panic!("original map");
+    };
+    let serde_cbor::Value::Map(current) = current else {
+        panic!("current map");
+    };
+    for field in ["schema_version", "binding"] {
+        let field = serde_cbor::Value::Text(field.into());
+        assert_eq!(original[&field], current[&field]);
+    }
+    let field = serde_cbor::Value::Text("floors".into());
+    let serde_cbor::Value::Map(original) = &original[&field] else {
+        panic!("original floors");
+    };
+    let serde_cbor::Value::Map(current) = &current[&field] else {
+        panic!("current floors");
+    };
+    let live = serde_cbor::Value::Text(signed_fixture(root, 11, Some(8), PeerRecordPublicationStateV2::Live, "probe").record.peer_id);
+    for (peer, floor) in original {
+        if advanced && peer == &live {
+            let serde_cbor::Value::Map(updated) = &current[peer] else {
+        panic!("updated floor");
+    };
+            assert_eq!(updated[&serde_cbor::Value::Text("sequence".into())], serde_cbor::Value::Integer(8));
+        } else {
+            assert_eq!(*floor, current[peer], "cold process changed original signed floor");
+        }
+    }
 }
