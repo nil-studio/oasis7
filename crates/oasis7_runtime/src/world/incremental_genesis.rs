@@ -24,7 +24,7 @@ pub struct RuntimeGenesisWorkV1 {
     pub raw: RuntimeRawGenesisWorkV1,
 }
 
-#[cfg(test)]
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
 #[path = "incremental_genesis_tests.rs"]
 pub(in crate::world) mod tests;
 pub struct RuntimeGenesisSummaryV1 {
@@ -158,5 +158,28 @@ impl World {
         caused_by: Option<crate::CausedBy>,
     ) -> Result<WorldEventId, WorldError> {
         self.append_event(body, caused_by)
+    }
+}
+
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+/// Fixed original GEN and Normal event regressions; no caller-supplied source.
+pub enum IwsGenesisEventCaseV1 {
+    CompleteJournal,
+    CaptureHashFailure,
+    NormalSequence,
+    HashRefusals,
+}
+
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+pub fn run_iws_genesis_event_case_v1(case: IwsGenesisEventCaseV1) {
+    match case {
+        IwsGenesisEventCaseV1::CompleteJournal => tests::projected_genesis_complete_journal_case(),
+        IwsGenesisEventCaseV1::CaptureHashFailure => tests::projected_genesis_hash_failure_case(),
+        IwsGenesisEventCaseV1::NormalSequence => {
+            super::incremental_normal_event_commitment::tests::normal_event_sequence_case();
+        }
+        IwsGenesisEventCaseV1::HashRefusals => {
+            super::incremental_normal_event_commitment::tests::event_sequence_hash_refusals_case();
+        }
     }
 }

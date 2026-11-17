@@ -506,7 +506,7 @@ mod typed_genesis_budgets {
     }
     }
 }
-fn runtime_genesis_work() -> RuntimeGenesisWorkV1 {
+pub(super) fn runtime_genesis_work() -> RuntimeGenesisWorkV1 {
     RuntimeGenesisWorkV1 {
         typed: typed_genesis_budgets::work(),
         raw: RuntimeRawGenesisWorkV1 {

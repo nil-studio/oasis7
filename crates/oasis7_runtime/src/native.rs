@@ -614,6 +614,9 @@ pub use world::incremental_body_event::{IwsModuleStateCaseV1, run_iws_module_sta
 #[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
 pub use world::incremental_genesis::{IwsActionBodyCaseV1, run_iws_action_body_case_v1};
 
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+pub use world::incremental_genesis::{IwsGenesisEventCaseV1, run_iws_genesis_event_case_v1};
+
 pub use world::incremental_normal_sources;
 pub use world::{
     ObservationJsonOriginalSinkV2, ObservationJsonOriginalStreamV2,

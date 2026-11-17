@@ -462,8 +462,3 @@ impl World {
 #[cfg(test)]
 #[path = "incremental_genesis_typed_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-pub(super) fn test_work() -> RuntimeTypedGenesisWorkV1 {
-    tests::work()
-}

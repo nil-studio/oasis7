@@ -1,5 +1,6 @@
-//! Original Formal event root: BLAKE3(serde_cbor(Vec<WorldEvent>)). Only the
-//! current transaction's complete, oldest-first success-note stream enters.
+//! Original Formal event root: BLAKE3(serde_cbor(Vec<WorldEvent>)). Normal
+//! owners retain only the actual transaction's oldest-first success notes;
+//! immutable GEN capture shares the sequence codec without that authority.
 use super::incremental_body::BodyMutationError;
 use oasis7_formal_protocol::{
     controlled_authority::formal::bounded_context::{FormalBoundedContextV1, WorkIdentityV1},
@@ -234,30 +235,10 @@ impl NormalEventCommitmentBuilderV1 {
             .memory()
             .reserve(size_of::<NormalEventCommitmentV1>(), MemoryClass::Ordinary)
             .map_err(ValueTreeError::Memory)?;
-        // Vec's Serde contract is serialize_seq(Some(len)), followed by each
-        // original WorldEvent Serialize. No ABI canonical sorting is used.
-        struct Events<'a>(&'a [ReservedValue<DecodedWorldEventV1>]);
-        impl Serialize for Events<'_> {
-            fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-                let mut seq = s.serialize_seq(Some(self.0.len()))?;
-                for event in self.0 {
-                    seq.serialize_element(event.event())?;
-                }
-                seq.end()
-            }
-        }
-        let mut out = HashWriter {
+        let digest = hash_world_event_sequence_bounded_v1(
+            self.events.iter().map(|event| event.event()),
             common,
-            hash: blake3::Hasher::new(),
-            first: None,
-        };
-        let result = serde_cbor::to_writer(&mut out, &Events(&self.events));
-        if let Some(error) = out.first.take() {
-            return Err(error);
-        }
-        result.map_err(context)?;
-        out.common.charge(1, 32).map_err(context)?;
-        let digest = *out.hash.finalize().as_bytes();
+        )?;
         // self.events and all their original owned graph reservations stay
         // alive through hash finalization, including every failure/unwind.
         Ok(NormalEventCommitmentV1 {
@@ -272,6 +253,40 @@ impl NormalEventCommitmentBuilderV1 {
             _fee: fee,
         })
     }
+}
+/// Original sequence DATA only. Normal keeps its decoded originals and guard;
+/// GEN borrows the complete journal inside its one immutable World capture.
+pub(in crate::world) fn hash_world_event_sequence_bounded_v1<'e>(
+    events: impl ExactSizeIterator<Item = &'e oasis7_world_state::WorldEvent> + Clone,
+    common: &mut FormalBoundedContextV1<'_>,
+) -> Result<[u8; 32], BodyMutationError> {
+    // Vec's Serde contract is serialize_seq(Some(len)), followed by each
+    // original WorldEvent Serialize. No ABI canonical sorting is used.
+    struct Events<I>(I);
+    impl<'e, I> Serialize for Events<I>
+    where
+        I: ExactSizeIterator<Item = &'e oasis7_world_state::WorldEvent> + Clone,
+    {
+        fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            let mut seq = s.serialize_seq(Some(self.0.len()))?;
+            for event in self.0.clone() {
+                seq.serialize_element(event)?;
+            }
+            seq.end()
+        }
+    }
+    let mut out = HashWriter {
+        common,
+        hash: blake3::Hasher::new(),
+        first: None,
+    };
+    let result = serde_cbor::to_writer(&mut out, &Events(events));
+    if let Some(error) = out.first.take() {
+        return Err(error);
+    }
+    result.map_err(context)?;
+    out.common.charge(1, 32).map_err(context)?;
+    Ok(*out.hash.finalize().as_bytes())
 }
 struct HashWriter<'a, 'c> {
     common: &'a mut FormalBoundedContextV1<'c>,
@@ -311,3 +326,7 @@ impl Write for HashWriter<'_, '_> {
         Ok(())
     }
 }
+
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+#[path = "incremental_normal_event_commitment_tests.rs"]
+pub(in crate::world) mod tests;

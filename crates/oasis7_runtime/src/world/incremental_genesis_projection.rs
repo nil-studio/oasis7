@@ -28,6 +28,8 @@ pub struct RuntimeProjectedGenesisV1 {
     genesis: RuntimeGenesisSummaryV1,
     columns: NormalProjectionColumnSeedDataV1,
     witness: super::incremental_normal_projection_bootstrap::ProjectionGenesisWitnessV1,
+    event_root: [u8; 32],
+    event_count: usize,
 }
 impl RuntimeProjectedGenesisV1 {
     pub fn validate_context_bounded_v1(
@@ -43,6 +45,19 @@ impl RuntimeProjectedGenesisV1 {
         self.columns.validate_context(common)?;
         self.witness.validate_context(common)?;
         self.business_metadata.validate_context(common)
+    }
+
+    /// Complete original GEN journal from this same immutable World capture.
+    /// This DATA carries no accepted-parent or normal transaction authority.
+    pub fn formal_event_commitment_bounded_v1(
+        &self,
+        common: &mut FormalBoundedContextV1<'_>,
+    ) -> Result<([u8; 32], usize), BodyMutationError> {
+        self.validate_context_bounded_v1(common)?;
+        common
+            .charge(1, 40)
+            .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
+        Ok((self.event_root, self.event_count))
     }
 
     pub(in crate::world) fn witness_for_bootstrap_v1(
@@ -143,6 +158,22 @@ impl World {
             .map_err(|e| {
                 RuntimeProjectedGenesisErrorV1::Source(BodyMutationError::Original(Box::new(e)))
             })?;
+        let event_count = self.journal.events.len();
+        let event_steps = u64::try_from(event_count)
+            .ok()
+            .and_then(|count| count.checked_add(1))
+            .ok_or(RuntimeProjectedGenesisErrorV1::Source(
+                BodyMutationError::Invalid("GEN journal event count"),
+            ))?;
+        common.consume_steps(event_steps).map_err(|e| {
+            RuntimeProjectedGenesisErrorV1::Source(BodyMutationError::Original(Box::new(e)))
+        })?;
+        let event_root =
+            super::incremental_normal_event_commitment::hash_world_event_sequence_bounded_v1(
+                self.journal.events.iter(),
+                common,
+            )
+            .map_err(RuntimeProjectedGenesisErrorV1::Source)?;
         let mut columns = NormalProjectionColumnInitializerV1::new(common)
             .map_err(RuntimeProjectedGenesisErrorV1::Source)?;
         self.visit_iws_genesis_fields(&mut columns)
@@ -193,6 +224,8 @@ impl World {
             columns,
             witness,
             business_metadata,
+            event_root,
+            event_count,
         })
     }
 }
