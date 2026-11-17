@@ -1,5 +1,5 @@
 {
-  "recorded_at_unix_ms": 1794835968295,
+  "recorded_at_unix_ms": 1794903607747,
   "module_id": "m1.rule.transfer",
   "target": "wasm32-unknown-unknown",
   "profile": "release",
@@ -46,7 +46,7 @@
     }
   ],
   "source_hash": "8d40f8fc9deba132b3c722c3fa3328a27113042b03a591c9e8ed3c27c06a6e93",
-  "build_manifest_hash": "d957c3f35972752b1599cd0bc61a9e9f9cb53bc00711c1d5adbd33585e291734",
+  "build_manifest_hash": "962b437da45c6806c7d8d7653fafb0e9f2da34441ba15331a57cbca16ffa4d91",
   "canonicalizer_version": "strip-custom-sections-v1",
   "container_platform": "linux-x86_64",
   "purpose": "candidate-build",
@@ -54,7 +54,7 @@
   "builder_recipe": {
     "recipe_schema_version": 1,
     "kind": "producer-content",
-    "producer_recipe_hash": "e356185267736f8f44e9c3c9446719a0d237c9631a79daf26c9f2f873c3c4ee7",
+    "producer_recipe_hash": "32eb5f383ef8dc82e5a19cad697415ed21983236eab764e45ddb2a97f37e9f98",
     "arguments": [
       {
         "name": "GUEST_CARGO_BUILD_JOBS",
@@ -86,7 +86,7 @@
       {
         "kind": "source-file",
         "path": "Cargo.lock",
-        "sha256": "168c3fdaca06babe35bbc463f8408fe98de788a97c485da7f897ab61fd3ff05a"
+        "sha256": "6a59ca65992e26c58842f61be679422dd9c65ef6cf9ab1ad9f3f81e3a122c308"
       },
       {
         "kind": "source-file",
@@ -193,15 +193,15 @@
   "builder_execution": {
     "execution_schema_version": 1,
     "kind": "local-docker-build",
-    "image_ref": "oasis7/wasm-builder:candidate-e356185267736f8f44e9c3c9446719a0d237c9631a79daf26c9f2f873c3c4ee7",
-    "image_id": "sha256:8875de58c7c2040e5c4b8e5cf2ab96b3dc8a6d9306330a1a83012679af98e575",
+    "image_ref": "oasis7/wasm-builder:candidate-32eb5f383ef8dc82e5a19cad697415ed21983236eab764e45ddb2a97f37e9f98",
+    "image_id": "sha256:22bce9107093d526d24cfd2d433fe0bb7a0ab047b3a2165783f502d2fa780a4d",
     "docker_platform": "linux/amd64"
   },
   "build_timing": {
-    "total_build_wall_ms": 29547,
-    "cargo_build_ms": 29206,
+    "total_build_wall_ms": 29515,
+    "cargo_build_ms": 29062,
     "canonicalize_ms": 0,
-    "hash_ms": 84,
+    "hash_ms": 83,
     "receipt_write_ms": 0,
     "metadata_write_ms": 0
   },
