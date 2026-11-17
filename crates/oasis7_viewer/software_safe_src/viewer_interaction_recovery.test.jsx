@@ -204,6 +204,34 @@ describe("signed gameplay and connection recovery faults", () => {
     expect(sentMessages.filter(message=>message.type==="gameplay_action")).toHaveLength(1);
   });
 
+  it("reconciles hosted authorization expiry without leaving an orphan or submitting a duplicate claim", async () => {
+    const { core, sockets, sentMessages } = await setupConnectedSemanticCore();
+    core.state.auth.source = "hosted_account_cookie";
+    (await import("./viewer_auth_session_module.js")).updateRegistrationGrant(core.state.auth, "fixture-grant", "device-1");
+    custody.enabled = true;
+    custody.pending = false;
+    custody.settle = async () => false;
+    core.state.viewerProtocol = { capabilities: ["gameplay_result_lookup_v1"] };
+    const action = { protocol_action: "gameplay_action.submit", action_id: "inspect_target", target_agent_id: "agent-0" };
+    core.sendGameplayAction(action);
+    await waitFor(() => expect(core.state.lastGameplayActionFeedback?.stage).toBe("sent"));
+    const nonce = core.state.lastGameplayActionFeedback.requestAuthNonce;
+
+    // Server returns hosted_authorization_expired
+    sockets[0].receive({
+      type: "gameplay_action_error",
+      request_auth_nonce: nonce,
+      error: { code: "hosted_authorization_expired", message: "hosted_authorization_expired: invalid freshness window", action_id: "inspect_target", target_agent_id: "agent-0" },
+    });
+    await waitFor(() => expect(core.state.lastGameplayActionFeedback.stage).toBe("unknown"));
+    expect(core.state.lastGameplayActionFeedback.effect).toBe("hosted authorization expired; reconciling authoritative result");
+
+    // Resubmission must be blocked:
+    expect(core.sendGameplayAction(action).ok).toBe(false);
+    expect(core.state.lastGameplayActionFeedback.requestAuthNonce).toBe(nonce);
+    expect(sentMessages.filter(m => m.type === "gameplay_action")).toHaveLength(1);
+  });
+
   it("exhausts first-snapshot retry budget even when an OPEN socket throws on send", async () => {
     const {core,sockets}=await setupConnectedSemanticCore();vi.useFakeTimers();sockets[0].close();await vi.advanceTimersByTimeAsync(1200);
     const ws=sockets.at(-1);ws.open();ws.receive({type:"hello_ack",server:"test-live",world_id:"test-world"});

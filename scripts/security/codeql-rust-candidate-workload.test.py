@@ -1419,8 +1419,8 @@ def binding_repository_file(path, end):
 
 
 def binding_tools(codeql, end):
-    names = [*capacity_layout.TOOL_FILES, 'codeql-rust-candidate-workload.test.py',
-             'codeql-rust-production.py', 'codeql-rust-production.test.py',
+    names = [*capacity_layout.tool_files(production_default=True), 'codeql-rust-candidate-workload.test.py',
+             'codeql-rust-production.test.py',
              'test_codeql_rust_resolver.py']
     paths = [HERE / name for name in names] + [ROOT / 'scripts/ci-apt-install.py', ROOT / 'scripts/ci-apt-dns.py']
     identities = {}
@@ -1657,7 +1657,7 @@ class BindingPairProtocol(unittest.TestCase):
         def load(name, path):
             if name == 'production_binding_test':
                 return SimpleNamespace(validate_real_production_bindings=production or self.consumer('production37'),
-                    m=SimpleNamespace(PRODUCTION_VARIANT='qualifier-lines-constraint-target-qualified-v7'))
+                    m=SimpleNamespace(PRODUCTION_VARIANT='qualifier-lines-negative-projection-v8'))
             return original_module(name, path)
         with (patch(__name__ + '.binding_module', side_effect=load),
               patch(__name__ + '._PAIR_ENTRY_STARTED', 1000),
@@ -1679,7 +1679,63 @@ class BindingPairProtocol(unittest.TestCase):
             self.assertEqual((evidence / 'inputs' / name / 'private/input.ql').read_bytes(), name.encode())
         self.assertEqual(m.read_json(evidence / 'contract.json')['work_end'], 1540)
         self.assertEqual(m.read_json(evidence / 'contract.json')['variants'],
-                         ['qualifier-lines-constraint-target-qualified-v7'] * 2)
+                         ['qualifier-lines-constraint-target-qualified-v7', 'qualifier-lines-negative-projection-v8'])
+
+    def real_tool_inputs(self):
+        repo = self.root / 'repository'
+        helpers = repo / 'scripts/security'; helpers.mkdir(parents=True)
+        # The explicit patch fixture is independent of the production tool list.
+        names = {*capacity_layout.tool_files(production_default=True),
+                 'codeql-rust-candidate-workload.test.py', 'codeql-rust-production.test.py',
+                 'test_codeql_rust_resolver.py', 'codeql-rust-negative-projection.patch'}
+        for name in names:
+            shutil.copy2(HERE / name, helpers / name)
+        for name in ('ci-apt-install.py', 'ci-apt-dns.py'):
+            shutil.copy2(ROOT / 'scripts' / name, repo / 'scripts' / name)
+        for name in ('tools/codeql.jar', 'tools/linux64/java/bin/java'):
+            path = self.bundle / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b'identity fixture; not executable')
+        patch_file = helpers / 'codeql-rust-negative-projection.patch'
+        original = patch_file.read_bytes()
+        expected = dict(sha256=hashlib.sha256(original).hexdigest(), bytes=len(original),
+                        mode=patch_file.stat().st_mode & 0o7777)
+        actual_binding_tools, observed = binding_tools, []
+        def actual_tools(codeql, end):
+            value = actual_binding_tools(codeql, end)
+            observed.append(value)
+            return value
+        return repo, helpers, patch_file, original, expected, actual_tools, observed
+
+    def test_pair_freezes_and_seals_the_actual_negative_patch(self):
+        repo, helpers, _, original, expected, tools, observed = self.real_tool_inputs()
+        with patch(__name__ + '.ROOT', repo), patch(__name__ + '.HERE', helpers):
+            self.invoke_pair(tools=tools)
+        key = 'scripts/security/codeql-rust-negative-projection.patch'
+        self.assertEqual(len(observed), 2)
+        self.assertEqual([value['repository'][key] for value in observed], [expected, expected])
+        evidence = self.output / 'evidence'
+        self.assertEqual(m.read_json(evidence / 'tools-before.json')['repository'][key], expected)
+        self.assertEqual((evidence / 'tools' / key).read_bytes(), original)
+        self.assertIn('tools/' + key, m.comparison.verify_seal(evidence, time.monotonic() + 5))
+
+    def test_actual_negative_patch_change_prevents_pair_sealing(self):
+        repo, helpers, patch_file, original, expected, tools, observed = self.real_tool_inputs()
+        def mutate():
+            patch_file.write_bytes(original + b'changed fixture\n')
+        with patch(__name__ + '.ROOT', repo), patch(__name__ + '.HERE', helpers):
+            with self.assertRaises(AssertionError):
+                self.invoke_pair(production=self.consumer('production37', after=mutate), tools=tools)
+        key = 'scripts/security/codeql-rust-negative-projection.patch'
+        self.assertEqual(self.events, [('target44', 1540, 1540), ('production37', 1540, 1540)])
+        self.assertEqual(len(observed), 2)
+        self.assertEqual(observed[0]['repository'][key], expected)
+        self.assertNotEqual(observed[1]['repository'][key]['sha256'], expected['sha256'])
+        evidence = self.output / 'evidence'
+        self.assertEqual((evidence / 'tools' / key).read_bytes(), original)
+        self.assertFalse((evidence / 'ADMISSION.json').exists())
+        self.assertFalse((evidence / 'hashes.json').exists())
+        self.assertEqual(m.read_json(evidence / 'INCOMPLETE.json')['status'], 'INCOMPLETE')
 
     def test_second_consumer_gets_no_fresh_window_after_preparation_exhausts_work_time(self):
         def exhaust(): self.clock[0] = 1540
