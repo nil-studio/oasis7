@@ -97,7 +97,7 @@ impl FormalFullSyncSession {
     /// Capture the original verified minimum, not a provider's advertised head.
     /// This is request preparation only, not owner admission or recovery.
     #[cfg(unix)]
-    pub(in super::super) fn prepare_operation_request(
+    pub(super) fn prepare_operation_request(
         &self,
         policy: &operation_ledger::Policy,
         transport: &shared_exchange::PreparedTransport,
