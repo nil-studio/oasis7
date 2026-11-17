@@ -110,7 +110,22 @@ impl Drop for Directory {
     }
 }
 
+// Both layouts publish the same paid GEN delta. Individual is used only by
+// the two original-object failure cases; the default fixture remains packed.
+pub(super) enum StatePageLayout {
+    Packed,
+    Individual,
+}
+
 pub fn fixture(store: &IncrementalPageStore, memory: &MemoryBudget) -> (World, ExecutionParent) {
+    fixture_with_page_layout(store, memory, StatePageLayout::Packed)
+}
+
+pub(super) fn fixture_with_page_layout(
+    store: &IncrementalPageStore,
+    memory: &MemoryBudget,
+    layout: StatePageLayout,
+) -> (World, ExecutionParent) {
     let mut state = WorldState {
         time: 11,
         ..WorldState::default()
@@ -250,8 +265,32 @@ pub fn fixture(store: &IncrementalPageStore, memory: &MemoryBudget) -> (World, E
         let retained = charge.split(heap).unwrap();
         drop(charge);
         let delta = retained.retain(delta);
-        sink.put_state_pages_cancelled(&delta, memory, &mut || false)
-            .unwrap();
+        match layout {
+            StatePageLayout::Packed => {
+                sink.put_state_pages_cancelled(&delta, memory, &mut || false)
+                    .unwrap();
+            }
+            StatePageLayout::Individual => {
+                assert!(store.memory_budget().same_pool(memory) && delta.uses_budget(memory));
+                {
+                    let _validation = memory.reserve(64 * 1024, MemoryClass::Ordinary).unwrap();
+                    for page in &delta.new_nodes {
+                        page.verified_links().unwrap();
+                    }
+                }
+                // Keep the complete producer delta charged while publishing
+                // each identical page through the original session account.
+                for page in &delta.new_nodes {
+                    let mut id = [0; 32];
+                    hex::decode_to_slice(&page.digest, &mut id).unwrap();
+                    let charge = memory
+                        .reserve(page.bytes.len() + 128, MemoryClass::Ordinary)
+                        .unwrap();
+                    let bytes = charge.retain(page.bytes.clone());
+                    sink.put_node_borrowed(id, &bytes).unwrap();
+                }
+            }
+        }
         parent.roots.state[index] = delta.after.clone();
     }
     drop(IncrementalObjectStore::create(store, &mut physical(), &cancelled).unwrap());
