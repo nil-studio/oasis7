@@ -942,3 +942,8 @@ fn validate_live_world_matches_record_v2(
     }
     Ok(())
 }
+
+// Test-only bridge for the trusted shipping CLI process owner; no production export.
+#[cfg(all(test, unix, not(target_arch = "wasm32")))]
+#[allow(unused_imports)] // The same execution module also has an independent test mount.
+pub(crate) use formal_read::wire3_shipping_node_process_output_failure;

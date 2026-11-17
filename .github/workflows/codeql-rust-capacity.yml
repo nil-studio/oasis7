@@ -23,6 +23,7 @@ on:
           - qualifier-research
           - candidate-workload-research
           - rust-default-fixed-source-observation
+          - rust-default-negative-projection-observation
 
 permissions:
   contents: read
@@ -31,7 +32,7 @@ permissions:
 jobs:
   capacity:
     name: CodeQL Rust capacity
-    if: github.event_name == 'workflow_dispatch' && inputs.execute == true && inputs.mode != 'rust-default-fixed-source-observation'
+    if: github.event_name == 'workflow_dispatch' && inputs.execute == true && inputs.mode != 'rust-default-fixed-source-observation' && inputs.mode != 'rust-default-negative-projection-observation'
     runs-on: ubuntu-24.04
     timeout-minutes: ${{ inputs.mode == 'official-default-research' && 360 || inputs.mode == 'qualifier-research' && 150 || 90 }}
     concurrency:
@@ -92,6 +93,8 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - id: snapshot
         name: Freeze the helper closure outside the collection tree
         run: |
@@ -314,7 +317,7 @@ jobs:
 
   observe:
     name: CodeQL Rust fixed source observation
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.execute == true && inputs.mode == 'rust-default-fixed-source-observation'
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.execute == true && (inputs.mode == 'rust-default-fixed-source-observation' || inputs.mode == 'rust-default-negative-projection-observation')
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     concurrency:
@@ -323,7 +326,7 @@ jobs:
       cancel-in-progress: false
     env:
       COMPARE_QUALIFIER_PATCH: ${{ inputs.compare_qualifier_patch && 'true' || 'false' }}
-      OASIS7_CODEQL_PRODUCTION_MODE: rust-default-fixed-source-observation
+      OASIS7_CODEQL_PRODUCTION_MODE: ${{ inputs.mode }}
       OASIS7_CODEQL_PRODUCTION_SOURCE: 2bcc4edafdc615f395c9138a0b39ede366726d34
       RUSTC_WRAPPER: ''
       RUSTUP_TOOLCHAIN: '1.96.0'
@@ -344,6 +347,8 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - id: snapshot
         name: Freeze production helpers outside the collection tree
         timeout-minutes: 1
@@ -467,7 +472,7 @@ jobs:
                          job_age_upper_seconds=age, job_budget_seconds=5400,
                          analysis_allocated_minutes=minutes, analysis_deadline=deadline,
                          analysis_allocated_at=allocated, fixed_job_deadline=allocated + 5400 - age,
-                         mode='rust-default-fixed-source-observation',
+                         mode=os.environ['OASIS7_CODEQL_PRODUCTION_MODE'],
                          source_sha=os.environ['OASIS7_CODEQL_PRODUCTION_SOURCE'], tool_sha=os.environ['GITHUB_SHA'],
                          post_analysis_reserve_seconds=600, helper_terminal_and_upload_reserve_seconds=90)
           path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'codeql-rust-production-budget.json'

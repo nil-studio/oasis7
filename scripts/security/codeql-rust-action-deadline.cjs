@@ -7,6 +7,8 @@ const child = require('node:child_process');
 const MODE = 'candidate-workload-research';
 const PRODUCTION_MODE = 'rust-default-production';
 const FIXED_SOURCE_MODE = 'rust-default-fixed-source-observation';
+const NEGATIVE_PROJECTION_MODE = 'rust-default-negative-projection-observation';
+const OBSERVATION_MODES = [FIXED_SOURCE_MODE, NEGATIVE_PROJECTION_MODE];
 const FIXED_SOURCE = '2bcc4edafdc615f395c9138a0b39ede366726d34';
 const ACTION = '33d7b85da1a04171e211befe2c739303b9a4c066';
 const MAIN_BLOB = '8b8462e5a06f394cd0504d57868488cebc7030c9';
@@ -35,8 +37,8 @@ function readBudget(file) {
 
 function main() {
   const requested = process.env.OASIS7_CODEQL_PRODUCTION_MODE || '';
-  if (!['', PRODUCTION_MODE, FIXED_SOURCE_MODE].includes(requested)) throw new Error('unknown CodeQL deadline mode');
-  const production = requested === PRODUCTION_MODE, observation = requested === FIXED_SOURCE_MODE;
+  if (!['', PRODUCTION_MODE, ...OBSERVATION_MODES].includes(requested)) throw new Error('unknown CodeQL deadline mode');
+  const production = requested === PRODUCTION_MODE, observation = OBSERVATION_MODES.includes(requested);
   const defaultQueries = production || observation;
   if (process.env.CAPACITY_MODE !== MODE && !defaultQueries) return;
   if (defaultQueries && process.env.CAPACITY_MODE) throw new Error('mixed CodeQL deadline modes');

@@ -6,8 +6,16 @@ targets = []
 [advisories]
 db-urls = ["https://github.com/rustsec/advisory-db"]
 yanked = "deny"
-# No RustSec exceptions remain. Changes require independent security review.
-ignore = []
+# Single approved maintenance-risk exception, not a vulnerability fix.
+# cargo-deny 0.19.9 applies this ID globally to direct AND transitive chrono use;
+# it cannot restrict this exception to Aliyun/worker paths and has no expiry field.
+# Re-review when chrono's maintenance/advisory status changes, a supported upstream
+# replacement is available, or our dependency usage changes. No automatic expiry.
+# Other IDs (including future vulnerabilities), yanked checks and bans remain active.
+# Changes to this exception require independent security review.
+ignore = [
+  { id = "RUSTSEC-2026-0543", reason = "Accept chrono's unmaintained status across current direct and transitive uses pending compatible upstream migration; this is maintenance-risk acceptance, not a vulnerability fix. Re-review on advisory/maintenance changes, upstream replacement, or dependency-usage changes." },
+]
 
 [licenses]
 allow = [

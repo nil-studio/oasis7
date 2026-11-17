@@ -36,7 +36,7 @@
 
 ## 5. Exactly-once 与跨 surface parity
 
-- 同一 root、recipe/factory operation、profile 与 authority revision 至多产生一次 intent、production result、externality/mitigation disposition、progression 或 reward；重复提交、重连、Agent retry、restore、事件乱序与 replay 只能重读原处置。
+- 同一工业工作节点的同一实际效果至多生效一次；节点沿原 root/revision/child lineage 定位，profile 与 authority revision 是该次效果绑定的证据，换版不能重置去重。合法下一 cycle/branch 使用工作图授予的新 child identity；后续处理/释放以独立 transition 引用原义务，不覆盖旧处置。具体身份与键由[外部性系统设计](../../world-runtime/runtime/industrial-externality-and-mitigation.design.md#externality-profile)拥有。重复提交、重连、Agent retry、restore、事件乱序与 replay 只能重读原效果，不能复制 production、disposition、progression 或 reward。
 - preview、accepted、production、externality/mitigation、terminal pending 与 settled 不得互相冒充；外部性处置不自动减少需求、发放交付奖励或释放未结算容量。
 - Viewer、pure API 与 Agent 必须从同一 snapshot/revision 表达 profile、scope、状态、primary blocker、已占用/已损失价值、可用动作、`next_action`、`next_recheck` 与 progression；无 authority 时均返回 `unknown/blocked`，不能生成安全候选。
 

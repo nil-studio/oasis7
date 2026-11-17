@@ -509,6 +509,15 @@ jobs:
     permissions:
       contents: read
     steps:
+      - &linux-mold-tools-checkout
+        name: Check out workflow linker setup
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: .github/actions/setup-linux-mold
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -610,6 +619,16 @@ jobs:
     steps:
       - name: Start cold runner measurement
         run: echo "PREVIEW_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+      - name: Check out workflow linker setup
+        if: matrix.group != 'baseline'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: .github/actions/setup-linux-mold
+      - name: Configure mold for Linux host linking
+        if: matrix.group != 'baseline'
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.pr-fast-preview-plan.outputs.tested_sha }}
@@ -780,6 +799,9 @@ jobs:
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
     steps:
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -892,6 +914,10 @@ jobs:
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ubuntu-24.04
     steps:
+      - *linux-mold-tools-checkout
+      - &ordinary-configure-linux-mold
+        name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -1125,6 +1151,8 @@ jobs:
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
     steps:
+      - *linux-mold-tools-checkout
+      - *ordinary-configure-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
@@ -1202,6 +1230,10 @@ jobs:
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ubuntu-24.04
     steps:
+      - *linux-mold-tools-checkout
+      - &formal-debug-configure-linux-mold
+        name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -1420,6 +1452,8 @@ jobs:
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
     steps:
+      - *linux-mold-tools-checkout
+      - *formal-debug-configure-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
@@ -1475,6 +1509,10 @@ jobs:
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ubuntu-24.04
     steps:
+      - *linux-mold-tools-checkout
+      - &formal-endpoint-configure-linux-mold
+        name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -1693,6 +1731,8 @@ jobs:
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
     steps:
+      - *linux-mold-tools-checkout
+      - *formal-endpoint-configure-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
@@ -1744,6 +1784,9 @@ jobs:
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ubuntu-24.04
     steps: &formal-merge-steps
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -1952,6 +1995,9 @@ jobs:
         partition: ${{ fromJSON(needs.select.outputs.ordinary_partitions) }}
       max-parallel: 5
     steps:
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -2201,6 +2247,9 @@ jobs:
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
     steps:
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -2243,6 +2292,9 @@ jobs:
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
     steps:
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -2307,6 +2359,9 @@ jobs:
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
     steps:
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -2349,6 +2404,9 @@ jobs:
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
     steps:
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -2398,6 +2456,9 @@ jobs:
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
     steps:
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -2509,6 +2570,9 @@ jobs:
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
     steps:
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -2608,6 +2672,9 @@ jobs:
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
     steps:
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -2655,6 +2722,9 @@ jobs:
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
     steps:
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -2730,6 +2800,9 @@ jobs:
       OASIS7_SUPPORT_POLICY_SHA: ${{ needs.select.outputs.policy_sha }}
       OASIS7_SUPPORT_RANGE_BASE: ${{ needs.select.outputs.range_base }}
     steps:
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -2812,6 +2885,9 @@ jobs:
       OASIS7_SUPPORT_POLICY_SHA: ${{ needs.select.outputs.policy_sha }}
       OASIS7_SUPPORT_RANGE_BASE: ${{ needs.select.outputs.range_base }}
     steps:
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -2888,6 +2964,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -2917,6 +2996,9 @@ jobs:
       OASIS7_SUPPORT_POLICY_SHA: ${{ needs.select.outputs.policy_sha }}
       OASIS7_SUPPORT_RANGE_BASE: ${{ needs.select.outputs.range_base }}
     steps: &custody-build-steps
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -3078,6 +3160,9 @@ jobs:
       OASIS7_SUPPORT_POLICY_SHA: ${{ needs.select.outputs.policy_sha }}
       OASIS7_SUPPORT_RANGE_BASE: ${{ needs.select.outputs.range_base }}
     steps:
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -3138,6 +3223,9 @@ jobs:
       matrix:
         shard: ${{ fromJSON(needs.select.outputs.plan).custody_node_shards || fromJSON('[0,1,2,3]') }}
     steps:
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -3269,6 +3357,9 @@ jobs:
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
     steps:
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -3340,6 +3431,9 @@ jobs:
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
     steps:
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -3367,6 +3461,9 @@ jobs:
       actions: read
     runs-on: ubuntu-24.04
     steps:
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -3496,6 +3593,9 @@ jobs:
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
     steps:
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -3592,6 +3692,9 @@ jobs:
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
     steps:
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -3681,6 +3784,16 @@ jobs:
       matrix:
         os: [ubuntu-24.04, windows-2022, macos-15]
     steps:
+      - name: Check out workflow linker setup
+        if: runner.os == 'Linux'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: .github/actions/setup-linux-mold
+      - name: Configure mold for Linux host linking
+        if: runner.os == 'Linux'
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -3839,6 +3952,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 210
     steps:
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
@@ -3994,6 +4110,9 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 210
     steps:
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
@@ -4205,6 +4324,8 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - name: Install pinned Rust toolchain
         run: |
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal

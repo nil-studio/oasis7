@@ -908,3 +908,8 @@ pub(crate) mod controlled_bootstrap_anchor;
 mod controlled_capture;
 
 pub(crate) mod controlled_history;
+
+// Test-only bridge for the trusted shipping CLI process owner; no production export.
+#[cfg(all(test, unix, not(target_arch = "wasm32")))]
+#[allow(unused_imports)] // The same execution module also has an independent test mount.
+pub(crate) use driver::wire3_shipping_node_process_output_failure;

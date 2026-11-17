@@ -249,13 +249,15 @@ Trace ID: O7-REQ-7a766dd0-5264-4caf-9dfb-60643ca5faf6
 <a id="ci-advisory-baseline"></a>
 ## RustSec 例外基线与到期处置
 
-当前 RustSec 例外集合为空。`deny.toml` 的 `advisories.ignore` 必须保持空数组，`serde_cbor`、`paste`、`ttf-parser` 三个已移除的包在 `bans.deny` 中按包名禁止重新进入依赖图，包括通过 Cargo 依赖别名或传递依赖进入的情况。既有到期直接依赖基线随例外移除，不保留无实际例外的续期义务。
+当前仅批准 `RUSTSEC-2026-0543`（chrono 停止维护）的单 ID 风险例外，不表示漏洞修复。`deny.toml` 的 `advisories.ignore` 可以为空，或只包含该 ID 与非空理由。cargo-deny 0.19.9 对此 ID 全局降级，覆盖所有直接和传递 chrono 使用，不支持按 Aliyun/worker 依赖路径限定，也没有自动到期字段。其他公告（包括未来不同 ID 的漏洞）、yanked 检查和禁止包策略保持生效；同 ID 的内容变更及新依赖路径仍会被此例外覆盖，必须复查。chrono 维护/公告状态改变、出现兼容上游替代或仓库依赖使用变化时重新进行独立安全评审。
 
-[基线检查器](../../../scripts/check-rustsec-ignore-baseline.sh) 用标准 TOML 解析器检查完整的 ignore 集合与禁止包配置。非空 ignore、无效类型/语法、缺失的禁止项以及为禁止项设置版本或豁免范围均被拒绝；单引号、引号表名、同行元素和注释按 TOML 语义处理。
+`serde_cbor`、`paste`、`ttf-parser` 三个已移除的包在 `bans.deny` 中按包名禁止重新进入依赖图，包括通过 Cargo 依赖别名或传递依赖进入的情况。既有到期直接依赖基线随例外移除，不保留无实际例外的续期义务。
+
+[基线检查器](../../../scripts/check-rustsec-ignore-baseline.sh) 用标准 TOML 解析器检查完整的 ignore 集合与禁止包配置。非批准 ID、重复或额外例外、缺失/空理由、未知字段、无效类型/语法、缺失的禁止项以及为禁止项设置版本或豁免范围均被拒绝；单引号、引号表名、同行元素和注释按 TOML 语义处理。
 
 任何未来例外或重新引入这些包都必须作为明确的策略变更独立评审，不能靠过期基线或依赖别名绕过。
 
-Rust 基线检查执行 `cargo deny --locked --all-features check advisories bans`，由 cargo-deny 检查真实 Cargo 依赖图中的 advisory 及禁止包；基线检查器另扫描全部仓库 Cargo.lock 的 package.name，防止独立模块和兼容 fixture 残留旧包。配置 fixture 只验证配置策略，不能代替真实依赖图检查；验收须同时覆盖空例外正例、隐藏/重复的 advisory、坏配置、禁止项移除或缩小、依赖别名与传递依赖的实际包身份。
+Rust 基线检查执行 `cargo deny --locked --all-features check advisories bans`，由 cargo-deny 检查真实 Cargo 依赖图中的 advisory 及禁止包；基线检查器另扫描全部仓库 Cargo.lock 的 package.name，防止独立模块和兼容 fixture 残留旧包。配置 fixture 只验证配置策略，不能代替真实依赖图检查；验收须同时覆盖空例外和单批准例外正例、其他/隐藏/重复的 advisory、坏配置、禁止项移除或缩小、依赖别名与传递依赖的实际包身份。
 
 <a id="ci-formal-process"></a>
 ## 真实进程验收与共享产物

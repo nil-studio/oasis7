@@ -76,6 +76,14 @@ class FixedSourceIdentity(unittest.TestCase):
                         m.fixed_source_identity(source)
             with self.assertRaisesRegex(RuntimeError, 'fixed-source'):
                 m.fixed_source_identity(tool_sha)
+            with patch.dict(os.environ, OASIS7_CODEQL_PRODUCTION_MODE=m.NEGATIVE_PROJECTION_MODE):
+                actual = m.fixed_source_identity(source, mode=m.NEGATIVE_PROJECTION_MODE)
+                self.assertEqual(actual['mode'], m.NEGATIVE_PROJECTION_MODE)
+                self.assertEqual(actual['tool_sha'], tool_sha)
+                with self.assertRaisesRegex(RuntimeError, 'fixed-source'):
+                    m.fixed_source_identity(source)
+            with self.assertRaisesRegex(RuntimeError, 'fixed-source'):
+                m.fixed_source_identity(source, mode=m.NEGATIVE_PROJECTION_MODE)
 
 
 class ActionDeadline(unittest.TestCase):
@@ -408,7 +416,7 @@ process.on('exit', () => fs.writeFileSync(process.env.FIXTURE_BUDGET_OBSERVED, J
         self.assertNotEqual(result, 0)
         self.assertFalse((self.root / 'marker').exists())
 
-    def observation(self, remaining=30):
+    def observation(self, remaining=30, *, mode=m.FIXED_SOURCE_MODE):
         value = self.production(remaining)
         def git(*argv):
             return subprocess.check_output(['git', *argv], cwd=self.source,
@@ -434,7 +442,7 @@ process.on('exit', () => fs.writeFileSync(process.env.FIXTURE_BUDGET_OBSERVED, J
                         COMPARE_QUALIFIER_PATCH='false',
                         GITHUB_REPOSITORY='example/repo', PYTHONDONTWRITEBYTECODE='1',
                         GITHUB_WORKFLOW_REF='example/repo/.github/workflows/codeql-rust-capacity.yml@refs/heads/main',
-                        OASIS7_CODEQL_PRODUCTION_MODE=m.FIXED_SOURCE_MODE,
+                        OASIS7_CODEQL_PRODUCTION_MODE=mode,
                         OASIS7_CODEQL_PRODUCTION_SOURCE=source_sha,
                         NODE_OPTIONS='--require=' + str(self.tools / 'codeql-rust-action-deadline.cjs'),
                         CODEQL_THREADS='4', CODEQL_RAM='14570')
@@ -447,14 +455,15 @@ process.on('exit', () => fs.writeFileSync(process.env.FIXTURE_BUDGET_OBSERVED, J
                 tool_sha if phase == 'stage' else source_sha], cwd=self.source, env=self.env,
                 capture_output=True, text=True, timeout=10)
             self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
-        value.update(mode=m.FIXED_SOURCE_MODE, source_sha=source_sha, tool_sha=tool_sha)
+        value.update(mode=mode, source_sha=source_sha, tool_sha=tool_sha)
         (self.out / 'production-budget.json').write_text(json.dumps(value))
         (self.out / 'production-prepare.json').write_text(json.dumps(dict(
-            mode=m.FIXED_SOURCE_MODE, status='PREPARED', source_sha=source_sha, tool_sha=tool_sha,
+            mode=mode, status='PREPARED', source_sha=source_sha, tool_sha=tool_sha,
             source=str(self.source), analysis_deadline=value['analysis_deadline'])))
         code = ('import json,os,sys; from pathlib import Path; sys.path.insert(0,sys.argv[1]); '
                 'import codeql_rust_action_deadline as d; print(json.dumps(d.fixed_source_provenance('
-                'Path(os.environ["GITHUB_WORKSPACE"]),os.environ["OASIS7_CODEQL_PRODUCTION_SOURCE"])))')
+                'Path(os.environ["GITHUB_WORKSPACE"]),os.environ["OASIS7_CODEQL_PRODUCTION_SOURCE"],'
+                'mode=os.environ["OASIS7_CODEQL_PRODUCTION_MODE"])))')
         provenance = subprocess.check_output(['/usr/bin/python3', '-c', code, str(self.tools)],
             cwd=self.source, env=self.env, text=True, timeout=10)
         (self.out / 'fixed-source-provenance.json').write_text(provenance)
@@ -498,6 +507,53 @@ process.on('exit', () => fs.writeFileSync(process.env.FIXTURE_BUDGET_OBSERVED, J
         self.assertNotEqual(result, 0)
         self.assertIn('TOOL_HASH_MISMATCH', self.receipt()['primary_failure'])
         self.assertFalse((self.root / 'marker').exists())
+
+    def test_negative_projection_uses_real_supervisor_and_preserves_official_post(self):
+        value = self.observation(mode=m.NEGATIVE_PROJECTION_MODE)
+        result, _, stderr = self.finish(self.start())
+        self.assertEqual(result, 0, stderr)
+        self.assertEqual((self.root / 'marker').read_text(), 'main\n')
+        self.assertEqual(self.receipt()['mode'], m.NEGATIVE_PROJECTION_MODE)
+        with patch.dict(os.environ, self.env), patch.object(m, 'FIXED_SOURCE', value['source_sha']):
+            self.assertEqual(m.admit_production(self.out, self.source, value['source_sha'],
+                value['analysis_deadline'], mode=m.NEGATIVE_PROJECTION_MODE)['status'], 'PASS')
+            with self.assertRaises(RuntimeError):
+                m.admit_production(self.out, self.source, value['source_sha'],
+                                  value['analysis_deadline'], mode=m.FIXED_SOURCE_MODE)
+        self.env.update(STATE_fixture='state-value', RUST_ANALYSIS_DEADLINE='1')
+        self.assertEqual(self.finish(self.start(post=True))[0], 0)
+        self.assertEqual((self.root / 'marker').read_text(), 'main\npost:state-value\n')
+
+    def test_negative_supervisor_rejects_baseline_budget_and_preparation(self):
+        self.observation(mode=m.NEGATIVE_PROJECTION_MODE)
+        for name in ('production-budget.json', 'production-prepare.json'):
+            with self.subTest(name=name):
+                target = self.out / name
+                raw = target.read_text()
+                value = json.loads(raw)
+                value['mode'] = m.FIXED_SOURCE_MODE
+                target.write_text(json.dumps(value))
+                result, _, stderr = self.finish(self.start())
+                self.assertNotEqual(result, 0, stderr)
+                self.assertFalse((self.root / 'marker').exists())
+                target.write_text(raw)
+                (self.out / 'action-deadline-terminal.json').unlink(missing_ok=True)
+
+    def test_negative_actual_child_rejects_baseline_mode_and_wrong_resources(self):
+        self.observation(mode=m.NEGATIVE_PROJECTION_MODE)
+        raw = (self.out / 'production-budget.json').read_bytes()
+        self.env.update(OASIS7_CODEQL_ACTION_SUPERVISOR=str(os.getpid()),
+                        OASIS7_CODEQL_ACTION_BUDGET_SHA256=hashlib.sha256(raw).hexdigest())
+        for key, bad in (('OASIS7_CODEQL_PRODUCTION_MODE', m.FIXED_SOURCE_MODE),
+                         ('CODEQL_RAM', '4096'), ('CODEQL_THREADS', '2')):
+            with self.subTest(key=key):
+                original = dict(self.env)
+                self.env[key] = bad
+                result, _, stderr = self.finish(self.start())
+                self.assertNotEqual(result, 0, stderr)
+                self.assertFalse((self.root / 'marker').exists())
+                self.assertFalse((self.out / 'action-deadline-start.json').exists())
+                self.env = original
 
     def test_fixed_source_actual_child_rechecks_mode_source_tool_and_resources(self):
         self.observation()
