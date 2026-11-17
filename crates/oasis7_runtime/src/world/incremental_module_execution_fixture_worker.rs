@@ -27,7 +27,12 @@ impl Image {
                 });
             let mut source=File::open(&path).unwrap_or_else(|error|panic!("build real oasis7-wasm-worker with wasmtime before this component test: {}: {error}",path.display()));
             let length = source.metadata().unwrap().len();
-            assert!(length > 0 && length <= 64 << 20);
+            assert!(
+                length > 0 && length <= 64 << 20,
+                "invalid worker image length: length={length} bytes, max={} bytes, path={}",
+                64 << 20,
+                path.display(),
+            );
             let pages = length.checked_add(4095).unwrap() / 4096 * 4096;
             let charge = memory
                 .reserve(
