@@ -119,3 +119,21 @@ fn successor_source_canonical_roundtrip_preserves_identity() {
         original.origin_digest().unwrap()
     );
 }
+
+#[test]
+fn successor_source_maximum_valid_identity_still_has_original_digest() {
+    let mut maximal = source();
+    maximal.scope.world_id = "w".repeat(256);
+    maximal.scope.chain_id = "c".repeat(256);
+    maximal.handoff_position = u64::MAX - 1;
+    let canonical = oasis7_cas::to_canonical_cbor(&maximal).unwrap();
+    assert!(canonical.len() < 4096);
+    let domain = b"oasis7.bft.successor-window.v1.origin";
+    let mut framed = (domain.len() as u64).to_be_bytes().to_vec();
+    framed.extend(domain);
+    framed.extend(&canonical);
+    assert_eq!(
+        maximal.origin_digest().unwrap(),
+        blake3::hash(&framed).to_hex().to_string()
+    );
+}

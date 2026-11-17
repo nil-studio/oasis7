@@ -16,7 +16,10 @@ mod successor_source;
 mod tests;
 mod wire;
 
-pub use successor_source::{BFT_SUCCESSOR_WINDOW_ORIGIN_DOMAIN_V1, BftSuccessorWindowSourceV1};
+pub use successor_source::{
+    BFT_SUCCESSOR_WINDOW_ORIGIN_DOMAIN_V1, BftSuccessorWindowSourceV1,
+    successor_source_from_binding_v3, validate_successor_source_for_binding_v3,
+};
 
 pub use backend::{
     BFT_SIGNER_BACKEND_NAMESPACE_V3, BftSignerAcquireOutcomeV3, BftSignerBackendSnapshotV3,
