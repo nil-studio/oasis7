@@ -24,6 +24,8 @@ use oasis7_runtime::{
 use oasis7_wasm_abi::CanonicalCborWorkV1;
 use oasis7_world_state::WorldEventBody;
 use std::{cell::RefCell, convert::Infallible, sync::atomic::Ordering};
+#[path = "formal_iws_genesis_business.rs"]
+pub(super) mod business_originals;
 #[path = "formal_iws_originals.rs"]
 mod originals;
 #[path = "formal_iws_pages.rs"]
@@ -101,8 +103,9 @@ pub(crate) fn prepare_iws_genesis_for_endpoints_v1(
     }
 }
 
-/// Same physical fanout and readback as the original GEN entry, retaining
-/// same-World projection/business source data for the actual output assembler.
+/// The same physical GEN fanout plus actual business descriptor/delta/node
+/// originals in all three namespaces. Returned projection data is provisional;
+/// acceptance, output locator assembly and cache promotion keep their own gates.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn prepare_projected_iws_genesis_for_endpoints_v1(
     world: &World,
@@ -125,9 +128,18 @@ pub(crate) fn prepare_projected_iws_genesis_for_endpoints_v1(
         producer,
         physical,
         work,
-        Some((common, retention_work)),
+        Some((&mut *common, retention_work)),
     )? {
-        GenesisEndpointOutputV1::Projected(value) => Ok(value),
+        GenesisEndpointOutputV1::Projected(value) => {
+            business_originals::persist_projected_genesis_business_v1(
+                value,
+                source,
+                targets,
+                work,
+                common,
+                context.cancelled,
+            )
+        }
         GenesisEndpointOutputV1::Original(_) => unreachable!("fixed projected GEN mode"),
     }
 }
@@ -384,3 +396,7 @@ pub(crate) fn install_iws_endpoint_pages_v1(
     }
     endpoint.install_iws_page_store(capability)
 }
+
+#[cfg(all(test, unix))]
+#[path = "incremental_genesis_tests.rs"]
+mod tests;

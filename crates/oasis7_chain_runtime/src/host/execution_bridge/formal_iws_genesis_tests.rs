@@ -1,4 +1,3 @@
-use super::super::super::formal_iws_genesis::*;
 use super::*;
 use oasis7_formal_protocol::incremental_state::StateScanBudget;
 use oasis7_world_state::{
@@ -257,3 +256,6 @@ fn a_replica_page_failure_returns_no_genesis_root_and_preserves_prior_bytes() {
         assert_eq!(actual.as_slice(), bytes);
     }
 }
+
+#[path = "formal_iws_genesis_business_tests.rs"]
+mod business;

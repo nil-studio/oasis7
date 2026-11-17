@@ -2,22 +2,31 @@ use super::*;
 use oasis7::GeoPos;
 use oasis7_distfs::incremental_page_store::{
     PageCompression,
+    genesis::GenesisIndexWorkV1,
     objects::{IncrementalObjectStore, ObjectIo},
 };
 use oasis7_formal_protocol::{
+    incremental_artifacts::OriginalArtifactRefV1, incremental_history::GenesisConfigV1,
     incremental_state::StateNamespaceV1, incremental_value::ValueReadContext,
 };
-use oasis7_proto::memory_budget::MemoryClass;
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use oasis7_runtime::incremental_action_original::{
     ActionOriginalStreamV1, persist_action_original_v1, persist_world_event_original_v1,
 };
 use oasis7_wasm_abi::CanonicalCborWorkV1;
 use oasis7_world_state::{
-    Action, ModuleInstanceState, WorldEventBody, WorldState,
+    Action, ActionEnvelope, ModuleInstanceState, WorldEventBody, WorldState,
     incremental_event_fields::{MailboxKeyV1, mailbox_event_ref_v1},
+    incremental_field_member::MemberRecordLimitsV1,
     incremental_module_instance_fields::{ModuleInstanceFieldV1, ModuleInstanceKeyV1},
+    incremental_semantic_key::SemanticKeyBudget,
 };
-use std::{cell::RefCell, collections::BTreeMap, path::PathBuf, sync::atomic::AtomicU64};
+use std::{
+    cell::RefCell,
+    collections::BTreeMap,
+    path::PathBuf,
+    sync::atomic::{AtomicBool, AtomicU64},
+};
 #[path = "incremental_genesis_test_work.rs"]
 mod work;
 static NEXT: AtomicU64 = AtomicU64::new(0);

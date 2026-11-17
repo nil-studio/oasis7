@@ -353,7 +353,3 @@ fn with_genesis_index_v1<T>(
         result.ok_or(ValueTreeError::Invalid("runtime GEN missing source"))?,
     ))
 }
-
-#[cfg(all(test, unix))]
-#[path = "incremental_genesis_tests.rs"]
-mod tests;
