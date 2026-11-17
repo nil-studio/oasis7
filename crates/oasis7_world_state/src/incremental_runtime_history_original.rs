@@ -20,6 +20,44 @@ struct ResultEnvelope<'a, T: serde::Serialize + ?Sized> {
     value: &'a T,
 }
 const DOMAIN: &str = "oasis7.runtime.history.original.v1";
+/// Persist one actual SnapshotRecord with the original Result envelope and
+/// two-pass one-shot engine. The hook pays actual codec work on BOTH passes;
+/// the returned reference remains provisional DATA, without a fact location.
+pub fn persist_snapshot_record_original_with_work_v1<C: FnMut() -> bool>(
+    snapshot: &SnapshotRecord,
+    memory: &MemoryBudget,
+    work: &mut CanonicalCborWorkV1,
+    cancelled: &mut C,
+    max_bytes: usize,
+    sink: &mut dyn original::AgentEventOriginalSinkV1,
+    debit: &dyn Fn(u64, u64) -> Result<(), BodyMutationError>,
+) -> Result<oasis7_formal_protocol::incremental_artifacts::OriginalArtifactRefV1, BodyMutationError>
+{
+    let envelope_bytes = std::mem::size_of::<ResultEnvelope<'_, SnapshotRecord>>();
+    debit(1, envelope_bytes as u64)?;
+    let _envelope_fee = memory
+        .reserve(
+            envelope_bytes,
+            oasis7_proto::memory_budget::MemoryClass::Ordinary,
+        )
+        .map_err(oasis7_formal_protocol::incremental_execution::ExecutionError::Memory)?;
+    let envelope = ResultEnvelope {
+        domain: DOMAIN,
+        schema: "snapshot-record.v1",
+        value: snapshot,
+    };
+    let measured = original::measure_serializable_with_work_debit(
+        &envelope, memory, work, cancelled, max_bytes, debit,
+    )?;
+    let mut producer = original::Producer::new(measured, memory, work, cancelled);
+    let reference = oasis7_formal_protocol::incremental_artifacts::OriginalArtifactRefV1 {
+        id: producer.original_id(),
+        byte_len: producer.original_bytes(),
+    };
+    producer.persist_to_with_work_debit(sink, debit)?;
+    producer.check_complete()?;
+    Ok(reference)
+}
 /// Each variant retains the actual source DTO without a JSON or owned copy.
 /// Event originals retain the existing canonical WorldEvent encoding.
 pub enum RuntimeHistoryOriginalRefV1<'a> {

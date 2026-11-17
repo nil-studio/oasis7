@@ -303,6 +303,12 @@ fn prepare_iws_genesis_for_endpoints_inner_v1(
                     .borrow_mut()
                     .event_bounded(event, &mut canonical.borrow_mut(), common)
             };
+            let mut snapshot_original = |snapshot: &oasis7_world_state::snapshot::SnapshotRecord,
+                                         common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>| {
+                originals
+                    .borrow_mut()
+                    .snapshot_bounded(snapshot, &mut canonical.borrow_mut(), common)
+            };
             prepare_projected_runtime_genesis_index_with_writer_v1(
                 world,
                 source,
@@ -320,6 +326,7 @@ fn prepare_iws_genesis_for_endpoints_inner_v1(
                 &mut mailbox_original,
                 retention_work,
                 &mut journal_original,
+                &mut snapshot_original,
                 common,
             )
             .map(GenesisEndpointOutputV1::Projected)

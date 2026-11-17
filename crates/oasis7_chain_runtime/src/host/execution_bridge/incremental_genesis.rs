@@ -175,6 +175,7 @@ pub(crate) struct ProvisionalProjectedRuntimeGenesisIndexV1 {
     retention:
         ReservedValue<oasis7_formal_protocol::incremental_retention::RetentionLedgerManifestV1>,
     journal_originals: ReservedValue<Vec<OriginalArtifactRefV1>>,
+    snapshot_originals: ReservedValue<Vec<OriginalArtifactRefV1>>,
 }
 impl ProvisionalProjectedRuntimeGenesisIndexV1 {
     /// Initialize the original business index from this very physical GEN
@@ -252,6 +253,27 @@ impl ProvisionalProjectedRuntimeGenesisIndexV1 {
         }
         Ok(&self.journal_originals)
     }
+
+    /// Same actual catalog order as the immutable World borrowed by this GEN.
+    /// Original references carry no History index ordinal or accepted source.
+    pub(crate) fn snapshot_originals_bounded_v1(
+        &self,
+        common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+    ) -> Result<&ReservedValue<Vec<OriginalArtifactRefV1>>, BodyMutationError> {
+        self.projected.validate_context_bounded_v1(common)?;
+        common
+            .consume_steps(1)
+            .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
+        if !self.outer.uses_budget(common.memory())
+            || !self.roots.uses_budget(common.memory())
+            || !self.snapshot_originals.uses_budget(common.memory())
+        {
+            return Err(BodyMutationError::Invalid(
+                "physical GEN snapshot owner pool",
+            ));
+        }
+        Ok(&self.snapshot_originals)
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -276,6 +298,10 @@ pub(crate) fn prepare_projected_runtime_genesis_index_with_writer_v1<
     retention_work: &mut oasis7_world_state::incremental_cognition_retention_ledger::CognitionRetentionWorkV1<'_>,
     journal_original: &mut dyn FnMut(
         &oasis7_world_state::WorldEvent,
+        &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+    ) -> Result<OriginalArtifactRefV1, BodyMutationError>,
+    snapshot_original: &mut dyn FnMut(
+        &oasis7_world_state::snapshot::SnapshotRecord,
         &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
     ) -> Result<OriginalArtifactRefV1, BodyMutationError>,
     common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
@@ -380,6 +406,40 @@ pub(crate) fn prepare_projected_runtime_genesis_index_with_writer_v1<
             .map_err(|error| source_error(BodyMutationError::Original(Box::new(error))))?;
         refs.push(journal_original(event, common).map_err(source_error)?);
     }
+    let snapshots = &world.snapshot_catalog().records;
+    let snapshot_bytes = snapshots
+        .len()
+        .checked_mul(std::mem::size_of::<OriginalArtifactRefV1>())
+        .ok_or_else(|| source_error(BodyMutationError::Invalid("GEN snapshot refs length")))?;
+    let snapshot_work = u64::try_from(snapshot_bytes)
+        .map_err(|_| source_error(BodyMutationError::Invalid("GEN snapshot refs width")))?;
+    common
+        .charge(1, snapshot_work)
+        .map_err(|error| source_error(BodyMutationError::Original(Box::new(error))))?;
+    // The complete actual catalog is borrowed, never captured or copied again.
+    // Its independent buffer fee precedes allocation and survives with the refs.
+    let snapshot_fee = common
+        .memory()
+        .reserve(
+            snapshot_bytes,
+            oasis7_proto::memory_budget::MemoryClass::Ordinary,
+        )
+        .map_err(ValueTreeError::Memory)?;
+    let mut snapshot_refs = Vec::new();
+    snapshot_refs
+        .try_reserve_exact(snapshots.len())
+        .map_err(|_| source_error(BodyMutationError::Invalid("GEN snapshot refs allocation")))?;
+    if snapshot_refs.capacity() != snapshots.len() {
+        return Err(source_error(BodyMutationError::Invalid(
+            "GEN snapshot refs capacity",
+        )));
+    }
+    for snapshot in snapshots {
+        common
+            .charge(1, std::mem::size_of::<OriginalArtifactRefV1>() as u64)
+            .map_err(|error| source_error(BodyMutationError::Original(Box::new(error))))?;
+        snapshot_refs.push(snapshot_original(snapshot, common).map_err(source_error)?);
+    }
     projected
         .validate_context_bounded_v1(common)
         .map_err(source_error)?;
@@ -392,6 +452,7 @@ pub(crate) fn prepare_projected_runtime_genesis_index_with_writer_v1<
         projected,
         retention,
         journal_originals: refs_fee.retain(refs),
+        snapshot_originals: snapshot_fee.retain(snapshot_refs),
     })
 }
 

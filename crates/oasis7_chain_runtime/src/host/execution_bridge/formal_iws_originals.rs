@@ -12,13 +12,15 @@ use oasis7_formal_protocol::{
     incremental_artifacts::OriginalArtifactRefV1,
     incremental_value::{ValueIoBudget, ValueTreeError},
 };
-use oasis7_proto::memory_budget::MemoryClass;
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
 use oasis7_runtime::{
     BodyMutationError,
     incremental_action_original::{
-        ActionOriginalStreamV1, persist_world_event_original_with_work_v1,
+        ActionOriginalReceiptV1, ActionOriginalSinkV1, ActionOriginalStreamV1,
+        persist_world_event_original_with_work_v1,
     },
 };
+use oasis7_wasm_abi::CanonicalCborWorkV1;
 use std::{
     cell::{Cell, RefCell},
     io::{self, Write},
@@ -127,6 +129,69 @@ struct EventMeterFrame<'a> {
     lease: ChildLeaseV1<'a>,
 }
 
+/// Only the two actual borrowed DTOs below can enter this private child.
+/// Static dispatch retains one source reference and adds no owned frame.
+trait BoundedOriginalSource {
+    type Receipt;
+    const POOL_ERROR: &'static str;
+    const LANE_ERROR: &'static str;
+    fn persist<C: FnMut() -> bool>(
+        &self,
+        memory: &MemoryBudget,
+        canonical: &mut CanonicalCborWorkV1,
+        cancelled: &mut C,
+        max_bytes: usize,
+        sink: &mut dyn ActionOriginalSinkV1,
+        debit: &dyn Fn(u64, u64) -> Result<(), BodyMutationError>,
+    ) -> Result<Self::Receipt, BodyMutationError>;
+    fn reference(receipt: Self::Receipt) -> OriginalArtifactRefV1;
+}
+impl BoundedOriginalSource for oasis7_world_state::WorldEvent {
+    type Receipt = ActionOriginalReceiptV1;
+    const POOL_ERROR: &'static str = "GEN journal original source pool";
+    const LANE_ERROR: &'static str = "GEN journal original lane increased";
+    fn persist<C: FnMut() -> bool>(
+        &self,
+        memory: &MemoryBudget,
+        canonical: &mut CanonicalCborWorkV1,
+        cancelled: &mut C,
+        max_bytes: usize,
+        sink: &mut dyn ActionOriginalSinkV1,
+        debit: &dyn Fn(u64, u64) -> Result<(), BodyMutationError>,
+    ) -> Result<Self::Receipt, BodyMutationError> {
+        persist_world_event_original_with_work_v1(
+            self, memory, canonical, cancelled, max_bytes, sink, debit,
+        )
+    }
+    fn reference(receipt: Self::Receipt) -> OriginalArtifactRefV1 {
+        OriginalArtifactRefV1 {
+            id: receipt.original_id(),
+            byte_len: receipt.original_bytes(),
+        }
+    }
+}
+impl BoundedOriginalSource for oasis7_world_state::snapshot::SnapshotRecord {
+    type Receipt = OriginalArtifactRefV1;
+    const POOL_ERROR: &'static str = "GEN snapshot original source pool";
+    const LANE_ERROR: &'static str = "GEN snapshot original lane increased";
+    fn persist<C: FnMut() -> bool>(
+        &self,
+        memory: &MemoryBudget,
+        canonical: &mut CanonicalCborWorkV1,
+        cancelled: &mut C,
+        max_bytes: usize,
+        sink: &mut dyn ActionOriginalSinkV1,
+        debit: &dyn Fn(u64, u64) -> Result<(), BodyMutationError>,
+    ) -> Result<Self::Receipt, BodyMutationError> {
+        oasis7_world_state::incremental_runtime_history_original::persist_snapshot_record_original_with_work_v1(
+            self, memory, canonical, cancelled, max_bytes, sink, debit,
+        )
+    }
+    fn reference(receipt: Self::Receipt) -> OriginalArtifactRefV1 {
+        receipt
+    }
+}
+
 impl Originals<'_, '_, '_> {
     fn counters(&self) -> [[u64; 7]; 3] {
         std::array::from_fn(|i| {
@@ -162,11 +227,27 @@ impl Originals<'_, '_, '_> {
         canonical: &mut oasis7_wasm_abi::CanonicalCborWorkV1,
         common: &mut FormalBoundedContextV1<'_>,
     ) -> Result<OriginalArtifactRefV1, BodyMutationError> {
+        self.source_bounded(event, canonical, common)
+    }
+
+    pub(super) fn snapshot_bounded(
+        &mut self,
+        snapshot: &oasis7_world_state::snapshot::SnapshotRecord,
+        canonical: &mut CanonicalCborWorkV1,
+        common: &mut FormalBoundedContextV1<'_>,
+    ) -> Result<OriginalArtifactRefV1, BodyMutationError> {
+        self.source_bounded(snapshot, canonical, common)
+    }
+
+    fn source_bounded<S: BoundedOriginalSource>(
+        &mut self,
+        source: &S,
+        canonical: &mut CanonicalCborWorkV1,
+        common: &mut FormalBoundedContextV1<'_>,
+    ) -> Result<OriginalArtifactRefV1, BodyMutationError> {
         common.consume_steps(1).map_err(context_error)?;
         if !self.stores[0].uses_budget(common.memory()) {
-            return Err(BodyMutationError::Invalid(
-                "GEN journal original source pool",
-            ));
+            return Err(BodyMutationError::Invalid(S::POOL_ERROR));
         }
         // Seven fixed passes over the 21 real IO scalars: snapshot, cap,
         // install, snapshot, validate, reconcile, install. Two codec scalars
@@ -209,8 +290,7 @@ impl Originals<'_, '_, '_> {
         let cancelled = self.cancelled;
         let max_bytes = self.max_bytes;
         let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            persist_world_event_original_with_work_v1(
-                event,
+            source.persist(
                 memory,
                 canonical,
                 &mut || {
@@ -234,9 +314,7 @@ impl Originals<'_, '_, '_> {
         if (0..3).any(|i| (0..7).any(|j| frame.after[i][j] > frame.capped[i][j])) {
             self.install(&[[0; 7]; 3]);
             drop(frame);
-            return Err(BodyMutationError::Invalid(
-                "GEN journal original lane increased",
-            ));
+            return Err(BodyMutationError::Invalid(S::LANE_ERROR));
         }
         for i in 0..3 {
             for j in 0..7 {
@@ -269,10 +347,7 @@ impl Originals<'_, '_, '_> {
                 receipt
             }
         };
-        Ok(OriginalArtifactRefV1 {
-            id: receipt.original_id(),
-            byte_len: receipt.original_bytes(),
-        })
+        Ok(S::reference(receipt))
     }
 
     fn begin(&mut self, length: u64) -> Result<(), BodyMutationError> {

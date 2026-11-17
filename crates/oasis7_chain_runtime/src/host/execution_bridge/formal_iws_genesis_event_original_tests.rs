@@ -724,3 +724,6 @@ fn journal_original_child_settles_codec_refusal_cancellation_and_unwind() {
         assert_eq!(memory.each_ref().map(MemoryBudget::used), [0; 3]);
     }
 }
+
+#[path = "formal_iws_genesis_snapshot_original_tests.rs"]
+mod snapshots;

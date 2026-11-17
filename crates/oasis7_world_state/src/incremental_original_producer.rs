@@ -289,6 +289,22 @@ pub fn measure_with_work_debit<'a, C: FnMut() -> bool>(
 ) -> Result<Measured<'a>, BodyMutationError> {
     measure_inner(event, memory, work, cancel, max, Some(debit))
 }
+/// Internal closed original adapters share the exact same measured encoder.
+/// External callers still choose a concrete source entrypoint, never its wire.
+pub(crate) fn measure_serializable_with_work_debit<
+    'a,
+    T: Serialize + ?Sized,
+    C: FnMut() -> bool,
+>(
+    value: &'a T,
+    memory: &MemoryBudget,
+    work: &mut CanonicalCborWorkV1,
+    cancel: &mut C,
+    max: usize,
+    debit: &dyn Fn(u64, u64) -> Result<(), BodyMutationError>,
+) -> Result<Measured<'a, T>, BodyMutationError> {
+    measure_inner(value, memory, work, cancel, max, Some(debit))
+}
 fn measure_inner<'a, T: Serialize + ?Sized, C: FnMut() -> bool>(
     event: &'a T,
     memory: &MemoryBudget,
