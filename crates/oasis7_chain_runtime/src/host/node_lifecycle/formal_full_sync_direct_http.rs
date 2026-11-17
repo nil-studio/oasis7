@@ -24,6 +24,16 @@ pub(super) fn post(
     attempt: &AttemptPermit,
     deadline: Instant,
 ) -> Result<(u16, Vec<u8>), String> {
+    post_with_headers(input, ledger, attempt, deadline)
+        .map(|response| (response.status, response.body))
+}
+
+pub(super) fn post_with_headers(
+    input: Request<'_>,
+    ledger: &mut Ledger,
+    attempt: &AttemptPermit,
+    deadline: Instant,
+) -> Result<oasis7_game_client::formal_sync_exchange::FullSyncHttpResponse, String> {
     let Request {
         address,
         path,
@@ -101,7 +111,7 @@ pub(super) fn post(
             }
             headers.push(byte[0]);
         }
-        let (status, length) = parse_headers(&headers, response_bound)?;
+        let (status, length, retry_after) = parse_full_headers(&headers, response_bound)?;
         let mut output = vec![0; length];
         let mut offset = 0;
         while offset < length {
@@ -123,7 +133,13 @@ pub(super) fn post(
             offset += n;
         }
         remaining(deadline, request_timeout)?;
-        Ok((status, output))
+        Ok(
+            oasis7_game_client::formal_sync_exchange::FullSyncHttpResponse {
+                status,
+                retry_after,
+                body: output,
+            },
+        )
     })();
     // On uncertain persistence this fails closed and preserves the token. On
     // ordinary socket failures, known actual prefixes remain charged.
@@ -133,6 +149,12 @@ pub(super) fn post(
 }
 
 fn parse_headers(bytes: &[u8], bound: usize) -> Result<(u16, usize), String> {
+    parse_full_headers(bytes, bound).map(|(status, length, _)| (status, length))
+}
+pub(super) fn parse_full_headers(
+    bytes: &[u8],
+    bound: usize,
+) -> Result<(u16, usize, Option<String>), String> {
     if bytes
         .iter()
         .any(|&c| c >= 127 || (c < b' ' && !matches!(c, b'\r' | b'\n' | b'\t')))
@@ -158,6 +180,7 @@ fn parse_headers(bytes: &[u8], bound: usize) -> Result<(u16, usize), String> {
         return Err("unsupported interim HTTP response".into());
     }
     let mut length = None;
+    let mut retry_after = None;
     for line in lines {
         if line.is_empty() {
             continue;
@@ -169,7 +192,13 @@ fn parse_headers(bytes: &[u8], bound: usize) -> Result<(u16, usize), String> {
         if name.is_empty() || !name.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-') {
             return Err("invalid HTTP header name".into());
         }
-        if name.eq_ignore_ascii_case("content-length") {
+        if name.eq_ignore_ascii_case("retry-after") {
+            let value = value.trim();
+            if retry_after.is_some() || value.is_empty() || value.len() > 128 {
+                return Err("invalid or duplicate Retry-After".into());
+            }
+            retry_after = Some(value.to_owned());
+        } else if name.eq_ignore_ascii_case("content-length") {
             let value = value.trim();
             if length.is_some() || value.is_empty() || !value.bytes().all(|c| c.is_ascii_digit()) {
                 return Err("ambiguous HTTP Content-Length".into());
@@ -191,7 +220,7 @@ fn parse_headers(bytes: &[u8], bound: usize) -> Result<(u16, usize), String> {
     if length > bound {
         return Err("encoded response body exceeds route bound".into());
     }
-    Ok((status, length))
+    Ok((status, length, retry_after))
 }
 
 #[cfg(test)]

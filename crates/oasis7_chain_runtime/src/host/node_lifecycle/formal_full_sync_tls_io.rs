@@ -1,4 +1,5 @@
-//! Experimental TLS counting boundary; not a production V2 or DNS adapter.
+//! Controlled TLS plaintext counting boundary; DNS and operation admission
+//! remain caller responsibilities. This alone does not activate production V2.
 //! Plaintext accepted by rustls is charged before ciphertext flushing. An
 //! unsuccessful flush must never turn that accepted prefix into zero bytes.
 use super::metered_io::remaining;
@@ -43,6 +44,7 @@ pub(super) struct TlsBodyIo {
     connection: ClientConnection,
     socket: DeadlineSocket,
     poisoned: bool,
+    #[cfg(test)]
     before_settle: Option<Box<dyn FnOnce()>>,
 }
 impl TlsBodyIo {
@@ -71,12 +73,65 @@ impl TlsBodyIo {
             .complete_io(&mut socket)
             .map_err(|e| e.to_string())?;
         remaining(deadline, request_timeout)?;
+        if connection
+            .alpn_protocol()
+            .is_some_and(|protocol| protocol != b"http/1.1")
+        {
+            return Err("TLS negotiated unsupported HTTP protocol".into());
+        }
         Ok(Self {
             connection,
             socket,
             poisoned: false,
+            #[cfg(test)]
             before_settle: None,
         })
+    }
+
+    /// HTTP framing is bounded separately and excluded from body accounting.
+    /// This reader consumes exactly one plaintext header byte, never body bytes.
+    pub fn read_header_byte(&mut self) -> Result<u8, String> {
+        let result = (|| {
+            loop {
+                self.check_live()?;
+                let mut byte = [0];
+                match self.connection.reader().read(&mut byte) {
+                    Ok(1) => return Ok(byte[0]),
+                    Ok(_) => return Err("TLS response ended within HTTP headers".into()),
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        self.connection
+                            .complete_io(&mut self.socket)
+                            .map_err(|e| e.to_string())?;
+                    }
+                    Err(error) => return Err(error.to_string()),
+                }
+            }
+        })();
+        self.finish(result)
+    }
+
+    pub fn write_headers(&mut self, headers: &[u8]) -> Result<(), String> {
+        let result = (|| {
+            if headers.len() > 8 * 1024 {
+                return Err("HTTP request headers exceed bound".into());
+            }
+            let mut rest = headers;
+            while !rest.is_empty() {
+                self.check_live()?;
+                let n = self
+                    .connection
+                    .writer()
+                    .write(rest)
+                    .map_err(|e| e.to_string())?;
+                if n == 0 {
+                    return Err("TLS header writer made no progress".into());
+                }
+                rest = &rest[n..];
+                self.flush_body()?;
+            }
+            Ok(())
+        })();
+        self.finish(result)
     }
 
     pub fn write_body(
@@ -162,6 +217,7 @@ impl TlsBodyIo {
                 return Err(error.to_string());
             }
         };
+        #[cfg(test)]
         if let Some(fault) = self.before_settle.take() {
             fault();
         }
@@ -379,7 +435,11 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
     fn tls_configs(trust: bool) -> (Arc<ClientConfig>, Arc<ServerConfig>) {
-        let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        tls_configs_for_name(trust, "localhost")
+    }
+
+    fn tls_configs_for_name(trust: bool, name: &str) -> (Arc<ClientConfig>, Arc<ServerConfig>) {
+        let cert = rcgen::generate_simple_self_signed(vec![name.into()]).unwrap();
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         let mut roots = RootCertStore::empty();
         if trust {
@@ -476,5 +536,188 @@ mod tests {
         // Large scheduler allowance, still separates the absolute 100 ms
         // deadline from the otherwise permitted two-second request timeout.
         assert!(elapsed < Duration::from_secs(1), "{elapsed:?}");
+    }
+    #[test]
+    fn https_error_body_counts_plaintext_not_headers_or_tls_frames() {
+        let (client, server) = tls_configs(true);
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let worker = std::thread::spawn(move || {
+            let socket = bounded_accept(listener);
+            let mut stream = StreamOwned::new(ServerConnection::new(server).unwrap(), socket);
+            let mut headers = Vec::new();
+            while !headers.ends_with(b"\r\n\r\n") {
+                assert!(headers.len() < 8192);
+                let mut byte = [0];
+                stream.read_exact(&mut byte).unwrap();
+                headers.push(byte[0]);
+            }
+            assert!(headers.starts_with(b"POST /v1/test HTTP/1.1\r\nHost: localhost\r\n"));
+            let mut body = [0; 7];
+            stream.read_exact(&mut body).unwrap();
+            assert_eq!(&body, b"request");
+            stream.write_all(b"HTTP/1.1 429 Too Many Requests\r\nContent-Length: 5\r\nRetry-After: 1\r\nConnection: close\r\n\r\nreply").unwrap();
+            stream.flush().unwrap();
+        });
+        let dir = std::env::temp_dir().canonicalize().unwrap().join(format!(
+            "oasis7-https-ledger-{}",
+            local_io::random_id().unwrap()
+        ));
+        local_io::private_dir(&dir).unwrap();
+        let policy = Policy {
+            api_version: "oasis7.formal-full-sync-transfer-policy/v1".into(),
+            attempt_timeout_ms: 10_000,
+            max_attempts: 2,
+            max_encoded_io_bytes: 1024,
+            max_exchanges: 2,
+            max_proof_pages: 2,
+            max_proof_bytes: 1024,
+            max_inflight_requests: 1,
+            reopen_timeout_ms: 1000,
+        };
+        let identity = Identity {
+            operation_id: local_io::random_id().unwrap(),
+            request_digest: "11".repeat(32),
+            policy_digest: local_io::digest(&policy).unwrap(),
+            binding_digest: "22".repeat(32),
+        };
+        let mut ledger = Ledger::create(&dir.join("operation.json"), identity, policy).unwrap();
+        let attempt = ledger.begin_attempt().unwrap();
+        let response = super::super::tls_http::post(
+            super::super::tls_http::Request {
+                address: address.into(),
+                server_name: ServerName::try_from("localhost").unwrap(),
+                tls_config: client,
+                authority: "localhost",
+                path: "/v1/test",
+                body: b"request",
+                response_bound: 128,
+                request_timeout: Duration::from_secs(2),
+            },
+            &mut ledger,
+            &attempt,
+            attempt.deadline(),
+        )
+        .unwrap();
+        assert_eq!(response.status, 429);
+        assert_eq!(response.retry_after.as_deref(), Some("1"));
+        assert_eq!(response.body, b"reply");
+        assert_eq!(ledger.snapshot().encoded_tx_actual, 7);
+        assert_eq!(ledger.snapshot().encoded_rx_actual, 5);
+        assert_eq!(ledger.snapshot().exchanges_started, 1);
+        assert!(ledger.snapshot().active_request.is_none());
+        assert!(ledger.snapshot().reservation.is_none());
+        worker.join().unwrap();
+        drop(ledger);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn shared_https_adapter_binds_literal_ip_to_certificate_ip_san() {
+        use super::super::shared_exchange::PreparedTransport;
+        use oasis7_game_client::formal_sync_exchange::{EncodedFullSyncExchange, FullSyncExchange};
+        for certificate_name in ["127.0.0.1", "localhost"] {
+            let valid = certificate_name == "127.0.0.1";
+            let (client, server) = tls_configs_for_name(true, certificate_name);
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let endpoint = format!("https://{}", listener.local_addr().unwrap());
+            let worker = std::thread::spawn(move || {
+                let socket = bounded_accept(listener);
+                let mut stream = StreamOwned::new(ServerConnection::new(server).unwrap(), socket);
+                if !valid {
+                    let mut byte = [0];
+                    assert!(stream.read_exact(&mut byte).is_err());
+                    return;
+                }
+                let mut headers = Vec::new();
+                while !headers.ends_with(b"\r\n\r\n") {
+                    assert!(headers.len() < 8192);
+                    let mut byte = [0];
+                    stream.read_exact(&mut byte).unwrap();
+                    headers.push(byte[0]);
+                }
+                let mut body = [0; 7];
+                stream.read_exact(&mut body).unwrap();
+                assert_eq!(&body, b"request");
+                stream.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 5\r\nConnection: close\r\n\r\nerror").unwrap();
+                stream.flush().unwrap();
+            });
+            let dir = std::env::temp_dir()
+                .canonicalize()
+                .unwrap()
+                .join(format!("oasis7-ip-tls-{}", local_io::random_id().unwrap()));
+            local_io::private_dir(&dir).unwrap();
+            let policy = Policy {
+                api_version: "oasis7.formal-full-sync-transfer-policy/v1".into(),
+                attempt_timeout_ms: 10_000,
+                max_attempts: 1,
+                max_encoded_io_bytes: 1024,
+                max_exchanges: 1,
+                max_proof_pages: 1,
+                max_proof_bytes: 1024,
+                max_inflight_requests: 1,
+                reopen_timeout_ms: 1000,
+            };
+            let prepared =
+                PreparedTransport::prepare(std::slice::from_ref(&endpoint), Some(client)).unwrap();
+            let original_request = serde_json::json!({"endpoint": &endpoint, "config":{"max_total_sync_bytes":0}, "transfer_policy": &policy, "transport_binding": prepared.binding_digest()});
+            let identity = Identity {
+                operation_id: local_io::random_id().unwrap(),
+                request_digest: local_io::digest(&original_request).unwrap(),
+                policy_digest: local_io::digest(&policy).unwrap(),
+                binding_digest: "22".repeat(32),
+            };
+            let mut ledger = Ledger::create(&dir.join("operation.json"), identity, policy).unwrap();
+            ledger.bind_original_request(&original_request).unwrap();
+            let attempt = ledger.begin_attempt().unwrap();
+            let shared = prepared.admit(ledger, attempt).unwrap();
+            let result = shared.exchange(EncodedFullSyncExchange {
+                endpoint: &endpoint,
+                path: oasis7_client_api::world_service::VIEW_PATH,
+                signed_body: b"request",
+                response_bound: 128,
+                request_timeout: Duration::from_secs(2),
+            });
+            if valid {
+                assert_eq!(result.unwrap().body, b"error");
+            } else {
+                assert!(result.is_err());
+            }
+            let snapshot = shared.snapshot();
+            assert_eq!(snapshot.exchanges_started, 1);
+            assert_eq!(snapshot.encoded_tx_actual, if valid { 7 } else { 0 });
+            assert_eq!(snapshot.encoded_rx_actual, if valid { 5 } else { 0 });
+            assert!(snapshot.active_request.is_none());
+            worker.join().unwrap();
+            drop(shared);
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn tls_rejects_negotiated_h2_before_http1_body() {
+        let (client, server) = tls_configs(true);
+        let mut client = Arc::try_unwrap(client).unwrap();
+        let mut server = Arc::try_unwrap(server).unwrap();
+        client.alpn_protocols = vec![b"h2".to_vec()];
+        server.alpn_protocols = vec![b"h2".to_vec()];
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let worker = std::thread::spawn(move || {
+            let mut socket = bounded_accept(listener);
+            let mut connection = ServerConnection::new(Arc::new(server)).unwrap();
+            let _ = connection.complete_io(&mut socket);
+            let mut body = [0];
+            assert!(!matches!(connection.reader().read(&mut body), Ok(1)));
+        });
+        let result = TlsBodyIo::connect(
+            address,
+            ServerName::try_from("localhost").unwrap(),
+            Arc::new(client),
+            Instant::now() + Duration::from_secs(2),
+            Duration::from_secs(1),
+        );
+        assert!(matches!(result, Err(error) if error.contains("unsupported HTTP protocol")));
+        worker.join().unwrap();
     }
 }
