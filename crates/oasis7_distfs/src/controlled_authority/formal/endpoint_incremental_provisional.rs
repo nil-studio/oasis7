@@ -320,18 +320,17 @@ impl AcceptedCandidateCache {
         let body = next
             .parent_body()
             .ok_or(ValueTreeError::Invalid("IWS accepted parent body missing"))?;
-        if let Some(retention) = self.retention.as_ref() {
-            if !retention.uses_budget(memory)
+        if let Some(retention) = self.retention.as_ref()
+            && (!retention.uses_budget(memory)
                 || retention.allocation_class()
                     != oasis7_proto::memory_budget::MemoryClass::Ordinary
                 || retention.head_record_id() != self.commit_record
                 || retention.head_body_id() != self.runtime.occurrence().head_body_id()
-                || retention.manifest().roots != body.roots
-            {
-                return Err(ValueTreeError::Invalid(
-                    "IWS accepted retention exact parent",
-                ));
-            }
+                || retention.manifest().roots != body.roots)
+        {
+            return Err(ValueTreeError::Invalid(
+                "IWS accepted retention exact parent",
+            ));
         }
         if body
             .digest()

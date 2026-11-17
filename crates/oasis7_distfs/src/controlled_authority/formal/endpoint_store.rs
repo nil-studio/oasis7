@@ -403,7 +403,7 @@ impl Store {
         if bytes.len() != super::incremental::local_closure::LOCAL_DATA_CLOSURE_WIRE_BYTES {
             return Err(invalid("local closure fixed record bound"));
         }
-        let id = blake3::hash(&bytes).to_hex().to_string();
+        let id = blake3::hash(bytes).to_hex().to_string();
         let target = directory.join(&id);
         let _writer = super::super::physical::publication_guard(&directory)?;
         // CURRENT (64 bytes), one flat manifest, and at most 65 catalog nodes
@@ -498,7 +498,7 @@ impl Store {
         match previous {
             Some(previous) if previous == bytes => sync(&directory)?,
             Some(_) => return Err(invalid("local closure immutable bytes differ")),
-            None => Self::atomic(&directory, &target, &bytes)?,
+            None => Self::atomic(&directory, &target, bytes)?,
         }
         if physical {
             super::super::physical::roots::retain(&directory, std::slice::from_ref(&id))?;

@@ -363,14 +363,14 @@ impl EndpointIwsState {
             .ok_or_else(|| invalid("normal requires actual accepted cache"))?;
         let id = parent.verified_record_id();
         if cache.commit_record != id
-            || (!cache
+            || (cache
                 .genesis_quorum
                 .as_ref()
-                .is_some_and(|q| q.verified().verified_record_id() == id)
-                && !cache
+                .is_none_or(|q| q.verified().verified_record_id() != id)
+                && cache
                     .normal_quorum
                     .as_ref()
-                    .is_some_and(|q| q.verified().verified_record_id() == id)
+                    .is_none_or(|q| q.verified().verified_record_id() != id)
                 && !cache.authenticated_cold().is_some_and(|q| {
                     q.checkpoint().head().verified_record_id() == id
                         && q.checkpoint().uses_budget(memory)
@@ -419,26 +419,25 @@ impl EndpointIwsState {
     }
 }
 
+pub(super) type NormalCandidateReadSources<'a> = (
+    &'a oasis7_proto::memory_budget::ReservedValue<
+        oasis7_formal_protocol::incremental_material::CheckedCommitCore,
+    >,
+    &'a oasis7_proto::memory_budget::ReservedValue<
+        oasis7_world_state::incremental_world_storage_source::CheckedWorldStorageSourceV1,
+    >,
+    &'a oasis7_proto::memory_budget::ReservedValue<
+        oasis7_formal_protocol::incremental_execution::RootSetV1,
+    >,
+);
+
 impl NormalJobLease<'_> {
     pub(super) fn normal_candidate_read_sources_v1<'a>(
         &'a self,
         commit: &VerifiedFormalCommitV1,
         parent: &VerifiedFormalCommitV1,
         memory: &oasis7_proto::memory_budget::MemoryBudget,
-    ) -> Result<
-        (
-            &'a oasis7_proto::memory_budget::ReservedValue<
-                oasis7_formal_protocol::incremental_material::CheckedCommitCore,
-            >,
-            &'a oasis7_proto::memory_budget::ReservedValue<
-                oasis7_world_state::incremental_world_storage_source::CheckedWorldStorageSourceV1,
-            >,
-            &'a oasis7_proto::memory_budget::ReservedValue<
-                oasis7_formal_protocol::incremental_execution::RootSetV1,
-            >,
-        ),
-        FormalError,
-    > {
+    ) -> Result<NormalCandidateReadSources<'a>, FormalError> {
         self.reference(commit, parent, memory)?;
         let staged = self
             .slot

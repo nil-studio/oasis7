@@ -29,14 +29,13 @@ fn restore(
     remaining: Result<PageIoBudget, PageStoreError>,
     ceiling: [u64; 4],
 ) {
-    if let Ok(remaining) = remaining {
-        if snapshot(&remaining)
+    if let Ok(remaining) = remaining
+        && snapshot(&remaining)
             .into_iter()
             .zip(ceiling)
             .all(|(after, before)| after <= before)
-        {
-            *slot = remaining;
-        }
+    {
+        *slot = remaining;
     }
     // A poisoned/untrusted session keeps the emptied slot empty. The Common
     // exclusive child also fences its full balance on unwind.

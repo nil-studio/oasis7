@@ -794,11 +794,10 @@ fn run_inventory<W: Inventory, T, E: From<FormalError>>(
     let (_, meter, stop) = common.parts();
     let child = meter.begin_child()?;
     let step_limit = child.remaining_steps() / count as u64;
-    let byte_limit = if byte_count == 0 {
-        0
-    } else {
-        child.remaining_read_bytes() / byte_count
-    };
+    let byte_limit = child
+        .remaining_read_bytes()
+        .checked_div(byte_count)
+        .unwrap_or(0);
     let mut i = 0;
     work.lanes(&mut |value, bytes| {
         *value = (*value).min(if bytes {

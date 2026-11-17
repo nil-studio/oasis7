@@ -394,6 +394,8 @@ impl StoreWitnessLease {
         }
     }
 }
+pub(crate) type AuthenticatedColdNativeBinding = ((u64, u64), Option<[u8; 32]>);
+
 pub(crate) struct StoreReadWitness {
     record: [u8; 32],
     body: [u8; 32],
@@ -416,7 +418,7 @@ impl StoreReadWitness {
     }
     pub(crate) fn authenticated_cold_native_binding_v1(
         &self,
-    ) -> Option<((u64, u64), Option<[u8; 32]>)> {
+    ) -> Option<AuthenticatedColdNativeBinding> {
         match &self.pin {
             StoreWitnessLease::Cold(token) => {
                 Some((token.native_identity(), token.native_generation()))

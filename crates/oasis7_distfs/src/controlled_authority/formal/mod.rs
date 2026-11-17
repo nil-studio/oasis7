@@ -70,11 +70,9 @@ pub(in crate::controlled_authority) use endpoint::store::verify_native_draft_sig
 #[cfg(test)]
 pub(in crate::controlled_authority) use endpoint::with_signed_checkpoint_fixture;
 
-pub(in crate::controlled_authority) use endpoint::store::bounded_signed_checkpoint::{
-    PaidSignedNativeCheckpointV1, prepare_signed_native_checkpoint_bounded_v1,
-};
-
-pub(in crate::controlled_authority) use endpoint::store::bounded_signed_checkpoint::PaidCheckpointBeginSourceV1;
+pub(in crate::controlled_authority) use endpoint::store::bounded_signed_checkpoint::PaidSignedNativeCheckpointV1;
+#[cfg(test)]
+pub(in crate::controlled_authority) use endpoint::store::bounded_signed_checkpoint::prepare_signed_native_checkpoint_bounded_v1;
 // Bounded physical bytes only; this grants no execution or publication authority.
 #[cfg(unix)]
 pub use physical::{PhysicalReadWorkV1, read_unknown_length_durable_v1};

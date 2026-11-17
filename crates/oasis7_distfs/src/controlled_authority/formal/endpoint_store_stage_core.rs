@@ -71,9 +71,9 @@ pub(super) fn stage_wire_with_layout(
     if id.capacity() > 64 {
         return Err(invalid("bounded stage digest capacity"));
     }
-    let target = join_paid(&directory, &id, child_cap)?;
+    let target = join_paid(directory, &id, child_cap)?;
     let existing = super::super::archive_bounded_read::read_local_archive_bounded_v1(
-        &directory, &id, max_wire, memory, work, cancelled,
+        directory, &id, max_wire, memory, work, cancelled,
     )?;
     if let Some(existing) = existing {
         if existing.as_slice().len() != wire.len() {
@@ -103,9 +103,9 @@ pub(super) fn stage_wire_with_layout(
         if name.capacity() > temp_name_cap {
             return Err(invalid("bounded stage temporary growth"));
         }
-        let temp = join_paid(&directory, &name, child_cap)?;
+        let temp = join_paid(directory, &name, child_cap)?;
         physical::paths::parents_with_step(&target, &mut || work.consume_steps(1, cancelled))?;
-        physical::paths::directory_with_step(&directory, &mut || work.consume_steps(1, cancelled))?;
+        physical::paths::directory_with_step(directory, &mut || work.consume_steps(1, cancelled))?;
         let mut options = OpenOptions::new();
         options.create_new(true).write(true);
         #[cfg(unix)]
@@ -121,7 +121,7 @@ pub(super) fn stage_wire_with_layout(
         fs::hard_link(&temp, &target).map_err(io)?;
         work.consume_steps(1, cancelled)?;
         fs::remove_file(&temp).map_err(io)?;
-        physical::paths::sync_with_step(&directory, &mut || work.consume_steps(1, cancelled))?;
+        physical::paths::sync_with_step(directory, &mut || work.consume_steps(1, cancelled))?;
     }
     work.consume_steps(1, cancelled)?;
     Ok(id)

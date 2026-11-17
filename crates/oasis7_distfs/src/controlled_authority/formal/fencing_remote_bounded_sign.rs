@@ -359,9 +359,7 @@ mod tests;
 
 #[path = "fencing_remote_bounded_begin.rs"]
 mod bounded_begin;
-pub(in crate::controlled_authority) use bounded_begin::{
-    PaidNativeCheckpointBeginV1, begin_signed_native_checkpoint_bounded_v1,
-};
+pub(in crate::controlled_authority) use bounded_begin::begin_signed_native_checkpoint_bounded_v1;
 
 #[path = "fencing_remote_bounded_initialize.rs"]
 mod bounded_initialize;

@@ -646,4 +646,3 @@ pub(in crate::controlled_authority::formal::endpoint::incremental) use tests::wi
 
 #[path = "endpoint_incremental_closure_frozen_parent.rs"]
 mod frozen_parent;
-pub(crate) use frozen_parent::FrozenParentMaterialLeaseV1;

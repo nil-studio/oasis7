@@ -170,7 +170,7 @@ impl StagedObjectV1<'_> {
             return Err(invalid("bounded staged node foreign pool"));
         }
         self.guard.initialized_root()?;
-        Ok((&self.guard, &self.id))
+        Ok((self.guard, &self.id))
     }
 }
 

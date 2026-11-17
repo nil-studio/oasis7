@@ -150,10 +150,7 @@ impl Store {
         DurableGenesisPublication<'j>,
         crate::controlled_authority::fencing::BoundedAcquireErrorV1,
     > {
-        use crate::controlled_authority::fencing::{
-            acquire_provider_lease_bounded_v1, begin_signed_native_checkpoint_bounded_v1,
-            sign_native_checkpoint_bounded_v1,
-        };
+        use crate::controlled_authority::fencing::acquire_provider_lease_bounded_v1;
         let (job, inputs) = permit.split();
         if self.body.head.position == 1 {
             inputs.validate_context(memory, work, stop)?;

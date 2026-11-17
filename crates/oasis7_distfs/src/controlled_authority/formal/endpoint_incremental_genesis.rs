@@ -193,16 +193,40 @@ impl FileFormalEndpoint {
         // Durable exact retries precede fresh-head and staged-source admission.
         // They return the original public proof result without signing, native
         // writes, cache replacement or a new source/hash counter allocation.
-        if self.authority.definition().profile_version==oasis7_formal_protocol::controlled_authority::formal::incremental::IWS_AUTHORITY_PROFILE_VERSION && oasis7_formal_protocol::controlled_authority::formal::incremental::is_iws_initial_record_schema(candidate.candidate.record.schema_version) && candidate.candidate.record.kind==FormalRecordKindV1::InitialActivation{
-            if let Some(existing)=self.store.read_request_bounded(&candidate.candidate.record.request_digest,memory,work,stop)?{
-                if let FormalRequestStateV1::Qualified{candidate:old,proof:installed,..}=existing.state(){
-                    if !same(old,candidate,memory,work,stop)? || !same(installed,proof,memory,work,stop)? || !same(context.finalizing_authority().definition(),self.authority.definition(),memory,work,stop)? || !same(&context.finalizing_authority().activation_ref(),&self.authority.activation_ref(),memory,work,stop)?{return Err(FormalError::Conflict("GEN retained Qualified exact original proof/material".into()).into());}
-                    if self.parent.is_some(){
-                        let mut ctx=work.bounded_context(memory,stop);let quorum=verify_genesis_qualified_bounded(proof,&candidate.candidate,context,&mut ctx)?;
-                        let fee=memory.reserve(std::mem::size_of::<PaidGenesisAcceptanceV1>()+std::mem::size_of::<FormalHeadRefV1>()+64,MemoryClass::Ordinary).map_err(|_|invalid("GEN retry head admission"))?;ctx.charge(1,64)?;
-                        return Ok(PaidGenesisAcceptanceV1{head:fee.retain(FormalHeadRefV1{position:quorum.verified().record().position,record_id:hex::encode(quorum.verified().verified_record_id())})});
-                    }
-                }
+        if self.authority.definition().profile_version
+            == oasis7_formal_protocol::controlled_authority::formal::incremental::IWS_AUTHORITY_PROFILE_VERSION
+            && oasis7_formal_protocol::controlled_authority::formal::incremental::is_iws_initial_record_schema(candidate.candidate.record.schema_version)
+            && candidate.candidate.record.kind == FormalRecordKindV1::InitialActivation
+            && let Some(existing) = self.store.read_request_bounded(
+                &candidate.candidate.record.request_digest, memory, work, stop,
+            )?
+            && let FormalRequestStateV1::Qualified {
+                candidate: old, proof: installed, ..
+            } = existing.state()
+        {
+            if !same(old, candidate, memory, work, stop)?
+                || !same(installed, proof, memory, work, stop)?
+                || !same(context.finalizing_authority().definition(), self.authority.definition(), memory, work, stop)?
+                || !same(&context.finalizing_authority().activation_ref(), &self.authority.activation_ref(), memory, work, stop)?
+            {
+                return Err(FormalError::Conflict(
+                    "GEN retained Qualified exact original proof/material".into(),
+                ).into());
+            }
+            if self.parent.is_some() {
+                let mut ctx = work.bounded_context(memory, stop);
+                let quorum = verify_genesis_qualified_bounded(proof, &candidate.candidate, context, &mut ctx)?;
+                let fee = memory.reserve(
+                    std::mem::size_of::<PaidGenesisAcceptanceV1>() + std::mem::size_of::<FormalHeadRefV1>() + 64,
+                    MemoryClass::Ordinary,
+                ).map_err(|_| invalid("GEN retry head admission"))?;
+                ctx.charge(1, 64)?;
+                return Ok(PaidGenesisAcceptanceV1 {
+                    head: fee.retain(FormalHeadRefV1 {
+                        position: quorum.verified().record().position,
+                        record_id: hex::encode(quorum.verified().verified_record_id()),
+                    }),
+                });
             }
         }
         if self.authority.definition().profile_version!=oasis7_formal_protocol::controlled_authority::formal::incremental::IWS_AUTHORITY_PROFILE_VERSION || self.parent.is_some() || self.recovery.is_some() || !oasis7_formal_protocol::controlled_authority::formal::incremental::is_iws_initial_record_schema(candidate.candidate.record.schema_version) || candidate.candidate.record.kind!=FormalRecordKindV1::InitialActivation || candidate.branch!=FormalCompletionBranchV1::Normal || candidate.frozen.is_some() || candidate.frozen_material.is_some(){return Err(invalid("GEN exact initial authority/candidate required").into());}

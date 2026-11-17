@@ -111,10 +111,10 @@ pub(super) fn stage_index_leaf_bounded_v1(
         request: request.to_owned(),
         entry: entry.to_owned(),
     };
-    if let Index::Leaf { request, entry } = &leaf {
-        if request.capacity() > 64 || entry.capacity() > 64 {
-            return Err(invalid("bounded stage leaf capacity"));
-        }
+    if let Index::Leaf { request, entry } = &leaf
+        && (request.capacity() > 64 || entry.capacity() > 64)
+    {
+        return Err(invalid("bounded stage leaf capacity"));
     }
     // This is an encoder ceiling for this closed two-hash Leaf, never a decoder
     // grammar restriction or a claim about arbitrary Serialize heap graphs.

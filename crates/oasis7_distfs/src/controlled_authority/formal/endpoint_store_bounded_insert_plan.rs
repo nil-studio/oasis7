@@ -100,7 +100,7 @@ fn differing(
     stop: &mut dyn FnMut() -> bool,
 ) -> Result<Option<u16>, FormalError> {
     work.consume_read_bytes(existing.len() as u64, stop)?;
-    if existing.len() % 2 != 0 {
+    if !existing.len().is_multiple_of(2) {
         return Ok(Some(0));
     }
     let mut decoded = [0u8; 32];

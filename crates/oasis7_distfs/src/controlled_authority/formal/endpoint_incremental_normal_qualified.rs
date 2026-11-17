@@ -167,65 +167,61 @@ impl FileFormalEndpoint {
             memory,
             work,
             stop,
-        )? {
-            if let FormalRequestStateV1::Qualified {
-                candidate: stored,
-                proof: installed,
-                ..
-            } = old.state()
+        )? && let FormalRequestStateV1::Qualified {
+            candidate: stored,
+            proof: installed,
+            ..
+        } = old.state()
+        {
+            if !same(stored, candidate, memory, work, stop)?
+                || !same(installed, proof, memory, work, stop)?
             {
-                if !same(stored, candidate, memory, work, stop)?
-                    || !same(installed, proof, memory, work, stop)?
+                return Err(FormalError::Conflict(
+                    "normal retained Qualified original proof/material".into(),
+                )
+                .into());
+            }
+            // Public historical retry returns only DATA. A consuming live
+            // holder must still promote its real staged job after an
+            // already-durable write; only an actual current quorum may
+            // bypass that promotion on this private continued-lease path.
+            let mut accepted_retry = lease_slot.is_none();
+            if !accepted_retry && let Some(capability) = self.iws_page_store.as_ref() {
+                let accepted = capability.jobs.parent()?;
+                if let Some(cache) = accepted.as_ref()
+                    && let Some(quorum) = cache.normal_quorum.as_ref()
                 {
-                    return Err(FormalError::Conflict(
-                        "normal retained Qualified original proof/material".into(),
+                    quorum.validate_context(&mut work.bounded_context(memory, stop))?;
+                    accepted_retry = self
+                        .parent
+                        .as_ref()
+                        .is_some_and(|p| p.verified_record_id() == cache.commit_record)
+                        && quorum.verified().verified_record_id() == cache.commit_record
+                        && same(quorum.proof(), installed, memory, work, stop)?;
+                }
+            }
+            if accepted_retry {
+                let id = store::bounded_record_id::hash_canonical_record_bounded_v1(
+                    &installed.decision.record,
+                    memory,
+                    work,
+                    stop,
+                )?;
+                let fee = memory
+                    .reserve(
+                        std::mem::size_of::<PaidNormalAcceptanceV1>()
+                            + std::mem::size_of::<FormalHeadRefV1>()
+                            + id.id().len(),
+                        MemoryClass::Ordinary,
                     )
-                    .into());
-                }
-                // Public historical retry returns only DATA. A consuming live
-                // holder must still promote its real staged job after an
-                // already-durable write; only an actual current quorum may
-                // bypass that promotion on this private continued-lease path.
-                let mut accepted_retry = lease_slot.is_none();
-                if !accepted_retry {
-                    if let Some(capability) = self.iws_page_store.as_ref() {
-                        let accepted = capability.jobs.parent()?;
-                        if let Some(cache) = accepted.as_ref() {
-                            if let Some(quorum) = cache.normal_quorum.as_ref() {
-                                quorum.validate_context(&mut work.bounded_context(memory, stop))?;
-                                accepted_retry =
-                                    self.parent.as_ref().is_some_and(|p| {
-                                        p.verified_record_id() == cache.commit_record
-                                    }) && quorum.verified().verified_record_id()
-                                        == cache.commit_record
-                                        && same(quorum.proof(), installed, memory, work, stop)?;
-                            }
-                        }
-                    }
-                }
-                if accepted_retry {
-                    let id = store::bounded_record_id::hash_canonical_record_bounded_v1(
-                        &installed.decision.record,
-                        memory,
-                        work,
-                        stop,
-                    )?;
-                    let fee = memory
-                        .reserve(
-                            std::mem::size_of::<PaidNormalAcceptanceV1>()
-                                + std::mem::size_of::<FormalHeadRefV1>()
-                                + id.id().len(),
-                            MemoryClass::Ordinary,
-                        )
-                        .map_err(|_| invalid("normal retry head admission"))?;
-                    work.charge(1, id.id().len() as u64, stop)?;
-                    return Ok(PaidNormalAcceptanceV1 {
-                        head: fee.retain(FormalHeadRefV1 {
-                            position: installed.decision.record.position,
-                            record_id: id.id().to_owned(),
-                        }),
-                    });
-                }
+                    .map_err(|_| invalid("normal retry head admission"))?;
+                work.charge(1, id.id().len() as u64, stop)?;
+                return Ok(PaidNormalAcceptanceV1 {
+                    head: fee.retain(FormalHeadRefV1 {
+                        position: installed.decision.record.position,
+                        record_id: id.id().to_owned(),
+                    }),
+                });
             }
         }
         if self.poisoned||self.recovery.is_some()||self.authority.definition().profile_version!=oasis7_formal_protocol::controlled_authority::formal::incremental::IWS_AUTHORITY_PROFILE_VERSION||!oasis7_formal_protocol::controlled_authority::formal::incremental::is_iws_record(candidate.candidate.record.schema_version)||candidate.candidate.record.kind!=FormalRecordKindV1::Execution||candidate.branch!=FormalCompletionBranchV1::Normal||candidate.frozen.as_ref().is_none_or(|f|f.reservation.body.schema_version!=4)||candidate.frozen_material.is_none(){return Err(invalid("normal exact schema4 complete Frozen candidate").into());}

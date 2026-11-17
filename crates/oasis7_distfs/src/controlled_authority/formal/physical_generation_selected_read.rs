@@ -203,15 +203,13 @@ pub(crate) fn current_generation_digest_bounded_v1<C: FnMut() -> bool>(
     let mut control = |path: &Path, limit: usize| {
         let mut state = shared.borrow_mut();
         let (work, stop) = &mut *state;
-        let bytes = read_metadata(path, limit, memory, *work, *stop)?;
+        let bytes = read_metadata(path, limit, memory, work, *stop)?;
         work.read(bytes.as_ref().len(), *stop)?;
         Ok(bytes.as_ref().to_vec())
     };
     if !super::super::enabled_with_callbacks(root, &mut before, &mut control)? {
         return Err(invalid("generation identity unknown physical capability"));
     }
-    drop(before);
-    drop(control);
     {
         let mut state = shared.borrow_mut();
         let (work, stop) = &mut *state;
@@ -223,7 +221,7 @@ pub(crate) fn current_generation_digest_bounded_v1<C: FnMut() -> bool>(
     let mut reader = |path: &Path, limit: usize| {
         let mut state = shared.borrow_mut();
         let (work, stop) = &mut *state;
-        let bytes = read_metadata(path, limit, memory, *work, *stop)?;
+        let bytes = read_metadata(path, limit, memory, work, *stop)?;
         // Pay the subsequent checksum, original CBOR preflight/typed decoder,
         // comparisons and owned-string copies, before any one runs.
         let visits = u64::try_from(bytes.as_ref().len())
@@ -252,7 +250,6 @@ pub(crate) fn current_generation_digest_bounded_v1<C: FnMut() -> bool>(
             Some(digest)
         }
     };
-    drop(reader);
     let (work, stop) = shared.into_inner();
     work.step(stop)?;
     Ok(digest)
