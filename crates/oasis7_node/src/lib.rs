@@ -560,8 +560,9 @@ impl NodeRuntime {
         let worker = self
             .runtime_worker_spawner(thread::Builder::new().name(worker_name))
             .spawn(move || {
-                let mut wait_duration = Duration::ZERO;
                 loop {
+                    let wait_duration =
+                        engine.next_tick_wait_duration(now_unix_ms(), tick_interval);
                     match stop_rx.recv_timeout(wait_duration) {
                         Ok(()) => break,
                         Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -713,8 +714,6 @@ impl NodeRuntime {
                                     current.last_error = Some(err.to_string());
                                 }
                             }
-                            wait_duration =
-                                engine.next_tick_wait_duration(now_unix_ms(), tick_interval);
                         }
                         Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     }
