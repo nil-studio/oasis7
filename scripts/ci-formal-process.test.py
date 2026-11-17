@@ -5147,6 +5147,71 @@ class RuntimeWorkerCompanionContracts(unittest.TestCase):
             artifacts.build(bundle, 'ordinary', root / 'cache-state.json', plan=plan)
         return json.loads((bundle / 'manifest.json').read_text()), bundle, commands, observed, recorded
 
+    def test_builder_observes_only_the_validated_worker_bytes_and_identity(self):
+        captured = io.StringIO()
+        validated = []
+        original = artifacts.validate_runtime_worker_companion
+
+        def validate(bundle, manifest):
+            path = original(bundle, manifest)
+            validated.append((path, copy.deepcopy(manifest['worker_companion'])))
+            self.assertNotIn('runtime_worker_companion_observation=', captured.getvalue())
+            return path
+
+        with patch.object(artifacts, 'validate_runtime_worker_companion', side_effect=validate), \
+             redirect_stdout(captured):
+            manifest, bundle, _, _, _ = self.build_fixture()
+        observations = [json.loads(line.split('=', 1)[1]) for line in captured.getvalue().splitlines()
+                        if line.startswith('runtime_worker_companion_observation=')]
+        worker_path = bundle / artifacts.RUNTIME_WORKER_PATH
+        self.assertEqual(validated, [(worker_path, manifest['worker_companion'])])
+        worker_bytes = worker_path.read_bytes()
+        self.assertEqual(worker_bytes, b'oasis7-wasm-worker')
+        self.assertEqual(observations, [dict(
+            path=str(worker_path), bytes=len(worker_bytes),
+            sha256=hashlib.sha256(worker_bytes).hexdigest(),
+            profile=manifest['worker_companion']['profile'],
+            features=['wasmtime'], source_sha='source', tested_sha='host: fixture')])
+        self.assertEqual(observations[0]['sha256'], manifest['worker_companion']['sha256'])
+        self.assertNotIn('runtime_worker_companion_observation', manifest)
+
+        unselected = io.StringIO()
+        with redirect_stdout(unselected):
+            manifest, _, _, _, _ = self.build_fixture(cases=['unrelated_case'])
+        self.assertNotIn('worker_companion', manifest)
+        self.assertNotIn('runtime_worker_companion_observation=', unselected.getvalue())
+
+    def test_builder_emits_no_worker_observation_when_original_validation_rejects(self):
+        original = artifacts.validate_runtime_worker_companion
+        for fault, error in (('hash', 'corrupt executable/library'),
+                             ('bytes', 'corrupt executable/library'),
+                             ('library', 'corrupt executable/library'),
+                             ('mode', 'not executable')):
+            with self.subTest(fault=fault):
+                captured = io.StringIO()
+                attempted = []
+
+                def validate(bundle, manifest):
+                    attempted.append(bundle)
+                    worker = manifest['worker_companion']
+                    path = bundle / worker['path']
+                    if fault == 'hash':
+                        worker['sha256'] = '0' * 64
+                    elif fault == 'bytes':
+                        path.write_bytes(b'changed worker bytes')
+                    elif fault == 'library':
+                        (bundle / worker['libraries'][0]).write_bytes(b'changed library bytes')
+                    else:
+                        path.chmod(0o644)
+                    return original(bundle, manifest)
+
+                with patch.object(artifacts, 'validate_runtime_worker_companion', side_effect=validate), \
+                     redirect_stdout(captured), self.assertRaisesRegex(ValueError, error):
+                    self.build_fixture()
+                self.assertEqual(attempted, [self.last_build_bundle])
+                self.assertNotIn('runtime_worker_companion_observation=', captured.getvalue())
+                self.assertFalse((self.last_build_bundle / 'manifest.json').exists())
+
     def test_builder_records_worker_as_a_separate_hashed_executable(self):
         manifest, bundle, commands, observed, recorded = self.build_fixture()
         self.assertEqual(len(manifest['binaries']), 1)

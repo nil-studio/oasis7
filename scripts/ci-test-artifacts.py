@@ -1667,7 +1667,12 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
         resolve_shards(config, manifest['suites'])
     manifest['libraries'] = {str(p.relative_to(bundle)): digest(p) for p in (bundle / 'lib').iterdir()}
     if worker_companion is not None:
-        validate_runtime_worker_companion(bundle, manifest)
+        worker_path = validate_runtime_worker_companion(bundle, manifest)
+        print('runtime_worker_companion_observation=' + json.dumps(dict(
+            path=str(worker_path), bytes=worker_path.stat().st_size,
+            sha256=worker_companion['sha256'], profile=worker_companion['profile'],
+            features=worker_companion['features'], source_sha=manifest['source_sha'],
+            tested_sha=manifest['tested_sha'])), flush=True)
     manifest['included_binaries'] = sorted(binaries)
     manifest['selection'] = None
     if scope in ('ordinary', 'all') and preview_provider_required(dict(manifest, selection={'suite': 'ordinary'})):
