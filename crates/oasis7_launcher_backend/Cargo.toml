@@ -27,7 +27,7 @@ prost = "0.13"
 hmac_legacy = { package = "hmac", version = "0.12" }
 sha1 = "0.10"
 md5 = "0.7"
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
+time = { version = "0.3.55", default-features = false, features = ["std"] }
 webauthn-rs-core = "=0.5.5"
 url = "2"
 uuid = { version = "1", features = ["serde", "v4"] }

@@ -66,6 +66,24 @@ struct StoredRecord {
 fn protocol_error() -> StoreError {
     StoreError::Unavailable("Tablestore protocol or transaction capability unavailable".into())
 }
+// OTS V2 signs these exact UTC bytes, including three fractional digits.
+// Keep conversion independent of local timezone and truncate (never round) sub-ms time.
+fn ots_timestamp(at: time::OffsetDateTime) -> Result<String, StoreError> {
+    let at = at.to_offset(time::UtcOffset::UTC);
+    if !(0..=9999).contains(&at.year()) {
+        return Err(protocol_error());
+    }
+    Ok(format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
+        at.year(),
+        u8::from(at.month()),
+        at.day(),
+        at.hour(),
+        at.minute(),
+        at.second(),
+        at.millisecond(),
+    ))
+}
 fn sign(secret: &str, message: &str) -> Result<String, StoreError> {
     let mut mac = Hmac::<Sha1>::new_from_slice(secret.as_bytes()).map_err(|_| protocol_error())?;
     mac.update(message.as_bytes());
@@ -98,9 +116,7 @@ impl Transport {
         let mut headers = BTreeMap::from([
             (
                 "x-ots-date".into(),
-                chrono::Utc::now()
-                    .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-                    .to_string(),
+                ots_timestamp(time::OffsetDateTime::now_utc())?,
             ),
             ("x-ots-apiversion".into(), "2015-12-31".into()),
             (

@@ -47,9 +47,7 @@ fn send_response(stream: &mut TcpStream, operation: &str, status: u16, body: Vec
     let headers = BTreeMap::from([
         (
             "x-ots-date".into(),
-            chrono::Utc::now()
-                .format("%Y-%m-%dT%H:%M:%S%.3fZ")
-                .to_string(),
+            ots_timestamp(time::OffsetDateTime::now_utc()).unwrap(),
         ),
         (
             "x-ots-contentmd5".into(),
@@ -354,4 +352,64 @@ fn request_signature_matches_official_python_primitive() {
         sign("fixture-secret", &text).unwrap(),
         "t6w4jfDj1KiTnYwpLIvQ9meEOms="
     );
+}
+
+#[test]
+fn ots_timestamp_preserves_signed_utc_millisecond_bytes() {
+    use time::{Date, Month, PrimitiveDateTime, Time, UtcOffset};
+
+    let leap = PrimitiveDateTime::new(
+        Date::from_calendar_date(2024, Month::February, 29).unwrap(),
+        Time::from_hms_nano(12, 34, 56, 123_999_999).unwrap(),
+    )
+    .assume_utc();
+    assert_eq!(ots_timestamp(leap).unwrap(), "2024-02-29T12:34:56.123Z");
+    assert_eq!(
+        ots_timestamp(leap.to_offset(UtcOffset::from_hms(8, 0, 0).unwrap())).unwrap(),
+        "2024-02-29T12:34:56.123Z"
+    );
+    for (nanos, expected) in [
+        (0, "1970-01-01T00:00:00.000Z"),
+        (999_999, "1970-01-01T00:00:00.000Z"),
+        (1_000_000, "1970-01-01T00:00:00.001Z"),
+        (-1, "1969-12-31T23:59:59.999Z"),
+    ] {
+        assert_eq!(
+            ots_timestamp(time::OffsetDateTime::from_unix_timestamp_nanos(nanos).unwrap()).unwrap(),
+            expected
+        );
+    }
+    let headers = BTreeMap::from([
+        ("x-ots-date".into(), ots_timestamp(leap).unwrap()),
+        ("x-ots-instancename".into(), "fixture".into()),
+    ]);
+    let canonical = canonical(&headers);
+    assert_eq!(
+        canonical,
+        "x-ots-date:2024-02-29T12:34:56.123Z\nx-ots-instancename:fixture"
+    );
+    assert_eq!(
+        sign("fixture-secret", &format!("/GetRow\nPOST\n\n{canonical}\n")).unwrap(),
+        "azPrBBPxDQ7SY0bUW/f+iaa4azs="
+    );
+}
+
+#[test]
+fn ots_timestamp_rejects_non_protocol_years() {
+    use time::{Date, Month};
+    for (year, expected) in [
+        (0, "0000-01-01T00:00:00.000Z"),
+        (9999, "9999-01-01T00:00:00.000Z"),
+    ] {
+        let at = Date::from_calendar_date(year, Month::January, 1)
+            .unwrap()
+            .midnight()
+            .assume_utc();
+        assert_eq!(ots_timestamp(at).unwrap(), expected);
+    }
+    let at = Date::from_calendar_date(-1, Month::January, 1)
+        .unwrap()
+        .midnight()
+        .assume_utc();
+    assert!(ots_timestamp(at).is_err());
 }
