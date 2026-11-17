@@ -114,6 +114,7 @@ fn empty_ledger(fixture: &Fixture, mode: PeerRecordReceiverMode) -> ReceiverLedg
         binding: receiver_binding(&fixture.template, &fixture.local_key).expect("binding"),
         mode,
         floors: BTreeMap::new(),
+        pruned_trusted_time_watermark_ms: None,
     }
 }
 
@@ -216,6 +217,7 @@ fn full_receiver_floor_rejects_new_peers_but_allows_existing_peer_updates() {
                     .expect("canonical signed record"),
                 conflict_signed_record_cbor: None,
                 isolated: false,
+                max_expiry_ms: None,
             },
         );
         if index == 0 {
@@ -228,6 +230,7 @@ fn full_receiver_floor_rejects_new_peers_but_allows_existing_peer_updates() {
         binding: receiver_binding(&fixture.template, &fixture.local_key).expect("binding"),
         mode: fixture.config.mode,
         floors,
+        pruned_trusted_time_watermark_ms: None,
     };
     write_state(&fixture, &state_bytes(&ledger));
     let receiver = open(&fixture);
@@ -910,6 +913,7 @@ fn pruning_reclaims_expired_floors_and_allows_new_peers_at_capacity() {
                 primary_signed_record_cbor: canonical_record_bytes(&signed).expect("cbor"),
                 conflict_signed_record_cbor: None,
                 isolated: false,
+                max_expiry_ms: None,
             },
         );
     }
@@ -940,6 +944,7 @@ fn pruning_reclaims_expired_floors_and_allows_new_peers_at_capacity() {
                 primary_signed_record_cbor: canonical_record_bytes(&signed).expect("cbor"),
                 conflict_signed_record_cbor: None,
                 isolated: false,
+                max_expiry_ms: None,
             },
         );
     }
@@ -950,6 +955,7 @@ fn pruning_reclaims_expired_floors_and_allows_new_peers_at_capacity() {
         binding: receiver_binding(&fixture.template, &fixture.local_key).expect("binding"),
         mode: fixture.config.mode,
         floors,
+        pruned_trusted_time_watermark_ms: None,
     };
     write_state(&fixture, &state_bytes(&ledger));
     let receiver = open(&fixture);
@@ -1233,4 +1239,163 @@ fn pruning_persists_atomically_and_survives_reopen() {
     let reopened = open(&fixture);
     assert_eq!(reopened.floor_count().unwrap(), 0);
     assert!(!reopened.contains_floor(&old_peer_id).unwrap());
+}
+
+#[test]
+fn pruning_respects_superseded_records_maximum_expiry_even_with_lower_timestamp_tombstone() {
+    let fixture = fixture();
+    let receiver = open(&fixture);
+    let remote_key = Keypair::generate_ed25519();
+    let peer_id = remote_key.public().to_peer_id().to_string();
+
+    let t = 10_000_000i64;
+    // Sequence 1: published at T, TTL = 3_600_000 ms -> expires at T + 3_600_000 ms
+    let mut rec1 = record_body(&remote_key, "peer-seq1");
+    rec1.published_at_ms = t;
+    rec1.ttl_ms = 3_600_000;
+    let signed1 = super::super::peer_record::sign_peer_record_v2(
+        &rec1,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 1,
+            state: PeerRecordPublicationStateV2::Live,
+        },
+        &remote_key,
+    )
+    .unwrap();
+    assert_eq!(
+        receiver.admit_serialized(&signed1).unwrap(),
+        ReceiverAdmission::Accepted
+    );
+
+    // Sequence 2: tombstone published at T - 3_599_000 ms, TTL = 3_600_000 ms -> expires at T + 1_000 ms
+    let mut rec2 = record_body(&remote_key, "peer-seq2-tombstone");
+    rec2.direct_addrs.clear();
+    rec2.hole_punch_addrs.clear();
+    rec2.relay_addrs.clear();
+    rec2.published_at_ms = t - 3_599_000;
+    rec2.ttl_ms = 3_600_000;
+    let signed2 = super::super::peer_record::sign_peer_record_v2(
+        &rec2,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 2,
+            state: PeerRecordPublicationStateV2::Tombstone,
+        },
+        &remote_key,
+    )
+    .unwrap();
+    assert_eq!(
+        receiver.admit_serialized(&signed2).unwrap(),
+        ReceiverAdmission::Accepted
+    );
+
+    // At T + 31_000 ms: sequence 2 tombstone max_possible_expiry is passed, BUT sequence 1
+    // is valid until T + 3_600_000 ms. Pruning MUST be refused (returns 0).
+    let trusted_now_early = t + 31_000;
+    assert_eq!(
+        receiver
+            .prune_floors(trusted_now_early, &BTreeSet::new())
+            .unwrap(),
+        0
+    );
+    assert_eq!(receiver.floor_count().unwrap(), 1);
+
+    // At T + 3_600_000 + MAX_FUTURE_SKEW_MS + 1000: all possible records have expired.
+    let trusted_now_safe = t + 3_600_000 + MAX_FUTURE_SKEW_MS + 1000;
+    assert_eq!(
+        receiver
+            .prune_floors(trusted_now_safe, &BTreeSet::new())
+            .unwrap(),
+        1
+    );
+    assert_eq!(receiver.floor_count().unwrap(), 0);
+    assert!(!receiver.contains_floor(&peer_id).unwrap());
+
+    // Replaying sequence 1 MUST be rejected by preflight and admission because it expired
+    // before the receiver pruning watermark.
+    assert!(receiver.preflight_record(&signed1).is_err());
+    assert!(receiver.admit_serialized(&signed1).is_err());
+}
+
+#[test]
+fn pruning_watermark_persists_across_restart_and_rejects_resurrection_under_skewed_clock() {
+    let fixture = fixture();
+    let remote_key = Keypair::generate_ed25519();
+    let peer_id = remote_key.public().to_peer_id().to_string();
+
+    let base_time = 1_000_000i64;
+    {
+        let receiver = open(&fixture);
+        let mut rec = record_body(&remote_key, "peer-init");
+        rec.published_at_ms = base_time;
+        rec.ttl_ms = 60_000; // expires at 1_060_000
+        let signed = super::super::peer_record::sign_peer_record_v2(
+            &rec,
+            PeerRecordPublicationV2 {
+                schema_version: 2,
+                sequence: 1,
+                state: PeerRecordPublicationStateV2::Live,
+            },
+            &remote_key,
+        )
+        .unwrap();
+        receiver.admit_serialized(&signed).unwrap();
+        assert_eq!(receiver.floor_count().unwrap(), 1);
+
+        // Prune at 5_000_000
+        let prune_time = 5_000_000i64;
+        assert_eq!(
+            receiver.prune_floors(prune_time, &BTreeSet::new()).unwrap(),
+            1
+        );
+        assert_eq!(receiver.floor_count().unwrap(), 0);
+    }
+
+    // Reopen receiver from disk
+    let reopened = open(&fixture);
+    assert_eq!(reopened.floor_count().unwrap(), 0);
+    assert!(!reopened.contains_floor(&peer_id).unwrap());
+
+    // Trusted time moving backward relative to the persisted watermark MUST be rejected
+    assert!(reopened.prune_floors(4_000_000, &BTreeSet::new()).is_err());
+
+    // Replaying the old record (expiry 1_060_000 <= watermark 5_000_000) MUST be rejected
+    let mut old_rec = record_body(&remote_key, "peer-replayed");
+    old_rec.published_at_ms = base_time;
+    old_rec.ttl_ms = 60_000;
+    let old_signed = super::super::peer_record::sign_peer_record_v2(
+        &old_rec,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 1,
+            state: PeerRecordPublicationStateV2::Live,
+        },
+        &remote_key,
+    )
+    .unwrap();
+    assert!(reopened.preflight_record(&old_signed).is_err());
+    assert!(reopened.admit_serialized(&old_signed).is_err());
+
+    // A fresh peer record whose expiry is after the watermark MUST be admitted
+    let fresh_key = Keypair::generate_ed25519();
+    let mut fresh_rec = record_body(&fresh_key, "peer-fresh");
+    fresh_rec.published_at_ms = 5_100_000;
+    fresh_rec.ttl_ms = 60_000; // expires at 5_160_000 > 5_000_000
+    let fresh_signed = super::super::peer_record::sign_peer_record_v2(
+        &fresh_rec,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 1,
+            state: PeerRecordPublicationStateV2::Live,
+        },
+        &fresh_key,
+    )
+    .unwrap();
+    assert!(reopened.preflight_record(&fresh_signed).is_ok());
+    assert_eq!(
+        reopened.admit_serialized(&fresh_signed).unwrap(),
+        ReceiverAdmission::Accepted
+    );
+    assert_eq!(reopened.floor_count().unwrap(), 1);
 }
