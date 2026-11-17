@@ -799,6 +799,15 @@ mod read_error_tests;
 
 #[test]
 fn poisoned_error_state_blocks_signed_http_admission_until_explicit_repair() {
+    poisoned_state_signed_http_recovery(false);
+}
+
+#[test]
+fn poisoned_admission_gate_blocks_signed_http_status_until_explicit_repair() {
+    poisoned_state_signed_http_recovery(true);
+}
+
+fn poisoned_state_signed_http_recovery(admission_poisoned: bool) {
     fn exchange<T: DeserializeOwned + Serialize>(
         address: std::net::SocketAddr,
         path: &str,
@@ -864,6 +873,7 @@ fn poisoned_error_state_blocks_signed_http_admission_until_explicit_repair() {
         node.clone(),
         published.clone(),
     );
+    let admission_gate = Arc::clone(&service.admission_gate);
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     drop(listener);
@@ -879,16 +889,29 @@ fn poisoned_error_state_blocks_signed_http_admission_until_explicit_repair() {
     );
     assert!(before.ready && before.can_propose && before.node_running);
 
-    let errors = state.last_error.clone();
-    assert!(
-        thread::spawn(move || {
-            let _guard = errors.lock().unwrap();
-            panic!("simulate panic while updating runtime error state");
-        })
-        .join()
-        .is_err()
-    );
-    assert!(state.last_error.is_poisoned());
+    if admission_poisoned {
+        let gate = Arc::clone(&admission_gate);
+        assert!(
+            thread::spawn(move || {
+                let _guard = gate.lock().unwrap();
+                panic!("simulate panic while holding admission gate");
+            })
+            .join()
+            .is_err()
+        );
+        assert!(admission_gate.is_poisoned());
+    } else {
+        let errors = state.last_error.clone();
+        assert!(
+            thread::spawn(move || {
+                let _guard = errors.lock().unwrap();
+                panic!("simulate panic while updating runtime error state");
+            })
+            .join()
+            .is_err()
+        );
+        assert!(state.last_error.is_poisoned());
+    }
     let blocked: FormalLiveStatusV1 = exchange(
         address,
         CHAIN_STATUS_PATH,
@@ -902,7 +925,11 @@ fn poisoned_error_state_blocks_signed_http_admission_until_explicit_repair() {
     assert_eq!(blocked.state, "degraded");
     assert_eq!(
         blocked.last_error.as_deref(),
-        Some("formal error state lock poisoned")
+        Some(if admission_poisoned {
+            "Node admission gate poisoned"
+        } else {
+            "formal error state lock poisoned"
+        })
     );
     assert_eq!(blocked.committed_record_id, before.committed_record_id);
     assert_eq!(blocked.committed_position, before.committed_position);
@@ -926,7 +953,14 @@ fn poisoned_error_state_blocks_signed_http_admission_until_explicit_repair() {
         &request_digest,
         &signer,
     );
-    assert_eq!(rejected.code, "not_ready");
+    assert_eq!(
+        rejected.code,
+        if admission_poisoned {
+            "runtime_unavailable"
+        } else {
+            "not_ready"
+        }
+    );
     assert_eq!(
         node.lock()
             .unwrap()
@@ -941,14 +975,24 @@ fn poisoned_error_state_blocks_signed_http_admission_until_explicit_repair() {
         world.snapshot()
     );
     assert!(
-        state.last_error.is_poisoned(),
+        if admission_poisoned {
+            admission_gate.is_poisoned()
+        } else {
+            state.last_error.is_poisoned()
+        },
         "observation cannot silently repair the state"
     );
 
     // Test-only explicit repair of a known empty diagnostic. No production
     // path clears poisoning or infers that protected/P-R recovery succeeded.
-    *state.last_error.lock().unwrap_err().into_inner() = None;
-    state.last_error.clear_poison();
+    if admission_poisoned {
+        // Only this deliberately poisoned empty fixture gate is repaired.
+        // Production cannot infer writer/P-R recovery from this test action.
+        admission_gate.clear_poison();
+    } else {
+        *state.last_error.lock().unwrap_err().into_inner() = None;
+        state.last_error.clear_poison();
+    }
     let repaired: FormalLiveStatusV1 = exchange(
         address,
         CHAIN_STATUS_PATH,
@@ -958,6 +1002,15 @@ fn poisoned_error_state_blocks_signed_http_admission_until_explicit_repair() {
         &signer,
     );
     assert!(repaired.ready && repaired.can_propose);
+    let repaired_health: FormalHealthV1 = exchange(
+        address,
+        SERVICE_READINESS_PATH,
+        None,
+        200,
+        &authority::request_digest(SERVICE_READINESS_PATH, &()).unwrap(),
+        &signer,
+    );
+    assert!(repaired_health.ready);
     let accepted: IntentResponse<serde_json::Value> = exchange(
         address,
         SUBMIT_PATH,
