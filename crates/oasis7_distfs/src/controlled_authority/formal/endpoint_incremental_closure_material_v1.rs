@@ -641,6 +641,9 @@ fn verify_in_directory_source<O: OriginalObjectStreamReader, R: MerkleNodeReader
 #[path = "endpoint_incremental_closure_material_tests.rs"]
 mod tests;
 
+#[cfg(all(test, unix))]
+pub(in crate::controlled_authority::formal::endpoint::incremental) use tests::with_frozen_material_fixture;
+
 #[path = "endpoint_incremental_closure_frozen_parent.rs"]
 mod frozen_parent;
 pub(crate) use frozen_parent::FrozenParentMaterialLeaseV1;

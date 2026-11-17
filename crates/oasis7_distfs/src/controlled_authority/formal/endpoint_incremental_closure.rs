@@ -31,6 +31,8 @@ pub(super) use pages::{StoreReadWitness, StoreSessions, restore_store_read_witne
 mod material_v1;
 pub use material_v1::NativeWorkerLeaseV1;
 pub(super) use material_v1::verify_accepted_cold_execution_material_v1;
+#[cfg(all(test, unix))]
+pub(super) use material_v1::with_frozen_material_fixture;
 pub(super) use material_v1::{
     CandidateExecutionMaterialV1, NativeChunkReadWorkV1, verify_candidate_execution_material_v1,
 };

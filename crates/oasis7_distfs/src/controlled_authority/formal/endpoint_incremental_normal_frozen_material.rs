@@ -1,4 +1,8 @@
 //! Fixed self-contained Frozen original source. Content is not acceptance.
+#[cfg(all(test, unix))]
+#[path = "endpoint_incremental_normal_frozen_material_tests.rs"]
+mod tests;
+
 use super::*;
 use crate::controlled_authority::formal::endpoint::store::bounded_request::PaidRequestStateV1;
 use oasis7_formal_protocol::incremental_material::{
@@ -15,6 +19,29 @@ struct FrozenOriginals<'a, 's> {
     work: &'a FormalArchiveReadWorkV1,
     stop: &'a RefCell<&'s mut dyn FnMut() -> bool>,
 }
+impl FrozenOriginals<'_, '_> {
+    fn original(&self, id: &[u8; 32], memory: &MemoryBudget) -> Result<&[u8], FormalError> {
+        if !self.paid.uses_budget(memory) || !memory.same_pool(self.memory) {
+            return Err(invalid("normal Frozen original pool"));
+        }
+        let FormalRequestStateV1::Frozen { material, .. } = self.paid.state() else {
+            return Err(invalid("normal Frozen original source variant"));
+        };
+        self.work.consume_steps(1, &mut **self.stop.borrow_mut())?;
+        for object in &material.objects {
+            self.work.charge(
+                1,
+                object.content_hash.len() as u64,
+                &mut **self.stop.borrow_mut(),
+            )?;
+            let mut hash = [0; 32];
+            if hex::decode_to_slice(&object.content_hash, &mut hash).is_ok() && &hash == id {
+                return Ok(object.bytes.as_slice());
+            }
+        }
+        Err(invalid("normal Frozen original missing"))
+    }
+}
 impl OriginalObjectReader for FrozenOriginals<'_, '_> {
     type Error = FormalError;
     fn allocation_budget(&self) -> &MemoryBudget {
@@ -25,13 +52,38 @@ impl OriginalObjectReader for FrozenOriginals<'_, '_> {
     }
     fn read_original(
         &mut self,
-        _: &[u8; 32],
-        _: usize,
-        _: &MemoryBudget,
+        id: &[u8; 32],
+        max: usize,
+        memory: &MemoryBudget,
     ) -> Result<std::sync::Arc<ReservedValue<Vec<u8>>>, FormalError> {
-        // This fixed material verifier consumes only stream_original. Never
-        // silently clone a whole original through its inherited read API.
-        Err(invalid("normal Frozen originals require streaming"))
+        // The shared verifier loads bounded config/manifest/native metadata;
+        // input, policy and continuation remain on the streaming path below.
+        let bytes = self.original(id, memory)?;
+        if bytes.len() > max {
+            return Err(invalid("normal Frozen original bound"));
+        }
+        let retained_bytes = bytes
+            .len()
+            .checked_add(size_of::<ReservedValue<Vec<u8>>>() + 2 * size_of::<usize>())
+            .ok_or_else(|| invalid("normal Frozen original layout"))?;
+        let fee = memory
+            .reserve(retained_bytes, MemoryClass::Ordinary)
+            .map_err(|_| invalid("normal Frozen original admission"))?;
+        let mut retained = Vec::new();
+        retained
+            .try_reserve_exact(bytes.len())
+            .map_err(|_| invalid("normal Frozen original allocation"))?;
+        // The Arc shell allowance is not spare capacity for the payload.
+        if retained.capacity() > bytes.len() {
+            return Err(invalid("normal Frozen original capacity"));
+        }
+        for chunk in bytes.chunks(8192) {
+            self.work
+                .charge(1, chunk.len() as u64, &mut **self.stop.borrow_mut())?;
+            retained.extend_from_slice(chunk);
+        }
+        self.work.consume_steps(1, &mut **self.stop.borrow_mut())?;
+        Ok(std::sync::Arc::new(fee.retain(retained)))
     }
 }
 impl OriginalObjectStreamReader for FrozenOriginals<'_, '_> {
@@ -42,26 +94,7 @@ impl OriginalObjectStreamReader for FrozenOriginals<'_, '_> {
         memory: &MemoryBudget,
         output: &mut dyn Write,
     ) -> Result<u64, Self::Error> {
-        if !self.paid.uses_budget(memory) || !memory.same_pool(self.memory) {
-            return Err(invalid("normal Frozen original pool"));
-        }
-        let FormalRequestStateV1::Frozen { material, .. } = self.paid.state() else {
-            return Err(invalid("normal Frozen original source variant"));
-        };
-        let mut found = None;
-        for object in &material.objects {
-            self.work.charge(
-                1,
-                object.content_hash.len() as u64,
-                &mut **self.stop.borrow_mut(),
-            )?;
-            let mut hash = [0; 32];
-            if hex::decode_to_slice(&object.content_hash, &mut hash).is_ok() && &hash == id {
-                found = Some(object.bytes.as_slice());
-                break;
-            }
-        }
-        let bytes = found.ok_or_else(|| invalid("normal Frozen original missing"))?;
+        let bytes = self.original(id, memory)?;
         if bytes.len() as u64 != expected {
             return Err(invalid("normal Frozen original length"));
         }

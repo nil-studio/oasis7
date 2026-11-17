@@ -681,3 +681,28 @@ fn signed_ordinary_replaced_page_lease_cannot_inherit_static_baseline() {
 
 #[path = "endpoint_incremental_closure_frozen_parent_tests.rs"]
 mod frozen_parent;
+
+/// Share only signed content with the sibling verifier's tests. This fixture
+/// does not mint a durable endpoint, accepted source, or execution permission.
+pub(in crate::controlled_authority::formal::endpoint::incremental) fn with_frozen_material_fixture<
+    R,
+>(
+    run: impl FnOnce(
+        &formal::SignedFormalFrozenV1,
+        &ClosedRecord,
+        &formal::VerifiedAuthorityV1,
+        &formal::VerifiedFormalCommitV1,
+        &MemoryBudget,
+    ) -> R,
+) -> R {
+    let mut material = genesis();
+    let parent = material.s.commit.clone();
+    let (input, frozen) = frozen_parent::next_frozen(&mut material, &parent);
+    run(
+        &input,
+        &frozen,
+        &material.s.authority,
+        &parent,
+        &material.s.memory,
+    )
+}

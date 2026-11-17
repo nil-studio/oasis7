@@ -148,7 +148,7 @@ fn complete_normal(m: &mut Material) -> VerifiedFormalCommitV1 {
     m.core = core;
     formal::verify_formal_qualified(&proof, &m.s.authority, Some(&m.s.commit), None).unwrap()
 }
-fn next_frozen(
+pub(super) fn next_frozen(
     m: &mut Material,
     parent: &VerifiedFormalCommitV1,
 ) -> (SignedFormalFrozenV1, ClosedRecord) {
