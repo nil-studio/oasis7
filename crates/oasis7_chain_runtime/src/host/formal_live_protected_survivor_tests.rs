@@ -63,22 +63,23 @@ fn protected_endpoint_children_replica_only_frozen_and_prepared_resume_without_o
  {
     let mut failures = Vec::new();
     for phase in ["survivor_frozen", "survivor_prepared"] {
-        // Preserve the original scenario and independently exercise the governed
-        // registration scenario even when another scenario fails.
-        for governed in [false, true] {
+        // Exercise legacy denial, registration after recovery, and registration
+        // as the frozen/prepared original independently, without short-circuiting.
+        for scenario in ["legacy", "registration_after_recovery", "registration_original"] {
             let outcome = thread::Builder::new()
                 .stack_size(32 * 1024 * 1024)
                 .spawn(move || {
-                    if governed {
-                        governed_participant::run_recovery_scenario(phase)
+                    if scenario != "legacy" {
+                        governed_participant::run_recovery_scenario(phase, scenario == "registration_original")
                     } else {
                         run_protected_runtime_round_trip(true, Some(phase))
                     }
                 })
                 .expect("spawn survivor scenario")
                 .join();
+            eprintln!("survivor phase={phase}, scenario={scenario}: {outcome:?}");
             if !matches!(&outcome, Ok(Ok(()))) {
-                failures.push(format!("phase={phase}, governed={governed}: {outcome:?}"));
+                failures.push(format!("phase={phase}, scenario={scenario}: {outcome:?}"));
             }
         }
     }
@@ -406,7 +407,7 @@ pub(in super::super) fn run(
         if boundary::execution_attempts() != expected {
             return Err("survivor reexecuted original candidate or skipped replay".into());
         }
-        let effect = first_agent_test_effect::first_agent_effect(publication.world(), request)?;
+        let effect = original_effect(publication.world(), request)?;
         if let Some(original) = &exact_effect {
             if original != &effect {
                 return Err("survivor original agent/owner/resources/result changed".into());
@@ -478,7 +479,7 @@ pub(in super::super) fn run(
             .history
             .fixed_publication(&reference)
             .map_err(|error| format!("survivor later original fixed publication: {error}"))?;
-        if Some(first_agent_test_effect::first_agent_effect(
+        if Some(original_effect(
             original.world(),
             request,
         )?) != exact_effect
@@ -613,4 +614,12 @@ fn permission_for_necessary_endpoint(
         witness_key,
         independent_floor,
     )
+}
+
+fn original_effect(world: &oasis7_runtime::World, request: &SubmitIntentRequest<WorldServicePayloadV1>) -> Result<Vec<u8>, String> {
+    if matches!(&request.signed_payload, WorldServicePayloadV1::GameParticipantRegister { .. }) {
+        governed_participant::registered_effect(world, request)
+    } else {
+        first_agent_test_effect::first_agent_effect(world, request)
+    }
 }
