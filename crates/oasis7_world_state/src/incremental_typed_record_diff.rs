@@ -109,8 +109,17 @@ impl<
         Ok(Some(page))
     }
 }
+type EntryVisitor<'visitor, M, R, E, C> = dyn FnMut(
+        Option<&TypedCellRefV1<'_>>,
+        Option<&TypedCellRefV1<'_>>,
+        &mut ChangeDecoder<'_, '_, M, R, E, C>,
+    ) -> Result<(), ValueTreeError>
+    + 'visitor;
+
 /// Owns only the fixed-depth traversal stack. Recursive validators run after
 /// page-reader borrows end, so no uncharged delta staging buffer is needed.
+/// Borrowing the visitor keeps this traversal independent of its callback type.
+#[inline(never)]
 fn visit_entries_inner<
     M: MerkleNodeReader,
     R: ValueNodeReader,
@@ -120,11 +129,7 @@ fn visit_entries_inner<
     before: &StateRootV1,
     after: &StateRootV1,
     d: &mut ChangeDecoder<'_, '_, M, R, E, C>,
-    mut visitor: impl FnMut(
-        Option<&TypedCellRefV1<'_>>,
-        Option<&TypedCellRefV1<'_>>,
-        &mut ChangeDecoder<'_, '_, M, R, E, C>,
-    ) -> Result<(), ValueTreeError>,
+    visitor: &mut EntryVisitor<'_, M, R, E, C>,
     processing: &mut dyn FnMut(usize) -> Result<(), ValueTreeError>,
 ) -> Result<(), ValueTreeError> {
     d.check()?;
@@ -647,7 +652,7 @@ pub(crate) fn visit_entries_with_processing<
     before: &StateRootV1,
     after: &StateRootV1,
     d: &mut ChangeDecoder<'_, '_, M, R, E, C>,
-    visitor: impl FnMut(
+    mut visitor: impl FnMut(
         Option<&TypedCellRefV1<'_>>,
         Option<&TypedCellRefV1<'_>>,
         &mut ChangeDecoder<'_, '_, M, R, E, C>,
@@ -666,7 +671,10 @@ pub(crate) fn visit_entries_with_processing<
         .checked_sub(1)
         .ok_or(ValueTreeError::ResourceLimited("typed diff trees"))?;
     d.tree_depth += 1;
-    let result = visit_entries_inner(before, after, d, visitor, processing);
+    let result = visit_entries_inner(before, after, d, &mut visitor, processing);
+    // The former inner-owned visitor dropped after its stack and charge but
+    // before depth restoration. Keep that order on both success and error.
+    drop(visitor);
     d.tree_depth -= 1;
     result
 }
