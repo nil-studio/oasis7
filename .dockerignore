@@ -10,6 +10,9 @@ docker/wasm-builder/*
 !scripts/
 scripts/*
 !scripts/build-wasm-module.sh
+!vendor-aliyun-tablestore-rs-0.1.2/
+vendor-aliyun-tablestore-rs-0.1.2/*
+!vendor-aliyun-tablestore-rs-0.1.2/Cargo.toml
 !vendor-if-watch-3.2.2/
 vendor-if-watch-3.2.2/*
 !vendor-if-watch-3.2.2/Cargo.toml

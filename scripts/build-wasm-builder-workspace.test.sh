@@ -15,7 +15,7 @@ import unittest
 ROOT = Path(sys.argv.pop()).resolve()
 HELPER = ROOT / 'docker/wasm-builder/prepare-workspace.sh'
 PRODUCERS = ('crates/oasis7_wasm_build', 'tools/wasm_build_suite')
-VENDORS = ('vendor-if-watch-3.2.2', 'vendor-libp2p-swarm-0.48.0', 'vendor-libp2p-rendezvous-0.18.1')
+VENDORS = ('vendor-if-watch-3.2.2', 'vendor-libp2p-swarm-0.48.0', 'vendor-libp2p-rendezvous-0.18.1', 'vendor-aliyun-tablestore-rs-0.1.2')
 
 class Workspace(unittest.TestCase):
     def setUp(self):
@@ -91,7 +91,14 @@ class Workspace(unittest.TestCase):
         self.assertIn('!crates/*/Cargo.toml', ignore)
         self.assertIn('!crates/oasis7_wasm_build/**', ignore)
         self.assertIn('!tools/wasm_build_suite/**', ignore)
+        for vendor in VENDORS:
+            self.assertIn('!' + vendor + '/', ignore)
+            self.assertIn(vendor + '/*', ignore)
+            self.assertIn('!' + vendor + '/Cargo.toml', ignore)
+            self.assertNotIn('!' + vendor + '/**', ignore)
         dockerfile = (ROOT / 'docker/wasm-builder/Dockerfile').read_text()
+        for vendor in VENDORS:
+            self.assertIn('COPY --chmod=0755 ' + vendor + ' /opt/oasis7/' + vendor, dockerfile)
         final = dockerfile.split('RUN bash ')[1].split('\n\n')[0]
         self.assertIn('CARGO_TARGET_DIR=/tmp/oasis7-producer-target', final)
         self.assertIn('rm -rf /tmp/oasis7-producer-target /cargo/registry /cargo/git', final)

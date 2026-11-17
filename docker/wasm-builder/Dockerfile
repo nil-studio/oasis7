@@ -44,6 +44,7 @@ COPY --chmod=0755 crates /opt/oasis7/crates
 COPY --chmod=0755 vendor-if-watch-3.2.2 /opt/oasis7/vendor-if-watch-3.2.2
 COPY --chmod=0755 vendor-libp2p-swarm-0.48.0 /opt/oasis7/vendor-libp2p-swarm-0.48.0
 COPY --chmod=0755 vendor-libp2p-rendezvous-0.18.1 /opt/oasis7/vendor-libp2p-rendezvous-0.18.1
+COPY --chmod=0755 vendor-aliyun-tablestore-rs-0.1.2 /opt/oasis7/vendor-aliyun-tablestore-rs-0.1.2
 COPY --chmod=0755 tools/scenario_test_runner /opt/oasis7/tools/scenario_test_runner
 COPY --chmod=0755 tools/wasm_build_suite /opt/oasis7/tools/wasm_build_suite
 COPY --chmod=0755 tools/wasm_module_observe /opt/oasis7/tools/wasm_module_observe
