@@ -29,12 +29,16 @@ describe("original gameplay result recovery after both processes restart", () =>
   });
   for (const status of ["unknown", "history_unavailable", "unavailable", "unauthorized"]) {
     it(`keeps the original unresolved for ${status}`, () => {
-      const { state, feedback } = fixture(); const account = { settleGameplayRequest: vi.fn() };
+      const { state, feedback } = fixture(); const account = { settleGameplayRequest: vi.fn(), renew: vi.fn(async () => {}) };
       requestGameplayResult(state, scope, vi.fn(), 100);
       expect(receiveGameplayResult(state, scope, account, { player_id: "p", action_id: "claim_first_agent",
         target_agent_id: "starter-agent-0", request_auth_nonce: 71, status })).toBe(true);
       expect(feedback.stage).toBe("unknown"); expect(account.settleGameplayRequest).not.toHaveBeenCalled();
       expect(feedback.originalRequest.auth.nonce).toBe(71);
+      if (status === "unauthorized") {
+        expect(account.renew).toHaveBeenCalled();
+        expect(state.gameplayResultLookup).toBeNull();
+      }
     });
   }
   it("rejects foreign results, stale scope and missing negotiated support", () => {

@@ -3992,6 +3992,8 @@ fn rendezvous(name: &str, peer: &str) {
             'compiler': lambda m: m.update(rustc_version='wrong compiler'),
             'target': lambda m: m.update(target_triple='wrong-target'),
             'compiler-flags': lambda m: m['compiler_environment'].update(RUSTFLAGS='--cfg other_behavior'),
+            'host-linker': lambda m: m['compiler_environment'].update(
+                CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER='/changed/linker'),
             'scope': lambda m: m.update(scope='formal-endpoint'),
             'missing-bin': lambda m: m['binaries'].pop('required-test-oasis7_chain_runtime-bin-oasis7_chain_runtime'),
             'features': lambda m: m['binaries']['runtime-tests'].update(requested_features=[]),

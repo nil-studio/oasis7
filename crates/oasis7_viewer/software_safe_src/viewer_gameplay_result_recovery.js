@@ -44,6 +44,9 @@ export function receiveGameplayResult(state, scope, account, result) {
   if (terminal) {
     state.gameplayResultLookup = null;
     settleGameplayOriginal(account, feedback.requestAuthNonce, scope, state);
+  } else if (result.status === "unauthorized") {
+    state.gameplayResultLookup = null;
+    void account?.renew?.().catch(() => {});
   }
   return true;
 }

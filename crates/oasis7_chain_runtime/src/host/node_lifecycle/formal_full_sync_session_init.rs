@@ -100,7 +100,7 @@ impl FormalFullSyncSession {
     /// Capture the original verified minimum, not a provider's advertised head.
     /// This is request preparation only, not owner admission or recovery.
     #[cfg(unix)]
-    pub(in super::super) fn prepare_operation_request(
+    pub(super) fn prepare_operation_request(
         &self,
         policy: &operation_ledger::Policy,
         transport: &shared_exchange::PreparedTransport,
@@ -207,7 +207,7 @@ impl FormalFullSyncSession {
     /// A pending, acknowledged or legacy publication cannot enter the ordinary
     /// constructor, whose pin stabilization/pruning is not recovery authority.
     #[cfg(unix)]
-    pub(in super::super) fn recover_pre_target(
+    pub(super) fn recover_pre_target(
         config: FormalFullSyncConfigV1,
         node_private_key_hex: String,
         instance: &super::super::LocalInstance,
@@ -304,7 +304,7 @@ impl FormalFullSyncSession {
     /// An unknown or acknowledged publication remains blocked for separate
     /// installation reconciliation; it is never treated as a fresh transfer.
     #[cfg(unix)]
-    pub(in super::super) fn recover_selected_target(
+    pub(super) fn recover_selected_target(
         config: FormalFullSyncConfigV1,
         node_private_key_hex: String,
         instance: &super::super::LocalInstance,
@@ -440,7 +440,7 @@ impl FormalFullSyncSession {
     /// A selected/installed target requires the separate history/install recovery
     /// path and is rejected here rather than replaced with a fresh request.
     #[cfg(unix)]
-    pub(in super::super) fn resume_pre_target_operation(
+    pub(super) fn resume_pre_target_operation(
         &mut self,
         mut ledger: operation_ledger::Ledger,
         owner: Arc<super::super::process::ProcessOwnership>,

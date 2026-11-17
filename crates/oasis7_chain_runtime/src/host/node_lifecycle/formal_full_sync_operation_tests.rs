@@ -421,7 +421,20 @@ fn pre_target_recovery_preserves_unknown_credit_and_original_owner() {
     assert_eq!(after.encoded_rx_actual, before.encoded_rx_actual);
     assert_eq!(after.unknown_final_charged, 0);
     // 42 unresolved bytes still count against the original 1024 cap.
-    assert!(reopened.begin_exchange(&next, 500, 500).is_err());
+    // RX is a bounded window, not a mandatory exact-size reservation: the
+    // ledger may shrink it, but it must not reclaim the interrupted credit.
+    let recovered = reopened.snapshot().clone();
+    let persisted = std::fs::read(&path).unwrap();
+    assert!(reopened.begin_exchange(&next, 982, 1).is_err());
+    assert_eq!(reopened.snapshot(), &recovered);
+    assert_eq!(std::fs::read(&path).unwrap(), persisted);
+    let _resumed_request = reopened.begin_exchange(&next, 500, 500).unwrap();
+    let resumed = reopened.snapshot();
+    assert_eq!(resumed.tx_credit, 500);
+    assert_eq!(resumed.rx_credit, 482);
+    assert_eq!(resumed.interrupted_attempts, recovered.interrupted_attempts);
+    assert_eq!(resumed.unknown_final_charged, 0);
+    assert_eq!(42 + resumed.tx_credit + resumed.rx_credit, 1024);
     drop(owner);
     assert!(super::super::process::lock(temp.path()).is_err());
     drop(reopened);

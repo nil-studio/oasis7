@@ -63,7 +63,7 @@ class CapacityLayout(unittest.TestCase):
         self.git('config', 'user.email', 'capacity@example.invalid')
         directory = self.source / 'scripts/security'
         directory.mkdir(parents=True)
-        for name in FILES:
+        for name in (*FILES, 'codeql-rust-production.py', 'codeql-rust-negative-projection.patch'):
             shutil.copyfile(HERE / name, directory / name)
         self.git('add', '.')
         self.git('commit', '--quiet', '-m', 'Tool snapshot')
@@ -82,7 +82,7 @@ class CapacityLayout(unittest.TestCase):
                                        env=self.env, text=True)
 
     def invoke(self, phase, *, source=None, tools=None, cwd=None, script=None, sha=None,
-               timeout=30):
+               timeout=30, production_default=False):
         source = source or self.source
         tools = tools or self.tools
         script = script or (self.source / 'scripts/security' / LAYOUT
@@ -92,7 +92,8 @@ class CapacityLayout(unittest.TestCase):
             [sys.executable, str(script), phase, '--source', str(source),
              '--tools', str(tools), '--output', str(self.out),
              '--deadline', str(time.time() + 300),
-             '--tool-sha' if phase == 'stage' else '--source-sha', sha],
+             '--tool-sha' if phase == 'stage' else '--source-sha', sha,
+             *(['--production-default'] if production_default else [])],
             cwd=cwd or self.source, env=self.env, capture_output=True, text=True,
             timeout=timeout,
         )
@@ -104,6 +105,35 @@ class CapacityLayout(unittest.TestCase):
 
     def receipt(self):
         return json.loads((self.out / 'collection-layout.json').read_text())
+
+    def test_production_snapshot_is_complete_and_not_a_candidate_snapshot(self):
+        result = self.invoke('stage', production_default=True)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.git('checkout', '--quiet', self.source_sha)
+        self.assertNotEqual(self.invoke('check').returncode, 0)
+        result = self.invoke('check', production_default=True)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(set(self.receipt()['observed_tools']),
+                         {*FILES, 'codeql-rust-production.py', 'codeql-rust-negative-projection.patch'})
+        result = subprocess.run([sys.executable, str(self.tools / 'codeql-rust-production.py'), '--help'],
+                                cwd=self.source, env=self.env, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('rust-default-fixed-source-observation', result.stdout)
+        self.assertIn('rust-default-negative-projection-observation', result.stdout)
+        (self.tools / 'codeql-rust-production.py').chmod(0o600)
+        (self.tools / 'codeql-rust-production.py').write_text('changed')
+        self.assertNotEqual(self.invoke('check', production_default=True).returncode, 0)
+        self.assertIn('TOOL_HASH_MISMATCH:codeql-rust-production.py', self.receipt()['errors'])
+
+    def test_negative_patch_bytes_are_bound_by_the_external_tool_snapshot(self):
+        result = self.invoke('stage', production_default=True)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.git('checkout', '--quiet', self.source_sha)
+        frozen = self.tools / 'codeql-rust-negative-projection.patch'
+        frozen.chmod(0o600)
+        frozen.write_bytes(frozen.read_bytes() + b'\nchanged\n')
+        self.assertNotEqual(self.invoke('check', production_default=True).returncode, 0)
+        self.assertIn('TOOL_HASH_MISMATCH:codeql-rust-negative-projection.patch', self.receipt()['errors'])
 
     def test_external_snapshot_survives_same_root_business_checkout(self):
         self.stage_and_switch()

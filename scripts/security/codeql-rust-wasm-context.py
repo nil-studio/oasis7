@@ -13,6 +13,7 @@ import shutil
 import signal
 import stat
 import subprocess
+import sys
 import time
 import tomllib
 
@@ -42,8 +43,8 @@ HELPERS = ('codeql-rust-wasm-context.py', 'codeql_rust_wasm_witnesses.py',
            'codeql-rust-wasm-metadata.py', 'codeql-rust-model-diagnostic.py',
            'codeql-rust-shared-constraint.patch',
            'codeql_rust_cargo_guard.py', 'codeql_rust_capacity_layout.py',
-           'codeql_rust_capacity_evidence.py', 'codeql_rust_diagnostic_runtime.py', 'workflow.yml')
-PHASES = ('bundle-download', 'bundle-unpack', 'codeql-version', 'apply-shared-helper-patch', 'toolchain-install',
+           'codeql_rust_capacity_evidence.py', 'codeql_rust_diagnostic_runtime.py', 'setup-linux-mold.py', 'workflow.yml')
+PHASES = ('native-linker-install', 'bundle-download', 'bundle-unpack', 'codeql-version', 'apply-shared-helper-patch', 'toolchain-install',
           'cargo-version', 'rustc-version', 'dependency-fetch', 'query-library', 'metadata',
           'database-init', 'database-index', 'database-finalize', 'database-identity',
           'witness-query', 'witness-decode', 'query-library-after', 'cargo-version-after', 'rustc-version-after')
@@ -419,6 +420,24 @@ def finalized_database(raw, database, source, clock, end):
     return {'status': 'PASS', 'source_root': str(source), 'languages': ['rust'], 'metadata': identity}
 
 
+def native_linker_identity(environment, clock, end):
+    selected = metadata.host_linker_environment(environment)
+    if len(selected) != 1:
+        raise Rejected()
+    wrapper = Path(next(iter(selected.values())))
+    if wrapper.name != 'oasis7-mold-gcc':
+        raise Rejected()
+    binaries = {}
+    for role, path in (('wrapper', wrapper), ('mold', wrapper.with_name('mold'))):
+        if path.resolve() != path or not os.access(path, os.X_OK):
+            raise Rejected()
+        binaries[role] = {'path': str(path), **metadata.file_hash(path, clock, end)}
+    alias = wrapper.with_name('ld.mold')
+    if not alias.is_symlink() or os.readlink(alias) != 'mold' or alias.resolve() != wrapper.with_name('mold'):
+        raise Rejected()
+    return {'environment': selected, 'binaries': binaries, 'driver_alias': {'path': str(alias), 'target': 'mold'}}
+
+
 def diagnose(session, clock_receipt, tools_identity, api, environment):
     session = Path(session); out = session / 'evidence'; work = session / 'work'
     source, bundle, database = work / 'source', work / 'codeql', work / 'database'
@@ -432,7 +451,7 @@ def diagnose(session, clock_receipt, tools_identity, api, environment):
                 'analysis_deadline_monotonic': None, 'source_sha': SOURCE, 'tool_sha': tools_identity['tool_sha'],
                 'library_variant': LIBRARY_VARIANT}
     before = tree = proxy_before = binary_before = toolchain_before = bundle_before = query_before = None
-    shared_before = official_closure = None
+    shared_before = official_closure = native_linker_before = None
     graph = manifests_before = guard_deadline = None
     guard_installed = False; preflight = {}; check_args = []; query = None
     try:
@@ -476,6 +495,22 @@ def diagnose(session, clock_receipt, tools_identity, api, environment):
             terminal['phase'] = phase
             return run_owned(phase, [str(x) for x in argv], cwd, env if child_env is None else child_env,
                              clock, end, evidence, semantic or {'cwd': str(cwd)}, capture=capture, timeout=timeout)[0]
+
+        # This workflow has no checkout. The installer is in the verified helper
+        # closure and runs only after the original job clock has been bound.
+        linker_root = work / 'native-linker'
+        raw = command('native-linker-install', [sys.executable, session / 'tools/setup-linux-mold.py',
+                      '--install-dir', linker_root, '--json'], work, clock.prepare, capture=True, timeout=180)
+        installed = parse_json(raw)
+        linker_env = metadata.host_linker_environment(installed.get('environment', {}))
+        if (len(linker_env) != 1 or installed.get('environment') != linker_env
+                or set(linker_env.values()) != {str(linker_root / 'bin/oasis7-mold-gcc')}):
+            raise Rejected()
+        environment = dict(environment, **linker_env)
+        env.update(linker_env)
+        native_linker_before = native_linker_identity(env, clock, clock.prepare)
+        evidence.save('native-linker.json', {'installation': installed, 'identity': native_linker_before,
+                      'installer_sha256': tools_identity['files']['setup-linux-mold.py']['sha256']})
 
         terminal['phase'] = 'bundle-download'
         bundle_archive = work / 'bundle.tar.zst'
@@ -611,7 +646,7 @@ def diagnose(session, clock_receipt, tools_identity, api, environment):
                       '--format=json', *options, '--log-to-stderr', '--loglevel=ERROR'], source, command_end, capture=True, timeout=20)
         if parse_json(raw) != library: raise Rejected()
         evidence.save('query-library-after.json', library)
-        final_env = metadata.child_environment(environment, work, cargo)
+        final_env = metadata.child_environment(environment, work, cargo, native_linker=True)
         after_versions = {}
         for kind in ('cargo', 'rustc'):
             tool = cargo if kind == 'cargo' else binary_before['rustc']['path']
@@ -652,11 +687,15 @@ def diagnose(session, clock_receipt, tools_identity, api, environment):
                     'bytes': sum(value['bytes'] for value in files.values()), 'tree_sha256': sha256(encoded(files))}
             evidence.save('helpers-after.json', final_tools, terminal=True)
             terminal['final_phase'] = 'toolchain'
+            if native_linker_before is not None:
+                actual = native_linker_identity(environment, clock, finish_end)
+                if actual != native_linker_before: raise Rejected()
             if binary_before is not None:
                 binary_after = metadata.analysis_binary_identity(work, clock, finish_end)
                 toolchain_after = tree_identity(work / 'rustup/toolchains' / TOOLCHAIN, clock, finish_end)
                 if binary_after != binary_before or toolchain_after != toolchain_before: raise Rejected()
-                evidence.save('toolchain-after.json', {'unchanged': True, 'binaries': binary_after, 'tree': toolchain_after}, terminal=True)
+                evidence.save('toolchain-after.json', {'unchanged': True, 'binaries': binary_after, 'tree': toolchain_after,
+                              'native_linker': native_linker_before}, terminal=True)
             terminal['final_phase'] = 'proxy'
             if proxy_before is not None:
                 _, _, proxy_after = metadata.proxy_identity(environment, work, clock, finish_end)
@@ -675,7 +714,8 @@ def diagnose(session, clock_receipt, tools_identity, api, environment):
                 terminal['guard'] = verdict['status']
                 if verdict['status'] != 'PASS': terminal['status'] = 'WASM_CONTEXT_INCOMPLETE'
             terminal['identity'] = ('PASS' if all(value is not None for value in
-                                    (before, bundle_before, query_before, toolchain_before, shared_before)) else 'INCOMPLETE')
+                                    (before, bundle_before, query_before, toolchain_before, shared_before,
+                                     native_linker_before)) else 'INCOMPLETE')
             evidence.save('http-observation.json', api.receipts)
             terminal['completed_monotonic'] = time.monotonic()
             terminal['remaining_job_seconds_before_upload'] = clock.remaining()

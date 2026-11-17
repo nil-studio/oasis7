@@ -216,14 +216,13 @@ impl Snapshot {
         if self.interrupted_attempts.len() > 4 {
             return Err("interrupted attempt capacity".into());
         }
-        if let Some(bytes) = &self.original_request_json {
-            if bytes.is_empty()
+        if let Some(bytes) = &self.original_request_json
+            && (bytes.is_empty()
                 || bytes.len() > 64 * 1024
                 || hex::encode(sha2::Sha256::digest(bytes)) != self.identity.request_digest
-                || serde_json::from_slice::<serde_json::Value>(bytes).is_err()
-            {
-                return Err("original operation request binding mismatch".into());
-            }
+                || serde_json::from_slice::<serde_json::Value>(bytes).is_err())
+        {
+            return Err("original operation request binding mismatch".into());
         }
         if local_io::digest(&self.policy)? != self.identity.policy_digest {
             return Err("operation policy digest mismatch".into());

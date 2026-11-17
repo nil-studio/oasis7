@@ -50,7 +50,9 @@ containment 限制扩散并保护基本连续性；恢复项目产生独立的�
 
 项目状态可承载在版本化 gameplay module instance state；领域 owner 提交 typed effect proposal，Runtime 校验 capability、预算、scope 和事务。模块不能直接改 Kernel 状态或 journal，节点/Viewer 不能提供第二套修复入口。containment 的独立专业授权来源继续由治理/宪制 authority 拥有；[治理分类和授权来源](governance-classification-and-constitutional-execution.design.md#governance-classification)负责拒绝普通票局结果、技术 brake、charter 地位或 emergency 标签代签，分类结果自身不签发 containment grant。
 
-`ContainmentRefV1` 必须解析到已提交的 authority decision、触发证据、world/scope、有效世界时界、允许限制/开放恢复的能力、当前 revision 和复核/申诉状态。missing、expired、revoked、scope mismatch 或保护条件未满足均为 blocked。项目不能自签 containment；暂停、到期及解除分别按原授权处理，不因项目 active 自动延长限制。实际恢复按 [里程碑到效果流程](#recovery-milestone)取得目标 writer 的 receipt；审计和申诉继续按 [退出申诉协议](#recovery-exit-appeal)保留。
+`ContainmentRefV1` 必须解析到已提交的 authority decision、触发证据、world/scope、有效世界时界、允许限制/开放恢复的能力、当前 revision 和复核/申诉状态。项目开放时 missing、expired、revoked、scope mismatch 或保护条件未满足均为 blocked。项目不能自签 containment；暂停、到期及解除分别按原授权处理，不因项目 active 自动延长限制。实际恢复按 [里程碑到效果流程](#recovery-milestone)取得目标 writer 的 receipt；审计和申诉继续按 [退出申诉协议](#recovery-exit-appeal)保留。
+
+后续推进消费本次动作的当前恢复授权：可以是仍有效且明确允许该恢复动作的原授权，也可以是已提交、允许在原 containment 结束后继续的独立恢复授权。后者必须绑定原 containment 来源、同一世界和项目、目标/作用范围、允许动作、资源与效果上限、有效期及撤销/复核状态，并在项目 revision 中显式引用；仅换一条 grant ID 不成立。历史 containment 继续作为来源保留，其到期本身不否定有效的独立恢复授权，也不赋予新授权已结束的限制权。独立授权缺失、失效或不能覆盖当前动作时阻断；项目和目标 writer 仍重验本身的保护边界。
 
 ## 5. 关键运行流程
 
@@ -60,7 +62,7 @@ containment 限制扩散并保护基本连续性；恢复项目产生独立的�
 1. 受权主体提交 `ProposeRecoveryProject`，固定世界、containment、目标对象、policy revision、effect slots、资源来源/义务、资格及参与方式、里程碑与期限、退出/申诉和失败后的常态动作。提议/预览无 target effect，也不自动锁资源。
 2. Runtime 从同一快照核 containment、项目 owner 权限、目标 owner/区域 scope、非参与者保护、预算/资源 authority 和 policy 完整性。候选只有在完整记录 `RecoveryProjectV1` 后才可通过 `OpenRecoveryProject` 进入 recovery_open；unknown 不得当作零成本或默认允许。
 3. 项目范围、允许效果和参与规则固定为可读 revision。scope 扩大、资格改变或新增资源义务须新建 linked proposal/revision 并重新授权；受影响贡献不能自动迁入新政策。scope 收缩/撤权与待决贡献在一个原子边界记录处置，不能先改 scope 后让旧操作按缓存继续。
-4. 期限使用已提交 world-time 边界。运行时每次推进都重验 containment/项目写权和自身范围；containment 结束后能否继续，必须有明确仍有效的独立恢复授权，不能从旧 containment receipt 推导无限恢复权。
+4. 期限使用已提交 world-time 的 `[open_at, deadline)`；到达 deadline 后，即使到期事件尚未处理，也不得接受新贡献或产生未发生的恢复效果。每次推进按 [authority](#recovery-authority)选择并重验覆盖本次动作的当前恢复授权、项目写权和自身范围；containment 结束后须有明确仍有效的独立恢复授权，不能从旧 receipt 推导无限恢复权。历史效果查询和已承诺资源收尾按原处置合同继续，不延长项目期限。
 
 <a id="recovery-contribution"></a>
 ### 5.2 贡献申请、资格与资源义务
@@ -108,7 +110,7 @@ claim role 必须来自 source authority 已发布的受限枚举，并绑定 so
 | --- | --- | --- |
 | `RecoveryPolicyV1` | policy id/revision/digest、scope/target kinds、参与/贡献/受益资格规则、资源/效果上限及单位、milestones/predicates、有效期、退出/取消/到期/申诉、剩余资源与失败路径 | gameplay/治理发布；缺任何被采用能力的政策项即拒绝该模式，不补默认数值 |
 | `ContainmentRefV1` | authority decision/receipt、trigger facts、world/scope、allowed capabilities、effective_from/until、revision、review/appeal state | 治理权威来源；不能由项目 owner 自报 |
-| `RecoveryProjectV1` | project id、proposal intent/digest、parent revision、owner/authority、containment ref、scope/target refs、policy、预算与资源义务、milestone ids、state/previous state、open/deadline/recheck、close reason、remaining obligations、revision | Runtime 唯一写入；scope 和目标效果不因参与而扩大 |
+| `RecoveryProjectV1` | project id、proposal intent/digest、parent revision、owner/当前恢复授权引用、原 containment ref、scope/target refs、policy、预算与资源义务、milestone ids、state/previous state、open/deadline/recheck、close reason、remaining obligations、revision | Runtime 唯一写入；独立继续授权保留原来源及精确作用范围，scope 和目标效果不因参与而扩大 |
 | `ParticipationV1` / `EligibilityDecisionV1` | subject/代表授权、project、加入/退出意图与 receipt；rule/evidence/scope/validity、contributor/beneficiary eligibility、reason | 参与和资格分离；执行重验，旧资格不能永久继承 |
 | `RecoveryContributionV1` | contribution id、actor/intent/payload、project/revision/milestone、source receipt/lot/quantity/unit、claim/obligation refs、eligibility、status、decision/settlement/withdrawal refs | 原项目身份不自动改写；每份真实贡献仅在允许数量内消费 |
 | `ResourceObligationV1` / `ContributionClaimIndexV1` | payer/owner/ledger、resource/unit、authorized/held/sunk/returned/lost/remaining、source authority/claim budget、固定 role/互斥角色集、source claim slices/累计量、current custody、release/consume receipts | 不能把已有 work sink 再扣一次；认领索引与真实资源权威同步 |
@@ -156,7 +158,7 @@ claim role 必须来自 source authority 已发布的受限枚举，并绑定 so
 <a id="recovery-transaction"></a>
 ### 7.2 事务与并发
 
-每次 mutation 在 [ExecutionTransaction](../design.md#62-unified-executiontransaction-architecture-p0)不可变快照上准备，提交前检查项目 revision、containment/恢复授权 revision、eligibility、source claim/资源余额、目标对象 revision 与世界时界。项目/贡献状态、资源账、claim 索引、目标 delta、milestone receipt、allocator、journal 与 outbox 同一提交；任一 failure 丢弃整批，不出现“贡献已扣，目标没修”或“目标已修，receipt 未记”的可见半状态。
+每次 mutation 在 [ExecutionTransaction](../design.md#62-unified-executiontransaction-architecture-p0)不可变快照上准备，提交前检查项目 revision、覆盖本次动作的当前恢复授权及原 containment 来源、eligibility、source claim/资源余额、目标对象 revision 与世界时界。项目开放另须原 containment 当前有效；后续独立继续授权按 §4.1 检查，不能将历史 containment 到期误判为当前恢复授权失效。项目/贡献状态、资源账、claim 索引、目标 delta、milestone receipt、allocator、journal 与 outbox 同一提交；准备/校验拒绝时丢弃整批 staged 变化，持久化后按 §7.3 判定，不能把未知提交当作全部失败。
 
 Apply 与 revoke/scope shrink/withdraw/cancel/expire 的并发按 canonical 输入顺序和同一 CAS 决定一个胜者：效果先提交，后者必须承认已发生 receipt 并只处置 remaining；关闭先提交，效果必须 fresh reject。不能事后按另一顺序解释历史，也不能因 Agent 重试绕过失败。项目 revision 变化只触发真实未决工作的重新判定，不改稳定 effect key 与 source claim ownership。
 
@@ -164,11 +166,13 @@ Apply 与 revoke/scope shrink/withdraw/cancel/expire 的并发按 canonical 输�
 
 ### 7.3 持久化、恢复与重放
 
+持久化沿[既有 G1 提交判定与安装](runtime-storage-footprint-governance.design.md#storage-generation-g1-design)区分三种结果：`NotCommitted` 才可丢弃候选、保留旧 World 并按原业务键重试；`Committed` 安装精确候选、返回原 milestone/贡献 receipt，维护失败不撤销目标修复或退回已消费贡献；`StatusUnknown` 保留业务键和完整候选，在原发布边界阻止旧 World 的后续 mutator/save 及依赖未决结果的外部派发，核对出确定提交结果并对齐内存后才解除。不能只锁该项目而让无关账户从旧 World 继续保存，也不能用可回退 loader 或项目计数推断未提交。
+
 Snapshot 保存完整 project/policy/participation/eligibility、contribution、source claim、resource obligation、milestone decision/receipt、appeal/disposition、allocator 与效果消费索引；journal 保存可重建这些记录和 target deltas 的版本化事件，并承诺同一 generation。未决记录和幂等 tombstone 不能随 UI 历史分页裁剪；retention 保留关闭项目所需完整审计/申诉与防重复材料。
 
 恢复验证完整 world/manifest/历史 policy/schema、checkpoint/journal/state-root 及所有 parent/source 引用，重建实际 target/资源/claim/receipt 一致性。缺贡献 receipt、半个 milestone、重复 claim、混合 generation 或 unknown required schema 都不得安装为可写世界。历史 replay 只应用已确认 delta 和决定，不再执行工作、不重新验证外部证据、不重计贡献或重发奖励。
 
-恢复后先区分：已提交效果返回原 receipt；已知无效果的 pending 在当前 scope/授权/资格下逐项重验；提交未知先对账原 intent 与 durable generation，保持 unknown 且禁止第二次效果。恢复不是新项目创建、旧授权续期或 contribution migration。外部通知只走 [durable outbox](../design.md#61-institution-migration-test)；replay 不执行外部业务效果，发布失败不能回滚已确认世界结果。
+恢复后先区分：已提交效果返回原 receipt；已知无效果的 pending 在当前 scope/授权/资格下逐项重验；底层提交未知先按 G1 对账原 intent 与精确候选，保留其写入围栏。单纯响应丢失或查询失败只使本次观察未知，先查询原结果，不能自行认定底层提交未知或另发一次效果。恢复不是新项目创建、旧授权续期或 contribution migration。外部通知只走 [durable outbox](../design.md#61-institution-migration-test)；replay 不执行外部业务效果，发布失败不能回滚已确认世界结果。
 
 ## 8. 部署、安全与运行约束
 
@@ -205,6 +209,12 @@ Snapshot 保存完整 project/policy/participation/eligibility、contribution、
 | [AC-7](../../product/world-rules-core-gameplay/chartered-conflict-soft-seasons-and-recovery.prd.md#ac-7)；Trace refs: O7-REQ-eedaa5cf-e91e-48df-9c33-158774b40168 | [里程碑](#recovery-milestone) | decision 与实际效果独立，聚合贡献和资源只结算一次 | `RP-SETTLE`：未完成/未知/错误 predicate/target revision；qualified 后 apply；policy revision 不重发 slot；多贡献聚合、surplus、已有 sink、原子失败；逐个 checkpoint 注入；按 [testing-manual](../../../testing-manual.md)组织同候选 full 分层验证 | decision/effect receipt、actual delta、一次资源结算与 remaining | 不声明奖励数值或域外效果支持 |
 | [AC-7](../../product/world-rules-core-gameplay/chartered-conflict-soft-seasons-and-recovery.prd.md#ac-7)；Trace refs: O7-REQ-eedaa5cf-e91e-48df-9c33-158774b40168 | [退出申诉](#recovery-exit-appeal) | scope/revoke/cancel/expire 与完成竞态不越界，失败有下一步 | `RP-DISPOSITION`：所有竞争顺序、已部分 settled 项目、剩余在途/hold、合法 withdraw/改投、禁止取消项复活；申诉本身无效果及独立 correction；按 [testing-manual](../../../testing-manual.md)组织同候选 full 分层验证 | 每个原贡献/资源处置、时间/授权、next action/recheck | 不把 expired 当全部资源已归还 |
 | [AC-7](../../product/world-rules-core-gameplay/chartered-conflict-soft-seasons-and-recovery.prd.md#ac-7)；Trace refs: O7-REQ-eedaa5cf-e91e-48df-9c33-158774b40168 | [事务恢复](#recovery-transaction) | 响应丢失、重试、snapshot/journal、授权读面保持原身份与单次结果 | `RP-RECOVERY`：commit 前/后/回复前 crash，未知提交对账、乱序重复事件、非空 journal restore 与不中断对照；[现有 persistence recovery 入口](../../../crates/oasis7_runtime/src/tests/persistence_recovery_tests.rs)新增独立项目 fixture；full 核 API/Viewer/Agent 对状态与下一步一致 | 固定候选/环境、完整 graph/source/receipt/root、授权消费者产物 | 本地 fixture 不证明全部真实入口或部署；未运行不能标通过 |
+
+### 11.2 授权续接、时界与持久化故障样例
+
+`RP-DISPOSITION` 另外覆盖 containment 正常解除/到期后有、无独立恢复授权两组；只有来源、项目、目标、范围、预算与时间均匹配的有效授权才能继续，错误项目、越界目标、已撤销或到期的 grant 均无效果。分别在 `open_at` 前、`open_at`、`deadline` 前及 `deadline` 检查贡献接受和 milestone apply；到期事件延迟不得让到期点产生新效果，已提交 receipt 查询和合法旧义务收尾仍可用。重连、restore 和换 project revision 不延长期限或恢复 containment 限制。
+
+`RP-RECOVERY` 在同一 milestone 候选上注入已知替换前失败、index 替换后同步未知、已提交后维护失败与仅响应丢失。按 [G1 验证矩阵](runtime-storage-footprint-governance.design.md#storage-generation-validation-matrix)检查精确候选、source claim、目标 delta、原 receipt 和旧 World 后续无关账户写入；`StatusUnknown` 未核定前不得写旧 World，`Committed` 的维护失败不得返还已消费贡献或再次修复。资格证据 unknown 与只读超时保持其业务/观察边界，不误触发底层提交未知。
 
 ## 12. 决策、长期风险与未决问题
 

@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 import codeql_rust_action_deadline as m
 
@@ -51,6 +52,38 @@ exports.runAnalyzePostAction = function () {
   console.log('post stdout');
 };
 '''
+
+
+class FixedSourceIdentity(unittest.TestCase):
+    def test_business_and_trusted_tool_identity_are_separate_and_closed(self):
+        tool_sha = 'd' * 40
+        env = dict(GITHUB_EVENT_NAME='workflow_dispatch', GITHUB_REF='refs/heads/main',
+                   GITHUB_SHA=tool_sha, GITHUB_WORKFLOW_SHA=tool_sha, GITHUB_REPOSITORY='example/repo',
+                   COMPARE_QUALIFIER_PATCH='false',
+                   GITHUB_WORKFLOW_REF='example/repo/.github/workflows/codeql-rust-capacity.yml@refs/heads/main',
+                   OASIS7_CODEQL_PRODUCTION_MODE='rust-default-fixed-source-observation')
+        source = '2bcc4edafdc615f395c9138a0b39ede366726d34'
+        with patch.dict(os.environ, env, clear=True):
+            actual = m.fixed_source_identity(source)
+            self.assertEqual(actual['source_sha'], source)
+            self.assertEqual(actual['tool_sha'], tool_sha)
+            for key, value in (('GITHUB_EVENT_NAME', 'schedule'), ('GITHUB_REF', 'refs/heads/other'),
+                               ('GITHUB_WORKFLOW_SHA', 'e' * 40), ('GITHUB_WORKFLOW_REF', 'example/repo/.github/workflows/codeql.yml@refs/heads/main'),
+                               ('CAPACITY_MODE', m.MODE), ('COMPARE_QUALIFIER_PATCH', 'true'),
+                               ('OASIS7_CODEQL_PRODUCTION_MODE', m.PRODUCTION_MODE)):
+                with self.subTest(key=key), patch.dict(os.environ, {key: value}):
+                    with self.assertRaisesRegex(RuntimeError, 'fixed-source'):
+                        m.fixed_source_identity(source)
+            with self.assertRaisesRegex(RuntimeError, 'fixed-source'):
+                m.fixed_source_identity(tool_sha)
+            with patch.dict(os.environ, OASIS7_CODEQL_PRODUCTION_MODE=m.NEGATIVE_PROJECTION_MODE):
+                actual = m.fixed_source_identity(source, mode=m.NEGATIVE_PROJECTION_MODE)
+                self.assertEqual(actual['mode'], m.NEGATIVE_PROJECTION_MODE)
+                self.assertEqual(actual['tool_sha'], tool_sha)
+                with self.assertRaisesRegex(RuntimeError, 'fixed-source'):
+                    m.fixed_source_identity(source)
+            with self.assertRaisesRegex(RuntimeError, 'fixed-source'):
+                m.fixed_source_identity(source, mode=m.NEGATIVE_PROJECTION_MODE)
 
 
 class ActionDeadline(unittest.TestCase):
@@ -382,6 +415,172 @@ process.on('exit', () => fs.writeFileSync(process.env.FIXTURE_BUDGET_OBSERVED, J
         result, _, _ = self.finish(self.start())
         self.assertNotEqual(result, 0)
         self.assertFalse((self.root / 'marker').exists())
+
+    def observation(self, remaining=30, *, mode=m.FIXED_SOURCE_MODE):
+        value = self.production(remaining)
+        def git(*argv):
+            return subprocess.check_output(['git', *argv], cwd=self.source,
+                                           env=self.env, text=True).strip()
+        git('init', '-q')
+        git('config', 'user.name', 'Observation fixture')
+        git('config', 'user.email', 'fixture@example.invalid')
+        (self.source / 'business.rs').write_text('fn main() {}\n')
+        git('add', '.'); git('commit', '-qm', 'Freeze business fixture')
+        source_sha = git('rev-parse', 'HEAD')
+        tracked = self.source / 'scripts/security'; tracked.mkdir(parents=True)
+        for name in m.layout.tool_files(production_default=True):
+            raw = (HERE / name).read_bytes()
+            if name in ('codeql_rust_action_deadline.py', 'codeql-rust-action-deadline.cjs'):
+                raw = raw.replace(m.FIXED_SOURCE.encode(), source_sha.encode())
+            (tracked / name).write_bytes(raw)
+        git('add', '.'); git('commit', '-qm', 'Freeze trusted fixture tools')
+        tool_sha = git('rev-parse', 'HEAD')
+        shutil.rmtree(self.tools)
+        self.tools = self.runner / 'codeql-rust-fixed-source-helper'
+        layout_out = self.runner / 'codeql-rust-fixed-source-layout'
+        self.env.update(GITHUB_SHA=tool_sha, GITHUB_WORKFLOW_SHA=tool_sha,
+                        COMPARE_QUALIFIER_PATCH='false',
+                        GITHUB_REPOSITORY='example/repo', PYTHONDONTWRITEBYTECODE='1',
+                        GITHUB_WORKFLOW_REF='example/repo/.github/workflows/codeql-rust-capacity.yml@refs/heads/main',
+                        OASIS7_CODEQL_PRODUCTION_MODE=mode,
+                        OASIS7_CODEQL_PRODUCTION_SOURCE=source_sha,
+                        NODE_OPTIONS='--require=' + str(self.tools / 'codeql-rust-action-deadline.cjs'),
+                        CODEQL_THREADS='4', CODEQL_RAM='14570')
+        for phase in ('stage', 'check'):
+            if phase == 'check': git('checkout', '-q', source_sha)
+            script = (tracked if phase == 'stage' else self.tools) / 'codeql_rust_capacity_layout.py'
+            process = subprocess.run(['/usr/bin/python3', str(script), phase, '--production-default',
+                '--source', str(self.source), '--tools', str(self.tools), '--output', str(layout_out),
+                '--deadline', str(time.time() + 180), '--tool-sha' if phase == 'stage' else '--source-sha',
+                tool_sha if phase == 'stage' else source_sha], cwd=self.source, env=self.env,
+                capture_output=True, text=True, timeout=10)
+            self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+        value.update(mode=mode, source_sha=source_sha, tool_sha=tool_sha)
+        (self.out / 'production-budget.json').write_text(json.dumps(value))
+        (self.out / 'production-prepare.json').write_text(json.dumps(dict(
+            mode=mode, status='PREPARED', source_sha=source_sha, tool_sha=tool_sha,
+            source=str(self.source), analysis_deadline=value['analysis_deadline'])))
+        code = ('import json,os,sys; from pathlib import Path; sys.path.insert(0,sys.argv[1]); '
+                'import codeql_rust_action_deadline as d; print(json.dumps(d.fixed_source_provenance('
+                'Path(os.environ["GITHUB_WORKSPACE"]),os.environ["OASIS7_CODEQL_PRODUCTION_SOURCE"],'
+                'mode=os.environ["OASIS7_CODEQL_PRODUCTION_MODE"])))')
+        provenance = subprocess.check_output(['/usr/bin/python3', '-c', code, str(self.tools)],
+            cwd=self.source, env=self.env, text=True, timeout=10)
+        (self.out / 'fixed-source-provenance.json').write_text(provenance)
+        return value
+
+    def test_fixed_source_runs_real_external_supervisor_and_keeps_official_post(self):
+        value = self.observation()
+        result, stdout, stderr = self.finish(self.start())
+        self.assertEqual(result, 0, stderr)
+        self.assertEqual((self.root / 'marker').read_text(), 'main\n')
+        self.assertEqual(self.receipt()['tool_sha'], self.env['GITHUB_SHA'])
+        self.assertNotEqual(self.receipt()['tool_sha'], self.receipt()['source'])
+        with patch.dict(os.environ, self.env), patch.object(m, 'FIXED_SOURCE', value['source_sha']):
+            accepted = m.admit_production(self.out, self.source, value['source_sha'],
+                                          value['analysis_deadline'], mode=m.FIXED_SOURCE_MODE)
+        self.assertEqual(accepted['status'], 'PASS')
+        with self.assertRaises(RuntimeError):
+            m.admit_production(self.out, self.source, value['source_sha'], value['analysis_deadline'])
+        (self.out / 'capacity-budget.json').write_text(json.dumps(value))
+        with self.assertRaises(RuntimeError):
+            m.admit(self.out, self.source, value['fixed_job_deadline'])
+        self.env.update(STATE_fixture='state-value', RUST_ANALYSIS_DEADLINE='1')
+        self.assertEqual(self.finish(self.start(post=True))[0], 0)
+        self.assertEqual((self.root / 'marker').read_text(), 'main\npost:state-value\n')
+
+    def test_fixed_source_supervisor_rejects_mixed_identity_and_changed_tool_snapshot(self):
+        value = self.observation()
+        for key, bad in (('GITHUB_WORKFLOW_SHA', 'e' * 40), ('GITHUB_EVENT_NAME', 'schedule'),
+                         ('CAPACITY_MODE', m.MODE), ('COMPARE_QUALIFIER_PATCH', 'true'), ('CODEQL_RAM', '4096')):
+            with self.subTest(key=key):
+                original = dict(self.env)
+                self.env[key] = bad
+                result, _, _ = self.finish(self.start())
+                self.assertNotEqual(result, 0)
+                self.assertFalse((self.root / 'marker').exists())
+                self.env = original
+                (self.out / 'action-deadline-terminal.json').unlink(missing_ok=True)
+        helper = self.tools / 'codeql-rust-production.py'
+        helper.chmod(0o600); helper.write_text(helper.read_text() + '\n# changed\n')
+        result, _, _ = self.finish(self.start())
+        self.assertNotEqual(result, 0)
+        self.assertIn('TOOL_HASH_MISMATCH', self.receipt()['primary_failure'])
+        self.assertFalse((self.root / 'marker').exists())
+
+    def test_negative_projection_uses_real_supervisor_and_preserves_official_post(self):
+        value = self.observation(mode=m.NEGATIVE_PROJECTION_MODE)
+        result, _, stderr = self.finish(self.start())
+        self.assertEqual(result, 0, stderr)
+        self.assertEqual((self.root / 'marker').read_text(), 'main\n')
+        self.assertEqual(self.receipt()['mode'], m.NEGATIVE_PROJECTION_MODE)
+        with patch.dict(os.environ, self.env), patch.object(m, 'FIXED_SOURCE', value['source_sha']):
+            self.assertEqual(m.admit_production(self.out, self.source, value['source_sha'],
+                value['analysis_deadline'], mode=m.NEGATIVE_PROJECTION_MODE)['status'], 'PASS')
+            with self.assertRaises(RuntimeError):
+                m.admit_production(self.out, self.source, value['source_sha'],
+                                  value['analysis_deadline'], mode=m.FIXED_SOURCE_MODE)
+        self.env.update(STATE_fixture='state-value', RUST_ANALYSIS_DEADLINE='1')
+        self.assertEqual(self.finish(self.start(post=True))[0], 0)
+        self.assertEqual((self.root / 'marker').read_text(), 'main\npost:state-value\n')
+
+    def test_negative_supervisor_rejects_baseline_budget_and_preparation(self):
+        self.observation(mode=m.NEGATIVE_PROJECTION_MODE)
+        for name in ('production-budget.json', 'production-prepare.json'):
+            with self.subTest(name=name):
+                target = self.out / name
+                raw = target.read_text()
+                value = json.loads(raw)
+                value['mode'] = m.FIXED_SOURCE_MODE
+                target.write_text(json.dumps(value))
+                result, _, stderr = self.finish(self.start())
+                self.assertNotEqual(result, 0, stderr)
+                self.assertFalse((self.root / 'marker').exists())
+                target.write_text(raw)
+                (self.out / 'action-deadline-terminal.json').unlink(missing_ok=True)
+
+    def test_negative_actual_child_rejects_baseline_mode_and_wrong_resources(self):
+        self.observation(mode=m.NEGATIVE_PROJECTION_MODE)
+        raw = (self.out / 'production-budget.json').read_bytes()
+        self.env.update(OASIS7_CODEQL_ACTION_SUPERVISOR=str(os.getpid()),
+                        OASIS7_CODEQL_ACTION_BUDGET_SHA256=hashlib.sha256(raw).hexdigest())
+        for key, bad in (('OASIS7_CODEQL_PRODUCTION_MODE', m.FIXED_SOURCE_MODE),
+                         ('CODEQL_RAM', '4096'), ('CODEQL_THREADS', '2')):
+            with self.subTest(key=key):
+                original = dict(self.env)
+                self.env[key] = bad
+                result, _, stderr = self.finish(self.start())
+                self.assertNotEqual(result, 0, stderr)
+                self.assertFalse((self.root / 'marker').exists())
+                self.assertFalse((self.out / 'action-deadline-start.json').exists())
+                self.env = original
+
+    def test_fixed_source_actual_child_rechecks_mode_source_tool_and_resources(self):
+        self.observation()
+        raw = (self.out / 'production-budget.json').read_bytes()
+        self.env.update(OASIS7_CODEQL_ACTION_SUPERVISOR=str(os.getpid()),
+                        OASIS7_CODEQL_ACTION_BUDGET_SHA256=hashlib.sha256(raw).hexdigest())
+        for key, bad in (('GITHUB_SHA', 'e' * 40), ('OASIS7_CODEQL_PRODUCTION_SOURCE', 'e' * 40),
+                         ('OASIS7_CODEQL_PRODUCTION_MODE', m.PRODUCTION_MODE), ('CODEQL_THREADS', '2'),
+                         ('COMPARE_QUALIFIER_PATCH', 'true'),
+                         ('GITHUB_WORKFLOW_REF', 'example/repo/.github/workflows/codeql.yml@refs/heads/main')):
+            with self.subTest(key=key):
+                original = dict(self.env)
+                self.env[key] = bad
+                result, _, stderr = self.finish(self.start())
+                self.assertNotEqual(result, 0, stderr)
+                self.assertFalse((self.root / 'marker').exists())
+                self.assertFalse((self.out / 'action-deadline-start.json').exists())
+                self.env = original
+
+    def test_fixed_source_delayed_real_child_cannot_extend_original_window(self):
+        value = self.observation(5.5)
+        delay = self.root / 'delay.cjs'
+        delay.write_text('Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 6000);\n')
+        result, _, _ = self.finish(self.start(options=['--require', str(delay)]))
+        self.assertNotEqual(result, 0)
+        self.assertFalse((self.root / 'marker').exists())
+        self.assertLess(self.receipt()['finished_at'], value['analysis_deadline'])
 
 
 if __name__ == '__main__': unittest.main()

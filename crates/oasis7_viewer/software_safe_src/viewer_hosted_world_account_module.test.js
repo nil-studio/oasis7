@@ -343,6 +343,50 @@ it("looks up and settles the restored capsule original after account recreation"
   expect(second.module.hasPendingGameplayRequest()).toBe(false);
 });
 
+it("reconciles a hosted claim original after authorization expires without duplicate submission", async () => {
+  const { store, recovery } = persistentGameplayCapsule();
+  const f = fixture(undefined, recovery);
+  f.register.mockImplementation(async () => { f.state.auth.registrationStatus = "registered"; });
+  await f.module.join(account);
+  const original = signedGameplay();
+  await f.module.rememberGameplayRequest(original, gameplayScope);
+  f.state.viewerProtocol = { capabilities: ["gameplay_result_lookup_v1"] };
+  f.state.lastGameplayActionFeedback = {
+    stage: "sent", requestAuthNonce: original.auth.nonce, originalRequest: original, gameplayScope,
+  };
+  expect(f.module.hasPendingGameplayRequest()).toBe(true);
+
+  // Expired freshness window error occurs:
+  f.state.lastGameplayActionFeedback.stage = "unknown";
+  const expiredError = { code: "hosted_authorization_expired", message: "hosted_authorization_expired: invalid freshness window" };
+  await f.module.handleAuthorizationExpired(expiredError);
+
+  // Authorization refresh must be called
+  expect(seam.client.refreshWorld).toHaveBeenCalled();
+  expect(f.register).toHaveBeenCalledWith(null, { forceRebind: false, renewAuthorization: true });
+
+  // Original request must be retained in capsule and prevent duplicate submission
+  expect(f.module.hasPendingGameplayRequest()).toBe(true);
+  await expect(f.module.rememberGameplayRequest({ ...original, auth: { ...original.auth, nonce: 9999 } }, gameplayScope)).rejects.toThrow("original_gameplay_outcome_pending");
+
+  // Lookup query can now proceed with original request
+  const send = vi.fn();
+  expect(requestGameplayResult(f.state, gameplayScope, send, 100)).toBe(true);
+  expect(send).toHaveBeenCalledExactlyOnceWith({ type: "lookup_gameplay_action", request: original });
+
+  // Terminal committed result settles original
+  expect(receiveGameplayResult(f.state, gameplayScope, f.module, {
+    player_id: original.player_id,
+    action_id: original.action_id,
+    target_agent_id: original.target_agent_id,
+    request_auth_nonce: original.auth.nonce,
+    status: "committed",
+  })).toBe(true);
+  await Promise.resolve();
+  expect(f.module.hasPendingGameplayRequest()).toBe(false);
+  expect(store.capsule).not.toHaveProperty("gameplayRequest");
+});
+
 it("restores and queries an original capsule across a Prompt runtime authority epoch change", async () => {
   const { store, recovery } = persistentGameplayCapsule();
   const beforeRestart = { ...gameplayScope, authorityEpoch: "runtime-before-restart" };
