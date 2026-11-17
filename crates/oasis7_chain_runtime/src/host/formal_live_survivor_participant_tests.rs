@@ -97,6 +97,15 @@ pub(super) fn submit_after_recovery(
     let receipt: GameParticipantReceiptV1 = serde_json::from_value(result.receipt.clone()).map_err(|e| e.to_string())?;
     let mut private = owner.clone();
     private.scope_id = format!("agent:{}", receipt.agent_id);
+    // Scope selection is not authority: the original bootstrap signer is not
+    // the newly registered owner and has no delegation for this participant.
+    let unrelated_reader = RemoteWorldServiceClient::new(private.clone()).map_err(|e| e.to_string())?;
+    let denied = unrelated_reader.lookup_formal_original(register.clone()).err()
+        .ok_or("bootstrap signer exposed the new participant's private result")?;
+    if !denied.to_string().contains("formal scope delegation unavailable") {
+        return Err(format!("unexpected unrelated-reader rejection: {denied}"));
+    }
+    private.read_private_key_hex = secret.clone();
     let client = RemoteWorldServiceClient::new(private.clone()).map_err(|e| e.to_string())?;
     let registered_ref = lookup_original_commit(&client, &register)?;
     let registered = runtime.history.fixed_publication(&registered_ref).map_err(|e| e.to_string())?;
