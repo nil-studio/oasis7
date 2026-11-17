@@ -7,27 +7,29 @@ use std::os::unix::fs::PermissionsExt;
 fn wire3_formal_read_shipping_node_cli_commits_private_input_via_native_provider() {
     thread::Builder::new()
         .stack_size(32 * 1024 * 1024)
-        .spawn(|| cli_case(false))
+        .spawn(|| cli_case(false, None))
         .unwrap()
         .join()
         .unwrap();
 }
-#[test]
-#[ignore = "requires OASIS7_CHAIN_RUNTIME_BIN; provider backend is an in-memory test double"]
-fn wire3_shipping_node_process_output_failure_preserves_original_namespace() {
-    thread::Builder::new()
-        .stack_size(32 * 1024 * 1024)
-        .spawn(|| cli_case(true))
-        .unwrap()
-        .join()
-        .unwrap();
+// Invoked by the existing trusted shipping CLI owner case, not a self-registered test.
+pub(crate) fn wire3_shipping_node_process_output_failure(deadline: Instant) {
+    assert!(
+        Instant::now() < deadline,
+        "shipping recovery budget exhausted"
+    );
+    cli_case(true, Some(deadline));
+    assert!(
+        Instant::now() < deadline,
+        "shipping recovery exceeded original scenario budget"
+    );
 }
 
 fn private_file(path: &Path, bytes: &[u8]) {
     fs::write(path, bytes).unwrap();
     fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
 }
-fn cli_case(process_output_failure: bool) {
+fn cli_case(process_output_failure: bool, deadline: Option<Instant>) {
     let h = qualified_handoff_v3_with_count_and_setup(1, |_| {});
     let root = Scratch::new();
     let store = cas(root.path());
@@ -202,7 +204,13 @@ fn cli_case(process_output_failure: bool) {
     // No external fixture reader is passed to this production command. It
     // must restore the original Node H closure from its retained CAS receipt.
     if process_output_failure {
-        let (status, stderr) = process::run(&config, Some(&input_path), root.path(), true);
+        let (status, stderr) = process::run(
+            &config,
+            Some(&input_path),
+            root.path(),
+            true,
+            deadline.unwrap(),
+        );
         assert!(!status.success());
         assert!(stderr.contains("public header Node report delivery failed"));
         assert!(stderr.contains("do not resubmit"));
@@ -221,7 +229,7 @@ fn cli_case(process_output_failure: bool) {
         .unwrap()
         .unwrap();
     }
-    server.join().unwrap().unwrap();
+    process::join_provider(server, deadline);
     let protected = snapshot.lock().unwrap().clone();
     assert!(protected.state.pending_driver_apply.is_none());
     assert!(protected.state.history.len() >= 2);
@@ -266,12 +274,13 @@ fn cli_case(process_output_failure: bool) {
     assert!(!public_json.contains(r#""payload_cbor":"#));
     assert!(!public_json.contains("shipping-wire3-node-cli-agent"));
     assert!(!public_json.contains("shipping-wire3-original-reservation-agent"));
+    let mut next_certificate = None;
     if process_output_failure {
         // A fresh shipping process restores the same retained H namespace without
         // resubmitting either action or contacting a new provider. The original
         // server is already stopped. Binding preparation does not mint authority.
         let before = serde_cbor::to_vec(&snapshot.lock().unwrap().state).unwrap();
-        let (status, stderr) = process::run(&config, None, root.path(), false);
+        let (status, stderr) = process::run(&config, None, root.path(), false, deadline.unwrap());
         assert!(status.success(), "cold binding process failed: {stderr}");
         let cold: serde_json::Value =
             serde_json::from_slice(&fs::read(root.path().join("process.stdout")).unwrap()).unwrap();
@@ -281,6 +290,58 @@ fn cli_case(process_output_failure: bool) {
             before
         );
         assert_eq!(protected.state.history.len(), 2);
+
+        // Cold-open the original software provider snapshot with the same keys
+        // and binding. Only its ephemeral loopback port changes; no new H,
+        // namespace, lease snapshot, or old action is supplied to the child.
+        assert!(snapshot.lock().unwrap().lease_token_digest.is_empty());
+        let (next_address, next_server) = tcp(service(&binding, snapshot.clone()));
+        config_value["provider_address"] = serde_json::json!(next_address);
+        private_file(&config, &serde_json::to_vec(&config_value).unwrap());
+        let next_actions = vec![
+            oasis7_node::NodeConsensusAction::from_payload(
+                9011,
+                "shipping-node-player",
+                payload("shipping-wire3-after-output-failure-agent"),
+            )
+            .unwrap(),
+        ];
+        let next_root = oasis7_node::compute_consensus_action_root(&next_actions).unwrap();
+        let next_path = root.path().join("next-actions.cbor");
+        private_file(&next_path, &serde_cbor::to_vec(&next_actions).unwrap());
+        let (status, stderr) = process::run(
+            &config,
+            Some(&next_path),
+            root.path(),
+            false,
+            deadline.unwrap(),
+        );
+        assert!(status.success(), "next business process failed: {stderr}");
+        process::join_provider(next_server, deadline);
+        let resumed = snapshot.lock().unwrap().state.clone();
+        assert_eq!(resumed.history.len(), 3);
+        assert_eq!(
+            serde_cbor::to_vec(&resumed.history[..2].to_vec()).unwrap(),
+            serde_cbor::to_vec(&protected.state.history).unwrap(),
+        );
+        assert!(resumed.pending_driver_apply.is_none());
+        assert_eq!(resumed.applied_installs.len(), 3);
+        let next = resumed.history.last().unwrap().clone();
+        assert_eq!(next.execution_commitment.action_root, next_root);
+        assert!(next.execution_commitment.height > height);
+        let delivered: serde_json::Value =
+            serde_json::from_slice(&fs::read(root.path().join("process.stdout")).unwrap()).unwrap();
+        assert_eq!(delivered["receipts"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            delivered["receipts"][0]["height"],
+            next.execution_commitment.height
+        );
+        assert_eq!(
+            delivered["receipts"][0]["header_id"],
+            next.header.block_id().unwrap()
+        );
+        assert_eq!(delivered["receipts"][0]["action_root"], next_root);
+        next_certificate = Some(next);
     }
     let public_bytes = serde_cbor::to_vec(&protected.state).unwrap();
     assert!(!public_bytes.windows(input.len()).any(|part| part == input));
@@ -315,6 +376,28 @@ fn cli_case(process_output_failure: bool) {
             .state_root_hash,
         certificate.execution_commitment.state_root
     );
+    if let Some(next) = next_certificate {
+        let cut = ledger
+            .verified_cut(
+                next.execution_commitment.height,
+                &next.header.block_id().unwrap(),
+            )
+            .unwrap();
+        for agent in [
+            "shipping-wire3-original-reservation-agent",
+            "shipping-wire3-node-cli-agent",
+            "shipping-wire3-after-output-failure-agent",
+        ] {
+            assert!(cut.world().state().agents.contains_key(agent));
+        }
+        assert_eq!(
+            cut.world()
+                .execution_state_identity()
+                .unwrap()
+                .state_root_hash,
+            next.execution_commitment.state_root,
+        );
+    }
 }
 
 #[path = "driver_bft_v3_node_cli_process.rs"]

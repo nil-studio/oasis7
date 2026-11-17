@@ -13,7 +13,12 @@ pub(super) fn run(
     actions: Option<&Path>,
     root: &Path,
     closed_stdout: bool,
+    scenario_deadline: Instant,
 ) -> (ExitStatus, String) {
+    assert!(
+        Instant::now() < scenario_deadline,
+        "shipping recovery budget exhausted"
+    );
     let binary = std::env::var_os("OASIS7_CHAIN_RUNTIME_BIN")
         .expect("real process test requires OASIS7_CHAIN_RUNTIME_BIN");
     let mut command = Command::new(binary);
@@ -37,7 +42,7 @@ pub(super) fn run(
         .stderr(fs::File::create(&stderr_path).unwrap())
         .spawn()
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(150);
+    let deadline = scenario_deadline.min(Instant::now() + Duration::from_secs(150));
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,
@@ -49,8 +54,26 @@ pub(super) fn run(
             }
         }
     };
+    assert!(Instant::now() < deadline, "shipping child exceeded its deadline");
     let stderr = fs::read_to_string(stderr_path).unwrap_or_else(|error: io::Error| {
         panic!("could not read shipping child diagnostics: {error}")
     });
     (status, stderr)
+}
+
+// Do not let provider cleanup extend the owner case's original absolute deadline.
+pub(super) fn join_provider(
+    server: thread::JoinHandle<Result<(), String>>,
+    deadline: Option<Instant>,
+) {
+    if let Some(deadline) = deadline {
+        while !server.is_finished() {
+            assert!(
+                Instant::now() < deadline,
+                "provider cleanup exceeded scenario budget"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+    server.join().unwrap().unwrap();
 }
