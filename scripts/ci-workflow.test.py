@@ -130,7 +130,7 @@ def selected_source_steps(name):
     if 'uses: ./.github/actions/setup-linux-mold' in steps:
         assert len(checkouts) == 2, 'workflow tools and one selected checkout are required'
         assert '          ref: ${{ github.workflow_sha }}\n' in checkouts[0], 'linker tools must use the workflow revision'
-        assert '          sparse-checkout: /.github/actions/setup-linux-mold/\n' in checkouts[0], 'only linker tools may precede source'
+        assert '          sparse-checkout: .github/actions/setup-linux-mold\n' in checkouts[0], 'only linker tools may precede source'
     else:
         assert len(checkouts) == 1, 'one selected checkout is required'
     if name in TRUSTED_SOURCE_WRITERS:
@@ -520,12 +520,68 @@ class Workflow(unittest.TestCase):
                                  if 'uses: ./.github/actions/setup-linux-mold' in step)
                     self.assertIn('uses: actions/checkout@', steps[setup - 1])
                     self.assertIn('ref: ${{ github.workflow_sha }}', steps[setup - 1])
-                    self.assertIn('sparse-checkout: /.github/actions/setup-linux-mold/', steps[setup - 1])
+                    self.assertIn('sparse-checkout: .github/actions/setup-linux-mold\n', steps[setup - 1])
+                    self.assertNotIn('sparse-checkout-cone-mode: false', steps[setup - 1])
                     self.assertIn('uses: actions/checkout@', steps[setup + 1])
                     self.assertNotIn('sparse-checkout:', steps[setup + 1])
                     if 'runs-on: ${{ matrix.' in job:
                         self.assertIn("if: runner.os == 'Linux'", steps[setup - 1])
                         self.assertIn("if: runner.os == 'Linux'", steps[setup])
+
+    def test_real_git_restores_business_files_after_sparse_linker_tools(self):
+        tools = re.search(r'^      - name: Check out workflow linker setup\n.*?(?=^      - |\Z)',
+                          JOBS['pr-governance-preview'], re.M | re.S).group()
+        pattern = re.search(r'^          sparse-checkout: (.+)$', tools, re.M)[1]
+        cone = 'sparse-checkout-cone-mode: false' not in tools
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'source'
+            source.mkdir()
+
+            def git(cwd, *args):
+                return subprocess.run(['git', *args], cwd=cwd, text=True,
+                                      capture_output=True, check=True).stdout.strip()
+
+            git(source, 'init', '-q', '--initial-branch=main')
+            git(source, 'config', 'user.name', 'CI fixture')
+            git(source, 'config', 'user.email', 'fixture@example.invalid')
+            git(source, 'config', 'commit.gpgSign', 'false')
+            (source / 'scripts').mkdir()
+            (source / 'scripts/ci-tests.sh').write_text('echo historical-source\n')
+            (source / 'Cargo.toml').write_text('[workspace]\n')
+            git(source, 'add', '.')
+            git(source, 'commit', '-qm', 'Business source before linker action')
+            historical = git(source, 'rev-parse', 'HEAD')
+            action = source / '.github/actions/setup-linux-mold'
+            action.mkdir(parents=True)
+            (action / 'action.yml').write_text('name: fixture\n')
+            (source / 'scripts/ci-tests.sh').write_text('echo current-source\n')
+            git(source, 'add', '.')
+            git(source, 'commit', '-qm', 'Add workflow linker tools')
+            current = git(source, 'rev-parse', 'HEAD')
+            for label, revision in (('current', current), ('historical', historical)):
+                with self.subTest(source=label):
+                    checkout = root / label
+                    git(root, 'clone', '-q', '--no-checkout', str(source), str(checkout))
+                    if cone:
+                        git(checkout, 'sparse-checkout', 'set', pattern)
+                    else:
+                        git(checkout, 'config', 'core.sparseCheckout', 'true')
+                        (checkout / '.git/info/sparse-checkout').write_text(pattern + '\n')
+                    git(checkout, 'checkout', '--force', current)
+                    self.assertTrue((checkout / '.github/actions/setup-linux-mold/action.yml').is_file())
+                    self.assertFalse((checkout / 'scripts/ci-tests.sh').exists())
+                    # Exact sparse-disable sequence in the pinned checkout action:
+                    # non-cone common config can become active again after unset.
+                    git(checkout, 'sparse-checkout', 'disable')
+                    git(checkout, 'config', '--local', '--unset-all', 'extensions.worktreeConfig')
+                    git(checkout, 'checkout', '--force', revision)
+                    self.assertEqual((checkout / 'scripts/ci-tests.sh').read_text(), f'echo {label}-source\n')
+                    self.assertTrue((checkout / 'Cargo.toml').is_file())
+                    self.assertEqual(git(checkout, 'rev-parse', 'HEAD'), revision)
+                    self.assertEqual(git(checkout, 'status', '--porcelain'), '')
+                    self.assertEqual((checkout / '.github/actions/setup-linux-mold/action.yml').exists(),
+                                     label == 'current')
 
     def test_step_aliases_preserve_order_and_reject_unknown_or_duplicate_definitions(self):
         workflow = '''jobs:

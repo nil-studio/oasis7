@@ -229,7 +229,8 @@ class WorkflowTests(unittest.TestCase):
         steps = re.findall(r'^      - .*?(?=^      - |\Z)', WORKFLOW.split('  analyze:', 1)[1], re.M | re.S)
         setup = next(i for i, step in enumerate(steps) if 'uses: ' + local_linker in step)
         self.assertIn('ref: ${{ github.workflow_sha }}', steps[setup - 1])
-        self.assertIn('sparse-checkout: /.github/actions/setup-linux-mold/', steps[setup - 1])
+        self.assertIn('sparse-checkout: .github/actions/setup-linux-mold\n', steps[setup - 1])
+        self.assertNotIn('sparse-checkout-cone-mode: false', steps[setup - 1])
         for step in steps[setup - 1:setup + 1]:
             self.assertIn("if: matrix.language == 'rust'", step)
         self.assertIn('ref: ${{ needs.plan.outputs.checkout }}', steps[setup + 1])

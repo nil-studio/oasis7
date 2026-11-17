@@ -130,8 +130,7 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
-          sparse-checkout: /.github/actions/setup-linux-mold/
-          sparse-checkout-cone-mode: false
+          sparse-checkout: .github/actions/setup-linux-mold
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       # Omitting sparse-checkout disables it and restores the full business source.
@@ -238,8 +237,7 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
-          sparse-checkout: /.github/actions/setup-linux-mold/
-          sparse-checkout-cone-mode: false
+          sparse-checkout: .github/actions/setup-linux-mold
       - name: Configure mold for Linux host linking
         if: runner.os == 'Linux'
         uses: ./.github/actions/setup-linux-mold

@@ -201,8 +201,7 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
-          sparse-checkout: /.github/actions/setup-linux-mold/
-          sparse-checkout-cone-mode: false
+          sparse-checkout: .github/actions/setup-linux-mold
       - name: Configure mold for Linux host linking
         if: matrix.language == 'rust'
         uses: ./.github/actions/setup-linux-mold
