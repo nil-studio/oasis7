@@ -775,6 +775,8 @@ fn registration_projection_keeps_exact_kind_and_optional_origin_alias() {
     for (kind, event_kind) in [
         ("TurnStarted", "DecisionRejected"),
         ("IndependentEvent", "TurnStarted"),
+        ("TurnStarted", "TurnStarted"),
+        ("IndependentEvent", "IndependentEvent"),
     ] {
         for origin in [
             json!("origin-界"),
@@ -791,13 +793,36 @@ fn registration_projection_keeps_exact_kind_and_optional_origin_alias() {
             value["request_digest"] = format!("blake3:{}", "1".repeat(64)).into();
             value["origin_request_digest"] = origin.clone();
             refresh(CognitionHistoryFieldV1::JournalEvents, &mut value);
+            if kind != event_kind {
+                // A valid digest does not make conflicting dense journal aliases valid.
+                assert!(matches!(
+                    old(CognitionHistoryFieldV1::JournalEvents, &value)
+                        .unwrap()
+                        .identity_status(),
+                    CognitionOriginalIdentityStatusV1::DigestMatched(_)
+                ));
+                assert!(matches!(
+                    strict(CognitionHistoryFieldV1::JournalEvents, &value),
+                    Err(ValueTreeError::Invalid(
+                        "Cognition original local record fields"
+                    ))
+                ));
+                continue;
+            }
             let schema = strict(CognitionHistoryFieldV1::JournalEvents, &value).unwrap();
+            assert_eq!(schema.event_kind(), Some(event_kind));
             let projection = schema.journal_lifecycle().unwrap();
             assert_eq!(projection.registration_kind(), text(kind));
-            assert_eq!(projection.keys()[0], text("agent-a"));
             assert_eq!(
-                projection.keys()[4],
-                text(value["request_digest"].as_str().unwrap())
+                projection.keys(),
+                &[
+                    "agent-a",
+                    "session-a",
+                    "turn-a",
+                    "request-a",
+                    value["request_digest"].as_str().unwrap(),
+                ]
+                .map(text)
             );
             match origin.as_str() {
                 Some(origin) => assert_eq!(projection.origin_request_digest(), text(origin)),
