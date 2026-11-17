@@ -13,7 +13,8 @@ fn main() -> std::process::ExitCode {
 
 // This public, fixed diagnostic must survive a failed stdout delivery. Do not
 // mirror arbitrary library errors: those can contain private paths or inputs.
-const PUBLIC_DELIVERY_FAILURE: &str = "public header Node report delivery failed; actions may already be committed; do not resubmit";
+const PUBLIC_DELIVERY_FAILURE: &str =
+    "public header Node report delivery failed; actions may already be committed; do not resubmit";
 
 fn report_delivery_failure(error: &str, stderr: &mut impl std::io::Write) {
     if error == PUBLIC_DELIVERY_FAILURE {
