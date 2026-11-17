@@ -1078,6 +1078,9 @@
     "command_center": []
   },
   "scoped_control_paths": {
+    ".github/workflows/diagnose-5515-mutation.yml": ["workflow_governance"],
+    "scripts/ci-diagnose-5515-mutation.py": ["workflow_governance"],
+    "scripts/ci-diagnose-5515-mutation.test.py": ["workflow_governance"],
     "scripts/ci-governance-preview.py": ["workflow_governance"],
     "scripts/ci-governance-preview.test.py": ["workflow_governance"],
     "scripts/ci-apt-install.py": ["workflow_governance"],
@@ -1158,6 +1161,7 @@
     "scripts/plan-rust-required-scope.test.py": ["workflow_governance"]
   },
   "workflow_governance_python_tests": [
+    "scripts/ci-diagnose-5515-mutation.test.py",
     "scripts/plan-rust-required-scope.test.py",
     "scripts/ci-local-check-plan.test.py",
     "scripts/ci-local-check.test.py",
@@ -1190,6 +1194,8 @@
   ],
   "python_control_contract_version": 1,
   "python_control_contracts": {
+    "scripts/ci-diagnose-5515-mutation.py": {"group": "workflow_governance", "tests": ["scripts/ci-diagnose-5515-mutation.test.py"]},
+    "scripts/ci-diagnose-5515-mutation.test.py": {"group": "workflow_governance", "tests": ["scripts/ci-diagnose-5515-mutation.test.py"]},
     "scripts/ci-linux-mold.test.py": {
       "group": "workflow_governance",
       "tests": ["scripts/ci-linux-mold.test.py", "scripts/ci-workflow.test.py"]

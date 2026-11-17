@@ -1,0 +1,52 @@
+name: Full-sync fixed mutation diagnostic
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: full-sync-fixed-mutation-5515
+  cancel-in-progress: false
+jobs:
+  fixed-experiment:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      CARGO_TERM_COLOR: never
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: trusted-runner
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ef4f2cee67b696430d28ce6062c45eae2638364e
+          path: experiment-source
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.12'
+      - name: Prepare fixed Rust toolchain
+        timeout-minutes: 5
+        run: rustup toolchain install 1.96.0 --profile minimal
+      - name: Prepare native build dependencies
+        timeout-minutes: 11
+        run: |
+          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 trusted-runner/scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- clang llvm pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+      - name: Runner contract tests
+        run: python3 trusted-runner/scripts/ci-diagnose-5515-mutation.test.py
+      - name: Fixed GREEN RED restored-GREEN
+        timeout-minutes: 66
+        run: python3 trusted-runner/scripts/ci-diagnose-5515-mutation.py
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: mutation-5515-${{ github.run_id }}-${{ github.run_attempt }}
+          path: mutation-5515-result.json
+          retention-days: 14
+          if-no-files-found: warn
