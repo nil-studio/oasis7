@@ -553,7 +553,14 @@ fn directory_sync_failure_after_rename_poisons_memory_and_reopen_follows_disk_fl
 
 #[test]
 fn explicit_policy_upgrade_preserves_floors_and_acceptance_matrix() {
-    for interrupted in [false, true] {
+    for phase in [
+        "uninterrupted",
+        "intent-prefix",
+        "intent",
+        "state-prefix",
+        "state-complete",
+        "renamed",
+    ] {
         let fixture = fixture();
         let receiver = open(&fixture);
         let remote = Keypair::generate_ed25519();
@@ -601,7 +608,10 @@ fn explicit_policy_upgrade_preserves_floors_and_acceptance_matrix() {
             "live writer holds lock"
         );
         drop(receiver);
-        if interrupted {
+        let mut target_ledger = before.clone();
+        target_ledger.mode = PeerRecordReceiverMode::V2Only;
+        let target_bytes = state_bytes(&target_ledger);
+        if phase != "uninterrupted" {
             use std::os::unix::fs::PermissionsExt;
             #[derive(Serialize)]
             struct Intent {
@@ -610,9 +620,6 @@ fn explicit_policy_upgrade_preserves_floors_and_acceptance_matrix() {
                 source_blake3: String,
                 target_blake3: String,
             }
-            let mut target_ledger = before.clone();
-            target_ledger.mode = PeerRecordReceiverMode::V2Only;
-            let target_bytes = state_bytes(&target_ledger);
             let intent = super::super::durable_peer_record_publisher::canonical_cbor(&Intent {
                 schema_version: 3,
                 binding: before.binding.clone(),
@@ -623,9 +630,40 @@ fn explicit_policy_upgrade_preserves_floors_and_acceptance_matrix() {
             let intent_path = fixture
                 .directory
                 .join("peer-record-receiver-v2.initializing.cbor");
-            fs::write(&intent_path, intent).unwrap();
-            fs::set_permissions(&intent_path, fs::Permissions::from_mode(0o600)).unwrap();
-            write_state(&fixture, &target_bytes);
+            let write_private = |path: &Path, bytes: &[u8]| {
+                fs::write(path, bytes).unwrap();
+                fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+            };
+            if phase == "intent-prefix" {
+                write_private(
+                    &fixture
+                        .directory
+                        .join("peer-record-receiver-v2.initializing.cbor.tmp"),
+                    &intent[..intent.len() / 2],
+                );
+            } else {
+                write_private(&intent_path, &intent);
+            }
+            match phase {
+                "state-prefix" => write_private(
+                    &fixture.directory.join(STATE_TEMP_FILE),
+                    &target_bytes[..target_bytes.len() / 2],
+                ),
+                "state-complete" => {
+                    write_private(&fixture.directory.join(STATE_TEMP_FILE), &target_bytes)
+                }
+                "renamed" => write_state(&fixture, &target_bytes),
+                _ => {}
+            }
+            assert!(
+                PeerRecordReceiver::open(
+                    &fixture.config,
+                    &fixture.local_key,
+                    Some(&fixture.template),
+                )
+                .is_err(),
+                "old mode must reject pending {phase}"
+            );
             assert!(
                 PeerRecordReceiver::open(&target, &fixture.local_key, Some(&fixture.template))
                     .is_err()
@@ -635,8 +673,16 @@ fn explicit_policy_upgrade_preserves_floors_and_acceptance_matrix() {
             .unwrap();
         PeerRecordReceiver::upgrade_to_v2_only(&target, &fixture.local_key, &fixture.template)
             .unwrap();
-        let after: ReceiverLedgerV2 =
-            serde_cbor::from_slice(&fs::read(state_path(&fixture)).unwrap()).unwrap();
+        let recovered_bytes = fs::read(state_path(&fixture)).unwrap();
+        assert_eq!(recovered_bytes, target_bytes, "exact target after {phase}");
+        assert!(!fixture.directory.join(STATE_TEMP_FILE).exists());
+        for pending in [
+            "peer-record-receiver-v2.initializing.cbor",
+            "peer-record-receiver-v2.initializing.cbor.tmp",
+        ] {
+            assert!(!fixture.directory.join(pending).exists(), "{phase}: {pending}");
+        }
+        let after: ReceiverLedgerV2 = serde_cbor::from_slice(&recovered_bytes).unwrap();
         assert_eq!(before.binding, after.binding);
         assert_eq!(
             before.floors, after.floors,
