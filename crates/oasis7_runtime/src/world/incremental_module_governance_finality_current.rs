@@ -390,4 +390,3 @@ pub(in crate::world) fn read_current_module_epoch_snapshot_v1<
     }).map_err(CurrentModuleGovernanceFinalityErrorV1::Body)?;
     result.map_err(|(error, fees)| CurrentModuleGovernanceFinalityErrorV1::World { error, fees })
 }
-

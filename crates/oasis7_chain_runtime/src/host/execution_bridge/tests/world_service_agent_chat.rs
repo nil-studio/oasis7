@@ -293,8 +293,10 @@ fn canonical_owner_chat_driver_dedup_restart_rejection_and_replacement() {
     assert_eq!(
         authorized
             .canonical_agent_chat
+            .as_ref()
             .unwrap()
             .goal
+            .as_ref()
             .unwrap()
             .message,
         "private canonical goal 1"
