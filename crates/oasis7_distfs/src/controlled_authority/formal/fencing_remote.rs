@@ -31,6 +31,11 @@ fn connect_oracle(address: &SocketAddr, timeout: Duration) -> Result<TcpStream, 
     Ok(stream)
 }
 
+#[path = "fencing_remote_lease_failure.rs"]
+mod lease_failure;
+#[cfg(test)]
+#[path = "fencing_remote_lease_failure_tests.rs"]
+mod lease_failure_tests;
 #[path = "fencing_remote_durable_set.rs"]
 mod durable_set_client;
 #[path = "fencing_remote_protected.rs"]
@@ -130,6 +135,7 @@ impl RemoteMonotonicEndpointProvider {
     }
 }
 struct RemoteGuard {
+    failed: bool,
     stream: Mutex<TcpStream>,
     instance: EndpointInstanceBindingV1,
     key: SigningKey,
@@ -282,6 +288,7 @@ impl MonotonicEndpointProvider for RemoteMonotonicEndpointProvider {
             MonotonicOracleCommandV1::Acquire(initial.clone()),
         )?;
         Ok(Box::new(RemoteGuard {
+            failed: false,
             stream: Mutex::new(stream),
             instance: instance.clone(),
             key: self.key.clone(),
@@ -295,7 +302,7 @@ impl MonotonicEndpointGuard for RemoteGuard {
         &mut self,
         request: ProtectedEndpointSigningRequestV1,
     ) -> Result<ProtectedEndpointSignatureV1, FencingError> {
-        protected_client::protected_sign(self, request)
+        self.with_live_lease(|guard| protected_client::protected_sign(guard, request))
     }
     fn durable_set_state(&self) -> Option<&DurableSetProviderStateV1> {
         self.state.durable_set.as_ref()
@@ -313,71 +320,13 @@ impl MonotonicEndpointGuard for RemoteGuard {
         self.state.seal.as_ref()
     }
     fn begin(&mut self, intent: CheckpointIntentV1) -> Result<(), FencingError> {
-        if self
-            .state
-            .durable_set
-            .as_ref()
-            .is_some_and(|s| s.activation_digest.is_none())
-        {
-            return Err(FencingError::FencingUnproven);
-        }
-        if self.state.seal.is_some() {
-            return Err(FencingError::EpochSealed);
-        }
-        let state = exchange(
-            self.stream
-                .get_mut()
-                .map_err(|_| invalid("oracle stream poisoned"))?,
-            &self.instance,
-            &self.key,
-            &self.policy,
-            Some(&self.state.lease),
-            MonotonicOracleCommandV1::Begin(Box::new(intent.clone())),
-        )?;
-        if state.checkpoint != intent.previous
-            || state.pending.as_ref() != Some(&intent)
-            || state.resource_binding != self.state.resource_binding
-            || state.durable_set != self.state.durable_set
-            || state.protected_custody != self.state.protected_custody
-            || state.seal != self.state.seal
-        {
-            return Err(FencingError::FencingUnproven);
-        }
-        self.state = state;
-        Ok(())
+        self.with_live_lease(|guard| guard.begin_live(intent))
     }
     fn finish(&mut self) -> Result<(), FencingError> {
-        let intent = self
-            .state
-            .pending
-            .clone()
-            .ok_or_else(|| invalid("oracle finish without pending intent"))?;
-        let state = exchange(
-            self.stream
-                .get_mut()
-                .map_err(|_| invalid("oracle stream poisoned"))?,
-            &self.instance,
-            &self.key,
-            &self.policy,
-            Some(&self.state.lease),
-            MonotonicOracleCommandV1::Finish,
-        )?;
-        if state.checkpoint != intent.next
-            || state.resource_binding != self.state.resource_binding
-            || state.durable_set != self.state.durable_set
-            || state.protected_custody != self.state.protected_custody
-            || (self.state.protected_custody.is_some()
-                && state.native_checkpoint_bytes.as_ref() != Some(&intent.checkpoint_bytes))
-            || state.pending.is_some()
-            || state.seal != intent.seal.or(self.state.seal.clone())
-        {
-            return Err(FencingError::FencingUnproven);
-        }
-        self.state = state;
-        Ok(())
+        self.with_live_lease(Self::finish_live)
     }
     fn evidence(&self) -> Result<MonotonicProviderEvidenceV1, FencingError> {
-        if self.state.pending.is_some() {
+        if self.failed || self.state.pending.is_some() {
             return Err(FencingError::FencingUnproven);
         }
         self.state
@@ -421,5 +370,72 @@ mod transport_tests {
             assert_eq!(actual_header, header);
             assert_eq!(actual_body, body);
         }
+    }
+}
+
+impl RemoteGuard {
+    fn begin_live(&mut self, intent: CheckpointIntentV1) -> Result<(), FencingError> {
+        if self
+            .state
+            .durable_set
+            .as_ref()
+            .is_some_and(|s| s.activation_digest.is_none())
+        {
+            return Err(FencingError::FencingUnproven);
+        }
+        if self.state.seal.is_some() {
+            return Err(FencingError::EpochSealed);
+        }
+        let state = exchange(
+            self.stream
+                .get_mut()
+                .map_err(|_| invalid("oracle stream poisoned"))?,
+            &self.instance,
+            &self.key,
+            &self.policy,
+            Some(&self.state.lease),
+            MonotonicOracleCommandV1::Begin(Box::new(intent.clone())),
+        )?;
+        if state.checkpoint != intent.previous
+            || state.pending.as_ref() != Some(&intent)
+            || state.resource_binding != self.state.resource_binding
+            || state.durable_set != self.state.durable_set
+            || state.protected_custody != self.state.protected_custody
+            || state.seal != self.state.seal
+        {
+            return Err(FencingError::FencingUnproven);
+        }
+        self.state = state;
+        Ok(())
+    }
+    fn finish_live(&mut self) -> Result<(), FencingError> {
+        let intent = self
+            .state
+            .pending
+            .clone()
+            .ok_or_else(|| invalid("oracle finish without pending intent"))?;
+        let state = exchange(
+            self.stream
+                .get_mut()
+                .map_err(|_| invalid("oracle stream poisoned"))?,
+            &self.instance,
+            &self.key,
+            &self.policy,
+            Some(&self.state.lease),
+            MonotonicOracleCommandV1::Finish,
+        )?;
+        if state.checkpoint != intent.next
+            || state.resource_binding != self.state.resource_binding
+            || state.durable_set != self.state.durable_set
+            || state.protected_custody != self.state.protected_custody
+            || (self.state.protected_custody.is_some()
+                && state.native_checkpoint_bytes.as_ref() != Some(&intent.checkpoint_bytes))
+            || state.pending.is_some()
+            || state.seal != intent.seal.or(self.state.seal.clone())
+        {
+            return Err(FencingError::FencingUnproven);
+        }
+        self.state = state;
+        Ok(())
     }
 }
