@@ -145,10 +145,27 @@ fn real_genesis_endpoint_stages_complete_evidence_but_never_issues_prepare_recei
     ));
 }
 
+struct AcceptedGenesisFixture<'a> {
+    primary: FileFormalEndpoint,
+    replica: FileFormalEndpoint,
+    primary_provider:
+        &'a Arc<oasis7_distfs::controlled_authority::fencing::RemoteMonotonicEndpointProvider>,
+    replica_provider:
+        &'a Arc<oasis7_distfs::controlled_authority::fencing::RemoteMonotonicEndpointProvider>,
+    policy: &'a oasis7_distfs::controlled_authority::fencing::TrustedFencingPolicyV1,
+    memory: &'a MemoryBudget,
+    work: &'a oasis7_distfs::controlled_authority::formal::endpoint::FormalArchiveReadWorkV1,
+    authority: &'a formal::VerifiedAuthorityV1,
+    candidate: &'a oasis7_distfs::controlled_authority::formal::endpoint::FormalCandidateMaterialV1,
+    expected: &'a formal::VerifiedFormalCommitV1,
+    primary_root: &'a std::path::Path,
+    replica_root: &'a std::path::Path,
+}
+
 /// One actual physical GEN is shared by both endpoint verifiers. No accepted
 /// setter, staged flag, local-key receipt or profile-2 persistence is used.
-#[test]
-fn real_genesis_dual_remote_quorum_durably_accepts_and_promotes_exact_cache() {
+/// The callback borrows the original meter and runs inside the real oracle scope.
+fn with_real_accepted_genesis(run: impl FnOnce(AcceptedGenesisFixture<'_>)) {
     use oasis7_distfs::controlled_authority::fencing::TrustedFencingPolicyV1;
     use oasis7_distfs::controlled_authority::formal::endpoint::{
         FormalArchiveReadWorkV1, FormalQueryOutcomeV1, FormalRequestStateV1,
@@ -358,81 +375,32 @@ fn real_genesis_dual_remote_quorum_durably_accepts_and_promotes_exact_cache() {
                 std::fs::read(rdir.join("formal-checkpoint-v1.cbor")).unwrap(),
                 before_replica
             );
-            // The true accepted sources are consumed into the actual Host API.
-            // This fixture's native descriptor/executable is deliberately not a
-            // runnable platform worker; it must never become a current Host.
-            use oasis7_chain_runtime::iws_host_runtime::{IwsHostRuntimeErrorV1, IwsHostRuntimeV1};
-            use oasis7_wasm_executor::bounded_worker::WorkerLimitsV1;
-            use std::sync::atomic::AtomicBool;
-            let source = primary
-                .into_accepted_genesis_host_source_bounded(
-                    primary_provider.as_ref(),
-                    &policy,
-                    &memory,
-                    &work,
-                    &mut || false,
-                )
-                .unwrap();
-            assert_eq!(source.record_id(), expected.verified_record_id());
-            assert!(source.uses_budget(&memory));
-            assert!(source.reserved_bytes() > 0);
-            let foreign = MemoryBudget::new(1 << 20, 0).unwrap();
-            {
-                let mut stop = || false;
-                let mut ctx = work.bounded_context(&foreign, &mut stop);
-                assert!(source.validate_context(&mut ctx).is_err());
-            }
-            assert_eq!(foreign.used(), 0);
-            let other_work = FormalArchiveReadWorkV1::new(1000, 1 << 20).unwrap();
-            {
-                let mut stop = || false;
-                let mut ctx = other_work.bounded_context(&memory, &mut stop);
-                assert!(source.validate_context(&mut ctx).is_err());
-            }
-            let worker_limits = || WorkerLimitsV1 {
-                address_space_bytes: 64 << 20,
-                max_request_bytes: 1 << 20,
-                max_output_bytes: 4096,
-                wall_time_ms: 5000,
-            };
-            let mut host = IwsHostRuntimeV1::default();
-            assert!(
-                host.install_accepted_genesis_source_bounded(
-                    source,
-                    worker_limits(),
-                    &memory,
-                    &work,
-                    &AtomicBool::new(true)
-                )
-                .is_err()
-            );
-            assert!(!host.is_installed());
-            assert_eq!(host.current_fence(), None);
-            assert_eq!(host.generation(), 0);
-            let error = host
-                .install_genesis_bounded(
-                    replica,
-                    replica_provider.as_ref(),
-                    &policy,
-                    worker_limits(),
-                    &memory,
-                    &work,
-                    &AtomicBool::new(false),
-                )
-                .unwrap_err();
-            assert!(
-                matches!(
-                    error,
-                    IwsHostRuntimeErrorV1::Formal(_)
-                        | IwsHostRuntimeErrorV1::Protocol(_)
-                        | IwsHostRuntimeErrorV1::Environment(_)
-                ),
-                "{error:?}"
-            );
-            assert!(!host.is_installed());
-            assert_eq!(host.current_fence(), None);
-            assert_eq!(host.generation(), 0);
+            run(AcceptedGenesisFixture {
+                primary,
+                replica,
+                primary_provider: &primary_provider,
+                replica_provider: &replica_provider,
+                policy: &policy,
+                memory: &memory,
+                work: &work,
+                authority,
+                candidate,
+                expected: &expected,
+                primary_root: &pdir,
+                replica_root: &rdir,
+            });
         },
     )
     .unwrap();
 }
+
+#[path = "support/genesis_endpoint_host_rejection.rs"]
+mod host_rejection;
+
+#[test]
+fn real_genesis_dual_remote_quorum_durably_accepts_and_promotes_exact_cache() {
+    with_real_accepted_genesis(host_rejection::check);
+}
+
+#[path = "support/genesis_endpoint_frozen_recovery.rs"]
+mod frozen_recovery;

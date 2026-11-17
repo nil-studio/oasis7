@@ -103,6 +103,7 @@ mod tests {
     fn real_directory_symlink_and_writable_owner_paths_are_rejected() {
         use std::os::unix::{fs::PermissionsExt, fs::symlink};
         let fixture = Fixture::new();
+        directory(&fixture.0).unwrap();
         let value = object(vec![17; 100000]);
         persist(&fixture.0, std::slice::from_ref(&value)).unwrap();
         let frames = fixture.0.join(FRAMES);
@@ -125,10 +126,31 @@ mod tests {
             super::super::super::business_pack::read_object(&fixture.0.join(&raw.0), &raw.0)
                 .is_err()
         );
-        // Real foreign-owner metadata, without requiring elevated chown.
+        // Use actual ownership, not the assumption that a non-root process
+        // cannot own /. User-namespace containers can map / to the caller.
         // SAFETY: geteuid has no caller preconditions.
-        if unsafe { libc::geteuid() } != 0 {
-            assert!(directory(Path::new("/")).is_err());
+        let owner = unsafe { libc::geteuid() };
+        let mut foreign_owner_checked = false;
+        for path in ["/", "/etc", "/usr"] {
+            let path = Path::new(path);
+            let Ok(metadata) = fs::symlink_metadata(path) else {
+                continue;
+            };
+            // Exclude links, wrong types and writable paths so only the
+            // foreign-owner predicate can explain this rejection.
+            if metadata.is_dir() && metadata.uid() != owner && metadata.mode() & 0o022 == 0 {
+                let error = directory(path).unwrap_err();
+                assert!(
+                    matches!(&error, FormalError::Invalid(reason) if reason == "physical registered owner/write mode"),
+                    "{path:?}: {error}"
+                );
+                foreign_owner_checked = true;
+            }
+        }
+        if !foreign_owner_checked {
+            eprintln!(
+                "foreign-owner directory fixture unavailable; owner-mismatch subcase not exercised"
+            );
         }
     }
 }

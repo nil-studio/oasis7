@@ -305,7 +305,7 @@ fn failure(
     }
 }
 fn finish_freeze(
-    source: NormalFrozenTransactionV1,
+    mut source: NormalFrozenTransactionV1,
     original: PaidRequestStateV1,
     reservation: ReservedValue<VerifiedFormalReservationV1>,
     provider: &RemoteMonotonicEndpointProvider,
@@ -314,10 +314,26 @@ fn finish_freeze(
     work: &FormalArchiveReadWorkV1,
     stop: &mut dyn FnMut() -> bool,
 ) -> Result<PaidNormalFrozenEndpointV1, NormalFrozenFailureV1> {
-    let update = source
+    let update = match source
         .endpoint
         .store
-        .prepare_request_update_bounded(&original, memory, work, stop)?;
+        .prepare_request_update_bounded(&original, memory, work, stop)
+    {
+        Ok(value) => value,
+        Err(cause) => {
+            // Preparation already owns the parent, request and reservation.
+            // Close this FD, but keep those exact owners for reconciliation.
+            drop(source.lease.take());
+            return Err(failure(
+                NormalFrozenRecoveryV1 {
+                    source,
+                    cause: cause.into(),
+                },
+                original,
+                reservation,
+            ));
+        }
+    };
     let mut source = match source.publish(update, provider, policy, memory, work, stop) {
         Ok(source) => source,
         Err(recovery) => return Err(failure(recovery, original, reservation)),
