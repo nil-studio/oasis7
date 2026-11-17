@@ -220,3 +220,94 @@ fn a_child_on_one_meter_does_not_lock_or_alias_another_meter() {
     lease.finish();
     assert_ne!(one.identity(), two.identity());
 }
+
+#[test]
+fn typed_debit_keeps_dual_saturation_and_original_error_priority() {
+    let work = FormalBoundedWorkV1::new(2, 3).unwrap();
+    assert_eq!(
+        work.charge_typed(4, 5, &mut || false),
+        Err(FormalBoundedChargeErrorV1::StepLimit)
+    );
+    assert_eq!(
+        (work.remaining_steps(), work.remaining_read_bytes()),
+        (0, 0)
+    );
+    let work = FormalBoundedWorkV1::new(4, 2).unwrap();
+    assert_eq!(
+        work.charge_typed(1, 3, &mut || false),
+        Err(FormalBoundedChargeErrorV1::ByteLimit)
+    );
+    assert_eq!(
+        (work.remaining_steps(), work.remaining_read_bytes()),
+        (3, 0)
+    );
+}
+
+#[test]
+fn typed_context_preserves_callback_debits_and_cancellation_priority() {
+    let memory = MemoryBudget::new(0, 0).unwrap();
+    let work = FormalBoundedWorkV1::new(10, 20).unwrap();
+    let mut stop = || {
+        work.charge(2, 3, &mut || false).unwrap();
+        true
+    };
+    let mut ctx = FormalBoundedContextV1::new(&memory, &work, &mut stop);
+    assert_eq!(
+        ctx.consume_steps_typed(7),
+        Err(FormalBoundedChargeErrorV1::Cancelled)
+    );
+    assert_eq!(
+        (work.remaining_steps(), work.remaining_read_bytes()),
+        (8, 17)
+    );
+    assert_eq!(memory.used(), 0);
+}
+
+#[test]
+fn typed_context_checks_child_gate_before_and_after_callback() {
+    let memory = MemoryBudget::new(0, 0).unwrap();
+    let work = FormalBoundedWorkV1::new(8, 9).unwrap();
+    let lease = work.begin_child().unwrap();
+    let mut calls = 0;
+    let mut stop = || {
+        calls += 1;
+        false
+    };
+    let mut ctx = FormalBoundedContextV1::new(&memory, &work, &mut stop);
+    assert_eq!(
+        ctx.consume_steps_typed(1),
+        Err(FormalBoundedChargeErrorV1::ChildReadActive)
+    );
+    assert_eq!(calls, 0);
+    lease.finish();
+
+    let mut held = None;
+    let mut stop = || {
+        held = Some(work.begin_child().unwrap());
+        false
+    };
+    let mut ctx = FormalBoundedContextV1::new(&memory, &work, &mut stop);
+    assert_eq!(
+        ctx.consume_steps_typed(1),
+        Err(FormalBoundedChargeErrorV1::ChildReadActive)
+    );
+    assert_eq!(
+        (work.remaining_steps(), work.remaining_read_bytes()),
+        (8, 9)
+    );
+    held.take().unwrap().finish();
+}
+
+#[test]
+fn fixed_charge_errors_keep_all_legacy_messages_without_owned_payloads() {
+    use FormalBoundedChargeErrorV1::*;
+    assert!(!std::mem::needs_drop::<FormalBoundedChargeErrorV1>());
+    for (error, expected) in [
+        (ChildReadActive, "bounded archive child read active"),
+        (Cancelled, "bounded archive read cancelled"),
+        (StepLimit, "bounded archive read steps"),
+        (ByteLimit, "bounded archive read bytes"),
+    ] {
+        assert_invalid(FormalError::from(error), expected);
+    }
+}
