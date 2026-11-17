@@ -4892,17 +4892,24 @@ class RuntimeWorkerCompanionContracts(unittest.TestCase):
         return archive, consumer, environment
 
     def build_fixture(self, *, cases=None, ignored=(), package='oasis7_runtime',
-                      platform='linux', minimum=None, worker_error=None):
+                      platform='linux', minimum=None, worker_error=None,
+                      target_name=None, target_kind='lib', features=None):
         # Synthetic compiler output isolates orchestration; no fake executable is
         # used as proof of real Cargo or product behavior. The real Process
         # fixtures independently keep feature and full-harness verification.
         root = Path(tempfile.mkdtemp(dir=self.root))
         target_dir = root / 'target/debug'
         target_dir.mkdir(parents=True)
+        harness_name = target_name or package
+        consumer_features = features if features is not None else ['test_tier_required']
+        consumer_args = ['test', '-p', package, '--lib', '--no-run']
+        if target_kind == 'test':
+            consumer_args = ['test', '-p', package, '--test', harness_name,
+                             '--no-default-features', '--features', ','.join(consumer_features), '--no-run']
         messages = []
-        for name, target, test, features in (
-                (package, package, True, ['test_tier_required']),
-                ('oasis7_wasm_executor', 'oasis7-wasm-worker', False, ['wasmtime'])):
+        for name, target, kind, test, features in (
+                (package, harness_name, target_kind, True, consumer_features),
+                ('oasis7_wasm_executor', 'oasis7-wasm-worker', 'bin', False, ['wasmtime'])):
             member = root / 'crates' / name
             member.mkdir(parents=True, exist_ok=True)
             manifest = member / 'Cargo.toml'
@@ -4911,13 +4918,13 @@ class RuntimeWorkerCompanionContracts(unittest.TestCase):
             executable.write_bytes(target.encode())
             executable.chmod(0o755)
             messages.append(dict(reason='compiler-artifact', fresh=False,
-                manifest_path=str(manifest), target=dict(name=target, kind=['lib' if test else 'bin']),
+                manifest_path=str(manifest), target=dict(name=target, kind=[kind]),
                 profile=dict(test=test), features=features, executable=str(executable)))
         library = target_dir / 'libexecutor_fixture.so'
         library.write_bytes(b'actual linked fixture dependency')
         cases = sorted(cases if cases is not None else ['unrelated_case', artifacts.RUNTIME_WORKER_TEST])
-        target = FastTargetInventory().target(package=package, target_kind='lib', target_name=package,
-                                             cases=minimum or ['unrelated_case'])
+        target = FastTargetInventory().target(package=package, target_kind=target_kind, target_name=harness_name,
+                                             features=consumer_features, cases=minimum or ['unrelated_case'])
         plan = FastTargetInventory().selection([target]) if minimum is not None else None
         variant = 'required-fast-0' if plan is not None else 'required'
         commands, observed, recorded = [], [], []
@@ -4961,7 +4968,7 @@ class RuntimeWorkerCompanionContracts(unittest.TestCase):
              patch.object(artifacts, 'validate_plan_identity'), \
              patch.object(artifacts, 'build_variants', side_effect=lambda scope, selected=None:
                           original_variants(scope) if plan is not None and selected is None else [
-                              (variant, ['test', '-p', package, '--lib', '--no-run'], ['test_tier_required'])]), \
+                              (variant, consumer_args, consumer_features)]), \
              patch.object(artifacts.subprocess, 'Popen', side_effect=cargo), \
              patch.object(artifacts.subprocess, 'run', side_effect=lambda command, **kwargs:
                           subprocess.CompletedProcess(command, 0, stdout=
@@ -5070,6 +5077,84 @@ class RuntimeWorkerCompanionContracts(unittest.TestCase):
         self.library.write_bytes(b'tampered dependency')
         with self.assertRaisesRegex(ValueError, 'corrupt executable/library'):
             artifacts.validate_runtime_worker_companion(self.bundle, bad_library)
+
+    def test_iws_action_body_worker_requires_exact_target_and_active_case_inventory(self):
+        case = 'actual_queued_body_actions_match_world_and_read_prior_current_write'
+        manifest = self.manifest()
+        binary = manifest['binaries']['runtime-module-tests']
+        binary.update(target='iws_action_body', target_kind=['test'], tests=[case])
+        with patch.object(artifacts.sys, 'platform', 'linux'):
+            self.assertTrue(artifacts.runtime_worker_test_selected(manifest))
+            self.assertFalse(artifacts.runtime_worker_test_selected(manifest, ['viewer']))
+            for field, value in (('package', 'another_package'), ('target', 'another_target'),
+                                 ('target_kind', ['lib']), ('ordinary', False), ('test', False),
+                                 ('tests', []), ('tests', ['unrelated_case']), ('tests', [None]),
+                                 ('tests', [case + '_suffix']), ('tests', ['prefix::' + case]),
+                                 ('ignored_tests', [case]), ('ignored_tests', [None])):
+                broken = copy.deepcopy(manifest)
+                broken['binaries']['runtime-module-tests'][field] = value
+                with self.subTest(field=field, value=value):
+                    self.assertFalse(artifacts.runtime_worker_test_selected(broken))
+        with patch.object(artifacts.sys, 'platform', 'darwin'):
+            self.assertFalse(artifacts.runtime_worker_test_selected(manifest))
+
+    def test_iws_action_body_builder_keeps_required_consumer_and_separate_worker_features(self):
+        case = 'actual_queued_body_actions_match_world_and_read_prior_current_write'
+        options = dict(target_name='iws_action_body', target_kind='test',
+                       features=['test_tier_required', 'test-support'])
+        manifest, bundle, commands, observed, _ = self.build_fixture(cases=[case], **options)
+        self.assertIn('worker_companion', manifest)
+        binary, = manifest['binaries'].values()
+        self.assertFalse(binary['default_features'])
+        self.assertEqual(binary['features'], options['features'])
+        self.assertEqual(binary['requested_features'], options['features'])
+        self.assertEqual(binary['target'], 'iws_action_body')
+        self.assertEqual(binary['target_kind'], ['test'])
+        self.assertEqual(binary['tests'], [case])
+        self.assertEqual(commands[0], ['cargo', 'test', '-p', 'oasis7_runtime', '--test',
+            'iws_action_body', '--no-default-features', '--features', 'test_tier_required,test-support',
+            '--no-run', '--locked', '--message-format=json-render-diagnostics'])
+        self.assertEqual(commands[1], ['cargo', 'build', '-p', 'oasis7_wasm_executor',
+            '--no-default-features', '--features', 'wasmtime', '--bin', 'oasis7-wasm-worker',
+            '--locked', '--message-format=json-render-diagnostics'])
+        worker = manifest['worker_companion']
+        self.assertEqual(worker['features'], ['wasmtime'])
+        self.assertEqual(worker['requested_features'], ['wasmtime'])
+        self.assertEqual(worker['sha256'], artifacts.digest(bundle / artifacts.RUNTIME_WORKER_PATH))
+        self.assertEqual(worker['libraries'], ['lib/libexecutor_fixture.so'])
+        self.assertEqual(observed, ['required', artifacts.RUNTIME_WORKER_BUILD])
+        for changes in (dict(cases=['unrelated_case']), dict(ignored=[case]),
+                        dict(target_name='another_target'), dict(target_kind='lib')):
+            with self.subTest(changes=changes):
+                kwargs = dict(cases=[case], **options) | changes
+                rejected, _, commands, observed, _ = self.build_fixture(**kwargs)
+                self.assertNotIn('worker_companion', rejected)
+                self.assertEqual(len(commands), 1)
+                self.assertEqual(observed, ['required'])
+
+    def test_iws_action_body_worker_is_packed_loaded_and_rejects_missing_or_corrupt_bytes(self):
+        case = 'actual_queued_body_actions_match_world_and_read_prior_current_write'
+        manifest = self.manifest()
+        manifest['binaries']['runtime-module-tests'].update(
+            target='iws_action_body', target_kind=['test'], tests=[case], default_features=False,
+            features=['test_tier_required', 'test-support'], requested_features=['test_tier_required', 'test-support'])
+        archive, consumer, environment = self.publish_and_load(manifest)
+        with tarfile.open(archive) as packed:
+            self.assertIn(artifacts.RUNTIME_WORKER_PATH, packed.getnames())
+            self.assertIn('lib/libexecutor_fixture.so', packed.getnames())
+        self.assertEqual(environment[artifacts.RUNTIME_WORKER_VARIABLE],
+                         str((consumer / artifacts.RUNTIME_WORKER_PATH).resolve()))
+        with patch.object(artifacts, 'CONFIG', self.config), \
+             patch.object(artifacts.sys, 'platform', 'linux'):
+            missing = copy.deepcopy(manifest)
+            del missing['worker_companion']
+            (self.bundle / 'manifest.json').write_text(json.dumps(missing))
+            with self.assertRaisesRegex(ValueError, 'missing Runtime worker companion'):
+                artifacts.pack(self.bundle, self.root / 'missing-action-worker.tar.gz', suite='ordinary')
+            (self.bundle / 'manifest.json').write_text(json.dumps(manifest))
+            self.worker.write_bytes(b'corrupt worker')
+            with self.assertRaisesRegex(ValueError, 'corrupt executable'):
+                artifacts.pack(self.bundle, self.root / 'corrupt-action-worker.tar.gz', suite='ordinary')
 
     def test_iws_rule_worker_requires_exact_target_and_active_case_inventory(self):
         manifest = self.manifest()

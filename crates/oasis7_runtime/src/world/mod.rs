@@ -700,15 +700,6 @@ impl World {
     }
 
     #[cfg(test)]
-    pub(crate) fn append_event_for_test(
-        &mut self,
-        body: crate::WorldEventBody,
-        caused_by: Option<crate::CausedBy>,
-    ) -> Result<WorldEventId, WorldError> {
-        self.append_event(body, caused_by)
-    }
-
-    #[cfg(test)]
     pub(crate) fn seed_capability_grant_for_test(&mut self, grant_id: String, encoded: JsonValue) {
         self.capability_grants_v2.insert(grant_id, encoded);
     }
@@ -1033,8 +1024,7 @@ mod incremental_action_route_availability;
 mod incremental_action_meta_progress;
 
 #[cfg(all(feature = "test-support", feature = "wasmtime", target_os = "linux"))]
-#[path = "incremental_rule_core_test_support.rs"]
-pub(crate) mod iws_rule_core_test_support;
+pub(crate) use incremental_genesis::execution_test_support as iws_rule_core_test_support;
 
 #[path = "incremental_action_contract_accept.rs"]
 mod incremental_action_contract_accept;

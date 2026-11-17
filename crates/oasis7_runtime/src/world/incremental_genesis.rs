@@ -26,7 +26,7 @@ pub struct RuntimeGenesisWorkV1 {
 
 #[cfg(test)]
 #[path = "incremental_genesis_tests.rs"]
-mod tests;
+pub(in crate::world) mod tests;
 pub struct RuntimeGenesisSummaryV1 {
     pub typed: RuntimeTypedGenesisSummaryV1,
     pub raw_rows: u64,
@@ -111,5 +111,52 @@ impl World {
                 .checked_sub(work.raw.writes_remaining)
                 .ok_or(ValueTreeError::Invalid("raw GEN counter increased"))?,
         })
+    }
+}
+
+#[cfg(any(
+    test,
+    all(feature = "test_tier_required", feature = "test-support"),
+    all(feature = "test-support", feature = "wasmtime", target_os = "linux")
+))]
+#[path = "incremental_rule_core_test_support.rs"]
+pub(crate) mod execution_test_support;
+
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+mod action_body_case_runner {
+    /// Fixed cases backed by the original lib-test bodies and paid fixtures.
+    pub enum IwsActionBodyCaseV1 {
+        QueuedBodyActions,
+    }
+
+    pub fn run_iws_action_body_case_v1(case: IwsActionBodyCaseV1) {
+        match case {
+            IwsActionBodyCaseV1::QueuedBodyActions => run_case(),
+        }
+    }
+
+    #[cfg(test)]
+    fn run_case() {
+        super::tests::module_execution::action_body::queued_case::run();
+    }
+
+    #[cfg(not(test))]
+    fn run_case() {
+        super::execution_test_support::action_body_case::run();
+    }
+}
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+pub use action_body_case_runner::{IwsActionBodyCaseV1, run_iws_action_body_case_v1};
+
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+use super::{WorldError, WorldEventId};
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+impl World {
+    pub(crate) fn append_event_for_test(
+        &mut self,
+        body: crate::WorldEventBody,
+        caused_by: Option<crate::CausedBy>,
+    ) -> Result<WorldEventId, WorldError> {
+        self.append_event(body, caused_by)
     }
 }

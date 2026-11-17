@@ -33,7 +33,7 @@ mod fixture_store;
 mod genesis;
 use fixture_store::{Originals, Reader};
 #[path = "incremental_action_body_tests.rs"]
-mod action_body;
+pub(in crate::world) mod action_body;
 #[path = "incremental_factory_depreciation_tests.rs"]
 mod factory_depreciation;
 #[path = "incremental_factory_depreciation_reduce_tests.rs"]

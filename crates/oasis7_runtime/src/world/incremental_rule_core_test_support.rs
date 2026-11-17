@@ -1,7 +1,7 @@
-//! Nondefault Linux RuleVM artifact: minimum original fixture dependency closure.
-//! Only the closed six-case runner is public; no World, qualification, cache,
-//! Selected source, Rule outcome, arbitrary budget or callback escapes this module.
-use super::*;
+//! Original execution fixtures shared by closed nondefault IWS case runners.
+//! No World, qualification, cache, Selected source, Rule outcome, arbitrary
+//! budget or callback escapes this module.
+use crate::world::*;
 use crate::world::{
     incremental_body::BodyMutationContext,
     incremental_module_execution_effects::ModuleOutputEventContextV1,
@@ -41,6 +41,7 @@ mod fixture_store;
 #[path = "incremental_module_execution_fixture_genesis.rs"]
 mod genesis;
 use fixture_store::{Originals, Reader};
+#[cfg(all(feature = "test-support", feature = "wasmtime", target_os = "linux"))]
 fn leb(mut n: usize) -> Vec<u8> {
     let mut out = Vec::new();
     loop {
@@ -53,11 +54,13 @@ fn leb(mut n: usize) -> Vec<u8> {
     }
     out
 }
+#[cfg(all(feature = "test-support", feature = "wasmtime", target_os = "linux"))]
 fn section(wasm: &mut Vec<u8>, id: u8, bytes: &[u8]) {
     wasm.push(id);
     wasm.extend(leb(bytes.len()));
     wasm.extend(bytes);
 }
+#[cfg(all(feature = "test-support", feature = "wasmtime", target_os = "linux"))]
 fn wasm(output: &ModuleOutput) -> Vec<u8> {
     let raw = oasis7_wasm_abi::encode_canonical_cbor(output).unwrap();
     assert!(raw.len() < 4096);
@@ -100,6 +103,7 @@ fn wasm(output: &ModuleOutput) -> Vec<u8> {
     section(&mut wasm, 11, &data);
     wasm
 }
+#[cfg(all(feature = "test-support", feature = "wasmtime", target_os = "linux"))]
 fn manifest(id: &str, kind: ModuleKind, wasm: &[u8]) -> ModuleManifest {
     use sha2::Digest;
     ModuleManifest {
@@ -125,6 +129,7 @@ fn manifest(id: &str, kind: ModuleKind, wasm: &[u8]) -> ModuleManifest {
         },
     }
 }
+#[cfg(all(feature = "test-support", feature = "wasmtime", target_os = "linux"))]
 fn initialized_world() -> World {
     use oasis7_agent_api::{
         world_action::{GeoPos, ModuleInstallTarget, ResourceKind},
@@ -617,10 +622,37 @@ mod action_body {
         }
     }
 }
+#[cfg(all(feature = "test-support", feature = "wasmtime", target_os = "linux"))]
 #[path = "incremental_rule_modify_transfer_test_fixture.rs"]
 mod modify_transfer;
+#[cfg(all(feature = "test-support", feature = "wasmtime", target_os = "linux"))]
 #[path = "incremental_module_execution_rule_phase_fixture_run.rs"]
 mod rule_cases;
+#[cfg(all(feature = "test-support", feature = "wasmtime", target_os = "linux"))]
 #[path = "incremental_rule_core_test_runner.rs"]
 mod runner;
+#[cfg(all(feature = "test-support", feature = "wasmtime", target_os = "linux"))]
 pub use runner::{IwsRuleCoreCaseV1, run_iws_rule_core_case_v1};
+
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+use crate::world::incremental_body_event::materials::test_support::{
+    MaterialFixtureLimitsV1, MaterialFixtureV1,
+};
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+use crate::world::{
+    incremental_action_body::*, incremental_action_execution::take_pending_action,
+    incremental_body::BodyMutationError, incremental_body_event::read_fixed,
+    incremental_step::IwsStepContext,
+};
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+use action_body::audit_work;
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+use oasis7_world_state::incremental_agent_body::{
+    AGENT_BODY_VALUE_BYTES, AgentBodyKeyV1, AgentBodyValueV1,
+};
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+#[path = "incremental_action_body_queued_case.rs"]
+pub(in crate::world) mod action_body_case;
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+#[path = "incremental_action_body_tests_rules.rs"]
+mod rules;

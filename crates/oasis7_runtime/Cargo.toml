@@ -14,6 +14,11 @@ name = "iws_module_state"
 path = "tests/iws_module_state.rs"
 required-features = ["test_tier_required", "test-support"]
 
+[[test]]
+name = "iws_action_body"
+path = "tests/iws_action_body.rs"
+required-features = ["test_tier_required", "test-support"]
+
 [dependencies]
 oasis7_world_state = { path = "../oasis7_world_state" }
 oasis7_agent_api = { path = "../oasis7_agent_api" }

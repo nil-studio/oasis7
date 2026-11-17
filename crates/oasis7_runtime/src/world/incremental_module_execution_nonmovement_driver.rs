@@ -414,7 +414,7 @@ where
 
     /// Component fixtures exercise the same queue kernel without claiming a
     /// completed production prologue. Production has no bypass entrypoint.
-    #[cfg(test)]
+    #[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
     #[allow(clippy::too_many_arguments)]
     pub(in crate::world) fn execute_next_nonmovement_for_component_v1<
         P,

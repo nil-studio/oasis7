@@ -211,4 +211,4 @@ mod complete;
 mod raw_complete;
 
 #[path = "incremental_module_execution_tests.rs"]
-mod module_execution;
+pub(in crate::world) mod module_execution;

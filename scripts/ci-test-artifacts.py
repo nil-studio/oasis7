@@ -116,6 +116,10 @@ IWS_RULE_CORE_TESTS = frozenset((
     'selected_rule_modify_form_alliance_to_material_transfer_keeps_guard_and_current_effects',
     'selected_rule_modify_form_alliance_to_resource_transfer_keeps_guard_and_current_effects',
 ))
+IWS_ACTION_BODY_TARGET = 'iws_action_body'
+IWS_ACTION_BODY_TESTS = frozenset((
+    'actual_queued_body_actions_match_world_and_read_prior_current_write',
+))
 # Observation label for an inventory-selected test resource, never a planned
 # test variant or a dependency-cache warming context.
 RUNTIME_WORKER_BUILD = 'runtime-worker-companion'
@@ -1931,7 +1935,9 @@ def runtime_worker_test_selected(manifest, included=None):
                    and binary.get('target_kind') == ['lib'])
         rule_core = (binary.get('target') == IWS_RULE_CORE_TARGET
                      and binary.get('target_kind') == ['test'])
-        if not library and not rule_core:
+        action_body = (binary.get('target') == IWS_ACTION_BODY_TARGET
+                       and binary.get('target_kind') == ['test'])
+        if not library and not rule_core and not action_body:
             continue
         tests, ignored = binary.get('tests', []), binary.get('ignored_tests', [])
         if (not isinstance(tests, list) or any(not isinstance(case, str) for case in tests)
@@ -1939,7 +1945,8 @@ def runtime_worker_test_selected(manifest, included=None):
             continue
         active = set(tests) - set(ignored)
         if ((library and runtime_worker_case_selected(active))
-                or (rule_core and active & IWS_RULE_CORE_TESTS)):
+                or (rule_core and active & IWS_RULE_CORE_TESTS)
+                or (action_body and active & IWS_ACTION_BODY_TESTS)):
             return True
     return False
 
