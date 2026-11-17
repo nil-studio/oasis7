@@ -3,7 +3,6 @@
 use super::super::storage as common_storage;
 use std::collections::BTreeSet;
 use std::fs::{self, File, OpenOptions};
-use std::os::fd::AsRawFd;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
@@ -86,8 +85,8 @@ pub(super) struct BftV2ExecutionRecord {
 
 pub(super) struct BftV2ExecutionLedger {
     dir: PathBuf,
-    _lock: File,
-    _format_lock: File,
+    _lock: common_storage::BftLock,
+    _format_lock: common_storage::BftLock,
     config: NodeBftExecutionConfigV2,
     genesis: BftV2Genesis,
     tip_height: u64,
@@ -186,9 +185,10 @@ impl BftV2ExecutionLedger {
             .open(lock_path.as_path())
             .map_err(|error| format!("open BFT V2 execution lock: {error}"))?;
         crate::controlled_live_config::require_private_owned(lock_path.as_path(), false)?;
-        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-            return Err("BFT V2 execution ledger is already open by another writer".into());
-        }
+        let lock = common_storage::BftLock::acquire(
+            lock,
+            "BFT V2 execution ledger is already open by another writer",
+        )?;
 
         let genesis_path = dir.join(BFT_V2_GENESIS_FILE);
         let genesis = match common_storage::read_optional_canonical::<BftV2Genesis>(
@@ -379,6 +379,8 @@ impl BftV2ExecutionLedger {
         &mut self,
         record: &BftV2ExecutionRecord,
     ) -> Result<(), String> {
+        self._format_lock.ensure_owner()?;
+        self._lock.ensure_owner()?;
         if record.height <= self.tip_height {
             return Ok(());
         }
@@ -402,6 +404,8 @@ impl BftV2ExecutionLedger {
         candidate: BftV2CommitCandidate<'_>,
         store: &LocalCasStore,
     ) -> Result<BftV2ExecutionRecord, String> {
+        self._format_lock.ensure_owner()?;
+        self._lock.ensure_owner()?;
         let BftV2CommitCandidate {
             certificate,
             block_id,
