@@ -265,6 +265,8 @@ fn signed_read_rpcs_use_one_guard_and_still_verify_minimum_and_sealed_reads() {
     let object_bytes = endpoint.store.raw_object(&object_id).unwrap().unwrap();
     assert_eq!(blake3::hash(&object_bytes).to_hex().as_str(), object_id);
 
+    let expected_pending = endpoint.store.body.pending.is_some();
+    let expected_checkpoint = endpoint.store.checkpoint.clone();
     let mut server = OwnedRpcServer::start(
         endpoint,
         (
@@ -291,6 +293,99 @@ fn signed_read_rpcs_use_one_guard_and_still_verify_minimum_and_sealed_reads() {
     assert_eq!(
         server.call("head", || client.head()).unwrap(),
         second_commit.head()
+    );
+    assert_eq!(acquisitions.swap(0, Ordering::SeqCst), 1);
+
+    let observation = server
+        .call("observe_authority", || client.observe_authority())
+        .unwrap();
+    assert_eq!(observation.head(), &second_commit.head());
+    assert_eq!(observation.checkpoint(), &expected_checkpoint);
+    assert_eq!(observation.native_request_pending(), expected_pending);
+    assert_eq!(
+        observation.authority_id(),
+        fixture.authority.authority_id().unwrap()
+    );
+    assert_eq!(
+        observation.instance_digest(),
+        fixture
+            .authority
+            .definition()
+            .primary
+            .instance
+            .digest()
+            .unwrap()
+    );
+    assert_eq!(
+        observation.epoch_floor(),
+        fixture.authority.definition().epoch
+    );
+    assert_eq!(observation.seal_digest(), None);
+    assert_eq!(acquisitions.swap(0, Ordering::SeqCst), 1);
+    let next = server
+        .call("observe_again", || client.observe_authority())
+        .unwrap();
+    assert_ne!(observation.challenge(), next.challenge());
+    assert!(observation.age() >= next.age());
+    assert_eq!(acquisitions.swap(0, Ordering::SeqCst), 1);
+    let mut deadline_client = super::super::super::super::transport::RemoteFormalEndpoint::new(
+        address,
+        Duration::from_secs(15),
+        fixture.authority.clone(),
+        EndpointRole::Primary,
+        key(4),
+        first_commit.head(),
+    )
+    .unwrap();
+    server
+        .call("deadline_client_seed", || {
+            deadline_client.observe_authority()
+        })
+        .unwrap();
+    assert_eq!(acquisitions.swap(0, Ordering::SeqCst), 1);
+    deadline_client.set_operation_deadline(std::time::Instant::now());
+    assert!(
+        deadline_client.observe_authority().is_err(),
+        "expired observation must not return its cached predecessor"
+    );
+    deadline_client.set_operation_deadline(std::time::Instant::now() + Duration::from_secs(15));
+    assert_eq!(
+        server
+            .call("observe_after_deadline", || deadline_client
+                .observe_authority())
+            .unwrap()
+            .head(),
+        &second_commit.head()
+    );
+    assert_eq!(acquisitions.swap(0, Ordering::SeqCst), 1);
+    let replay = server
+        .call("signed_head", || {
+            signed_rpc(
+                address,
+                &fixture.authority,
+                first_commit.head(),
+                super::super::super::super::transport::Command::Head,
+            )
+        })
+        .unwrap();
+    assert_eq!(acquisitions.swap(0, Ordering::SeqCst), 1);
+    let error = replay_observation(&fixture.authority, first_commit.head(), &replay);
+    assert!(matches!(error, FormalError::Rollback(_)), "{error:?}");
+    let mut tampered = replay;
+    tampered.body.provider.statement.epoch_floor += 1;
+    let error = replay_observation(&fixture.authority, first_commit.head(), &tampered);
+    assert_eq!(
+        error,
+        FormalError::Invalid("formal signature verification".into())
+    );
+    // Invalid responses cannot poison the independent healthy endpoint or make
+    // a prior observed success stand in for the next authenticated request.
+    assert_eq!(
+        server
+            .call("observe_after_invalid", || client.observe_authority())
+            .unwrap()
+            .head(),
+        &second_commit.head()
     );
     assert_eq!(acquisitions.swap(0, Ordering::SeqCst), 1);
 
@@ -396,6 +491,12 @@ fn signed_read_rpcs_use_one_guard_and_still_verify_minimum_and_sealed_reads() {
         second_commit.head()
     );
     assert_eq!(acquisitions.swap(0, Ordering::SeqCst), 1);
+    let sealed = server
+        .call("observe_sealed", || client.observe_authority())
+        .unwrap();
+    assert_eq!(sealed.head(), &second_commit.head());
+    assert!(sealed.seal_digest().is_some());
+    assert_eq!(acquisitions.swap(0, Ordering::SeqCst), 1);
     let sealed_path = server
         .call("sealed_business_index_path", || {
             client.business_index_path(&business_root, &business_key)
@@ -445,4 +546,57 @@ fn signed_read_rpc_fixture_joins_server_when_client_panics() {
     // same owned storage can reopen immediately while the fixture still lives.
     drop(fixture.endpoint(EndpointRole::Primary));
     assert!(fixture.pdir.exists());
+}
+
+// Return a genuine previously signed response to a new authenticated request.
+// All sockets and worker lifetime are bounded even when an assertion fails.
+fn replay_observation(
+    authority: &VerifiedAuthorityV1,
+    minimum: FormalHeadRefV1,
+    response: &super::super::super::super::transport::Response,
+) -> FormalError {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let bytes = serde_cbor::to_vec(response).unwrap();
+    let server = thread::spawn(move || {
+        let deadline = std::time::Instant::now() + RPC_TIMEOUT;
+        let mut stream = loop {
+            match listener.accept() {
+                Ok((stream, _)) => break stream,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "replay accept deadline"
+                    );
+                    thread::sleep(Duration::from_millis(1));
+                }
+                Err(error) => panic!("replay accept: {error}"),
+            }
+        };
+        stream.set_read_timeout(Some(RPC_TIMEOUT)).unwrap();
+        stream.set_write_timeout(Some(RPC_TIMEOUT)).unwrap();
+        let mut size = [0; 4];
+        stream.read_exact(&mut size).unwrap();
+        let size = u32::from_be_bytes(size) as usize;
+        assert!(size <= 64 * 1024);
+        let mut request = vec![0; size];
+        stream.read_exact(&mut request).unwrap();
+        stream
+            .write_all(&(bytes.len() as u32).to_be_bytes())
+            .unwrap();
+        stream.write_all(&bytes).unwrap();
+    });
+    let result = super::super::super::super::transport::RemoteFormalEndpoint::new(
+        address,
+        RPC_TIMEOUT,
+        authority.clone(),
+        EndpointRole::Primary,
+        key(4),
+        minimum,
+    )
+    .unwrap()
+    .observe_authority();
+    server.join().unwrap();
+    result.unwrap_err()
 }

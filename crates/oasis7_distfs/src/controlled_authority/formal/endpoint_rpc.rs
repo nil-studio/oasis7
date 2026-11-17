@@ -4,7 +4,7 @@ pub(crate) fn verify_formal_rpc_checkpoint(
     response: &ResponseBody,
     authority: &VerifiedAuthorityV1,
     role: EndpointRole,
-) -> Result<(), FormalError> {
+) -> Result<bool, FormalError> {
     let instance = match role {
         EndpointRole::Primary => &authority.definition().primary.instance,
         EndpointRole::Replica => &authority.definition().replica.instance,
@@ -31,7 +31,9 @@ pub(crate) fn verify_formal_rpc_checkpoint(
             "formal RPC signed checkpoint/authority/ancestry bridge",
         ));
     }
-    Ok(())
+    // This is the authenticated native request slot, not the provider
+    // checkpoint publication intent and not proof of new-write eligibility.
+    Ok(body.pending.is_some())
 }
 impl FileFormalEndpoint {
     /// Serve the inexpensive immutable RPC reads under one authenticated
