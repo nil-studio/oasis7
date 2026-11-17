@@ -858,9 +858,12 @@ impl World {
         })
     }
 }
-#[cfg(test)]
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
 #[path = "incremental_body_event_tests.rs"]
 mod tests;
 
 #[path = "incremental_agent_registration.rs"]
 mod registration;
+
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+pub use tests::{IwsModuleStateCaseV1, run_iws_module_state_case_v1};

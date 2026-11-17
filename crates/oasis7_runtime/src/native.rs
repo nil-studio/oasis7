@@ -608,6 +608,9 @@ pub use world::{
 #[cfg(all(feature = "test-support", feature = "wasmtime", target_os = "linux"))]
 pub use world::iws_rule_core_test_support::{IwsRuleCoreCaseV1, run_iws_rule_core_case_v1};
 
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+pub use world::incremental_body_event::{IwsModuleStateCaseV1, run_iws_module_state_case_v1};
+
 pub use world::incremental_normal_sources;
 pub use world::{
     ObservationJsonOriginalSinkV2, ObservationJsonOriginalStreamV2,

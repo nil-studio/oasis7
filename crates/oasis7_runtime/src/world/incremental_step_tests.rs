@@ -1,6 +1,7 @@
 use super::*;
 use crate::world::incremental_allocators::{RuntimeAllocatorV1 as Alloc, RuntimeSequenceV1 as Seq};
 use crate::world::incremental_step::IwsStepContext;
+#[cfg(test)]
 use oasis7_agent_api::world_action::GeoPos;
 use oasis7_world_state::incremental_agent_fields::{
     AgentFieldKeyV1, AgentFieldV1, AgentScalarRefV1,
@@ -527,6 +528,7 @@ fn root_step_noop_wake_last_poll_cancels_after_successful_clock_prefix() {
     }
 }
 
+#[cfg(test)]
 struct CountWrites<'a> {
     values: &'a mut Values,
     puts: Rc<Cell<u64>>,
@@ -667,6 +669,7 @@ fn root_step_retains_one_value_budget_and_source_errors_abort_real_prefix() {
         ));
     }
 }
+#[cfg(test)]
 impl ValueNodeWriter for CountWrites<'_> {
     fn put_node(
         &mut self,
@@ -677,6 +680,7 @@ impl ValueNodeWriter for CountWrites<'_> {
         self.values.put_node(id, bytes)
     }
 }
+#[cfg(test)]
 impl ValueNodeReader for CountWrites<'_> {
     fn read_node(
         &self,
@@ -688,12 +692,15 @@ impl ValueNodeReader for CountWrites<'_> {
         self.values.read_node(id, max, memory, class)
     }
 }
+#[cfg(test)]
 impl oasis7_formal_protocol::incremental_schedule::SchedulePageWriter for CountWrites<'_> {}
 
+#[cfg(test)]
 struct ForbidValueRoot {
     values: Values,
     forbidden: [u8; 32],
 }
+#[cfg(test)]
 impl ValueNodeReader for ForbidValueRoot {
     fn read_node(
         &self,
@@ -824,3 +831,6 @@ fn root_step_does_not_read_unmodified_large_agent_summary() {
 
 #[path = "incremental_module_state_step_tests.rs"]
 mod module_state;
+
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+pub use module_state::{IwsModuleStateCaseV1, run_iws_module_state_case_v1};

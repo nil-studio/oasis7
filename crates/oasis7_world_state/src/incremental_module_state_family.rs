@@ -250,21 +250,27 @@ pub(crate) fn accept_module_state_verified_v1<R: MerkleNodeReader, V: ValueNodeR
                 ))?;
         let state_key = ModuleStateKeyV1::state_key_from_bytes(&write.mutation.key)
             .map_err(BodyMutationError::Invalid)?;
-        if next_directory.is_none() {
-            next_directory = Some(parent.directory.copy_changed(
+        // Generic replay authenticates each unique key's before value against
+        // the bound parent roots. A payload replacement preserves that key's
+        // membership, so inherit the complete directory without traversing or
+        // copying it. Only actual insertions/deletions perform directory work.
+        if write.mutation.before.is_some() != write.mutation.after.is_some() {
+            if next_directory.is_none() {
+                next_directory = Some(parent.directory.copy_changed(
+                    ctx.memory,
+                    ctx.content,
+                    &mut cancelled,
+                )?);
+            }
+            let directory = next_directory.as_mut().ok_or_else(invalid)?;
+            directory::pay_key(state_key, directory.len(), ctx.content, &mut cancelled)?;
+            directory.change(
+                state_key,
+                write.mutation.before.is_some(),
+                write.mutation.after.is_some(),
                 ctx.memory,
-                ctx.content,
-                &mut cancelled,
-            )?);
+            )?;
         }
-        let directory = next_directory.as_mut().ok_or_else(invalid)?;
-        directory::pay_key(state_key, directory.len(), ctx.content, &mut cancelled)?;
-        directory.change(
-            state_key,
-            write.mutation.before.is_some(),
-            write.mutation.after.is_some(),
-            ctx.memory,
-        )?;
         for (id, sign) in [(write.mutation.before, -1i128), (write.mutation.after, 1)] {
             if let Some(id) = id {
                 let mut read = oasis7_formal_protocol::incremental_value::ValueReadContext {

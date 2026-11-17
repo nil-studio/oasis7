@@ -1,6 +1,7 @@
 use super::*;
 use crate::CausedBy;
 use crate::world::incremental_body::tests::{Pages, fixture, io, limits};
+#[cfg(test)]
 use crate::world::incremental_body_event::materials::test_support as core_materials;
 use oasis7_formal_protocol::{
     incremental_execution::{ExecutionParent, TransitionRecordV1, TransitionVerifier},
@@ -8,12 +9,13 @@ use oasis7_formal_protocol::{
     incremental_value::ValueTreeError,
 };
 use oasis7_proto::memory_budget::{MemoryBudget, ReservedValue};
+#[cfg(test)]
+use oasis7_world_state::incremental_world_field_key::{WorldFieldKeyV1, WorldFieldRecordKindV1};
 use oasis7_world_state::{
     incremental_inventory_genesis::{
         InventoryGenesisContext, InventoryWriteSink, prepare_inventory_genesis_v1,
     },
     incremental_semantic_key::SemanticKeyBudget,
-    incremental_world_field_key::{WorldFieldKeyV1, WorldFieldRecordKindV1},
 };
 use std::{
     cell::{Cell, RefCell},
@@ -224,19 +226,23 @@ fn seed_core_policy_inventory(
 /// clones each node without an allocation reservation, so these consumers
 /// must read through a charged adapter backed by the same Ordinary pool as
 /// their transaction.
+#[cfg(test)]
 pub(super) struct ChargedPages<'a> {
     pages: &'a Pages,
     memory: &'a MemoryBudget,
 }
 
+#[cfg(test)]
 pub(super) struct ChargedPage(ReservedValue<Vec<u8>>);
 
+#[cfg(test)]
 impl AsRef<[u8]> for ChargedPage {
     fn as_ref(&self) -> &[u8] {
         self.0.as_slice()
     }
 }
 
+#[cfg(test)]
 impl MerkleNodeReader for ChargedPages<'_> {
     type Node = ChargedPage;
 
@@ -263,11 +269,13 @@ impl MerkleNodeReader for ChargedPages<'_> {
     }
 }
 
+#[cfg(test)]
 pub(super) struct MaterialFixtureOwner<'a> {
     pub(super) pages: ChargedPages<'a>,
     pub(super) fixture: core_materials::MaterialFixtureV1,
 }
 
+#[cfg(test)]
 fn material_fixture<'a, V: ValueNodeReader>(
     world: &World,
     roots: &ExecutionParent,
@@ -291,6 +299,7 @@ fn material_fixture<'a, V: ValueNodeReader>(
 /// Separate cold parent discovery from event-time reads. GEN qualifies the
 /// complete inventory family once; the test projection below measures only
 /// the three fixed event values and the two Current material-presence records.
+#[cfg(test)]
 fn finish_inventory_genesis_read_phase(values: &Values) {
     let reads = values.reads.replace(0);
     assert!(
@@ -304,6 +313,7 @@ fn finish_inventory_genesis_read_phase(values: &Values) {
 /// its semantic key. Each fixture value/range fits one VALUE_CHUNK_BYTES leaf.
 /// Thus the bound counts protocol passes, rather than assuming one traversal
 /// per logical presence record or including the separate GEN discovery pass.
+#[cfg(test)]
 fn body_event_value_read_projection(events: usize) -> usize {
     const ROOT_READS: usize = 1;
     const READS_PER_SMALL_RANGE: usize = 1;
@@ -319,6 +329,7 @@ fn body_event_value_read_projection(events: usize) -> usize {
         .expect("bounded test event count")
 }
 
+#[cfg(test)]
 fn assert_body_event_value_reads_within_projection(values: &Values, events: usize) {
     let reads = values.reads.get();
     assert!(reads > 0, "event controls must be read");
@@ -332,6 +343,7 @@ fn assert_body_event_value_reads_within_projection(values: &Values, events: usiz
 /// Current world-ledger lookups (metadata and group). This lets GEN discovery
 /// and per-event normalization grow independently without treating every read
 /// as an event control read.
+#[cfg(test)]
 fn assert_body_event_state_read_projection(record: &TransitionRecordV1) {
     let mut control_reads = 0;
     let mut material_reads = Vec::new();
@@ -355,6 +367,7 @@ fn assert_body_event_state_read_projection(record: &TransitionRecordV1) {
     assert!(material_reads.contains(&("material_ledgers", WorldFieldRecordKindV1::Group)));
 }
 
+#[cfg(test)]
 fn event(world: &World, id: u64) -> WorldEvent {
     let mut view = world.state.agents["alice"].state.body_view.clone();
     view.mass_kg += 1;
@@ -811,6 +824,7 @@ fn successive_body_events_read_previous_overlay_without_installing_world_cache()
     assert_eq!(world.state, original_state);
 }
 
+#[cfg(test)]
 #[path = "incremental_agent_move_tests.rs"]
 mod moves;
 #[path = "incremental_scheduler_tests.rs"]
@@ -819,14 +833,21 @@ mod scheduler;
 #[path = "incremental_step_tests.rs"]
 mod step;
 
+#[cfg(test)]
 #[path = "incremental_commit_tests.rs"]
 mod commit_driver;
 
+#[cfg(test)]
 #[path = "incremental_agent_event_original_tests.rs"]
 mod originals;
 
+#[cfg(test)]
 #[path = "incremental_agent_event_original_fact_tests.rs"]
 mod original_fact;
 
+#[cfg(test)]
 #[path = "incremental_agent_registration_tests.rs"]
 mod registration;
+
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+pub use step::{IwsModuleStateCaseV1, run_iws_module_state_case_v1};
