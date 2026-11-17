@@ -1,12 +1,18 @@
 //! Original normal-tick work is reborrowed for every selected action.
 //! The same counter values continue into the tail; no bank refills an allowance.
 use crate::world::incremental_module_invocation::EffectiveActionWorkBankV1;
+use oasis7_formal_protocol::controlled_authority::formal::bounded_context::{
+    FormalBoundedWorkV1, WorkIdentityV1,
+};
 use oasis7_proto::memory_budget::ReservedValue;
 /// Explicit original allowances; `view` only reborrows the remaining values.
 pub(in crate::world) struct NormalModuleLifecycleWorkSetV1 {
-    pub controls: oasis7_world_state::incremental_world_collection_controls::WorldCollectionControlsWorkV1,
-    pub capability_authorization: crate::world::incremental_authorization_root_current::AuthorizationRootSourceReadWorkV1,
-    pub config_write: oasis7_world_state::incremental_runtime_artifact_config::ArtifactConfigWriteWorkV1,
+    pub controls:
+        oasis7_world_state::incremental_world_collection_controls::WorldCollectionControlsWorkV1,
+    pub capability_authorization:
+        crate::world::incremental_authorization_root_current::AuthorizationRootSourceReadWorkV1,
+    pub config_write:
+        oasis7_world_state::incremental_runtime_artifact_config::ArtifactConfigWriteWorkV1,
     pub proposal_read: oasis7_world_state::incremental_runtime_proposal::RuntimeProposalReadWorkV1,
     pub proposal_write:
         oasis7_world_state::incremental_runtime_proposal::RuntimeProposalWriteWorkV1,
@@ -49,7 +55,7 @@ impl NormalModuleLifecycleWorkSetV1 {
         }
     }
 }
-pub(in crate::world) struct NormalActionWorkSetV1<'common> {
+pub(in crate::world) struct NormalActionWorkSetV1 {
     pub module_lifecycle: NormalModuleLifecycleWorkSetV1,
     pub crisis: crate::world::incremental_action_crisis::CrisisWorkV1,
     pub contract_accept: crate::world::incremental_action_contract_accept::ContractAcceptWorkV1,
@@ -75,7 +81,7 @@ pub(in crate::world) struct NormalActionWorkSetV1<'common> {
     pub logistics_registration:
         crate::world::incremental_normal_action_logistics::LogisticsRegistrationWorkV1,
     pub profile: crate::world::incremental_normal_action_profile::ProfileGovernanceWorkV1,
-    pub extension: crate::world::incremental_module_invocation::NormalCoreExtensionWorkV1<'common>,
+    pub extension: crate::world::incremental_module_invocation::NormalCoreExtensionWorkV1,
 }
 pub(in crate::world) struct NormalActionSourcesV1<'p> {
     pub module_lifecycle: &'p crate::world::incremental_normal_action_module_lifecycle::ModuleLifecycleSourcesV1<'p>,
@@ -98,18 +104,18 @@ pub(in crate::world) struct NormalActionSourcesV1<'p> {
     pub alliance: &'p crate::world::incremental_normal_action_diplomacy::AllianceSourcesV1<'p,'p>,
     pub profile: &'p crate::world::incremental_normal_action_profile::ProfileGovernanceSourcesV1<'p>,
 }
-impl NormalActionWorkSetV1<'_> {
-    pub(in crate::world) fn common_work(
-        &self,
-    ) -> &oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1
-    {
-        self.extension.common
+impl NormalActionWorkSetV1 {
+    pub(in crate::world) fn common_identity(&self) -> WorkIdentityV1 {
+        self.extension.common_identity()
     }
     pub(in crate::world) fn bank<'borrow>(
         &'borrow mut self,
         sources: &'borrow NormalActionSourcesV1<'_>,
-    ) -> EffectiveActionWorkBankV1<'borrow> {
-        EffectiveActionWorkBankV1::new(
+        common: &'borrow FormalBoundedWorkV1,
+    ) -> Result<EffectiveActionWorkBankV1<'borrow>, crate::world::incremental_body::BodyMutationError>
+    {
+        let extension = self.extension.view(common)?;
+        Ok(EffectiveActionWorkBankV1::new(
             &mut self.crisis,
             sources.crisis_sources,
             &mut self.contract_accept,
@@ -131,12 +137,12 @@ impl NormalActionWorkSetV1<'_> {
             sources.starter_bindings,
             &mut self.transfer_resource,
         )
-        .with_normal_extension_view(self.extension.view())
+        .with_normal_extension_view(extension)
         .with_factory_schedule(&mut self.factory_schedule, sources.factory_schedule)
         .with_contract_lifecycle(&mut self.contracts, sources.contracts)
         .with_alliance(&mut self.alliance, sources.alliance)
         .with_logistics_registration(&mut self.logistics_registration)
         .with_profile_governance(&mut self.profile, sources.profile)
-        .with_module_lifecycle(self.module_lifecycle.view(), sources.module_lifecycle)
+        .with_module_lifecycle(self.module_lifecycle.view(), sources.module_lifecycle))
     }
 }

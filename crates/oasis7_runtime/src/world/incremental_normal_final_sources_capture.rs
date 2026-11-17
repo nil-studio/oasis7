@@ -165,7 +165,7 @@ where
         >,
         compiler: &crate::module_source_compiler::RuntimeSourceCompiler,
         process: &super::super::incremental_normal_process_source::NormalProcessSourceV1,
-        actions: &mut super::super::incremental_normal_action_work::NormalActionWorkSetV1<'_>,
+        actions: &mut super::super::incremental_normal_action_work::NormalActionWorkSetV1,
         common: &mut FormalBoundedContextV1<'_>,
         live_owner: &mut dyn FnMut() -> ExecutionFence,
     ) -> Result<
@@ -483,7 +483,7 @@ where
         // Reborrow the exact action bank after the tick. No second lifecycle,
         // factory or Common allowance is constructed for the original ordered
         // PolicySet source used by legacy semantic-state hashing.
-        if actions.common_work().identity() != common.work().identity() {
+        if actions.common_identity() != common.work().identity() {
             return Err(BodyMutationError::Invalid("normal policy source actual work Core").into());
         }
         let policy_parents=super::super::incremental_normal_source_action_views::bind_normal_action_source_parents_v1(

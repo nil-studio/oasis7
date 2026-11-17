@@ -264,14 +264,6 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
         self
     }
 
-    pub(in crate::world) fn with_normal_extension(
-        mut self,
-        work: &'a mut super::normal_extension_driver::NormalCoreExtensionWorkV1<'a>,
-    ) -> Self {
-        self.normal_extension = Some(work.view());
-        self
-    }
-
     pub(in crate::world) fn with_logistics_registration(
         mut self,
         work: &'a mut crate::world::incremental_normal_action_logistics::LogisticsRegistrationWorkV1,

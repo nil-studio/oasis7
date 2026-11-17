@@ -202,11 +202,9 @@ fn queued_normal_extensions_match_original_events_body_rows_and_mailboxes() {
         cancelled: || false,
     };
     let common=oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1::new(100_000_000,4_000_000_000).unwrap();
-    let mut work = crate::world::incremental_module_invocation::NormalCoreExtensionWorkV1 {
-        common: &common,
-        pending_entries_remaining: 100_000,
-        max_body_text_bytes: 4096,
-    };
+    let mut work = crate::world::incremental_module_invocation::NormalCoreExtensionWorkV1::new(
+        &common, 100_000, 4096,
+    );
     let mut audit = transfer_resource_audit_work();
     let mut callbacks = 0;
     {
@@ -249,7 +247,7 @@ fn queued_normal_extensions_match_original_events_body_rows_and_mailboxes() {
                     limits: material_limits,
                     persist: &mut persist,
                     work: rules::NonmovementFixtureWorkV1::NormalExtension {
-                        work: work.view(),
+                        work: work.view(&common).unwrap(),
                         result: &mut completed,
                     },
                     audit: &mut audit,

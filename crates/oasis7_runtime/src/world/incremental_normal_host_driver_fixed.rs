@@ -119,7 +119,7 @@ impl<OE> NormalHostFixedFailureV1<OE> {
     }
 }
 #[allow(clippy::too_many_arguments)]
-pub fn prepare_normal_host_from_resident_v1<'p, 'common, M, R, E, C, W, F, O, S>(
+pub fn prepare_normal_host_from_resident_v1<'p, M, R, E, C, W, F, O, S>(
     parent: &'p ReservedValue<BoundNormalTickParentV1<'p>>,
     input: &PaidBoundNormalInputDataV1<'_>,
     state: &M,
@@ -134,7 +134,7 @@ pub fn prepare_normal_host_from_resident_v1<'p, 'common, M, R, E, C, W, F, O, S>
     compiler: &'p crate::module_source_compiler::RuntimeSourceCompiler,
     directories: NormalTailDirectoryInputsV1<'p>,
     cognition: NormalHostCognitionParentSourcesV1<'p>,
-    work: &mut NormalHostWorkV1<'common>,
+    work: &mut NormalHostWorkV1,
     take_state_error: E,
     cancelled: C,
     input_limits: &CborDataLimitsV1,

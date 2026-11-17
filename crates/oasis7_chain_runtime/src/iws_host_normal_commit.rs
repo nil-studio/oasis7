@@ -13,14 +13,16 @@ use oasis7_distfs::controlled_authority::formal::endpoint::{
 use oasis7_proto::memory_budget::{MemoryReservation, ReservedValue};
 use oasis7_runtime::{NormalHostWorkV1, PreparedNormalHostResidentV1, PreparedNormalHostRuntimeV1};
 
-/// Original mutable loans stay exclusively borrowed through recovery. A retry
-/// cannot reset physical, logical or candidate-source allowances.
-pub(crate) struct NormalCommitWorkV1<'a, 'common> {
-    pub input_material: &'a mut oasis7_formal_protocol::controlled_authority::formal::IncrementalFrozenMaterialWorkV1,
-    pub primary_source: &'a mut Option<IwsCandidateSourceWorkV1>,
-    pub replica_source: &'a mut Option<IwsCandidateSourceWorkV1>,
-    pub physical: &'a mut HostNormalIoWorkV1,
-    pub runtime: &'a mut NormalHostWorkV1<'common>,
+/// Original allowances move with the consuming phase across callbacks. A retry
+/// cannot replace physical, logical or candidate-source work. Core is only
+/// borrowed during a call; keeping work does not require sharing a !Sync Core.
+pub(crate) struct NormalCommitWorkV1 {
+    pub input_material:
+        oasis7_formal_protocol::controlled_authority::formal::IncrementalFrozenMaterialWorkV1,
+    pub primary_source: Option<IwsCandidateSourceWorkV1>,
+    pub replica_source: Option<IwsCandidateSourceWorkV1>,
+    pub physical: HostNormalIoWorkV1,
+    pub runtime: NormalHostWorkV1,
 }
 enum Phase {
     BeforeReady {
@@ -65,18 +67,18 @@ pub(crate) enum NormalCommitFailureCauseV1<'a> {
     Ready(&'a NormalReadyPairFailureV1),
     Publication(&'a NormalReadyPublicationFailureV1),
 }
-/// Owns the true Node provenance, remaining work loans and original failure
+/// Owns the true Node provenance, remaining work and original failure
 /// owners. This is neither a Ready claim nor an accepted/WorldReady capability.
-pub(crate) struct NormalCommitFailureV1<'work, 'common> {
+pub(crate) struct NormalCommitFailureV1 {
     package: super::normal_package::PersistedNormalCandidatePackageV1,
     node: PaidNodeInputOriginV1,
     _source_fee: ReservedValue<()>,
     fee: Option<MemoryReservation>,
-    work: NormalCommitWorkV1<'work, 'common>,
+    work: NormalCommitWorkV1,
     phase: Option<Phase>,
     cause: Option<IwsHostRuntimeErrorV1>,
 }
-impl std::fmt::Debug for NormalCommitFailureV1<'_, '_> {
+impl std::fmt::Debug for NormalCommitFailureV1 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NormalCommitFailureV1")
             .field("disposition", &self.disposition())
@@ -84,7 +86,7 @@ impl std::fmt::Debug for NormalCommitFailureV1<'_, '_> {
             .finish_non_exhaustive()
     }
 }
-impl NormalCommitFailureV1<'_, '_> {
+impl NormalCommitFailureV1 {
     pub(crate) fn cause(&self) -> Option<NormalCommitFailureCauseV1<'_>> {
         if let Some(error) = self.cause.as_ref() {
             return Some(NormalCommitFailureCauseV1::Host(error));
@@ -124,7 +126,7 @@ impl NormalCommitFailureV1<'_, '_> {
         }
     }
 }
-impl<'w, 'common> NormalCommitFailureV1<'w, 'common> {
+impl NormalCommitFailureV1 {
     /// Explicit escape to the independent cold resident/source recovery route.
     /// This returns the real retained Ready owner; it cannot recreate the
     /// already-consumed Runtime preparation or replay its input actions.
@@ -136,7 +138,7 @@ impl<'w, 'common> NormalCommitFailureV1<'w, 'common> {
             PaidNodeInputOriginV1,
             ReservedValue<()>,
             Option<MemoryReservation>,
-            NormalCommitWorkV1<'w, 'common>,
+            NormalCommitWorkV1,
         ),
         Self,
     > {
@@ -149,6 +151,27 @@ impl<'w, 'common> NormalCommitFailureV1<'w, 'common> {
             unreachable!("checked cold Ready variant")
         };
         Ok((ready, self.node, self._source_fee, self.fee, self.work))
+    }
+
+    /// Publication succeeded but installation consumed its accepted owners.
+    /// Return only the original provenance, fees and remaining work for actual
+    /// authenticated cold recovery. These parts grant no Ready/Accepted right;
+    /// the caller must reopen and validate the real durable endpoint state.
+    pub(crate) fn into_cold_after_publication_parts(
+        self,
+    ) -> Result<
+        (
+            PaidNodeInputOriginV1,
+            ReservedValue<()>,
+            Option<MemoryReservation>,
+            NormalCommitWorkV1,
+        ),
+        Self,
+    > {
+        if !matches!(self.phase, Some(Phase::ColdAfterPublication)) {
+            return Err(self);
+        }
+        Ok((self.node, self._source_fee, self.fee, self.work))
     }
 
     /// Uses the retained endpoint recovery methods, never sends an old lease
@@ -165,7 +188,7 @@ impl<'w, 'common> NormalCommitFailureV1<'w, 'common> {
         memory: &MemoryBudget,
         archive: &FormalArchiveReadWorkV1,
         cancelled: &AtomicBool,
-    ) -> Result<(), Self> {
+    ) -> Result<NormalCommitWorkV1, Self> {
         if matches!(
             self.phase,
             Some(Phase::ColdBeforePublication { .. } | Phase::ColdAfterPublication)
@@ -198,8 +221,8 @@ impl<'w, 'common> NormalCommitFailureV1<'w, 'common> {
                 Phase::BeforeReady { frozen, prepared } => {
                     match frozen.produce_ready_from_candidate_bounded(
                         self.package.material_data(),
-                        self.work.primary_source,
-                        self.work.replica_source,
+                        &mut self.work.primary_source,
+                        &mut self.work.replica_source,
                         primary_provider,
                         replica_provider,
                         primary_policy,
@@ -218,8 +241,8 @@ impl<'w, 'common> NormalCommitFailureV1<'w, 'common> {
                 Phase::ReadyFailure { failure, prepared } => {
                     match failure.recover_from_candidate_bounded(
                         self.package.material_data(),
-                        self.work.primary_source,
-                        self.work.replica_source,
+                        &mut self.work.primary_source,
+                        &mut self.work.replica_source,
                         primary_provider,
                         replica_provider,
                         primary_policy,
@@ -241,8 +264,8 @@ impl<'w, 'common> NormalCommitFailureV1<'w, 'common> {
                         prepared,
                         memory,
                         archive,
-                        self.work.physical,
-                        self.work.runtime,
+                        &mut self.work.physical,
+                        &mut self.work.runtime,
                         cancelled,
                     ) {
                         Ok(primary) => {
@@ -276,7 +299,7 @@ impl<'w, 'common> NormalCommitFailureV1<'w, 'common> {
                         Err(failure)=>{self.phase=Some(Phase::Publication{failure,primary:resident,replica:second});return Err(self)}
                         Ok(accepted)=>{
                             match IwsHostRuntimeV1::install_accepted_normal_pair_with_residents_bounded(primary,replica,accepted,resident,second,memory,archive,cancelled) {
-                                Ok(())=>return Ok(()),
+                                Ok(())=>return Ok(self.work),
                                 Err(error)=>{self.cause=Some(error);self.phase=Some(Phase::ColdAfterPublication);return Err(self)}
                             }
                         }
@@ -291,7 +314,7 @@ impl<'w, 'common> NormalCommitFailureV1<'w, 'common> {
                         Err(failure)=>{self.phase=Some(Phase::Publication{failure,primary:resident,replica:second});return Err(self)}
                         Ok(accepted)=>{
                             match IwsHostRuntimeV1::install_accepted_normal_pair_with_residents_bounded(primary,replica,accepted,resident,second,memory,archive,cancelled) {
-                                Ok(())=>return Ok(()),
+                                Ok(())=>return Ok(self.work),
                                 Err(error)=>{self.cause=Some(error);self.phase=Some(Phase::ColdAfterPublication);return Err(self)}
                             }
                         }
@@ -316,23 +339,23 @@ pub(crate) enum NormalCommitStartCauseV1 {
     Material(FormalError),
     Package(super::normal_package::NormalPackageErrorV1),
 }
-pub(crate) enum NormalCommitStartFailureV1<'w, 'common> {
+pub(crate) enum NormalCommitStartFailureV1 {
     Package {
         cause: NormalCommitStartCauseV1,
         package: super::normal_package::PersistedNormalCandidatePackageV1,
         sources: PaidNormalTickSourcesV1,
         prepared: PreparedNormalHostRuntimeV1,
-        work: NormalCommitWorkV1<'w, 'common>,
+        work: NormalCommitWorkV1,
     },
-    Publication(NormalCommitFailureV1<'w, 'common>),
+    Publication(NormalCommitFailureV1),
 }
-pub(crate) fn publish_prepared_normal_runtime_bounded<'w, 'common>(
+pub(crate) fn publish_prepared_normal_runtime_bounded(
     primary: &mut IwsHostRuntimeV1,
     replica: &mut IwsHostRuntimeV1,
     sources: PaidNormalTickSourcesV1,
     prepared: PreparedNormalHostRuntimeV1,
     package: super::normal_package::PersistedNormalCandidatePackageV1,
-    work: NormalCommitWorkV1<'w, 'common>,
+    mut work: NormalCommitWorkV1,
     primary_provider: &RemoteMonotonicEndpointProvider,
     replica_provider: &RemoteMonotonicEndpointProvider,
     primary_policy: &TrustedFencingPolicyV1,
@@ -340,10 +363,10 @@ pub(crate) fn publish_prepared_normal_runtime_bounded<'w, 'common>(
     memory: &MemoryBudget,
     archive: &FormalArchiveReadWorkV1,
     cancelled: &AtomicBool,
-) -> Result<(), NormalCommitStartFailureV1<'w, 'common>> {
+) -> Result<NormalCommitWorkV1, NormalCommitStartFailureV1> {
     let checked = (|| {
         let input = sources
-            .input(memory, archive, &mut *work.input_material, &mut || {
+            .input(memory, archive, &mut work.input_material, &mut || {
                 cancelled.load(Ordering::Acquire)
             })
             .map_err(NormalCommitStartCauseV1::Material)?;

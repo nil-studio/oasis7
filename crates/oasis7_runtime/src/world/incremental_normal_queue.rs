@@ -111,7 +111,7 @@ where
         policy_scan: &mut StateScanBudget,
         policy_work: &mut RevocationReadWorkV1,
         sources: &NormalActionSourcesV1<'_>,
-        actions: &mut NormalActionWorkSetV1<'_>,
+        actions: &mut NormalActionWorkSetV1,
         materials: &mut CorePolicyMaterialContextV1<'_, M, ME>,
         current: &mut WorldFieldReadContextV1<'_, P, R, CE, CC>,
         parent: &mut WorldFieldReadContextV1<'_, P, R, PE, PC>,
@@ -145,7 +145,7 @@ where
                     RootModuleExecutionErrorV1::Body(BodyMutationError::Original(Box::new(e)))
                 })?;
             if self.ctx.transaction.parent_fence() != parent_source.fence()
-                || actions.common_work().identity() != common.work().identity()
+                || actions.common_identity() != common.work().identity()
             {
                 return Err(RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid(
                     "normal queue parent/work binding",
@@ -165,7 +165,9 @@ where
                 common.consume_steps(1).map_err(|e| {
                     RootModuleExecutionErrorV1::Body(BodyMutationError::Original(Box::new(e)))
                 })?;
-                let mut bank = actions.bank(sources);
+                let mut bank = actions
+                    .bank(sources, common.work())
+                    .map_err(RootModuleExecutionErrorV1::Body)?;
                 let next = self
                     .execute_next_nonmovement_with_modules_v1(
                         prologue,

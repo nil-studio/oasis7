@@ -20,7 +20,7 @@ impl IwsHostRuntimeV1 {
         input_limits: &crate::iws_normal_input_decode::NormalInputDecodeLimitsV1,
         action_limits: &CborDataLimitsV1,
         physical: &mut super::io::HostNormalIoWorkV1,
-        work: &mut NormalHostWorkV1<'_>,
+        work: &mut NormalHostWorkV1,
         directories: NormalTailDirectoryInputsV1<'_>,
         cognition: NormalHostCognitionParentSourcesV1<'_>,
         compiler: &RuntimeSourceCompiler,
@@ -121,7 +121,7 @@ impl IwsHostRuntimeV1 {
         memory: &MemoryBudget,
         archive: &FormalArchiveReadWorkV1,
         physical: &mut super::io::HostNormalIoWorkV1,
-        work: &mut NormalHostWorkV1<'_>,
+        work: &mut NormalHostWorkV1,
         cancelled: &AtomicBool,
     ) -> Result<oasis7_runtime::PreparedNormalHostResidentV1, IwsHostRuntimeErrorV1> {
         let expected = self.continuation.as_ref().ok_or_else(|| {

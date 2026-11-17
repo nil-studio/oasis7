@@ -9,23 +9,23 @@ use oasis7_runtime::{
     RuntimeSourceCompiler,
 };
 
-pub(crate) enum NormalExecutionCommitFailureV1<'w, 'common> {
+pub(crate) enum NormalExecutionCommitFailureV1 {
     BeforePreparation {
         cause: IwsHostRuntimeErrorV1,
         sources: PaidNormalTickSourcesV1,
-        work: NormalCommitWorkV1<'w, 'common>,
+        work: NormalCommitWorkV1,
     },
     /// Once prepared, recovery exclusively uses the retained output/publication
     /// owner. It cannot call the Action dispatcher a second time.
-    AfterPreparation(NormalOutputCommitFailureV1<'w, 'common>),
+    AfterPreparation(NormalOutputCommitFailureV1),
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn execute_and_commit_frozen_normal_bounded_v1<'w, 'common>(
+pub(crate) fn execute_and_commit_frozen_normal_bounded_v1(
     primary: &mut IwsHostRuntimeV1,
     replica: &mut IwsHostRuntimeV1,
     sources: PaidNormalTickSourcesV1,
-    work: NormalCommitWorkV1<'w, 'common>,
+    mut work: NormalCommitWorkV1,
     writer: &ed25519_dalek::SigningKey,
     input_limits: &NormalInputDecodeLimitsV1,
     action_limits: &CborDataLimitsV1,
@@ -43,9 +43,9 @@ pub(crate) fn execute_and_commit_frozen_normal_bounded_v1<'w, 'common>(
     memory: &MemoryBudget,
     archive: &FormalArchiveReadWorkV1,
     cancelled: &AtomicBool,
-) -> Result<(), NormalExecutionCommitFailureV1<'w, 'common>> {
+) -> Result<NormalCommitWorkV1, NormalExecutionCommitFailureV1> {
     let preparation = (|| {
-        let input = sources.input(memory, archive, work.input_material, &mut || {
+        let input = sources.input(memory, archive, &mut work.input_material, &mut || {
             cancelled.load(Ordering::Acquire)
         })?;
         primary.prepare_frozen_normal_runtime_bounded(
@@ -54,8 +54,8 @@ pub(crate) fn execute_and_commit_frozen_normal_bounded_v1<'w, 'common>(
             archive,
             input_limits,
             action_limits,
-            work.physical,
-            work.runtime,
+            &mut work.physical,
+            &mut work.runtime,
             directories,
             cognition,
             compiler,
@@ -93,4 +93,19 @@ pub(crate) fn execute_and_commit_frozen_normal_bounded_v1<'w, 'common>(
         cancelled,
     )
     .map_err(NormalExecutionCommitFailureV1::AfterPreparation)
+}
+
+#[cfg(test)]
+mod owned_work_tests {
+    use super::*;
+
+    #[test]
+    fn normal_work_and_every_recovery_phase_are_owned_send_values() {
+        fn assert_owned<T: Send + 'static>() {}
+        assert_owned::<NormalCommitWorkV1>();
+        assert_owned::<NormalExecutionCommitFailureV1>();
+        assert_owned::<NormalOutputCommitFailureV1>();
+        assert_owned::<NormalCommitStartFailureV1>();
+        assert_owned::<NormalCommitFailureV1>();
+    }
 }

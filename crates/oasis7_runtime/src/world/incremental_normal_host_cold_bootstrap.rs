@@ -49,7 +49,7 @@ fn body(e: impl std::fmt::Debug + Send + Sync + 'static) -> BodyMutationError {
     BodyMutationError::Original(Box::new(SourceCause(e)))
 }
 #[allow(clippy::too_many_arguments)]
-pub fn bootstrap_authenticated_cold_normal_host_resident_v1<'s, 'p, 'common, M, R, W, O, E, C, F>(
+pub fn bootstrap_authenticated_cold_normal_host_resident_v1<'s, 'p, M, R, W, O, E, C, F>(
     parent: &'p ReservedValue<BoundNormalTickParentV1<'p>>,
     transaction: &mut ExecutionTransaction<'s, M>,
     state: &M,
@@ -68,7 +68,7 @@ pub fn bootstrap_authenticated_cold_normal_host_resident_v1<'s, 'p, 'common, M, 
     accepted_retention: &ReservedValue<oasis7_world_state::incremental_cognition_retention_ledger::AcceptedCognitionRetentionLedgerV1>,
     compiler: &crate::module_source_compiler::RuntimeSourceCompiler,
     startup: &mut NormalHostStartupWorkV1<'_>,
-    work: &mut NormalHostWorkV1<'common>,
+    work: &mut NormalHostWorkV1,
     take_state_error: E,
     cancelled: C,
     common: &mut FormalBoundedContextV1<'_>,
@@ -112,7 +112,7 @@ where
  |root,_pending,revocation,_delivery,_current,parent_read,_admission,_factory,_recipe,_industry,_materials,driver,common,live|->Result<_,RootModuleExecutionErrorV1<O::Error>>{
  root.ctx.transaction.validate_bootstrap_read_only_v1(&live())?;
  let authorization=base.begin_bootstrap_authorization_v1(parent,root.ctx.transaction,common,&live())?;
- if driver.actions.common_work().identity()!=common.work().identity(){return Err(BodyMutationError::Invalid("Cold policy actual continuing work Core").into())}
+ if driver.actions.common_identity()!=common.work().identity(){return Err(BodyMutationError::Invalid("Cold policy actual continuing work Core").into())}
  let source=super::incremental_normal_source_action_views::bind_normal_action_source_parents_v1(parent,base.parent_caches_v1().borrow(),common)?;
  let policy=source.with_sources_v1(&authorization,compiler,common,|sources,common|super::incremental_module_capability_admission_rules::read_current_bootstrap_policy_v1(sources.module_lifecycle,root.ctx,parent_read,&mut driver.actions.factory_schedule,&mut driver.actions.module_lifecycle.view(),common,&live()))?.map_err(body)?;
  let cache=root.prepare_accepted_cold_projection_cache_v1(&mut driver.final_sources.projection.loan(),side,parent,base.business_v1(),revocation,accepted_ledger,accepted_retention,&policy,base.process_source_v1(),&authorization,parent_read,&mut driver.final_sources.business,&mut driver.final_sources.terminal_metadata,&mut driver.bootstrap.finality,&mut driver.tail.cognition.hashes,common,live)?;

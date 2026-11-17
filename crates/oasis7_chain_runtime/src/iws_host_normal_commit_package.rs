@@ -7,39 +7,41 @@ use crate::iws_host_runtime::normal_package::PaidNormalCandidatePackageV1;
 use crate::iws_normal_input_decode::NormalInputDecodeLimitsV1;
 use oasis7_wasm_abi::CanonicalCborWorkV1;
 
-pub(crate) enum NormalOutputCommitFailureV1<'w, 'common> {
+pub(crate) enum NormalOutputCommitFailureV1 {
     Input {
         cause: FormalError,
         sources: PaidNormalTickSourcesV1,
         prepared: PreparedNormalHostRuntimeV1,
-        work: NormalCommitWorkV1<'w, 'common>,
+        work: NormalCommitWorkV1,
     },
     Build {
         cause: NormalPackageBuildFailureV1,
         sources: PaidNormalTickSourcesV1,
         prepared: PreparedNormalHostRuntimeV1,
-        work: NormalCommitWorkV1<'w, 'common>,
+        work: NormalCommitWorkV1,
     },
     Persist {
         cause: IwsHostRuntimeErrorV1,
         package: PaidNormalCandidatePackageV1,
         sources: PaidNormalTickSourcesV1,
         prepared: PreparedNormalHostRuntimeV1,
-        work: NormalCommitWorkV1<'w, 'common>,
+        work: NormalCommitWorkV1,
     },
-    Publication(NormalCommitStartFailureV1<'w, 'common>),
+    Publication(NormalCommitStartFailureV1),
 }
 
 /// Executes no Action and grants no authority from candidate DATA. The actual
 /// Frozen source, final preparation, persistence receipt and publication owners
 /// are moved once through the fixed existing consumers, never recreated.
+/// Success returns the original remaining work, just as every failure retains
+/// it; the continuing caller must not initialize replacement allowances.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn commit_prepared_normal_output_bounded_v1<'w, 'common>(
+pub(crate) fn commit_prepared_normal_output_bounded_v1(
     primary: &mut IwsHostRuntimeV1,
     replica: &mut IwsHostRuntimeV1,
     sources: PaidNormalTickSourcesV1,
     prepared: PreparedNormalHostRuntimeV1,
-    work: NormalCommitWorkV1<'w, 'common>,
+    mut work: NormalCommitWorkV1,
     writer: &ed25519_dalek::SigningKey,
     input_limits: &NormalInputDecodeLimitsV1,
     canonical: &mut CanonicalCborWorkV1,
@@ -50,12 +52,12 @@ pub(crate) fn commit_prepared_normal_output_bounded_v1<'w, 'common>(
     memory: &MemoryBudget,
     archive: &FormalArchiveReadWorkV1,
     cancelled: &AtomicBool,
-) -> Result<(), NormalOutputCommitFailureV1<'w, 'common>> {
+) -> Result<NormalCommitWorkV1, NormalOutputCommitFailureV1> {
     // A borrowed verified input cannot escape its genuine source owner. End
     // that borrow before moving the same sources into publication or failure.
     let result = (|| {
         let input = sources
-            .input(memory, archive, work.input_material, &mut || {
+            .input(memory, archive, &mut work.input_material, &mut || {
                 cancelled.load(Ordering::Acquire)
             })
             .map_err(TailCause::Input)?;
@@ -65,7 +67,7 @@ pub(crate) fn commit_prepared_normal_output_bounded_v1<'w, 'common>(
                 &input,
                 writer,
                 input_limits,
-                work.physical,
+                &mut work.physical,
                 canonical,
                 memory,
                 archive,
@@ -78,7 +80,7 @@ pub(crate) fn commit_prepared_normal_output_bounded_v1<'w, 'common>(
                 &input,
                 &prepared,
                 input_limits,
-                work.physical,
+                &mut work.physical,
                 archive,
                 memory,
                 cancelled,

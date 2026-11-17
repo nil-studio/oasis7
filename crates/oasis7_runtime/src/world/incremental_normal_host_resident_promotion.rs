@@ -197,7 +197,7 @@ pub fn prepare_normal_host_resident_promotion_from_io_v1<M, R, E, C>(
     roots: &ReservedValue<oasis7_formal_protocol::incremental_execution::RootSetV1>,
     state: &M,
     values: &R,
-    work: &mut crate::world::incremental_normal_host_work::NormalHostWorkV1<'_>,
+    work: &mut crate::world::incremental_normal_host_work::NormalHostWorkV1,
     take_state_error: E,
     cancelled: C,
     common: &mut FormalBoundedContextV1<'_>,

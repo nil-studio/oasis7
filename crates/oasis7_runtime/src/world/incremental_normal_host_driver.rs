@@ -44,7 +44,7 @@ pub(in crate::world) enum NormalHostRuntimeErrorV1<OE> {
 /// work can select a different dispatch path. All qualifications come from the
 /// same genuine BoundParent; all work returns through the original Host scope.
 #[allow(clippy::too_many_arguments)]
-pub(in crate::world) fn execute_normal_host_runtime_v1<'s, 'p, 'common, M, R, E, C, W, F, O, S>(
+pub(in crate::world) fn execute_normal_host_runtime_v1<'s, 'p, M, R, E, C, W, F, O, S>(
     parent: &'p ReservedValue<BoundNormalTickParentV1<'p>>,
     input: &PaidBoundNormalInputDataV1<'_>,
     transaction: &mut ExecutionTransaction<'s, M>,
@@ -60,7 +60,7 @@ pub(in crate::world) fn execute_normal_host_runtime_v1<'s, 'p, 'common, M, R, E,
     authorization: &mut super::incremental_authorization_root_current::CurrentAuthorizationProjectionV1<'p>,
     directories: NormalTailDirectoryInputsV1<'p>,
     cognition: NormalTailCognitionInputsV1<'p>,
-    work: &mut NormalHostWorkV1<'common>,
+    work: &mut NormalHostWorkV1,
     take_state_error: E,
     cancelled: C,
     input_limits: &CborDataLimitsV1,
@@ -202,7 +202,7 @@ pub(in crate::world) enum NormalHostPreparationErrorV1<OE, PE> {
 /// This still prepares content: endpoint publication and accepted cache moves
 /// require their original separate retained leases and formal commit owners.
 #[allow(clippy::too_many_arguments)]
-pub(in crate::world) fn prepare_normal_host_runtime_v1<'s, 'p, 'common, M, R, E, C, W, F, O, S>(
+pub(in crate::world) fn prepare_normal_host_runtime_v1<'s, 'p, M, R, E, C, W, F, O, S>(
     parent: &'p ReservedValue<BoundNormalTickParentV1<'p>>,
     input: &PaidBoundNormalInputDataV1<'_>,
     mut transaction: ExecutionTransaction<'s, M>,
@@ -218,7 +218,7 @@ pub(in crate::world) fn prepare_normal_host_runtime_v1<'s, 'p, 'common, M, R, E,
     authorization: &mut super::incremental_authorization_root_current::CurrentAuthorizationProjectionV1<'p>,
     directories: NormalTailDirectoryInputsV1<'p>,
     cognition: NormalTailCognitionInputsV1<'p>,
-    work: &mut NormalHostWorkV1<'common>,
+    work: &mut NormalHostWorkV1,
     take_state_error: E,
     cancelled: C,
     input_limits: &CborDataLimitsV1,

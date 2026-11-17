@@ -1,7 +1,7 @@
 //! Recovery resumes the actual retained phase; it never reruns tick execution
 //! or invents a replacement lease after an ambiguous publication response.
 use super::*;
-impl<'w, 'common> NormalOutputCommitFailureV1<'w, 'common> {
+impl NormalOutputCommitFailureV1 {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn recover_bounded_v1(
         self,
@@ -17,7 +17,7 @@ impl<'w, 'common> NormalOutputCommitFailureV1<'w, 'common> {
         memory: &MemoryBudget,
         archive: &FormalArchiveReadWorkV1,
         cancelled: &AtomicBool,
-    ) -> Result<(), Self> {
+    ) -> Result<NormalCommitWorkV1, Self> {
         match self {
             Self::Input {
                 sources,
@@ -51,32 +51,33 @@ impl<'w, 'common> NormalOutputCommitFailureV1<'w, 'common> {
                 package,
                 sources,
                 prepared,
-                work,
+                mut work,
                 ..
             } => {
                 // A partial Original write is content-addressed DATA. Resume
                 // the real dual writer/readback with the same graph and work;
                 // no Begin was issued and no candidate is reconstructed.
-                let input = match sources.input(memory, archive, work.input_material, &mut || {
-                    cancelled.load(Ordering::Acquire)
-                }) {
-                    Ok(input) => input,
-                    Err(cause) => {
-                        return Err(Self::Persist {
-                            cause: IwsHostRuntimeErrorV1::Formal(cause),
-                            package,
-                            sources,
-                            prepared,
-                            work,
-                        });
-                    }
-                };
+                let input =
+                    match sources.input(memory, archive, &mut work.input_material, &mut || {
+                        cancelled.load(Ordering::Acquire)
+                    }) {
+                        Ok(input) => input,
+                        Err(cause) => {
+                            return Err(Self::Persist {
+                                cause: IwsHostRuntimeErrorV1::Formal(cause),
+                                package,
+                                sources,
+                                prepared,
+                                work,
+                            });
+                        }
+                    };
                 let persisted = primary.persist_normal_candidate_package_bounded_v1(
                     package,
                     &input,
                     &prepared,
                     input_limits,
-                    work.physical,
+                    &mut work.physical,
                     archive,
                     memory,
                     cancelled,

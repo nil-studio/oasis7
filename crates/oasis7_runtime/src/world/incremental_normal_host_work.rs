@@ -179,7 +179,7 @@ pub struct NormalHostBootstrapWorkV1 {
     pub groups: oasis7_world_state::incremental_cognition_groups::CognitionGroupWriteWorkV1,
     pub journal: ProductValidationDeliveryWorkV1,
 }
-pub struct NormalHostDriverWorkV1<'common> {
+pub struct NormalHostDriverWorkV1 {
     pub bootstrap: NormalHostBootstrapWorkV1,
     pub factory: FactoryPhaseWorkV1,
     pub pending: PendingActionFamilyWorkV1,
@@ -189,7 +189,7 @@ pub struct NormalHostDriverWorkV1<'common> {
         oasis7_world_state::incremental_runtime_pending_action_record::PendingActionWriteWorkV1,
     pub policy_scan: StateScanBudget,
     pub policy: RevocationReadWorkV1,
-    pub actions: NormalActionWorkSetV1<'common>,
+    pub actions: NormalActionWorkSetV1,
     pub tail: NormalTickTailWorkSetV1,
     pub product: ProductValidationDeliveryWorkV1,
     pub audit: WorldEventDecodeWorkV1,
@@ -213,7 +213,7 @@ pub(in crate::world) struct NormalHostDirectoryWorkLoanV1<'a>{
     pub receipts:&'a mut oasis7_world_state::incremental_factory_schedule_receipts::FactoryScheduleReceiptWorkV1,
 }
 /// A fixed, exclusive reborrow. No field is cloned or initialized here.
-pub(in crate::world) struct NormalHostDriverWorkLoanV1<'a, 'common> {
+pub(in crate::world) struct NormalHostDriverWorkLoanV1<'a> {
     factory: &'a mut FactoryPhaseWorkV1,
     finish_cut: &'a mut super::incremental_normal_host_finish::NormalHostFinishCutWorkV1,
     final_sources: &'a mut super::incremental_normal_final_sources::NormalFinalSourcesWorkV1,
@@ -221,7 +221,7 @@ pub(in crate::world) struct NormalHostDriverWorkLoanV1<'a, 'common> {
     pending_write: &'a mut oasis7_world_state::incremental_runtime_pending_action_record::PendingActionWriteWorkV1,
     policy_scan: &'a mut StateScanBudget,
     policy: &'a mut RevocationReadWorkV1,
-    actions: &'a mut NormalActionWorkSetV1<'common>,
+    actions: &'a mut NormalActionWorkSetV1,
     tail: &'a mut NormalTickTailWorkSetV1,
     product: &'a mut ProductValidationDeliveryWorkV1,
     audit: &'a mut WorldEventDecodeWorkV1,
@@ -229,7 +229,7 @@ pub(in crate::world) struct NormalHostDriverWorkLoanV1<'a, 'common> {
     enumeration: &'a mut CurrentInvocationEnumerationWorkV1,
     event_tail: &'a mut crate::world::incremental_world_event_tail::CurrentWorldEventTailWorkV1,
 }
-impl<'common> NormalHostDriverWorkV1<'common> {
+impl NormalHostDriverWorkV1 {
     pub(in crate::world) fn bootstrap_loan<'a>(
         &'a mut self,
         data_limits: &'a oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::CborDataLimitsV1,
@@ -301,7 +301,7 @@ impl<'common> NormalHostDriverWorkV1<'common> {
             },
         )
     }
-    pub(in crate::world) fn loan(&mut self) -> NormalHostDriverWorkLoanV1<'_, 'common> {
+    pub(in crate::world) fn loan(&mut self) -> NormalHostDriverWorkLoanV1<'_> {
         NormalHostDriverWorkLoanV1 {
             factory: &mut self.factory,
             finish_cut: &mut self.finish_cut,
@@ -364,11 +364,11 @@ impl NormalHostMaterialWorkV1 {
         }
     }
 }
-pub struct NormalHostWorkV1<'common> {
+pub struct NormalHostWorkV1 {
     pub invocation: NormalHostInvocationWorkV1,
     pub io: NormalHostIoWorkV1,
     pub materials: NormalHostMaterialWorkV1,
-    pub driver: NormalHostDriverWorkV1<'common>,
+    pub driver: NormalHostDriverWorkV1,
 }
 
 /// Combined original-input queue writes and the genuine fixed tick result.
@@ -421,7 +421,7 @@ where
         S,
     >(
         &mut self,
-        work: NormalHostDriverWorkLoanV1<'_, '_>,
+        work: NormalHostDriverWorkLoanV1<'_>,
         parent_source: &'p ReservedValue<BoundNormalTickParentV1<'p>>,
         input: &PaidBoundNormalInputDataV1<'_>,
         bootstrap: Option<

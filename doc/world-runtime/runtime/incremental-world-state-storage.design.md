@@ -1637,6 +1637,8 @@ GEN 与 authenticated cold 的投影缓存初始化必须重新计算完整原�
 
 四项输出承诺和包原件均保持真实来源、memory pool/Core、transaction/guard 与最终 seal 的绑定。先完成输出和双端真实原件持久化，再形成唯一正式候选；Ready/Complete、Qualified、Hot 原子落盘/Finish 与接受后的 Host/cache move 继续执行各自原门。错误与 unknown 保持真实 phase 和原剩余 work，不发布占位哈希、空树或 caller supplied success。
 
+跨 Node 回调保留的 normal 提交状态拥有原 physical、logical、input-material 和双端 candidate-source work；失败阶段与剩余 work 一起移动，成功也返还同一剩余 work。长期 work 只记录真实 Core 的不透明 identity，实际调用时校验并短期借用原 Core；相同数值的新 Core 不可替换原 Core。每次 Action、tail 与恢复仅重新借用原计数，不创建新额度，也不通过共享引用、线程安全标记或重建 Core 改变原单线程扣账语义。
+
 
 #### 正式业务输出原件的定位
 

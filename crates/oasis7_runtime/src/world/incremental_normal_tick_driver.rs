@@ -289,7 +289,7 @@ where
         >,
         authorization: &crate::world::incremental_authorization_root_current::CurrentAuthorizationProjectionV1<'_>,
         compiler: &crate::module_source_compiler::RuntimeSourceCompiler,
-        actions: &mut NormalActionWorkSetV1<'_>,
+        actions: &mut NormalActionWorkSetV1,
         tail_sources: &NormalTickTailSourcesV1<'_>,
         tail_work: &mut NormalTickTailWorkSetV1,
         product_delivery: &mut CurrentProductValidationDeliveryIndexV1<'_>,
@@ -415,7 +415,7 @@ where
         source_parents: &crate::world::incremental_normal_source_action_views::BoundNormalActionSourceParentsV1<'_, '_>,
         authorization: &crate::world::incremental_authorization_root_current::CurrentAuthorizationProjectionV1<'_>,
         compiler: &crate::module_source_compiler::RuntimeSourceCompiler,
-        actions: &mut NormalActionWorkSetV1<'_>,
+        actions: &mut NormalActionWorkSetV1,
         tail_sources: &NormalTickTailSourcesV1<'_>,
         tail_work: &mut NormalTickTailWorkSetV1,
         product_delivery: &mut CurrentProductValidationDeliveryIndexV1<'_>,
@@ -538,7 +538,7 @@ where
         policy_scan: &mut StateScanBudget,
         policy_work: &mut RevocationReadWorkV1,
         action_sources: &NormalActionSourcesV1<'_>,
-        actions: &mut NormalActionWorkSetV1<'_>,
+        actions: &mut NormalActionWorkSetV1,
         tail_sources: &NormalTickTailSourcesV1<'_>,
         tail_work: &mut NormalTickTailWorkSetV1,
         product_delivery: &mut CurrentProductValidationDeliveryIndexV1<'_>,
@@ -606,7 +606,7 @@ where
                 || input.checked().parent_record_id()
                     != parent_source.refs().core.candidate_record_id()
                 || input.context().world_id != parent_source.refs().roots.world_id
-                || actions.common_work().identity() != common.work().identity()
+                || actions.common_identity() != common.work().identity()
             {
                 return Err(RootModuleExecutionErrorV1::Body(BodyMutationError::Invalid(
                     "normal fixed driver actual parent/input/work",

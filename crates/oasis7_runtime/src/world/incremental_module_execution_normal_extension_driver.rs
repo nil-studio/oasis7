@@ -17,11 +17,13 @@ use crate::world::{
     incremental_step::IwsStepContext,
 };
 use oasis7_formal_protocol::controlled_authority::formal::bounded_context::{
-    FormalBoundedContextV1, FormalBoundedWorkV1,
+    FormalBoundedContextV1, FormalBoundedWorkV1, WorkIdentityV1,
 };
 use oasis7_formal_protocol::incremental_execution::ExecutionTransaction;
-pub(in crate::world) struct NormalCoreExtensionWorkV1<'a> {
-    pub(in crate::world) common: &'a FormalBoundedWorkV1,
+/// Owns the original finite allowances, not a cross-callback Core borrow.
+/// The actual Core is checked and borrowed only while executing a lane.
+pub(in crate::world) struct NormalCoreExtensionWorkV1 {
+    core: WorkIdentityV1,
     pub(in crate::world) pending_entries_remaining: usize,
     pub(in crate::world) max_body_text_bytes: usize,
 }
@@ -42,15 +44,38 @@ impl NormalCoreExtensionWorkViewV1<'_> {
         }
     }
 }
-impl NormalCoreExtensionWorkV1<'_> {
-    pub(in crate::world) fn view(&mut self) -> NormalCoreExtensionWorkViewV1<'_> {
-        NormalCoreExtensionWorkViewV1 {
-            common: self.common,
-            pending_entries_remaining: &mut self.pending_entries_remaining,
-            max_body_text_bytes: self.max_body_text_bytes,
+impl NormalCoreExtensionWorkV1 {
+    pub(in crate::world) fn new(
+        common: &FormalBoundedWorkV1,
+        pending_entries_remaining: usize,
+        max_body_text_bytes: usize,
+    ) -> Self {
+        Self {
+            core: common.identity(),
+            pending_entries_remaining,
+            max_body_text_bytes,
         }
     }
+
+    pub(in crate::world) fn common_identity(&self) -> WorkIdentityV1 {
+        self.core
+    }
+
+    pub(in crate::world) fn view<'a>(
+        &'a mut self,
+        common: &'a FormalBoundedWorkV1,
+    ) -> Result<NormalCoreExtensionWorkViewV1<'a>, BodyMutationError> {
+        if self.core != common.identity() {
+            return Err(BodyMutationError::Invalid("normal extension work Core"));
+        }
+        Ok(NormalCoreExtensionWorkViewV1 {
+            common,
+            pending_entries_remaining: &mut self.pending_entries_remaining,
+            max_body_text_bytes: self.max_body_text_bytes,
+        })
+    }
 }
+
 enum PreparedExtensionV1<'s, 'r> {
     Rejected(crate::RejectReason),
     Observation(PreparedObservationActionV1<'s, 'r>),
@@ -383,3 +408,7 @@ where
         result
     }
 }
+
+#[cfg(test)]
+#[path = "incremental_module_execution_normal_extension_work_tests.rs"]
+mod owned_work_tests;

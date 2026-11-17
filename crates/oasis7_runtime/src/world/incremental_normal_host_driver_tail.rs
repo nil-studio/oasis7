@@ -54,7 +54,7 @@ where
         recipe: &mut IndustryTransitionReadContextV1<'_, R, C>,
         industry: &mut IndustryFamilyReadContextV1<'_, M, R, E, C>,
         materials: &mut CorePolicyMaterialContextV1<'_, M, E>,
-        driver: &mut NormalHostDriverWorkV1<'_>,
+        driver: &mut NormalHostDriverWorkV1,
         input_limits: &CborDataLimitsV1,
         max_action_bytes: usize,
         max_grant_payload_bytes: u64,
