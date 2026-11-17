@@ -289,16 +289,33 @@ fn local_retained_readback_checks_original_path_count_and_disk_bytes() {
         node_root: digest,
         leaf_count: 1,
     };
-    assert!(local_closure::verify_retained(&store, &root, total, deadline()).is_err());
+    assert!(
+        local_closure::verify_retained(&store, &root, &mut CasBudget::new(total), deadline())
+            .is_err()
+    );
     store.put(&leaf_digest, &leaf_bytes).unwrap();
-    local_closure::verify_retained(&store, &root, total, deadline()).unwrap();
-    assert!(local_closure::verify_retained(&store, &root, total - 1, deadline()).is_err());
-    assert!(local_closure::verify_retained(&store, &root, total, Instant::now()).is_err());
+    local_closure::verify_retained(&store, &root, &mut CasBudget::new(total), deadline()).unwrap();
+    assert!(
+        local_closure::verify_retained(&store, &root, &mut CasBudget::new(total - 1), deadline())
+            .is_err()
+    );
+    assert!(
+        local_closure::verify_retained(&store, &root, &mut CasBudget::new(total), Instant::now())
+            .is_err()
+    );
     let wrong_count = BusinessIndexRootV1 {
         leaf_count: 2,
         ..root.clone()
     };
-    assert!(local_closure::verify_retained(&store, &wrong_count, total, deadline()).is_err());
+    assert!(
+        local_closure::verify_retained(
+            &store,
+            &wrong_count,
+            &mut CasBudget::new(total),
+            deadline()
+        )
+        .is_err()
+    );
     let wrong_depth = BusinessIndexNodeV1::branch(
         1,
         root.node_root.clone(),
@@ -315,10 +332,16 @@ fn local_retained_readback_checks_original_path_count_and_disk_bytes() {
         node_root: wrong_depth.digest().unwrap(),
         leaf_count: 1,
     };
-    assert!(local_closure::verify_retained(&store, &bad, total, deadline()).is_err());
+    assert!(
+        local_closure::verify_retained(&store, &bad, &mut CasBudget::new(total), deadline())
+            .is_err()
+    );
     let path = store.blobs_dir().join(format!("{leaf_digest}.blob"));
     std::fs::write(&path, b"corrupt retained original").unwrap();
-    assert!(local_closure::verify_retained(&store, &root, total, deadline()).is_err());
+    assert!(
+        local_closure::verify_retained(&store, &root, &mut CasBudget::new(total), deadline())
+            .is_err()
+    );
     assert_eq!(std::fs::read(&path).unwrap(), b"corrupt retained original");
     assert!(!store.root().join("pins.json").exists());
     assert!(!store.root().join("pin_scopes").exists());
@@ -370,5 +393,76 @@ fn manifest_original_cold_read_requires_exact_digest_length_cut_and_encoding() {
     std::fs::write(&path, b"damaged manifest").unwrap();
     assert!(local_closure::read_manifest(&store, &reference, &manifest.cut, deadline()).is_err());
     assert_eq!(std::fs::read(&path).unwrap(), b"damaged manifest");
+    assert!(!store.root().join("pin_scopes").exists());
+}
+
+#[test]
+fn original_world_preparation_combines_manifest_and_record_budget_without_installing() {
+    use oasis7_game_client::formal_sync_exchange::FullSyncManifestReference;
+    let (world, _, anchor, material, _) = full_sync_fixture();
+    let mut manifest = manifest_for(&anchor, &material);
+    let snapshot = world.snapshot();
+    let retained = snapshot.state.retained_history_root.as_ref().unwrap();
+    assert_eq!(retained.index_root, BusinessIndexRootV1::empty().unwrap());
+    manifest.retained_history_root_digest = Some(retained.root_digest.clone());
+    let bytes = serde_json::to_vec(&manifest).unwrap();
+    let reference = FullSyncManifestReference {
+        content_hash: blake3::hash(&bytes).to_hex().to_string(),
+        size_bytes: bytes.len() as u64,
+    };
+    let directory = TestPrivateDir::new();
+    let store = LocalCasStore::new(directory.0.join("cas"));
+    let deadline = || Instant::now() + Duration::from_secs(10);
+    let mut sizes = std::collections::BTreeMap::new();
+    for object in &material.objects {
+        store.put(&object.content_hash, &object.bytes).unwrap();
+        sizes.insert(object.content_hash.clone(), object.bytes.len() as u64);
+    }
+    store.put(&reference.content_hash, &bytes).unwrap();
+    sizes.insert(reference.content_hash.clone(), reference.size_bytes);
+    let exact: u64 = sizes.values().sum();
+    let (prepared, journal, _) =
+        local_closure::prepare_world_inputs(&store, &anchor, &reference, exact, deadline())
+            .unwrap();
+    assert_eq!(
+        oasis7_world_state::codec::snapshot_cbor(&prepared).unwrap(),
+        oasis7_world_state::codec::snapshot_cbor(&snapshot).unwrap()
+    );
+    assert_eq!(
+        oasis7_world_state::codec::journal_cbor(&journal).unwrap(),
+        oasis7_world_state::codec::journal_cbor(world.journal()).unwrap()
+    );
+    assert!(
+        local_closure::prepare_world_inputs(&store, &anchor, &reference, exact - 1, deadline())
+            .is_err()
+    );
+    assert!(
+        local_closure::prepare_world_inputs(&store, &anchor, &reference, exact, Instant::now())
+            .is_err()
+    );
+    manifest.retained_history_root_digest = Some("ff".repeat(32));
+    let wrong = serde_json::to_vec(&manifest).unwrap();
+    let wrong_reference = FullSyncManifestReference {
+        content_hash: blake3::hash(&wrong).to_hex().to_string(),
+        size_bytes: wrong.len() as u64,
+    };
+    store.put(&wrong_reference.content_hash, &wrong).unwrap();
+    assert!(
+        local_closure::prepare_world_inputs(
+            &store,
+            &anchor,
+            &wrong_reference,
+            64 * 1024 * 1024,
+            deadline()
+        )
+        .is_err()
+    );
+    let missing = &material.objects[0].content_hash;
+    std::fs::remove_file(store.blobs_dir().join(format!("{missing}.blob"))).unwrap();
+    assert!(
+        local_closure::prepare_world_inputs(&store, &anchor, &reference, exact, deadline())
+            .is_err()
+    );
+    assert!(!store.root().join("pins.json").exists());
     assert!(!store.root().join("pin_scopes").exists());
 }

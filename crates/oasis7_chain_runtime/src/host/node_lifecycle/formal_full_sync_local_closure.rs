@@ -140,13 +140,22 @@ pub(super) fn verify_native(
     material_limit: u64,
     deadline: Instant,
 ) -> Result<(), String> {
-    let Some(environment) = material.native_environment().map_err(|e| e.to_string())? else {
-        return Ok(());
-    };
     let mut budget = CasBudget::new(material_limit);
     for object in &material.objects {
         budget.add(&object.content_hash, object.bytes.len() as u64)?;
     }
+    verify_native_with_budget(store, material, &mut budget, deadline)
+}
+
+fn verify_native_with_budget(
+    store: &LocalCasStore,
+    material: &ClosedRecord,
+    budget: &mut CasBudget,
+    deadline: Instant,
+) -> Result<(), String> {
+    let Some(environment) = material.native_environment().map_err(|e| e.to_string())? else {
+        return Ok(());
+    };
     environment.verify(|digest| {
         let declared = environment
             .components
@@ -165,11 +174,10 @@ pub(super) fn verify_native(
 pub(super) fn verify_retained(
     store: &LocalCasStore,
     root: &BusinessIndexRootV1,
-    material_limit: u64,
+    budget: &mut CasBudget,
     deadline: Instant,
 ) -> Result<(), String> {
     root.validate()?;
-    let mut budget = CasBudget::new(material_limit);
     let mut pending = vec![(root.node_root.clone(), Vec::<bool>::new())];
     let mut leaves = 0u64;
     while let Some((digest, prefix)) = pending.pop() {
@@ -245,4 +253,58 @@ pub(super) fn read_manifest(
         return Err("manifest original differs from canonical selected cut".into());
     }
     Ok(manifest)
+}
+
+/// Prepare only verified World inputs from the original manifest and typed
+/// target. This performs no cleanup, network I/O, installation or readiness.
+pub(super) fn prepare_world_inputs(
+    store: &LocalCasStore,
+    anchor: &VerifiedFormalReadAnchorV1,
+    reference: &oasis7_game_client::formal_sync_exchange::FullSyncManifestReference,
+    material_limit: u64,
+    deadline: Instant,
+) -> Result<(Snapshot, Journal, VerifiedFormalRetainedHistoryParentV1), String> {
+    let cut = cut_from_anchor(anchor)?;
+    let manifest = read_manifest(store, reference, &cut, deadline)?;
+    let material = read_record(store, anchor, &manifest, material_limit, deadline)?;
+    let mut budget = CasBudget::new(material_limit);
+    budget.add(&reference.content_hash, reference.size_bytes)?;
+    for object in &material.objects {
+        budget.add(&object.content_hash, object.bytes.len() as u64)?;
+    }
+    verify_native_with_budget(store, &material, &mut budget, deadline)?;
+    let snapshot_bytes = material.snapshot_bytes().map_err(|e| e.to_string())?;
+    let journal_hash = material
+        .roots
+        .get(&ArtifactRole::Journal)
+        .ok_or("missing original Journal")?;
+    let journal_bytes = object_bytes(&material, journal_hash)?;
+    let snapshot: Snapshot = oasis7_world_state::codec::snapshot_from_cbor(&snapshot_bytes)
+        .map_err(|e| e.to_string())?;
+    let journal: Journal =
+        oasis7_world_state::codec::journal_from_cbor(journal_bytes).map_err(|e| e.to_string())?;
+    if oasis7_world_state::codec::snapshot_cbor(&snapshot).map_err(|e| e.to_string())?
+        != snapshot_bytes
+        || oasis7_world_state::codec::journal_cbor(&journal).map_err(|e| e.to_string())?
+            != journal_bytes
+        || blake3::hash(&snapshot_bytes).to_hex().as_str() != cut.after_state_root
+    {
+        return Err(
+            "original World inputs are not canonical or differ from selected target".into(),
+        );
+    }
+    let retained = snapshot
+        .state
+        .retained_history_root
+        .as_ref()
+        .ok_or("missing original retained root")?;
+    if manifest.retained_history_root_digest.as_deref() != Some(&retained.root_digest) {
+        return Err("original manifest retained root differs from qualified Snapshot".into());
+    }
+    let parent = VerifiedFormalRetainedHistoryParentV1::verify(anchor, &snapshot_bytes)?;
+    verify_retained(store, &retained.index_root, &mut budget, deadline)?;
+    if Instant::now() >= deadline {
+        return Err("original World preparation deadline expired".into());
+    }
+    Ok((snapshot, journal, parent))
 }

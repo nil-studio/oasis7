@@ -606,7 +606,7 @@ impl FormalFullSyncSession {
         if manifest.retained_history_root_digest.as_deref() != Some(&retained.root_digest) {
             return Err("full-sync manifest retained root differs from qualified Snapshot".into());
         }
-        let parent = VerifiedFormalRetainedHistoryParentV1::verify(&anchor, snapshot_bytes)?;
+        VerifiedFormalRetainedHistoryParentV1::verify(&anchor, snapshot_bytes)?;
         let tree_leaves = self.fetch_retained_tree(
             &cut,
             &retained.root_digest,
@@ -616,13 +616,16 @@ impl FormalFullSyncSession {
         if tree_leaves != retained.index_root.leaf_count {
             return Err("full-sync retained tree leaf count mismatch".into());
         }
-        local_closure::verify_retained(
+        let manifest_reference =
+            self.persist_manifest_original(&manifest, &cut, &mut attempt.budget)?;
+        let (snapshot, journal, parent) = local_closure::prepare_world_inputs(
             &self.cas,
-            &retained.index_root,
+            &anchor,
+            &manifest_reference,
             self.config.max_total_sync_bytes,
             std::time::Instant::now()
                 .checked_add(Duration::from_millis(self.config.request_timeout_ms))
-                .ok_or("local retained readback deadline overflow")?,
+                .ok_or("local World preparation deadline overflow")?,
         )?;
         let reader = Arc::new(LocalVerifiedBusinessIndexReader {
             store: Arc::clone(&self.cas),
@@ -658,8 +661,6 @@ impl FormalFullSyncSession {
                     .into(),
             );
         }
-        let manifest_reference =
-            self.persist_manifest_original(&manifest, &cut, &mut attempt.budget)?;
         // A failed provider may have charged a digest that it never persisted.
         // Pinning those charges would make a healthy alternate fail later at
         // `stored_blob_bytes`. Only objects that actually exist in the local
