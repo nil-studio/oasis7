@@ -1,4 +1,6 @@
-//! A new public request after recovery, not another retry of the frozen input.
+//! Legacy registration has no capability identity. Preserve its real effect and
+//! cold recovery, while requiring private reads to fail closed. The governed
+//! original scenario separately proves authorized immutable private Lookup.
 use super::*;
 
 pub(super) fn submit_after_recovery(
@@ -86,7 +88,13 @@ pub(super) fn submit_after_recovery(
             "unexpected public-scope rejection: {public_lookup_error}"
         ));
     }
-    let committed = lookup_original_commit(&client, &request)?;
+    assert_identity_unavailable(&client, &request)?;
+    let cut = runtime.published.current()?;
+    if cut.world.current_agent_identity(&action.target_agent_id).is_some() {
+        return Err("legacy RegisterAgent unexpectedly minted an identity".into());
+    }
+    // This is a verified observation cut, not a fabricated original CommitRef.
+    let committed = fixtures::commit_ref(&cut.anchor, &fixtures::projection(&cut.world));
     if committed.position <= original_ref.position
         || lookup_original_commit(&original_client, original)? != *original_ref
     {
@@ -121,7 +129,12 @@ pub(super) fn submit_after_recovery(
     runtime.start()?;
     let original_client = RemoteWorldServiceClient::new(owner).map_err(|e| e.to_string())?;
     let client = RemoteWorldServiceClient::new(next_owner).map_err(|e| e.to_string())?;
-    if lookup_original_commit(&client, &request)? != committed
+    assert_identity_unavailable(&client, &request)?;
+    let reopened = runtime.published.current()?;
+    let result_key = correlation::key_digest(&request.correlation.key).map_err(|e| e.to_string())?;
+    if retained_result_from_hot_or_cold(&reopened.world, &result_key)? != result
+        || reopened.world.current_agent_identity(&action.target_agent_id).is_some()
+        || reopened.world.main_token_liquid_balance(&action.target_agent_id) != claim.amount
         || lookup_original_commit(&original_client, original)? != *original_ref
         || runtime
             .published
@@ -139,4 +152,10 @@ pub(super) fn submit_after_recovery(
         Duration::from_secs(120),
         "survivor_next_reopen",
     )
+}
+
+fn assert_identity_unavailable(client: &RemoteWorldServiceClient, request: &SubmitIntentRequest<WorldServicePayloadV1>) -> Result<(), String> {
+    let error = client.lookup_formal_original(request.clone()).err().ok_or("legacy private result leaked without a durable identity")?;
+    if !error.to_string().contains("Agent identity unavailable") { return Err(format!("unexpected legacy private rejection: {error}")); }
+    Ok(())
 }
