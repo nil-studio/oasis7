@@ -1,10 +1,11 @@
+import {projectNativeResponses} from './native_response_diagnostics.mjs';
 // Failure-only observations of the local fixture, never an authorization check.
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 
 const stages=['draft','approved','role_keys_ready','native_registered','native_session_ready','participant_bound','ready_for_setup','prepared','explicit_login_required','frozen'];
 const resultKinds=['registration_challenge','binding_receipt','session_status','explicit_login_required'];
-const paths=['/custody/management-session-status','/custody/approvals/verify','/machine-registration/options','/machine-registration/complete',
+const paths=['/capabilities','/custody/management-session-status','/custody/approvals/verify','/machine-registration/options','/machine-registration/complete',
   '/custody/managed-bindings/options','/custody/managed-bindings/complete','/custody/managed-bindings/lookup',
   '/native-key/options','/native-key/complete','/custody/managed-bindings/session-status'];
 const timingKinds=['restart','provision_continue','managed_approve','managed_continue'];
@@ -114,7 +115,8 @@ export async function assertNativeStage(runtime,progress,expected,{managedOperat
   const report={schema:'oasis7.custody-native-stage-diagnostic/v1',failure_observed_at:String(Date.now()),
     expected_stage:choice(expected,stages),stage:choice(progress?.stage,stages),
     pending_count:Array.isArray(progress?.pending_operations)?progress.pending_operations.length:null,
-    transport_remaining:decimal(progress?.transport_remaining),timings:null,requests:null,snapshot_status:'unavailable',state:null,identity:null};
+    transport_remaining:decimal(progress?.transport_remaining),timings:null,requests:null,responses:null,snapshot_status:'unavailable',state:null,identity:null};
+  try{report.responses=projectNativeResponses(runtime.nativeResponses());}catch{/* Never replace the original failure. */}
   try{report.timings=timings(runtime.nativeTimings());}catch{/* Keep unknown; never print exception details. */}
   try{const requests=runtime.nativeRequests();report.requests=Object.fromEntries(paths.map(path=>[path,
     object(requests)?Object.hasOwn(requests,path)?count(requests[path]):0:null]));}catch{/* A missing counter is not zero. */}
