@@ -8,23 +8,23 @@ use std::path::Path;
 /// Ordinary successors may share a GEN static baseline without claiming that
 /// its cold native/artifact proof was recomputed for the current parent body.
 pub(crate) struct FrozenParentMaterialLeaseV1<'a, 'content> {
-    material: &'a ReservedValue<CandidateExecutionMaterialV1>,
-    content: &'a ReservedValue<CheckedIncrementalFrozenMaterialV1<'content>>,
+    _material: &'a ReservedValue<CandidateExecutionMaterialV1>,
+    _content: &'a ReservedValue<CheckedIncrementalFrozenMaterialV1<'content>>,
     _pages: &'a IncrementalPageStore,
     _native_pin: std::fs::File,
 }
 impl FrozenParentMaterialLeaseV1<'_, '_> {
     pub(crate) fn parent_record_id(&self) -> [u8; 32] {
-        self.material.record
+        self._material.record
     }
     pub(crate) fn parent_body_id(&self) -> [u8; 32] {
-        self.material.body
+        self._material.body
     }
     pub(crate) fn parent_roots_id(&self) -> [u8; 32] {
-        self.material.roots
+        self._material.roots
     }
     pub(crate) fn reservation_id(&self) -> [u8; 32] {
-        self.content.reservation_id()
+        self._content.reservation_id()
     }
 }
 fn role_id(
@@ -210,8 +210,8 @@ impl CandidateExecutionMaterialV1 {
             return Err(invalid("Frozen parent lease final cancellation"));
         }
         Ok(fee.retain(FrozenParentMaterialLeaseV1 {
-            material,
-            content: check,
+            _material: material,
+            _content: check,
             _pages: pages,
             _native_pin: native_pin,
         }))

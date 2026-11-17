@@ -6,7 +6,7 @@ use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use std::mem::size_of;
 pub(in crate::controlled_authority) struct PaidNativeCheckpointRefsV1<'a> {
     draft: PaidNativeCheckpointDraftV1<'a>,
-    outer: ReservedValue<()>,
+    _outer: ReservedValue<()>,
 }
 impl std::fmt::Debug for PaidNativeCheckpointRefsV1<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -19,10 +19,10 @@ impl PaidNativeCheckpointRefsV1<'_> {
         &self.draft
     }
     pub(in crate::controlled_authority) fn uses_budget(&self, memory: &MemoryBudget) -> bool {
-        self.draft.uses_budget(memory) && self.outer.uses_budget(memory)
+        self.draft.uses_budget(memory) && self._outer.uses_budget(memory)
     }
     pub(in crate::controlled_authority) fn reserved_bytes(&self) -> usize {
-        self.draft.reserved_bytes() + self.outer.reserved_bytes()
+        self.draft.reserved_bytes() + self._outer.reserved_bytes()
     }
 }
 impl<'a> PaidNativeCheckpointRefsV1<'a> {
@@ -185,7 +185,10 @@ pub(super) fn validate_native_checkpoint_refs_bounded_v1<'a>(
             stop,
         },
     )?;
-    Ok(PaidNativeCheckpointRefsV1 { draft, outer })
+    Ok(PaidNativeCheckpointRefsV1 {
+        draft,
+        _outer: outer,
+    })
 }
 #[cfg(test)]
 #[path = "endpoint_store_bounded_native_refs_tests.rs"]

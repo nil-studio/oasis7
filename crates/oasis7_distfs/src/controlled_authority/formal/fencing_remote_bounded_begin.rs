@@ -4,7 +4,7 @@ use crate::controlled_authority::formal::PaidSignedNativeCheckpointV1;
 
 struct SignatureEvidence<'a> {
     draft: PaidNativeCheckpointDraftV1<'a>,
-    rpc: ReservedValue<SignedMonotonicOracleRequestV1>,
+    _rpc: ReservedValue<SignedMonotonicOracleRequestV1>,
     reply: ReservedValue<SignedMonotonicOracleReplyV1>,
 }
 struct TransportParts {
@@ -18,9 +18,9 @@ pub(in crate::controlled_authority) struct PaidNativeCheckpointBeginV1<'a> {
     lease: PaidRemoteLeaseV1,
     wire: ReservedValue<Vec<u8>>,
     binding: ReservedValue<EndpointCheckpointBindingV1>,
-    source_outer: ReservedValue<()>,
-    rpc: ReservedValue<SignedMonotonicOracleRequestV1>,
-    outer: ReservedValue<()>,
+    _source_outer: ReservedValue<()>,
+    _rpc: ReservedValue<SignedMonotonicOracleRequestV1>,
+    _outer: ReservedValue<()>,
 }
 impl std::fmt::Debug for PaidNativeCheckpointBeginV1<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -30,7 +30,7 @@ impl std::fmt::Debug for PaidNativeCheckpointBeginV1<'_> {
 }
 impl PaidNativeCheckpointBeginV1<'_> {
     pub(in crate::controlled_authority) fn intent(&self) -> &CheckpointIntentV1 {
-        match &self.rpc.body.command {
+        match &self._rpc.body.command {
             MonotonicOracleCommandV1::Begin(value) => value,
             _ => unreachable!("private Begin request"),
         }
@@ -43,25 +43,25 @@ impl PaidNativeCheckpointBeginV1<'_> {
     }
     pub(in crate::controlled_authority) fn uses_budget(&self, memory: &MemoryBudget) -> bool {
         self.evidence.draft.uses_budget(memory)
-            && self.evidence.rpc.uses_budget(memory)
+            && self.evidence._rpc.uses_budget(memory)
             && self.evidence.reply.uses_budget(memory)
             && self.lease.uses_budget(memory)
             && self.wire.uses_budget(memory)
             && self.binding.uses_budget(memory)
-            && self.source_outer.uses_budget(memory)
-            && self.rpc.uses_budget(memory)
-            && self.outer.uses_budget(memory)
+            && self._source_outer.uses_budget(memory)
+            && self._rpc.uses_budget(memory)
+            && self._outer.uses_budget(memory)
     }
     pub(in crate::controlled_authority) fn reserved_bytes(&self) -> usize {
         self.evidence.draft.reserved_bytes()
-            + self.evidence.rpc.reserved_bytes()
+            + self.evidence._rpc.reserved_bytes()
             + self.evidence.reply.reserved_bytes()
             + self.lease.reserved_bytes()
             + self.wire.reserved_bytes()
             + self.binding.reserved_bytes()
-            + self.source_outer.reserved_bytes()
-            + self.rpc.reserved_bytes()
-            + self.outer.reserved_bytes()
+            + self._source_outer.reserved_bytes()
+            + self._rpc.reserved_bytes()
+            + self._outer.reserved_bytes()
     }
 }
 struct BeginValidation<'a, 'b> {
@@ -116,7 +116,7 @@ pub(in crate::controlled_authority) fn begin_signed_native_checkpoint_bounded_v1
             };
             let evidence = SignatureEvidence {
                 draft,
-                rpc: protected_rpc,
+                _rpc: protected_rpc,
                 reply: protected_reply,
             };
             step(ctx)?;
@@ -286,9 +286,9 @@ pub(in crate::controlled_authority) fn begin_signed_native_checkpoint_bounded_v1
                 lease,
                 wire,
                 binding,
-                source_outer,
-                rpc,
-                outer: outer_fee,
+                _source_outer: source_outer,
+                _rpc: rpc,
+                _outer: outer_fee,
             })
         })
 }
