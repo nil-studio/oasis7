@@ -315,10 +315,14 @@ impl FileFormalEndpoint {
                         FormalError::Conflict("GEN retained original decision".into()).into(),
                     );
                 }
-                let mut ctx = work.bounded_context(memory, stop);
-                let verified=oasis7_formal_protocol::controlled_authority::formal::verify_genesis_decision_bounded(decision,&candidate.candidate,context,&mut ctx)?;
-                let expected = verified.complete_receipt_body_bounded(self.role, &mut ctx)?;
-                drop(ctx);
+                // Keep both paid owners through comparison, signature checks and copying.
+                let verified;
+                let expected;
+                {
+                    let mut ctx = work.bounded_context(memory, stop);
+                    verified = oasis7_formal_protocol::controlled_authority::formal::verify_genesis_decision_bounded(decision,&candidate.candidate,context,&mut ctx)?;
+                    expected = verified.complete_receipt_body_bounded(self.role, &mut ctx)?;
+                }
                 if !same(&receipt.body, &*expected, memory, work, stop)? {
                     return Err(invalid("GEN retained complete context mismatch").into());
                 }

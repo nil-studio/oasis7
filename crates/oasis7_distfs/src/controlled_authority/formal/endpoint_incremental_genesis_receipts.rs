@@ -549,92 +549,97 @@ fn next_state(
     work: &FormalArchiveReadWorkV1,
     stop: &mut dyn FnMut() -> bool,
 ) -> Result<store::PaidRequestStateV1, FormalError> {
-    let mut ctx = work.bounded_context(memory, stop);
-    // Original named enum/struct envelopes, all fixed labels shorter than24.
-    let n = match &next {
-        Next::Prepared { candidate, receipt } => add(
-            1 + (1 + "Prepared".len()) + 1 + (1 + "candidate".len()) + (1 + "receipt".len()),
-            add(
-                component(candidate, &mut ctx)?,
-                component(receipt, &mut ctx)?,
-            )?,
-        )?,
-        Next::Decided {
-            candidate,
-            prepare,
-            receipt,
-        } => add(
-            1 + (1 + "Decided".len())
-                + 1
-                + (1 + "candidate".len())
-                + (1 + "prepare".len())
-                + (1 + "receipt".len()),
-            add(
-                component(candidate, &mut ctx)?,
-                add(component(prepare, &mut ctx)?, component(receipt, &mut ctx)?)?,
-            )?,
-        )?,
-        Next::Ready {
-            candidate,
-            prepare,
-            decision,
-            complete,
-        } => add(
-            1 + (1 + "Ready".len())
-                + 1
-                + (1 + "candidate".len())
-                + (1 + "prepare".len())
-                + (1 + "decision".len())
-                + (1 + "complete".len()),
-            add(
-                component(candidate, &mut ctx)?,
+    // Keep the original paid state alive through decoding.
+    let _value;
+    let wire;
+    {
+        let mut ctx = work.bounded_context(memory, stop);
+        // Original named enum/struct envelopes, all fixed labels shorter than24.
+        let n = match &next {
+            Next::Prepared { candidate, receipt } => add(
+                1 + (1 + "Prepared".len()) + 1 + (1 + "candidate".len()) + (1 + "receipt".len()),
                 add(
-                    component(prepare, &mut ctx)?,
+                    component(candidate, &mut ctx)?,
+                    component(receipt, &mut ctx)?,
+                )?,
+            )?,
+            Next::Decided {
+                candidate,
+                prepare,
+                receipt,
+            } => add(
+                1 + (1 + "Decided".len())
+                    + 1
+                    + (1 + "candidate".len())
+                    + (1 + "prepare".len())
+                    + (1 + "receipt".len()),
+                add(
+                    component(candidate, &mut ctx)?,
+                    add(component(prepare, &mut ctx)?, component(receipt, &mut ctx)?)?,
+                )?,
+            )?,
+            Next::Ready {
+                candidate,
+                prepare,
+                decision,
+                complete,
+            } => add(
+                1 + (1 + "Ready".len())
+                    + 1
+                    + (1 + "candidate".len())
+                    + (1 + "prepare".len())
+                    + (1 + "decision".len())
+                    + (1 + "complete".len()),
+                add(
+                    component(candidate, &mut ctx)?,
                     add(
-                        component(decision, &mut ctx)?,
-                        component(complete, &mut ctx)?,
+                        component(prepare, &mut ctx)?,
+                        add(
+                            component(decision, &mut ctx)?,
+                            component(complete, &mut ctx)?,
+                        )?,
                     )?,
                 )?,
             )?,
-        )?,
-    };
-    let reserve = fee(memory, store::bounded_request::decode_workspace(n)?)?;
-    ctx.charge(1, n as u64)?;
-    let value = match next {
-        Next::Prepared { candidate, receipt } => FormalRequestStateV1::Prepared {
-            candidate: candidate.clone(),
-            receipt: receipt.cloned(),
-        },
-        Next::Decided {
-            candidate,
-            prepare,
-            receipt,
-        } => FormalRequestStateV1::Decided {
-            candidate: candidate.clone(),
-            prepare: prepare.clone(),
-            receipt: receipt.clone(),
-        },
-        Next::Ready {
-            candidate,
-            prepare,
-            decision,
-            complete,
-        } => FormalRequestStateV1::Ready {
-            candidate: candidate.clone(),
-            prepare: prepare.clone(),
-            decision: decision.clone(),
-            complete: complete.cloned(),
-        },
-    };
-    let value = reserve.retain(value);
-    let wire = store::context_wire::encode_paid(
-        &*value,
-        64 * 1024 * 1024,
-        &mut ctx,
-        "formal object byte limit",
-        "GEN next state",
-    )?;
-    drop(ctx);
+        };
+        let reserve = fee(memory, store::bounded_request::decode_workspace(n)?)?;
+        ctx.charge(1, n as u64)?;
+        let value = match next {
+            Next::Prepared { candidate, receipt } => FormalRequestStateV1::Prepared {
+                candidate: candidate.clone(),
+                receipt: receipt.cloned(),
+            },
+            Next::Decided {
+                candidate,
+                prepare,
+                receipt,
+            } => FormalRequestStateV1::Decided {
+                candidate: candidate.clone(),
+                prepare: prepare.clone(),
+                receipt: receipt.clone(),
+            },
+            Next::Ready {
+                candidate,
+                prepare,
+                decision,
+                complete,
+            } => FormalRequestStateV1::Ready {
+                candidate: candidate.clone(),
+                prepare: prepare.clone(),
+                decision: decision.clone(),
+                complete: complete.cloned(),
+            },
+        };
+        let value = reserve.retain(value);
+        wire = store::context_wire::encode_paid(
+            &*value,
+            64 * 1024 * 1024,
+            &mut ctx,
+            "formal object byte limit",
+            "GEN next state",
+        )?;
+        _value = value;
+    }
     store::bounded_request::decode_request_bytes_bounded_v1(&wire, memory, work, stop)
 }
 fn persist(

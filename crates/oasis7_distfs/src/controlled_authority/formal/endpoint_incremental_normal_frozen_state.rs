@@ -12,38 +12,43 @@ pub(super) fn state(
     work: &FormalArchiveReadWorkV1,
     stop: &mut dyn FnMut() -> bool,
 ) -> Result<PaidRequestStateV1, FormalError> {
-    let mut ctx = work.bounded_context(memory, stop);
-    let measured = store::context_wire::encode_paid(
-        &(input, material, receipt, certificate),
-        64 << 20,
-        &mut ctx,
-        "formal object byte limit",
-        "normal Frozen data",
-    )?;
-    let n = measured
-        .len()
-        .checked_mul(8)
-        .and_then(|n| n.checked_add((1 << 20) + size_of::<FormalRequestStateV1>()))
-        .ok_or_else(|| invalid("normal Frozen state clone layout"))?;
-    let fee = memory
-        .reserve(n, MemoryClass::Ordinary)
-        .map_err(|_| invalid("normal Frozen state admission"))?;
-    ctx.charge(1, measured.len() as u64)?;
-    let value = fee.retain(FormalRequestStateV1::Frozen {
-        input: input.clone(),
-        material: material.clone(),
-        receipt: receipt.cloned(),
-        certificate: certificate.cloned(),
-    });
-    drop(measured);
-    let wire = store::context_wire::encode_paid(
-        &*value,
-        64 << 20,
-        &mut ctx,
-        "formal object byte limit",
-        "normal Frozen RequestState",
-    )?;
-    drop(ctx);
+    // Keep the original paid state alive through decoding.
+    let _value;
+    let wire;
+    {
+        let mut ctx = work.bounded_context(memory, stop);
+        let measured = store::context_wire::encode_paid(
+            &(input, material, receipt, certificate),
+            64 << 20,
+            &mut ctx,
+            "formal object byte limit",
+            "normal Frozen data",
+        )?;
+        let n = measured
+            .len()
+            .checked_mul(8)
+            .and_then(|n| n.checked_add((1 << 20) + size_of::<FormalRequestStateV1>()))
+            .ok_or_else(|| invalid("normal Frozen state clone layout"))?;
+        let fee = memory
+            .reserve(n, MemoryClass::Ordinary)
+            .map_err(|_| invalid("normal Frozen state admission"))?;
+        ctx.charge(1, measured.len() as u64)?;
+        let value = fee.retain(FormalRequestStateV1::Frozen {
+            input: input.clone(),
+            material: material.clone(),
+            receipt: receipt.cloned(),
+            certificate: certificate.cloned(),
+        });
+        drop(measured);
+        wire = store::context_wire::encode_paid(
+            &*value,
+            64 << 20,
+            &mut ctx,
+            "formal object byte limit",
+            "normal Frozen RequestState",
+        )?;
+        _value = value;
+    }
     decode_request_bytes_bounded_v1(&wire, memory, work, stop)
 }
 pub(super) fn input(

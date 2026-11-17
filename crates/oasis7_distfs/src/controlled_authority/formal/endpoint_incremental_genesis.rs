@@ -83,51 +83,58 @@ pub(super) fn qualified_state_from_proof(
     work: &FormalArchiveReadWorkV1,
     stop: &mut dyn FnMut() -> bool,
 ) -> Result<store::PaidRequestStateV1, FormalError> {
-    let mut ctx = work.bounded_context(memory, stop);
-    let c = store::context_wire::encode_paid(
-        candidate,
-        64 * 1024 * 1024,
-        &mut ctx,
-        "formal object byte limit",
-        "GEN candidate sizing",
-    )?;
-    let p = store::context_wire::encode_paid(
-        proof,
-        64 * 1024 * 1024,
-        &mut ctx,
-        "formal object byte limit",
-        "GEN proof sizing",
-    )?;
-    let n = c
-        .len()
-        .checked_add(p.len())
-        .and_then(|n| n.checked_add(closure.len()))
-        .and_then(|n| n.checked_add(128))
-        .ok_or_else(|| invalid("GEN Qualified clone layout"))?;
-    // Reuse the proved COMPLETE RequestState heap bound. The original clone
-    // constructs a strict subset of that same reachable DTO graph: no parser
-    // scratch or diagnostic buffers are needed, so this deliberately overpays.
-    let fee = memory
-        .reserve(
-            store::bounded_request::decode_workspace(n)?,
-            MemoryClass::Ordinary,
-        )
-        .map_err(|_| invalid("GEN Qualified clone admission"))?;
-    ctx.charge(1, n as u64)?;
-    let state = FormalRequestStateV1::Qualified {
-        candidate: candidate.clone(),
-        proof: proof.clone(),
-        data_closure: Some(closure.to_owned()),
-    };
-    let state = fee.retain(state);
-    let wire = store::context_wire::encode_paid(
-        &*state,
-        64 * 1024 * 1024,
-        &mut ctx,
-        "formal object byte limit",
-        "GEN Qualified encoding",
-    )?;
-    drop(ctx);
+    // Keep the paid sizing bytes and cloned state alive through decoding.
+    let c;
+    let p;
+    let _state;
+    let wire;
+    {
+        let mut ctx = work.bounded_context(memory, stop);
+        c = store::context_wire::encode_paid(
+            candidate,
+            64 * 1024 * 1024,
+            &mut ctx,
+            "formal object byte limit",
+            "GEN candidate sizing",
+        )?;
+        p = store::context_wire::encode_paid(
+            proof,
+            64 * 1024 * 1024,
+            &mut ctx,
+            "formal object byte limit",
+            "GEN proof sizing",
+        )?;
+        let n = c
+            .len()
+            .checked_add(p.len())
+            .and_then(|n| n.checked_add(closure.len()))
+            .and_then(|n| n.checked_add(128))
+            .ok_or_else(|| invalid("GEN Qualified clone layout"))?;
+        // Reuse the proved COMPLETE RequestState heap bound. The original clone
+        // constructs a strict subset of that same reachable DTO graph: no parser
+        // scratch or diagnostic buffers are needed, so this deliberately overpays.
+        let fee = memory
+            .reserve(
+                store::bounded_request::decode_workspace(n)?,
+                MemoryClass::Ordinary,
+            )
+            .map_err(|_| invalid("GEN Qualified clone admission"))?;
+        ctx.charge(1, n as u64)?;
+        let state = FormalRequestStateV1::Qualified {
+            candidate: candidate.clone(),
+            proof: proof.clone(),
+            data_closure: Some(closure.to_owned()),
+        };
+        let state = fee.retain(state);
+        wire = store::context_wire::encode_paid(
+            &*state,
+            64 * 1024 * 1024,
+            &mut ctx,
+            "formal object byte limit",
+            "GEN Qualified encoding",
+        )?;
+        _state = state;
+    }
     store::bounded_request::decode_request_bytes_bounded_v1(&wire, memory, work, stop)
 }
 pub struct PaidGenesisAcceptanceV1 {
