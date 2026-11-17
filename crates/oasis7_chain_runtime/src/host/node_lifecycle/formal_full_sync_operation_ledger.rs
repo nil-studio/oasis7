@@ -100,10 +100,45 @@ impl InterruptedAttempt {
     }
 }
 
+/// Exact local candidate references, not a proof of installation or readiness.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct PublicationCandidate {
+    pub cut: serde_json::Value,
+    pub roots: std::collections::BTreeSet<String>,
+}
+impl PublicationCandidate {
+    fn validate(&self, target_json: &[u8], intent_digest: &str) -> Result<(), String> {
+        if self.roots.len() > 65_536
+            || self.roots.iter().any(|root| {
+                root.len() != 64
+                    || !root
+                        .bytes()
+                        .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+            })
+        {
+            return Err("invalid bounded publication roots".into());
+        }
+        let target: serde_json::Value =
+            serde_json::from_slice(target_json).map_err(|error| error.to_string())?;
+        if target
+            .as_array()
+            .is_none_or(|parts| parts.len() != 2 || parts.first() != Some(&self.cut))
+            || local_io::digest(&(&self.cut, local_io::digest(&self.roots)?))? != intent_digest
+        {
+            return Err("publication candidate differs from original target or intent".into());
+        }
+        Ok(())
+    }
+}
+
 /// Durable local CAS publication intent, not World installation or readiness.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Publication {
+    /// Absent in legacy digest-only journals; absence grants no recovery authority.
+    #[serde(default)]
+    pub candidate: Option<PublicationCandidate>,
     pub intent_digest: String,
     pub attempt_no: u64,
     pub completed: bool,
@@ -181,6 +216,16 @@ impl Snapshot {
                     .all(|c| c.is_ascii_hexdigit()))
         {
             return Err("invalid operation publication identity".into());
+        }
+        if let Some(publication) = &self.publication
+            && let Some(candidate) = &publication.candidate
+        {
+            candidate.validate(
+                self.verified_target_json
+                    .as_deref()
+                    .ok_or("missing publication target")?,
+                &publication.intent_digest,
+            )?;
         }
         let mut previous = 0;
         for old in &self.interrupted_attempts {
@@ -757,15 +802,13 @@ impl Ledger {
         &mut self,
         permit: &AttemptPermit,
         cut: &serde_json::Value,
-        roots_digest: &str,
+        roots: &std::collections::BTreeSet<String>,
     ) -> Result<(), String> {
         self.check_attempt(permit)?;
         if self.state.publication_journal_version != Some(1)
             || self.state.publication.is_some()
             || self.state.active_request.is_some()
             || self.state.reservation.is_some()
-            || roots_digest.len() != 64
-            || !roots_digest.bytes().all(|c| c.is_ascii_hexdigit())
         {
             return Err("operation_recovery_required: publication unavailable".into());
         }
@@ -782,9 +825,22 @@ impl Ledger {
         {
             return Err("publication differs from the original selected cut".into());
         }
+        let candidate = PublicationCandidate {
+            cut: cut.clone(),
+            roots: roots.clone(),
+        };
+        let intent_digest = local_io::digest(&(cut, local_io::digest(roots)?))?;
+        candidate.validate(
+            self.state
+                .verified_target_json
+                .as_deref()
+                .ok_or("missing publication target")?,
+            &intent_digest,
+        )?;
         let mut next = self.state.clone();
         next.publication = Some(Publication {
-            intent_digest: local_io::digest(&(cut, roots_digest))?,
+            candidate: Some(candidate),
+            intent_digest,
             attempt_no: permit.number,
             completed: false,
         });
@@ -797,7 +853,7 @@ impl Ledger {
         &mut self,
         permit: &AttemptPermit,
         cut: &serde_json::Value,
-        roots_digest: &str,
+        roots: &std::collections::BTreeSet<String>,
     ) -> Result<(), String> {
         self.check_attempt(permit)?;
         let mut next = self.state.clone();
@@ -807,7 +863,7 @@ impl Ledger {
             .ok_or("missing publication intent")?;
         if publication.completed
             || publication.attempt_no != permit.number
-            || publication.intent_digest != local_io::digest(&(cut, roots_digest))?
+            || publication.intent_digest != local_io::digest(&(cut, local_io::digest(roots)?))?
         {
             return Err("publication completion differs from original intent".into());
         }

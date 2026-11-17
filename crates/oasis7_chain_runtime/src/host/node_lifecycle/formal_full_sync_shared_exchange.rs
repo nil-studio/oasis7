@@ -250,7 +250,7 @@ impl FullSyncExchange for SharedOperationExchange {
     fn begin_publication(
         &self,
         cut: &serde_json::Value,
-        roots_digest: &str,
+        roots: &std::collections::BTreeSet<String>,
     ) -> Result<(), WorldServiceClientError> {
         let mut guard = self.active.try_lock().map_err(|_| {
             WorldServiceClientError::Transport("operation occupied or poisoned".into())
@@ -258,13 +258,13 @@ impl FullSyncExchange for SharedOperationExchange {
         let active = &mut *guard;
         active
             .ledger
-            .begin_publication(&active.attempt, cut, roots_digest)
+            .begin_publication(&active.attempt, cut, roots)
             .map_err(WorldServiceClientError::Transport)
     }
     fn complete_publication(
         &self,
         cut: &serde_json::Value,
-        roots_digest: &str,
+        roots: &std::collections::BTreeSet<String>,
     ) -> Result<(), WorldServiceClientError> {
         let mut guard = self.active.try_lock().map_err(|_| {
             WorldServiceClientError::Transport("operation occupied or poisoned".into())
@@ -272,7 +272,7 @@ impl FullSyncExchange for SharedOperationExchange {
         let active = &mut *guard;
         active
             .ledger
-            .complete_publication(&active.attempt, cut, roots_digest)
+            .complete_publication(&active.attempt, cut, roots)
             .map_err(WorldServiceClientError::Transport)
     }
     fn check_active(&self) -> Result<(), WorldServiceClientError> {

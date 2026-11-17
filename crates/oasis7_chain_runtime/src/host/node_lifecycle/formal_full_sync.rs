@@ -427,7 +427,7 @@ impl FormalFullSyncSession {
                 self.check_operation_active()?;
                 let publication = if let Some(exchange) = &self.shared_exchange {
                     let cut = serde_json::to_value(&restored.cut).map_err(|e| e.to_string())?;
-                    let roots = super::local_io::digest(&restored.retained_cas_hashes)?;
+                    let roots = restored.retained_cas_hashes.clone();
                     exchange
                         .begin_publication(&cut, &roots)
                         .map_err(|e| e.to_string())?;

@@ -1,7 +1,7 @@
 use super::super::local_io;
 use super::{
     direct_http,
-    operation_ledger::{Direction, Identity, Ledger, Policy},
+    operation_ledger::{Direction, Identity, Ledger, Policy, Snapshot},
 };
 use std::{
     io::{Read, Write},
@@ -552,7 +552,7 @@ fn publication_intent_is_exact_and_unknown_reopen_cannot_replay() {
     let cut = serde_json::json!({"record_id": "original"});
     let target =
         serde_json::to_vec(&(cut.clone(), serde_json::json!({"original_record": true}))).unwrap();
-    let roots = "ab".repeat(32);
+    let roots = std::collections::BTreeSet::from(["ab".repeat(32)]);
     assert!(ledger.begin_publication(&attempt, &cut, &roots).is_err());
     ledger.bind_verified_target(&attempt, &target).unwrap();
     let selected = ledger.snapshot().clone();
@@ -569,10 +569,27 @@ fn publication_intent_is_exact_and_unknown_reopen_cannot_replay() {
     ledger.begin_publication(&attempt, &cut, &roots).unwrap();
     let pending = ledger.snapshot().clone();
     assert!(!pending.publication.as_ref().unwrap().completed);
+    let candidate = pending
+        .publication
+        .as_ref()
+        .unwrap()
+        .candidate
+        .as_ref()
+        .unwrap();
+    assert_eq!(candidate.cut, cut);
+    assert_eq!(candidate.roots, roots);
+    assert_eq!(
+        pending.verified_target_json.as_deref(),
+        Some(target.as_slice())
+    );
     assert!(ledger.begin_publication(&attempt, &cut, &roots).is_err());
     assert!(
         ledger
-            .complete_publication(&attempt, &cut, &"cd".repeat(32))
+            .complete_publication(
+                &attempt,
+                &cut,
+                &std::collections::BTreeSet::from(["cd".repeat(32)])
+            )
             .is_err()
     );
     assert_eq!(ledger.snapshot(), &pending);
@@ -595,7 +612,7 @@ fn publication_acknowledgement_is_durable_but_not_install_authority() {
     let cut = serde_json::json!({"record_id":"original"});
     let target =
         serde_json::to_vec(&(cut.clone(), serde_json::json!({"original_record":true}))).unwrap();
-    let roots = "ab".repeat(32);
+    let roots = std::collections::BTreeSet::from(["ab".repeat(32)]);
     ledger.bind_verified_target(&attempt, &target).unwrap();
     ledger.begin_publication(&attempt, &cut, &roots).unwrap();
     ledger.complete_publication(&attempt, &cut, &roots).unwrap();
@@ -620,7 +637,7 @@ fn publication_ack_failure_keeps_pending_and_poisoned() {
     let attempt = ledger.begin_attempt().unwrap();
     let cut = serde_json::json!({"record_id": "original"});
     let target = serde_json::to_vec(&(cut.clone(), serde_json::json!({}))).unwrap();
-    let roots = "ab".repeat(32);
+    let roots = std::collections::BTreeSet::from(["ab".repeat(32)]);
     ledger.bind_verified_target(&attempt, &target).unwrap();
     ledger.begin_publication(&attempt, &cut, &roots).unwrap();
     let mut disk = ledger.snapshot().clone();
@@ -656,7 +673,11 @@ fn legacy_selected_ledger_does_not_acquire_publication_capability() {
     assert!(reopened.begin_attempt().is_err());
     assert!(
         reopened
-            .begin_publication(&attempt, &serde_json::json!({}), &"ab".repeat(32))
+            .begin_publication(
+                &attempt,
+                &serde_json::json!({}),
+                &std::collections::BTreeSet::from(["ab".repeat(32)])
+            )
             .is_err()
     );
     let after: serde_json::Value = local_io::read(&path).unwrap();
@@ -756,4 +777,52 @@ fn bound_initialization_rejects_foreign_directory_before_creating_lock() {
     assert!(Ledger::create_bound(&path, id, policy, 0, &request, owner, owner_dir.path()).is_err());
     assert!(!path.exists());
     assert!(!path.with_extension("lock").exists());
+}
+
+#[test]
+fn publication_candidate_cold_read_rejects_changed_references() {
+    let temp = TestDir::new();
+    let path = temp.path().join("operation.json");
+    let policy = policy();
+    let identity = identity(&policy);
+    let mut ledger = Ledger::create(&path, identity.clone(), policy.clone()).unwrap();
+    let attempt = ledger.begin_attempt().unwrap();
+    let cut = serde_json::json!({"record_id": "original"});
+    let target =
+        serde_json::to_vec(&(cut.clone(), serde_json::json!({"original_record": true}))).unwrap();
+    ledger.bind_verified_target(&attempt, &target).unwrap();
+    let roots = std::collections::BTreeSet::from(["ab".repeat(32)]);
+    let before = std::fs::read(&path).unwrap();
+    let invalid = std::collections::BTreeSet::from(["../not-a-cas-reference".into()]);
+    assert!(ledger.begin_publication(&attempt, &cut, &invalid).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    ledger.begin_publication(&attempt, &cut, &roots).unwrap();
+    let original = ledger.snapshot().clone();
+    drop(ledger);
+    for replace_cut in [false, true] {
+        let mut changed = original.clone();
+        let candidate = changed
+            .publication
+            .as_mut()
+            .unwrap()
+            .candidate
+            .as_mut()
+            .unwrap();
+        if replace_cut {
+            candidate.cut = serde_json::json!({"record_id": "replacement"});
+        } else {
+            candidate.roots = std::collections::BTreeSet::from(["cd".repeat(32)]);
+        }
+        local_io::write(&path, &changed).unwrap();
+        assert!(Ledger::open(&path, &identity, &policy, 0).is_err());
+        let after: Snapshot = local_io::read(&path).unwrap();
+        assert_eq!(after, changed);
+    }
+    // Old digest-only journals remain readable for diagnosis, not replay permission.
+    let mut legacy = original;
+    legacy.publication.as_mut().unwrap().candidate = None;
+    local_io::write(&path, &legacy).unwrap();
+    let mut reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
+    assert!(reopened.begin_attempt().is_err());
+    assert_eq!(reopened.snapshot(), &legacy);
 }

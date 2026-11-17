@@ -33,12 +33,12 @@ pub trait FullSyncExchange: Send + Sync {
     fn begin_publication(
         &self,
         cut: &serde_json::Value,
-        roots_digest: &str,
+        roots: &std::collections::BTreeSet<String>,
     ) -> Result<(), WorldServiceClientError>;
     fn complete_publication(
         &self,
         cut: &serde_json::Value,
-        roots_digest: &str,
+        roots: &std::collections::BTreeSet<String>,
     ) -> Result<(), WorldServiceClientError>;
     fn check_active(&self) -> Result<(), WorldServiceClientError>;
     fn finish_attempt(&self) -> Result<(), WorldServiceClientError>;

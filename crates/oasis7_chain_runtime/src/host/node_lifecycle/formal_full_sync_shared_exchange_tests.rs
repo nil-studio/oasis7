@@ -558,12 +558,20 @@ fn recovery_checks_publication_before_session_can_prune_cas() {
         }
         if phase == "pending" || phase == "acknowledged" {
             ledger
-                .begin_publication(&attempt, &serde_json::json!({}), &"ab".repeat(32))
+                .begin_publication(
+                    &attempt,
+                    &serde_json::json!({}),
+                    &std::collections::BTreeSet::from(["ab".repeat(32)]),
+                )
                 .unwrap();
         }
         if phase == "acknowledged" {
             ledger
-                .complete_publication(&attempt, &serde_json::json!({}), &"ab".repeat(32))
+                .complete_publication(
+                    &attempt,
+                    &serde_json::json!({}),
+                    &std::collections::BTreeSet::from(["ab".repeat(32)]),
+                )
                 .unwrap();
         }
         drop(ledger);
