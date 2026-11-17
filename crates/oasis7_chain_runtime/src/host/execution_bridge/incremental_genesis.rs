@@ -176,6 +176,8 @@ pub(crate) struct ProvisionalProjectedRuntimeGenesisIndexV1 {
         ReservedValue<oasis7_formal_protocol::incremental_retention::RetentionLedgerManifestV1>,
     journal_originals: ReservedValue<Vec<OriginalArtifactRefV1>>,
     snapshot_originals: ReservedValue<Vec<OriginalArtifactRefV1>>,
+    hot_tick_originals: ReservedValue<Vec<OriginalArtifactRefV1>>,
+    hot_tick_archived_count: u64,
 }
 impl ProvisionalProjectedRuntimeGenesisIndexV1 {
     /// Initialize the original business index from this very physical GEN
@@ -274,6 +276,27 @@ impl ProvisionalProjectedRuntimeGenesisIndexV1 {
         }
         Ok(&self.snapshot_originals)
     }
+
+    /// Same-World legacy hot suffix and actual archived count, both DATA only.
+    /// The count proves no archived original and carries no IWS Tick authority.
+    pub(crate) fn hot_tick_originals_bounded_v1(
+        &self,
+        common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+    ) -> Result<(&ReservedValue<Vec<OriginalArtifactRefV1>>, u64), BodyMutationError> {
+        self.projected.validate_context_bounded_v1(common)?;
+        common
+            .charge(1, std::mem::size_of::<u64>() as u64)
+            .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
+        if !self.outer.uses_budget(common.memory())
+            || !self.roots.uses_budget(common.memory())
+            || !self.hot_tick_originals.uses_budget(common.memory())
+        {
+            return Err(BodyMutationError::Invalid(
+                "physical GEN hot Tick owner pool",
+            ));
+        }
+        Ok((&self.hot_tick_originals, self.hot_tick_archived_count))
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -302,6 +325,10 @@ pub(crate) fn prepare_projected_runtime_genesis_index_with_writer_v1<
     ) -> Result<OriginalArtifactRefV1, BodyMutationError>,
     snapshot_original: &mut dyn FnMut(
         &oasis7_world_state::snapshot::SnapshotRecord,
+        &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+    ) -> Result<OriginalArtifactRefV1, BodyMutationError>,
+    hot_tick_original: &mut dyn FnMut(
+        &oasis7_world_state::consensus::TickConsensusRecord,
         &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
     ) -> Result<OriginalArtifactRefV1, BodyMutationError>,
     common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
@@ -440,6 +467,59 @@ pub(crate) fn prepare_projected_runtime_genesis_index_with_writer_v1<
             .map_err(|error| source_error(BodyMutationError::Original(Box::new(error))))?;
         snapshot_refs.push(snapshot_original(snapshot, common).map_err(source_error)?);
     }
+    // This new borrowed view has its own admission before construction. Its
+    // phase remains live through the hot-suffix loop; it is not child metadata.
+    let history_view_bytes = std::mem::size_of::<
+        oasis7_runtime::incremental_runtime_history_original::RuntimeHistoryBorrowedV1<'_>,
+    >();
+    common
+        .charge(1, history_view_bytes as u64)
+        .map_err(|error| source_error(BodyMutationError::Original(Box::new(error))))?;
+    let _history_view_fee = common
+        .memory()
+        .reserve(
+            history_view_bytes,
+            oasis7_proto::memory_budget::MemoryClass::Ordinary,
+        )
+        .map_err(ValueTreeError::Memory)?;
+    let history = world.borrow_iws_runtime_history_v1();
+    let hot_tick_bytes = history
+        .ticks
+        .len()
+        .checked_mul(std::mem::size_of::<OriginalArtifactRefV1>())
+        .ok_or_else(|| source_error(BodyMutationError::Invalid("GEN hot Tick refs length")))?;
+    let hot_tick_work = u64::try_from(hot_tick_bytes)
+        .map_err(|_| source_error(BodyMutationError::Invalid("GEN hot Tick refs width")))?;
+    common
+        .charge(1, hot_tick_work)
+        .map_err(|error| source_error(BodyMutationError::Original(Box::new(error))))?;
+    let hot_tick_fee = common
+        .memory()
+        .reserve(
+            hot_tick_bytes,
+            oasis7_proto::memory_budget::MemoryClass::Ordinary,
+        )
+        .map_err(ValueTreeError::Memory)?;
+    let mut hot_tick_refs = Vec::new();
+    hot_tick_refs
+        .try_reserve_exact(history.ticks.len())
+        .map_err(|_| source_error(BodyMutationError::Invalid("GEN hot Tick refs allocation")))?;
+    if hot_tick_refs.capacity() != history.ticks.len() {
+        return Err(source_error(BodyMutationError::Invalid(
+            "GEN hot Tick refs capacity",
+        )));
+    }
+    for tick in history.ticks {
+        common
+            .charge(1, std::mem::size_of::<OriginalArtifactRefV1>() as u64)
+            .map_err(|error| source_error(BodyMutationError::Original(Box::new(error))))?;
+        hot_tick_refs.push(hot_tick_original(tick, common).map_err(source_error)?);
+    }
+    // Preserve the actual boundary; it is not a locator or archived-original proof.
+    common
+        .charge(1, std::mem::size_of::<u64>() as u64)
+        .map_err(|error| source_error(BodyMutationError::Original(Box::new(error))))?;
+    let hot_tick_archived_count = history.archived_tick_count;
     projected
         .validate_context_bounded_v1(common)
         .map_err(source_error)?;
@@ -453,6 +533,8 @@ pub(crate) fn prepare_projected_runtime_genesis_index_with_writer_v1<
         retention,
         journal_originals: refs_fee.retain(refs),
         snapshot_originals: snapshot_fee.retain(snapshot_refs),
+        hot_tick_originals: hot_tick_fee.retain(hot_tick_refs),
+        hot_tick_archived_count,
     })
 }
 

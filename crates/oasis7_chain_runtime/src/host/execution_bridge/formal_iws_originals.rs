@@ -129,7 +129,7 @@ struct EventMeterFrame<'a> {
     lease: ChildLeaseV1<'a>,
 }
 
-/// Only the two actual borrowed DTOs below can enter this private child.
+/// Only the concrete borrowed DTOs below can enter this private child.
 /// Static dispatch retains one source reference and adds no owned frame.
 trait BoundedOriginalSource {
     type Receipt;
@@ -191,6 +191,27 @@ impl BoundedOriginalSource for oasis7_world_state::snapshot::SnapshotRecord {
         receipt
     }
 }
+impl BoundedOriginalSource for oasis7_world_state::consensus::TickConsensusRecord {
+    type Receipt = OriginalArtifactRefV1;
+    const POOL_ERROR: &'static str = "GEN hot Tick original source pool";
+    const LANE_ERROR: &'static str = "GEN hot Tick original lane increased";
+    fn persist<C: FnMut() -> bool>(
+        &self,
+        memory: &MemoryBudget,
+        canonical: &mut CanonicalCborWorkV1,
+        cancelled: &mut C,
+        max_bytes: usize,
+        sink: &mut dyn ActionOriginalSinkV1,
+        debit: &dyn Fn(u64, u64) -> Result<(), BodyMutationError>,
+    ) -> Result<Self::Receipt, BodyMutationError> {
+        oasis7_world_state::incremental_runtime_history_original::persist_tick_consensus_record_original_with_work_v1(
+            self, memory, canonical, cancelled, max_bytes, sink, debit,
+        )
+    }
+    fn reference(receipt: Self::Receipt) -> OriginalArtifactRefV1 {
+        receipt
+    }
+}
 
 impl Originals<'_, '_, '_> {
     fn counters(&self) -> [[u64; 7]; 3] {
@@ -237,6 +258,15 @@ impl Originals<'_, '_, '_> {
         common: &mut FormalBoundedContextV1<'_>,
     ) -> Result<OriginalArtifactRefV1, BodyMutationError> {
         self.source_bounded(snapshot, canonical, common)
+    }
+
+    pub(super) fn hot_tick_bounded(
+        &mut self,
+        tick: &oasis7_world_state::consensus::TickConsensusRecord,
+        canonical: &mut CanonicalCborWorkV1,
+        common: &mut FormalBoundedContextV1<'_>,
+    ) -> Result<OriginalArtifactRefV1, BodyMutationError> {
+        self.source_bounded(tick, canonical, common)
     }
 
     fn source_bounded<S: BoundedOriginalSource>(

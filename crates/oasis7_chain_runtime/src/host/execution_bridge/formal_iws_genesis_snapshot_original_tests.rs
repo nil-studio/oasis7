@@ -290,7 +290,10 @@ fn snapshot_fanout(first_count_failure: bool) {
         let business_count = 4 + material.delta().delta().node_writes.len() as u64;
         assert_eq!(
             before_count - transfer.originals_remaining,
-            journal_expected.len() as u64 + expected.len() as u64 + business_count
+            journal_expected.len() as u64
+                + expected.len() as u64
+                + world.tick_consensus_records().len() as u64
+                + business_count
         );
         let source = projected.business_source_bounded_v1(&mut common).unwrap();
         assert_eq!(source.world_result_count(), 0);
@@ -554,3 +557,6 @@ fn metered_snapshot_preserves_one_shot_and_typed_second_pass_failure() {
     drop(input);
     assert_eq!(memory.used(), 0);
 }
+
+#[path = "formal_iws_genesis_tick_original_tests.rs"]
+mod ticks;

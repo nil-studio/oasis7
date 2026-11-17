@@ -375,7 +375,7 @@ fn journal_fanout(first_count_failure: bool) {
         let business_count = 4 + material.delta().delta().node_writes.len() as u64;
         assert_eq!(
             before_count - transfer.originals_remaining,
-            expected.len() as u64 + business_count
+            expected.len() as u64 + world.tick_consensus_records().len() as u64 + business_count
         );
         let source = projected.business_source_bounded_v1(&mut common).unwrap();
         assert_eq!(source.world_result_count(), 0);
