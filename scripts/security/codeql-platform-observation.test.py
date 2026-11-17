@@ -98,6 +98,7 @@ class ObservationTests(unittest.TestCase):
 
     def test_producer_run_and_job_must_be_exact_completed_identity(self):
         cases = (("run", "run_attempt", 3), ("run", "head_sha", "b" * 40),
+                 ("run", "path", ".github/workflows/codeql-rust-capacity.yml"),
                  ("run", "head_branch", "other"), ("run", "status", "in_progress"),
                  ("job", "run_attempt", 1), ("job", "head_sha", "b" * 40),
                  ("job", "status", "queued"))

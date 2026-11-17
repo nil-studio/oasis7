@@ -550,3 +550,329 @@ fn directory_sync_failure_after_rename_poisons_memory_and_reopen_follows_disk_fl
     assert!(reopened.lease_guard(&next).is_ok());
     assert!(reopened.lease_guard(&old).is_err());
 }
+
+#[test]
+fn explicit_policy_upgrade_preserves_floors_and_acceptance_matrix() {
+    for phase in [
+        "uninterrupted",
+        "intent-prefix",
+        "intent",
+        "state-prefix",
+        "state-complete",
+        "renamed",
+    ] {
+        let fixture = fixture();
+        let receiver = open(&fixture);
+        let remote = Keypair::generate_ed25519();
+        let withdrawn = Keypair::generate_ed25519();
+        let conflicted = Keypair::generate_ed25519();
+        let legacy_key = Keypair::generate_ed25519();
+        let legacy = super::super::peer_record::sign_peer_record(
+            &record_body(&legacy_key, "legacy"),
+            &legacy_key,
+        )
+        .expect("legacy signature");
+        assert_eq!(
+            receiver.admit_serialized(&legacy).unwrap(),
+            ReceiverAdmission::LegacyV1
+        );
+        receiver
+            .admit_serialized(&signed(&remote, 7, "live"))
+            .unwrap();
+        let mut withdrawn_body = record_body(&withdrawn, "withdrawn");
+        withdrawn_body.direct_addrs.clear();
+        let tombstone = super::super::peer_record::sign_peer_record_v2(
+            &withdrawn_body,
+            PeerRecordPublicationV2 {
+                schema_version: 2,
+                sequence: 3,
+                state: PeerRecordPublicationStateV2::Tombstone,
+            },
+            &withdrawn,
+        )
+        .unwrap();
+        receiver.admit_serialized(&tombstone).unwrap();
+        receiver
+            .admit_serialized(&signed(&conflicted, 4, "first"))
+            .unwrap();
+        receiver
+            .admit_serialized(&signed(&conflicted, 4, "fork"))
+            .unwrap();
+        let before: ReceiverLedgerV2 =
+            serde_cbor::from_slice(&fs::read(state_path(&fixture)).unwrap()).unwrap();
+        let mut target = fixture.config.clone();
+        target.mode = PeerRecordReceiverMode::V2Only;
+        assert!(
+            PeerRecordReceiver::upgrade_to_v2_only(&target, &fixture.local_key, &fixture.template)
+                .is_err(),
+            "live writer holds lock"
+        );
+        drop(receiver);
+        let mut target_ledger = before.clone();
+        target_ledger.mode = PeerRecordReceiverMode::V2Only;
+        let target_bytes = state_bytes(&target_ledger);
+        if phase != "uninterrupted" {
+            use std::os::unix::fs::PermissionsExt;
+            #[derive(Serialize)]
+            struct Intent {
+                schema_version: u16,
+                binding: ReceiverBindingV2,
+                source_blake3: String,
+                target_blake3: String,
+            }
+            let intent = super::super::durable_peer_record_publisher::canonical_cbor(&Intent {
+                schema_version: 3,
+                binding: before.binding.clone(),
+                source_blake3: blake3::hash(&state_bytes(&before)).to_hex().to_string(),
+                target_blake3: blake3::hash(&target_bytes).to_hex().to_string(),
+            })
+            .unwrap();
+            let intent_path = fixture
+                .directory
+                .join("peer-record-receiver-v2.initializing.cbor");
+            let write_private = |path: &Path, bytes: &[u8]| {
+                fs::write(path, bytes).unwrap();
+                fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+            };
+            if phase == "intent-prefix" {
+                write_private(
+                    &fixture
+                        .directory
+                        .join("peer-record-receiver-v2.initializing.cbor.tmp"),
+                    &intent[..intent.len() / 2],
+                );
+            } else {
+                write_private(&intent_path, &intent);
+            }
+            match phase {
+                "state-prefix" => write_private(
+                    &fixture.directory.join(STATE_TEMP_FILE),
+                    &target_bytes[..target_bytes.len() / 2],
+                ),
+                "state-complete" => {
+                    write_private(&fixture.directory.join(STATE_TEMP_FILE), &target_bytes)
+                }
+                "renamed" => write_state(&fixture, &target_bytes),
+                _ => {}
+            }
+            assert!(
+                PeerRecordReceiver::open(
+                    &fixture.config,
+                    &fixture.local_key,
+                    Some(&fixture.template),
+                )
+                .is_err(),
+                "old mode must reject pending {phase}"
+            );
+            assert!(
+                PeerRecordReceiver::open(&target, &fixture.local_key, Some(&fixture.template))
+                    .is_err()
+            );
+        }
+        PeerRecordReceiver::upgrade_to_v2_only(&target, &fixture.local_key, &fixture.template)
+            .unwrap();
+        PeerRecordReceiver::upgrade_to_v2_only(&target, &fixture.local_key, &fixture.template)
+            .unwrap();
+        let recovered_bytes = fs::read(state_path(&fixture)).unwrap();
+        assert_eq!(recovered_bytes, target_bytes, "exact target after {phase}");
+        assert!(!fixture.directory.join(STATE_TEMP_FILE).exists());
+        for pending in [
+            "peer-record-receiver-v2.initializing.cbor",
+            "peer-record-receiver-v2.initializing.cbor.tmp",
+        ] {
+            assert!(
+                !fixture.directory.join(pending).exists(),
+                "{phase}: {pending}"
+            );
+        }
+        let after: ReceiverLedgerV2 = serde_cbor::from_slice(&recovered_bytes).unwrap();
+        assert_eq!(before.binding, after.binding);
+        assert_eq!(
+            before.floors, after.floors,
+            "signed bytes and isolation remain exact"
+        );
+        assert_eq!(after.mode, PeerRecordReceiverMode::V2Only);
+        assert!(
+            PeerRecordReceiver::open(&fixture.config, &fixture.local_key, Some(&fixture.template))
+                .is_err()
+        );
+        let receiver =
+            PeerRecordReceiver::open(&target, &fixture.local_key, Some(&fixture.template)).unwrap();
+        assert!(receiver.admit_serialized(&legacy).is_err());
+        assert!(
+            receiver
+                .admit_serialized(&signed(&remote, 6, "regressed"))
+                .is_err()
+        );
+        assert!(
+            receiver
+                .admit_serialized(&signed(&withdrawn, 2, "stale-live"))
+                .is_err()
+        );
+        assert!(
+            receiver
+                .admit_serialized(&signed(&conflicted, 5, "higher"))
+                .is_err()
+        );
+        assert_eq!(
+            receiver
+                .admit_serialized(&signed(&remote, 8, "higher"))
+                .unwrap(),
+            ReceiverAdmission::Accepted
+        );
+    }
+}
+
+#[test]
+fn policy_upgrade_rejects_wrong_identity_and_unknown_writes_without_mutation() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fixture = fixture();
+    let mut target = fixture.config.clone();
+    target.mode = PeerRecordReceiverMode::V2Only;
+    let before = fs::read(state_path(&fixture)).unwrap();
+    let wrong_key = Keypair::generate_ed25519();
+    assert!(
+        PeerRecordReceiver::upgrade_to_v2_only(&target, &wrong_key, &fixture.template).is_err()
+    );
+    let mut wrong_domain = fixture.template.clone();
+    wrong_domain.network_id = "another-network".into();
+    assert!(
+        PeerRecordReceiver::upgrade_to_v2_only(&target, &fixture.local_key, &wrong_domain).is_err()
+    );
+    assert!(
+        PeerRecordReceiver::upgrade_to_v2_only(
+            &fixture.config,
+            &fixture.local_key,
+            &fixture.template,
+        )
+        .is_err()
+    );
+    for name in [STATE_TEMP_FILE, "peer-record-receiver-v2.initializing.cbor"] {
+        let unknown = fixture.directory.join(name);
+        fs::write(&unknown, b"unknown-operation").unwrap();
+        fs::set_permissions(&unknown, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(
+            PeerRecordReceiver::upgrade_to_v2_only(&target, &fixture.local_key, &fixture.template)
+                .is_err()
+        );
+        assert_eq!(fs::read(&unknown).unwrap(), b"unknown-operation");
+        assert_eq!(fs::read(state_path(&fixture)).unwrap(), before);
+        fs::remove_file(unknown).unwrap();
+    }
+    PeerRecordReceiver::upgrade_to_v2_only(&target, &fixture.local_key, &fixture.template).unwrap();
+}
+
+mod policy_upgrade {
+    use super::super::persistence::upgrade::{UpgradeIntent, upgrade_with_finish_sync};
+    use super::super::persistence::{initialize, open, upgrade_to_v2_only};
+    use super::super::*;
+    use crate::libp2p_net::durable_peer_record_publisher as durable_files;
+    use std::fs;
+    use std::path::Path;
+    const STATE_FILE_NAME: &str = "peer-record-receiver-v2.state.cbor";
+    const STATE_TEMP_FILE_NAME: &str = "peer-record-receiver-v2.state.cbor.tmp";
+    const INTENT_FILE_NAME: &str = "peer-record-receiver-v2.initializing.cbor";
+    const INTENT_TEMP_FILE_NAME: &str = "peer-record-receiver-v2.initializing.cbor.tmp";
+    use std::os::unix::fs::PermissionsExt;
+
+    fn write_private(path: &Path, bytes: &[u8]) {
+        fs::write(path, bytes).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    #[test]
+    fn upgrade_recovers_each_atomic_boundary_without_resetting_the_ledger() {
+        for phase in [
+            "intent-prefix",
+            "intent",
+            "state-prefix",
+            "state-complete",
+            "renamed",
+        ] {
+            let temp_root = tempfile::tempdir().unwrap();
+            let root = temp_root.path().canonicalize().unwrap();
+            let directory = root.join("receiver");
+            let binding = ReceiverBindingV2 {
+                schema_version: 2,
+                local_peer_id: "receiver".into(),
+                world_id: "world-a".into(),
+                network_id: "network-a".into(),
+                identity_public_key_protobuf_hex: "00".into(),
+            };
+            initialize(
+                &directory,
+                binding.clone(),
+                PeerRecordReceiverMode::DurableCompatible,
+            )
+            .unwrap();
+            let source = fs::read(directory.join(STATE_FILE_NAME)).unwrap();
+            let mut ledger: ReceiverLedgerV2 = serde_cbor::from_slice(&source).unwrap();
+            ledger.mode = PeerRecordReceiverMode::V2Only;
+            let target = durable_files::canonical_cbor(&ledger).unwrap();
+            let intent = durable_files::canonical_cbor(&UpgradeIntent {
+                schema_version: 3,
+                binding: binding.clone(),
+                source_blake3: blake3::hash(&source).to_hex().to_string(),
+                target_blake3: blake3::hash(&target).to_hex().to_string(),
+            })
+            .unwrap();
+            if phase == "intent-prefix" {
+                write_private(
+                    &directory.join(INTENT_TEMP_FILE_NAME),
+                    &intent[..intent.len() / 2],
+                );
+            } else {
+                write_private(&directory.join(INTENT_FILE_NAME), &intent);
+            }
+            match phase {
+                "state-prefix" => write_private(
+                    &directory.join(STATE_TEMP_FILE_NAME),
+                    &target[..target.len() / 2],
+                ),
+                "state-complete" => write_private(&directory.join(STATE_TEMP_FILE_NAME), &target),
+                "renamed" => write_private(&directory.join(STATE_FILE_NAME), &target),
+                _ => {}
+            }
+            assert!(
+                open(
+                    &directory,
+                    binding.clone(),
+                    PeerRecordReceiverMode::DurableCompatible
+                )
+                .is_err()
+            );
+            assert!(open(&directory, binding.clone(), PeerRecordReceiverMode::V2Only).is_err());
+            assert!(
+                upgrade_with_finish_sync(&directory, binding.clone(), |_| {
+                    Err(protocol_error(
+                        "injected final directory sync failure".into(),
+                    ))
+                })
+                .is_err()
+            );
+            assert!(!directory.join(INTENT_FILE_NAME).exists());
+            let sync_called = std::cell::Cell::new(false);
+            upgrade_with_finish_sync(&directory, binding.clone(), |directory| {
+                sync_called.set(true);
+                durable_files::sync_directory(directory)
+            })
+            .unwrap();
+            assert!(
+                sync_called.get(),
+                "idempotent recovery must finish directory sync"
+            );
+            assert_eq!(fs::read(directory.join(STATE_FILE_NAME)).unwrap(), target);
+            upgrade_to_v2_only(&directory, binding.clone()).unwrap();
+            drop(open(&directory, binding.clone(), PeerRecordReceiverMode::V2Only).unwrap());
+            assert!(
+                open(
+                    &directory,
+                    binding,
+                    PeerRecordReceiverMode::DurableCompatible
+                )
+                .is_err()
+            );
+        }
+    }
+}

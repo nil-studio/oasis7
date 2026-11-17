@@ -2284,7 +2284,6 @@ These tests do not prove absolute wall-clock trust, restart/whole-machine rollba
 协议 CLI `oasis7_chain_transfer_submit_client` 与 `oasis7_rollback_strict_audit_evidence` 由 `oasis7_protocol_tools` 唯一拥有，生产 normal/build 依赖只有 Client API/Proto、签名和 HTTP 等工具依赖，不引入 Runtime/Wasmtime；真实 Runtime 签名互操作保留为 dev 测试。`oasis7_init_demo` 与场景 integration tests 由已有 `oasis7_simulator` 拥有。三个 binary 的名称与命令行合同保持不变，内部 Cargo 调用使用新 package。其他 Ops 工具继续保留原默认 Wasmtime 与 tier 语义。required/full 同时选择新协议工具包，场景回归使用 Simulator owner。
 
 
-<a id="discovery-work-budget"></a>
 ### Discovery work budget
 
 Trace refs: `O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3`; [shared discovery policy](doc/p2p/network/mainnet-private-reachability-architecture.design.md#discovery-work-budget).

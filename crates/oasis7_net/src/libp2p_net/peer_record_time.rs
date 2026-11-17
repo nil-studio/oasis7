@@ -88,17 +88,7 @@ impl DiscoveryClock {
         if record.published_at_ms.saturating_sub(now) > MAX_FUTURE_SKEW_MS {
             return Err(invalid("publication exceeds future skew allowance"));
         }
-        let state = self.0.lock().map_err(|_| invalid("clock lock poisoned"))?;
-        let (wall, anchor) = state
-            .anchor
-            .ok_or_else(|| invalid("missing clock anchor"))?;
-        let remaining = expiry
-            .checked_sub(wall)
-            .filter(|value| *value > 0)
-            .ok_or_else(|| invalid("record expired"))?;
-        let deadline = anchor
-            .checked_add(Duration::from_millis(remaining as u64))
-            .ok_or_else(|| invalid("monotonic deadline overflow"))?;
+        let deadline = self.deadline_for(expiry)?;
         if instant >= deadline {
             return Err(invalid("record monotonic lease expired"));
         }
@@ -108,6 +98,20 @@ impl DiscoveryClock {
             deadline,
             receiver_guard: None,
         })
+    }
+
+    fn deadline_for(&self, expiry: i64) -> Result<Instant, WorldError> {
+        let state = self.0.lock().map_err(|_| invalid("clock lock poisoned"))?;
+        let (wall, anchor) = state
+            .anchor
+            .ok_or_else(|| invalid("missing clock anchor"))?;
+        let remaining = expiry
+            .checked_sub(wall)
+            .filter(|value| *value > 0)
+            .ok_or_else(|| invalid("record expired"))?;
+        anchor
+            .checked_add(Duration::from_millis(remaining as u64))
+            .ok_or_else(|| invalid("monotonic deadline overflow"))
     }
 }
 
@@ -139,7 +143,10 @@ impl RecordLease {
 
     pub(super) fn validate_at(&self, now: i64, instant: Instant) -> Result<(), WorldError> {
         self.clock.observe(now, instant)?;
-        if now >= self.expiry || instant >= self.deadline {
+        // A later forward wall sample can shorten every lease on this clock.
+        // Never let an older cached lease outlive a freshly checked copy.
+        let current_deadline = self.clock.deadline_for(self.expiry)?;
+        if now >= self.expiry || instant >= self.deadline.min(current_deadline) {
             return Err(invalid("record lease expired"));
         }
         if let Some(guard) = &self.receiver_guard {
@@ -280,6 +287,50 @@ mod tests {
         assert!(
             later
                 .validate_at(1_500, start + Duration::from_millis(600))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn forward_wall_jump_shortens_existing_and_cloned_leases() {
+        let clock = DiscoveryClock::default();
+        let start = Instant::now();
+        let original = record(1_000, 1_000);
+        let first = clock.check_at(&original, 1_000, start).unwrap();
+        let cached = first.clone();
+        // Another discovery operation observes a forward wall jump; no record
+        // replacement is needed for existing cache and dial leases to expire.
+        clock
+            .observe(1_500, start + Duration::from_millis(100))
+            .unwrap();
+        for lease in [&first, &cached] {
+            assert!(lease.is_valid_at(1_500, start + Duration::from_millis(599)));
+        }
+        for lease in [&first, &cached] {
+            assert!(
+                lease
+                    .validate_at(1_500, start + Duration::from_millis(600))
+                    .is_err()
+            );
+        }
+        assert!(
+            clock
+                .check_at(&original, 1_500, start + Duration::from_millis(600))
+                .is_err()
+        );
+        // Recovery accepts a new legitimate record, without reviving the old one.
+        assert!(
+            clock
+                .check_at(
+                    &record(2_000, 1_000),
+                    2_000,
+                    start + Duration::from_millis(700)
+                )
+                .is_ok()
+        );
+        assert!(
+            first
+                .validate_at(2_000, start + Duration::from_millis(700))
                 .is_err()
         );
     }

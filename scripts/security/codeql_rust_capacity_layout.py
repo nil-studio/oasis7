@@ -30,6 +30,7 @@ TOOL_FILES = (
     'codeql-rust-shared-constraint.patch',
     'codeql-rust-trait-visibility.patch',
     'codeql-rust-constraint-matching.patch',
+    'codeql-rust-target-qualified.patch',
     'codeql-rust-cargo-check.py',
     'codeql-plan.py',
     'codeql-rust-refactored-source.py',
@@ -42,6 +43,10 @@ TOOL_FILES = (
 ACTION_SHA = '33d7b85da1a04171e211befe2c739303b9a4c066'
 FILE_LIMIT = 4 * 1024**2
 RECEIPT_LIMIT = 128 * 1024
+
+
+def tool_files(production_default=False):
+    return TOOL_FILES + (('codeql-rust-production.py',) if production_default else ())
 
 
 class LayoutError(RuntimeError):
@@ -140,8 +145,8 @@ def _git(source, end, *args):
     return result.stdout
 
 
-def _tracked_tools(source, end):
-    selected = ['scripts/security/' + name for name in TOOL_FILES]
+def _tracked_tools(source, end, production_default=False):
+    selected = ['scripts/security/' + name for name in tool_files(production_default)]
     tree = {}
     for entry in _git(source, end, 'ls-tree', '-rz', 'HEAD', '--', *selected).split(b'\0'):
         if entry:
@@ -165,11 +170,12 @@ def _tracked_tools(source, end):
     return tree
 
 
-def stage(source, tools, out, end, tool_sha):
+def stage(source, tools, out, end, tool_sha, *, production_default=False):
     paths, errors = _paths(source, tools)
     source, tools = Path(paths['source']), Path(paths['tools'])
     value = {'schema': 'oasis7/rust-capacity-tool-snapshot/v1', 'status': 'FAIL',
              'tool_sha': tool_sha, 'actual_tool_sha': None,
+             'toolset': 'production-default' if production_default else 'capacity',
              'source_root': str(source), 'tools_root': str(tools),
              'paths': paths, 'files': {}, 'errors': errors}
     try:
@@ -186,9 +192,9 @@ def stage(source, tools, out, end, tool_sha):
         top = _git(source, end, 'rev-parse', '--show-toplevel').decode().strip()
         if Path(top).resolve() != source:
             raise LayoutError('TOOL_REPOSITORY_ROOT_MISMATCH')
-        tree = _tracked_tools(source, end)
+        tree = _tracked_tools(source, end, production_default)
         payloads = {}
-        for name in TOOL_FILES:
+        for name in tool_files(production_default):
             if time.monotonic() >= end:
                 raise LayoutError('NOT_REACHED_FIXED_DEADLINE')
             relative = 'scripts/security/' + name
@@ -223,7 +229,7 @@ def stage(source, tools, out, end, tool_sha):
     return value
 
 
-def _check_snapshot(tools, out, paths):
+def _check_snapshot(tools, out, paths, *, production_default=False):
     errors, observed = [], {}
     try:
         frozen = json.loads(_read_regular(Path(out) / 'tool-snapshot.json', RECEIPT_LIMIT))
@@ -234,14 +240,16 @@ def _check_snapshot(tools, out, paths):
             errors.append('SNAPSHOT_WORKFLOW_SHA_MISMATCH')
         if frozen.get('schema') != 'oasis7/rust-capacity-tool-snapshot/v1' or frozen.get('status') != 'PASS':
             errors.append('SNAPSHOT_NOT_COMPLETE')
+        if frozen.get('toolset', 'capacity') != ('production-default' if production_default else 'capacity'):
+            errors.append('SNAPSHOT_TOOLSET_MISMATCH')
         if frozen.get('tools_root') != str(tools):
             errors.append('SNAPSHOT_TOOLS_ROOT_MISMATCH')
         if frozen.get('source_root') != paths['github_workspace']:
             errors.append('SNAPSHOT_WORKSPACE_MISMATCH')
         files = frozen.get('files', {})
-        if not isinstance(files, dict) or set(files) != set(TOOL_FILES):
+        if not isinstance(files, dict) or set(files) != set(tool_files(production_default)):
             raise LayoutError('SNAPSHOT_TOOL_SET_DIFFERS')
-        for name in TOOL_FILES:
+        for name in tool_files(production_default):
             try:
                 item = files[name]
                 data = _read_regular(tools / name)
@@ -260,14 +268,14 @@ def _check_snapshot(tools, out, paths):
     return errors, observed
 
 
-def check(source, tools, out, end, source_sha):
+def check(source, tools, out, end, source_sha, *, production_default=False):
     paths, errors = _paths(source, tools)
     source, tools = Path(paths['source']), Path(paths['tools'])
     if Path(__file__).resolve() != tools / Path(__file__).name:
         errors.append('CHECK_HELPER_NOT_FROM_EXTERNAL_SNAPSHOT')
     if not re.fullmatch(r'[0-9a-f]{40}', source_sha):
         errors.append('INVALID_SOURCE_SHA')
-    snapshot_errors, files = _check_snapshot(tools, out, paths)
+    snapshot_errors, files = _check_snapshot(tools, out, paths, production_default=production_default)
     errors.extend(snapshot_errors)
     identity = {'status': 'NOT_REACHED', 'reason': 'tool snapshot is not trusted'}
     if not snapshot_errors:
@@ -301,12 +309,13 @@ def main(argv=None):
         for name in ('source', 'tools', 'output'):
             command.add_argument('--' + name, type=Path, required=True)
         command.add_argument('--deadline', type=float, required=True)
+        command.add_argument('--production-default', action='store_true')
         command.add_argument('--tool-sha' if phase == 'stage' else '--source-sha', required=True)
     args = parser.parse_args(argv)
     end = time.monotonic() + args.deadline - time.time() - 120
     action = stage if args.phase == 'stage' else check
     expected = args.tool_sha if args.phase == 'stage' else args.source_sha
-    result = action(args.source, args.tools, args.output, end, expected)
+    result = action(args.source, args.tools, args.output, end, expected, production_default=args.production_default)
     print(json.dumps({'phase': args.phase, 'status': result['status'], 'errors': result['errors']}))
     return 0 if result['status'] == 'PASS' else 1
 

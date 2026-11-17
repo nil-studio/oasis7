@@ -11,7 +11,9 @@ description: Use when implementing and finishing an authorized oasis7 change.
 
 具有多项交付结果的跨模块任务、多人或跨会话持续任务，先按[项目拆解](../../../doc/engineering/workflow/source-of-truth.md#project-decomposition)和 [parallel-development](../parallel-development/SKILL.md)组织可用模块增量及关键依赖，只把当前和近期批次细化为有实际拆分收益的执行任务；后续目标与整体验收继续可见。共享接口先由真实消费方定向检查，条件具备再并行填充实现；同一业务的过细步骤连续完成。默认交付小而完整的 PR，公共前置可独立消费时及时交付，任务数与 PR 数分别判断。派发前回读原生父子关系及子项认领、状态和暂停，复用已有记录。
 
-开始具体实现前按[可验证的代码任务](../../../doc/engineering/workflow/source-of-truth.md#verifiable-code-task)确认本轮执行项与交付边界，并按[验收准备](../../../doc/engineering/workflow/source-of-truth.md#code-task-acceptance-readiness)核对输入、运行入口和结果观察。只有父目标或阶段标题时补齐本轮可执行范围，后续未细化不阻塞当前就绪工作；缺少夹具、接线、环境或权限时明确建设与解除动作。新增结果或前提变化按收益调整受影响安排，不自动细拆，也不把剩余父目标持续吸收到当前任务。
+开始具体实现前按[可验证的代码任务](../../../doc/engineering/workflow/source-of-truth.md#verifiable-code-task)确认本轮执行项与交付边界，并按[验收准备](../../../doc/engineering/workflow/source-of-truth.md#code-task-acceptance-readiness)核对输入、运行入口和结果观察。只有父目标或阶段标题时补齐本轮可执行范围，后续未细化不阻塞当前就绪工作；缺少夹具、接线、环境或权限时明确建设与解除动作。新增结果、前提变化或范围明显扩大时按[范围变化的处置](../../../doc/engineering/workflow/source-of-truth.md#task-scope-change)判断归属并更新原安排，保留本项必要联动和父项剩余义务。
+
+按[代码任务规模建议](../../../doc/engineering/workflow/source-of-truth.md#code-task-file-limit)让本任务尽量不超过 30 个代码文件；范围包含必要测试、脚本、配置及生成代码，同任务各 PR 累计观察。接手时估算，实施与评审时复核实际范围；超过时优先评估拆分，完整联动或测试确有必要则保留范围继续实施，并在原 Issue/PR 简述原因，不按数字自动停工或额外申请豁免。
 
 新增或实质修改的跨层要求按[要求追踪规范](../../../doc/engineering/doc-governance/cross-layer-requirements-traceability.design.md)处理：先查原文声明，沿用同一要求的 Trace ID，在适用设计和当前 PR 等已有任务说明中写 Trace refs，并链接具体条款、说明本次范围与验证。追踪可直接引用 PR，不另领要求 ID；是否建立父子 Issue 按任务拆分规则执行。未形成或不适用的层级如实说明。只更新本次涉及的关系，不全仓回填，不把 ID 或找到关联记录当作实现、验证或合入证明。
 
@@ -27,7 +29,7 @@ description: Use when implementing and finishing an authorized oasis7 change.
 
 选择满足验收和适用契约、职责清楚且易于理解和维护的实现。简化时保留所需的边界校验、错误处理和恢复行为；无关清理不自动纳入本次修改。
 
-排障修复在根因确认后先按[设计检查与修复](../../../doc/engineering/workflow/source-of-truth.md#root-cause-design-check)核对产品与系统设计：设计有缺陷先补受影响文档再实现，纯实现 bug 直接修复验证。只改有缺陷或受联动影响的层级，同一 PR 连续完成，不把设计修订变成额外审批或独立前置 PR。
+排障修复在根因确认后先按[设计检查与修复](../../../doc/engineering/workflow/source-of-truth.md#root-cause-design-check)核对适用要求与系统设计：设计有缺陷先补受影响文档再实现，纯实现 bug 直接修复验证。只改有缺陷或受联动影响的层级，同一 PR 连续完成，不把设计修订变成额外审批或独立前置 PR。
 
 按[验证与评审](../../../doc/engineering/workflow/source-of-truth.md#3-验证与评审)选择覆盖本项行为和风险的测试，随开发 PR 完成适用单元测试及不依赖外部条件的集成测试，修复并复测，交付可复跑结果。仅剩复杂测试时，按[测试分工与转换规则](../../../doc/engineering/workflow/source-of-truth.md#issue-lifecycle)在本项所需开发 PR 均合入后交接原 Issue；无此剩余且全部原义务满足时直接结项。可稳定自动复现的缺陷优先复用能检出问题的回归，覆盖不足再增加或修正，先观察失败再修复。机械修改不强制增加与实现重复的测试；父项继续负责实际组合和剩余环境验收。同步相关技术和使用文档。
 
@@ -35,7 +37,7 @@ description: Use when implementing and finishing an authorized oasis7 change.
 
 通过 CLI 提交时，先把完整正文写入文件，再用 `gh pr create --title '<English title>' --body-file <path>`；通过 API 提交时显式提供同样的正文。发布后回读确认内容完整。实质改动后及请求评审前对照当前 diff 更新摘要，详细执行过程按规范归位，收尾时修正过期的当前状态。
 
-合入前检查当前 HEAD、required checks、评审及阻断项、冲突、权限和 hold；正常保护合入绑定预期 HEAD。PR 实际 merged 才完成代码交付；已明确的部署或整体验收继续执行。
+按本次约定的交付终点收尾；仅交付可评审 PR 时如实注明尚未合入。合入前检查当前 HEAD、required checks、评审及阻断项、冲突、权限和 hold；正常保护合入绑定预期 HEAD。PR 实际 merged 才完成代码交付；已明确的部署或整体验收继续执行。
 
 清理独立进行，保留 dirty、未推送、使用中和身份不明资源。
 

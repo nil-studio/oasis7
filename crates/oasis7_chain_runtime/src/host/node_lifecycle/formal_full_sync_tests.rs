@@ -84,6 +84,18 @@ fn full_sync_fixture() -> (
     ClosedRecord,
     FormalQualifiedCommitProofV1,
 ) {
+    full_sync_fixture_with_result(b"full-sync-result".to_vec())
+}
+
+fn full_sync_fixture_with_result(
+    result_bytes: Vec<u8>,
+) -> (
+    World,
+    oasis7::world_service::client::FormalReadTrustConfigV1,
+    VerifiedFormalReadAnchorV1,
+    ClosedRecord,
+    FormalQualifiedCommitProofV1,
+) {
     let mut world = oasis7::runtime_host::world::new_production_hardened()
         .try_with_cognition_scheduler(
             oasis7_runtime::SchedulerPolicyV1 {
@@ -139,7 +151,7 @@ fn full_sync_fixture() -> (
         terminates_at_profile_transition: true,
     };
     let mut role_bytes = BTreeMap::from([
-        (ArtifactRole::Result, b"full-sync-result".to_vec()),
+        (ArtifactRole::Result, result_bytes),
         (ArtifactRole::Snapshot, snapshot_bytes),
         (ArtifactRole::Journal, journal_bytes),
         (ArtifactRole::NonceIndex, b"full-sync-nonce-index".to_vec()),
@@ -665,7 +677,17 @@ impl Drop for TestPrivateDir {
 
 #[test]
 fn signed_http_full_sync_cold_restores_and_reopens_from_the_same_external_pin() {
-    let (world, trust, anchor, material, proof) = full_sync_fixture();
+    signed_http_full_sync_cold_restore_with_result(b"full-sync-result".to_vec(), false);
+}
+
+#[test]
+fn signed_http_full_sync_bounds_worst_case_json_and_restores_multi_chunk_object() {
+    signed_http_full_sync_cold_restore_with_result(vec![255; 64 * 1024 + 17], true);
+}
+
+fn signed_http_full_sync_cold_restore_with_result(result: Vec<u8>, check_encoded_bound: bool) {
+    let result_hash = blake3_hex(&result);
+    let (world, trust, anchor, material, proof) = full_sync_fixture_with_result(result.clone());
     let expected_snapshot = world.snapshot();
     let (mut server, endpoint, service_key, node_runtime, _, _) =
         start_live_service(world, trust.clone(), anchor.clone(), material, proof);
@@ -676,6 +698,44 @@ fn signed_http_full_sync_cold_restores_and_reopens_from_the_same_external_pin() 
         .as_millis() as u64;
     let grant = signed_grant(&node_key, now, 1);
     let cut = cut(&anchor);
+    if check_encoded_bound {
+        // A legacy maximum-payload request must also receive a legal complete
+        // response. Verify the wire signature and exact prefix independently
+        // before the real client downloads and cold-restores the whole World.
+        let (status, body) = post_object(
+            &endpoint,
+            &node_key,
+            grant.clone(),
+            cut.clone(),
+            result_hash.clone(),
+        );
+        assert_eq!(status, 200);
+        assert!(body.len() <= 256 * 1024);
+        let response: SignedServiceResponse<FormalFullSyncObjectChunkV1> =
+            serde_json::from_slice(&body).unwrap();
+        assert!(response.payload.bytes.len() < 64 * 1024);
+        assert_eq!(
+            response.payload.bytes,
+            result[..response.payload.bytes.len()]
+        );
+        assert_eq!(response.payload.content_hash, result_hash);
+        let request = FormalFullSyncObjectRequestV1 {
+            schema_version: 1,
+            grant: grant.clone(),
+            cut: cut.clone(),
+            content_hash: result_hash,
+            offset: 0,
+            max_bytes: 64 * 1024,
+            retained_history_root_digest: None,
+            business_path: None,
+        };
+        let path = oasis7_client_api::world_service_full_sync::FORMAL_FULL_SYNC_OBJECT_PATH;
+        let signed_request =
+            authority::sign_read_request(path, request, &hex::encode(node_key.to_bytes())).unwrap();
+        let expected_digest = authority::request_digest(path, &signed_request).unwrap();
+        authority::verify_service_response(path, &expected_digest, &response, &service_key)
+            .unwrap();
+    }
     let state_dir = TestPrivateDir::new();
     let data = state_dir.0.join("data");
     super::super::local_io::private_dir(&data).unwrap();
@@ -1013,3 +1073,6 @@ mod failover_tests;
 
 #[path = "formal_full_sync_grant_reconcile_tests.rs"]
 mod grant_reconcile_tests;
+
+#[path = "formal_full_sync_provider_budget_tests.rs"]
+mod provider_budget_tests;

@@ -55,9 +55,11 @@ SUPPORT_PROFILES = (
 # The distfs group runs these lib harnesses and the registered industry
 # integration target with Cargo defaults on Ubuntu.
 # This proves native target predicates only, never expanded feature activation.
-# Keep synchronized with run_oasis7_distfs_tests and rust.yml's distfs runner.
+# The net group similarly runs the oasis7_net lib with Cargo defaults on Ubuntu.
+# Keep synchronized with run_oasis7_distfs_tests/run_oasis7_net_tests and their
+# rust.yml runners; this does not authorize package bins or optional features.
 NATIVE_DEFAULT_TEST_PACKAGES = frozenset((
-    'oasis7_cas', 'oasis7_formal_protocol', 'oasis7_distfs',
+    'oasis7_cas', 'oasis7_formal_protocol', 'oasis7_distfs', 'oasis7_net',
 ))
 CONTROL = ('Cargo.toml', 'Cargo.lock', '**/Cargo.toml', '**/Cargo.lock', '**/build.rs',
            '.cargo/**', 'rust-toolchain*', '.github/**', 'scripts/ci-*', 'scripts/build-*', '**/world/artifacts/**',

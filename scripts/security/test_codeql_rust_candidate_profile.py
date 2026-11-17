@@ -1135,6 +1135,106 @@ class SummaryTests(unittest.TestCase):
         del value['millis']; del value['dependencies']
         value.update(changes); return value
 
+    def recursive_without_size(self, **changes):
+        # Public synthetic values with run 37's observed shape, never its raw row.
+        value = self.row(evaluationStrategy='COMPUTE_RECURSIVE',
+                         predicateIterationMillis=[3,-1,7], deltaSizes=[1,-1,2], layerSize=2,
+                         pipelineRuns=[{'raReference':SYNTHETIC_CANARY}])
+        del value['resultSize']
+        value.update(changes); return value
+
+    def test_observed_recursive_shape_without_result_size_keeps_time_and_unknown_size(self):
+        value = self.recursive_without_size()
+        report = self.project([value])
+        self.assertEqual(report['status'], 'PROJECTED')
+        self.assertEqual((report['records'], report['accepted_records'], report['unknown_shapes'],
+                          report['invalid_records']), (1, 1, 0, 0))
+        self.assertIsNone(report['first_unknown_shape'])
+        self.assertNotIn('resultSize', value)
+        self.assertEqual(report['negative_iteration_markers'], 1)
+        self.assertEqual(report['unknown_delta_entries'], 1)
+        for ranking in report['rankings'].values():
+            self.assertEqual(len(ranking), 1)
+            row = ranking[0]
+            self.assertEqual(row['category'], 'recursive_layer')
+            self.assertEqual(row['reported_millis'], 100)
+            self.assertEqual(row['known_iteration_subtotal'], 10)
+            for key in ('resultSize', 'result_size', 'predicate_result_size', 'pipeline_result_size'):
+                self.assertNotIn(key, row)
+
+    def test_existing_recursive_shapes_with_result_size_remain_projected(self):
+        with_position = self.recursive_without_size(resultSize=5)
+        without_position = dict(with_position)
+        del without_position['position']
+        report = self.project([with_position, without_position])
+        self.assertEqual((report['status'], report['accepted_records'], report['unknown_shapes'],
+                          report['invalid_records']), ('PROJECTED', 2, 0, 0))
+
+    def test_unobserved_neighbors_of_missing_recursive_size_remain_partial(self):
+        without_position = self.recursive_without_size()
+        del without_position['position']
+        values = [without_position, self.recursive_without_size(isCached=False),
+                  self.recursive_without_size(isCached=True),
+                  self.recursive_without_size(completionType='SUCCESS'),
+                  self.recursive_without_size(evaluationStrategy='COMPUTE_SIMPLE')]
+        for value in values:
+            with self.subTest(fields=sorted(value), strategy=value['evaluationStrategy']):
+                report = self.project([value])
+                self.assertEqual((report['status'], report['unknown_shapes'], report['invalid_records'],
+                                  report['accepted_records']), ('PARTIAL', 1, 0, 0))
+                self.assertEqual(report['first_unknown_shape']['status'], 'CAPTURED')
+                self.assertEqual(report['distinct_ra_hashes'], 0)
+                self.assertTrue(all(not ranking for ranking in report['rankings'].values()))
+
+    def test_recursive_shape_admission_keeps_types_enums_and_nested_validation(self):
+        mutations = [dict(resultSize=None), dict(resultSize=True),
+                     dict(evaluationStrategy='NOT_AN_ENUM'), dict(deltaSizes=['unknown']),
+                     dict(pipelineRuns=[dict(raReference=SYNTHETIC_CANARY, counts=[True])])]
+        for mutation in mutations:
+            with self.subTest(fields=sorted(mutation)):
+                report = self.project([self.recursive_without_size(**mutation)])
+                self.assertEqual((report['status'], report['invalid_records'], report['unknown_shapes'],
+                                  report['accepted_records']), ('PARTIAL', 1, 0, 0))
+                self.assertIsNone(report['first_unknown_shape'])
+
+    def test_new_recursive_shape_cannot_hide_unknown_delta_or_pipeline_failure(self):
+        cases = [(dict(deltaSizes=[None]), 'unobserved_delta_null_entries'),
+                 (dict(pipelineRuns=[dict(raReference=SYNTHETIC_CANARY, completionType='FAILURE')]),
+                  'pipeline_non_success')]
+        for mutation, counter in cases:
+            with self.subTest(counter=counter):
+                report = self.project([self.recursive_without_size(**mutation)])
+                self.assertEqual((report['status'], report['accepted_records'], report['unknown_shapes'],
+                                  report['invalid_records']), ('PARTIAL', 1, 0, 0))
+                self.assertEqual(report[counter], 1)
+
+    def test_recursive_shape_source_preserves_original_fixture_observation(self):
+        schema = json.loads((HERE/'codeql_summary_schema_2_27_4.json').read_bytes())
+        def canonical_hash(value):
+            return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'),
+                                             ensure_ascii=False).encode()).hexdigest()
+        # Independent frozen 17-signature fixture baseline, before run 37.
+        self.assertEqual(canonical_hash(schema['signatures'][:17]),
+                         '533a59a8dbcf60a5ceb747d1935e19a59382ad51c5c557f46dc012f0c673542e')
+        self.assertEqual(canonical_hash(schema['observation']),
+                         '7826ce4167003e065cf86334a9d4cc5c3f36f400cdc5b4d888f49417b66ab402')
+        source = next(item for item in schema['additional_observations']
+                      if item['id'] == 'hosted-research-37-summary-descriptor')
+        self.assertEqual((source['run_id'], source['attempt'], source['signature_indexes']),
+                         (43861060421, 1, [17]))
+        self.assertEqual(source['original_schema_sha256'],
+                         '7aecccbd79a3adb1b163c9b29c403e5850254154e61d60f329fe58d82bea9d9b')
+        descriptor = source['first_unknown_shape']
+        self.assertEqual((descriptor['status'], descriptor['record']), ('CAPTURED', 15398))
+        self.assertEqual(descriptor['record_sha256'],
+                         '55e8368c340e7db900a196c596768a7c307a98d3fddabce0de0b7aaa986b4805')
+        signature = schema['signatures'][17]
+        self.assertEqual(signature['types'], descriptor['types'])
+        self.assertEqual(signature['enums'], descriptor['enums'])
+        self.assertEqual((signature['records'], signature['first_record_sha256']),
+                         (1, descriptor['record_sha256']))
+        self.assertEqual(source['original_research_status'], 'CANDIDATE_RESEARCH_INCOMPLETE')
+
     def test_real_observed_shapes_separate_literal_time_and_known_iteration_subtotal(self):
         report = self.project([self.row(), self.member()])
         self.assertEqual(report['status'], 'PROJECTED')
@@ -1206,6 +1306,96 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual(report['unknown_shapes'],1)
         self.assertEqual(report['rankings']['official_millis'],[])
 
+    def test_validated_unknown_shape_keeps_safe_descriptor_without_admission(self):
+        # Public synthetic combination, not a reconstruction of the run 36 row.
+        unknown = self.row(isCached=False, completionType='SUCCESS')
+        report = self.project([self.row(), unknown, self.row()])
+        self.assertEqual(report['status'], 'PARTIAL')
+        self.assertEqual((report['records'], report['accepted_records'], report['unknown_shapes'],
+                          report['invalid_records']), (3, 2, 1, 0))
+        diagnostic = report['first_unknown_shape']
+        self.assertEqual(diagnostic, dict(status='CAPTURED', record=2,
+            record_sha256=hashlib.sha256(json.dumps(unknown).encode()).hexdigest(),
+            types={key:type(value).__name__ for key,value in unknown.items()},
+            enums=dict(evaluationStrategy='EXTENSIONAL', completionType='SUCCESS', isCached=False)))
+        self.assertEqual(diagnostic['record_sha256'], report['rejected_record_sha256'][0])
+        self.assertEqual({row['record'] for row in report['rankings']['official_millis']}, {1, 3})
+        self.assertEqual(report['distinct_ra_hashes'], 1)
+
+    def test_unknown_shape_diagnostic_absent_for_known_and_invalid_records(self):
+        good = self.project([self.row()])
+        self.assertEqual(good['status'], 'PROJECTED')
+        self.assertIsNone(good['first_unknown_shape'])
+        for invalid in (self.row(**{SYNTHETIC_CANARY: SYNTHETIC_CANARY}),
+                        self.row(isCached=SYNTHETIC_CANARY),
+                        self.row(pipelineRuns=[{SYNTHETIC_CANARY:SYNTHETIC_CANARY}])):
+            with self.subTest(fields=sorted(invalid)):
+                report = self.project([invalid])
+                self.assertEqual((report['unknown_shapes'], report['invalid_records']), (0, 1))
+                self.assertIsNone(report['first_unknown_shape'])
+
+    def test_many_unknown_shapes_keep_first_descriptor_and_existing_hash_cap(self):
+        unknowns = [self.row(isCached=False, raHash=f'{SYNTHETIC_CANARY}-{index}') for index in range(32)]
+        report = self.project(unknowns)
+        self.assertEqual((report['status'], report['unknown_shapes'], report['accepted_records']),
+                         ('PARTIAL', 32, 0))
+        self.assertEqual(len(report['rejected_record_sha256']), 16)
+        self.assertEqual(report['first_unknown_shape']['record'], 1)
+        self.assertEqual(report['first_unknown_shape']['record_sha256'],
+                         hashlib.sha256(json.dumps(unknowns[0]).encode()).hexdigest())
+        self.assertEqual(report['distinct_ra_hashes'], 0)
+        self.assertTrue(all(not rows for rows in report['rankings'].values()))
+
+    def test_unknown_shape_diagnostic_bounds_all_fields_without_retaining_values(self):
+        diagnostics = []
+        for repetitions in (1, 200):
+            text = SYNTHETIC_CANARY*repetitions
+            value = self.row(position=text, raHash=text, predicateName=text,
+                queryCausingWork=text, appearsAs={text:{text:[0]}}, dependencies={text:text},
+                ra={text:[text]}, pipelineRuns=[dict(raReference=text, exceptionName=text)],
+                predicateIterationMillis=[1, -1], deltaSizes=[1, -1], mainHash=text,
+                layerSize=1, sentinelRaHash=text, exceptionName=text,
+                completionType='SUCCESS', isCached=False)
+            report = self.project([value])
+            diagnostic = report['first_unknown_shape']
+            self.assertEqual(set(diagnostic['types']), set(profile.FIELD_TYPES))
+            encoded = json.dumps(diagnostic, separators=(',', ':')).encode()
+            self.assertLessEqual(len(encoded), 2048)
+            diagnostics.append(diagnostic)
+        self.assertNotEqual(diagnostics[0]['record_sha256'], diagnostics[1]['record_sha256'])
+        for diagnostic in diagnostics: del diagnostic['record_sha256']
+        self.assertEqual(diagnostics[0], diagnostics[1])
+
+    def test_unknown_shape_diagnostic_capacity_failure_preserves_rejection(self):
+        with patch.object(profile, 'SUMMARY_ROW_CAP', 1):
+            report = self.project([self.row(isCached=False), self.row(isCached=True)])
+        self.assertEqual(report['first_unknown_shape'],
+                         dict(status='UNAVAILABLE', reason='DIAGNOSTIC_LIMIT'))
+        self.assertEqual((report['status'], report['unknown_shapes'], report['invalid_records']),
+                         ('PARTIAL', 2, 0))
+        self.assertIsNone(report['first_state_limit'])
+        self.assertIsNone(report['feed_failure'])
+        self.assertEqual(report['accepted_records'], 0)
+
+    def test_unknown_shape_diagnostic_construction_failure_preserves_first_rejection(self):
+        observer = profile.Summary([QUERY])
+        header = dict(summaryLogVersion='0.4.0', codeqlVersion='2.27.4', startTime='now')
+        observer.feed('stdout', json.dumps(header).encode()+b'\n')
+        data = json.dumps(self.row(isCached=False)).encode()+b'\n'
+        with patch.object(profile.json, 'dumps', side_effect=RuntimeError(SYNTHETIC_CANARY)):
+            self.assertEqual(observer.feed('stdout', data), b'')
+        observer.feed('stdout', data, final=True)
+        observer.feed('stderr', b'', final=True)
+        report = observer.summary()
+        self.assertEqual(report['first_unknown_shape'],
+                         dict(status='UNAVAILABLE', reason='DIAGNOSTIC_ERROR'))
+        self.assertEqual((report['status'], report['unknown_shapes'], report['invalid_records']),
+                         ('PARTIAL', 2, 0))
+        self.assertIsNone(report['first_state_limit'])
+        self.assertIsNone(report['feed_failure'])
+        self.assertNotIn(SYNTHETIC_CANARY, json.dumps(report))
+        self.assertIs(report, observer.summary())
+
     def test_missing_footer_stderr_and_unobserved_null_delta_are_partial(self):
         report=self.project([self.row()],stderr=b'ERROR: Reached end of log file before footer was found.\n')
         self.assertEqual(report['status'],'PARTIAL');self.assertTrue(report['input_footer_missing'])
@@ -1264,6 +1454,24 @@ class SummaryTests(unittest.TestCase):
                 self.assertEqual(report['state_limits']['active_bytes'], 4*1024**2)
                 self.assertIsNone(report['first_state_limit'])
 
+    def test_dense_pipeline_record_uses_reclaimed_index_space_without_skipping_validation(self):
+        # A public schema-valid record, not the unavailable private rejected
+        # row. Its 1,648,752-byte parse estimate exceeded the former work share.
+        value = self.member(pipelineRuns=[{'raReference': SYNTHETIC_CANARY} for _ in range(1100)])
+        data = json.dumps(value, separators=(',', ':')).encode()+b'\n'
+        report = self.accounting_stream(data)
+        self.assertEqual(report['status'], 'PROJECTED')
+        self.assertEqual(report['accepted_records'], 1)
+        self.assertEqual(report['rankings']['known_iteration_subtotal'][0]['known_iteration_subtotal'], 10)
+        self.assertEqual(report['negative_iteration_markers'], 1)
+        self.assertEqual(report['state_limits']['active_bytes'], 4*1024**2)
+        self.assertIsNone(report['first_state_limit'])
+        value['pipelineRuns'][-1]['counts'] = [True]
+        report = self.accounting_stream(json.dumps(value, separators=(',', ':')).encode()+b'\n')
+        self.assertEqual(report['status'], 'PARTIAL')
+        self.assertEqual(report['accepted_records'], 0)
+        self.assertEqual(report['invalid_records'], 1)
+
     def test_literal_and_escaped_punctuation_keep_the_same_projection(self):
         value = self.row(predicateName=':'*4000)
         literal = json.dumps(value, separators=(',', ':')).encode()
@@ -1310,7 +1518,8 @@ class SummaryTests(unittest.TestCase):
 
     def test_late_wide_source_accounts_for_decoder_upgrade_before_json(self):
         observer = profile.Summary([QUERY])
-        data = b' '*180000+json.dumps(self.row(position='🙂'), ensure_ascii=False).encode()+b'\n'
+        padding = profile.SUMMARY_WORK_CAP//9+1
+        data = b' '*padding+json.dumps(self.row(position='🙂'), ensure_ascii=False).encode()+b'\n'
         with patch.object(profile, 'parse_json') as parse:
             with self.assertRaisesRegex(profile.ObservationError, '^SUMMARY_STATE_LIMIT$'):
                 for offset in range(0, len(data), 65536): observer.feed('stdout', data[offset:offset+65536])
@@ -1450,6 +1659,27 @@ class SummaryTests(unittest.TestCase):
             with self.assertRaisesRegex(profile.ObservationError,'^SUMMARY_STATE_LIMIT$'):
                 index.first(digests[2],3)  # free capacity cannot extend the per-row probe bound
 
+    def test_summary_ra_full_capacity_keeps_unsigned_slots_and_wide_first_ordinals(self):
+        index = profile.SummaryRA()
+        self.assertEqual(len(index.slots)+len(index.entries), 1900544)
+        self.assertEqual(len(index.slots)+len(index.entries)+profile.SUMMARY_FIXED_RESERVE
+                         +profile.SUMMARY_CHUNK_CAP+profile.SUMMARY_WORK_CAP, 4*1024**2)
+        # Distinct complete digests select every slot from 16384 through 65535.
+        # Entry indexes cross the signed-16-bit boundary; record ordinals cross
+        # the unsigned-16-bit boundary and must retain their original values.
+        def digest(number):
+            return (16384+number).to_bytes(4, 'little')+number.to_bytes(28, 'little')
+        for number in range(49152):
+            self.assertEqual(index.first(digest(number), 50000+number), (50000+number, False))
+        self.assertEqual(len(index), 49152)
+        for number in (0, 15536, 32767, 32768, 49151):
+            self.assertEqual(index.first(digest(number), 100000), (50000+number, True))
+        with self.assertRaises(profile.SummaryStateLimit) as caught:
+            index.first(b'\0'*32, 100000)
+        self.assertEqual(caught.exception.kind, 'RA_CAPACITY')
+        self.assertEqual(len(index), 49152)
+        self.assertEqual(index.first(digest(49151), 100000), (99151, True))
+
     def test_parse_state_preflight_and_both_stream_pendings_share_the_same_budget(self):
         observer = profile.Summary([QUERY])
         data = b'{"values":['+b'0,'*24000+b'0]}\n'
@@ -1462,7 +1692,11 @@ class SummaryTests(unittest.TestCase):
         observer = profile.Summary([QUERY])
         chunk = b'x'*(64*1024)
         for _ in range(8): observer.feed('stdout',chunk)
-        for _ in range(4): observer.feed('stderr',chunk)
+        remaining = profile.SUMMARY_WORK_CAP//2-8*len(chunk)
+        while remaining:
+            part = chunk[:min(remaining, len(chunk))]
+            observer.feed('stderr',part)
+            remaining -= len(part)
         with self.assertRaisesRegex(profile.ObservationError,'^SUMMARY_STATE_LIMIT$'):
             observer.feed('stderr',b'x')
         observer.feed('stdout',b'',final=True); observer.feed('stderr',b'',final=True)

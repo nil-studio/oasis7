@@ -178,6 +178,20 @@ The platform verification builds a test-only real NodeRuntime/World HTTP process
 
 Node test files run serially so independent local World/workerd fixtures do not compete for the five-second authority window. Explicit races inside a test still run concurrently, and expiry, revocation and rollback tests retain their original checks. This verification does not establish production load capacity.
 
+Native 准备及过期 ManagedLogin 恢复的关键阶段断言失败时，测试输出 `oasis7.custody-native-stage-diagnostic/v1`：先记录失败观测时刻和固定请求计数，再停止 workerd，并通过既有只读 Account 快照入口投影白名单状态。原严格断言照常失败；诊断读取或输出异常不会替换它。正常路径只记录有限时间点，不增加诊断读取、等待或重发。
+
+诊断分别关联各 Native stage 自己的 origin inspection、选中 ManagedLogin 的原批准和独立预算、以及由该批准出资的 recovery 和内嵌 fresh source；恢复 result 与原登录 result 分列。只输出固定枚举、数量、存在性及时间，ID 仅在内存中关联，不输出原件、nonce、Cookie、签名或异常详情。缺失字段标为 unknown/null，明确空集合才是零；数组最多输出16项并报告省略数量。失败观测时间不等于授权检查时间，读取快照也不重新验证签名或授予权限。纯投影、遮蔽及失败传播合同可运行 `node --test crates/oasis7_custody_worker/tests/native-stage-diagnostics.test.mjs`；真实链路仍由完整 Native/workerd 集成测试验证。
+
+### workerd 原生故障现场
+
+[#5900](https://github.com/nil-studio/oasis7/issues/5900) 的采证入口是 `ci-custody-platform.py run/validate --capture-workerd-faults`，只作用于原 `client-abuse.integration.test.mjs`，本地默认关闭。显式模式需要 Linux x86_64、标准 GDB 及固定 workerd `1.20261019.1` 的实际 ELF 摘要；升级引擎时须复核身份与已知故障偏移。CI 在同一 hosted 环境先运行真实进程合同，覆盖二进制 stdin、FD 3、argv、可恢复信号、原退出状态、交错子进程和 SIGKILL 清理。
+
+GDB 启动原 Node 命令并跟踪其 fork/exec；Miniflare 继续直接管理真实 workerd PID、管道和销毁。原请求、断言、测试超时和分配采样均保留。调试器会改变执行时序，因此采证运行不等于未经调试的性能样本，也不能凭未复现签署根因修复。Linux 的调试权限不可用时明确失败，不调整宿主权限或退回无观测成功。
+
+`workerd-fault/records.jsonl` 只记录实际映像摘要、进程/线程身份、观测单调时间、信号、`si_code`、适用的 `si_addr`、PC/R13/RBP/RSP 及相关地址映射元数据；不读取目标原始内存、请求、环境变量或函数参数。最多 256 条记录、读取/消费文件上限 1 MiB；截断、读取失败、collector 错误与缺失终态均拒绝成功。已知故障位置、非零退出或第二个实际 workerd 实例不会被最终 Node exit0 覆盖。本用例只允许一个实例；唯一实例的信号 9 终态仅标为来源未知、与 dispose 相容，不宣称来源已确认。原 Node 失败优先保留。
+
+最终 support 消费者重新校验原始记录及 source/tested/policy/run/producer-attempt。额外诊断 artifact 名包含 `run_id/run_attempt/shard`，保留 7 天且不覆盖先前尝试；既有完整 Node 结果 artifact 的传输协议保持兼容。无需真实调试权限的解析合同运行 `python3 scripts/ci-custody-workerd-capture.test.py`。实际 GDB 合同有独立入口 `OASIS7_REQUIRE_GDB_TESTS=1 python3 scripts/ci-custody-workerd-gdb-contracts.py --failfast`，未显式启用或缺少调试权限时失败；普通治理只执行纯解析合同，不用跳过的测试作为通过见证。
+
 ## 受限生产测试候选准入
 
 本节整理现有构建、配置和验收入口，不宣布 production ready，也不提供可直接执行的发布命令。四份 [`deploy/`](deploy/) 配置只有 staging Worker 名称、角色 binding 和 SQLite migration；`workers_dev=false`、`preview_urls=false`，未登记测试域名路由、账号或运维秘密。当前 `verify.sh --platform` 的 Wrangler 命令仅为 dry-run。正式测试环境须另行确认独立环境身份、同源 HTTPS 路由、四个最小权限发布身份及秘密归属；不能将测试 harness、固定 fixture key 或 loopback HTTP bridge 发布成服务。

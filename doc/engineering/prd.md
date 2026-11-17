@@ -39,7 +39,7 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
   - SC-5: `doc/` 实际目录入口和导航可达，受影响的路径、锚点与已声明关系不存在新增错误；不维护平铺文件冻结清单。
   - SC-6: 重点模块的当前主责入口和活跃引用保持可达、语义一致；已停止的历史平铺专题迁移不作为当前开发或交付前置。
   - SC-8: 治理按当前明确缺口有界交付，不恢复固定人数、冻结迁移批次或每日燃尽台账；历史执行安排仅供追溯。
-  - SC-9: 活跃文档 `doc/...*.md` 依赖路径断链数为 0。
+  - SC-9: 本次选中范围的文档引用通过现行检查；按需全量历史报告不替代变更范围检查。
   - SC-12: 文档-代码偏差在同批次回写闭环率 100%。
   - SC-14: 专业职责按需参考 `.agents/roles/*.md`；根 `AGENTS.md` 保留必要规则与导航，不规定固定角色数量。
   - SC-15: 协作交接复用 Issue/PR 的已有内容，补充必要上下文、允许范围和期望结果；可参考 `.agents/roles/templates/handoff-brief.md`，不强制模板或回执。
@@ -47,8 +47,8 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
   - SC-20: `engineering` 模块治理专题标题对外统一使用 `oasis7` 品牌，不再在活跃/历史治理入口中混用 `oasis7` 标题。
   - SC-24D: 可按需使用仓库的 review-thread 工具查询线程或显式 resolve，并回读实际结果；线程关闭只证明讨论状态，是否合入按[开发流程规范](workflow/source-of-truth.md#42-评审与合入)核对当前版本、检查、评审和用户限制。
   - SC-24G（历史）：旧 `.pm/**` 冲突分类与 canonical task/memory/stage 模型仅保留历史含义。当前冲突按 Git 真实改动处置，保留用户资料，不恢复退休文件或任务身份；main 前进本身不要求 rebase 或重测。
-  - SC-29: 文档体量治理必须具备正式专题口径，明确 `活跃真值 / 审计留痕 / 历史归档 / 兼容跳转` 四层消费模型；高密度模块的默认阅读面只保留“what / where / next / risk”所需入口，不再把审计与归档材料直接暴露为主入口。
-  - SC-29A: 当文档治理债已从“默认阅读面混乱”转向“文档存量维护成本”时，engineering 必须存在一份正式 follow-up 专题，提供可复算的库存报告入口，并明确 `历史压缩 / 路径级治理 / 近限文件拆分 / 季度复核` 四类后续动作。
+  - SC-29: 文档阅读面遵循现有[文档组织规范](doc-governance/doc-structure-standard.design.md)中的职责、权威、生命周期与入口规则；高密度模块的默认阅读面只保留理解当前能力、入口、下一步和风险所需内容，历史材料按需追溯。
+  - SC-29A: 文档库存分析和维护成本判断复用[运行治理入口](governance/README.md)与 `scripts/doc-inventory-report.sh`；按实际发现选择历史压缩、路径级治理、近限文件拆分或季度复核，不恢复已退役的一次性专题。
   - SC-29B: 当某个热点子域进入后仍缺少 canonical 首读入口时，engineering 必须允许继续拆出路径级治理 follow-up；首条子域治理需至少为该热点路径补齐一个子目录 landing page，并把上游模块入口改成先命中该 landing page，而不是继续让 operator 手册或完整索引单独承担全部分流职责。
 
 ## 2. User Experience & Functionality
@@ -91,7 +91,7 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
   3. Flow-ENG-003: 文档变化 → 选择对应领域与职责 → 同步消费者与索引 → 适用文档检查。
   4. Flow-ENG-008: 多个就绪代码任务 → 独立开发会话分别领取 → 各会话实现、自测并跟进 PR → 负责人验证实际组合。
   5. Flow-ENG-009: 获得高价值反馈 → 核对事实、影响及用户范围 → 修复当前问题或记录可读建议；无需自动转任务、memory 或 stage。
-  6. Flow-ENG-011: 按[项目拆解规则](workflow/source-of-truth.md#project-decomposition)核对完整目标与验收 → 组织可用模块增量和关键依赖 → 细化当前及近期批次，把有实际拆分收益的独立开发任务建为原生 sub-issue → 按子项领取并及时集成验收。父项保留后续范围与全部剩余义务；模块分组不强制另建中间 Issue，内部步骤用清单，Project 按需展示，看板故障不停止就绪工作。
+  6. Flow-ENG-011: 按[项目拆解规则](workflow/source-of-truth.md#project-decomposition)核对完整目标与验收 → 组织可用模块增量和关键依赖 → 细化当前及近期批次，参考[代码任务规模建议](workflow/source-of-truth.md#code-task-file-limit)，把可独立交付的开发任务建为原生 sub-issue → 按子项领取并及时集成验收。父项保留后续范围与全部剩余义务；模块分组不强制另建中间 Issue，内部步骤用清单，Project 按需展示，看板故障不停止就绪工作。
   7. Flow-ENG-014: 独立分支或按需 worktree → 保留各工作区的本地 Cargo target和运行隔离 → 连续开发验证 → 正常 PR 与合入 → 独立安全清理。
   8. Flow-ENG-016: 只读查询或分析 → 直接提供事实或按需专业判断；不创建流程身份、工作区或远程记录。
   9. Flow-ENG-017: 收到 CI、评审或验收反馈 → 优先续接原开发会话 → 修复并验证 → 更新原 Issue/PR；需要独立审阅时另行安排，不增加固定角色链。
@@ -102,7 +102,7 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
 | 工程趋势统计 | 既有记录中的违规率、修复时长、回归率及覆盖范围 | 由维护者按实际问题或专题既有周期消费现有统计并采取改进，不另建每任务报表 | `collecting -> reported -> actioned` | 按模块与时间排序，缺失数据保留未知 | 评审者与维护者可读写 |
 | 有界并行治理 | 明确负责人、当前缺口、实际写入范围和验证结果 | 围绕当前有效缺口协作，不恢复已退役迁移排程 | 按 PR 和实际验证记录进展 | 写入范围避免重叠，必要上下文按需交接 | 负责人协调，适用评审复核 |
 | PRD 文件级索引 | 模块名、专题 PRD/design 路径、相关 PR 与验证记录 | 生成/更新模块索引并回写入口引用 | `missing -> indexed -> verified` | 活跃文档优先，按路径稳定排序 | 维护者可更新，所有贡献者可读 |
-| 依赖路径可达门禁 | 引用文档路径、引用来源、豁免列表 | 校验 `doc/...*.md` 引用目标是否存在 | `pass/fail` | 默认全量校验，通配符/模板与白名单文件豁免 | 维护者维护豁免，提交者必须修复断链 |
+| 依赖路径可达门禁 | 本次变更、文档引用及受影响的反向引用 | 按现行检查范围核对路径与锚点 | `pass/fail` 与历史提示分别报告 | 普通变更检查受影响正文与反向引用，包含删除、重命名影响；历史全量报告按需使用 | 修复本次检查发现的实际错误，保留输入和执行失败；无关历史缺口不扩成当前整改任务 |
 | 文档分工与组织规范 | 对象层级（模块/专题/分册）、职责后缀（PRD/Design/Runbook/Manual） | 为新主题选择落点并按规则建档 | `unclassified -> classified -> indexed -> reviewed` | 目录按领域/专题，文件按职责，PRD/design 按长期主题配对，任务直接使用 PR 或按需 Issue | 作者可建档，评审者可裁定例外 |
 | 文档体量治理 | 文档总量、模块/子目录密度、消费层类型（活跃真值/审计留痕/历史归档/兼容跳转）、默认入口面 | 先冻结默认阅读面，再决定哪些文档只保留可检索性与定向引用，不再进入根入口/模块入口的主列表 | `unbounded -> classified -> reduced -> monitored` | 默认优先压缩阅读面而不是立即迁移文件；高密度模块优先按 `world-simulator -> p2p -> testing -> readme/core` 排查 | `producer_system_designer` 裁定消费层，模块 owner 回写入口与索引，评审者复核 |
 | 历史 PRD 审读留痕 | 文档路径、阅读时刻、代码一致性、重复性、上下游状态、处理动作 | 历史 round logs / deleted snapshot prose 仅用于追溯；当前偏差回写到模块 truth | `historical -> traced -> current_truth_updated` | 入口优先、风险优先 | 维护者与评审者可追溯，当前 truth 由模块 owner 维护 |
@@ -110,19 +110,19 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
 | 协作交接 | 当前 Issue/PR、具体问题、必要上下文、允许范围和预期结果 | 引用已有任务内容，补充本次需要的信息；模板按需使用 | 跟随实际任务与交付状态 | 不另建角色交接状态或回执链 | 原负责人交接，接手者核实范围与已有成果 |
 - Acceptance Criteria:
   - AC-1: engineering PRD 明确文件约束、脚本约束、测试分层约束。
-  - AC-2: 父目标能定位已验证的可用结果、当前批次、关键阻塞、待集成/待验收成果及全部剩余义务；按拆分收益细化近期任务，后续未细化范围不阻塞当前就绪工作，决定架构可行性的约束须提前核对。独立开发任务通过原生父子 Issue 跟踪与领取并关联实际 PR、CI 和验收；不以子项数量代替整体进展。简单修改可直接用 PR，模块分组和 Project 按需使用，不另建台账或状态副本。
+  - AC-2: 父目标能定位已验证的可用结果、当前批次、关键阻塞、待集成/待验收成果及全部剩余义务；按拆分收益细化近期任务，后续未细化范围不阻塞当前就绪工作，决定架构可行性的约束须提前核对。独立代码任务参考[尽量不超过 30 个代码文件](workflow/source-of-truth.md#code-task-file-limit)的建议，结合预计及实际累计范围判断拆分收益；超过时说明完整交付需要和范围取舍，文件数不单独阻断交付。独立开发任务通过原生父子 Issue 跟踪与领取并关联实际 PR、CI 和验收；不以子项数量代替整体进展。简单修改可直接用 PR，模块分组和 Project 按需使用，不另建台账或状态副本。
   - AC-3: 与 `doc/scripts/precommit/pre-commit.prd.md`、`testing-manual.md` 的口径一致。
   - AC-5: 新增工程治理专题若引入运行态治理层，必须明确与正式文档层的分工边界，并在当前 PR 或按需 Issue 记录本次范围；复杂协调按需使用 Issue/Project，不作为普通 PR 准入。
   - AC-6: 文档治理脚本从实际一级目录和根 README 的准确 Markdown 链接核对入口，检查路径/锚点/ID、已声明关系与正向完成证据；标题、固定章节/列数及普遍状态字段作写作提示，不用完整路径 allowlist 冻结文件。
   - AC-8: 每次迁移任务需附“原文关键约束点 -> 新文档章节”对照，确保内容不丢失。
   - AC-9: 并行治理按实际修改范围避免重叠并保留必要交接；旧迁移分工表、冻结批次和每日燃尽不作为当前交付条件。
   - AC-11: 专题需求、设计、当前导航与真实要求引用应可达且互相追溯；不要求独立 project 文档，不恢复 PRD/project 双向互链门禁。适用检查以现行文档治理入口为准，现有检查只证明其实际能力。
-  - AC-13: 文档治理门禁必须校验活跃文档 `doc/...*.md` 引用路径可达；断链必须阻断并修复。
+  - AC-13: 文档治理门禁按本次变更选择受影响正文及反向引用，检查路径可达性，覆盖删除与重命名影响；范围内实际错误按现行检查规则阻断并修复。历史报告按需使用，输入与执行错误仍须解决。
   - AC-14: 2026-03 全量 PRD 审读留痕必须可通过 historical round logs / deleted snapshot prose 追溯；当前不再要求存在旧 checklist 目录活跃清单面。
   - AC-21: `doc/engineering/**` 仍可读治理专题标题统一使用 `oasis7` 品牌；旧 `oasis7` 仅允许出现在历史正文引用或实现兼容说明中。
   - AC-26: 仓库若显式提交 `.codex/config.toml` 作为 repo-local Codex 默认执行配置，则该文件必须可被 Git 追踪，且默认 `sandbox_mode` 需以仓库工作流要求的显式值落盘，不得依赖用户本机全局配置隐式兜底。
-  - AC-27: engineering 模块需存在一份正式“文档体量治理”专题，冻结 `活跃真值 / 审计留痕 / 历史归档 / 兼容跳转` 的判定标准、默认入口面收敛规则、密度触发条件和首批高风险模块优先级。
-  - AC-27A: engineering 必须存在 `doc-corpus-maintenance-governance` 正式专题与 `scripts/doc-inventory-report.sh` 报告入口，能够复算 `doc/` 总量、模块密度、热点子目录、`doc/devlog` backlog 与非归档 near-limit 文件，并把文档债从“入口混乱”与“存量维护成本”两阶段明确区分。
+  - AC-27: 模块入口按文档的现行职责分流并定位实际主责条款，历史材料按需追溯；已有规范承接后，不以补齐历史专题文件作为当前验收。
+  - AC-27A: [运行治理入口](governance/README.md)提供 `scripts/doc-inventory-report.sh` 的使用方法和后续处置，能够复算 `doc/` 总量、模块密度、热点子目录、`doc/devlog` backlog 与非归档 near-limit 文件，并区分入口阅读面问题与存量维护成本。
   - AC-27B: `doc/devlog` 必须存在一个 canonical archive entrypoint，用于按月份和高体量热点导航历史日文件；该入口只能承担历史归档职责，不得重新成为运行态真值。
   - AC-27C: 对已进入路径级治理的热点子域，必须存在一个子目录级 canonical landing page；至少 `doc/world-simulator/viewer/` 需要通过 `viewer/README.md` 把 `manual`、`software_safe`、runtime live 与定向检索区分开来，避免继续由 `viewer-manual.manual.md` 或 `prd.index.md` 单独承担全部首读分流。
   - AC-27D: `doc/p2p/node/` 必须存在一个 canonical 子目录入口 `node/README.md`，能把节点奖励/资产、复制链路、PoS 时间、身份引导与 WASM 编译护栏分开导航，避免继续让 `p2p` 模块 README 或 `prd.index.md` 单独承担整个热点子域的首读分流。
@@ -156,7 +156,7 @@ Trace ID: O7-REQ-b189f0a2-0425-4985-9a5d-86179428b586
 - 结果能说明 pass/fail/skipped、Source、Evidence 和未覆盖项。pass 需要实际运行或明确的静态核实事实，skipped 说明原因；角色与数量按风险选择，工具不能自行签发授权或放宽检查。
 - 机器特定资料和未必自动加载的规则目录必须明确适用性；资源缺失时先使用可用主责来源，确实影响实现的缺口才保留为阻塞，不猜测私有路径或要求所有模块新增指南。
 
-系统设计状态：已覆盖；依据：[规则载体与按变更验收导航](design.md#task-scoped-engineering-context-design)。实现状态：文档入口与 Viewer 角色导航已提供，检查选择仍由执行者按现行规则完成，没有自动检查路由器。验证来源为本次 PR 的链接检查及下列静态走读；文档存在不证明方法已降低耗时或误报。
+系统设计状态：已覆盖；依据：[规则载体与按变更验收导航](design.md#task-scoped-engineering-context-design)。实现状态：文档入口与 Viewer 角色导航已提供，检查选择仍由执行者按现行规则完成，没有自动检查路由器。适用验证为链接检查及下列静态走读，实际版本与结论保留在对应 PR；文档存在不证明方法已降低耗时或误报。
 
 验收以纯文档、局部 Rust 和跨边界 UI 三类有限任务，逐项核对所读权威、条件检查、去重条件和输出边界；Viewer 试点须定位正确前端结构标准、上下游和已有命令。真实方法收益若需要比较，沿[现有评估方法](../../.agents/skills/evaluating-development-methods/SKILL.md)另取同条件证据，不把本项扩成每 PR 的强制试验。
 
@@ -208,10 +208,10 @@ Trace ID: O7-REQ-b189f0a2-0425-4985-9a5d-86179428b586
   - NFR-ENG-5: 规则变更需附带可追溯说明与回归证据。
   - NFR-ENG-6: 活跃文档语义迁移在当前 PR 或已有记录说明原条款去向、未接收语义与实际验证结果；复用现有内容，不另建三件套证明链。
   - NFR-ENG-7: 治理收益按当前规则冲突、失效入口和实际消费者缺口的消除判定；不规定固定人数或每日迁移篇数。
-  - NFR-ENG-8: 全部模块文件级索引应在 1 次 `doc-governance-check` 执行内完成可达性校验。
+  - NFR-ENG-8: 一次 `doc-governance-check` 执行应覆盖本次选中文档及相关索引的可达性校验，规则或选择器变化按适用完整回归要求验证。
   - NFR-ENG-9: 活跃专题的真实要求、设计与 authority 链接保持可达，不要求 project ledger。
   - NFR-ENG-10: PR 验证记录能说明所选测试、实际版本、结果与未覆盖范围，不新增模块主项目字段。
-  - NFR-ENG-11: 活跃文档 `doc/...*.md` 引用路径可达性覆盖率 100%。
+  - NFR-ENG-11: 选中范围内的适用文档路径引用均纳入校验，不以全仓历史零缺口作为普通修改的交付条件。
   - NFR-ENG-13: 专业角色和工具配置引用的当前主责文档与方法应可达；根 `AGENTS.md` 使用目录导航，角色卡按需维护专业关注点。
   - NFR-ENG-14: 交接应使接手者能确认范围、输入版本、实际成果和剩余义务；优先引用已有 Issue/PR，简要模板按需使用。
   - NFR-ENG-15: 当前会话直接实施、多个独立会话并行和可选 TPM 协调遵循同一授权、认领、自测与交付规则。
@@ -256,8 +256,8 @@ Trace ID: O7-REQ-b189f0a2-0425-4985-9a5d-86179428b586
 | PRD-ENGINEERING-014 | TASK-ENGINEERING-022/023/024 | `test_tier_required` + `test_tier_full` | 重复治理记录与上下游链路可达性检查 | PRD 体系清晰度与跨模块对齐 |
 | PRD-ENGINEERING-015 | TASK-ENGINEERING-025 | `test_tier_required` | 规范正文结构检查、模块入口回写、索引可达性检查 | 新增文档可发现性与详细设计落位一致性 |
 | PRD-ENGINEERING-016 | TASK-ENGINEERING-030/036 | `test_tier_required` | 角色职责卡存在性、字段完整性、推荐技能区段与根 `AGENTS.md` 入口映射检查 | 人机协作分工清晰度与执行一致性 |
-| PRD-ENGINEERING-024 | TASK-ENGINEERING-106/107/108/109/110/111/112/114 | `test_tier_required` | 文档体量治理专题三件套、engineering 根入口/主项目/索引回写、`world-simulator` / `p2p` / `testing` / `readme` / `core` / `world-runtime` / `game` / `site` 模块 `README.md` / `prd.index.md` 的默认阅读面收紧、module-root allowlist 更新与 `doc-governance-check` 通过；人工核对默认阅读面不再把 `doc/devlog` / round reviews / evidence 直接提升为主入口，也不再把高密度模块近期专题长名单平铺在模块 README 首屏 | 仓库文档消费层、项目经理视角导航效率与后续减重批次规划 |
-| PRD-ENGINEERING-025 | `doc-corpus-maintenance-governance` | `test_tier_required` | 存量维护成本专题三件套、`scripts/doc-inventory-report.sh` 输出当前仓库体量快照、engineering 根入口/主项目/索引与 `doc-surface-area-governance` handoff 回写、`doc-governance-check` 通过 | 文档治理阶段判断、路径级治理优先级、`doc/devlog` backlog 处理与季度治理输入 |
+| PRD-ENGINEERING-024 | TASK-ENGINEERING-106/107/108/109/110/111/112/114（历史） | historical-only | 一次性专题与完整路径 allowlist 已退役；当前按文档组织规范检查受影响的模块 README、索引与默认阅读面，历史实施记录从 Git 和原任务追溯 | 仓库文档消费层与模块导航 |
+| PRD-ENGINEERING-025 | historical `doc-corpus-maintenance-governance`（已退役） | historical-only | 当前方法由 `governance/README.md` 承接；需要库存分析时运行 `scripts/doc-inventory-report.sh`，按发现安排有界维护，不恢复旧专题或 handoff 材料 | 文档治理阶段判断、路径级治理与季度复核 |
 | PRD-ENGINEERING-026 | `devlog-history-compaction` | historical-only | 一次性专题三件套已退役删除；当前验证入口为 `doc/devlog/README.md` compact archive summary、engineering 根入口/主项目/索引回写与 `doc-governance-check` | `doc/devlog` 历史入口、`PRD-ENGINEERING-025` 第一条 follow-up 收口 |
 | PRD-ENGINEERING-027 | historical `world-simulator-viewer-path-governance`（已退役） | historical-only | 当前检查 `doc/world-simulator/viewer/README.md` 首读分流、维护触发器、`doc/world-simulator/README.md` / `doc/world-simulator/prd.index.md` 上游可达性与 `doc-governance-check`；原三件套从 git history 与 PR 与实际验证记录 追溯 | `world-simulator/viewer` 热点子域入口与 `PRD-ENGINEERING-025` 第二条 follow-up 的长期承接 |
 | PRD-ENGINEERING-028 | historical `p2p-node-path-governance`（已退役） | `test_tier_required` | 当前检查 `doc/p2p/node/README.md` 首读分流、维护触发器、`doc/p2p/README.md` / `doc/p2p/prd.index.md` 上游可达性与 `doc-governance-check`；原三件套从 git history 与 PR 与实际验证记录 追溯 | `p2p/node` 热点子域入口与 `PRD-ENGINEERING-025` 第三条 follow-up 的长期承接 |

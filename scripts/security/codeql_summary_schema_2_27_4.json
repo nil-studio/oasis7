@@ -4,7 +4,7 @@
   "rawLogVersion": "0.5.0",
   "evaluatorLogLevel": 3,
   "codeql_jar_sha256": "ebb281fad305c343c06981a1418fb70ae158c403610376bc6180036341b1d0ab",
-  "scope": "Observed completed AST/localFlow fixture shapes, not all future shapes or full workspace coverage. Unknown combinations remain partial.",
+  "scope": "Observed completed AST/localFlow fixture shapes plus one exact validated summary shape from hosted research run 37 (43861060421, attempt 1). Unknown field/type/enum combinations remain partial. These observations do not certify all future shapes or full workspace coverage.",
   "observation": {
     "raw_event_bytes": 36312368,
     "raw_event_sha256": "b6b3b9716798899dd103d065e872d1446356dd2f430acd26190775b741b7f6af",
@@ -16,6 +16,96 @@
     "maximum_seconds": 600,
     "source_inputs_sha256": "8d55e0827f32016087882463c2dddd29e65378dda6a2a34c6c21666380ede2a4"
   },
+  "additional_observations": [
+    {
+      "id": "hosted-research-37-summary-descriptor",
+      "kind": "validated-first-unknown-shape-descriptor",
+      "signature_indexes": [
+        17
+      ],
+      "github_run_url": "https://github.com/nil-studio/oasis7/actions/runs/43861060421",
+      "run_id": 43861060421,
+      "run_number": 37,
+      "attempt": 1,
+      "job_id": 133277703785,
+      "helper_source": "89033bcde80f24272a4cdab97b96c154824a96b5",
+      "business_source": "7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef",
+      "codeqlVersion": "2.27.4",
+      "summaryLogVersion": "0.4.0",
+      "original_schema_sha256": "7aecccbd79a3adb1b163c9b29c403e5850254154e61d60f329fe58d82bea9d9b",
+      "profile_sha256": "91ae27f0502228543062c2547f57a66d1e96004922b3e53c0c7e1b050def7044",
+      "candidate_artifact": {
+        "artifact_id": 14227402399,
+        "artifact_name": "rust-candidate-workload-43861060421-1-89033bcde80f24272a4cdab97b96c154824a96b5",
+        "archive_bytes": 1410198,
+        "archive_sha256": "760402cbe1b6aa2d76b08f92e2976b33153583dc0f24d3e7057e0a89c4cd93c5"
+      },
+      "original_receipts": {
+        "candidate-run-terminal.json": {
+          "sha256": "f41863e395f2a6445831159ae814afd7ba464a51e9c989651018b7c17865217c",
+          "bytes": 5179
+        },
+        "candidate-observation/observation-terminal.json": {
+          "sha256": "5f071d6257599bf0b5ab56ba55088236985e52af7e50161131091cbff3d0dec4",
+          "bytes": 171694
+        },
+        "candidate-observation/official-summary.log.result.json": {
+          "sha256": "4e61a1e789c26cf909b21c1dd4f3daa6b526cade6ec7afdc5278fbbcc663a33e",
+          "bytes": 157306
+        }
+      },
+      "summary_stdout": {
+        "bytes": 82590759,
+        "lines": 46916,
+        "sha256": "9263a945c92ffe7ba2f7a0eb954f1a86dd8fbdf913dd97a0f697091d7c4e7157"
+      },
+      "summary_process": {
+        "exit": 0,
+        "elapsed": 12.223096583999904,
+        "failure_kind": null
+      },
+      "original_projection": {
+        "status": "PARTIAL",
+        "records": 46915,
+        "accepted_records": 46914,
+        "unknown_shapes": 1,
+        "invalid_records": 0
+      },
+      "first_unknown_shape": {
+        "status": "CAPTURED",
+        "record": 15398,
+        "record_sha256": "55e8368c340e7db900a196c596768a7c307a98d3fddabce0de0b7aaa986b4805",
+        "types": {
+          "completionTime": "str",
+          "raHash": "str",
+          "predicateName": "str",
+          "appearsAs": "dict",
+          "position": "str",
+          "queryCausingWork": "str",
+          "evaluationStrategy": "str",
+          "millis": "int",
+          "predicateIterationMillis": "list",
+          "deltaSizes": "list",
+          "dependencies": "dict",
+          "layerSize": "int",
+          "pipelineRuns": "list"
+        },
+        "enums": {
+          "evaluationStrategy": "COMPUTE_RECURSIVE"
+        }
+      },
+      "original_research_status": "CANDIDATE_RESEARCH_INCOMPLETE",
+      "independent_original_evidence_review": {
+        "reviewer": "/root/resolver_tail_review",
+        "decision": "REJECT_FULL_RESEARCH_ACCEPTANCE",
+        "passed_checks": 309,
+        "audit_sha256": "11b241840e7734f6e99b228155f0af3e4abbe56e31bb27028fa6af28d7faed39",
+        "sources_sha256": "596b0ee2e54edf5e202b780cc2982102851b5b3c310df64297e9df3a8f63538d",
+        "scope": "Original evidence consistency only; no approval of an unimplemented schema change."
+      },
+      "scope": "One exact observed field/type/enum combination only. The original run remains incomplete. The raw summary row is unavailable; its SHA-256 is copied from the original bounded descriptor, not locally recomputed. Synthetic regression values are not that row. No inference about run 36 or all future shapes."
+    }
+  ],
   "signatures": [
     {
       "types": {
@@ -339,6 +429,28 @@
       },
       "records": 44,
       "first_record_sha256": "d9b0fb4ebd2492e4e4f64c89dcc018064b34d95d51f9c39962e5a303af6e4c74"
+    },
+    {
+      "types": {
+        "completionTime": "str",
+        "raHash": "str",
+        "predicateName": "str",
+        "appearsAs": "dict",
+        "position": "str",
+        "queryCausingWork": "str",
+        "evaluationStrategy": "str",
+        "millis": "int",
+        "predicateIterationMillis": "list",
+        "deltaSizes": "list",
+        "dependencies": "dict",
+        "layerSize": "int",
+        "pipelineRuns": "list"
+      },
+      "enums": {
+        "evaluationStrategy": "COMPUTE_RECURSIVE"
+      },
+      "records": 1,
+      "first_record_sha256": "55e8368c340e7db900a196c596768a7c307a98d3fddabce0de0b7aaa986b4805"
     }
   ]
 }

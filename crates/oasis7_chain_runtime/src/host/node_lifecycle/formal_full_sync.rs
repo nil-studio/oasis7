@@ -19,11 +19,10 @@ use oasis7_client_api::world_service::{
     ReadWorldViewRequest, WORLD_SERVICE_CONTRACT_VERSION, WorldIdentity,
 };
 use oasis7_client_api::world_service_full_sync::{
-    FORMAL_FULL_SYNC_MANIFEST_PATH, FORMAL_FULL_SYNC_OBJECT_PATH,
-    FormalFullSyncCutV1,
+    FORMAL_FULL_SYNC_MANIFEST_PATH, FORMAL_FULL_SYNC_OBJECT_PATH, FormalFullSyncCutV1,
     FormalFullSyncManifestRequestV1, FormalFullSyncManifestV1, FormalFullSyncObjectChunkV1,
     FormalFullSyncObjectRequestV1, FormalNodeReadGrantV1, FormalNodeReadRoleV1,
-    MAX_FULL_SYNC_CHUNK_BYTES, MAX_FULL_SYNC_RECORD_BYTES,
+    MAX_FULL_SYNC_OBJECT_RESPONSE_BYTES, MAX_FULL_SYNC_RECORD_BYTES,
 };
 use oasis7_distfs::controlled_authority::{
     formal::{
@@ -47,22 +46,39 @@ use std::{
     },
     time::Duration,
 };
+// Experimental disk/TCP accounting harness only. These modules do not enable
+// V2 configuration, change V1 behavior, or grant production sync capability.
+#[path = "formal_full_sync_attempt.rs"]
+mod attempt;
 #[path = "formal_full_sync_cas.rs"]
 pub(super) mod cas_lifecycle;
 #[path = "formal_full_sync_compatibility.rs"]
 mod compatibility;
+#[cfg(all(test, unix))]
+#[path = "formal_full_sync_direct_http.rs"]
+mod direct_http;
 #[path = "formal_full_sync_failover.rs"]
 mod failover;
 #[path = "formal_full_sync_grant_reconcile.rs"]
 mod grant_reconcile;
 #[path = "formal_full_sync_history.rs"]
 pub(super) mod history_chain;
+#[cfg(all(test, unix))]
+#[path = "formal_full_sync_metered_io.rs"]
+mod metered_io;
 #[path = "formal_full_sync_native.rs"]
 mod native_environment;
+#[cfg(all(test, unix))]
+#[path = "formal_full_sync_operation_ledger.rs"]
+mod operation_ledger;
+#[cfg(all(test, unix))]
+#[path = "formal_full_sync_operation_tests.rs"]
+mod operation_tests;
 #[path = "formal_full_sync_providers.rs"]
 mod providers;
-#[path = "formal_full_sync_attempt.rs"]
-mod attempt;
+#[cfg(all(test, unix))]
+#[path = "formal_full_sync_tls_io.rs"]
+mod tls_io;
 use attempt::{
     FullSyncAttemptV1, cut_from_anchor, native_role, nondecreasing_cut, now_unix_ms, object_bytes,
     valid_hex, verified_anchor, verified_local_object,
@@ -959,6 +975,8 @@ impl FormalFullSyncSession {
         if expected_size.is_some_and(|size| size == 0 || size > MAX_FULL_SYNC_RECORD_BYTES as u64) {
             return Err("full-sync object exceeds protocol size bound".into());
         }
+        let chunk_limit =
+            FormalFullSyncObjectChunkV1::bounded_payload_bytes(cut, content_hash)? as u64;
         let mut total_bytes = expected_size;
         let mut output = Vec::with_capacity(expected_size.unwrap_or(0) as usize);
         let mut offset = 0u64;
@@ -966,9 +984,8 @@ impl FormalFullSyncSession {
             if total_bytes.is_some_and(|total| offset == total) {
                 break;
             }
-            let max_bytes = total_bytes.map_or(MAX_FULL_SYNC_CHUNK_BYTES as u64, |total| {
-                (total - offset).min(MAX_FULL_SYNC_CHUNK_BYTES as u64)
-            }) as u32;
+            let max_bytes =
+                total_bytes.map_or(chunk_limit, |total| (total - offset).min(chunk_limit)) as u32;
             let request = FormalFullSyncObjectRequestV1 {
                 schema_version: 1,
                 grant: self
@@ -984,8 +1001,11 @@ impl FormalFullSyncSession {
                 business_path: business_path.clone(),
             };
             request.validate()?;
-            let chunk: FormalFullSyncObjectChunkV1 =
-                self.post_signed(FORMAL_FULL_SYNC_OBJECT_PATH, request.clone(), 256 * 1024)?;
+            let chunk: FormalFullSyncObjectChunkV1 = self.post_signed(
+                FORMAL_FULL_SYNC_OBJECT_PATH,
+                request.clone(),
+                MAX_FULL_SYNC_OBJECT_RESPONSE_BYTES,
+            )?;
             chunk.validate_for(&request)?;
             if chunk.total_bytes == 0 || chunk.total_bytes > MAX_FULL_SYNC_RECORD_BYTES as u64 {
                 return Err("full-sync object chunk total size outside protocol bound".into());

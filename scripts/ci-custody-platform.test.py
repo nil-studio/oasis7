@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 
 SPEC = importlib.util.spec_from_file_location('custody', Path(__file__).with_name('ci-custody-platform.py'))
@@ -353,6 +354,67 @@ class Custody(unittest.TestCase):
             with self.assertRaises(ValueError):
                 C.execute(self.root, self.plan, shard, output, '71', 2)
             self.assertFalse((output / 'result.json').exists())
+
+    def client_fixture(self):
+        path = self.worker / 'tests' / C.workerd_capture.TEST_FILE
+        (self.worker / 'tests/0.test.mjs').rename(path)
+        shard = next(i for i, batch in enumerate(C.partition(C.inventory(self.root))) if path.name in batch)
+        return path, shard
+
+    def test_workerd_capture_is_explicit_and_only_wraps_the_original_client_command(self):
+        unused, shard = self.client_fixture()
+        output = Path(self.temporary.name) / 'capture-default-off'
+        with mock.patch.object(C.workerd_capture, 'prepare', side_effect=AssertionError('unexpected debugger')):
+            C.execute(self.root, self.plan, shard, output, '71', 2)
+        output = Path(self.temporary.name) / 'capture-enabled'
+        def prepare(root, results, environment, context, attempt, command):
+            self.assertEqual(command, ['node', '--test', '--test-concurrency=1', '--test-reporter=tap',
+                                       'tests/' + C.workerd_capture.TEST_FILE])
+            self.assertEqual(attempt, 2)
+            self.assertEqual(context, C.identity(self.root, self.plan, '71'))
+            return results / 'workerd-fault', command, environment
+        with mock.patch.object(C.workerd_capture, 'prepare', side_effect=prepare) as observer, \
+             mock.patch.object(C.workerd_capture, 'finish', return_value={'passed': True}) as finish:
+            C.execute(self.root, self.plan, shard, output, '71', 2, True)
+        observer.assert_called_once()
+        self.assertTrue(finish.call_args.args[-1])
+        self.assertEqual([row['file'] for row in C.load(output / 'result.json')['files']],
+                         C.partition(C.inventory(self.root))[shard])
+
+    def test_capture_failure_cannot_publish_success_or_replace_original_node_failure(self):
+        path, shard = self.client_fixture()
+        original = path.read_text()
+        for node_fails in (False, True):
+            for write_fails in (False, True):
+                path.write_text("import {test} from 'node:test';test('original',()=>{throw Error('first failure')});"
+                                if node_fails else original)
+                output = Path(self.temporary.name) / f'capture-failure-{node_fails}-{write_fails}'
+                def prepare(root, results, environment, context, attempt, command):
+                    directory = results / 'workerd-fault'
+                    directory.mkdir()
+                    (directory / 'records.jsonl').write_text('null\n')
+                    return directory, command, environment
+                with mock.patch.object(C.workerd_capture, 'prepare', side_effect=prepare):
+                    with mock.patch.object(C.workerd_capture, 'finish', side_effect=OSError('unwritable')) \
+                            if write_fails else mock.patch.object(C.workerd_capture, 'finish', wraps=C.workerd_capture.finish):
+                        expected = 'custody Node file failed' if node_fails else 'workerd capture failed'
+                        with self.assertRaisesRegex(ValueError, expected):
+                            C.execute(self.root, self.plan, shard, output, '71', 2, True)
+                self.assertFalse((output / 'result.json').exists())
+
+    def test_final_consumer_requires_capture_and_binds_the_producer_attempt(self):
+        self.client_fixture()
+        receipts = []
+        for shard in C.SHARDS:
+            output = Path(self.temporary.name) / f'capture-consumer-{shard}'
+            C.execute(self.root, self.plan, shard, output, '71', 2)
+            receipts.append(output / 'result.json')
+        with self.assertRaises(FileNotFoundError):
+            C.validate_results(self.root, self.plan, receipts, '71', 3, True)
+        with mock.patch.object(C.workerd_capture, 'validate') as validate:
+            C.validate_results(self.root, self.plan, receipts, '71', 3, True)
+        validate.assert_called_once()
+        self.assertEqual(validate.call_args.args[2], 2)
 
     def test_job_summary_requires_every_selected_success_and_unselected_skip(self):
         needs = {'select': dict(result='success'), 'workspace-support-legacy': dict(result='skipped'),

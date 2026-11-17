@@ -7,7 +7,7 @@
 
 ## 上游约束、结构边界与审读范围
 
-专业 owner 为 P2P/runtime；消费者为 node、chain adapters、operator status 与 QA matrix。配对 [PRD §2](mainnet-private-reachability-architecture.prd.md#2-user-experience-functionality) 定义部署模式、角色、路径和用户模式义务。本设计的承接范围聚焦既有 substrate；用户模式 UI、显式确认与端到端产品可用性不由这些条款单独证明。
+专业 owner 为 P2P/runtime；消费者为 node、chain adapters、operator status 与 QA matrix。配对 [PRD §2](mainnet-private-reachability-architecture.prd.md#reachability-user-experience) 定义部署模式、角色、路径和用户模式义务。本设计的承接范围聚焦既有 substrate；用户模式 UI、显式确认与端到端产品可用性不由这些条款单独证明。
 
 本文定义 discovery 证据来源、签名不变性及 peer record 生命周期的目标合同与验收边界。实现落点中的日期结论保留其历史范围；已接入能力及剩余差距见 [当前实现边界](#discovery-peer-record-implementation-boundary)。原章节锚点继续保留。
 
@@ -147,6 +147,97 @@ DHT peer-record 的本地保存与转发期限不晚于签名剩余 TTL，其他
 
 并发仅在对应协议实际终态释放；不能按本机超时清空账本而让仍在运行的协议工作失去计量。上述速率窗口和代理链限制承接累计工作上限；跨轮次持久配额、入站 rendezvous 服务／响应列表及其他入站服务／验证总预算、抖动刷新以及受信控制域依据仍属后续范围。
 
+<a id="discovery-resource-budget-v1"></a>
+### 发现连接占用与累计传输预算合同
+
+Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；承接配对 PRD 的 [peer record 容量要求](mainnet-private-reachability-architecture.prd.md#peer-record-lifecycle)。本节固定 `v1-discovery-resource-budget-1` 的实施合同，**尚不表示运行时已实现或验收**；实现与真实网络证据继续由 [#5506](https://github.com/nil-studio/oasis7/issues/5506) 承接。
+
+#### 适用实例、版本与配置来源
+
+本版本为标准 development host 的共享 Libp2p 网络实例提供两项联合限制：真实连接／连接尝试的同时占用，以及全实例共享的 60 秒滚动累计子流传输量。它叠加在 [v1-discovery-budget-1](#discovery-work-budget) 上，不改该版本的 128 次启动／60 秒、32 项工作并发、4 个代理、16 KiB／128 项列表和三张各 1024 peer 的 RR cooldown 表；工作完成或失败仍不返还窗口启动次数。本版本选择 PRD 允许的“速率窗口”累计边界，不另宣称精确归因到每个逻辑发现轮次的总字节，也不提供跨重启累计配额。
+
+共享包络覆盖该实例上的发现与非发现子流，包括 Kademlia、rendezvous、业务 RR、gossip 和 relay 流量；不同协议、provider、来源标签、重建工作项及多个同时进行的发现轮次共用一份账。它会使业务 RR 等随共享额度耗尽而等待或按原协议 deadline 失败，不能被描述为“只限制自动发现”。本版本不满足独立 lane 的带宽隔离或共识活性保证；正式 authority 的 consensus/control 与 blob/state lane 不得接入一个没有独立 lane 适配的共享包络，并凭此宣称满足 PRD 的隔离要求。标准 host 配置接线只在 development 分支开放；formal-live／guarded-initial 配置与本版本同时选用须在启动前拒绝。未来正式 lane 适配须另行给出分类接缝、各 lane 额度与不可被其他 lane 耗尽的控制面余量，不由本节隐含授予。
+
+实施配置取值固定为 `Legacy` 或 `SubstreamV1 { ... }`。沿用真实的 `oasis7_chain_runtime dev node --config PATH`／`dev local-provider --config PATH` 入口，在 `api_version = "oasis7.development-node/v1"` 的 [DevelopmentNodeConfigV1](../../../crates/oasis7_client_api/src/development_node_config.rs) 中新增 `runtime.p2p_resource_budget` 对象。其 `profile` 字段只接受序列化字符串 `legacy` 或 `v1-discovery-resource-budget-1`：前者不得附带限额，后者必须在该对象中完整提供下表九个字段；未知字段、重复字段、`null` 和错误数值类型均拒绝。整个 `p2p_resource_budget` 字段缺省时为 Legacy，序列化可省略该缺省字段，旧配置继续可读。
+
+这是待实现的新配置字段，不是当前二进制已经支持的用法。沿用 [development_runtime::read_config](../../../crates/oasis7_chain_runtime/src/host/development_runtime.rs) 既有 1 MiB 输入上限及严格 JSON 解析，`into_options`／`from_options` 和 node／net 配置转换必须完整保留该对象；不新增绕过严格 typed config 的独立覆盖参数。旧二进制拒绝新字段时不能删除字段重试。状态输出采用相同 profile 字符串。显式新版本不能从 32 并发、30 秒 idle timeout、traffic profile 或 PeerManager 比例推导新限额，也不能静默回退 legacy；所有数值由部署配置显式给出，本合同不声明产品默认额度。
+
+| 必填字段 | 单位与验证 | 含义 |
+| --- | --- | --- |
+| `connections_total` | 正 `u32` | 同时存活的已接纳连接，加尚未终止的底层连接尝试总数上限 |
+| `pending_connections_total` | 正 `u32`，不大于 `connections_total` | 入站与出站未完成连接尝试的共享上限 |
+| `pending_inbound_unknown` | 正 `u32`，不大于 `pending_connections_total` | 尚未完成身份验证／接纳的入站尝试上限；未知来源不能按自报 peer 拆桶 |
+| `pending_outbound` | 正 `u32`，不大于 `pending_connections_total` | 并行出站底层尝试上限 |
+| `connections_per_peer` | 正 `u32`，不大于 `connections_total` | 同一已知目标／已认证 PeerId 的 pending 与 established 合计上限 |
+| `handshake_timeout_ms` | 正 `u64`，必须可安全转换为运行时单调 deadline | 单个底层尝试从预留起至接纳或真正终止的最长等待；请求关闭不等于已释放 |
+| `bytes_in_per_window` | 正 `u64` | 滚动窗口接收字节额度 |
+| `bytes_out_per_window` | 正 `u64` | 滚动窗口发送字节额度 |
+| `bytes_total_per_window` | 正 `u64` | 同一窗口收发合计额度，必须与两个方向额度同时满足 |
+
+未知版本、缺字段、零值、转换／算术溢出及上述大小关系不成立均为配置错误。没有代表不限额的 `0` 或负数。配置在实例内不可热改；修改配置不允许清空一个仍存活实例的账。限额及 profile 必须从标准 host 的配置输入，经 `Libp2pReplicationNetworkConfig` 原样传入 `Libp2pNetworkConfig`，在 `Libp2pNetwork::try_new` 启动事件线程、监听、拨号前完成校验并创建唯一共享账本。未完成计量接缝的已启用 transport 必须使新 profile 构造失败，不能留下 TCP 已受限而 QUIC／relay 绕过的实例。
+
+#### 连接计量与实际释放
+
+连接单位是本实例实际持有的 transport 尝试／会话，不是发现工作、候选 peer 或 RR 请求。每个底层尝试拥有只在本实例内唯一的 `attempt_id`，并关联其 Swarm `ConnectionId`；一个 dial 同时竞速多个地址时，每个实际并发尝试分别预留，不可只按一个 `ConnectionId` 记一次。relay 外层连接与本实例另持有的内层电路连接分别占用；该口径不等于独立物理 TCP 线路数。
+
+令 `E` 为 established 数、`P` 为 pending 尝试数，`P_in`、`P_out` 为相应 pending 分类，`K(peer)` 为已绑定该 peer 的 pending 加 established。新尝试只有在以下增加后的计数全部满足上限时才能交给 transport：`E + P + 1 <= connections_total`，`P + 1 <= pending_connections_total`，对应方向计数加一不超过其限额；已知出站目标还须 `K(peer) + 1 <= connections_per_peer`。预留是一个原子操作，不能各线程分别通过检查后共同超额。未知入站先占全局与 unknown 池，不能在身份未核验时相信远端标签；认证后须在同一事务中转入真实 PeerId 桶，桶满则拒绝接纳并终止本次连接，不出现先退全局、后入 peer 桶的空档。没有预期 PeerId 的出站也先占全局与 outbound 池；认证完成后、接纳前必须原子核对原全局占用与真实 PeerId 上限并绑定该桶。桶满则拒绝接纳，该 attempt 继续占用全局与 outbound 份额直至实际终止，不得先退额度再关闭。出站认证结果与预期 PeerId 不符继续按协议拒绝。
+
+准入必须在 TCP／QUIC／relay 实际发起或接收入站握手的资源接缝生效，覆盖 bootstrap、自动发现、应用显式 dial、AutoNAT、DCUtR 和 relay 诱发的尝试。`ConnectionEstablished` 之后才统计无法限制握手占用；只包 `swarm.dial` 也无法覆盖库内地址竞速和入站。实现必须在 transport／固定 libp2p 依赖的对应接缝接纳，或在交给库前保守预留全部可能同时存活的尝试。无法证明并发上界或无法介入的已启用路径不得启用本 profile。操作系统 listen backlog、内核缓冲和到达网卡的流量不是本进程连接池的保证范围；unknown 限额仍须在本进程开始昂贵身份握手前执行。
+
+| 事件 | 连接账动作 | 发现工作账动作 |
+| --- | --- | --- |
+| 实际接纳一个尝试 | 该 attempt 的 pending 原子转为 established，总占用不因转换额外增减 | 无；连接建立不是请求成功 |
+| 多地址竞速已有胜者 | 胜者按上行转换；其余尝试直至 future 已终止／资源已释放才退占用 | 无 |
+| 同步发起失败、握手失败或取消 | 仅在该 attempt 确实未产生／不再持有底层资源时退一次；未知、重复事件不退他人的份额 | 已接纳工作的启动次数不返还；未形成请求的同步失败保留原 helper 的并发释放规则，已在途请求仍按真实协议终态处理 |
+| 请求成功／失败／超时终态 | 不释放健康 established 连接 | 只释放匹配协议命名空间与原 request/query ID 的工作并发 |
+| 请求关闭、idle 到期、冗余连接裁剪 | 先请求关闭；等待实际终止／`ConnectionClosed` 后释放该连接 | 不以本机清 pending 或连接断开代替 rendezvous 的真实协议终态 |
+| 握手 deadline 到达 | 停止该次尝试并驱动清理；资源仍在关闭中时继续占用，禁止先退预算再重试 | 不产生新的隐含重试路径 |
+
+每个 permit 只由其真实对象终结一次；已结束项可从活动表删除，迟到事件只忽略，不建立无限终态历史。peer 账只为有活动占用的 peer 保留；空桶删除。连接预算到限只拒绝新占用，不为腾位置全量断开既有认证会话。
+
+#### 字节边界、窗口和预留结算
+
+计量接缝为安全 transport／multiplexer 产出的子流与各协议 handler 之间，覆盖每次成功返回给调用者的读取字节和成功交给下层的写入字节，含该接缝内的协议协商、帧和编码开销。它不是应用 payload 长度，也不是网卡 wire bytes：不计入 TCP/IP／UDP 包头、握手、mux 控制包、重传及内核／QUIC 内部预取缓存。现有 `wire_bytes.rs` 在同一类接缝仅作事后计数，不能提供准入保证；本合同要求在调用下层 I/O 前预留和限制本次 buffer 长度。不得仅在业务 CBOR codec 增加计数后宣称覆盖 Kademlia／rendezvous 的库内 codec。relay 嵌套流若经过本实例两个受控边界，则两个边界各自计费，不按 payload 去重，限额是保守的本地子流 I/O 总包络。
+
+窗口长度固定为 60 秒，只用实例单调时钟。为使账本大小固定，本版本采用 1 秒桶：时刻 `t` 的成功 I/O 记入 `floor((t - origin) / 1s)`，该桶仅在其结束时刻再加 60 秒后回收，最多保留 61 个桶。因此任意连续 60 秒的成功计量字节均不超过配置额度，最早的字节可能多占用至多 1 秒；这是本版本明确的保守回收，不改变旧工作预算自身的精确窗口语义。切换 provider、地址、来源、协议、请求 ID、代理或重建工作项不能选择新账本／origin。只有自然出窗能够恢复已消耗字节额度，失败、取消、断连、重试和应用解码拒绝都不能退款。
+
+每个桶区分成功 I/O 报告的实际量 `A` 与无法证明零进展时的保守计费 `C`，`U = A + C` 是准入使用的计费量，不能把 `C` 报成已知实际传输。令保留桶中的已计费量为 `U_in/U_out/U_total`，尚未结算预留为 `R_in/R_out/R_total`，配置额度为 `L_in/L_out/L_total`。一次方向 `d` 的 I/O 最多可预留：
+
+`r = min(本次 buffer 总长度, L_d - U_d - R_d, L_total - U_total - R_total)`。
+
+余额按检查过的减法计算；任一不变量、加减法或长度转换失败均拒绝本次 I/O 并报告内部预算错误，不能环绕成大额度。方向与总量的 `r` 在同一账本中原子预留；读、写及 vectored I/O 都必须将交给下层的切片总长截到 `r`，不是读取／编码完整巨包后才检查。每次 poll 的账本锁不得覆盖网络操作、编码或用户回调。
+
+| 下层结果 | 结算 |
+| --- | --- |
+| `Ready(Ok(n))`，`0 <= n <= r` | 原子移除本次 `r` 预留，将 `n` 按完成时刻记入方向及总量的实际量 `A`；仅退未用的 `r - n`，已传部分保留 |
+| `Pending` | 依 AsyncRead／AsyncWrite 契约本次没有已报告的传输，退本次预留，保留底层唤醒；下一次 poll 重新准入，不能持有过期的跨 poll 免费额度 |
+| `Ready(Err)` | 所用 AsyncRead／AsyncWrite 实现契约保证本次无进展时，实际量为零并退本次预留，不把普通 Err 一律记为实际传输。只有适配层确实可能已提交部分 I/O 而无法恢复其长度时，才将本次 `r` 记入保守量 `C`；不得既退预留又让该不确定部分获得免费额度。之前成功传输永不回滚 |
+| 本次 I/O 被取消／对象关闭 | 未交给下层或有契约证明零进展的预留可退；已经提交而无法确定的部分按上行记入 `C`。关闭不会清除 `A`／`C` 的已计费桶 |
+
+调用方原本提供空 buffer／空 iovec 时，沿原 I/O 契约立即零进展完成且不计费。调用方请求非零长度、但预算余额使 `r == 0` 时不调用下层 I/O，也不得以 `Ok(0)` 伪装 EOF；注册有界唤醒并返回 `Pending`，由最早桶自然到期或其他未用预留结算触发重试。唤醒状态随既有有界连接对象保存，不按远端任意协议／peer 文本积累无界表，不忙轮询、不新增后台重试任务。原请求 deadline 和 cooldown 继续运行，不因等额度延期；超时按原协议真实终态完成。额度恢复只使仍合法、未过期的操作可继续，不复活已结束请求。
+
+#### 联合准入、实际消费者与验收
+
+自动发现的新工作在既有去重／cooldown 后、创建 pending 和协议发起前同时检查旧工作预算与新字节收、发及总量是否均有至少 1 字节可用额度；此入口已确定的新连接还须取得其实际尝试的连接 permit，复用健康连接无需另取。未知的协议内部后续拨号在实际 transport 接缝逐项准入，前置检查不能承诺未来 fanout 一定可拨。前置拒绝不发送、不建 pending、不消耗旧启动额度；一旦旧 helper 接纳并登记启动，再遇协议同步发起失败或底层额度竞争，启动次数不退款，未形成请求时只按原 helper 规则释放并发。前置检查不预付未知大小响应，每一次真实 I/O 仍按上述公式预留。应用显式 DHT／业务 RR 等不计入旧自动工作启动表，但不能绕过新的连接／字节包络。入站未知 peer 同样受连接池，入站协议子流受同一个收发总量；本合同不代替入站每协议请求数量、CPU／验签、响应构建内存和帧尺寸限制。
+
+实现入口是标准 host 的 [replication network 组装](../../../crates/oasis7_chain_runtime/src/host/replication_network.rs) → [node 配置与构造](../../../crates/oasis7_node/src/libp2p_replication_network.rs) → [net 配置](../../../crates/oasis7_net/src/libp2p_net/config.rs)／[构造](../../../crates/oasis7_net/src/libp2p_net/construction.rs)。连接门禁在 [Swarm／transport 组装](../../../crates/oasis7_net/src/libp2p_net/swarm_behaviour.rs) 及实际连接生命周期落实；子流预算在 [I/O 包装接缝](../../../crates/oasis7_net/src/libp2p_net/wire_bytes.rs) 落实，旧 [发现工作预算](../../../crates/oasis7_net/src/libp2p_net/discovery_budget.rs) 和 [rendezvous 操作](../../../crates/oasis7_net/src/libp2p_net/rendezvous_operations.rs) 保持各自终态权威。固定 libp2p 依赖如缺少实际 attempt／握手门禁，沿用仓库已有依赖补丁机制接入，补丁与本地组装必须共同验证；不能把本节需求写成当前已有 API。
+
+现有 status summary 应增加有界投影：所选 profile、已校验额度、连接总占用／pending 分类、窗口内分开的 `actual_bytes`（`A`）、`uncertain_charge_bytes`（`C`）、`charged_bytes`（`U`）及 `reserved_bytes`（`R`），各含收、发、总量；另有固定枚举的最近拒绝原因与下一可尝试单调延迟。原因枚举至少区分 `connection_total`、`pending_total`、`pending_inbound`、`pending_outbound`、`per_peer`、`bytes_in`、`bytes_out`、`bytes_total`；无余额时可保守给出最早桶到期时间，不能保证届时操作一定成功。没有单独的 healthy 赋权，不能按远端标签新增无界指标。新实例开始新账并输出新的实例边界；进程重启、宿主多实例及其他网络组件不共享本配额，本版本不防止操作者靠重启取得新额度，也不把系统时间回拨作为回收依据。
+
+下列是实现验收要求，本次合同文档不提供已运行证据：
+
+| 场景／实际入口 | 必须核对的结果 |
+| --- | --- |
+| 标准 development host → node → net；缺项／零值／未知版本／正式 profile 混用 | 错误发生在监听、拨号与事件线程启动前；显式新版本失败不得回落 legacy。合法配置逐层保留，旧缺省不冒称新保证 |
+| TCP、QUIC、relay；多地址竞速、入站／出站未知 peer、AutoNAT／DCUtR、显式拨号 | 以实际 attempt／连接事件证明所有路径计入同一池；到限未开始额外握手，认证转桶和并行 race 不超额。无法接线的启用路径必须拒启新版本 |
+| 两协议终态、连接保持／断开、rendezvous 迟到／重复／未知 ID | 请求终态仅释放其工作；真实连接结束仅释放其连接。断连／清 pending 不提前释放 rendezvous；不为回收预算全量断连 |
+| 共享 budget 的真实 RR、Kademlia、rendezvous 与非发现业务子流 | 收发方向及总量同时受限；单个巨大输入在下层读取前截断／等待，不能先全量 decode。业务 RR／gossip 同受限的兼容影响须有真实记录 |
+| 部分读写、vectored I/O、Pending、普通 Err、提交后结果不确定、取消、并发读写、relay 嵌套 | 实际传输不超预留；有契约证明零进展的 Err 按零结算；已传部分不退款；仅不确定部分保守计费并与实际量分开展示；方向和总量一致；重复清理不产生负数或额外额度 |
+| 同窗切换 provider／代理／重建工作；窗口边界、慢传输和自然恢复 | 预算无重置；任意 60 秒成功字节不超额，保守桶最多多等至多 1 秒；deadline 不延长，恢复不复活旧请求；旧 128／32／4 等门禁无回归 |
+| 多实例／重启与独立 lane 声明 | 明确是各实例新账，不能报告跨重启累计保证；共享 development 证据不代签正式 authority lane 隔离、真实公网或抗攻击公平性 |
+
+验收须绑定实现 PR 的准确 SHA、完整显式限额与 transport/profile、真实启动入口、成功／拒绝／恢复事件及账本投影；定向账本测试不能替代真实 transport 证据。已有 [工作预算验证](../../../testing-manual.md#discovery-work-budget)继续保留。文档合入只解除实施合同缺口，#5506 的代码接线、缺配置拒启、跨路径真实网络与原工作门禁回归仍须完成后才可关闭。
+
 <a id="discovery-record-refresh"></a>
 ### 当前 v1 到期前刷新
 
@@ -199,6 +290,16 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3。本切片目标为显�
 
 验证必须覆盖真实 host→node→net 的独立接收配置、TCP/DHT 接收后重启拒绝低序号与 V1、同序号冲突后缓存／转发／排队拨号失效、原件丢失／损坏／绑定／重复实例、容量拒绝与既有 peer 正向升序，以及持久提交失败不暴露新候选。纯 helper 测试不代替上述生产路径。
 
+### 原账本接收策略显式升级
+
+Trace refs：O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；#5507。
+
+标准 development host 使用 `--p2p-peer-record-reception v2_only --upgrade-peer-record-receiver` 明确执行一次升级／恢复，然后退出，不启动网络或 World，也不创建 publisher。它不持久化到普通运行配置，不与初始化、Withdraw/Resume 共用一次命令。仅允许已有 DurableCompatible 账本到 V2Only；已达目标的重复命令不写入。空目录、Legacy、错误身份／域、旧配置及并发写者保持拒绝，formal/guarded host 不新增模式。
+
+事务先取得原 receiver 文件锁并核对锁路径、private filesystem、ready、canonical ledger、身份／域和所有签名 floor。原账本的签名原件、floor、V1 退休、冲突隔离与 tombstone 不变，只改变 mode。转换记录版本为 3，绑定原身份／域与源、目标 canonical CBOR 的 BLAKE3 摘要；复用 `initializing.cbor` 及其临时文件作为阻断标记，使旧 reader／initializer 也拒绝未知转换。写入次序为转换记录落盘并同步目录、原 state 原子替换并回读与同步目录、移除转换记录并同步目录。未完成时普通启动失败关闭，必须重复同一显式命令恢复。
+
+恢复从原 state 或已替换的目标 state 重建两侧 canonical 图像并逐字核对转换记录；只删除与本次目标严格前缀一致的 torn temp，再继续同一替换。无转换记录的普通 ingress 未知写入、混杂记录、错误摘要或非匹配临时文件保留并诊断，不清空、不回宽松 default。现有 1,024 floors、64 MiB ledger、16 KiB signed record 与 TTL 边界不变；GC、可信时间和既有认证会话撤销不在本次升级范围内。
+
 <a id="discovery-record-admission-budget"></a>
 ### 本进程 peer-record 准入预算
 
@@ -227,7 +328,7 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3。`peer-record-admission
 
 统一发布器覆盖初始、周期、监听地址、relay 与外部地址变化等本机入口：先以文件和父目录 fsync 原子预留递增序号及完整物化 payload，再签名并持久保存原 signed record，之后才允许对外 put。崩溃恢复只能重签同一预留 payload，或明确消耗该序号留下空洞；不能以新地址／时间覆盖旧序号。网络重试与恢复重发保持原 signed bytes；新地址或下一周期属于新发布意图，可用更高序号替代发送结果不确定的旧意图。过期预留不得通过重写时间重新生效，须消耗原号后另分配。Kademlia `Quorum::One` 不是全网安装确认，不以丢失 ACK 无限阻塞后续新发布；状态和未决材料有固定字节上限，不保存无界发布历史。V2 的远端 `RR_GET_LOCAL_PEER_RECORD` 查询只读取内存中已有、未过期且匹配当前声明与地址的持久签名原件；缺失或过期时返回不可用，等待本机刷新。远端查询不得签发新序号、签名或触发磁盘读写／fsync，避免未受信 peer 驱动同步持久化。转发远端缓存记录保持远端原签名与序号，不经过本机分配器。
 
-该切片只提供正常持久存储上的本机发行连续性，普通文件与 OS 锁不抵抗同密钥／磁盘的恶意快照回滚。接收端跨重启 sequence 高水位、同序冲突隔离与显式 V2-only 接纳由[独立接收账本](#discovery-receiver-floor-v2)承接；[发现撤销](#discovery-tombstone-v2)要求显式持久接收策略；策略转换和可信时间仍待实现，能够验证 V2 签名不表示已具备完整防重放保证。验证方法见 [持久发布验证](../../../testing-manual.md#discovery-durable-publication-v2)。
+该切片只提供正常持久存储上的本机发行连续性，普通文件与 OS 锁不抵抗同密钥／磁盘的恶意快照回滚。接收端跨重启 sequence 高水位、同序冲突隔离与显式 V2-only 接纳由[独立接收账本](#discovery-receiver-floor-v2)承接；[发现撤销](#discovery-tombstone-v2)要求显式持久接收策略；策略转换按上述显式原账本升级执行，可信时间仍待实现，能够验证 V2 签名不表示已具备完整防重放保证。验证方法见 [持久发布验证](../../../testing-manual.md#discovery-durable-publication-v2)。
 
 <a id="discovery-peer-record-implementation-boundary"></a>
 ### 当前实现边界
@@ -242,7 +343,7 @@ rendezvous 的 ID-only 注册仅触发独立的签名记录查询，不作为 re
 
 来源不足的健康状态与已建立会话的传输准入分开：允许符合实际路径及 unknown 域预算的既有会话继续获取材料，健康仍降级。每个会话都计入路径、relay、operator/ASN 分母与桶；无 record 或远端自报 `observer_light` 不能豁免这些预算。候选按稳定 peer ID 顺序准入，配额拒绝进入 quarantine，不以缺 record 提前跳过统计。该策略改变旧版依赖自述标签的 healthy 结果及 observer 配额豁免；没有新增 wire 字段或重签旧记录。
 
-[PeerRecord](../../../crates/oasis7_proto/src/distributed_dht.rs) body 保留既有 `published_at_ms/ttl_ms`；legacy V1 签名不含 sequence。新增可选 V2 envelope 与[本机持久发布器](../../../crates/oasis7_net/src/libp2p_net/durable_peer_record_publisher.rs)，由标准 host 显式配置、首次初始化后打开现存状态，覆盖正常重启发行连续性；正式 authority profile 的 P2P 组装不由该入口代签。libp2p 已接入上述 v1 时间策略、到期缓存过滤、DHT store 转发检查与记录路径租约，候选缓存上限 1024、单条 16 KiB。活动会话保留限制性元数据且不再贡献来源；测试内 InMemoryDht 并非该真实网络时间入口。显式[接收端账本](../../../crates/oasis7_net/src/libp2p_net/receiver_floor.rs)在标准 host→node→net 路径保护 live V2 sequence、同序冲突隔离和已迁移 peer 的 V1 退役，并在租约读时限制旧候选。[显式撤销与恢复](#discovery-tombstone-v2)已接入持久发布、接收水位和原件转发；legacy 接收模式拒绝 tombstone，撤销状态重开也要求持久 receiver。rendezvous ID-only 触发链已按上述有界、一次性、精确 live payload 规则保留本地诊断，不增加独立来源。持久可信时间、首次观察与配置版本、入站 rendezvous 服务／响应列表预算、跨重启配额及 reception 策略转换仍待实现；自动 DHT／RR／缓存重发布及本机 rendezvous register／discover 采用[共享发现工作预算](#discovery-work-budget)，限额延后不清空已建立会话；该预算不覆盖全部网络操作。缓存候选按[到期前刷新策略](#discovery-record-refresh)尽力提前获取新材料，保留短 TTL／cooldown 和失败时可能到期的限制。本切片不宣称完整来源独立性、抗 Sybil 或生命周期保证。验证方法见 [本地发现信任边界](../../../testing-manual.md#discovery-observation-local-trust-boundary)，三节点 loopback TCP 不代签真实公网或独立物理故障域。
+[PeerRecord](../../../crates/oasis7_proto/src/distributed_dht.rs) body 保留既有 `published_at_ms/ttl_ms`；legacy V1 签名不含 sequence。新增可选 V2 envelope 与[本机持久发布器](../../../crates/oasis7_net/src/libp2p_net/durable_peer_record_publisher.rs)，由标准 host 显式配置、首次初始化后打开现存状态，覆盖正常重启发行连续性；正式 authority profile 的 P2P 组装不由该入口代签。libp2p 已接入上述 v1 时间策略、到期缓存过滤、DHT store 转发检查与记录路径租约，候选缓存上限 1024、单条 16 KiB。活动会话保留限制性元数据且不再贡献来源；测试内 InMemoryDht 并非该真实网络时间入口。显式[接收端账本](../../../crates/oasis7_net/src/libp2p_net/receiver_floor.rs)在标准 host→node→net 路径保护 live V2 sequence、同序冲突隔离和已迁移 peer 的 V1 退役，并在租约读时限制旧候选。[显式撤销与恢复](#discovery-tombstone-v2)已接入持久发布、接收水位和原件转发；legacy 接收模式拒绝 tombstone，撤销状态重开也要求持久 receiver。rendezvous ID-only 触发链已按上述有界、一次性、精确 live payload 规则保留本地诊断，不增加独立来源。持久可信时间、首次观察与配置版本、入站 rendezvous 服务／响应列表预算、跨重启配额仍待实现；reception 策略转换按上述显式原账本升级执行；自动 DHT／RR／缓存重发布及本机 rendezvous register／discover 采用[共享发现工作预算](#discovery-work-budget)，限额延后不清空已建立会话；该预算不覆盖全部网络操作。缓存候选按[到期前刷新策略](#discovery-record-refresh)尽力提前获取新材料，保留短 TTL／cooldown 和失败时可能到期的限制。本切片不宣称完整来源独立性、抗 Sybil 或生命周期保证。验证方法见 [本地发现信任边界](../../../testing-manual.md#discovery-observation-local-trust-boundary)，三节点 loopback TCP 不代签真实公网或独立物理故障域。
 
 ## Peer Reachability Contract Normalization
 本节是 2026-06-15 iroh-inspired follow-up 的设计落点。借鉴点只限于 identity-first address boundary、显式 selected path 与 reachability evidence；不引入 iroh 依赖，不替换 libp2p，也不采用 iroh relay/DNS/Pkarr 默认。

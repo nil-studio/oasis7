@@ -34,6 +34,18 @@ WORKERS_POLICY_INPUTS = {
 }
 
 
+# Exact non-executable GitHub issue forms/chooser metadata. This is not a
+# directory or YAML exclusion; possible embedded/build consumers still apply.
+ISSUE_METADATA_INPUTS = {
+    '.github/ISSUE_TEMPLATE/code-development.yml',
+    '.github/ISSUE_TEMPLATE/config.yml',
+    '.github/ISSUE_TEMPLATE/decision.yml',
+    '.github/ISSUE_TEMPLATE/defect.yml',
+    '.github/ISSUE_TEMPLATE/document.yml',
+    '.github/ISSUE_TEMPLATE/test.yml',
+}
+
+
 def retired_document_metadata_path(path):
     # This is a bounded deletion migration, not a registration of live inputs.
     # The caller also proves the old path exists, the new path does not, and
@@ -222,6 +234,9 @@ def plan(args):
             # JSON registration; possible Rust consumers are still added below.
             add('actions-repo', path)
             add('python-repo', path)
+        elif path in ISSUE_METADATA_INPUTS:
+            # GitHub renders these as form data, not executable Actions YAML.
+            pass
         elif path in retired_deletions:
             # No live document reader remains. Old/new Rust include/build
             # consumers are still selected below; unknown JSON stays closed.

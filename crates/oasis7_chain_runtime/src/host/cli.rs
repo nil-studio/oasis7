@@ -114,6 +114,7 @@ pub(super) struct CliOptions {
     pub initialize_peer_record_publication: bool,
     /// One-time receiver floor bootstrap action; deliberately not persisted in runtime config.
     pub initialize_peer_record_receiver: bool,
+    pub upgrade_peer_record_receiver: bool,
     /// One-startup durable publisher action; deliberately not persisted in runtime config.
     pub withdraw_peer_record_publication: bool,
     pub resume_peer_record_publication: bool,
@@ -260,6 +261,9 @@ pub(super) fn parse_options<'a>(args: impl Iterator<Item = &'a str>) -> Result<C
             }
             "--initialize-peer-record-publication" => {
                 options.initialize_peer_record_publication = true;
+            }
+            "--upgrade-peer-record-receiver" => {
+                options.upgrade_peer_record_receiver = true;
             }
             "--initialize-peer-record-receiver" => {
                 options.initialize_peer_record_receiver = true;
@@ -662,7 +666,8 @@ pub(super) fn parse_options<'a>(args: impl Iterator<Item = &'a str>) -> Result<C
         || (options.deployment_inventory_path.is_some()
             && options.network_tier_manifest_path.is_none())
     {
-        let has_one_shot_peer_record_action = options.initialize_peer_record_publication
+        let has_one_shot_peer_record_action = options.upgrade_peer_record_receiver
+            || options.initialize_peer_record_publication
             || options.initialize_peer_record_receiver
             || options.withdraw_peer_record_publication
             || options.resume_peer_record_publication;

@@ -11,6 +11,8 @@ import {Miniflare, convertV4MiniflareOptions, Response as MiniflareResponse} fro
 import {fixtureRecoveryPolicy,signFixtureRecoveryActivation} from './fence_activation_signer.mjs';
 import {freshAccessStatusBarrier} from './fresh_access_status_barrier.mjs';
 import {worldAuthority} from './world_runtime_support.mjs';
+import {readSavedAccountSnapshot} from './account_restore_bench.mjs';
+import {createNativeTimings} from './native_stage_diagnostics.mjs';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
 const defaultWorld={world_id:'world-one',genesis_digest:'genesis-one',branch_id:'branch-one',reorg_epoch:'0',service_public_key:'ab'.repeat(32)};
 const defaultRoutes={environment:'test',identity_route:'native-one',world_route:'world-route-one',world_identity:defaultWorld.world_id};
@@ -107,6 +109,7 @@ export async function nativeLiveContextAuthority(directory,worldData) {
 }
 export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits=false,settleBaseline=false,retainHistory=false}={}) {
   const directory=mkdtempSync(resolve(tmpdir(),'oasis7-role-runtime-negative-'));
+  const nativeTiming=createNativeTimings();
   let native,mf,worldProcess;
   try {
     const nativeMode=mode.startsWith('native-');
@@ -222,7 +225,7 @@ export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits
       }
       return new MiniflareResponse(body,{status:response.status,headers:outputHeaders});
     };
-    const restart=async nextMode=>{await mf?.dispose();const configured=roleRuntimeOptions(persist,native.data,bridge,nextMode,configureOptions);mf=new Miniflare(configured);};
+    const restart=nextMode=>nativeTiming.run('restart',async()=>{await mf?.dispose();const configured=roleRuntimeOptions(persist,native.data,bridge,nextMode,configureOptions);mf=new Miniflare(configured);});
     await restart(mode);
     if(realFenceMode(mode)) {
       const controller=await mf.getWorker('fence-controller');
@@ -231,8 +234,11 @@ export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits
       assert.equal(activation.status,200,'the real independent Fence must consume the synthetic offline quorum');
     }
     const headers={Cookie:native.data.cookie,Origin:'https://localhost','Content-Type':'application/json','X-Oasis7-CSRF':native.data.csrf};
-    const draft={api_version:1,client_request_id:'negative-runtime',plan:{...routes,purpose:'isolated actual runtime negative cases',expires_at:String(Date.now()+(mode==='native-lost-login'?6000:180000)),transport_limit:mode==='native-participant-low-budget'?'399':'400'}};
+    nativeTiming.facts.plan_created_at=Date.now();
+    const draft={api_version:1,client_request_id:'negative-runtime',plan:{...routes,purpose:'isolated actual runtime negative cases',expires_at:String(nativeTiming.facts.plan_created_at+(mode==='native-lost-login'?6000:180000)),transport_limit:mode==='native-participant-low-budget'?'399':'400'}};
+    nativeTiming.facts.plan_expires_at=draft.plan.expires_at;
     let identity=await mf.getWorker('identity');
+    nativeTiming.facts.identity_ready_at=Date.now();
     const response=await identity.fetch('https://localhost/v1/account-provisions',{method:'POST',headers,body:JSON.stringify(draft)});
     assert.equal(response.status,200);const original=await response.json();
     const request={approval_request_id:'negative-runtime-approval',context:{environment:'test',custody_account_id:original.entry.custody_account_id,audience:native.data.audience,policy_version:'1',security_version:'0',service_epoch:'1'},
@@ -243,7 +249,10 @@ export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits
     const base='https://localhost/v1/account-provisions/'+original.entry.provision_id;
     const accepted=await identity.fetch(base+'/approve',{method:'POST',headers,body:JSON.stringify({api_version:1,input:{operation_id:'negative-runtime-approval-operation',request,approval:completed.approval}})});
     assert.equal(accepted.status,200);
+    nativeTiming.facts.provision_approved_at=Date.now();
     await run({persist,account:original.entry.custody_account_id,provisionId:original.entry.provision_id,
+      nativeTimings:()=>nativeTiming.facts,
+      readNativeDiagnosticState:()=>JSON.parse(readSavedAccountSnapshot(persist,original.entry.custody_account_id)).state,
       fixedToolIngressProbe:async(kind,init)=>{
         let reply;
         if(kind==='actions'){
@@ -327,7 +336,7 @@ export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits
         identity=await mf.getWorker('identity');
         return identity.fetch(base+'/owner-setups/continue',{method:'POST',headers,body:JSON.stringify({api_version:1,custody_account_id:original.entry.custody_account_id,provision_id:original.entry.provision_id,setup_id})});
       },
-      approveManaged:async(blocked,limit='64',label='one')=>{
+      approveManaged:(blocked,limit='64',label='one')=>nativeTiming.run('managed_approve',async()=>{
         assert.match(label,/^[a-z0-9-]{1,32}$/);
         const saved=persistedRuntime(persist,original.entry.custody_account_id);
         assert.ok(saved.native_binding);
@@ -339,9 +348,9 @@ export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits
         identity=await mf.getWorker('identity');
         const reply=await identity.fetch(base+'/managed-logins/approve',{method:'POST',headers,body:JSON.stringify({api_version:1,input:{operation_id:'fresh-managed-operation-'+label,request,approval:proof.approval}})});
         assert.equal(reply.status,200);return reply.json();
-      },
-      continueManaged:async operation=>{identity=await mf.getWorker('identity');const reply=await identity.fetch(base+'/managed-logins/continue',{method:'POST',headers,body:JSON.stringify({api_version:1,operation_id:operation})});assert.equal(reply.status,200);return reply.json();},
-      drive:async operation=>{identity=await mf.getWorker('identity');const reply=await identity.fetch(base+'/continue',{method:'POST',headers,body:JSON.stringify({api_version:1,operation_id:operation})});const body=await reply.text();assert.equal(reply.status,200,JSON.stringify({body,requests:nativeRequests,world:worldResults}));return JSON.parse(body);},
+      }),
+      continueManaged:operation=>nativeTiming.run('managed_continue',async()=>{identity=await mf.getWorker('identity');const reply=await identity.fetch(base+'/managed-logins/continue',{method:'POST',headers,body:JSON.stringify({api_version:1,operation_id:operation})});assert.equal(reply.status,200);return reply.json();}),
+      drive:operation=>nativeTiming.run('provision_continue',async()=>{identity=await mf.getWorker('identity');const reply=await identity.fetch(base+'/continue',{method:'POST',headers,body:JSON.stringify({api_version:1,operation_id:operation})});const body=await reply.text();assert.equal(reply.status,200,JSON.stringify({body,requests:nativeRequests,world:worldResults}));return JSON.parse(body);}),
       driveResponse:async operation=>{identity=await mf.getWorker('identity');return identity.fetch(base+'/continue',{method:'POST',headers,body:JSON.stringify({api_version:1,operation_id:operation})});},
       freezeFence:async()=>{const reply=await (await mf.getWorker('fence')).fetch('https://fixture.test/freeze');assert.equal(reply.status,200);},
       oracle:async(role,body)=>(await mf.getWorker('oracle-proxy')).fetch('https://fixture.test/'+role+'-permit',{method:'POST',body:JSON.stringify(body)}),

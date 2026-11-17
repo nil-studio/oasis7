@@ -336,6 +336,94 @@ V2 以 provider 的受保护 journal 作为签名前 WAL 的唯一持久权威�
 
 同步/恢复须验证完整集合转换链并固定可信 checkpoint/minimum。长期离线的节点不能只依赖已退出 key 对“最新历史”的自证：BFT 激活配置须规定可信 checkpoint 的有效期及旧 key/stake 安全约束，有效期不得超过该约束可保证的期限；超期或约束不明时停止自动追随，重新取得独立认证的同世界 checkpoint。此信任条件及当前各集合的实际故障域须进入部署验收，不能由算法论文代签。
 
+##### des-p2p-bft-checkpoint-renewal-v1
+
+Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4、O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46、O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3。承接[长期同步与 checkpoint 接续](prd.md#p2p-full-sync-capacity-checkpoint)。本节是正式 BFT wire 3 的目标合同，规定长期离线后何时仍可自动追随以及如何取得独立授权的更新证明；不是已交付的配置、issuer、可信时钟或 Node 门禁。
+
+**边界与消费者。** checkpoint 的完整历史可以继续按原固定 pin 验证；这不证明它仍可作为自动追随、当前服务或新 proposal/vote 的信任起点。checkpoint、独立授权根、issuer、撤销状态和时间证据分别有自己的有效期，全部条件的交集才允许当前用途。过期保留最后合法历史 cut 和明确 blocker，不丢弃已提交状态。普通 provider receipt、较高 height、checkpoint roll、Acquire、新进程和成功 replay 均不能延长期限；历史读另需满足其读取权限，私有读继续使用[当前读取授权](blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-full-sync-read-authorization)。本节不改变 h/h+1 旧集合、h+2 新集合，不授予 validator、治理、写入或私有数据权限。
+
+successor 类型／原 domain 的固定输入为[未合入 successor 合同与代码](https://github.com/nil-studio/oasis7/blob/1d9e9d574dbf52cb81bf5f218e83179516972d4a/doc/p2p/design.md#des-p2p-bft-successor-window-v1)，它是后续组合输入，不是主线已交付能力。
+
+本节的输入分别由独立部署授权方、checkpoint 更新发行方和受保护时间／最低水位实现提供。portable verifier 产出不可由 DTO 构造的受验更新；Node 启动／追赶门禁和 protected provider 的新签名门禁共同消费它，exact-cut reader 只消费其中适用于历史验证的证明。网络 attempt 与累计传输账由[容量与接续主责](#des-p2p-full-sync-checkpoint-capacity-v1)及[整次同步操作合同](#des-p2p-full-sync-operation-budget-v1)拥有，不能用于刷新本节期限。该合同已由 [PR #5912](https://github.com/nil-studio/oasis7/pull/5912) 合入；传输计量、持久累计账和期限的运行时实现仍由 [#5541](https://github.com/nil-studio/oasis7/issues/5541) 承接。更新安装复用 checkpoint installer 的原请求、fencing、原子持久提交与 readback，不建立第二个可以独立推进的 journal。
+
+**版本、编码与完整字段。** 下列新增顶层 policy、status、update、time 和 safety evidence 均显式带 schema version `1`；profile 字段出现时固定为 `bft`、profile version `1`、wire version `3`，嵌套引用按其在本表声明的 V1 shape 编码；不能反向添加到现有 strict `FormalReadTrustConfigV1`，也不改变其含义。实现须使用已有 formal proof 的 self-described canonical CBOR、严格未知字段拒绝、读前长度限制与完整重编码相等检查。整数均以表中类型编码；禁止浮点、字符串数字、负 Unix 时间、重复 map key、尾随字节和未检查的加减法。digest 为 canonical lowercase hex32，Ed25519 公钥为 canonical lowercase hex32，签名为 canonical lowercase hex64；拒绝弱公钥。`*_unix_ms` 是 Unix epoch 起的 `u64` 毫秒，区间一律半开 `[not_before, expires_at)` 且下界严格小于上界。新 schema/profile version 使用 `u32`、wire version 使用 `u16`；height、sequence、generation、duration 都是 `u64`；零 duration、溢出和无法映射的时间拒绝。
+
+独立 policy 完整 CBOR 上限为现有 trust-input 的 64 KiB；单份 status、time observation、head witness、update proof 各不得超过 wire-3 signed-material 的 2 MiB。issuer key 数硬上限复用 wire-3 的 256 个 key 容量，含义不涉及 validator 权重。policy 必须进一步声明正数 `max_issuer_keys`、`max_status_bytes`、`max_time_evidence_bytes`、`max_update_proof_bytes`、`max_safety_evidence_bytes`，其中 key 数不得超过 256，byte caps 不得超过对应硬边界，并在解码分配前约束声明长度及数组元素数。根和 time source 各有一个固定 key，issuer 集合在有界 policy 中固定；闭包／大对象仅以受验内容地址引用，实际传输仍受原同步操作累计预算约束，不能借证明容器绕过对象或全程预算。
+
+| 类型 | 必须完整保留的字段与含义 |
+| --- | --- |
+| `BftCheckpointTrustConfigV1` | 新外层配置含 `schema_version=1`、原完整 `FormalReadTrustConfigV1`、原 `BftProfileTargetV2`、`consumer_binding_digest`、完整 `initial_anchor`、完整 `policy` 及其独立 pin 的 `policy_digest`、`initial_authenticated_at_unix_ms/initial_not_before_unix_ms/initial_expires_at_unix_ms/initial_safety_valid_until_unix_ms`。整个新配置上限 2 MiB，原嵌套 trust 输入仍限 64 KiB。sequence 0 的这些期限和精确 anchor 必须由原独立配置一同授权，逐项满足下述 policy/safety 区间与 max-validity 规则；没有期限不视为永久有效。该初始直接授权仍检查当前 root/policy status 和可信时间，但不伪造 issuer update 签名。后续使用已验更新 proof，不能改写这些初始字段来重置年龄。 |
+| `BftCheckpointOriginV1` | `formal_world`（既有 world/chain/genesis_digest）、`bft_scope`（既有 world/chain/genesis_hash）、`original_c0_checkpoint_digest`、`initial_activation_digest`（既有 `InitialActivationBodyV1::activation_ref()`）、`handoff_head`（完整 qualified H `FormalHeadRefV1`）、`handoff_target_digest`、`handoff_activation_digest`、`handoff_raw_snapshot_root`。两种 genesis 字段按各自已有类型核对，不能只因字符串相同而互换；C0→H 的原合法认证链仍必需。 |
+| `BftCheckpointTrustPolicyV1` | `schema_version/profile/profile_version/wire_version`、完整 `origin`、`policy_id`、`policy_version`、`authorization_ref`（原独立授权决定的受验引用）、`renewal_root_public_key`、`root_authorization_generation`、`root_authorized_at_unix_ms/root_not_before_unix_ms/root_expires_at_unix_ms`、`max_root_revocation_staleness_ms`、`policy_not_before_unix_ms/policy_expires_at_unix_ms`、固定 `purpose="bft-checkpoint-renewal-v1"`；按 key ID 排序且唯一的 `issuer_keys`（每项含 issuer ID、key ID、Ed25519 公钥、issuer generation、授权起止时间）和正数 `threshold`；完整 `security_policy`（下表固定 shape）、其 `security_assumptions_digest`、`max_checkpoint_validity_ms`、`max_status_age_ms`、`minimum_ledger_id`、正数 `max_head_observation_age_ms`、完整 `clock_profile`（下表固定 shape）、其 `clock_profile_digest`，以及前述容量字段和原决定归档限制 `max_update_decisions`（1..65,536）、`max_decision_archive_bytes`（1..4 GiB）。`1 <= threshold <= issuer_keys.len() <= max_issuer_keys`。所有授权、时间和安全参数均须由原独立策略明确提供，没有默认 issuer、默认安全天数或缺值继承。ID 字段使用非空 UTF-8 字符串并受完整对象 byte cap 限制；随机 ID/nonce 和 clock epoch 编码为 canonical hex32。 |
+| `BftCheckpointSecurityPolicyV1` | `schema_version=1`、`profile="independent-absolute-bound-v1"`、`origin_digest`、`old_key_constraints_digest`、`stake_constraints_digest`、`security_not_before_unix_ms`、`absolute_safe_until_unix_ms`。这是原授权对适用同世界目标的明确安全上界；两份 constraints 是该授权固定的有界原 bytes（其 digest 按既有 CAS 的 bare BLAKE3 计算），不是可执行策略代码。V1 只做本节列出的固定验签、绑定、区间和上界检查，不加载规则脚本或任意新验证算法。实际事实由独立授权方／发行方核实，并作为部署证据接受评审。 |
+| `BftCheckpointClockProfileV1` | `schema_version=1`、`profile="bounded-utc-observation-v1"`、`time_source_id`、`time_key_id`、`time_public_key`、`time_key_not_before_unix_ms/time_key_expires_at_unix_ms`、`max_clock_uncertainty_ms`、正数 `max_observation_elapsed_ms`、固定 `elapsed_profile="protected-elapsed-upper-bound-v1"`。只接受下面规定的 Ed25519 时间观察和受保护 elapsed 上界；时钟部署还须真实证明 UTC 来源及掉电／迁移连续性，profile 名称不是证明。 |
+| `BftCheckpointIssuerStatusV1` | `schema_version`、`origin_digest`、`policy_digest`、`root_authorization_generation`、严格递增的 `status_sequence`、`issued_at_unix_ms/not_before_unix_ms/expires_at_unix_ms`、`policy_revoked`、policy 中**全部** issuer key/generation 的完整撤销状态（未撤销或带 `revoked_at_unix_ms` 的不可逆撤销），以及根签名（envelope 为 `{body, signature_hex}`，以上其余字段全在 body 中）。`issued_at <= not_before < expires_at`；非空 `revoked_at` 必须不晚于 issued-at，V1 不支持未来定时撤销。完整 snapshot 不能省略某 key 后将其视作未撤销；它不能增加 policy 未授权的 key、改阈值或延长根／policy 授权。 |
+| `BftCheckpointAnchorRefV1` | V1 为明确 tagged union：`kind="qualified_handoff_v2"` 保存完整 `BftSuccessorWindowSourceV1`、`checkpoint_sequence=0`、按该 source 原 `origin_digest()` 得到的 checkpoint digest、精确 H `FormalHeadRefV1`、原 initial schedule digest 及闭包描述；`kind="successor_window_v1"` 保存完整 source、正数 checkpoint sequence、原 `BftSuccessorWindowCheckpointBodyV1` 的 domain digest、该完整 body 的 raw CAS 地址/长度、完整 `BftSuccessorWindowCutV1`、successor schedule digest、pending transition digest 及闭包描述。H 的 `record_id` 不能伪装成 BFT header ID。successor 类型承接现有未合入设计输入，未实现该能力的 build 必须拒绝此 tag，不能按 H 或普通 FormalReadCheckpoint 解释。 |
+| `BftCheckpointMaterialClosureV1` | `qualified_handoff_v2` 分支固定 `handoff_material_identity` 与 H raw Snapshot root，并重验其完整原 qualified H closure；`successor_window_v1` 分支固定 checkpoint domain digest、`public_archive_root`、`execution_archive_root` 和完整 `execution_manifest_ref={digest,bytes}`，均等于所引原 body。完整原 body、schedule、Journal commitment 与适用闭包仍按原协议读取验证，摘要不是这些原件的替代物。closure digest 按下述独立 `.material-closure` 域计算。 |
+| `BftCheckpointMinimumV1` | 同样有明确 tag：H 分支为原 source origin digest、sequence 0 和完整 H `FormalHeadRefV1`；successor 分支直接使用原 `BftSuccessorWindowMinimumV1` 的 source、sequence、height/header ID 与 checkpoint digest。H→successor 必须由原 H 的合法后继证明，不能把两种 ID 当作可直接比较的整数水位。同高度异 hash、同 sequence 异 digest 和非祖先关系都冲突。原 signer journal revision、锁、timer、pending intent 和已知 QC 另由原受保护状态完整保留，不能被这个较小记录替代。 |
+| `BftCheckpointUpdateBodyV1` | `schema_version/profile/profile_version/wire_version/purpose`、完整 `origin`、`policy_digest`、`root_authorization_generation`、本次 `issuer_status_digest/status_sequence`、32 字节随机 `update_request_id`、稳定 `consumer_binding_digest`、`predecessor_trust_update_sequence/predecessor_update_digest`、完整 `predecessor_checkpoint` 和 `expected_minimum`、`trust_update_sequence`、完整 `target_checkpoint` 和 `resulting_minimum`；`material_closure_digest`、`security_assumptions_digest/safety_evidence_digest`、`independently_authenticated_at_unix_ms`、`safety_valid_until_unix_ms`、`issued_at_unix_ms/not_before_unix_ms/expires_at_unix_ms`。首次更新的 predecessor trust sequence 固定为 0，predecessor update digest 精确等于独立配置 initial-anchor 的 checkpoint digest；后续则等于上一已接受 update body digest。不用全零或 provider 自报值。 |
+| `BftCheckpointSafetyEvidenceV1` | `schema_version=1`、固定 `kind="independent-checkpoint-safety-attestation-v1"`、`origin_digest/policy_digest/security_assumptions_digest`、`target_checkpoint_digest` 与精确 cut、`schedule_digest/pending_transition_digest`（与 target 分支的原受验 schedule 相等）、`material_closure_digest`、`old_key_constraints_digest/stake_constraints_digest`、`independently_authenticated_at_unix_ms`、`safety_valid_until_unix_ms`，以及两份 constraints 的有界原件。每个重复字段与 policy/update body 完全相等；原件 hash 与 policy pin 相等。此固定 evidence 由 update 阈值签名经其 digest 覆盖，不引入另一套任意证书或验证语言。 |
+| `BftCheckpointUpdateProofV1` | 完整 body、body 引用的完整**发行时** issuer status、按 key ID 排序且唯一的 `signatures=[{issuer_id,key_id,issuer_generation,signature_hex}]`，以及完整 `BftCheckpointSafetyEvidenceV1`。缺少 status/evidence 不能只凭摘要接受；历史闭包按原 material 合同取得，不内嵌无界数据。 |
+| `BftCheckpointUpdateHeadWitnessV1` | envelope 为 `{body, signatures}`，使用与 update 相同的 issuer key/threshold 校验。body 含 `schema_version=1`、`origin_digest/policy_digest`、`consumer_binding_digest`、`minimum_ledger_id`、`ledger_generation/head_revision`、新鲜 `observation_nonce`、最新已提交 `trust_update_sequence/update_digest/checkpoint/minimum`、原更新请求 ID、安装状态（`InstalledPending` 或 `Adopted`）、`issued_at_unix_ms/not_before_unix_ms/expires_at_unix_ms`。sequence 0 使用原独立 pin 对应的完整初始记录。witness 只认证该 ledger 的已提交事实，不能把已发行但未被 installer 提交的 proof 报成 minimum。 |
+| `BftCheckpointTimeObservationV1` | `schema_version`、`origin_digest/policy_digest/clock_profile_digest`、`consumer_binding_digest`、新鲜 32 字节 `observation_nonce`、受保护 `clock_epoch` 与 `time_generation`、`utc_earliest_unix_ms/utc_latest_unix_ms`、time source ID、time key ID 和签名（envelope 为 `{body, signature_hex}`，其余字段全在 body 中）。请求前由受保护实现持久固定 nonce、clock epoch、单调 request-start 采样；返回值不得自行选择／重置这个起点。time source/key 必须逐项等于固定 clock profile，`utc_earliest <= utc_latest`；不接受 profile 未固定的 key 或另一种 time proof。 |
+
+`consumer_binding_digest` 绑定本次真实使用者的稳定原 C0/H 和既有 signer/reader 绑定，不是临时 lease token 或 runtime instance；新 fenced owner可以续办同一原请求，不能把证明转交另一个 binding。当所用 checkpoint 格式本身绑定 signer journal 或其他使用者，其完整绑定继续被 checkpoint digest 覆盖；不能把本机 install receipt 当作其他 peer 的独立 pin。更新请求还须通过该既有 binding 的授权 requester 验证；不能只凭调用者提供的 binding digest 修改其他使用者的 ledger。原请求和本次 proof 不包含其自身 digest，避免哈希递归。这里的新 origin digest 用于 policy 的 C0/H 绑定，不替换 successor source 原有的 origin/checkpoint 域或字节。
+
+摘要和签名统一复用 formal BFT 的域隔离 framing：`D(label, body) = BLAKE3(u64_be(len(label)) || UTF8(label) || canonical_cbor(body))`。下列标签是精确协议字节：`oasis7.bft.checkpoint-renewal.v1.origin`、`.policy`、`.issuer-status`、`.update`、`.time-observation`、`.security-policy`、`.clock-profile`、`.safety-evidence`、`.head-witness`、`.material-closure`（点号开头项的完整标签均以 `oasis7.bft.checkpoint-renewal.v1` 为前缀）。policy/origin/security-policy/clock-profile/safety-evidence/material-closure 摘要由对应完整对象生成；status、update、time observation、head witness 的 body 不含签名。Ed25519 签署对应 `D` 的原始 32 字节，不签其 hex 文本；verify 使用严格 Ed25519 验证。update digest 只由 body 决定，签名数组不参与身份，避免阈值签名组合使同一原决定变成不同请求。普通 BFT vote、provider receipt、私有 read lease 和其他 purpose 的有效签名均不能跨域使用。
+
+**授权根、发行与撤销。** `BftCheckpointTrustPolicyV1` 的精确 digest 必须作为原 C0/H 独立部署授权的输入，与原 trust bytes 一同在受保护配置／授权记录中 pin；收到的 policy 文件、issuer 自签名、普通 provider 响应或 Node operator 写入的路径不能建立授权。只有原策略已经明确授权 checkpoint-renewal purpose 才能启用本合同。已有 initial activation、治理、private-read issuer 或 time witness 只有在该原授权明确授予本 purpose 后才能承接相应角色，不能从现有 key 的其他权力推导。当前部署若没有这一授权，就报告 `PolicyUnavailable` 并停在历史只读边界。
+
+V1 的 root key、policy digest、purpose、授权代际和根授权到期时间是独立固定的，不提供由更新 issuer 自举的 root/policy 轮换。根／policy 的更换或撤销须走原独立授权渠道，持久推进授权代际／撤销 floor；同代际异 digest、降代际、回到旧 policy 或“清空配置后重新 provision”拒绝。V1 把根授权定义为原独立渠道给出的有限授权窗口：`root_authorized_at <= root_not_before < root_expires_at`，且 checked `root_expires_at - root_authorized_at <= max_root_revocation_staleness_ms`。该正数上界必须由原授权明确接受；它限制尚未获知外部根撤销的最长暴露，不是即时撤销承诺。收到原独立渠道的有效撤销即持久关闭门禁；没有新独立授权，根窗口到期即停签。根签发的 issuer status 只能缩短／撤销其下的权力，不能刷新自身根窗口。要求更短撤销观察的部署必须提供更短的独立根授权窗口；V1 不另造可绕开该窗口的自动 root 刷新协议。
+
+独立 root 为 issuer status 签名，status 有效期不得越出 root/policy 的区间。proof 保留发行时 status；接收／运行门禁另取当前 status，原 body 和原发行证明不随刷新改写。当前 status 的 sequence 须不低于发行时 sequence 和受保护最高已见 sequence；同序列异摘要拒绝，新 status 必须完整覆盖所有既有 issuer，已撤销的同 key/generation 不得复活。发行时 status 用于核对原发行在其当时授权窗口内，不能替代当前 status；消费者在保护域保存当前 sequence/digest 与不可逆撤销记录。发行和当前门禁分别只数其适用 status 中尚未撤销、位于其授权区间、与固定 policy key/generation 完全一致且密码学验签成功的不同 key；阈值为 key 数，不复用 validator voting power。重复、未知、错误 purpose／代际或密码学验签失败直接拒绝 proof；密码学上正确但当前已撤销的 key 不计入当前阈值。V1 不在原 policy 内添加或复活 issuer；新增发行权须重新取得原独立授权。
+
+issuer status 是有界的新鲜性承诺，不承诺零延迟撤销。当前可信时间区间必须完全落在当前 status 有效期内，且其上界与 `issued_at_unix_ms` 的差不超过 `max_status_age_ms`；未来 issued-at、超龄或缺失 status 均拒绝。观察到更高的撤销／授权 floor 后，不得再用尚未自然过期的旧 status 放行。此边界必须同时用于发行、接收提交和恢复后的门禁；只在下载时验一次不成立。
+
+V1 只支持表中 `independent-absolute-bound-v1` 与 `independent-checkpoint-safety-attestation-v1`，没有动态策略语言。原独立授权方必须在两份 constraints 原件中明确其真实旧 key／stake 约束、覆盖的目标范围及依据，并据此授权 `absolute_safe_until_unix_ms`；未知、缺失或无法负责地确定这个绝对上界时禁用 renewal。更新 issuer 必须独立验证目标属于该授权范围，是同一原 C0→H 后的合法 canonical 历史，且完整集合转换链、material closure 和实际安全约束均满足，再签发表中的固定 safety evidence。阈值签名是该原 policy 明确授权的独立安全声明；客户端按固定算法校验签名、两个原件的内容地址、所有重复绑定字段和 `security_not_before <= independently_authenticated_at <= safety_valid_until <= absolute_safe_until`，并独立核验其本来就应核验的 canonical 历史／闭包。客户端不从约束原件执行代码，也不声称仅靠 hash 证明真实 custody/stake 事实。实际旧 key／stake、根和 issuer 的独立故障域仍须部署验收；普通 provider 既不能生成此授权声明，也不能自行选择绝对上界。
+
+必须有 `not_before >= issued_at >= independently_authenticated_at`，且 `expires_at <= safety_valid_until`、`expires_at - independently_authenticated_at <= max_checkpoint_validity_ms`；还须落在根、policy 和本次满足阈值的每个 issuer 的授权区间内。最终可用窗口进一步受当前 status 和时间证据限制。`independently_authenticated_at` 指独立发行方完成该精确目标安全核验的可信时间，不是区块时间、provider receipt 时间或本机开机时间。再次签同一个旧 cut 不能只改时间字段延长有效期，必须重新取得 policy 允许的独立安全 evidence；已经失效的旧 key／stake 约束不能因新签名恢复。
+
+checkpoint 到期后，**仍未到期且未撤销、当前性可证的原独立 root/policy**可以授权新的 checkpoint proof：这里的 issuer 权力来自外部 pin，而非过期 checkpoint 的旧 validator 集合。因而旧 checkpoint 过期不阻止验证这条独立授权路径；它也不能反过来延长已过期的 root/policy。root/policy 过期或撤销证据不可满足时自动更新停止，等待原独立渠道重新授权同世界输入，不能把提供方自称的最新 checkpoint 换成新 C0。
+
+**受保护时间和期限判定。** 当前 `BftSignerBackendV3::protected_time_ms` 是 provider 拥有的单调 elapsed 轴，不天然等于 Unix 时间。本合同需要受授权 clock profile 证明该轴到 UTC 区间的映射；不得把现有 `i64` 数值强转为 Unix 毫秒，也不得从 World tick、节点 wall clock、普通 NTP 回复或 provider 自报 timestamp 推导映射。
+
+远端时间观察必须绑定请求前固定的新 nonce 和受保护 epoch。设受验源端区间为 `[E,L]`，自原 request-start 至本次 gate 的受保护最大 elapsed 为 `Δ`，则保守使用 `[E,L+Δ]`，并检查 `Δ <= max_observation_elapsed_ms`、整数、epoch 连续性和 `L+Δ-E <= max_clock_uncertainty_ms`；不能在收到回复时重新计时。clock profile 若无法提供含掉电／暂停／迁移时间在内的可靠 elapsed 上界，旧观察不再可用，须取得新的独立证据。仅进程 monotonic 时钟跨重启无此保证。网络 attempt 的 deadline 只约束该 attempt，不是这条授权期限的替代物。
+
+protected store 独立保留已知可信 UTC 下界 `utc_lower_floor_unix_ms`、clock epoch／generation 和原观察状态。新区间上界低于 floor、time generation 回退或同 generation 不相容时拒绝；其余将下界收紧为 `max(E, floor)`，只把该**下界**持久提升为新 floor，不用可能超前的上界推进 floor。任一当前用途须证明整个区间位于所需的所有 `[not_before,expires_at)` 内（包括固定 time key 的授权窗口和 security-policy 窗口）；上界等于 expiry 已拒绝。缺时间、无法界定离线耗时、回滚或过宽不确定度时停签／停止声明当前，不从“重启后还未过若干秒”推导安全。
+
+缓存时间证据只有在原 protected epoch 与 elapsed 连续性仍可证时才能继续计算区间；刷新 nonce 或取得更准确区间不能延长 checkpoint、policy、issuer 或 status 的到期。每次产生新的 proposal/vote、启动自动后继跟随或把状态作为 current 对外发布前，都须由真正执行该动作的受保护门禁重做本判定；Node 的一次启动检查或旧 DTO 不足以替代它。已经落盘的原签名只可按既有同槽精确重传合同取回，不能借恢复生成新的不同签名。
+
+**minimum 的两种合法来源。** 本节保留容量主责合同的两条路径。签名者仍必须使用其原受保护 signer journal/minimum，独立更新 proof 不替代不可导出 key、锁状态或 fencing。只读消费者若以独立外部更新替代本机受保护 minimum，其权威 minimum 必须存在于原 policy 固定的独立 `minimum_ledger_id` 中，由同一更新 issuer 按当前授权阈值认证；普通 provider 的 ledger/receipt 不因此获得该身份。外部 ledger 复用下述 installer 的单一 CAS、pending/adopt 与原决定保留，具备独立防回滚及同 binding 单写入者 fencing，不能只在发行 proof 时就把目标报成已安装。
+
+冷恢复首先固定原外部 pin/binding，以新 challenge 查询 `BftCheckpointUpdateHeadWitnessV1` 并取回其精确指向的完整原 proof／checkpoint。witness 的 nonce 绑定请求前受保护起点；其当前可信区间完全落在 witness/issuer/root/policy 窗口内，且上界与 issued-at 之差不超过 `max_head_observation_age_ms`，同时沿时间合同计算请求开始后的 elapsed。ledger ID、代际／revision、已知 sequence、proof digest 和 minimum 逐项比较；已知 floor 不能降低，同序列冲突拒绝。存储防回滚事实、当前 witness 或原材料任一不可得就停在历史只读／blocked，不用旧本机副本初始化空 ledger。完整旧 proof 的密码学验证本身不证明这是该使用者的最新 minimum。head 查询只读已提交状态，重试不发行新更新；proof 发行日志与实际接受的 ledger head 必须区分，两个 issuer response 不能让本机选较低记录恢复。
+
+**同世界更新与原子恢复。** 验证器依次检查版本／大小、外部固定 policy、当前根／issuer 授权与时间、签名阈值、精确 predecessor、原 protected minimum、目标的完整 canonical 证明与闭包、合法 schedule 和安全期限。`trust_update_sequence` 必须是 predecessor 的 checked `+1`，与 checkpoint sequence、height、signer revision、lease generation 各自独立；目标 checkpoint 可维持同一合法 cut/格式，或从 H／前驱 successor 前进到其已证明后继，绝不能与此前已观察历史冲突。同 cut 续期只更新授权元数据，不能从旧 checkpoint body 回装其旧 journal／timer 覆盖当前受保护状态。`resulting_minimum` 必须精确绑定同一格式的目标且不低于 `expected_minimum`；前后 cut、checkpoint sequence 和全部受保护状态的祖先关系需要验证，不能只比较整数。恢复方实际 minimum 若已改变，本证明不能被悄悄改写适配；先查明原请求是否已经提交，只有证实未提交后才能在新固定输入上另立更新请求。
+
+1. 独立发行方先持久记录 `(policy_digest, consumer_binding_digest, update_request_id, 完整 body/digest, 原签名决定)`，再返回 proof；重试同一请求只返回同一原决定，同 ID 异 body 拒绝。不得通过重试改 issued-at／expiry、重新计时或换目标。新的独立更新有新的请求身份，仍承接实际 predecessor 和全部已知 floors。每 binding 的原决定条数与累计已占归档 bytes 使用 policy 的有限上限，作用域固定为原 C0/H、consumer binding 和 ledger；换 policy、进程或请求 ID 不清零。先完成 requester/输入检查，再为可能产生签名的原决定原子预留数量和 bytes，纳入后续成功、拒绝或未决原件。提交结果未知的预留不退款；exact retry 不重复收费。V1 保留完整已准入原决定，不提供 GC；触任一上限就在发行新签名前拒绝，保留当前/未决 minimum 和全部恢复依据。共用既有 successor archive 时这些 bytes 同时消费其原 4 GiB 累计账，不另给 allowance；独立 issuer archive 也不能以本机文件回滚清账。未来若引入回收，须另行固定迟到同 ID 异 body 不会重新签名的保留证明，不能由此草案推导可删。
+2. 消费端先 fence 并固定真实原 protected 状态和原逻辑请求；以 bounded staging 取得、验证并持久保留完整 proof、目标闭包和恢复所需数据。已有 signer key/binding、锁、timer、pending intent、QC history 和 h+2 安装记录按原合同保留，不由更新 body 重造。只有在 staging 可按内容地址独立重开、全部检验通过且提交时授权／时间仍有效后，才允许进入保护域 CAS。
+3. **一个保护域提交决定**原子写入：原请求／body digest、最高授权/status/time floors、trust-update sequence 与 proof digest、目标 checkpoint／minimum、原 signer 状态及 `InstalledPending`。提交时比较原 lease/generation、原 revision/digest 和原 minimum；原有 minimum 和 trust state 不得分两次可见写入。无法提供这个原子性／防回滚能力时保持 blocked，不以本机 WAL 或签名 receipt 代替。`InstalledPending` 已推进 minimum，并关闭新提议／投票及 current 发布。
+4. 之后以同一原请求完成本机 pointer／WAL 镜像和原 driver 的实际安装，独立 readback／canonical replay／root 比对，并核对当前 schedule、pending 转换与真实安装证据。原 installer 的 Adopt 决定确认一致后才可打开门禁；门禁还需本节当前授权和时间再次通过。pointer、WAL、旧 ACK 或 DTO 单独存在均无此作用。
+5. CAS 响应丢失／结果不明时，只查询原请求决定与受保护状态；不能换 nonce/body 重做“新更新”、倒退 minimum 或退回旧 signer。查询确认已提交时按原提交结果恢复，而非拿当前 minimum 重新执行要求旧 expected-minimum 的首次提交；外部 head witness 同样只指向该原决定。未提交的 staging 可按原生命周期清理；已提交的 minimum 即使本机 pointer 尚旧也只能完成同一目标或继续阻断。新 fenced owner 续办同一操作时保留原 proof、目标、预算账和 floors；它可以按传输合同开启新的有界 attempt，不能刷新本合同的有效期。
+
+完整 proof 和必要原请求决定须随 checkpoint 独立可重开；仅保存摘要不满足恢复。接受更高 status／撤销／time floor 也必须防回滚，即使随后 update 未安装也不能回到旧 floor。过期后允许完成**已提交更新**的本地完整性恢复、对账和历史 readback，状态仍禁止新签名及 current 发布；重新取得当前有效独立证据前不得自动恢复。提交前到期则不得第一次提交该更新。正常授权轮换不改变已提交历史的数学验证结果，已观察到冲突或明确撤销的当前用途也不能借“历史证明有效”继续放行。
+
+**兼容、失败和验收。** V1 缺少 renewal policy、未知 wire/schema/purpose/clock/security/evidence/checkpoint format、原 C0/H 不匹配或旧 strict config 被塞入新字段时，拒绝自动 renewal，不降级为无期限信任。实现应保留可区分的本地 blocker：policy／根授权不可用、checkpoint 或 issuer/status 过期、撤销、时间不可证、predecessor/minimum 冲突、材料不可用以及安装未决；这些是待实现的门禁结果，不宣称当前 CLI 已新增命令或枚举。使用者可继续输出精确、历史用途限定的 verified cut；不能输出 current/serve/vote readiness。
+
+| 验收输入／故障点 | 必须可核对的结果 |
+| --- | --- |
+| 固定同一 C0/H、真实授权 policy 与时间源，合法目标、完整闭包和阈值 proof；原 checkpoint 已到期而 root/policy 仍有效 | 依独立路径验证并完成同一目标安装；minimum/floors 单调，真实 consumer gate 通过后才恢复适用当前用途；expiry 不以重启时刻重算。 |
+| 测试用区间 `[500,1000)`；可信当前上界分别为 `999`、`1000`，或当前下界为 `499` | 前者可继续其他验证，后两者拒绝当前用途。该数值只用于单元向量，不是部署 TTL。分别覆盖 root、policy、issuer、status、checkpoint 的每个边界及溢出。 |
+| 缺策略／安全约束；issuer 只有 activation/private-read/provider 权；阈值不足、重复 key、错域、错代际、已撤销或陈旧 status | 不发行／不提交／不新签名；保留最后合法历史 cut，明确 blocker，原 minimum 不下降。 |
+| checkpoint 过期并且 root/policy 同时过期；issuer 用新 issued-at、自签 policy 或普通 provider receipt 尝试续期 | 不建立新信任；必须走原独立授权渠道。只更新 sidecar、Acquire、roll 或重新开进程不能解除。 |
+| 错 world/genesis/C0/H、同高度异 hash、改 predecessor/minimum、跨 binding、跳 sequence、换安全 evidence 或缺 material closure | 验证拒绝，不借较高 height 或更大 sequence 通过；更新证明不替代 canonical replay／集合转换／h+2 安装。 |
+| 旧 time reply 延迟、nonce 重放、VM／磁盘／clock 回滚、掉电 elapsed 不可证、过宽区间 | 原 request-start 和 floor 保留；没有安全 UTC 区间就停签，不以新 attempt、接收时间或 wall clock 续期。 |
+| 发行决定后丢包；staging 后、保护域 CAS 前后、pointer/WAL 中途、driver install/Adopt 前后崩溃；旧 owner／整盘备份恢复 | 对同一原 request/digest 作明确已提交／未提交／未决判定；已提交只续完同目标或停签，旧 owner 不产生新签名，同 ID 异 body 拒绝，所有 minimum／授权／撤销／时间 floors 不回退。 |
+| 原决定条数／bytes 触限，发行 CAS 未知或连续同 predecessor 新 ID 试探 | 新发行在签名前拒绝；旧原件、未知预留和全部 minimum/floors 保留，exact retry 不重复收费，换 ID/policy 不重置账。 |
+| CAS 已提交但安装中到期／发生撤销，随后新 owner 重开 | 可以完成同目标的完整性恢复，不能产生新的 proposal/vote 或报告 current；新授权证据必须独立验证，不清除原 pending、锁或 journal。 |
+| 历史 exact-cut 验证通过但 checkpoint 当前性失败；私有读取授权缺失 | 明确历史 cut 与 blocker，不输出当前服务／投票就绪；私有字节仍由独立现行读权限拒绝。 |
+
+交付须同时提供 portable verifier／版本化配置、独立发行与原决定恢复、真实 Node/provider 消费门禁、checkpoint installer 的原子恢复接线，以及真实授权、保护时间、minimum 和 custody 的可复核部署证据。设计合入仅固定合同；#5525 中相应代码与真实资源验收义务保留，不能据文档或模拟 provider 宣称完成 #4975。
+
 ##### des-p2p-bft-finality-key-rotation-v1
 
 Trace refs: O7-REQ-792f38f5-82d4-47bc-8b1f-e4d4568e1b46、O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3。本条规定正式 wire 3 的正常 finality 换钥合同。治理主体及状态合同见[正常 finality 换钥](blockchain/p2p-mainnet-security-governance-readiness.design.md#readiness-finality-key-rotation)。本切片只接受具有真实原 Admission 记录且已 effective active 的节点；只有 bootstrap registry、缺少原 Admission 的 active 节点仍拒绝，不生成 synthetic admission。该遗留路径保留为 #4975 后续义务。
@@ -435,7 +523,98 @@ Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4、O7-REQ-103d7ad7-33f2-4
 
 安装顺序为 prepare 新材料 → 验证闭包/连续性 → 持久保存新 checkpoint 与受保护 minimum → 原子提交本机 active pointer → 验证可独立重开 → GC。若受保护 minimum 已前进而 pointer 尚未切换，恢复必须完成同一已保存 checkpoint 的安装，不能选择较旧 pointer；任一步材料缺失则 blocked，不降水位。GC 仅回收已证明可重建的热材料；冗余 archive 先完成重建/损坏负例检查，完整 canonical audit history 和唯一原请求依据不能被删除。
 
-分块、streaming 和断点接续仍受每对象、总字节、证明深度及绝对截止时间预算约束，换 provider 不重置累计预算。状态输出版本化 limits、used/remaining、checkpoint age、重开预算和 lag；阈值前预警，触限保留历史只读并报 stale/catching-up 或 HistoryUnavailable，不能无限分配内存或把历史可读宣称当前可服务。长期接续、容量跨界和恢复 SLO 仍待实现验收，不因本节设计或已有分页代码而完成。
+分块、streaming 和断点接续仍受每对象、总字节、证明深度及绝对截止时间预算约束，换 provider 不重置累计预算；[整次操作预算合同](#des-p2p-full-sync-operation-budget-v1)固定各账本、期限和合法新 attempt 的边界。状态输出版本化 limits、used/remaining、checkpoint age、重开预算和 lag；阈值前预警，触限保留历史只读并报 stale/catching-up 或 HistoryUnavailable，不能无限分配内存或把历史可读宣称当前可服务。长期接续、容量跨界和恢复 SLO 仍待实现验收，不因本节设计或已有分页代码而完成。
+
+#### des-p2p-full-sync-operation-budget-v1
+
+Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4、O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3、O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b。承接[长期同步容量要求](prd.md#p2p-full-sync-capacity-checkpoint)。本节定义待实现的版本化整次操作合同；已有实现已在单次 `sync_latest()` 内共享目标 cut 和按 digest 去重的材料预算。该材料预算不是实际传输计数，现有配置和状态不声明本节的持久接续、绝对期限与传输账已经实现。
+
+**适用对象与版本。** 第一实施对象为 controlled authority `profile_version=2` 下的 `formal_full_state_sync_read_only_v1`，入口为 `FormalFullSyncSession::sync_latest → sync_across_providers → sync_latest_inner`，包含获取/复查正式 view、manifest、record/retained/native 对象及本地只读安装。新增 `oasis7.formal-full-sync-transfer-policy/v1` 是本地客户端预算合同；它不扩展旧签名请求字段，也不是读权或 finality 证明。配置接入位置固定如下，全部继续严格拒绝未知字段，不从一个版本猜测另一个版本：
+
+| 文档／对象 | 精确版本与结构 |
+| --- | --- |
+| 外部 chain config | `api_version="oasis7.chain-config/v4"`；`runtime_profile` 仍为 `formal_full_state_sync_read_only_v1`；`formal_full_sync` 必须为下述 V2。旧 `chain-config/v3` 只接收原 V1。 |
+| `formal_full_sync` | `api_version="oasis7.formal-full-state-sync/v2"`；保留 V1 的全部现有字段、含义和限制，新增必填 `transfer_policy` 对象。`max_total_sync_bytes` 仍在这一层，表示材料预算，不移入 encoded 账。初始化时 `grant=null`、本地 key 创建后再安装原独立签名 grant 的规则不变。 |
+| `formal_full_sync.transfer_policy` | 必填 `api_version="oasis7.formal-full-sync-transfer-policy/v1"`，以及下表全部命名参数；不存在隐式默认值。材料／树／单消息／持久历史行复用已有来源，不是重复配置字段。完整政策纳入原 immutable identity 和每个 operation 的 policy digest。 |
+| 本地 `node.json` 与 `IdentityBinding` | 两者均使用 `api_version="oasis7.local-node/v4"`，其 `identity.chain.formal_full_sync` 固定为 V2。旧 `local-node/v3` 不得携带 V2；旧二进制必须在版本入口拒绝。 |
+| 持久 operation ledger | `api_version="oasis7.formal-full-sync-operation-ledger/v1"`，独立于 history/DTO 版本；未知版本不能按空账恢复。状态版本另见本节 status V2。 |
+
+旧配置和状态 V1 继续按其已有能力运行，不能因程序支持 V2 就宣称旧实例已有整次预算；能力查询应报告 `unsupported`，不向旧 strict DTO 塞入新字段。新配置与原状态的显式迁移在停止原实例后进行，保留原 node key、C0/World、已验证历史和 pins，独立核对并封存原未决安装；不得自动给已有未决请求生成空账或降最低记录。无未决操作且连续性已确认后才可建立第一份新 ledger；否则报告迁移阻塞。HTTP wire DTO 的现有严格版本、请求/路径摘要、服务 pin、grant 与对象绑定保持。
+
+**逻辑操作与有界 attempt。** 一个 logical operation 表示从一个精确外部信任和本地最低记录出发，取得并安装一个固定目标 cut 的原请求。它先持久保存本地随机 `operation_id`、规范请求摘要、profile、World/chain/genesis、原 C0/trust 摘要、node/role、预算政策摘要和原起始 minimum。首次通过独立 anchor 及 grant 校验的目标 `(position, record_id, after_state_root, active/finalizing authority, authority_epoch)` 只绑定一次；目标尚未确定时也须先有同一个预算账，不能免费反复探索 provider。绑定的完整原记录保留，摘要不能代替原件。
+
+operation 内包含递增 `attempt_no`；每个 attempt 绑定当前有效 owner generation/incarnation、独立随机 nonce、单调时钟起点及一次绝对 deadline。provider 切换、分页、同对象续块、传输重试和读客户端重建都属于同一 attempt，保留目标及全部已发生的账。成功、拒绝/阻塞、过期或中断均终止该 attempt；迟到回复只能按原 token 结算原记录，不能推进新 attempt、重置 deadline 或返回原 attempt 成功。
+
+同一未完成 operation 的后续 poll 只能查询或按合法条件续接，不能将一次错误包装成新 operation 来重置额度。一次操作成功完成后，下一次周期同步可以在新独立 view 上开始新操作；按下述有界规则保留旧终态摘要。对明确终止且无未决本地安装的操作，新的人工恢复/配置请求可以按既有授权开始另一次操作，须保留前驱、原因和独立新请求；不能由后台错误处理自动换 ID、grant、cut 或预算制造续传成功。不能取消或替换 minimum 已提交但本地安装未完成的原事务。
+
+**固定支持边界。** 新政策各值显式写入配置并纳入 policy digest，没有从 provider 响应推导或运行中提高上限的默认行为。首版支持范围如下；这些是新的有限客户端工作范围，不是实测生产 SLO，也不保证所有维度同时达到上限仍可完成。
+
+| 参数 | 首版允许值 / 唯一来源 | 作用域 |
+| --- | --- | --- |
+| `attempt_timeout_ms` | 100..600,000 ms；配置必须显式给值 | 每次有界 attempt，不因请求活动刷新 |
+| `max_attempts` | 1..4；包含首个 attempt | 一个原 operation 的累计 attempt 准入数，已开始的不退还 |
+| `max_encoded_io_bytes` | 1..8 GiB；发送与接收正文之和 | 原 operation 跨 provider/attempt 的编码消息总额度 |
+| `max_exchanges` | 1..262,660；上界为 `4 × (65,536 + 2 × 64 + 1)` | 原 operation 的网络交换启动数；含连接失败、重复查询和未取得正文的交换 |
+| `max_proof_pages` / `max_proof_bytes` | 1..512 / 1..2 GiB；上界为最多4 provider、前后各64页、每页至多4 MiB | 原 operation 对网络取得 proof 的验证次数/规范 proof bytes；重复验证亦计入 |
+| `max_inflight_requests` | 固定1 | 一个 operation 的并发请求占用；本版不新增并行下载 |
+| `reopen_timeout_ms` | 100..600,000 ms；配置必须显式给值 | 一次本地原历史/安装恢复调用，与网络 attempt 分开 |
+| 材料、树、单消息和持久历史上限 | 复用下表已有常量和本地配置 | 不因新增政策放宽旧界限 |
+
+**账本自身的长期容量。** 每个本地 node/binding 同时最多一个未完成 operation；活动 ledger 的完整规范编码上限固定16 MiB，读前限长。大 proof／历史／闭包原件继续以实际 CAS/history pins 保留并计入各自原容量，ledger 只保存有界引用，不能删除原件后将摘要当恢复材料。每个已结算请求在同一 durable CAS 中推进单调 `request_seq` 与聚合计数，不永久追加完整交换事件；当前请求、未定 reservation 和至多4份 attempt 终态保存原身份及恢复所需记录，不能因聚合抹去未定 I/O。
+
+终态索引最多16份操作摘要，每份完整编码至多64 KiB、合计至多1 MiB，包含原 operation／policy／target、结果、最终实际与保守计费、必要原件引用和前驱摘要。只有原终态与聚合计数已 durable，全部 I/O／占用已结束，无仍可改变原决定的 reservation／未决安装，且独立确认原 checkpoint、minimum、history、pins 不再依赖该操作私有账时，才可原子轮转较旧摘要和清理该操作的可回收账本；受依赖原件沿原 GC 合同保留。若旧 I/O 已确定终止且安装结果明确，仅准确 byte 数不可知，可以把原未定预留全额封存为 `unknown_final_charged`，原额度不返还且不得标成实际 bytes；该 operation 此后不可再续办或退款。它可随终态摘要压缩并继续周期同步，不因历史计量不精确永久保留活 worker。仍有 I/O／决定未知或原安装未决时不适用这种封存。
+
+本地另保留固定大小的累计次数、确认实际 bytes、已封存未知计费与前驱摘要链头；轮转不减少这些累计项，checked 累计溢出拒绝新 operation，不清零伪造连续性。它是有界诊断摘要，不宣称无限审计日志。存在不能安全回收的终态记录或无法容纳下一操作时，拒绝新 operation 并显示容量 blocker；不能让轮询产生无界 ledger，不能以丢 unknown 或 minimum 证据腾空间。
+
+`max_attempts × attempt_timeout_ms` 仅限定该原请求全部正常传输 attempt 的授权窗口总额，checked arithmetic 溢出即拒绝配置。不可中断的局部 CPU／系统调用可能在窗口后返回，因此它不是主动执行耗时、完成时间或取消及时性的 SLO；返回后必须先复查 deadline，不能再发布新副作用或成功结果。等待下一次受权接收、停机或离线时间不消耗尚未开始的 attempt 窗口，但也不停止 checkpoint、grant、lease 各自主责有效期；这些外部时间条件每次重新核验。预算耗尽后保留阻塞，不自动生成第五次 attempt。
+
+**传输层级与各自账本。** `encoded_io` 对 HTTP 适配器精确定义为**签名 JSON 请求/响应正文的原始编码 octets**：包括 envelope、签名、字段、JSON 转义、数组/hex 膨胀与错误正文；在发送正文的受控 writer 确认接受 bytes、以及有界正文 reader 返回 bytes 时分别计量。它不是解码对象长度，不是 Content-Length，不是预扣上限，也不证明对端已收到。HTTP 起始行、headers、Transfer-Encoding chunk framing、TLS/Noise/QUIC/TCP/IP framing、握手及底层重传不在此计数，状态名称不得写成 NIC 流量。HTTP 适配器必须禁用透明内容解压、自动重定向、隐式重试和未配置代理；若将来启用压缩，另行版本化编码/解码双上限，不能沿用本版证明。
+
+HTTP 请求头沿已有服务端8 KiB上限，请求正文沿256 KiB上限；客户端响应头也限8 KiB，未知或超限 framing 关闭连接。正文每次 read 的临时窗口至多64 KiB，decoder 前累加；保留 view 16 MiB、manifest 8 MiB、object response 256 KiB 的完整编码正文上限。超长探测所读的额外 byte 同样需要额度；额度用尽且无法证明消息完整时拒绝，不能免费读到EOF。底层网络开销没有被正文额度精确覆盖；它还受单请求/attempt绝对期限、固定并发1、有限交换次数和这些头/正文界限限制，不宣称完整链路吞吐或公网限速保证。
+
+| 账本 / 占用 | 事件、单位与限制 | 重复、失败与释放 |
+| --- | --- | --- |
+| `encoded_tx_actual` / `encoded_rx_actual` | 上述真实编码正文 bytes；累计受 `max_encoded_io_bytes` 约束 | 部分、重复、畸形、签名/授权拒绝正文均保留实际经过计量点的量；本地预检拒绝且无I/O时均为0 |
+| `exchanges_started` | 完成本地校验和额度预留后、进入一次实际网络交换前加1 | 不因连接失败/取消/0正文退还；本地编码/预算预检失败不增加 |
+| `material_bytes` / `material_objects` | 保留 `CasBudget::add` 的实际事件：完整对象hash/尺寸校验后首次登记digest；配置1..512 MiB、对象最多65,536 | 缓存命中也登记本次闭包材料但无网络量；相同digest不重收材料量；已登记后闭包验证/落盘失败仍保留；登记前坏hash或触限未登记不假造消耗 |
+| `proof_pages_verified_or_attempted` / `proof_bytes_verified_or_attempted` | 完整解析出有界规范proof、准备交给 verifier 时累计页数/规范bytes；每页保留4 MiB界限 | 错proof和重复验证收费；JSON/签名层已经拒绝、尚未进入proof验证时不收proof量，其收到的正文仍计encoded量 |
+| `history_pages` / `history_proof_bytes` / `history_manifest_bytes` | 真实持久history head及其exact读回的唯一页链；65,536页、4 GiB proof、64 MiB manifest链 | 不随网络attempt重置；重复网络页不重复生成历史页；本地旧页重放不算网络流量 |
+| `visited_paths` / `depth` | 保留每次树遍历65,536节点、深度256与DTO路径最多257个hash | 每次遍历依原实现重置，属于本次遍历限制，不改作跨provider永久消耗；重复遍历的总次数另受provider、交换、attempt和期限约束 |
+| 请求permit与buffer占用 | 原 `(operation,attempt,request_seq)` token；请求并发1；编码body≤路由上限、对象组装≤8 MiB、单read scratch≤64 KiB | 实际HTTP操作终止、缓冲归还后只释放匹配token；超时/业务错误不证明底层已终止，旧回调不释放新占用。占用可释放，已消耗bytes/次数不返还 |
+
+record manifest维持最多256对象、完整record材料最多8 MiB；native chunks、retained tree和record对象共同进入材料账，不能逐类别各获512 MiB。V1 object payload上限64 KiB不保证其JSON response能装进256 KiB：`Vec<u8>`的最坏数组编码约为4倍且另有cut/envelope。新消费者须对实际cut与既有DTO计算固定编码上界，减去完整envelope后选择较小`max_bytes`，producer仍在释放前检查实际完整响应编码；不得提高旧response bound来隐去冲突。
+
+**预留、实际结算和崩溃。** 网络I/O前，按原operation/attempt/request_seq原子保存有限tx/rx credit预留和交换启动记录；发送前已知的完整请求长度可预留，但只有经过writer确认的量写入actual。接收按至多64 KiB窗口先预留后读，每个窗口结束结算实际量；未经过I/O且可证明未用的预留可释放，这不是返还已经消耗的量。使用 `charged = actual_known + unresolved_reserved + unknown_final_charged <= limit` 做所有准入，不把预留或封存的未知量显示成actual。
+
+partial read或普通 I/O Err 后仍按计量点实际已读／已写 bytes 结算；只有可信零进展才可按0处理，不能把所有错误一律全额计 actual。响应已收到但最终digest错误不退回传输量，且尚未满足材料登记条件时不增加材料量。发生崩溃或write/read结果unknown时，尚无可信终态的预留按保守已占额度保持，显示`unresolved_reserved`；fence与重开本身不能证明这些bytes未传输。恢复只能根据同一原请求的持久实际终态缩小该项未定预留；无法证明时保留上界，或在满足上述原操作终止条件后等额转为 `unknown_final_charged`，不以新owner退款。已确认的actual与material计数永不降低。所有加法先checked，超额在下一I/O/解码/副作用前拒绝。
+
+客户端ledger使用既有私有目录、单一写入锁、CAS revision与durable atomic replacement，并绑定原node identity/配置。同一个仍有效且持锁的 owner 可以在原进程开启下一次合法 attempt，无须终止自身进程；更换 owner 时，才必须通过实际 native 实例锁及旧进程终止／受验 fencing 取得独占接管。所有新 attempt 都须先确认旧 attempt 的 I/O、worker 与实际占用已终止，封存旧账；已知终态完成结算，无法证明实际量的持久 reservation 继续保守占额度。PID、owner 字符串或重建 client 不能自证 fencing，也不能证明旧 worker 已结束。此受控本机接续承诺崩溃恢复，不以普通文件fsync声称跨主机克隆或数据盘抗回滚。恢复旧备份/缺失ledger、版本未知或不能取得原owner和账本连续性时，不自动接续或初始化空账；保留只读原材料并按受权恢复处理。wire3需要的受保护ledger/floor仍由其原backend合同提供。
+
+**绝对期限与取消。** 每个attempt只在成功持久准入后取得一次单调 `Instant` 起点，`deadline = start + attempt_timeout_ms`；客户端每个connect/write/read/续页请求的timeout为 `min(request_timeout_ms, deadline-now)`。若该执行层还持有经当前授权 gate 产生的释放 deadline，则继续取它的剩余量之 min；远端 provider 必须在自己的门禁执行原授权／释放期限，客户端不能用普通响应字段或本机 wall clock伪造其受保护 remaining。现有100..60,000 ms请求timeout保持。小于等于0立即停止；不向上取整成完整请求timeout。切换provider、重建HTTP client、收到bytes、sleep/backoff或再次poll均不重设deadline。循环、解码、proof/闭包验证、CAS准备与最终安装/报告成功前都检查同一deadline；不可中断的局部调用返回后先复查，再决定是否允许副作用。blocking I/O须受剩余期限约束，不允许只在调用前检查后无限等待。
+
+`Instant`不可跨进程反序列化；同进程对同一活 attempt 的接续保持原值。进程重开或无法证明原elapsed时，原attempt记为interrupted/expired，不能用当前wall clock减持久timestamp重建剩余额度。满足上段终止／接管条件的有效 owner，在原logical请求、原cut、原ledger、有效当前读权和剩余attempt/计量额度上，可开始新的bounded attempt；它获得新deadline但不延长旧deadline，不把原unknown commit解释为未提交。checkpoint有效性与外部更新证明沿[checkpoint 容量与接续](#des-p2p-full-sync-checkpoint-capacity-v1)和[集合转换](#des-p2p-bft-validator-transition-v1)的独立信任要求；其精确期限、更新与可信时间合同由 [#5525](https://github.com/nil-studio/oasis7/issues/5525) 的 `des-p2p-bft-checkpoint-renewal-v1` 单独交付，在该合同与消费者就绪前不能宣称支持这项 BFT 组合。grant/lease 的可信 UTC 区间仍依各自主责；provider的elapsed monotonic轴不冒充UTC，墙钟回拨不增加attempt余量。
+
+**过期、最低记录与恢复。** 未提交本地安装的attempt一旦过期，不再取新页/对象、签新请求、发布新只读head或返回成功；取消并等待原I/O/worker终止，记录实际消耗、保留合法history/pins和明确blocker。只读诊断可读取已持久事实但不刷新proof年龄或资格。
+
+如果原受保护minimum/checkpoint事务已经提交，过期不能让它消失或允许选旧pointer。恢复入口仅完成**同一已保存、已验证且被该minimum承诺的本地安装**及其exact读回/既定确认，不能借机选择新cut、补造原件或执行World效果；权限、签名及当前服务恢复仍需各自当前合同。controlled-v2现有history/pin/pointer恢复保持原poison门禁，并不因此被宣称已有受保护minimum。
+
+一次恢复使用显式`reopen_timeout_ms`、并发1和原持久材料/历史容量；超时报告blocked，当前进程不自动重置计时自旋。缺本地原件时不得在已过期attempt内补下载；仍有合法正常attempt余量时以新fenced attempt在原账下载原件，否则保持阻塞。wire3原事务的认证get/adopt等必要RPC，必须消费原保护合同已预留的恢复/transfer额度、fresh challenge及当前lease，不能从本节获得免费RPC或新签名窗口。它的合法已提交minimum恢复权不依赖旧attempt仍在计时；材料或原累计额度实际不足仍明确blocked，不降minimum。
+
+**六类错误与无副作用。** 保留[正式读取错误分类](#formal-read-error-classification)的请求/绑定、实际授权、未就绪、合格历史不可用、内部失败、完整性/副本分歧；HTTP status/code映射和未签名`signature_failure`边界不变。新增本地预算/期限阻断使用独立typed reason（`operation_budget_exhausted`、`attempt_expired`、`operation_recovery_required`），不能把它们伪装成远端`HistoryUnavailable`或扩大权限。能切换provider的错误仍仅沿已有允许路径、原目标、剩余额度和同deadline；history/CAS integrity/publication poisoned仍停止failover。费用取决于实际计量事件，不由错误类别统一收费；任一错误不授予提交、重试新操作、降minimum或绕过effect-publication的机会。
+
+**版本化状态与来源。** 新状态使用`oasis7.formal-full-sync-status/v2`，保留既有`last_verified_cut`、`loaded_cut`、`lag_positions`与只读/可服务区别，并增加只读`operation`对象。字段由同一实际ledger/调用路径产生，report/replay不修改producer事实：
+
+- `operation_id`、request/policy digest、target、owner/attempt_no/state来自已持久准入；`limits`为原冻结policy；每项`actual_known`、`unresolved_reserved`、`unknown_final_charged`、`remaining = limit - charged`来自对应账本，同一快照revision。保守封存量始终与确认实际量分开显示。
+- `elapsed_ms`、`remaining_ms`只在当前活attempt由单调时钟产生；重开后旧attempt显示`null`及`interrupted`，不把重建时间当原起点。`attempts_used/remaining`来自持久计数；`reopen_limit_ms/elapsed_ms/result`来自本次原历史/安装恢复入口，耗时是观测值而非SLO承诺。
+- `history_pages/proof_bytes/manifest_bytes`来自exact读回的history head；材料和encoded量不能相互替代。`lag_positions`仅为同一已验证history中最新cut与loaded cut之差，跨profile或authority不具可比较关系时为unknown。
+- `checkpoint_age`必须同时标来源。普通controlled-v2可报告本地首次验证到当前进程的monotonic observation age；跨重启无可信连续时间则为unknown，不能借文件mtime或重放刷新为0。checkpoint认证有效期/age采用其独立可信时间合同，未具备则为unknown，不以observation age冒充有效性。
+- 达任一有限容量80%时输出接近限制提示，触限输出具体维度和blocked/stale/catching-up，保留最后合法cut；这只是观测阈值，不改变读权、writer/vote或current serving。
+
+**wire3映射边界。** `FullSyncAttemptV1::verified_anchor`的controlled-v2检查不删除，旧`/v1/formal/full-sync/*` DTO不因此接受BFT。wire3 FullReadOnly消费者须显式绑定原C0/H/minimum、独立FullReadOnly读权及对应checkpoint/proof/闭包版本。这里引用的 [successor 合同固定候选 `1d9e9d574dbf52cb81bf5f218e83179516972d4a`](https://github.com/nil-studio/oasis7/blob/1d9e9d574dbf52cb81bf5f218e83179516972d4a/doc/p2p/design.md#des-p2p-bft-successor-window-v1) 尚未合入，是后续组合输入，不能称为 main 已实施。该候选约定的512 MiB单次材料、累计4 GiB归档/transfer、不退款reservation和同原 minimum 事务恢复规则，须在采用对应版本后继续独立满足；本节HTTP政策的8 GiB上界不覆盖或提高它们，实际短回复也不能用本节unused-credit规则冲销原合同已消费的reservation。若 successor 主责最终改变版本或边界，须显式重新验证映射，不能静默继承此处候选假设。
+
+若使用libp2p，计量点必须覆盖实际序列化的完整`NetworkRequest`/`NetworkResponse`及协议自有frame前缀，包含envelope/签名/状态/编码膨胀，不能只加内层`payload.len()`；Noise/QUIC/TCP/IP开销仍不冒充已计量。每次完整消息的原上限、当前授权释放限制和真实encoded bytes与原transfer账同时检查。wire3的受保护ledger、get/adopt及恢复权限沿其主责，不能将controlled本机文件ledger当成它的信任来源。只共享已映射的有限计量/期限原语，不自动互认证据、授予FullReadOnly或宣称BFT整次同步已实现。
+
+**独立验证。** 实现须通过真实HTTP producer→客户端→本地安装，而非只测试计数器：同cut双provider失败后续接成功；重复digest只收一次材料但重复编码正文全计；partial/错误正文、计量前拒绝、坏proof与坏hash各按正确阶段计账；最大JSON byte-array编码仍符合旧response bound；deadline在provider切换、慢body、解码及发布边界均不刷新；崩溃后未定credit不消失、fenced新attempt不改原请求/账且最多既定次数；旧owner迟到终态不释放新permit；本地history重放不收网络量；超过16次周期成功后终态索引仍有界、unknown／pending／minimum依赖不能被轮转清理且容量不足明确阻塞；已提交minimum在attempt过期后恢复原安装且不降水位/执行新效果。各向量固定原件、编码bytes、预算、受测source与expected结果，分别说明软件本机、真实保护及未验证范围。只有后续实现、开发自测及适用真实组合完成后，才能声明相应支持能力。
 
 ### des-p2p-layer-authority
 
@@ -839,7 +1018,7 @@ owner 读取权、原始账本读取权或重建 private projection 的能力。
 当前 authority 不可用但历史完整时可以提供明确的 verified read-only 历史；不能恢复写入。
 客户端持久保存已接受的最低 head/activation 锚，重连拒绝低于该锚的历史；无锚的新客户端
 仍须使用独立认证的 genesis/issuer，不能信任 endpoint 自报的新世界。
-原请求 Unknown、rejected 及重试规则由 [外部 API 恢复协议](../world-simulator/llm/external-agent-game-api.design.md#63-操作状态、回查和恢复协议)
+原请求 Unknown、rejected 及重试规则由 [外部 API 恢复协议](../world-simulator/llm/external-agent-game-api.design.md#api-operation-recovery)
 继续主责，本节只增加证明消费，不引入一套替代结果状态。
 
 | wire / evidence | 既有 v1 客户端 | 目标正式 v2 客户端 |

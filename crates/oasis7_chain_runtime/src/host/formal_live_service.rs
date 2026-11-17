@@ -566,12 +566,12 @@ impl FormalLiveService {
                 ))
             })
             .ok();
-        let state_error = self
-            .state
-            .last_error
-            .lock()
-            .ok()
-            .and_then(|value| value.clone());
+        // An interrupted error update is unknown, not evidence of health.
+        // Keep status, health and submit on the same fail-closed predicate.
+        let state_error = match self.state.last_error.lock() {
+            Ok(value) => value.clone(),
+            Err(_) => Some("formal error state lock poisoned".into()),
+        };
         let node_running = snapshot.as_ref().map_or_else(
             || self.state.node_running.load(Ordering::Acquire),
             |snapshot| snapshot.running,
@@ -580,7 +580,17 @@ impl FormalLiveService {
             .as_ref()
             .and_then(|snapshot| snapshot.last_error.clone())
             .map(|error| error.chars().take(MAX_NODE_ERROR_CHARS).collect());
-        let last_error = state_error.or(node_error).or(runtime_error);
+        // submit holds this same gate while calling runtime_status, so never
+        // acquire it here. Poison is a permanent negative fact until explicit
+        // repair; its absence is not a lease or proof of future admission.
+        let admission_error = self
+            .admission_gate
+            .is_poisoned()
+            .then(|| "Node admission gate poisoned".to_owned());
+        let last_error = state_error
+            .or(node_error)
+            .or(runtime_error)
+            .or(admission_error);
         let ready = self.state.ready.load(Ordering::Acquire)
             && !stopping
             && node_running

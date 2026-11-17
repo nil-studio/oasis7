@@ -423,7 +423,14 @@ pub fn run_cli(raw_args: Vec<String>) -> Result<(), String> {
         }
     };
 
-    if let Err(err) = run_chain_runtime(options) {
+    let result = if options.upgrade_peer_record_receiver {
+        let mut upgrade_options = options;
+        apply_network_tier_manifest_defaults(&mut upgrade_options);
+        initialize_default_peer_record_receiver(&upgrade_options)
+    } else {
+        run_chain_runtime(options)
+    };
+    if let Err(err) = result {
         error!(error = %err, "oasis7_chain_runtime failed");
         return Err(err);
     }
@@ -1148,6 +1155,9 @@ mod peer_record_publication_tests;
 #[cfg(test)]
 #[path = "host/peer_record_receiver_tests.rs"]
 mod peer_record_receiver_tests;
+#[cfg(all(test, unix))]
+#[path = "host/receiver_upgrade_process_tests.rs"]
+mod receiver_upgrade_process_tests;
 #[cfg(test)]
 #[path = "host/peer_record_transition_tests.rs"]
 mod peer_record_transition_tests;

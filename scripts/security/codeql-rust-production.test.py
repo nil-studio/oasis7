@@ -132,10 +132,10 @@ class Production(unittest.TestCase):
         helper = self.official / 'qlpacks/codeql/suite-helpers/1.0.61'
         helper.mkdir(parents=True)
         (helper / 'qlpack.yml').write_text('name: codeql/suite-helpers\nversion: 1.0.61\nlibrary: false\ndependencies: {}\n')
-        self.calls, self.guard_manifests = [], []
+        self.calls, self.guard_manifests, self.call_options = [], [], []
         self.bad_closure = self.query_failure = self.mutate_source = self.missing_result = False
         self.bad_shared_closure = False
-        self.mutate_private = self.mutate_receipt = None
+        self.mutate_private = self.mutate_receipt = self.mutate_mode = None
         self.guard_status = 'PASS'
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
@@ -149,6 +149,7 @@ class Production(unittest.TestCase):
                 (m.candidate, 'TRAIT_PATH_OFFICIAL_SHA', sha(b'stock-path')),
                 (m.candidate, 'TRAIT_PATH_SHA', sha(b'trait-path')),
                 (m.candidate, 'CONSTRAINT_CANDIDATE_SHA', sha(b'constraint-shared')),
+                (m.candidate, 'TARGET_QUALIFIED_SHA', sha(b'target-shared')),
                 (m.capacity.bundle, 'SHARED_OFFICIAL_SHA', sha(b'stock-shared')),
                 (m.capacity.bundle, 'SHARED_CANDIDATE_SHA', sha(b'helper-shared')),
                 (m.candidate, 'MODEL_OFFICIAL_SHA', sha(self.core)),
@@ -186,6 +187,7 @@ class Production(unittest.TestCase):
                 terminal['stage'] = name
                 args_list = list(map(str, argv))
                 fixture.calls.append((name, args_list))
+                fixture.call_options.append((name, dict(options)))
                 value = {}
                 if name == 'version':
                     value = {'version': m.VERSION}
@@ -202,6 +204,8 @@ class Production(unittest.TestCase):
                     (args.work / 'candidate-rust-all' / m.candidate.TRAIT_PATH_FILE).write_text('trait-path')
                 elif name == 'apply-constraint-matching-patch':
                     (args.work / 'candidate-typeinference' / m.candidate.SHARED_FILE).write_text('constraint-shared')
+                elif name == 'apply-target-qualified-patch':
+                    (args.work / 'candidate-target-typeinference' / m.candidate.SHARED_FILE).write_text('target-shared')
                 elif name == 'production-default-suite':
                     value = [str(args.work / 'default-queries' / record['relative']) for record in fixture.entries]
                 elif name == 'resolver-session':
@@ -214,8 +218,9 @@ class Production(unittest.TestCase):
                             paths.remove(str(args.work / 'candidate-rust-all'))
                             paths.append(str(fixture.original))
                         if fixture.bad_shared_closure:
-                            paths.remove(str(args.work / 'candidate-typeinference'))
-                            paths.append(str(fixture.shared))
+                            paths.remove(str(args.work / 'candidate-target-typeinference'))
+                            paths.append(str(args.work / 'candidate-typeinference'
+                                             if fixture.bad_shared_closure == 'v6' else fixture.shared))
                         return dict(libraryPath=paths + [record['root']],
                                     dbscheme=str(args.work / 'candidate-rust-all/rust.dbscheme'),
                                     compilationCache=[str(args.work / 'resolve-compilation-cache')],
@@ -230,8 +235,9 @@ class Production(unittest.TestCase):
                         paths.remove(str(args.work / 'candidate-rust-all'))
                         paths.append(str(fixture.original))
                     if fixture.bad_shared_closure:
-                        paths.remove(str(args.work / 'candidate-typeinference'))
-                        paths.append(str(fixture.shared))
+                        paths.remove(str(args.work / 'candidate-target-typeinference'))
+                        paths.append(str(args.work / 'candidate-typeinference'
+                                         if fixture.bad_shared_closure == 'v6' else fixture.shared))
                     value = dict(libraryPath=paths + [str(root)],
                                  dbscheme=str(args.work / 'candidate-rust-all/rust.dbscheme'),
                                  compilationCache=[str(args.work / 'resolve-compilation-cache')],
@@ -254,6 +260,9 @@ class Production(unittest.TestCase):
                         (args.work / fixture.mutate_private).write_text('changed during query\n')
                     if fixture.mutate_receipt:
                         (args.output / fixture.mutate_receipt).write_text('{}\n')
+                    if fixture.mutate_mode:
+                        path = args.work / fixture.mutate_mode
+                        path.chmod(path.stat().st_mode ^ 0o020)
                 elif name.startswith('info-'):
                     value = {'result-sets': [{'name': '#select', 'rows': 0}]}
                 elif name.startswith('decoded-'):
@@ -269,6 +278,8 @@ class Production(unittest.TestCase):
         argv = [phase, '--codeql', str(self.codeql), '--source', str(self.source), '--source-sha', self.source_sha,
                 '--database', str(self.database), '--work', str(self.work), '--output', str(self.output),
                 '--sarif', str(self.sarif), '--analysis-deadline', str(self.deadline if deadline is None else deadline)]
+        if hasattr(self, 'mode'):
+            argv += ['--mode', self.mode]
         if phase == 'run':
             argv += ['--extraction-outcome', outcome]
         with patch.dict(os.environ, self.env), redirect_stdout(io.StringIO()):
@@ -279,6 +290,98 @@ class Production(unittest.TestCase):
 
     def prepare_ok(self):
         self.assertEqual(self.invoke('prepare'), 0, self.terminal('prepare'))
+
+    def observation(self):
+        self.mode = m.action_deadline.FIXED_SOURCE_MODE
+        self.env.update(OASIS7_CODEQL_PRODUCTION_MODE=self.mode, GITHUB_SHA='d' * 40,
+                        COMPARE_QUALIFIER_PATCH='false',
+                        GITHUB_WORKFLOW_SHA='d' * 40, GITHUB_REPOSITORY='example/repo',
+                        GITHUB_WORKFLOW_REF='example/repo/.github/workflows/codeql-rust-capacity.yml@refs/heads/main',
+                        CODEQL_THREADS='4', CODEQL_RAM='14570')
+        self.budget_receipt.update(mode=self.mode, tool_sha='d' * 40)
+        (self.runner / 'codeql-rust-production-budget.json').write_text(json.dumps(self.budget_receipt))
+        self.stack.enter_context(patch.object(m.action_deadline, 'FIXED_SOURCE', self.source_sha))
+        # The separate real-process tests exercise the staged helper/layout closure.
+        # This fixture keeps the real mode/source guard and complete query consumer.
+        self.stack.enter_context(patch.object(m.action_deadline, 'fixed_source_provenance',
+            side_effect=lambda source, source_sha: m.action_deadline.fixed_source_identity(source_sha)))
+
+    def test_fixed_source_uses_all_37_and_original_diagnostics_core_with_separate_identity(self):
+        self.observation()
+        self.prepare_ok()
+        self.assertEqual(self.invoke('run'), 0, self.terminal('run'))
+        terminal = self.terminal('run')
+        self.assertEqual((terminal['source_sha'], terminal['tool_sha']), (self.source_sha, 'd' * 40))
+        self.assertEqual(terminal['mode'], self.mode)
+        self.assertEqual(terminal['acceptance_scope'], 'FIXED_SOURCE_OBSERVATION_ONLY')
+        self.assertEqual(terminal['upload_status'], 'DISABLED_FOR_OBSERVATION')
+        self.assertEqual(terminal['analysis_deadline'], self.deadline)
+        self.assertEqual(len(m.read_json(self.output / 'default-results.json')), 37)
+        self.assertEqual(len(list(self.output.glob('decoded-*.log'))), 37)
+        batch = next(argv for name, argv in self.calls if name == 'default-query-batch')
+        self.assertIn('--threads=4', batch)
+        self.assertIn('--ram=14570', batch)
+        self.assertEqual([name for name, options in self.call_options if options.get('resource_details')],
+                         ['default-query-batch'])
+        self.supervision.assert_called_once_with(self.output, self.source, self.source_sha,
+                                                 self.deadline, mode=self.mode)
+
+    def test_fixed_source_resource_drift_is_recorded_before_queries(self):
+        self.observation()
+        self.env['CODEQL_RAM'] = '4096'
+        self.assertEqual(self.invoke('prepare'), 1)
+        self.assertEqual(m.read_json(self.output / 'resources.json')['CODEQL_RAM'], 4096)
+        self.assertIn('resources differ', self.terminal('prepare')['primary_failure']['error'])
+        self.assertEqual(self.calls, [])
+
+    def test_fixed_source_requires_its_own_trusted_workflow(self):
+        self.observation()
+        self.env['GITHUB_WORKFLOW_REF'] = 'example/repo/.github/workflows/codeql.yml@refs/heads/main'
+        self.assertEqual(self.invoke('prepare'), 1)
+        self.assertIn('fixed-source', self.terminal('prepare')['primary_failure']['error'])
+        self.assertEqual(self.calls, [])
+
+    def test_fixed_source_run_cannot_consume_changed_tool_or_layout_provenance(self):
+        self.observation()
+        self.prepare_ok()
+        value = m.read_json(self.output / 'fixed-source-provenance.json')
+        value['tool_sha'] = 'e' * 40
+        (self.output / 'fixed-source-provenance.json').write_text(json.dumps(value))
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('tool/layout identity', self.terminal('run')['primary_failure']['error'])
+
+    def test_observation_preparation_cannot_be_restored_as_production(self):
+        self.observation()
+        self.prepare_ok()
+        self.mode = m.MODE
+        self.env.update(OASIS7_CODEQL_PRODUCTION_MODE=m.MODE, GITHUB_SHA=self.source_sha)
+        value = m.read_json(self.output / 'production-budget.json')
+        value['mode'] = m.MODE
+        (self.output / 'production-budget.json').write_text(json.dumps(value))
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('preparation identity', self.terminal('run')['primary_failure']['error'])
+
+    def test_default_production_keeps_current_event_sha_binding(self):
+        self.env['GITHUB_SHA'] = 'd' * 40
+        self.assertEqual(self.invoke('prepare'), 1)
+        self.assertIn('trusted main', self.terminal('prepare')['primary_failure']['error'])
+        self.assertEqual(self.calls, [])
+
+    def test_production_preparation_cannot_be_restored_as_observation(self):
+        self.prepare_ok()
+        self.observation()
+        (self.output / 'production-budget.json').write_text(json.dumps(self.budget_receipt))
+        with patch.dict(os.environ, self.env):
+            provenance = m.action_deadline.fixed_source_identity(self.source_sha)
+        (self.output / 'fixed-source-provenance.json').write_text(json.dumps(provenance))
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('preparation identity', self.terminal('run')['primary_failure']['error'])
 
     def test_unset_action_temp_uses_official_runner_temp_default(self):
         (self.action / 'config').rename(self.runner / 'config')
@@ -327,7 +430,7 @@ class Production(unittest.TestCase):
         self.assertEqual((self.original / m.candidate.MODEL_FILE).read_bytes(), self.core)
         self.assertEqual(self.guard_manifests, [self.source / 'Cargo.toml', self.source / 'independent/Cargo.toml'])
         self.assertEqual(self.terminal('prepare')['source_sha'], self.source_sha)
-        self.assertEqual(self.terminal('prepare')['variant'], 'qualifier-lines-constraint-matching-v6')
+        self.assertEqual(self.terminal('prepare')['variant'], 'qualifier-lines-constraint-target-qualified-v7')
         self.assertEqual(m.read_json(self.output / 'arity-patch-identity.json'), m.candidate.arity_identity())
         self.assertEqual((self.work / 'candidate-rust-all' / m.comparison.TYPE_FILE).read_text(), 'trait-patched')
         self.assertEqual((self.work / 'candidate-rust-all' / m.candidate.TRAIT_PATH_FILE).read_text(), 'trait-path')
@@ -344,12 +447,14 @@ class Production(unittest.TestCase):
         for receipt in m.read_json(self.output / 'library-resolution.json'):
             paths = receipt['actual']['libraryPath']
             self.assertIn(str(self.work / 'candidate-rust-all'), paths)
-            self.assertIn(str(self.work / 'candidate-typeinference'), paths)
+            self.assertIn(str(self.work / 'candidate-target-typeinference'), paths)
+            self.assertNotIn(str(self.work / 'candidate-typeinference'), paths)
             self.assertNotIn(str(self.original), paths)
             self.assertNotIn(str(self.shared), paths)
         self.assertEqual([name for name, _ in self.calls if name.startswith('apply-')],
                          ['apply-behavior-patch', 'apply-arity-patch', 'apply-shared-helper-patch',
-                          'apply-trait-visibility-patch', 'apply-constraint-matching-patch'])
+                          'apply-trait-visibility-patch', 'apply-constraint-matching-patch',
+                          'apply-target-qualified-patch'])
         self.assertNotEqual(self.source_sha, m.capacity.CAPACITY_SOURCE)
         self.assertIn('analysis_minutes=', self.github_output.read_text())
         self.assertIn('node_options=--require=', self.github_output.read_text())
@@ -367,25 +472,66 @@ class Production(unittest.TestCase):
         self.assertIn('DEPENDENCY_CLOSURE', self.terminal('prepare')['primary_failure']['error'])
         self.assertEqual(self.github_env.read_text(), '')
 
-    def test_future_research_variant_cannot_enter_production_preparation(self):
+    def test_changed_v6_component_variant_cannot_enter_production_preparation(self):
         with patch.object(m.candidate, 'WORKLOAD_VARIANT', 'future-research-v7'):
             with self.assertRaisesRegex(RuntimeError, 'variant differs from the fixed v6'):
                 m.prepare_libraries(SimpleNamespace(), {}, SimpleNamespace())
             self.assertEqual(self.invoke('prepare'), 1)
         self.assertEqual(self.calls, [])
         self.assertEqual(self.github_env.read_text(), '')
-        self.assertEqual(self.terminal('prepare')['variant'], 'qualifier-lines-constraint-matching-v6')
+        self.assertEqual(self.terminal('prepare')['variant'], 'qualifier-lines-constraint-target-qualified-v7')
         self.assertIn('variant differs from the fixed v6', self.terminal('prepare')['primary_failure']['error'])
 
-    def test_future_research_variant_cannot_restore_prepared_v6(self):
+    def test_changed_v6_component_variant_cannot_restore_prepared_production(self):
         self.prepare_ok()
         before = len(self.calls)
         with patch.object(m.candidate, 'WORKLOAD_VARIANT', 'future-research-v7'):
             self.assertEqual(self.invoke('run'), 1)
         self.assertEqual(len(self.calls), before)
-        self.assertEqual(self.terminal('run')['variant'], 'qualifier-lines-constraint-matching-v6')
+        self.assertEqual(self.terminal('run')['variant'], 'qualifier-lines-constraint-target-qualified-v7')
         self.assertIn('variant differs from the fixed v6', self.terminal('run')['primary_failure']['error'])
         self.assertFalse(self.sarif.exists())
+
+    def test_target_production_prepares_and_restores_with_retained_v6_base(self):
+        self.prepare_ok()
+        self.assertEqual(self.invoke('run'), 0, self.terminal('run'))
+        for phase in ('prepare', 'run'):
+            self.assertEqual(self.terminal(phase)['variant'], 'qualifier-lines-constraint-target-qualified-v7')
+            self.assertEqual(self.terminal(phase)['base_variant'], 'qualifier-lines-constraint-matching-v6')
+        self.assertEqual(m.candidate.WORKLOAD_VARIANT, 'qualifier-lines-constraint-matching-v6')
+        self.assertEqual((self.work / 'candidate-typeinference' / m.candidate.SHARED_FILE).read_text(), 'constraint-shared')
+        self.assertEqual((self.work / 'candidate-target-typeinference' / m.candidate.SHARED_FILE).read_text(), 'target-shared')
+        receipt = m.read_json(self.output / 'target-qualified-identity.json')
+        self.assertEqual(receipt['variant'], 'qualifier-lines-constraint-target-qualified-v7')
+        self.assertEqual(receipt['base_variant'], 'qualifier-lines-constraint-matching-v6')
+        self.assertEqual(receipt['before_files'][m.candidate.SHARED_FILE]['sha256'], sha(b'constraint-shared'))
+        self.assertEqual(receipt['candidate_files'][m.candidate.SHARED_FILE]['sha256'], sha(b'target-shared'))
+        self.assertEqual(receipt['base_receipts_sha256'], {'constraint-matching-identity.json':
+                         m.runtime.digest(self.output / 'constraint-matching-identity.json')})
+        self.assertEqual(m.read_json(self.output / 'selected-closure.json')['codeql/typeinference']['root'],
+                         str(self.work / 'candidate-target-typeinference'))
+
+    def test_changed_target_variant_cannot_enter_production_preparation(self):
+        with patch.object(m.candidate, 'RESEARCH_VARIANT', 'future-target-v8'):
+            self.assertEqual(self.invoke('prepare'), 1)
+        self.assertEqual(self.calls, [])
+        self.assertEqual(self.github_env.read_text(), '')
+        self.assertIn('variant differs from the fixed v7', self.terminal('prepare')['primary_failure']['error'])
+
+    def test_changed_target_variant_cannot_restore_prepared_production(self):
+        self.prepare_ok()
+        before = len(self.calls)
+        with patch.object(m.candidate, 'RESEARCH_VARIANT', 'future-target-v8'):
+            self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('variant differs from the fixed v7', self.terminal('run')['primary_failure']['error'])
+        self.assertFalse(self.sarif.exists())
+
+    def test_actual_resolver_v6_shared_substitution_blocks_preparation(self):
+        self.bad_shared_closure = 'v6'
+        self.assertEqual(self.invoke('prepare'), 1)
+        self.assertIn('DEPENDENCY_CLOSURE', self.terminal('prepare')['primary_failure']['error'])
+        self.assertEqual(self.github_env.read_text(), '')
 
     def test_new_independent_workspace_is_included_from_current_checkout(self):
         extra = self.source / 'new-independent'; extra.mkdir()
@@ -421,6 +567,8 @@ class Production(unittest.TestCase):
         self.assertEqual(len(batch), 1)
         self.assertIn('--no-use-precompiled', batch[0])
         self.assertEqual(sum(item.endswith('.ql') for item in batch[0]), 37)
+        self.assertEqual([name for name, options in self.call_options if options.get('resource_details')],
+                         ['default-query-batch'])
         self.assertEqual(len(m.read_json(self.output / 'default-results.json')), 37)
 
     def test_failed_extraction_never_starts_queries_but_keeps_failure_and_coverage(self):
@@ -438,11 +586,12 @@ class Production(unittest.TestCase):
         self.assertRegex(self.terminal('run')['primary_failure']['error'], 'deadline|budget')
         self.assertNotIn('default-query-batch', [name for name, _ in self.calls])
 
-    def test_old_preparation_variants_cannot_be_promoted_to_v6(self):
+    def test_old_preparation_variants_cannot_be_promoted_to_v7(self):
         self.prepare_ok()
         prepared = self.terminal('prepare')
         before = len(self.calls)
-        for variant in ('qualifier-lines-v2', 'qualifier-lines-v3', 'qualifier-lines-shared-trait-v5'):
+        for variant in ('qualifier-lines-v2', 'qualifier-lines-v3', 'qualifier-lines-shared-trait-v5',
+                        'qualifier-lines-constraint-matching-v6'):
             with self.subTest(variant=variant):
                 prepared['variant'] = variant
                 (self.output / 'production-prepare.json').write_text(json.dumps(prepared))
@@ -450,6 +599,23 @@ class Production(unittest.TestCase):
                 self.assertEqual(len(self.calls), before)
                 self.assertIn('preparation identity', self.terminal('run')['primary_failure']['error'])
                 self.assertEqual(self.terminal('prepare')['variant'], variant)
+                self.assertFalse(self.sarif.exists())
+
+    def test_relabelled_preparation_without_fixed_base_cannot_restore(self):
+        self.prepare_ok()
+        original = self.terminal('prepare')
+        before = len(self.calls)
+        for base in (None, 'forged-base'):
+            with self.subTest(base=base):
+                prepared = dict(original)
+                if base is None:
+                    del prepared['base_variant']
+                else:
+                    prepared['base_variant'] = base
+                (self.output / 'production-prepare.json').write_text(json.dumps(prepared))
+                self.assertEqual(self.invoke('run'), 1)
+                self.assertEqual(len(self.calls), before)
+                self.assertIn('preparation identity', self.terminal('run')['primary_failure']['error'])
                 self.assertFalse(self.sarif.exists())
 
     def test_old_type_bytes_are_rejected_even_with_an_updated_input_snapshot(self):
@@ -478,17 +644,48 @@ class Production(unittest.TestCase):
         self.assertIn('ConstraintMatching overlay', self.terminal('run')['primary_failure']['error'])
         self.assertFalse(self.sarif.exists())
 
-    def test_saved_official_shared_closure_cannot_replace_the_private_root(self):
+    def test_v6_bytes_cannot_replace_target_even_with_an_updated_input_snapshot(self):
         self.prepare_ok()
-        path = self.output / 'selected-closure.json'
-        closure = m.read_json(path)
-        closure['codeql/typeinference']['root'] = str(self.shared)
-        path.write_text(json.dumps(closure))
+        private = self.work / 'candidate-target-typeinference'
+        (private / m.candidate.SHARED_FILE).write_text('constraint-shared')
+        inputs = m.read_json(self.output / 'input-identities.json')
+        inputs['target_shared_library'] = m.candidate.regular_snapshot(private, time.monotonic() + 30)
+        (self.output / 'input-identities.json').write_text(json.dumps(inputs))
         before = len(self.calls)
         self.assertEqual(self.invoke('run'), 1)
         self.assertEqual(len(self.calls), before)
-        self.assertIn('repaired dependency selection', self.terminal('run')['primary_failure']['error'])
+        self.assertIn('target-qualified overlay', self.terminal('run')['primary_failure']['error'])
         self.assertFalse(self.sarif.exists())
+
+    def test_shared_non_executable_permission_changes_block_restore(self):
+        self.prepare_ok()
+        before = len(self.calls)
+        for name in ('candidate-typeinference', 'candidate-target-typeinference'):
+            with self.subTest(tree=name):
+                path = self.work / name / 'Unchanged.qll'
+                mode = path.stat().st_mode
+                path.chmod(mode ^ 0o020)
+                try:
+                    self.assertEqual(self.invoke('run'), 1)
+                    self.assertEqual(len(self.calls), before)
+                    self.assertIn('overlay permissions', self.terminal('run')['primary_failure']['error'])
+                    self.assertFalse(self.sarif.exists())
+                finally:
+                    path.chmod(mode)
+
+    def test_saved_official_or_v6_shared_closure_cannot_replace_target(self):
+        self.prepare_ok()
+        path = self.output / 'selected-closure.json'
+        closure = m.read_json(path)
+        before = len(self.calls)
+        for root in (self.shared, self.work / 'candidate-typeinference'):
+            with self.subTest(root=str(root)):
+                closure['codeql/typeinference']['root'] = str(root)
+                path.write_text(json.dumps(closure))
+                self.assertEqual(self.invoke('run'), 1)
+                self.assertEqual(len(self.calls), before)
+                self.assertIn('repaired dependency selection', self.terminal('run')['primary_failure']['error'])
+                self.assertFalse(self.sarif.exists())
 
     def test_missing_arity_receipt_blocks_production_queries(self):
         self.prepare_ok()
@@ -503,7 +700,8 @@ class Production(unittest.TestCase):
         self.prepare_ok()
         before = len(self.calls)
         for name in ('lines-model-identity.json', 'shared-helper-identity.json',
-                     'trait-visibility-identity.json', 'constraint-matching-identity.json'):
+                     'trait-visibility-identity.json', 'constraint-matching-identity.json',
+                     'target-qualified-identity.json'):
             with self.subTest(receipt=name):
                 path = self.output / name
                 saved = path.read_bytes()
@@ -519,7 +717,8 @@ class Production(unittest.TestCase):
     def test_forged_layer_receipts_fail_even_with_refreshed_hash_links(self):
         self.prepare_ok()
         names = ('lines-model-identity.json', 'shared-helper-identity.json',
-                 'trait-visibility-identity.json', 'constraint-matching-identity.json')
+                 'trait-visibility-identity.json', 'constraint-matching-identity.json',
+                 'target-qualified-identity.json')
         saved = {name: (self.output / name).read_bytes() for name in names}
         before = len(self.calls)
         for name in names:
@@ -529,7 +728,8 @@ class Production(unittest.TestCase):
                 (self.output / name).write_text(json.dumps(value))
                 # Make the digest chain self-consistent; the fixed layer identities
                 # must still reject this instead of trusting the stored receipts.
-                for linked in ('trait-visibility-identity.json', 'constraint-matching-identity.json'):
+                for linked in ('trait-visibility-identity.json', 'constraint-matching-identity.json',
+                               'target-qualified-identity.json'):
                     path = self.output / linked
                     value = m.read_json(path)
                     value['base_receipts_sha256'] = {key: m.runtime.digest(self.output / key)
@@ -543,7 +743,7 @@ class Production(unittest.TestCase):
                 self.assertEqual(len(self.calls), before)
                 self.assertFalse(self.sarif.exists())
                 self.assertRegex(self.terminal('run')['primary_failure']['error'],
-                                 'intermediate identity|visibility identity|ConstraintMatching identity')
+                                 'intermediate identity|visibility identity|ConstraintMatching identity|target-qualified identity')
                 for restored, data in saved.items():
                     (self.output / restored).write_bytes(data)
 
@@ -614,9 +814,30 @@ class Production(unittest.TestCase):
         self.assertIn('input changed during analysis', self.terminal('run')['primary_failure']['error'])
         self.assertFalse(self.sarif.exists())
 
+    def test_target_library_mutation_during_queries_blocks_sarif(self):
+        self.prepare_ok()
+        self.mutate_private = 'candidate-target-typeinference/Unchanged.qll'
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertIn('input changed during analysis', self.terminal('run')['primary_failure']['error'])
+        self.assertFalse(self.sarif.exists())
+
+    def test_target_non_executable_permission_mutation_during_queries_blocks_sarif(self):
+        self.prepare_ok()
+        self.mutate_mode = 'candidate-target-typeinference/Unchanged.qll'
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertIn('overlay permissions', self.terminal('run')['primary_failure']['error'])
+        self.assertFalse(self.sarif.exists())
+
     def test_library_receipt_mutation_during_queries_blocks_sarif(self):
         self.prepare_ok()
         self.mutate_receipt = 'constraint-matching-identity.json'
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertIn('input changed during analysis', self.terminal('run')['primary_failure']['error'])
+        self.assertFalse(self.sarif.exists())
+
+    def test_target_receipt_mutation_during_queries_blocks_sarif(self):
+        self.prepare_ok()
+        self.mutate_receipt = 'target-qualified-identity.json'
         self.assertEqual(self.invoke('run'), 1)
         self.assertIn('input changed during analysis', self.terminal('run')['primary_failure']['error'])
         self.assertFalse(self.sarif.exists())
@@ -638,72 +859,101 @@ class Production(unittest.TestCase):
             self.invoke('prepare')
 
 
+def validate_real_production_bindings(test, codeql, work, output, *, end, run):
+    """The original 37 consumer; the caller owns the only deadline and evidence."""
+    if run.end != end:
+        raise RuntimeError('production binding deadline differs from its caller')
+    args = SimpleNamespace(codeql=codeql, source=run.args.source, work=work, output=output)
+    run([codeql, 'version', '--format=json'], 'version', 20)
+    test.assertEqual(m.read_json(output / 'version.log')['version'], m.VERSION)
+    test.assertIs(m.read_json(output / 'version.log').get('configFileFound'), False)
+    official = codeql.parent
+    original = m.capacity.bundle.bundle_closure(official, m.VERSION)
+    original['codeql/suite-helpers'] = m.candidate.suite_helper(official)
+    test.assertEqual(len(original), 14)
+    published = official / 'qlpacks/codeql/rust-queries/0.1.46'
+    published_before = m.candidate.regular_snapshot(published, end)
+    suite_file = published / 'codeql-suites/rust-code-scanning.qls'
+    run([codeql, 'resolve', 'queries', suite_file, '--format=json'], 'official-suite', 30)
+    suite = dict(query_root=str(published), suite_sha256=m.capacity.digest_until(suite_file, end),
+                 queries=m.capacity.suite_entries(m.read_json(output / 'official-suite.log'), published))
+    before = {name: m.candidate.regular_snapshot(Path(pack['root']), end)
+              for name, pack in original.items()}
+    closure = m.prepare_libraries(args, original, run)
+    m.candidate.verify_target_qualified_identity(original, work, output, end)
+    expected_files = {
+        'candidate-rust-all/codeql/rust/internal/typeinference/TypeInference.qll':
+            'db190947441166d6a24217f4dd3bdeafdf8965ca4e11998eba54080bbf91016b',
+        'candidate-rust-all/codeql/rust/internal/PathResolution.qll':
+            '222a5a43252a4055a66b38d70b2177668e3ebdbd918de67eeb7e9c206cc9ebbf',
+        'candidate-rust-all/codeql/rust/frameworks/stdlib/core.model.yml':
+            '4a2534bf0f566206409fa9a9f24eca3b2744c8f79b33409689f680bb4f504734',
+        'candidate-typeinference/codeql/typeinference/internal/TypeInference.qll':
+            '8b32c4d95cfd39f0fef5d365e27b3a0d734ae815272dc714fc60d40de56edc33',
+        'candidate-target-typeinference/codeql/typeinference/internal/TypeInference.qll':
+            '8f8ac05fb73efc3d7ebfd3d9ab452e90c13d61c7e651379f57f88b4400080ca9',
+    }
+    test.assertEqual({name: m.capacity.digest_until(work / name, end) for name in expected_files}, expected_files)
+    v3 = m.read_json(output / 'lines-model-identity.json')
+    test.assertEqual(v3['variant'], 'qualifier-lines-v3')
+    test.assertEqual(v3['candidate_files'][m.comparison.TYPE_FILE]['sha256'],
+                     'd502d88bafabca4c3b41e173c362ce80660bd8c096ee95e53a47f124deaf33fb')
+    v6 = m.read_json(output / 'constraint-matching-identity.json')
+    test.assertEqual(v6['variant'], 'qualifier-lines-constraint-matching-v6')
+    test.assertEqual(v6['base_variant'], 'qualifier-lines-shared-trait-v5')
+    test.assertEqual(v6['before_files'][m.candidate.SHARED_FILE]['sha256'],
+                     '4a65a578b82c8fa739c2a802b2cc6763cebc34cb67be9008fd396d5dbb5bd47b')
+    target = m.read_json(output / 'target-qualified-identity.json')
+    test.assertEqual(target['variant'], 'qualifier-lines-constraint-target-qualified-v7')
+    test.assertEqual(target['base_variant'], 'qualifier-lines-constraint-matching-v6')
+    test.assertEqual(target['changed_files'], [m.candidate.SHARED_FILE])
+    test.assertEqual(target['base_receipts_sha256'], {'constraint-matching-identity.json':
+                     m.capacity.digest_until(output / 'constraint-matching-identity.json', end)})
+    records, _ = m.source_queries(official, work, suite, end)
+    frozen = m.input_snapshot(args, original, end)
+    m.resolve_queries(args, records, closure, run)
+    test.assertEqual(len(records), 37)
+    resolutions = m.read_json(output / 'library-resolution.json')
+    test.assertEqual(len(resolutions), 37)
+    for receipt in resolutions:
+        paths = receipt['actual']['libraryPath']
+        test.assertEqual(len(paths), 15)  # Fourteen dependencies plus the query root.
+        test.assertIn(str(work / 'candidate-rust-all'), paths)
+        test.assertIn(str(work / 'candidate-target-typeinference'), paths)
+        test.assertNotIn(str(work / 'candidate-typeinference'), paths)
+        test.assertNotIn(original['codeql/rust-all']['root'], paths)
+        test.assertNotIn(original['codeql/typeinference']['root'], paths)
+    m.candidate.verify_target_qualified_identity(original, work, output, end)
+    test.assertEqual(m.input_snapshot(args, original, end), frozen)
+    test.assertEqual({name: m.candidate.regular_snapshot(Path(pack['root']), end)
+                      for name, pack in original.items()}, before)
+    test.assertEqual(sorted(m.read_json(output / 'lines-model-identity.json')['changed_files']),
+                     sorted([m.comparison.TYPE_FILE, m.candidate.MODEL_FILE]))
+    m.save(args, 'binding-validation.json', dict(
+        variant=m.PRODUCTION_VARIANT, base_variant=m.PRODUCTION_BASE_VARIANT, queries=records, closure=closure,
+        input_snapshot=frozen, published_queries=published_before))
+    def verify_after(check_end):
+        m.candidate.verify_target_qualified_identity(original, work, output, check_end)
+        test.assertEqual(m.input_snapshot(args, original, check_end), frozen)
+        test.assertEqual(m.candidate.regular_snapshot(published, check_end), published_before)
+    return verify_after, {name: work / name for name in
+                         ('candidate-rust-all', 'candidate-typeinference', 'candidate-target-typeinference', 'default-queries')}
+
+
 @unittest.skipUnless(os.environ.get('OASIS7_CODEQL_PRODUCTION_CLI'), 'explicit pinned CodeQL integration input required')
 class RealCodeQL(unittest.TestCase):
     def test_exact_default_source_pack_and_actual_repaired_dependency_resolution(self):
-        """No Cargo or extraction fixture: validate the real compiler's selected inputs."""
+        """Standalone production consumer; the paired gate calls its helper once."""
         codeql = Path(os.environ['OASIS7_CODEQL_PRODUCTION_CLI']).resolve()
         with tempfile.TemporaryDirectory() as name:
             folder = Path(name).resolve()
             work, output = folder / 'work', folder / 'evidence'
             work.mkdir(); output.mkdir()
-            args = SimpleNamespace(codeql=codeql, source=HERE.parents[1], work=work, output=output)
             end = time.monotonic() + 600
+            args = SimpleNamespace(codeql=codeql, source=HERE.parents[1], work=work, output=output)
             run = m.Runner(args, {}, end)
-            run([codeql, 'version', '--format=json'], 'version', 20)
-            self.assertEqual(m.read_json(output / 'version.log')['version'], m.VERSION)
-            official = codeql.parent
-            original = m.capacity.bundle.bundle_closure(official, m.VERSION)
-            original['codeql/suite-helpers'] = m.candidate.suite_helper(official)
-            self.assertEqual(len(original), 14)
-            published = official / 'qlpacks/codeql/rust-queries/0.1.46'
-            suite_file = published / 'codeql-suites/rust-code-scanning.qls'
-            run([codeql, 'resolve', 'queries', suite_file, '--format=json'], 'official-suite', 30)
-            suite = dict(query_root=str(published), suite_sha256=m.runtime.digest(suite_file),
-                         queries=m.capacity.suite_entries(m.read_json(output / 'official-suite.log'), published))
-            before = {name: m.candidate.regular_snapshot(Path(pack['root']), end)
-                      for name, pack in original.items()}
-            closure = m.prepare_libraries(args, original, run)
-            m.candidate.verify_workload_identity(original, work, output, end)
-            expected_files = {
-                'candidate-rust-all/codeql/rust/internal/typeinference/TypeInference.qll':
-                    'db190947441166d6a24217f4dd3bdeafdf8965ca4e11998eba54080bbf91016b',
-                'candidate-rust-all/codeql/rust/internal/PathResolution.qll':
-                    '222a5a43252a4055a66b38d70b2177668e3ebdbd918de67eeb7e9c206cc9ebbf',
-                'candidate-rust-all/codeql/rust/frameworks/stdlib/core.model.yml':
-                    '4a2534bf0f566206409fa9a9f24eca3b2744c8f79b33409689f680bb4f504734',
-                'candidate-typeinference/codeql/typeinference/internal/TypeInference.qll':
-                    '8b32c4d95cfd39f0fef5d365e27b3a0d734ae815272dc714fc60d40de56edc33',
-            }
-            self.assertEqual({name: m.runtime.digest(work / name) for name in expected_files}, expected_files)
-            v3 = m.read_json(output / 'lines-model-identity.json')
-            self.assertEqual(v3['variant'], 'qualifier-lines-v3')
-            self.assertEqual(v3['candidate_files'][m.comparison.TYPE_FILE]['sha256'],
-                             'd502d88bafabca4c3b41e173c362ce80660bd8c096ee95e53a47f124deaf33fb')
-            v6 = m.read_json(output / 'constraint-matching-identity.json')
-            self.assertEqual(v6['variant'], 'qualifier-lines-constraint-matching-v6')
-            self.assertEqual(v6['base_variant'], 'qualifier-lines-shared-trait-v5')
-            self.assertEqual(v6['before_files'][m.candidate.SHARED_FILE]['sha256'],
-                             '4a65a578b82c8fa739c2a802b2cc6763cebc34cb67be9008fd396d5dbb5bd47b')
-            records, _ = m.source_queries(official, work, suite, end)
-            frozen = m.input_snapshot(args, original, end)
-            m.resolve_queries(args, records, closure, run)
-            self.assertEqual(len(records), 37)
-            resolutions = m.read_json(output / 'library-resolution.json')
-            self.assertEqual(len(resolutions), 37)
-            for receipt in resolutions:
-                paths = receipt['actual']['libraryPath']
-                self.assertEqual(len(paths), 15)  # Fourteen dependencies plus the query root.
-                self.assertIn(str(work / 'candidate-rust-all'), paths)
-                self.assertIn(str(work / 'candidate-typeinference'), paths)
-                self.assertNotIn(original['codeql/rust-all']['root'], paths)
-                self.assertNotIn(original['codeql/typeinference']['root'], paths)
-            m.candidate.verify_workload_identity(original, work, output, end)
-            self.assertEqual(m.input_snapshot(args, original, end), frozen)
-            self.assertEqual({name: m.candidate.regular_snapshot(Path(pack['root']), end)
-                              for name, pack in original.items()}, before)
-            self.assertEqual(sorted(m.read_json(output / 'lines-model-identity.json')['changed_files']),
-                             sorted([m.comparison.TYPE_FILE, m.candidate.MODEL_FILE]))
+            verify, _ = validate_real_production_bindings(self, codeql, work, output, end=end, run=run)
+            verify(end)
 
 
 if __name__ == '__main__':

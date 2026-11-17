@@ -426,6 +426,8 @@ PR 并发组按 PR 编号取消过期运行。schedule 观察使用每 run 独�
 
 合法空跑必须有唯一、同 run/attempt/SHA/workflow 的 admission=false 产物，admission 实际成功，select 与 full gate 实际 skipped，且无矛盾的 selection/full receipt；缺失或冲突不能算健康。旧版本没有 admission job 的 schedule 保持原 full 语义。四小时 cadence 另留一小时观测余量，默认最近启动窗口为五小时、未结束单轮预算为四小时；缺最近成功、漏跑/过期、失败或任一未完成轮预算超限返回非零。新 pending/running 不清除上一终态失败。该观测是调度与主线健康信号，不代替完整 receipt 的发布 qualification，也不会自动重跑、取消或回退。
 
+选择性重跑可能让 Actions 为继承的成功任务返回新的 job ID 和当前 `run_attempt`，但保留原执行时间与 steps，产物仍属于实际 producer attempt。admission=true 与 selection 的复用须绑定最新存在的对应产物、原成功 producer 以及同 run/SHA/workflow/event/branch 的完整后继 attempt 链；继承任务的执行时间和 steps 必须与原 producer 一致，并在各次重跑开始前结束。后继 API 未列出该任务时仍核查每个中间 attempt；实际重新执行、失败、歧义、过期、身份或时序缺证均拒绝回退。周期起点保留原 select 时间，不用重跑时间刷新四小时窗口；admission=false 不继承为新空跑资格，完整结果仍只接受当前 attempt 的 full-result。回溯沿用同一 API 预算。
+
 admission 成功且上述证据完整证明未执行 full，但 workflow 随后失败或取消时，记录为控制失败：健康和发布资格仍失败，不刷新 full 启动时间或占用活动名额，后续观察可按原四小时条件恢复准入。未知结论、未完成状态、缺失或矛盾证据仍拒绝分类，不能用恢复路径掩盖实际执行。
 
 命令接入既有 [CI 耗时回顾任务](../../../.agents/dot/tasks/ci-duration-review.md)的只读检查说明；文档没有新建外部定时器，也不证明巡检已经运行。调用者独立读取 Actions 事实，不能只靠迟到的 schedule 报告自身漏跑。平台调度可能延迟或丢失，规则依据 [GitHub schedule 语义](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)。

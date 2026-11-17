@@ -82,6 +82,8 @@ L4 工具链局部文档更新（2026-10-12，核对基线 `27db6f894bd106e9a4fe
 
 **实际部署核验：** 本组三项均未取得当日运行窗口。[历史云上清单](../../governance/environment-lanes-and-inventory-2026-05-29.md#7-当前云上清单)只用于定位；当前节点数、版本、实际角色、健康和外部可达性保持未核对。
 
+共享网络资源（2026-11-16，目标设计）：[发现资源预算](../../../p2p/network/mainnet-private-reachability-architecture.design.md#discovery-resource-budget-v1)沿标准 development host → node → net 规定真实连接尝试与子流 I/O 的联合限额，所有配额显式输入，旧 profile 不自动获得新保证。TCP／QUIC／relay 未接全计量接缝时拒启新 profile；正式 authority 仍须独立 lane 适配。当前只补合同，运行时与部署证据仍由 [#5506](https://github.com/nil-studio/oasis7/issues/5506) 承接。
+
 <a id="cc-architecture-authority"></a>
 
 ## 世界权威与状态
@@ -110,6 +112,7 @@ L4 工具链局部文档更新（2026-10-12，核对基线 `27db6f894bd106e9a4fe
 **已有实现：**
 
 - ARCH-04（2026-10-27 局部核对）：受控 writer、公开投影和完整只读同步已有[实现入口](../../../p2p/blockchain/local-node-lifecycle.runbook.md#daily-commands)。BFT 的 NodeRuntime／QC 执行恢复与[受保护签名工程接口](../../../p2p/design.md#des-p2p-bft-protected-signer-v1)已有局部实现；[H 锚定前缀](../../../p2p/design.md#des-p2p-formal-bft-read-handoff-v1)的实际重放、独立账本及导入／重开已随 [#5170](https://github.com/nil-studio/oasis7/pull/5170)交付。历史 cut 不等于 producer 写权、当前可服务或投票资格，原动作也不能由投影授权直接公开。真实 provider／防回滚硬件、治理集合安装、写权交接、checkpoint 时效及完整消费者验收仍以 [DCS-004](../../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#req-dcs-004)为准，不升级为正式 BFT readiness。
+- ARCH-04（2026-11-16，目标设计）：[checkpoint 独立更新](../../../p2p/design.md#des-p2p-bft-checkpoint-renewal-v1)将历史验证、有限根／issuer 授权、可信 UTC 区间及受保护 minimum 分开；更新必须保留原 C0/H、精确前驱和单一安装事务。原件可恢复不等于当前可服务或可新签名，既有 h+2 及 signer 安全边界保留。代码接线、真实授权／时间／custody 证据仍由 [#5525](https://github.com/nil-studio/oasis7/issues/5525) 承接。
 - ARCH-05：已有有序动作、roots、execution records、checkpoint/replay 及多种 prepare/publish 路径；[当前实现边界](../../../world-runtime/design.md#5-current-implementation-boundary-and-target-gap)仍明确整体能力为 partial。
 - ARCH-06：正式受控路径已有 qualified cut、保护服务与原请求恢复的实现切片，详见[当前实现边界](../../../p2p/design.md#des-p2p-formal-controlled-authority-v1)；同机双目录不能证明独立故障域。真实 P/R 故障、旧写者隔离和原结果恢复按[故障域验收](../../../p2p/design.md#des-p2p-controlled-fault-domain-acceptance-v1)分别取证，受控路径不承诺 BFT 分区期间继续写入。
 - ARCH-07：已有 execution bridge v3、CAS、sidecar、retention/GC/replay 的实现合同；[本地恢复边界](../../../world-runtime/runtime/runtime-storage-footprint-governance.prd.md#storage-accept-service-boundary)不证明分布式可得性或完整灾备。
@@ -119,6 +122,8 @@ ARCH-07 局部核对（2026-10-28，源码基线 `112a627e889cb0601ed368b2c0be20
 节点生命周期实现（2026-10-17 核对）：[PR #4683](https://github.com/eng-cc/oasis7/pull/4683) 接通原请求持久恢复、健康集合转换与可续做节点生命周期；本机验证范围和平台/部署 TODO 见[实施边界](../../../p2p/blockchain/persistent-world-node-lifecycle.runbook.md)。代码已合入（`da890a9125a435969b82f5a14ab3c9143cc0690e`）；具体历史验证范围以实施 PR 与 runbook 为准，当前部署与独立故障域未核验。
 
 **实际部署核验：** 未验证正式 profile 激活、实际存储同步、故障域隔离、旧写者 fencing、备份可用性或恢复后的写服务。这些结论需要各自候选与环境证据，不能由代码数量汇总为完成率。
+
+同步资源与恢复（2026-11-16，目标设计）：[整次操作合同](../../../p2p/design.md#des-p2p-full-sync-operation-budget-v1)把原请求／固定 cut 的持久累计账与单次有界 attempt 分开，HTTP 计量覆盖编码正文而非网卡流量；未知传输预留不得在重开时归零。已提交 minimum 的原安装仍可恢复，新写入与当前服务资格继续受原门禁约束。受控 v2 与 wire 3 逐项映射，既有材料预算不代表新增期限／传输实现；后续由 [#5541](https://github.com/nil-studio/oasis7/issues/5541) 承接。
 
 正式激活、独立故障域恢复和人工交接的能力边界由对应专业合同持有。[#4363 的旧规划](https://github.com/eng-cc/oasis7/issues/4363#issuecomment-6107216860)仅作历史来源；该 Issue 已停止独立跟踪，不据此恢复执行义务。
 

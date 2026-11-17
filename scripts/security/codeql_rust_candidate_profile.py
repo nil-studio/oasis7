@@ -39,7 +39,7 @@ NON_SUCCESS_SCHEMA = 'non_success_global_v1'
 SUMMARY_RA_LIMIT = 49152
 SUMMARY_RA_SLOTS = 65536
 SUMMARY_RA_PROBES = 256
-SUMMARY_RA_BYTES = 4 * SUMMARY_RA_SLOTS + 36 * SUMMARY_RA_LIMIT
+SUMMARY_RA_BYTES = 2 * SUMMARY_RA_SLOTS + 36 * SUMMARY_RA_LIMIT
 SUMMARY_FIXED_RESERVE = 512 * 1024
 SUMMARY_CHUNK_CAP = 64 * 1024
 SUMMARY_WORK_CAP = NUMERIC_RESERVE - SUMMARY_RA_BYTES - SUMMARY_FIXED_RESERVE - SUMMARY_CHUNK_CAP
@@ -1298,7 +1298,8 @@ def _summary_lexical(data):
 class SummaryRA:
     """Fixed full-digest index; ordinals persist until the entire stream closes."""
     def __init__(self):
-        self.slots = bytearray(4 * SUMMARY_RA_SLOTS)
+        # Slots hold 0 or a 1-based index up to 49152, not the record ordinal.
+        self.slots = bytearray(2 * SUMMARY_RA_SLOTS)
         self.entries = bytearray(36 * SUMMARY_RA_LIMIT)
         self.count = 0
 
@@ -1308,13 +1309,13 @@ class SummaryRA:
     def first(self, digest, ordinal):
         slot = int.from_bytes(digest[:4], 'little') % SUMMARY_RA_SLOTS
         for probe in range(min(SUMMARY_RA_SLOTS, SUMMARY_RA_PROBES)):
-            index = struct.unpack_from('<I', self.slots, 4*slot)[0]
+            index = struct.unpack_from('<H', self.slots, 2*slot)[0]
             if not index:
                 if self.count >= SUMMARY_RA_LIMIT:
                     raise SummaryStateLimit('RA_CAPACITY', ra_count=self.count, ra_probes=probe+1)
                 struct.pack_into('<32sI', self.entries, 36*self.count, digest, ordinal)
                 self.count += 1
-                struct.pack_into('<I', self.slots, 4*slot, self.count)
+                struct.pack_into('<H', self.slots, 2*slot, self.count)
                 return ordinal, False
             offset = 36*(index-1)
             if self.entries[offset:offset+32] == digest:
@@ -1365,6 +1366,7 @@ class Summary(Lines):
         self.seen = SummaryRA()
         self.reuse_examples = []
         self.rejected_hashes = []
+        self.first_unknown_shape = None
         self.tops = {'official_millis': [], 'known_iteration_subtotal': []}
         self.final_report = None
 
@@ -1420,6 +1422,23 @@ class Summary(Lines):
         enums = {key: value[key] for key in ('evaluationStrategy', 'completionType', 'isCached') if key in value}
         return any(shape == signature['types'] and enums == signature['enums'] for signature in self.signatures)
 
+    def _remember_unknown_shape(self, value, data):
+        if self.first_unknown_shape is not None:
+            return
+        try:
+            # Only reached after validate_record. Its 20 fixed field names and
+            # three fixed enums bound construction within the metadata reserve;
+            # no source values or nested keys enter this retained descriptor.
+            diagnostic = dict(status='CAPTURED', record=self.records, record_sha256=_hash(data),
+                types={key: type(item).__name__ for key, item in value.items()},
+                enums={key: value[key] for key in ('evaluationStrategy', 'completionType', 'isCached') if key in value})
+            encoded = json.dumps(diagnostic, separators=(',', ':')).encode()
+            self.first_unknown_shape = (encoded if len(encoded) <= SUMMARY_ROW_CAP else
+                b'{"status":"UNAVAILABLE","reason":"DIAGNOSTIC_LIMIT"}')
+        except Exception:
+            # Diagnostics cannot replace the already recorded unknown shape.
+            self.first_unknown_shape = b'{"status":"UNAVAILABLE","reason":"DIAGNOSTIC_ERROR"}'
+
     def _query(self, name):
         return self.queries.get(name, dict(unmapped_query_sha256=_hash(text_value(name))))
 
@@ -1468,6 +1487,7 @@ class Summary(Lines):
             self.null_deltas += value.get('deltaSizes', []).count(None)
             if not self._known_shape(value):
                 self._reject('unknown', data)
+                self._remember_unknown_shape(value, data)
                 return b''
             ra_digest = hashlib.sha256(text_value(value['raHash'])).digest()
             ra_id, name_id = ra_digest.hex(), _hash(text_value(value['predicateName']))
@@ -1606,6 +1626,7 @@ class Summary(Lines):
                     accepted_records=self.accepted, unknown_shapes=self.unknown, invalid_records=self.invalid,
                     reused_ra_hash_records=self.ra_reuse, distinct_ra_hashes=distinct,
                     ra_reuse_examples=self.reuse_examples, rejected_record_sha256=self.rejected_hashes,
+                    first_unknown_shape=parse_json(self.first_unknown_shape) if self.first_unknown_shape is not None else None,
                     untimed_records=self.untimed, incomplete_predicates=self.incomplete, failed_predicates=self.failed,
                     negative_iteration_markers=self.markers, unknown_delta_entries=self.delta_unknown,
                     unobserved_delta_null_entries=self.null_deltas, pipeline_non_success=self.pipeline_non_success,

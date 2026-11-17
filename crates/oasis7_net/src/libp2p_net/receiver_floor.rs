@@ -141,6 +141,21 @@ impl PeerRecordReceiver {
         persistence::initialize(directory, binding, mode)
     }
 
+    /// Explicit, exclusive upgrade of the existing ledger, never an initializer.
+    pub(super) fn upgrade_to_v2_only(
+        config: &PeerRecordReceiverConfig,
+        keypair: &Keypair,
+        template: &PeerRecord,
+    ) -> Result<(), WorldError> {
+        if config.mode != PeerRecordReceiverMode::V2Only {
+            return Err(protocol_error(
+                "receiver upgrade requires V2Only target mode".into(),
+            ));
+        }
+        let binding = receiver_binding(template, keypair)?;
+        persistence::upgrade_to_v2_only(receiver_directory(config)?, binding)
+    }
+
     pub(super) fn open(
         config: &PeerRecordReceiverConfig,
         keypair: &Keypair,

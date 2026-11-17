@@ -19,9 +19,17 @@ use std::{
 #[path = "formal_bft_header_node_network.rs"]
 mod network;
 
+#[path = "formal_bft_header_node_status.rs"]
+pub(super) mod status;
+
+#[path = "formal_bft_header_node_output.rs"]
+mod output;
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Config {
+    #[serde(default)]
+    status_address: Option<SocketAddr>,
     schema_version: u32,
     trust_config_path: PathBuf,
     target: BftProfileTargetV2,
@@ -122,21 +130,18 @@ pub(super) fn run<'a>(
             return Err("header Node --print-binding cannot be combined with --actions".into());
         }
         let report = super::prepare_node_binding_report(&config)?;
-        println!(
-            "{}",
-            serde_json::to_string(&report).map_err(|_| "encode public header Node binding")?
-        );
-        return Ok(());
+        let encoded =
+            serde_json::to_string(&report).map_err(|_| "encode public header Node binding")?;
+        return output::write_line(&mut std::io::stdout().lock(), &encoded);
     }
     if !serve && actions.is_none() {
         return Err("bft-header node requires --actions or --serve".into());
     }
     let report = from_paths(&config, actions.as_deref(), serve, shutdown)?;
-    println!(
-        "{}",
-        serde_json::to_string(&report).map_err(|_| "encode public header Node receipt")?
-    );
-    Ok(())
+    let encoded =
+        serde_json::to_string(&report).map_err(|_| "encode public header Node receipt")?;
+    // The runtime has already stopped. Output failure must not resubmit actions.
+    output::write_line(&mut std::io::stdout().lock(), &encoded)
 }
 
 fn from_paths(
@@ -146,6 +151,13 @@ fn from_paths(
     shutdown: Option<Arc<AtomicBool>>,
 ) -> Result<Report, String> {
     let config = load_config(config_path)?;
+    if config.status_address.is_some() && !serve {
+        return Err("header Node status requires --serve".into());
+    }
+    let status_listener = config
+        .status_address
+        .map(status::Listener::bind)
+        .transpose()?;
     #[cfg(feature = "node-libp2p")]
     if config.network.is_some() && !serve {
         return Err("header Node network configuration requires --serve".into());
@@ -227,7 +239,7 @@ fn from_paths(
         .start()
         .map_err(|_| "header Node actual startup recovery rejected")?;
     let result = if serve {
-        serve_until_shutdown(&runtime, &actions, shutdown)
+        serve_until_shutdown(&runtime, &actions, shutdown, status_listener.as_ref())
     } else {
         submit_and_wait(
             &runtime,
@@ -248,6 +260,7 @@ fn serve_until_shutdown(
     runtime: &NodeRuntime,
     actions: &[oasis7_node::NodeConsensusAction],
     shutdown: Option<Arc<AtomicBool>>,
+    status_listener: Option<&status::Listener>,
 ) -> Result<Report, String> {
     let shutdown = match shutdown {
         Some(shutdown) => shutdown,
@@ -267,6 +280,9 @@ fn serve_until_shutdown(
     let signal = runtime.committed_action_batches_handle();
     let mut receipts = Vec::new();
     loop {
+        if let Some(listener) = status_listener {
+            listener.poll(runtime);
+        }
         for batch in runtime.drain_committed_action_batches() {
             if receipts.len() >= 64 {
                 return Err("header Node report history capacity reached".into());

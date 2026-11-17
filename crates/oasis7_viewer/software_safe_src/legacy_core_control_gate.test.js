@@ -45,4 +45,17 @@ describe("legacy core live control gates", () => {
       }),
     );
   });
+
+  it("rejects request_snapshot without producing synthetic ack when websocket is disconnected", async () => {
+    const core = await import("./legacy_core.js");
+    await core.initializeSoftwareSafeCore();
+    const result = core.sendGameplayAction({
+      action_id: "refresh_snapshot",
+      protocol_action: "request_snapshot",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain("viewer websocket is not connected");
+    expect(result.feedback.stage).toBe("rejected");
+    expect(result.feedback.accepted).toBe(false);
+  });
 });

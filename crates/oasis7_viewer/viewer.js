@@ -196,6 +196,14 @@ function useContext(context) {
 	return Owner && Owner.context && (value = Owner.context[context.id]) !== void 0 ? value : context.defaultValue;
 }
 var SuspenseContext;
+function repairObserverSlots(source) {
+	source.observerSlots = source.observers.map((observer, slot) => {
+		const sources = observer.sources;
+		if (!sources) return -1;
+		for (let i = sources.length - 1; i >= 0; i--) if (sources[i] === source && observer.sourceSlots && observer.sourceSlots[i] === slot) return i;
+		return sources.lastIndexOf(source);
+	});
+}
 function readSignal() {
 	const runningTransition = Transition && Transition.running;
 	if (this.sources && (runningTransition ? this.tState : this.state)) {
@@ -212,16 +220,21 @@ function readSignal() {
 		if (!observers || observers[observers.length - 1] !== Listener) {
 			const sSlot = observers ? observers.length : 0;
 			if (!Listener.sources) {
-				Listener.sources = [this];
-				Listener.sourceSlots = [sSlot];
+				const sources = [this];
+				const sourceSlots = [sSlot];
+				Listener.sources = sources;
+				Listener.sourceSlots = sourceSlots;
 			} else {
 				Listener.sources.push(this);
 				Listener.sourceSlots.push(sSlot);
 			}
 			if (!observers) {
-				this.observers = [Listener];
-				this.observerSlots = [Listener.sources.length - 1];
+				const newObservers = [Listener];
+				const newObserverSlots = [Listener.sources.length - 1];
+				this.observers = newObservers;
+				this.observerSlots = newObserverSlots;
 			} else {
+				if (!this.observerSlots || this.observerSlots.length !== observers.length) repairObserverSlots(this);
 				observers.push(Listener);
 				this.observerSlots.push(Listener.sources.length - 1);
 			}
@@ -264,7 +277,7 @@ function writeSignal(node, value, isComp) {
 }
 function updateComputation(node) {
 	if (!node.fn) return;
-	cleanNode(node);
+	cleanNode(node, true);
 	const time = ExecCount;
 	runComputation(node, Transition && Transition.running && Transition.sources.has(node) ? node.tValue : node.value, time);
 	if (Transition && !Transition.running && Transition.sources.has(node)) queueMicrotask(() => {
@@ -286,11 +299,11 @@ function runComputation(node, value, time) {
 		if (node.pure) {
 			if (Transition && Transition.running) {
 				node.tState = STALE;
-				node.tOwned && node.tOwned.forEach(cleanNode);
+				node.tOwned && node.tOwned.forEach((n) => cleanNode(n));
 				node.tOwned = void 0;
 			} else {
 				node.state = STALE;
-				node.owned && node.owned.forEach(cleanNode);
+				node.owned && node.owned.forEach((n) => cleanNode(n));
 				node.owned = null;
 			}
 		}
@@ -517,11 +530,18 @@ function markDownstream(node) {
 		}
 	}
 }
-function cleanNode(node) {
+function releaseTransitionSource(node) {
+	if (Transition && Transition.sources.has(node)) {
+		Transition.sources.delete(node);
+		delete node.tValue;
+	}
+}
+function cleanNode(node, recompute) {
 	let i;
 	if (node.sources) while (node.sources.length) {
 		const source = node.sources.pop(), index = node.sourceSlots.pop(), obs = source.observers;
 		if (obs && obs.length) {
+			if (!source.observerSlots || source.observerSlots.length !== obs.length) repairObserverSlots(source);
 			const n = obs.pop(), s = source.observerSlots.pop();
 			if (index < obs.length) {
 				n.sourceSlots[s] = index;
@@ -529,6 +549,7 @@ function cleanNode(node) {
 				source.observerSlots[index] = s;
 			}
 		}
+		if (!recompute && (!obs || !obs.length) && Transition) releaseTransitionSource(source);
 	}
 	if (node.tOwned) {
 		for (i = node.tOwned.length - 1; i >= 0; i--) cleanNode(node.tOwned[i]);
@@ -539,6 +560,7 @@ function cleanNode(node) {
 		for (i = node.owned.length - 1; i >= 0; i--) cleanNode(node.owned[i]);
 		node.owned = null;
 	}
+	if (!recompute) releaseTransitionSource(node);
 	if (node.cleanups) {
 		for (i = node.cleanups.length - 1; i >= 0; i--) node.cleanups[i]();
 		node.cleanups = null;
@@ -550,6 +572,7 @@ function reset(node, top) {
 	if (!top) {
 		node.tState = 0;
 		Transition.disposed.add(node);
+		releaseTransitionSource(node);
 	}
 	if (node.owned) for (let i = 0; i < node.owned.length; i++) reset(node.owned[i]);
 }
@@ -7229,8 +7252,10 @@ function wrap(value) {
 			let curProto = proto;
 			while (curProto != null) {
 				const descriptors = Object.getOwnPropertyDescriptors(curProto);
-				keys.push(...Object.keys(descriptors));
-				Object.assign(desc, descriptors);
+				for (const prop of Object.keys(descriptors)) {
+					keys.push(prop);
+					if (!Object.prototype.hasOwnProperty.call(desc, prop)) desc[prop] = descriptors[prop];
+				}
 				curProto = Object.getPrototypeOf(curProto);
 			}
 		}
@@ -8403,6 +8428,54 @@ function gameplayExecutionStateLabel(state, locale, localeText) {
 	};
 	return localeText(locale, ...labels[state] || labels.executing);
 }
+function isClaimAction(action) {
+	const norm = String(action || "").replace(/^gameplay_action:/, "");
+	return norm === "claim_first_agent" || norm === "claim_starter_oc";
+}
+function claimActionAwaitingSync(fb) {
+	if (!fb || !isClaimAction(fb.action)) return false;
+	const stage = String(fb.stage || "").trim().toLowerCase();
+	return [
+		"accepted",
+		"submitted",
+		"queued",
+		"ack",
+		"registering",
+		"signing",
+		"sent",
+		"committed",
+		"received",
+		"pending",
+		"unknown"
+	].includes(stage);
+}
+function resolveGameplayExecutionCause(executionState, pendingEmptyWorldClaimSync, emptyEntityBlocker, gameplay, locale, localeText) {
+	const executionCauseKind = [
+		"received",
+		"pending",
+		"unknown"
+	].includes(executionState) ? "outcome_unconfirmed" : pendingEmptyWorldClaimSync ? "queued_for_execution" : emptyEntityBlocker ? "world_constraint" : gameplay?.causality_kind || (() => {
+		if (executionState === "accepted") return "queued_for_execution";
+		if (executionState === "rejected") return "request_rejected";
+		if (executionState === "blocked") return "world_constraint";
+		if (executionState === "completed") return "goal_progressed";
+		return null;
+	})();
+	return {
+		executionCauseKind,
+		executionCauseLabel: (() => {
+			switch (executionCauseKind) {
+				case "outcome_unconfirmed": return localeText(locale, "等待权威结果", "Awaiting Authoritative Result");
+				case "queued_for_execution": return localeText(locale, "等待执行", "Queued for Execution");
+				case "world_constraint": return localeText(locale, "世界约束", "World Constraint");
+				case "agent_override": return localeText(locale, "Agent 改走了别的允许路径", "Agent Chose Differently");
+				case "goal_progressed": return localeText(locale, "世界已推进", "World Progressed");
+				case "request_rejected": return localeText(locale, "请求被拒绝", "Request Rejected");
+				default: return null;
+			}
+		})()
+	};
+}
 // software_safe_src/viewer_gameplay_result_recovery.js
 var scopeKey = (scope) => scope && JSON.stringify(Object.keys(scope).sort().map((key) => [key, scope[key]]));
 function originalFeedback(state, scope) {
@@ -8494,12 +8567,13 @@ function normalizeViewerAvailableActions({ gameplay, locale, localeText, agentEx
 	return (Array.isArray(gameplay?.available_actions) ? gameplay.available_actions : Array.isArray(gameplay?.availableActions) ? gameplay.availableActions : []).map((action) => {
 		const { actionId, label, protocolAction, targetAgentId, disabledReason } = normalizeViewerAvailableActionFields(action);
 		const starterOcMissingAgentReason = actionId === "claim_starter_oc" && !agentExists(targetAgentId) ? localeText(locale, "第一个 Agent 认领已提交，正在等待 committed 快照创建 Agent；请先推进或刷新一次。", "First Agent claim submitted; waiting for the committed snapshot to create the Agent. Advance or refresh once first.") : null;
+		const pendingClaimUnconfirmedReason = firstAgentClaimSyncPending && actionId === "claim_first_agent" ? localeText(locale, "原认领请求结果待确认，请刷新快照或继续等待链上 committed 快照同步；请勿重复提交。", "Original claim request outcome is unconfirmed; refresh the snapshot or keep waiting for the committed chain snapshot to sync instead of resubmitting.") : null;
 		return {
 			actionId,
 			label,
 			protocolAction,
 			targetAgentId,
-			disabledReason: protocolAction === "live_control.pause" ? null : protocolAction === "request_snapshot" || protocolAction === "world.request_snapshot" || firstAgentClaimSyncPending && protocolAction === "live_control.step" || firstAgentClaimSyncPending && protocolAction === "live_control.play" || actionId === "claim_first_agent" || actionId === "claim_starter_oc" ? disabledReason || starterOcMissingAgentReason || null : disabledReason || emptyEntityBlocker?.disabledReason || null,
+			disabledReason: protocolAction === "live_control.pause" ? null : protocolAction === "request_snapshot" || protocolAction === "world.request_snapshot" || firstAgentClaimSyncPending && protocolAction === "live_control.step" || firstAgentClaimSyncPending && protocolAction === "live_control.play" || actionId === "claim_first_agent" || actionId === "claim_starter_oc" ? disabledReason || starterOcMissingAgentReason || pendingClaimUnconfirmedReason || null : disabledReason || emptyEntityBlocker?.disabledReason || null,
 			executeKind: executeKindForAction(actionId, protocolAction)
 		};
 	});
@@ -12757,12 +12831,32 @@ function createViewerPromptFeedbackModule({ feedbackBadgeClass, isLocaleZh, loca
 		description.detail = details.join(" ") || null;
 		return description;
 	}
+	function describePromptVersionState(state, feedback = state?.lastPromptFeedback, locale = state?.uiLocale) {
+		const currentVersion = Math.max(0, Math.floor(Number(state?.promptDraft?.currentVersion || 0)));
+		const nextRollbackTargetVersion = Math.max(0, Math.floor(Number(state?.promptDraft?.rollbackTargetVersion || 0)));
+		const responseVersion = Number(feedback?.response?.version);
+		const ackVersion = Number.isFinite(responseVersion) ? Math.max(0, Math.floor(responseVersion)) : currentVersion;
+		const responseRollbackVersion = Number(feedback?.response?.rolled_back_to_version);
+		const restoredFromVersion = feedback?.stage === "rollback_ack" && Number.isFinite(responseRollbackVersion) ? Math.max(0, Math.floor(responseRollbackVersion)) : null;
+		return {
+			currentVersion,
+			nextRollbackTargetVersion,
+			ackVersion,
+			restoredFromVersion,
+			summary: restoredFromVersion == null ? isLocaleZh(locale) ? `当前生效 prompt 版本是 ${formatPromptVersionLabel(currentVersion)}。` : `Active prompt version is ${formatPromptVersionLabel(currentVersion)}.` : isLocaleZh(locale) ? `当前生效 prompt 版本是 ${formatPromptVersionLabel(currentVersion)}；内容恢复自 ${formatPromptVersionLabel(restoredFromVersion)}。` : `Active prompt version is ${formatPromptVersionLabel(currentVersion)}; content was restored from ${formatPromptVersionLabel(restoredFromVersion)}.`,
+			detail: restoredFromVersion == null ? isLocaleZh(locale) ? `回滚输入框默认指向下一次目标 ${formatPromptVersionLabel(nextRollbackTargetVersion)}。` : `The rollback input defaults to the next target ${formatPromptVersionLabel(nextRollbackTargetVersion)}.` : isLocaleZh(locale) ? `这次回滚生成了新的保存版本 ${formatPromptVersionLabel(ackVersion)}。下面输入框现在指向下一次目标 ${formatPromptVersionLabel(nextRollbackTargetVersion)}，不是刚恢复的版本。` : `The rollback created a new saved version ${formatPromptVersionLabel(ackVersion)}. The input below now points to the next target ${formatPromptVersionLabel(nextRollbackTargetVersion)}, not the restored version.`
+		};
+	}
 	return {
 		describePromptResult,
+		describePromptVersionState,
 		promptResultStatus,
 		redactPromptControlResponse,
 		semanticPromptFeedbackCode
 	};
+}
+function formatPromptVersionLabel(value) {
+	return `v${Math.max(0, Math.floor(Number(value || 0)))}`;
 }
 // software_safe_src/viewer_feedback_module.js
 function isRecord$2(value) {
@@ -12828,9 +12922,6 @@ function createViewerFeedbackModule({ clone, feedbackBadgeClass, hostedActionPol
 		const responseMessage = String(feedback?.response?.message || "").trim();
 		if (responseMessage) return responseMessage;
 		return String(feedback?.reason || "").trim() || null;
-	}
-	function formatPromptVersionLabel(value) {
-		return `v${Math.max(0, Math.floor(Number(value || 0)))}`;
 	}
 	function describeSemanticFeedback(feedback, locale = state.uiLocale) {
 		if (!feedback) return null;
@@ -12943,6 +13034,24 @@ function createViewerFeedbackModule({ clone, feedbackBadgeClass, hostedActionPol
 			return description;
 		}
 		if (feedback.kind === "gameplay_action") {
+			if (String(feedback?.action || "").trim() === "request_snapshot") {
+				if (feedback.stage === "ack") {
+					description.label = isLocaleZh(locale) ? "快照刷新已请求" : "Snapshot refresh requested";
+					description.summary = isLocaleZh(locale) ? "已发送快照刷新请求；正在等待最新世界快照。" : "Snapshot refresh requested; awaiting updated world snapshot.";
+					description.detail = isLocaleZh(locale) ? "刷新快照为只读查询，不改变世界状态与 Agent 归属。" : "Snapshot refresh is a read-only query; it does not change world state or Agent ownership.";
+					return description;
+				}
+				if (feedback.stage === "rejected" || feedback.stage === "error") {
+					description.label = isLocaleZh(locale) ? "快照刷新失败" : "Snapshot refresh failed";
+					description.summary = rejectionSummary("快照刷新请求未能发送。", "Snapshot refresh could not be sent.");
+					description.detail = rejectionDetail("连接未就绪或已断开；请核对连接状态后再试。", "Connection not ready or disconnected; check connection status before retrying.");
+					return description;
+				}
+				description.label = isLocaleZh(locale) ? "快照刷新中" : "Refreshing snapshot";
+				description.summary = feedback.effect || (isLocaleZh(locale) ? "快照刷新请求正在处理。" : "Snapshot refresh request is in flight.");
+				description.detail = isLocaleZh(locale) ? "请等待快照返回后再进行下一步。" : "Wait for snapshot update before proceeding.";
+				return description;
+			}
 			if (feedback.stage === "ack") {
 				const acceptedAtTick = Number(feedback?.response?.accepted_at_tick || 0);
 				const message = String(feedback?.response?.message || "");
@@ -12959,22 +13068,7 @@ function createViewerFeedbackModule({ clone, feedbackBadgeClass, hostedActionPol
 		}
 		return description;
 	}
-	function describePromptVersionState(feedback = state.lastPromptFeedback, locale = state.uiLocale) {
-		const currentVersion = Math.max(0, Math.floor(Number(state.promptDraft.currentVersion || 0)));
-		const nextRollbackTargetVersion = Math.max(0, Math.floor(Number(state.promptDraft.rollbackTargetVersion || 0)));
-		const responseVersion = Number(feedback?.response?.version);
-		const ackVersion = Number.isFinite(responseVersion) ? Math.max(0, Math.floor(responseVersion)) : currentVersion;
-		const responseRollbackVersion = Number(feedback?.response?.rolled_back_to_version);
-		const restoredFromVersion = feedback?.stage === "rollback_ack" && Number.isFinite(responseRollbackVersion) ? Math.max(0, Math.floor(responseRollbackVersion)) : null;
-		return {
-			currentVersion,
-			nextRollbackTargetVersion,
-			ackVersion,
-			restoredFromVersion,
-			summary: restoredFromVersion == null ? isLocaleZh(locale) ? `当前生效 prompt 版本是 ${formatPromptVersionLabel(currentVersion)}。` : `Active prompt version is ${formatPromptVersionLabel(currentVersion)}.` : isLocaleZh(locale) ? `当前生效 prompt 版本是 ${formatPromptVersionLabel(currentVersion)}；内容恢复自 ${formatPromptVersionLabel(restoredFromVersion)}。` : `Active prompt version is ${formatPromptVersionLabel(currentVersion)}; content was restored from ${formatPromptVersionLabel(restoredFromVersion)}.`,
-			detail: restoredFromVersion == null ? isLocaleZh(locale) ? `回滚输入框默认指向下一次目标 ${formatPromptVersionLabel(nextRollbackTargetVersion)}。` : `The rollback input defaults to the next target ${formatPromptVersionLabel(nextRollbackTargetVersion)}.` : isLocaleZh(locale) ? `这次回滚生成了新的保存版本 ${formatPromptVersionLabel(ackVersion)}。下面输入框现在指向下一次目标 ${formatPromptVersionLabel(nextRollbackTargetVersion)}，不是刚恢复的版本。` : `The rollback created a new saved version ${formatPromptVersionLabel(ackVersion)}. The input below now points to the next target ${formatPromptVersionLabel(nextRollbackTargetVersion)}, not the restored version.`
-		};
-	}
+	const describePromptVersionState = (feedback = state.lastPromptFeedback, locale = state.uiLocale) => promptFeedback.describePromptVersionState(state, feedback, locale);
 	function buildGameplaySummary(locale = state.uiLocale) {
 		const lastGameplayActionFeedback = feedbackForScope(state.lastGameplayActionFeedback, state);
 		const gameplay = state.snapshot?.player_gameplay;
@@ -13017,7 +13111,8 @@ function createViewerFeedbackModule({ clone, feedbackBadgeClass, hostedActionPol
 		const firstAgentClaimSyncPending = emptyEntityBlocker && pendingClaim;
 		if (firstAgentClaimSyncPending) emptyEntityBlocker = {
 			...emptyEntityBlocker,
-			nextStepHint: localeText(locale, "等待并刷新原请求的权威结果；请勿重复提交认领。", "Refresh the original request's authoritative result; do not submit the claim again.")
+			nextStepHint: localeText(locale, "等待并刷新原请求的权威结果；请勿重复提交认领。", "Refresh the original request's authoritative result; do not submit the claim again."),
+			disabledReason: localeText(locale, "认领结果待确认，正在等待权威结果；依赖 Agent 绑定的操作暂不可用。", "Claim outcome unconfirmed, awaiting authoritative result; actions requiring Agent binding are unavailable.")
 		};
 		let availableActions = normalizeViewerAvailableActions({
 			gameplay,
@@ -13033,20 +13128,7 @@ function createViewerFeedbackModule({ clone, feedbackBadgeClass, hostedActionPol
 		const runtimeBlockerDetail = gameplay.blocker_detail || null;
 		const runtimeAlreadyPublishedEmptyEntityBlocker = !boundOwnerSync && runtimeBlockerKind === "runtime_snapshot_empty_entities";
 		const recentStage = String(recentFeedback?.stage || "").trim().toLowerCase();
-		const pendingGameplayFeedback = [
-			"accepted",
-			"submitted",
-			"queued",
-			"ack",
-			"registering",
-			"signing",
-			"sent",
-			"received",
-			"pending",
-			"committed",
-			"unknown"
-		].includes(recentStage) && Boolean(String(recentFeedback?.action || "").trim());
-		const pendingEmptyWorldClaimSync = Boolean(emptyEntityBlocker && pendingGameplayFeedback);
+		const pendingEmptyWorldClaimSync = Boolean(emptyEntityBlocker && (claimActionAwaitingSync(recentFeedback) || claimActionAwaitingSync(pendingClaim)));
 		const resolvedStageStatus = pendingEmptyWorldClaimSync ? gameplay.stage_status || "accepted" : emptyEntityBlocker ? "blocked" : gameplay.stage_status || null;
 		const resolvedBlockerKind = runtimeAlreadyPublishedEmptyEntityBlocker ? runtimeBlockerKind : emptyEntityBlocker ? emptyEntityBlocker.blockerKind : runtimeBlockerKind;
 		const resolvedBlockerDetail = runtimeAlreadyPublishedEmptyEntityBlocker ? runtimeBlockerDetail || emptyEntityBlocker?.blockerDetail || null : emptyEntityBlocker ? emptyEntityBlocker.blockerDetail : runtimeBlockerDetail;
@@ -13099,28 +13181,7 @@ function createViewerFeedbackModule({ clone, feedbackBadgeClass, hostedActionPol
 				label: localeText(locale, "已拒绝", "Rejected")
 			}
 		];
-		const executionCauseKind = [
-			"received",
-			"pending",
-			"unknown"
-		].includes(executionState) ? "outcome_unconfirmed" : pendingEmptyWorldClaimSync ? "queued_for_execution" : emptyEntityBlocker ? "world_constraint" : gameplay.causality_kind || (() => {
-			if (executionState === "accepted") return "queued_for_execution";
-			if (executionState === "rejected") return "request_rejected";
-			if (executionState === "blocked") return "world_constraint";
-			if (executionState === "completed") return "goal_progressed";
-			return null;
-		})();
-		const executionCauseLabel = (() => {
-			switch (executionCauseKind) {
-				case "outcome_unconfirmed": return localeText(locale, "等待权威结果", "Awaiting Authoritative Result");
-				case "queued_for_execution": return localeText(locale, "等待执行", "Queued for Execution");
-				case "world_constraint": return localeText(locale, "世界约束", "World Constraint");
-				case "agent_override": return localeText(locale, "Agent 改走了别的允许路径", "Agent Chose Differently");
-				case "goal_progressed": return localeText(locale, "世界已推进", "World Progressed");
-				case "request_rejected": return localeText(locale, "请求被拒绝", "Request Rejected");
-				default: return null;
-			}
-		})();
+		const { executionCauseKind, executionCauseLabel } = resolveGameplayExecutionCause(executionState, pendingEmptyWorldClaimSync, emptyEntityBlocker, gameplay, locale, localeText);
 		const executionCauseDetail = pendingEmptyWorldClaimSync ? recentFeedback?.hint || recentFeedback?.effect || resolvedBlockerDetail || null : emptyEntityBlocker ? resolvedBlockerDetail || emptyEntityBlocker.blockerDetail || null : gameplay.causality_detail || (() => {
 			if (executionState === "blocked") return resolvedBlockerDetail || recentFeedback?.reason || null;
 			if (executionState === "accepted") return recentFeedback?.hint || recentFeedback?.effect || null;
@@ -13205,10 +13266,19 @@ function createViewerFeedbackModule({ clone, feedbackBadgeClass, hostedActionPol
 		const recoveryActionDetail = (action, economicSurface) => {
 			if (!action) return null;
 			if (action.disabledReason) return action.disabledReason;
+			if (action.executeKind === "request_snapshot") {
+				if (firstAgentClaimSyncPending) return localeText(locale, "只读状态查询：刷新玩法快照，核对原认领请求的权威结果；不改变世界时钟与 Agent 归属。", "Read-only query: refresh the gameplay snapshot to check the original claim's authoritative result; does not advance world clock or alter Agent ownership.");
+				return localeText(locale, "刷新快照，先确认 blocker 是否仍存在，再决定是否提交新的玩法动作。", "Refresh the snapshot to confirm whether the blocker is still present before submitting another gameplay action.");
+			}
+			if (action.executeKind === "step") {
+				if (firstAgentClaimSyncPending) return localeText(locale, "观察器时钟控制：推进一个 committed step；认领结果待确认前不代表已获得玩家入场或 Agent 控制权。", "Observer clock control: advance one committed step; does not grant player entry or Agent authority while claim outcome is unconfirmed.");
+				return localeText(locale, "推进一个 committed step，再检查提交结果及 blocker 是否变化。", "Advance one committed step, then inspect the committed result and whether the blocker changed.");
+			}
+			if (action.executeKind === "play") {
+				if (firstAgentClaimSyncPending) return localeText(locale, "观察器时钟控制：恢复实时推进；认领结果待确认前不代表已获得玩家入场或 Agent 控制权。", "Observer clock control: resume live progression; does not grant player entry or Agent authority while claim outcome is unconfirmed.");
+				return localeText(locale, "恢复实时推进，再检查实际回执和当前世界状态。", "Resume live progression, then inspect the actual receipts and current world state.");
+			}
 			if (!isRecoveryChoiceState) return localeText(locale, "可以直接从正式网页入口执行。", "Playable directly from the formal Web entry.");
-			if (action.executeKind === "request_snapshot") return localeText(locale, "刷新快照，先确认 blocker 是否仍存在，再决定是否提交新的玩法动作。", "Refresh the snapshot to confirm whether the blocker is still present before submitting another gameplay action.");
-			if (action.executeKind === "step") return localeText(locale, "推进一个 committed step，再检查提交结果及 blocker 是否变化。", "Advance one committed step, then inspect the committed result and whether the blocker changed.");
-			if (action.executeKind === "play") return localeText(locale, "恢复实时推进，再检查实际回执和当前世界状态。", "Resume live progression, then inspect the actual receipts and current world state.");
 			if (economicSurface?.repairAction) return localeText(locale, `下一步操作指引：${economicSurface.repairAction}`, `Next action guidance: ${economicSurface.repairAction}`);
 			return narrativeNextStep || localeText(locale, "先读取当前指引并检查世界状态，再决定下一步。", "Read the current guidance and inspect the world state before choosing the next action.");
 		};
@@ -13217,6 +13287,11 @@ function createViewerFeedbackModule({ clone, feedbackBadgeClass, hostedActionPol
 			if (lastWorldChange) return lastWorldChange;
 			if (statusReason) return statusReason;
 			if (recentFeedback?.hint) return recentFeedback.hint;
+			if (firstAgentClaimSyncPending && [
+				"received",
+				"pending",
+				"unknown"
+			].includes(pendingClaim?.stage)) return localeText(locale, "认领请求结果待确认，请刷新快照或继续等待链上 committed 快照同步；请勿重复提交认领。", "Claim request outcome is unconfirmed; refresh the snapshot or keep waiting for the committed chain snapshot to sync. Do not resubmit.");
 			if (pendingEmptyWorldClaimSync) return localeText(locale, "系统已经收到认领请求，正在等待链上 committed 快照把新 Agent 同步到 viewer。", "The system has accepted the claim and is waiting for the committed chain snapshot to sync the new Agent into the viewer.");
 			return localeText(locale, "先提交一个玩法动作，再看系统如何确认、推进或阻塞它。", "Submit one gameplay action first, then read how the system confirms, advances, or blocks it.");
 		})();
@@ -19726,7 +19801,10 @@ function extractAgentSpokeEntry(event) {
 function requestSnapshotSafe() {
 	try {
 		sendJson({ type: "request_snapshot" });
-	} catch (_) {}
+		return true;
+	} catch (_) {
+		return false;
+	}
 }
 function createSemanticFeedback(kind, action, agentId, extra = {}) {
 	return bindFeedbackScope({
@@ -20044,7 +20122,30 @@ function sendGameplayAction(actionOrId, operation = { sessionRefreshRetryAttempt
 	};
 	const protocolAction = String(action.protocol_action || "").trim();
 	if (protocolAction === "request_snapshot" || protocolAction === "world.request_snapshot") {
-		requestSnapshotSafe();
+		if (requestSnapshotSafe() === false) {
+			state.lastGameplayActionFeedback = {
+				id: nextRequestId(),
+				kind: "gameplay_action",
+				action: action.action_id || "request_snapshot",
+				agentId: action.target_agent_id || null,
+				accepted: false,
+				ok: false,
+				stage: "rejected",
+				reason: "viewer websocket is not connected",
+				effect: "snapshot refresh failed to send",
+				response: {
+					action_id: action.action_id || "request_snapshot",
+					target_agent_id: action.target_agent_id || "",
+					message: "viewer websocket is not connected"
+				}
+			};
+			render();
+			return {
+				ok: false,
+				reason: "viewer websocket is not connected",
+				feedback: snapshotSemanticFeedback(state.lastGameplayActionFeedback)
+			};
+		}
 		if (hostedWorldAccount.hasPendingGameplayRequest()) {
 			requestGameplayResult(state, getGameplayRecoveryScope(state), sendJson);
 			return {

@@ -18,7 +18,13 @@ use std::{
     sync::Arc,
 };
 
+#[path = "formal_live_survivor_next_request_tests.rs"]
+mod next_request_tests;
+#[path = "formal_live_survivor_participant_tests.rs"]
+pub(crate) mod governed_participant;
+
 pub(in super::super) struct SurvivorResources {
+    pub governed_participant: bool,
     pub primary_child: super::EndpointChild,
     pub replica_child: super::EndpointChild,
     pub pdir: PathBuf,
@@ -55,15 +61,29 @@ fn wait_file(child: &mut RuntimeChild, file: &Path, expected: &[u8]) -> Result<(
 #[ignore = "requires OASIS7_FORMAL_ENDPOINT_TEST_BIN; custody/fault domains simulated"]
 fn protected_endpoint_children_replica_only_frozen_and_prepared_resume_without_original_private_key()
  {
+    let mut failures = Vec::new();
     for phase in ["survivor_frozen", "survivor_prepared"] {
-        thread::Builder::new()
-            .stack_size(32 * 1024 * 1024)
-            .spawn(move || run_protected_runtime_round_trip(true, Some(phase)))
-            .unwrap()
-            .join()
-            .unwrap()
-            .unwrap();
+        // Exercise legacy denial, registration after recovery, and registration
+        // as the frozen/prepared original independently, without short-circuiting.
+        for scenario in ["legacy", "registration_after_recovery", "registration_original"] {
+            let outcome = thread::Builder::new()
+                .stack_size(32 * 1024 * 1024)
+                .spawn(move || {
+                    if scenario != "legacy" {
+                        governed_participant::run_recovery_scenario(phase, scenario == "registration_original")
+                    } else {
+                        run_protected_runtime_round_trip(true, Some(phase))
+                    }
+                })
+                .expect("spawn survivor scenario")
+                .join();
+            eprintln!("survivor phase={phase}, scenario={scenario}: {outcome:?}");
+            if !matches!(&outcome, Ok(Ok(()))) {
+                failures.push(format!("phase={phase}, scenario={scenario}: {outcome:?}"));
+            }
+        }
     }
+    assert!(failures.is_empty(), "survivor scenarios failed: {failures:?}");
 }
 #[allow(clippy::too_many_arguments)]
 pub(in super::super) fn run(
@@ -388,7 +408,7 @@ pub(in super::super) fn run(
         if boundary::execution_attempts() != expected {
             return Err("survivor reexecuted original candidate or skipped replay".into());
         }
-        let effect = first_agent_test_effect::first_agent_effect(publication.world(), request)?;
+        let effect = original_effect(publication.world(), request)?;
         if let Some(original) = &exact_effect {
             if original != &effect {
                 return Err("survivor original agent/owner/resources/result changed".into());
@@ -463,7 +483,7 @@ pub(in super::super) fn run(
             .history
             .fixed_publication(&reference)
             .map_err(|error| format!("survivor later original fixed publication: {error}"))?;
-        if Some(first_agent_test_effect::first_agent_effect(
+        if Some(original_effect(
             original.world(),
             request,
         )?) != exact_effect
@@ -476,6 +496,20 @@ pub(in super::super) fn run(
             "survivor_before_reopen",
         )?;
     }
+    if resources.governed_participant {
+        return governed_participant::submit_after_recovery(
+            config, owner, world, request, original_ref.as_ref().ok_or("survivor original result missing")?,
+        );
+    }
+    next_request_tests::submit_after_recovery(
+        config,
+        owner,
+        world,
+        request,
+        original_ref
+            .as_ref()
+            .ok_or("survivor original result missing")?,
+    )?;
     Ok(())
 }
 fn reference_to_head(reference: &oasis7_client_api::world_service::CommitRef) -> FormalHeadRefV1 {
@@ -584,4 +618,12 @@ fn permission_for_necessary_endpoint(
         witness_key,
         independent_floor,
     )
+}
+
+fn original_effect(world: &oasis7_runtime::World, request: &SubmitIntentRequest<WorldServicePayloadV1>) -> Result<Vec<u8>, String> {
+    if matches!(&request.signed_payload, WorldServicePayloadV1::GameParticipantRegister { .. }) {
+        governed_participant::registered_effect(world, request)
+    } else {
+        first_agent_test_effect::first_agent_effect(world, request)
+    }
 }

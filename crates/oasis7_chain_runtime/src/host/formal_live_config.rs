@@ -14,6 +14,10 @@ use oasis7_runtime::ReleaseSecurityPolicy;
 use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, path::PathBuf, time::Duration};
 
+#[path = "formal_live_read_authorization_config.rs"]
+mod read_authorization;
+pub(crate) use read_authorization::FormalLiveReadAuthorizationV3;
+
 const MAX_CONFIG_BYTES: u64 = 64 * 1024;
 const MAX_TRUST_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_NODE_KEYPAIR_BYTES: u64 = 16 * 1024;
@@ -61,8 +65,13 @@ pub(super) struct FormalLiveConfigV1 {
     pub recovery_origin_history_directory: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effect_delivery: Option<FormalEffectDeliveryConfigV1>,
-    #[serde(default, skip_serializing_if = "FullSyncProviderReadAuthorizationModeV1::is_legacy")]
+    #[serde(
+        default,
+        skip_serializing_if = "FullSyncProviderReadAuthorizationModeV1::is_legacy"
+    )]
     pub full_sync_provider_read_authorization: FullSyncProviderReadAuthorizationModeV1,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub full_sync_read_authorization_v3: Option<FormalLiveReadAuthorizationV3>,
 }
 
 /// Routes are usable only when their complete contract digest is already
