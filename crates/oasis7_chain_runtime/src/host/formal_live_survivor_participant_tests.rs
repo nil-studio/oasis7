@@ -29,14 +29,17 @@ pub(crate) fn install_genesis_policy(
     Ok(())
 }
 
-#[test]
-#[ignore = "requires OASIS7_FORMAL_ENDPOINT_TEST_BIN; custody/fault domains simulated"]
-fn protected_endpoint_children_governed_registration_after_survivor_and_cold_identity_recovery() {
-    for phase in ["survivor_frozen", "survivor_prepared"] {
-        thread::Builder::new().stack_size(32 * 1024 * 1024)
-            .spawn(move || run_protected_runtime_fixture(true, Some(phase), false, None, None, None, FixtureCase::GovernedParticipant))
-            .unwrap().join().unwrap().unwrap();
-    }
+// Called by the existing trusted survivor test, not a new ignored test mapping.
+pub(super) fn run_recovery_scenario(phase: &str) -> Result<(), String> {
+    run_protected_runtime_fixture(
+        true,
+        Some(phase),
+        false,
+        None,
+        None,
+        None,
+        FixtureCase::GovernedParticipant,
+    )
 }
 
 fn request(world: &WorldIdentity, payload: WorldServicePayloadV1) -> Result<SubmitIntentRequest<WorldServicePayloadV1>, String> {

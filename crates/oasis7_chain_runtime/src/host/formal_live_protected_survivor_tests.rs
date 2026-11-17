@@ -61,15 +61,28 @@ fn wait_file(child: &mut RuntimeChild, file: &Path, expected: &[u8]) -> Result<(
 #[ignore = "requires OASIS7_FORMAL_ENDPOINT_TEST_BIN; custody/fault domains simulated"]
 fn protected_endpoint_children_replica_only_frozen_and_prepared_resume_without_original_private_key()
  {
+    let mut failures = Vec::new();
     for phase in ["survivor_frozen", "survivor_prepared"] {
-        thread::Builder::new()
-            .stack_size(32 * 1024 * 1024)
-            .spawn(move || run_protected_runtime_round_trip(true, Some(phase)))
-            .unwrap()
-            .join()
-            .unwrap()
-            .unwrap();
+        // Preserve the original scenario and independently exercise the governed
+        // registration scenario even when another scenario fails.
+        for governed in [false, true] {
+            let outcome = thread::Builder::new()
+                .stack_size(32 * 1024 * 1024)
+                .spawn(move || {
+                    if governed {
+                        governed_participant::run_recovery_scenario(phase)
+                    } else {
+                        run_protected_runtime_round_trip(true, Some(phase))
+                    }
+                })
+                .expect("spawn survivor scenario")
+                .join();
+            if !matches!(&outcome, Ok(Ok(()))) {
+                failures.push(format!("phase={phase}, governed={governed}: {outcome:?}"));
+            }
+        }
     }
+    assert!(failures.is_empty(), "survivor scenarios failed: {failures:?}");
 }
 #[allow(clippy::too_many_arguments)]
 pub(in super::super) fn run(

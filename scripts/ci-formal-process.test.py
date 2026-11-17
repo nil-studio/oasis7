@@ -247,7 +247,7 @@ class Coverage(unittest.TestCase):
         suites = artifacts.resolve_suites(self.config, self.binaries)
         cases = [(e['binary'], e['name']) for entries in suites.values() for e in entries if 'binary' in e]
         self.assertEqual(len(cases), len(set(cases)))
-        self.assertEqual(sum(e.get('ignored', False) for entries in suites.values() for e in entries), 30)
+        self.assertEqual(sum(e.get('ignored', False) for entries in suites.values() for e in entries), 29)
         self.assertEqual(sum('script' in e for entries in suites.values() for e in entries), 2)
 
     def test_rename_duplicate_and_new_unassigned_acceptance_fail(self):
@@ -347,7 +347,7 @@ class Coverage(unittest.TestCase):
                 suites = artifacts.resolve_suites(artifacts.formal_configuration(), binaries)
                 self.assertIn(old, suites['world-history'])
                 self.assertIn(added, suites['runtime-protocol'])
-                self.assertEqual(sum(entry.get('ignored', False) for cases in suites.values() for entry in cases), 31)
+                self.assertEqual(sum(entry.get('ignored', False) for cases in suites.values() for entry in cases), 30)
 
     def test_candidate_cannot_relabel_formal_case_or_move_it_to_an_unplanned_shard(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -1498,7 +1498,7 @@ class CompleteArtifactPartitions(unittest.TestCase):
         fixture = Coverage()
         fixture.setUp()
         selected = FastExecutionSelection().selection(suites=('runtime-protocol',))
-        self.assertEqual(set(artifacts.formal_shards(selected)), {'runtime-protocol', 'healthy-set', 'storage-recovery', 'lifecycle-cli'})
+        self.assertEqual(set(artifacts.formal_shards(selected)), {'runtime-protocol', 'healthy-set', 'lifecycle-cli'})
         selected['formal_shards'] = artifacts.formal_shards(selected)
         manifest = dict(execution_plan=selected, suites=artifacts.resolve_suites(fixture.config, fixture.binaries))
         combined = []
