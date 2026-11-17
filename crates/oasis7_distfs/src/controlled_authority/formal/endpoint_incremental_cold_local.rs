@@ -1,7 +1,7 @@
 //! Actual cold local continuity consumer. A native ref alone cannot construct
 //! this token: checked logical sources, a fresh provider guard, fixed original,
 //! both actual opened leases and unchanged native generation are required.
-use super::super::provisional::{AcceptedCandidateCache, AcceptedCurrentOwner};
+use super::super::provisional::AcceptedCandidateCache;
 use super::*;
 use crate::incremental_page_store::{IncrementalPageStore, PageCompression};
 use std::fs::File;

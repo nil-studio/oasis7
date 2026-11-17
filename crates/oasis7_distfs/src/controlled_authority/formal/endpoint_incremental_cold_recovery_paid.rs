@@ -2,25 +2,18 @@
 //! qualifier/codec remains unchanged and all original scalar/physical lanes
 //! debit the one caller Common child. No ordinary-tick cold scan is exposed.
 use super::*;
-use crate::incremental_page_store::{
-    PageIoBudget,
-    objects::{IncrementalObjectStore, ObjectIo},
-};
+use crate::incremental_page_store::objects::{IncrementalObjectStore, ObjectIo};
 use oasis7_formal_protocol::{
     incremental_execution::ExecutionFactKindV1,
     incremental_material::*,
     incremental_state::StateNamespaceV1,
-    incremental_value::{ValueIoBudget, ValueReadContext, ValueTreeError},
+    incremental_value::{ValueReadContext, ValueTreeError},
 };
 use oasis7_proto::memory_budget::MemoryClass;
 use oasis7_world_state::{
     incremental_cognition_current_complete_v3::CognitionCurrentPresenceV3,
-    incremental_cognition_history::*,
-    incremental_cognition_history_hash_outboard::CognitionHeadHashWorkV1,
-    incremental_field_read::WorldFieldReadContextV1,
-    incremental_runtime_history_index::RuntimeHistoryIndexWorkV1,
-    incremental_semantic_key::SemanticKeyBudget, incremental_world_current_complete::*,
-    incremental_world_event_decode::WorldEventDecodeWorkV1,
+    incremental_cognition_history::*, incremental_field_read::WorldFieldReadContextV1,
+    incremental_world_current_complete::*,
     incremental_world_raw_complete::MailboxProvenanceScopeV1,
 };
 
@@ -143,7 +136,7 @@ where
         let (current, runtime, cognition) = {
             let mut read = WorldFieldReadContextV1 {
                 root: roots.state_root(StateNamespaceV1::Allocator),
-                state: state,
+                state,
                 values: ValueReadContext {
                     source: values,
                     memory,
@@ -244,7 +237,7 @@ where
         let ledger = if let Some(row) = results.proof_ledger() {
             let mut ledger_read = WorldFieldReadContextV1 {
                 root: roots.state_root(StateNamespaceV1::Allocator),
-                state: state,
+                state,
                 values: ValueReadContext {
                     source: values,
                     memory,

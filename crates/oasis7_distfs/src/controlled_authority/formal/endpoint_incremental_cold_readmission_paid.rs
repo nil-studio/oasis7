@@ -1,17 +1,11 @@
 //! Recovery-to-Ordinary source admission. Ledger's fixed Common kernel runs
 //! outside the scalar child; all other logical/physical lanes share that child.
 use super::*;
-use oasis7_formal_protocol::{
-    incremental_execution::RootSetV1,
-    incremental_state::MerkleNodeReader,
-    incremental_value::{ValueNodeReader, ValueTreeError},
-};
+use oasis7_formal_protocol::{incremental_execution::RootSetV1, incremental_value::ValueTreeError};
 use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
 use oasis7_world_state::{
-    incremental_cognition_history::*,
-    incremental_cognition_history_hash_outboard::CognitionHeadHashWorkV1,
-    incremental_field_read::WorldFieldReadContextV1, incremental_runtime_history_source::*,
-    incremental_world_current_complete::*,
+    incremental_cognition_history::*, incremental_field_read::WorldFieldReadContextV1,
+    incremental_runtime_history_source::*, incremental_world_current_complete::*,
     incremental_world_raw_complete::MailboxProvenanceScopeV1,
 };
 

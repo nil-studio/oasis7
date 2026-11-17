@@ -7,7 +7,7 @@ use oasis7_formal_protocol::{
         IncrementalFrozenMaterialWorkV1, verify_formal_reservation,
         verify_incremental_frozen_material_v1,
     },
-    incremental_material::{CheckedCommitCore, OriginalObjectReader},
+    incremental_material::CheckedCommitCore,
 };
 use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
 use std::cell::RefCell;

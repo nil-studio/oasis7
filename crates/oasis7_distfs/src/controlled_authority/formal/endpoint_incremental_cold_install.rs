@@ -221,7 +221,7 @@ where
     )?;
     common.charge(wire.len() as u64 * 16, wire.len() as u64 * 16)?;
     let token = super::cold_io::run(work, &mut common, |work, stop| {
-        let mut local = super::local_closure::LocalClosureReadWorkV1 {
+        let local = super::local_closure::LocalClosureReadWorkV1 {
             reads_remaining: std::mem::take(&mut work.local_records_remaining),
             original_bytes_remaining: std::mem::take(&mut work.local_original_bytes_remaining),
         };
