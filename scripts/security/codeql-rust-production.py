@@ -30,7 +30,7 @@ PRODUCTION_BASE_VARIANT = 'qualifier-lines-constraint-matching-v6'
 PRODUCTION_VARIANT = 'qualifier-lines-constraint-target-qualified-v7'
 NEGATIVE_PROJECTION_VARIANT = 'qualifier-lines-negative-projection-v8'
 NEGATIVE_PROJECTION_BASE_SHA = '8f8ac05fb73efc3d7ebfd3d9ab452e90c13d61c7e651379f57f88b4400080ca9'
-NEGATIVE_PROJECTION_PATCH_SHA = 'f1737d0ca92a75f4bc08513c616a8953b4772886af451ec18364997b8ded3a9c'
+NEGATIVE_PROJECTION_PATCH_SHA = 'b5c9a3e9f9f8a2d47edbd3aa797e9723d0e11e26b246f992ecf160fdd14bf0a6'
 NEGATIVE_PROJECTION_SHA = 'f51a925b05f1a8315248d04cda44cd12cfb12fd7ae424138898805118ffd9f09'
 LIBRARY_RECEIPTS = ('arity-patch-identity.json', 'lines-model-identity.json',
                     'shared-helper-identity.json', 'trait-visibility-identity.json',
