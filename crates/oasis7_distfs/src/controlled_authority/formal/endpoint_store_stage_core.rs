@@ -38,16 +38,25 @@ pub(super) fn join_paid(base: &Path, name: &str, capacity: usize) -> Result<Path
     Ok(path)
 }
 
+/// Caller-admitted path capacities; this value carries no reservation.
+pub(super) struct StagePathLayout {
+    pub(super) child_cap: usize,
+    pub(super) temp_name_cap: usize,
+}
+
 pub(super) fn stage_wire_with_layout(
     guard: &physical::PublicationGuard,
     wire: &[u8],
     max_wire: usize,
-    child_cap: usize,
-    temp_name_cap: usize,
+    path_layout: StagePathLayout,
     memory: &MemoryBudget,
     work: &FormalArchiveReadWorkV1,
     cancelled: &mut dyn FnMut() -> bool,
 ) -> Result<String, FormalError> {
+    let StagePathLayout {
+        child_cap,
+        temp_name_cap,
+    } = path_layout;
     work.consume_steps(1, cancelled)?;
     let directory = guard.initialized_root()?;
     let expected = directory

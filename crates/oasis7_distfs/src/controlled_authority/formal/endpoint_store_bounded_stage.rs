@@ -125,8 +125,10 @@ pub(super) fn stage_index_leaf_bounded_v1(
         &guard,
         bytes.as_slice(),
         INDEX_LEAF_WIRE_MAX,
-        child_cap,
-        temp_name_cap,
+        super::stage_core::StagePathLayout {
+            child_cap,
+            temp_name_cap,
+        },
         memory,
         work,
         cancelled,
