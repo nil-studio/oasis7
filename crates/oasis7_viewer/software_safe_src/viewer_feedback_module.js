@@ -1,6 +1,13 @@
 import { normalizeRecipeSubstitution } from "./recipe_substitution.js";
 import { feedbackForScope } from "./viewer_feedback_scope.js";
-import { projectGameplayReceiptFeedback, firstClaimAwaitingOutcome, gameplayExecutionStateLabel } from "./viewer_gameplay_receipt_feedback.js";
+import {
+  projectGameplayReceiptFeedback,
+  firstClaimAwaitingOutcome,
+  gameplayExecutionStateLabel,
+  isClaimAction,
+  claimActionAwaitingSync,
+  resolveGameplayExecutionCause,
+} from "./viewer_gameplay_receipt_feedback.js";
 import { normalizeIndustrialStarterProfile } from "./industrial_starter_outcome.js";
 import { normalizeViewerAvailableActions } from "./viewer_feedback_actions.js";
 import { buildGameplayEconomicSurface } from "./viewer_feedback_gameplay_economics.js";
@@ -8,7 +15,7 @@ import { buildValidationUnlockPreviewDisplayModel } from "./viewer_validation_un
 import { buildWaitResolutionQuoteDisplayModel } from "./viewer_wait_resolution_quote_display_model.js";
 import { normalizeFirstDeliveryPreview } from "./first_delivery_preview_display_model.js";
 import { normalizeFactoryProductionFailureDisposition } from "./viewer_factory_failure_disposition_display_model.js";
-import { createViewerPromptFeedbackModule } from "./viewer_prompt_feedback_module.js";
+import { createViewerPromptFeedbackModule, formatPromptVersionLabel } from "./viewer_prompt_feedback_module.js";
 function isRecord(value) {
   return value != null && typeof value === "object" && !Array.isArray(value);
 }
@@ -88,9 +95,6 @@ export function createViewerFeedbackModule({
     }
     const reason = String(feedback?.reason || "").trim();
     return reason || null;
-  }
-  function formatPromptVersionLabel(value) {
-    return `v${Math.max(0, Math.floor(Number(value || 0)))}`;
   }
   function describeSemanticFeedback(feedback, locale = state.uiLocale) {
     if (!feedback) {
@@ -322,42 +326,8 @@ export function createViewerFeedbackModule({
     }
     return description;
   }
-  function describePromptVersionState(feedback = state.lastPromptFeedback, locale = state.uiLocale) {
-    const currentVersion = Math.max(0, Math.floor(Number(state.promptDraft.currentVersion || 0)));
-    const nextRollbackTargetVersion = Math.max(
-      0,
-      Math.floor(Number(state.promptDraft.rollbackTargetVersion || 0)),
-    );
-    const responseVersion = Number(feedback?.response?.version);
-    const ackVersion = Number.isFinite(responseVersion) ? Math.max(0, Math.floor(responseVersion)) : currentVersion;
-    const responseRollbackVersion = Number(feedback?.response?.rolled_back_to_version);
-    const restoredFromVersion =
-      feedback?.stage === "rollback_ack" && Number.isFinite(responseRollbackVersion)
-        ? Math.max(0, Math.floor(responseRollbackVersion))
-        : null;
-    const summary = restoredFromVersion == null
-      ? (isLocaleZh(locale)
-          ? `当前生效 prompt 版本是 ${formatPromptVersionLabel(currentVersion)}。`
-          : `Active prompt version is ${formatPromptVersionLabel(currentVersion)}.`)
-      : (isLocaleZh(locale)
-          ? `当前生效 prompt 版本是 ${formatPromptVersionLabel(currentVersion)}；内容恢复自 ${formatPromptVersionLabel(restoredFromVersion)}。`
-          : `Active prompt version is ${formatPromptVersionLabel(currentVersion)}; content was restored from ${formatPromptVersionLabel(restoredFromVersion)}.`);
-    const detail = restoredFromVersion == null
-      ? (isLocaleZh(locale)
-          ? `回滚输入框默认指向下一次目标 ${formatPromptVersionLabel(nextRollbackTargetVersion)}。`
-          : `The rollback input defaults to the next target ${formatPromptVersionLabel(nextRollbackTargetVersion)}.`)
-      : (isLocaleZh(locale)
-          ? `这次回滚生成了新的保存版本 ${formatPromptVersionLabel(ackVersion)}。下面输入框现在指向下一次目标 ${formatPromptVersionLabel(nextRollbackTargetVersion)}，不是刚恢复的版本。`
-          : `The rollback created a new saved version ${formatPromptVersionLabel(ackVersion)}. The input below now points to the next target ${formatPromptVersionLabel(nextRollbackTargetVersion)}, not the restored version.`);
-    return {
-      currentVersion,
-      nextRollbackTargetVersion,
-      ackVersion,
-      restoredFromVersion,
-      summary,
-      detail,
-    };
-  }
+  const describePromptVersionState = (feedback = state.lastPromptFeedback, locale = state.uiLocale) =>
+    promptFeedback.describePromptVersionState(state, feedback, locale);
 
   function buildGameplaySummary(locale = state.uiLocale) {
     const lastGameplayActionFeedback = feedbackForScope(state.lastGameplayActionFeedback,state);
@@ -453,15 +423,6 @@ export function createViewerFeedbackModule({
     const runtimeAlreadyPublishedEmptyEntityBlocker = !boundOwnerSync
       && runtimeBlockerKind === "runtime_snapshot_empty_entities";
     const recentStage = String(recentFeedback?.stage || "").trim().toLowerCase();
-    const isClaimAction = (action) => {
-      const norm = String(action || "").replace(/^gameplay_action:/, "");
-      return norm === "claim_first_agent" || norm === "claim_starter_oc";
-    };
-    const claimActionAwaitingSync = (fb) => {
-      if (!fb || !isClaimAction(fb.action)) return false;
-      const stage = String(fb.stage || "").trim().toLowerCase();
-      return ["accepted", "submitted", "queued", "ack", "registering", "signing", "sent", "committed"].includes(stage);
-    };
     const pendingEmptyWorldClaimSync = Boolean(
       emptyEntityBlocker
       && (claimActionAwaitingSync(recentFeedback) || claimActionAwaitingSync(pendingClaim))
@@ -514,36 +475,14 @@ export function createViewerFeedbackModule({
       { id: "completed", label: localeText(locale, "已完成", "Completed") },
       { id: "rejected", label: localeText(locale, "已拒绝", "Rejected") },
     ];
-    const executionCauseKind = ["received", "pending", "unknown"].includes(executionState) ? "outcome_unconfirmed" : pendingEmptyWorldClaimSync
-      ? "queued_for_execution"
-      : emptyEntityBlocker
-      ? "world_constraint"
-      : gameplay.causality_kind
-      || (() => {
-        if (executionState === "accepted") return "queued_for_execution";
-        if (executionState === "rejected") return "request_rejected";
-        if (executionState === "blocked") return "world_constraint";
-        if (executionState === "completed") return "goal_progressed";
-        return null;
-      })();
-    const executionCauseLabel = (() => {
-      switch (executionCauseKind) {
-        case "outcome_unconfirmed":
-          return localeText(locale, "等待权威结果", "Awaiting Authoritative Result");
-        case "queued_for_execution":
-          return localeText(locale, "等待执行", "Queued for Execution");
-        case "world_constraint":
-          return localeText(locale, "世界约束", "World Constraint");
-        case "agent_override":
-          return localeText(locale, "Agent 改走了别的允许路径", "Agent Chose Differently");
-        case "goal_progressed":
-          return localeText(locale, "世界已推进", "World Progressed");
-        case "request_rejected":
-          return localeText(locale, "请求被拒绝", "Request Rejected");
-        default:
-          return null;
-      }
-    })();
+    const { executionCauseKind, executionCauseLabel } = resolveGameplayExecutionCause(
+      executionState,
+      pendingEmptyWorldClaimSync,
+      emptyEntityBlocker,
+      gameplay,
+      locale,
+      localeText,
+    );
     const executionCauseDetail = pendingEmptyWorldClaimSync
       ? recentFeedback?.hint || recentFeedback?.effect || resolvedBlockerDetail || null
       : emptyEntityBlocker

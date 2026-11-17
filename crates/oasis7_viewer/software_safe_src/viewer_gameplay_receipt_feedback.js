@@ -89,3 +89,52 @@ export function gameplayExecutionStateLabel(state, locale, localeText) {
   };
   return localeText(locale, ...(labels[state] || labels.executing));
 }
+
+export function isClaimAction(action) {
+  const norm = String(action || "").replace(/^gameplay_action:/, "");
+  return norm === "claim_first_agent" || norm === "claim_starter_oc";
+}
+
+export function claimActionAwaitingSync(fb) {
+  if (!fb || !isClaimAction(fb.action)) return false;
+  const stage = String(fb.stage || "").trim().toLowerCase();
+  return ["accepted", "submitted", "queued", "ack", "registering", "signing", "sent", "committed"].includes(stage);
+}
+
+export function resolveGameplayExecutionCause(executionState, pendingEmptyWorldClaimSync, emptyEntityBlocker, gameplay, locale, localeText) {
+  const executionCauseKind = ["received", "pending", "unknown"].includes(executionState)
+    ? "outcome_unconfirmed"
+    : pendingEmptyWorldClaimSync
+    ? "queued_for_execution"
+    : emptyEntityBlocker
+    ? "world_constraint"
+    : gameplay?.causality_kind
+    || (() => {
+      if (executionState === "accepted") return "queued_for_execution";
+      if (executionState === "rejected") return "request_rejected";
+      if (executionState === "blocked") return "world_constraint";
+      if (executionState === "completed") return "goal_progressed";
+      return null;
+    })();
+
+  const executionCauseLabel = (() => {
+    switch (executionCauseKind) {
+      case "outcome_unconfirmed":
+        return localeText(locale, "等待权威结果", "Awaiting Authoritative Result");
+      case "queued_for_execution":
+        return localeText(locale, "等待执行", "Queued for Execution");
+      case "world_constraint":
+        return localeText(locale, "世界约束", "World Constraint");
+      case "agent_override":
+        return localeText(locale, "Agent 改走了别的允许路径", "Agent Chose Differently");
+      case "goal_progressed":
+        return localeText(locale, "世界已推进", "World Progressed");
+      case "request_rejected":
+        return localeText(locale, "请求被拒绝", "Request Rejected");
+      default:
+        return null;
+    }
+  })();
+
+  return { executionCauseKind, executionCauseLabel };
+}
