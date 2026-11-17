@@ -310,7 +310,7 @@ pub use reward_asset::{
 };
 
 // Blob store
-pub use blob_store::{BlobStore, HashAlgorithm, LocalCasStore, blake3_hex};
+pub use blob_store::{BlobStore, HashAlgorithm, LocalCasStore, blake3_hex, decode_local_blob_into};
 pub(crate) use builtin_wasm_materializer::load_builtin_wasm_with_fetch_fallback;
 
 #[cfg(test)]

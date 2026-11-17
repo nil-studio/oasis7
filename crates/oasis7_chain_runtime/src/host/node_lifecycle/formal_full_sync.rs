@@ -66,6 +66,8 @@ mod failover;
 mod grant_reconcile;
 #[path = "formal_full_sync_history.rs"]
 pub(super) mod history_chain;
+#[path = "formal_full_sync_local_closure.rs"]
+mod local_closure;
 #[cfg(unix)]
 #[path = "formal_full_sync_metered_io.rs"]
 mod metered_io;
@@ -728,7 +730,18 @@ impl FormalFullSyncSession {
             self.persist_cas_object(&object.content_hash, &object.bytes)
                 .map_err(|error| format!("persist full-sync artifact: {error}"))?;
         }
-        Ok(material)
+        // Installation consumes the exact durable local objects, not merely
+        // the in-memory network response that preceded their publication.
+        let deadline = std::time::Instant::now()
+            .checked_add(Duration::from_millis(self.config.request_timeout_ms))
+            .ok_or("local record readback deadline overflow")?;
+        local_closure::read_record(
+            &self.cas,
+            anchor,
+            manifest,
+            self.config.max_total_sync_bytes,
+            deadline,
+        )
     }
 
     /// A missing cache entry is a normal miss and is fetched from the active

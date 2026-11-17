@@ -1080,3 +1080,6 @@ mod provider_budget_tests;
 #[cfg(unix)]
 #[path = "formal_full_sync_shared_exchange_tests.rs"]
 mod shared_exchange_tests;
+
+#[path = "formal_full_sync_local_closure_tests.rs"]
+mod local_closure_tests;
