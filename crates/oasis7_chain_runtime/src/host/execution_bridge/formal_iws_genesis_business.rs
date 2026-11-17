@@ -18,6 +18,7 @@ use oasis7_formal_protocol::{
         business_index::{PaidBusinessIndexDeltaV1, PaidBusinessIndexNodeReaderV1},
     },
     incremental_artifacts::OriginalArtifactRefV1,
+    incremental_execution::ExecutionError,
 };
 use oasis7_proto::memory_budget::{MemoryClass, MemoryReservation, ReservedValue};
 use oasis7_runtime::BodyMutationError;
@@ -37,8 +38,10 @@ pub(crate) struct ProvisionalProjectedGenesisBusinessV1 {
     delta: PaidBusinessIndexDeltaV1,
     descriptor_wire: ReservedValue<Vec<u8>>,
     delta_wire: ReservedValue<Vec<u8>>,
+    retention_wire: ReservedValue<Vec<u8>>,
     descriptor_ref: OriginalArtifactRefV1,
     delta_ref: OriginalArtifactRefV1,
+    retention_ref: OriginalArtifactRefV1,
     allocation: MemoryReservation,
 }
 
@@ -63,6 +66,10 @@ impl ProvisionalProjectedGenesisBusinessV1 {
         (self.delta_ref, &self.delta_wire)
     }
 
+    pub(crate) fn retention_original(&self) -> (OriginalArtifactRefV1, &ReservedValue<Vec<u8>>) {
+        (self.retention_ref, &self.retention_wire)
+    }
+
     pub(crate) fn validate_context(&self, common: &mut FormalBoundedContextV1<'_>) -> Result<()> {
         self.projected
             .projected()
@@ -76,6 +83,11 @@ impl ProvisionalProjectedGenesisBusinessV1 {
         if !self.allocation.uses_budget(common.memory())
             || !self.descriptor_wire.uses_budget(common.memory())
             || !self.delta_wire.uses_budget(common.memory())
+            || !self.retention_wire.uses_budget(common.memory())
+            || !self
+                .projected
+                .retention_manifest()
+                .uses_budget(common.memory())
         {
             return Err(PageStoreError::Corrupt("GEN business retained originals pool").into());
         }
@@ -315,7 +327,16 @@ pub(crate) fn persist_projected_genesis_business_v1(
         .memory()
         .reserve(bytes, MemoryClass::Ordinary)
         .map_err(PageStoreError::Memory)?;
-    let (descriptor, delta, descriptor_wire, delta_wire, descriptor_ref, delta_ref) = {
+    let (
+        descriptor,
+        delta,
+        descriptor_wire,
+        delta_wire,
+        retention_wire,
+        descriptor_ref,
+        delta_ref,
+        retention_ref,
+    ) = {
         let business = projected
             .prepare_business_output_bounded_v1(&NoPriorNodes, common, &mut work.canonical)
             .map_err(Error::Genesis)?;
@@ -341,6 +362,41 @@ pub(crate) fn persist_projected_genesis_business_v1(
                 .map_err(|_| PageStoreError::Corrupt("GEN business node ID"))?;
             write_original(&objects, &node.bytes, Some(expected), work, common, stop)?;
         }
+        // The source already computed this exact index-finish RootSet ID under
+        // the same Core. Bind its actual GEN retention DATA before encoding;
+        // neither a Header nor caller-supplied replacement roots are involved.
+        business.validate_context(common).map_err(business_error)?;
+        let actual_source = business.actual_source();
+        common
+            .charge(2, actual_source.after_state_root().len() as u64)
+            .map_err(context_error)?;
+        let mut roots = [0; 32];
+        hex::decode_to_slice(actual_source.after_state_root(), &mut roots)
+            .map_err(|_| PageStoreError::Corrupt("GEN retention roots ID"))?;
+        let retention = projected.retention_manifest();
+        if actual_source.final_roots().height != 0 || !retention.uses_budget(common.memory()) {
+            return Err(PageStoreError::Corrupt("GEN retention source binding").into());
+        }
+        let memory = common.memory().clone();
+        let mut first = None;
+        let mut pay = |steps, bytes| {
+            common.charge(steps, bytes).map_err(|error| {
+                if first.is_none() {
+                    first = Some(error);
+                }
+                ExecutionError::Aborted
+            })
+        };
+        let retention_wire = retention
+            .validate_binding_v1(roots, None, &mut pay)
+            .and_then(|()| retention.canonical_bytes_with_work(&memory, &mut pay));
+        if let Some(error) = first {
+            return Err(context_error(error));
+        }
+        // Keep the codec's entire 128 KiB reservation with its returned wire.
+        let retention_wire = retention_wire
+            .map_err(|error| Error::Body(BodyMutationError::Original(Box::new(error))))?;
+        let retention_ref = write_original(&objects, &retention_wire, None, work, common, stop)?;
         // Consume the same update at the original final source-check boundary.
         // This ends its borrow of projected without releasing either graph.
         let (owned_descriptor, owned_delta) = business
@@ -351,8 +407,10 @@ pub(crate) fn persist_projected_genesis_business_v1(
             owned_delta,
             descriptor,
             delta,
+            retention_wire,
             descriptor_ref,
             delta_ref,
+            retention_ref,
         )
     };
     cancelled(stop)?;
@@ -363,8 +421,10 @@ pub(crate) fn persist_projected_genesis_business_v1(
         delta,
         descriptor_wire,
         delta_wire,
+        retention_wire,
         descriptor_ref,
         delta_ref,
+        retention_ref,
         allocation,
     })
 }
