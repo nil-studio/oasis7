@@ -2506,7 +2506,9 @@ function extractAgentSpokeEntry(event) {
 function requestSnapshotSafe() {
   try {
     sendJson({ type: "request_snapshot" });
+    return true;
   } catch (_) {
+    return false;
   }
 }
 
@@ -2865,7 +2867,27 @@ function sendGameplayAction(actionOrId, operation = { sessionRefreshRetryAttempt
 
   const protocolAction = String(action.protocol_action || "").trim();
   if (protocolAction === "request_snapshot" || protocolAction === "world.request_snapshot") {
-    requestSnapshotSafe();
+    const sent = requestSnapshotSafe();
+    if (sent === false) {
+      state.lastGameplayActionFeedback = {
+        id: nextRequestId(),
+        kind: "gameplay_action",
+        action: action.action_id || "request_snapshot",
+        agentId: action.target_agent_id || null,
+        accepted: false,
+        ok: false,
+        stage: "rejected",
+        reason: "viewer websocket is not connected",
+        effect: "snapshot refresh failed to send",
+        response: {
+          action_id: action.action_id || "request_snapshot",
+          target_agent_id: action.target_agent_id || "",
+          message: "viewer websocket is not connected",
+        },
+      };
+      render();
+      return { ok: false, reason: "viewer websocket is not connected", feedback: snapshotSemanticFeedback(state.lastGameplayActionFeedback) };
+    }
     if (hostedWorldAccount.hasPendingGameplayRequest()) {
       requestGameplayResult(state, getGameplayRecoveryScope(state), sendJson);
       return { ok: true, feedback: snapshotSemanticFeedback(state.lastGameplayActionFeedback) };
