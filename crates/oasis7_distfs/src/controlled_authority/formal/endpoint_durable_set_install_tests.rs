@@ -561,6 +561,7 @@ fn remote_sealed_source(
     let server_stop = stop.clone();
     let denials = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let server_denials = denials.clone();
+    let (denial_completed_tx, denial_completed_rx) = std::sync::mpsc::sync_channel::<()>(1);
     let worker = std::thread::spawn(move || {
         let mut server = FormalEndpointServer::new(endpoint, Duration::from_secs(3)).unwrap();
         while !server_stop.load(Ordering::Acquire) {
@@ -573,6 +574,8 @@ fn remote_sealed_source(
                     if reason == "sealed archive delegation cannot mutate"
                         || reason == "archive delegation exact protected sealed scope"));
                 server_denials.fetch_add(1, Ordering::SeqCst);
+                // The peer can observe EOF before this worker finishes accounting.
+                let _ = denial_completed_tx.try_send(());
             }
         }
     });
@@ -656,6 +659,9 @@ fn remote_sealed_source(
             .business_index_path(&empty_root, &h(197))
             .is_err()
     );
+    denial_completed_rx
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap();
     assert_eq!(denials.load(Ordering::SeqCst), 1);
 
     let mut client = RemoteFormalEndpoint::new_archive_reader(
@@ -677,6 +683,9 @@ fn remote_sealed_source(
     );
     let checkpoint = client.checkpoint().unwrap();
     assert!(client.seal_epoch(h(200), 3, checkpoint).is_err());
+    denial_completed_rx
+        .recv_timeout(Duration::from_secs(3))
+        .unwrap();
     assert_eq!(denials.load(Ordering::SeqCst), 2);
     (
         client.into_archive_source(),
