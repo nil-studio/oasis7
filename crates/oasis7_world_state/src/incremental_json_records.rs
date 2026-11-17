@@ -26,7 +26,9 @@ pub struct JsonRecordProfileV1 {
 impl JsonRecordProfileV1 {
     fn namespace(self) -> Result<StateNamespaceV1, ValueTreeError> {
         match self.field.destination {
-            FieldDestination::State(namespace) if self.field.shape == FieldShape::Map => {
+            FieldDestination::State(namespace)
+                if matches!(self.field.shape, FieldShape::Map | FieldShape::Value) =>
+            {
                 Ok(namespace)
             }
             _ => Err(ValueTreeError::Invalid("JSON node profile")),
