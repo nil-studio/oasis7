@@ -56,6 +56,8 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'

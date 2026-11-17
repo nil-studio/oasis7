@@ -1,0 +1,20 @@
+name: Set up Linux mold
+description: Install and verify the pinned linker for Linux native and host Rust artifacts
+outputs:
+  linker:
+    description: Absolute path to the compiler driver using mold
+    value: ${{ steps.mold.outputs.linker }}
+  version:
+    description: Verified mold version
+    value: ${{ steps.mold.outputs.version }}
+  setup-seconds:
+    description: Download, installation and smoke-check elapsed seconds
+    value: ${{ steps.mold.outputs.setup-seconds }}
+runs:
+  using: composite
+  steps:
+    - name: Install and verify Linux mold
+      id: mold
+      if: runner.os == 'Linux'
+      shell: bash
+      run: python3 "${{ github.action_path }}/setup.py"

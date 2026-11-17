@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {withRoleRuntime,persistedRuntime} from './fixtures/role_runtime_native_support.mjs';
+import {assertParticipantBound} from './fixtures/participant_stage_diagnostics.mjs';
 
 test('actual named participant entries reject cross-role actions before consuming shared oracle or callback capacity', {timeout:180000}, async()=>{
   await withRoleRuntime('native-participant-role-capability',async runtime=>{
     const progress=await runtime.drive('participant-role-capability');
-    assert.equal(progress.stage,'participant_bound',JSON.stringify({progress,requests:runtime.nativeRequests()}));
+    await assertParticipantBound(runtime,progress);
     const response=await runtime.participantRoleProbes();
     assert.equal(response.status,200);
     assert.deepEqual(await response.json(),{
