@@ -609,6 +609,16 @@ init 后从实际 GitHub job 起点计算一次分析绝对截止：最多 75 �
 
 首次验收核对实际执行/容量、唯一上传来源、支持范围与控制样本、Security findings 及运营设置。试运行允许收集尚缺的覆盖事实；持续启用声明须完成适用验收，不能把 REVIEW/UNKNOWN 改记为通过。失败仅回退本次 Rust 批次键，保留其他语言、已有告警、required policy 和历史结果。PR observe 与 extended 的 45 分钟容量及适用行为单独验收。
 
+##### 固定源码的同配置性能观察
+
+沿用本节 Trace ID，`codeql-rust-capacity.yml` 的独立 `observe` job 为 #4989 提供封闭观测入口：仅可信 main 手动 `execute=true` 且选择 `mode=rust-default-fixed-source-observation` 才执行。原默认 mode 仍为 capacity，execute 仍默认 false；原 capacity job 排除新 mode，保留四种原工作负载。观测拒绝 `compare_qualifier_patch=true`。业务源码固定为 `2bcc4edafdc615f395c9138a0b39ede366726d34`；工具来自本次真实 `GITHUB_SHA`，并要求与 `GITHUB_WORKFLOW_SHA` 及该 workflow 的 main 身份一致。先从工具 checkout 冻结既有完整 helper 闭包及 production helper 到 `RUNNER_TEMP`，逐文件绑定 Git blob 和 SHA-256；随后在同一 workspace 根切换到固定业务源码。工具不得进入采集根，不覆写 `GITHUB_SHA`，不接受任意 ref、bundle、命令或资源输入。
+
+新增 `rust-default-fixed-source-observation` mode 只复用本节 production 的 prepare/run 查询核心，固定原 2.27.4/v7、默认 37 条和原 diagnostics，不加入研究七项见证。官方 init 显式请求 4 threads、14570 MiB；prepare、恢复和实际 Action 准入校验导出资源与固定值一致，记录 runner 资源，差异保留失败。CLI、Python supervisor、JavaScript preload 分别识别该 mode，同时绑定业务 SHA、工具 SHA、布局快照与原预算；生产仍要求本次 `GITHUB_SHA == source_sha`，候选研究仍要求其原固定源码，模式、预算或准备收据不能互换。
+
+job 仍为 90 分钟并共用 scan-slot-1。init 后使用原 production 的 GitHub Date 与实际唯一 job started_at 分配一次至多 75 分钟分析，前置 checkout、工具冻结、native 与下载耗时全部计入 job age；保留原 600 秒余量及最多 90 秒失败采证，不在工具冻结、提取或查询前重开窗口。官方 post 保持 runner 所有。默认 batch 复用上述有界资源观察，其他调用保持原行为。
+
+独立 artifact 只包含布局、native 和 production 核心证据；保留原 `queries.json`、`official-default-suite.json`、`info-00..36.log`、`decoded-00..36.log`、`default-results.json` 及 prepare/run 终态。固定源码终态显式标识 mode、tool_sha 和观测用途，查询成功仍需审查实际 diagnostics 与适用 Linux 覆盖；本入口不上传 SARIF/数据库、不调用 collector、不改变批次配置，不产生可用于平台验收的上传关联。官方上传和唯一平台 analysis 的验收仍由本节真实生产入口完成，既有 #38 研究验收保持原范围。
+
 #### 7.2.7 合法 WASM 单角色 CodeQL 语义诊断
 
 本入口继续承接 CQ-R03/R04/R05/R06/R09，在 §7.2.5 的同一冻结源码 `7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef` 上独立采集真实 CodeQL 上下文，不复用旧 metadata 的通过标签。新增默认关闭的 `CodeQL Rust WASM Context` workflow，仅可信默认分支精确 `execute=true` 的手动请求执行，权限、scan-slot-1 排队和不取消已有运行与 metadata 入口一致。该入口不改生产变量、SARIF 上传、数据库上传、既有研究或生产预算。

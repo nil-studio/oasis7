@@ -68,11 +68,15 @@ def validate_paths(args):
 
 
 def identity(args):
-    return dict(schema=SCHEMA, source_sha=args.source_sha, source=str(args.source),
+    value = dict(schema=SCHEMA, source_sha=args.source_sha, source=str(args.source),
                 codeql=str(args.codeql), database=str(args.database), work=str(args.work),
                 output=str(args.output), sarif=str(args.sarif), analysis_deadline=args.analysis_deadline,
                 bundle_version=VERSION, bundle_sha256=capacity.bundle.BUNDLES[VERSION]['sha256'],
                 variant=PRODUCTION_VARIANT, base_variant=PRODUCTION_BASE_VARIANT, pack=PACK, category=CATEGORY)
+    if getattr(args, 'mode', MODE) == action_deadline.FIXED_SOURCE_MODE:
+        value.update(mode=args.mode, tool_sha=os.environ.get('GITHUB_SHA'),
+                     acceptance_scope='FIXED_SOURCE_OBSERVATION_ONLY')
+    return value
 
 
 def production_budget(args):
@@ -81,9 +85,12 @@ def production_budget(args):
     value = read_json(path)
     if value.get('source_sha') != args.source_sha:
         raise RuntimeError('production budget checkout identity differs')
+    mode = getattr(args, 'mode', MODE)
+    if mode == action_deadline.FIXED_SOURCE_MODE and value.get('tool_sha') != os.environ.get('GITHUB_SHA'):
+        raise RuntimeError('fixed-source observation budget tool identity differs')
     analysis_end, _ = action_deadline.shared_budget(
         value, value.get('fixed_job_deadline'), args.analysis_deadline,
-        time.time(), time.monotonic(), mode=MODE)
+        time.time(), time.monotonic(), mode=mode)
     if args.phase == 'prepare':
         save(args, 'production-budget.json', value)
     return analysis_end
@@ -274,6 +281,8 @@ def prepare(args, terminal, run):
     save(args, 'action-config.json', action_identity(args))
     resources = capacity.resources(os.environ)
     save(args, 'resources.json', resources)
+    if getattr(args, 'mode', MODE) == action_deadline.FIXED_SOURCE_MODE:
+        action_deadline.fixed_source_resources()
     run([args.codeql, 'version', '--format=json'], 'version', 20)
     if read_json(args.output / 'version.log').get('version') != VERSION:
         raise RuntimeError('production CodeQL version differs')
@@ -318,7 +327,8 @@ def prepare(args, terminal, run):
 def check_prepared(args, end):
     check_library_variant()
     prepared = read_json(args.output / 'production-prepare.json')
-    if prepared.get('status') != 'PREPARED' or any(prepared.get(key) != value for key, value in identity(args).items()):
+    if (prepared.get('status') != 'PREPARED' or prepared.get('mode', MODE) != getattr(args, 'mode', MODE)
+            or any(prepared.get(key) != value for key, value in identity(args).items())):
         raise RuntimeError('production preparation identity or fixed deadline differs')
     original_closure = read_json(args.output / 'official-closure.json')
     actual = capacity.bundle.bundle_closure(args.codeql.parent, VERSION)
@@ -337,6 +347,8 @@ def check_prepared(args, end):
     resources = capacity.resources(os.environ)
     if any(resources[key] != recorded[key] for key in ('CODEQL_RAM', 'CODEQL_THREADS')):
         raise RuntimeError('production resource selection changed')
+    if getattr(args, 'mode', MODE) == action_deadline.FIXED_SOURCE_MODE:
+        action_deadline.fixed_source_resources()
     if action_identity(args) != read_json(args.output / 'action-config.json'):
         raise RuntimeError('production Action configuration changed')
     return records, closure, original_closure, resources
@@ -356,7 +368,7 @@ def run_queries(args, terminal, run):
     capacity.check_time(run.end)
     records, closure, original_closure, resources = check_prepared(args, run.end)
     supervision = action_deadline.admit_production(args.output, args.source, args.source_sha,
-                                                   args.analysis_deadline)
+                                                   args.analysis_deadline, mode=getattr(args, 'mode', MODE))
     if supervision.get('status') != 'PASS':
         raise RuntimeError('absolute production extraction deadline was not admitted')
     save(args, 'production-action-deadline.json', supervision)
@@ -410,7 +422,8 @@ def run_queries(args, terminal, run):
     terminal.update(status='COMPLETE', execution_status='success', queries_status='VERIFIED',
                     default_queries=len(records), findings=findings,
                     sarif_sha256=capacity.digest_until(args.sarif, run.end), sarif_bytes=args.sarif.stat().st_size,
-                    upload_status='NOT_PERFORMED_BY_HELPER', coverage_acceptance='PENDING_HOSTED_REVIEW',
+                    upload_status=('DISABLED_FOR_OBSERVATION' if getattr(args, 'mode', MODE) == action_deadline.FIXED_SOURCE_MODE
+                                   else 'NOT_PERFORMED_BY_HELPER'), coverage_acceptance='PENDING_HOSTED_REVIEW',
                     semantic_controls='PENDING_PRODUCTION_ACCEPTANCE')
 
 
@@ -444,6 +457,7 @@ def capture_coverage(args, terminal, end):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('phase', choices=('prepare', 'run'))
+    parser.add_argument('--mode', choices=(MODE, action_deadline.FIXED_SOURCE_MODE), default=MODE)
     for name in ('codeql', 'source', 'database', 'work', 'output', 'sarif'):
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--source-sha', required=True)
@@ -463,7 +477,16 @@ def main(argv=None):
                     coverage_acceptance='PENDING_HOSTED_REVIEW', primary_failure=None)
     with runtime.cancellation_guard():
         try:
-            if (os.environ.get('GITHUB_EVENT_NAME') not in ('workflow_dispatch', 'schedule')
+            if (os.environ.get('OASIS7_CODEQL_PRODUCTION_MODE', '') not in ('', args.mode)
+                    or os.environ.get('CAPACITY_MODE')):
+                raise RuntimeError('mixed production/observation/candidate modes')
+            if args.mode == action_deadline.FIXED_SOURCE_MODE:
+                provenance = action_deadline.fixed_source_provenance(args.source, args.source_sha)
+                if args.phase == 'prepare':
+                    save(args, 'fixed-source-provenance.json', provenance)
+                elif read_json(args.output / 'fixed-source-provenance.json') != provenance:
+                    raise RuntimeError('fixed-source observation preparation tool/layout identity differs')
+            elif (os.environ.get('GITHUB_EVENT_NAME') not in ('workflow_dispatch', 'schedule')
                     or os.environ.get('GITHUB_REF') != 'refs/heads/main'
                     or os.environ.get('GITHUB_SHA') != args.source_sha):
                 raise RuntimeError('production repaired queries require the trusted main maintenance checkout')

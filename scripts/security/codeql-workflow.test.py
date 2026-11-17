@@ -375,5 +375,78 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn('codeql-upload-evidence', artifact)
 
 
+class FixedSourceWorkflowTests(unittest.TestCase):
+    def setUp(self):
+        self.workflow = (ROOT / '.github/workflows/codeql-rust-capacity.yml').read_text()
+        self.text = '  observe:\n' + self.workflow.split('  observe:\n', 1)[1]
+
+    def section(self, text, start, end):
+        return text.split(start, 1)[1].split(end, 1)[0]
+
+    def python_body(self, section):
+        body = section.split("python3 -I - <<'PY'\n", 1)[1].split('          PY', 1)[0]
+        return '\n'.join(line[10:] for line in body.splitlines())
+
+    def test_closed_manual_workflow_keeps_source_tool_and_upload_boundaries(self):
+        text = self.text
+        dispatch = self.section(self.workflow, '  workflow_dispatch:\n', '\npermissions:')
+        self.assertEqual(re.findall(r'^      (\w+):', dispatch, re.M), ['execute', 'compare_qualifier_patch', 'mode'])
+        self.assertIn('type: boolean\n        default: false', dispatch)
+        self.assertIn('default: capacity', dispatch)
+        self.assertIn('          - rust-default-fixed-source-observation', dispatch)
+        self.assertIn("if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.execute == true && inputs.mode == 'rust-default-fixed-source-observation'", text)
+        self.assertIn("if: github.event_name == 'workflow_dispatch' && inputs.execute == true && inputs.mode != 'rust-default-fixed-source-observation'",
+                      self.workflow.split('  observe:\n', 1)[0])
+        self.assertIn('if [ "$COMPARE_QUALIFIER_PATCH" != false ]; then', text)
+        self.assertIn('timeout-minutes: 90', text)
+        self.assertIn('group: oasis7-codeql-scan-slot-1\n      queue: max\n      cancel-in-progress: false', text)
+        self.assertIn('ref: ${{ github.sha }}', text)
+        self.assertIn('ref: ${{ env.OASIS7_CODEQL_PRODUCTION_SOURCE }}', text)
+        self.assertIn('OASIS7_CODEQL_PRODUCTION_SOURCE: 2bcc4edafdc615f395c9138a0b39ede366726d34', text)
+        self.assertNotRegex(text, r'(?m)^\s+GITHUB_SHA:', 'the real event SHA must not be overwritten')
+        self.assertEqual(text.count('persist-credentials: false'), 2)
+        self.assertEqual(text.count('--production-default'), 2)
+        self.assertEqual(text.count('--mode "$OASIS7_CODEQL_PRODUCTION_MODE"'), 2)
+        self.assertEqual(text.count('$RUNNER_TEMP/codeql-rust-fixed-source-helper/codeql-rust-production.py'), 2)
+        self.assertIn('NODE_OPTIONS: ${{ steps.rust_prepare.outputs.node_options }}', text)
+        self.assertIn("if: always() && steps.rust_prepare.outcome == 'success'", text)
+        for forbidden in ('security-events: write', 'upload-sarif@', 'codeql-platform-observation',
+                          'CODEQL_BATCH_MODES', 'repository-dispatch', 'candidate-workload-research'):
+            self.assertNotIn(forbidden, text)
+        self.assertIn('upload: never\n          skip-queries: true\n          upload-database: false', text)
+        artifact = text.split('      - name: Persist bounded observation evidence\n', 1)[1]
+        for forbidden in ('codeql_databases', 'codeql-results', 'fixed-source-helper', 'github.workspace', '*.sarif'):
+            self.assertNotIn(forbidden, artifact)
+        self.assertIn('codeql-rust-production-evidence', artifact)
+        scope = json.loads((ROOT / 'scripts/ci-required-scope.json').read_text())
+        self.assertEqual(scope['scoped_control_paths']['.github/workflows/codeql-rust-capacity.yml'], ['workflow_governance'])
+
+    def test_original_init_selection_resources_and_budget_allocation_are_preserved(self):
+        text = self.text
+        init = self.section(text, '      - id: init\n', '      - id: rust_budget\n')
+        self.assertIn('ram: 14570\n          threads: 4', init)
+        self.assertIn('dependency-caching: false\n          trap-caching: false', init)
+        self.assertIn('CODEQL_OVERLAY_DATABASE_MODE: none', init)
+        self.assertIn('codeql-bundle-v2.27.4/codeql-bundle-rust-linux64.tar.zst', text)
+        self.assertIn('1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b', text)
+        self.assertEqual(re.findall(r'uses: github/codeql-action/(?:init|analyze)@([0-9a-f]+)', text),
+                         ['33d7b85da1a04171e211befe2c739303b9a4c066'] * 2)
+        original_init = self.section(WORKFLOW, '      - id: init\n', '      - name: Verify Actions query')
+        self.assertEqual(re.findall(r'^              - (.+)$', init, re.M),
+                         re.findall(r'^              - (.+)$', original_init, re.M))
+        original = self.python_body(self.section(WORKFLOW, '      - id: rust_budget\n', '      - id: rust_prepare\n'))
+        observed = self.python_body(self.section(text, '      - id: rust_budget\n', '      - id: rust_prepare\n'))
+        normalized = observed.replace('CodeQL Rust fixed source observation', 'CodeQL / rust-repo / default')
+        normalized = normalized.replace('rust-default-fixed-source-observation', 'rust-default-production')
+        normalized = normalized.replace("source_sha=os.environ['OASIS7_CODEQL_PRODUCTION_SOURCE'], tool_sha=os.environ['GITHUB_SHA'],",
+                                        "source_sha=os.environ['EXPECTED_CHECKOUT'],")
+        # The existing real-clock fixture tests the same AST, including late/expired starts.
+        self.assertEqual(ast.dump(ast.parse(normalized)), ast.dump(ast.parse(original)))
+        native = self.python_body(self.section(text, '      - id: rust_native\n', '      - id: rust_tools\n'))
+        original_native = self.python_body(self.section(WORKFLOW, '      - id: rust_native\n', '      - id: rust_tools\n'))
+        native = native.replace("pathlib.Path(os.environ['RUNNER_TEMP']) / 'codeql-rust-fixed-source-helper'", "source / 'scripts/security'")
+        self.assertEqual(ast.dump(ast.parse(native)), ast.dump(ast.parse(original_native)))
+
+
 if __name__ == "__main__":
     unittest.main()
