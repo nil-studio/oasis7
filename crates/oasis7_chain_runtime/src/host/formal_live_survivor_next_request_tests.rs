@@ -51,10 +51,20 @@ pub(super) fn submit_after_recovery(
     {
         return Err("survivor next request was already applied before submission".into());
     }
+    if before
+        .world
+        .current_agent_identity(&action.target_agent_id)
+        .is_some()
+    {
+        return Err("survivor registration unexpectedly granted a capability identity".into());
+    }
     runtime.start()?;
     // The bootstrap receipt belongs to the original public reader. The next
-    // action has an Agent-private result and must use its exact owner scope.
-    let original_client = RemoteWorldServiceClient::new(owner.clone()).map_err(|e| e.to_string())?;
+    // action has an Agent-private result, but registration and starter OC
+    // do not install a capability identity. Its owner claim alone cannot
+    // authorize a private formal read.
+    let original_client =
+        RemoteWorldServiceClient::new(owner.clone()).map_err(|e| e.to_string())?;
     let mut next_owner = owner.clone();
     next_owner.scope_id = format!("agent:{}", action.target_agent_id);
     let client = RemoteWorldServiceClient::new(next_owner.clone()).map_err(|e| e.to_string())?;
@@ -86,7 +96,16 @@ pub(super) fn submit_after_recovery(
             "unexpected public-scope rejection: {public_lookup_error}"
         ));
     }
-    let committed = lookup_original_commit(&client, &request)?;
+    assert_private_read_requires_identity(&client, &request)?;
+    // Observe the new effect through the owned, verified publication. Keep
+    // the original bootstrap receipt on its actual public HTTP read path.
+    let cut = runtime.published.current()?;
+    let committed = fixtures::commit_ref(&cut.anchor, &fixtures::projection(&cut.world));
+    let result_key =
+        correlation::key_digest(&request.correlation.key).map_err(|error| error.to_string())?;
+    if retained_result_from_hot_or_cold(&cut.world, &result_key)? != result {
+        return Err("survivor new result differs from verified publication".into());
+    }
     if committed.position <= original_ref.position
         || lookup_original_commit(&original_client, original)? != *original_ref
     {
@@ -96,6 +115,14 @@ pub(super) fn submit_after_recovery(
         .history
         .fixed_publication(&committed)
         .map_err(|error| error.to_string())?;
+    if retained_result_from_hot_or_cold(publication.world(), &result_key)? != result
+        || publication
+            .world()
+            .current_agent_identity(&action.target_agent_id)
+            .is_some()
+    {
+        return Err("survivor starter result or capability identity changed".into());
+    }
     let claim = publication
         .world()
         .state()
@@ -106,7 +133,10 @@ pub(super) fn submit_after_recovery(
     if claim.player_id != "owner"
         || claim.public_key.as_deref() != Some(public_key.as_str())
         || claim.amount != 100_000_000
-        || publication.world().main_token_liquid_balance(&action.target_agent_id) != claim.amount
+        || publication
+            .world()
+            .main_token_liquid_balance(&action.target_agent_id)
+            != claim.amount
         || publication.anchor().head().record().original_epoch != epoch
     {
         return Err("survivor next request changed owner, amount, or successor epoch".into());
@@ -121,8 +151,12 @@ pub(super) fn submit_after_recovery(
     runtime.start()?;
     let original_client = RemoteWorldServiceClient::new(owner).map_err(|e| e.to_string())?;
     let client = RemoteWorldServiceClient::new(next_owner).map_err(|e| e.to_string())?;
-    if lookup_original_commit(&client, &request)? != committed
-        || lookup_original_commit(&original_client, original)? != *original_ref
+    assert_private_read_requires_identity(&client, &request)?;
+    if retained_result_from_hot_or_cold(&runtime.published.current()?.world, &result_key)? != result
+    {
+        return Err("survivor cold reopen changed new canonical result".into());
+    }
+    if lookup_original_commit(&original_client, original)? != *original_ref
         || runtime
             .published
             .current()?
@@ -139,4 +173,19 @@ pub(super) fn submit_after_recovery(
         Duration::from_secs(120),
         "survivor_next_reopen",
     )
+}
+
+fn assert_private_read_requires_identity(
+    client: &RemoteWorldServiceClient,
+    request: &SubmitIntentRequest<WorldServicePayloadV1>,
+) -> Result<(), String> {
+    match client.lookup_formal_original(request.clone()) {
+        Err(oasis7::world_service::client::WorldServiceClientError::Rejected {
+            status: 503,
+            message,
+        }) if message == "Agent identity unavailable" => Ok(()),
+        result => Err(format!(
+            "survivor ungranted private read changed: {result:?}"
+        )),
+    }
 }
