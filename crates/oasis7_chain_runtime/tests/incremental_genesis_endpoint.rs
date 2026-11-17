@@ -162,14 +162,14 @@ struct AcceptedGenesisFixture<'a> {
     replica_root: &'a std::path::Path,
 }
 
+#[path = "support/genesis_endpoint_acceptance.rs"]
+mod accepted_genesis;
+
 /// One actual physical GEN is shared by both endpoint verifiers. No accepted
 /// setter, staged flag, local-key receipt or profile-2 persistence is used.
 /// The callback borrows the original meter and runs inside the real oracle scope.
 fn with_real_accepted_genesis(run: impl FnOnce(AcceptedGenesisFixture<'_>)) {
     use oasis7_distfs::controlled_authority::fencing::TrustedFencingPolicyV1;
-    use oasis7_distfs::controlled_authority::formal::endpoint::{
-        FormalArchiveReadWorkV1, FormalQueryOutcomeV1, FormalRequestStateV1,
-    };
     let directory = Directory::new();
     let pdir = directory.0.join("primary");
     let rdir = directory.0.join("replica");
@@ -209,183 +209,32 @@ fn with_real_accepted_genesis(run: impl FnOnce(AcceptedGenesisFixture<'_>)) {
     FileFormalEndpoint::with_genesis_remote_pair_for_fixture(
         authority,
         |primary_provider, replica_provider| {
-            let authorization = || FormalEndpointAuthorizationV1 {
-                authority: authority.clone(),
-                original: authority.clone(),
-                recovery: None,
-                parent: None,
-            };
-            let mut primary = FileFormalEndpoint::open_protected(
-                &pdir,
-                authorization(),
-                EndpointRole::Primary,
-                primary_provider.clone(),
-                None,
-            )
-            .unwrap();
-            let mut replica = FileFormalEndpoint::open_protected(
-                &rdir,
-                authorization(),
-                EndpointRole::Replica,
-                replica_provider.clone(),
-                None,
-            )
-            .unwrap();
-            primary
-                .install_iws_page_store(
-                    IwsPageStoreCapabilityV1::new(
-                        primary_pages.take().unwrap(),
-                        endpoint_material::budgets(),
-                    )
-                    .unwrap()
-                    .with_current_limits(limits.clone())
-                    .unwrap(),
-                )
-                .unwrap();
-            replica
-                .install_iws_page_store(
-                    IwsPageStoreCapabilityV1::new(
-                        replica_pages.take().unwrap(),
-                        endpoint_material::budgets(),
-                    )
-                    .unwrap()
-                    .with_current_limits(limits.clone())
-                    .unwrap(),
-                )
-                .unwrap();
-            let request = &candidate.candidate.record.request_digest;
-            primary
-                .supply_iws_candidate_work(endpoint_material::source_work())
-                .unwrap();
-            replica
-                .supply_iws_candidate_work(endpoint_material::source_work())
-                .unwrap();
-            // The production source API succeeds directly. No expected error
-            // from old guards is used as coordinator control flow.
-            let context = primary.stage_genesis_source(candidate, || false).unwrap();
-            let replica_context = replica.stage_genesis_source(candidate, || false).unwrap();
-            assert_eq!(context.record(), replica_context.record());
-            assert!(matches!(
-                primary.query(request).unwrap(),
-                FormalQueryOutcomeV1::NotRecorded
-            ));
-            assert!(matches!(
-                replica.query(request).unwrap(),
-                FormalQueryOutcomeV1::NotRecorded
-            ));
-            use oasis7_chain_runtime::iws_genesis::{
-                GenesisEndpointsV1, GenesisSubmissionStageV1, submit_staged_genesis_bounded,
-            };
-            let work = FormalArchiveReadWorkV1::new(1_000_000_000, 16u64 << 30).unwrap();
-            let cancelled = submit_staged_genesis_bounded(
-                candidate,
-                &context,
-                GenesisEndpointsV1 {
-                    primary: &mut primary,
-                    replica: &mut replica,
-                    primary_provider: primary_provider.as_ref(),
-                    replica_provider: replica_provider.as_ref(),
-                    primary_policy: &policy,
-                    replica_policy: &policy,
+            let accepted = accepted_genesis::prepare(
+                accepted_genesis::Preparation {
+                    primary_root: &pdir,
+                    replica_root: &rdir,
+                    authority,
+                    candidate,
+                    limits: &limits,
+                    primary_provider: &primary_provider,
+                    replica_provider: &replica_provider,
+                    policy: &policy,
+                    memory: &memory,
                 },
-                &memory,
-                &work,
-                &mut || true,
-            )
-            .err()
-            .unwrap();
-            assert_eq!(cancelled.stage(), GenesisSubmissionStageV1::Admission);
-            assert!(matches!(
-                primary.query(request).unwrap(),
-                FormalQueryOutcomeV1::NotRecorded
-            ));
-            assert!(matches!(
-                replica.query(request).unwrap(),
-                FormalQueryOutcomeV1::NotRecorded
-            ));
-            let result = submit_staged_genesis_bounded(
-                candidate,
-                &context,
-                GenesisEndpointsV1 {
-                    primary: &mut primary,
-                    replica: &mut replica,
-                    primary_provider: primary_provider.as_ref(),
-                    replica_provider: replica_provider.as_ref(),
-                    primary_policy: &policy,
-                    replica_policy: &policy,
-                },
-                &memory,
-                &work,
-                &mut || false,
-            )
-            .unwrap();
-            let expected =
-                formal::verify_formal_qualified(result.proof(), authority, None, None).unwrap();
-            assert_eq!(result.primary().head(), &expected.head());
-            assert_eq!(result.replica().head(), &expected.head());
-            assert!(result.uses_budget(&memory));
-            for endpoint in [&mut primary, &mut replica] {
-                let FormalQueryOutcomeV1::Recorded(state) = endpoint.query(request).unwrap() else {
-                    panic!("durable Qualified missing")
-                };
-                let FormalRequestStateV1::Qualified {
-                    proof: installed, ..
-                } = state.as_ref()
-                else {
-                    panic!("durable entry not Qualified")
-                };
-                assert_eq!(installed, result.proof());
-            }
-            assert_eq!(
-                primary.accepted_genesis_record_id().unwrap(),
-                Some(expected.verified_record_id())
-            );
-            assert_eq!(
-                replica.accepted_genesis_record_id().unwrap(),
-                Some(expected.verified_record_id())
-            );
-            let before_primary = std::fs::read(pdir.join("formal-checkpoint-v1.cbor")).unwrap();
-            let before_replica = std::fs::read(rdir.join("formal-checkpoint-v1.cbor")).unwrap();
-            // Accepted exact retry reads retained full proofs before prepare;
-            // no source-work reset, re-signing or fresh staged lease is needed.
-            let retry = submit_staged_genesis_bounded(
-                candidate,
-                &context,
-                GenesisEndpointsV1 {
-                    primary: &mut primary,
-                    replica: &mut replica,
-                    primary_provider: primary_provider.as_ref(),
-                    replica_provider: replica_provider.as_ref(),
-                    primary_policy: &policy,
-                    replica_policy: &policy,
-                },
-                &memory,
-                &work,
-                &mut || false,
-            )
-            .unwrap();
-            assert_eq!(retry.proof(), result.proof());
-            assert_eq!(retry.primary().head(), result.primary().head());
-            assert_eq!(retry.replica().head(), result.replica().head());
-            assert_eq!(
-                std::fs::read(pdir.join("formal-checkpoint-v1.cbor")).unwrap(),
-                before_primary
-            );
-            assert_eq!(
-                std::fs::read(rdir.join("formal-checkpoint-v1.cbor")).unwrap(),
-                before_replica
+                &mut primary_pages,
+                &mut replica_pages,
             );
             run(AcceptedGenesisFixture {
-                primary,
-                replica,
+                primary: accepted.primary,
+                replica: accepted.replica,
                 primary_provider: &primary_provider,
                 replica_provider: &replica_provider,
                 policy: &policy,
                 memory: &memory,
-                work: &work,
+                work: &accepted.work,
                 authority,
                 candidate,
-                expected: &expected,
+                expected: &accepted.expected,
                 primary_root: &pdir,
                 replica_root: &rdir,
             });
