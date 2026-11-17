@@ -227,15 +227,15 @@ fn prepare_body(
     work: &FormalArchiveReadWorkV1,
     stop: &mut dyn FnMut() -> bool,
 ) -> Result<ReservedValue<FormalPrepareReceiptBodyV1>, FormalError> {
-    let mut ctx = work.bounded_context(memory, stop);
-    let final_body =
+    let final_body = {
+        let mut ctx = work.bounded_context(memory, stop);
         oasis7_formal_protocol::controlled_authority::formal::genesis_final_receipt_body_bounded(
             &candidate.candidate,
             context,
             role,
             &mut ctx,
-        )?;
-    drop(ctx);
+        )?
+    };
     prepare_body_from_final(candidate, &final_body, memory, work, stop)
 }
 fn prepare_body_from_final(
@@ -727,15 +727,15 @@ fn verify_final(
     work: &FormalArchiveReadWorkV1,
     stop: &mut dyn FnMut() -> bool,
 ) -> Result<(), FormalError> {
-    let mut ctx = work.bounded_context(memory, stop);
-    let expected =
+    let expected = {
+        let mut ctx = work.bounded_context(memory, stop);
         oasis7_formal_protocol::controlled_authority::formal::genesis_final_receipt_body_bounded(
             &candidate.candidate,
             context,
             role,
             &mut ctx,
-        )?;
-    drop(ctx);
+        )?
+    };
     if !same(&receipt.body, &*expected, memory, work, stop)? {
         return Err(invalid("GEN retained final context mismatch"));
     }

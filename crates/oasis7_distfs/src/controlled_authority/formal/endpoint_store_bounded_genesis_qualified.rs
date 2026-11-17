@@ -206,15 +206,16 @@ impl Store {
                 work,
                 stop,
             )?;
-            let mut ctx = work.bounded_context(memory, stop);
-            let lease = acquire_provider_lease_bounded_v1(
-                provider,
-                instance,
-                &self.checkpoint,
-                policy,
-                &mut ctx,
-            )?;
-            drop(ctx);
+            let lease = {
+                let mut ctx = work.bounded_context(memory, stop);
+                acquire_provider_lease_bounded_v1(
+                    provider,
+                    instance,
+                    &self.checkpoint,
+                    policy,
+                    &mut ctx,
+                )?
+            };
             work.consume_steps(1, stop)?;
             if lease.pending().is_some()
                 || lease.protected_custody()

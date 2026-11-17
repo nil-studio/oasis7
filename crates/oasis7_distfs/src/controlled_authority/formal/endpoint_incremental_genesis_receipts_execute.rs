@@ -240,9 +240,12 @@ impl FileFormalEndpoint {
                 stop,
             )?);
         }
-        let mut ctx = work.bounded_context(memory, stop);
-        let body=oasis7_formal_protocol::controlled_authority::formal::genesis_final_receipt_body_bounded(&candidate.candidate,context,self.role,&mut ctx)?;
-        drop(ctx);
+        let body = {
+            let mut ctx = work.bounded_context(memory, stop);
+            oasis7_formal_protocol::controlled_authority::formal::genesis_final_receipt_body_bounded(
+                &candidate.candidate, context, self.role, &mut ctx,
+            )?
+        };
         let signed = sign(
             provider,
             source(
@@ -410,23 +413,24 @@ impl FileFormalEndpoint {
                 invalid("formal proof installation exact retained original decision").into(),
             );
         }
-        let mut ctx = work.bounded_context(memory, stop);
-        let verified =
+        let verified = {
+            let mut ctx = work.bounded_context(memory, stop);
             oasis7_formal_protocol::controlled_authority::formal::verify_genesis_decision_bounded(
                 decision,
                 &candidate.candidate,
                 context,
                 &mut ctx,
-            )?;
-        drop(ctx);
+            )?
+        };
         let instance = match self.role {
             EndpointRole::Primary => &self.authority.definition().primary.instance,
             EndpointRole::Replica => &self.authority.definition().replica.instance,
         };
         if let Some(receipt) = already {
-            let mut ctx = work.bounded_context(memory, stop);
-            let expected = verified.complete_receipt_body_bounded(self.role, &mut ctx)?;
-            drop(ctx);
+            let expected = {
+                let mut ctx = work.bounded_context(memory, stop);
+                verified.complete_receipt_body_bounded(self.role, &mut ctx)?
+            };
             if !same(&receipt.body, &*expected, memory, work, stop)? {
                 return Err(invalid("GEN retained complete context mismatch").into());
             }
@@ -462,9 +466,10 @@ impl FileFormalEndpoint {
             work,
             stop,
         )?;
-        let mut ctx = work.bounded_context(memory, stop);
-        let body = verified.complete_receipt_body_bounded(self.role, &mut ctx)?;
-        drop(ctx);
+        let body = {
+            let mut ctx = work.bounded_context(memory, stop);
+            verified.complete_receipt_body_bounded(self.role, &mut ctx)?
+        };
         let signed = sign(
             provider,
             source(

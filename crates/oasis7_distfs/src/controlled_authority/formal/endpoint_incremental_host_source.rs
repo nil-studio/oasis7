@@ -460,38 +460,39 @@ impl FileFormalEndpoint {
             // Pinned caller configuration must equal the actual VerifiedAuthority,
             // not merely the provider's self-reported policy.
             let policy = self.authority.policy();
-            let mut compare = |a: &str, b: &str| -> Result<(), FormalError> {
-                ctx.charge(
-                    1,
-                    u64::try_from(
-                        a.len()
-                            .checked_add(b.len())
-                            .ok_or_else(|| invalid("Host policy layout"))?,
-                    )
-                    .map_err(|_| invalid("Host policy layout"))?,
+            {
+                let mut compare = |a: &str, b: &str| -> Result<(), FormalError> {
+                    ctx.charge(
+                        1,
+                        u64::try_from(
+                            a.len()
+                                .checked_add(b.len())
+                                .ok_or_else(|| invalid("Host policy layout"))?,
+                        )
+                        .map_err(|_| invalid("Host policy layout"))?,
+                    )?;
+                    if a != b {
+                        return Err(FormalError::FencingUnproven);
+                    }
+                    Ok(())
+                };
+                compare(
+                    &policy.fencing_provider_public_key,
+                    &pinned.provider_public_key,
                 )?;
-                if a != b {
-                    return Err(FormalError::FencingUnproven);
+                if policy.authorized_fencing_resource_bindings.len()
+                    != pinned.authorized_resource_bindings.len()
+                {
+                    return Err(FormalError::FencingUnproven.into());
                 }
-                Ok(())
-            };
-            compare(
-                &policy.fencing_provider_public_key,
-                &pinned.provider_public_key,
-            )?;
-            if policy.authorized_fencing_resource_bindings.len()
-                != pinned.authorized_resource_bindings.len()
-            {
-                return Err(FormalError::FencingUnproven.into());
+                for (a, b) in policy
+                    .authorized_fencing_resource_bindings
+                    .iter()
+                    .zip(&pinned.authorized_resource_bindings)
+                {
+                    compare(a, b)?;
+                }
             }
-            for (a, b) in policy
-                .authorized_fencing_resource_bindings
-                .iter()
-                .zip(&pinned.authorized_resource_bindings)
-            {
-                compare(a, b)?;
-            }
-            drop(compare);
             let lease = match supplied_lease {
                 Some(lease) => lease,
                 None => acquire_provider_lease_bounded_v1(

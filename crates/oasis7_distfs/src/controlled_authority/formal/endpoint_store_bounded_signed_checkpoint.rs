@@ -119,44 +119,46 @@ pub(in crate::controlled_authority) fn prepare_signed_native_checkpoint_bounded_
         phase_layout = add(phase_layout, text.len())?;
     }
     let _phase = reserve(ctx.memory(), phase_layout)?;
-    let shared = RefCell::new(&mut *ctx);
-    Store::verify_generated_hot_with(
-        body,
-        signature,
-        signed.endpoint_public_key(),
-        |_, sig, key| {
-            verify_with_preimage(
-                sig,
-                key,
-                || Ok::<_, BoundedAcquireErrorV1>(signed.draft().preimage()),
-                |n| charge(&mut shared.borrow_mut(), n),
-            )
-        },
-        |durable| durable.validate_with_work(&mut |n| charge(&mut shared.borrow_mut(), n)),
-    )?;
-    drop(shared);
+    {
+        let shared = RefCell::new(&mut *ctx);
+        Store::verify_generated_hot_with(
+            body,
+            signature,
+            signed.endpoint_public_key(),
+            |_, sig, key| {
+                verify_with_preimage(
+                    sig,
+                    key,
+                    || Ok::<_, BoundedAcquireErrorV1>(signed.draft().preimage()),
+                    |n| charge(&mut shared.borrow_mut(), n),
+                )
+            },
+            |durable| durable.validate_with_work(&mut |n| charge(&mut shared.borrow_mut(), n)),
+        )?;
+    }
     let head = body.decision_head.as_ref().unwrap_or(&body.head);
     let binding_layout = add(
         size_of::<EndpointCheckpointBindingV1>(),
         add(64, head.record_id.len())?,
     )?;
     let binding_fee = reserve(ctx.memory(), binding_layout)?;
-    let shared = RefCell::new(&mut *ctx);
-    let binding = Store::binding_with(
-        body,
-        &wire,
-        |bytes| {
-            let mut hasher = blake3::Hasher::new();
-            for chunk in bytes.chunks(8192) {
-                charge(&mut shared.borrow_mut(), chunk.len())?;
-                hasher.update(chunk);
-            }
-            let hex = hasher.finalize().to_hex();
-            copy(hex.as_str(), &mut shared.borrow_mut())
-        },
-        |text| copy(text, &mut shared.borrow_mut()),
-    )?;
-    drop(shared);
+    let binding = {
+        let shared = RefCell::new(&mut *ctx);
+        Store::binding_with(
+            body,
+            &wire,
+            |bytes| {
+                let mut hasher = blake3::Hasher::new();
+                for chunk in bytes.chunks(8192) {
+                    charge(&mut shared.borrow_mut(), chunk.len())?;
+                    hasher.update(chunk);
+                }
+                let hex = hasher.finalize().to_hex();
+                copy(hex.as_str(), &mut shared.borrow_mut())
+            },
+            |text| copy(text, &mut shared.borrow_mut()),
+        )?
+    };
     let covered = add(
         add(
             size_of::<PaidNativeCheckpointSignatureV1<'a>>(),

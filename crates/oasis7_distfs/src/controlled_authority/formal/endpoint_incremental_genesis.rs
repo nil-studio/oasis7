@@ -283,10 +283,10 @@ impl FileFormalEndpoint {
         {
             return Err(invalid("GEN complete exact material job required").into());
         }
-        let mut ctx = work.bounded_context(memory, stop);
-        let quorum =
-            verify_genesis_qualified_bounded(proof, &candidate.candidate, context, &mut ctx)?;
-        drop(ctx);
+        let quorum = {
+            let mut ctx = work.bounded_context(memory, stop);
+            verify_genesis_qualified_bounded(proof, &candidate.candidate, context, &mut ctx)?
+        };
         let job = capability.jobs.genesis_job()?;
         let closure = job.reference(quorum.verified(), memory)?;
         let request = &proof.decision.record.request_digest;

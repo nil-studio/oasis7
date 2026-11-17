@@ -429,43 +429,44 @@ pub(super) fn decode_hot_paid_wire(
         .reserve(crypto_layout, MemoryClass::Ordinary)
         .map_err(|_| invalid("bounded Hot crypto admission"))?;
     let mut ctx = work.bounded_context(memory, stop);
-    let shared = RefCell::new(&mut ctx);
-    Store::verify_generated_hot_with(
-        &hot.body,
-        &hot.signature,
-        expected_public_key,
-        |body, signature, key| {
-            oasis7_formal_protocol::controlled_authority::formal::crypto::verify_with_preimage(
-                signature,
-                key,
-                || preimage(body, &mut shared.borrow_mut()),
-                |n| shared.borrow_mut().charge(1, n as u64),
-            )
-        },
-        |binding| {
-            enum DurableError {
-                Work(FormalError),
-                Fencing(fencing::FencingError),
-            }
-            impl From<fencing::FencingError> for DurableError {
-                fn from(e: fencing::FencingError) -> Self {
-                    Self::Fencing(e)
+    {
+        let shared = RefCell::new(&mut ctx);
+        Store::verify_generated_hot_with(
+            &hot.body,
+            &hot.signature,
+            expected_public_key,
+            |body, signature, key| {
+                oasis7_formal_protocol::controlled_authority::formal::crypto::verify_with_preimage(
+                    signature,
+                    key,
+                    || preimage(body, &mut shared.borrow_mut()),
+                    |n| shared.borrow_mut().charge(1, n as u64),
+                )
+            },
+            |binding| {
+                enum DurableError {
+                    Work(FormalError),
+                    Fencing(fencing::FencingError),
                 }
-            }
-            binding
-                .validate_with_work(&mut |n| {
-                    shared
-                        .borrow_mut()
-                        .charge(1, n as u64)
-                        .map_err(DurableError::Work)
-                })
-                .map_err(|error| match error {
-                    DurableError::Work(e) => e,
-                    DurableError::Fencing(e) => fencing_error(e),
-                })
-        },
-    )?;
-    drop(shared);
+                impl From<fencing::FencingError> for DurableError {
+                    fn from(e: fencing::FencingError) -> Self {
+                        Self::Fencing(e)
+                    }
+                }
+                binding
+                    .validate_with_work(&mut |n| {
+                        shared
+                            .borrow_mut()
+                            .charge(1, n as u64)
+                            .map_err(DurableError::Work)
+                    })
+                    .map_err(|error| match error {
+                        DurableError::Work(e) => e,
+                        DurableError::Fencing(e) => fencing_error(e),
+                    })
+            },
+        )?;
+    }
     Ok(PaidNativeHotV1 {
         hot: fee.retain(hot),
         wire,

@@ -209,23 +209,25 @@ impl Store {
             work,
             stop,
         )?;
-        let mut ctx = work.bounded_context(memory, stop);
-        let lease = acquire_provider_lease_bounded_v1(
-            provider,
-            instance,
-            &self.checkpoint,
-            policy,
-            &mut ctx,
-        )?;
-        let signed = sign_native_checkpoint_bounded_v1(provider, lease, draft, &mut ctx)?;
-        let checkpoint =
-            super::bounded_signed_checkpoint::prepare_signed_native_checkpoint_bounded_v1(
-                signed, &mut ctx,
+        let (begun, body, body_fee) = {
+            let mut ctx = work.bounded_context(memory, stop);
+            let lease = acquire_provider_lease_bounded_v1(
+                provider,
+                instance,
+                &self.checkpoint,
+                policy,
+                &mut ctx,
             )?;
-        let begun = begin_signed_native_checkpoint_bounded_v1(provider, checkpoint, &mut ctx)?;
-        // Prepay and construct BOTH cache replacements before native publication.
-        let (body, body_fee) = begun.draft().paid_cache_copy(&mut ctx)?;
-        drop(ctx);
+            let signed = sign_native_checkpoint_bounded_v1(provider, lease, draft, &mut ctx)?;
+            let checkpoint =
+                super::bounded_signed_checkpoint::prepare_signed_native_checkpoint_bounded_v1(
+                    signed, &mut ctx,
+                )?;
+            let begun = begin_signed_native_checkpoint_bounded_v1(provider, checkpoint, &mut ctx)?;
+            // Prepay and construct BOTH cache replacements before native publication.
+            let (body, body_fee) = begun.draft().paid_cache_copy(&mut ctx)?;
+            (begun, body, body_fee)
+        };
         let (binding, binding_fee) = copy_checkpoint(begun.next_checkpoint(), memory, work, stop)?;
         #[cfg(test)]
         if self.fault == Some(1) {
@@ -266,17 +268,19 @@ impl Store {
             work,
             stop,
         )?;
-        let mut ctx = work.bounded_context(memory, stop);
-        lease.validate_current_binding(instance, &self.checkpoint, policy, &mut ctx)?;
-        let signed = sign_native_checkpoint_bounded_v1(provider, lease, draft, &mut ctx)?;
-        let checkpoint =
-            super::bounded_signed_checkpoint::prepare_signed_native_checkpoint_bounded_v1(
-                signed, &mut ctx,
-            )?;
-        let begun = begin_signed_native_checkpoint_bounded_v1(provider, checkpoint, &mut ctx)?;
-        // Prepay and construct BOTH cache replacements before native publication.
-        let (body, body_fee) = begun.draft().paid_cache_copy(&mut ctx)?;
-        drop(ctx);
+        let (begun, body, body_fee) = {
+            let mut ctx = work.bounded_context(memory, stop);
+            lease.validate_current_binding(instance, &self.checkpoint, policy, &mut ctx)?;
+            let signed = sign_native_checkpoint_bounded_v1(provider, lease, draft, &mut ctx)?;
+            let checkpoint =
+                super::bounded_signed_checkpoint::prepare_signed_native_checkpoint_bounded_v1(
+                    signed, &mut ctx,
+                )?;
+            let begun = begin_signed_native_checkpoint_bounded_v1(provider, checkpoint, &mut ctx)?;
+            // Prepay and construct BOTH cache replacements before native publication.
+            let (body, body_fee) = begun.draft().paid_cache_copy(&mut ctx)?;
+            (begun, body, body_fee)
+        };
         let (binding, binding_fee) = copy_checkpoint(begun.next_checkpoint(), memory, work, stop)?;
         #[cfg(test)]
         if self.fault == Some(1) {
@@ -344,9 +348,12 @@ impl Store {
             RecoveryScope::Cold { authority, role } => {
                 let registration =
                     super::bounded_reopen::cold_registration(authority, *role, memory, work, stop)?;
-                let mut ctx = work.bounded_context(memory, stop);
-                let discovery=crate::controlled_authority::fencing::initialize_protected_registration_bounded_v1(provider,registration,policy,&mut ctx)?;
-                drop(ctx);
+                let discovery = {
+                    let mut ctx = work.bounded_context(memory, stop);
+                    crate::controlled_authority::fencing::initialize_protected_registration_bounded_v1(
+                        provider, registration, policy, &mut ctx,
+                    )?
+                };
                 let native = discovery
                     .native_checkpoint_bytes()
                     .ok_or(FormalError::FencingUnproven)?;
