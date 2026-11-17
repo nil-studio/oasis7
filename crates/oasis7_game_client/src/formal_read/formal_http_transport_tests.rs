@@ -19,8 +19,8 @@ fn formal_reader_uses_direct_http_policy() {
                     steps: Vec::new(),
                 },
             );
-            let client = RemoteWorldServiceReader::<WorldServiceProjection>::new(
-                WorldServiceClientConfig {
+            let client =
+                RemoteWorldServiceReader::<WorldServiceProjection>::new(WorldServiceClientConfig {
                     formal_read_trust: Some(FormalReadTrustConfigV1 {
                         initial_trust: trust,
                         checkpoint_digest: checkpoint.digest().unwrap(),
@@ -33,9 +33,8 @@ fn formal_reader_uses_direct_http_policy() {
                     read_private_key_hex: h(7),
                     timeout: std::time::Duration::from_secs(10),
                     max_response_bytes: 1_048_576,
-                },
-            )
-            .unwrap();
+                })
+                .unwrap();
             // A real formal read reaches the configured origin despite proxy
             // environment variables. The unsigned error is still rejected;
             // this transport fixture does not claim an accepted World proof.

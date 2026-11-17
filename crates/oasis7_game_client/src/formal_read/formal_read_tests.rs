@@ -22,10 +22,10 @@ mod bft_transport_tests;
 mod durable_set_tests;
 #[path = "formal_read_historical_v2_tests.rs"]
 mod historical_v2_tests;
-#[path = "formal_read_rebase_tests.rs"]
-mod rebase_tests;
 #[path = "formal_http_transport_tests.rs"]
 mod http_transport_tests;
+#[path = "formal_read_rebase_tests.rs"]
+mod rebase_tests;
 
 fn domain_bytes<T: Serialize>(domain: &str, value: &T) -> Vec<u8> {
     let mut bytes = (domain.len() as u64).to_be_bytes().to_vec();
