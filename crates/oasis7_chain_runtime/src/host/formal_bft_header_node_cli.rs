@@ -22,6 +22,9 @@ mod network;
 #[path = "formal_bft_header_node_status.rs"]
 pub(super) mod status;
 
+#[path = "formal_bft_header_node_output.rs"]
+mod output;
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Config {
@@ -127,21 +130,18 @@ pub(super) fn run<'a>(
             return Err("header Node --print-binding cannot be combined with --actions".into());
         }
         let report = super::prepare_node_binding_report(&config)?;
-        println!(
-            "{}",
-            serde_json::to_string(&report).map_err(|_| "encode public header Node binding")?
-        );
-        return Ok(());
+        let encoded =
+            serde_json::to_string(&report).map_err(|_| "encode public header Node binding")?;
+        return output::write_line(&mut std::io::stdout().lock(), &encoded);
     }
     if !serve && actions.is_none() {
         return Err("bft-header node requires --actions or --serve".into());
     }
     let report = from_paths(&config, actions.as_deref(), serve, shutdown)?;
-    println!(
-        "{}",
-        serde_json::to_string(&report).map_err(|_| "encode public header Node receipt")?
-    );
-    Ok(())
+    let encoded =
+        serde_json::to_string(&report).map_err(|_| "encode public header Node receipt")?;
+    // The runtime has already stopped. Output failure must not resubmit actions.
+    output::write_line(&mut std::io::stdout().lock(), &encoded)
 }
 
 fn from_paths(
