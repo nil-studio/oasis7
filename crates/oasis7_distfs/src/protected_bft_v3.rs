@@ -11,9 +11,12 @@ mod membership;
 mod rotation;
 mod service;
 mod state;
+mod successor_source;
 #[cfg(test)]
 mod tests;
 mod wire;
+
+pub use successor_source::{BFT_SUCCESSOR_WINDOW_ORIGIN_DOMAIN_V1, BftSuccessorWindowSourceV1};
 
 pub use backend::{
     BFT_SIGNER_BACKEND_NAMESPACE_V3, BftSignerAcquireOutcomeV3, BftSignerBackendSnapshotV3,
