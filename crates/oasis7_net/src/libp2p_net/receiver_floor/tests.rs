@@ -680,7 +680,10 @@ fn explicit_policy_upgrade_preserves_floors_and_acceptance_matrix() {
             "peer-record-receiver-v2.initializing.cbor",
             "peer-record-receiver-v2.initializing.cbor.tmp",
         ] {
-            assert!(!fixture.directory.join(pending).exists(), "{phase}: {pending}");
+            assert!(
+                !fixture.directory.join(pending).exists(),
+                "{phase}: {pending}"
+            );
         }
         let after: ReceiverLedgerV2 = serde_cbor::from_slice(&recovered_bytes).unwrap();
         assert_eq!(before.binding, after.binding);
