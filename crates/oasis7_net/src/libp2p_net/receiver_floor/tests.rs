@@ -968,7 +968,10 @@ fn pruning_reclaims_expired_floors_and_allows_new_peers_at_capacity() {
     let pruned = receiver
         .prune_floors(too_early_now, &BTreeSet::new())
         .expect("prune too early");
-    assert_eq!(pruned, 0, "must not prune before published_at_ms + MAX_TTL + MAX_FUTURE_SKEW");
+    assert_eq!(
+        pruned, 0,
+        "must not prune before published_at_ms + MAX_TTL + MAX_FUTURE_SKEW"
+    );
     assert_eq!(receiver.floor_count().unwrap(), MAX_RECEIVER_FLOORS);
 
     // Prune with verified trusted time lower bound >= published_at_ms + MAX_RECORD_TTL_MS + MAX_FUTURE_SKEW_MS
@@ -981,10 +984,15 @@ fn pruning_reclaims_expired_floors_and_allows_new_peers_at_capacity() {
 
     // Now the 1025th peer can be admitted into the newly freed capacity!
     assert_eq!(
-        receiver.admit_serialized(&untracked).expect("admit newly permitted peer"),
+        receiver
+            .admit_serialized(&untracked)
+            .expect("admit newly permitted peer"),
         ReceiverAdmission::Accepted
     );
-    assert_eq!(receiver.floor_count().unwrap(), MAX_RECEIVER_FLOORS - 20 + 1);
+    assert_eq!(
+        receiver.floor_count().unwrap(),
+        MAX_RECEIVER_FLOORS - 20 + 1
+    );
     assert!(receiver.lease_guard(&untracked).is_ok());
 }
 
@@ -1076,9 +1084,18 @@ fn retained_peers_and_conflict_isolated_peers_are_never_pruned() {
     let pruned = receiver.prune_floors(trusted_now, &retained_peers).unwrap();
     assert_eq!(pruned, 1, "only peer C should be pruned");
 
-    assert!(receiver.contains_floor(&peer_a_id).unwrap(), "retained peer A must remain");
-    assert!(receiver.contains_floor(&peer_b_id).unwrap(), "isolated peer B must remain");
-    assert!(!receiver.contains_floor(&peer_c_id).unwrap(), "unretained peer C was pruned");
+    assert!(
+        receiver.contains_floor(&peer_a_id).unwrap(),
+        "retained peer A must remain"
+    );
+    assert!(
+        receiver.contains_floor(&peer_b_id).unwrap(),
+        "isolated peer B must remain"
+    );
+    assert!(
+        !receiver.contains_floor(&peer_c_id).unwrap(),
+        "unretained peer C was pruned"
+    );
     assert_eq!(receiver.floor_count().unwrap(), 2);
 }
 
@@ -1131,7 +1148,9 @@ fn pruned_peer_cannot_resurrect_stale_records_tombstone_or_v1() {
 
     // Prune floor at trusted time
     let trusted_now = base_time + MAX_RECORD_TTL_MS + MAX_FUTURE_SKEW_MS + 1000;
-    let pruned = receiver.prune_floors(trusted_now, &BTreeSet::new()).unwrap();
+    let pruned = receiver
+        .prune_floors(trusted_now, &BTreeSet::new())
+        .unwrap();
     assert_eq!(pruned, 1);
     assert!(!receiver.contains_floor(&peer_id).unwrap());
 
@@ -1205,12 +1224,9 @@ fn pruning_persists_atomically_and_survives_reopen() {
         ..Libp2pNetworkConfig::default()
     };
     let trusted_now = base_time + MAX_RECORD_TTL_MS + MAX_FUTURE_SKEW_MS + 1000;
-    let pruned = Libp2pNetwork::prune_peer_record_receiver(
-        &net_config,
-        trusted_now,
-        &BTreeSet::new(),
-    )
-    .expect("offline prune via Libp2pNetwork");
+    let pruned =
+        Libp2pNetwork::prune_peer_record_receiver(&net_config, trusted_now, &BTreeSet::new())
+            .expect("offline prune via Libp2pNetwork");
     assert_eq!(pruned, 1);
 
     // Reopen and verify floor is gone and state is valid canonical CBOR

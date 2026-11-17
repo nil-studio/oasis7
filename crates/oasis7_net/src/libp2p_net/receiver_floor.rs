@@ -492,10 +492,10 @@ impl PeerRecordReceiver {
         if trusted_now_ms <= 0 {
             return Err(protocol_error("trusted time must be positive".into()));
         }
-        if let Some(last) = durable.last_trusted_now_ms {
-            if trusted_now_ms < last {
-                return Err(protocol_error("trusted time moved backward".into()));
-            }
+        if let Some(last) = durable.last_trusted_now_ms
+            && trusted_now_ms < last
+        {
+            return Err(protocol_error("trusted time moved backward".into()));
         }
         durable.last_trusted_now_ms = Some(trusted_now_ms);
 
