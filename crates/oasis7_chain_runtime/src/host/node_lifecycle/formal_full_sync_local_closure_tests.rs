@@ -178,3 +178,79 @@ fn local_record_readback_bypasses_warm_compressed_cache_and_bounds_decode() {
     assert!(!store.pins_path().exists());
     assert!(!store.root().join("pin_scopes").exists());
 }
+
+#[test]
+fn local_native_closure_requires_original_chunks_and_combined_material_budget() {
+    use oasis7_formal_protocol::native_environment::{
+        NativeEnvironmentChunkV1, NativeEnvironmentComponentV1, NativeEnvironmentRole,
+        NativeExecutionEnvironmentV1,
+    };
+    let (_, _, _, mut material, _) = full_sync_fixture();
+    let executable = b"original fixture executable bytes";
+    let metadata = b"original fixture build metadata";
+    let component = |name: &str, role, bytes: &[u8]| NativeEnvironmentComponentV1 {
+        role,
+        name: name.into(),
+        byte_len: bytes.len() as u64,
+        content_digest: blake3_hex(bytes),
+        chunks: vec![NativeEnvironmentChunkV1 {
+            digest: blake3_hex(bytes),
+            byte_len: bytes.len() as u32,
+        }],
+    };
+    let environment = NativeExecutionEnvironmentV1 {
+        schema_version: 1,
+        target: "fixture-native".into(),
+        os: "fixture".into(),
+        arch: "fixture".into(),
+        components: vec![
+            component("runtime", NativeEnvironmentRole::Executable, executable),
+            component("build", NativeEnvironmentRole::BuildMetadata, metadata),
+        ],
+    };
+    let descriptor = environment.encode().unwrap();
+    let digest = blake3_hex(&descriptor);
+    material
+        .roots
+        .insert(ArtifactRole::NativeExecutionEnvironment, digest.clone());
+    material.objects.push(ArtifactObject {
+        content_hash: digest,
+        bytes: descriptor,
+        references: vec![],
+    });
+    let limit = material
+        .objects
+        .iter()
+        .map(|o| o.bytes.len() as u64)
+        .sum::<u64>()
+        + executable.len() as u64
+        + metadata.len() as u64;
+    let directory = TestPrivateDir::new();
+    let store = LocalCasStore::new(directory.0.join("cas"));
+    for object in &material.objects {
+        store.put(&object.content_hash, &object.bytes).unwrap();
+    }
+    let verify = |max| {
+        local_closure::verify_native(
+            &store,
+            &material,
+            max,
+            Instant::now() + Duration::from_secs(10),
+        )
+    };
+    assert!(verify(limit).is_err());
+    for bytes in [executable.as_slice(), metadata.as_slice()] {
+        store.put(&blake3_hex(bytes), bytes).unwrap();
+    }
+    verify(limit).unwrap();
+    assert!(verify(limit - 1).is_err());
+    assert!(local_closure::verify_native(&store, &material, limit, Instant::now()).is_err());
+    let path = store
+        .blobs_dir()
+        .join(format!("{}.blob", blake3_hex(executable)));
+    std::fs::write(&path, b"changed executable bytes").unwrap();
+    assert!(verify(limit).is_err());
+    assert_eq!(std::fs::read(&path).unwrap(), b"changed executable bytes");
+    assert!(!store.pins_path().exists());
+    assert!(!store.root().join("pin_scopes").exists());
+}
