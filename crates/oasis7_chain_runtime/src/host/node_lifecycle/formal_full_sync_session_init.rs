@@ -84,6 +84,7 @@ impl FormalFullSyncSession {
             http,
             active_provider_index: 0,
             shared_exchange: None,
+            recovery_target: None,
             node_private_key_hex,
             node_public_key_hex,
             cas,
@@ -267,12 +268,12 @@ impl FormalFullSyncSession {
         )
         .map_err(|e| e.to_string())?;
         let root = data.join("state/full-sync");
-        history_chain::PersistedFormalReadHistoryV1::verify_read_only_at_least(
+        history_chain::PersistedFormalReadHistoryV1::verify_read_only_exact_boundary(
             &config,
             &client,
             Arc::new(LocalCasStore::new(&root)),
             &root,
-            Some(&minimum),
+            &minimum,
         )?;
         let anchor = client.formal_current_anchor().map_err(|e| e.to_string())?;
         if cut_from_anchor(&anchor)? != minimum
@@ -296,6 +297,142 @@ impl FormalFullSyncSession {
         ledger.guard_pre_target_initialization(owner.clone(), data)?;
         let mut session = Self::new(config, node_private_key_hex, &root, instance)?;
         let exchange = session.resume_pre_target_operation(ledger, owner, data, transport)?;
+        Ok((session, exchange))
+    }
+
+    /// Resume the exact selected target only before any local publication.
+    /// An unknown or acknowledged publication remains blocked for separate
+    /// installation reconciliation; it is never treated as a fresh transfer.
+    #[cfg(unix)]
+    pub(in super::super) fn recover_selected_target(
+        config: FormalFullSyncConfigV1,
+        node_private_key_hex: String,
+        instance: &super::super::LocalInstance,
+        mut ledger: operation_ledger::Ledger,
+        owner: Arc<super::super::process::ProcessOwnership>,
+        data: &Path,
+        transport: shared_exchange::PreparedTransport,
+    ) -> Result<(Self, Arc<shared_exchange::SharedOperationExchange>), String> {
+        ledger.guard_selected_initialization(owner.clone(), data)?;
+        config.validate()?;
+        let original: serde_json::Value = serde_json::from_slice(
+            ledger
+                .snapshot()
+                .original_request_json
+                .as_ref()
+                .ok_or("missing original request")?,
+        )
+        .map_err(|e| e.to_string())?;
+        let target_bytes = ledger
+            .snapshot()
+            .verified_target_json
+            .clone()
+            .ok_or("missing original target")?;
+        let (target, target_record): (FormalFullSyncCutV1, serde_json::Value) =
+            serde_json::from_slice(&target_bytes).map_err(|e| e.to_string())?;
+        let minimum: FormalFullSyncCutV1 = serde_json::from_value(
+            original
+                .get("initial_minimum")
+                .cloned()
+                .ok_or("missing original minimum")?,
+        )
+        .map_err(|e| e.to_string())?;
+        let signed = authority::sign_read_request(
+            "formal-full-sync-node-key-check",
+            (),
+            &node_private_key_hex,
+        )?;
+        let providers = config.providers();
+        let endpoints: Vec<_> = providers.iter().map(|p| p.endpoint.clone()).collect();
+        if ledger.snapshot().material_limit != config.max_total_sync_bytes
+            || !transport.matches_endpoints(&endpoints)
+        {
+            return Err("recovery budget/providers differ before CAS initialization".into());
+        }
+        let expected = serde_json::json!({
+            "api_version": "oasis7.full-sync-original-operation-request/v1",
+            "config": &config, "transfer_policy": &ledger.snapshot().policy,
+            "node_public_key": &signed.subject_public_key,
+            "initial_minimum": &minimum,
+            "initial_minimum_record": original.get("initial_minimum_record"),
+            "transport_binding": transport.binding_digest(),
+        });
+        if expected != original {
+            return Err("selected recovery differs from the complete original request".into());
+        }
+        let provider = providers.first().ok_or("missing recovery provider")?;
+        let client = providers::build_read_client(
+            &config,
+            provider,
+            &node_private_key_hex,
+            Duration::from_millis(config.request_timeout_ms),
+        )?;
+        let root = data.join("state/full-sync");
+        let summary = history_chain::PersistedFormalReadHistoryV1::verify_read_only_exact_boundary(
+            &config,
+            &client,
+            Arc::new(LocalCasStore::new(&root)),
+            &root,
+            &minimum,
+        )?
+        .ok_or("missing authenticated operation history")?;
+        if summary.get("minimum_record") != original.get("initial_minimum_record") {
+            return Err("original minimum record differs from authenticated history".into());
+        }
+        let anchor = client.formal_current_anchor().map_err(|e| e.to_string())?;
+        // This first selected-target increment requires the durable history to
+        // end exactly at T. Later-than-T recovery needs explicit prefix capture.
+        if cut_from_anchor(&anchor)? != target
+            || serde_json::to_value(anchor.head().record()).map_err(|e| e.to_string())?
+                != target_record
+            || !nondecreasing_cut(&minimum, &target)
+        {
+            return Err("selected recovery target differs from authenticated durable head".into());
+        }
+        config
+            .grant
+            .as_ref()
+            .ok_or("missing recovery grant")?
+            .verify(
+                &config.formal_read_trust.initial_trust.issuer_public_key,
+                &target.world,
+                &target.chain_id,
+                &signed.subject_public_key,
+                &config.expected_role,
+                target.authority_epoch,
+                now_unix_ms().ok_or("system clock before Unix epoch")?,
+            )?;
+        ledger.guard_selected_initialization(owner.clone(), data)?;
+        let mut session = Self::new(config, node_private_key_hex, &root, instance)?;
+        let current = session
+            .client
+            .formal_current_anchor()
+            .map_err(|e| e.to_string())?;
+        if cut_from_anchor(&current)? != target || current.head().record() != anchor.head().record()
+        {
+            return Err("selected history changed during recovery initialization".into());
+        }
+        let attempt = ledger.resume_selected_target(owner, data, &original, &target_bytes)?;
+        let exchange = Arc::new(transport.admit(ledger, attempt)?);
+        use oasis7_game_client::formal_sync_exchange::FullSyncExchange;
+        if exchange
+            .original_request_digest()
+            .map_err(|e| e.to_string())?
+            != super::super::local_io::digest(&original)?
+        {
+            return Err("selected recovery transport identity changed".into());
+        }
+        session.client = session
+            .client
+            .independent_clone()
+            .map_err(|e| e.to_string())?
+            .with_full_sync_exchange(exchange.clone())
+            .map_err(|e| e.to_string())?;
+        session.shared_exchange = Some(exchange.clone());
+        session.recovery_target = Some(attempt::FullSyncTargetV1 {
+            anchor,
+            cut: target,
+        });
         Ok((session, exchange))
     }
 

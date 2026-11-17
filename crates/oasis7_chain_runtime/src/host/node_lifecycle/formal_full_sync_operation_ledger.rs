@@ -579,6 +579,23 @@ impl Ledger {
         owner: std::sync::Arc<super::super::process::ProcessOwnership>,
         data: &Path,
     ) -> Result<(), String> {
+        self.guard_initialization(owner, data, false)
+    }
+
+    pub(super) fn guard_selected_initialization(
+        &mut self,
+        owner: std::sync::Arc<super::super::process::ProcessOwnership>,
+        data: &Path,
+    ) -> Result<(), String> {
+        self.guard_initialization(owner, data, true)
+    }
+
+    fn guard_initialization(
+        &mut self,
+        owner: std::sync::Arc<super::super::process::ProcessOwnership>,
+        data: &Path,
+        selected: bool,
+    ) -> Result<(), String> {
         let deadline = self.reopen_deadline.ok_or("not a reopened operation")?;
         if !self.recovered || self.poisoned || Instant::now() >= deadline {
             return Err("operation_recovery_required: initialization unavailable".into());
@@ -587,7 +604,7 @@ impl Ledger {
         if self.state.owner_binding.as_ref() != Some(&owner.binding_digest()?)
             || self.state.publication_journal_version != Some(1)
             || self.state.publication.is_some()
-            || self.state.verified_target_json.is_some()
+            || self.state.verified_target_json.is_some() != selected
             || self.state.original_request_json.is_none()
         {
             return Err("operation_recovery_required: publication/target must be reconciled before CAS initialization".into());
@@ -608,6 +625,26 @@ impl Ledger {
         owner: std::sync::Arc<super::super::process::ProcessOwnership>,
         data: &Path,
         request: &serde_json::Value,
+    ) -> Result<AttemptPermit, String> {
+        self.resume_original(owner, data, request, None)
+    }
+
+    pub(super) fn resume_selected_target(
+        &mut self,
+        owner: std::sync::Arc<super::super::process::ProcessOwnership>,
+        data: &Path,
+        request: &serde_json::Value,
+        verified_target: &[u8],
+    ) -> Result<AttemptPermit, String> {
+        self.resume_original(owner, data, request, Some(verified_target))
+    }
+
+    fn resume_original(
+        &mut self,
+        owner: std::sync::Arc<super::super::process::ProcessOwnership>,
+        data: &Path,
+        request: &serde_json::Value,
+        verified_target: Option<&[u8]>,
     ) -> Result<AttemptPermit, String> {
         let deadline = self.reopen_deadline.ok_or("not a reopened operation")?;
         if !self.recovered || self.poisoned || Instant::now() >= deadline {
@@ -630,7 +667,9 @@ impl Ledger {
             != expected_parent.canonicalize().map_err(|e| e.to_string())?
             || self.state.original_request_json.as_ref()
                 != Some(&serde_json::to_vec(request).map_err(|e| e.to_string())?)
-            || self.state.verified_target_json.is_some()
+            || self.state.verified_target_json.as_deref() != verified_target
+            || self.state.publication_journal_version != Some(1)
+            || self.state.publication.is_some()
         {
             return Err(
                 "operation_recovery_required: original pre-target continuity unavailable".into(),

@@ -269,6 +269,7 @@ pub(crate) struct FormalFullSyncSession {
     http: HttpClient,
     active_provider_index: usize,
     shared_exchange: Option<Arc<dyn oasis7_game_client::formal_sync_exchange::FullSyncExchange>>,
+    recovery_target: Option<attempt::FullSyncTargetV1>,
     node_private_key_hex: String,
     node_public_key_hex: String,
     cas: Arc<LocalCasStore>,

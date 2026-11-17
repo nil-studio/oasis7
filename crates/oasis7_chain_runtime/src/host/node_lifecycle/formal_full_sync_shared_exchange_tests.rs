@@ -10,22 +10,33 @@ use super::*;
 
 #[test]
 fn shared_operation_binds_real_formal_read_and_material_routes() {
-    exercise_shared_operation(false, false);
+    exercise_shared_operation(false, false, false, false);
 }
 
 #[test]
 fn shared_operation_survives_provider_rebuild_without_new_budget() {
-    exercise_shared_operation(true, false);
+    exercise_shared_operation(true, false, false, false);
 }
 
 #[test]
 fn pre_target_recovery_rebinds_real_signed_and_material_consumers() {
-    exercise_shared_operation(false, true);
+    exercise_shared_operation(false, true, false, false);
 }
 
-fn exercise_shared_operation(failover: bool, recover: bool) {
+#[test]
+fn selected_target_recovery_keeps_original_cut_across_real_material_restore() {
+    exercise_shared_operation(false, true, true, false);
+}
+
+#[test]
+fn selected_target_recovery_rejects_later_durable_head_without_pruning() {
+    exercise_shared_operation(false, true, true, true);
+}
+
+fn exercise_shared_operation(failover: bool, recover: bool, selected: bool, head_ahead: bool) {
     let (world, trust, anchor, material, proof) = full_sync_fixture();
-    let (mut server, endpoint, key, runtime, _, _) =
+    let newer = selected.then(|| same_epoch_successor_fixture(&world, &anchor, &material));
+    let (mut server, endpoint, key, runtime, published, history) =
         start_live_service(world, trust.clone(), anchor, material, proof);
     let node_key = test_key(92);
     let unavailable = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -111,7 +122,126 @@ fn exercise_shared_operation(failover: bool, recover: bool) {
         None
     };
     let attempt = ledger.begin_attempt().unwrap();
-    let shared = if recover {
+    let shared = if selected {
+        use oasis7_game_client::formal_sync_exchange::FullSyncExchange;
+        let first = Arc::new(prepared.admit(ledger, attempt).unwrap());
+        session
+            .bind_shared_exchange(first.clone(), &original_request)
+            .unwrap();
+        let view = session.read_best_effort_current_view().unwrap();
+        let anchor = verified_anchor(&view, &config).unwrap();
+        let cut = cut_from_anchor(&anchor).unwrap();
+        let target = serde_json::to_vec(&(&cut, anchor.head().record())).unwrap();
+        first.bind_verified_target(&target).unwrap();
+        if head_ahead {
+            let newer = newer.as_ref().unwrap();
+            history.push(newer.clone());
+            published
+                .publish(newer.world.clone(), newer.anchor.clone())
+                .unwrap();
+            session.read_best_effort_current_view().unwrap();
+        }
+        let store = Arc::clone(&session.cas);
+        use oasis7_runtime::BlobStore;
+        let orphan = store
+            .put_bytes(b"recovery must not prune on rejected target")
+            .unwrap();
+        let prior = first.snapshot();
+        assert!(prior.encoded_tx_actual > 0 && prior.encoded_rx_actual > 0);
+        drop(first);
+        drop(session);
+        drop(original_owner);
+        drop(local_io::private_file(&directory.0.join("process.lock")).unwrap());
+        let owner = Arc::new(super::super::super::process::lock(&directory.0).unwrap());
+        if !head_ahead {
+            let original_disk: serde_json::Value = local_io::read(&ledger_path).unwrap();
+            for fault in [
+                "target-record",
+                "pending-publication",
+                "acknowledged-publication",
+            ] {
+                let mut changed = original_disk.clone();
+                if fault == "target-record" {
+                    let bytes = serde_json::to_vec(&(&cut, serde_json::Value::Null)).unwrap();
+                    changed["verified_target_json"] = serde_json::to_value(bytes).unwrap();
+                } else {
+                    changed["publication"] = serde_json::json!({
+                        "intent_digest":"11".repeat(32), "attempt_no":prior.attempts_used,
+                        "completed":fault == "acknowledged-publication",
+                    });
+                }
+                local_io::write(&ledger_path, &changed).unwrap();
+                let before = std::fs::read(&ledger_path).unwrap();
+                let bad = Ledger::open(
+                    &ledger_path,
+                    &identity,
+                    &policy,
+                    config.max_total_sync_bytes,
+                )
+                .unwrap();
+                let prepared = PreparedTransport::prepare_builtin_trust(&endpoints).unwrap();
+                assert!(
+                    FormalFullSyncSession::recover_selected_target(
+                        config.clone(),
+                        hex::encode(node_key.to_bytes()),
+                        &instance,
+                        bad,
+                        owner.clone(),
+                        &directory.0,
+                        prepared,
+                    )
+                    .is_err(),
+                    "{fault} unexpectedly resumed"
+                );
+                assert_eq!(std::fs::read(&ledger_path).unwrap(), before);
+                assert_eq!(
+                    store.get(&orphan).unwrap(),
+                    b"recovery must not prune on rejected target"
+                );
+                local_io::write(&ledger_path, &original_disk).unwrap();
+            }
+        }
+        let reopened = Ledger::open(
+            &ledger_path,
+            &identity,
+            &policy,
+            config.max_total_sync_bytes,
+        )
+        .unwrap();
+        let prepared = PreparedTransport::prepare_builtin_trust(&endpoints).unwrap();
+        let before = std::fs::read(&ledger_path).unwrap();
+        let result = FormalFullSyncSession::recover_selected_target(
+            config.clone(),
+            hex::encode(node_key.to_bytes()),
+            &instance,
+            reopened,
+            owner,
+            &directory.0,
+            prepared,
+        );
+        if head_ahead {
+            let error = match result {
+                Ok(_) => panic!("later durable head accepted"),
+                Err(e) => e,
+            };
+            assert!(error.contains("target differs"), "{error}");
+            assert_eq!(std::fs::read(&ledger_path).unwrap(), before);
+            assert_eq!(
+                store.get(&orphan).unwrap(),
+                b"recovery must not prune on rejected target"
+            );
+            server.stop().unwrap();
+            runtime.lock().unwrap().stop().unwrap();
+            return;
+        }
+        let (recovered_session, exchange) = result.unwrap();
+        let recovered = exchange.snapshot();
+        assert_eq!(recovered.verified_target_json, prior.verified_target_json);
+        assert_eq!(recovered.encoded_tx_actual, prior.encoded_tx_actual);
+        assert_eq!(recovered.encoded_rx_actual, prior.encoded_rx_actual);
+        session = recovered_session;
+        exchange
+    } else if recover {
         let _interrupted = ledger.begin_exchange(&attempt, 17, 23).unwrap();
         drop(ledger);
         drop(original_owner);
@@ -147,7 +277,9 @@ fn exercise_shared_operation(failover: bool, recover: bool) {
             .bind_shared_exchange(shared.clone(), &wrong_request)
             .is_err()
     );
-    assert_eq!(shared.snapshot().exchanges_started, u64::from(recover));
+    if !selected {
+        assert_eq!(shared.snapshot().exchanges_started, u64::from(recover));
+    }
     if !recover {
         session
             .bind_shared_exchange(shared.clone(), &original_request)
@@ -177,17 +309,44 @@ fn exercise_shared_operation(failover: bool, recover: bool) {
             .unwrap();
         assert!(shared.snapshot().exchanges_started > before_clone);
     }
+    if selected {
+        let newer = newer.as_ref().unwrap();
+        history.push(newer.clone());
+        published
+            .publish(newer.world.clone(), newer.anchor.clone())
+            .unwrap();
+    }
     let after_view = shared.snapshot();
     assert!(after_view.exchanges_started > 0);
     if !failover {
         assert!(after_view.encoded_tx_actual > 0 && after_view.encoded_rx_actual > 0);
     }
-    session.sync_latest().unwrap();
+    let restored = session.sync_latest().unwrap();
+    if selected {
+        let (target, _): (FormalFullSyncCutV1, serde_json::Value) =
+            serde_json::from_slice(after_view.verified_target_json.as_ref().unwrap()).unwrap();
+        assert_eq!(restored.cut, target);
+        assert!(
+            session
+                .status()
+                .last_verified_cut
+                .as_ref()
+                .unwrap()
+                .position
+                > target.position
+        );
+    }
     let after_sync = shared.snapshot();
     assert_eq!(after_sync.identity, identity);
     assert_eq!(after_sync.attempts_used, if recover { 2 } else { 1 });
     assert_eq!(after_sync.interrupted_attempts.len(), usize::from(recover));
     assert!(after_sync.verified_target_json.is_some());
+    if selected {
+        assert_eq!(
+            after_sync.verified_target_json,
+            after_view.verified_target_json
+        );
+    }
     assert!(after_sync.publication.as_ref().unwrap().completed);
     assert!(after_sync.proof_pages > 0 && after_sync.proof_bytes > 0);
     assert!(after_sync.material_bytes > 0 && !after_sync.materials.is_empty());

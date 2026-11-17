@@ -161,6 +161,27 @@ impl<P: FormalReadProjection> RemoteWorldServiceReader<P> {
     where
         I: IntoIterator<Item = Result<(String, Vec<u8>), String>>,
     {
+        self.resume_formal_history_pages_at_boundary(
+            origin_digest,
+            pages,
+            expected_final_cursor,
+            None,
+        )
+        .map(|_| ())
+    }
+
+    /// Recover an exact authenticated page boundary while validating the entire
+    /// retained chain. An advertised cursor alone never manufactures an anchor.
+    pub fn resume_formal_history_pages_at_boundary<I>(
+        &self,
+        origin_digest: &str,
+        pages: I,
+        expected_final_cursor: &FormalReadReplayCursorV1,
+        boundary: Option<&oasis7_client_api::world_service::FormalReadAnchorRefV1>,
+    ) -> Result<Option<VerifiedFormalReadAnchorV1>, WorldServiceClientError>
+    where
+        I: IntoIterator<Item = Result<(String, Vec<u8>), String>>,
+    {
         let configured = self.config.formal_read_trust.as_ref().ok_or_else(|| {
             WorldServiceClientError::Configuration(
                 "formal history recovery requires configured external pin".into(),
@@ -176,6 +197,16 @@ impl<P: FormalReadProjection> RemoteWorldServiceReader<P> {
             .map_err(WorldServiceClientError::Configuration)?;
         let mut verifier = FormalReadVerifier::<P>::new(&configured.initial_trust, origin_anchor)
             .map_err(WorldServiceClientError::Assurance)?;
+        let mut found = if boundary
+            == Some(
+                &verifier
+                    .anchor_ref()
+                    .map_err(WorldServiceClientError::Assurance)?,
+            ) {
+            Some(verifier.current_anchor().clone())
+        } else {
+            None
+        };
         for page in pages {
             let (expected_digest, bytes) = page.map_err(WorldServiceClientError::Assurance)?;
             if expected_digest.len() != 64
@@ -193,6 +224,15 @@ impl<P: FormalReadProjection> RemoteWorldServiceReader<P> {
             verifier
                 .replay_history_page(&page)
                 .map_err(WorldServiceClientError::Assurance)?;
+            if boundary
+                == Some(
+                    &verifier
+                        .anchor_ref()
+                        .map_err(WorldServiceClientError::Assurance)?,
+                )
+            {
+                found = Some(verifier.current_anchor().clone());
+            }
         }
         if verifier
             .replay_cursor()
@@ -226,8 +266,13 @@ impl<P: FormalReadProjection> RemoteWorldServiceReader<P> {
                 "formal page recovery can only seed a fresh external-origin client".into(),
             ));
         }
+        if boundary.is_some() && found.is_none() {
+            return Err(WorldServiceClientError::Assurance(
+                "original cut is not an authenticated page boundary".into(),
+            ));
+        }
         *current = verifier;
-        Ok(())
+        Ok(found)
     }
 
     /// Return the anchor produced by this client's configured formal proof
