@@ -30,7 +30,7 @@ Rust default 默认分支维护使用 90 分钟总预算。init 后读取当前 
 
 该场景使用固定 CodeQL 2.27.4 Rust bundle 和独立固定的 `qualifier-lines-constraint-target-qualified-v7`，保持官方原始 37 项默认查询。核对生产 prepare/run 的最终 variant、真实 v6 base_variant、v3/v5 中间快照和原层级收据、独立 v6/target 收据及三棵私有库的前后完整身份；实际 37 条解析须在 14 项依赖中选择 `candidate-rust-all` 和 `candidate-target-typeinference`，同时保留并核验真实 v6 `candidate-typeinference`，不能只看 search path 或版本标签。target 收据重新关联 v6 全树及原收据摘要，官方/v6/target 的普通文件完整权限位也须前后一致。旧 v2/v3/v5/v6 生产准备及研究 preparation 不得改标签恢复为生产 v7；实际 shared 解析回退 v6 或官方根均拒绝。官方 Action 负责初始化与提取，生产 helper 校验实际闭包后执行源码查询并生成 SARIF，仍由原上传步骤关联 Security；不加入研究七项见证或性能观察器。库准备、提取、查询与结果校验共用一次分析截止；PR 和 extended 保持各自原路径。技术合同见[生产库接入与首次验收](codeql-integration.design.md#726-rust-default-生产库接入与首次验收)。
 
-首次验收同时检查独立的 `oasis7-codeql-rust-production-*` artifact：工具和修补身份、当前 checkout 的 manifest/锁观察、实际 Cargo 解析、完整查询结果及覆盖诊断。`production-run.json` 的执行成功不代表覆盖通过；coverage 的 REVIEW/UNKNOWN、WASM 或源码归属缺口继续记录。该 artifact 与只包含 `evidence.json` 的上传关联 artifact 分开，后者仍用于唯一 SARIF/platform analysis 关联。只有覆盖及运营验收闭合后才将该批次声明为已验收日频基线。
+首次验收同时检查独立的 `oasis7-codeql-rust-production-*` artifact：工具和修补身份、当前 checkout 的 manifest/锁观察、实际 Cargo 解析、完整查询结果及覆盖诊断。逐项核对原 37 份 info/decoded 的全部结果集和行；解码显式保留实体 ID、文本及 BQRS 已提供的 URL，按实际位置核对未展开宏，不能用重复文本猜测位置。URL 缺失保持未知，细节见上述技术合同。`production-run.json` 的执行成功不代表覆盖通过；coverage 的 REVIEW/UNKNOWN、WASM 或源码归属缺口继续记录。该 artifact 与只包含 `evidence.json` 的上传关联 artifact 分开，后者仍用于唯一 SARIF/platform analysis 关联。只有覆盖及运营验收闭合后才将该批次声明为已验收日频基线。
 
 ### 固定源码性能观察
 
