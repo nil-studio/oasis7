@@ -593,19 +593,52 @@ fn real_driver_governance_transition_installs_over_tcp_and_nodes_restart_forward
     }
     stop_nodes(&mut restarted);
     drop(restarted);
-    let subset_baseline_height = identities
+    // A stopped signer can have durable votes above its committed history.
+    // Such votes can complete a QC after restart without the new validator.
+    // Choose a fresh height above all five stopped signers, including the one
+    // that will be offline, rather than only above committed history lengths.
+    let subset_height_evidence = identities
         .iter()
-        .map(|identity| {
-            identity
+        .enumerate()
+        .map(|(index, identity)| {
+            let snapshot = identity
                 .snapshot
                 .lock()
-                .expect("inspect all durable histories before reducing membership")
+                .expect("inspect stopped signer frontier");
+            let history = snapshot
                 .state
                 .history
-                .len() as u64
+                .iter()
+                .map(|certificate| certificate.proposal.header.height)
+                .max()
+                .unwrap_or(0);
+            let journal = snapshot.state.journal.as_ref();
+            let height = journal.map_or(0, |journal| journal.height);
+            let pending = journal
+                .and_then(|journal| journal.pending_commit.as_ref())
+                .map_or(0, |certificate| certificate.proposal.header.height);
+            let signed_vote = journal
+                .into_iter()
+                .flat_map(|journal| &journal.events)
+                .filter_map(|event| match event {
+                    oasis7_consensus::tendermint_v2::BftSigningJournalEventV2::Vote {
+                        vote,
+                        ..
+                    } => Some(vote.height),
+                    _ => None,
+                })
+                .max()
+                .unwrap_or(0);
+            (index, history, height, pending, signed_vote)
+        })
+        .collect::<Vec<_>>();
+    let subset_baseline_height = subset_height_evidence
+        .iter()
+        .map(|(_, history, journal, pending, vote)| {
+            (*history).max(*journal).max(*pending).max(*vote)
         })
         .max()
-        .expect("five durable signer histories after restart");
+        .expect("five stopped signer frontiers");
 
     // Keep the most advanced history holder online while removing the oldest
     // old-set member. With the five-member successor set, exactly four nodes
@@ -640,7 +673,12 @@ fn real_driver_governance_transition_installs_over_tcp_and_nodes_restart_forward
             )
         })
         .collect::<Vec<_>>();
-    let new_validator_height = subset_baseline_height + 1;
+    let new_validator_height = subset_baseline_height
+        .checked_add(1)
+        .expect("fresh height must fit");
+    eprintln!(
+        "subset stopped frontiers (id,history,journal,pending,vote)={subset_height_evidence:?}; retired=v{retired_old_index}; target={new_validator_height}"
+    );
     wait_all_at_height(
         &subset_nodes,
         new_validator_height,
@@ -676,7 +714,12 @@ fn real_driver_governance_transition_installs_over_tcp_and_nodes_restart_forward
                 && vote.phase == BftVotePhaseV2::Precommit
                 && matches!(&vote.value, BftVoteValueV2::Block { .. })
         }),
-        "the new validator must sign a block precommit above all prior durable heights"
+        "the new validator must sign a block precommit above all prior durable heights; frontiers={subset_height_evidence:?}; retired=v{retired_old_index}; target={new_validator_height}; QC voters={:?}",
+        v4_certificate
+            .precommits
+            .iter()
+            .map(|vote| (&vote.validator_id, vote.height, vote.round))
+            .collect::<Vec<_>>()
     );
 
     let mut replay_driver = super::super::driver_bft::driver_for_world(
