@@ -86,3 +86,44 @@ fn initialization_failure_stops_worker_before_releasing_last_owner() {
     let next_owner = lock(&fixture.0).unwrap();
     drop(next_owner);
 }
+
+#[test]
+fn full_sync_owner_rejects_wrong_directory_and_replaced_lock() {
+    let first = Fixture::new();
+    let second = Fixture::new();
+    let ownership = lock(&first.0).unwrap();
+    ownership.require_directory(&first.0).unwrap();
+    assert!(ownership.require_directory(&second.0).is_err());
+    // A pathname alone is insufficient: it may now name another lock inode.
+    fs::rename(first.0.join("process.lock"), first.0.join("old.lock")).unwrap();
+    drop(io::private_file(&first.0.join("process.lock")).unwrap());
+    assert!(ownership.require_directory(&first.0).is_err());
+    // The original lock is still held, not explicitly unlocked by validation.
+    assert!(
+        io::private_file(&first.0.join("old.lock"))
+            .unwrap()
+            .try_lock()
+            .is_err()
+    );
+    drop(ownership);
+    io::private_file(&first.0.join("old.lock"))
+        .unwrap()
+        .try_lock()
+        .unwrap();
+}
+
+#[test]
+fn full_sync_owner_rejects_replaced_directory() {
+    let fixture = Fixture::new();
+    let ownership = lock(&fixture.0).unwrap();
+    let moved = fixture.0.with_extension("moved");
+    fs::rename(&fixture.0, &moved).unwrap();
+    io::private_dir(&fixture.0).unwrap();
+    drop(io::private_file(&fixture.0.join("process.lock")).unwrap());
+    assert!(ownership.require_directory(&fixture.0).is_err());
+    assert!(ownership.require_directory(&moved).is_err());
+    assert!(lock(&moved).is_err());
+    drop(ownership);
+    drop(lock(&moved).unwrap());
+    fs::remove_dir_all(moved).unwrap();
+}
