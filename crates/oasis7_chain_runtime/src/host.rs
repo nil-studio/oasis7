@@ -1148,6 +1148,9 @@ mod peer_record_publication_tests;
 #[cfg(test)]
 #[path = "host/peer_record_receiver_tests.rs"]
 mod peer_record_receiver_tests;
+#[cfg(all(test, unix))]
+#[path = "host/receiver_upgrade_process_tests.rs"]
+mod receiver_upgrade_process_tests;
 #[cfg(test)]
 #[path = "host/peer_record_transition_tests.rs"]
 mod peer_record_transition_tests;
