@@ -96,6 +96,45 @@ pub fn persist_tick_consensus_record_original_with_work_v1<C: FnMut() -> bool>(
     producer.check_complete()?;
     Ok(reference)
 }
+/// Persist one actual retained rejection audit with its original Result envelope and
+/// two-pass one-shot engine. The hook pays actual codec work on BOTH passes;
+/// the returned reference remains provisional DATA, without a fact location.
+pub fn persist_tick_consensus_rejection_audit_original_with_work_v1<C: FnMut() -> bool>(
+    audit: &TickConsensusRejectionAuditEvent,
+    memory: &MemoryBudget,
+    work: &mut CanonicalCborWorkV1,
+    cancelled: &mut C,
+    max_bytes: usize,
+    sink: &mut dyn original::AgentEventOriginalSinkV1,
+    debit: &dyn Fn(u64, u64) -> Result<(), BodyMutationError>,
+) -> Result<oasis7_formal_protocol::incremental_artifacts::OriginalArtifactRefV1, BodyMutationError>
+{
+    let envelope_bytes =
+        std::mem::size_of::<ResultEnvelope<'_, TickConsensusRejectionAuditEvent>>();
+    debit(1, envelope_bytes as u64)?;
+    let _envelope_fee = memory
+        .reserve(
+            envelope_bytes,
+            oasis7_proto::memory_budget::MemoryClass::Ordinary,
+        )
+        .map_err(oasis7_formal_protocol::incremental_execution::ExecutionError::Memory)?;
+    let envelope = ResultEnvelope {
+        domain: DOMAIN,
+        schema: "tick-consensus-rejection-audit.v1",
+        value: audit,
+    };
+    let measured = original::measure_serializable_with_work_debit(
+        &envelope, memory, work, cancelled, max_bytes, debit,
+    )?;
+    let mut producer = original::Producer::new(measured, memory, work, cancelled);
+    let reference = oasis7_formal_protocol::incremental_artifacts::OriginalArtifactRefV1 {
+        id: producer.original_id(),
+        byte_len: producer.original_bytes(),
+    };
+    producer.persist_to_with_work_debit(sink, debit)?;
+    producer.check_complete()?;
+    Ok(reference)
+}
 /// Each variant retains the actual source DTO without a JSON or owned copy.
 /// Event originals retain the existing canonical WorldEvent encoding.
 pub enum RuntimeHistoryOriginalRefV1<'a> {

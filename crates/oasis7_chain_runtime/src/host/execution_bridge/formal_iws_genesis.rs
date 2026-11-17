@@ -315,6 +315,12 @@ fn prepare_iws_genesis_for_endpoints_inner_v1(
                     .borrow_mut()
                     .hot_tick_bounded(tick, &mut canonical.borrow_mut(), common)
             };
+            let mut retained_audit_original = |audit: &oasis7_world_state::consensus::TickConsensusRejectionAuditEvent,
+                                         common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>| {
+                originals
+                    .borrow_mut()
+                    .retained_audit_bounded(audit, &mut canonical.borrow_mut(), common)
+            };
             prepare_projected_runtime_genesis_index_with_writer_v1(
                 world,
                 source,
@@ -334,6 +340,7 @@ fn prepare_iws_genesis_for_endpoints_inner_v1(
                 &mut journal_original,
                 &mut snapshot_original,
                 &mut hot_tick_original,
+                &mut retained_audit_original,
                 common,
             )
             .map(GenesisEndpointOutputV1::Projected)

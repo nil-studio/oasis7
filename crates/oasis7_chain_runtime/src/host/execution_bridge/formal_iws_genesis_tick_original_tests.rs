@@ -578,3 +578,6 @@ fn metered_hot_tick_preserves_one_shot_and_typed_second_pass_failure() {
     drop(input);
     assert_eq!(memory.used(), 0);
 }
+
+#[path = "formal_iws_genesis_audit_original_tests.rs"]
+mod audits;

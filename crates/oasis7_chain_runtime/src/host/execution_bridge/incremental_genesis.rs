@@ -178,6 +178,7 @@ pub(crate) struct ProvisionalProjectedRuntimeGenesisIndexV1 {
     snapshot_originals: ReservedValue<Vec<OriginalArtifactRefV1>>,
     hot_tick_originals: ReservedValue<Vec<OriginalArtifactRefV1>>,
     hot_tick_archived_count: u64,
+    retained_audit_originals: ReservedValue<Vec<OriginalArtifactRefV1>>,
 }
 impl ProvisionalProjectedRuntimeGenesisIndexV1 {
     /// Initialize the original business index from this very physical GEN
@@ -297,6 +298,27 @@ impl ProvisionalProjectedRuntimeGenesisIndexV1 {
         }
         Ok((&self.hot_tick_originals, self.hot_tick_archived_count))
     }
+
+    /// Same-World retained audit order, including duplicate original occurrences.
+    /// These DATA references prove no evicted prefix, history position or acceptance.
+    pub(crate) fn retained_audit_originals_bounded_v1(
+        &self,
+        common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+    ) -> Result<&ReservedValue<Vec<OriginalArtifactRefV1>>, BodyMutationError> {
+        self.projected.validate_context_bounded_v1(common)?;
+        common
+            .consume_steps(1)
+            .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
+        if !self.outer.uses_budget(common.memory())
+            || !self.roots.uses_budget(common.memory())
+            || !self.retained_audit_originals.uses_budget(common.memory())
+        {
+            return Err(BodyMutationError::Invalid(
+                "physical GEN retained audit owner pool",
+            ));
+        }
+        Ok(&self.retained_audit_originals)
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -329,6 +351,10 @@ pub(crate) fn prepare_projected_runtime_genesis_index_with_writer_v1<
     ) -> Result<OriginalArtifactRefV1, BodyMutationError>,
     hot_tick_original: &mut dyn FnMut(
         &oasis7_world_state::consensus::TickConsensusRecord,
+        &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+    ) -> Result<OriginalArtifactRefV1, BodyMutationError>,
+    retained_audit_original: &mut dyn FnMut(
+        &oasis7_world_state::consensus::TickConsensusRejectionAuditEvent,
         &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
     ) -> Result<OriginalArtifactRefV1, BodyMutationError>,
     common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
@@ -468,7 +494,7 @@ pub(crate) fn prepare_projected_runtime_genesis_index_with_writer_v1<
         snapshot_refs.push(snapshot_original(snapshot, common).map_err(source_error)?);
     }
     // This new borrowed view has its own admission before construction. Its
-    // phase remains live through the hot-suffix loop; it is not child metadata.
+    // phase remains live through both original loops; it is not child metadata.
     let history_view_bytes = std::mem::size_of::<
         oasis7_runtime::incremental_runtime_history_original::RuntimeHistoryBorrowedV1<'_>,
     >();
@@ -520,6 +546,46 @@ pub(crate) fn prepare_projected_runtime_genesis_index_with_writer_v1<
         .charge(1, std::mem::size_of::<u64>() as u64)
         .map_err(|error| source_error(BodyMutationError::Original(Box::new(error))))?;
     let hot_tick_archived_count = history.archived_tick_count;
+    // Audit already belongs to this same paid immutable view. Preserve the
+    // actual retained window; neither its length nor consensus height is a locator.
+    let audit_bytes = history
+        .rejection_audit
+        .len()
+        .checked_mul(std::mem::size_of::<OriginalArtifactRefV1>())
+        .ok_or_else(|| {
+            source_error(BodyMutationError::Invalid("GEN retained audit refs length"))
+        })?;
+    let audit_work = u64::try_from(audit_bytes)
+        .map_err(|_| source_error(BodyMutationError::Invalid("GEN retained audit refs width")))?;
+    common
+        .charge(1, audit_work)
+        .map_err(|error| source_error(BodyMutationError::Original(Box::new(error))))?;
+    let audit_fee = common
+        .memory()
+        .reserve(
+            audit_bytes,
+            oasis7_proto::memory_budget::MemoryClass::Ordinary,
+        )
+        .map_err(ValueTreeError::Memory)?;
+    let mut audit_refs = Vec::new();
+    audit_refs
+        .try_reserve_exact(history.rejection_audit.len())
+        .map_err(|_| {
+            source_error(BodyMutationError::Invalid(
+                "GEN retained audit refs allocation",
+            ))
+        })?;
+    if audit_refs.capacity() != history.rejection_audit.len() {
+        return Err(source_error(BodyMutationError::Invalid(
+            "GEN retained audit refs capacity",
+        )));
+    }
+    for audit in history.rejection_audit {
+        common
+            .charge(1, std::mem::size_of::<OriginalArtifactRefV1>() as u64)
+            .map_err(|error| source_error(BodyMutationError::Original(Box::new(error))))?;
+        audit_refs.push(retained_audit_original(audit, common).map_err(source_error)?);
+    }
     projected
         .validate_context_bounded_v1(common)
         .map_err(source_error)?;
@@ -535,6 +601,7 @@ pub(crate) fn prepare_projected_runtime_genesis_index_with_writer_v1<
         snapshot_originals: snapshot_fee.retain(snapshot_refs),
         hot_tick_originals: hot_tick_fee.retain(hot_tick_refs),
         hot_tick_archived_count,
+        retained_audit_originals: audit_fee.retain(audit_refs),
     })
 }
 

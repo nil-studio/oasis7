@@ -212,6 +212,27 @@ impl BoundedOriginalSource for oasis7_world_state::consensus::TickConsensusRecor
         receipt
     }
 }
+impl BoundedOriginalSource for oasis7_world_state::consensus::TickConsensusRejectionAuditEvent {
+    type Receipt = OriginalArtifactRefV1;
+    const POOL_ERROR: &'static str = "GEN retained audit original source pool";
+    const LANE_ERROR: &'static str = "GEN retained audit original lane increased";
+    fn persist<C: FnMut() -> bool>(
+        &self,
+        memory: &MemoryBudget,
+        canonical: &mut CanonicalCborWorkV1,
+        cancelled: &mut C,
+        max_bytes: usize,
+        sink: &mut dyn ActionOriginalSinkV1,
+        debit: &dyn Fn(u64, u64) -> Result<(), BodyMutationError>,
+    ) -> Result<Self::Receipt, BodyMutationError> {
+        oasis7_world_state::incremental_runtime_history_original::persist_tick_consensus_rejection_audit_original_with_work_v1(
+            self, memory, canonical, cancelled, max_bytes, sink, debit,
+        )
+    }
+    fn reference(receipt: Self::Receipt) -> OriginalArtifactRefV1 {
+        receipt
+    }
+}
 
 impl Originals<'_, '_, '_> {
     fn counters(&self) -> [[u64; 7]; 3] {
@@ -267,6 +288,15 @@ impl Originals<'_, '_, '_> {
         common: &mut FormalBoundedContextV1<'_>,
     ) -> Result<OriginalArtifactRefV1, BodyMutationError> {
         self.source_bounded(tick, canonical, common)
+    }
+
+    pub(super) fn retained_audit_bounded(
+        &mut self,
+        audit: &oasis7_world_state::consensus::TickConsensusRejectionAuditEvent,
+        canonical: &mut CanonicalCborWorkV1,
+        common: &mut FormalBoundedContextV1<'_>,
+    ) -> Result<OriginalArtifactRefV1, BodyMutationError> {
+        self.source_bounded(audit, canonical, common)
     }
 
     fn source_bounded<S: BoundedOriginalSource>(
