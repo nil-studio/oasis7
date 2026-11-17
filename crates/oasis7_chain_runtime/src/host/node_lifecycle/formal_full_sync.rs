@@ -46,20 +46,34 @@ use std::{
     },
     time::Duration,
 };
+// Experimental disk/TCP accounting harness only. These modules do not enable
+// V2 configuration, change V1 behavior, or grant production sync capability.
 #[path = "formal_full_sync_attempt.rs"]
 mod attempt;
 #[path = "formal_full_sync_cas.rs"]
 pub(super) mod cas_lifecycle;
 #[path = "formal_full_sync_compatibility.rs"]
 mod compatibility;
+#[cfg(all(test, unix))]
+#[path = "formal_full_sync_direct_http.rs"]
+mod direct_http;
 #[path = "formal_full_sync_failover.rs"]
 mod failover;
 #[path = "formal_full_sync_grant_reconcile.rs"]
 mod grant_reconcile;
 #[path = "formal_full_sync_history.rs"]
 pub(super) mod history_chain;
+#[cfg(all(test, unix))]
+#[path = "formal_full_sync_metered_io.rs"]
+mod metered_io;
 #[path = "formal_full_sync_native.rs"]
 mod native_environment;
+#[cfg(all(test, unix))]
+#[path = "formal_full_sync_operation_ledger.rs"]
+mod operation_ledger;
+#[cfg(all(test, unix))]
+#[path = "formal_full_sync_operation_tests.rs"]
+mod operation_tests;
 #[path = "formal_full_sync_providers.rs"]
 mod providers;
 use attempt::{
