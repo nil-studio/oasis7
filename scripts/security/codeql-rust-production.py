@@ -26,11 +26,21 @@ SCHEMA = 'oasis7-codeql-rust-production/v1'
 CAP = 256 * 1024**2
 CLOSEOUT_SECONDS = 90
 MODE = 'rust-default-production'
-PRODUCTION_BASE_VARIANT = 'qualifier-lines-constraint-matching-v6'
-PRODUCTION_VARIANT = 'qualifier-lines-constraint-target-qualified-v7'
+V6_VARIANT = 'qualifier-lines-constraint-matching-v6'
+V7_VARIANT = 'qualifier-lines-constraint-target-qualified-v7'
+NEGATIVE_PROJECTION_VARIANT = 'qualifier-lines-negative-projection-v8'
+PRODUCTION_BASE_VARIANT = V7_VARIANT
+PRODUCTION_VARIANT = NEGATIVE_PROJECTION_VARIANT
+NEGATIVE_PROJECTION_BASE_SHA = '8f8ac05fb73efc3d7ebfd3d9ab452e90c13d61c7e651379f57f88b4400080ca9'
+NEGATIVE_PROJECTION_PATCH_SHA = 'b5c9a3e9f9f8a2d47edbd3aa797e9723d0e11e26b246f992ecf160fdd14bf0a6'
+NEGATIVE_PROJECTION_SHA = 'f51a925b05f1a8315248d04cda44cd12cfb12fd7ae424138898805118ffd9f09'
 LIBRARY_RECEIPTS = ('arity-patch-identity.json', 'lines-model-identity.json',
                     'shared-helper-identity.json', 'trait-visibility-identity.json',
                     'constraint-matching-identity.json', 'target-qualified-identity.json')
+
+
+def negative_projection(args):
+    return getattr(args, 'mode', MODE) in (MODE, action_deadline.NEGATIVE_PROJECTION_MODE)
 
 
 def read_json(path, limit=16 * 1024**2):
@@ -73,9 +83,11 @@ def identity(args):
                 output=str(args.output), sarif=str(args.sarif), analysis_deadline=args.analysis_deadline,
                 bundle_version=VERSION, bundle_sha256=capacity.bundle.BUNDLES[VERSION]['sha256'],
                 variant=PRODUCTION_VARIANT, base_variant=PRODUCTION_BASE_VARIANT, pack=PACK, category=CATEGORY)
-    if getattr(args, 'mode', MODE) == action_deadline.FIXED_SOURCE_MODE:
+    if getattr(args, 'mode', MODE) in action_deadline.OBSERVATION_MODES:
         value.update(mode=args.mode, tool_sha=os.environ.get('GITHUB_SHA'),
                      acceptance_scope='FIXED_SOURCE_OBSERVATION_ONLY')
+    if getattr(args, 'mode', MODE) == action_deadline.FIXED_SOURCE_MODE:
+        value.update(variant=V7_VARIANT, base_variant=V6_VARIANT)
     return value
 
 
@@ -86,7 +98,7 @@ def production_budget(args):
     if value.get('source_sha') != args.source_sha:
         raise RuntimeError('production budget checkout identity differs')
     mode = getattr(args, 'mode', MODE)
-    if mode == action_deadline.FIXED_SOURCE_MODE and value.get('tool_sha') != os.environ.get('GITHUB_SHA'):
+    if mode in action_deadline.OBSERVATION_MODES and value.get('tool_sha') != os.environ.get('GITHUB_SHA'):
         raise RuntimeError('fixed-source observation budget tool identity differs')
     analysis_end, _ = action_deadline.shared_budget(
         value, value.get('fixed_job_deadline'), args.analysis_deadline,
@@ -192,21 +204,104 @@ def query_options(closure, work, prefix):
 
 
 def check_library_variant():
-    if candidate.WORKLOAD_VARIANT != PRODUCTION_BASE_VARIANT:
+    if candidate.WORKLOAD_VARIANT != V6_VARIANT:
         raise RuntimeError('production baseline library variant differs from the fixed v6')
-    if candidate.RESEARCH_VARIANT != PRODUCTION_VARIANT:
+    if candidate.RESEARCH_VARIANT != V7_VARIANT:
         raise RuntimeError('production target library variant differs from the fixed v7')
 
 
 def prepare_libraries(args, official_closure, run):
-    """Retain the real v6 base and build the fixed target with one production deadline."""
+    """Retain the v6/v7 chain and select fixed libraries within one deadline."""
     check_library_variant()
     candidate.prepare_candidate(official_closure, args.work, args.output, run.end, run, copy_end=run.end)
     candidate.prepare_shared_helper(official_closure, args.work, args.output, run.end, run, copy_end=run.end)
     candidate.prepare_trait_visibility(official_closure, args.work, args.output, run.end, run)
     candidate.prepare_constraint_matching(official_closure, args.work, args.output, run.end, run)
     candidate.prepare_target_qualified(official_closure, args.work, args.output, run.end, run)
-    return candidate.research_closure(official_closure, args.work)
+    if negative_projection(args):
+        prepare_negative_projection(official_closure, args.work, args.output, run.end, run)
+    return selected_closure(args, official_closure)
+
+
+def selected_closure(args, official_closure):
+    closure = candidate.research_closure(official_closure, args.work)
+    if negative_projection(args):
+        closure['codeql/typeinference']['root'] = str(args.work / 'candidate-negative-typeinference')
+    return closure
+
+
+def negative_projection_permissions(official_closure, work, end):
+    """Include directories and full permission bits, in addition to byte snapshots."""
+    permissions = {}
+    for label, root in (('official', Path(official_closure['codeql/typeinference']['root'])),
+                        ('v7', work / 'candidate-target-typeinference'),
+                        ('candidate', work / 'candidate-negative-typeinference')):
+        paths = [root, *root.rglob('*')]
+        if len(paths) > 8193:
+            raise RuntimeError('negative-projection tree inventory exceeds limit')
+        permissions[label] = {}
+        for path in paths:
+            capacity.check_time(end)
+            if path.is_symlink() or not (path.is_file() or path.is_dir()):
+                raise RuntimeError('unsafe negative-projection tree entry')
+            permissions[label][str(path.relative_to(root))] = dict(
+                kind='directory' if path.is_dir() else 'file',
+                mode=path.stat(follow_symlinks=False).st_mode & 0o7777)
+    if permissions['official'] != permissions['v7'] or permissions['v7'] != permissions['candidate']:
+        raise RuntimeError('negative-projection tree entries or permissions differ')
+    return permissions
+
+
+def negative_projection_identity(official_closure, work, out, end):
+    """Recheck the original v7 chain and both real trees; never trust a candidate label."""
+    candidate.verify_target_qualified_identity(official_closure, work, out, end)
+    patch_file = HERE / 'codeql-rust-negative-projection.patch'
+    before = candidate.regular_snapshot(work / 'candidate-target-typeinference', end)
+    after = candidate.regular_snapshot(work / 'candidate-negative-typeinference', end)
+    changed = sorted(p for p in set(before) | set(after) if before.get(p) != after.get(p))
+    if (patch_file.resolve() != patch_file
+            or capacity.digest_until(patch_file, end) != NEGATIVE_PROJECTION_PATCH_SHA
+            or set(before) != set(after) or changed != [candidate.SHARED_FILE]
+            or before[candidate.SHARED_FILE]['sha256'] != NEGATIVE_PROJECTION_BASE_SHA
+            or after[candidate.SHARED_FILE]['sha256'] != NEGATIVE_PROJECTION_SHA):
+        raise RuntimeError('negative-projection patch, base or candidate identity differs')
+    return dict(variant=NEGATIVE_PROJECTION_VARIANT, base_variant=V7_VARIANT,
+                patch_sha256=NEGATIVE_PROJECTION_PATCH_SHA,
+                base_receipts_sha256={'target-qualified-identity.json':
+                                     capacity.digest_until(out / 'target-qualified-identity.json', end)},
+                changed_files=changed, before_files=before, candidate_files=after,
+                tree_permissions=negative_projection_permissions(official_closure, work, end))
+
+
+def verify_negative_projection_identity(official_closure, work, out, end):
+    actual = negative_projection_identity(official_closure, work, out, end)
+    if actual != read_json(out / 'negative-projection-identity.json'):
+        raise RuntimeError('negative-projection identity differs after preparation')
+    return actual
+
+
+def prepare_negative_projection(official_closure, work, out, end, run):
+    candidate.verify_target_qualified_identity(official_closure, work, out, end)
+    patch_file = HERE / 'codeql-rust-negative-projection.patch'
+    if patch_file.resolve() != patch_file or capacity.digest_until(patch_file, end) != NEGATIVE_PROJECTION_PATCH_SHA:
+        raise RuntimeError('negative-projection patch identity differs')
+    original, private = work / 'candidate-target-typeinference', work / 'candidate-negative-typeinference'
+    if private.resolve() != private or private.exists():
+        raise RuntimeError('unsafe negative-projection destination')
+    before = candidate.regular_snapshot(original, end)
+    if before[candidate.SHARED_FILE]['sha256'] != NEGATIVE_PROJECTION_BASE_SHA:
+        raise RuntimeError('negative-projection requires the fixed v7 bytes')
+    def copy_file(source, target):
+        capacity.check_time(end)
+        return shutil.copy2(source, target)
+    shutil.copytree(original, private, copy_function=copy_file)
+    if candidate.regular_snapshot(private, end) != before or candidate.regular_snapshot(original, end) != before:
+        raise RuntimeError('negative-projection v7 copy differs')
+    negative_projection_permissions(official_closure, work, end)
+    run(['patch', '--batch', '--forward', '--no-backup-if-mismatch', '--fuzz=0',
+         private / candidate.SHARED_FILE, patch_file], 'apply-negative-projection-patch', 20)
+    runtime.save(out / 'negative-projection-identity.json',
+                 negative_projection_identity(official_closure, work, out, end), out)
 
 
 def resolve_queries(args, records, closure, run):
@@ -225,14 +320,19 @@ def resolve_queries(args, records, closure, run):
 
 def input_snapshot(args, official_closure, end):
     shared = candidate.regular_snapshot(args.work / 'candidate-typeinference', end)
-    return dict(official={name: candidate.regular_snapshot(Path(pack['root']), end)
+    receipts = LIBRARY_RECEIPTS + (('negative-projection-identity.json',) if negative_projection(args) else ())
+    value = dict(official={name: candidate.regular_snapshot(Path(pack['root']), end)
                           for name, pack in sorted(official_closure.items())},
                 repaired_library=candidate.regular_snapshot(args.work / 'candidate-rust-all', end),
                 repaired_shared_library=shared,
                 target_shared_library=candidate.regular_snapshot(args.work / 'candidate-target-typeinference', end),
                 shared_file_permissions=candidate.target_file_permissions(official_closure, args.work, shared, end),
                 query_pack=candidate.regular_snapshot(args.work / 'default-queries', end),
-                library_receipts={name: capacity.digest_until(args.output / name, end) for name in LIBRARY_RECEIPTS})
+                library_receipts={name: capacity.digest_until(args.output / name, end) for name in receipts})
+    if negative_projection(args):
+        value.update(negative_shared_library=candidate.regular_snapshot(args.work / 'candidate-negative-typeinference', end),
+                     negative_tree_permissions=negative_projection_permissions(official_closure, args.work, end))
+    return value
 
 
 def source_observation(args, stage, end):
@@ -281,7 +381,7 @@ def prepare(args, terminal, run):
     save(args, 'action-config.json', action_identity(args))
     resources = capacity.resources(os.environ)
     save(args, 'resources.json', resources)
-    if getattr(args, 'mode', MODE) == action_deadline.FIXED_SOURCE_MODE:
+    if getattr(args, 'mode', MODE) in action_deadline.OBSERVATION_MODES:
         action_deadline.fixed_source_resources()
     run([args.codeql, 'version', '--format=json'], 'version', 20)
     if read_json(args.output / 'version.log').get('version') != VERSION:
@@ -336,9 +436,12 @@ def check_prepared(args, end):
     if actual != original_closure:
         raise RuntimeError('production official dependency identity differs')
     closure = read_json(args.output / 'selected-closure.json')
-    if closure != candidate.research_closure(original_closure, args.work):
+    if closure != selected_closure(args, original_closure):
         raise RuntimeError('production repaired dependency selection differs')
-    candidate.verify_target_qualified_identity(original_closure, args.work, args.output, end)
+    if negative_projection(args):
+        verify_negative_projection_identity(original_closure, args.work, args.output, end)
+    else:
+        candidate.verify_target_qualified_identity(original_closure, args.work, args.output, end)
     if input_snapshot(args, original_closure, end) != read_json(args.output / 'input-identities.json'):
         raise RuntimeError('production query or library bytes changed')
     records = read_json(args.output / 'queries.json')
@@ -347,7 +450,7 @@ def check_prepared(args, end):
     resources = capacity.resources(os.environ)
     if any(resources[key] != recorded[key] for key in ('CODEQL_RAM', 'CODEQL_THREADS')):
         raise RuntimeError('production resource selection changed')
-    if getattr(args, 'mode', MODE) == action_deadline.FIXED_SOURCE_MODE:
+    if getattr(args, 'mode', MODE) in action_deadline.OBSERVATION_MODES:
         action_deadline.fixed_source_resources()
     if action_identity(args) != read_json(args.output / 'action-config.json'):
         raise RuntimeError('production Action configuration changed')
@@ -397,7 +500,8 @@ def run_queries(args, terminal, run):
         if result.resolve() != result or not result.is_file():
             raise RuntimeError('missing or unsafe production default BQRS: ' + record['id'])
         run([args.codeql, 'bqrs', 'info', result, '--format=json'], 'info-' + label, 20)
-        run([args.codeql, 'bqrs', 'decode', result, '--format=json'], 'decoded-' + label, 30)
+        run([args.codeql, 'bqrs', 'decode', result, '--format=json', '--entities=id,string,url'],
+            'decoded-' + label, 30)
         info = read_json(args.output / ('info-' + label + '.log'))
         capacity.verify_decoded(info, read_json(args.output / ('decoded-' + label + '.log'), 64 * 1024**2))
         verified.append(dict(id=record['id'], relative=record['relative'], result_info=info,
@@ -412,6 +516,8 @@ def run_queries(args, terminal, run):
     findings = capacity.check_sarif(read_json(staged_sarif, 256 * 1024**2))
     source_observation(args, 'post-query', run.end)
     terminal['cargo_guard'] = guard_observation(args, 'post-query', run.end)
+    if negative_projection(args):
+        verify_negative_projection_identity(original_closure, args.work, args.output, run.end)
     if input_snapshot(args, original_closure, run.end) != read_json(args.output / 'input-identities.json'):
         raise RuntimeError('production query or library input changed during analysis')
     capacity.check_time(run.end)
@@ -422,7 +528,7 @@ def run_queries(args, terminal, run):
     terminal.update(status='COMPLETE', execution_status='success', queries_status='VERIFIED',
                     default_queries=len(records), findings=findings,
                     sarif_sha256=capacity.digest_until(args.sarif, run.end), sarif_bytes=args.sarif.stat().st_size,
-                    upload_status=('DISABLED_FOR_OBSERVATION' if getattr(args, 'mode', MODE) == action_deadline.FIXED_SOURCE_MODE
+                    upload_status=('DISABLED_FOR_OBSERVATION' if getattr(args, 'mode', MODE) in action_deadline.OBSERVATION_MODES
                                    else 'NOT_PERFORMED_BY_HELPER'), coverage_acceptance='PENDING_HOSTED_REVIEW',
                     semantic_controls='PENDING_PRODUCTION_ACCEPTANCE')
 
@@ -457,7 +563,7 @@ def capture_coverage(args, terminal, end):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('phase', choices=('prepare', 'run'))
-    parser.add_argument('--mode', choices=(MODE, action_deadline.FIXED_SOURCE_MODE), default=MODE)
+    parser.add_argument('--mode', choices=(MODE, *action_deadline.OBSERVATION_MODES), default=MODE)
     for name in ('codeql', 'source', 'database', 'work', 'output', 'sarif'):
         parser.add_argument('--' + name, type=Path, required=True)
     parser.add_argument('--source-sha', required=True)
@@ -480,8 +586,8 @@ def main(argv=None):
             if (os.environ.get('OASIS7_CODEQL_PRODUCTION_MODE', '') not in ('', args.mode)
                     or os.environ.get('CAPACITY_MODE')):
                 raise RuntimeError('mixed production/observation/candidate modes')
-            if args.mode == action_deadline.FIXED_SOURCE_MODE:
-                provenance = action_deadline.fixed_source_provenance(args.source, args.source_sha)
+            if args.mode in action_deadline.OBSERVATION_MODES:
+                provenance = action_deadline.fixed_source_provenance(args.source, args.source_sha, mode=args.mode)
                 if args.phase == 'prepare':
                     save(args, 'fixed-source-provenance.json', provenance)
                 elif read_json(args.output / 'fixed-source-provenance.json') != provenance:

@@ -68,8 +68,8 @@ pub(super) struct BftExecutionRecordV1 {
 
 pub(super) struct BftExecutionLedger {
     dir: PathBuf,
-    _lock: File,
-    _format_lock: File,
+    _lock: BftLock,
+    _format_lock: BftLock,
     config: NodeBftExecutionConfigV1,
     genesis: BftGenesisV1,
     tip_height: u64,
@@ -147,9 +147,10 @@ impl BftExecutionLedger {
             .open(lock_path.as_path())
             .map_err(|error| format!("open BFT execution lock: {error}"))?;
         crate::controlled_live_config::require_private_owned(lock_path.as_path(), false)?;
-        if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-            return Err("BFT execution ledger is already open by another writer".into());
-        }
+        let lock = BftLock::acquire(
+            lock,
+            "BFT execution ledger is already open by another writer",
+        )?;
 
         let genesis_path = dir.join(BFT_GENESIS_FILE);
         let genesis =
@@ -311,6 +312,8 @@ impl BftExecutionLedger {
         &mut self,
         record: &BftExecutionRecordV1,
     ) -> Result<(), String> {
+        self._format_lock.ensure_owner()?;
+        self._lock.ensure_owner()?;
         if record.height <= self.tip_height {
             return Ok(());
         }
@@ -347,6 +350,8 @@ impl BftExecutionLedger {
         executed: &ExecutedCandidate,
         store: &LocalCasStore,
     ) -> Result<BftExecutionRecordV1, String> {
+        self._format_lock.ensure_owner()?;
+        self._lock.ensure_owner()?;
         let expected_height = self
             .tip_height
             .checked_add(1)
@@ -789,9 +794,69 @@ pub(super) fn has_formal_header_prefix_material(records_dir: &Path) -> Result<bo
     )
 }
 
+/// An exclusive claim belongs to the acquiring process, not an inherited FD.
+/// Explicit unlock releases the shared open-file-description even when a forked
+/// child still holds a copy. A child must neither release nor use the parent claim.
+pub(super) struct BftLock {
+    file: File,
+    owner_pid: libc::pid_t,
+}
+impl BftLock {
+    pub(super) fn acquire(file: File, busy: &str) -> Result<Self, String> {
+        // SAFETY: file owns this descriptor; flock does not retain a Rust reference.
+        if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+            return Err(busy.into());
+        }
+        // Wrap immediately: all subsequent validation failures must unlock too.
+        Ok(Self {
+            file,
+            owner_pid: std::process::id() as libc::pid_t,
+        })
+    }
+
+    pub(super) fn ensure_owner(&self) -> Result<(), String> {
+        if self.is_owner() {
+            Ok(())
+        } else {
+            Err("inherited BFT writer claim cannot be used by another process".into())
+        }
+    }
+
+    pub(super) fn file_metadata(&self) -> Result<std::fs::Metadata, String> {
+        self.ensure_owner()?;
+        self.file.metadata().map_err(|error| error.to_string())
+    }
+
+    fn is_owner(&self) -> bool {
+        // SAFETY: getpid has no preconditions and is async-signal-safe after fork.
+        unsafe { libc::getpid() == self.owner_pid }
+    }
+
+    fn release_if_owner(&self) {
+        if self.is_owner() {
+            // SAFETY: the File still owns the descriptor. Only the acquiring PID
+            // unlocks; a forked child's drop must not release its parent's claim.
+            unsafe { libc::flock(self.file.as_raw_fd(), libc::LOCK_UN) };
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn test_placeholder() -> Self {
+        Self {
+            file: File::open("/dev/null").unwrap(),
+            owner_pid: std::process::id() as libc::pid_t,
+        }
+    }
+}
+impl Drop for BftLock {
+    fn drop(&mut self) {
+        self.release_if_owner();
+    }
+}
+
 /// All current BFT formats claim this carrier before inspecting or creating
 /// their format directory. Per-format locks alone cannot serialize migration.
-pub(super) fn lock_format(records_dir: &Path) -> Result<File, String> {
+pub(super) fn lock_format(records_dir: &Path) -> Result<BftLock, String> {
     super::super::super::durable_transaction::ensure_dir_all_durable(records_dir)?;
     let carrier = records_dir.join("bft-format.lock");
     let mut prefix_started = has_formal_header_prefix_material(records_dir)?
@@ -817,13 +882,13 @@ pub(super) fn lock_format(records_dir: &Path) -> Result<File, String> {
     lock_carrier_mode(&carrier, !prefix_started)
 }
 
-pub(super) fn lock_carrier(path: &Path) -> Result<File, String> {
+pub(super) fn lock_carrier(path: &Path) -> Result<BftLock, String> {
     lock_carrier_mode(path, true)
 }
-pub(super) fn lock_existing_carrier(path: &Path) -> Result<File, String> {
+pub(super) fn lock_existing_carrier(path: &Path) -> Result<BftLock, String> {
     lock_carrier_mode(path, false)
 }
-fn lock_carrier_mode(path: &Path, initialize: bool) -> Result<File, String> {
+fn lock_carrier_mode(path: &Path, initialize: bool) -> Result<BftLock, String> {
     let file = OpenOptions::new()
         .read(true)
         .write(true)
@@ -833,26 +898,24 @@ fn lock_carrier_mode(path: &Path, initialize: bool) -> Result<File, String> {
         .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
         .open(path)
         .map_err(|error| format!("open stable BFT lock: {error}"))?;
-    // SAFETY: the descriptor belongs to this open File; flock only locks that descriptor.
-    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-        return Err(
-            "BFT record directory is already open by another writer (exclusive format claim)"
-                .into(),
-        );
-    }
-    verify_lock_carrier_shape(&file, path, initialize)?;
+    let lock = BftLock::acquire(
+        file,
+        "BFT record directory is already open by another writer (exclusive format claim)",
+    )?;
+    let file = &lock.file;
+    verify_lock_carrier_shape(file, path, initialize)?;
     if file.metadata().map_err(|e| e.to_string())?.len() == 0 {
         use std::os::unix::fs::FileExt;
         let mut token = [0u8; 32];
         getrandom::fill(&mut token).map_err(|e| e.to_string())?;
         file.write_all_at(&token, 0).map_err(|e| e.to_string())?;
     }
-    verify_lock_carrier(&file, path)?;
+    verify_lock_carrier(&lock, path)?;
     file.sync_all().map_err(|e| e.to_string())?;
     File::open(path.parent().ok_or("BFT lock parent absent")?)
         .and_then(|dir| dir.sync_all())
         .map_err(|e| e.to_string())?;
-    Ok(file)
+    Ok(lock)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -863,7 +926,9 @@ pub(super) struct LockCarrierIdentity {
     pub(super) token: String,
 }
 
-pub(super) fn lock_carrier_identity(file: &File) -> Result<LockCarrierIdentity, String> {
+pub(super) fn lock_carrier_identity(lock: &BftLock) -> Result<LockCarrierIdentity, String> {
+    lock.ensure_owner()?;
+    let file = &lock.file;
     use std::os::unix::fs::{FileExt, MetadataExt};
     let metadata = file.metadata().map_err(|e| e.to_string())?;
     if metadata.len() != 32 {
@@ -882,9 +947,10 @@ pub(super) fn lock_carrier_identity(file: &File) -> Result<LockCarrierIdentity, 
     })
 }
 
-pub(super) fn verify_lock_carrier(file: &File, path: &Path) -> Result<(), String> {
-    verify_lock_carrier_shape(file, path, false)?;
-    lock_carrier_identity(file)?;
+pub(super) fn verify_lock_carrier(lock: &BftLock, path: &Path) -> Result<(), String> {
+    lock.ensure_owner()?;
+    verify_lock_carrier_shape(&lock.file, path, false)?;
+    lock_carrier_identity(lock)?;
     Ok(())
 }
 fn verify_lock_carrier_shape(file: &File, path: &Path, allow_empty: bool) -> Result<(), String> {
@@ -993,5 +1059,84 @@ mod header_prefix_namespace_tests {
                 assert!(!root.0.join(old).exists());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod process_lock_tests {
+    use super::*;
+    use crate::node_operations::admission_tests::{InheritedDescriptors, isolate_fork_test};
+
+    #[test]
+    fn failed_carrier_validation_releases_claim_with_inherited_fd() {
+        if isolate_fork_test() {
+            return;
+        }
+        let mut random = [0u8; 16];
+        getrandom::fill(&mut random).unwrap();
+        let path =
+            std::env::temp_dir().join(format!("oasis7-invalid-bft-lock-{}", hex::encode(random)));
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+            .unwrap();
+        let lock = BftLock::acquire(file, "busy").unwrap();
+        let inherited = InheritedDescriptors::fork();
+        fn validate(lock: BftLock, path: &Path) -> Result<(), String> {
+            // Empty carrier is invalid once initialization is no longer allowed.
+            verify_lock_carrier(&lock, path)
+        }
+        let result = validate(lock, &path);
+        assert!(result.is_err());
+        assert!(inherited.is_waiting());
+        let reopened = lock_carrier(&path);
+        let reopened_ok = reopened.is_ok();
+        drop(inherited);
+        assert!(reopened_ok);
+        assert!(lock_carrier(&path).is_err());
+        drop(reopened);
+        drop(lock_carrier(&path).unwrap());
+        fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn foreign_owner_claim_refuses_carrier_access() {
+        let mut lock = BftLock::test_placeholder();
+        // No process has this PID. Exercise rejection without allocating after fork.
+        lock.owner_pid = -1;
+        assert!(lock.ensure_owner().is_err());
+        assert!(lock.file_metadata().is_err());
+        assert!(lock_carrier_identity(&lock).is_err());
+        assert!(verify_lock_carrier(&lock, Path::new("unused-carrier")).is_err());
+    }
+
+    #[test]
+    fn forked_child_cannot_release_parent_claim() {
+        if isolate_fork_test() {
+            return;
+        }
+        let mut random = [0u8; 16];
+        getrandom::fill(&mut random).unwrap();
+        let path =
+            std::env::temp_dir().join(format!("oasis7-owner-bft-lock-{}", hex::encode(random)));
+        let lock = lock_carrier(&path).unwrap();
+        // SAFETY: child runs only getpid/flock/_exit, no allocation or Rust drop.
+        let pid = unsafe { libc::fork() };
+        assert!(pid >= 0);
+        if pid == 0 {
+            let inherited_owner = lock.is_owner();
+            lock.release_if_owner();
+            unsafe { libc::_exit(if inherited_owner { 1 } else { 0 }) };
+        }
+        let mut status = 0;
+        assert_eq!(unsafe { libc::waitpid(pid, &mut status, 0) }, pid);
+        assert_eq!(status, 0);
+        assert!(lock_carrier(&path).is_err());
+        drop(lock);
+        drop(lock_carrier(&path).unwrap());
+        fs::remove_file(&path).unwrap();
     }
 }

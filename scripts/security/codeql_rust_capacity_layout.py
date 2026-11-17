@@ -46,7 +46,8 @@ RECEIPT_LIMIT = 128 * 1024
 
 
 def tool_files(production_default=False):
-    return TOOL_FILES + (('codeql-rust-production.py',) if production_default else ())
+    return TOOL_FILES + (('codeql-rust-production.py', 'codeql-rust-negative-projection.patch')
+                         if production_default else ())
 
 
 class LayoutError(RuntimeError):

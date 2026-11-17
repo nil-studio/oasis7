@@ -46,6 +46,7 @@ class Capacity(unittest.TestCase):
         argv=['capacity','capture','--source','/source','--database','/db','--output','/out',
               '--work','/work','--sarif','/sarif','--deadline',str(time.time()+300)]
         for extra in (['--mode',m.action_deadline.FIXED_SOURCE_MODE],
+                      ['--mode',m.action_deadline.NEGATIVE_PROJECTION_MODE],
                       ['--source-sha',m.action_deadline.FIXED_SOURCE]):
             with patch.object(sys,'argv',argv+extra),patch.object(m.argparse.ArgumentParser,'error',side_effect=ValueError('rejected')):
                 with self.assertRaises(ValueError):m.main()

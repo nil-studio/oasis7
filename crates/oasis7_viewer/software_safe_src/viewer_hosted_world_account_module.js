@@ -13,12 +13,14 @@ export function createHostedWorldAccount({ state, generateKeypair, register, ren
   let timer = null;
   let renewal = null;
   let generation=0;
+  let currentAccount = null;
   function disableLegacy() {
     clearLegacy();
     if (state.auth.source === "hosted_browser_storage") clearSession(state, { source: "guest_only", registrationStatus: "guest", runtimeStatus: "guest" });
     if (state.auth.source !== "hosted_account_cookie") { state.auth.error = null; state.auth.rebindNotice = null; render(); }
   }
   function join(account, { takeover = false, expectedEpoch } = {}) {
+    currentAccount = account;
     if(state.auth.hostedAccountId&&state.auth.hostedAccountId!==account.account_id)invalidate();
     if(inFlight)return inFlight;
     const revision=generation;
@@ -167,7 +169,10 @@ export function createHostedWorldAccount({ state, generateKeypair, register, ren
   }
   async function performRenew() {
     const current = active;
-    if (!current || state.auth !== current.auth) return null;
+    if (!current || state.auth !== current.auth) {
+      if (!active && currentAccount) return join(currentAccount);
+      return null;
+    }
     await client.capabilities();
     const result = await client.refreshWorld({ public_key: current.publicKey, device_session_id: current.deviceSessionId, expected_epoch: current.epoch });
     if (active !== current || state.auth !== current.auth) return null;
@@ -176,7 +181,7 @@ export function createHostedWorldAccount({ state, generateKeypair, register, ren
     return result;
   }
   async function release() {
-    const revision=++generation;inFlight=null;
+    const revision=++generation;inFlight=null;currentAccount=null;
     const current = active;
     if (timer) clearInterval(timer); timer = null;
     if (current) { await client.capabilities(); await client.releaseWorld({ public_key: current.publicKey, device_session_id: current.deviceSessionId, expected_epoch: current.epoch }); }
@@ -187,13 +192,24 @@ export function createHostedWorldAccount({ state, generateKeypair, register, ren
     clearSession(state, { source: "guest_only", registrationStatus: "guest", runtimeStatus: "guest" }); render();
   }
   function invalidate() {
-    generation++;inFlight=null;recoveryLoaded=false;
+    generation++;inFlight=null;recoveryLoaded=false;currentAccount=null;
     void recovery.clear().catch(()=>{});
     if (timer) clearInterval(timer);timer=null;active=pending=null;
     if (state.auth.source === "hosted_account_cookie") state.lastGameplayActionFeedback = null;
     clearSession(state,{source:"guest_only",registrationStatus:"guest",runtimeStatus:"guest"});render();
   }
-  return { join, renew, release, disableLegacy, invalidate, rememberGameplayRequest, settleGameplayRequest,
+  function handleAuthorizationExpired(error) {
+    if (state.auth.source !== "hosted_account_cookie") return null;
+    state.auth.syncInFlight = false;
+    state.auth.recoveryErrorCode = error?.code || "hosted_authorization_expired";
+    state.auth.recoveryErrorMessage = error?.message || null;
+    state.auth.error = error?.message || error?.code || "hosted authorization expired";
+    state.auth.registrationStatus = "issued";
+    state.auth.runtimeStatus = "error";
+    render();
+    return renew();
+  }
+  return { join, renew, release, disableLegacy, invalidate, rememberGameplayRequest, settleGameplayRequest, handleAuthorizationExpired,
     hasPendingGameplayRequest() { return Boolean(active?.auth === state.auth && (active?.candidate?.gameplayRequest || active?.settlingGameplay)); },
     restoreGameplayRequest(scope) { if (active?.auth === state.auth) restoreCandidateGameplayRequest(active.candidate, sameScope(scope, getGameplayScope()) ? scope : null); } };
 }

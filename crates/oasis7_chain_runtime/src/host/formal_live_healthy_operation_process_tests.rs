@@ -92,7 +92,11 @@ fn formal_protected_healthy_durable_set_operation_cli_owner_and_original_result(
                 Some("healthy_operation"),
                 false,
                 Some(deadline),
-            )
+            )?;
+            // Preserve the original owner scenario and its eight-minute budget.
+            // This separate fixture uses real shipping children with a memory provider double.
+            crate::execution_bridge_real_tests::real_execution_bridge::wire3_shipping_node_process_output_failure(deadline.expires_at);
+            Ok::<(), String>(())
         })
         .unwrap()
         .join()
