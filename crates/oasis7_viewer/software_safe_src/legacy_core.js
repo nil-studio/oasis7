@@ -2504,10 +2504,7 @@ function extractAgentSpokeEntry(event) {
 }
 
 function requestSnapshotSafe() {
-  try {
-    sendJson({ type: "request_snapshot" });
-  } catch (_) {
-  }
+  try { sendJson({ type: "request_snapshot" }); return true; } catch (_) { return false; }
 }
 
 function createSemanticFeedback(kind, action, agentId, extra = {}) {
@@ -2865,27 +2862,24 @@ function sendGameplayAction(actionOrId, operation = { sessionRefreshRetryAttempt
 
   const protocolAction = String(action.protocol_action || "").trim();
   if (protocolAction === "request_snapshot" || protocolAction === "world.request_snapshot") {
-    requestSnapshotSafe();
+    if (requestSnapshotSafe() === false) {
+      state.lastGameplayActionFeedback = {
+        id: nextRequestId(), kind: "gameplay_action", action: action.action_id || "request_snapshot",
+        agentId: action.target_agent_id || null, accepted: false, ok: false, stage: "rejected",
+        reason: "viewer websocket is not connected", effect: "snapshot refresh failed to send",
+        response: { action_id: action.action_id || "request_snapshot", target_agent_id: action.target_agent_id || "", message: "viewer websocket is not connected" },
+      };
+      render();
+      return { ok: false, reason: "viewer websocket is not connected", feedback: snapshotSemanticFeedback(state.lastGameplayActionFeedback) };
+    }
     if (hostedWorldAccount.hasPendingGameplayRequest()) {
       requestGameplayResult(state, getGameplayRecoveryScope(state), sendJson);
       return { ok: true, feedback: snapshotSemanticFeedback(state.lastGameplayActionFeedback) };
     }
     state.lastGameplayActionFeedback = {
-      id: nextRequestId(),
-      kind: "gameplay_action",
-      action: action.action_id || "request_snapshot",
-      agentId: action.target_agent_id || null,
-      accepted: true,
-      ok: true,
-      stage: "ack",
-      reason: null,
-      effect: "snapshot refresh requested",
-      response: {
-        action_id: action.action_id || "request_snapshot",
-        target_agent_id: action.target_agent_id || "",
-        accepted_at_tick: state.logicalTime,
-        message: "snapshot refresh requested",
-      },
+      id: nextRequestId(), kind: "gameplay_action", action: action.action_id || "request_snapshot",
+      agentId: action.target_agent_id || null, accepted: true, ok: true, stage: "ack", reason: null, effect: "snapshot refresh requested",
+      response: { action_id: action.action_id || "request_snapshot", target_agent_id: action.target_agent_id || "", accepted_at_tick: state.logicalTime, message: "snapshot refresh requested" },
     };
     render();
     return { ok: true, feedback: snapshotSemanticFeedback(state.lastGameplayActionFeedback) };

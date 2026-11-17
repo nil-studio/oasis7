@@ -58,6 +58,13 @@ export function normalizeViewerAvailableActions({
         "First Agent claim submitted; waiting for the committed snapshot to create the Agent. Advance or refresh once first.",
       )
       : null;
+    const pendingClaimUnconfirmedReason = firstAgentClaimSyncPending && actionId === "claim_first_agent"
+      ? localeText(
+        locale,
+        "原认领请求结果待确认，请刷新快照或继续等待链上 committed 快照同步；请勿重复提交。",
+        "Original claim request outcome is unconfirmed; refresh the snapshot or keep waiting for the committed chain snapshot to sync instead of resubmitting.",
+      )
+      : null;
     const shouldKeepRuntimeDisabledReason =
       protocolAction === "request_snapshot"
       || protocolAction === "world.request_snapshot"
@@ -75,7 +82,7 @@ export function normalizeViewerAvailableActions({
       // observed world is blocked. Connection/control policy still applies.
       disabledReason: protocolAction === "live_control.pause" ? null
         : shouldKeepRuntimeDisabledReason
-          ? disabledReason || starterOcMissingAgentReason || null
+          ? disabledReason || starterOcMissingAgentReason || pendingClaimUnconfirmedReason || null
           : disabledReason || emptyEntityBlocker?.disabledReason || null,
       executeKind: executeKindForAction(actionId, protocolAction),
     };
