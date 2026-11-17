@@ -194,6 +194,19 @@ jobs:
       CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES: ${{ matrix.language == 'rust' && format('["{0}/crates/oasis7_builtin_wasm_modules/_templates"]', github.workspace) || '[]' }}
       CODEQL_EXTRACTOR_JAVASCRIPT_ALLOW_MINIFIED_FILES: ${{ matrix.language == 'javascript-typescript' && 'true' || 'false' }}
     steps:
+      # Use the executing workflow tools before restoring the complete source checkout.
+      - name: Check out workflow linker setup
+        if: matrix.language == 'rust'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: /.github/actions/setup-linux-mold/
+          sparse-checkout-cone-mode: false
+      - name: Configure mold for Linux host linking
+        if: matrix.language == 'rust'
+        uses: ./.github/actions/setup-linux-mold
+      # Omitting sparse-checkout disables it and restores the full business source.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.plan.outputs.checkout }}

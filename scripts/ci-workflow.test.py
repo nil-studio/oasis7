@@ -36,7 +36,7 @@ def workspace_support_fixture_functions(driver):
 
 
 def workflow_jobs(workflow):
-    jobs = dict(re.findall(r'^  ([a-z][a-z0-9-]*):\n(.*?)(?=^  [a-z][a-z0-9-]*:|\Z)',
+    jobs = dict(re.findall(r'^  ([a-z][a-z0-9_-]*):\n(.*?)(?=^  [a-z][a-z0-9_-]*:|\Z)',
                           workflow.split('\njobs:\n', 1)[1], re.M | re.S))
     anchors = {}
     for job in jobs.values():
@@ -127,10 +127,15 @@ def selected_source_steps(name):
     steps = JOBS[name].split('    steps:\n', 1)[1]
     checkouts = [step for step in re.findall(r'^      - .*?(?=^      - |\Z)', steps, re.M | re.S)
                  if re.search(r'^\s+(?:- )?uses: actions/checkout@', step, re.M)]
-    assert len(checkouts) == 1, 'one selected checkout is required'
+    if 'uses: ./.github/actions/setup-linux-mold' in steps:
+        assert len(checkouts) == 2, 'workflow tools and one selected checkout are required'
+        assert '          ref: ${{ github.workflow_sha }}\n' in checkouts[0], 'linker tools must use the workflow revision'
+        assert '          sparse-checkout: /.github/actions/setup-linux-mold/\n' in checkouts[0], 'only linker tools may precede source'
+    else:
+        assert len(checkouts) == 1, 'one selected checkout is required'
     if name in TRUSTED_SOURCE_WRITERS:
         assert steps.startswith(checkouts[0]), 'writer checkout must be first'
-    checkout = checkouts[0]
+    checkout = checkouts[-1]
     refs = re.findall(r'^          ref: (.*)$', checkout, re.M)
     tested = '${{ needs.select.outputs.tested_sha }}'
     allowed = (tested, '${{ github.sha }}') if name in TRUSTED_SOURCE_WRITERS else (tested,)
@@ -468,6 +473,60 @@ def validate_candidate_graph(workflow, config):
 
 
 class Workflow(unittest.TestCase):
+    def test_linux_mold_precedes_cache_identity_in_builders_warmers_and_formal_merger(self):
+        # Missing one producer/merger or a warmer silently changes the cache or
+        # Formal component identity even if the ordinary build itself succeeds.
+        required = {
+            'rust.yml': (
+                'pr-governance-preview', 'packaging-contracts',
+                'oasis7-test-build-candidate', 'oasis7-test-build-trusted',
+                'formal-debug-build', 'formal-debug-build-trusted',
+                'formal-endpoint-build', 'formal-endpoint-build-trusted',
+                'formal-test-build', 'oasis7-required', 'viewer-js-required',
+                'viewer-performance-report', 'launcher-web',
+                'custody-wasm-production', 'custody-wasm-approval',
+            ),
+            'rust-cache.yml': ('worker-build-cache', 'shared-native-cache', 'web-wasm-cache'),
+            'ecs-packages.yml': ('web', 'native', 'native-trusted', 'build-metrics'),
+            'native-cache-diagnostic.yml': ('diagnose',),
+            'storage-acceptance.yml': ('build',),
+        }
+        action = 'uses: ./.github/actions/setup-linux-mold'
+        for filename, names in required.items():
+            jobs = workflow_jobs((ROOT / '.github/workflows' / filename).read_text())
+            for name in names:
+                with self.subTest(workflow=filename, job=name):
+                    steps = jobs[name].split('    steps:', 1)[1]
+                    self.assertEqual(steps.count(action), 1)
+                    self.assertLess(steps.index('uses: actions/checkout@'), steps.index(action))
+                    boundaries = re.finditer(
+                        r'Swatinem/rust-cache@|actions/cache(?:/restore)?@|'
+                        r'ci-workspace-cache\.py|ci-ecs-cache\.py|ci-test-artifacts\.py', steps)
+                    for boundary in boundaries:
+                        self.assertLess(steps.index(action), boundary.start())
+
+    def test_historical_source_builds_load_mold_from_the_workflow_revision(self):
+        # A historical product checkout may predate the local action entirely.
+        for filename in ('rust.yml', 'mainnet-packages.yml', 'release-packages.yml', 'testnet-packages.yml'):
+            jobs = workflow_jobs((ROOT / '.github/workflows' / filename).read_text())
+            for name, job in jobs.items():
+                if 'uses: ./.github/actions/setup-linux-mold' not in job:
+                    continue
+                if filename == 'rust.yml' and name == 'newapi-bridge-package':
+                    continue  # This job always builds the executing github.sha.
+                with self.subTest(workflow=filename, job=name):
+                    steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+                    setup = next(i for i, step in enumerate(steps)
+                                 if 'uses: ./.github/actions/setup-linux-mold' in step)
+                    self.assertIn('uses: actions/checkout@', steps[setup - 1])
+                    self.assertIn('ref: ${{ github.workflow_sha }}', steps[setup - 1])
+                    self.assertIn('sparse-checkout: /.github/actions/setup-linux-mold/', steps[setup - 1])
+                    self.assertIn('uses: actions/checkout@', steps[setup + 1])
+                    self.assertNotIn('sparse-checkout:', steps[setup + 1])
+                    if 'runs-on: ${{ matrix.' in job:
+                        self.assertIn("if: runner.os == 'Linux'", steps[setup - 1])
+                        self.assertIn("if: runner.os == 'Linux'", steps[setup])
+
     def test_step_aliases_preserve_order_and_reject_unknown_or_duplicate_definitions(self):
         workflow = '''jobs:
   reader:

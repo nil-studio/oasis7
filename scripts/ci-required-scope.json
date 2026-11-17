@@ -1084,6 +1084,7 @@
     "scripts/ci-apt-install.test.py": ["workflow_governance"],
     "scripts/ci-apt-dns.py": ["workflow_governance"],
     "scripts/ci-apt-dns.test.py": ["workflow_governance"],
+    "scripts/ci-linux-mold.test.py": ["workflow_governance"],
     ".github/ISSUE_TEMPLATE/code-development.yml": ["workflow_governance"],
     ".github/ISSUE_TEMPLATE/config.yml": ["workflow_governance"],
     ".github/ISSUE_TEMPLATE/decision.yml": ["workflow_governance"],
@@ -1168,6 +1169,7 @@
     "scripts/ci-full-result.test.py",
     "scripts/ci-apt-install.test.py",
     "scripts/ci-apt-dns.test.py",
+    "scripts/ci-linux-mold.test.py",
     "scripts/ci-workflow.test.py",
     "scripts/ci-fast-preview.test.py",
     "scripts/ci-cache-maintenance.test.py",
@@ -1188,6 +1190,10 @@
   ],
   "python_control_contract_version": 1,
   "python_control_contracts": {
+    "scripts/ci-linux-mold.test.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-linux-mold.test.py", "scripts/ci-workflow.test.py"]
+    },
     "scripts/check-local.py": {
       "group": "workflow_governance",
       "tests": ["scripts/ci-local-check.test.py", "scripts/ci-workflow.test.py"]

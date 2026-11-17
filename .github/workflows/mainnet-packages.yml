@@ -90,6 +90,17 @@ jobs:
       OASIS7_WASM_BUILD_STD: "1"
       OASIS7_WASM_BUILD_STD_COMPONENTS: std,panic_abort
     steps:
+      # Use the executing workflow tools before restoring the complete source checkout.
+      - name: Check out workflow linker setup
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: /.github/actions/setup-linux-mold/
+          sparse-checkout-cone-mode: false
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
+      # Omitting sparse-checkout disables it and restores the full business source.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.plan.outputs.checkoutSha }}
@@ -169,6 +180,17 @@ jobs:
       OASIS7_WASM_BUILD_STD: "1"
       OASIS7_WASM_BUILD_STD_COMPONENTS: std,panic_abort
     steps:
+      # Use the executing workflow tools before restoring the complete source checkout.
+      - name: Check out workflow linker setup
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: /.github/actions/setup-linux-mold/
+          sparse-checkout-cone-mode: false
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
+      # Omitting sparse-checkout disables it and restores the full business source.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.plan.outputs.checkoutSha }}
@@ -246,6 +268,17 @@ jobs:
       OASIS7_WASM_BUILD_STD: "1"
       OASIS7_WASM_BUILD_STD_COMPONENTS: std,panic_abort
     steps:
+      # Use the executing workflow tools before restoring the complete source checkout.
+      - name: Check out workflow linker setup
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: /.github/actions/setup-linux-mold/
+          sparse-checkout-cone-mode: false
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
+      # Omitting sparse-checkout disables it and restores the full business source.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.plan.outputs.checkoutSha }}
@@ -315,6 +348,17 @@ jobs:
     needs: plan
     runs-on: ubuntu-24.04
     steps:
+      # Use the executing workflow tools before restoring the complete source checkout.
+      - name: Check out workflow linker setup
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: /.github/actions/setup-linux-mold/
+          sparse-checkout-cone-mode: false
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
+      # Omitting sparse-checkout disables it and restores the full business source.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.plan.outputs.checkoutSha }}
@@ -393,6 +437,17 @@ jobs:
       OASIS7_WASM_BUILD_STD: "1"
       OASIS7_WASM_BUILD_STD_COMPONENTS: std,panic_abort
     steps:
+      # Use the executing workflow tools before restoring the complete source checkout.
+      - name: Check out workflow linker setup
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: /.github/actions/setup-linux-mold/
+          sparse-checkout-cone-mode: false
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
+      # Omitting sparse-checkout disables it and restores the full business source.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.plan.outputs.checkoutSha }}
@@ -501,6 +556,17 @@ jobs:
       - release_gate
     runs-on: ubuntu-24.04
     steps:
+      # Use the executing workflow tools before restoring the complete source checkout.
+      - name: Check out workflow linker setup
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: /.github/actions/setup-linux-mold/
+          sparse-checkout-cone-mode: false
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
+      # Omitting sparse-checkout disables it and restores the full business source.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.plan.outputs.checkoutSha }}
@@ -574,6 +640,19 @@ jobs:
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     steps:
+      # Use the executing workflow tools before restoring the complete source checkout.
+      - name: Check out workflow linker setup
+        if: runner.os == 'Linux'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: /.github/actions/setup-linux-mold/
+          sparse-checkout-cone-mode: false
+      - name: Configure mold for Linux host linking
+        if: runner.os == 'Linux'
+        uses: ./.github/actions/setup-linux-mold
+      # Omitting sparse-checkout disables it and restores the full business source.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.plan.outputs.checkoutSha }}
