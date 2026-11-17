@@ -1016,3 +1016,46 @@ mod remote_lease;
 #[cfg(feature = "node-libp2p")]
 #[path = "formal_bft_network_gate_fixture.rs"]
 pub(crate) mod network_fixture;
+
+#[test]
+fn ordinary_v3_configuration_binds_existing_trust_and_node_key_without_rpc() {
+    use crate::formal_live_config::FormalLiveReadAuthorizationV3;
+    let (_, trust, _, _, _) = full_sync_fixture();
+    let fixture = issue_lease_fixture(trust.initial_trust.clone(), now_ms());
+    let config = FormalLiveReadAuthorizationV3 {
+        evidence_endpoint: "http://127.0.0.1:1/evidence".into(),
+        signed_v2_policy: fixture.signed_v2.clone(),
+        signed_v3_policy: fixture.signed_v3.clone(),
+        minimum_anchor: fixture.minimum_v3.clone(),
+    };
+    let encoded = serde_json::to_vec(&config).unwrap();
+    let decoded: FormalLiveReadAuthorizationV3 = serde_json::from_slice(&encoded).unwrap();
+    let dependencies = decoded.build(&fixture.trust, &key(PROVIDER_KEY)).unwrap();
+    // This proves only production dependency construction. No remote issuer or
+    // protected clock exists at this endpoint and no read is called qualified.
+    assert!(
+        FullSyncV3ReadGate::new(
+            fixture.trust.clone(),
+            dependencies.signed_v2_policy,
+            dependencies.signed_v3_policy,
+            dependencies.minimum_anchor,
+            public(PROVIDER_KEY),
+            public(PROVIDER_INCARNATION),
+            dependencies.source,
+        )
+        .is_ok()
+    );
+    assert!(config.build(&fixture.trust, &key(READER_KEY)).is_err());
+    let mut invalid = config.clone();
+    invalid.evidence_endpoint = "http://example.com/evidence".into();
+    assert!(invalid.build(&fixture.trust, &key(PROVIDER_KEY)).is_err());
+    let mut other_trust = fixture.trust.clone();
+    other_trust.issuer_public_key = public(READER_KEY);
+    assert!(config.build(&other_trust, &key(PROVIDER_KEY)).is_err());
+    let mut unknown = serde_json::to_value(&config).unwrap();
+    unknown["verified"] = true.into();
+    assert!(serde_json::from_value::<FormalLiveReadAuthorizationV3>(unknown).is_err());
+}
+
+#[path = "formal_live_v3_startup_fixture.rs"]
+pub(crate) mod startup_fixture;
