@@ -199,6 +199,7 @@ use replication_state_reconcile::{
     NodeEngineTickResult, ReplicationCommitPayloadView, parse_replication_commit_payload,
     parse_replication_commit_payload_view, reconcile_engine_with_persisted_replication,
 };
+pub(crate) use runtime_util::with_execution_hook;
 use runtime_util::{lock_state, now_unix_ms};
 
 const STORAGE_GATE_NETWORK_SAMPLES_PER_CHECK: usize = 3;
@@ -231,16 +232,6 @@ impl NodePosStatusAdapter for PosConsensusStatus {
 
     fn rejected() -> Self {
         PosConsensusStatus::Rejected
-    }
-}
-
-fn with_execution_hook<T>(
-    execution_hook: &mut Option<&mut dyn NodeExecutionHook>,
-    f: impl FnOnce(Option<&mut dyn NodeExecutionHook>) -> T,
-) -> T {
-    match execution_hook {
-        Some(hook) => f(Some(&mut **hook)),
-        None => f(None),
     }
 }
 
@@ -569,14 +560,8 @@ impl NodeRuntime {
         let worker = self
             .runtime_worker_spawner(thread::Builder::new().name(worker_name))
             .spawn(move || {
-                let mut initial = true;
+                let mut wait_duration = Duration::ZERO;
                 loop {
-                    let wait_duration = if initial {
-                        initial = false;
-                        Duration::ZERO
-                    } else {
-                        engine.next_tick_wait_duration(now_unix_ms(), tick_interval)
-                    };
                     match stop_rx.recv_timeout(wait_duration) {
                         Ok(()) => break,
                         Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -728,6 +713,8 @@ impl NodeRuntime {
                                     current.last_error = Some(err.to_string());
                                 }
                             }
+                            wait_duration =
+                                engine.next_tick_wait_duration(now_unix_ms(), tick_interval);
                         }
                         Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     }
