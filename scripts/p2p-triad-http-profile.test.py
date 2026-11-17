@@ -50,6 +50,22 @@ class ProfileHttpTests(unittest.TestCase):
         self.assertEqual(adapter.project(status, "file", now)["status"], "ready")
         self.assertEqual(adapter.project(status, "http", now)["status"], "ready")
 
+    def test_missing_bft_blocker_does_not_abort_later_node_collection(self):
+        self.status = fixtures.bft_fixture()
+        del self.status["blocker"]
+        process = self.fixture.start(self.env, ["--local-profile-status-url", self.url,
+            "--storage-profile-status-url", self.url])
+        out, err = process.communicate(timeout=20)
+        self.assertEqual(process.returncode, 0, (out.decode(), err.decode()))
+        report = json.loads((self.fixture.out / "latest_summary.json").read_text())
+        self.assertEqual(self.hits, 2, "malformed first node must not abort later probes")
+        for label in ("local_node", "storage_ecs"):
+            node = report["nodes"][label]
+            self.assertEqual(node["profile_collection"]["result"], "success")
+            self.assertEqual(node["profile_readiness"]["status"], "unknown")
+            self.assertEqual(node["profile_readiness"]["reason"], "invalid_bft_observation")
+            self.assertFalse(node["profile_readiness"]["can_propose"])
+
     def setUp(self):
         self.fixture = attempts.AttemptWrapperTests("runTest")
         self.fixture.setUp()
