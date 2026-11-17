@@ -1081,6 +1081,8 @@
     "scripts/ci-governance-preview.py": ["workflow_governance"],
     "scripts/ci-governance-preview.test.py": ["workflow_governance"],
     "scripts/ci-apt-install.py": ["workflow_governance"],
+    "scripts/ci-browser-install.py": ["workflow_governance"],
+    "scripts/ci-browser-install.test.py": ["workflow_governance"],
     "scripts/ci-apt-install.test.py": ["workflow_governance"],
     "scripts/ci-apt-dns.py": ["workflow_governance"],
     "scripts/ci-apt-dns.test.py": ["workflow_governance"],
@@ -1168,6 +1170,7 @@
     "scripts/ci-required-result.test.py",
     "scripts/ci-full-result.test.py",
     "scripts/ci-apt-install.test.py",
+    "scripts/ci-browser-install.test.py",
     "scripts/ci-apt-dns.test.py",
     "scripts/ci-linux-mold.test.py",
     "scripts/ci-workflow.test.py",
@@ -1209,6 +1212,14 @@
     "scripts/ci-local-check.test.py": {
       "group": "workflow_governance",
       "tests": ["scripts/ci-local-check.test.py"]
+    },
+    "scripts/ci-browser-install.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-browser-install.test.py", "scripts/ci-apt-install.test.py", "scripts/ci-workflow.test.py"]
+    },
+    "scripts/ci-browser-install.test.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-browser-install.test.py"]
     },
     "scripts/ci-apt-install.py": {
       "group": "workflow_governance",
