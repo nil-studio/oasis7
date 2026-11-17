@@ -150,6 +150,8 @@ class Production(unittest.TestCase):
                 (m.candidate, 'TRAIT_PATH_SHA', sha(b'trait-path')),
                 (m.candidate, 'CONSTRAINT_CANDIDATE_SHA', sha(b'constraint-shared')),
                 (m.candidate, 'TARGET_QUALIFIED_SHA', sha(b'target-shared')),
+                (m, 'NEGATIVE_PROJECTION_BASE_SHA', sha(b'target-shared')),
+                (m, 'NEGATIVE_PROJECTION_SHA', sha(b'negative-shared')),
                 (m.capacity.bundle, 'SHARED_OFFICIAL_SHA', sha(b'stock-shared')),
                 (m.capacity.bundle, 'SHARED_CANDIDATE_SHA', sha(b'helper-shared')),
                 (m.candidate, 'MODEL_OFFICIAL_SHA', sha(self.core)),
@@ -206,6 +208,8 @@ class Production(unittest.TestCase):
                     (args.work / 'candidate-typeinference' / m.candidate.SHARED_FILE).write_text('constraint-shared')
                 elif name == 'apply-target-qualified-patch':
                     (args.work / 'candidate-target-typeinference' / m.candidate.SHARED_FILE).write_text('target-shared')
+                elif name == 'apply-negative-projection-patch':
+                    (args.work / 'candidate-negative-typeinference' / m.candidate.SHARED_FILE).write_text('negative-shared')
                 elif name == 'production-default-suite':
                     value = [str(args.work / 'default-queries' / record['relative']) for record in fixture.entries]
                 elif name == 'resolver-session':
@@ -218,9 +222,10 @@ class Production(unittest.TestCase):
                             paths.remove(str(args.work / 'candidate-rust-all'))
                             paths.append(str(fixture.original))
                         if fixture.bad_shared_closure:
-                            paths.remove(str(args.work / 'candidate-target-typeinference'))
-                            paths.append(str(args.work / 'candidate-typeinference'
-                                             if fixture.bad_shared_closure == 'v6' else fixture.shared))
+                            paths.remove(closure['codeql/typeinference']['root'])
+                            paths.append(str({'v6': args.work / 'candidate-typeinference',
+                                              'v7': args.work / 'candidate-target-typeinference'}.get(
+                                                  fixture.bad_shared_closure, fixture.shared)))
                         return dict(libraryPath=paths + [record['root']],
                                     dbscheme=str(args.work / 'candidate-rust-all/rust.dbscheme'),
                                     compilationCache=[str(args.work / 'resolve-compilation-cache')],
@@ -235,9 +240,10 @@ class Production(unittest.TestCase):
                         paths.remove(str(args.work / 'candidate-rust-all'))
                         paths.append(str(fixture.original))
                     if fixture.bad_shared_closure:
-                        paths.remove(str(args.work / 'candidate-target-typeinference'))
-                        paths.append(str(args.work / 'candidate-typeinference'
-                                         if fixture.bad_shared_closure == 'v6' else fixture.shared))
+                        paths.remove(closure['codeql/typeinference']['root'])
+                        paths.append(str({'v6': args.work / 'candidate-typeinference',
+                                          'v7': args.work / 'candidate-target-typeinference'}.get(
+                                              fixture.bad_shared_closure, fixture.shared)))
                     value = dict(libraryPath=paths + [str(root)],
                                  dbscheme=str(args.work / 'candidate-rust-all/rust.dbscheme'),
                                  compilationCache=[str(args.work / 'resolve-compilation-cache')],
@@ -291,8 +297,8 @@ class Production(unittest.TestCase):
     def prepare_ok(self):
         self.assertEqual(self.invoke('prepare'), 0, self.terminal('prepare'))
 
-    def observation(self):
-        self.mode = m.action_deadline.FIXED_SOURCE_MODE
+    def observation(self, mode=m.action_deadline.FIXED_SOURCE_MODE):
+        self.mode = mode
         self.env.update(OASIS7_CODEQL_PRODUCTION_MODE=self.mode, GITHUB_SHA='d' * 40,
                         COMPARE_QUALIFIER_PATCH='false',
                         GITHUB_WORKFLOW_SHA='d' * 40, GITHUB_REPOSITORY='example/repo',
@@ -304,7 +310,7 @@ class Production(unittest.TestCase):
         # The separate real-process tests exercise the staged helper/layout closure.
         # This fixture keeps the real mode/source guard and complete query consumer.
         self.stack.enter_context(patch.object(m.action_deadline, 'fixed_source_provenance',
-            side_effect=lambda source, source_sha: m.action_deadline.fixed_source_identity(source_sha)))
+            side_effect=lambda source, source_sha, **kwargs: m.action_deadline.fixed_source_identity(source_sha, **kwargs)))
 
     def test_fixed_source_uses_all_37_and_original_diagnostics_core_with_separate_identity(self):
         self.observation()
@@ -325,6 +331,173 @@ class Production(unittest.TestCase):
                          ['default-query-batch'])
         self.supervision.assert_called_once_with(self.output, self.source, self.source_sha,
                                                  self.deadline, mode=self.mode)
+        self.assertEqual(terminal['variant'], m.PRODUCTION_VARIANT)
+        self.assertFalse((self.work / 'candidate-negative-typeinference').exists())
+        self.assertFalse((self.output / 'negative-projection-identity.json').exists())
+
+    def test_negative_observation_retains_real_v7_chain_and_resolves_only_new_shared_root(self):
+        self.observation(m.action_deadline.NEGATIVE_PROJECTION_MODE)
+        self.prepare_ok()
+        base = m.read_json(self.output / 'target-qualified-identity.json')
+        projected = m.read_json(self.output / 'negative-projection-identity.json')
+        self.assertEqual(projected['base_variant'], m.PRODUCTION_VARIANT)
+        self.assertEqual(projected['variant'], m.NEGATIVE_PROJECTION_VARIANT)
+        self.assertEqual(projected['before_files'], base['candidate_files'])
+        self.assertEqual(projected['changed_files'], [m.candidate.SHARED_FILE])
+        self.assertEqual(projected['base_receipts_sha256'],
+                         {'target-qualified-identity.json': m.runtime.digest(self.output / 'target-qualified-identity.json')})
+        self.assertEqual(projected['tree_permissions']['v7'], projected['tree_permissions']['candidate'])
+        self.assertEqual((self.work / 'candidate-target-typeinference' / m.candidate.SHARED_FILE).read_bytes(), b'target-shared')
+        closure = m.read_json(self.output / 'selected-closure.json')
+        self.assertEqual(closure['codeql/typeinference']['root'], str(self.work / 'candidate-negative-typeinference'))
+        resolved = m.read_json(self.output / 'library-resolution.json')
+        self.assertEqual(len(resolved), 37)
+        self.assertEqual(len([name for name, _ in self.calls if name == 'resolver-session']), 1)
+        self.assertEqual(self.invoke('run'), 0, self.terminal('run'))
+        terminal = self.terminal('run')
+        self.assertEqual((terminal['variant'], terminal['base_variant']),
+                         (m.NEGATIVE_PROJECTION_VARIANT, m.PRODUCTION_VARIANT))
+        self.assertEqual(terminal['mode'], m.action_deadline.NEGATIVE_PROJECTION_MODE)
+        self.assertEqual(terminal['upload_status'], 'DISABLED_FOR_OBSERVATION')
+        self.assertEqual(terminal['analysis_deadline'], self.deadline)
+        self.assertEqual(len(m.read_json(self.output / 'default-results.json')), 37)
+        self.assertEqual(len(list(self.output.glob('decoded-*.log'))), 37)
+        batch = next(argv for name, argv in self.calls if name == 'default-query-batch')
+        self.assertIn('--threads=4', batch)
+        self.assertIn('--ram=14570', batch)
+        self.assertEqual([name for name, options in self.call_options if options.get('resource_details')], ['default-query-batch'])
+        self.supervision.assert_called_once_with(self.output, self.source, self.source_sha,
+                                                 self.deadline, mode=self.mode)
+
+    def reject_negative_resolver_root(self, wrong):
+        self.observation(m.action_deadline.NEGATIVE_PROJECTION_MODE)
+        self.bad_shared_closure = wrong
+        self.assertEqual(self.invoke('prepare'), 1)
+        self.assertNotIn('default-query-batch', [name for name, _ in self.calls])
+        self.assertIn('DEPENDENCY_CLOSURE', self.terminal('prepare')['primary_failure']['error'])
+
+    def test_negative_resolver_rejects_v7_instead_of_candidate(self):
+        self.reject_negative_resolver_root('v7')
+
+    def test_negative_resolver_rejects_v6_instead_of_candidate(self):
+        self.reject_negative_resolver_root('v6')
+
+    def test_negative_resolver_rejects_official_instead_of_candidate(self):
+        self.reject_negative_resolver_root('official')
+
+    def switch_prepared_observation_mode(self, mode):
+        self.mode = mode
+        self.env['OASIS7_CODEQL_PRODUCTION_MODE'] = mode
+        value = m.read_json(self.output / 'production-budget.json')
+        value['mode'] = mode
+        (self.output / 'production-budget.json').write_text(json.dumps(value))
+        with patch.dict(os.environ, self.env):
+            provenance = m.action_deadline.fixed_source_identity(self.source_sha, mode=mode)
+        (self.output / 'fixed-source-provenance.json').write_text(json.dumps(provenance))
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('preparation identity', self.terminal('run')['primary_failure']['error'])
+
+    def test_v7_preparation_cannot_be_relabelled_as_negative_candidate(self):
+        self.observation()
+        self.prepare_ok()
+        self.switch_prepared_observation_mode(m.action_deadline.NEGATIVE_PROJECTION_MODE)
+
+    def test_negative_preparation_cannot_be_relabelled_as_v7(self):
+        self.observation(m.action_deadline.NEGATIVE_PROJECTION_MODE)
+        self.prepare_ok()
+        self.switch_prepared_observation_mode(m.action_deadline.FIXED_SOURCE_MODE)
+
+    def test_negative_mode_rejects_an_altered_patch_before_copy(self):
+        self.observation(m.action_deadline.NEGATIVE_PROJECTION_MODE)
+        with patch.object(m, 'NEGATIVE_PROJECTION_PATCH_SHA', '0' * 64):
+            self.assertEqual(self.invoke('prepare'), 1)
+        self.assertIn('negative-projection patch identity', self.terminal('prepare')['primary_failure']['error'])
+        self.assertFalse((self.work / 'candidate-negative-typeinference').exists())
+
+    def test_negative_receipt_is_rebuilt_even_when_saved_digest_is_rebound(self):
+        self.observation(m.action_deadline.NEGATIVE_PROJECTION_MODE)
+        self.prepare_ok()
+        receipt_path = self.output / 'negative-projection-identity.json'
+        value = m.read_json(receipt_path)
+        value['base_receipts_sha256']['target-qualified-identity.json'] = '0' * 64
+        receipt_path.write_text(json.dumps(value))
+        inputs = m.read_json(self.output / 'input-identities.json')
+        inputs['library_receipts']['negative-projection-identity.json'] = m.runtime.digest(receipt_path)
+        (self.output / 'input-identities.json').write_text(json.dumps(inputs))
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('negative-projection identity differs', self.terminal('run')['primary_failure']['error'])
+
+    def test_negative_actual_bytes_cannot_be_replaced_by_consistent_forged_snapshots(self):
+        self.observation(m.action_deadline.NEGATIVE_PROJECTION_MODE)
+        self.prepare_ok()
+        (self.work / 'candidate-negative-typeinference' / m.candidate.SHARED_FILE).write_text('forged candidate')
+        files = m.candidate.regular_snapshot(self.work / 'candidate-negative-typeinference', time.monotonic() + 30)
+        receipt_path = self.output / 'negative-projection-identity.json'
+        receipt = m.read_json(receipt_path); receipt['candidate_files'] = files
+        receipt_path.write_text(json.dumps(receipt))
+        inputs = m.read_json(self.output / 'input-identities.json')
+        inputs['negative_shared_library'] = files
+        inputs['library_receipts']['negative-projection-identity.json'] = m.runtime.digest(receipt_path)
+        (self.output / 'input-identities.json').write_text(json.dumps(inputs))
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('base or candidate identity', self.terminal('run')['primary_failure']['error'])
+
+    def test_negative_extra_empty_directory_is_rejected(self):
+        self.observation(m.action_deadline.NEGATIVE_PROJECTION_MODE)
+        self.prepare_ok()
+        (self.work / 'candidate-negative-typeinference/extra').mkdir()
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertIn('tree entries or permissions', self.terminal('run')['primary_failure']['error'])
+        self.assertNotIn('default-query-batch', [name for name, _ in self.calls])
+
+    def test_negative_and_v7_directory_tampering_cannot_rebind_the_saved_receipt(self):
+        self.observation(m.action_deadline.NEGATIVE_PROJECTION_MODE)
+        self.prepare_ok()
+        for root in ('candidate-target-typeinference', 'candidate-negative-typeinference'):
+            (self.work / root / 'extra').mkdir(mode=0o755)
+        receipt_path = self.output / 'negative-projection-identity.json'
+        receipt = m.read_json(receipt_path)
+        for label in ('v7', 'candidate'):
+            receipt['tree_permissions'][label]['extra'] = dict(kind='directory', mode=0o755)
+        receipt_path.write_text(json.dumps(receipt))
+        inputs = m.read_json(self.output / 'input-identities.json')
+        inputs['negative_tree_permissions'] = receipt['tree_permissions']
+        inputs['library_receipts']['negative-projection-identity.json'] = m.runtime.digest(receipt_path)
+        (self.output / 'input-identities.json').write_text(json.dumps(inputs))
+        before = len(self.calls)
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertEqual(len(self.calls), before)
+        self.assertIn('tree entries or permissions', self.terminal('run')['primary_failure']['error'])
+
+    def test_negative_candidate_bytes_are_rechecked_after_query(self):
+        self.observation(m.action_deadline.NEGATIVE_PROJECTION_MODE)
+        self.prepare_ok()
+        self.mutate_private = 'candidate-negative-typeinference/' + m.candidate.SHARED_FILE
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertIn('base or candidate identity', self.terminal('run')['primary_failure']['error'])
+        self.assertFalse(self.sarif.exists())
+
+    def test_negative_full_permissions_are_rechecked_after_query(self):
+        self.observation(m.action_deadline.NEGATIVE_PROJECTION_MODE)
+        self.prepare_ok()
+        self.mutate_mode = 'candidate-negative-typeinference/Unchanged.qll'
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertIn('tree entries or permissions', self.terminal('run')['primary_failure']['error'])
+        self.assertFalse(self.sarif.exists())
+
+    def test_negative_receipt_is_rechecked_after_query(self):
+        self.observation(m.action_deadline.NEGATIVE_PROJECTION_MODE)
+        self.prepare_ok()
+        self.mutate_receipt = 'negative-projection-identity.json'
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertIn('negative-projection identity differs', self.terminal('run')['primary_failure']['error'])
+        self.assertFalse(self.sarif.exists())
 
     def test_fixed_source_resource_drift_is_recorded_before_queries(self):
         self.observation()
@@ -954,6 +1127,180 @@ class RealCodeQL(unittest.TestCase):
             run = m.Runner(args, {}, end)
             verify, _ = validate_real_production_bindings(self, codeql, work, output, end=end, run=run)
             verify(end)
+
+
+NEGATIVE_PROJECTION_QL = '''import rust as R
+import codeql.typeinference.internal.TypeInference as TI
+
+module I1 implements TI::InputSig1<R::Location> {
+  newtype TAtom = Atom(string name) {
+    name = ["Pair", "i32", "bool", "T", "P0", "P1", "unknown"]
+  }
+  class Type extends TAtom {
+    Type() { this = Atom(_) }
+    TypeParameter getPositionalTypeParameter(int i) {
+      this = Atom("Pair") and
+      (i = 0 and result = Atom("P0") or i = 1 and result = Atom("P1"))
+    }
+    TypeParameter getATypeParameter() { result = this.getPositionalTypeParameter(_) }
+    string toString() { this = Atom(result) }
+    R::Location getLocation() { none() }
+  }
+  class TypeParameter extends Type {
+    TypeParameter() { this = Atom(["T", "P0", "P1"]) }
+  }
+  class PseudoType extends Type {
+    PseudoType() { this = Atom("unknown") }
+  }
+  newtype TAbs = Abs();
+  class TypeAbstraction extends TAbs {
+    TypeAbstraction() { this = Abs() }
+    TypeParameter getATypeParameter() { result = Atom("T") }
+    string toString() { result = "abs" }
+    R::Location getLocation() { none() }
+  }
+  int getTypeParameterId(TypeParameter tp) {
+    tp = Atom("T") and result = 0
+    or tp = Atom("P0") and result = 1
+    or tp = Atom("P1") and result = 2
+  }
+  int getTypePathLimit() { result = 1 }
+}
+module M1 = TI::Make1<R::Location, I1>;
+M1::TypePath pathAt(int slot) {
+  slot = -1 and result = M1::TypePath::nil()
+  or slot = 0 and
+    result = M1::TypePath::cons(any(I1::TypeParameter p | p = I1::Atom("P0")),
+                              M1::TypePath::nil())
+  or slot = 1 and
+    result = M1::TypePath::cons(any(I1::TypeParameter p | p = I1::Atom("P1")),
+                              M1::TypePath::nil())
+}
+newtype TMention = MentionKind(string name) { name = ["single", "concrete", "repeat"] }
+class Mention extends TMention {
+  Mention() { this = MentionKind(_) }
+  I1::Type getTypeAt(M1::TypePath path) {
+    path = pathAt(-1) and
+    (this = MentionKind("concrete") and result = I1::Atom("i32")
+     or this = MentionKind(["single", "repeat"]) and result = I1::Atom("Pair"))
+    or this = MentionKind("single") and path = pathAt(0) and result = I1::Atom("T")
+    or this = MentionKind("repeat") and path = pathAt([0, 1]) and result = I1::Atom("T")
+  }
+  string toString() { this = MentionKind(result) }
+  R::Location getLocation() { none() }
+}
+module I2 implements M1::InputSig2<Mention> {
+  Mention getATypeParameterConstraint(I1::TypeParameter tp) { none() }
+  predicate conditionSatisfiesConstraint(
+    I1::TypeAbstraction abs, Mention condition, Mention constraint, boolean transitive
+  ) { none() }
+  predicate typeAbstractionHasAmbiguousConstraintAt(
+    I1::TypeAbstraction abs, I1::Type constraint, M1::TypePath path
+  ) { none() }
+  predicate typeParameterIsFunctionallyDetermined(I1::TypeParameter tp) { none() }
+}
+module M2 = M1::Make2<Mention, I2>;
+newtype TApp = AppCase(string name) {
+  name = ["single-missing", "single-pseudo", "concrete-different",
+          "repeat-equal", "repeat-different", "repeat-missing"]
+}
+class App extends TApp {
+  App() { this = AppCase(_) }
+  I1::Type getTypeAt(M1::TypePath path) {
+    path = pathAt(-1) and
+    (this = AppCase("concrete-different") and result = I1::Atom("bool")
+     or this != AppCase("concrete-different") and result = I1::Atom("Pair"))
+    or this = AppCase("single-pseudo") and path = pathAt(0) and result = I1::Atom("unknown")
+    or this = AppCase(["repeat-equal", "repeat-different", "repeat-missing"]) and
+       path = pathAt(0) and result = I1::Atom("i32")
+    or this = AppCase("repeat-equal") and path = pathAt(1) and result = I1::Atom("i32")
+    or this = AppCase("repeat-different") and path = pathAt(1) and result = I1::Atom("bool")
+  }
+  string toString() { this = AppCase(result) }
+  R::Location getLocation() { none() }
+}
+module InstInput implements M2::IsInstantiationOfInputSig<App, Mention> {
+  predicate potentialInstantiationOf(App app, I1::TypeAbstraction abs, Mention constraint) {
+    abs = I1::Abs() and
+    (app = AppCase(["single-missing", "single-pseudo"]) and constraint = MentionKind("single")
+     or app = AppCase("concrete-different") and constraint = MentionKind("concrete")
+     or app = AppCase(["repeat-equal", "repeat-different", "repeat-missing"]) and
+        constraint = MentionKind("repeat"))
+  }
+}
+module Inst = M2::IsInstantiationOf<App, Mention, InstInput>;
+boolean positive(App app) {
+  if Inst::isInstantiationOf(app, _, _) then result = true else result = false
+}
+boolean negativeAt(App app, int slot) {
+  slot = [-1, 0, 1] and
+  if Inst::isNotInstantiationOf(app, _, _, pathAt(slot)) then result = true else result = false
+}
+from App app
+select app.toString() as caseName, positive(app) as positive,
+  negativeAt(app, -1) as negativeRoot, negativeAt(app, 0) as negativeP0,
+  negativeAt(app, 1) as negativeP1
+'''
+
+
+@unittest.skipUnless(os.environ.get('OASIS7_CODEQL_NEGATIVE_PROJECTION_CLI'),
+                     'explicit pinned CodeQL negative-projection semantic input required')
+class RealNegativeProjectionQL(unittest.TestCase):
+    def test_real_v7_and_candidate_match_independent_six_case_oracle(self):
+        """Separate opt-in: an existing small finalized Rust DB, not the 37-query gate."""
+        codeql = Path(os.environ['OASIS7_CODEQL_NEGATIVE_PROJECTION_CLI']).resolve()
+        self.assertTrue(os.environ.get('OASIS7_CODEQL_NEGATIVE_PROJECTION_DATABASE'),
+                        'the semantic opt-in requires an explicit finalized small Rust fixture database')
+        database = Path(os.environ['OASIS7_CODEQL_NEGATIVE_PROJECTION_DATABASE']).resolve()
+        self.assertTrue((database / 'codeql-database.yml').is_file())
+        expected = [
+            ['concrete-different', False, True, False, False],
+            ['repeat-different', False, False, True, True],
+            ['repeat-equal', True, False, False, False],
+            ['repeat-missing', False, False, False, False],
+            ['single-missing', True, False, False, False],
+            ['single-pseudo', True, False, False, False],
+        ]
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name).resolve()
+            work, output, query = root / 'work', root / 'evidence', root / 'query'
+            for path in (work, output, query): path.mkdir()
+            end = time.monotonic() + 600
+            args = SimpleNamespace(codeql=codeql, source=root, work=work, output=output,
+                                   mode=m.action_deadline.NEGATIVE_PROJECTION_MODE)
+            run = m.Runner(args, {}, end)
+            run([codeql, 'version', '--format=json'], 'version', 20)
+            self.assertEqual(m.read_json(output / 'version.log')['version'], m.VERSION)
+            self.assertIs(m.read_json(output / 'version.log').get('configFileFound'), False)
+            original = m.capacity.bundle.bundle_closure(codeql.parent, m.VERSION)
+            original['codeql/suite-helpers'] = m.candidate.suite_helper(codeql.parent)
+            projected = m.prepare_libraries(args, original, run)
+            baseline = m.candidate.research_closure(original, work)
+            pack = 'oasis7/negative-projection-semantic-fixture'
+            (query / 'qlpack.yml').write_text('name: ' + pack + '\nversion: 0.0.0\n'
+                'dependencies:\n  codeql/rust-all: 0.2.25\n  codeql/typeinference: 0.0.42\n'
+                '  codeql/suite-helpers: 1.0.61\n  codeql/util: 2.0.48\nextractor: rust\n')
+            ql = query / 'Semantics.ql'; ql.write_text(NEGATIVE_PROJECTION_QL)
+            observed = {}
+            for variant, closure in (('v7', baseline), ('negative', projected)):
+                with self.subTest(variant=variant):
+                    options = m.query_options(closure, work, variant)
+                    run([codeql, 'resolve', 'library-path', '--query=' + str(ql),
+                         '--format=json', *options], variant + '-resolve', 20)
+                    m.capacity.bundle.verify_library_path(m.read_json(output / (variant + '-resolve.log')),
+                                                          query, 'Semantics', closure, pack)
+                    bqrs = work / (variant + '.bqrs')
+                    run([codeql, 'query', 'run', ql, '--database=' + str(database),
+                         '--output=' + str(bqrs), '--threads=2', '--ram=3072', *options], variant + '-run')
+                    run([codeql, 'bqrs', 'info', bqrs, '--format=json'], variant + '-info', 20)
+                    run([codeql, 'bqrs', 'decode', bqrs, '--format=json'], variant + '-decoded', 20)
+                    decoded = m.read_json(output / (variant + '-decoded.log'))
+                    m.capacity.verify_decoded(m.read_json(output / (variant + '-info.log')), decoded)
+                    observed[variant] = sorted(decoded['#select']['tuples'])
+                    self.assertEqual(observed[variant], expected)
+            self.assertEqual(observed['v7'], observed['negative'])
+            self.assertEqual(ql.read_text(), NEGATIVE_PROJECTION_QL)
+            m.verify_negative_projection_identity(original, work, output, end)
 
 
 if __name__ == '__main__':

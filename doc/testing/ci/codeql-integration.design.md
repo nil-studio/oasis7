@@ -611,13 +611,23 @@ init 后从实际 GitHub job 起点计算一次分析绝对截止：最多 75 �
 
 ##### 固定源码的同配置性能观察
 
-沿用本节 Trace ID，`codeql-rust-capacity.yml` 的独立 `observe` job 为 #4989 提供封闭观测入口：仅可信 main 手动 `execute=true` 且选择 `mode=rust-default-fixed-source-observation` 才执行。原默认 mode 仍为 capacity，execute 仍默认 false；原 capacity job 排除新 mode，保留四种原工作负载。观测拒绝 `compare_qualifier_patch=true`。业务源码固定为 `2bcc4edafdc615f395c9138a0b39ede366726d34`；工具来自本次真实 `GITHUB_SHA`，并要求与 `GITHUB_WORKFLOW_SHA` 及该 workflow 的 main 身份一致。先从工具 checkout 冻结既有完整 helper 闭包及 production helper 到 `RUNNER_TEMP`，逐文件绑定 Git blob 和 SHA-256；随后在同一 workspace 根切换到固定业务源码。工具不得进入采集根，不覆写 `GITHUB_SHA`，不接受任意 ref、bundle、命令或资源输入。
+沿用本节 Trace ID，`codeql-rust-capacity.yml` 的独立 `observe` job 为 #4989 提供封闭观测入口：仅可信 main 手动 `execute=true` 且选择本节显式观测 mode 才执行。原默认 mode 仍为 capacity，execute 仍默认 false；原 capacity job 排除两种观测 mode，保留四种原工作负载。观测拒绝 `compare_qualifier_patch=true`。业务源码固定为 `2bcc4edafdc615f395c9138a0b39ede366726d34`；工具来自本次真实 `GITHUB_SHA`，并要求与 `GITHUB_WORKFLOW_SHA` 及该 workflow 的 main 身份一致。先从工具 checkout 冻结既有完整 helper 闭包及 production helper 到 `RUNNER_TEMP`，逐文件绑定 Git blob 和 SHA-256；随后在同一 workspace 根切换到固定业务源码。工具不得进入采集根，不覆写 `GITHUB_SHA`，不接受任意 ref、bundle、命令或资源输入。
 
 新增 `rust-default-fixed-source-observation` mode 只复用本节 production 的 prepare/run 查询核心，固定原 2.27.4/v7、默认 37 条和原 diagnostics，不加入研究七项见证。官方 init 显式请求 4 threads、14570 MiB；prepare、恢复和实际 Action 准入校验导出资源与固定值一致，记录 runner 资源，差异保留失败。CLI、Python supervisor、JavaScript preload 分别识别该 mode，同时绑定业务 SHA、工具 SHA、布局快照与原预算；生产仍要求本次 `GITHUB_SHA == source_sha`，候选研究仍要求其原固定源码，模式、预算或准备收据不能互换。
 
 job 仍为 90 分钟并共用 scan-slot-1。init 后使用原 production 的 GitHub Date 与实际唯一 job started_at 分配一次至多 75 分钟分析，前置 checkout、工具冻结、native 与下载耗时全部计入 job age；保留原 600 秒余量及最多 90 秒失败采证，不在工具冻结、提取或查询前重开窗口。官方 post 保持 runner 所有。默认 batch 复用上述有界资源观察，其他调用保持原行为。
 
 独立 artifact 只包含布局、native 和 production 核心证据；保留原 `queries.json`、`official-default-suite.json`、`info-00..36.log`、`decoded-00..36.log`、`default-results.json` 及 prepare/run 终态。固定源码终态显式标识 mode、tool_sha 和观测用途，查询成功仍需审查实际 diagnostics 与适用 Linux 覆盖；本入口不上传 SARIF/数据库、不调用 collector、不改变批次配置，不产生可用于平台验收的上传关联。官方上传和唯一平台 analysis 的验收仍由本节真实生产入口完成，既有 #38 研究验收保持原范围。
+
+同一 observe job 另提供显式 `mode=rust-default-negative-projection-observation`，仅用于 [#4989 的负向实例化候选](https://github.com/nil-studio/oasis7/issues/4989#issuecomment-6942772467)。原生产及 `rust-default-fixed-source-observation` 继续严格使用 v7；新模式单独命名 `qualifier-lines-negative-projection-v8`，不自动升级任何生产默认值。业务、可信工具身份、37 条查询与原 diagnostics、资源、采样、绝对截止和上传限制完全沿用上述观测合同；两种观测的 prepare、预算和 Action 收据必须按精确 mode 绑定，不能互相恢复。
+
+候选准备先完成并保留原 v3/v5/v6/v7 全部树及收据，再从经过验证的 `candidate-target-typeinference` 独立复制 `candidate-negative-typeinference`。只应用固定 `codeql-rust-negative-projection.patch`，用固定 v7 输入 SHA、补丁 SHA 和候选结果 SHA 检查唯一 shared 文件差异；文件集合、所有其余字节及完整权限位相同，目录集合及权限还与真实官方 shared 树对照。`negative-projection-identity.json` 绑定真实 v7 全树、原 target 收据摘要和候选完整树。新补丁属于外置工具快照闭包。prepare、恢复和查询后均重建原 v7 验证链与候选身份，不能仅信任保存的新收据。仅新 mode 在原 14 项实际 resolver 闭包中选择候选 shared 根；v6、v7、官方或其他根替代该根均拒绝。
+
+唯一 QL 改写是在两个负向消费者中使用独立 `getTypeAtForNonPseudoApp`：它从原 `potentialInstantiationOf` 与同一 `app/path` 的非伪类型存在性出发，再关联约束类型树，不包装原完整 `getTypeAt` 后过滤。共享 `getTypeAt`、正向 `getNthTypeAt`、rank/max、约束根、lookup-trait 和 PseudoType 规则均保持。私有 H=`hasTypeParameterAt` 的唯一消费者 K 原本为 `H ⋈ N`；新 H′=`H ⋉ N`，故展开后 `H′ ⋈ N = H ⋈ N`。具体类型冲突分支也已有相同 N。不能把 guard 的类型 witness 与约束类型强行相等，也不能收窄共享正向关系；正向一次出现的自由参数允许 app 子路径尚未知。
+
+固定点证明先在所有消费者中按定义消去旧 `getTypeAt`/H 与新 helper/H′，包括不变的正向消费者。消元后，`Q(app,path)=exists N(app,path,_)` 与已经相连的 N 满足 `N ⇒ Q`；等式对其余递归关系的每种解释成立，因而保留谓词的递归方程和最小固定点投影相同。这里不假定求值某一轮的独立辅助关系已等于其展开定义；辅助关系的迭代传播延迟、编译计划和物化成本可能不同。Run39 已完成的类型推断固定点中，完整 H 为 2,284,212 行、K 为 208,550 行，只能推出 `H′=πH(K)` 至多 208,550 个逻辑 tuple，不能把该界外推到共享关系或整体耗时。
+
+开发回归覆盖真实私有补丁及两棵树的身份/权限、实际 resolver 选根、模式混用和收据篡改拒绝；语义 oracle 包含正向未知自由参数子路径、负向不同具体类型 witness 和重复类型参数。固定 CLI 不可用时真实 QL 编译/执行明确未验证，不能用 mock 或代数证明代签。此候选仅有源码语义依据，实际编译计划、全部结果及性能收益仍须受控运行验证；日志中间行数的消除界不是内存或墙钟收益承诺。
 
 #### 7.2.7 合法 WASM 单角色 CodeQL 语义诊断
 

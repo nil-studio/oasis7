@@ -18,6 +18,8 @@ from codeql_rust_capacity_layout import ACTION_SHA, _read_regular
 MODE = 'candidate-workload-research'
 PRODUCTION_MODE = 'rust-default-production'
 FIXED_SOURCE_MODE = 'rust-default-fixed-source-observation'
+NEGATIVE_PROJECTION_MODE = 'rust-default-negative-projection-observation'
+OBSERVATION_MODES = (FIXED_SOURCE_MODE, NEGATIVE_PROJECTION_MODE)
 FIXED_SOURCE = '2bcc4edafdc615f395c9138a0b39ede366726d34'
 FIXED_SOURCE_WORKFLOW = '.github/workflows/codeql-rust-capacity.yml'
 SOURCE = '7c2f99a0ff2fbc3a3523dee7a1cc06fa5bf187ef'
@@ -25,20 +27,21 @@ MAIN_BLOB = '8b8462e5a06f394cd0504d57868488cebc7030c9'
 OFFICIAL_CAP = 256 * 1024**2
 
 
-def fixed_source_identity(source_sha):
+def fixed_source_identity(source_sha, *, mode=FIXED_SOURCE_MODE):
     """Only this closed workflow may pair an old business tree with new main tools."""
     tool_sha = os.environ.get('GITHUB_SHA', '')
     workflow_ref = os.environ.get('GITHUB_REPOSITORY', '') + '/' + FIXED_SOURCE_WORKFLOW + '@refs/heads/main'
-    if (source_sha != FIXED_SOURCE or not re.fullmatch(r'[0-9a-f]{40}', tool_sha)
+    if (mode not in OBSERVATION_MODES or source_sha != FIXED_SOURCE
+            or not re.fullmatch(r'[0-9a-f]{40}', tool_sha)
             or os.environ.get('GITHUB_EVENT_NAME') != 'workflow_dispatch'
             or os.environ.get('GITHUB_REF') != 'refs/heads/main'
             or os.environ.get('GITHUB_WORKFLOW_SHA') != tool_sha
             or os.environ.get('GITHUB_WORKFLOW_REF') != workflow_ref
             or not os.environ.get('GITHUB_REPOSITORY') or os.environ.get('CAPACITY_MODE')
             or os.environ.get('COMPARE_QUALIFIER_PATCH') != 'false'
-            or os.environ.get('OASIS7_CODEQL_PRODUCTION_MODE') != FIXED_SOURCE_MODE):
+            or os.environ.get('OASIS7_CODEQL_PRODUCTION_MODE') != mode):
         raise RuntimeError('fixed-source observation requires its trusted main workflow and separate fixed business source')
-    return dict(mode=FIXED_SOURCE_MODE, source_sha=source_sha, tool_sha=tool_sha,
+    return dict(mode=mode, source_sha=source_sha, tool_sha=tool_sha,
                 workflow_ref=workflow_ref, workflow_sha=tool_sha)
 
 
@@ -47,8 +50,8 @@ def fixed_source_resources():
         raise RuntimeError('fixed-source observation Action resources differ from 4 threads / 14570 MiB')
 
 
-def fixed_source_provenance(source, source_sha):
-    identity = fixed_source_identity(source_sha)
+def fixed_source_provenance(source, source_sha, *, mode=FIXED_SOURCE_MODE):
+    identity = fixed_source_identity(source_sha, mode=mode)
     runner = Path(os.environ['RUNNER_TEMP']).resolve()
     tools, out = runner / 'codeql-rust-fixed-source-helper', runner / 'codeql-rust-fixed-source-layout'
     paths, errors = layout._paths(source, tools)
@@ -72,7 +75,7 @@ def shared_budget(value, deadline, analysis_deadline, now, monotonic, *, mode=MO
     """Translate persisted absolute clocks; never allocate a new analysis window."""
     allocated = value.get('analysis_allocated_at')
     minutes = value.get('analysis_allocated_minutes')
-    if (mode not in (MODE, PRODUCTION_MODE, FIXED_SOURCE_MODE)
+    if (mode not in (MODE, PRODUCTION_MODE, *OBSERVATION_MODES)
             or any(type(v) not in (int, float) or not math.isfinite(v) for v in (deadline, analysis_deadline, allocated, now))
             or type(minutes) is not int or not 1 <= minutes <= 75
             or value.get('mode') != mode or value.get('job_budget_seconds') != 5400
@@ -136,8 +139,8 @@ def _admit(out, source, deadline, mode, source_sha, budget_file):
     terminal = read_json(out / 'action-deadline-terminal.json')
     result = read_json(out / 'action-main.log.result.json')
     start = read_json(out / 'action-deadline-start.json')
-    if mode == FIXED_SOURCE_MODE:
-        identity = fixed_source_identity(source_sha)
+    if mode in OBSERVATION_MODES:
+        identity = fixed_source_identity(source_sha, mode=mode)
         if (any(terminal.get(key) != value for key, value in identity.items() if key != 'source_sha')
                 or any(start.get(key) != value for key, value in identity.items())
                 or budget.get('tool_sha') != identity['tool_sha']):
@@ -176,7 +179,7 @@ def admit_production(out, source, source_sha, analysis_deadline, *, mode=PRODUCT
             or any(c not in '0123456789abcdef' for c in source_sha)):
         raise RuntimeError('production Action budget source differs')
     deadline = budget.get('fixed_job_deadline')
-    if mode not in (PRODUCTION_MODE, FIXED_SOURCE_MODE):
+    if mode not in (PRODUCTION_MODE, *OBSERVATION_MODES):
         raise RuntimeError('unexpected default query Action mode')
     shared_budget(budget, deadline, analysis_deadline, time.time(), time.monotonic(), mode=mode)
     return _admit(out, source, deadline, mode, source_sha, 'production-budget.json')
@@ -187,7 +190,7 @@ def main():
     runner = Path(os.environ['RUNNER_TEMP']).resolve()
     requested = os.environ.get('OASIS7_CODEQL_PRODUCTION_MODE', '')
     production = requested == PRODUCTION_MODE
-    observation = requested == FIXED_SOURCE_MODE
+    observation = requested in OBSERVATION_MODES
     default_queries = production or observation
     mode = requested or MODE
     source_sha = os.environ.get('OASIS7_CODEQL_PRODUCTION_SOURCE', '') if default_queries else SOURCE
@@ -205,12 +208,12 @@ def main():
     previous_signals = {}
     analysis_end = None
     try:
-        if requested not in ('', PRODUCTION_MODE, FIXED_SOURCE_MODE):
+        if requested not in ('', PRODUCTION_MODE, *OBSERVATION_MODES):
             raise RuntimeError('unknown default query Action mode')
         if observation:
-            provenance = fixed_source_provenance(source, source_sha)
+            provenance = fixed_source_provenance(source, source_sha, mode=mode)
             fixed_source_resources()
-            terminal.update(fixed_source_identity(source_sha))
+            terminal.update(fixed_source_identity(source_sha, mode=mode))
             if read_json(out / 'fixed-source-provenance.json') != provenance:
                 raise RuntimeError('fixed-source Action preparation provenance differs')
         elif production:
