@@ -51,6 +51,7 @@ fn installed(
         return Err(FencingError::FencingUnproven);
     }
     Ok(Box::new(RemoteGuard {
+        failed: false,
         stream: Mutex::new(stream),
         instance: instance.clone(),
         key: provider.key.clone(),
