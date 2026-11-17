@@ -10,7 +10,7 @@ var __exportAll = (all, no_symbols) => {
 	if (!no_symbols) __defProp(target, Symbol.toStringTag, { value: "Module" });
 	return target;
 };
-// node_modules/solid-js/dist/solid.js
+// ../../../oasis7-viewer-unknown-claim-feedback-5167/crates/oasis7_viewer/node_modules/solid-js/dist/solid.js
 var sharedConfig = {
 	context: void 0,
 	registry: void 0,
@@ -774,7 +774,7 @@ function Show(props) {
 		return props.fallback;
 	}, void 0, void 0);
 }
-// node_modules/solid-js/web/dist/web.js
+// ../../../oasis7-viewer-unknown-claim-feedback-5167/crates/oasis7_viewer/node_modules/solid-js/web/dist/web.js
 var memo = (fn) => createMemo(() => fn());
 function reconcileArrays(parentNode, a, b) {
 	let bLength = b.length, aEnd = a.length, bEnd = bLength, aStart = 0, bStart = 0, after = a[aEnd - 1].nextSibling, map = null;
@@ -7123,7 +7123,7 @@ function viewerRuntimeConfig() {
 	if (!fixedConfig) fixedConfig = parseViewerRuntimeConfig(document);
 	return fixedConfig;
 }
-// node_modules/solid-js/store/dist/store.js
+// ../../../oasis7-viewer-unknown-claim-feedback-5167/crates/oasis7_viewer/node_modules/solid-js/store/dist/store.js
 var $RAW = Symbol("store-raw");
 var $NODE = Symbol("store-node");
 var $HAS = Symbol("store-has");
@@ -8531,6 +8531,9 @@ function receiveGameplayResult(state, scope, account, result) {
 	if (terminal) {
 		state.gameplayResultLookup = null;
 		settleGameplayOriginal(account, feedback.requestAuthNonce, scope, state);
+	} else if (result.status === "unauthorized") {
+		state.gameplayResultLookup = null;
+		account?.renew?.().catch(() => {});
 	}
 	return true;
 }
@@ -11539,6 +11542,7 @@ function createHostedWorldAccount({ state, generateKeypair, register, render, cl
 	let timer = null;
 	let renewal = null;
 	let generation = 0;
+	let currentAccount = null;
 	function disableLegacy() {
 		clearLegacy();
 		if (state.auth.source === "hosted_browser_storage") clearSession(state, {
@@ -11553,6 +11557,7 @@ function createHostedWorldAccount({ state, generateKeypair, register, render, cl
 		}
 	}
 	function join(account, { takeover = false, expectedEpoch } = {}) {
+		currentAccount = account;
 		if (state.auth.hostedAccountId && state.auth.hostedAccountId !== account.account_id) invalidate();
 		if (inFlight) return inFlight;
 		const task = performJoin(account, takeover, expectedEpoch, generation).finally(() => {
@@ -11791,7 +11796,10 @@ function createHostedWorldAccount({ state, generateKeypair, register, render, cl
 	}
 	async function performRenew() {
 		const current = active;
-		if (!current || state.auth !== current.auth) return null;
+		if (!current || state.auth !== current.auth) {
+			if (!active && currentAccount) return join(currentAccount);
+			return null;
+		}
 		await client.capabilities();
 		const result = await client.refreshWorld({
 			public_key: current.publicKey,
@@ -11809,6 +11817,7 @@ function createHostedWorldAccount({ state, generateKeypair, register, render, cl
 	async function release() {
 		const revision = ++generation;
 		inFlight = null;
+		currentAccount = null;
 		const current = active;
 		if (timer) clearInterval(timer);
 		timer = null;
@@ -11836,6 +11845,7 @@ function createHostedWorldAccount({ state, generateKeypair, register, render, cl
 		generation++;
 		inFlight = null;
 		recoveryLoaded = false;
+		currentAccount = null;
 		recovery.clear().catch(() => {});
 		if (timer) clearInterval(timer);
 		timer = null;
@@ -11848,6 +11858,17 @@ function createHostedWorldAccount({ state, generateKeypair, register, render, cl
 		});
 		render();
 	}
+	function handleAuthorizationExpired(error) {
+		if (state.auth.source !== "hosted_account_cookie") return null;
+		state.auth.syncInFlight = false;
+		state.auth.recoveryErrorCode = error?.code || "hosted_authorization_expired";
+		state.auth.recoveryErrorMessage = error?.message || null;
+		state.auth.error = error?.message || error?.code || "hosted authorization expired";
+		state.auth.registrationStatus = "issued";
+		state.auth.runtimeStatus = "error";
+		render();
+		return renew();
+	}
 	return {
 		join,
 		renew,
@@ -11856,6 +11877,7 @@ function createHostedWorldAccount({ state, generateKeypair, register, render, cl
 		invalidate,
 		rememberGameplayRequest,
 		settleGameplayRequest,
+		handleAuthorizationExpired,
 		hasPendingGameplayRequest() {
 			return Boolean(active?.auth === state.auth && (active?.candidate?.gameplayRequest || active?.settlingGameplay));
 		},
@@ -19608,6 +19630,7 @@ async function dispatchSessionRegisterRequest(requestedAgentId, forceRebind) {
 	clearHostedRuntimeSyncTimer();
 	const auth = state.auth.source === "legacy_viewer_auth_bootstrap" ? state.auth : await ensureHostedAuthSigningKey(state.auth);
 	const operationContext = captureSessionContext(state, authConnectionGeneration(), state.wsUrl);
+	if (auth.source === "hosted_account_cookie" && !authCredentials(auth).registrationGrant) await hostedWorldAccount.renew();
 	if (auth.source !== "legacy_viewer_auth_bootstrap" && authCredentials(auth).releaseToken && !authCredentials(auth).registrationGrant) {
 		if (!(await refreshHostedPlayerLease())?.ok || !isSessionContextCurrent(state, operationContext, authConnectionGeneration(), state.wsUrl)) throw new Error("registration grant refresh was invalidated");
 	}
@@ -19615,8 +19638,7 @@ async function dispatchSessionRegisterRequest(requestedAgentId, forceRebind) {
 	if (state.auth.source !== "legacy_viewer_auth_bootstrap") {
 		state.auth.registrationStatus = "registering";
 		state.auth.syncInFlight = true;
-		state.auth.recoveryErrorCode = null;
-		state.auth.recoveryErrorMessage = null;
+		state.auth.recoveryErrorCode = state.auth.recoveryErrorMessage = null;
 		state.auth.runtimeStatus = forceRebind === true ? "rebind_registering" : "registering";
 	}
 	if (forceRebind === true) state.auth.rebindNotice = `Switching player session to ${normalizedRequestedAgentId || "requested agent"}...`;
@@ -19657,6 +19679,10 @@ function rebindAgentIdFromRecoveryError(error) {
 	if (explicit) return explicit;
 	return String(error?.message || "").match(/^agent\s+(\S+)\s+is bound to player\s+\S+,\s+not\s+\S+/)?.[1] || null;
 }
+var isHostedAuthExpired = (error) => {
+	const c = String(error?.code || "").trim(), m = String(error?.message || "");
+	return c === "hosted_authorization_expired" || m.includes("hosted_authorization_expired") || m.includes("invalid freshness window");
+};
 function latestRequestedAgentId(fallbackAgentId = null) {
 	return String(fallbackAgentId || state.auth.pendingRequestedAgentId || state.auth.boundAgentId || "").trim() || null;
 }
@@ -19827,9 +19853,10 @@ function markCurrentGameplayActionFeedbackError(error, effect = "gameplay action
 	feedback.stage = "error";
 	feedback.ok = false;
 	feedback.accepted = false;
-	feedback.reason = String(error);
+	feedback.reason = String(error?.message || error);
 	feedback.effect = effect;
 	state.lastGameplayActionFeedback = feedback;
+	if (feedback.requestAuthNonce) settleGameplayOriginal(hostedWorldAccount, feedback.requestAuthNonce, getGameplayRecoveryScope(state), state);
 }
 function markPendingSemanticRebind(message) {
 	const text = String(message || "explicit rebind required; retrying player session registration").trim();
@@ -20391,14 +20418,23 @@ function handleGameplayActionError(error) {
 		"unknown"
 	].includes(feedback.stage) || !matchesGameplayReply(error, feedback)) return;
 	clearPendingGameplayActionAckTimer();
-	feedback.stage = error?.code === "world_service_outcome_unknown" ? "unknown" : "error";
+	const authExpired = isHostedAuthExpired(error);
+	feedback.stage = error?.code === "world_service_outcome_unknown" || authExpired ? "unknown" : "error";
 	feedback.ok = false;
 	feedback.accepted = false;
 	feedback.reason = error?.message || error?.code || "gameplay action failed";
-	feedback.effect = error?.code || "gameplay action error";
+	feedback.effect = authExpired ? "hosted authorization expired; reconciling authoritative result" : error?.code || "gameplay action error";
 	feedback.response = clone(error);
 	state.lastGameplayActionFeedback = feedback;
 	const settlement = feedback.stage !== "unknown" ? settleGameplayOriginal(hostedWorldAccount, feedback.requestAuthNonce, getGameplayRecoveryScope(state), state) : Promise.resolve(false);
+	if (authExpired) {
+		hostedWorldAccount.handleAuthorizationExpired?.(error);
+		hostedWorldAccount.renew().then(() => {
+			state.gameplayResultLookup = null;
+			requestGameplayResult(state, getGameplayRecoveryScope(state), sendJson);
+		}).catch(() => {});
+		return;
+	}
 	if (String(error?.code || "").trim() === "session_not_found") retryGameplayActionAfterMissingSession(feedback, error, settlement);
 }
 function applyPromptAckLocally(ack) {
@@ -20557,10 +20593,19 @@ function adoptHostedRecoveryAck(ack) {
 	}
 	if (ack.status === "session_registered") resolvePendingSessionRegisterWaiterAfterRuntimeAck(ack);
 	maybeRecoverLocalTestStarterBindingFromSnapshot(state.snapshot);
-	if (ack.status === "session_registered") requestSnapshotSafe();
+	if (ack.status === "session_registered") {
+		requestSnapshotSafe();
+		requestGameplayResult(state, getGameplayRecoveryScope(state), sendJson);
+	}
 }
 async function recoverHostedSessionFromError(error) {
 	if (!canAutoIssueHostedPlayerSession() && !state.auth.available || state.auth.source === "legacy_viewer_auth_bootstrap") return;
+	if (isHostedAuthExpired(error)) {
+		if (state.auth.source === "hosted_account_cookie") {
+			await hostedWorldAccount.renew();
+			return;
+		}
+	}
 	const code = String(error?.code || "").trim();
 	if (code === "session_not_found" && pendingSessionRegisterWaiter?.forceRebind) return;
 	if (recoveryErrorRequiresExplicitRebind(error) && state.auth.pendingRequestedAgentId && !state.auth.pendingForceRebind) {
@@ -20647,6 +20692,11 @@ function handleAuthoritativeRecoveryError(error) {
 		clearPendingSessionRegisterWaiter(error?.message || error?.code || "authoritative recovery failed");
 		return;
 	}
+	if (isHostedAuthExpired(error)) {
+		clearPendingSessionRegisterWaiter(error?.message || error?.code || "hosted authorization expired");
+		hostedWorldAccount.handleAuthorizationExpired?.(error);
+		return;
+	}
 	state.auth.syncInFlight = false;
 	state.auth.recoveryErrorCode = error?.code || null;
 	state.auth.recoveryErrorMessage = error?.message || null;
@@ -20655,7 +20705,7 @@ function handleAuthoritativeRecoveryError(error) {
 	state.auth.revokedBy = error?.revoked_by || null;
 	state.auth.registrationStatus = "issued";
 	state.auth.runtimeStatus = error?.code === "session_revoked" ? "revoked" : error?.code === "session_not_found" ? "missing" : "error";
-	if (!recoveryErrorRequiresExplicitRebind(error)) state.auth.boundAgentId = null;
+	if (!recoveryErrorRequiresExplicitRebind(error) && !isHostedAuthExpired(error)) state.auth.boundAgentId = null;
 	clearPendingSessionRegisterWaiter(error?.message || error?.code || "authoritative recovery failed");
 	syncHostedSessionRefreshLoop();
 	recoverHostedSessionFromError(error);
