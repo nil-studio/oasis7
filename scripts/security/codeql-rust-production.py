@@ -26,9 +26,11 @@ SCHEMA = 'oasis7-codeql-rust-production/v1'
 CAP = 256 * 1024**2
 CLOSEOUT_SECONDS = 90
 MODE = 'rust-default-production'
-PRODUCTION_BASE_VARIANT = 'qualifier-lines-constraint-matching-v6'
-PRODUCTION_VARIANT = 'qualifier-lines-constraint-target-qualified-v7'
+V6_VARIANT = 'qualifier-lines-constraint-matching-v6'
+V7_VARIANT = 'qualifier-lines-constraint-target-qualified-v7'
 NEGATIVE_PROJECTION_VARIANT = 'qualifier-lines-negative-projection-v8'
+PRODUCTION_BASE_VARIANT = V7_VARIANT
+PRODUCTION_VARIANT = NEGATIVE_PROJECTION_VARIANT
 NEGATIVE_PROJECTION_BASE_SHA = '8f8ac05fb73efc3d7ebfd3d9ab452e90c13d61c7e651379f57f88b4400080ca9'
 NEGATIVE_PROJECTION_PATCH_SHA = 'b5c9a3e9f9f8a2d47edbd3aa797e9723d0e11e26b246f992ecf160fdd14bf0a6'
 NEGATIVE_PROJECTION_SHA = 'f51a925b05f1a8315248d04cda44cd12cfb12fd7ae424138898805118ffd9f09'
@@ -38,7 +40,7 @@ LIBRARY_RECEIPTS = ('arity-patch-identity.json', 'lines-model-identity.json',
 
 
 def negative_projection(args):
-    return getattr(args, 'mode', MODE) == action_deadline.NEGATIVE_PROJECTION_MODE
+    return getattr(args, 'mode', MODE) in (MODE, action_deadline.NEGATIVE_PROJECTION_MODE)
 
 
 def read_json(path, limit=16 * 1024**2):
@@ -84,8 +86,8 @@ def identity(args):
     if getattr(args, 'mode', MODE) in action_deadline.OBSERVATION_MODES:
         value.update(mode=args.mode, tool_sha=os.environ.get('GITHUB_SHA'),
                      acceptance_scope='FIXED_SOURCE_OBSERVATION_ONLY')
-    if negative_projection(args):
-        value.update(variant=NEGATIVE_PROJECTION_VARIANT, base_variant=PRODUCTION_VARIANT)
+    if getattr(args, 'mode', MODE) == action_deadline.FIXED_SOURCE_MODE:
+        value.update(variant=V7_VARIANT, base_variant=V6_VARIANT)
     return value
 
 
@@ -202,14 +204,14 @@ def query_options(closure, work, prefix):
 
 
 def check_library_variant():
-    if candidate.WORKLOAD_VARIANT != PRODUCTION_BASE_VARIANT:
+    if candidate.WORKLOAD_VARIANT != V6_VARIANT:
         raise RuntimeError('production baseline library variant differs from the fixed v6')
-    if candidate.RESEARCH_VARIANT != PRODUCTION_VARIANT:
+    if candidate.RESEARCH_VARIANT != V7_VARIANT:
         raise RuntimeError('production target library variant differs from the fixed v7')
 
 
 def prepare_libraries(args, official_closure, run):
-    """Retain the real v6 base and build the fixed target with one production deadline."""
+    """Retain the v6/v7 chain and select fixed libraries within one deadline."""
     check_library_variant()
     candidate.prepare_candidate(official_closure, args.work, args.output, run.end, run, copy_end=run.end)
     candidate.prepare_shared_helper(official_closure, args.work, args.output, run.end, run, copy_end=run.end)
@@ -263,7 +265,7 @@ def negative_projection_identity(official_closure, work, out, end):
             or before[candidate.SHARED_FILE]['sha256'] != NEGATIVE_PROJECTION_BASE_SHA
             or after[candidate.SHARED_FILE]['sha256'] != NEGATIVE_PROJECTION_SHA):
         raise RuntimeError('negative-projection patch, base or candidate identity differs')
-    return dict(variant=NEGATIVE_PROJECTION_VARIANT, base_variant=PRODUCTION_VARIANT,
+    return dict(variant=NEGATIVE_PROJECTION_VARIANT, base_variant=V7_VARIANT,
                 patch_sha256=NEGATIVE_PROJECTION_PATCH_SHA,
                 base_receipts_sha256={'target-qualified-identity.json':
                                      capacity.digest_until(out / 'target-qualified-identity.json', end)},
