@@ -1,6 +1,6 @@
 use super::*;
 use oasis7_runtime::World as RuntimeWorld;
-use oasis7_agent_api::game::*;
+use oasis7_runtime::service_admission::participant::ParticipantEntryPolicyV1;
 use ed25519_dalek::Signer;
 use oasis7_runtime::service_admission::participant_policy::*;
 use oasis7_runtime::{
