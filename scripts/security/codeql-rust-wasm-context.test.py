@@ -75,7 +75,9 @@ class BootstrapTests(unittest.TestCase):
                            'GITHUB_RUN_ID': '42', 'GITHUB_RUN_ATTEMPT': '1', 'GH_TOKEN': 'not-disclosed',
                            'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_REF': 'refs/heads/main',
                            'WASM_EXECUTE': 'true', 'WASM_TRUSTED_REF': 'refs/heads/main'}
-            files = {f'scripts/security/{name}': (name + '\n').encode() for name in b.HELPERS}
+            files = {f'scripts/security/{name}': (name + '\n').encode()
+                     for name in b.HELPERS if name != 'setup-linux-mold.py'}
+            files['.github/actions/setup-linux-mold/setup.py'] = b'fixture installer\n'
             files[b.WORKFLOW] = b'name: fixture\n'
             blobs = {b.blob_id(raw): raw for raw in files.values()}
             tree = [{'path': name, 'type': 'blob', 'mode': '100644', 'sha': b.blob_id(raw)} for name, raw in files.items()]
@@ -102,6 +104,8 @@ class BootstrapTests(unittest.TestCase):
                 self.assertLess(clock['deadline_wall'] - time.time(), 1800)
                 self.assertEqual(identity['tool_sha'], environment['GITHUB_SHA'])
                 self.assertEqual(set(identity['files']), set(d.HELPERS))
+                self.assertEqual(identity['files']['setup-linux-mold.py']['path'], '.github/actions/setup-linux-mold/setup.py')
+                self.assertEqual((session / 'tools/setup-linux-mold.py').read_bytes(), b'fixture installer\n')
                 self.assertNotIn('not-disclosed', (session / 'evidence/bootstrap-http.json').read_text())
                 return 0
             self.assertEqual(b.bootstrap(environment, opener=API(), handoff=handoff), 0)
@@ -272,6 +276,30 @@ class BudgetTests(unittest.TestCase):
         clock = d.Clock(clock_receipt(1019))
         with self.assertRaises(d.Rejected): clock.admit()
         self.assertIsNone(clock.analysis_end)
+
+
+class HostLinkerTests(unittest.TestCase):
+    def test_isolation_passes_only_the_current_linux_host_linker_when_requested(self):
+        keys = {'x86_64': 'CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER',
+                'aarch64': 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER'}
+        environment = {key: '/private/' + arch + '/oasis7-mold-gcc' for arch, key in keys.items()}
+        environment.update(PATH='/usr/bin', HOME='/home/runner', CODEX_HOME='/private/codex',
+                           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_LINKER='/foreign/wasm',
+                           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS='-C target-cpu=native',
+                           RUSTFLAGS='-C link-arg=-foreign', CARGO_ENCODED_RUSTFLAGS='-Cforeign',
+                           RUSTC_WRAPPER='/foreign/compiler', CARGO_BUILD_RUSTC_WRAPPER='/foreign/compiler')
+        for system, arch in (('Linux', 'x86_64'), ('Linux', 'aarch64'), ('Linux', 'riscv64'), ('Darwin', 'aarch64')):
+            with self.subTest(system=system, arch=arch), patch.object(d.metadata.platform, 'system', return_value=system), \
+                    patch.object(d.metadata.platform, 'machine', return_value=arch):
+                env = d.metadata.child_environment(environment, Path('/work'), Path('/proxy/cargo'), native_linker=True)
+                selected = {key: value for key, value in env.items() if key.startswith('CARGO_TARGET_') and key != 'CARGO_TARGET_DIR'}
+                self.assertEqual(selected, {keys[arch]: environment[keys[arch]]} if system == 'Linux' and arch in keys else {})
+                for key in ('RUSTFLAGS', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTC_WRAPPER', 'CARGO_BUILD_RUSTC_WRAPPER'):
+                    self.assertNotIn(key, env)
+                self.assertEqual((env['HOME'], env['CODEX_HOME']), (environment['HOME'], environment['CODEX_HOME']))
+                self.assertEqual(env['CARGO_TARGET_DIR'], '/work/target')
+                metadata_env = d.metadata.child_environment(environment, Path('/work'), Path('/proxy/cargo'))
+                self.assertFalse(any(key in metadata_env for key in keys.values()))
 
 
 class WitnessTests(unittest.TestCase):
@@ -696,14 +724,20 @@ class FullFlowTests(unittest.TestCase):
         (session / 'evidence').mkdir(); tool_dir = session / 'tools'; tool_dir.mkdir()
         identity = {'tool_sha': '1' * 40, 'files': {}}
         for name in d.HELPERS:
-            src = WORKFLOW if name == 'workflow.yml' else Path(__file__).with_name(name)
+            src = (WORKFLOW if name == 'workflow.yml' else ROOT / '.github/actions/setup-linux-mold/setup.py'
+                   if name == 'setup-linux-mold.py' else Path(__file__).with_name(name))
             raw = src.read_bytes(); (tool_dir / name).write_bytes(raw)
             identity['files'][name] = {'path': str(src.relative_to(ROOT)), 'bytes': len(raw),
                                      'git_blob': d.metadata.git_blob(raw), 'sha256': d.sha256(raw)}
         host = root / 'host'; host.mkdir()
         for name in ('cargo', 'rustup'):
             p = host / name; p.write_text('#!/bin/sh\nexit 0\n'); p.chmod(0o700)
-        environment = {'PATH': str(host), 'GITHUB_SHA': identity['tool_sha']}
+        linker_key = 'CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER'
+        linker = session / 'work/native-linker/bin/oasis7-mold-gcc'
+        environment = {'PATH': str(host), 'GITHUB_SHA': identity['tool_sha'], linker_key: '/foreign/linker',
+                       'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER': '/foreign/arm-linker',
+                       'CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_LINKER': '/foreign/wasm-linker',
+                       'RUSTFLAGS': 'foreign flags', 'RUSTC_WRAPPER': '/foreign/compiler'}
         members = ['crates/' + name for name in d.LOCAL_PACKAGES] + ['crates/member' + str(i) for i in range(47)]
         source_files = {'Cargo.toml': ('[workspace]\nmembers = ' + json.dumps(members) + '\n').encode(),
                         'Cargo.lock': b'version = 4\n[[package]]\nname = "fixture"\nversion = "0.0.0"\n'}
@@ -750,6 +784,25 @@ class FullFlowTests(unittest.TestCase):
             evidence.save(phase + '.result.json', result)
             work = session / 'work'; source = work / 'source'; database = work / 'database'
             raw = b''
+            self.assertNotIn('CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER', env)
+            self.assertNotIn('CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_LINKER', env)
+            self.assertNotIn('RUSTFLAGS', env); self.assertNotIn('RUSTC_WRAPPER', env)
+            if phase == 'native-linker-install':
+                self.assertEqual(end, active_clock.prepare); self.assertEqual(kwargs['timeout'], 180)
+                self.assertNotIn(linker_key, env)
+                self.assertEqual(argv[1], str(tool_dir / 'setup-linux-mold.py'))
+                self.assertEqual(argv[argv.index('--install-dir') + 1], str(linker.parent.parent))
+                if fault == 'native-linker-failed':
+                    result.update(exit=1, failure_kind='exit')
+                    evidence.save(phase + '.result.json', result)
+                    raise d.CommandFailed(result)
+                linker.parent.mkdir(parents=True)
+                for path in (linker, linker.with_name('mold')):
+                    path.write_bytes(b'fixed linker fixture\n'); path.chmod(0o700)
+                linker.with_name('ld.mold').symlink_to('mold')
+                raw = d.encoded({'environment': {linker_key: str(linker)}, 'version': '3.0.0', 'setup_seconds': .1})
+            else:
+                self.assertEqual(env[linker_key], str(linker))
             if phase == 'bundle-download': (work / 'bundle.tar.zst').write_bytes(b'fixture bundle')
             elif phase == 'bundle-unpack':
                 (work / 'codeql').mkdir(); (work / 'codeql/codeql').write_bytes(b'fixture CLI')
@@ -805,6 +858,10 @@ class FullFlowTests(unittest.TestCase):
                 self.assertNotIn('--log-to-stderr', argv)
                 target = database / 'results' / w.PACK / (w.NAME + '.bqrs'); target.parent.mkdir(parents=True); target.write_bytes(b'BQRS fixture')
                 if fault == 'source-mutated': (source / 'Cargo.lock').write_bytes(b'changed lock')
+                if fault == 'native-linker-mutated': linker.write_bytes(b'changed driver\n')
+                if fault == 'mold-mutated': linker.with_name('mold').write_bytes(b'changed binary\n')
+                if fault == 'mold-alias-mutated':
+                    linker.with_name('ld.mold').unlink(); linker.with_name('ld.mold').symlink_to('/foreign/linker')
                 if fault in ('query-timeout', 'shared-mutated-timeout'):
                     if fault == 'shared-mutated-timeout': (work / 'candidate-typeinference' / shared_file).write_bytes(stock_shared)
                     result.update(exit=143, failure_kind='timeout')
@@ -818,6 +875,8 @@ class FullFlowTests(unittest.TestCase):
         saved_handlers = {sig: signal.getsignal(sig) for sig in (signal.SIGALRM, signal.SIGTERM, signal.SIGINT)}
         try:
             with ExitStack() as stack:
+                stack.enter_context(patch.object(d.metadata.platform, 'system', return_value='Linux'))
+                stack.enter_context(patch.object(d.metadata.platform, 'machine', return_value='x86_64'))
                 stack.enter_context(patch.object(d.metadata, 'verify_git_tree', return_value=tree))
                 stack.enter_context(patch.object(d.witnesses, 'verify_source', return_value={'fixture': True}))
                 stack.enter_context(patch.object(d.model, 'bundle_closure', return_value=closure))
@@ -851,6 +910,10 @@ class FullFlowTests(unittest.TestCase):
         self.assertEqual(shared_identity['variant'], terminal['library_variant'])
         self.assertEqual(shared_identity['changed_files'], [d.model.SHARED_FILE])
         self.assertEqual(json.loads((out / 'helpers-after.json').read_text())['shared']['variant'], terminal['library_variant'])
+        linker_before = json.loads((out / 'native-linker.json').read_text())
+        linker_after = json.loads((out / 'toolchain-after.json').read_text())['native_linker']
+        self.assertEqual(linker_before['identity'], linker_after)
+        self.assertEqual(linker_before['installer_sha256'], d.sha256((session / 'tools/setup-linux-mold.py').read_bytes()))
         analysis = [end for phase, end, _ in calls if phase in ('metadata', 'database-init', 'database-index',
                     'database-finalize', 'database-identity', 'witness-query', 'witness-decode', 'query-library-after')]
         self.assertEqual(len(set(analysis)), 1)
@@ -871,7 +934,7 @@ class FullFlowTests(unittest.TestCase):
         self.assertEqual(terminal['witness_query'], 'NOT_RUN')
 
     def test_shared_preparation_fallback_and_prequery_mutation_fail_closed(self):
-        for fault in ('shared-unprepared', 'shared-fallback', 'shared-before-query'):
+        for fault in ('native-linker-failed', 'shared-unprepared', 'shared-fallback', 'shared-before-query'):
             with self.subTest(fault=fault):
                 code, terminal, calls, _ = self.flow(fault)
                 self.assertEqual(code, 1)
@@ -880,6 +943,9 @@ class FullFlowTests(unittest.TestCase):
                 self.assertNotIn('witness-query', [phase for phase, _, _ in calls])
                 if fault == 'shared-unprepared':
                     self.assertEqual(terminal['command_failure']['phase'], 'apply-shared-helper-patch')
+                if fault == 'native-linker-failed':
+                    self.assertEqual(terminal['command_failure']['phase'], 'native-linker-install')
+                    self.assertEqual([phase for phase, _, _ in calls], ['native-linker-install'])
 
     def test_shared_final_identity_cannot_replace_query_timeout(self):
         for fault in ('query-timeout', 'shared-mutated-timeout'):
@@ -898,7 +964,7 @@ class FullFlowTests(unittest.TestCase):
                     self.assertIn('final_error_class', terminal)
 
     def test_oracle_or_after_identity_failure_retains_computed_fact(self):
-        for fault in ('missing-macro', 'source-mutated'):
+        for fault in ('missing-macro', 'source-mutated', 'native-linker-mutated', 'mold-mutated', 'mold-alias-mutated'):
             with self.subTest(fault=fault):
                 code, terminal, calls, _ = self.flow(fault)
                 self.assertEqual(code, 1); self.assertEqual(terminal['status'], 'WASM_CONTEXT_INCOMPLETE')

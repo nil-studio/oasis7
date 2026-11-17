@@ -624,6 +624,12 @@ v4 另外从可信 checkout 的完整 fast target 清单补齐精确 `default_fe
 
 生产者与消费者在缓存步骤前对齐实际已安装的 Rust/WASM 工具链、Cargo 配置及参与 key 的环境值；`shared-key` 相同本身不足以消除工具链或环境 hash 的差异。共享 native 族固定 stable 与 builtin nightly，保留显式 `CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM` 指纹。准备 helper 只在 GitHub-hosted 临时 Linux runner 上工作，验证所需的精确工具链与当前 active 工具链后，移除无关预装工具链；缺失、非固定版本或卸载失败均失败，不关闭环境 hash。
 
+Linux CI 的 Rust native 构建及 WASM 构建所需的 host 程序统一使用 `setup-linux-mold` 维护的固定版本、固定摘要 mold 3.0.0。普通任务通过该 action 只为当前 Linux 架构导出 `CARGO_TARGET_<HOST>_LINKER`，指向稳定的 `3.0.0-v1/bin/oasis7-mold-gcc` 路径；wrapper 经 GCC 调用该版本的 mold，不替换系统 `ld`，不设置全局 `RUSTFLAGS`。WASM target 继续使用自身链接器；canonical Docker 的构建镜像、环境与确定性合同保持。macOS、Windows 维持原链接路径。
+
+安装和配置必须在依赖缓存恢复及 workspace identity 计算前完成，并覆盖共享 writer、真实 reader 及 Formal merge。target linker 环境与带版本的 wrapper 路径进入既有 `CARGO_*` 环境指纹和 Formal component identity；改变 mold 版本或 wrapper 的链接语义时更新路径版本，避免新旧链接配置串用。只读 WASM metadata 诊断不安装或继承 linker。无 checkout 的 CodeQL WASM context 将同一 installer 纳入固定 tool SHA 的 verified helper closure，在绑定原 job clock 后、既有 prepare deadline 内受控安装到私有目录；只将本机 Linux native linker 传给编译环境，保留其他 target 和 flags 的隔离。installer 摘要、wrapper 与 mold 字节、`ld.mold` 别名进入证据，结束前再次核对身份，失败或变化不能报告完整语义观测。
+
+首次切换产生正常的缓存冷启动。效果评估沿用 build timings、ECS 资源与 Cargo 单元报告，分别记录安装、恢复、编译链接、保存和测试时间；缓存未命中或首次准备的结果不能直接与旧暖缓存比较。链接器 A/B 固定相同源码、profile、features、runner 和缓存条件；现有 Compile Metrics 的 current/baseline 共用调用环境，单独指定旧源码 baseline 不代表切回旧链接器，warm/no-op check 也不代表重新链接收益。
+
 Release / Mainnet native gate 在 job 范围对齐 Cargo 重试、registry 协议、debug profile 和四项 WASM 环境。NewAPI 两个入口仍保持各自对齐的身份。
 
 registry 下载内容与 target 编译产物分别核对复用价值。当前固定的 `rust-cache` 将两者一并归档；合并 native 族减少重复库存，但各小 gate 会恢复更大的归档，恢复/解压成本与编译收益必须由实际 hosted 数据分别评估。
