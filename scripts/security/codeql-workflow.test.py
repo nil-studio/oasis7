@@ -394,9 +394,11 @@ class FixedSourceWorkflowTests(unittest.TestCase):
         self.assertIn('type: boolean\n        default: false', dispatch)
         self.assertIn('default: capacity', dispatch)
         self.assertIn('          - rust-default-fixed-source-observation', dispatch)
-        self.assertIn("if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.execute == true && inputs.mode == 'rust-default-fixed-source-observation'", text)
-        self.assertIn("if: github.event_name == 'workflow_dispatch' && inputs.execute == true && inputs.mode != 'rust-default-fixed-source-observation'",
+        self.assertIn('          - rust-default-negative-projection-observation', dispatch)
+        self.assertIn("if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.execute == true && (inputs.mode == 'rust-default-fixed-source-observation' || inputs.mode == 'rust-default-negative-projection-observation')", text)
+        self.assertIn("if: github.event_name == 'workflow_dispatch' && inputs.execute == true && inputs.mode != 'rust-default-fixed-source-observation' && inputs.mode != 'rust-default-negative-projection-observation'",
                       self.workflow.split('  observe:\n', 1)[0])
+        self.assertIn('OASIS7_CODEQL_PRODUCTION_MODE: ${{ inputs.mode }}', text)
         self.assertIn('if [ "$COMPARE_QUALIFIER_PATCH" != false ]; then', text)
         self.assertIn('timeout-minutes: 90', text)
         self.assertIn('group: oasis7-codeql-scan-slot-1\n      queue: max\n      cancel-in-progress: false', text)
@@ -437,7 +439,7 @@ class FixedSourceWorkflowTests(unittest.TestCase):
         original = self.python_body(self.section(WORKFLOW, '      - id: rust_budget\n', '      - id: rust_prepare\n'))
         observed = self.python_body(self.section(text, '      - id: rust_budget\n', '      - id: rust_prepare\n'))
         normalized = observed.replace('CodeQL Rust fixed source observation', 'CodeQL / rust-repo / default')
-        normalized = normalized.replace('rust-default-fixed-source-observation', 'rust-default-production')
+        normalized = normalized.replace("mode=os.environ['OASIS7_CODEQL_PRODUCTION_MODE']", "mode='rust-default-production'")
         normalized = normalized.replace("source_sha=os.environ['OASIS7_CODEQL_PRODUCTION_SOURCE'], tool_sha=os.environ['GITHUB_SHA'],",
                                         "source_sha=os.environ['EXPECTED_CHECKOUT'],")
         # The existing real-clock fixture tests the same AST, including late/expired starts.

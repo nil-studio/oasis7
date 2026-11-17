@@ -40,6 +40,8 @@ Rust default 默认分支维护使用 90 分钟总预算。init 后读取当前 
 
 该 artifact 不包含数据库、完整源码或 SARIF，不产生官方 upload/analysis 身份；不要将本次 run 传给只接受真实 `codeql.yml` producer 的 collector。观测完成后，官方生产执行、结果验证、上传和唯一平台关联仍按原顺序验收，之后才决定保留 Rust/default 日频基线。既有 #38 研究结果不重做，也不改记为本次生产结果。
 
+仅需观测 #4989 已限定的负向实例化候选时，显式选择 `mode=rust-default-negative-projection-observation`；其他输入和预算保持上述固定值。同一 job/证据布局复用原执行核心，新 prepare/run 必须标识 `qualifier-lines-negative-projection-v8`、真实 v7 base，并附 `negative-projection-identity.json`；实际 shared resolver 根应为独立 `candidate-negative-typeinference`。原 v7 两条入口不应用该补丁，两种观测收据不能混用。核对真实 v7 基底、固定补丁与候选输出摘要、全树和权限、原 target 收据及查询后复核，不以标签代替身份。该模式仅对两条负向路径提前约束已知非伪类型；源码等价证明不代签编译、完整 37 条结果或性能收益，collector 继续拒绝此 workflow。
+
 ## 可信计划与权限
 
 PR workflow 从事件 base commit 取 `scripts/security/codeql-plan.py` 与 `codeql-policy.json`，在临时目录用 isolated Python 执行，避免导入候选 planner。可信 base 缺少任一文件时，workflow 保守提出四语言 bootstrap 候选，再受可信批次配置限制；不能改用候选策略缩小范围。计划同时记录 source head 与实际 analysis checkout，二者不能混用；workflow 验证实际 checkout 等于事件分析 SHA，并按该 checkout 分析和上传。
