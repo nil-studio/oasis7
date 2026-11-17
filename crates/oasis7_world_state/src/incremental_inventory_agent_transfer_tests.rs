@@ -16,7 +16,7 @@ use crate::{
     },
     incremental_inventory_genesis::{InventoryGenesisContext, InventoryWriteSink},
     incremental_semantic_key::SemanticKeyBudget,
-    incremental_typed_record_test_support::{Pages, Writer, io},
+    incremental_typed_record_test_support::io,
 };
 use oasis7_agent_api::world_action::{GeoPos, MaterialLedgerId};
 use oasis7_formal_protocol::{
@@ -24,9 +24,13 @@ use oasis7_formal_protocol::{
         AuthorityBinding, ExecutionParent, ExecutionTransaction, RootSetV1, TransactionLimits,
     },
     incremental_state::{StateDeltaV1, StateNamespaceV1, StateScanBudget, StateWriteV1},
-    incremental_value::{ValueNodeWriter, ValueReadContext, ValueTreeError, write_value},
+    incremental_value::{ValueReadContext, ValueTreeError, write_value},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
+
+#[path = "incremental_inventory_agent_transfer_fixture_pages.rs"]
+mod fixture_pages;
+use fixture_pages::{Pages, Writer};
 
 fn no_error() -> Option<ValueTreeError> {
     None
@@ -152,7 +156,7 @@ fn fixture() -> Fixture {
 fn fixture_with_recipient_balance(recipient_balance: Option<i64>) -> Fixture {
     let memory = MemoryBudget::new(512 << 20, 16 << 20).unwrap();
     let input = memory.reserve(32 << 20, MemoryClass::Ordinary).unwrap();
-    let pages = Pages::new(&memory);
+    let mut pages = Pages::new(&memory);
     let mut all = Vec::<(StateNamespaceV1, Vec<u8>, [u8; 32])>::new();
 
     let mut world = crate::WorldState::default();
@@ -233,23 +237,12 @@ fn fixture_with_recipient_balance(recipient_balance: Option<i64>) -> Fixture {
             )
             .unwrap(),
         );
-        for node in &delta.new_nodes {
-            let id = *blake3::Hash::from_hex(&node.digest).unwrap().as_bytes();
-            Writer(&pages)
-                .put_node(
-                    id,
-                    memory
-                        .reserve(node.bytes.len() + 128, MemoryClass::Ordinary)
-                        .unwrap()
-                        .retain(node.bytes.clone()),
-                )
-                .unwrap();
-        }
         *roots
             .state
             .iter_mut()
             .find(|root| root.namespace == namespace)
             .unwrap() = delta.after.clone();
+        pages.retain_genesis(delta).unwrap();
     }
 
     let agents = crate::incremental_agent_subtree::qualify_agent_subtree_structure_v1(
