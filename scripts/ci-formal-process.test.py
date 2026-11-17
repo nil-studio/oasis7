@@ -1697,6 +1697,167 @@ class RuntimeLiveDiagnostics(unittest.TestCase):
                 invocation = json.loads((root / (name + '.invocation')).read_text())
                 self.assertEqual(invocation, dict(args=['--nocapture'] if name == self.RUNTIME else [],
                                                   threads=None, capture=None))
+class InlineRuntimeLiveDiagnostics(unittest.TestCase):
+    RUNTIME = RuntimeLiveDiagnostics.RUNTIME
+
+    def fixture(self, partition='oasis7_runtime', reordered=False):
+        selected = NativePackagePartitions().selection()
+        targets = selected['ordinary_fast_targets']
+        targets[0]['cases'] = ['first_failure', 'still_running']
+        if reordered:
+            targets.append(targets.pop(0))
+        if partition == 'all':
+            selected['ordinary_fast_targets'] = [target for target in targets
+                                                if target['package'] == 'oasis7_runtime']
+            selected['ordinary_partitions'] = ['all']
+            selected['oasis7_required_packages'] = ['oasis7_runtime']
+        manifest = ParallelNativeExecution().manifest(selected)
+        binaries = {}
+        for binary in manifest['binaries'].values():
+            logical = artifacts.artifact_logical_name(binary['variant'], binary['package'],
+                dict(name=binary['target'], kind=binary['target_kind']), True)
+            binary['path'] = logical
+            if logical == self.RUNTIME:
+                binary.update(tests=['first_failure', 'still_running', 'ignored_case'],
+                              ignored_tests=['ignored_case'])
+            if partition in (None, 'all', binary['package']):
+                binaries[logical] = binary
+        manifest['binaries'] = binaries
+        if partition is not None:
+            manifest['ordinary_partition'] = partition
+        artifacts.validate_ordinary_selection(manifest)
+        return selected, manifest
+
+    def test_only_exact_partitioned_runtime_inline_batch_changes_capture(self):
+        for change in ('none', 'parent-order', 'unpartitioned', 'all', 'fast', 'other-partition',
+                       'alias', 'variant', 'parent-variant', 'package', 'target', 'kind', 'filter'):
+            partition = (None if change in ('unpartitioned', 'fast') else 'all' if change == 'all'
+                         else 'oasis7_world_state' if change == 'other-partition' else 'oasis7_runtime')
+            selected, manifest = self.fixture(partition, reordered=change == 'parent-order')
+            runtime = manifest['binaries'].get(self.RUNTIME)
+            if change == 'fast':
+                for key in ('fast_execution_version', 'ordinary_execution',
+                            'ordinary_partition_version', 'ordinary_partitions'):
+                    selected.pop(key)
+            elif change == 'alias':
+                manifest['binaries']['other-runtime-alias'] = manifest['binaries'].pop(self.RUNTIME)
+            elif change == 'variant':
+                runtime['variant'] = 'required'
+            elif change == 'parent-variant':
+                runtime['variant'] = 'required-fast-1'
+            elif change in ('package', 'target'):
+                runtime[change] = 'other'
+            elif change == 'kind':
+                runtime['target_kind'] = ['test']
+            environment = {'RUST_TEST_THREADS': '3', 'RUST_TEST_NOCAPTURE': '0', 'UNCHANGED': 'value'}
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+                root = Path(temporary)
+                stack.enter_context(patch.object(artifacts, 'ROOT', root))
+                stack.enter_context(patch.object(artifacts, 'load', return_value=(manifest, dict(environment))))
+                inline = stack.enter_context(patch.object(artifacts, 'execute_inline_jobs'))
+                runner = stack.enter_context(patch('ci_process_runner.run',
+                                                  return_value=dict(passed=True, cleanup_result='clean')))
+                if change == 'filter':
+                    stack.enter_context(patch.object(artifacts, 'ordinary_entries',
+                        return_value=[dict(binary=self.RUNTIME, filter='first_failure', count=1)]))
+                artifacts.execute(root, 'ordinary', root / 'results', plan=selected, ordinary_partition=partition)
+                if change == 'fast':
+                    inline.assert_not_called()
+                    jobs = [dict(command=call.args[0], env=call.args[2], name=call.args[4],
+                                 count=call.kwargs['expected_count']) for call in runner.call_args_list]
+                else:
+                    runner.assert_not_called()
+                    inline.assert_called_once()
+                    self.assertEqual(inline.call_args.kwargs,
+                                     dict(formal=False, shard=None, ordinary_partition=partition))
+                    jobs = inline.call_args.args[0]
+                self.assertTrue(jobs)
+                for job in jobs:
+                    expected = change in ('none', 'parent-order') and job['name'] == self.RUNTIME
+                    self.assertEqual('--nocapture' in job['command'], expected)
+                    self.assertFalse(any(arg.startswith('--test-threads') for arg in job['command']))
+                    self.assertEqual(job['env'], dict(environment, CARGO_MANIFEST_DIR=str(root)))
+                    if change == 'filter':
+                        self.assertEqual(job['command'], [str(root / self.RUNTIME), 'first_failure'])
+                        self.assertEqual(job['count'], 1)
+                    else:
+                        binary = manifest['binaries'][job['name']]
+                        self.assertEqual(job['command'], [str(root / binary['path'])]
+                                         + (['--nocapture'] if expected else []))
+                        self.assertEqual(job['count'], 2)
+
+    def test_inline_first_panic_is_live_before_exit_and_failed_receipt_is_preserved(self):
+        selected, manifest = self.fixture()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            # This process models libtest capture only. The real execute(),
+            # inline supervisor and process runner own commands and results.
+            for name, binary in manifest['binaries'].items():
+                harness = root / binary['path']
+                harness.write_text('#!' + sys.executable + '\n'
+                    'import json,os,sys,time\nfrom pathlib import Path\n'
+                    'root=Path(__file__).parent\n'
+                    '(root/(Path(__file__).name+".invocation")).write_text(json.dumps(dict(args=sys.argv[1:],'
+                    'threads=os.environ.get("RUST_TEST_THREADS"),capture=os.environ.get("RUST_TEST_NOCAPTURE"))))\n'
+                    f'if Path(__file__).name == {self.RUNTIME!r}:\n'
+                    ' print("test first_failure ... FAILED",flush=True)\n'
+                    ' if "--nocapture" in sys.argv: print("panic: inline-diagnostic-first-cause",flush=True)\n'
+                    ' (root/"started").touch()\n'
+                    ' while not (root/"release").exists(): time.sleep(0.01)\n'
+                    ' if "--nocapture" not in sys.argv: print("panic: inline-diagnostic-first-cause",flush=True)\n'
+                    ' print("test result: FAILED. 1 passed; 1 failed; 1 ignored;",flush=True)\n'
+                    ' sys.exit(101)\n'
+                    'print("test result: ok. 2 passed; 0 failed; 0 ignored;",flush=True)\n')
+                harness.chmod(0o755)
+            environment = dict(os.environ)
+            for key in ('RUST_TEST_THREADS', 'RUST_TEST_NOCAPTURE'):
+                environment.pop(key, None)
+            results, output = root / 'results', root / 'output'
+            with patch.object(artifacts, 'ROOT', root), \
+                 patch.object(artifacts, 'load', return_value=(manifest, environment)), \
+                 patch.object(artifacts, 'native_cpu_budget', return_value=4), \
+                 patch.object(artifacts, 'execute_inline_jobs', wraps=artifacts.execute_inline_jobs) as inline, \
+                 output.open('w') as stream, redirect_stdout(stream), \
+                 patch('ci_process_runner.run', wraps=run) as runner, ThreadPoolExecutor(max_workers=1) as pool:
+                execution = pool.submit(artifacts.execute, root, 'ordinary', results,
+                                        plan=selected, ordinary_partition='oasis7_runtime')
+                try:
+                    deadline = time.monotonic() + 5
+                    while (not (root / 'started').exists()
+                           or 'panic: inline-diagnostic-first-cause' not in output.read_text()) \
+                            and time.monotonic() < deadline:
+                        time.sleep(0.01)
+                    self.assertTrue((root / 'started').exists())
+                    self.assertFalse(execution.done())
+                    self.assertNotIn('test result: FAILED', output.read_text())
+                    self.assertIn('panic: inline-diagnostic-first-cause', output.read_text())
+                finally:
+                    (root / 'release').touch()
+                with self.assertRaises(RuntimeError):
+                    execution.result(timeout=5)
+            inline.assert_called_once()
+            runner.assert_called_once()
+            self.assertEqual(set(runner.call_args.kwargs), {'expected_count', 'cancellation_event'})
+            self.assertEqual(run.__defaults__[1], 2400)
+            records = [json.loads(line) for line in results.read_text().splitlines()]
+            self.assertEqual(len(records), 1)
+            result = records[0]
+            self.assertEqual((result['test_name'], result['expected_count'], result['exit_code']),
+                             (self.RUNTIME, 2, 101))
+            self.assertFalse(result['passed'] or result['timeout'] or result['cancelled'] or result['count_ok'])
+            self.assertEqual(result['cleanup_result'], 'clean')
+            invocation = json.loads((root / (self.RUNTIME + '.invocation')).read_text())
+            self.assertEqual(invocation, dict(args=['--nocapture'], threads='4', capture=None))
+            self.assertTrue(all(not (root / (name + '.invocation')).exists()
+                                for name in manifest['binaries'] if name != self.RUNTIME))
+            summaries = [json.loads(line.removeprefix('native_execution='))
+                         for line in output.read_text().splitlines() if line.startswith('native_execution=')]
+            self.assertEqual(summaries[0], dict(mode='inline', partition='oasis7_runtime', workers=1,
+                             cpu_budget=4, test_threads=4, selected=2, weights=[4, 4]))
+            self.assertEqual(summaries[-1], dict(mode='inline', partition='oasis7_runtime', selected=2,
+                             started=1, recorded=1, failures=[self.RUNTIME], interrupted=[], complete=False))
+
+
 class OrdinaryArtifactDelivery(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()

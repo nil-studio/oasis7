@@ -3431,6 +3431,14 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
         # so the latter do not delay the longest runners. Keep each target and
         # the original relative order within both kinds.
         entries.sort(key=lambda entry: manifest['binaries'][entry['binary']]['target_kind'] != ['lib'])
+    runtime_live_variant = None
+    if artifact_partition and ordinary_partition == 'component-libs':
+        runtime_live_variant = 'required'
+    elif inline and ordinary_partition == 'oasis7_runtime':
+        runtime_live_variant = next(('required-fast-' + str(index)
+            for index, target in enumerate(ordinary_fast_targets(plan))
+            if (target['package'], target['target_kind'], target['target_name'])
+                == ('oasis7_runtime', 'lib', 'oasis7_runtime')), None)
     jobs = []
     for entry in entries:
         logical_suite = entry.get('suite', suite)
@@ -3465,13 +3473,13 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
             else:
                 if entry.get('exclusive'):
                     command.append('--test-threads=1')
-                if (artifact_partition and ordinary_partition == 'component-libs'
+                if (runtime_live_variant is not None
                       and entry.get('batch')
                       and entry['binary'] == 'required-test-oasis7_runtime-lib-oasis7_runtime'
-                      and binary.get('variant') == 'required'
+                      and binary.get('variant') == runtime_live_variant
                       and binary.get('package') == binary.get('target') == 'oasis7_runtime'
                       and binary.get('target_kind') == ['lib']):
-                    # This complete Runtime batch must emit its first panic even
+                    # These exact Runtime batches must emit their first panic even
                     # if another test outlives the deadline. Other ordinary paths
                     # keep capture; inventory, threads and failure handling stay intact.
                     command.append('--nocapture')
