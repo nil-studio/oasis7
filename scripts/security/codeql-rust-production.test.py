@@ -135,6 +135,7 @@ class Production(unittest.TestCase):
         self.calls, self.guard_manifests, self.call_options = [], [], []
         self.bad_closure = self.query_failure = self.mutate_source = self.missing_result = False
         self.bad_shared_closure = False
+        self.decoded_results = {}
         self.mutate_private = self.mutate_receipt = self.mutate_mode = None
         self.guard_status = 'PASS'
         self.stack = ExitStack()
@@ -270,9 +271,17 @@ class Production(unittest.TestCase):
                         path = args.work / fixture.mutate_mode
                         path.chmod(path.stat().st_mode ^ 0o020)
                 elif name.startswith('info-'):
-                    value = {'result-sets': [{'name': '#select', 'rows': 0}]}
+                    decoded = fixture.decoded_results.get(name[5:], {'#select': {'tuples': []}})
+                    value = {'result-sets': [dict(name=key, rows=len(result['tuples']))
+                                             for key, result in decoded.items()]}
                 elif name.startswith('decoded-'):
-                    value = {'#select': {'tuples': []}}
+                    value = copy.deepcopy(fixture.decoded_results.get(name[8:], {'#select': {'tuples': []}}))
+                    if '--entities=id,string,url' not in args_list:
+                        for result in value.values():
+                            for row in result['tuples']:
+                                for index, cell in enumerate(row):
+                                    if isinstance(cell, dict):
+                                        row[index] = {'label': cell['label']}
                 elif name == 'interpret-default-results':
                     value = {'version': '2.1.0', 'runs': [{'invocations': [{'executionSuccessful': True}], 'results': []}]}
                     target = Path(next(item.split('=', 1)[1] for item in args_list if item.startswith('--output=')))
@@ -743,6 +752,32 @@ class Production(unittest.TestCase):
         self.assertEqual([name for name, options in self.call_options if options.get('resource_details')],
                          ['default-query-batch'])
         self.assertEqual(len(m.read_json(self.output / 'default-results.json')), 37)
+
+    def test_full_decode_preserves_entity_identity_locations_and_all_result_sets(self):
+        first = dict(id=101, label='include!(...)',
+                     url=dict(uri='file:///source/host.rs', startLine=4, startColumn=1, endLine=4, endColumn=18))
+        second = dict(id=102, label='include!(...)',
+                      url=dict(uri='file:///source/other.rs', startLine=8, startColumn=1, endLine=8, endColumn=18))
+        expected = {
+            '#select': {'columns': [{'kind': 'Entity'}, {'kind': 'String'}],
+                        'tuples': [[first, 'unexpanded'], [second, 'unexpanded'],
+                                   [dict(id=103, label='location unavailable'), 'unexpanded'],
+                                   [first, 'unexpanded']]},
+            'diagnosticAttributes': {'columns': [{'kind': 'String'}, {'kind': 'String'}],
+                                     'tuples': [['severity', 'warning']]},
+            'emptySet': {'columns': [{'kind': 'Int'}], 'tuples': []},
+        }
+        self.decoded_results['09'] = copy.deepcopy(expected)
+        self.prepare_ok()
+        self.assertEqual(self.invoke('run'), 0, self.terminal('run'))
+        self.assertEqual(m.read_json(self.output / 'decoded-09.log'), expected)
+        decodes = [argv for _, argv in self.calls if argv[1:3] == ['bqrs', 'decode']]
+        self.assertEqual(len(decodes), 37)
+        self.assertTrue(all('--entities=id,string,url' in argv for argv in decodes))
+        self.assertFalse(any(arg.startswith(('--result-set', '--rows', '--start-at', '--limit'))
+                             for argv in decodes for arg in argv))
+        self.assertEqual(sum(name == 'default-query-batch' for name, _ in self.calls), 1)
+        self.assertEqual(self.terminal('run')['coverage_acceptance'], 'PENDING_HOSTED_REVIEW')
 
     def test_failed_extraction_never_starts_queries_but_keeps_failure_and_coverage(self):
         self.prepare_ok()

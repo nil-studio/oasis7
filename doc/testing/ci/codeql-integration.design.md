@@ -605,6 +605,8 @@ init 后从实际 GitHub job 起点计算一次分析绝对截止：最多 75 �
 
 覆盖采证动态枚举当前受维护 manifest 与独立 workspace 锁文件，复用有界源码/锁观察和 Cargo guard，在实际提取的 metadata/解析调用中保留 locked 约束。提取日志和 `coverage_report` 保留原始 COMPLETE/PARTIAL、REVIEW/UNKNOWN；发现清单、成员集合对账或查询完成均不代签实际提取与宏/feature/target 语义。WASM 仍需其真实 CodeQL 上下文验证；未接线源码的归属须明确收口。沿用既定支持范围及两条精确覆盖例外，不扩大忽略路径。
 
+原 37 项结果逐项执行 `bqrs info` 和 `bqrs decode --format=json --entities=id,string,url`，保留所有结果集和行，核对 info 与 decoded 的集合及行数。显式保留 BQRS 已提供的实体 ID、文本和 URL，供原 diagnostics 按实际位置与源码归属对照；实体文本可能重复，不能作为宏位置的唯一键。URL 取决于查询编译时保存的信息，缺失时保持未知，不由文本推算位置，也不把整文件 URL 当作宏坐标或 owner/展开关系。解码沿用原 30 秒单命令上限、分析绝对截止和证据总限，不在收尾阶段追加解码；该参数不改变查询集合、字节或覆盖验收条件。
+
 执行状态由提取和正式 helper 联合决定，提取成功但查询失败不能记录为 execution success。通过原 `upload-sarif` 上传，保留 `oasis7/rust-repo/default` category、实际 SHA/ref 及唯一 `sarif_id` 关联；上传关联 evidence v1 结构保持。独立生产 evidence artifact 保存工具、查询库、源码、结果与覆盖收据及有界日志，不包含数据库或完整源码包。查询执行、平台上传、findings 和覆盖验收分别呈现。
 
 首次验收核对实际执行/容量、唯一上传来源、支持范围与控制样本、Security findings 及运营设置。试运行允许收集尚缺的覆盖事实；持续启用声明须完成适用验收，不能把 REVIEW/UNKNOWN 改记为通过。失败仅回退本次 Rust 批次键，保留其他语言、已有告警、required policy 和历史结果。PR observe 与 extended 的 45 分钟容量及适用行为单独验收。

@@ -498,7 +498,8 @@ def run_queries(args, terminal, run):
         if result.resolve() != result or not result.is_file():
             raise RuntimeError('missing or unsafe production default BQRS: ' + record['id'])
         run([args.codeql, 'bqrs', 'info', result, '--format=json'], 'info-' + label, 20)
-        run([args.codeql, 'bqrs', 'decode', result, '--format=json'], 'decoded-' + label, 30)
+        run([args.codeql, 'bqrs', 'decode', result, '--format=json', '--entities=id,string,url'],
+            'decoded-' + label, 30)
         info = read_json(args.output / ('info-' + label + '.log'))
         capacity.verify_decoded(info, read_json(args.output / ('decoded-' + label + '.log'), 64 * 1024**2))
         verified.append(dict(id=record['id'], relative=record['relative'], result_info=info,
