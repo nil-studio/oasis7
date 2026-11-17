@@ -215,11 +215,17 @@ fn cli_case(process_output_failure: bool, deadline: Option<Instant>) {
         let retry_warning = stderr.contains("do not resubmit");
         assert!(
             status.code() == Some(1) && delivery_warning && retry_warning,
-            "shipping output failure: exit={:?}, stderr_bytes={}, delivery_warning={}, retry_warning={}",
+            "shipping output failure: exit={:?}, stderr_bytes={}, delivery_warning={}, retry_warning={}, stderr_class={}, provider_history_applied_pending={:?}",
             status.code(),
             stderr.len(),
             delivery_warning,
-            retry_warning
+            retry_warning,
+            diagnostics::classify_stderr(&stderr),
+            snapshot.try_lock().ok().map(|state| (
+                state.state.history.len(),
+                state.state.applied_installs.len(),
+                state.state.pending_driver_apply.is_some(),
+            ))
         );
     } else {
         crate::identity_receipt::dispatch(
@@ -409,3 +415,7 @@ fn cli_case(process_output_failure: bool, deadline: Option<Instant>) {
 
 #[path = "driver_bft_v3_node_cli_process.rs"]
 mod process;
+
+// Failure-only public categories; never mirror child stderr or private input.
+#[path = "driver_bft_v3_node_cli_diagnostics.rs"]
+mod diagnostics;
