@@ -1,5 +1,5 @@
-//! Real Node-issued fresh provenance only. This engineering fixture never
-//! claims GEN, Frozen admission, restored provenance or an applied world tick.
+//! Real Node-issued fresh provenance. A separately gated child covers restart
+//! at a persisted local boundary; neither claims Formal GEN or an applied tick.
 use super::*;
 use oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1;
 use oasis7_node::{
@@ -305,3 +305,7 @@ fn fresh_capture_step_exhaustion_precedes_memory_admission() {
     assert_eq!(state.work.remaining_read_bytes(), FIXTURE_BYTES);
     assert_eq!(state.memory.used(), 0);
 }
+
+#[cfg(feature = "node-libp2p")]
+#[path = "iws_normal_input_origin_restored_tests.rs"]
+mod restored_tests;
