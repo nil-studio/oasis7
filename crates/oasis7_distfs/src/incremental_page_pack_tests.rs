@@ -632,3 +632,88 @@ fn cancellation_during_last_staging_sync_never_returns_batch_success() {
     ));
     assert!(cancelled.load(Ordering::Acquire));
 }
+
+#[test]
+fn existing_page_reads_winning_recipe_once_and_still_syncs_its_closure() {
+    for packed in [false, true] {
+        for (winner, retry_codec) in [
+            (PageCompression::Raw, PageCompression::Zstd),
+            (PageCompression::Zstd, PageCompression::Raw),
+        ] {
+            let fixture = Fixture::new();
+            let memory = MemoryBudget::new(32 << 20, 0).unwrap();
+            let store =
+                IncrementalPageStore::create(&fixture.store(), memory.clone(), winner).unwrap();
+            let bytes = memory
+                .reserve(65536, MemoryClass::Ordinary)
+                .unwrap()
+                .retain(vec![0x5a; 65536]);
+            let id = *blake3::hash(&bytes).as_bytes();
+            let cancelled = AtomicBool::new(false);
+            let refs = [(id, bytes.as_slice())];
+            if packed {
+                store
+                    .put_page_batch(&refs, MemoryClass::Ordinary, &mut physical_io(), &cancelled)
+                    .unwrap();
+            } else {
+                store
+                    .put_page(id, &bytes, &mut physical_io(), &cancelled)
+                    .unwrap();
+            }
+            // The retry is configured for the other codec. Its sync closure
+            // must come from the actual durable winner, never a new encoding.
+            let retry = IncrementalPageStore::open(
+                &fixture.store(),
+                memory,
+                retry_codec,
+                MemoryClass::Ordinary,
+            )
+            .unwrap();
+            let before = physical_io();
+            let mut measured = before.clone();
+            assert_eq!(
+                retry
+                    .read_page(
+                        &id,
+                        VALUE_MAX_NODE_BYTES,
+                        MemoryClass::Ordinary,
+                        &mut measured,
+                        &cancelled,
+                    )
+                    .unwrap()
+                    .as_slice(),
+                bytes.as_slice()
+            );
+            // Allow the complete actual read plus the publisher's initial
+            // FORMAT validation, but no second recipe lookup or new writes.
+            let exact = PageIoBudget {
+                reads_remaining: before.reads_remaining - measured.reads_remaining + 1,
+                read_bytes_remaining: before.read_bytes_remaining - measured.read_bytes_remaining
+                    + FORMAT.len() as u64,
+                writes_remaining: 0,
+                write_bytes_remaining: 0,
+            };
+            let write = |batch: bool, io: &mut PageIoBudget| {
+                if batch {
+                    retry.put_page_batch(&refs, MemoryClass::Ordinary, io, &cancelled)
+                } else {
+                    retry.put_page(id, &bytes, io, &cancelled)
+                }
+            };
+            for batch in [false, true] {
+                files::take_sync_counts();
+                let mut io = exact.clone();
+                write(batch, &mut io).unwrap();
+                assert_eq!((io.reads_remaining, io.read_bytes_remaining), (0, 0));
+                let synced = files::take_sync_counts();
+                assert!(synced.0 > 0 && synced.1 > 0);
+
+                files::fail_after_sync(retry.root().join("recipes").join(hex::encode(id)), 1);
+                assert!(matches!(
+                    write(batch, &mut exact.clone()),
+                    Err(PageStoreError::Io(_))
+                ));
+            }
+        }
+    }
+}

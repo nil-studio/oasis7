@@ -117,6 +117,15 @@ pub struct IncrementalPageStore {
     _lease: File,
     _charge: MemoryReservation,
 }
+
+// A single actual read retains its winning recipe under the original decode
+// workspace until the caller finishes using its frame descriptors.
+struct PageRead {
+    bytes: Arc<ReservedValue<Vec<u8>>>,
+    frames: Vec<FrameDescriptor>,
+    _workspace: MemoryReservation,
+}
+
 impl IncrementalPageStore {
     /// Only create a fresh dedicated directory; never reinterpret an existing
     /// world or complete a partially initialized directory implicitly.
@@ -254,18 +263,18 @@ impl IncrementalPageStore {
         io: &mut PageIoBudget,
         cancelled: &AtomicBool,
     ) -> Result<()> {
-        let stored = self.read_page(id, VALUE_MAX_NODE_BYTES, class, io, cancelled)?;
-        if stored.as_slice() != bytes {
+        let stored = self.read_page_with_recipe(id, VALUE_MAX_NODE_BYTES, class, io, cancelled)?;
+        if stored.bytes.as_slice() != bytes {
             return Err(PageStoreError::Corrupt("immutable page differs"));
         }
         // An earlier publisher may have died after link() but before its
         // directory/file barriers. Readable bytes alone do not reestablish
         // durability. Sync the actually selected representation's closure,
         // including the winner of a concurrent raw/zstd recipe publication.
+        // The verified recipe and its decode workspace remain live through
+        // every barrier; no second locator read or cross-operation memo is used.
         let recipe_path = self.root.join("recipes").join(hex::encode(id));
-        let encoded = files::read(&recipe_path, recipe::MAX_RECIPE_BYTES, io, cancelled)?;
-        let (_, frames) = recipe::decode(id, &encoded)?;
-        for frame in frames {
+        for frame in &stored.frames {
             check_cancelled(cancelled)?;
             files::sync(&self.root.join("frames").join(hex::encode(frame.stored)))?;
         }
@@ -283,6 +292,18 @@ impl IncrementalPageStore {
         io: &mut PageIoBudget,
         cancelled: &AtomicBool,
     ) -> Result<Arc<ReservedValue<Vec<u8>>>> {
+        let read = self.read_page_with_recipe(id, max_bytes, class, io, cancelled)?;
+        Ok(read.bytes)
+    }
+
+    fn read_page_with_recipe(
+        &self,
+        id: &[u8; 32],
+        max_bytes: usize,
+        class: MemoryClass,
+        io: &mut PageIoBudget,
+        cancelled: &AtomicBool,
+    ) -> Result<PageRead> {
         check_cancelled(cancelled)?;
         let _workspace = self.memory.reserve(DECODE_WORKSPACE, class)?;
         files::validate_store_io(&self.root, io, cancelled)?;
@@ -307,18 +328,18 @@ impl IncrementalPageStore {
         // reuse; no cache or carrier escapes into another operation/class.
         let mut decoded_frames: Vec<(FrameDescriptor, Vec<u8>)> =
             Vec::with_capacity(recipe::MAX_FRAMES);
-        for frame in frames {
+        for frame in &frames {
             check_cancelled(cancelled)?;
-            if let Some((_, decoded)) = decoded_frames.iter().find(|(known, _)| known == &frame) {
+            if let Some((_, decoded)) = decoded_frames.iter().find(|(known, _)| known == frame) {
                 output.extend_from_slice(decoded);
                 continue;
             }
             let path = self.root.join("frames").join(hex::encode(frame.stored));
             let stored = files::read(&path, frame_codec::FRAME_BYTES, io, cancelled)?;
-            let decoded = frame_codec::decode(&frame, &stored)
+            let decoded = frame_codec::decode(frame, &stored)
                 .map_err(|_| PageStoreError::Corrupt("physical frame"))?;
             output.extend_from_slice(&decoded);
-            decoded_frames.push((frame, decoded));
+            decoded_frames.push((*frame, decoded));
         }
         check_cancelled(cancelled)?;
         if output.len() != length
@@ -327,7 +348,11 @@ impl IncrementalPageStore {
         {
             return Err(PageStoreError::Corrupt("reconstructed page"));
         }
-        Ok(Arc::new(charge.retain(output)))
+        Ok(PageRead {
+            bytes: Arc::new(charge.retain(output)),
+            frames,
+            _workspace,
+        })
     }
 
     /// One operation owns its physical allowance and cancellation state. It
