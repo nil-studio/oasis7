@@ -121,7 +121,9 @@ class EcsCacheTests(unittest.TestCase):
                 with patch.dict(os.environ, CARGO_BUILD_JOBS='1', CARGO_TERM_COLOR='never',
                                 ECS_CACHE_REPOSITORY_BUDGET_BYTES='20000000000'):
                     self.assertEqual(ecs.identity()['prefix'], baseline['prefix'])
-                for variable in ('RUSTFLAGS', 'CARGO_PROFILE_ECS_OPT_LEVEL', 'PKG_CONFIG_PATH'):
+                for variable in ('RUSTFLAGS', 'CARGO_PROFILE_ECS_OPT_LEVEL', 'PKG_CONFIG_PATH',
+                                 'CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER',
+                                 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER'):
                     with self.subTest(variable=variable), patch.dict(os.environ, {variable: 'changed'}):
                         self.assertNotEqual(ecs.identity()['prefix'], baseline['prefix'])
                 version[0] = 'different compiler'

@@ -59,6 +59,8 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - name: Freeze the existing helper closure outside the business checkout
         run: |
           python3 scripts/security/codeql_rust_capacity_layout.py stage \

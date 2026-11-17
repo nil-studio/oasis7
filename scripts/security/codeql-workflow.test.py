@@ -220,8 +220,21 @@ class WorkflowTests(unittest.TestCase):
     def test_permissions_pins_and_no_business_chain(self):
         uses = re.findall(r"uses: ([^\s]+)", WORKFLOW)
         self.assertTrue(uses)
-        self.assertTrue(all(re.fullmatch(r"(?:actions/(?:checkout|upload-artifact)|github/codeql-action/(?:init|analyze|upload-sarif))@[0-9a-f]{40}", action) for action in uses))
-        self.assertEqual(WORKFLOW.count("persist-credentials: false"), 2)
+        local_linker = "./.github/actions/setup-linux-mold"
+        self.assertTrue(all(action == local_linker or re.fullmatch(r"(?:actions/(?:checkout|upload-artifact)|github/codeql-action/(?:init|analyze|upload-sarif))@[0-9a-f]{40}", action) for action in uses))
+        self.assertEqual(uses.count(local_linker), 1)
+        self.assertEqual(WORKFLOW.count("persist-credentials: false"), 3)
+        # The local action is bound to the executing workflow revision, even
+        # when the subsequent analysis checkout is historical product source.
+        steps = re.findall(r'^      - .*?(?=^      - |\Z)', WORKFLOW.split('  analyze:', 1)[1], re.M | re.S)
+        setup = next(i for i, step in enumerate(steps) if 'uses: ' + local_linker in step)
+        self.assertIn('ref: ${{ github.workflow_sha }}', steps[setup - 1])
+        self.assertIn('sparse-checkout: .github/actions/setup-linux-mold\n', steps[setup - 1])
+        self.assertNotIn('sparse-checkout-cone-mode: false', steps[setup - 1])
+        for step in steps[setup - 1:setup + 1]:
+            self.assertIn("if: matrix.language == 'rust'", step)
+        self.assertIn('ref: ${{ needs.plan.outputs.checkout }}', steps[setup + 1])
+        self.assertNotIn('sparse-checkout:', steps[setup + 1])
         for forbidden in ("pull_request_target", "continue-on-error", "secrets.", "secrets: inherit", "cargo build", "cargo test", "npm install", "npm build", "workflow_run", "environment:"):
             self.assertNotIn(forbidden, WORKFLOW)
         self.assertIn("security-events: write", WORKFLOW)
