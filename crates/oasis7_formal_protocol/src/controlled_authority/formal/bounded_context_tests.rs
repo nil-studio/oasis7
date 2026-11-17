@@ -171,13 +171,23 @@ fn contexts_and_parts_borrow_one_existing_meter_and_pool_without_new_allowance()
     let mut stop = || false;
     {
         let mut context = FormalBoundedContextV1::new(&memory, &work, &mut stop);
-        assert!(std::ptr::eq(context.work(), &work));
+        let borrowed_work = context.work();
+        assert!(std::ptr::eq(borrowed_work, &work));
         assert!(context.memory().same_pool(&memory));
         assert_eq!(
             (work.remaining_steps(), work.remaining_read_bytes()),
             (10, 20)
         );
         context.charge(2, 3).unwrap();
+        assert_eq!(borrowed_work.identity(), work.identity());
+        assert_eq!(
+            (
+                borrowed_work.remaining_steps(),
+                borrowed_work.remaining_read_bytes()
+            ),
+            (8, 17),
+            "a retained Core loan observes the same context debit"
+        );
         let (pool, meter, cancel) = context.parts();
         assert!(pool.same_pool(&memory));
         assert_eq!(meter.identity(), work.identity());

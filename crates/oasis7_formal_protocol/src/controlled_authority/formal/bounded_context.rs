@@ -165,7 +165,9 @@ impl<'a> FormalBoundedContextV1<'a> {
     pub fn memory(&self) -> &MemoryBudget {
         self.memory
     }
-    pub fn work(&self) -> &FormalBoundedWorkV1 {
+    /// Returns the original Core loan, independent of a short context borrow.
+    /// A consumer may retain it while this context debits that same meter.
+    pub fn work(&self) -> &'a FormalBoundedWorkV1 {
         self.work
     }
     pub fn charge(&mut self, steps: u64, bytes: u64) -> Result<(), FormalError> {
