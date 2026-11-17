@@ -46,31 +46,31 @@ impl NormalProjectionCurrentWorkV1<'_> {
         let (_, meter, stop) = common.parts();
         let lease = meter.begin_child().map_err(paid)?;
         let original_steps = [
-            (work.module_states.states_remaining) as u64,
-            (overlay.values.io.nodes_remaining) as u64,
-            (read.values.io.nodes_remaining) as u64,
-            (work.scan.nodes_remaining) as u64,
-            (work.scan.leaves_remaining) as u64,
-            (work.typed.json.cells_remaining) as u64,
-            (work.typed.json.json_nodes_remaining) as u64,
-            (work.primitives.records_remaining) as u64,
-            (work.inventory.records_remaining) as u64,
-            (work.inventory.index_steps_remaining) as u64,
-            (work.processing.steps_remaining) as u64,
-            (work.originals.facts_remaining) as u64,
-            (work.events.structure.values_remaining) as u64,
-            (work.events.canonical.visits_remaining) as u64,
-            (work.canonical.visits_remaining) as u64,
+            work.module_states.states_remaining,
+            overlay.values.io.nodes_remaining,
+            read.values.io.nodes_remaining,
+            work.scan.nodes_remaining,
+            work.scan.leaves_remaining,
+            work.typed.json.cells_remaining,
+            work.typed.json.json_nodes_remaining,
+            work.primitives.records_remaining,
+            work.inventory.records_remaining,
+            work.inventory.index_steps_remaining,
+            work.processing.steps_remaining,
+            work.originals.facts_remaining,
+            work.events.structure.values_remaining,
+            work.events.canonical.visits_remaining,
+            work.canonical.visits_remaining,
             (*work.pending_entries) as u64,
-            (work.factory.cells_remaining) as u64,
-            (work.factory.scan.nodes_remaining) as u64,
-            (work.factory.scan.leaves_remaining) as u64,
-            (work.industry.cells_remaining) as u64,
-            (work.industry.scan.nodes_remaining) as u64,
-            (work.industry.scan.leaves_remaining) as u64,
-            (work.logistics.cells_remaining) as u64,
-            (work.logistics.scan.nodes_remaining) as u64,
-            (work.logistics.scan.leaves_remaining) as u64,
+            work.factory.cells_remaining,
+            work.factory.scan.nodes_remaining,
+            work.factory.scan.leaves_remaining,
+            work.industry.cells_remaining,
+            work.industry.scan.nodes_remaining,
+            work.industry.scan.leaves_remaining,
+            work.logistics.cells_remaining,
+            work.logistics.scan.nodes_remaining,
+            work.logistics.scan.leaves_remaining,
             work.controls.records_remaining,
             work.controls.index_steps_remaining,
             work.runtime_inner_scan.nodes_remaining,
@@ -82,51 +82,39 @@ impl NormalProjectionCurrentWorkV1<'_> {
         let limit_steps = lease.remaining_steps() / 32;
         work.controls.records_remaining = work.controls.records_remaining.min(limit_steps);
         work.controls.index_steps_remaining = work.controls.index_steps_remaining.min(limit_steps);
-        overlay.values.io.nodes_remaining =
-            ((overlay.values.io.nodes_remaining) as u64).min(limit_steps) as _;
-        read.values.io.nodes_remaining =
-            ((read.values.io.nodes_remaining) as u64).min(limit_steps) as _;
-        work.scan.nodes_remaining = ((work.scan.nodes_remaining) as u64).min(limit_steps) as _;
-        work.scan.leaves_remaining = ((work.scan.leaves_remaining) as u64).min(limit_steps) as _;
-        work.typed.json.cells_remaining =
-            ((work.typed.json.cells_remaining) as u64).min(limit_steps) as _;
+        overlay.values.io.nodes_remaining = overlay.values.io.nodes_remaining.min(limit_steps) as _;
+        read.values.io.nodes_remaining = read.values.io.nodes_remaining.min(limit_steps) as _;
+        work.scan.nodes_remaining = work.scan.nodes_remaining.min(limit_steps) as _;
+        work.scan.leaves_remaining = work.scan.leaves_remaining.min(limit_steps) as _;
+        work.typed.json.cells_remaining = work.typed.json.cells_remaining.min(limit_steps) as _;
         work.typed.json.json_nodes_remaining =
-            ((work.typed.json.json_nodes_remaining) as u64).min(limit_steps) as _;
-        work.primitives.records_remaining =
-            ((work.primitives.records_remaining) as u64).min(limit_steps) as _;
-        work.inventory.records_remaining =
-            ((work.inventory.records_remaining) as u64).min(limit_steps) as _;
+            work.typed.json.json_nodes_remaining.min(limit_steps) as _;
+        work.primitives.records_remaining = work.primitives.records_remaining.min(limit_steps) as _;
+        work.inventory.records_remaining = work.inventory.records_remaining.min(limit_steps) as _;
         work.inventory.index_steps_remaining =
-            ((work.inventory.index_steps_remaining) as u64).min(limit_steps) as _;
-        work.processing.steps_remaining =
-            ((work.processing.steps_remaining) as u64).min(limit_steps) as _;
-        work.originals.facts_remaining =
-            ((work.originals.facts_remaining) as u64).min(limit_steps) as _;
+            work.inventory.index_steps_remaining.min(limit_steps) as _;
+        work.processing.steps_remaining = work.processing.steps_remaining.min(limit_steps) as _;
+        work.originals.facts_remaining = work.originals.facts_remaining.min(limit_steps) as _;
         work.events.structure.values_remaining =
-            ((work.events.structure.values_remaining) as u64).min(limit_steps) as _;
+            work.events.structure.values_remaining.min(limit_steps) as _;
         work.events.canonical.visits_remaining =
-            ((work.events.canonical.visits_remaining) as u64).min(limit_steps) as _;
-        work.canonical.visits_remaining =
-            ((work.canonical.visits_remaining) as u64).min(limit_steps) as _;
+            work.events.canonical.visits_remaining.min(limit_steps) as _;
+        work.canonical.visits_remaining = work.canonical.visits_remaining.min(limit_steps) as _;
         *work.pending_entries = ((*work.pending_entries) as u64).min(limit_steps) as _;
-        work.factory.cells_remaining =
-            ((work.factory.cells_remaining) as u64).min(limit_steps) as _;
-        work.factory.scan.nodes_remaining =
-            ((work.factory.scan.nodes_remaining) as u64).min(limit_steps) as _;
+        work.factory.cells_remaining = work.factory.cells_remaining.min(limit_steps) as _;
+        work.factory.scan.nodes_remaining = work.factory.scan.nodes_remaining.min(limit_steps) as _;
         work.factory.scan.leaves_remaining =
-            ((work.factory.scan.leaves_remaining) as u64).min(limit_steps) as _;
-        work.industry.cells_remaining =
-            ((work.industry.cells_remaining) as u64).min(limit_steps) as _;
+            work.factory.scan.leaves_remaining.min(limit_steps) as _;
+        work.industry.cells_remaining = work.industry.cells_remaining.min(limit_steps) as _;
         work.industry.scan.nodes_remaining =
-            ((work.industry.scan.nodes_remaining) as u64).min(limit_steps) as _;
+            work.industry.scan.nodes_remaining.min(limit_steps) as _;
         work.industry.scan.leaves_remaining =
-            ((work.industry.scan.leaves_remaining) as u64).min(limit_steps) as _;
-        work.logistics.cells_remaining =
-            ((work.logistics.cells_remaining) as u64).min(limit_steps) as _;
+            work.industry.scan.leaves_remaining.min(limit_steps) as _;
+        work.logistics.cells_remaining = work.logistics.cells_remaining.min(limit_steps) as _;
         work.logistics.scan.nodes_remaining =
-            ((work.logistics.scan.nodes_remaining) as u64).min(limit_steps) as _;
+            work.logistics.scan.nodes_remaining.min(limit_steps) as _;
         work.logistics.scan.leaves_remaining =
-            ((work.logistics.scan.leaves_remaining) as u64).min(limit_steps) as _;
+            work.logistics.scan.leaves_remaining.min(limit_steps) as _;
         work.module_states.states_remaining = work.module_states.states_remaining.min(limit_steps);
         work.runtime_inner_scan.nodes_remaining =
             work.runtime_inner_scan.nodes_remaining.min(limit_steps);
@@ -141,31 +129,31 @@ impl NormalProjectionCurrentWorkV1<'_> {
             .min(limit_steps);
         work.cognition_json.paths_remaining = work.cognition_json.paths_remaining.min(limit_steps);
         let admitted_steps = [
-            (work.module_states.states_remaining) as u64,
-            (overlay.values.io.nodes_remaining) as u64,
-            (read.values.io.nodes_remaining) as u64,
-            (work.scan.nodes_remaining) as u64,
-            (work.scan.leaves_remaining) as u64,
-            (work.typed.json.cells_remaining) as u64,
-            (work.typed.json.json_nodes_remaining) as u64,
-            (work.primitives.records_remaining) as u64,
-            (work.inventory.records_remaining) as u64,
-            (work.inventory.index_steps_remaining) as u64,
-            (work.processing.steps_remaining) as u64,
-            (work.originals.facts_remaining) as u64,
-            (work.events.structure.values_remaining) as u64,
-            (work.events.canonical.visits_remaining) as u64,
-            (work.canonical.visits_remaining) as u64,
+            work.module_states.states_remaining,
+            overlay.values.io.nodes_remaining,
+            read.values.io.nodes_remaining,
+            work.scan.nodes_remaining,
+            work.scan.leaves_remaining,
+            work.typed.json.cells_remaining,
+            work.typed.json.json_nodes_remaining,
+            work.primitives.records_remaining,
+            work.inventory.records_remaining,
+            work.inventory.index_steps_remaining,
+            work.processing.steps_remaining,
+            work.originals.facts_remaining,
+            work.events.structure.values_remaining,
+            work.events.canonical.visits_remaining,
+            work.canonical.visits_remaining,
             (*work.pending_entries) as u64,
-            (work.factory.cells_remaining) as u64,
-            (work.factory.scan.nodes_remaining) as u64,
-            (work.factory.scan.leaves_remaining) as u64,
-            (work.industry.cells_remaining) as u64,
-            (work.industry.scan.nodes_remaining) as u64,
-            (work.industry.scan.leaves_remaining) as u64,
-            (work.logistics.cells_remaining) as u64,
-            (work.logistics.scan.nodes_remaining) as u64,
-            (work.logistics.scan.leaves_remaining) as u64,
+            work.factory.cells_remaining,
+            work.factory.scan.nodes_remaining,
+            work.factory.scan.leaves_remaining,
+            work.industry.cells_remaining,
+            work.industry.scan.nodes_remaining,
+            work.industry.scan.leaves_remaining,
+            work.logistics.cells_remaining,
+            work.logistics.scan.nodes_remaining,
+            work.logistics.scan.leaves_remaining,
             work.controls.records_remaining,
             work.controls.index_steps_remaining,
             work.runtime_inner_scan.nodes_remaining,
@@ -175,49 +163,44 @@ impl NormalProjectionCurrentWorkV1<'_> {
             work.cognition_json.paths_remaining,
         ];
         let original_bytes = [
-            (work.module_states.logical_bytes_remaining) as u64,
-            (overlay.values.io.read_bytes_remaining) as u64,
-            (read.values.io.read_bytes_remaining) as u64,
-            (overlay.key_work.bytes_remaining) as u64,
-            (read.key_work.bytes_remaining) as u64,
-            (work.scan.read_bytes_remaining) as u64,
-            (work.processing.bytes_remaining) as u64,
-            (work.originals.original_bytes_remaining) as u64,
-            (work.events.structure.bytes_remaining) as u64,
-            (work.events.canonical.bytes_remaining) as u64,
-            (work.canonical.bytes_remaining) as u64,
-            (work.factory.scan.read_bytes_remaining) as u64,
-            (work.industry.scan.read_bytes_remaining) as u64,
-            (work.logistics.scan.read_bytes_remaining) as u64,
+            work.module_states.logical_bytes_remaining,
+            overlay.values.io.read_bytes_remaining,
+            read.values.io.read_bytes_remaining,
+            overlay.key_work.bytes_remaining,
+            read.key_work.bytes_remaining,
+            work.scan.read_bytes_remaining,
+            work.processing.bytes_remaining,
+            work.originals.original_bytes_remaining,
+            work.events.structure.bytes_remaining,
+            work.events.canonical.bytes_remaining,
+            work.canonical.bytes_remaining,
+            work.factory.scan.read_bytes_remaining,
+            work.industry.scan.read_bytes_remaining,
+            work.logistics.scan.read_bytes_remaining,
             work.runtime_inner_scan.read_bytes_remaining,
         ];
         let limit_bytes = lease.remaining_read_bytes() / 15;
         overlay.values.io.read_bytes_remaining =
-            ((overlay.values.io.read_bytes_remaining) as u64).min(limit_bytes) as _;
+            overlay.values.io.read_bytes_remaining.min(limit_bytes) as _;
         read.values.io.read_bytes_remaining =
-            ((read.values.io.read_bytes_remaining) as u64).min(limit_bytes) as _;
-        overlay.key_work.bytes_remaining =
-            ((overlay.key_work.bytes_remaining) as u64).min(limit_bytes) as _;
-        read.key_work.bytes_remaining =
-            ((read.key_work.bytes_remaining) as u64).min(limit_bytes) as _;
-        work.scan.read_bytes_remaining =
-            ((work.scan.read_bytes_remaining) as u64).min(limit_bytes) as _;
-        work.processing.bytes_remaining =
-            ((work.processing.bytes_remaining) as u64).min(limit_bytes) as _;
+            read.values.io.read_bytes_remaining.min(limit_bytes) as _;
+        overlay.key_work.bytes_remaining = overlay.key_work.bytes_remaining.min(limit_bytes) as _;
+        read.key_work.bytes_remaining = read.key_work.bytes_remaining.min(limit_bytes) as _;
+        work.scan.read_bytes_remaining = work.scan.read_bytes_remaining.min(limit_bytes) as _;
+        work.processing.bytes_remaining = work.processing.bytes_remaining.min(limit_bytes) as _;
         work.originals.original_bytes_remaining =
-            ((work.originals.original_bytes_remaining) as u64).min(limit_bytes) as _;
+            work.originals.original_bytes_remaining.min(limit_bytes) as _;
         work.events.structure.bytes_remaining =
-            ((work.events.structure.bytes_remaining) as u64).min(limit_bytes) as _;
+            work.events.structure.bytes_remaining.min(limit_bytes) as _;
         work.events.canonical.bytes_remaining =
-            ((work.events.canonical.bytes_remaining) as u64).min(limit_bytes) as _;
-        work.canonical.bytes_remaining =
-            ((work.canonical.bytes_remaining) as u64).min(limit_bytes) as _;
+            work.events.canonical.bytes_remaining.min(limit_bytes) as _;
+        work.canonical.bytes_remaining = work.canonical.bytes_remaining.min(limit_bytes) as _;
         work.factory.scan.read_bytes_remaining =
-            ((work.factory.scan.read_bytes_remaining) as u64).min(limit_bytes) as _;
+            work.factory.scan.read_bytes_remaining.min(limit_bytes) as _;
         work.industry.scan.read_bytes_remaining =
-            ((work.industry.scan.read_bytes_remaining) as u64).min(limit_bytes) as _;
+            work.industry.scan.read_bytes_remaining.min(limit_bytes) as _;
         work.logistics.scan.read_bytes_remaining =
-            ((work.logistics.scan.read_bytes_remaining) as u64).min(limit_bytes) as _;
+            work.logistics.scan.read_bytes_remaining.min(limit_bytes) as _;
         work.module_states.logical_bytes_remaining =
             work.module_states.logical_bytes_remaining.min(limit_bytes);
         work.runtime_inner_scan.read_bytes_remaining = work
@@ -225,20 +208,20 @@ impl NormalProjectionCurrentWorkV1<'_> {
             .read_bytes_remaining
             .min(limit_bytes);
         let admitted_bytes = [
-            (work.module_states.logical_bytes_remaining) as u64,
-            (overlay.values.io.read_bytes_remaining) as u64,
-            (read.values.io.read_bytes_remaining) as u64,
-            (overlay.key_work.bytes_remaining) as u64,
-            (read.key_work.bytes_remaining) as u64,
-            (work.scan.read_bytes_remaining) as u64,
-            (work.processing.bytes_remaining) as u64,
-            (work.originals.original_bytes_remaining) as u64,
-            (work.events.structure.bytes_remaining) as u64,
-            (work.events.canonical.bytes_remaining) as u64,
-            (work.canonical.bytes_remaining) as u64,
-            (work.factory.scan.read_bytes_remaining) as u64,
-            (work.industry.scan.read_bytes_remaining) as u64,
-            (work.logistics.scan.read_bytes_remaining) as u64,
+            work.module_states.logical_bytes_remaining,
+            overlay.values.io.read_bytes_remaining,
+            read.values.io.read_bytes_remaining,
+            overlay.key_work.bytes_remaining,
+            read.key_work.bytes_remaining,
+            work.scan.read_bytes_remaining,
+            work.processing.bytes_remaining,
+            work.originals.original_bytes_remaining,
+            work.events.structure.bytes_remaining,
+            work.events.canonical.bytes_remaining,
+            work.canonical.bytes_remaining,
+            work.factory.scan.read_bytes_remaining,
+            work.industry.scan.read_bytes_remaining,
+            work.logistics.scan.read_bytes_remaining,
             work.runtime_inner_scan.read_bytes_remaining,
         ];
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -277,31 +260,31 @@ impl NormalProjectionCurrentWorkV1<'_> {
             operation(&mut current, &mut parent, work)
         }));
         let after_steps = [
-            (work.module_states.states_remaining) as u64,
-            (overlay.values.io.nodes_remaining) as u64,
-            (read.values.io.nodes_remaining) as u64,
-            (work.scan.nodes_remaining) as u64,
-            (work.scan.leaves_remaining) as u64,
-            (work.typed.json.cells_remaining) as u64,
-            (work.typed.json.json_nodes_remaining) as u64,
-            (work.primitives.records_remaining) as u64,
-            (work.inventory.records_remaining) as u64,
-            (work.inventory.index_steps_remaining) as u64,
-            (work.processing.steps_remaining) as u64,
-            (work.originals.facts_remaining) as u64,
-            (work.events.structure.values_remaining) as u64,
-            (work.events.canonical.visits_remaining) as u64,
-            (work.canonical.visits_remaining) as u64,
+            work.module_states.states_remaining,
+            overlay.values.io.nodes_remaining,
+            read.values.io.nodes_remaining,
+            work.scan.nodes_remaining,
+            work.scan.leaves_remaining,
+            work.typed.json.cells_remaining,
+            work.typed.json.json_nodes_remaining,
+            work.primitives.records_remaining,
+            work.inventory.records_remaining,
+            work.inventory.index_steps_remaining,
+            work.processing.steps_remaining,
+            work.originals.facts_remaining,
+            work.events.structure.values_remaining,
+            work.events.canonical.visits_remaining,
+            work.canonical.visits_remaining,
             (*work.pending_entries) as u64,
-            (work.factory.cells_remaining) as u64,
-            (work.factory.scan.nodes_remaining) as u64,
-            (work.factory.scan.leaves_remaining) as u64,
-            (work.industry.cells_remaining) as u64,
-            (work.industry.scan.nodes_remaining) as u64,
-            (work.industry.scan.leaves_remaining) as u64,
-            (work.logistics.cells_remaining) as u64,
-            (work.logistics.scan.nodes_remaining) as u64,
-            (work.logistics.scan.leaves_remaining) as u64,
+            work.factory.cells_remaining,
+            work.factory.scan.nodes_remaining,
+            work.factory.scan.leaves_remaining,
+            work.industry.cells_remaining,
+            work.industry.scan.nodes_remaining,
+            work.industry.scan.leaves_remaining,
+            work.logistics.cells_remaining,
+            work.logistics.scan.nodes_remaining,
+            work.logistics.scan.leaves_remaining,
             work.controls.records_remaining,
             work.controls.index_steps_remaining,
             work.runtime_inner_scan.nodes_remaining,
@@ -311,20 +294,20 @@ impl NormalProjectionCurrentWorkV1<'_> {
             work.cognition_json.paths_remaining,
         ];
         let after_bytes = [
-            (work.module_states.logical_bytes_remaining) as u64,
-            (overlay.values.io.read_bytes_remaining) as u64,
-            (read.values.io.read_bytes_remaining) as u64,
-            (overlay.key_work.bytes_remaining) as u64,
-            (read.key_work.bytes_remaining) as u64,
-            (work.scan.read_bytes_remaining) as u64,
-            (work.processing.bytes_remaining) as u64,
-            (work.originals.original_bytes_remaining) as u64,
-            (work.events.structure.bytes_remaining) as u64,
-            (work.events.canonical.bytes_remaining) as u64,
-            (work.canonical.bytes_remaining) as u64,
-            (work.factory.scan.read_bytes_remaining) as u64,
-            (work.industry.scan.read_bytes_remaining) as u64,
-            (work.logistics.scan.read_bytes_remaining) as u64,
+            work.module_states.logical_bytes_remaining,
+            overlay.values.io.read_bytes_remaining,
+            read.values.io.read_bytes_remaining,
+            overlay.key_work.bytes_remaining,
+            read.key_work.bytes_remaining,
+            work.scan.read_bytes_remaining,
+            work.processing.bytes_remaining,
+            work.originals.original_bytes_remaining,
+            work.events.structure.bytes_remaining,
+            work.events.canonical.bytes_remaining,
+            work.canonical.bytes_remaining,
+            work.factory.scan.read_bytes_remaining,
+            work.industry.scan.read_bytes_remaining,
+            work.logistics.scan.read_bytes_remaining,
             work.runtime_inner_scan.read_bytes_remaining,
         ];
         let debit = |before: &[u64], after: &[u64]| {
