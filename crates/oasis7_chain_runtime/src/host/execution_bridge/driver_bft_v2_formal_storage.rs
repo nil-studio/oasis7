@@ -14,7 +14,7 @@ use oasis7_proto::distributed_bft::v2::{BFT_MAX_SIGNED_MATERIAL_BYTES_V2, BftBlo
 use oasis7_runtime::{LocalCasStore, blake3_hex};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
