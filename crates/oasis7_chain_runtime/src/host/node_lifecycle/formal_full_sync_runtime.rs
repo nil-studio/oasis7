@@ -56,6 +56,37 @@ impl Drop for WorkerStop {
     }
 }
 
+#[derive(Clone, Copy)]
+enum StatusPhase {
+    Acknowledge,
+    Publish,
+}
+
+/// Stop is published before waiting for this gate. An observed stop, failure
+/// or panic after acknowledgement prevents publication. A later stop still
+/// serializes its terminal write after this gate; it cannot retract an in-flight
+/// status write. The caller retains the World throughout both phases.
+fn fenced_status_transition(
+    stop: &AtomicBool,
+    gate: &Mutex<()>,
+    owner: &ProcessOwnership,
+    data: &Path,
+    mut action: impl FnMut(StatusPhase) -> Result<(), String>,
+) -> Result<bool, String> {
+    let _guard = gate.lock().map_err(|error| error.to_string())?;
+    if stop.load(Ordering::SeqCst) {
+        return Ok(false);
+    }
+    owner.require_directory(data)?;
+    action(StatusPhase::Acknowledge)?;
+    if stop.load(Ordering::SeqCst) {
+        return Ok(false);
+    }
+    owner.require_directory(data)?;
+    action(StatusPhase::Publish)?;
+    Ok(true)
+}
+
 pub(super) fn supervise(
     config: &NodeConfig,
     intent: &mut ActionRecord,
@@ -161,21 +192,34 @@ pub(super) fn supervise(
                     {
                         return Err("full-sync readiness lacked a retained verified World".into());
                     }
-                    let _status_guard = worker_status_gate
-                        .lock()
-                        .map_err(|error| error.to_string())?;
-                    if worker_stop.load(Ordering::SeqCst) {
-                        break;
+                    if single_operation_consumed {
+                        let mut verified = verified;
+                        if !fenced_status_transition(
+                            &worker_stop,
+                            &worker_status_gate,
+                            &worker_ownership,
+                            &worker_data,
+                            |phase| match phase {
+                                StatusPhase::Acknowledge => {
+                                    if let Some(verified) = verified.take() {
+                                        session.acknowledge_retained_candidate(verified)?;
+                                    }
+                                    Ok(())
+                                }
+                                StatusPhase::Publish => io::write(&status_path, session.status()),
+                            },
+                        )? {
+                            break;
+                        }
+                    } else {
+                        let _status_guard = worker_status_gate
+                            .lock()
+                            .map_err(|error| error.to_string())?;
+                        if worker_stop.load(Ordering::SeqCst) {
+                            break;
+                        }
+                        io::write(&status_path, session.status())?;
                     }
-                    if let Some(verified) = verified {
-                        worker_ownership.require_directory(&worker_data)?;
-                        session.acknowledge_retained_candidate(verified)?;
-                    }
-                    // Stop may arrive while the durable acknowledgement writes.
-                    if worker_stop.load(Ordering::SeqCst) {
-                        break;
-                    }
-                    io::write(&status_path, session.status())?;
                     next_poll = Instant::now() + poll_interval;
                 }
                 std::thread::sleep(Duration::from_millis(20));

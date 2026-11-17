@@ -154,5 +154,74 @@ fn stop_is_visible_before_status_gate_is_released() {
     done_rx.recv_timeout(Duration::from_secs(5)).unwrap();
     stopper.join().unwrap();
     assert!(visible_while_locked, "stop was hidden by the status gate");
-    assert!(!returned_while_locked, "stop returned before the status write");
+    assert!(
+        !returned_while_locked,
+        "stop returned before the status write"
+    );
+}
+
+#[test]
+fn stopped_or_failed_acknowledgement_never_publishes_readiness() {
+    for outcome in ["ok", "stopped", "late_error", "panic"] {
+        let fixture = Fixture::new();
+        let ownership = Arc::new(lock(&fixture.0).unwrap());
+        let held_owner = Arc::clone(&ownership);
+        let data = fixture.0.clone();
+        let flag = Arc::new(AtomicBool::new(false));
+        let worker_flag = Arc::clone(&flag);
+        let (persisted_tx, persisted_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let worker = spawn_owned_worker(held_owner.clone(), move || {
+            fenced_status_transition(&worker_flag, &Mutex::new(()), &held_owner, &data, |phase| {
+                match phase {
+                    StatusPhase::Acknowledge => {
+                        // Use the real durable writer, then pause the return.
+                        io::write(&data.join("ack.json"), &true)?;
+                        persisted_tx.send(()).unwrap();
+                        release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                        assert!(outcome != "panic", "injected acknowledgement unwind");
+                        if outcome == "late_error" {
+                            return Err("attempt_expired_after_installation_ack".into());
+                        }
+                        Ok(())
+                    }
+                    StatusPhase::Publish => io::write(&data.join("ready.json"), &true),
+                }
+            })
+        })
+        .unwrap();
+        persisted_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(io::read::<bool>(&fixture.0.join("ack.json")).unwrap());
+        drop(ownership);
+        assert!(lock(&fixture.0).is_err());
+        if outcome == "stopped" {
+            flag.store(true, Ordering::SeqCst);
+        }
+        release_tx.send(()).unwrap();
+        let result = worker.join();
+        match outcome {
+            "ok" => assert!(result.unwrap().unwrap()),
+            "stopped" => assert!(!result.unwrap().unwrap()),
+            "late_error" => assert!(result.unwrap().is_err()),
+            _ => assert!(result.is_err()),
+        }
+        assert_eq!(fixture.0.join("ready.json").exists(), outcome == "ok");
+        drop(lock(&fixture.0).unwrap());
+    }
+}
+
+#[test]
+fn stopped_before_acknowledgement_has_no_external_effect() {
+    let fixture = Fixture::new();
+    let ownership = lock(&fixture.0).unwrap();
+    let stop = AtomicBool::new(true);
+    let mut calls = 0;
+    assert!(
+        !fenced_status_transition(&stop, &Mutex::new(()), &ownership, &fixture.0, |_| {
+            calls += 1;
+            Ok(())
+        },)
+        .unwrap()
+    );
+    assert_eq!(calls, 0);
 }
