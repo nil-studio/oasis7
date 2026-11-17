@@ -49,6 +49,56 @@ class PlannerTests(unittest.TestCase):
         args.update(kw)
         return planner.plan(SimpleNamespace(**args))
 
+    def test_root_deny_policy_add_modify_delete_routes_actions(self):
+        for value in ('[advisories]\nignore=[]\n', '[advisories]\nignore=["fixture"]\n'):
+            self.base = self.git('rev-parse', 'HEAD')
+            self.write('deny.toml', value); self.commit()
+            result = self.run_plan()
+            self.assertEqual(result['selected_units'], ['actions-repo'])
+            self.assertEqual(result['reasons']['actions-repo'], ['deny.toml'])
+        self.base = self.git('rev-parse', 'HEAD')
+        (self.root / 'deny.toml').unlink(); self.commit()
+        self.assertEqual(self.run_plan()['selected_units'], ['actions-repo'])
+
+    def test_root_deny_policy_neighbors_and_rename_fail_closed(self):
+        self.write('deny.toml', '[advisories]'); self.base = self.commit()
+        for path in ('other/deny.toml', 'scripts/deny.toml', 'deny-extra.toml', 'deny.toml.backup'):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, '[advisories]'); self.commit()
+                for full in (False, True):
+                    with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                        self.run_plan(full=full)
+                (self.root / path).unlink(); self.commit()
+        self.base = self.git('rev-parse', 'HEAD')
+        self.git('mv', 'deny.toml', 'renamed.toml'); self.commit()
+        with self.assertRaisesRegex(ValueError, 'unregistered input'):
+            self.run_plan()
+
+    def test_root_deny_policy_symlink_requires_review(self):
+        (self.root / 'deny.toml').symlink_to('docs/guide.md'); self.commit()
+        with self.assertRaisesRegex(ValueError, 'symbolic link'):
+            self.run_plan()
+
+    def test_root_deny_policy_preserves_old_consumers_and_batch_limits(self):
+        self.write('deny.toml', '[advisories]')
+        self.write('src/lib.rs', 'const S: &str = include_str!("../deny.toml");')
+        self.write('build.rs', 'fn main() {}'); self.base = self.commit()
+        self.write('src/lib.rs', '')
+        (self.root / 'build.rs').unlink()
+        self.write('deny.toml', '[advisories]\nignore=[]'); self.commit()
+        result = self.run_plan(batch_modes='{"actions-repo/default":"observe"}')
+        self.assertEqual(result['candidate_units'], ['actions-repo', 'rust-repo'])
+        self.assertEqual(result['selected_units'], ['actions-repo'])
+        self.assertEqual(result['not_selected_reasons']['rust-repo'], 'batch_disabled')
+        self.assertIn('embedded or possible build input: deny.toml', result['reasons']['rust-repo'])
+        self.assertEqual(self.run_plan(batch_modes='{}')['status'], 'disabled')
+
+    def test_root_deny_policy_preserves_full_maintenance(self):
+        self.write('deny.toml', '[advisories]'); self.commit()
+        self.assertEqual(self.run_plan(full=True)['selected_units'],
+                         ['actions-repo', 'python-repo', 'javascript-repo', 'rust-repo'])
+
     def test_issue_metadata_add_modify_delete_is_not_executable_code(self):
         for name in ('code-development', 'config', 'decision', 'defect', 'document', 'test'):
             path = '.github/ISSUE_TEMPLATE/' + name + '.yml'

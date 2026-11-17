@@ -111,7 +111,6 @@ impl ProcessOwnership {
     pub(super) fn require_current_directory(&self) -> Result<(), String> {
         self.require_directory(&self.directory)
     }
-
     pub(super) fn require_directory(&self, data: &Path) -> Result<(), String> {
         io::reject_symlinks(data)?;
         let directory = fs::canonicalize(data).map_err(|e| e.to_string())?;

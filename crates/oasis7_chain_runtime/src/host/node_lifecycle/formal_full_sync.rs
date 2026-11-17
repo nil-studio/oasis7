@@ -321,23 +321,23 @@ impl FormalFullSyncSession {
     pub(crate) fn sync_latest(&mut self) -> Result<RestoredFormalFullSyncWorldV1, String> {
         self.check_operation_active()?;
         let result = self.sync_latest_owned();
-        if let Some(exchange) = &self.shared_exchange {
-            if let Err(error) = exchange.finish_attempt() {
-                let error = error.to_string();
-                self.fail(&error);
-                return Err(error);
-            }
+        if let Some(exchange) = &self.shared_exchange
+            && let Err(error) = exchange.finish_attempt()
+        {
+            let error = error.to_string();
+            self.fail(&error);
+            return Err(error);
         }
         result
     }
 
     fn check_operation_active(&mut self) -> Result<(), String> {
-        if let Some(exchange) = &self.shared_exchange {
-            if let Err(error) = exchange.check_active() {
-                let error = error.to_string();
-                self.fail(&error);
-                return Err(error);
-            }
+        if let Some(exchange) = &self.shared_exchange
+            && let Err(error) = exchange.check_active()
+        {
+            let error = error.to_string();
+            self.fail(&error);
+            return Err(error);
         }
         Ok(())
     }

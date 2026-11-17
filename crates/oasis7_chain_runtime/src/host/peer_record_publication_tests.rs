@@ -228,8 +228,13 @@ fn durable_peer_record_publication_is_opt_in_and_bound_to_runtime_root() {
     );
     drop(network);
 
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    // Drop requests asynchronous shutdown. Wait for this publisher's actual
+    // claim, not an assumed scheduling delay. No other initializer/restart uses
+    // this private fixture directory; this is not a general network join API.
+    let publisher_claim = wait_for_publisher_release(&expected, Duration::from_secs(5))
+        .expect("publisher must release its claim before directory removal");
     std::fs::remove_dir_all(&expected).expect("remove complete publisher directory");
+    drop(publisher_claim);
     let missing_directory_error =
         create_default_replication_network(&start_options, &keypair, &paths)
             .err()
@@ -259,6 +264,76 @@ fn durable_peer_record_publication_is_opt_in_and_bound_to_runtime_root() {
         other.peer_record_publication_directory
     );
     std::fs::remove_dir_all(scratch).expect("remove test scratch directory");
+}
+
+#[cfg(unix)]
+fn wait_for_publisher_release(
+    directory: &Path,
+    budget: Duration,
+) -> std::io::Result<std::fs::File> {
+    let deadline = Instant::now() + budget;
+    // Open the original carrier only: a missing carrier must not be recreated.
+    let claim = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(directory.join("peer-record-publication-v2.lock"))?;
+    loop {
+        if Instant::now() >= deadline {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "publisher claim is still held",
+            ));
+        }
+        match claim.try_lock() {
+            Ok(()) => return Ok(claim),
+            Err(std::fs::TryLockError::WouldBlock) => {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "publisher claim is still held",
+                    ));
+                }
+                std::thread::sleep(remaining.min(Duration::from_millis(20)));
+            }
+            Err(std::fs::TryLockError::Error(error)) => return Err(error),
+        }
+    }
+}
+
+#[test]
+#[cfg(unix)]
+fn publisher_cleanup_requires_released_original_claim() {
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut random = [0_u8; 16];
+    getrandom::fill(&mut random).unwrap();
+    let root = std::env::temp_dir().join(format!("publisher-cleanup-{}", hex::encode(random)));
+    std::fs::create_dir(&root).unwrap();
+    let path = root.join("peer-record-publication-v2.lock");
+    let owner = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)
+        .unwrap();
+    owner.try_lock().unwrap();
+    let error = wait_for_publisher_release(&root, Duration::from_millis(20)).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    assert!(path.exists());
+    drop(owner);
+    let cleanup = wait_for_publisher_release(&root, Duration::from_secs(1)).unwrap();
+    let competing = std::fs::File::open(&path).unwrap();
+    assert!(matches!(
+        competing.try_lock(),
+        Err(std::fs::TryLockError::WouldBlock)
+    ));
+    drop(competing);
+    std::fs::remove_dir_all(&root).unwrap();
+    drop(cleanup);
+    let error = wait_for_publisher_release(&root, Duration::ZERO).unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    assert!(!root.exists());
 }
 
 #[test]

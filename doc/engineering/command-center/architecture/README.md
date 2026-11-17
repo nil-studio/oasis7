@@ -96,7 +96,7 @@ L4 工具链局部文档更新（2026-10-12，核对基线 `27db6f894bd106e9a4fe
 
 2026-10-27 业务接口实现局部核对：cognition 投影解码 [#5140](https://github.com/nil-studio/oasis7/pull/5140)、Game Client 原操作生命周期 [#5146](https://github.com/nil-studio/oasis7/pull/5146)、网络失败类型合同 [#5147](https://github.com/nil-studio/oasis7/pull/5147) 和 Runtime 委托结果/只读重试 [#5149](https://github.com/nil-studio/oasis7/pull/5149) 已合入。验证和兼容边界见各 PR，不代表部署或新增完整玩法验收。WASM 输入闭包 [#5148](https://github.com/nil-studio/oasis7/pull/5148) 仍在实现与构建验证；个人能力/恢复查询 [#5150](https://github.com/nil-studio/oasis7/pull/5150) 的当前源码检查通过，但真实界面验收因受支持入口和 Owner 身份映射前置未满足而阻塞，仍为草稿。其他主题和部署基线不变。
 
-玩法权威协议局部设计核对（2026-10-19，文档基线 `e4bfdb8d2f03a3ccdc4a61a622881c19dbd272c6`）：[Runtime 专题分工](../../../world-runtime/design.md#runtime-gameplay-authority-designs)与[八项协议入口](../../../world-runtime/prd.index.md#gameplay-authority-protocols)把治理分类、charter、工业工作、配方替代、公共 levy、外部性、贡献恢复和安全确认分配给独立 authority。各专题共享世界提交顺序和恢复事实；charter、模型建议、预览或其他专题 receipt 不自动授予新权限或代签世界效果。该增量只补目标系统设计，不改变现有 Runtime/native 制度边界；实现、正式持久性及部署仍按各原合同验证。
+玩法权威协议局部设计核对（2026-11-17，输入 main `197de1b2f2a29afc60ff192530bd34bde8640fc3`）：[专题分工](../../../world-runtime/design.md#runtime-gameplay-authority-designs)和[协议入口](../../../world-runtime/prd.index.md#gameplay-authority-protocols)仍分别拥有治理、charter、工业工作、levy、外部性及贡献恢复。本轮文档修订将这些业务的单次效果和恢复明确接到[既有 G1](../../../world-runtime/runtime/runtime-storage-footprint-governance.design.md#storage-generation-g1-design)：业务拒绝/观察未知不等于底层提交未知；确认提交保留原结果，底层未知围住旧 World 的后续写入。各 authority、原 Trace/验收和 Runtime/native 制度边界保持；[工业工作设计](../../../world-runtime/runtime/industrial-work-graph-and-recipe-lifecycle.design.md#3-当前状态目标状态与差距)已核到有限原生子集，完整工作图、各治理制度和同候选运行验收仍由原实施项承接。
 
 | 主题 | 关键边界 | 需人关注时机 | 权威入口 |
 | --- | --- | --- | --- |

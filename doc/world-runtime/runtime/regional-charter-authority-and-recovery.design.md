@@ -3,7 +3,7 @@
 - 设计 ID：`DES-WR-CHARTER`
 - 状态：`active`，长期目标合同；专用运行时和正式玩家验收尚未由本文证明。
 - Owner role：`runtime_engineer`；制度与区域政策由 `producer_system_designer` / `gameplay_designer` 拥有，身份和授权由 `blockchain_ops_engineer` 拥有，组合验收由 `qa_engineer` 拥有。
-- 固定审读基线：`nil-studio/oasis7`，`e4bfdb8d2f03a3ccdc4a61a622881c19dbd272c6`，2026-10-19。
+- 固定审读基线：`nil-studio/oasis7`，`197de1b2f2a29afc60ff192530bd34bde8640fc3`，2026-11-17；静态核对现有消费者和持久化合同，未运行业务验收。
 - 上游：[区域能力 GR-004 至 GR-006](../../product/world-rules-core-gameplay/governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-004)；[区域玩法合同](../../game/gameplay/gameplay-regional-charter-tenure-funding-contract.prd.md#ac-game-017-01)。
 
 ## 1. 问题、目标与非目标
@@ -32,7 +32,7 @@
 
 | 对象 | 当前基线 | 目标 | 差距 / owner |
 | --- | --- | --- | --- |
-| 区域身份 | [AllianceState](../../../crates/oasis7_world_state/src/gameplay_state.rs) 具有成员、`charter: String` 与形成时间。 | 独立 charter identity、空间/权限修订及审查链。 | Alliance 关系不是区域资格；runtime/institution module。 |
+| 区域身份 | [AllianceState](../../../crates/oasis7_world_state/src/gameplay_state.rs) 及[成立入口](../../../crates/oasis7_runtime/src/world/event_processing/action_to_event_gameplay_alliances.rs)仍承接成员与 `charter: String`；另有[组织连续性 charter 适配](../../../crates/oasis7_world_state/src/world_rules/organization/organization_continuity_types.rs)。 | 独立区域 charter identity、空间/权限修订及审查链。 | 已有组织继承/休眠合同保留；它不生产区域空间、三层审查、双资格或 levy authority。 |
 | 权重与物流 | [现有票权状态](../../../crates/oasis7_world_state/src/gameplay_state.rs) 与 [路线状态](../../../crates/oasis7_world_state/src/state/industry_transition/logistics_topology.rs) 各自存在。 | 同一 charter 上下文中的双资格及不封路校验。 | 现有 Agent 权重、路线 owner/capacity 不证明该合取。 |
 | 持久化 | [统一事务与恢复](../design.md#622-disposition-and-idempotency-contract) 有基础合同。 | 证据、审查、bond、权限、阶段与处置账本共同恢复。 | 下列专用 schema/producer/消费者和验收仍须交付。 |
 
@@ -114,7 +114,7 @@ charter 主记录与 levy/tenure 等子域授权分离。`active` 只表明该 c
 
 | 记录 / 接口 | 必填内容 | producer → consumer 与规则 |
 | --- | --- | --- |
-| `CharterProposalV1` | `world_id, module_instance_id, proposal_id, proposal_revision, operation(create/merge/adjust), previous_charters[(id,revision)], scope_ref, capability_scope, policy_ref, evidence_set_hash, required_review_set, payload_hash` | 提案→审查器；create 的前身集合显式为空，merge/adjust 必须齐全；新修订不搬旧审查。 |
+| `CharterProposalV1` | `world_id, module_instance_id, proposal_id, proposal_revision, operation(create/merge/adjust), previous_charters[(id,revision)], target_charter_ref, scope_ref, capability_scope, policy_ref, evidence_set_hash, required_review_set, payload_hash` | 提案→审查器；create 的前身集合显式为空，merge/adjust 必须齐全；目标 charter 身份在审查前固定并进入 payload，不在执行时重分配；新修订不搬旧审查。 |
 | `CharterEvidenceV1` | proposal/revision、evidence kind、producer/authority、对象/范围、observation interval、事实/receipt refs、相关状态版本、有效性与缺项 | 空间/服务/需求/身份/资源→区域模块；元数据不伪装成事实 proof。 |
 | `CharterReviewV1` | proposal/revision/payload、layer(local/neighbor/global)、reviewer authority、适用影响范围、verdict、理由/异议、原/后继 receipt | 独立审查→激活器；required set 的每项须有当前有效结果。 |
 | `CharterStateV1` | charter id/revision、source decision、policy、scope/capabilities、effective interval、status、authorization revision、bond commitment、degradation/recovery refs、可空的 disposition plan ref | 区域模块→事务与授权读面；可空字段仅表示当前无该流程，不表示已完成。 |
@@ -123,7 +123,9 @@ charter 主记录与 levy/tenure 等子域授权分离。`active` 只表明该 c
 | `CharterTransitionV1` | charter、expected revision、operation identity、from/to status、cause/evidence、authority、生效 tick、capability delta、bond/处置 refs、receipt | 阶段裁决→根事务；同 revision 的并发转换只有一个可提交。 |
 | `CharterDispositionV1` | plan id/revision、charter/cause、对象完整集合承诺、每对象 owner/原义务/允许动作/authority、operation id、状态和 child receipt | 处置协调→各资产 owner；`planned/pending/applied/rejected/disputed` 分项持久化，不能以 parent 状态替代子结果。 |
 
-写请求包含 `request_id`、语义 `operation_id` 与 payload digest；幂等键是 `(world_id, module_instance_id, charter_or_proposal_id, operation_id)`。同键同内容返回原结果，同键异内容 `identity_conflict`；换 request ID 不改变语义操作。另以 `(全限定 charter identity, expected_revision)`、world 域内重叠排他 capability 键和每个资产的全限定 disposition operation 约束并发，防止跨实例冲突及客户端换 operation ID 绕开单次处置。
+写请求包含 `request_id`、语义 `operation_id` 与 payload digest；传输重试绑定同一请求及内容。成立/合并/调整另有由权威执行器固定的业务槽 `(world_id, module_instance_id, proposal_id, approved_proposal_revision)`；槽绑定已审 payload，其中包括 create/merge/adjust、全部前身及目标 charter 身份。提交同时校验提案尚未 applied，并原子消费该槽；更换 request/operation ID、目标 charter ID 或非排他 scope 都不能把同一已审方案再次执行。同槽同内容返回原 charter receipt，同槽异内容 `identity_conflict`。先核对当前读取权限并查原结果，只有没有已提交结果的新执行才重验当前生效条件；返回原 receipt 不复活其已失效的权限。
+
+阶段转换另以 `(全限定 charter identity, expected_revision)`、world 域内重叠排他 capability 键和每个资产的全限定 disposition operation 约束并发。处置身份从原计划及对象产生，不由调用者换 operation ID 重置；传输去重、提案业务槽、阶段 CAS 和资产处置索引共同恢复，不能互相替代。
 
 错误种类冻结为 `unsupported_schema / missing_evidence / scope_unverified / review_pending / scope_objection / authority_invalid / qualification_incomplete / protected_boundary / stale_revision / bond_unavailable / disposition_unavailable / identity_conflict / outcome_unknown`。错误携带对象、可公开依据、当前是否已有 receipt、可执行下一步；不得将 `outcome_unknown` 转成新提案。数值/字节容量由版本化运行配置提供，超限在审查/写入前拒绝。
 
@@ -136,7 +138,9 @@ charter 主记录与 levy/tenure 等子域授权分离。`active` 只表明该 c
 
 物理迁移、回收、合同结算是独立子事务，各自同时写对象变化、原义务释放/履行、子处置终态与 receipt。更新汇总进度只读取子结果，不能再执行经济效果；取消和完成争用同一处置身份，只有一个合法终态。证据/对象漂移要求重评未执行部分，已结结果和数量不回滚重算。
 
-恢复共同读取空间/政策版本、审查链、charter/授权修订、权威时间/观察覆盖、bond、处置计划/子结果及语义去重索引。不能从 Alliance 文本、缺省 active 或当前余额反造 charter。已提交但响应丢失返回原 receipt；提交是否发生不明时按[事务恢复](../design.md#622-disposition-and-idempotency-contract)阻断确切操作，未确认前不再锁 bond 或恢复权限。canonical replay 重建事实，不按重启 wall clock 补罚、延长窗口或重新调度外部业务。
+恢复共同读取空间/政策版本、审查链、charter/授权修订、权威时间/观察覆盖、bond、处置计划/子结果及提案槽、阶段和处置去重索引。不能从 Alliance 文本、缺省 active 或当前余额反造区域 charter。已提交但响应丢失按原槽/操作查询并返回原 receipt，未查明前不再锁 bond 或恢复权限；这类观察未知不等于底层持久化结果未知。
+
+附着持久化目录的提交沿[原 G1 提交判定](runtime-storage-footprint-governance.design.md#storage-generation-g1-design)：只有 `NotCommitted` 才丢弃候选并保留旧 World；`Committed` 安装同一完整候选、保留原 charter/bond/处置结果，后续维护失败单独报告；`StatusUnknown` 保留原业务身份及候选，在原持久化发布边界围住整个旧 World 的后续 mutator/save 及依赖该未决结果的外部派发，核对精确提交并对齐内存后才解除。不能将这个围栏缩成单 charter 锁，或用读到旧 generation 推定未提交。canonical replay 重建原事实，不按重启 wall clock 补罚、延长窗口或重新调度外部业务。
 
 charter 终态、来源与处置 tombstone 在所有相关历史仍可被引用时必须可查询；物理压缩/归档不能丢失“已释放/已迁移/已结算”的判断。`persisted`、同世界恢复和跨节点 finality 分别由原持久化/P2P 合同证明，本文的状态名不代替它们。
 
@@ -144,7 +148,7 @@ charter 终态、来源与处置 tombstone 在所有相关历史仍可被引用�
 
 所有 charter 写入、timer/服务触发及恢复经过同一模块实例和 Kernel 事务，没有绕开它的“管理员修复”写路径。独立审查能力按 layer 和影响范围限定；同一普通批准不能伪装成本地、邻区和全局三个结果。服务 evidence producer 无治理权，审查者无直接资产写权，处置 executor 无一般日常经营权。
 
-证据缺失、签名/身份不可核验、模块版本不可取回和持久化疑义只阻断相关授权，保留历史、诊断及仍合法的独立服务。公开读面披露本人的资格结果、范围、阶段、理由及下一步，不泄漏贡献者私密数据和控制关系原件。
+只有 World 提交结果已确定、所选 generation 完整且原恢复服务闸门允许继续时，专业证据或当前资格缺失才局部阻断依赖它们的授权，保留历史、诊断及仍合法的独立服务。原模块版本、记录等必要恢复材料不可取回时，沿原 G1/G3 和同世界恢复闸门处理，即使已知 `Committed` 也不能放行不完整或旧 World 的后续写入；底层 `StatusUnknown` 另按 §7 保留原 World 写入围栏。公开读面披露本人的资格结果、范围、阶段、理由及下一步；持久化未知时标明最后已验证状态的限制，不泄漏贡献者私密数据和控制关系原件。
 
 ## 9. 质量与容量
 
@@ -166,13 +170,13 @@ charter 终态、来源与处置 tombstone 在所有相关历史仍可被引用�
 场景 ID 是本设计冻结的实施验收方法，专用测试仍待实现。required/full 使用同一 source/build、module/policy、world 和权限快照；正式玩家/API/Agent 结果与其世界 receipt 同案核对，不能用 FormAlliance 成功代签。
 
 <a id="charter-verify-001"></a>
-- **CHARTER-VERIFY-001 / required**：成立、合并、调整各一正例；逐项删去持续能力/需求/资源/bond/空间证据，伪造无邻区影响，给邻区通行异议、缺全局审查及执行前漂移。比较三层理由，检查所有前身、bond、角色和空间能力原子不变；重复有效案只有一次 scoped receipt。
+- **CHARTER-VERIFY-001 / required**：成立、合并、调整各一正例；逐项删去持续能力/需求/资源/bond/空间证据，伪造无邻区影响，给邻区通行异议、缺全局审查及执行前漂移。比较三层理由，检查所有前身、bond、角色和空间能力原子不变；重复有效案，以及改 request/operation ID 或目标 charter ID 重提同一已审方案，只有一次 scoped receipt 和 bond 占用；包含没有排他 capability 的正例，避免仅靠范围冲突间接去重。
 <a id="charter-verify-002"></a>
 - **CHARTER-VERIFY-002 / required**：在同一成熟 charter 内比较资本足但无贡献、有贡献但治理资格不足、可撤回委托、同控制人多个身份、贡献中断和双资格有效；范围外、保护项、容量稀缺另测。核验公开通行/透明结算/替代与独立恢复不被任意阻断，scope/authority revision 更新立即约束后续执行。
 <a id="charter-verify-003"></a>
 - **CHARTER-VERIFY-003 / required + full**：分别执行短时失败、观察修复成功、持续退化暂停、无法恢复解散及申诉纠正；插入服务证据缺口和纯技术停机。逐类核验 bond、设施、Agent、tenure、合同与 receipt 保留；子处置取消/完成、响应丢失、重复恢复只产生一个结果。full 加跨节点、快照与后缀 replay。
 <a id="charter-verify-004"></a>
-- **CHARTER-VERIFY-004 / required + full**：在合并及每一子处置写点注入提交前故障与提交后丢响应；并发调整同一修订及重叠排他 capability、超限 evidence/对象集合；对同案 Viewer/pure API/Agent 比较当前阶段、缺项、范围、保留/损失及下一步。恢复不重新扣 bond、不复活旧授权，也不补造缺失处置。
+- **CHARTER-VERIFY-004 / required + full**：在合并及每一子处置写点注入提交前故障与提交后丢响应；并发调整同一修订及重叠排他 capability、超限 evidence/对象集合；对同案 Viewer/pure API/Agent 比较当前阶段、缺项、范围、保留/损失及下一步。恢复不重新扣 bond、不复活旧授权，也不补造缺失处置。分别注入 G1 的替换前失败、rename 后同步/回读未知和确认提交后的维护失败；核对返回值、原 receipt、内存与恢复结果。未知期间尝试保存无关账户必须被旧 World 围栏阻止，核对并安装精确候选后才恢复后续写入；仅丢响应的对照不误设该围栏。
 
 ### 11.1 验证映射表
 

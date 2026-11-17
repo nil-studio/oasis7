@@ -2,11 +2,11 @@
 
 - 状态：`target` 技术合同；本文冻结目标逻辑记录、权威边界、转换和恢复不变量，不声明实现或验收完成。
 - Owner：`runtime_engineer` 负责工作图、事务和恢复；M4/domain owner 负责批次、数量、执行单位和处置规则；配方治理 owner 负责版本准入与生命周期；`gameplay_designer` 负责政策和机会成本；Agent、Viewer/API 与 QA 负责消费者和独立验收。
-- 审读基线：`nil-studio/oasis7@e4bfdb8d2f03a3ccdc4a61a622881c19dbd272c6`。范围来源 [#4856](https://github.com/nil-studio/oasis7/issues/4856)；历史实现证据继续按产品状态卡的固定版本解释。
+- 审读基线：`nil-studio/oasis7@197de1b2f2a29afc60ff192530bd34bde8640fc3`，2026-11-17，仅静态核对设计与源码；范围来源 [#4856](https://github.com/nil-studio/oasis7/issues/4856)。原 `e4bfdb8d2f03a3ccdc4a61a622881c19dbd272c6` 审读及产品状态卡中的历史实现证据保留原版本和证明范围，本轮不将其升级为运行验收。
 
 ## 1. 问题、目标与非目标
 
-现有普通 recipe job、材料与电力扣减、部分物流预留和完成回执不能表达多阶段工作图或配方版本的六状态准入。目标是使一个工业承诺从接受、齐套、加工、运输、缓冲到终端处置始终保留身份、资源义务和单次效果，并让配方状态变化通过明确接口处置存量工作。
+现有普通 recipe job、材料与电力扣减、部分物流预留，以及新增的原生工业 root/托管输入/有限终端子集，尚不能表达完整多阶段工作图或配方版本的六状态准入。目标是使一个工业承诺从接受、齐套、加工、运输、缓冲到终端处置始终保留身份、资源义务和单次效果，并让配方状态变化通过明确接口处置存量工作。
 
 阶段 A 交付 SC-20/21 的工业工作图和 receipt authority；阶段 B 交付 SC-24 的配方准入状态机，只通过不可变 `RecipeVersionRefV1`、准入判定与六类工作处置接口消费 A。两者可以分阶段实施，不能由 A 完成推导 B 完成，也不能把配方治理和工作执行合为一个 authority 枚举。本文不制定配比、价格、产能数值、公平策略参数、奖励或维护政策；不实现额外 Agent 制造、完整首局、部署、全部工业产品验证或工厂升级。
 
@@ -33,10 +33,13 @@
 
 | 对象 | 当前基线 | 目标 | 差距与证据 |
 | --- | --- | --- | --- |
-| 工作身份与扣减 | `RecipeJobState` 保存 job、recipe、输入/产物、账本、路径与 ready_at；普通任务真实扣料 | 持久 root/revision/child、join、窗口及终态 | [当前状态](../../../crates/oasis7_runtime/src/state.rs)仍不是工作图；不能把 `committed_recipe_origin` 当 recipe authority |
-| 原子 apply | recipe 与 transit 有局部 prepared transition 和单次完成检查 | 工作图、库存、容量、receipt 在同一事务提交 | [recipe reducer](../../../crates/oasis7_world_state/src/state/industry_transition/recipe_lifecycle.rs)、[transit reducer](../../../crates/oasis7_world_state/src/state/industry_transition/material_transit.rs)是可复用子能力；[统一事务](../design.md#62-unified-executiontransaction-architecture-p0)总体仍 partial |
-| 配方生命周期 | `RecipeProfileV1` 为 recipe_id、tags、stage_gate、preferred_factory_tags 四字段 | 不可变版本 + 六状态 authority + 存量处置 | [当前 ABI](../../../crates/oasis7_wasm_abi/src/economy.rs)没有六状态；模块 release 与设施 retired 检查不能替代 |
-| 对外读取 | 现有普通 job/receipt 读取 | 授权工作图、held/consumed/unmet、窗口、处置及下一步 | 新 DTO、API/Viewer/Agent parity 与端到端恢复均待实现验证 |
+| 工作身份与扣减 | `IndustrialWorkStateV1` 已保存 root、托管 lot、parent bindings、消费键和 effect-role receipt；`RecipeJobState.industrial_root_ref` 关联原生生产任务 | 完整 root/revision/child 图、join、窗口及终态 | [现有类型](../../../crates/oasis7_agent_api/src/world_action/industrial_work.rs)、[共享 reducer](../../../crates/oasis7_world_state/src/world_rules/industrial_work.rs)可复用；尚不等于多阶段图、continuation segment、allocation 或 diagnostic window。`committed_recipe_origin` 仍不是 recipe authority |
+| 原生生产子集 | 受证据约束的 lot 导入、root 准入、齐套后真实扣减、有限输出容量和显式终止已有写点；完成检查保留准确 root/job 关联和原目的地 | 多阶段工作、全部 bucket 和配方处置共同守恒 | [准入](../../../crates/oasis7_world_state/src/world_rules/industrial_work_admission.rs)、[启动](../../../crates/oasis7_world_state/src/world_rules/industrial_work_start.rs)、[完成 guard](../../../crates/oasis7_world_state/src/world_rules/industrial_completion.rs)、[终止](../../../crates/oasis7_world_state/src/world_rules/industrial_work_terminate.rs)只覆盖其显式支持子集；staged intake、完整缓冲/运输/终端义务和六态不得从这些写点推导 |
+| 原子 apply | recipe、transit 及原生工业命令有 prepared transition 和局部单次效果检查 | 工作图、库存、容量、receipt 在同一事务提交并按持久化结果安装 | [recipe reducer](../../../crates/oasis7_world_state/src/state/industry_transition/recipe_lifecycle.rs)、[transit reducer](../../../crates/oasis7_world_state/src/state/industry_transition/material_transit.rs)是可复用子能力；[统一事务](../design.md#62-unified-executiontransaction-architecture-p0)的完整工作图组合与 G1 故障覆盖仍需逐项验证 |
+| 配方生命周期 | `RecipeProfileV1` 包含 recipe_id、substitution_rules、bottleneck_tags、stage_gate、preferred_factory_tags；替代规则不提供六态准入 | 不可变版本 + 六状态 authority + 存量处置 | [当前 ABI](../../../crates/oasis7_wasm_abi/src/economy.rs)没有六状态；模块 release、材料替代和设施 retired 检查不能替代 |
+| 对外读取 | 普通 job/receipt 及受 canonical owner binding 约束的工业 root/lot/receipt 投影已存在 | 完整授权工作图、held/consumed/unmet、窗口、处置及下一步 | [当前私有投影](../../../crates/oasis7_world_state/src/world_rules/substitution_read.rs)是复用入口；完整 DTO、API/Viewer/Agent parity 与端到端恢复仍需实现验证 |
+
+本表只确认当前源码中的复用点。已有 [原生生命周期测试定义](../../../crates/oasis7_runtime/src/world_rules/industrial_work_admission/tests/lifecycle.rs)覆盖单次启动、有限终端阻塞/恢复、终止及准确图关联等局部场景；本轮未运行这些测试，不能据此把 §2.1 任一完整叶合同标为验收通过。
 
 ## 4. 边界与结构
 
@@ -193,13 +196,15 @@ successor 只是导航关系。实际转换必须有明确授权、fresh compati
 <a id="industrial-transaction-recovery"></a>
 ### 7.3 原子性、并发与恢复
 
-一次边界提交共同覆盖 touched graph nodes、allocator、recipe lifecycle/disposition（若转换）、材料/电力账本、容量/hold、milestone delta、receipt、journal 与 durable publication。采用 [ExecutionTransaction](../design.md#62-unified-executiontransaction-architecture-p0)：prepare 基于不可变 base，commit 前对 expected world/graph/config/authority revisions 做 CAS；任何失败不留下部分新效果。存量较多不能中途发布部分 cutover；先构造有界只读计划，超过批次预算拒绝或按事先定义的独立作用域处理。
+一次边界提交共同覆盖 touched graph nodes、allocator、recipe lifecycle/disposition（若转换）、材料/电力账本、容量/hold、milestone delta、receipt、journal 与 durable publication。采用 [ExecutionTransaction](../design.md#62-unified-executiontransaction-architecture-p0)：prepare 基于不可变 base，commit 前对 expected world/graph/config/authority revisions 做 CAS；准备、校验或确定未提交的失败丢弃全部 staged 变化，不留下部分效果。存量较多不能中途发布部分 cutover；先构造有界只读计划，超过批次预算拒绝或按事先定义的独立作用域处理。
+
+持久化结果沿用 [G1 提交判定](runtime-storage-footprint-governance.design.md#storage-generation-g1-design)：`NotCommitted` 才能丢弃候选并保留旧 World；`Committed` 安装准确的新候选并返回原 receipt，后续镜像/GC 等维护失败单独报告；`StatusUnknown` 保留原操作键、完整候选和恢复材料，在原持久化发布边界阻止整个旧 World 的后续 mutator/save 及依赖未决结果的外部派发，核对确定结果并对齐内存后才解除。不能缩成只锁一个工业 root，也不能因普通 `Err`、读到旧快照或恢复到旧 generation 就推定未提交。
 
 同 root 不要求全程串行，但触及相同 lot/parent slot/reservation/terminal obligation 的事务必须冲突检测；输出 branch 分离只在 split profile 允许时成立。first sink、stage completion、release、terminal settlement 与补偿分别用稳定 effect role 去重。root 只有在全部已登记义务结清后关闭；explicit abort 也必须携带完整终态处置，未知不能关闭。closed root 的普通新效果拒绝，迟到通知只重读结果；合法补偿使用独立且链接历史的补偿 receipt，不复活旧工作。
 
 snapshot 保存图、parent-binding revisions、receipt 消费索引、allocator、处置计划/状态、窗口/基线和配方记录；journal 的版本化事件能够还原同一结构。完整 generation 同时承诺业务状态、控制状态和未决义务，禁止从不同 generation 拼接。恢复先验证 world/manifest/历史 schema/journal/root，再重建 graph closure、唯一引用、数量守恒和终态一致性；缺 parent、半个 cutover、重复 consume、未知 required schema 均拒绝安装。
 
-重放使用历史决策和已提交 delta，不调用 validator/模块重判、不重新报价或分配、不延长窗口、不发送外部效果。恢复后的已知未生效 pending 才在当前 authority 下继续；提交未知先查询原 intent/receipt 与 durable generation，不创建新 root 或再次扣款。失效授权只影响未发生效果，不能改写原合法历史；已提交结果与读面发布失败通过原 receipt/outbox 恢复。
+重放使用历史决策和已提交 delta，不调用 validator/模块重判、不重新报价或分配、不延长窗口、不发送外部效果。恢复后的已知未生效 pending 才在当前 authority 下继续；响应丢失先查询原 intent/receipt，若底层持久化确属 `StatusUnknown` 则执行上述 G1 核对，不创建新 root 或再次扣款。查询不可用本身不改变提交事实或建立整个 World 的持久化未知状态。失效授权只影响未发生效果，不能改写原合法历史；已提交结果与读面发布失败通过原 receipt/outbox 恢复。
 
 ## 8. 部署、安全与运行约束
 
@@ -224,6 +229,8 @@ snapshot 保存图、parent-binding revisions、receipt 消费索引、allocator
 ## 11. 验证设计与可追溯性
 
 测试方法遵循 [testing-manual](../../../testing-manual.md)及原 SC §5.1；各实现候选记录 native/module、API/Viewer/Agent 的真实覆盖。以下定义测试目标；源码测试存在、文档检查或局部 route 能力不表示这些目标已通过。required 与 full 仍按每条上游适用条件执行；full 包含多阶段、多窗口、持久化、重连/乱序/replay 和授权消费者一致性。
+
+各叶子的恢复场景共同覆盖 §7.3 的持久化分界：以同一候选的真实边界提交，在替换前失败、发布后同步/回读未知、确认提交后维护失败三个窗口注入故障，对比原请求结果、graph/ledger/receipt、活 World 和重启 World。未知期间尝试另一个 root 及无关账户写入，验证原 G1 fence 不被局部锁代替；确认提交后的维护失败和纯响应丢失均不得重建 root、重复 sink 或重发 terminal settlement。方法复用 [G1 验证矩阵](runtime-storage-footprint-governance.design.md#storage-generation-validation-matrix)与 [恢复测试入口](../../../crates/oasis7_runtime/src/tests/persistence_recovery_tests.rs)，不以恢复到旧 generation 证明原请求未提交。
 
 ### 11.1 验证映射表
 

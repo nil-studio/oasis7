@@ -78,11 +78,10 @@ fn entry(name: &'static str, scope: ContextBodyScopeV1) -> Entry {
 }
 #[test]
 fn context_body_export_storage_scope_fixture() {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis();
-    let deadline = u64::try_from(now).unwrap().checked_add(3_600_000).unwrap();
+    // Structural storage fixtures travel through cached CI artifacts and reruns.
+    // Their positive cases must not expire while waiting for a consumer. This
+    // is not a session grant; the separate expired fixture keeps deadline 1.
+    let deadline = u64::MAX;
     let entries = vec![
         entry(
             "prepared",

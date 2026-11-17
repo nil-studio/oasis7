@@ -22,6 +22,8 @@ on:
           - official-default-research
           - qualifier-research
           - candidate-workload-research
+          - rust-default-fixed-source-observation
+          - rust-default-negative-projection-observation
 
 permissions:
   contents: read
@@ -30,7 +32,7 @@ permissions:
 jobs:
   capacity:
     name: CodeQL Rust capacity
-    if: github.event_name == 'workflow_dispatch' && inputs.execute == true
+    if: github.event_name == 'workflow_dispatch' && inputs.execute == true && inputs.mode != 'rust-default-fixed-source-observation' && inputs.mode != 'rust-default-negative-projection-observation'
     runs-on: ubuntu-24.04
     timeout-minutes: ${{ inputs.mode == 'official-default-research' && 360 || inputs.mode == 'qualifier-research' && 150 || 90 }}
     concurrency:
@@ -91,6 +93,8 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - id: snapshot
         name: Freeze the helper closure outside the collection tree
         run: |
@@ -310,3 +314,232 @@ jobs:
           path: ${{ runner.temp }}/rust-qualifier-evidence
           if-no-files-found: error
           retention-days: 14
+
+  observe:
+    name: CodeQL Rust fixed source observation
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.execute == true && (inputs.mode == 'rust-default-fixed-source-observation' || inputs.mode == 'rust-default-negative-projection-observation')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    concurrency:
+      group: oasis7-codeql-scan-slot-1
+      queue: max
+      cancel-in-progress: false
+    env:
+      COMPARE_QUALIFIER_PATCH: ${{ inputs.compare_qualifier_patch && 'true' || 'false' }}
+      OASIS7_CODEQL_PRODUCTION_MODE: ${{ inputs.mode }}
+      OASIS7_CODEQL_PRODUCTION_SOURCE: 2bcc4edafdc615f395c9138a0b39ede366726d34
+      RUSTC_WRAPPER: ''
+      RUSTUP_TOOLCHAIN: '1.96.0'
+      PYTHONDONTWRITEBYTECODE: '1'
+      CODEQL_RAM: ''
+      CODEQL_THREADS: ''
+      CODEQL_EXTRACTOR_RUST_OPTION_CARGO_ALL_TARGETS: 'true'
+      CODEQL_EXTRACTOR_RUST_OPTION_EXTRA_INCLUDES: '["${{ github.workspace }}/crates/oasis7_builtin_wasm_modules/_templates"]'
+    steps:
+      - name: Reject incompatible observation inputs
+        run: |
+          if [ "$COMPARE_QUALIFIER_PATCH" != false ]; then
+            echo 'Fixed-source observation does not accept qualifier comparison' >&2
+            exit 1
+          fi
+      - name: Check out trusted main tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
+      - id: snapshot
+        name: Freeze production helpers outside the collection tree
+        timeout-minutes: 1
+        run: |
+          python3 scripts/security/codeql_rust_capacity_layout.py stage --production-default \
+            --source "$GITHUB_WORKSPACE" --tools "$RUNNER_TEMP/codeql-rust-fixed-source-helper" \
+            --output "$RUNNER_TEMP/codeql-rust-fixed-source-layout" \
+            --tool-sha "$GITHUB_SHA" --deadline "$(python3 -c 'import time; print(time.time() + 180)')"
+      - name: Check out the fixed business source at the collection root
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.OASIS7_CODEQL_PRODUCTION_SOURCE }}
+          clean: true
+          persist-credentials: false
+      - id: layout
+        name: Verify business identity and isolated helpers before init
+        timeout-minutes: 1
+        run: |
+          python3 "$RUNNER_TEMP/codeql-rust-fixed-source-helper/codeql_rust_capacity_layout.py" check --production-default \
+            --source "$GITHUB_WORKSPACE" --tools "$RUNNER_TEMP/codeql-rust-fixed-source-helper" \
+            --output "$RUNNER_TEMP/codeql-rust-fixed-source-layout" \
+            --source-sha "$OASIS7_CODEQL_PRODUCTION_SOURCE" --deadline "$(python3 -c 'import time; print(time.time() + 180)')"
+      - name: Minimal stable Rust extraction toolchain
+        run: rustup toolchain install 1.96.0 --profile minimal
+      - id: rust_native
+        name: Prepare Rust native extraction prerequisites
+        timeout-minutes: 5
+        run: |
+          python3 -I - <<'PY'
+          import importlib.util, json, os, pathlib, sys, time
+          source = pathlib.Path(os.environ['GITHUB_WORKSPACE'])
+          helpers = pathlib.Path(os.environ['RUNNER_TEMP']) / 'codeql-rust-fixed-source-helper'
+          sys.path.insert(0, str(helpers))
+          spec = importlib.util.spec_from_file_location('native_prerequisites', helpers / 'codeql-rust-cargo-check.py')
+          native = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(native)
+          out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'codeql-rust-native'
+          out.mkdir(exist_ok=False)
+          native.runtime.CAP, native.runtime.WRITE_CAP = 16 * 1024**2, 15 * 1024**2
+          env = {key: value for key, value in os.environ.items()
+                 if key not in ('GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER')}
+          started = time.monotonic()
+          terminal = {'status': 'FAILED', 'preparation_budget_seconds': 180}
+          try:
+              native.prepare_native(source, out, started + 270, env)
+              terminal['status'] = 'PASS'
+          except Exception as error:
+              terminal.update(error_type=type(error).__name__, error=str(error))
+              raise
+          finally:
+              terminal['elapsed_seconds'] = time.monotonic() - started
+              (out / 'native-terminal.json').write_text(json.dumps(terminal, sort_keys=True) + '\n')
+          PY
+      - id: rust_tools
+        name: Verify the pinned Rust default production bundle
+        timeout-minutes: 5
+        run: |
+          mkdir "$RUNNER_TEMP/codeql-rust-production-tools"
+          curl --fail --location --connect-timeout 20 --max-time 240 \
+            https://github.com/github/codeql-action/releases/download/codeql-bundle-v2.27.4/codeql-bundle-rust-linux64.tar.zst \
+            --output "$RUNNER_TEMP/codeql-rust-production-tools/bundle.tar.zst"
+          echo "1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b  $RUNNER_TEMP/codeql-rust-production-tools/bundle.tar.zst" | sha256sum --check
+          echo "tools_path=$RUNNER_TEMP/codeql-rust-production-tools/bundle.tar.zst" >> "$GITHUB_OUTPUT"
+      - id: init
+        uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        env:
+          CODEQL_OVERLAY_DATABASE_MODE: none
+        with:
+          tools: ${{ steps.rust_tools.outputs.tools_path }}
+          languages: rust
+          build-mode: none
+          db-location: ${{ runner.temp }}/codeql_databases
+          ram: 14570
+          threads: 4
+          dependency-caching: false
+          trap-caching: false
+          config: |
+            paths-ignore:
+              - third_party/**
+              - target/**
+              - node_modules/**
+              - dist/**
+              - .pm/**
+              - tools/oasis7-command-center/src-tauri/src/generated_context.rs
+              - crates/oasis7_runtime/src/tests/agent_cognition_live_persistence_projection_fixture.rs
+      - id: rust_budget
+        name: Allocate the original analysis window after init
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 -I - <<'PY'
+          import datetime, email.utils, json, os, pathlib, time, urllib.request
+          url = ('https://api.github.com/repos/' + os.environ['GITHUB_REPOSITORY'] +
+                 '/actions/runs/' + os.environ['GITHUB_RUN_ID'] + '/attempts/' +
+                 os.environ['GITHUB_RUN_ATTEMPT'] + '/jobs?per_page=100')
+          request = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+              'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'})
+          requested = time.monotonic()
+          with urllib.request.urlopen(request, timeout=20) as response:
+              server_date = response.headers['Date']
+              value = json.load(response)
+          request_seconds = time.monotonic() - requested
+          server_time = email.utils.parsedate_to_datetime(server_date)
+          jobs = [job for job in value['jobs'] if job['name'] == 'CodeQL Rust fixed source observation'
+                  and job['status'] == 'in_progress']
+          if value['total_count'] > 100 or len(jobs) != 1 or not jobs[0].get('started_at'):
+              raise SystemExit('unknown actual Rust job start')
+          started = datetime.datetime.fromisoformat(jobs[0]['started_at'].replace('Z', '+00:00'))
+          if server_time.tzinfo is None or started.tzinfo is None:
+              raise SystemExit('invalid GitHub job clock')
+          age = server_time.timestamp() - started.timestamp() + request_seconds + 1
+          if not 0 <= age < 5400:
+              raise SystemExit('invalid or exhausted Rust job clock')
+          minutes = min(75, int((5400 - age - 600) // 60))
+          if minutes < 1:
+              raise SystemExit('no Rust analysis budget after upload reserve')
+          allocated = time.time()
+          deadline = allocated + minutes * 60
+          receipt = dict(job_id=jobs[0]['id'], started_at=jobs[0]['started_at'], github_date=server_date,
+                         job_age_upper_seconds=age, job_budget_seconds=5400,
+                         analysis_allocated_minutes=minutes, analysis_deadline=deadline,
+                         analysis_allocated_at=allocated, fixed_job_deadline=allocated + 5400 - age,
+                         mode=os.environ['OASIS7_CODEQL_PRODUCTION_MODE'],
+                         source_sha=os.environ['OASIS7_CODEQL_PRODUCTION_SOURCE'], tool_sha=os.environ['GITHUB_SHA'],
+                         post_analysis_reserve_seconds=600, helper_terminal_and_upload_reserve_seconds=90)
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'codeql-rust-production-budget.json'
+          with path.open('x') as output:
+              json.dump(receipt, output, sort_keys=True)
+              output.write('\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
+              output.write('Rust analysis budget\n```json\n' + json.dumps(receipt, indent=2) + '\n```\n')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('analysis_minutes=' + str(minutes) + '\n')
+              output.write('analysis_deadline=' + str(deadline) + '\n')
+          PY
+      - id: rust_prepare
+        name: Prepare the original libraries and fixed source inventory
+        if: steps.rust_budget.outcome == 'success'
+        timeout-minutes: ${{ steps.rust_budget.outputs.analysis_minutes && fromJSON(steps.rust_budget.outputs.analysis_minutes) || 1 }}
+        env:
+          CODEQL_BIN: ${{ steps.init.outputs.codeql-path }}
+          RUST_ANALYSIS_DEADLINE: ${{ steps.rust_budget.outputs.analysis_deadline }}
+        run: |
+          python3 "$RUNNER_TEMP/codeql-rust-fixed-source-helper/codeql-rust-production.py" prepare --mode "$OASIS7_CODEQL_PRODUCTION_MODE" \
+            --codeql "$CODEQL_BIN" --source "$GITHUB_WORKSPACE" --source-sha "$OASIS7_CODEQL_PRODUCTION_SOURCE" \
+            --database "$RUNNER_TEMP/codeql_databases/rust" \
+            --work "$RUNNER_TEMP/codeql-rust-production-work" \
+            --output "$RUNNER_TEMP/codeql-rust-production-evidence" \
+            --sarif "$RUNNER_TEMP/codeql-results/rust.sarif" \
+            --analysis-deadline "$RUST_ANALYSIS_DEADLINE"
+      - id: analyze
+        name: Extract the fixed source under the original absolute deadline
+        timeout-minutes: ${{ steps.rust_prepare.outputs.analysis_minutes && fromJSON(steps.rust_prepare.outputs.analysis_minutes) || 1 }}
+        env:
+          RUST_LOG: single_arch_extractor=info,codeql_extractor=info,ra_ap_load_cargo=debug
+          NODE_OPTIONS: ${{ steps.rust_prepare.outputs.node_options }}
+          RUST_ANALYSIS_DEADLINE: ${{ steps.rust_budget.outputs.analysis_deadline }}
+        uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4
+        with:
+          category: oasis7/rust-repo/default
+          output: ${{ runner.temp }}/codeql-results
+          upload: never
+          skip-queries: true
+          upload-database: false
+      - id: rust_production
+        name: Run and verify all default Rust queries with the fixed libraries
+        if: always() && steps.rust_prepare.outcome == 'success'
+        env:
+          CODEQL_BIN: ${{ steps.init.outputs.codeql-path }}
+          RUST_ANALYSIS_DEADLINE: ${{ steps.rust_budget.outputs.analysis_deadline }}
+          EXTRACTION_OUTCOME: ${{ steps.analyze.outcome }}
+        run: |
+          python3 "$RUNNER_TEMP/codeql-rust-fixed-source-helper/codeql-rust-production.py" run --mode "$OASIS7_CODEQL_PRODUCTION_MODE" \
+            --codeql "$CODEQL_BIN" --source "$GITHUB_WORKSPACE" --source-sha "$OASIS7_CODEQL_PRODUCTION_SOURCE" \
+            --database "$RUNNER_TEMP/codeql_databases/rust" \
+            --work "$RUNNER_TEMP/codeql-rust-production-work" \
+            --output "$RUNNER_TEMP/codeql-rust-production-evidence" \
+            --sarif "$RUNNER_TEMP/codeql-results/rust.sarif" \
+            --analysis-deadline "$RUST_ANALYSIS_DEADLINE" --extraction-outcome "$EXTRACTION_OUTCOME"
+      - name: Persist bounded observation evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: oasis7-codeql-rust-fixed-source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/codeql-rust-fixed-source-layout
+            ${{ runner.temp }}/codeql-rust-native
+            ${{ runner.temp }}/codeql-rust-production-evidence
+            ${{ runner.temp }}/codeql-rust-production-budget.json
+          include-hidden-files: true
+          if-no-files-found: error
+          overwrite: false
+          retention-days: 7
