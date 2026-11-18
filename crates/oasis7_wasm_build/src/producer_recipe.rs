@@ -264,6 +264,7 @@ fn validate_dockerfile(root: &Path) -> Result<(), SourceHashError> {
         "COPY --chmod=0755 vendor-if-watch-3.2.2 /opt/oasis7/vendor-if-watch-3.2.2",
         "COPY --chmod=0755 vendor-libp2p-swarm-0.48.0 /opt/oasis7/vendor-libp2p-swarm-0.48.0",
         "COPY --chmod=0755 vendor-libp2p-rendezvous-0.18.1 /opt/oasis7/vendor-libp2p-rendezvous-0.18.1",
+        "COPY --chmod=0755 vendor-libp2p-quic-0.14.0 /opt/oasis7/vendor-libp2p-quic-0.14.0",
         "COPY --chmod=0755 tools/scenario_test_runner /opt/oasis7/tools/scenario_test_runner",
         "COPY --chmod=0755 tools/wasm_build_suite /opt/oasis7/tools/wasm_build_suite",
         "COPY --chmod=0755 tools/wasm_module_observe /opt/oasis7/tools/wasm_module_observe",
@@ -604,6 +605,19 @@ mod tests {
         )
         .unwrap();
         validate_dockerfile(&dir).unwrap();
+        let quic_copy =
+            "COPY --chmod=0755 vendor-libp2p-quic-0.14.0 /opt/oasis7/vendor-libp2p-quic-0.14.0";
+        assert!(original.contains(quic_copy));
+        for replacement in [
+            "",
+            "COPY --chmod=0755 vendor-libp2p-quic-0.15.0 /opt/oasis7/vendor-libp2p-quic-0.15.0",
+        ] {
+            fs::write(&path, original.replace(quic_copy, replacement)).unwrap();
+            assert!(
+                validate_dockerfile(&dir).is_err(),
+                "accepted changed QUIC manifest copy"
+            );
+        }
         let mut accepted_directives = Vec::new();
         for directive in [
             "# syntax=docker/dockerfile:1",

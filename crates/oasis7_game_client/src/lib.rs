@@ -569,6 +569,7 @@ pub use formal_bft_read_v2::{
 
 pub mod verified_world_view;
 
+pub mod checkpoint_trust;
 pub mod remote_world_service;
 
 pub mod formal_business;
