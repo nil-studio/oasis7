@@ -1,6 +1,5 @@
 //! Original gameplay-cycle stage over actual qualified Current. This module's
 //! event owner is private-construction and cannot authorize a completed tick.
-use super::*;
 use crate::world::incremental_body::BodyMutationError;
 use crate::world::incremental_module_execution_manifest_hash::{
     CurrentWorldManifestHashV1, prepare_current_world_manifest_hash_v1,

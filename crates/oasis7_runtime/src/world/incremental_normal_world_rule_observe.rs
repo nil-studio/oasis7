@@ -11,10 +11,7 @@ use super::emergency_close::{
 };
 use super::*;
 use crate::world::incremental_normal_tail::NormalTailWorkV1;
-use oasis7_formal_protocol::{
-    incremental_state::StateScanBudget,
-    incremental_value::{ValueNodeReader, ValueTreeError},
-};
+use oasis7_formal_protocol::incremental_value::{ValueNodeReader, ValueTreeError};
 use oasis7_proto::memory_budget::MemoryClass;
 use oasis7_world_state::{
     incremental_field_overlay::WorldFieldOverlayContextV1,

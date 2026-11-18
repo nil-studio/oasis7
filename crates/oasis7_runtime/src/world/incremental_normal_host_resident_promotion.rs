@@ -2,7 +2,7 @@
 //! Finish only compares the actual verified record and moves prepaid owners.
 use super::*;
 use crate::world::{
-    incremental_commit::{PreparedRuntimeDirectoryCacheV1, RuntimeDirectoryCacheErrorV1},
+    incremental_commit::PreparedRuntimeDirectoryCacheV1,
     incremental_normal_host_driver::PreparedNormalHostRuntimeV1,
 };
 use oasis7_formal_protocol::{

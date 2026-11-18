@@ -385,7 +385,6 @@ impl super::World {
 
 #[path = "incremental_world_event_counter_branch.rs"]
 mod staged_branch;
-pub(super) use staged_branch::WorldEventCounterStageV1;
 
 impl WorldJournalRetentionV1 {
     pub(in crate::world) fn retain_normal_successor_v1(

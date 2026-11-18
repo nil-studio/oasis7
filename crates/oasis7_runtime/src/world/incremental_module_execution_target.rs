@@ -812,7 +812,7 @@ pub(in crate::world) use entry::NonmovementSelectedErrorV1;
 
 pub(in crate::world) use entry::SelectedAcceptedDispositionV1;
 
-pub(in crate::world) use entry::{EffectiveActionFamilyV1, EffectiveActionWorkBankV1};
+pub(in crate::world) use entry::EffectiveActionWorkBankV1;
 
 pub(in crate::world) use entry::{
     CompletedNormalExtensionV1, NormalCoreExtensionWorkV1, NormalCoreExtensionWorkViewV1,
@@ -827,13 +827,5 @@ pub(in crate::world) use entry::with_current_root_module_meter_v1;
 
 pub(in crate::world) use entry::with_current_root_history_index_meter_v1;
 
-pub(in crate::world) use entry::{FactoryModuleBeforeRulesOutcomeV1, FailedFactoryModuleActionV1};
 
-pub(in crate::world) use entry::{
-    CompletedFactoryModuleRejectionV1, FactoryModuleInitialAdmissionV1,
-    PreparedFactoryModuleFollowupV1, prepare_factory_module_initial_admission_v1,
-};
-
-pub(in crate::world) use entry::with_current_root_route_meter_v1;
-
-pub(in crate::world) use entry::CompletedSelectedNonmovementV2;
+pub(in crate::world) use entry::PreparedFactoryModuleFollowupV1;

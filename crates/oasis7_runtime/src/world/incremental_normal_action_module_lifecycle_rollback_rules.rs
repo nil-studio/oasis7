@@ -1,7 +1,12 @@
 //! Original rollback prelude over exact selected records and ALL applied
 //! release requests. The observer is sealed; directory metadata grants nothing.
-use super::*;
-use super::{instance_rules::{ModuleInstallFactsV1,ModuleBusinessErrorV1},upgrade_rules::{ModuleUpgradeFactsV1,ModuleInstanceRecordV1,validate_upgrade_interface_compatible_v1},registry_rules::ModuleManifestRecordV1};
+use super::{
+    instance_rules::ModuleBusinessErrorV1,
+    registry_rules::ModuleManifestRecordV1,
+    upgrade_rules::{
+        ModuleInstanceRecordV1, ModuleUpgradeFactsV1, validate_upgrade_interface_compatible_v1,
+    },
+};
 use crate::{ModuleManifest,RejectReason,ModuleChangeSet};
 use oasis7_agent_api::world_action::ResourceKind;
 pub(in crate::world) trait ModuleRollbackFactsV1<'s>:ModuleUpgradeFactsV1<'s>{

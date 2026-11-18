@@ -6,7 +6,7 @@ mod current;
 #[path = "incremental_normal_action_war_resources.rs"]
 mod resources;
 use crate::world::{
-    event_processing::war_fixed::{WarFactsV1, evaluate_war_action_v1},
+    event_processing::war_fixed::evaluate_war_action_v1,
     incremental_allocators::RuntimeAllocatorV1,
     incremental_body::write_body_value,
     incremental_body_event::{

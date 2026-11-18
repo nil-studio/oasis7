@@ -15,7 +15,6 @@ use oasis7_formal_protocol::{
     },
     incremental_execution::{ExecutionError, ExecutionFactKindV1, ExecutionFence, RootSetV1},
     incremental_material::CheckedCommitCore,
-    incremental_value::ValueTreeError,
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use oasis7_world_state::incremental_runtime_history_source::AcceptedRuntimeHistorySourceV1;

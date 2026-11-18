@@ -276,7 +276,6 @@ where
     CW: FnMut() -> bool,
 {
     use super::current::*;
-    use oasis7_agent_api::world_action::ResourceKind;
     use oasis7_world_state::incremental_inventory_resource_overlay::{
         change_current_world_resource_v1, read_current_world_resource_v1,
     };

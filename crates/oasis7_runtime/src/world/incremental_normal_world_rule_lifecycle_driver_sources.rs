@@ -6,7 +6,6 @@ use super::delivery::{
 };
 use super::*;
 use crate::world::{
-    incremental_body::BodyMutationError,
     incremental_factory_directory_orders::{
         AcceptedFactoryOrderDirectoryV1, FactoryOrderDirectoryWorkV1,
         open_current_factory_order_directory_v1,

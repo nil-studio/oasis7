@@ -2,7 +2,7 @@
 //! are sealed Legacy World and genuine Current source implementations.
 use super::*;
 use super::instance_rules::ModuleBusinessErrorV1;
-use crate::{ActionId,DomainEvent,RejectReason,ModuleProfileChanges,ModuleManifest,WorldError};
+use crate::{ActionId, DomainEvent, ModuleManifest, ModuleProfileChanges, RejectReason};
 use oasis7_agent_api::world_action::ModuleInstallTarget;
 use oasis7_world_state::state::{ModuleReleaseRequestState,ModuleReleaseRequestStatus};
 use std::ops::Deref;

@@ -49,29 +49,19 @@ mod admission;
 mod work;
 pub(in crate::world) use admission::{
     CurrentCognitionCommitInputV1, HistoricalCurrentCognitionInputV1,
-    prepare_current_cognition_commit_inputs_v1,
 };
 
 // One portable original kernel shared with the legacy World entry.
-pub(in crate::world) use super::cognition_persistence::marker;
 
 #[path = "incremental_normal_cognition_commit_facts.rs"]
 mod facts;
-pub(in crate::world) use facts::CurrentCognitionRetryProbeV1;
 
 #[path = "incremental_normal_cognition_commit_authority.rs"]
 mod authority;
-pub(in crate::world) use authority::CurrentCognitionBaseSourceV1;
 #[path = "incremental_normal_cognition_commit_response_index.rs"]
 mod response_index;
 
 #[path = "incremental_normal_cognition_commit_response_read.rs"]
 mod response_read;
-pub(in crate::world) use response_read::CurrentCognitionResponseReadWorkV1;
 #[path = "incremental_normal_cognition_commit_responses.rs"]
 mod responses;
-pub(in crate::world) use responses::{
-    AcceptedCognitionResponseLocatorV1, CurrentCognitionResponseLocatorV1,
-    CurrentCognitionResponseMatchV1, FrozenCognitionResponseLocatorV1,
-    PreparedCognitionResponseLocatorV1,
-};

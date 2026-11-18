@@ -502,6 +502,6 @@ pub(in crate::world) use current::{
 
 pub(in crate::world) use current::{
     BootstrapCapabilityCheckV1, CurrentBootstrapPolicyErrorV1, PaidCurrentBootstrapPolicyV1,
-    PaidCurrentBootstrapRegistryV1, read_current_bootstrap_policy_v1,
-    read_current_bootstrap_registry_v1, verify_current_bootstrap_capability_v1,
+    read_current_bootstrap_policy_v1, read_current_bootstrap_registry_v1,
+    verify_current_bootstrap_capability_v1,
 };

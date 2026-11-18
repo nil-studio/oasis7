@@ -2,7 +2,6 @@
 //! owners. Business effects are never replayed by this publication stage.
 use super::*;
 use crate::world::{
-    incremental_body::BodyMutationContext,
     incremental_body_event::materials::CorePolicyMaterialContextV1,
     incremental_normal_tail::NormalTailWorkV1,
 };

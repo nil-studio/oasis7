@@ -607,7 +607,7 @@ mod contract_accept_driver;
 
 pub(in crate::world) use core_driver::CoreDriverErrorV1;
 
-pub(in crate::world) use nonmovement_driver::{EffectiveActionFamilyV1, EffectiveActionWorkBankV1};
+pub(in crate::world) use nonmovement_driver::EffectiveActionWorkBankV1;
 
 pub(in crate::world) use normal_extension_driver::{
     CompletedNormalExtensionV1, NormalCoreExtensionWorkV1, NormalCoreExtensionWorkViewV1,
@@ -653,9 +653,7 @@ mod profile_driver;
 #[path = "incremental_module_execution_factory_module_driver.rs"]
 mod factory_module_driver;
 
-pub(in crate::world) use factory_module_driver::{
-    FactoryModuleBeforeRulesOutcomeV1, FailedFactoryModuleActionV1,
-};
+pub(in crate::world) use factory_module_driver::FactoryModuleBeforeRulesOutcomeV1;
 
 #[path = "incremental_module_execution_factory_module_rejection.rs"]
 mod factory_module_rejection;
@@ -664,7 +662,6 @@ mod selected_factory_rule;
 
 #[path = "incremental_module_execution_selected_with_modules.rs"]
 mod selected_with_modules;
-pub(in crate::world) use selected_with_modules::CompletedSelectedNonmovementV2;
 
 #[path = "incremental_module_execution_input_invocation.rs"]
 mod input_invocation;
@@ -672,10 +669,7 @@ mod input_invocation;
 mod staged_branch;
 pub(in crate::world) use staged_branch::StagedRootModuleDispositionV1;
 
-pub(in crate::world) use factory_module_rejection::{
-    CompletedFactoryModuleRejectionV1, FactoryModuleInitialAdmissionV1,
-    PreparedFactoryModuleFollowupV1, prepare_factory_module_initial_admission_v1,
-};
+pub(in crate::world) use factory_module_rejection::PreparedFactoryModuleFollowupV1;
 
 pub(in crate::world) use due_product::with_current_root_route_meter_v1;
 

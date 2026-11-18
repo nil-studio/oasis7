@@ -83,17 +83,18 @@ impl NormalProjectionColumnInitializerV1<'_, '_> {
         for (name, count) in INDUSTRY_FIELDS.into_iter().zip(counts) {
             self.cold_begin_v1(name, count)?
         }
-        let this = RefCell::new(&mut *self);
-        source.visit_with_work_v1(
-            &mut |n| this.borrow_mut().common.charge(1, n as u64).map_err(paid),
-            |path, semantic, key, json| {
-                let [name] = path else {
-                    return Err(invalid("qualified industry top path"));
-                };
-                this.borrow_mut().cold_row_v1(name, semantic, key, json)
-            },
-        )?;
-        drop(this);
+        {
+            let this = RefCell::new(&mut *self);
+            source.visit_with_work_v1(
+                &mut |n| this.borrow_mut().common.charge(1, n as u64).map_err(paid),
+                |path, semantic, key, json| {
+                    let [name] = path else {
+                        return Err(invalid("qualified industry top path"));
+                    };
+                    this.borrow_mut().cold_row_v1(name, semantic, key, json)
+                },
+            )?;
+        }
         for name in INDUSTRY_FIELDS {
             self.cold_end_v1(name)?
         }
@@ -109,12 +110,15 @@ impl NormalProjectionColumnInitializerV1<'_, '_> {
         for (name, count) in counts {
             self.cold_begin_v1(name, count)?
         }
-        let this = RefCell::new(&mut *self);
-        source.visit_with_work_v1(
-            &mut |n| this.borrow_mut().common.charge(1, n as u64).map_err(paid),
-            |name, semantic, key, json| this.borrow_mut().cold_row_v1(name, semantic, key, json),
-        )?;
-        drop(this);
+        {
+            let this = RefCell::new(&mut *self);
+            source.visit_with_work_v1(
+                &mut |n| this.borrow_mut().common.charge(1, n as u64).map_err(paid),
+                |name, semantic, key, json| {
+                    this.borrow_mut().cold_row_v1(name, semantic, key, json)
+                },
+            )?;
+        }
         for (name, _) in counts {
             self.cold_end_v1(name)?
         }
@@ -156,33 +160,35 @@ impl NormalProjectionColumnInitializerV1<'_, '_> {
         {
             self.cold_begin_v1(name, count)?
         }
-        let this = RefCell::new(&mut *self);
-        source.visit_complete_with_work_v1(
-            |s, b| this.borrow_mut().common.charge(s, b).map_err(paid),
-            |name, semantic, key, json, electricity, intent| {
-                let mut init = this.borrow_mut();
-                init.cold_row_v1(name, semantic, key, json)?;
-                if name == "agents" {
-                    let electricity = electricity
-                        .ok_or_else(|| invalid("qualified Agent electricity missing"))?;
-                    let intent = intent.ok_or_else(|| invalid("qualified Agent intent missing"))?;
-                    let copied = capture(init.common, |output| {
-                        Write::write_all(output, intent).map_err(paid)
-                    })?;
-                    let target = init
-                        .fields
-                        .get_mut(&(FieldOwner::WorldState, "agents"))
-                        .and_then(|field| field.rows.last_mut())
-                        .ok_or_else(|| invalid("qualified Agent row absent"))?;
-                    target.agent_electricity = Some(electricity);
-                    target.agent_intent = Some(copied);
-                } else if electricity.is_some() || intent.is_some() {
-                    return Err(invalid("qualified Instance Agent sidecars"));
-                }
-                Ok(())
-            },
-        )?;
-        drop(this);
+        {
+            let this = RefCell::new(&mut *self);
+            source.visit_complete_with_work_v1(
+                |s, b| this.borrow_mut().common.charge(s, b).map_err(paid),
+                |name, semantic, key, json, electricity, intent| {
+                    let mut init = this.borrow_mut();
+                    init.cold_row_v1(name, semantic, key, json)?;
+                    if name == "agents" {
+                        let electricity = electricity
+                            .ok_or_else(|| invalid("qualified Agent electricity missing"))?;
+                        let intent =
+                            intent.ok_or_else(|| invalid("qualified Agent intent missing"))?;
+                        let copied = capture(init.common, |output| {
+                            Write::write_all(output, intent).map_err(paid)
+                        })?;
+                        let target = init
+                            .fields
+                            .get_mut(&(FieldOwner::WorldState, "agents"))
+                            .and_then(|field| field.rows.last_mut())
+                            .ok_or_else(|| invalid("qualified Agent row absent"))?;
+                        target.agent_electricity = Some(electricity);
+                        target.agent_intent = Some(copied);
+                    } else if electricity.is_some() || intent.is_some() {
+                        return Err(invalid("qualified Instance Agent sidecars"));
+                    }
+                    Ok(())
+                },
+            )?;
+        }
         for name in ["agents", "module_instances"] {
             self.cold_end_v1(name)?
         }
@@ -202,25 +208,26 @@ impl NormalProjectionColumnInitializerV1<'_, '_> {
         ] {
             self.cold_begin_v1(name, count)?
         }
-        let this = RefCell::new(&mut *self);
-        source.visit_group_counts_with_work_v1(
-            &mut |n| this.borrow_mut().common.charge(1, n as u64).map_err(paid),
-            |ledger, count| {
-                let mut init = this.borrow_mut();
-                let field = init.cold_field_v1("material_ledgers")?;
-                init.group(field, ledger, count)
-            },
-        )?;
-        source.visit_with_work_v1(
-            &mut |n| this.borrow_mut().common.charge(1, n as u64).map_err(paid),
-            |path, semantic, key, json| {
-                let [name] = path else {
-                    return Err(invalid("qualified Inventory top path"));
-                };
-                this.borrow_mut().cold_row_v1(name, semantic, key, json)
-            },
-        )?;
-        drop(this);
+        {
+            let this = RefCell::new(&mut *self);
+            source.visit_group_counts_with_work_v1(
+                &mut |n| this.borrow_mut().common.charge(1, n as u64).map_err(paid),
+                |ledger, count| {
+                    let mut init = this.borrow_mut();
+                    let field = init.cold_field_v1("material_ledgers")?;
+                    init.group(field, ledger, count)
+                },
+            )?;
+            source.visit_with_work_v1(
+                &mut |n| this.borrow_mut().common.charge(1, n as u64).map_err(paid),
+                |path, semantic, key, json| {
+                    let [name] = path else {
+                        return Err(invalid("qualified Inventory top path"));
+                    };
+                    this.borrow_mut().cold_row_v1(name, semantic, key, json)
+                },
+            )?;
+        }
         for name in ["resources", "materials", "material_ledgers"] {
             self.cold_end_v1(name)?
         }

@@ -1,7 +1,16 @@
 //! Fixed History4 DATA from the actual accepted/captured index scope. Ordinary
 //! reads only the genuine newly appended suffix; explicit cold reads ALL once.
 use super::*;
-use oasis7_world_state::{incremental_cognition_history::{CognitionHistoryFieldV1,CognitionHistoryIndexRefV1,CognitionHistoryIndexPointV1,CognitionHistoryIndexWorkV1,read_cognition_history_index_point_overlay_data_v1},incremental_cognition_history_cbor::{CognitionHistoryCborWorkV1,CognitionHistoryRecordSchemaV1,CognitionOriginalCborRequestV1,materialize_cognition_history_original_json_v1}};
+use oasis7_world_state::{
+    incremental_cognition_history::{
+        CognitionHistoryFieldV1, CognitionHistoryIndexPointV1, CognitionHistoryIndexWorkV1,
+        read_cognition_history_index_point_overlay_data_v1,
+    },
+    incremental_cognition_history_cbor::{
+        CognitionHistoryCborWorkV1, CognitionHistoryRecordSchemaV1, CognitionOriginalCborRequestV1,
+        materialize_cognition_history_original_json_v1,
+    },
+};
 use oasis7_formal_protocol::{incremental_material::{OriginalObjectStreamReader,FactBudget},incremental_state::StateRootV1};
 use std::sync::Arc;
 pub(in crate::world) struct CognitionHistoryProjectionAuxWorkV1<'a>{pub index:&'a mut CognitionHistoryIndexWorkV1,pub cbor:&'a mut CognitionHistoryCborWorkV1,pub originals:&'a mut FactBudget}

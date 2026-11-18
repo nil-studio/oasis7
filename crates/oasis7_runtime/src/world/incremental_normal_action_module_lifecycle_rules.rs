@@ -1,8 +1,7 @@
 //! Sole original artifact-market action preflight. Implementations are sealed
 //! actual observations; the returned event is DATA and cannot publish itself.
-use super::*;
 use oasis7_agent_api::world_action::ResourceKind;
-use oasis7_world_state::{ModuleArtifactListingState,ModuleArtifactBidState};
+use oasis7_world_state::ModuleArtifactListingState;
 pub(super) mod sealed{pub trait Sealed{}}
 pub(in crate::world) trait ModuleMarketFactsV1:sealed::Sealed{
  type Error:From<crate::WorldError>;

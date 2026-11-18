@@ -52,9 +52,7 @@ pub use super::incremental_normal_business_commitment::{
     PreparedNormalBusinessMetadataGenesisV1,
 };
 
-pub use super::incremental_normal_projection_commitment_world_rules::{
-    NormalProjectionWorldRulesWorkV1, PaidCurrentProjectionWorldRulesDeltaV1,
-};
+pub use super::incremental_normal_projection_commitment_world_rules::NormalProjectionWorldRulesWorkV1;
 
 pub use super::incremental_normal_projection_commitment::{
     AcceptedNormalProjectionCacheV1, NormalProjectionCurrentWorkV1, NormalProjectionWorkBankV1,

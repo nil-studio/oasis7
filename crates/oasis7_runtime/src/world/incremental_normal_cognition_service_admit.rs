@@ -14,7 +14,7 @@ use oasis7_agent_api::iws_scheduler_v2::{
     IwsWakeConditionV2, IwsWakeConditionValidatorV2,
 };
 use oasis7_world_state::cognition_wake::{
-    IWS_CONTINUATION_SCHEMA_V2, IWS_CONTINUATION_STATUS_DOMAIN_V2, IwsAgentContinuationV2,
+    IWS_CONTINUATION_SCHEMA_V2, IWS_CONTINUATION_STATUS_DOMAIN_V2,
 };
 use oasis7_world_state::incremental_cognition_control_overlay::{
     CognitionControlValueV1, change_cognition_control_v1, check_cognition_control_overlay_v1,
@@ -25,8 +25,7 @@ use oasis7_world_state::incremental_cognition_proof_ledger::CognitionProofLedger
 use oasis7_world_state::incremental_field_overlay::WorldFieldOverlayErrorV1;
 use oasis7_world_state::incremental_iws_tick_consensus::IwsCurrentCommitmentFrameV1;
 use oasis7_world_state::incremental_normal_cognition_current::{
-    CurrentCognitionJsonRecordV1, create_current_cognition_continuations_v2,
-    create_current_cognition_service_map_v2, read_current_cognition_json_record_v1,
+    create_current_cognition_continuations_v2, create_current_cognition_service_map_v2,
     replace_current_cognition_service_batch_v1,
 };
 use serde::{Serialize, ser::SerializeMap};

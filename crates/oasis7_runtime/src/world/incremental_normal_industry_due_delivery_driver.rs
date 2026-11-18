@@ -13,8 +13,7 @@ use crate::world::{
     incremental_step::IwsStepContext,
 };
 use oasis7_formal_protocol::{
-    incremental_state::StatePageWriter,
-    incremental_value::{ValueNodeWriter, ValueReadContext},
+    incremental_state::StatePageWriter, incremental_value::ValueNodeWriter,
 };
 #[derive(Debug, PartialEq, Eq)]
 pub(in crate::world) enum DueProductReplayOutcomeV1 {

@@ -1,7 +1,7 @@
 //! One original due-Tick selection cut. Slots cannot be built from a caller
 //! manifest/flag; they are consumed only by this module's fixed route loop.
 use super::*;
-use crate::world::{incremental_module_invocation::*, incremental_normal_tail::NormalTailWorkV1};
+use crate::world::incremental_module_invocation::*;
 use oasis7_formal_protocol::{
     controlled_authority::formal::bounded_context::FormalBoundedContextV1,
     incremental_material::OriginalObjectStreamReader,

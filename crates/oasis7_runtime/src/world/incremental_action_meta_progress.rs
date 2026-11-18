@@ -21,7 +21,7 @@ use oasis7_world_state::{
         AgentSubtreeStructureQualificationV1, CurrentAgentPresenceV1,
         read_current_agent_presence_v1,
     },
-    incremental_field_member::{MemberRecordLimitsV1, MemberRecordWriteContext},
+    incremental_field_member::MemberRecordWriteContext,
     incremental_field_overlay::{WorldFieldOverlayContextV1, WorldFieldOverlayErrorV1},
     incremental_field_read::WorldFieldReadContextV1,
     incremental_world_event_decode::WorldEventDecodeWorkV1,

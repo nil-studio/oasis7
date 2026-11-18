@@ -1,7 +1,6 @@
 //! A paid, immutable end-of-tick projection. The graph is shared only after
 //! the original registered-write correspondence and actual Current SHA agree.
 use super::*;
-use oasis7_formal_protocol::incremental_execution::SealedExecutionBindingV1;
 pub(in crate::world) struct FrozenNormalAuthorizationProjectionV1 {
     data: ProvisionalAuthorizationProjectionV1,
     expected: [u8;64],

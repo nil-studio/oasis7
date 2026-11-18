@@ -1,8 +1,6 @@
 //! Original outer risk gates, fixed four-action evaluation and sparse preflight.
 use super::*;
-use crate::world::event_processing::alliance_fixed::{
-    AllianceFactsV1, evaluate_alliance_action_v1,
-};
+use crate::world::event_processing::alliance_fixed::evaluate_alliance_action_v1;
 use oasis7_formal_protocol::{
     incremental_state::StateNamespaceV1, incremental_value::ValueReadContext,
 };

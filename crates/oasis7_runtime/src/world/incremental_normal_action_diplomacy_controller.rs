@@ -8,7 +8,6 @@ pub(super) struct ControllerSourcesV1<'a>{
  pub agents:&'a ReservedValue<oasis7_world_state::incremental_agent_subtree::AgentSubtreeStructureQualificationV1>,
  pub native:&'a ReservedValue<oasis7_world_state::incremental_world_native::WorldNativeFieldsQualificationV1>,
 }
-pub(super) use crate::world::incremental_industrial_eligibility::IndustrialEligibilityWorkV1 as ControllerWorkV1;
 use crate::world::incremental_industrial_eligibility::{
     CurrentStateOwnerSourcesV1, IndustrialEligibilityErrorV1, IndustrialEligibilityWorkV1,
     resolve_current_state_owner_v1,

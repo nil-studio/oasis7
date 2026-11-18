@@ -3,7 +3,7 @@
 use crate::world::incremental_body::BodyMutationError;
 use oasis7_formal_protocol::{
     controlled_authority::formal::bounded_context::FormalBoundedContextV1,
-    incremental_execution::{ExecutionFence, PreparedGuard},
+    incremental_execution::ExecutionFence,
     incremental_state::{MerkleNodeReader, StatePageWriter},
     incremental_value::{ValueNodeReader, ValueTreeError},
 };

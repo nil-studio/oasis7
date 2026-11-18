@@ -2,7 +2,6 @@
 //! The complete parent router proves the role is absent; actual Current net
 //! writes are audited through the existing paid lanes, never a cold World scan.
 use super::*;
-use oasis7_consensus::normal_tick_input::PaidBoundNormalInputDataV1;
 use oasis7_formal_protocol::controlled_authority::formal::bounded_context::WorkIdentityV1;
 use oasis7_world_state::{
     incremental_cognition_current_complete_v3::CognitionCurrentPresenceV3,

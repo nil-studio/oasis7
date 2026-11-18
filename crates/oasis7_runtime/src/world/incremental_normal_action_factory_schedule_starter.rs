@@ -1,17 +1,10 @@
 //! Genuine Current source for the complete original starter feasibility tuple.
 use super::*;
-use crate::world::event_processing::factory_schedule_fixed::{
-    FactoryBuildFactsV1, FactoryScheduleRecordV1,
-};
+use crate::world::event_processing::factory_schedule_fixed::FactoryBuildFactsV1;
 use current::{CurrentFactoryScheduleFactsV1, EvaluationErrorV1};
 use oasis7_world_state::{
     STARTER_ASSEMBLER_FACTORY_ID, STARTER_SMELTER_FACTORY_ID, STARTER_SMELTER_RECIPE_ID,
-    StarterIndustrialFactsV1,
-    incremental_factory_schedule_factory::recover_current_schedule_complete_factory_v1,
-    incremental_factory_schedule_receipts::observe_current_factory_schedule_receipts_v1,
-    incremental_inventory::recover_current_inventory_ledger_v1,
-    incremental_world_native::recover_current_factory_industry_progress_v1,
-    starter_industrial_feasibility_from_facts_v1,
+    StarterIndustrialFactsV1, starter_industrial_feasibility_from_facts_v1,
 };
 
 pub(super) fn read_current_starter_blocker_v1<M, P, R, V, E, C, PE, PC>(

@@ -7,10 +7,7 @@ use super::driver_sources::NormalWorldRuleLifecycleSourcesV1;
 use super::selection::LifecycleSeedListV1;
 use super::work::{LifecycleRequestV1, OrderLifecycleChoiceV1};
 use super::*;
-use crate::world::{
-    incremental_body_event::materials::CorePolicyMaterialContextV1,
-    incremental_normal_tail::NormalTailWorkV1,
-};
+use crate::world::incremental_body_event::materials::CorePolicyMaterialContextV1;
 use oasis7_formal_protocol::{
     controlled_authority::formal::bounded_context::FormalBoundedContextV1,
     incremental_state::StatePageWriter,

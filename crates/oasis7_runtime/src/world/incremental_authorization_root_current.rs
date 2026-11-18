@@ -385,10 +385,9 @@ mod read;
 #[path = "incremental_authorization_root_current_sources.rs"]
 mod sources;
 pub(in crate::world) use owner::{
-    AcceptedAuthorizationProjectionV1, AuthorizationProjectionRefreshV1,
-    CurrentAuthorizationProjectionV1, FinalAuthorizationProjectionV1,
-    FrozenNormalAuthorizationProjectionV1, OwnedProjectedOutcomeV1,
-    PublishedCurrentBootstrapRootV1, RootPublishedOutcomeV1, WarmError, qualify_accepted_parent,
+    AcceptedAuthorizationProjectionV1, CurrentAuthorizationProjectionV1,
+    FrozenNormalAuthorizationProjectionV1, PublishedCurrentBootstrapRootV1, RootPublishedOutcomeV1,
+    WarmError, qualify_accepted_parent,
 };
 pub use read::AuthorizationRootSourceReadWorkV1;
 pub(in crate::world) use read::SourceError;

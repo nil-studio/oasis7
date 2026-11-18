@@ -6,7 +6,7 @@ use crate::world::{
     incremental_normal_cognition_registered_turn::CurrentRegisteredCognitionTurnV2,
 };
 use oasis7_agent_api::iws_scheduler_v2::{
-    IwsContinuationProposalV2, IwsJournalReferenceV2, IwsWakeConditionV2, IwsWakeEvaluationV2,
+    IwsContinuationProposalV2, IwsJournalReferenceV2, IwsWakeConditionV2,
 };
 use oasis7_world_state::{
     incremental_agent_authority_records::{

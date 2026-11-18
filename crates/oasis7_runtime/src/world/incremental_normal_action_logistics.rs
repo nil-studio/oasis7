@@ -22,7 +22,7 @@ use oasis7_formal_protocol::{
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation, ReservedValue};
 use oasis7_world_state::{
-    LogisticsRouteV1, MaterialLedgerId, MaterialTransitPriority,
+    LogisticsRouteV1, MaterialLedgerId,
     incremental_agent_body::{AGENT_BODY_VALUE_BYTES, AgentBodyKeyV1, AgentBodyValueV1},
     incremental_agent_subtree::{
         AgentSubtreeStructureQualificationV1, CurrentAgentPresenceV1,

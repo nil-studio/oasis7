@@ -8,9 +8,7 @@ use crate::world::{
         bounded_work::{CognitionEconomyWorkOpsV1, CurrentEconomyWorkV1},
     },
     incremental_module_invocation::*,
-    incremental_normal_cognition_expiry::{
-        CurrentCognitionExpiryWorkV1, with_current_cognition_io_v1,
-    },
+    incremental_normal_cognition_expiry::with_current_cognition_io_v1,
     incremental_normal_sources::BoundNormalTickParentV1,
 };
 use oasis7_formal_protocol::{

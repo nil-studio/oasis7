@@ -13,7 +13,7 @@ use oasis7_world_state::{
     FactoryBuildJobState, FactoryBuildPowerObligationV1, FactoryConstructionPowerMode,
     MaterialLedgerId, MaterialStack,
     incremental_factory_records::{
-        FactoryCellReadV1, FactoryCellV1, FactoryCollectionV1, FactoryColumnV1, FactoryRecordKeyV1,
+        FactoryCellReadV1, FactoryCellV1, FactoryCollectionV1, FactoryColumnV1,
         FactoryStackColumnV1, FactoryValueV1,
     },
     incremental_ledger_value::LedgerValueKindV1,

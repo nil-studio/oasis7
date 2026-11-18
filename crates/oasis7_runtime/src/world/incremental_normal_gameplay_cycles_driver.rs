@@ -13,7 +13,7 @@ use oasis7_formal_protocol::{
     controlled_authority::formal::bounded_context::FormalBoundedContextV1,
     incremental_material::OriginalObjectStreamReader,
     incremental_schedule::SchedulePageWriter,
-    incremental_state::{StatePageWriter, StateScanBudget},
+    incremental_state::StatePageWriter,
     incremental_value::{ValueNodeReader, ValueNodeWriter, ValueTreeError},
 };
 use oasis7_proto::memory_budget::MemoryClass;

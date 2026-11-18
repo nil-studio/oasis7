@@ -425,6 +425,165 @@ fn empty_map_sort_scratch_does_not_reserve_unused_key_allowance() {
     assert!(!ctx.is_poisoned());
     assert_eq!(alloc.state.used.get(), 0);
 }
+
+struct CommonBytes<'a> {
+    alloc: &'a Alloc,
+    remaining: Cell<u64>,
+    last_request: Cell<u64>,
+}
+impl CanonicalCborAllocator for CommonBytes<'_> {
+    type Charge = Charge;
+    fn charge_work(&self, _: u64, bytes: u64) -> Result<(), CanonicalCborStreamError> {
+        self.last_request.set(bytes);
+        let before = self.remaining.get();
+        self.remaining.set(before.saturating_sub(bytes));
+        if before < bytes {
+            return Err(CanonicalCborStreamError::ResourceLimited(
+                "test Common bytes",
+            ));
+        }
+        Ok(())
+    }
+    fn reserve(&self, bytes: usize) -> Result<Charge, CanonicalCborStreamError> {
+        self.alloc.reserve(bytes)
+    }
+}
+
+#[test]
+fn actual_short_text_fields_fit_finite_common_without_changing_canonical_bytes() {
+    let source = std::collections::BTreeMap::from([("executor_epoch", 7u64), ("task_revision", 2)]);
+    let oracle = encode_canonical_cbor(&source).unwrap();
+    let alloc = Alloc::new(4 << 20);
+    // A fixed workload budget, independent of the encoder's accounting formula.
+    let admission = CommonBytes {
+        alloc: &alloc,
+        remaining: Cell::new(128 << 10),
+        last_request: Cell::new(0),
+    };
+    let mut ctx = CanonicalCborStreamContextV1::new(&admission, work(), || false);
+    let mut out = Vec::new();
+    stream_canonical_cbor_v1(&source, &mut ctx, &mut out).unwrap();
+    assert_eq!(out, oracle);
+    assert!(admission.remaining.get() > 0);
+    assert!(admission.remaining.get() < 128 << 10);
+    assert!(ctx.metrics().map_comparisons > 0);
+    assert!(!ctx.is_poisoned());
+    assert_eq!(alloc.state.used.get(), 0);
+}
+
+#[test]
+fn text_comparison_byte_refusal_precedes_sort_and_keeps_context_poisoned() {
+    let source = std::collections::BTreeMap::from([("executor_epoch", 7u64), ("task_revision", 2)]);
+    let alloc = Alloc::new(4 << 20);
+    let admission = CommonBytes {
+        alloc: &alloc,
+        remaining: Cell::new(32 << 10),
+        last_request: Cell::new(0),
+    };
+    let mut ctx = CanonicalCborStreamContextV1::new(&admission, work(), || false);
+    let mut out = Vec::new();
+    assert!(matches!(
+        stream_canonical_cbor_v1(&source, &mut ctx, &mut out),
+        Err(CanonicalCborStreamError::ResourceLimited(
+            "test Common bytes"
+        ))
+    ));
+    assert!(admission.last_request.get() > 32 << 10);
+    assert_eq!(ctx.metrics().map_sorts, 0);
+    assert_eq!(ctx.metrics().map_comparisons, 0);
+    assert!(ctx.is_poisoned());
+    assert!(out.is_empty());
+    assert_eq!(alloc.state.used.get(), 0);
+    let remaining = (ctx.work.visits_remaining, admission.remaining.get());
+    assert!(matches!(
+        stream_canonical_cbor_v1(&source, &mut ctx, &mut out),
+        Err(CanonicalCborStreamError::Poisoned)
+    ));
+    assert_eq!(
+        remaining,
+        (ctx.work.visits_remaining, admission.remaining.get())
+    );
+}
+
+#[test]
+fn any_later_non_text_key_keeps_the_original_comparison_bound() {
+    use ciborium::Value;
+    for key in [
+        Value::Bytes(b"task_revision".to_vec()),
+        Value::Tag(1, Box::new(Value::Text("task_revision".into()))),
+        Value::Array(vec![Value::Text("task_revision".into())]),
+        Value::from(2u64),
+    ] {
+        let source = Value::Map(vec![
+            (Value::Text("executor_epoch".into()), Value::from(7u64)),
+            (key, Value::from(2u64)),
+        ]);
+        // Independent original-codec oracle still includes the actual mixed key.
+        parity(&source);
+        let alloc = Alloc::new(4 << 20);
+        let admission = CommonBytes {
+            alloc: &alloc,
+            remaining: Cell::new(128 << 10),
+            last_request: Cell::new(0),
+        };
+        let mut ctx = CanonicalCborStreamContextV1::new(&admission, work(), || false);
+        let mut out = Vec::new();
+        assert!(matches!(
+            stream_canonical_cbor_v1(&source, &mut ctx, &mut out),
+            Err(CanonicalCborStreamError::ResourceLimited(
+                "test Common bytes"
+            ))
+        ));
+        assert!(admission.last_request.get() > 128 << 10);
+        assert_eq!(ctx.metrics().map_sorts, 0);
+        assert_eq!(ctx.metrics().map_comparisons, 0);
+        assert!(ctx.is_poisoned());
+        assert!(out.is_empty());
+        assert_eq!(alloc.state.used.get(), 0);
+    }
+}
+
+#[test]
+fn cancellation_during_retained_text_scan_never_enters_sort() {
+    struct CancelScan<'a> {
+        alloc: &'a Alloc,
+        cancelled: &'a Cell<bool>,
+    }
+    impl CanonicalCborAllocator for CancelScan<'_> {
+        type Charge = Charge;
+        fn charge_work(&self, steps: u64, bytes: u64) -> Result<(), CanonicalCborStreamError> {
+            // The source's short keys never emit a Value-header-sized chunk.
+            // Cancel at the actual paid retained-model scan, before its next row.
+            if steps == 0 && bytes == std::mem::size_of::<ciborium::Value>() as u64 {
+                self.cancelled.set(true);
+            }
+            Ok(())
+        }
+        fn reserve(&self, bytes: usize) -> Result<Charge, CanonicalCborStreamError> {
+            self.alloc.reserve(bytes)
+        }
+    }
+    let source = std::collections::BTreeMap::from([("executor_epoch", 7u64), ("task_revision", 2)]);
+    let alloc = Alloc::new(4 << 20);
+    let cancelled = Cell::new(false);
+    let admission = CancelScan {
+        alloc: &alloc,
+        cancelled: &cancelled,
+    };
+    let mut ctx = CanonicalCborStreamContextV1::new(&admission, work(), || cancelled.get());
+    let mut out = Vec::new();
+    assert!(matches!(
+        stream_canonical_cbor_v1(&source, &mut ctx, &mut out),
+        Err(CanonicalCborStreamError::Cancelled)
+    ));
+    assert!(cancelled.get());
+    assert_eq!(ctx.metrics().map_sorts, 0);
+    assert_eq!(ctx.metrics().map_comparisons, 0);
+    assert!(ctx.is_poisoned());
+    assert!(out.is_empty());
+    assert_eq!(alloc.state.used.get(), 0);
+}
+
 struct Output<'a> {
     mode: u8,
     attempts: usize,

@@ -1,9 +1,7 @@
 //! Complete fixed Current module-capability consumer; no supplied decision.
 use super::*;
 use crate::world::{
-    incremental_authorization_root_current::{
-        AuthorizationRootSourceReadWorkV1, CurrentAuthorizationProjectionV1, SourceError,
-    },
+    incremental_authorization_root_current::{CurrentAuthorizationProjectionV1, SourceError},
     incremental_body::BodyMutationError,
     incremental_normal_action_factory_schedule::{
         FactoryScheduleReadErrorV1, FactoryScheduleWorkV1, with_module_lifecycle_read_io_v1,
@@ -1091,6 +1089,4 @@ pub(in crate::world) use bootstrap_policy::{
 
 #[path = "normal_bootstrap_current_registry.rs"]
 mod bootstrap_registry;
-pub(in crate::world) use bootstrap_registry::{
-    PaidCurrentBootstrapRegistryV1, read_current_bootstrap_registry_v1,
-};
+pub(in crate::world) use bootstrap_registry::read_current_bootstrap_registry_v1;

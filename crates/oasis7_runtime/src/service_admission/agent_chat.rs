@@ -1,6 +1,6 @@
 //! Canonical owner chat. Economic grants and provider delegation do not grant control.
 use crate::{AgentIntentAuthorityContext, World};
-use oasis7_proto::{player_auth::verify_agent_chat_auth_proof, viewer::AgentChatRequest};
+use oasis7_proto::viewer::AgentChatRequest;
 
 pub fn authority(request: &AgentChatRequest) -> AgentIntentAuthorityContext {
     AgentIntentAuthorityContext {

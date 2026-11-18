@@ -40,7 +40,6 @@ use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
 use oasis7_world_state::{
     incremental_cognition_current_complete_v3::CompleteCognitionCurrentQualificationV3,
     incremental_cognition_history::PendingCurrentCognitionJournalV1,
-    incremental_cognition_proof_ledger::CurrentCognitionProofLedgerV1,
     incremental_field_read::WorldFieldReadContextV1,
     incremental_industry_jobs::IndustryFamilyReadContextV1,
     incremental_main_token_policy_records::RestrictedClaimGrantDirectoryV1,
@@ -222,4 +221,3 @@ where
 
 #[path = "incremental_normal_system_stages.rs"]
 mod stages;
-pub(in crate::world) use stages::NormalSystemStagesBeforeConsensusV1;

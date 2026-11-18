@@ -2,7 +2,18 @@
 use super::*;
 use crate::world::{incremental_normal_tail::NormalTailWorkV1,incremental_normal_world_rule_lifecycle::delivery::{IndustrialDeliveryWorkV1,IndustrialDeliveryErrorV1},incremental_body_event::materials::CorePolicyMaterialContextV1,incremental_body::BodyMutationContext};
 use oasis7_formal_protocol::{incremental_value::{ValueNodeReader,ValueNodeWriter,ValueReadContext,ValueTreeError},incremental_state::StatePageWriter};
-use oasis7_world_state::{AgentClaimState,RestrictedStarterClaimGrantState,incremental_field_overlay::WorldFieldOverlayContextV1,incremental_field_read::WorldFieldReadContextV1,incremental_field_member::MemberRecordWriteContext,incremental_world_native::*,incremental_main_token_policy_records::{MainTokenPolicyFamilyQualificationV1,CurrentRestrictedClaimGrantV1,read_current_restricted_claim_grant_v1},incremental_world_u64::*};
+use oasis7_world_state::{
+    AgentClaimState,
+    incremental_field_member::MemberRecordWriteContext,
+    incremental_field_overlay::WorldFieldOverlayContextV1,
+    incremental_field_read::WorldFieldReadContextV1,
+    incremental_main_token_policy_records::{
+        CurrentRestrictedClaimGrantV1, MainTokenPolicyFamilyQualificationV1,
+        read_current_restricted_claim_grant_v1,
+    },
+    incremental_world_native::*,
+    incremental_world_u64::*,
+};
 use oasis7_proto::memory_budget::MemoryClass;
 #[derive(Clone,Copy)]pub(super) enum ClaimEpochPassV1{Initial,AfterUpkeep}
 pub(super) struct CommittedClaimEpochStateV1{

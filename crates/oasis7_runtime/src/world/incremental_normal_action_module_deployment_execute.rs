@@ -5,7 +5,6 @@ use super::deployment_rules::{
 use super::event::CompletedModuleLifecycleActionV1;
 use super::*;
 use crate::world::{
-    incremental_action_execution::SelectedActionAuditV1,
     incremental_body_event::{AgentEventOriginalV1, materials::CorePolicyMaterialContextV1},
     incremental_module_artifact_original::{
         ArtifactOriginalWriteErrorV1, persist_artifact_original_data_v1,

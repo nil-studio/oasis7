@@ -20,7 +20,7 @@ use oasis7_formal_protocol::{
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation, ReservedValue};
 use oasis7_world_state::{
-    agent_state::{BodyModuleSlot, BodySlotType, CargoEntityKind},
+    agent_state::{BodyModuleSlot, CargoEntityKind},
     incremental_agent_body::{AGENT_BODY_VALUE_BYTES, AgentBodyKeyV1, AgentBodyValueV1},
     incremental_agent_fields::{AgentFieldV1, AgentScalarRefV1},
     incremental_agent_subtree::{

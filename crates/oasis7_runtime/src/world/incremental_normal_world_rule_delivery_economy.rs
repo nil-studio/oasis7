@@ -12,7 +12,7 @@ use oasis7_world_state::{
 };
 use sha2::{Digest, Sha256};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     io::{self, Write},
 };
 type ClaimBefore = ReservedValue<CurrentIndustrialClaimRecordV1<AgentClaimState>>;

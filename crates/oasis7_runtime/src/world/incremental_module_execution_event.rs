@@ -807,10 +807,7 @@ pub(in crate::world) use material_transit_event::contribute_normal_material_tran
 
 #[path = "incremental_safe_alternative_outcome_event.rs"]
 mod safe_alternative_outcome;
-pub(in crate::world) use safe_alternative_outcome::{
-    AuthorizationOutcomePublishErrorV1, PublishedAuthorizationOutcomeEventV1,
-    publish_safe_alternative_outcome_event_v1,
-};
+pub(in crate::world) use safe_alternative_outcome::publish_safe_alternative_outcome_event_v1;
 
 #[path = "incremental_normal_due_product_event.rs"]
 mod due_product_event;

@@ -224,7 +224,6 @@ mod warm;
 
 #[path = "incremental_authorization_root_current_refresh.rs"]
 mod refresh;
-pub(in crate::world) use refresh::AuthorizationProjectionRefreshV1;
 
 fn paid_body(
     body: &oasis7_formal_protocol::incremental_state::StateRootV1,
@@ -330,7 +329,6 @@ pub(in crate::world) use publish::RootPublishedOutcomeV1;
 
 #[path = "incremental_authorization_root_current_bootstrap_snapshot.rs"]
 mod bootstrap_snapshot;
-pub(in crate::world) use bootstrap_snapshot::{PaidCurrentBootstrapAuthSnapshotV1,PaidCurrentBootstrapAuthInventoryV1,BootstrapInventoryErrorV1};
 
 
 #[path="incremental_authorization_root_current_resident.rs"] mod resident;

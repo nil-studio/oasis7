@@ -17,10 +17,7 @@ use oasis7_world_state::{
     incremental_world_id_sets::{
         WorldIdSetFieldV1, WorldIdSetKeyRefV1, world_id_set_contains_overlay_v1,
     },
-    incremental_world_native::{
-        recover_current_schedule_factory_profile_v1, recover_current_schedule_product_profile_v1,
-        recover_current_schedule_recipe_profile_v1,
-    },
+    incremental_world_native::recover_current_schedule_factory_profile_v1,
 };
 
 pub(in crate::world) enum EvaluationErrorV1 {

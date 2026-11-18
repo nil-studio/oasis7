@@ -1,6 +1,6 @@
 //! Unique upgrade prelude with concrete, sealed original-record observers.
 use super::*;
-use super::{instance_rules::{ModuleInstallFactsV1,ModuleBusinessErrorV1},registry_rules::ModuleManifestRecordV1};
+use super::instance_rules::{ModuleBusinessErrorV1, ModuleInstallFactsV1};
 use oasis7_world_state::incremental_module_instance_fields::{ModuleInstanceFieldV1 as F,ModuleInstanceScalarRefV1 as Scalar};
 pub(in crate::world) enum ModuleInstanceRecordV1<'s>{Legacy(&'s crate::ModuleInstanceState),Current(ReservedValue<crate::world::incremental_module_read::PreparedModuleInstanceFields>)}
 impl ModuleInstanceRecordV1<'_>{

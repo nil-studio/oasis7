@@ -1,16 +1,15 @@
 //! Fixed activity-close batch. The next registration observes the previous
 //! publication, while module routing remains deferred until the batch end.
 use super::*;
-use crate::world::{incremental_module_invocation::*,
- incremental_body_event::{AgentEventOriginalV1,materials::CorePolicyMaterialContextV1},
- incremental_normal_industry_due::deferred::DueEventQueueV1,
- incremental_normal_tail::NormalTailWorkV1};
+use crate::world::{
+    incremental_body_event::{AgentEventOriginalV1, materials::CorePolicyMaterialContextV1},
+    incremental_module_invocation::*,
+    incremental_normal_tail::NormalTailWorkV1,
+};
 use oasis7_formal_protocol::{incremental_material::OriginalObjectStreamReader,
  incremental_schedule::SchedulePageWriter,incremental_state::StatePageWriter,
  incremental_value::{ValueNodeReader,ValueNodeWriter,ValueTreeError}};
-use oasis7_world_state::{incremental_field_read::WorldFieldReadContextV1,
- incremental_world_rule_continuity::apply_current_organization_continuity_system_v1,
- world_rules::{prepare_activity_close_command_for_registration_v1,apply_system_lifecycle_command_from_current_v1}};
+use oasis7_world_state::incremental_field_read::WorldFieldReadContextV1;
 impl<'a,'t,'s,'v,M,R,E,C,W,F,O> RootModuleExecutionContextV1<'a,'t,'s,'v,M,R,E,C,W,F,O>
 where M:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool,
  W:ValueNodeReader+ValueNodeWriter+StatePageWriter+SchedulePageWriter,

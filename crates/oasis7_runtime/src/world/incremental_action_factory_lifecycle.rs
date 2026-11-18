@@ -23,7 +23,7 @@ use oasis7_world_state::{
         FactoryLifecycleIndexV1, FactoryLifecycleIndexWorkV1, observe_current_factory_lifecycle_v1,
     },
     incremental_factory_records::*,
-    incremental_field_member::{MemberRecordLimitsV1, MemberRecordWriteContext},
+    incremental_field_member::MemberRecordWriteContext,
     incremental_field_overlay::{WorldFieldOverlayContextV1, WorldFieldOverlayErrorV1},
     incremental_field_read::WorldFieldReadContextV1,
     incremental_industry_jobs::{IndustryFamilyQualificationV1, IndustryWorkBudgetV1},

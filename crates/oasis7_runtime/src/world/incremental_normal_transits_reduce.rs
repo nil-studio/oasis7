@@ -2,12 +2,11 @@
 
 use super::common::*;
 use super::current_read::{
-    CurrentLogisticsPathV1, CurrentLogisticsRouteV1, read_current_path_v1, read_current_route_v1,
-    read_current_transit_v1,
+    CurrentLogisticsRouteV1, read_current_path_v1, read_current_route_v1, read_current_transit_v1,
 };
 use super::settlement::{
-    MaterialTransitSettlementPlanV1, apply_current_material_credit_v1,
-    apply_current_transit_logistics_v1, plan_current_transit_settlement_v1,
+    apply_current_material_credit_v1, apply_current_transit_logistics_v1,
+    plan_current_transit_settlement_v1,
 };
 
 fn invalid_at(reason: &'static str) -> BodyMutationError {
@@ -529,79 +528,80 @@ pub(in crate::world) fn reduce_current_material_transit_v1<
                 overlay.transaction.validate_guard(&tail, live)?;
             }
 
-            let stop = RefCell::new(&mut current_read.cancelled);
-            let mutation_cancel = RefCell::new(&mut step.mutation.cancelled);
-            let mut overlay = WorldFieldOverlayContextV1 {
-                transaction: &mut *step.transaction,
-                values: ValueReadContext {
-                    source: current_read.values.source,
-                    memory,
-                    class: MemoryClass::Ordinary,
-                    io: &mut *current_read.values.io,
-                },
-                key_work: &mut *current_read.key_work,
-                semantic_bytes: current_read.semantic_bytes,
-                record_bytes: current_read.record_bytes,
-                take_state_error: &mut current_read.take_state_error,
-                cancelled: || (stop.borrow_mut())() || (mutation_cancel.borrow_mut())(),
-            };
-            let mut writer =
-                oasis7_world_state::incremental_field_member::MemberRecordWriteContext {
-                    sink: &mut *step.mutation.sink,
-                    memory,
-                    io: &mut *step.mutation.io,
-                    key_work: &mut *materials.write_keys,
-                    limits: materials.write_limits,
-                    cancelled: || (stop.borrow_mut())() || (mutation_cancel.borrow_mut())(),
-                };
-            apply_current_transit_logistics_v1(
-                &plan,
-                job,
-                logistics,
-                &mut overlay,
-                &mut writer,
-                logistics_work,
-                industry,
-                &mut work.industry,
-                logistics_work.max_pending_node_bytes as u64,
-                live,
-            )?;
-            // The member writer borrows the shared mutation sink and IO lane.
-            // Finish its route/path writes before opening the scalar writer
-            // below; both writers still use the same transaction and budget.
-            drop(writer);
-
-            for (agent, (before, after)) in &credit_changes {
-                let fresh = overlay.transaction.guard();
-                let mut mutation = ValueMutationContextV1 {
-                    sink: &mut *step.mutation.sink,
-                    memory,
-                    io: &mut *step.mutation.io,
-                    cancelled: || (stop.borrow_mut())() || (mutation_cancel.borrow_mut())(),
-                };
-                change_agent_subtree_scalar_v1(
-                    oasis7_world_state::incremental_agent_subtree::AgentSubtreeCellChangeV1 {
-                        query: AgentSubtreeQualifiedRequestV1 {
-                            cell: AgentSubtreeScalarRequestV1 {
-                                agent,
-                                field: AgentFieldV1::ResourceAmount,
-                                ordinal: 0,
-                            },
-                            qualification: agents,
-                        },
-                        expected: before.map(AgentScalarRefV1::I64),
-                        after: (*after != 0).then_some(AgentScalarRefV1::I64(*after)),
-                        max_scalar_bytes: work.max_scalar_bytes as u64,
+            {
+                let stop = RefCell::new(&mut current_read.cancelled);
+                let mutation_cancel = RefCell::new(&mut step.mutation.cancelled);
+                let mut overlay = WorldFieldOverlayContextV1 {
+                    transaction: &mut *step.transaction,
+                    values: ValueReadContext {
+                        source: current_read.values.source,
+                        memory,
+                        class: MemoryClass::Ordinary,
+                        io: &mut *current_read.values.io,
                     },
-                    &mut overlay,
-                    &mut mutation,
-                    &fresh,
-                    live,
-                )
-                .map_err(overlay_error)?;
-            }
+                    key_work: &mut *current_read.key_work,
+                    semantic_bytes: current_read.semantic_bytes,
+                    record_bytes: current_read.record_bytes,
+                    take_state_error: &mut current_read.take_state_error,
+                    cancelled: || (stop.borrow_mut())() || (mutation_cancel.borrow_mut())(),
+                };
+                {
+                    let mut writer =
+                        oasis7_world_state::incremental_field_member::MemberRecordWriteContext {
+                            sink: &mut *step.mutation.sink,
+                            memory,
+                            io: &mut *step.mutation.io,
+                            key_work: &mut *materials.write_keys,
+                            limits: materials.write_limits,
+                            cancelled: || (stop.borrow_mut())() || (mutation_cancel.borrow_mut())(),
+                        };
+                    apply_current_transit_logistics_v1(
+                        &plan,
+                        job,
+                        logistics,
+                        &mut overlay,
+                        &mut writer,
+                        logistics_work,
+                        industry,
+                        &mut work.industry,
+                        logistics_work.max_pending_node_bytes as u64,
+                        live,
+                    )?;
+                    // The member writer borrows the shared mutation sink and IO lane.
+                    // Finish its route/path writes before opening the scalar writer
+                    // below; both writers still use the same transaction and budget.
+                }
 
-            drop(overlay);
+                for (agent, (before, after)) in &credit_changes {
+                    let fresh = overlay.transaction.guard();
+                    let mut mutation = ValueMutationContextV1 {
+                        sink: &mut *step.mutation.sink,
+                        memory,
+                        io: &mut *step.mutation.io,
+                        cancelled: || (stop.borrow_mut())() || (mutation_cancel.borrow_mut())(),
+                    };
+                    change_agent_subtree_scalar_v1(
+                        oasis7_world_state::incremental_agent_subtree::AgentSubtreeCellChangeV1 {
+                            query: AgentSubtreeQualifiedRequestV1 {
+                                cell: AgentSubtreeScalarRequestV1 {
+                                    agent,
+                                    field: AgentFieldV1::ResourceAmount,
+                                    ordinal: 0,
+                                },
+                                qualification: agents,
+                            },
+                            expected: before.map(AgentScalarRefV1::I64),
+                            after: (*after != 0).then_some(AgentScalarRefV1::I64(*after)),
+                            max_scalar_bytes: work.max_scalar_bytes as u64,
+                        },
+                        &mut overlay,
+                        &mut mutation,
+                        &fresh,
+                        live,
+                    )
+                    .map_err(overlay_error)?;
+                }
+            }
             drop(credit_fee);
             drop(route_id_set_fee);
 
@@ -653,121 +653,132 @@ pub(in crate::world) fn reduce_current_material_transit_v1<
             // The original progress transition observes global factory stage,
             // then increments this completion's counter with saturating math.
             normal.charge(32 << 10)?;
-            let mut progress_read = WorldFieldReadContextV1 {
-                root: roots.state_root(
-                    oasis7_formal_protocol::incremental_state::StateNamespaceV1::Authorization,
-                ),
-                state: current_read.state,
-                values: ValueReadContext {
-                    source: current_read.values.source,
-                    memory,
-                    class: MemoryClass::Ordinary,
-                    io: &mut *current_read.values.io,
-                },
-                key_work: &mut *current_read.key_work,
-                semantic_bytes: current_read.semantic_bytes,
-                record_bytes: current_read.record_bytes,
-                take_state_error: &mut current_read.take_state_error,
-                cancelled: &mut current_read.cancelled,
-            };
-            let policy = recover_gameplay_policy_overlay_v1(
-                step.transaction,
-                live,
-                &mut progress_read,
-                &mut work.native_scan,
-                &mut work.native_read,
-            )
-            .map_err(overlay_error)?;
-            let taxes_enabled = policy.value().value().electricity_tax_bps > 0
-                || policy.value().value().data_tax_bps > 0;
-            let before_guard = step.transaction.guard();
-            let before_progress = recover_current_factory_industry_progress_v1(
-                native,
-                roots,
-                step.transaction,
-                &mut progress_read,
-                &mut work.native_scan,
-                &mut work.native_read,
-                &before_guard,
-                live,
-            )
-            .map_err(overlay_error)?;
-            let prior_transits = before_progress
-                .value()
-                .ok_or(invalid_at("industry progress absent"))?
-                .completed_material_transits;
-            let observation_guard = step.transaction.guard();
-            let observation = observe_current_factory_lifecycle_v1(
-                "",
-                factory_index,
-                factories,
-                industry,
-                roots,
-                step.transaction,
-                &mut progress_read,
-                &mut work.factory,
-                &mut work.industry,
-                &mut work.lifecycle,
-                work.max_scalar_bytes as u64,
-                &observation_guard,
-                live,
-            )
-            .map_err(overlay_error)?;
-            observation
-                .validate(step.transaction, memory, live)
-                .map_err(overlay_error)?;
-            let stage = oasis7_world_state::state::industry_transition::industry_stage_for_progress(
-                observation.has_stable_production_line(),
-                observation.stage_completed_jobs_total(),
-                prior_transits.saturating_add(1),
-                taxes_enabled,
-            );
-            let latest_guard = step.transaction.guard();
-            let latest_progress = recover_current_factory_industry_progress_v1(
-                native,
-                roots,
-                step.transaction,
-                &mut progress_read,
-                &mut work.native_scan,
-                &mut work.native_read,
-                &latest_guard,
-                live,
-            )
-            .map_err(overlay_error)?;
-            observation
-                .validate(step.transaction, memory, live)
-                .map_err(overlay_error)?;
-            if latest_progress
-                .value()
-                .ok_or(invalid_at("industry progress absent"))?
-                .completed_material_transits
-                != prior_transits
+            // Keep the original paid reads and guard owners through event
+            // admission, in their original declaration and release order.
+            let policy;
+            let before_guard;
+            let before_progress;
+            let observation_guard;
+            let observation;
+            let latest_guard;
+            let latest_progress;
             {
-                return Err(invalid_at("industry progress changed"));
-            }
-            let mut progress_writer =
-                oasis7_world_state::incremental_field_member::MemberRecordWriteContext {
-                    sink: &mut *step.mutation.sink,
-                    memory,
-                    io: &mut *step.mutation.io,
-                    key_work: &mut *materials.write_keys,
-                    limits: materials.write_limits,
-                    cancelled: || (step.mutation.cancelled)(),
+                let mut progress_read = WorldFieldReadContextV1 {
+                    root: roots.state_root(
+                        oasis7_formal_protocol::incremental_state::StateNamespaceV1::Authorization,
+                    ),
+                    state: current_read.state,
+                    values: ValueReadContext {
+                        source: current_read.values.source,
+                        memory,
+                        class: MemoryClass::Ordinary,
+                        io: &mut *current_read.values.io,
+                    },
+                    key_work: &mut *current_read.key_work,
+                    semantic_bytes: current_read.semantic_bytes,
+                    record_bytes: current_read.record_bytes,
+                    take_state_error: &mut current_read.take_state_error,
+                    cancelled: &mut current_read.cancelled,
                 };
-            increment_current_material_transit_progress_v1(
-                &latest_progress,
-                stage,
-                now,
-                step.transaction,
-                &mut progress_read,
-                &mut progress_writer,
-                &mut work.native_scan,
-                &mut work.native_read,
-                &mut work.native_write,
-                live,
-            )
-            .map_err(overlay_error)?;
-            drop(progress_read);
+                policy = recover_gameplay_policy_overlay_v1(
+                    step.transaction,
+                    live,
+                    &mut progress_read,
+                    &mut work.native_scan,
+                    &mut work.native_read,
+                )
+                .map_err(overlay_error)?;
+                let taxes_enabled = policy.value().value().electricity_tax_bps > 0
+                    || policy.value().value().data_tax_bps > 0;
+                before_guard = step.transaction.guard();
+                before_progress = recover_current_factory_industry_progress_v1(
+                    native,
+                    roots,
+                    step.transaction,
+                    &mut progress_read,
+                    &mut work.native_scan,
+                    &mut work.native_read,
+                    &before_guard,
+                    live,
+                )
+                .map_err(overlay_error)?;
+                let prior_transits = before_progress
+                    .value()
+                    .ok_or(invalid_at("industry progress absent"))?
+                    .completed_material_transits;
+                observation_guard = step.transaction.guard();
+                observation = observe_current_factory_lifecycle_v1(
+                    "",
+                    factory_index,
+                    factories,
+                    industry,
+                    roots,
+                    step.transaction,
+                    &mut progress_read,
+                    &mut work.factory,
+                    &mut work.industry,
+                    &mut work.lifecycle,
+                    work.max_scalar_bytes as u64,
+                    &observation_guard,
+                    live,
+                )
+                .map_err(overlay_error)?;
+                observation
+                    .validate(step.transaction, memory, live)
+                    .map_err(overlay_error)?;
+                let stage =
+                    oasis7_world_state::state::industry_transition::industry_stage_for_progress(
+                        observation.has_stable_production_line(),
+                        observation.stage_completed_jobs_total(),
+                        prior_transits.saturating_add(1),
+                        taxes_enabled,
+                    );
+                latest_guard = step.transaction.guard();
+                latest_progress = recover_current_factory_industry_progress_v1(
+                    native,
+                    roots,
+                    step.transaction,
+                    &mut progress_read,
+                    &mut work.native_scan,
+                    &mut work.native_read,
+                    &latest_guard,
+                    live,
+                )
+                .map_err(overlay_error)?;
+                observation
+                    .validate(step.transaction, memory, live)
+                    .map_err(overlay_error)?;
+                if latest_progress
+                    .value()
+                    .ok_or(invalid_at("industry progress absent"))?
+                    .completed_material_transits
+                    != prior_transits
+                {
+                    return Err(invalid_at("industry progress changed"));
+                }
+                let mut progress_writer =
+                    oasis7_world_state::incremental_field_member::MemberRecordWriteContext {
+                        sink: &mut *step.mutation.sink,
+                        memory,
+                        io: &mut *step.mutation.io,
+                        key_work: &mut *materials.write_keys,
+                        limits: materials.write_limits,
+                        cancelled: || (step.mutation.cancelled)(),
+                    };
+                increment_current_material_transit_progress_v1(
+                    &latest_progress,
+                    stage,
+                    now,
+                    step.transaction,
+                    &mut progress_read,
+                    &mut progress_writer,
+                    &mut work.native_scan,
+                    &mut work.native_read,
+                    &mut work.native_write,
+                    live,
+                )
+                .map_err(overlay_error)?;
+            }
             let event = prepare_material_transit_event_v1(job, event_id, now, memory, normal)?;
             let final_guard = step.transaction.guard();
             step.transaction.validate_guard(&final_guard, live)?;

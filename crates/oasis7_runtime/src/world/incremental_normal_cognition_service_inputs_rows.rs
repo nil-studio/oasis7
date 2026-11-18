@@ -5,8 +5,7 @@ use crate::{
     cognition_wake::{AgentContinuation, ContinuationStatusV1},
 };
 use oasis7_agent_api::iws_scheduler_v2::IWS_CURRENT_COMMITMENT_SCHEME_V1;
-use oasis7_world_state::cognition_wake::{IWS_CONTINUATION_SCHEMA_V2, IwsAgentContinuationV2};
-use oasis7_world_state::incremental_cognition_proof_ledger::ProofLedgerReadWorkV1;
+use oasis7_world_state::cognition_wake::IWS_CONTINUATION_SCHEMA_V2;
 pub(super) struct PreparedServiceRowsV2 {
     rows: Vec<PreparedWakeInputV2>,
     _fee: ReservedValue<()>,

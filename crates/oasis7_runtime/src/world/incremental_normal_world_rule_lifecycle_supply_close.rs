@@ -75,4 +75,7 @@ mod credit;
 #[path="incremental_normal_world_rule_lifecycle_supply_close_plan.rs"]
 mod plan;
 
-pub(super) use plan::{CompleteSupplyClosePreparationV1,PreparedCompleteSupplyCloseV1,CommittedCompleteSupplyCloseV1,prepare_complete_current_supply_close_v1,commit_complete_current_supply_close_v1};
+pub(super) use plan::{
+    CommittedCompleteSupplyCloseV1, CompleteSupplyClosePreparationV1,
+    commit_complete_current_supply_close_v1, prepare_complete_current_supply_close_v1,
+};

@@ -1,6 +1,5 @@
 //! Unique manifest admission ordering. A source implementation is sealed and
 //! performs the original concrete identity/ABI/capability checks over real data.
-use super::*;
 use super::registry_rules::ModuleRegistryRuleErrorV1;
 use crate::{WorldError,ModuleManifest,ModuleLimits};
 use oasis7_wasm_router::{validate_subscription_filters,validate_subscription_stage};

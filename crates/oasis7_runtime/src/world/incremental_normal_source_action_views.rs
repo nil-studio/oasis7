@@ -18,7 +18,7 @@ use crate::world::{
  ModuleCapabilityAdmissionSourcesV1,
 };
 use oasis7_formal_protocol::{controlled_authority::formal::bounded_context::{FormalBoundedContextV1,WorkIdentityV1},incremental_value::ValueTreeError};
-use oasis7_proto::memory_budget::{MemoryBudget,MemoryClass,MemoryReservation,ReservedValue};
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use oasis7_world_state::{incremental_factory_schedule_index::FactoryScheduleIndexV1,incremental_factory_schedule_receipts::FactoryScheduleReceiptIndexV1,incremental_inventory::InventoryIdentityDirectoryV1};
 /// Only the original opaque accepted producers may supply these mandatory
 /// caches. A missing cache is an upstream construction obligation, never None.

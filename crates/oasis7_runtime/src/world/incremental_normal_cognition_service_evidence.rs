@@ -27,7 +27,6 @@ use oasis7_world_state::{
     incremental_cognition_proof_ledger::{
         AcceptedCognitionProofLedgerV1, CognitionProofLedgerFieldV1,
     },
-    incremental_field_overlay::WorldFieldOverlayContextV1,
     incremental_field_read::WorldFieldReadContextV1,
 };
 use serde::Deserialize;

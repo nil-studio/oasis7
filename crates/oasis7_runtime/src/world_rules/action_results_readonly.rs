@@ -2,7 +2,7 @@
 //! Signature success repeats the historical proof; it does not authorize work.
 use super::*;
 use oasis7_wasm_abi::{CapabilityCanonicalWorkV1,CanonicalCborStreamError};
-use std::{ops::{ControlFlow,Deref},collections::BTreeMap};
+use std::ops::{ControlFlow, Deref};
 pub(crate)mod sealed{pub trait Sources{}}
 pub(crate)struct ManifestDataV1{pub world_id:String,pub genesis_ref:Option<String>}
 pub(crate)trait SourcesV1:sealed::Sources+CapabilityCanonicalWorkV1{

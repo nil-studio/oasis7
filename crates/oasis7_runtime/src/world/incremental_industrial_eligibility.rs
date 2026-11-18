@@ -124,7 +124,6 @@ where
 {
     use self::incremental_industrial_eligibility_owner::{
         read_current_industrial_identity_owner_v1, read_current_industrial_world_binding_v1,
-        resolve_current_industrial_state_owner_v1,
     };
     let result = (|| {
         ctx.transaction.validate_guard(guard, live)?;
@@ -473,7 +472,6 @@ where
     Ok(result)
 }
 
-pub(in crate::world) use incremental_industrial_eligibility_owner::safe_alternative_identity::read_current_safe_alternative_identity_v1;
 pub(in crate::world) use incremental_industrial_eligibility_owner::{
     CurrentStateOwnerSourcesV1, OwnedCurrentIndustrialStateOwnerV1, resolve_current_state_owner_v1,
 };
@@ -486,7 +484,11 @@ pub(in crate::world) use incremental_industrial_eligibility_owner::safe_alternat
 pub(in crate::world) use incremental_industrial_eligibility_owner::read_current_world_binding_v1;
 
 #[path="incremental_normal_world_rule_delivery_eligibility.rs"] mod delivery_facts;
-pub(in crate::world) use delivery_facts::{read_current_world_rule_order_production_facts_v1,read_current_world_rule_order_refund_source_v1,CurrentOrderProductionFactsV1,read_current_order_production_facts_v1,CurrentOrderRefundSourceV1,read_current_order_refund_source_v1};
+pub(in crate::world) use delivery_facts::{
+    CurrentOrderRefundSourceV1, read_current_order_refund_source_v1,
+    read_current_world_rule_order_production_facts_v1,
+    read_current_world_rule_order_refund_source_v1,
+};
 
 #[path="incremental_normal_world_rule_delivery_blocker.rs"] mod lifecycle_blocker;
 pub(in crate::world) use lifecycle_blocker::current_lifecycle_order_delivery_blocker_v1;

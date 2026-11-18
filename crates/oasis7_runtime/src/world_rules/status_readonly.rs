@@ -3,8 +3,7 @@
 use super::action_results::readonly::{SourcesV1 as ResultsSources, recent_from_sources_v1};
 use super::*;
 use oasis7_world_state::world_rules::{
-    IndustrialOwnerReadonlyFactsV1, ManufacturingQuoteReadonlyFactsV1,
-    WorldRuleStatusReadonlyFactsV1,
+    IndustrialOwnerReadonlyFactsV1, WorldRuleStatusReadonlyFactsV1,
 };
 use serde_json::{Map, Value};
 use std::ops::ControlFlow;

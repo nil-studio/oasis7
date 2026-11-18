@@ -22,7 +22,7 @@ use oasis7_world_state::{
 };
 
 use super::incremental_body::BodyMutationError;
-use super::incremental_normal_sources::{BoundNormalTickParentV1, NormalTickParentRefsV1};
+use super::incremental_normal_sources::BoundNormalTickParentV1;
 
 #[path = "incremental_normal_due_economy.rs"]
 mod due_economy;

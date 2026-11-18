@@ -1,6 +1,5 @@
 //! Unique install prelude. Governance preparation/publication deliberately
 //! follows this decision, so a failed shadow preserves the original Proposed.
-use super::*;
 use super::registry_rules::{ModuleManifestRecordV1,ModuleTextRecordV1};
 use crate::{ModuleChangeSet,ModuleActivation,ModuleManifest,RejectReason,WorldError};
 use oasis7_agent_api::world_action::ResourceKind;

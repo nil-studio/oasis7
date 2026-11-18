@@ -887,56 +887,54 @@ pub(in crate::world) fn collect_due_transit_order_v1<
     // Include same-transaction additions and replacements. The key visitor
     // validates the registered Scheduler field and decodes original record
     // roots; its ids remain observations and are all reopened from Current.
-    let current_read_cancelled = RefCell::new(&mut current_read.cancelled);
-    let industry_read_cancelled = RefCell::new(&mut context.cancelled);
-    let mut cancelled =
-        || (current_read_cancelled.borrow_mut())() || (industry_read_cancelled.borrow_mut())();
-    let mut transition =
-        oasis7_world_state::incremental_industry_jobs::IndustryTransitionReadContextV1 {
-            values: oasis7_formal_protocol::incremental_value::ValueReadContext {
-                source: current_read.values.source,
-                memory: current_read.values.memory,
-                class: current_read.values.class,
-                io: &mut *current_read.values.io,
-            },
-            key_work: &mut *current_read.key_work,
-            semantic_bytes: current_read.semantic_bytes,
-            record_bytes: current_read.record_bytes,
-            max_payload_bytes: context.max_payload_bytes,
-            cancelled: &mut cancelled,
-        };
-    let pending_result = visit_transit_current_outer_changes_v1(
-        step.transaction,
-        industry,
-        &mut transition,
-        industry_work,
-        |change| {
-            let IndustryCurrentOuterChangeV1::Record {
-                id, after: Some(_), ..
-            } = change
-            else {
-                return Ok(());
+    {
+        let current_read_cancelled = RefCell::new(&mut current_read.cancelled);
+        let industry_read_cancelled = RefCell::new(&mut context.cancelled);
+        let mut cancelled =
+            || (current_read_cancelled.borrow_mut())() || (industry_read_cancelled.borrow_mut())();
+        let mut transition =
+            oasis7_world_state::incremental_industry_jobs::IndustryTransitionReadContextV1 {
+                values: oasis7_formal_protocol::incremental_value::ValueReadContext {
+                    source: current_read.values.source,
+                    memory: current_read.values.memory,
+                    class: current_read.values.class,
+                    io: &mut *current_read.values.io,
+                },
+                key_work: &mut *current_read.key_work,
+                semantic_bytes: current_read.semantic_bytes,
+                record_bytes: current_read.record_bytes,
+                max_payload_bytes: context.max_payload_bytes,
+                cancelled: &mut cancelled,
             };
-            if entries.len() == entries.capacity() {
-                return Err(
-                    oasis7_world_state::incremental_field_overlay::WorldFieldOverlayErrorV1::Value(
-                        ValueTreeError::ResourceLimited("transit due candidate capacity"),
-                    ),
-                );
-            }
-            entries.push(DueTransitOrderV1 {
-                ready_at: 0,
-                priority: MaterialTransitPriority::Standard,
-                job_id: id,
-            });
-            Ok(())
-        },
-    );
-    pending_result.map_err(overlay_error)?;
-    drop(transition);
-    drop(cancelled);
-    drop(current_read_cancelled);
-    drop(industry_read_cancelled);
+        let pending_result = visit_transit_current_outer_changes_v1(
+            step.transaction,
+            industry,
+            &mut transition,
+            industry_work,
+            |change| {
+                let IndustryCurrentOuterChangeV1::Record {
+                    id, after: Some(_), ..
+                } = change
+                else {
+                    return Ok(());
+                };
+                if entries.len() == entries.capacity() {
+                    return Err(
+                        oasis7_world_state::incremental_field_overlay::WorldFieldOverlayErrorV1::Value(
+                            ValueTreeError::ResourceLimited("transit due candidate capacity"),
+                        ),
+                    );
+                }
+                entries.push(DueTransitOrderV1 {
+                    ready_at: 0,
+                    priority: MaterialTransitPriority::Standard,
+                    job_id: id,
+                });
+                Ok(())
+            },
+        );
+        pending_result.map_err(overlay_error)?;
+    }
 
     // Deduplicate parent and pending candidates by the original outer id, then
     // reopen every candidate from Current so replacements, removals and

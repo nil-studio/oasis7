@@ -225,8 +225,7 @@ where
                     crate::world::incremental_module_instance_change::contribute_module_instance_change(sources.families.instances,id,Some(rows.instance()),ctx.transaction,ctx.values.source,&mut mutation,rows.retained_heap() as u64)?;
                 }
                 use oasis7_world_state::incremental_installed_module_targets::{
-                    InstalledModuleTargetChangeV1, ModuleInstallTargetRefV1,
-                    change_installed_module_target_overlay_v1,
+                    InstalledModuleTargetChangeV1, change_installed_module_target_overlay_v1,
                 };
                 let guard = ctx.transaction.guard();
                 change_installed_module_target_overlay_v1(

@@ -527,7 +527,6 @@ mod cognition_promotion;
 mod promotion;
 pub use promotion::{
     PreparedNormalHostResidentV1, prepare_normal_host_resident_promotion_from_io_v1,
-    prepare_normal_host_resident_promotion_v1,
 };
 
 #[path = "incremental_normal_host_resident_genesis.rs"]

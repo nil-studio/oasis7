@@ -39,6 +39,35 @@ fn sort_rows(rows: &mut [(ciborium::Value, ciborium::Value)]) -> u64 {
     comparisons
 }
 
+fn comparison_byte_bound<A: CanonicalCborAllocator, C: FnMut() -> bool>(
+    engine: &mut Engine<'_, A, C>,
+    rows: &[(ciborium::Value, ciborium::Value)],
+    scratch: usize,
+) -> Result<usize, Error> {
+    let header = std::mem::size_of::<ciborium::Value>();
+    let mut longest_text = 0;
+    for (key, _) in rows {
+        // Inspect only the already retained model, after paying for its header.
+        engine.step()?;
+        engine.allocator.charge_work(0, header as u64)?;
+        let ciborium::Value::Text(text) = key else {
+            // In particular, Tag(Text) keeps the original comparator fallback.
+            return Ok(scratch);
+        };
+        longest_text = longest_text.max(text.len());
+    }
+    // ciborium 0.2.2's Text/Text comparator reads lengths, then UTF-8 bytes;
+    // it does not re-encode either model. The unchanged comparator first
+    // clones both Values. Eight header/payload passes cover those two clones'
+    // reads/writes, the length/lexical reads and the temporary owners' teardown.
+    // This is logical byte work; the full original scratch admission still
+    // covers their simultaneous allocated storage during the standard sort.
+    header
+        .checked_add(longest_text)
+        .and_then(|n| n.checked_mul(8))
+        .ok_or(Error::ResourceLimited("text key comparison work overflow"))
+}
+
 // Admission and accounting depend on the engine and retained rows, not the
 // serialized map source. Keep this work shared across source types as well.
 #[inline(never)]
@@ -63,10 +92,14 @@ fn prepare_sorted_rows<A: CanonicalCborAllocator, C: FnMut() -> bool>(
         .and_then(|v| v.checked_mul(16))
         .and_then(|v| v.checked_add(64))
         .ok_or(Error::ResourceLimited("sort work overflow"))?;
-    // Comparator clones/re-encodes the actual retained key models.
-    // Debit their admitted byte bound before entering standard sort.
+    // Text/Text comparisons have no re-encoding work. Every other model retains
+    // the original conservative byte bound, including compound and tagged keys.
+    let bytes_per_comparison = comparison_byte_bound(engine, rows, scratch)?;
     let comparison_bytes = allowance
-        .checked_mul(scratch as u64)
+        .checked_mul(
+            u64::try_from(bytes_per_comparison)
+                .map_err(|_| Error::ResourceLimited("sort byte work overflow"))?,
+        )
         .ok_or(Error::ResourceLimited("sort byte work overflow"))?;
     engine.allocator.charge_work(allowance, comparison_bytes)?;
     engine.work.visits_remaining = engine

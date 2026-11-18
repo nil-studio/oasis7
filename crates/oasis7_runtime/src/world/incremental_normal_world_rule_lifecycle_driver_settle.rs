@@ -1,8 +1,6 @@
 //! Actual bound SupplySettle pipeline; only the genuine fixed header's job is
 //! read, and the complete source owner survives request/event publication.
-use super::delivery::{
-    IndustrialDeliveryErrorV1, IndustrialDeliverySourcesV1, IndustrialDeliveryWorkV1,
-};
+use super::delivery::IndustrialDeliveryErrorV1;
 use super::written::{
     BoundCommittedSupplySettlementV1, FreshWrittenLifecycleCommandV1,
     LifecycleCommandPreparationV1, LifecycleWrittenSourceV1,
