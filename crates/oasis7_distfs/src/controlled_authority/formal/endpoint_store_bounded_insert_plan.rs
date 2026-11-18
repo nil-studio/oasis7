@@ -47,6 +47,7 @@ impl IndexInsertPlanV1<'_> {
                 _ => true,
             }
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority::formal::endpoint) fn reserved_bytes(&self) -> usize {
         self.before.as_ref().map_or(0, |s| s.reserved_bytes())
             + self.request.reserved_bytes()

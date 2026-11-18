@@ -13,6 +13,7 @@ pub(crate) struct FrozenParentMaterialLeaseV1<'a, 'content> {
     _pages: &'a IncrementalPageStore,
     _native_pin: std::fs::File,
 }
+#[cfg(all(test, unix))]
 impl FrozenParentMaterialLeaseV1<'_, '_> {
     pub(crate) fn parent_record_id(&self) -> [u8; 32] {
         self._material.record
