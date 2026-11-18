@@ -12,4 +12,5 @@ libxi6
 libxinerama1
 libxkbcommon0
 libxrandr2
+python3
 sudo

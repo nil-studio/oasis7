@@ -29,6 +29,26 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
         run: ./docker/ci-base/build.sh "$TARGET"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        if: github.event_name == 'pull_request' && matrix.target == 'build'
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Probe custody GDB contracts in candidate image
+        if: github.event_name == 'pull_request' && matrix.target == 'build'
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          node_home=$(dirname "$(dirname "$(command -v node)")")
+          docker run --rm --network none \
+            --user "$(id -u):$(id -g)" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace,readonly" \
+            --mount "type=bind,source=$node_home,target=/opt/node,readonly" \
+            --workdir /workspace \
+            --env OASIS7_REQUIRE_GDB_TESTS=1 \
+            --env PYTHONDONTWRITEBYTECODE=1 \
+            oasis7-ci-build:candidate \
+            bash -ec 'export PATH="/opt/node/bin:$PATH"; exec python3 scripts/ci-custody-workerd-gdb-contracts.py --failfast GdbContracts'
       - name: Scan OS vulnerabilities
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
         with:
