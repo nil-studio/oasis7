@@ -1054,4 +1054,43 @@ fn elapsed_caller_deadline_blocks_late_payload_after_real_refill() {
             .established,
         1
     );
+
+    let legacy = Libp2pNetwork::try_new(Libp2pNetworkConfig {
+        enable_autonat: false,
+        ..Libp2pNetworkConfig::default()
+    })
+    .unwrap();
+    assert_eq!(
+        legacy.traffic_metrics_snapshot().resource_budget.profile,
+        "legacy"
+    );
+    legacy
+        .dial(server.listening_addrs()[0].clone().with_p2p(peer).unwrap())
+        .unwrap();
+    wait_until("legacy authenticated TCP connection unavailable", || {
+        legacy.connected_peers().contains(&peer)
+    });
+    let expired = legacy
+        .request_to_peer_before(protocol, b"legacy stale", peer, original_retry_deadline)
+        .unwrap_err();
+    assert_eq!(
+        expired.network_failure(Some(protocol)).cause,
+        FailureCause::Timeout
+    );
+    assert_eq!(
+        legacy
+            .request_to_peer_before(
+                protocol,
+                b"legacy live",
+                peer,
+                Instant::now() + Duration::from_secs(3)
+            )
+            .unwrap(),
+        b"ack",
+    );
+    assert_eq!(
+        received.recv_timeout(Duration::from_secs(1)).unwrap(),
+        b"legacy live"
+    );
+    assert!(received.try_recv().is_err());
 }

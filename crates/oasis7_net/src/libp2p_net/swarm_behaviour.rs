@@ -84,6 +84,8 @@ impl Behaviour {
         message: NetworkRequest,
         caller_deadline: Option<tokio::time::Instant>,
     ) -> request_response::OutboundRequestId {
+        // Legacy keeps its existing on-wire protocol timers. The command's
+        // caller bound has already been applied to waiting and dispatch.
         let deadline = self.request_timeout.map(|timeout| {
             let configured = deadline_in(timeout);
             caller_deadline.map_or(configured, |caller| configured.min(caller))

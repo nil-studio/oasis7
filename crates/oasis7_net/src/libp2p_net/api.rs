@@ -122,7 +122,8 @@ impl Libp2pNetwork {
         self.request_to_peer_bounded(protocol, payload, peer, timeout, deadline)
     }
 
-    /// Request with an absolute bound shared by the caller's retry loop.
+    /// Apply an absolute bound to caller wait and command dispatch.
+    /// The shared-resource profile carries the same bound through payload I/O.
     pub fn request_to_peer_before(
         &self,
         protocol: &str,
