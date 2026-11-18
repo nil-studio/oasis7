@@ -64,7 +64,7 @@ const MAX_NODE_ERROR_CHARS: usize = 384;
 const HTTP_CONNECTION_TIMEOUT: Duration = Duration::from_secs(2);
 const FORMAL_HTTP_THREAD_STACK_BYTES: usize = 8 * 1024 * 1024;
 const SERVICE_READINESS_PATH: &str = "/healthz";
-const CHAIN_STATUS_PATH: &str = "/v1/chain/status";
+pub(super) const CHAIN_STATUS_PATH: &str = "/v1/chain/status";
 
 #[derive(Clone)]
 pub(crate) struct PublishedReadCut {
@@ -492,6 +492,7 @@ impl FormalLiveService {
         match (method, path) {
             ("GET", SERVICE_READINESS_PATH) => self.handle_health(),
             ("GET", CHAIN_STATUS_PATH) => self.handle_status(),
+            ("POST", CHAIN_STATUS_PATH) => http::handle_status_observation(self, body),
             ("POST", VIEW_PATH) => self.handle_view(body),
             ("POST", SUBMIT_PATH) => self.handle_submit(body),
             ("POST", LOOKUP_PATH) => self.handle_lookup(body),
