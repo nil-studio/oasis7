@@ -75,10 +75,6 @@ impl IdentityFactsV1 for Legacy<'_> {
 pub(in crate::world) fn validate_module_artifact_identity_from_legacy_v1(world:&World,module:&ModuleManifest)->Result<(),WorldError>{
     validate(&mut Legacy(world),module,module.artifact_identity.as_ref())
 }
-pub(in crate::world) fn validate_module_artifact_identity_fields_from_legacy_v1(world:&World,module:&ModuleManifest,identity:&ModuleArtifactIdentity)->Result<(),WorldError>{
-    validate(&mut Legacy(world),module,Some(identity))
-}
-
 struct Current<'a,'s,'t,'v,'m,'p,'b,'mw,M,P,R,E,C,PE,PC> {
     sources:&'a ModuleLifecycleSourcesV1<'s>,
     ctx:&'a mut WorldFieldOverlayContextV1<'t,'v,'m,M,R,E,C>,

@@ -246,13 +246,20 @@ fn run_kind(kind: TransferKind) {
     let resource = kind == TransferKind::Resource;
     let memory = MemoryBudget::new(512 << 20, 32 << 20).unwrap();
     let workspace = memory.reserve(32 << 20, MemoryClass::Ordinary).unwrap();
-    let world = transfer_world(kind);
+    let mut world = transfer_world(kind);
 
     assert!(world.journal.events.is_empty());
     let expected_manifest_hash = crate::util::hash_json(&world.manifest).unwrap();
     let material_limits = MaterialFixtureLimitsV1::for_state(&world.state);
     let fixture = genesis::build(&world, &memory, workspace);
     assert!(fixture.memory.same_pool(&memory));
+    // GEN retains the input state. Only scalar reference expectations survive
+    // the legacy publication check; bounded execution starts after World drops.
+    let expected_activity = if kind == TransferKind::MainToken {
+        main_token::legacy_activity(&mut world)
+    } else {
+        [11, if resource { 11 } else { 0 }]
+    };
     drop(world); // Execution below has no materialized World to hydrate/fall back to.
     assert_eq!(fixture.manifest_hash.hash(), expected_manifest_hash);
     let image = fixture_worker::Image::new(&memory);
@@ -960,10 +967,14 @@ fn run_kind(kind: TransferKind) {
     let accepted_original = saved.borrow()[accepted_positions[0]];
     let transfer_original = saved.borrow()[transfer_positions[0]];
     for (agent, expected_last_active, expected_refs) in [
-        ("sender", 11, vec![accepted_original, transfer_original]),
+        (
+            "sender",
+            expected_activity[0],
+            vec![accepted_original, transfer_original],
+        ),
         (
             "receiver",
-            if resource { 11 } else { 0 },
+            expected_activity[1],
             if resource { vec![transfer_original] } else { vec![] },
         ),
     ] {

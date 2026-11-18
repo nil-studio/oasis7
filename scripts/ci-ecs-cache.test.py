@@ -493,6 +493,8 @@ class RealCargoArchiveTests(unittest.TestCase):
             state = base / 'producer/state.json'
             with patch.object(ecs, 'ROOT', checkout):
                 ecs.build(command, env, state)
+                producer_state = json.loads(state.read_text())
+                self.assertIs(producer_state.get('complete'), True, producer_state)
                 producer = json.loads(state.with_name('ecs-units.json').read_text())
                 self.assertEqual((producer['fresh'], producer['rebuilt']), (0, 3))
                 with patch.object(ecs, 'identity', return_value={'key': KEY}), \
@@ -500,7 +502,7 @@ class RealCargoArchiveTests(unittest.TestCase):
                     staged = {'save': False}
                     ecs.stage_cache(SimpleNamespace(cache=cache, state=state, preview=True),
                                     10_000_000_000, staged)
-                self.assertTrue(staged['would_save'], staged)
+                self.assertIs(staged.get('would_save'), True, staged)
                 self.assertFalse(staged['save'])
                 self.assertTrue((cache / ecs.ARCHIVE_NAME).is_file())
                 for changed in (False, True):
@@ -524,7 +526,8 @@ class RealCargoArchiveTests(unittest.TestCase):
                         fresh = {unit['target']['name']: unit['fresh'] for unit in consumer['units']}
                         self.assertEqual(fresh, {'ecs_cache_base': True, 'ecs_cache_leaf': not changed,
                                                 'ecs_cache_app': not changed})
-                        self.assertTrue(json.loads(consumer_state.read_text())['complete'])
+                        consumer_record = json.loads(consumer_state.read_text())
+                        self.assertIs(consumer_record.get('complete'), True, consumer_record)
                         if not changed:
                             # Cargo recreates the public/deps executable hardlink
                             # on a Fresh build, so the consumer can be a producer.
@@ -533,7 +536,7 @@ class RealCargoArchiveTests(unittest.TestCase):
                                 restaged = {'save': False}
                                 ecs.stage_cache(SimpleNamespace(cache=base / 'consumer-cache',
                                     state=consumer_state, preview=True), 10_000_000_000, restaged)
-                            self.assertTrue(restaged['would_save'], restaged)
+                            self.assertIs(restaged.get('would_save'), True, restaged)
 
 
 if __name__ == '__main__':

@@ -9,7 +9,7 @@ use oasis7_formal_protocol::{
     controlled_authority::formal::normal_candidate_context_bounded,
     incremental_execution::ExecutionError,
     incremental_history::{CatalogQueryV1, HISTORY_MAX_HEADER_BYTES},
-    incremental_material::CheckedCommitCore,
+    incremental_material::{CheckedCommitCore, FactLocationV1},
 };
 use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
 
@@ -195,13 +195,15 @@ where
             .pages;
         // This is the only complete state/history recovery in the suffix path.
         // Neither T nor an intermediate child can enter this full qualifier.
+        // Share the ordinary Cold/Ready locator type while borrowing its owner.
+        let hint: &mut dyn FnMut(&[u8; 32]) -> Result<FactLocationV1, String> = &mut *mailbox_hint;
         let recovered = super::cold_recovery_paid::recover_complete_sources_bounded_v1(
             pages,
             &checkpoint,
             &core,
             work,
             selection.checkpoint_hints,
-            &mut *mailbox_hint,
+            hint,
             &mut common,
         )?;
         let ordinary = super::cold_readmission_paid::readmit_complete_sources_bounded_v1(

@@ -40,15 +40,6 @@ impl World {
         }
     }
 
-    pub(super) fn module_release_roles_satisfied(
-        required_roles: &[String],
-        role_approvals: &std::collections::BTreeMap<String, String>,
-    ) -> bool {
-        required_roles
-            .iter()
-            .all(|required| role_approvals.contains_key(required))
-    }
-
     pub(super) fn module_release_profile_commitment(
         manifest: &oasis7_wasm_abi::ModuleManifest,
         activate: bool,

@@ -1,11 +1,8 @@
 use super::super::{
-    ModuleArtifactIdentity, ModuleCommandCatalogEntry, ModuleLimits, ModuleManifest,
-    ModuleRegistry, WorldError, module_command_catalog,
+    ModuleCommandCatalogEntry, ModuleLimits, ModuleManifest, ModuleRegistry, WorldError,
+    module_command_catalog,
 };
 use super::World;
-
-const IDENTITY_HASH_SIGNATURE_SCHEME: &str = "identity_hash_v1";
-const IDENTITY_HASH_SIGNATURE_PREFIX: &str = "idhash:";
 
 impl World {
     /// Return the deterministic Agent-facing catalog for active module commands.
@@ -33,26 +30,11 @@ impl World {
         }
     }
 
-    fn validate_module_manifest(&self, module: &ModuleManifest) -> Result<(), WorldError> {
-        use super::incremental_normal_action_module_lifecycle::{manifest_rules::validate_module_manifest_from_source_v1,registry_rules::ModuleRegistryRuleErrorV1};
-        match validate_module_manifest_from_source_v1(&mut LegacyManifestFactsV1(self),module){
-            Ok(())=>Ok(()),Err(ModuleRegistryRuleErrorV1::World(e)|ModuleRegistryRuleErrorV1::Source(e))=>Err(e),
-        }
-    }
-
     pub(super) fn validate_module_artifact_identity(
         &self,
         module: &ModuleManifest,
     ) -> Result<(), WorldError> {
         super::validate_module_artifact_identity_from_legacy_v1(self,module)
-    }
-
-    pub(super) fn validate_module_artifact_identity_fields(
-        &self,
-        module: &ModuleManifest,
-        identity: &ModuleArtifactIdentity,
-    ) -> Result<(), WorldError> {
-        super::validate_module_artifact_identity_fields_from_legacy_v1(self,module,identity)
     }
 
     fn validate_module_abi_contract(&self, module: &ModuleManifest) -> Result<(), WorldError> {

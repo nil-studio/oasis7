@@ -1136,7 +1136,6 @@ mod incremental_normal_action_module_identity_current;
 pub(in crate::world) use incremental_normal_action_module_identity_current::{
     validate_current_module_artifact_identity_v1,
     validate_module_artifact_identity_from_legacy_v1,
-    validate_module_artifact_identity_fields_from_legacy_v1,
 };
 
 mod incremental_normal_action_module_state_keys_current;

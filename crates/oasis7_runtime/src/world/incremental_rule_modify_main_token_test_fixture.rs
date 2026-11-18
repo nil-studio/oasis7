@@ -42,6 +42,11 @@ pub(super) fn event() -> crate::WorldEventBody {
     })
 }
 pub(super) fn seed(world: &mut World) {
+    // Distinct pre-existing activity catches both advancing to event time and
+    // incorrectly resetting an account's corresponding Agent body to zero.
+    for (agent, last_active) in [("sender", 3), ("receiver", 7)] {
+        world.state.agents.get_mut(agent).unwrap().last_active = last_active;
+    }
     world.set_main_token_config(crate::main_token::MainTokenConfig {
         initial_supply: 8,
         ..crate::main_token::MainTokenConfig::default()
@@ -56,6 +61,61 @@ pub(super) fn seed(world: &mut World) {
         .set_main_token_account_balance("sender", 8, 0)
         .unwrap();
 }
+
+/// Run the original World publication before the bounded worker invocation.
+/// These scalar expectations never provide state or authority to that worker.
+pub(super) fn legacy_activity(world: &mut World) -> [u64; 2] {
+    let agents = ["sender", "receiver"];
+    let before = agents.map(|agent| world.state.agents[agent].last_active);
+    assert_eq!(before, [3, 7]);
+    assert_eq!(world.state.time, 11);
+    assert!(
+        agents
+            .iter()
+            .all(|agent| world.state.agents[*agent].mailbox.is_empty())
+    );
+    let selected = world.pending_actions.front().unwrap().clone();
+    assert!(World::should_emit_action_accepted(&selected.action));
+    let accepted = crate::DomainEvent::ActionAccepted {
+        action_id: selected.id,
+        action_kind: crate::world::module_runtime_labels::action_kind_label(&selected.action)
+            .into(),
+        actor_id: selected.action.actor_id().unwrap().into(),
+        eta_ticks: 0,
+        notes: vec!["accepted_for_gameplay_processing".into()],
+    };
+    world
+        .append_event(
+            crate::WorldEventBody::Domain(accepted.clone()),
+            Some(crate::CausedBy::Action(selected.id)),
+        )
+        .unwrap();
+    assert_eq!(
+        agents.map(|agent| world.state.agents[agent].last_active),
+        before
+    );
+    world
+        .append_event(event(), Some(crate::CausedBy::Action(selected.id)))
+        .unwrap();
+    let crate::WorldEventBody::Domain(transfer) = event() else {
+        unreachable!("the fixed main-token fixture has a Domain body")
+    };
+    assert_eq!(
+        world.state.agents["sender"]
+            .mailbox
+            .iter()
+            .collect::<Vec<_>>(),
+        vec![&accepted, &transfer],
+        "legacy MainToken routes Accepted then transfer only to the sender",
+    );
+    assert!(world.state.agents["receiver"].mailbox.is_empty());
+    let after = agents.map(|agent| world.state.agents[agent].last_active);
+    // Unlike Resource/Material transfers, neither selective Accepted nor the
+    // original monetary reducer changes Agent activity for a token account.
+    assert_eq!(after, before, "legacy MainToken preserves Agent activity");
+    after
+}
+
 pub(super) fn assert_current<'a>(
     reader: &Reader<'a>,
     transaction: &mut ExecutionTransaction<'_, Reader<'a>>,

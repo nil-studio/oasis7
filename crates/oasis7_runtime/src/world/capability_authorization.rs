@@ -191,26 +191,6 @@ impl World {
         )
     }
 
-    /// Check the durable v2 grant used by a module manifest during register or
-    /// activation.  The manifest only establishes that the grant is a module
-    /// dependency; command/effect scope is checked again at execution time.
-    pub(super) fn validate_registered_v2_capability_for_admission(
-        &self,
-        cap_ref: &str,
-    ) -> Result<(), WorldError> {
-        self.verify_capability_authorization_root()?;
-        let encoded = self
-            .capability_grants_v2
-            .get(cap_ref)
-            .ok_or_else(|| deny("v2 capability is not in the durable registry"))?;
-        let grant: CapabilityGrantV2 = serde::Deserialize::deserialize(encoded)
-            .map_err(|_| deny("v2 capability grant is malformed"))?;
-        validate_module_v2_grant_body_for_admission(&grant, cap_ref, self.state.time)?;
-        self.verify_issuer(&grant)?;
-        self.verify_live_revocation(&grant)?;
-        self.verify_parent_chain(&grant)
-    }
-
     pub(super) fn verify_issuer(&self, grant: &CapabilityGrantV2) -> Result<(), WorldError> {
         super::incremental_module_capability_admission_rules::issuer(
             &mut super::incremental_module_capability_admission_rules::Legacy(self),
@@ -229,17 +209,6 @@ impl World {
     }
 }
 
-/// One admission body predicate shared by legacy World and selected Current.
-/// This is deliberately separate from issuer, root and parent verification;
-/// passing this predicate alone grants no module-admission authority.
-pub(super) fn validate_module_v2_grant_body_for_admission(
-    grant: &CapabilityGrantV2,
-    cap_ref: &str,
-    tick: u64,
-) -> Result<(), WorldError> {
-    validate_module_v2_grant_static_body_for_admission(grant, cap_ref)?;
-    validate_module_v2_grant_lifetime_for_admission(grant, tick)
-}
 pub(super) fn validate_module_v2_grant_static_body_for_admission(
     grant: &CapabilityGrantV2,
     cap_ref: &str,

@@ -29,47 +29,6 @@ impl World {
         format!("{module_id}#{seq}")
     }
 
-    pub(super) fn validate_upgrade_interface_compatible(
-        current:&oasis7_wasm_abi::ModuleManifest,
-        next:&oasis7_wasm_abi::ModuleManifest,
-    )->Result<(),String>{
-        crate::world::incremental_normal_action_module_lifecycle::upgrade_rules::validate_upgrade_interface_compatible_v1(current,next)
-    }
-
-    pub(super) fn ensure_module_fee_affordable(
-        &mut self,
-        action_id: u64,
-        agent_id: &str,
-        fee_kind: ResourceKind,
-        fee_amount: i64,
-    ) -> Result<bool, WorldError> {
-        if fee_amount <= 0 {
-            return Ok(true);
-        }
-        let available = self
-            .state
-            .agents
-            .get(agent_id)
-            .map(|cell| cell.state.resources.get(fee_kind))
-            .unwrap_or(0);
-        if available < fee_amount {
-            self.append_event(
-                WorldEventBody::Domain(DomainEvent::ActionRejected {
-                    action_id,
-                    reason: RejectReason::InsufficientResource {
-                        agent_id: agent_id.to_string(),
-                        kind: fee_kind,
-                        requested: fee_amount,
-                        available,
-                    },
-                }),
-                Some(CausedBy::Action(action_id)),
-            )?;
-            return Ok(false);
-        }
-        Ok(true)
-    }
-
     pub(in crate::world) fn has_active_module_using_artifact(&self, wasm_hash: &str) -> bool {
         if self
             .state
@@ -98,18 +57,6 @@ impl World {
                     .map(|record| record.manifest.wasm_hash == wasm_hash)
                     .unwrap_or(false)
             })
-    }
-
-    pub(super) fn peek_next_module_market_order_id(&self) -> u64 {
-        self.state.next_module_market_order_id.max(1)
-    }
-
-    pub(super) fn peek_next_module_market_sale_id(&self) -> u64 {
-        self.state.next_module_market_sale_id.max(1)
-    }
-
-    pub(super) fn peek_next_module_release_request_id(&self) -> u64 {
-        self.state.next_module_release_request_id.max(1)
     }
 
     pub(super) fn prepare_module_governance_proposal(

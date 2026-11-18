@@ -297,6 +297,30 @@ class TestContractJobs(unittest.TestCase):
                 contract_jobs.main(["--check", "--repo-root", str(ROOT)])
             self.assertEqual(cm.exception.code, 0)
 
+    def test_packaging_selects_declared_toolchain_before_real_cargo_fixture(self):
+        workflow = (ROOT / ".github/workflows/rust.yml").read_text(encoding="utf-8")
+        generated = contract_jobs.render_job("packaging_contracts")
+        live = workflow.split("  packaging-contracts:\n", 1)[1].split(contract_jobs.END_MARKER, 1)[0]
+        install = 'rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy'
+        select = 'rustup default "$RUST_TOOLCHAIN"'
+        for origin, job in (("generator", generated), ("workflow", live)):
+            with self.subTest(origin=origin):
+                steps = job.split("\n      - ")
+                preparation = [step for step in steps if "rustup toolchain install" in step]
+                self.assertEqual(len(preparation), 1)
+                prepare = preparation[0]
+                self.assertIn("shell: bash\n", prepare)
+                self.assertNotIn("\n        if:", prepare)
+                self.assertNotIn("continue-on-error:", prepare)
+                self.assertIn(install, prepare)
+                self.assertIn(select, prepare)
+                self.assertLess(prepare.index(install), prepare.index(select))
+                self.assertLess(prepare.index(select), prepare.index("cargo --version"))
+                self.assertLess(prepare.index(select), prepare.index("rustc --version"))
+                execute = next(step for step in steps if '--group "packaging_contracts"' in step)
+                self.assertLess(steps.index(prepare), steps.index(execute))
+        self.assertNotIn("rustup", contract_jobs.render_job("operational_contracts"))
+
 
 if __name__ == "__main__":
     unittest.main()

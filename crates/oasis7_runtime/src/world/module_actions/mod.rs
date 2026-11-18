@@ -21,4 +21,3 @@ pub(in crate::world) const MODULE_DELIST_FEE_AMOUNT: i64 = 1;
 pub(in crate::world) const MODULE_DESTROY_FEE_AMOUNT: i64 = 1;
 const MODULE_RELEASE_DEFAULT_REQUIRED_ROLES: &[&str] = &["security", "economy", "runtime"];
 pub(in crate::world) const MODULE_RELEASE_PROFILE_CHANGE_LIMIT: usize = 50;
-const MODULE_RELEASE_ATTESTATION_LIMIT: usize = 128;
