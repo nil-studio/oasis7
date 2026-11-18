@@ -1,3 +1,4 @@
+use super::super::successor_archive_store::tests::Scratch;
 use super::*;
 use sha2::{Digest, Sha256};
 
@@ -103,12 +104,10 @@ fn private_retention_input_preserves_existing_dependency_object_exact_bound() {
 
 #[test]
 fn private_retention_cold_archive_demands_exact_source_key_objects_and_first_charge() {
-    let directory = tempfile::tempdir().unwrap();
+    let directory = Scratch::new();
     let input = vector();
     let expected = input.descriptor().unwrap();
-    let store =
-        LocalBftSuccessorArchiveStoreV1::new(oasis7_cas::LocalCasStore::new(directory.path()))
-            .unwrap();
+    let store = directory.store();
 
     assert!(store.load_original_admission_input(&expected).is_err());
     let mut repriced = input.clone();
@@ -124,9 +123,7 @@ fn private_retention_cold_archive_demands_exact_source_key_objects_and_first_cha
         .unwrap();
     drop(store);
 
-    let cold =
-        LocalBftSuccessorArchiveStoreV1::new(oasis7_cas::LocalCasStore::new(directory.path()))
-            .unwrap();
+    let cold = directory.store();
     let original = cold.load_original_admission_input(&expected).unwrap();
     assert_eq!(original, input);
     for wrong in [
@@ -166,4 +163,6 @@ fn private_retention_cold_archive_demands_exact_source_key_objects_and_first_cha
         cold.persist_original_admission_input(&expected, &invalid)
             .is_err()
     );
+    std::fs::write(directory.blob(&expected.object), b"corrupted original").unwrap();
+    assert!(cold.load_original_admission_input(&expected).is_err());
 }
