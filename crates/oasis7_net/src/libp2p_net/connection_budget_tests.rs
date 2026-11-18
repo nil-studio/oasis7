@@ -9,7 +9,10 @@ use futures::{
     future::{Either, select},
 };
 use libp2p::{
+    Transport,
     identity::Keypair,
+    multiaddr::Protocol,
+    relay,
     swarm::{
         DialError, ListenError, Swarm, SwarmEvent,
         dial_opts::{DialOpts, PeerCondition},
@@ -102,7 +105,10 @@ fn swarm(key: &Keypair, budget: Option<ConnectionBudget>) -> Swarm<Behaviour> {
     )
 }
 
-async fn listen(swarm: &mut Swarm<Behaviour>, address: &str) -> Multiaddr {
+async fn listen(
+    swarm: &mut Swarm<impl libp2p::swarm::NetworkBehaviour>,
+    address: &str,
+) -> Multiaddr {
     swarm.listen_on(address.parse().unwrap()).unwrap();
     loop {
         if let SwarmEvent::NewListenAddr { address, .. } = swarm.select_next_some().await {
@@ -339,4 +345,220 @@ fn expired_pending_permit_rejects_authentication_before_peer_accounting() {
     assert_eq!(occupancy(&budget, peer), (1, [1, 0], 0));
     drop(permit);
     assert_eq!(occupancy(&budget, peer), (0, [0, 0], 0));
+}
+
+#[test]
+fn assembled_relay_circuit_uses_shared_connection_budget_and_recovers_after_close() {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            tokio::time::timeout(Duration::from_secs(12), exercise_relay_circuit())
+                .await
+                .expect("relay circuit budget probe timed out");
+        });
+}
+
+async fn exercise_relay_circuit() {
+    let relay_key = Keypair::generate_ed25519();
+    let relay_peer = relay_key.public().to_peer_id();
+    let transport = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default())
+        .upgrade(libp2p::core::upgrade::Version::V1)
+        .authenticate(libp2p::noise::Config::new(&relay_key).unwrap())
+        .multiplex(libp2p::yamux::Config::default())
+        .boxed();
+    let mut server = Swarm::new(
+        transport,
+        relay::Behaviour::new(relay_peer, relay::Config::default()),
+        relay_peer,
+        Config::with_tokio_executor().with_idle_connection_timeout(Duration::from_secs(12)),
+    );
+    let relay_address = listen(&mut server, "/ip4/127.0.0.1/tcp/0").await;
+    server.add_external_address(relay_address.clone());
+    let relay_task = tokio::spawn(async move { while server.next().await.is_some() {} });
+
+    let source_budget = ConnectionBudget::new(limits()).unwrap();
+    let destination_budget = ConnectionBudget::new(limits()).unwrap();
+    let mut source = swarm(&Keypair::generate_ed25519(), Some(source_budget.clone()));
+    let mut destination = swarm(
+        &Keypair::generate_ed25519(),
+        Some(destination_budget.clone()),
+    );
+    let source_peer = *source.local_peer_id();
+    let destination_peer = *destination.local_peer_id();
+    let listener = destination
+        .listen_on(
+            relay_address
+                .clone()
+                .with(Protocol::P2p(relay_peer))
+                .with(Protocol::P2pCircuit),
+        )
+        .unwrap();
+    let circuit_address = loop {
+        match destination.select_next_some().await {
+            SwarmEvent::NewListenAddr {
+                address,
+                listener_id,
+            } if listener_id == listener => {
+                assert!(
+                    address
+                        .iter()
+                        .any(|component| component == Protocol::P2pCircuit)
+                );
+                break address;
+            }
+            SwarmEvent::ListenerClosed {
+                listener_id,
+                reason,
+                ..
+            } if listener_id == listener => {
+                panic!("relay reservation terminated: {reason:?}");
+            }
+            _ => {}
+        }
+    };
+    assert_eq!(occupancy(&destination_budget, relay_peer), (1, [0, 0], 1));
+    source.dial(dial_for(relay_peer, relay_address)).unwrap();
+    loop {
+        match budgeted_event(&mut source, &mut destination).await {
+            SwarmEvent::ConnectionEstablished {
+                peer_id, endpoint, ..
+            } => {
+                assert_eq!(peer_id, relay_peer);
+                assert!(!endpoint.is_relayed());
+                break;
+            }
+            SwarmEvent::OutgoingConnectionError { error, .. } => {
+                panic!("relay carrier failed: {error}")
+            }
+            _ => {}
+        }
+    }
+
+    let first = dial_relay_circuit(
+        &mut source,
+        &mut destination,
+        &source_budget,
+        &destination_budget,
+        circuit_address.clone(),
+    )
+    .await;
+    assert!(matches!(
+        source.dial(dial_for(destination_peer, circuit_address.clone())),
+        Err(DialError::Denied { .. })
+    ));
+    assert_eq!(occupancy(&source_budget, destination_peer), (2, [0, 0], 1));
+
+    assert!(source.close_connection(first));
+    assert_eq!(occupancy(&source_budget, destination_peer), (2, [0, 0], 1));
+    let (mut source_closed, mut destination_closed) = (false, false);
+    while !(source_closed && destination_closed) {
+        match select(source.select_next_some(), destination.select_next_some()).await {
+            Either::Left((SwarmEvent::ConnectionClosed { connection_id, .. }, _))
+                if connection_id == first =>
+            {
+                source_closed = true
+            }
+            Either::Right((
+                SwarmEvent::ConnectionClosed {
+                    peer_id, endpoint, ..
+                },
+                _,
+            )) if peer_id == source_peer && endpoint.is_relayed() => destination_closed = true,
+            _ => {}
+        }
+    }
+    assert_eq!(occupancy(&source_budget, destination_peer), (1, [0, 0], 0));
+    assert_eq!(occupancy(&destination_budget, source_peer), (1, [0, 0], 0));
+    assert_eq!(occupancy(&source_budget, relay_peer), (1, [0, 0], 1));
+    assert_eq!(occupancy(&destination_budget, relay_peer), (1, [0, 0], 1));
+
+    dial_relay_circuit(
+        &mut source,
+        &mut destination,
+        &source_budget,
+        &destination_budget,
+        circuit_address,
+    )
+    .await;
+    relay_task.abort();
+}
+
+async fn dial_relay_circuit(
+    source: &mut Swarm<Behaviour>,
+    destination: &mut Swarm<Behaviour>,
+    source_budget: &ConnectionBudget,
+    destination_budget: &ConnectionBudget,
+    address: Multiaddr,
+) -> ConnectionId {
+    let source_peer = *source.local_peer_id();
+    let destination_peer = *destination.local_peer_id();
+    let address = address.with_p2p(destination_peer).unwrap();
+    let opts = dial_for(destination_peer, address.clone());
+    let connection = opts.connection_id();
+    source.dial(opts).unwrap();
+    assert_eq!(occupancy(source_budget, destination_peer), (2, [0, 1], 1));
+    let mut incoming = None;
+    let (mut outbound, mut inbound) = (false, false);
+    while !(outbound && inbound) {
+        match select(source.select_next_some(), destination.select_next_some()).await {
+            Either::Left((
+                SwarmEvent::ConnectionEstablished {
+                    connection_id,
+                    peer_id,
+                    endpoint,
+                    ..
+                },
+                _,
+            )) if connection_id == connection => {
+                assert_eq!(peer_id, destination_peer);
+                assert!(endpoint.is_relayed());
+                assert_eq!(endpoint.get_remote_address(), &address);
+                outbound = true;
+            }
+            Either::Left((
+                SwarmEvent::OutgoingConnectionError {
+                    connection_id,
+                    error,
+                    ..
+                },
+                _,
+            )) if connection_id == connection => panic!("outbound relay circuit failed: {error}"),
+            Either::Right((
+                SwarmEvent::IncomingConnection {
+                    connection_id,
+                    local_addr,
+                    ..
+                },
+                _,
+            )) if local_addr
+                .iter()
+                .any(|component| component == Protocol::P2pCircuit) =>
+            {
+                assert!(incoming.replace(connection_id).is_none());
+                assert_eq!(occupancy(destination_budget, source_peer), (2, [1, 0], 0));
+            }
+            Either::Right((
+                SwarmEvent::ConnectionEstablished {
+                    connection_id,
+                    peer_id,
+                    endpoint,
+                    ..
+                },
+                _,
+            )) if peer_id == source_peer => {
+                assert!(endpoint.is_relayed());
+                assert_eq!(Some(connection_id), incoming);
+                inbound = true;
+            }
+            Either::Right((SwarmEvent::IncomingConnectionError { error, .. }, _)) => {
+                panic!("inbound relay circuit failed: {error}")
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(occupancy(source_budget, destination_peer), (2, [0, 0], 1));
+    assert_eq!(occupancy(destination_budget, source_peer), (2, [0, 0], 1));
+    connection
 }
