@@ -166,6 +166,15 @@ fn assembled_quic_swarm_shares_peer_occupancy_between_inbound_and_outbound() {
                         _ => {}
                     }
                 }
+                // Swarm has reported denial but the rejected muxer still needs teardown.
+                assert_eq!(occupancy(&budget, remote_peer), (2, [1, 0], 1));
+                while occupancy(&budget, remote_peer).0 == 2 {
+                    let _ = tokio::time::timeout(
+                        Duration::from_millis(10),
+                        budgeted_event(&mut budgeted, &mut remote),
+                    )
+                    .await;
+                }
                 assert_eq!(occupancy(&budget, remote_peer), (1, [0, 0], 1));
                 assert!(matches!(
                     budgeted.dial(dial_for(remote_peer, remote_address.clone())),
