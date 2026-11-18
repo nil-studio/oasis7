@@ -3,9 +3,15 @@ use super::*;
 #[path = "formal_bft_header_serve_cli.rs"]
 mod serve;
 #[cfg(not(test))]
-use crate::execution_bridge::FormalBftHeaderLedgerExecutionV3;
+use crate::execution_bridge::{
+    CommittedPrefixArchiveRefV1, FormalBftHeaderLedgerExecutionV3, ReplayedCommittedPrefixV1,
+};
 #[cfg(test)]
-use crate::execution_bridge_real_tests::real_execution_bridge::FormalBftHeaderLedgerExecutionV3;
+use crate::execution_bridge_real_tests::real_execution_bridge::{
+    CommittedPrefixArchiveRefV1, FormalBftHeaderLedgerExecutionV3, ReplayedCommittedPrefixV1,
+};
+
+use oasis7_distfs::protected_bft_v3::{BftSuccessorWindowSourceV1, LocalBftSuccessorArchiveStoreV1};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -42,10 +48,12 @@ pub(super) fn run<'a>(
 ) -> Result<(), String> {
     let mut config = None;
     let mut history = None;
+    let mut archive = None;
     while let Some(option) = args.next() {
         let slot = match option {
             "--config" => &mut config,
             "--history" if action == "install" => &mut history,
+            "--archive" if action == "archive-prefix" => &mut archive,
             _ => return Err("unsupported private header ledger option".into()),
         };
         if slot.is_some() {
@@ -66,6 +74,13 @@ pub(super) fn run<'a>(
     }
     if action == "serve" {
         return serve::run(&config, shutdown);
+    }
+    if action == "archive-prefix" {
+        let archive = archive.ok_or("bft-header archive-prefix requires --archive")?;
+        let report = archive_from_paths(&config, &archive)?;
+        println!("{}", serde_json::to_string(&report)
+            .map_err(|_| "encode committed archive report")?);
+        return Ok(());
     }
     let report = from_paths(&config, history.as_deref())?;
     println!(
@@ -118,6 +133,69 @@ pub(super) fn from_paths(config_path: &Path, history: Option<&Path>) -> Result<R
             .root()
             .map_err(|_| "read verified local result root")?,
         certified_prefix: cut.certified_prefix().clone(),
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ArchiveConfig {
+    schema_version: u32,
+    archive_directory: PathBuf,
+    source: BftSuccessorWindowSourceV1,
+    /// Absent for export. A cold verifier supplies its independently pinned root/ref.
+    reference: Option<CommittedPrefixArchiveRefV1>,
+}
+
+#[derive(Serialize)]
+struct ArchiveReport {
+    schema_version: &'static str,
+    reference: CommittedPrefixArchiveRefV1,
+    replayed: ReplayedCommittedPrefixV1,
+}
+
+fn archive_from_paths(config_path: &Path, archive_path: &Path) -> Result<ArchiveReport, String> {
+    let config = load_config(config_path)?;
+    let bytes = read_private(archive_path, 64 * 1024)?;
+    let options: ArchiveConfig = serde_json::from_slice(&bytes)
+        .map_err(|_| "invalid committed archive config")?;
+    if options.schema_version != 1 {
+        return Err("unsupported committed archive config schema".into());
+    }
+    options.source.validate()?;
+    let archive_root = require_existing_directory(
+        &options.archive_directory, "private committed archive CAS",
+    )?;
+    crate::controlled_live_config::require_private_owned(&archive_root, true)?;
+    let archive = LocalBftSuccessorArchiveStoreV1::new(LocalCasStore::new(&archive_root))
+        .map_err(|_| "committed archive CAS path rejected")?;
+    let anchor = load_qualified_handoff_anchor(&config.trust_config_path)
+        .map_err(|_| "committed archive independent H trust rejected")?;
+    let reference = if let Some(reference) = options.reference {
+        reference
+    } else {
+        let LoadedH { anchor, material, store } = load_h(&config)?;
+        let ledger_root = require_existing_directory(&config.ledger_directory, "private header ledger")?;
+        if [store.root(), ledger_root.as_path()].into_iter().any(|live| {
+            archive_root.starts_with(live) || live.starts_with(&archive_root)
+        }) {
+            return Err("committed archive and original ledger/CAS must be disjoint".into());
+        }
+        let source = Arc::new(CasBusinessIndexReader { store: store.clone() });
+        let mut ledger = FormalBftHeaderLedgerExecutionV3::open_from_handoff(
+            &ledger_root, store, anchor, config.target.clone(), material, source, false,
+        )?;
+        ledger.export_committed_prefix(
+            &archive, &options.source, config.exact_height, &config.exact_header_id,
+        )?
+    };
+    let replayed = FormalBftHeaderLedgerExecutionV3::replay_committed_prefix(
+        &archive, &reference, &options.source, anchor, config.target,
+        config.exact_height, &config.exact_header_id,
+    )?;
+    Ok(ArchiveReport {
+        schema_version: "oasis7.formal_bft_committed_prefix_archive.v1",
+        reference,
+        replayed,
     })
 }
 

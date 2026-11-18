@@ -8,6 +8,10 @@ use oasis7_formal_protocol::bft::{
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+#[path = "driver_bft_v3_committed_archive.rs"]
+mod committed_archive;
+pub(crate) use committed_archive::{CommittedPrefixArchiveRefV1, ReplayedCommittedPrefixV1};
+
 #[path = "driver_bft_v3_formal_node.rs"]
 #[cfg(not(test))]
 mod node_execution;
