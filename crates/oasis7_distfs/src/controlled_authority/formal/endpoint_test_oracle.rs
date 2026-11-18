@@ -29,6 +29,7 @@ pub(super) trait DurableSetOracleHook: Send {
 pub(super) struct Oracle {
     pub(super) address: std::net::SocketAddr,
     stop: Arc<AtomicBool>,
+    stale_checkpoint_opens: Arc<std::sync::atomic::AtomicUsize>,
     join: Option<std::thread::JoinHandle<()>>,
 }
 impl Drop for Oracle {
@@ -92,6 +93,8 @@ impl Oracle {
         let address = listener.local_addr().unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let stopping = stop.clone();
+        let stale_checkpoint_opens = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let rejected_opens = Arc::clone(&stale_checkpoint_opens);
         let mut authority = authority;
         let mut instance = match role {
             EndpointRole::Primary => authority.definition().primary.instance.clone(),
@@ -243,6 +246,7 @@ impl Oracle {
                                         })
                                         .unwrap_or(true)
                                 }) {
+                                    rejected_opens.fetch_add(1, Ordering::Relaxed);
                                     break;
                                 }
                             }
@@ -395,8 +399,16 @@ impl Oracle {
         Self {
             address,
             stop,
+            stale_checkpoint_opens,
             join: Some(join),
         }
+    }
+    #[allow(
+        dead_code,
+        reason = "only the DistFS endpoint-process harness inspects rejected checkpoint registrations"
+    )]
+    pub(super) fn stale_checkpoint_opens(&self) -> usize {
+        self.stale_checkpoint_opens.load(Ordering::Relaxed)
     }
     pub(super) fn provider(&self, fixture: &Fixture) -> Arc<dyn MonotonicEndpointProvider> {
         Arc::new(
