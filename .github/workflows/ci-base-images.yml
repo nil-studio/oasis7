@@ -1,0 +1,216 @@
+name: CI Base Images
+
+on:
+  pull_request:
+    paths:
+      - docker/ci-base/**
+      - .github/workflows/ci-base-images.yml
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions: {}
+
+jobs:
+  build:
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        target: [runtime, build]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Build and smoke test
+        env:
+          TARGET: ${{ matrix.target }}
+        run: ./docker/ci-base/build.sh "$TARGET"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        if: github.event_name == 'pull_request' && matrix.target == 'build'
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Probe custody GDB contracts in candidate image
+        if: github.event_name == 'pull_request' && matrix.target == 'build'
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          node_home=$(dirname "$(dirname "$(command -v node)")")
+          docker run --rm --network none \
+            --user "$(id -u):$(id -g)" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace,readonly" \
+            --mount "type=bind,source=$node_home,target=/opt/node,readonly" \
+            --workdir /workspace \
+            --env OASIS7_GDB_CONTRACT_RESULTS=/tmp/oasis7-gdb-contracts \
+            --env OASIS7_REQUIRE_GDB_TESTS=1 \
+            --env PYTHONDONTWRITEBYTECODE=1 \
+            oasis7-ci-build:candidate \
+            bash -ec 'export PATH="/opt/node/bin:$PATH"; exec python3 scripts/ci-custody-workerd-gdb-contracts.py --failfast GdbContracts'
+      - name: Run existing doc-checker-contracts CI group in runtime image
+        if: github.event_name == 'pull_request' && matrix.target == 'runtime'
+        timeout-minutes: 12
+        env:
+          OASIS7_PRODUCT_DOC_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          wheels=$(mktemp -d)
+          trap 'rm -rf "$wheels"' EXIT
+          python3 -m pip download --only-binary=:all: --dest "$wheels" \
+            --requirement scripts/doc-governance-requirements.txt
+          git cat-file -e "${OASIS7_PRODUCT_DOC_BASE}^{commit}"
+          OASIS7_PRODUCT_DOC_HEAD=$(git rev-parse HEAD)
+          export OASIS7_PRODUCT_DOC_HEAD
+          docker run --rm --network none \
+            --user "$(id -u):$(id -g)" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace" \
+            --mount "type=bind,source=$wheels,target=/wheels,readonly" \
+            --workdir /workspace \
+            --env HOME=/tmp --env CI=true --env CI_VERBOSE=1 \
+            --env OASIS7_PRODUCT_DOC_BASE --env OASIS7_PRODUCT_DOC_HEAD \
+            oasis7-ci-runtime:candidate bash -ec '
+              python3 -m venv /tmp/doc-checker-venv
+              export PATH="/tmp/doc-checker-venv/bin:$PATH"
+              python3 -m pip install --no-index --find-links=/wheels \
+                --requirement scripts/doc-governance-requirements.txt
+              exec bash ./scripts/ci-tests.sh required --group doc_checker_contracts --repo-root /workspace
+            '
+      - name: Scan OS vulnerabilities
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
+        with:
+          image-ref: oasis7-ci-${{ matrix.target }}:candidate
+          scanners: vuln
+          vuln-type: os
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          cache: false
+      - name: Save verified image
+        if: github.event_name != 'pull_request'
+        env:
+          TARGET: ${{ matrix.target }}
+        run: docker save "oasis7-ci-${TARGET}:candidate" -o "ci-${TARGET}.tar"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: github.event_name != 'pull_request'
+        with:
+          name: ci-image-${{ matrix.target }}
+          path: ci-${{ matrix.target }}.tar
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
+  publish:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      packages: write
+    strategy:
+      matrix:
+        target: [runtime, build]
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: ci-image-${{ matrix.target }}
+      - name: Publish verified image
+        env:
+          TARGET: ${{ matrix.target }}
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          docker load -i "ci-${TARGET}.tar"
+          image="ghcr.io/${GITHUB_REPOSITORY,,}/ci-${TARGET}"
+          ref="${image}:${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker tag "oasis7-ci-${TARGET}:candidate" "$ref"
+          printf "%s" "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          trap 'docker logout ghcr.io' EXIT
+          docker push "$ref"
+          digest=$(docker buildx imagetools inspect "$ref" --format "{{json .Manifest}}" | jq -er .digest)
+          printf "%s@%s\n" "$image" "$digest" >> "$GITHUB_STEP_SUMMARY"
+
+  custody-replay:
+    name: custody-node image replay (${{ matrix.shard }})
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Build candidate Linux image
+        run: ./docker/ci-base/build.sh build
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 5f651c9f7cbf49a1b9e3b0e6b34c20aef7a5dfa3
+          path: custody-source
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Download the exact successful producer artifacts from PR 6023
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          download() {
+            gh run download 44297220098 --repo nil-studio/oasis7 --name "$1" --dir "$RUNNER_TEMP/custody-replay/$2"
+          }
+          download ci-selection-44297220098-1 plan
+          download custody-native-44297220098-2 bundles/native
+          download custody-wasm-production-44297220098-1 bundles/wasm-production
+          download custody-wasm-approval-44297220098-1 bundles/wasm-approval
+      - name: Restore producer outputs and install locked Node dependencies
+        run: |
+          set -euo pipefail
+          node_home=$(dirname "$(dirname "$(command -v node)")")
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/custody-source,target=/workspace" \
+            --mount "type=bind,source=$RUNNER_TEMP/custody-replay,target=/inputs,readonly" \
+            --mount "type=bind,source=$node_home,target=/opt/node,readonly" \
+            --workdir /workspace --env HOME=/tmp oasis7-ci-build:candidate bash -ec '
+              export PATH="/opt/node/bin:$PATH"
+              python3 scripts/ci-custody-platform.py restore --run-id 44297220098 --attempt 4 \
+                --plan /inputs/plan/selection.json --bundles /inputs/bundles \
+                --producer-attempts '"'"'{"native":2,"wasm-production":1,"wasm-approval":1}'"'"'
+              npm ci --prefix crates/oasis7_custody_worker --ignore-scripts
+            '
+      - name: Run the complete custody-node shard in the image
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          node_home=$(dirname "$(dirname "$(command -v node)")")
+          docker run --rm --network none --user "$(id -u):$(id -g)" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/custody-source,target=/workspace" \
+            --mount "type=bind,source=$RUNNER_TEMP/custody-replay,target=/inputs,readonly" \
+            --mount "type=bind,source=$node_home,target=/opt/node,readonly" \
+            --workdir /workspace --env HOME=/tmp --env SHARD oasis7-ci-build:candidate bash -ec '
+              export PATH="/opt/node/bin:$PATH"
+              if [[ "$SHARD" == 0 ]]; then
+                OASIS7_REQUIRE_GDB_TESTS=1 OASIS7_GDB_CONTRACT_RESULTS=output/workerd-gdb-contracts \
+                  python3 scripts/ci-custody-workerd-gdb-contracts.py --failfast GdbContracts
+                npm run test:types --prefix crates/oasis7_custody_worker
+              fi
+              python3 scripts/ci-custody-platform.py run --run-id 44297220098 --attempt 4 \
+                --plan /inputs/plan/selection.json --shard "$SHARD" \
+                --results "output/custody-$SHARD" --capture-workerd-faults
+            '
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: custody-image-replay-${{ matrix.shard }}-${{ github.run_attempt }}
+          path: custody-source/output/custody-${{ matrix.shard }}
+          retention-days: 7
