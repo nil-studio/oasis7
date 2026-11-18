@@ -200,6 +200,7 @@ python3 -I scripts/security/codeql-plan.py \
 | 被 Rust `include_str!`、`include_bytes!`、build script 等使用的前端/数据文件 | 文件所属语言单元与消费者单元；识别不清选保守并集 |
 | 未登记源文件、无法识别的新 manifest/配置依赖 | 规划失败，先补明确归属规则；任意 build.rs/动态 include 的可能消费不能豁免未知路径 |
 | 根路径 `deny.toml` | cargo-deny 安全策略由 CI shell/Actions 消费，登记 `actions-repo`；不按 TOML 后缀扩大注册，不因登记启用 Rust 批次。原有嵌入、动态 include 与 build 消费者并集仍保留，重命名两端及符号链接继续按原规则核验 |
+| 根路径 `.dockerignore` 与 `docker/wasm-builder/Dockerfile` | canonical WASM 构建的 Actions 调用链、Python context 合同和 Rust producer recipe/嵌入合同共同消费，登记 `actions-repo`、`python-repo`、`rust-repo`。仅匹配这两个精确路径，保留旧/新嵌入与可能 build 消费者并集及批次限制；相邻未知输入和符号链接继续拒绝。登记不代表 CodeQL 分析 Dockerfile 语义或证明提取覆盖 |
 | diff 身份或输入不可信/不可读取 | planner 失败，记录未分析；不以空矩阵成功代替 |
 
 普通 Rust PR 在后续仅修改描述文件时，其整体 PR diff 仍可能包含 Rust，因此可能重新触发 Rust。首版不通过自造旧报告复用来绕过这一点；由取消旧任务、观察态和官方增量机制控制代价。
