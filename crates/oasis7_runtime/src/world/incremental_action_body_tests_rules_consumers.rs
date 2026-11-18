@@ -17,7 +17,7 @@ pub(in crate::world) fn evaluate_with_body<'a>(
     oasis7_proto::memory_budget::ReservedValue<RootRulePhaseOutcomeV1>,
     crate::world::incremental_action_body::CompletedBodyActionV1,
 ) {
-    let (outcome, _, completed, _, _, _, _, _, _, _, _, _) = evaluate(
+    let (outcome, completed) = evaluate(
         fixture,
         reader,
         transaction,
@@ -33,7 +33,10 @@ pub(in crate::world) fn evaluate_with_body<'a>(
     );
     (
         outcome.expect("actual Rule outcome"),
-        completed.expect("Root Body execution result"),
+        match completed.expect("Root Body execution result") {
+            CompletedNonmovementActionV1::Body(value) => value,
+            _ => panic!("Root Body execution result family"),
+        },
     )
 }
 #[allow(clippy::too_many_arguments)]
@@ -53,7 +56,7 @@ pub(in crate::world) fn evaluate_with_collect_data<'a>(
     oasis7_proto::memory_budget::ReservedValue<RootRulePhaseOutcomeV1>,
     crate::world::incremental_action_data::CompletedCollectDataV1,
 ) {
-    let (outcome, _, _, completed, _, _, _, _, _, _, _, _) = evaluate(
+    let (outcome, completed) = evaluate(
         fixture,
         reader,
         transaction,
@@ -69,7 +72,10 @@ pub(in crate::world) fn evaluate_with_collect_data<'a>(
     );
     (
         outcome.expect("actual Rule outcome"),
-        completed.expect("Root CollectData execution result"),
+        match completed.expect("Root CollectData execution result") {
+            CompletedNonmovementActionV1::CollectData(value) => value,
+            _ => panic!("Root CollectData execution result family"),
+        },
     )
 }
 #[allow(clippy::too_many_arguments)]
@@ -92,7 +98,7 @@ pub(in crate::world) fn evaluate_with_transfer_resource<'a>(
     oasis7_proto::memory_budget::ReservedValue<RootRulePhaseOutcomeV1>,
     crate::world::incremental_action_data::transfer_resource::CompletedTransferResourceV1,
 ) {
-    let (outcome, _, _, _, completed, _, _, _, _, _, _, _) = evaluate(
+    let (outcome, completed) = evaluate(
         fixture,
         reader,
         transaction,
@@ -108,7 +114,10 @@ pub(in crate::world) fn evaluate_with_transfer_resource<'a>(
     );
     (
         outcome.expect("actual Rule outcome"),
-        completed.expect("Root TransferResource execution result"),
+        match completed.expect("Root TransferResource execution result") {
+            CompletedNonmovementActionV1::TransferResource(value) => value,
+            _ => panic!("Root TransferResource execution result family"),
+        },
     )
 }
 #[allow(clippy::too_many_arguments)]
@@ -131,7 +140,7 @@ pub(in crate::world) fn evaluate_with_data_access<'a>(
     oasis7_proto::memory_budget::ReservedValue<RootRulePhaseOutcomeV1>,
     crate::world::incremental_action_data::data_access::CompletedDataAccessV1,
 ) {
-    let (outcome, _, _, _, _, completed, _, _, _, _, _, _) = evaluate(
+    let (outcome, completed) = evaluate(
         fixture,
         reader,
         transaction,
@@ -147,7 +156,10 @@ pub(in crate::world) fn evaluate_with_data_access<'a>(
     );
     (
         outcome.expect("actual Rule outcome"),
-        completed.expect("Root DataAccess execution result"),
+        match completed.expect("Root DataAccess execution result") {
+            CompletedNonmovementActionV1::DataAccess(value) => value,
+            _ => panic!("Root DataAccess execution result family"),
+        },
     )
 }
 #[allow(clippy::too_many_arguments)]
@@ -167,7 +179,7 @@ pub(in crate::world) fn evaluate_with_material_transfer<'a>(
     oasis7_proto::memory_budget::ReservedValue<RootRulePhaseOutcomeV1>,
     crate::world::incremental_material_normalization::transfer::CompletedMaterialTransferV1,
 ) {
-    let (outcome, _, _, _, _, _, completed, _, _, _, _, _) = evaluate(
+    let (outcome, completed) = evaluate(
         fixture,
         reader,
         transaction,
@@ -183,7 +195,10 @@ pub(in crate::world) fn evaluate_with_material_transfer<'a>(
     );
     (
         outcome.expect("actual Rule outcome"),
-        completed.expect("Root material transfer receipt"),
+        match completed.expect("Root material transfer receipt") {
+            CompletedNonmovementActionV1::MaterialTransfer(value) => value,
+            _ => panic!("Root material transfer receipt family"),
+        },
     )
 }
 
@@ -207,7 +222,7 @@ pub(in crate::world) fn evaluate_with_route_availability<'a>(
     oasis7_proto::memory_budget::ReservedValue<RootRulePhaseOutcomeV1>,
     crate::world::incremental_action_route_availability::CompletedRouteAvailabilityV1,
 ) {
-    let (outcome, _, _, _, _, _, _, completed, _, _, _, _) = evaluate(
+    let (outcome, completed) = evaluate(
         fixture,
         reader,
         transaction,
@@ -223,6 +238,9 @@ pub(in crate::world) fn evaluate_with_route_availability<'a>(
     );
     (
         outcome.expect("actual Rule outcome"),
-        completed.expect("Root route availability receipt"),
+        match completed.expect("Root route availability receipt") {
+            CompletedNonmovementActionV1::RouteAvailability(value) => value,
+            _ => panic!("Root route availability receipt family"),
+        },
     )
 }

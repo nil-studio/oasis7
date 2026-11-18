@@ -20,7 +20,7 @@ pub(in crate::world) fn evaluate_with_contract_accept<'a>(
     oasis7_proto::memory_budget::ReservedValue<RootRulePhaseOutcomeV1>,
     crate::world::incremental_action_contract_accept::CompletedContractAcceptV1,
 ) {
-    let (outcome, _, _, _, _, _, _, _, _, _, _, completed) = evaluate(
+    let (outcome, completed) = evaluate(
         fixture,
         reader,
         transaction,
@@ -36,7 +36,10 @@ pub(in crate::world) fn evaluate_with_contract_accept<'a>(
     );
     (
         outcome.expect("actual Rule outcome"),
-        completed.expect("Root ContractAccept receipt"),
+        match completed.expect("Root ContractAccept receipt") {
+            CompletedNonmovementActionV1::ContractAccept(value) => value,
+            _ => panic!("Root ContractAccept receipt family"),
+        },
     )
 }
 
@@ -65,7 +68,7 @@ pub(in crate::world) fn try_evaluate_with_contract_accept<'a>(
     NonmovementFixtureErrorV1,
 > {
     let mut failure = None;
-    let (outcome, _, _, _, _, _, _, _, _, _, _, completed) = evaluate(
+    let (outcome, completed) = evaluate(
         fixture,
         reader,
         transaction,
@@ -84,6 +87,9 @@ pub(in crate::world) fn try_evaluate_with_contract_accept<'a>(
     }
     Ok((
         outcome.expect("actual Rule outcome"),
-        completed.expect("Root ContractAccept receipt"),
+        match completed.expect("Root ContractAccept receipt") {
+            CompletedNonmovementActionV1::ContractAccept(value) => value,
+            _ => panic!("Root ContractAccept receipt family"),
+        },
     ))
 }

@@ -20,7 +20,7 @@ pub(in crate::world) fn evaluate_with_factory_lifecycle<'a>(
     oasis7_proto::memory_budget::ReservedValue<RootRulePhaseOutcomeV1>,
     crate::world::incremental_action_factory_lifecycle::CompletedFactoryLifecycleV1,
 ) {
-    let (outcome, _, _, _, _, _, _, _, completed, _, _, _) = evaluate(
+    let (outcome, completed) = evaluate(
         fixture,
         reader,
         transaction,
@@ -36,7 +36,10 @@ pub(in crate::world) fn evaluate_with_factory_lifecycle<'a>(
     );
     (
         outcome.expect("actual Rule outcome"),
-        completed.expect("Root factory lifecycle receipt"),
+        match completed.expect("Root factory lifecycle receipt") {
+            CompletedNonmovementActionV1::FactoryLifecycle(value) => value,
+            _ => panic!("Root factory lifecycle receipt family"),
+        },
     )
 }
 
@@ -65,7 +68,7 @@ pub(in crate::world) fn try_evaluate_with_factory_lifecycle<'a>(
     NonmovementFixtureErrorV1,
 > {
     let mut failure = None;
-    let (outcome, _, _, _, _, _, _, _, completed, _, _, _) = evaluate(
+    let (outcome, completed) = evaluate(
         fixture,
         reader,
         transaction,
@@ -84,6 +87,9 @@ pub(in crate::world) fn try_evaluate_with_factory_lifecycle<'a>(
     }
     Ok((
         outcome.expect("actual Rule outcome"),
-        completed.expect("Root factory lifecycle receipt"),
+        match completed.expect("Root factory lifecycle receipt") {
+            CompletedNonmovementActionV1::FactoryLifecycle(value) => value,
+            _ => panic!("Root factory lifecycle receipt family"),
+        },
     ))
 }

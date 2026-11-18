@@ -20,7 +20,7 @@ pub(in crate::world) fn evaluate_with_meta_progress<'a>(
     oasis7_proto::memory_budget::ReservedValue<RootRulePhaseOutcomeV1>,
     crate::world::incremental_action_meta_progress::CompletedMetaProgressV1,
 ) {
-    let (outcome, _, _, _, _, _, _, _, _, completed, _, _) = evaluate(
+    let (outcome, completed) = evaluate(
         fixture,
         reader,
         transaction,
@@ -36,7 +36,10 @@ pub(in crate::world) fn evaluate_with_meta_progress<'a>(
     );
     (
         outcome.expect("actual Rule outcome"),
-        completed.expect("Root Meta progress receipt"),
+        match completed.expect("Root Meta progress receipt") {
+            CompletedNonmovementActionV1::MetaProgress(value) => value,
+            _ => panic!("Root Meta progress receipt family"),
+        },
     )
 }
 
@@ -65,7 +68,7 @@ pub(in crate::world) fn try_evaluate_with_meta_progress<'a>(
     NonmovementFixtureErrorV1,
 > {
     let mut failure = None;
-    let (outcome, _, _, _, _, _, _, _, _, completed, _, _) = evaluate(
+    let (outcome, completed) = evaluate(
         fixture,
         reader,
         transaction,
@@ -84,6 +87,9 @@ pub(in crate::world) fn try_evaluate_with_meta_progress<'a>(
     }
     Ok((
         outcome.expect("actual Rule outcome"),
-        completed.expect("Root Meta progress receipt"),
+        match completed.expect("Root Meta progress receipt") {
+            CompletedNonmovementActionV1::MetaProgress(value) => value,
+            _ => panic!("Root Meta progress receipt family"),
+        },
     ))
 }

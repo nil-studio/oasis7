@@ -20,7 +20,7 @@ pub(in crate::world) fn evaluate_with_crisis<'a>(
     oasis7_proto::memory_budget::ReservedValue<RootRulePhaseOutcomeV1>,
     crate::world::incremental_action_crisis::CompletedCrisisV1,
 ) {
-    let (outcome, _, _, _, _, _, _, _, _, _, completed, _) = evaluate(
+    let (outcome, completed) = evaluate(
         fixture,
         reader,
         transaction,
@@ -36,7 +36,10 @@ pub(in crate::world) fn evaluate_with_crisis<'a>(
     );
     (
         outcome.expect("actual Rule outcome"),
-        completed.expect("Root Crisis receipt"),
+        match completed.expect("Root Crisis receipt") {
+            CompletedNonmovementActionV1::Crisis(value) => value,
+            _ => panic!("Root Crisis receipt family"),
+        },
     )
 }
 
@@ -65,7 +68,7 @@ pub(in crate::world) fn try_evaluate_with_crisis<'a>(
     NonmovementFixtureErrorV1,
 > {
     let mut failure = None;
-    let (outcome, _, _, _, _, _, _, _, _, _, completed, _) = evaluate(
+    let (outcome, completed) = evaluate(
         fixture,
         reader,
         transaction,
@@ -84,6 +87,9 @@ pub(in crate::world) fn try_evaluate_with_crisis<'a>(
     }
     Ok((
         outcome.expect("actual Rule outcome"),
-        completed.expect("Root Crisis receipt"),
+        match completed.expect("Root Crisis receipt") {
+            CompletedNonmovementActionV1::Crisis(value) => value,
+            _ => panic!("Root Crisis receipt family"),
+        },
     ))
 }

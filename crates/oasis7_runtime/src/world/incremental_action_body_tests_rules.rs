@@ -1,5 +1,6 @@
 //! Test-only composition of the real empty-directory Rule phase; no DTO ctor.
 use super::*;
+use crate::world::incremental_module_invocation::CompletedNonmovementActionV1;
 pub(in crate::world) fn directory_work() -> CurrentInvocationEnumerationWorkV1 {
     CurrentInvocationEnumerationWorkV1 {
         instance_scan: genesis::scan(),
@@ -138,7 +139,7 @@ pub(in crate::world) fn evaluate_with_core<'a>(
     oasis7_proto::memory_budget::ReservedValue<RootRulePhaseOutcomeV1>,
     Option<crate::world::incremental_action_execution_core::CompletedCoreActionV1>,
 ) {
-    let (outcome, completed, _, _, _, _, _, _, _, _, _, _) = evaluate(
+    let (outcome, completed) = evaluate(
         fixture,
         reader,
         transaction,
@@ -152,7 +153,14 @@ pub(in crate::world) fn evaluate_with_core<'a>(
         core,
         None,
     );
-    (outcome.expect("actual Rule outcome"), completed)
+    (
+        outcome.expect("actual Rule outcome"),
+        match completed {
+            Some(CompletedNonmovementActionV1::Core(value)) => Some(value),
+            None => None,
+            Some(_) => panic!("Root Core execution result family"),
+        },
+    )
 }
 #[path = "incremental_action_body_tests_rules_consumers.rs"]
 mod consumers;
@@ -208,17 +216,7 @@ fn evaluate<'a>(
     body: Option<NonmovementExecutionFixtureV1<'_>>,
 ) -> (
     Option<oasis7_proto::memory_budget::ReservedValue<RootRulePhaseOutcomeV1>>,
-    Option<crate::world::incremental_action_execution_core::CompletedCoreActionV1>,
-    Option<crate::world::incremental_action_body::CompletedBodyActionV1>,
-    Option<crate::world::incremental_action_data::CompletedCollectDataV1>,
-    Option<crate::world::incremental_action_data::transfer_resource::CompletedTransferResourceV1>,
-    Option<crate::world::incremental_action_data::data_access::CompletedDataAccessV1>,
-    Option<crate::world::incremental_material_normalization::transfer::CompletedMaterialTransferV1>,
-    Option<crate::world::incremental_action_route_availability::CompletedRouteAvailabilityV1>,
-    Option<crate::world::incremental_action_factory_lifecycle::CompletedFactoryLifecycleV1>,
-    Option<crate::world::incremental_action_meta_progress::CompletedMetaProgressV1>,
-    Option<crate::world::incremental_action_crisis::CompletedCrisisV1>,
-    Option<crate::world::incremental_action_contract_accept::CompletedContractAcceptV1>,
+    Option<CompletedNonmovementActionV1>,
 ) {
     let selected = match &input {
         FixtureInputV1::Selected(selected) => Some(*selected),
@@ -370,20 +368,7 @@ fn evaluate<'a>(
         work: &mut work,
         input_observation: None,
     };
-    let (
-        result,
-        completed,
-        body_completed,
-        data_completed,
-        transfer_completed,
-        access_completed,
-        material_completed,
-        route_completed,
-        factory_completed,
-        meta_completed,
-        crisis_completed,
-        contract_accept_completed,
-    ) = if let Some(limits) = core_limits {
+    let (result, completed) = if let Some(limits) = core_limits {
         let mut backing = MaterialFixtureV1::build(
             &fixture.roots,
             reader,
@@ -458,20 +443,7 @@ fn evaluate<'a>(
                 &mut || *live,
             )
             .unwrap();
-        (
-            outcome,
-            Some(completed),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
+        (outcome, Some(CompletedNonmovementActionV1::Core(completed)))
     } else if let Some(limits) = body_limits {
         let mut admission_io = genesis::io();
         let mut admission_keys = genesis::keys();
@@ -546,9 +518,7 @@ fn evaluate<'a>(
             original_bytes_remaining: 1 << 20,
             decode: super::audit_work(),
         };
-        use crate::world::incremental_module_invocation::{
-            CompletedNonmovementActionV1, NonmovementSelectedWorkV1,
-        };
+        use crate::world::incremental_module_invocation::NonmovementSelectedWorkV1;
         let work = match body_work.as_mut().unwrap() {
             NonmovementFixtureWorkV1::FactorySchedule {
                 work,
@@ -723,9 +693,7 @@ fn evaluate<'a>(
                     Ok(value) => value.expect("Root fallible FIFO selection"),
                     Err(error) => {
                         *failure = Some(error);
-                        return (
-                            None, None, None, None, None, None, None, None, None, None, None, None,
-                        );
+                        return (None, None);
                     }
                 }
             }
@@ -757,16 +725,16 @@ fn evaluate<'a>(
                     detail, "Err(Business(Module(Body(Value(Cancelled)))))",
                     "cancelled empty FIFO must return original Cancelled"
                 );
-                return (
-                    None, None, None, None, None, None, None, None, None, None, None, None,
-                );
+                return (None, None);
             }
         };
         match completed {
-            CompletedNonmovementActionV1::ModuleLifecycle(_) => unreachable!("legacy fixture supplies no module lifecycle work"),
+            CompletedNonmovementActionV1::ModuleLifecycle(_) => {
+                unreachable!("legacy fixture supplies no module lifecycle work")
+            }
             CompletedNonmovementActionV1::FactorySchedule(value) => {
-                // Selected work came from the variant above; preserve the real
-                // result in its dedicated output rather than a legacy slot.
+                // Preserve the genuine completion in the selected work's
+                // dedicated output.
                 match body_work.as_mut() {
                     Some(NonmovementFixtureWorkV1::FactorySchedule { result, .. }) => {
                         assert!(result.is_none());
@@ -774,9 +742,7 @@ fn evaluate<'a>(
                     }
                     _ => unreachable!("industrial work/result fixture binding"),
                 }
-                (
-                    outcome, None, None, None, None, None, None, None, None, None, None, None,
-                )
+                (outcome, None)
             }
             CompletedNonmovementActionV1::ContractLifecycle(value) => {
                 let Some(NonmovementFixtureWorkV1::ContractLifecycle { result, .. }) =
@@ -786,9 +752,7 @@ fn evaluate<'a>(
                 };
                 assert!(result.is_none());
                 **result = Some(value);
-                (
-                    outcome, None, None, None, None, None, None, None, None, None, None, None,
-                )
+                (outcome, None)
             }
             CompletedNonmovementActionV1::Alliance(value) => {
                 let Some(NonmovementFixtureWorkV1::Alliance { result, .. }) = body_work.as_mut()
@@ -797,9 +761,7 @@ fn evaluate<'a>(
                 };
                 assert!(result.is_none());
                 **result = Some(value);
-                (
-                    outcome, None, None, None, None, None, None, None, None, None, None, None,
-                )
+                (outcome, None)
             }
             CompletedNonmovementActionV1::LogisticsRegistration(value) => {
                 let Some(NonmovementFixtureWorkV1::LogisticsRegistration { result, .. }) =
@@ -809,9 +771,7 @@ fn evaluate<'a>(
                 };
                 assert!(result.is_none());
                 **result = Some(value);
-                (
-                    outcome, None, None, None, None, None, None, None, None, None, None, None,
-                )
+                (outcome, None)
             }
             CompletedNonmovementActionV1::NormalExtension(value) => {
                 let Some(NonmovementFixtureWorkV1::NormalExtension { result, .. }) =
@@ -821,166 +781,22 @@ fn evaluate<'a>(
                 };
                 assert!(result.is_none(), "one genuine FIFO result per fixture call");
                 **result = Some(value);
-                (
-                    outcome, None, None, None, None, None, None, None, None, None, None, None,
-                )
+                (outcome, None)
             }
-            CompletedNonmovementActionV1::Core(value) => (
-                outcome,
-                Some(value),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            ),
-            CompletedNonmovementActionV1::ContractAccept(value) => (
-                outcome,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                Some(value),
-            ),
-
-            CompletedNonmovementActionV1::Crisis(value) => (
-                outcome,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                Some(value),
-                None,
-            ),
-            CompletedNonmovementActionV1::MetaProgress(value) => (
-                outcome,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                Some(value),
-                None,
-                None,
-            ),
-            CompletedNonmovementActionV1::ProfileGovernance(_) => unreachable!("legacy finite fixture has no ProfileGovernance work/bank input"),
-            CompletedNonmovementActionV1::FactoryLifecycle(value) => (
-                outcome,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                Some(value),
-                None,
-                None,
-                None,
-            ),
-            CompletedNonmovementActionV1::RouteAvailability(value) => (
-                outcome,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                Some(value),
-                None,
-                None,
-                None,
-                None,
-            ),
-            CompletedNonmovementActionV1::MaterialTransfer(value) => (
-                outcome,
-                None,
-                None,
-                None,
-                None,
-                None,
-                Some(value),
-                None,
-                None,
-                None,
-                None,
-                None,
-            ),
-            CompletedNonmovementActionV1::DataAccess(value) => (
-                outcome,
-                None,
-                None,
-                None,
-                None,
-                Some(value),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            ),
-            CompletedNonmovementActionV1::Body(value) => (
-                outcome,
-                None,
-                Some(value),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            ),
-            CompletedNonmovementActionV1::CollectData(value) => (
-                outcome,
-                None,
-                None,
-                Some(value),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            ),
-            CompletedNonmovementActionV1::TransferResource(value) => (
-                outcome,
-                None,
-                None,
-                None,
-                Some(value),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            ),
+            CompletedNonmovementActionV1::ProfileGovernance(_) => {
+                unreachable!("legacy finite fixture has no ProfileGovernance work/bank input")
+            }
+            completed @ (CompletedNonmovementActionV1::Core(_)
+            | CompletedNonmovementActionV1::ContractAccept(_)
+            | CompletedNonmovementActionV1::Crisis(_)
+            | CompletedNonmovementActionV1::MetaProgress(_)
+            | CompletedNonmovementActionV1::FactoryLifecycle(_)
+            | CompletedNonmovementActionV1::RouteAvailability(_)
+            | CompletedNonmovementActionV1::MaterialTransfer(_)
+            | CompletedNonmovementActionV1::DataAccess(_)
+            | CompletedNonmovementActionV1::Body(_)
+            | CompletedNonmovementActionV1::CollectData(_)
+            | CompletedNonmovementActionV1::TransferResource(_)) => (outcome, Some(completed)),
         }
     } else {
         (
@@ -992,16 +808,6 @@ fn evaluate<'a>(
                     &mut || *live,
                 )
                 .unwrap(),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
             None,
         )
     };
@@ -1015,20 +821,7 @@ fn evaluate<'a>(
                 .is_none()
         );
     }
-    (
-        Some(result),
-        completed,
-        body_completed,
-        data_completed,
-        transfer_completed,
-        access_completed,
-        material_completed,
-        route_completed,
-        factory_completed,
-        meta_completed,
-        crisis_completed,
-        contract_accept_completed,
-    )
+    (Some(result), completed)
 }
 
 #[path = "incremental_action_body_tests_rules_meta_progress.rs"]
@@ -1078,19 +871,7 @@ pub(in crate::world) fn evaluate_with_normal_extension<'a>(
         None,
         Some(body),
     );
-    assert!(
-        result.1.is_none()
-            && result.2.is_none()
-            && result.3.is_none()
-            && result.4.is_none()
-            && result.5.is_none()
-            && result.6.is_none()
-            && result.7.is_none()
-            && result.8.is_none()
-            && result.9.is_none()
-            && result.10.is_none()
-            && result.11.is_none()
-    );
+    assert!(result.1.is_none());
     result.0.expect("actual selected Rule outcome")
 }
 
@@ -1129,19 +910,7 @@ pub(in crate::world) fn evaluate_with_logistics_registration<'a>(
         None,
         Some(body),
     );
-    assert!(
-        result.1.is_none()
-            && result.2.is_none()
-            && result.3.is_none()
-            && result.4.is_none()
-            && result.5.is_none()
-            && result.6.is_none()
-            && result.7.is_none()
-            && result.8.is_none()
-            && result.9.is_none()
-            && result.10.is_none()
-            && result.11.is_none()
-    );
+    assert!(result.1.is_none());
     result.0.expect("actual selected Rule outcome")
 }
 
@@ -1181,18 +950,6 @@ pub(in crate::world) fn evaluate_with_alliance<'a>(
         None,
         Some(body),
     );
-    assert!(
-        result.1.is_none()
-            && result.2.is_none()
-            && result.3.is_none()
-            && result.4.is_none()
-            && result.5.is_none()
-            && result.6.is_none()
-            && result.7.is_none()
-            && result.8.is_none()
-            && result.9.is_none()
-            && result.10.is_none()
-            && result.11.is_none()
-    );
+    assert!(result.1.is_none());
     result.0.expect("actual selected Rule outcome")
 }
