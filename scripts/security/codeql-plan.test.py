@@ -301,6 +301,27 @@ class PlannerTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'unregistered input'):
                 self.run_plan(full=full)
 
+    def test_fixed_quic_vendor_metadata_routes_to_rust(self):
+        for path in ('vendor-libp2p-quic-0.14.0/.gitignore', 'vendor-libp2p-quic-0.14.0/LICENSE'):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, 'fixed vendor metadata\n')
+                self.commit()
+                result = self.run_plan()
+                self.assertEqual(result['selected_units'], ['rust-repo'])
+                self.assertIn(path, result['reasons']['rust-repo'])
+                self.assertEqual(result['fallback_reasons'], [])
+
+    def test_fixed_quic_vendor_registration_does_not_admit_neighbors(self):
+        for path in ('vendor-libp2p-quic-0.14.0/unregistered.json',
+                     'vendor-libp2p-quic-0.14.1/LICENSE'):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, '{}')
+                self.commit()
+                with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                    self.run_plan()
+
     def test_viewer_stylesheet_keeps_javascript_owner_across_changes(self):
         path = 'crates/oasis7_viewer/viewer_terminal_shell.css'
         for value in ('body { color: red; }', 'body { color: blue; }'):
