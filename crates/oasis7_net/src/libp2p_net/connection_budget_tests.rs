@@ -562,3 +562,96 @@ async fn dial_relay_circuit(
     assert_eq!(occupancy(destination_budget, source_peer), (2, [0, 0], 1));
     connection
 }
+
+#[test]
+fn kademlia_and_rendezvous_use_one_window_on_the_same_authenticated_connection() {
+    use crate::libp2p_net::{
+        wire_byte_window::{WireByteLimits, WireByteWindow},
+        wire_bytes::Libp2pWireByteCounters,
+    };
+    use libp2p::{kad, rendezvous};
+
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            tokio::time::timeout(Duration::from_secs(8), async {
+                let bytes = Arc::new(WireByteWindow::new(WireByteLimits {
+                    inbound: 16_384, outbound: 16_384, total: 16_384,
+                }).unwrap());
+                let counters = Libp2pWireByteCounters::with_window(Arc::clone(&bytes));
+                let budget = ConnectionBudget::new(limits()).unwrap();
+                let mut source = build_swarm_with_receiver(
+                    &Keypair::generate_ed25519(),
+                    true,
+                    false,
+                    Duration::from_secs(3),
+                    counters,
+                    PeerRecordReceiver::legacy(),
+                    Some(budget.clone()),
+                );
+                let mut server = build_swarm_with_receiver(
+                    &Keypair::generate_ed25519(),
+                    true,
+                    false,
+                    Duration::from_secs(3),
+                    init_shared_wire_byte_counters(),
+                    PeerRecordReceiver::legacy(),
+                    None,
+                );
+                server.behaviour_mut().kademlia.set_mode(Some(kad::Mode::Server));
+                let peer = *server.local_peer_id();
+                let address = listen(&mut server, "/ip4/127.0.0.1/tcp/0").await;
+                source.behaviour_mut().kademlia.add_address(&peer, address.clone());
+                let dial = dial_for(peer, address);
+                let connection = dial.connection_id();
+                source.dial(dial).unwrap();
+                while !matches!(
+                    budgeted_event(&mut source, &mut server).await,
+                    SwarmEvent::ConnectionEstablished { connection_id, .. } if connection_id == connection
+                ) {}
+                let before = bytes.snapshot().unwrap().actual_bytes;
+
+                let query = source.behaviour_mut().kademlia.get_closest_peers(peer.to_bytes());
+                loop {
+                    if let SwarmEvent::Behaviour(BehaviourEvent::Kademlia(kad::Event::OutboundQueryProgressed {
+                        id, result: kad::QueryResult::GetClosestPeers(result), step, ..
+                    })) = budgeted_event(&mut source, &mut server).await
+                        && id == query && step.last
+                    {
+                        let result = result.expect("real Kademlia query must complete");
+                        assert!(result.peers.iter().any(|entry| entry.peer_id == peer));
+                        break;
+                    }
+                }
+                let after_kad = bytes.snapshot().unwrap().actual_bytes;
+                assert!(after_kad.inbound > before.inbound && after_kad.outbound > before.outbound);
+
+                let request = source.behaviour_mut().rendezvous_client.as_mut().unwrap()
+                    .discover_with_request_id(None, None, None, peer);
+                loop {
+                    match budgeted_event(&mut source, &mut server).await {
+                        SwarmEvent::Behaviour(BehaviourEvent::RendezvousClient(
+                            rendezvous::client::Event::Discovered { request_id, rendezvous_node, .. },
+                        )) if request_id == request => {
+                            assert_eq!(rendezvous_node, peer);
+                            break;
+                        }
+                        SwarmEvent::Behaviour(BehaviourEvent::RendezvousClient(
+                            rendezvous::client::Event::DiscoverFailed { request_id, error, .. },
+                        )) if request_id == request => panic!("real rendezvous query failed: {error:?}"),
+                        _ => {}
+                    }
+                }
+                let after_rendezvous = bytes.snapshot().unwrap();
+                assert!(
+                    after_rendezvous.actual_bytes.inbound > after_kad.inbound
+                        && after_rendezvous.actual_bytes.outbound > after_kad.outbound
+                );
+                assert_eq!(after_rendezvous.actual_bytes, after_rendezvous.charged_bytes);
+                assert!(after_rendezvous.charged_bytes.total <= 16_384);
+                assert_eq!(occupancy(&budget, peer), (1, [0, 0], 1));
+            }).await.expect("shared Kademlia/rendezvous fixture timed out");
+        });
+}
