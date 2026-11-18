@@ -393,6 +393,12 @@ pub(super) fn build_swarm_with_receiver(
     Swarm::new(transport, behaviour, peer_id, swarm_config)
 }
 
+/// Targeted discovery reuses an established connection under the shared
+/// profile. A stale peer-list entry must not turn work admission into a dial.
+pub(super) fn may_reuse_discovery_connection(swarm: &Swarm<Behaviour>, peer: PeerId) -> bool {
+    swarm.behaviour().connection_budget.is_none() || swarm.is_connected(&peer)
+}
+
 pub(super) fn dial_addr_with_optional_peer_id(
     swarm: &mut Swarm<Behaviour>,
     addr: Multiaddr,

@@ -336,7 +336,9 @@ pub(super) fn maybe_request_connected_peer_record(
     {
         return false;
     }
-    if !swarm.behaviour_mut().discovery_budget.admit() {
+    if !super::swarm_behaviour::may_reuse_discovery_connection(swarm, peer_id)
+        || !swarm.behaviour_mut().discovery_budget.admit()
+    {
         return false;
     }
     record_request_outbound(traffic_metrics, RR_GET_LOCAL_PEER_RECORD, 0);
@@ -428,6 +430,7 @@ fn request_cached_peer_record_via_with_triggers(
         || tried_proxies.contains(&ask_peer)
         || (!cached_peer_record_cooldowns.contains_key(&peer_id)
             && cached_peer_record_cooldowns.len() >= MAX_COOLDOWN_ENTRIES)
+        || !super::swarm_behaviour::may_reuse_discovery_connection(swarm, ask_peer)
         || !swarm.behaviour_mut().discovery_budget.admit()
     {
         return false;
@@ -537,7 +540,9 @@ pub(super) fn maybe_request_cached_discovery_peers(
     {
         return false;
     }
-    if !swarm.behaviour_mut().discovery_budget.admit() {
+    if !super::swarm_behaviour::may_reuse_discovery_connection(swarm, peer_id)
+        || !swarm.behaviour_mut().discovery_budget.admit()
+    {
         return false;
     }
     record_request_outbound(traffic_metrics, RR_GET_CACHED_DISCOVERY_PEERS, 0);
