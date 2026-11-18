@@ -63,7 +63,7 @@ impl Default for Libp2pControlPlaneMetricsSnapshot {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Libp2pTrafficMetricsSnapshot {
     #[serde(default)]
-    pub resource_budget: super::resource_budget_status::ResourceBudgetSnapshot,
+    pub resource_budget: super::resource_budget::ResourceBudgetSnapshot,
     #[serde(default)]
     pub discovery_work: super::discovery_budget::DiscoveryWorkMetricsSnapshot,
     pub observed_since_unix_ms: i64,

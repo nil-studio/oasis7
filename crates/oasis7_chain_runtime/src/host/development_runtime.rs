@@ -26,6 +26,22 @@ pub(super) fn read_config(path: &Path) -> Result<DevelopmentNodeConfigV1, String
     }
     serde_json::from_slice(&bytes).map_err(|e| format!("typed engineering config: {e}"))
 }
+pub(super) fn validate_p2p_resource_budget(options: &CliOptions) -> Result<(), String> {
+    if let P2pResourceBudget::SubstreamV1(limits) = options.p2p_resource_budget {
+        if !options.development_runtime
+            || options.formal_live_config.is_some()
+            || options.guarded_initial_config.is_some()
+        {
+            return Err("p2p_resource_budget requires the typed development runtime".into());
+        }
+        limits.validate_connection_limits()?;
+        if std::time::Instant::now().checked_add(limits.handshake_timeout()).is_none() {
+            return Err("p2p_resource_budget handshake_timeout_ms exceeds the monotonic deadline range".into());
+        }
+    }
+    Ok(())
+}
+
 fn path_at(cwd: &Path, path: &Path) -> PathBuf {
     if path.is_absolute() {
         path.into()

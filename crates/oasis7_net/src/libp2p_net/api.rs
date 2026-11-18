@@ -26,7 +26,7 @@ use super::{
     snapshot_traffic_metrics,
 };
 
-use super::resource_budget_status::ActiveResourceBudget;
+use super::resource_budget::ActiveResourceBudget;
 use super::traffic_metrics::SharedLibp2pTrafficMetrics;
 use super::wire_bytes::SharedLibp2pWireByteCounters;
 

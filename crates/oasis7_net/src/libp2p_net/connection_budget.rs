@@ -11,7 +11,7 @@ use libp2p::{
     swarm::{Config, ConnectionDenied, ConnectionId, TransportAdmission},
 };
 
-use super::resource_budget_status::{
+use super::resource_budget::{
     BudgetDiagnostics, ConnectionBudgetSnapshot, ResourceBudgetRejection,
 };
 

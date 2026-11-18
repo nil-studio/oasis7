@@ -11,9 +11,7 @@ use cli_contract::parse_required_value;
 mod provider_validation;
 use provider_validation::validate_local_test_provider_options;
 
-use std::collections::BTreeMap;
-use std::fmt;
-use std::fs;
+use std::{collections::BTreeMap, fmt, fs};
 use std::io::{self, BufReader, Read};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -695,18 +693,7 @@ pub(super) fn validate_effective_options(options: &CliOptions) -> Result<(), Str
         return Err("--config requires a non-empty value".to_string());
     }
     super::peer_record_cli::validate_options(options)?;
-    if let P2pResourceBudget::SubstreamV1(limits) = options.p2p_resource_budget {
-        if !options.development_runtime
-            || options.formal_live_config.is_some()
-            || options.guarded_initial_config.is_some()
-        {
-            return Err("p2p_resource_budget requires the typed development runtime".into());
-        }
-        limits.validate_connection_limits()?;
-        if std::time::Instant::now().checked_add(limits.handshake_timeout()).is_none() {
-            return Err("p2p_resource_budget handshake_timeout_ms exceeds the monotonic deadline range".into());
-        }
-    }
+    super::development_runtime::validate_p2p_resource_budget(options)?;
     if options.reward_points_per_credit == 0 {
         return Err("--reward-points-per-credit requires a positive integer".to_string());
     }

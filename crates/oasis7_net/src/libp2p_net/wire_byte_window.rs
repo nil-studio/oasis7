@@ -13,7 +13,7 @@ use tokio::{
     time::{Instant, sleep_until},
 };
 
-use super::resource_budget_status::{
+use super::resource_budget::{
     BudgetDiagnostics, ResourceBudgetRejection, ResourceByteBudgetSnapshot, ResourceByteCounts,
 };
 

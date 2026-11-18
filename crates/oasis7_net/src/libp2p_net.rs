@@ -48,7 +48,7 @@ mod response_budget;
 mod response_workers;
 mod runtime_loop;
 use outbound_failure::fail_pending_request;
-mod resource_budget_status;
+mod resource_budget;
 mod runtime_support;
 mod swarm_behaviour;
 mod swarm_reachability_events;
@@ -114,7 +114,7 @@ pub use reachability::{
     LiveTransportKind, LiveTransportTransition, LiveTransportTransitionCounters,
 };
 use reachability::{note_hole_punch_result, note_relay_reservation_accepted, snapshot_clone};
-pub use resource_budget_status::{
+pub use resource_budget::{
     ConnectionBudgetSnapshot, ResourceBudgetRejection, ResourceBudgetSnapshot,
     ResourceByteBudgetSnapshot, ResourceByteCounts,
 };
@@ -151,6 +151,5 @@ use utils::{
     push_bounded_clone, push_bounded_string_with_keyed_cooldown, should_republish,
     try_send_command,
 };
-use wire_bytes::init_shared_wire_byte_counters;
 #[cfg(test)]
 mod tests;

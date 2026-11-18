@@ -4,11 +4,18 @@ use std::{
 };
 
 use libp2p::PeerId;
-use oasis7_proto::p2p_resource_budget::P2pResourceBudgetLimits;
+use oasis7_proto::p2p_resource_budget::{P2pResourceBudget, P2pResourceBudgetLimits};
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 
-use super::{connection_budget::ConnectionBudget, wire_bytes::SharedLibp2pWireByteCounters};
+use super::{
+    connection_budget::{ConnectionBudget, ConnectionLimits},
+    wire_byte_window::{WireByteLimits, WireByteWindow},
+    wire_bytes::{
+        Libp2pWireByteCounters, SharedLibp2pWireByteCounters, init_shared_wire_byte_counters,
+    },
+};
+use crate::error::WorldError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -124,4 +131,47 @@ impl ActiveResourceBudget {
             next_attempt_delay_ms,
         }
     }
+}
+
+pub(super) fn setup_resource_budgets(
+    profile: P2pResourceBudget,
+) -> Result<(Option<ActiveResourceBudget>, SharedLibp2pWireByteCounters), WorldError> {
+    let P2pResourceBudget::SubstreamV1(limits) = profile else {
+        return Ok((None, init_shared_wire_byte_counters()));
+    };
+    let error = |reason: &str| WorldError::NetworkProtocolUnavailable {
+        protocol: format!("p2p_resource_budget: {reason}"),
+    };
+    limits.validate_connection_limits().map_err(error)?;
+    let diagnostics = Arc::new(BudgetDiagnostics::default());
+    let connections = ConnectionBudget::with_diagnostics(
+        ConnectionLimits {
+            total: limits.connections_total.get(),
+            pending: limits.pending_connections_total.get(),
+            inbound_unknown: limits.pending_inbound_unknown.get(),
+            outbound: limits.pending_outbound.get(),
+            per_peer: limits.connections_per_peer.get(),
+            handshake_timeout: limits.handshake_timeout(),
+        },
+        Arc::clone(&diagnostics),
+    )
+    .map_err(|err| error(&err.to_string()))?;
+    let bytes = WireByteWindow::with_diagnostics(
+        WireByteLimits {
+            inbound: limits.bytes_in_per_window.get(),
+            outbound: limits.bytes_out_per_window.get(),
+            total: limits.bytes_total_per_window.get(),
+        },
+        Arc::clone(&diagnostics),
+    )
+    .map_err(|err| error(&err.to_string()))?;
+    Ok((
+        Some(ActiveResourceBudget {
+            limits,
+            instance_id: PeerId::random(),
+            connections,
+            diagnostics,
+        }),
+        Libp2pWireByteCounters::with_window(Arc::new(bytes)),
+    ))
 }
