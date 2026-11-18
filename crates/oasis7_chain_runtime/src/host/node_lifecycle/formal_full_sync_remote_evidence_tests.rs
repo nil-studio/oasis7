@@ -10,6 +10,13 @@ use std::io::{Read, Write};
 fn remote_evidence_endpoint_rejects_ambient_or_credential_urls() {
     for endpoint in [
         "http://example.com/read",
+        "http://localhost/read",
+        "http://[::]/read",
+        "http://[2001:db8::1]/read",
+        "http://[::ffff:127.0.0.1]/read",
+        "http://user:secret@[::1]/read",
+        "http://[::1]/read?token=secret",
+        "http://[::1]/read#fragment",
         "file:///read",
         "https://user:secret@example.com/read",
         "https://example.com/read?token=secret",
@@ -19,6 +26,8 @@ fn remote_evidence_endpoint_rejects_ambient_or_credential_urls() {
     }
     assert!(RemoteFullSyncReadEvidenceSourceV3::new("https://example.com/read").is_ok());
     assert!(RemoteFullSyncReadEvidenceSourceV3::new("http://127.0.0.1:1/read").is_ok());
+    assert!(RemoteFullSyncReadEvidenceSourceV3::new("http://[::1]:1/read").is_ok());
+    assert!(RemoteFullSyncReadEvidenceSourceV3::new("http://[0:0:0:0:0:0:0:1]/read").is_ok());
 }
 
 fn relay_once(
