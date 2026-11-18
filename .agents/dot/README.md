@@ -12,9 +12,10 @@
 | [AUTONOMY.md](AUTONOMY.md) | 用户授权、外部任务、隐私和规则修改边界 |
 | [WORKFLOW.md](WORKFLOW.md) | 读取上下文、分析、实施协作、核实与交付的方法 |
 | [REPORTING.md](REPORTING.md) | 面向用户的进度、评审和交付表达 |
-| [SCHEDULE.md](SCHEDULE.md) | 每天 13:00 回顾前一日 CI；每 20 分钟增量 Issue 整理与 Sites 内容 review |
+| [SCHEDULE.md](SCHEDULE.md) | 每日 CI 回顾、Rust CodeQL 告警分诊与修复跟进；每 20 分钟增量 Issue 整理与 Sites 内容 review |
 | [HEARTBEAT.md](HEARTBEAT.md) | 每 20 分钟检查到期项、去重派工及收取结果的方法 |
 | [CI 回顾任务](tasks/ci-duration-review.md) | 检查前一日 CI 耗时，对卡点创建或关联 Issue |
+| [Rust CodeQL 告警处置](tasks/codeql-alert-triage.md) | 分诊日频主干告警，交接确认问题的修复并跟进 PR、CI 与后续扫描确认 |
 | [增量 Issue 整理](tasks/issue-triage.md) | 每 20 分钟处理五类 Issue 的增量分类、转换、完成核验、去重及归并；不自动开发 |
 | [Sites 内容 review](tasks/sites-content-review.md) | 检查公开来源、摘要与任务状态；有新增/过期内容时在既有入口更新，无变化不重复写 |
 
@@ -46,7 +47,7 @@ OpenAI 的 [dot 入门说明](https://help.openai.com/en/articles/20001530-getti
 
 以下 20 分钟时间表属于 dot 日常巡检，采用“主 dot 协调、subagent 执行”的分工。这些例行任务不直接启动 Coding Agent 开发。
 
-时间表定义“何时做什么”，HEARTBEAT 定义“一轮如何协调”，任务说明定义“subagent 做什么”。主 Agent 在这些例行任务中只查到期状态、派工、跟踪和汇总，不代做 CI 分析、增量 Issue 整理或 Sites 内容更新。subagent 仅执行对应任务授权的 Issue 操作或 Sites 公开内容维护，不交叉继承权限；不可用时保留待执行实例，20 分钟后再尝试，不停止协调器、不退回主 Agent 代跑。这不改变普通交互任务或仓库通用流程的分工。
+时间表定义“何时做什么”，HEARTBEAT 定义“一轮如何协调”，任务说明定义“subagent 做什么”。主 Agent 在这些例行任务中只查到期状态、派工、跟踪和汇总，不代做 CI 分析、CodeQL 告警分诊、增量 Issue 整理或 Sites 内容更新。subagent 仅执行对应任务授权的 Issue 操作、CodeQL 修复反馈与告警处置或 Sites 公开内容维护，不交叉继承权限；不可用时保留待执行实例，20 分钟后再尝试，不停止协调器、不退回主 Agent 代跑。这不改变普通交互任务或仓库通用流程的分工。
 
 本目录只定义流程。接入时分别核实真实触发器及频率、持久状态、subagent 派工、同仓库写入互斥和 Sites 共用摘要作业，不从文档推断实际服务能力，不拆任务绕过频率限制。规则须能通过已授权的 GitHub 连接读取，不能依赖不可用的项目附件。
 
