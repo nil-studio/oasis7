@@ -306,6 +306,18 @@ fn read_candidate_builder(
             "candidate recipe requires actual guest CARGO_BUILD_JOBS=2".into(),
         ));
     }
+    if std::env::var("CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER").as_deref()
+        != Ok("/opt/oasis7-mold/3.0.0-v1/bin/oasis7-mold-gcc")
+    {
+        return Err(invalid(
+            "candidate recipe requires the pinned Linux host mold linker".into(),
+        ));
+    }
+    if std::env::var_os("CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_LINKER").is_some() {
+        return Err(invalid(
+            "candidate recipe forbids a WASM target linker override".into(),
+        ));
+    }
     if request.profile != "release"
         || request.target != DEFAULT_TARGET
         || std::env::var_os("OASIS7_WASM_BUILDER_IMAGE_REF").is_some()

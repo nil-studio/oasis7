@@ -112,6 +112,7 @@ if config.get('Entrypoint') != ['/opt/oasis7/scripts/build-wasm-module.sh']:
 expected = {
     'PATH': '/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
     'DEBIAN_FRONTEND': 'noninteractive', 'CARGO_HOME': '/cargo', 'RUSTUP_HOME': '/rustup',
+    'CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER': '/opt/oasis7-mold/3.0.0-v1/bin/oasis7-mold-gcc',
     'OASIS7_WASM_TOOLCHAIN': 'nightly-2025-12-11',
     'OASIS7_WASM_TARGET': 'wasm32-unknown-unknown',
     'OASIS7_WASM_BUILD_STD': '1',
