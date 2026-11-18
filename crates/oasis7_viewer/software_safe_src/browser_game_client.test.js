@@ -288,3 +288,22 @@ it("signs the first abort against a refreshed context and only looks up its orig
  await f.client.outcome("abort-refresh", captured, "executor_aborted");
  expect(f.calls.slice(before).map((call) => call.body.operation.kind)).toEqual(["lookup_executor"]);
 });
+
+it.each(["read rejection", "fence change"])("does not submit a new outcome after %s", async (failure) => {
+ const f = fixture(); await f.client.bindFence(fence);
+ const captured = await f.client.context("abort-blocked");
+ if (failure === "fence change") f.setFence({ ...fence, task_revision: "2" });
+ else {
+  const gateway = f.gatewayCall.getMockImplementation();
+  f.gatewayCall.mockImplementation(async (...args) => {
+   if (args[1].operation?.kind === "read_context") throw new Error("read rejected");
+   return gateway(...args);
+  });
+ }
+ const before = f.calls.length;
+ await expect(f.client.outcome("abort-blocked", captured, "executor_aborted")).rejects.toMatchObject({
+  code: failure === "fence change" ? "task_fence_changed" : "game_response_invalid",
+ });
+ expect(f.entries.some((entry) => entry.original.kind === "outcome")).toBe(false);
+ expect(f.calls.slice(before).some((call) => call.body.operation?.kind === "submit")).toBe(false);
+});
