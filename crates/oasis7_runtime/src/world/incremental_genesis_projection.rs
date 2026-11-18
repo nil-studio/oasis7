@@ -95,15 +95,6 @@ impl RuntimeProjectedGenesisV1 {
             self.outer,
         )
     }
-    pub(in crate::world) fn into_parts(
-        self,
-    ) -> (
-        RuntimeGenesisSummaryV1,
-        NormalProjectionColumnSeedDataV1,
-        super::incremental_normal_business_commitment::PreparedNormalBusinessMetadataGenesisV1,
-    ) {
-        (self.genesis, self.columns, self.business_metadata)
-    }
 }
 #[derive(Debug)]
 pub enum RuntimeProjectedGenesisErrorV1 {
