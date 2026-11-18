@@ -1110,6 +1110,8 @@
     "scripts/ci-cache-maintenance.test.py": ["workflow_governance"],
     "scripts/ci-cache-policy.py": ["workflow_governance"],
     "scripts/ci-cache-policy.test.py": ["workflow_governance"],
+    "scripts/ci-contract-jobs.py": ["workflow_governance"],
+    "scripts/ci-contract-jobs.test.py": ["workflow_governance"],
     "scripts/ci-custody-platform.py": ["workflow_governance"],
     "scripts/ci-custody-platform.test.py": ["workflow_governance"],
     "scripts/ci-custody-workerd-capture.py": ["workflow_governance"],
@@ -1170,6 +1172,7 @@
     "scripts/ci-apt-install.test.py",
     "scripts/ci-apt-dns.test.py",
     "scripts/ci-linux-mold.test.py",
+    "scripts/ci-contract-jobs.test.py",
     "scripts/ci-workflow.test.py",
     "scripts/ci-fast-preview.test.py",
     "scripts/ci-cache-maintenance.test.py",
@@ -1303,6 +1306,19 @@
       "group": "workflow_governance",
       "tests": [
         "scripts/ci-cache-policy.test.py"
+      ]
+    },
+    "scripts/ci-contract-jobs.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-contract-jobs.test.py",
+        "scripts/ci-workflow.test.py"
+      ]
+    },
+    "scripts/ci-contract-jobs.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-contract-jobs.test.py"
       ]
     },
     "scripts/ci-custody-platform.py": {
