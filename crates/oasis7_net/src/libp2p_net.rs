@@ -53,6 +53,7 @@ mod swarm_reachability_events;
 mod traffic_metrics;
 mod transport_paths;
 mod utils;
+mod wire_byte_window;
 mod wire_bytes;
 use crate::error::WorldError;
 pub use config::{

@@ -83,6 +83,42 @@ pub(super) fn raw_error(
     let digest = authority::request_digest(path, &body);
     signed_error_with_digest(400, path, digest, code, message, signer)
 }
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct FormalLiveStatusChallengeV1 {
+    pub(crate) observation_nonce: String,
+}
+
+pub(super) fn handle_status_observation(service: &FormalLiveService, body: &[u8]) -> HttpReply {
+    let challenge = (body.len() <= 128)
+        .then(|| serde_json::from_slice::<FormalLiveStatusChallengeV1>(body).ok())
+        .flatten()
+        .filter(|challenge| {
+            let nonce = &challenge.observation_nonce;
+            nonce.len() == 64
+                && nonce.bytes().all(|byte| {
+                    byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)
+                })
+        });
+    let Some(challenge) = challenge else {
+        return signed_error_with_digest(
+            400,
+            CHAIN_STATUS_PATH,
+            authority::request_digest(CHAIN_STATUS_PATH, &()),
+            "invalid_status_challenge",
+            "formal status requires a bounded observation nonce",
+            &service.signer,
+        );
+    };
+    signed_reply(
+        200,
+        CHAIN_STATUS_PATH,
+        &challenge,
+        &service.runtime_status(),
+        &service.signer,
+    )
+}
+
 pub(super) fn plain_error(message: &str) -> Vec<u8> {
     serde_json::to_vec(&FormalServiceErrorV1 {
         api_version: "oasis7.formal-live-error/v1".into(),

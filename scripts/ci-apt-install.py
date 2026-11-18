@@ -83,7 +83,12 @@ def transient_update(output):
         if line.startswith(('E:', 'W:', 'Err:')):
             if line.startswith('Err:'):
                 continue  # apt 在下一行输出具体原因，最终 E: 必须再次给出原因。
-            if re.search(transient, line) and 'Failed to fetch' in line:
+            rate_limited = re.fullmatch(
+                r'[EW]: Failed to fetch https?://\S+ +429 +Too Many Requests'
+                r'(?: \[IP: [0-9a-fA-F:.]+ [0-9]+\])? *',
+                line,
+            )
+            if rate_limited or (re.search(transient, line) and 'Failed to fetch' in line):
                 found = True
             elif line not in (
                     'E: Some index files failed to download. They have been ignored, or old ones used instead.',
