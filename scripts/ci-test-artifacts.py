@@ -2854,7 +2854,7 @@ def execute_inline_jobs(jobs, results, *, formal=False, shard=None, ordinary_par
     """Run complete validated jobs, with one receipt and owner per child."""
     from ci_process_runner import run
     cpus = native_cpu_budget()
-    workers = min(4 if formal else 1 if ordinary_partition not in (None, 'all') else 2, cpus, len(jobs))
+    workers = min(4 if formal else 2, cpus, len(jobs))
     threads = 1 if formal else max(1, cpus // workers)
     # An existing lower limit remains useful; never multiply libtest's normal
     # CPU-sized pool by the number of concurrently running harnesses.

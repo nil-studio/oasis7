@@ -6607,5 +6607,46 @@ compile_error!("full scale target must not be compiled by the required tuple");
                 artifacts.load(bundle)
 
 
+class OrdinaryExecutionConcurrency(unittest.TestCase):
+    def test_named_ordinary_partition_uses_two_workers_with_exclusive_isolation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            jobs = [
+                dict(command=['true'], cwd=root, env={}, suite='ordinary', name='a', count=1, exclusive=False),
+                dict(command=['true'], cwd=root, env={}, suite='ordinary', name='b', count=1, exclusive=False),
+                dict(command=['true'], cwd=root, env={}, suite='ordinary', name='c', count=1, exclusive=True),
+            ]
+            seen = []
+            active = 0
+            peak = 0
+            lock = __import__('threading').Lock()
+
+            def fake_run(command, cwd, env, suite, name, receipt, expected_count=None, cancellation_event=None):
+                nonlocal active, peak
+                with lock:
+                    active += 1
+                    peak = max(peak, active)
+                    seen.append((name, env.get('RUST_TEST_THREADS'), active))
+                __import__('time').sleep(0.05)
+                with lock:
+                    active -= 1
+                record = dict(suite=suite, test_name=name, expected_count=expected_count, passed=True,
+                              exit_code=0, count_ok=True, timeout=False, cancelled=False,
+                              cleanup_result='clean', leaked_processes=False,
+                              output_read_error=None, log_complete=True)
+                receipt.write_text(json.dumps(record) + '\n')
+                return record
+
+            results = root / 'results.jsonl'
+            with patch.object(artifacts, 'native_cpu_budget', return_value=4), \
+                 patch('ci_process_runner.run', side_effect=fake_run):
+                artifacts.execute_inline_jobs(jobs, results, ordinary_partition='native-0')
+            self.assertEqual(peak, 2)
+            by_name = {name: (threads, conc) for name, threads, conc in seen}
+            self.assertEqual(by_name['a'][0], '2')
+            self.assertEqual(by_name['b'][0], '2')
+            self.assertEqual(by_name['c'], ('1', 1))
+
+
 if __name__ == '__main__':
     unittest.main()
