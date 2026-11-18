@@ -31,6 +31,7 @@ pub enum IwsHostRuntimeErrorV1 {
     Physical(oasis7_distfs::incremental_page_store::PageStoreError),
     NormalPersist(normal::NormalCommitPersistErrorV1<oasis7_distfs::incremental_page_store::PageStoreError>),
     NormalSource(oasis7_runtime::BodyMutationError),
+    GenesisNormal(oasis7_runtime::NormalHostGenesisBootstrapErrorV1<oasis7_distfs::incremental_page_store::PageStoreError>),
     ColdNormal(oasis7_runtime::NormalHostColdBootstrapErrorV1<oasis7_distfs::incremental_page_store::PageStoreError>),
     NormalFixed(oasis7_runtime::NormalHostFixedFailureV1<oasis7_distfs::incremental_page_store::PageStoreError>),
     Source(BoundedAcquireErrorV1),
@@ -347,8 +348,47 @@ pub(crate) use normal_execute::{
     NormalExecutionCommitFailureV1, execute_and_commit_frozen_normal_bounded_v1,
 };
 
+#[path = "iws_host_node_freeze.rs"]
+mod node_freeze;
+pub(crate) use node_freeze::{NodeNormalFreezeAttemptV1, NodeNormalFreezeDispositionV1};
+
+#[path = "iws_host_node_boundary.rs"]
+mod node_boundary;
+pub(crate) use node_boundary::PaidIwsNodeBoundaryV1;
+
+#[path = "iws_host_node_execute.rs"]
+mod node_execute;
+pub(crate) use node_execute::{
+    NodeNormalExecutionAttemptV1, NodeNormalExecutionEnvironmentV1,
+    NodeNormalStartFailureV1, PaidNodeAppliedNormalV1,
+};
+
 pub use normal::NormalCommitPersistErrorV1;
 
 #[path = "iws_host_cold.rs"]
 mod cold;
 pub use cold::{HostColdIoWorkV1, HostColdStartupErrorV1};
+
+#[path = "iws_host_genesis_resident.rs"]
+mod genesis_resident;
+pub use genesis_resident::HostGenesisIoWorkV1;
+
+#[path = "iws_host_cognition_startup.rs"]
+mod cognition_startup;
+pub use cognition_startup::{HostCognitionStartupErrorV1, HostCognitionStartupWorkV1};
+
+#[cfg(any(test, feature = "iws-host-native-test-support"))]
+#[path = "iws_host_native_node_test_support.rs"]
+pub(crate) mod native_node_test_support;
+
+#[cfg(feature = "iws-host-native-test-support")]
+#[path = "iws_host_native_cold_test_support.rs"]
+pub(crate) mod native_cold_test_support;
+
+#[cfg(feature = "iws-host-native-test-support")]
+#[path = "iws_host_native_observe_test_support.rs"]
+pub(crate) mod native_observe_test_support;
+
+#[cfg(feature = "iws-host-native-test-support")]
+#[path = "iws_host_native_closure_test_support.rs"]
+pub(crate) mod native_closure_test_support;

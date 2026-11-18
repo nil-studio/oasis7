@@ -42,6 +42,9 @@ use oasis7_world_state::{
 };
 #[path = "incremental_normal_host_resident_startup_io.rs"]
 mod startup_io;
+#[path = "incremental_normal_host_resident_tail.rs"]
+mod bootstrap_tail;
+pub use bootstrap_tail::NormalHostBootstrapTailWorkV1;
 /// No public field, default, arbitrary ID constructor or post-install setter.
 /// Every owned component was produced against the same actual accepted parent.
 pub struct NormalHostResidentSourcesV1 {
@@ -163,6 +166,7 @@ enum ResidentStorage {
     Built {
         materials: ReservedValue<ParentInventoryMaterialScopeV1>,
         caches: ReservedValue<NormalParentCachesV1>,
+        tail: ReservedValue<bootstrap_tail::NormalHostBootstrapTailSourcesV1>,
     },
     Warm {
         directories: crate::world::incremental_commit::AcceptedRuntimeDirectoryCacheV1,
@@ -195,6 +199,7 @@ pub struct NormalHostStartupWorkV1<'a> {
     pub caches: NormalParentCacheBootstrapWorkV1<'a>,
     pub delivery: &'a mut ProductValidationDeliveryWorkV1,
     pub authorization: &'a mut AuthorizationRootSourceReadWorkV1,
+    pub tail: NormalHostBootstrapTailWorkV1<'a>,
 }
 #[derive(Debug)]
 struct Cause<T: std::fmt::Debug>(T);
@@ -306,6 +311,16 @@ where
             common,
             live,
         )?;
+        let tail = bootstrap_tail::build(
+            parent,
+            ctx,
+            read,
+            work.caches.factory,
+            work.caches.industry,
+            &mut work.tail,
+            common,
+            live,
+        )?;
         let (manifest, materials) = startup_io::selected(parent, read, work, common)?;
         let delivery = build_product_validation_delivery_index_v1(
             parent.refs().head,
@@ -382,7 +397,11 @@ where
             manifest,
             delivery,
             retention,
-            storage: ResidentStorage::Built { materials, caches },
+            storage: ResidentStorage::Built {
+                materials,
+                caches,
+                tail,
+            },
             authorization,
             record: parent.refs().head.verified_record_id(),
             roots: parent.fence().parent_roots,
@@ -491,3 +510,18 @@ pub use promotion::{
 
 #[path = "incremental_normal_host_resident_genesis.rs"]
 mod genesis;
+
+#[path = "incremental_normal_host_genesis_bootstrap.rs"]
+mod genesis_host;
+pub use genesis_host::{
+    NormalHostGenesisAuthorityV1, NormalHostGenesisBootstrapErrorV1,
+    bootstrap_authenticated_genesis_normal_host_resident_v1,
+    bootstrap_authenticated_genesis_replica_resident_v1,
+};
+
+#[path = "incremental_normal_host_cognition_bootstrap.rs"]
+mod cognition_bootstrap;
+pub use cognition_bootstrap::{
+    NormalHostCognitionBootstrapErrorV1, PaidNormalHostCognitionParentSourcesV1,
+    bootstrap_normal_host_cognition_parent_v1,
+};

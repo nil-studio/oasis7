@@ -164,7 +164,7 @@ impl CurrentBootstrapLiveFinalityV1 {
 }
 /// fmt emits borrowed strings and stack-formatted scalars. Each actual
 /// payload chunk is paid before SHA sees it; the first typed work error wins.
-fn legacy_tick_digest(
+pub(in crate::world) fn legacy_tick_digest(
     block: &oasis7_world_state::TickBlock,
     common: &mut FormalBoundedContextV1<'_>,
 ) -> Result<[u8; 32], BodyMutationError> {

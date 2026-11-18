@@ -53,7 +53,7 @@ impl BoundNormalProjectionBootstrapSourceV1 {
             }
             let state=super::super::state_columns::OriginalStateColumnsDataV1::from_original_seed_data_v1(&seed,common)?;
             let electricity = super::super::electricity::from_seed_v1(&seed, common)?;
-            let agent_intents=super::super::intents::from_seed_v1(&seed,common)?;
+            let agent_intents = super::super::intents::from_seed_v1(&seed, common)?;
             let observation = seed.observation_columns_data_v1(common)?;
             let mut auxiliary = seed.auxiliary_columns_data_v1(common)?;
             let memory = common.memory().clone();
@@ -87,6 +87,11 @@ impl BoundNormalProjectionBootstrapSourceV1 {
             let terminal = match metadata {
                 OriginalProjectionReadMetadataV1::Current(source) => *source,
                 OriginalProjectionReadMetadataV1::Genesis { governance, .. } => *governance,
+                OriginalProjectionReadMetadataV1::UncommittedGenesis { .. } => {
+                    return Err(invalid(
+                        "uncommitted GEN cannot bootstrap an accepted projection cache",
+                    ));
+                }
             };
             let raw_state = super::super::raw_hash::hash_current_state_columns_data_v1(
                 &state,

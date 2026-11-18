@@ -13,6 +13,11 @@ use oasis7_world_state::incremental_runtime_revocation::{
     read_current_module_admission_revocation_v1, recover_runtime_revocation_body_v1,
 };
 use std::mem::size_of;
+#[path = "incremental_normal_business_commitment_metadata_genesis_governance.rs"]
+mod genesis_governance;
+pub(in crate::world) use genesis_governance::{
+    GenesisGovernanceProjectionDataV1, GenesisGovernanceSourceDataV1,
+};
 pub struct NormalBusinessMetadataParentSourceV1 {
     record: [u8; 32],
     fence: ExecutionFence,
@@ -328,6 +333,11 @@ pub(in crate::world) enum OriginalProjectionReadMetadataV1<'a> {
         source: &'a PreparedNormalBusinessMetadataGenesisV1,
         governance: &'a super::metadata::NormalTerminalReadMetadataV1,
     },
+    /// Immutable original GEN DATA only; Current provenance always rejects it.
+    UncommittedGenesis {
+        source: &'a PreparedNormalBusinessMetadataGenesisV1,
+        governance: &'a GenesisGovernanceProjectionDataV1,
+    },
 }
 impl OriginalProjectionReadMetadataV1<'_> {
     pub(in crate::world) fn validate_provenance<M: MerkleNodeReader>(
@@ -337,6 +347,9 @@ impl OriginalProjectionReadMetadataV1<'_> {
         live: &ExecutionFence,
     ) -> Result<(), BodyMutationError> {
         match self {
+            Self::UncommittedGenesis { .. } => Err(BodyMutationError::Invalid(
+                "uncommitted GEN has no Current metadata provenance",
+            )),
             Self::Current(source) => source.validate_provenance(tx, common, live),
             Self::Genesis { source, governance } => {
                 source.validate_context(common)?;
@@ -390,85 +403,111 @@ impl OriginalProjectionReadMetadataV1<'_> {
     pub(in crate::world) fn current_clock(&self) -> u64 {
         match self {
             Self::Current(s) => s.current_clock(),
-            Self::Genesis { source: s, .. } => s.clock,
+            Self::Genesis { source: s, .. } | Self::UncommittedGenesis { source: s, .. } => s.clock,
         }
     }
     pub(in crate::world) fn authority_generation(&self) -> u64 {
         match self {
             Self::Current(s) => s.authority_generation(),
-            Self::Genesis { source: s, .. } => s.authority,
+            Self::Genesis { source: s, .. } | Self::UncommittedGenesis { source: s, .. } => {
+                s.authority
+            }
         }
     }
     pub(in crate::world) fn permission_generation(&self) -> u64 {
         match self {
             Self::Current(s) => s.permission_generation(),
-            Self::Genesis { source: s, .. } => s.permission,
+            Self::Genesis { source: s, .. } | Self::UncommittedGenesis { source: s, .. } => {
+                s.permission
+            }
         }
     }
     pub(in crate::world) fn journal_current_era_start_v1(&self) -> usize {
         match self {
             Self::Current(s) => s.journal_current_era_start_v1(),
-            Self::Genesis { source: s, .. } => s.journal_start,
+            Self::Genesis { source: s, .. } | Self::UncommittedGenesis { source: s, .. } => {
+                s.journal_start
+            }
         }
     }
     pub(in crate::world) fn journal_retained_event_count_v1(&self) -> u64 {
         match self {
             Self::Current(s) => s.journal_retained_event_count_v1(),
-            Self::Genesis { source: s, .. } => s.retained_events,
+            Self::Genesis { source: s, .. } | Self::UncommittedGenesis { source: s, .. } => {
+                s.retained_events
+            }
         }
     }
     pub(in crate::world) fn event_id_era(&self) -> u64 {
         match self {
             Self::Current(s) => s.event_id_era(),
-            Self::Genesis { source: s, .. } => s.journal_bounds().2,
+            Self::Genesis { source: s, .. } | Self::UncommittedGenesis { source: s, .. } => {
+                s.journal_bounds().2
+            }
         }
     }
     pub(in crate::world) fn journal_retention_floor(&self) -> u64 {
         match self {
             Self::Current(s) => s.journal_retention_floor(),
-            Self::Genesis { source: s, .. } => s.journal_bounds().0,
+            Self::Genesis { source: s, .. } | Self::UncommittedGenesis { source: s, .. } => {
+                s.journal_bounds().0
+            }
         }
     }
     pub(in crate::world) fn journal_high_watermark(&self) -> u64 {
         match self {
             Self::Current(s) => s.journal_high_watermark(),
-            Self::Genesis { source: s, .. } => s.journal_bounds().1,
+            Self::Genesis { source: s, .. } | Self::UncommittedGenesis { source: s, .. } => {
+                s.journal_bounds().1
+            }
         }
     }
     pub(in crate::world) fn provider_world_id(&self) -> &str {
         match self {
             Self::Current(s) => s.provider_world_id(),
-            Self::Genesis { source: s, .. } => &s.aliases.world_id,
+            Self::Genesis { source: s, .. } | Self::UncommittedGenesis { source: s, .. } => {
+                &s.aliases.world_id
+            }
         }
     }
     pub(in crate::world) fn branch_id(&self) -> &str {
         match self {
             Self::Current(s) => s.branch_id(),
-            Self::Genesis { source: s, .. } => &s.aliases.branch_id,
+            Self::Genesis { source: s, .. } | Self::UncommittedGenesis { source: s, .. } => {
+                &s.aliases.branch_id
+            }
         }
     }
     pub(in crate::world) fn reorg_generation(&self) -> u64 {
         match self {
             Self::Current(s) => s.reorg_generation(),
-            Self::Genesis { source: s, .. } => s.aliases.reorg_epoch,
+            Self::Genesis { source: s, .. } | Self::UncommittedGenesis { source: s, .. } => {
+                s.aliases.reorg_epoch
+            }
         }
     }
     pub(in crate::world) fn finality_epoch(&self) -> u64 {
         match self {
             Self::Current(s) => s.finality_epoch(),
-            Self::Genesis { source: s, .. } => s.aliases.finality_epoch,
+            Self::Genesis { source: s, .. } | Self::UncommittedGenesis { source: s, .. } => {
+                s.aliases.finality_epoch
+            }
         }
     }
     pub(in crate::world) fn finality_status(&self) -> &str {
         match self {
             Self::Current(s) => s.finality_status(),
-            Self::Genesis { source: s, .. } => &s.aliases.finality_status,
+            Self::Genesis { source: s, .. } | Self::UncommittedGenesis { source: s, .. } => {
+                &s.aliases.finality_status
+            }
         }
     }
     pub(in crate::world) fn finality_block_hash(&self) -> Option<&str> {
         match self {
             Self::Current(s) => s.finality_block_hash(),
-            Self::Genesis { source: s, .. } => s.aliases.finality_block_hash.as_deref(),
+            Self::Genesis { source: s, .. } | Self::UncommittedGenesis { source: s, .. } => {
+                s.aliases.finality_block_hash.as_deref()
+            }
         }
     }
     pub(in crate::world) fn governance_membership_for_state_hash_bounded_v1(
@@ -495,6 +534,19 @@ impl OriginalProjectionReadMetadataV1<'_> {
         BodyMutationError,
     > {
         match self {
+            Self::UncommittedGenesis { source, governance } => {
+                source.validate_context(common)?;
+                common
+                    .charge(
+                        1,
+                        (actual_raw_state_hash.len() + source.raw_state_hash.len()) as u64,
+                    )
+                    .map_err(original)?;
+                if actual_raw_state_hash != source.raw_state_hash {
+                    return Err(bad());
+                }
+                governance.membership_parts_v1(actual_raw_state_hash, common)
+            }
             Self::Current(source) => source.governance_membership_parts_for_state_hash_bounded_v1(
                 actual_raw_state_hash,
                 common,
@@ -531,7 +583,7 @@ impl OriginalProjectionReadMetadataV1<'_> {
                 common,
                 canonical,
             )?,
-            Self::Genesis { source: s, .. } => {
+            Self::Genesis { source: s, .. } | Self::UncommittedGenesis { source: s, .. } => {
                 common
                     .charge(
                         1,

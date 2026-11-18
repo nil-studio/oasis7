@@ -14,6 +14,21 @@ fn public(n: u8) -> String {
 fn populated_world() -> World {
     populated_world_with_binding("read-world")
 }
+#[cfg(feature = "test_tier_full")]
+#[test]
+fn actual_genesis_projection_matches_original_owner_delegate_commitment() {
+    let world = populated_world();
+    let tree = commitments_for_world(&world).unwrap();
+    for audience in [
+        ProjectionAudienceV1::public(),
+        ProjectionAudienceV1::agent("7", public(7)).unwrap(),
+        ProjectionAudienceV1::agent("7", public(8)).unwrap(),
+    ] {
+        tree.inclusion(&audience)
+            .expect("original actual audience must exist");
+    }
+    oasis7_runtime::incremental_genesis_projection::assert_genesis_projection_matches_original_for_test_v1(&world, &tree.root().unwrap());
+}
 pub(super) fn populated_world_with_binding(world_id: &str) -> World {
     let mut seed = World::new();
     seed.submit_action(oasis7_runtime::Action::RegisterAgent {
@@ -379,6 +394,7 @@ fn gameplay_query_reaches_real_game_client_industry_over_signed_json_read() {
             crate::projection::from_authenticated_world(&world, Some("7"), &public(reader))
                 .unwrap()
                 .world_rule_status
+                .as_ref()
                 .unwrap()["gameplay_capability"]
                 .clone();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();

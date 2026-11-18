@@ -223,4 +223,7 @@ where
 }
 
 #[path="incremental_normal_host_cold_base.rs"]mod base;
-pub(in crate::world) use base::prepare_authenticated_cold_normal_host_base_v1;
+pub(in crate::world) use base::{
+    prepare_authenticated_cold_normal_host_base_v1,
+    prepare_authenticated_normal_host_base_v1,
+};

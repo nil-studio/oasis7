@@ -2,7 +2,7 @@
 //! It never installs a grant, decision, permission, or spending result.
 use super::*;
 use crate::world::agent_delegation::{Ledger, readonly};
-struct Ops<'v, 'f, 'a, 's, 'c, M>(&'v values::View<'f, 'a, 's, 'c, M>);
+struct Ops<'v, 'f, 'a, 'c>(&'v values::View<'f, 'a, 'c>);
 #[derive(Debug)]
 enum NativeError {
     World(crate::WorldError),
@@ -18,8 +18,8 @@ impl From<BodyMutationError> for NativeError {
         Self::Body(e)
     }
 }
-impl<M> readonly::sealed::Work for Ops<'_, '_, '_, '_, '_, M> {}
-impl<M: MerkleNodeReader> readonly::Work for Ops<'_, '_, '_, '_, '_, M> {
+impl readonly::sealed::Work for Ops<'_, '_, '_, '_> {}
+impl readonly::Work for Ops<'_, '_, '_, '_> {
     type Error = NativeError;
     fn work(&mut self, s: u64, b: usize) -> Result<(), NativeError> {
         self.0.facts.work(s, b)?;
@@ -49,23 +49,21 @@ impl PaidCurrentNativeAuthorizationsDataV1 {
     }
 }
 #[allow(clippy::too_many_arguments)]
-pub(in crate::world) fn prepare_current_native_authorizations_data_v1<M: MerkleNodeReader>(
+pub(in crate::world) fn prepare_current_native_authorizations_data_v1(
     state: &OriginalStateColumnsDataV1,
     electricity: &OriginalProjectionRowsDataV1,
     aux: &ProjectionColumnDataV1,
     metadata: &OriginalProjectionReadMetadataV1<'_>,
     agent: &str,
-    tx: &ExecutionTransaction<'_, M>,
+    origin: &dyn crate::world::incremental_normal_projection_commitment::facts::ProjectionReadSourceV1,
     common: &mut FormalBoundedContextV1<'_>,
-    live: &mut dyn FnMut() -> ExecutionFence,
 ) -> Result<PaidCurrentNativeAuthorizationsDataV1, BodyMutationError> {
-    let facts = CurrentProjectionReadFactsV1::for_source_data_v1(
+    let facts = CurrentProjectionReadFactsV1::for_projection_data_v1(
         state,
         electricity,
         metadata,
-        tx,
+        origin,
         common,
-        live,
     )?;
     facts.before_owned(size_of::<PaidCurrentNativeAuthorizationsDataV1>())?;
     let view = values::View::new(&facts, aux)?;
@@ -102,7 +100,7 @@ pub(in crate::world) fn prepare_current_native_authorizations_data_v1<M: MerkleN
     })
 }
 
-impl<M: MerkleNodeReader> readonly::GrantSource for Ops<'_, '_, '_, '_, '_, M> {
+impl readonly::GrantSource for Ops<'_, '_, '_, '_> {
     fn owner(&mut self, agent: &str) -> Result<Option<crate::ResolvedAgentOwnerV1>, NativeError> {
         Ok(crate::world::industrial_control::readonly_runtime_owner::current_agent_owner_readonly_v1(&self.0.owner_source()?,agent)?)
     }
@@ -111,12 +109,14 @@ impl<M: MerkleNodeReader> readonly::GrantSource for Ops<'_, '_, '_, '_, '_, M> {
     }
 }
 
-#[path="incremental_normal_projection_commitment_aux_cognition_native_binding.rs"]
+#[path = "incremental_normal_projection_commitment_aux_cognition_native_binding.rs"]
 mod recipe_binding;
 
-#[path="incremental_normal_projection_commitment_aux_cognition_native_scope.rs"]
+#[path = "incremental_normal_projection_commitment_aux_cognition_native_scope.rs"]
 mod safe_alt;
 
-#[path="incremental_normal_projection_commitment_aux_cognition_native_recipe_sources.rs"]
+#[path = "incremental_normal_projection_commitment_aux_cognition_native_recipe_sources.rs"]
 mod recipe_sources;
-pub(in crate::world) use recipe_binding::{prepare_current_builtin_recipe_quote_data_v1,PaidCurrentBuiltinRecipeQuoteDataV1};
+pub(in crate::world) use recipe_binding::{
+    PaidCurrentBuiltinRecipeQuoteDataV1, prepare_current_builtin_recipe_quote_data_v1,
+};

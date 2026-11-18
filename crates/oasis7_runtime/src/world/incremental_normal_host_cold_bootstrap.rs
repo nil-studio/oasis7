@@ -11,7 +11,7 @@ use super::{
         NormalHostColdRuntimeConfigurationV1, prepare_authenticated_cold_normal_host_base_v1,
     },
     incremental_normal_host_context::{NormalHostContextErrorV1, with_begun_normal_root_v1},
-    incremental_normal_host_resident::{NormalHostResidentSourcesV1, NormalHostStartupWorkV1},
+    incremental_normal_host_resident::NormalHostResidentSourcesV1,
     incremental_normal_host_work::NormalHostWorkV1,
     incremental_normal_process_source::VerifiedNormalColdProcessConfigurationV1,
     incremental_normal_sources::BoundNormalTickParentV1,
@@ -67,7 +67,6 @@ pub fn bootstrap_authenticated_cold_normal_host_resident_v1<'s, 'p, M, R, W, O, 
     accepted_ledger: Option<&ReservedValue<AcceptedCognitionProofLedgerV1>>,
     accepted_retention: &ReservedValue<oasis7_world_state::incremental_cognition_retention_ledger::AcceptedCognitionRetentionLedgerV1>,
     compiler: &crate::module_source_compiler::RuntimeSourceCompiler,
-    startup: &mut NormalHostStartupWorkV1<'_>,
     work: &mut NormalHostWorkV1,
     take_state_error: E,
     cancelled: C,
@@ -87,10 +86,13 @@ where
 {
     let attempt = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         parent.validate_context(common).map_err(body)?;
+        work.validate_context(common)?;
         transaction
             .validate_bootstrap_read_only_v1(&live())
             .map_err(BodyMutationError::from)?;
-        let (base, _now) = prepare_authenticated_cold_normal_host_base_v1(
+        let (base, _now) = {
+            let (io, mut startup) = work.startup_loans();
+            prepare_authenticated_cold_normal_host_base_v1(
             parent,
             transaction,
             state,
@@ -100,12 +102,13 @@ where
             projection,
             process,
             configuration,
-            &mut work.io,
-            startup,
+            io,
+            &mut startup,
             take_state_error,
             cancelled,
             common,
-        )?;
+            )?
+        };
         let cache = {
             let root_sources = base.root_read_sources_v1();
             with_begun_normal_root_v1(parent,transaction,state,values,member_sink,fee_sink,event_sink,originals,persist_original,worker,&root_sources,work,take_state_error,cancelled,common,live,

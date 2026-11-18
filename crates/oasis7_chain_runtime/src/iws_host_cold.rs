@@ -17,8 +17,7 @@ use oasis7_formal_protocol::{
 };
 use oasis7_proto::memory_budget::ReservedValue;
 use oasis7_runtime::{
-    NormalHostStartupWorkV1, NormalHostWorkV1, ProvisionalAuthorizationProjectionV1,
-    WorldRuntimeMemoryLimits,
+    NormalHostWorkV1, ProvisionalAuthorizationProjectionV1, WorldRuntimeMemoryLimits,
 };
 
 /// Actual independent physical/logical cold startup quotas. No implicit
@@ -60,7 +59,7 @@ enum ProcessInput<'a> {
     #[cfg(feature = "node-libp2p")]
     DevLocal(&'a crate::execution_config::DevLocalParticipantConfig),
 }
-fn take(slot: &mut PageIoBudget) -> PageIoBudget {
+pub(super) fn take(slot: &mut PageIoBudget) -> PageIoBudget {
     std::mem::replace(
         slot,
         PageIoBudget {
@@ -71,7 +70,7 @@ fn take(slot: &mut PageIoBudget) -> PageIoBudget {
         },
     )
 }
-fn amounts(v: &PageIoBudget) -> [u64; 4] {
+pub(super) fn amounts(v: &PageIoBudget) -> [u64; 4] {
     [
         v.reads_remaining,
         v.read_bytes_remaining,
@@ -79,7 +78,7 @@ fn amounts(v: &PageIoBudget) -> [u64; 4] {
         v.write_bytes_remaining,
     ]
 }
-trait Remaining {
+pub(super) trait Remaining {
     fn remaining(&self) -> Result<PageIoBudget, PageStoreError>;
 }
 impl Remaining for StatePageSession<'_> {
@@ -92,10 +91,10 @@ impl Remaining for ValuePageSession<'_> {
         self.remaining_io()
     }
 }
-struct Loan<'a, T: Remaining> {
-    value: T,
-    slot: &'a mut PageIoBudget,
-    ceiling: [u64; 4],
+pub(super) struct Loan<'a, T: Remaining> {
+    pub(super) value: T,
+    pub(super) slot: &'a mut PageIoBudget,
+    pub(super) ceiling: [u64; 4],
 }
 impl<T: Remaining> Drop for Loan<'_, T> {
     fn drop(&mut self) {
@@ -132,7 +131,6 @@ impl IwsHostRuntimeV1 {
         physical: &mut HostColdIoWorkV1,
         runtime_work: &mut NormalHostWorkV1,
         compiler: &oasis7_runtime::RuntimeSourceCompiler,
-        startup: &mut NormalHostStartupWorkV1<'_>,
         transaction: TransactionLimits,
         memory: &MemoryBudget,
         archive: &FormalArchiveReadWorkV1,
@@ -156,7 +154,6 @@ impl IwsHostRuntimeV1 {
             physical,
             runtime_work,
             compiler,
-            startup,
             transaction,
             memory,
             archive,
@@ -181,7 +178,6 @@ impl IwsHostRuntimeV1 {
         physical: &mut HostColdIoWorkV1,
         runtime_work: &mut NormalHostWorkV1,
         compiler: &oasis7_runtime::RuntimeSourceCompiler,
-        startup: &mut NormalHostStartupWorkV1<'_>,
         transaction: TransactionLimits,
         memory: &MemoryBudget,
         archive: &FormalArchiveReadWorkV1,
@@ -205,7 +201,6 @@ impl IwsHostRuntimeV1 {
             physical,
             runtime_work,
             compiler,
-            startup,
             transaction,
             memory,
             archive,
@@ -229,7 +224,6 @@ impl IwsHostRuntimeV1 {
         io: &mut HostColdIoWorkV1,
         runtime_work: &mut NormalHostWorkV1,
         compiler: &oasis7_runtime::RuntimeSourceCompiler,
-        startup: &mut NormalHostStartupWorkV1<'_>,
         transaction: TransactionLimits,
         memory: &MemoryBudget,
         archive: &FormalArchiveReadWorkV1,
@@ -342,7 +336,7 @@ impl IwsHostRuntimeV1 {
                     with_admitted_native_lease(lease,source.execution_environment(),&limits,memory,archive,cancelled,|worker|{
                         oasis7_runtime::bootstrap_authenticated_cold_normal_host_resident_v1(
                             &bound,&mut tx,&state.value,&values.value,&mut member_sink,&mut fee_sink,&mut event_sink,&mut originals,
-                            |event|original_holder.persist_event(event),worker,projection,&process,&configuration,side,parent.proof_ledger(),parent.retention_ledger().ok_or_else(||FormalError::Invalid("cold parent missing signed retention commitment".into()))?,compiler,startup,runtime_work,
+                            |event|original_holder.persist_event(event),worker,projection,&process,&configuration,side,parent.proof_ledger(),parent.retention_ledger().ok_or_else(||FormalError::Invalid("cold parent missing signed retention commitment".into()))?,compiler,runtime_work,
                             ||state.value.take_read_error().map(|error|ValueTreeError::Io(std::io::Error::other(error))),
                             ||cancelled.load(Ordering::Acquire),&mut common,&mut||source.fence(),
                         ).map_err(IwsHostRuntimeErrorV1::ColdNormal)
@@ -372,7 +366,7 @@ impl IwsHostRuntimeV1 {
 
 /// Sidecar DATA reads share the same actual Cold Original account and retained
 /// byte/hash admission. This wrapper has no source/Root/acceptance constructor.
-struct ColdProjectionReader<'a, T>(&'a mut T);
+pub(super) struct ColdProjectionReader<'a, T>(pub(super) &'a mut T);
 impl<
     T: oasis7_runtime::PaidProjectionRetainedOriginalReaderV1<
             RetainedError = oasis7_runtime::BodyMutationError,

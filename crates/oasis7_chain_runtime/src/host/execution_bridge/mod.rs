@@ -23,6 +23,8 @@ mod formal_executor;
 pub(crate) mod formal_initial;
 #[cfg(unix)]
 mod formal_iws_genesis;
+#[cfg(feature = "iws-host-native-test-support")]
+pub(crate) mod formal_iws_genesis_integration_support;
 pub(crate) mod formal_native_environment;
 #[cfg(unix)]
 pub(crate) mod formal_node_hook;

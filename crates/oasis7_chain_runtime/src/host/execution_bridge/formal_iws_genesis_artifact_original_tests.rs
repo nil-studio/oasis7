@@ -1,5 +1,5 @@
 //! The same real module bytes pass the original hash and sequential P writer.
-//! These tests create DATA only, never Catalog/FactSet or acceptance authority.
+//! The original and Wasm Catalog outputs are DATA, never FactSet or acceptance authority.
 use super::*;
 use oasis7_formal_protocol::{
     controlled_authority::formal::{
@@ -25,10 +25,14 @@ use oasis7_world_state::{
     incremental_world_format::complete_world_format_profile_v1,
 };
 use std::{
-    cell::Cell,
+    cell::{Cell, RefCell},
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
+
+#[path = "formal_iws_genesis_artifact_catalog_test_support.rs"]
+mod cold_catalog;
+use cold_catalog::{ExpectedArtifact, check_cold_wasm_catalog};
 
 const STEPS: u64 = 256_000_000;
 const BYTES: u64 = 4 << 30;
@@ -38,8 +42,10 @@ const WASM: &[u8] = include_bytes!(concat!(
     "/tests/fixtures/iws_rule_transfer_candidate/m1.rule.transfer.wasm"
 ));
 const WASM_SHA256: &str = "4db769768e3bde644cc2e34d65ae61c8ab2776b678541cfe5ddd15b467e6a504";
+const SECOND_WASM: &[u8] = b"\0asm\x01\0\0\0";
+const SECOND_WASM_SHA256: &str = "93a44bbb96c751218e4c00d479e4c14358122a389acca16205b1e4d0dc5f9476";
 
-fn artifact_source(cfg: &GenesisConfigV1) -> World {
+fn artifact_source(cfg: &GenesisConfigV1, include_second: bool) -> World {
     assert_eq!(WASM.len(), 407277);
     assert_eq!(&WASM[..8], b"\0asm\x01\0\0\0");
     let mut original = World::new_with_state(WorldState::default());
@@ -48,6 +54,14 @@ fn artifact_source(cfg: &GenesisConfigV1) -> World {
     original
         .register_module_artifact(WASM_SHA256, WASM)
         .unwrap();
+    if include_second {
+        // A valid empty Wasm module, through the same original SHA-256 gate.
+        // Its distinct content ID makes the next Catalog append read its parent.
+        original
+            .register_module_artifact(SECOND_WASM_SHA256, SECOND_WASM)
+            .unwrap();
+        assert!(WASM_SHA256 < SECOND_WASM_SHA256);
+    }
     original
         .bind_cognition_runtime(&cfg.world_id, "main", 0, None, "pending", 0)
         .unwrap();
@@ -185,6 +199,7 @@ fn check_state_binding(
     store: &IncrementalPageStore,
     roots: &RootSetV1,
     expected: OriginalArtifactRefV1,
+    original_key: &str,
     inspection: &mut Inspection,
     i: usize,
 ) {
@@ -196,7 +211,7 @@ fn check_state_binding(
         bytes_remaining: 64 << 20,
     };
     let semantic = hash_semantic_key_v1(
-        WASM_SHA256,
+        original_key,
         store.memory_budget(),
         MemoryClass::Recovery,
         &mut keys,
@@ -241,7 +256,7 @@ fn check_state_binding(
     assert_eq!(info.payload_bytes, RUNTIME_ARTIFACT_ORIGINAL_BYTES as u64);
     let n = key_output.position() as usize;
     let mut expected_key = Vec::new();
-    write_semantic_key_v1(WASM_SHA256, &mut expected_key).unwrap();
+    write_semantic_key_v1(original_key, &mut expected_key).unwrap();
     assert_eq!(&key_bytes[..n], expected_key);
     assert_eq!(
         runtime_artifact_original_from_v1(&binding).unwrap(),
@@ -250,18 +265,27 @@ fn check_state_binding(
     assert!(state.take_read_error().is_none());
 }
 
-fn artifact_fanout(first_count_failure: bool) {
+fn artifact_fanout(original_limit: Option<u64>, include_second: bool) {
+    assert!(original_limit.is_none() || !include_second);
+    let first_count_failure = original_limit == Some(0);
     let fixture = Fixture::new();
     let memory: [MemoryBudget; 3] =
         std::array::from_fn(|_| MemoryBudget::new(512 << 20, 32 << 20).unwrap());
     let input = memory[0].reserve(32 << 20, MemoryClass::Ordinary).unwrap();
     let mut cfg = config();
     cfg.format_profile = complete_world_format_profile_v1();
-    let world = artifact_source(&cfg);
-    let expected = OriginalArtifactRefV1 {
-        id: *blake3::hash(WASM).as_bytes(),
-        byte_len: WASM.len() as u64,
-    };
+    let world = artifact_source(&cfg, include_second);
+    let originals = [(WASM_SHA256, WASM), (SECOND_WASM_SHA256, SECOND_WASM)].map(|(key, bytes)| {
+        ExpectedArtifact {
+            key,
+            bytes,
+            reference: OriginalArtifactRefV1 {
+                id: *blake3::hash(bytes).as_bytes(),
+                byte_len: bytes.len() as u64,
+            },
+        }
+    });
+    let expected = &originals[..if include_second { 2 } else { 1 }];
     let cancelled = AtomicBool::new(false);
     let stores: [IncrementalPageStore; 3] = std::array::from_fn(|i| {
         IncrementalPageStore::create(
@@ -283,8 +307,8 @@ fn artifact_fanout(first_count_failure: bool) {
         producer.typed.artifact_originals.objects_remaining,
         producer.typed.artifact_originals.bytes_remaining,
     );
-    if first_count_failure {
-        transfer.originals_remaining = 0;
+    if let Some(limit) = original_limit {
+        transfer.originals_remaining = limit;
     }
     let before_count = transfer.originals_remaining;
     let before_lanes = object_lanes(&transfer);
@@ -341,11 +365,14 @@ fn artifact_fanout(first_count_failure: bool) {
     assert!(core.remaining_read_bytes() < BYTES);
     assert_eq!(
         producer_before.0 - producer.typed.artifact_originals.objects_remaining,
-        1
+        expected.len() as u64
     );
     assert_eq!(
         producer_before.1 - producer.typed.artifact_originals.bytes_remaining,
-        WASM.len() as u64
+        expected
+            .iter()
+            .map(|artifact| artifact.bytes.len() as u64)
+            .sum::<u64>()
     );
     let after_lanes = object_lanes(&transfer);
     for i in 0..3 {
@@ -370,12 +397,35 @@ fn artifact_fanout(first_count_failure: bool) {
         }
         assert_eq!(memory.each_ref().map(MemoryBudget::used), baseline);
         None
+    } else if original_limit == Some(1) {
+        // The real P original has finished in all three namespaces. The next
+        // occurrence is the first Catalog page, so its zero account rejects
+        // before a page or the final Catalog descriptor can be published.
+        assert!(matches!(
+            result,
+            Err(IwsGenesisTransferErrorV1::Body(BodyMutationError::Invalid(
+                "IWS original transfer occurrences"
+            )))
+        ));
+        assert_eq!(before_count, 1);
+        assert_eq!(transfer.originals_remaining, 0);
+        for i in 0..3 {
+            assert!(after_lanes[i][1] < before_lanes[i][1]);
+        }
+        assert!(core.remaining_steps() > 0);
+        assert!(core.remaining_read_bytes() > 0);
+        assert_eq!(memory.each_ref().map(MemoryBudget::used), baseline);
+        None
     } else {
+        assert!(original_limit.is_none());
         let material = result.unwrap();
         material.validate_context(&mut common).unwrap();
         assert_eq!(
             before_count - transfer.originals_remaining,
-            1 + 5 + material.delta().delta().node_writes.len() as u64
+            expected.len() as u64 * (1 + 257)
+                + 1
+                + 5
+                + material.delta().delta().node_writes.len() as u64
         );
         let projected = material.projected();
         let source = projected.business_source_bounded_v1(&mut common).unwrap();
@@ -407,17 +457,20 @@ fn artifact_fanout(first_count_failure: bool) {
     });
     for (i, store) in stores.iter().enumerate() {
         assert_eq!(
-            inspection.has_original(store, i, expected.id),
+            inspection.has_original(store, i, expected[0].reference.id),
             !first_count_failure
         );
         if let Some(material) = &material {
-            check_state_binding(
-                store,
-                material.projected().roots(),
-                expected,
-                &mut inspection,
-                i,
-            );
+            for artifact in expected {
+                check_state_binding(
+                    store,
+                    material.projected().roots(),
+                    artifact.reference,
+                    artifact.key,
+                    &mut inspection,
+                    i,
+                );
+            }
             let objects = IncrementalObjectStore::open(
                 store,
                 MemoryClass::Recovery,
@@ -437,6 +490,7 @@ fn artifact_fanout(first_count_failure: bool) {
                 material.retention_original(),
                 material.roots_original(),
                 material.config_original(),
+                material.wasm_catalog_original(),
             ] {
                 assert!(wire.uses_budget(&memory[0]));
                 assert_eq!(reference.byte_len, wire.len() as u64);
@@ -447,6 +501,7 @@ fn artifact_fanout(first_count_failure: bool) {
                 assert_eq!(*blake3::hash(&actual).as_bytes(), reference.id);
             }
         }
+        check_cold_wasm_catalog(store, material.as_ref(), expected, &mut inspection, i);
     }
     assert_eq!(object_lanes(&transfer), after_lanes);
     assert_eq!(
@@ -463,12 +518,22 @@ fn artifact_fanout(first_count_failure: bool) {
 
 #[test]
 fn complete_projected_genesis_actual_wasm_cold_reads_from_three_pools() {
-    artifact_fanout(false);
+    artifact_fanout(None, false);
+}
+
+#[test]
+fn second_actual_wasm_reads_persisted_catalog_parent_and_cold_recovers_both_originals() {
+    artifact_fanout(None, true);
 }
 
 #[test]
 fn first_raw_artifact_count_failure_keeps_actual_hash_debit_without_owner_or_refund() {
-    artifact_fanout(true);
+    artifact_fanout(Some(0), false);
+}
+
+#[test]
+fn first_catalog_page_count_failure_keeps_three_originals_without_owner_or_catalog_root() {
+    artifact_fanout(Some(1), false);
 }
 
 #[test]

@@ -9,12 +9,12 @@ use crate::world::{
     },
     safe_alternative::readonly as scope,
 };
-struct Source<'v, 'f, 'a, 's, 'c, 'b, M> {
-    view: &'v values::View<'f, 'a, 's, 'c, M>,
+struct Source<'v, 'f, 'a, 'c, 'b> {
+    view: &'v values::View<'f, 'a, 'c>,
     binding: Option<&'b ReservedValue<oasis7_agent_api::RuntimeBindingV1>>,
 }
-impl<M> scope::sealed::Sources for Source<'_, '_, '_, '_, '_, '_, M> {}
-impl<M: MerkleNodeReader> scope::Sources for Source<'_, '_, '_, '_, '_, '_, M> {
+impl scope::sealed::Sources for Source<'_, '_, '_, '_, '_> {}
+impl scope::Sources for Source<'_, '_, '_, '_, '_> {
     type Error = BodyMutationError;
     fn work(&self, s: u64, b: usize, h: usize) -> Result<(), Self::Error> {
         self.view.facts.work(s, b)?;
@@ -107,8 +107,8 @@ enum Stop {
 fn resource(error: BodyMutationError) -> ProjectionColumnErrorV1<Stop> {
     ProjectionColumnErrorV1::Work(Stop::Body(error))
 }
-pub(super) fn guard<M: MerkleNodeReader>(
-    view: &values::View<'_, '_, '_, '_, M>,
+pub(super) fn guard(
+    view: &values::View<'_, '_, '_>,
     binding: Option<&ReservedValue<oasis7_agent_api::RuntimeBindingV1>>,
     envelope: &crate::ActionEnvelope,
 ) -> Result<Result<(), String>, BodyMutationError> {

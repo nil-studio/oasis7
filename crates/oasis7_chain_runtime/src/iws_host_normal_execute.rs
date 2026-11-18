@@ -5,8 +5,7 @@ use crate::iws_normal_input::PaidNormalTickSourcesV1;
 use crate::iws_normal_input_decode::NormalInputDecodeLimitsV1;
 use oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::CborDataLimitsV1;
 use oasis7_runtime::{
-    NormalCommitHeaderLimitsV1, NormalHostCognitionParentSourcesV1, NormalTailDirectoryInputsV1,
-    RuntimeSourceCompiler,
+    NormalCommitHeaderLimitsV1, NormalHostCognitionParentSourcesV1, RuntimeSourceCompiler,
 };
 
 pub(crate) enum NormalExecutionCommitFailureV1 {
@@ -29,8 +28,6 @@ pub(crate) fn execute_and_commit_frozen_normal_bounded_v1(
     writer: &ed25519_dalek::SigningKey,
     input_limits: &NormalInputDecodeLimitsV1,
     action_limits: &CborDataLimitsV1,
-    canonical: &mut oasis7_wasm_abi::CanonicalCborWorkV1,
-    directories: NormalTailDirectoryInputsV1<'_>,
     cognition: NormalHostCognitionParentSourcesV1<'_>,
     compiler: &RuntimeSourceCompiler,
     policy: NormalCommitHeaderLimitsV1,
@@ -56,7 +53,6 @@ pub(crate) fn execute_and_commit_frozen_normal_bounded_v1(
             action_limits,
             &mut work.physical,
             &mut work.runtime,
-            directories,
             cognition,
             compiler,
             policy,
@@ -83,7 +79,6 @@ pub(crate) fn execute_and_commit_frozen_normal_bounded_v1(
         work,
         writer,
         input_limits,
-        canonical,
         primary_provider,
         replica_provider,
         primary_policy,

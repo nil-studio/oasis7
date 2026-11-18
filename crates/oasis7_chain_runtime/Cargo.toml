@@ -81,7 +81,7 @@ test-support = ["node-libp2p", "oasis7_distfs/test-support"]
 # Keep existing worker target and binary commands on the same fixture API contract.
 native-worker-test-support = ["test-support"]
 # Heavy Linux GEN/Host integration with the actual libraries and current worker ELF.
-iws-host-native-test-support = ["test-support", "native-worker-test-support", "wasmtime"]
+iws-host-native-test-support = ["test-support", "native-worker-test-support", "wasmtime", "test_tier_required"]
 
 [dev-dependencies]
 oasis7_distfs = { path = "../oasis7_distfs", features = ["test-support"] }

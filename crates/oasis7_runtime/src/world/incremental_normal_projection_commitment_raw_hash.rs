@@ -12,6 +12,28 @@ pub(super) struct PaidOriginalStateHashDataV1 {
     core: WorkIdentityV1,
 }
 impl PaidOriginalStateHashDataV1 {
+    pub(super) fn from_genesis_metadata_v1(
+        source: &crate::world::incremental_normal_business_commitment::PreparedNormalBusinessMetadataGenesisV1,
+        common: &mut FormalBoundedContextV1<'_>,
+    ) -> Result<Self, BodyMutationError> {
+        source.validate_context(common)?;
+        let actual = source.raw_state_hash_for_bootstrap_v1();
+        let n = size_of::<Self>()
+            .checked_add(actual.len())
+            .ok_or_else(|| invalid("GEN State hash layout"))?;
+        common.charge(1, n as u64).map_err(paid)?;
+        let fee = common
+            .memory()
+            .reserve(n, MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
+        let hash = actual.to_owned();
+        common.consume_steps(0).map_err(paid)?;
+        Ok(Self {
+            hash,
+            _fee: fee,
+            core: common.work().identity(),
+        })
+    }
     pub(super) fn as_str(&self) -> &str {
         &self.hash
     }

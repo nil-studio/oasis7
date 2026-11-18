@@ -143,6 +143,34 @@ fn run_recovery(consecutive: bool) {
     let pm = p.archive_manifest().unwrap();
     let rm = r.archive_manifest().unwrap();
     drop(coordinator);
+    let original_request = candidate.candidate.record.request_digest.clone();
+    let assert_old_writers_fenced = || {
+        for (address, role) in [
+            (paddr, EndpointRole::Primary),
+            (raddr, EndpointRole::Replica),
+        ] {
+            let mut old = remote(address, &fixture.authority, role, 4, cut.head());
+            let before = old.query(&original_request).unwrap();
+            assert_eq!(old.head().unwrap(), cut.head());
+            let (fresh_input, fresh_material) = fixture.frozen(&cut, 45);
+            let fresh_request = fresh_input.body.request_digest.clone();
+            assert!(matches!(
+                old.query(&fresh_request).unwrap(),
+                FormalQueryOutcomeV1::NotRecorded
+            ));
+            let error = old.freeze(fresh_input, fresh_material).unwrap_err();
+            assert!(error.to_string().contains("formal epoch sealed"), "{error}");
+            assert_eq!(old.head().unwrap(), cut.head());
+            assert_eq!(old.query(&original_request).unwrap(), before);
+            assert!(matches!(
+                old.query(&fresh_request).unwrap(),
+                FormalQueryOutcomeV1::NotRecorded
+            ));
+        }
+    };
+    // The old authenticated endpoint processes remain alive throughout takeover.
+    // A fresh request must fail at the seal, not merely at a stale credential.
+    assert_old_writers_fenced();
     let policy = TrustedFencingPolicyV1 {
         provider_public_key: public(3),
         authorized_resource_bindings: fixture
@@ -316,6 +344,7 @@ fn run_recovery(consecutive: bool) {
             r2addr,
             &new_configs,
         );
+        assert_old_writers_fenced();
         return;
     }
     let mut coordinator = FormalCoordinator::new(
@@ -349,6 +378,7 @@ fn run_recovery(consecutive: bool) {
     let verified =
         verify_formal_qualified(&completed, &fixture.authority, Some(&cut), Some(&recovery))
             .unwrap();
+    assert_old_writers_fenced();
     drop(coordinator);
     p2.kill().unwrap();
     p2.wait().unwrap();
@@ -367,6 +397,7 @@ fn run_recovery(consecutive: bool) {
     .unwrap();
     assert_eq!(restored.commit().head(), verified.head());
     assert_eq!(restored.proof(), &completed);
+    assert_old_writers_fenced();
     let mut coordinator = FormalCoordinator::new(
         remote(
             p2addr,

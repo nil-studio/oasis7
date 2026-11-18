@@ -5,7 +5,6 @@ use super::*;
 use crate::iws_host_runtime::normal::NormalPackageBuildFailureV1;
 use crate::iws_host_runtime::normal_package::PaidNormalCandidatePackageV1;
 use crate::iws_normal_input_decode::NormalInputDecodeLimitsV1;
-use oasis7_wasm_abi::CanonicalCborWorkV1;
 
 pub(crate) enum NormalOutputCommitFailureV1 {
     Input {
@@ -30,6 +29,22 @@ pub(crate) enum NormalOutputCommitFailureV1 {
     Publication(NormalCommitStartFailureV1),
 }
 
+impl std::fmt::Debug for NormalOutputCommitFailureV1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Input { cause, .. } => f.debug_tuple("Input").field(cause).finish(),
+            Self::Build { cause, .. } => f.debug_tuple("Build").field(cause).finish(),
+            Self::Persist { cause, .. } => f.debug_tuple("Persist").field(cause).finish(),
+            Self::Publication(NormalCommitStartFailureV1::Package { cause, .. }) => {
+                f.debug_tuple("PublicationPackage").field(cause).finish()
+            }
+            Self::Publication(NormalCommitStartFailureV1::Publication(cause)) => {
+                f.debug_tuple("Publication").field(cause).finish()
+            }
+        }
+    }
+}
+
 /// Executes no Action and grants no authority from candidate DATA. The actual
 /// Frozen source, final preparation, persistence receipt and publication owners
 /// are moved once through the fixed existing consumers, never recreated.
@@ -44,7 +59,6 @@ pub(crate) fn commit_prepared_normal_output_bounded_v1(
     mut work: NormalCommitWorkV1,
     writer: &ed25519_dalek::SigningKey,
     input_limits: &NormalInputDecodeLimitsV1,
-    canonical: &mut CanonicalCborWorkV1,
     primary_provider: &RemoteMonotonicEndpointProvider,
     replica_provider: &RemoteMonotonicEndpointProvider,
     primary_policy: &TrustedFencingPolicyV1,
@@ -68,7 +82,7 @@ pub(crate) fn commit_prepared_normal_output_bounded_v1(
                 writer,
                 input_limits,
                 &mut work.physical,
-                canonical,
+                &mut work.canonical,
                 memory,
                 archive,
                 cancelled,

@@ -30,6 +30,19 @@ use std::{
 
 type Result<T> = std::result::Result<T, Error>;
 
+#[path = "formal_iws_genesis_artifact_catalog.rs"]
+pub(super) mod artifact_catalog;
+use artifact_catalog::{CatalogBuilder, PaidArtifactCatalog};
+
+#[path = "formal_iws_genesis_execution_inputs.rs"]
+pub(super) mod execution_inputs;
+#[path = "formal_iws_genesis_history.rs"]
+pub(super) mod history;
+#[path = "formal_iws_genesis_package.rs"]
+pub(super) mod package;
+#[path = "formal_iws_genesis_source_history.rs"]
+pub(super) mod source_history;
+
 /// The exact projected owner and its completed original business DATA. Only
 /// this module's successful fanout can construct the pairing; it is not an
 /// accepted source, namespace lease, output locator or publication permit.
@@ -47,6 +60,7 @@ pub(crate) struct ProvisionalProjectedGenesisBusinessV1 {
     retention_ref: OriginalArtifactRefV1,
     roots_ref: OriginalArtifactRefV1,
     config_ref: OriginalArtifactRefV1,
+    wasm_catalog: PaidArtifactCatalog,
     allocation: MemoryReservation,
 }
 
@@ -83,6 +97,16 @@ impl ProvisionalProjectedGenesisBusinessV1 {
         (self.config_ref, &self.config_wire)
     }
 
+    pub(crate) fn wasm_catalog(
+        &self,
+    ) -> &oasis7_formal_protocol::incremental_artifacts::ArtifactCatalogV1 {
+        self.wasm_catalog.catalog()
+    }
+
+    pub(crate) fn wasm_catalog_original(&self) -> (OriginalArtifactRefV1, &ReservedValue<Vec<u8>>) {
+        self.wasm_catalog.original()
+    }
+
     pub(crate) fn validate_context(&self, common: &mut FormalBoundedContextV1<'_>) -> Result<()> {
         self.projected
             .projected()
@@ -92,6 +116,7 @@ impl ProvisionalProjectedGenesisBusinessV1 {
             .validate_context(common)
             .map_err(context_error)?;
         self.delta.validate_context(common).map_err(context_error)?;
+        self.wasm_catalog.validate_context(common)?;
         common.consume_steps(1).map_err(context_error)?;
         if !self.allocation.uses_budget(common.memory())
             || !self.descriptor_wire.uses_budget(common.memory())
@@ -107,6 +132,16 @@ impl ProvisionalProjectedGenesisBusinessV1 {
             return Err(PageStoreError::Corrupt("GEN business retained originals pool").into());
         }
         Ok(())
+    }
+
+    pub(super) fn into_projected_bounded_v1(
+        self,
+        common: &mut FormalBoundedContextV1<'_>,
+    ) -> Result<oasis7_runtime::incremental_genesis_projection::RuntimeProjectedGenesisV1> {
+        self.validate_context(common)?;
+        self.projected
+            .into_projected_bounded_v1(common)
+            .map_err(Error::Body)
     }
 }
 
@@ -324,8 +359,8 @@ fn open_store<'pages>(
 /// it still grants no Ready/Accepted or durable closure proof.
 /// As with the original GEN fanout, each target pays for its actual local copy
 /// from its own PageStore pool. The projection keeps the original source pool.
-pub(crate) fn persist_projected_genesis_business_v1(
-    projected: ProvisionalProjectedRuntimeGenesisIndexV1,
+pub(super) fn persist_projected_genesis_business_v1(
+    input: (ProvisionalProjectedRuntimeGenesisIndexV1, CatalogBuilder),
     source: &IncrementalPageStore,
     targets: [&IncrementalPageStore; 2],
     config: &GenesisConfigV1,
@@ -333,6 +368,7 @@ pub(crate) fn persist_projected_genesis_business_v1(
     common: &mut FormalBoundedContextV1<'_>,
     stop: &AtomicBool,
 ) -> Result<ProvisionalProjectedGenesisBusinessV1> {
+    let (projected, catalog) = input;
     cancelled(stop)?;
     if !common.memory().same_pool(source.memory_budget()) {
         return Err(PageStoreError::Corrupt("GEN business source pool").into());
@@ -356,6 +392,7 @@ pub(crate) fn persist_projected_genesis_business_v1(
         retention_ref,
         roots_ref,
         config_ref,
+        wasm_catalog,
     ) = {
         let business = projected
             .prepare_business_output_bounded_v1(&NoPriorNodes, common, &mut work.canonical)
@@ -481,6 +518,7 @@ pub(crate) fn persist_projected_genesis_business_v1(
         let (owned_descriptor, owned_delta) = business
             .into_owned_data_bounded_v1(common)
             .map_err(business_error)?;
+        let wasm_catalog = catalog.finish(&objects, work, common, stop)?;
         (
             owned_descriptor,
             owned_delta,
@@ -494,6 +532,7 @@ pub(crate) fn persist_projected_genesis_business_v1(
             retention_ref,
             roots_ref,
             config_ref,
+            wasm_catalog,
         )
     };
     cancelled(stop)?;
@@ -512,6 +551,7 @@ pub(crate) fn persist_projected_genesis_business_v1(
         retention_ref,
         roots_ref,
         config_ref,
+        wasm_catalog,
         allocation,
     })
 }

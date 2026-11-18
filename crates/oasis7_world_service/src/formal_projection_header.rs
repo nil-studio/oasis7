@@ -7,15 +7,13 @@ use oasis7_world_projection::current_commitment_history::{
 pub(super) fn committed_header(
     world: &World,
 ) -> Result<(FormalProjectionCommitHeaderV1, usize), String> {
-    let snapshot = world.snapshot();
+    let (last_event_id, event_id_era) = world.formal_projection_journal_counters_v1();
     let journal = &world.journal().events;
-    let bounds = original_journal_bounds_with_work_v1(
-        journal,
-        snapshot.last_event_id,
-        snapshot.event_id_era,
-        &mut |_, _| Ok::<(), std::convert::Infallible>(()),
-    )
-    .unwrap_or_else(|never| match never {});
+    let bounds =
+        original_journal_bounds_with_work_v1(journal, last_event_id, event_id_era, &mut |_, _| {
+            Ok::<(), std::convert::Infallible>(())
+        })
+        .unwrap_or_else(|never| match never {});
     let start = bounds.start;
     let high = bounds.high;
     let floor = bounds.floor;

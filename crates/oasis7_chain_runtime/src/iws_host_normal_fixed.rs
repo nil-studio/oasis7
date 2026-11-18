@@ -7,8 +7,7 @@ use oasis7_formal_protocol::{
 };
 use oasis7_runtime::{
     NormalCommitHeaderLimitsV1, NormalHostCognitionParentSourcesV1, NormalHostWorkV1,
-    NormalTailDirectoryInputsV1, PreparedNormalHostRuntimeV1, RuntimeSourceCompiler,
-    prepare_normal_host_from_resident_v1,
+    PreparedNormalHostRuntimeV1, RuntimeSourceCompiler, prepare_normal_host_from_resident_v1,
 };
 impl IwsHostRuntimeV1 {
     #[allow(clippy::too_many_arguments)]
@@ -21,7 +20,6 @@ impl IwsHostRuntimeV1 {
         action_limits: &CborDataLimitsV1,
         physical: &mut super::io::HostNormalIoWorkV1,
         work: &mut NormalHostWorkV1,
-        directories: NormalTailDirectoryInputsV1<'_>,
         cognition: NormalHostCognitionParentSourcesV1<'_>,
         compiler: &RuntimeSourceCompiler,
         policy: NormalCommitHeaderLimitsV1,
@@ -81,7 +79,6 @@ impl IwsHostRuntimeV1 {
                     worker,
                     resident,
                     compiler,
-                    directories,
                     cognition,
                     work,
                     take_error,

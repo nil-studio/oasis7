@@ -1,12 +1,15 @@
 //! Full native/artifact material verification on the actual cold checkpoint.
 //! The old live-parent wrapper is not used to manufacture a before-cache.
 use super::*;
-use oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1;
+use oasis7_formal_protocol::controlled_authority::formal::bounded_context::{
+    FormalBoundedChargeErrorV1, FormalBoundedContextV1,
+};
 use oasis7_formal_protocol::{
     controlled_authority::formal::{
         IncrementalFrozenMaterialWorkV1, verify_formal_reservation,
         verify_incremental_frozen_material_v1,
     },
+    incremental_execution::ExecutionError,
     incremental_material::CheckedCommitCore,
 };
 use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
@@ -141,10 +144,11 @@ pub(super) fn recover_execution_material_bounded_v1(
             MemoryClass::Ordinary,
         )
         .map_err(|_| invalid("cold Frozen reservation phase admission"))?;
-    super::cold_io::run_material(work, source, common, |work, source, cancelled| {
+    super::cold_io::run_material(work, source, common, |work, source, catalog, cancelled| {
         let physical = std::sync::atomic::AtomicBool::new(false);
+        let stopped = RefCell::new(cancelled);
         let mut poll = || {
-            let cancelled = cancelled();
+            let cancelled = (*stopped.borrow_mut())();
             if cancelled {
                 physical.store(true, std::sync::atomic::Ordering::Release);
             }
@@ -189,7 +193,20 @@ pub(super) fn recover_execution_material_bounded_v1(
             &mut source.native_chunk_bytes,
             &mut source.frozen_wire_bytes,
         );
-        super::closure::verify_accepted_cold_execution_material_v1(
+        let mut first = None;
+        let mut charge = |steps, bytes| {
+            let result = if (*stopped.borrow_mut())() {
+                physical.store(true, std::sync::atomic::Ordering::Release);
+                Err(FormalBoundedChargeErrorV1::Cancelled.into())
+            } else {
+                catalog.charge(steps, bytes)
+            };
+            result.map_err(|error| {
+                first.get_or_insert(error);
+                ExecutionError::ResourceLimited("cold execution catalog work")
+            })
+        };
+        let result = super::closure::verify_accepted_cold_execution_material_v1(
             endpoint,
             checkpoint,
             core,
@@ -199,7 +216,12 @@ pub(super) fn recover_execution_material_bounded_v1(
             &mut work.core,
             &mut source.artifacts,
             &mut bridge.work,
+            Some(&mut charge),
             &mut poll,
-        )
+        );
+        match first {
+            Some(error) => Err(error),
+            None => result,
+        }
     })
 }

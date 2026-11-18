@@ -19,6 +19,15 @@ pub struct NormalGenesisProcessSourceV1 {
     policy: ReleaseSecurityPolicy,
     cognition_world: Option<String>,
 }
+impl NormalGenesisProcessSourceV1 {
+    /// Original private capture above is the only source of these process facts.
+    pub(in crate::world) fn projection_policy_data_v1(&self) -> (bool, bool) {
+        (
+            self.policy.is_production_hardened(),
+            self.policy.allow_local_finality_signing,
+        )
+    }
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ProcessMode {
     Governed,

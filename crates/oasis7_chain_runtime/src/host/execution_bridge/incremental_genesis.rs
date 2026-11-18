@@ -236,6 +236,27 @@ impl ProvisionalProjectedRuntimeGenesisIndexV1 {
         &self.projected
     }
 
+    /// Move only this physical producer's original paid projection DATA. The
+    /// caller still needs the complete accepted source and bootstrap guards.
+    pub(crate) fn into_projected_bounded_v1(
+        self,
+        common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+    ) -> Result<
+        oasis7_runtime::incremental_genesis_projection::RuntimeProjectedGenesisV1,
+        BodyMutationError,
+    > {
+        self.projected.validate_context_bounded_v1(common)?;
+        common
+            .consume_steps(1)
+            .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
+        if !self.outer.uses_budget(common.memory()) || !self.roots.uses_budget(common.memory()) {
+            return Err(BodyMutationError::Invalid(
+                "physical GEN projection move pool",
+            ));
+        }
+        Ok(self.projected)
+    }
+
     /// Actual originals in complete Journal order from the same immutable GEN
     /// borrow. This is paid provisional DATA, not History location or acceptance.
     pub(crate) fn journal_originals_bounded_v1(

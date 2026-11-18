@@ -132,7 +132,6 @@ pub fn prepare_normal_host_from_resident_v1<'p, M, R, E, C, W, F, O, S>(
     worker: &BoundedWorkerSandboxV1<'_, RootModuleWorkerAllocatorV1>,
     resident: &'p NormalHostResidentSourcesV1,
     compiler: &'p crate::module_source_compiler::RuntimeSourceCompiler,
-    directories: NormalTailDirectoryInputsV1<'p>,
     cognition: NormalHostCognitionParentSourcesV1<'p>,
     work: &mut NormalHostWorkV1,
     take_state_error: E,
@@ -164,6 +163,11 @@ where
     input
         .validate_context(common)
         .map_err(|e| NormalHostFixedFailureV1::body(BodyMutationError::Original(Box::new(e))))?;
+    work.validate_context(common)
+        .map_err(NormalHostFixedFailureV1::body)?;
+    let directories = resident
+        .tail_directories_v1(parent, common)
+        .map_err(NormalHostFixedFailureV1::body)?;
     // Pay the sole bounded RootSet clone, then derive all identity from genuine
     // parent/input owners. Limits are caller resources, never qualifications.
     common

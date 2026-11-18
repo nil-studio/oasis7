@@ -1,6 +1,7 @@
 //! Private full consumer. Only this child may construct CompleteEvidence.
 use super::super::super::*;
 use super::*;
+use oasis7_formal_protocol::incremental_execution::ExecutionError;
 use oasis7_formal_protocol::incremental_material::{
     CoreBudget, CoreRequest, OriginalObjectReader, WrittenValueBudget, verify_commit_core,
     verify_state_values, verify_written_values,
@@ -11,6 +12,7 @@ pub(crate) fn consume_candidate_data_closure_v1(
     endpoint: &FileFormalEndpoint,
     candidate: &FormalCandidateMaterialV1,
     context: &VerifiedCandidateContextV1,
+    catalog_work: Option<&mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>>,
     cancelled: &mut impl FnMut() -> bool,
 ) -> Result<(), FormalError> {
     let capability = endpoint
@@ -173,6 +175,7 @@ pub(crate) fn consume_candidate_data_closure_v1(
         &mut core_budget,
         &mut source_work.artifacts,
         &mut bridge_work,
+        catalog_work,
         &mut *cancelled,
     )?;
     // Backend/native temporary admission ends before either large memo.

@@ -2,8 +2,8 @@
 //! artifact inventories. Semantic loading, field binding and durability remain.
 use super::*;
 use crate::incremental_artifacts::{
-    ArtifactCatalogV1, ArtifactEntryV1, ArtifactKindV1, ExecutionManifestModeV1,
-    IwsExecutionManifestV1, OriginalArtifactRefV1,
+    ArtifactCatalogV1, ArtifactEntryV1, ArtifactKindV1, ArtifactVisitError,
+    ExecutionManifestModeV1, IwsExecutionManifestV1, OriginalArtifactRefV1,
 };
 
 pub struct OriginalArtifactBudget {
@@ -78,6 +78,31 @@ pub fn verify_execution_artifacts<O: OriginalObjectStreamReader, R: MerkleNodeRe
     native: &ReservedValue<CheckedNativeEnvironment>,
     context: ExecutionArtifactReadContext<'_, O, R>,
     budget: &mut ExecutionArtifactBudget,
+    cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<CheckedExecutionArtifacts>, CoreError<O::Error>> {
+    verify_execution_artifacts_inner(core, native, context, budget, None, cancelled)
+}
+
+/// The same original content checks, with caller-owned continuing work for
+/// catalog decoding, authenticated lookup and streaming traversal. The hook
+/// does not supply content, change predicates or confer source qualification.
+pub fn verify_execution_artifacts_with_work<O: OriginalObjectStreamReader, R: MerkleNodeReader>(
+    core: &CheckedCommitCore,
+    native: &ReservedValue<CheckedNativeEnvironment>,
+    context: ExecutionArtifactReadContext<'_, O, R>,
+    budget: &mut ExecutionArtifactBudget,
+    work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<CheckedExecutionArtifacts>, CoreError<O::Error>> {
+    verify_execution_artifacts_inner(core, native, context, budget, Some(work), cancelled)
+}
+
+fn verify_execution_artifacts_inner<O: OriginalObjectStreamReader, R: MerkleNodeReader>(
+    core: &CheckedCommitCore,
+    native: &ReservedValue<CheckedNativeEnvironment>,
+    context: ExecutionArtifactReadContext<'_, O, R>,
+    budget: &mut ExecutionArtifactBudget,
+    mut work: Option<&mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>>,
     cancelled: impl FnMut() -> bool,
 ) -> Result<ReservedValue<CheckedExecutionArtifacts>, CoreError<O::Error>> {
     let mut phase = context
@@ -161,7 +186,10 @@ pub fn verify_execution_artifacts<O: OriginalObjectStreamReader, R: MerkleNodeRe
             &mut budget.structural,
             &mut poll,
         )?;
-        let catalog = ArtifactCatalogV1::from_canonical_bytes(&bytes)?;
+        let catalog = match work.as_deref_mut() {
+            Some(work) => ArtifactCatalogV1::from_canonical_bytes_with_work(&bytes, work)?,
+            None => ArtifactCatalogV1::from_canonical_bytes(&bytes)?,
+        };
         if catalog.kind != kind {
             return Err(CoreError::Invalid("execution catalog role"));
         }
@@ -170,36 +198,51 @@ pub fn verify_execution_artifacts<O: OriginalObjectStreamReader, R: MerkleNodeRe
             &mut budget.structural,
             &mut poll,
             |source, _| {
-                if kind == ArtifactKindV1::Rules
-                    && catalog.get(&manifest.policy.id, source)?
+                if kind == ArtifactKindV1::Rules {
+                    let policy = match work.as_deref_mut() {
+                        Some(work) => catalog.get_with_work(&manifest.policy.id, source, work)?,
+                        None => catalog.get(&manifest.policy.id, source)?,
+                    };
+                    if policy
                         != Some(ArtifactEntryV1 {
                             kind,
                             original: manifest.policy,
                         })
-                {
-                    return Err(CoreError::Invalid("execution policy absent from rules"));
+                    {
+                        return Err(CoreError::Invalid("execution policy absent from rules"));
+                    }
                 }
-                catalog
-                    .visit(source, |entry| {
-                        original(
-                            context.objects,
-                            entry.original,
-                            context.memory,
-                            &mut budget.originals,
-                            &mut || (cancelled.borrow_mut())(),
-                        )?;
-                        result.original_bytes = result
-                            .original_bytes
-                            .checked_add(entry.original.byte_len)
-                            .ok_or(CoreError::ResourceLimited("execution original byte total"))?;
-                        Ok(())
-                    })
-                    .map_err(|error| match error {
+                let visitor = |entry: &ArtifactEntryV1| {
+                    original(
+                        context.objects,
+                        entry.original,
+                        context.memory,
+                        &mut budget.originals,
+                        &mut || (cancelled.borrow_mut())(),
+                    )?;
+                    result.original_bytes = result
+                        .original_bytes
+                        .checked_add(entry.original.byte_len)
+                        .ok_or(CoreError::ResourceLimited("execution original byte total"))?;
+                    Ok(())
+                };
+                match work.as_deref_mut() {
+                    Some(work) => catalog
+                        .visit_with_work(source, visitor, work)
+                        .map_err(|error| match error {
+                            ArtifactVisitError::Execution(error) => CoreError::Execution(error),
+                            ArtifactVisitError::Tree(error) => {
+                                CoreError::Execution(ExecutionError::Tree(error))
+                            }
+                            ArtifactVisitError::Visitor(error) => error,
+                        }),
+                    None => catalog.visit(source, visitor).map_err(|error| match error {
                         crate::merkle::VisitError::Tree(error) => {
                             CoreError::Execution(ExecutionError::Tree(error))
                         }
                         crate::merkle::VisitError::Visitor(error) => error,
-                    })
+                    }),
+                }
             },
         )?;
         result.catalog_counts[index] = count;

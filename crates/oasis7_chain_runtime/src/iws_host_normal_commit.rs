@@ -17,6 +17,7 @@ use oasis7_runtime::{NormalHostWorkV1, PreparedNormalHostResidentV1, PreparedNor
 /// cannot replace physical, logical or candidate-source work. Core is only
 /// borrowed during a call; keeping work does not require sharing a !Sync Core.
 pub(crate) struct NormalCommitWorkV1 {
+    pub canonical: oasis7_wasm_abi::CanonicalCborWorkV1,
     pub input_material:
         oasis7_formal_protocol::controlled_authority::formal::IncrementalFrozenMaterialWorkV1,
     pub primary_source: Option<IwsCandidateSourceWorkV1>,
@@ -335,6 +336,7 @@ impl NormalCommitFailureV1 {
 #[allow(clippy::too_many_arguments)]
 /// A failed package admission still owns the exact unpublished sources and
 /// remaining work. No caller supplied candidate may enter the publication tail.
+#[derive(Debug)]
 pub(crate) enum NormalCommitStartCauseV1 {
     Material(FormalError),
     Package(super::normal_package::NormalPackageErrorV1),

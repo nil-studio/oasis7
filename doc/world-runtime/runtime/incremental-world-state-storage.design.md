@@ -1640,6 +1640,16 @@ GEN 与 authenticated cold 的投影缓存初始化必须重新计算完整原�
 跨 Node 回调保留的 normal 提交状态拥有原 physical、logical、input-material 和双端 candidate-source work；失败阶段与剩余 work 一起移动，成功也返还同一剩余 work。长期 work 只记录真实 Core 的不透明 identity，实际调用时校验并短期借用原 Core；相同数值的新 Core 不可替换原 Core。每次 Action、tail 与恢复仅重新借用原计数，不创建新额度，也不通过共享引用、线程安全标记或重建 Core 改变原单线程扣账语义。
 
 
+#### IWS 本地 Node 的接受边界
+
+IWS 的 guarded local Node 边界必须从实际安装的 accepted Host source 和 resident 取得。生产器在同一 Common/pool 下读取实际命名空间中的 Qualified request，将完整 proof 与该 source 持有的原验证结果逐字节比较，再读取同一 CheckedCommitCore；caller 提供的 record、roots、DTO 或服务 pin 不能创建这项边界。
+
+GEN 的 InitialActivation position 为 1，CommitBody height 为 0，HistoryPrefix count 为 1，且没有前驱 CommitBody/transition/history。Node 在高度零使用真实 InitialActivation canonical record ID 作为本地共识的虚拟前驱，真实 GEN CommitBody ID 作为 execution_block_hash，正式 record 的 after_state_root（同一 IWS RootSet 摘要）作为 execution_state_root。这里不使用 InitialActivation 的 formal.genesis 授权前驱，也不把 World clock 或旧 State raw SHA 当作 Node 的执行高度或 IWS 执行根。该零高度边界仍须通过 Node 原有 qualified genesis hook 重核；它本身不是共识块或网络最终性证明。
+
+ordinary 接受后的 Node 高度为同一 CommitBody height，正式 position 为该高度加一；consensus_block_hash 来自实际接受 material 中 Input role 的原 NodeExecutionCommitContext.node_block_hash。该 Input ID 必须等于 CheckedCommitCore.original_input_id，原件哈希和有限解码必须通过，并且其 world/height 与同一接受记录相符。execution_block_hash 始终为真实接受 CommitBody ID，execution_state_root 始终为正式 after_state_root。authenticated cold 完整重建 Host 和 resident 后，使用同一生产器从真实原件恢复这项映射，不从进程旧缓存或猜测的最近高度恢复。
+
+新的 Frozen 生产器同时核对 Node 原 continuation 的共识前驱、执行前驱、执行根、两项 predecessor height 与上述真实接受边界，并保留原 Node fresh/restored 来源。单独相同的状态根不足以接受另一个前驱。跨 callback 的固定 consumer 保留精确原 context 编码和同一份剩余 work；一旦 Runtime 已产生 preparation，后续只能恢复原 output、Ready、publication 或实际 cold 阶段。准备失败保留首个错误、原 sources 与 work，不在普通 callback 中重新运行该 tick。双端 durable 接受和 Host 安装均成功后才读取并返回 Node applied result；结果读取失败停留在该读取阶段，不能重新执行或重新发布。Node completion 还须匹配原 context 才能释放本次 carrier，并返还同一剩余 work。
+
 #### 正式业务输出原件的定位
 
 沿用同一正式输出承诺要求，schema7/8 的九个 artifact roles 和原业务结果根算法保持不变。当前 CommitBody 对象的 ClosedRecord 直接 references 必须包含唯一 `oasis7.iws.business-output.v1` 定位原件；定位原件声明实际 CommitBody ID，以及原 FormalBusinessResultTree descriptor 和 BusinessIndexDelta 的内容 ID、实际字节数。定位原件的 references 覆盖这两项，delta 原件的 references 覆盖实际新节点。这里只增加对象图中的明确类型定位，不重新定义业务 descriptor、delta 或结果根编码。

@@ -13,6 +13,7 @@ use crate::incremental_page_store::{IncrementalPageStore, PageIoBudget};
 use oasis7_formal_protocol::controlled_authority::formal::{
     incremental::IWS_AUTHORITY_PROFILE_VERSION, verify_formal_candidate,
 };
+use oasis7_formal_protocol::incremental_execution::ExecutionError;
 #[cfg(not(target_arch = "wasm32"))]
 use oasis7_formal_protocol::{
     controlled_authority::replicated_protocol::ClosedRecord,
@@ -318,6 +319,15 @@ impl FileFormalEndpoint {
         candidate: &FormalCandidateMaterialV1,
         cancelled: &mut impl FnMut() -> bool,
     ) -> Result<VerifiedCandidateContextV1, FormalError> {
+        self.verify_iws_candidate_with_artifact_work(candidate, None, cancelled)
+    }
+
+    pub(super) fn verify_iws_candidate_with_artifact_work(
+        &self,
+        candidate: &FormalCandidateMaterialV1,
+        catalog_work: Option<&mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>>,
+        cancelled: &mut impl FnMut() -> bool,
+    ) -> Result<VerifiedCandidateContextV1, FormalError> {
         if self.authority.definition().profile_version != IWS_AUTHORITY_PROFILE_VERSION {
             return Err(invalid("IWS authority profile required"));
         }
@@ -348,7 +358,7 @@ impl FileFormalEndpoint {
             }
             return Ok(context);
         }
-        self.verify_iws_page_backed_material(candidate, &context, cancelled)?;
+        self.verify_iws_page_backed_material(candidate, &context, catalog_work, cancelled)?;
         Ok(context)
     }
 
@@ -357,6 +367,7 @@ impl FileFormalEndpoint {
         &self,
         _candidate: &FormalCandidateMaterialV1,
         _context: &VerifiedCandidateContextV1,
+        _catalog_work: Option<&mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>>,
         cancelled: &mut impl FnMut() -> bool,
     ) -> Result<(), FormalError> {
         if cancelled() {
@@ -372,9 +383,16 @@ impl FileFormalEndpoint {
         &self,
         candidate: &FormalCandidateMaterialV1,
         context: &VerifiedCandidateContextV1,
+        catalog_work: Option<&mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>>,
         cancelled: &mut impl FnMut() -> bool,
     ) -> Result<(), FormalError> {
-        closure::consume_candidate_data_closure_v1(self, candidate, context, cancelled)
+        closure::consume_candidate_data_closure_v1(
+            self,
+            candidate,
+            context,
+            catalog_work,
+            cancelled,
+        )
     }
 }
 

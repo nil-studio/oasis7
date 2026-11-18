@@ -30,6 +30,7 @@ use std::{collections::BTreeMap, mem::size_of};
 
 #[derive(Debug)]
 pub(crate) enum NormalPackageErrorV1 {
+    Boundary(super::IwsHostRuntimeErrorV1),
     Invalid(&'static str),
     Context(FormalError),
     Body(BodyMutationError),
@@ -317,6 +318,10 @@ impl Allocation {
 
 #[path = "iws_host_normal_package_material.rs"]
 mod material;
+
+#[path = "iws_host_normal_input_package.rs"]
+mod input;
+pub(in crate::iws_host_runtime) use input::PaidPreparedNodeNormalInputV1;
 
 /// Fixed ordinary retention-profile producer. Durable-set production requires
 /// its genuine arm owner; no parent digest can stand in for that authorization.

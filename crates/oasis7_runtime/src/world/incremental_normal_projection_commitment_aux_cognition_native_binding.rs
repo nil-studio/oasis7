@@ -4,12 +4,12 @@ use super::*;
 use oasis7_wasm_abi::{
     CanonicalCborAllocator, CanonicalCborStreamError, CapabilityCanonicalWorkV1,
 };
-struct Canonical<'v, 'f, 'a, 's, 'c, 'k, M> {
-    view: &'v values::View<'f, 'a, 's, 'c, M>,
+struct Canonical<'v, 'f, 'a, 'c, 'k> {
+    view: &'v values::View<'f, 'a, 'c>,
     work: RefCell<&'k mut oasis7_wasm_abi::CanonicalCborWorkV1>,
     first: RefCell<Option<BodyMutationError>>,
 }
-impl<M: MerkleNodeReader> CanonicalCborAllocator for Canonical<'_, '_, '_, '_, '_, '_, M> {
+impl CanonicalCborAllocator for Canonical<'_, '_, '_, '_, '_> {
     type Charge = MemoryReservation;
     fn charge_work(&self, s: u64, b: u64) -> Result<(), CanonicalCborStreamError> {
         if self.first.borrow().is_some() {
@@ -44,7 +44,7 @@ impl<M: MerkleNodeReader> CanonicalCborAllocator for Canonical<'_, '_, '_, '_, '
             })
     }
 }
-impl<M: MerkleNodeReader> CapabilityCanonicalWorkV1 for Canonical<'_, '_, '_, '_, '_, '_, M> {
+impl CapabilityCanonicalWorkV1 for Canonical<'_, '_, '_, '_, '_> {
     type Loan<'x>
         = std::cell::RefMut<'x, oasis7_wasm_abi::CanonicalCborWorkV1>
     where
@@ -83,7 +83,7 @@ impl PaidCurrentBuiltinRecipeQuoteDataV1 {
     }
 }
 #[allow(clippy::too_many_arguments)]
-pub(in crate::world) fn prepare_current_builtin_recipe_quote_data_v1<M: MerkleNodeReader>(
+pub(in crate::world) fn prepare_current_builtin_recipe_quote_data_v1(
     state: &OriginalStateColumnsDataV1,
     electricity: &OriginalProjectionRowsDataV1,
     aux: &ProjectionColumnDataV1,
@@ -94,19 +94,17 @@ pub(in crate::world) fn prepare_current_builtin_recipe_quote_data_v1<M: MerkleNo
     factory: &str,
     recipe: &str,
     batches: u32,
-    tx: &ExecutionTransaction<'_, M>,
+    origin: &dyn crate::world::incremental_normal_projection_commitment::facts::ProjectionReadSourceV1,
     common: &mut FormalBoundedContextV1<'_>,
     canonical: &mut oasis7_wasm_abi::CanonicalCborWorkV1,
-    live: &mut dyn FnMut() -> ExecutionFence,
 ) -> Result<PaidCurrentBuiltinRecipeQuoteDataV1, BodyMutationError> {
     raw_state.validate_context(common)?;
-    let facts = CurrentProjectionReadFactsV1::for_source_data_v1(
+    let facts = CurrentProjectionReadFactsV1::for_projection_data_v1(
         state,
         electricity,
         metadata,
-        tx,
+        origin,
         common,
-        live,
     )?;
     facts.before_owned(size_of::<PaidCurrentBuiltinRecipeQuoteDataV1>() + 1024)?;
     let view = values::View::new(&facts, aux)?;

@@ -7,7 +7,10 @@ use oasis7_formal_protocol::{
     incremental_artifacts::{
         ExecutionManifestModeV1, IwsExecutionManifestV1, OriginalArtifactRefV1,
     },
-    incremental_material::{ExecutionArtifactRefs, OriginalObjectReader},
+    incremental_execution::ExecutionError,
+    incremental_material::{
+        ExecutionArtifactRefs, OriginalObjectReader, verify_execution_artifacts_with_work,
+    },
 };
 use std::sync::Arc;
 #[path = "endpoint_incremental_closure_native_reader.rs"]
@@ -232,6 +235,7 @@ pub(in crate::controlled_authority::formal::endpoint::incremental) fn verify_acc
     native_work: &mut CoreBudget,
     artifact_work: &mut ExecutionArtifactBudget,
     bridge_work: &mut NativeChunkReadWorkV1,
+    catalog_work: Option<&mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>>,
     cancelled: &mut impl FnMut() -> bool,
 ) -> Result<ReservedValue<CandidateExecutionMaterialV1>, FormalError> {
     let FormalRequestStateV1::Qualified { candidate, .. } = checkpoint.state() else {
@@ -262,6 +266,7 @@ pub(in crate::controlled_authority::formal::endpoint::incremental) fn verify_acc
         native_work,
         artifact_work,
         bridge_work,
+        catalog_work,
         cancelled,
     )
 }
@@ -283,6 +288,7 @@ pub(crate) fn verify_candidate_execution_material_v1<
     native_work: &mut CoreBudget,
     artifact_work: &mut ExecutionArtifactBudget,
     bridge_work: &mut NativeChunkReadWorkV1,
+    catalog_work: Option<&mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>>,
     cancelled: &mut impl FnMut() -> bool,
 ) -> Result<ReservedValue<CandidateExecutionMaterialV1>, FormalError> {
     let fee = endpoint
@@ -310,6 +316,7 @@ pub(crate) fn verify_candidate_execution_material_v1<
         native_work,
         artifact_work,
         bridge_work,
+        catalog_work,
         cancelled,
     )
 }
@@ -330,6 +337,7 @@ fn verify_in_directory<O: OriginalObjectStreamReader, R: MerkleNodeReader>(
     native_work: &mut CoreBudget,
     artifact_work: &mut ExecutionArtifactBudget,
     bridge_work: &mut NativeChunkReadWorkV1,
+    catalog_work: Option<&mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>>,
     cancelled: &mut impl FnMut() -> bool,
 ) -> Result<ReservedValue<CandidateExecutionMaterialV1>, FormalError> {
     verify_in_directory_source(
@@ -344,6 +352,7 @@ fn verify_in_directory<O: OriginalObjectStreamReader, R: MerkleNodeReader>(
         native_work,
         artifact_work,
         bridge_work,
+        catalog_work,
         cancelled,
     )
 }
@@ -364,6 +373,7 @@ fn verify_in_directory_source<O: OriginalObjectStreamReader, R: MerkleNodeReader
     native_work: &mut CoreBudget,
     artifact_work: &mut ExecutionArtifactBudget,
     bridge_work: &mut NativeChunkReadWorkV1,
+    catalog_work: Option<&mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>>,
     cancelled: &mut impl FnMut() -> bool,
 ) -> Result<ReservedValue<CandidateExecutionMaterialV1>, FormalError> {
     if cancelled() {
@@ -575,17 +585,26 @@ fn verify_in_directory_source<O: OriginalObjectStreamReader, R: MerkleNodeReader
         })
         .map_err(|_| invalid("execution native actual chunks"))?;
         bind_manifest(core, &value, native.executable_id())?;
-        let artifacts = verify_execution_artifacts(
-            core,
-            &native,
-            ExecutionArtifactReadContext {
-                objects: &mut bridge,
-                pages: reader,
-                memory,
-            },
-            artifact_work,
-            || (*stopped.borrow_mut())(),
-        )
+        let artifact_context = ExecutionArtifactReadContext {
+            objects: &mut bridge,
+            pages: reader,
+            memory,
+        };
+        let artifacts = match catalog_work {
+            Some(work) => verify_execution_artifacts_with_work(
+                core,
+                &native,
+                artifact_context,
+                artifact_work,
+                work,
+                || (*stopped.borrow_mut())(),
+            ),
+            None => {
+                verify_execution_artifacts(core, &native, artifact_context, artifact_work, || {
+                    (*stopped.borrow_mut())()
+                })
+            }
+        }
         .map_err(|_| invalid("execution actual artifact inventories"))?;
         if native.body_id() != core.catalog().entry.commit
             || artifacts.body_id() != core.catalog().entry.commit

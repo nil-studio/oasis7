@@ -404,7 +404,7 @@ fn prepare(config: &Config) -> Result<Prepared, String> {
         material,
         source,
     )
-    .map_err(|_| "header Node actual qualified H driver recovery rejected")?;
+    .map_err(|error| recovery_rejection(&error))?;
     let binding = BftSignerBindingV3::new(
         driver.handoff().clone(),
         driver.initial_schedule().clone(),
@@ -570,5 +570,55 @@ mod tests {
         assert_eq!(value["receipts"][0]["height"], 9);
         assert_eq!(value["receipts"][0].as_object().unwrap().len(), 4);
         assert!(value["receipts"][0].get("actions").is_none());
+    }
+}
+
+// Never expose paths, private actions, or arbitrary underlying error text.
+fn recovery_rejection(error: &str) -> String {
+    let stage = [
+        "storage_paths",
+        "private_store",
+        "ledger",
+        "h_index",
+        "bind_origin",
+    ]
+    .into_iter()
+    .find(|stage| error.starts_with(&format!("node_recovery_stage={stage}: ")))
+    .unwrap_or("unknown");
+    format!("header Node actual qualified H driver recovery rejected; recovery_stage={stage}")
+}
+
+#[cfg(test)]
+mod recovery_diagnostic_tests {
+    use super::recovery_rejection;
+
+    #[test]
+    fn recovery_diagnostics_hide_private_error_details() {
+        for stage in [
+            "storage_paths",
+            "private_store",
+            "ledger",
+            "h_index",
+            "bind_origin",
+        ] {
+            let message =
+                recovery_rejection(&format!("node_recovery_stage={stage}: private/path/token"));
+            assert_eq!(
+                message,
+                format!(
+                    "header Node actual qualified H driver recovery rejected; recovery_stage={stage}"
+                )
+            );
+        }
+        for error in [
+            "private/path/token",
+            "node_recovery_stage=foreign: secret",
+            "prefix node_recovery_stage=ledger: secret",
+        ] {
+            assert_eq!(
+                recovery_rejection(error),
+                "header Node actual qualified H driver recovery rejected; recovery_stage=unknown"
+            );
+        }
     }
 }

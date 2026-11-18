@@ -1,7 +1,9 @@
 use super::{crypto::*, *};
 use crate::controlled_authority::replicated_protocol::{ArtifactRole, ClosedRecord, EndpointRole};
 use serde::{Deserialize, Serialize};
-const RESERVATION: &str = "oasis7.formal.frozen_reservation.sign.v1";
+/// Original signing frame shared by the bounded producer and verifiers.
+pub const FROZEN_RESERVATION_SIGN_DOMAIN_V1: &str = "oasis7.formal.frozen_reservation.sign.v1";
+const RESERVATION: &str = FROZEN_RESERVATION_SIGN_DOMAIN_V1;
 const RECEIPT: &str = "oasis7.formal.frozen_receipt.sign.v1";
 /// Fresh normal reservation authorization, before endpoint durability receipts.
 #[derive(Debug, Clone)]

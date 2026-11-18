@@ -1,16 +1,130 @@
 //! Only actual typed field rows, preserving outer BTree keys and real absence.
 use super::*;
-use oasis7_agent_api::world_action::{RootOperationV1,SubstitutionDecisionV1,ConversionSettlementV1,SubstitutionResidualBalanceV1};
+use oasis7_agent_api::world_action::{
+    ConversionSettlementV1, RootOperationV1, SubstitutionDecisionV1, SubstitutionResidualBalanceV1,
+};
 use oasis7_world_state::incremental_world_rule_projection_delta::WorldRuleLogicalColumnV1 as C;
 use std::ops::ControlFlow;
-impl<M:MerkleNodeReader>WorldRuleStatusReadonlyFactsV1 for CurrentProjectionReadFactsV1<'_, '_, '_,M>{
- fn status_rules_present(&self)->Result<bool,BodyMutationError>{self.check()?;Ok(self.columns.world_rule_rows_data_v1(&mut self.common.borrow_mut())?.is_some())}
- fn status_time(&self)->Result<u64,BodyMutationError>{self.check()?;Ok(self.clock)}
- fn status_order_count(&self)->Result<usize,BodyMutationError>{self.check()?;self.work(1,0)?;Ok(self.rule_rows(C::AgentOrders)?.map_or(0,|rows|rows.len()))}
- fn status_visit_orders(&self,mut visit:impl FnMut(&str,&oasis7_world_state::world_rules::AgentIndustrialOrderV1)->Result<ControlFlow<()>,BodyMutationError>)->Result<(),BodyMutationError>{self.visit_rule_rows(C::AgentOrders,|row|{let id=row.original_key_value().as_str().ok_or_else(||invalid("status original order outer key"))?;fact_decode::with_industrial_order_data_v1(self.raw(row)?,&self.common,|value|visit(id,value))})}
- fn status_visit_factories(&self,mut visit:impl FnMut(&str,&oasis7_world_state::FactoryState)->Result<ControlFlow<()>,BodyMutationError>)->Result<(),BodyMutationError>{self.visit_rows("factories",|row|{let id=row.original_key_value().as_str().ok_or_else(||invalid("status original factory outer key"))?;fact_decode::with_factory_data_v1(self.raw(row)?,&self.common,|value|visit(id,value))})}
- fn status_visit_roots(&self,mut visit:impl FnMut(&str,&RootOperationV1)->Result<ControlFlow<()>,BodyMutationError>)->Result<(),BodyMutationError>{self.visit_rule_rows(C::IndustrialRoots,|row|{let id=row.original_key_value().as_str().ok_or_else(||invalid("status original root outer key"))?;fact_decode::with_industrial_root_data_v1(self.raw(row)?,&self.common,|value|visit(id,value))})}
- fn status_visit_decisions(&self,mut visit:impl FnMut(&str,&SubstitutionDecisionV1)->Result<ControlFlow<()>,BodyMutationError>)->Result<(),BodyMutationError>{self.visit_rule_rows(C::SubstitutionDecisions,|row|{let id=row.original_key_value().as_str().ok_or_else(||invalid("status original decision outer key"))?;fact_decode::with_status_substitution_decision_data_v1(self.raw(row)?,&self.common,|value|visit(id,value))})}
- fn status_visit_settlements(&self,mut visit:impl FnMut(&str,&ConversionSettlementV1)->Result<ControlFlow<()>,BodyMutationError>)->Result<(),BodyMutationError>{self.visit_rule_rows(C::SubstitutionSettlements,|row|{let id=row.original_key_value().as_str().ok_or_else(||invalid("status original settlement outer key"))?;fact_decode::with_status_conversion_settlement_data_v1(self.raw(row)?,&self.common,|value|visit(id,value))})}
- fn status_visit_residuals(&self,mut visit:impl FnMut(&str,&SubstitutionResidualBalanceV1)->Result<ControlFlow<()>,BodyMutationError>)->Result<(),BodyMutationError>{self.visit_rule_rows(C::RetainedResiduals,|row|{let id=row.original_key_value().as_str().ok_or_else(||invalid("status original residual outer key"))?;fact_decode::with_status_substitution_residual_data_v1(self.raw(row)?,&self.common,|value|visit(id,value))})}
+impl WorldRuleStatusReadonlyFactsV1 for CurrentProjectionReadFactsV1<'_, '_> {
+    fn status_rules_present(&self) -> Result<bool, BodyMutationError> {
+        self.check()?;
+        Ok(self
+            .columns
+            .world_rule_rows_data_v1(&mut self.common.borrow_mut())?
+            .is_some())
+    }
+    fn status_time(&self) -> Result<u64, BodyMutationError> {
+        self.check()?;
+        Ok(self.clock)
+    }
+    fn status_order_count(&self) -> Result<usize, BodyMutationError> {
+        self.check()?;
+        self.work(1, 0)?;
+        Ok(self.rule_rows(C::AgentOrders)?.map_or(0, |rows| rows.len()))
+    }
+    fn status_visit_orders(
+        &self,
+        mut visit: impl FnMut(
+            &str,
+            &oasis7_world_state::world_rules::AgentIndustrialOrderV1,
+        ) -> Result<ControlFlow<()>, BodyMutationError>,
+    ) -> Result<(), BodyMutationError> {
+        self.visit_rule_rows(C::AgentOrders, |row| {
+            let id = row
+                .original_key_value()
+                .as_str()
+                .ok_or_else(|| invalid("status original order outer key"))?;
+            fact_decode::with_industrial_order_data_v1(self.raw(row)?, &self.common, |value| {
+                visit(id, value)
+            })
+        })
+    }
+    fn status_visit_factories(
+        &self,
+        mut visit: impl FnMut(
+            &str,
+            &oasis7_world_state::FactoryState,
+        ) -> Result<ControlFlow<()>, BodyMutationError>,
+    ) -> Result<(), BodyMutationError> {
+        self.visit_rows("factories", |row| {
+            let id = row
+                .original_key_value()
+                .as_str()
+                .ok_or_else(|| invalid("status original factory outer key"))?;
+            fact_decode::with_factory_data_v1(self.raw(row)?, &self.common, |value| {
+                visit(id, value)
+            })
+        })
+    }
+    fn status_visit_roots(
+        &self,
+        mut visit: impl FnMut(&str, &RootOperationV1) -> Result<ControlFlow<()>, BodyMutationError>,
+    ) -> Result<(), BodyMutationError> {
+        self.visit_rule_rows(C::IndustrialRoots, |row| {
+            let id = row
+                .original_key_value()
+                .as_str()
+                .ok_or_else(|| invalid("status original root outer key"))?;
+            fact_decode::with_industrial_root_data_v1(self.raw(row)?, &self.common, |value| {
+                visit(id, value)
+            })
+        })
+    }
+    fn status_visit_decisions(
+        &self,
+        mut visit: impl FnMut(
+            &str,
+            &SubstitutionDecisionV1,
+        ) -> Result<ControlFlow<()>, BodyMutationError>,
+    ) -> Result<(), BodyMutationError> {
+        self.visit_rule_rows(C::SubstitutionDecisions, |row| {
+            let id = row
+                .original_key_value()
+                .as_str()
+                .ok_or_else(|| invalid("status original decision outer key"))?;
+            fact_decode::with_status_substitution_decision_data_v1(
+                self.raw(row)?,
+                &self.common,
+                |value| visit(id, value),
+            )
+        })
+    }
+    fn status_visit_settlements(
+        &self,
+        mut visit: impl FnMut(
+            &str,
+            &ConversionSettlementV1,
+        ) -> Result<ControlFlow<()>, BodyMutationError>,
+    ) -> Result<(), BodyMutationError> {
+        self.visit_rule_rows(C::SubstitutionSettlements, |row| {
+            let id = row
+                .original_key_value()
+                .as_str()
+                .ok_or_else(|| invalid("status original settlement outer key"))?;
+            fact_decode::with_status_conversion_settlement_data_v1(
+                self.raw(row)?,
+                &self.common,
+                |value| visit(id, value),
+            )
+        })
+    }
+    fn status_visit_residuals(
+        &self,
+        mut visit: impl FnMut(
+            &str,
+            &SubstitutionResidualBalanceV1,
+        ) -> Result<ControlFlow<()>, BodyMutationError>,
+    ) -> Result<(), BodyMutationError> {
+        self.visit_rule_rows(C::RetainedResiduals, |row| {
+            let id = row
+                .original_key_value()
+                .as_str()
+                .ok_or_else(|| invalid("status original residual outer key"))?;
+            fact_decode::with_status_substitution_residual_data_v1(
+                self.raw(row)?,
+                &self.common,
+                |value| visit(id, value),
+            )
+        })
+    }
 }

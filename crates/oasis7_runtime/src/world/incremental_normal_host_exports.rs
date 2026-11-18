@@ -8,10 +8,19 @@ pub use super::incremental_normal_host_driver::{
     prepare_normal_host_from_resident_v1,
 };
 pub use super::incremental_normal_host_resident::{
+    NormalHostCognitionBootstrapErrorV1, PaidNormalHostCognitionParentSourcesV1,
+    bootstrap_normal_host_cognition_parent_v1,
+    NormalHostBootstrapTailWorkV1, NormalHostGenesisAuthorityV1, NormalHostGenesisBootstrapErrorV1,
     NormalHostResidentSourcesV1, NormalHostStartupWorkV1, PreparedNormalHostResidentV1,
-    bootstrap_normal_host_resident_sources_v1, prepare_normal_host_resident_promotion_from_io_v1,
+    bootstrap_authenticated_genesis_normal_host_resident_v1,
+    bootstrap_authenticated_genesis_replica_resident_v1, bootstrap_normal_host_resident_sources_v1,
+    prepare_normal_host_resident_promotion_from_io_v1,
 };
-pub use super::incremental_normal_host_work::{NormalHostBootstrapWorkV1, NormalHostWorkV1};
+#[cfg(any(test, feature = "test_tier_required"))]
+pub use super::incremental_normal_host_work::two_agent_host_work_limits_v1;
+pub use super::incremental_normal_host_work::{
+    NormalHostBootstrapWorkV1, NormalHostLaneLimitsV1, NormalHostWorkLimitsV1, NormalHostWorkV1,
+};
 pub use super::incremental_normal_tail_sources::{
     NormalTailBootstrapParentsV1, NormalTailDirectoryInputsV1,
 };
@@ -53,6 +62,7 @@ pub use super::incremental_normal_projection_commitment::{
 
 pub use super::incremental_normal_final_sources::NormalFinalSourcesWorkV1;
 
-
-pub use super::incremental_normal_host_cold_bootstrap::{bootstrap_authenticated_cold_normal_host_resident_v1,NormalHostColdBootstrapErrorV1};
+pub use super::incremental_normal_host_cold_bootstrap::{
+    NormalHostColdBootstrapErrorV1, bootstrap_authenticated_cold_normal_host_resident_v1,
+};
 pub use super::incremental_normal_host_context::NormalHostContextErrorV1 as NormalHostBootstrapContextErrorV1;

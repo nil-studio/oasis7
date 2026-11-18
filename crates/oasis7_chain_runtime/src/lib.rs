@@ -27,6 +27,14 @@ mod iws_normal_input_origin;
 
 mod committed_input_metadata;
 
+/// Executes the real native fixture within its own captured worker ELF.
+#[cfg(all(unix, feature = "iws-host-native-test-support"))]
+pub fn native_worker_fixture_iws_nonempty_normal_cold_v1(
+    root: &std::path::Path,
+) -> Result<Vec<u8>, String> {
+    iws_host_runtime::native_closure_test_support::run(root)
+}
+
 #[cfg(all(unix, not(target_arch = "wasm32")))]
 mod iws_normal_input_decode;
 

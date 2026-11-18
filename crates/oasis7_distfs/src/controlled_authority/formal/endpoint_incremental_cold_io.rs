@@ -2,7 +2,9 @@
 //! No quotas are cloned or minted. Formal-ledger operations run only between
 //! these exclusive child phases, directly on the very same Common Core.
 use super::*;
-use oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1;
+use oasis7_formal_protocol::controlled_authority::formal::bounded_context::{
+    FormalBoundedChargeErrorV1, FormalBoundedContextV1,
+};
 use oasis7_proto::memory_budget::MemoryClass;
 const CAPACITY: usize = 512;
 fn cold_lanes(work: &mut IwsColdParentWorkV1, mut lane: impl FnMut(&mut u64, bool)) {
@@ -703,37 +705,101 @@ fn cold_lanes(work: &mut IwsColdParentWorkV1, mut lane: impl FnMut(&mut u64, boo
     lane(&mut work.local_records_remaining, false);
     lane(&mut work.local_original_bytes_remaining, true);
 }
+#[derive(Clone, Copy)]
+enum LaneKind {
+    Steps,
+    IoBytes,
+    WorkBytes,
+}
+impl LaneKind {
+    fn io(bytes: bool) -> Self {
+        if bytes { Self::IoBytes } else { Self::Steps }
+    }
+    fn is_bytes(self) -> bool {
+        !matches!(self, Self::Steps)
+    }
+    fn step_weight(self) -> u64 {
+        match self {
+            Self::Steps => 1,
+            Self::IoBytes => 16,
+            Self::WorkBytes => 0,
+        }
+    }
+    fn limit(self, steps: u64, bytes: u64) -> u64 {
+        match self {
+            Self::Steps => steps,
+            Self::IoBytes => (steps / 16).min(bytes),
+            Self::WorkBytes => bytes,
+        }
+    }
+}
+
+/// Two temporary projections admitted by the original exclusive Common child.
+/// They start at zero, cannot escape the material operation, and settle once
+/// through that same child's inventory. There is no second Common or refill.
+pub(super) struct CatalogWorkLoanV1 {
+    steps: u64,
+    bytes: u64,
+}
+impl CatalogWorkLoanV1 {
+    pub(super) fn charge(&mut self, steps: u64, bytes: u64) -> Result<(), FormalError> {
+        let enough_steps = self.steps >= steps;
+        let enough_bytes = self.bytes >= bytes;
+        self.steps = self.steps.saturating_sub(steps);
+        self.bytes = self.bytes.saturating_sub(bytes);
+        if !enough_steps {
+            Err(FormalBoundedChargeErrorV1::StepLimit.into())
+        } else if !enough_bytes {
+            Err(FormalBoundedChargeErrorV1::ByteLimit.into())
+        } else {
+            Ok(())
+        }
+    }
+}
+
 trait Inventory {
-    fn lanes(&mut self, visit: &mut dyn FnMut(&mut u64, bool));
+    fn lanes(&mut self, visit: &mut dyn FnMut(&mut u64, LaneKind));
+    fn admit_loans(&mut self, _steps: u64, _bytes: u64) {}
 }
 impl Inventory for IwsColdParentWorkV1 {
-    fn lanes(&mut self, visit: &mut dyn FnMut(&mut u64, bool)) {
-        cold_lanes(self, visit);
+    fn lanes(&mut self, visit: &mut dyn FnMut(&mut u64, LaneKind)) {
+        cold_lanes(self, |value, bytes| visit(value, LaneKind::io(bytes)));
     }
 }
 struct MaterialLoans<'a> {
     cold: &'a mut IwsColdParentWorkV1,
     source: &'a mut super::work::IwsCandidateSourceWorkV1,
+    catalog: CatalogWorkLoanV1,
 }
 impl Inventory for MaterialLoans<'_> {
-    fn lanes(&mut self, visit: &mut dyn FnMut(&mut u64, bool)) {
-        cold_lanes(self.cold, &mut *visit);
-        let w = &mut self.source;
-        visit(&mut w.artifacts.structural.objects_remaining, false);
-        visit(&mut w.artifacts.structural.original_bytes_remaining, true);
-        visit(&mut w.artifacts.structural.new_pages_remaining, false);
-        visit(&mut w.artifacts.structural.merkle_reads_remaining, false);
-        visit(&mut w.artifacts.originals.objects_remaining, false);
-        visit(&mut w.artifacts.originals.bytes_remaining, true);
-        visit(&mut w.native_chunk_occurrences, false);
-        visit(&mut w.native_chunk_bytes, true);
-        visit(&mut w.frozen_wire_bytes, true);
-        visit(&mut w.frozen_material.metadata_entries_remaining, false);
-        visit(&mut w.frozen_material.comparison_bytes_remaining, true);
-        visit(&mut w.frozen_material.hash_bytes_remaining, true);
-        visit(&mut w.frozen_material.frozen_wire_bytes_remaining, true);
-        visit(&mut w.frozen_material.original_calls_remaining, false);
-        visit(&mut w.frozen_material.original_bytes_remaining, true);
+    fn lanes(&mut self, visit: &mut dyn FnMut(&mut u64, LaneKind)) {
+        {
+            let mut visit = |value: &mut u64, bytes| visit(value, LaneKind::io(bytes));
+            cold_lanes(self.cold, &mut visit);
+            let w = &mut self.source;
+            visit(&mut w.artifacts.structural.objects_remaining, false);
+            visit(&mut w.artifacts.structural.original_bytes_remaining, true);
+            visit(&mut w.artifacts.structural.new_pages_remaining, false);
+            visit(&mut w.artifacts.structural.merkle_reads_remaining, false);
+            visit(&mut w.artifacts.originals.objects_remaining, false);
+            visit(&mut w.artifacts.originals.bytes_remaining, true);
+            visit(&mut w.native_chunk_occurrences, false);
+            visit(&mut w.native_chunk_bytes, true);
+            visit(&mut w.frozen_wire_bytes, true);
+            visit(&mut w.frozen_material.metadata_entries_remaining, false);
+            visit(&mut w.frozen_material.comparison_bytes_remaining, true);
+            visit(&mut w.frozen_material.hash_bytes_remaining, true);
+            visit(&mut w.frozen_material.frozen_wire_bytes_remaining, true);
+            visit(&mut w.frozen_material.original_calls_remaining, false);
+            visit(&mut w.frozen_material.original_bytes_remaining, true);
+        }
+        visit(&mut self.catalog.steps, LaneKind::Steps);
+        visit(&mut self.catalog.bytes, LaneKind::WorkBytes);
+    }
+    fn admit_loans(&mut self, steps: u64, bytes: u64) {
+        // Derived only after the original child is locked and all lanes counted.
+        self.catalog.steps = steps;
+        self.catalog.bytes = bytes;
     }
 }
 pub(super) fn run<T, E: From<FormalError>>(
@@ -750,13 +816,18 @@ pub(super) fn run_material<T, E: From<FormalError>>(
     operation: impl FnOnce(
         &mut IwsColdParentWorkV1,
         &mut super::work::IwsCandidateSourceWorkV1,
+        &mut CatalogWorkLoanV1,
         &mut dyn FnMut() -> bool,
     ) -> Result<T, E>,
 ) -> Result<T, E> {
     run_inventory(
-        &mut MaterialLoans { cold: work, source },
+        &mut MaterialLoans {
+            cold: work,
+            source,
+            catalog: CatalogWorkLoanV1 { steps: 0, bytes: 0 },
+        },
         common,
-        |loans, stop| operation(loans.cold, loans.source, stop),
+        |loans, stop| operation(loans.cold, loans.source, &mut loans.catalog, stop),
     )
 }
 fn run_inventory<W: Inventory, T, E: From<FormalError>>(
@@ -768,19 +839,20 @@ fn run_inventory<W: Inventory, T, E: From<FormalError>>(
     let _fee = common
         .memory()
         .reserve(
-            3 * std::mem::size_of::<[u64; CAPACITY]>() + std::mem::size_of::<[bool; CAPACITY]>(),
+            3 * std::mem::size_of::<[u64; CAPACITY]>()
+                + std::mem::size_of::<[LaneKind; CAPACITY]>(),
             MemoryClass::Ordinary,
         )
         .map_err(|_| FormalError::Invalid("cold IO inventory admission".into()))?;
     let mut originals = [0u64; CAPACITY];
     let mut before = [0u64; CAPACITY];
-    let mut kinds = [false; CAPACITY];
+    let mut kinds = [LaneKind::Steps; CAPACITY];
     let mut count = 0usize;
     let mut overflow = false;
-    work.lanes(&mut |value, bytes| {
+    work.lanes(&mut |value, kind| {
         if count < CAPACITY {
             originals[count] = *value;
-            kinds[count] = bytes;
+            kinds[count] = kind;
         } else {
             overflow = true;
         }
@@ -790,7 +862,7 @@ fn run_inventory<W: Inventory, T, E: From<FormalError>>(
     if overflow || count == 0 {
         return Err(FormalError::Invalid("cold IO inventory layout".into()).into());
     }
-    let byte_count = kinds[..count].iter().filter(|v| **v).count() as u64;
+    let byte_count = kinds[..count].iter().filter(|kind| kind.is_bytes()).count() as u64;
     let (_, meter, stop) = common.parts();
     let child = meter.begin_child()?;
     let step_limit = child.remaining_steps() / count as u64;
@@ -798,13 +870,10 @@ fn run_inventory<W: Inventory, T, E: From<FormalError>>(
         .remaining_read_bytes()
         .checked_div(byte_count)
         .unwrap_or(0);
+    work.admit_loans(step_limit, byte_limit);
     let mut i = 0;
-    work.lanes(&mut |value, bytes| {
-        *value = (*value).min(if bytes {
-            (step_limit / 16).min(byte_limit)
-        } else {
-            step_limit
-        });
+    work.lanes(&mut |value, kind| {
+        *value = (*value).min(kind.limit(step_limit, byte_limit));
         before[i] = *value;
         i += 1;
     });
@@ -832,7 +901,7 @@ fn run_inventory<W: Inventory, T, E: From<FormalError>>(
         let mut steps = 0u64;
         let mut bytes = 0u64;
         for i in 0..count {
-            let weight = if kinds[i] { 16 } else { 1 };
+            let weight = kinds[i].step_weight();
             steps = steps
                 .checked_add(
                     delta[i]
@@ -840,7 +909,7 @@ fn run_inventory<W: Inventory, T, E: From<FormalError>>(
                         .ok_or_else(|| FormalError::Invalid("cold IO step overflow".into()))?,
                 )
                 .ok_or_else(|| FormalError::Invalid("cold IO step overflow".into()))?;
-            if kinds[i] {
+            if kinds[i].is_bytes() {
                 bytes = bytes
                     .checked_add(delta[i])
                     .ok_or_else(|| FormalError::Invalid("cold IO byte overflow".into()))?;
@@ -870,3 +939,7 @@ fn run_inventory<W: Inventory, T, E: From<FormalError>>(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "endpoint_incremental_cold_io_tests.rs"]
+mod tests;

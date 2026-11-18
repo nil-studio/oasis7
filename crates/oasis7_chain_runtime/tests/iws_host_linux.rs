@@ -342,3 +342,60 @@ fn real_linux_accepted_genesis_installs_native_host() {
     prepare_bundle(&directory.0);
     accepted_host(&directory.0);
 }
+#[test]
+fn real_linux_nonempty_node_commit_reopens_cold_and_commits_again() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = Directory::new();
+    let stable = directory.0.join("native-normal-cold-fixture");
+    let image = Path::new(env!("CARGO_BIN_EXE_oasis7-native-bound-fixture"));
+    let mut source = fs::File::open(image).expect("actual Cargo native fixture ELF");
+    assert!(
+        source.metadata().unwrap().len() <= 256 << 20,
+        "original ELF fixture cap"
+    );
+    let mut target = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&stable)
+        .unwrap();
+    std::io::copy(&mut source, &mut target).unwrap();
+    target.sync_all().unwrap();
+    drop(target);
+    fs::set_permissions(&stable, fs::Permissions::from_mode(0o700)).unwrap();
+    let result = Command::new(&stable)
+        .arg("--iws-nonempty-normal-cold-v1")
+        .arg(directory.0.join("actual-pair"))
+        .output()
+        .expect("actual fixture process");
+    assert!(
+        result.status.success(),
+        "genuine GEN / Node / Cold closure failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let receipt: serde_json::Value =
+        serde_json::from_slice(&result.stdout).expect("actual closure receipt");
+    assert_eq!(
+        receipt["schema"],
+        "oasis7.iws.nonempty_normal_cold.fixture.v1"
+    );
+    assert_eq!(receipt["old_pool_used_after_drop"], 0);
+    assert_eq!(receipt["final_sender_electricity"], 2);
+    for phase in ["first_node", "second_node"] {
+        assert_eq!(receipt[phase]["fresh_captures"], 1);
+        assert_eq!(receipt[phase]["runtime_advances"], 1);
+        assert_eq!(receipt[phase]["actual_cancelled_responses"], 1);
+        assert_eq!(receipt[phase]["altered_context_refused"], 1);
+        assert_eq!(receipt[phase]["completed"], 1);
+        assert_eq!(
+            receipt[phase]["primary_record"],
+            receipt[phase]["replica_record"]
+        );
+    }
+    assert_eq!(
+        receipt["first"]["fifo_transfers"],
+        serde_json::json!([3, 2])
+    );
+    assert_eq!(receipt["second"]["fifo_transfers"], serde_json::json!([1]));
+    eprintln!("{}", String::from_utf8_lossy(&result.stderr));
+    eprintln!("{}", serde_json::to_string_pretty(&receipt).unwrap());
+}

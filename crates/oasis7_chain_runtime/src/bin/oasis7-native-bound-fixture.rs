@@ -2,6 +2,17 @@
 fn main() -> std::process::ExitCode {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
     let result = match args.first().and_then(|argument| argument.to_str()) {
+        Some("--iws-nonempty-normal-cold-v1") if args.len() == 2 => {
+            oasis7_chain_runtime::native_worker_fixture_iws_nonempty_normal_cold_v1(
+                std::path::Path::new(&args[1]),
+            )
+            .and_then(|bytes| {
+                use std::io::Write;
+                std::io::stdout()
+                    .write_all(&bytes)
+                    .map_err(|error| error.to_string())
+            })
+        }
         Some("--capture-native-fixture-v1") if args.len() <= 2 => {
             oasis7_chain_runtime::native_worker_fixture_capture_v1(
                 args.get(1).map(std::path::Path::new),

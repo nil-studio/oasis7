@@ -609,3 +609,93 @@ fn metered_catalog_wire_and_empty_preserve_first_and_final_work_errors() {
         }
     }
 }
+
+#[test]
+fn metered_catalog_visit_keeps_authenticated_order_and_first_failure() {
+    let mut source = source();
+    let entries = entries();
+    let delta = ArtifactCatalogV1::empty(ArtifactKindV1::Wasm)
+        .unwrap()
+        .append(&entries, &source, &source.memory, 4 << 20)
+        .unwrap();
+    install(&mut source, &delta);
+    let observed = ObservedSource {
+        source: &source,
+        reads: std::cell::Cell::new(0),
+        fail: false,
+    };
+    let before = source.memory.used();
+    let mut seen = Vec::new();
+    let mut calls = 0;
+    let count = delta
+        .after
+        .visit_with_work(
+            &observed,
+            |entry| {
+                seen.push(*entry);
+                Ok::<_, &'static str>(())
+            },
+            &mut |_, _| {
+                calls += 1;
+                Ok(())
+            },
+        )
+        .unwrap();
+    assert_eq!(count, entries.len() as u64);
+    assert_eq!(seen, entries);
+    assert!(observed.reads.get() > 0);
+    assert_eq!(source.memory.used(), before);
+
+    observed.reads.set(0);
+    let error =
+        delta
+            .after
+            .visit_with_work(&observed, |_| Ok::<_, &'static str>(()), &mut |_, bytes| {
+                if bytes == ARTIFACT_MAX_PAGE_BYTES as u64 {
+                    Err(ExecutionError::ResourceLimited("visit source attempt"))
+                } else {
+                    Ok(())
+                }
+            });
+    assert!(matches!(
+        error,
+        Err(ArtifactVisitError::Execution(
+            ExecutionError::ResourceLimited("visit source attempt")
+        ))
+    ));
+    assert_eq!(observed.reads.get(), 0);
+
+    let mut visited = 0;
+    let error = delta.after.visit_with_work(
+        &observed,
+        |_| {
+            visited += 1;
+            Err("original visitor failure")
+        },
+        &mut |_, _| Ok(()),
+    );
+    assert!(matches!(
+        error,
+        Err(ArtifactVisitError::Visitor("original visitor failure"))
+    ));
+    assert_eq!(visited, 1);
+
+    let mut paid = 0;
+    let error =
+        delta
+            .after
+            .visit_with_work(&observed, |_| Ok::<_, &'static str>(()), &mut |_, _| {
+                paid += 1;
+                if paid == calls {
+                    Err(ExecutionError::Aborted)
+                } else {
+                    Ok(())
+                }
+            });
+    assert!(matches!(
+        error,
+        Err(ArtifactVisitError::Execution(ExecutionError::Aborted))
+    ));
+    assert_eq!(paid, calls);
+    assert_eq!(source.memory.used(), before);
+}

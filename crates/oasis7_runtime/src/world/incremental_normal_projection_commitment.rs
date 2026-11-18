@@ -110,6 +110,11 @@ mod audiences;
 mod format;
 #[path = "incremental_normal_projection_commitment_leaf.rs"]
 mod leaf;
+pub use leaf::genesis::PaidGenesisProjectionCommitmentV1;
+pub(in crate::world) use leaf::genesis::{
+    GenesisProjectionOriginalsV1, capture_genesis_projection_originals_v1,
+    prepare_genesis_projection_commitment_v1,
+};
 #[path = "incremental_normal_projection_commitment_leaf_hash.rs"]
 mod leaf_hash;
 #[path = "incremental_normal_projection_commitment_visible_state.rs"]

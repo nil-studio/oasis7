@@ -69,7 +69,7 @@ fn insert(
     objects.insert(lo, object);
     Ok(())
 }
-fn put(
+pub(super) fn put(
     raw: &[u8],
     objects: &mut Vec<ArtifactObject>,
     allocation: &mut Allocation,
@@ -84,7 +84,7 @@ fn put(
     insert(objects, object, common)?;
     Ok(id)
 }
-fn add_ref(
+pub(super) fn add_ref(
     id: &str,
     refs: &mut Vec<String>,
     a: &mut Allocation,
@@ -153,14 +153,14 @@ fn find(
     }
     Ok(None)
 }
-fn locate(
+pub(super) fn locate(
     objects: &[ArtifactObject],
     id: &str,
     c: &mut FormalBoundedContextV1<'_>,
 ) -> Result<usize, NormalPackageErrorV1> {
     find(objects, id, c)?.ok_or_else(invalid)
 }
-fn select_closure(
+pub(super) fn select_closure(
     objects: Vec<ArtifactObject>,
     roots: &BTreeMap<ArtifactRole, String>,
     a: &mut Allocation,

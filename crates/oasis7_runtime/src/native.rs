@@ -665,3 +665,15 @@ pub use world::{AcceptedNormalProjectionCacheV1, NormalProjectionCurrentWorkV1};
 pub use world::{NormalProjectionWorkBankV1,NormalFinalSourcesWorkV1,NormalProjectionWorldRulesWorkV1};
 
 pub use world::{bootstrap_authenticated_cold_normal_host_resident_v1,NormalHostColdBootstrapErrorV1,NormalHostBootstrapContextErrorV1};
+
+pub use world::{
+    NormalHostBootstrapTailWorkV1, NormalHostGenesisAuthorityV1, NormalHostGenesisBootstrapErrorV1,
+    NormalHostLaneLimitsV1, NormalHostWorkLimitsV1,
+    NormalHostCognitionBootstrapErrorV1, PaidNormalHostCognitionParentSourcesV1,
+    bootstrap_normal_host_cognition_parent_v1,
+    bootstrap_authenticated_genesis_normal_host_resident_v1,
+    bootstrap_authenticated_genesis_replica_resident_v1,
+};
+pub use world::incremental_world_event_counter::WorldJournalRetentionV1;
+#[cfg(any(test, feature = "test_tier_required"))]
+pub use world::two_agent_host_work_limits_v1;

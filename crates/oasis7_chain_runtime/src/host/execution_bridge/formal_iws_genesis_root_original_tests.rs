@@ -186,8 +186,8 @@ fn projected_genesis_business_root_set_count_limit_returns_no_owner_or_refund() 
         )),
     )
     .unwrap();
-    let projected = match projected {
-        GenesisEndpointOutputV1::Projected(projected) => projected,
+    let (projected, catalog) = match projected {
+        GenesisEndpointOutputV1::Projected(projected, catalog) => (projected, catalog),
         GenesisEndpointOutputV1::Original(_) => panic!("projected GEN returned original mode"),
     };
     assert_eq!(projected.roots().height, 0);
@@ -264,7 +264,7 @@ fn projected_genesis_business_root_set_count_limit_returns_no_owner_or_refund() 
         transfer.canonical.bytes_remaining,
     );
     let error = match business_originals::persist_projected_genesis_business_v1(
-        projected,
+        (projected, catalog),
         &stores[0],
         [&stores[1], &stores[2]],
         &cfg,
@@ -474,8 +474,8 @@ fn config_stage_failure_drops_owner_without_refunding_work(mismatched: bool) {
         )),
     )
     .unwrap();
-    let projected = match projected {
-        GenesisEndpointOutputV1::Projected(projected) => projected,
+    let (projected, catalog) = match projected {
+        GenesisEndpointOutputV1::Projected(projected, catalog) => (projected, catalog),
         GenesisEndpointOutputV1::Original(_) => panic!("projected GEN returned original mode"),
     };
     assert_eq!(projected.roots().height, 0);
@@ -573,7 +573,7 @@ fn config_stage_failure_drops_owner_without_refunding_work(mismatched: bool) {
         transfer.canonical.bytes_remaining,
     );
     let error = match business_originals::persist_projected_genesis_business_v1(
-        projected,
+        (projected, catalog),
         &stores[0],
         [&stores[1], &stores[2]],
         if mismatched { &other_cfg } else { &cfg },

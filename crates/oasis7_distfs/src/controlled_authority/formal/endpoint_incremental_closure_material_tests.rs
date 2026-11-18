@@ -311,6 +311,16 @@ fn check(
         &ReservedValue<CandidateExecutionMaterialV1>,
     )>,
 ) -> Result<ReservedValue<CandidateExecutionMaterialV1>, FormalError> {
+    check_with_catalog_work(m, parent, None)
+}
+fn check_with_catalog_work(
+    m: &mut Material,
+    parent: Option<(
+        &VerifiedFormalCommitV1,
+        &ReservedValue<CandidateExecutionMaterialV1>,
+    )>,
+    catalog_work: Option<&mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>>,
+) -> Result<ReservedValue<CandidateExecutionMaterialV1>, FormalError> {
     let state = m.pages.state_session(io(), MemoryClass::Ordinary).unwrap();
     verify_in_directory(
         &m.directory.0.join("formal-objects-v1"),
@@ -324,6 +334,7 @@ fn check(
         &mut work(),
         &mut artifacts(),
         &mut bridge(),
+        catalog_work,
         &mut || false,
     )
 }
@@ -355,6 +366,45 @@ fn signed_genesis_material_retains_real_native_artifact_proofs_and_rejects_wrong
     assert!(check(&mut m, Some((&other.commit, &proof))).is_err());
     let same = formal::verify_formal_qualified(&m.s.proof, &m.s.authority, None, None).unwrap();
     assert!(check(&mut m, Some((&same, &proof))).is_err());
+}
+
+#[test]
+fn signed_genesis_catalog_consumer_debits_existing_common_and_stops_on_work_failure() {
+    use formal::bounded_context::FormalBoundedWorkV1;
+    let mut m = genesis();
+    let common = FormalBoundedWorkV1::new(2_000_000, 256 << 20).unwrap();
+    for _ in 0..2 {
+        common.charge(3, 5, &mut || false).unwrap();
+        let before = (common.remaining_steps(), common.remaining_read_bytes());
+        let proof = check_with_catalog_work(
+            &mut m,
+            None,
+            Some(&mut |steps, bytes| {
+                common
+                    .charge(steps, bytes, &mut || false)
+                    .map_err(|_| ExecutionError::ResourceLimited("fixture Common"))
+            }),
+        )
+        .unwrap();
+        assert_eq!(proof.candidate_record_id(), m.s.commit.verified_record_id());
+        assert_eq!(proof.manifest_id(), m.manifest.digest().unwrap());
+        assert!(common.remaining_steps() < before.0);
+        assert!(common.remaining_read_bytes() < before.1);
+    }
+    let mut calls = 0;
+    let error = check_with_catalog_work(
+        &mut m,
+        None,
+        Some(&mut |_, _| {
+            calls += 1;
+            Err(ExecutionError::ResourceLimited(
+                "original catalog work failure",
+            ))
+        }),
+    );
+    assert!(matches!(error, Err(FormalError::Invalid(message))
+        if message == "execution actual artifact inventories"));
+    assert_eq!(calls, 1);
 }
 
 fn normal(m: &mut Material, change_inventory: bool) -> VerifiedFormalCommitV1 {
@@ -625,7 +675,12 @@ fn signed_ordinary_static_inheritance_reads_no_unchanged_inventory_and_rejects_r
     m.objects
         .forbidden
         .extend([refs.native, refs.wasm, refs.rules, m.manifest.policy.id]);
-    let proof = check(&mut m, Some((&parent, &baseline))).unwrap();
+    let proof = check_with_catalog_work(
+        &mut m,
+        Some((&parent, &baseline)),
+        Some(&mut |_, _| panic!("unchanged authenticated inventory must not be traversed")),
+    )
+    .unwrap();
     assert_eq!(proof.candidate_record_id(), accepted.verified_record_id());
     assert!(Arc::ptr_eq(&proof.baseline, &baseline.baseline));
     m.objects.forbidden.clear();
@@ -673,6 +728,7 @@ fn signed_ordinary_replaced_page_lease_cannot_inherit_static_baseline() {
             &mut work(),
             &mut artifacts(),
             &mut bridge(),
+            None,
             &mut || false,
         )
         .is_err()

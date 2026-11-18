@@ -1,6 +1,6 @@
 use super::*;
 use crate::merkle::Updater;
-use catalog_codec::{CatalogCodec, CatalogLeaf, empty_hashes};
+use catalog_codec::{CatalogCodec, CatalogLeaf};
 use wire::{Reader, Writer, digest, parse_hash};
 
 type CatalogWork<'a> = dyn Fn(u64, u64) -> Result<(), ExecutionError> + 'a;
@@ -90,11 +90,22 @@ pub struct CatalogProofV1 {
 
 impl CatalogRootV1 {
     pub fn empty(scope: WorldScopeV1) -> Result<Self, ExecutionError> {
+        Self::empty_with_work(scope, &mut |_, _| Ok(()))
+    }
+    pub fn empty_with_work(
+        scope: WorldScopeV1,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<Self, ExecutionError> {
+        work(1, scope.world_id.len() as u64)?;
         scope.validate()?;
         Ok(Self {
             scope,
             count: 0,
-            node_root: empty_hashes()?[0].clone(),
+            node_root: {
+                let hashes = catalog_codec::empty_hashes_with_work(work)?;
+                work(1, hashes[0].len() as u64)?;
+                hashes[0].clone()
+            },
             last_commit: None,
             last_checkpoint: None,
         })

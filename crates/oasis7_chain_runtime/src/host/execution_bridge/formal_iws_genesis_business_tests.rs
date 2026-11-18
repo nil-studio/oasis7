@@ -368,6 +368,15 @@ fn real_projected_genesis_business_output_roundtrips_both_independent_endpoints(
     let (descriptor_ref, descriptor) = material.descriptor_original();
     let (delta_ref, delta) = material.delta_original();
     let (retention_ref, retention) = material.retention_original();
+    let (catalog_ref, catalog_wire) = material.wasm_catalog_original();
+    assert_eq!(material.wasm_catalog().count, 0);
+    assert_eq!(
+        material.wasm_catalog().kind,
+        oasis7_formal_protocol::incremental_artifacts::ArtifactKindV1::Wasm
+    );
+    assert!(catalog_wire.uses_budget(&memory));
+    assert_eq!(catalog_ref.byte_len, catalog_wire.len() as u64);
+    assert_eq!(catalog_ref.id, digest(catalog_wire, &mut common));
     assert_eq!(retention.reserved_bytes(), 128 * 1024);
     assert_eq!(retention_ref.id, digest(retention, &mut common));
     assert_eq!(retention_ref.byte_len, retention.len() as u64);
@@ -458,6 +467,25 @@ fn real_projected_genesis_business_output_roundtrips_both_independent_endpoints(
             }
         }
         root_set::assert_cold_original(&material, &cfg, &objects, &mut io, &mut common);
+        // Empty P still produces a same-source final Catalog descriptor. Read
+        // its actual object from each reopened namespace before decoding it.
+        let catalog_raw = metered(&mut common, &mut io, |io| {
+            objects.read_object_owned(&catalog_ref.id, catalog_wire.len(), io)
+        })
+        .unwrap();
+        common.charge(2, 1024 + catalog_wire.len() as u64).unwrap();
+        let catalog_phase = memory.reserve(1024, MemoryClass::Ordinary).unwrap();
+        assert_eq!(catalog_raw.as_slice(), catalog_wire.as_slice());
+        let decoded_catalog = oasis7_formal_protocol::incremental_artifacts::ArtifactCatalogV1
+            ::from_canonical_bytes_with_work(&catalog_raw, &mut |steps, bytes| {
+                common.charge(steps, bytes).unwrap();
+                Ok(())
+            }).unwrap();
+        assert_eq!(&decoded_catalog, material.wasm_catalog());
+        assert_eq!(digest(&catalog_raw, &mut common), catalog_ref.id);
+        drop(decoded_catalog);
+        drop(catalog_phase);
+        drop(catalog_raw);
         let delta_raw = metered(&mut common, &mut io, |io| {
             objects.read_object_owned(&delta_id, delta.len(), io)
         })
@@ -740,8 +768,8 @@ fn business_stage_failure_drops_owner_without_refunding_work(cancel: bool) {
         )),
     )
     .unwrap();
-    let projected = match projected {
-        GenesisEndpointOutputV1::Projected(projected) => projected,
+    let (projected, catalog) = match projected {
+        GenesisEndpointOutputV1::Projected(projected, catalog) => (projected, catalog),
         GenesisEndpointOutputV1::Original(_) => panic!("projected GEN returned original mode"),
     };
     assert_eq!(projected.roots().height, 0);
@@ -805,7 +833,7 @@ fn business_stage_failure_drops_owner_without_refunding_work(cancel: bool) {
         transfer.canonical.bytes_remaining,
     );
     let result = business_originals::persist_projected_genesis_business_v1(
-        projected,
+        (projected, catalog),
         &stores[0],
         [&stores[1], &stores[2]],
         &cfg,
@@ -1034,8 +1062,8 @@ fn projected_genesis_business_retention_count_limit_returns_no_owner_or_refund()
         )),
     )
     .unwrap();
-    let projected = match projected {
-        GenesisEndpointOutputV1::Projected(projected) => projected,
+    let (projected, catalog) = match projected {
+        GenesisEndpointOutputV1::Projected(projected, catalog) => (projected, catalog),
         GenesisEndpointOutputV1::Original(_) => panic!("projected GEN returned original mode"),
     };
     assert_eq!(projected.roots().height, 0);
@@ -1104,7 +1132,7 @@ fn projected_genesis_business_retention_count_limit_returns_no_owner_or_refund()
     let before_steps = archive.remaining_steps();
     let before_bytes = archive.remaining_read_bytes();
     let error = match business_originals::persist_projected_genesis_business_v1(
-        projected,
+        (projected, catalog),
         &stores[0],
         [&stores[1], &stores[2]],
         &cfg,

@@ -9,10 +9,6 @@ use super::*;
 use super::{
     original_rows::OriginalProjectionRowsDataV1, state_columns::OriginalStateColumnsDataV1,
 };
-use oasis7_formal_protocol::{
-    incremental_execution::{ExecutionFence, ExecutionTransaction},
-    incremental_state::MerkleNodeReader,
-};
 use oasis7_wasm_abi::CanonicalCborWorkV1;
 use oasis7_world_state::observation_projection::{
     WorldServiceProjection,
@@ -109,8 +105,7 @@ fn copy_binding(
     })
 }
 #[allow(clippy::too_many_arguments)]
-pub(super) fn format_current_projection_data_v1<
-    M: MerkleNodeReader,
+pub(super) fn format_projection_data_v1<
     R: crate::world::PaidProjectionRetainedOriginalReaderV1<RetainedError = BodyMutationError>,
 >(
     state: &OriginalStateColumnsDataV1,
@@ -120,20 +115,16 @@ pub(super) fn format_current_projection_data_v1<
     aux: &ProjectionColumnDataV1,
     template: &super::template::StaticProjectionSchemaDataV1,
     metadata:&crate::world::incremental_normal_business_commitment::OriginalProjectionReadMetadataV1<'_>,
-    process: &crate::world::incremental_normal_process_source::PaidProjectionProcessFactsV1,
-    authorization:&crate::world::incremental_authorization_root_current::FrozenNormalAuthorizationProjectionV1,
-    finality: &crate::world::incremental_normal_bootstrap_finality::CurrentBootstrapLiveFinalityV1,
     raw_state: &super::raw_hash::PaidOriginalStateHashDataV1,
     binding: Option<&ReservedValue<oasis7_agent_api::RuntimeBindingV1>>,
     reader: Option<&str>,
     reader_key: &str,
     retained: &mut R,
     canonical: &mut CanonicalCborWorkV1,
-    tx: &ExecutionTransaction<'_, M>,
+    origin: &dyn crate::world::incremental_normal_projection_commitment::facts::ProjectionReadSourceV1,
     common: &mut FormalBoundedContextV1<'_>,
-    live: &mut dyn FnMut() -> ExecutionFence,
 ) -> Result<PaidCurrentProjectionFormatDataV1, BodyMutationError> {
-    metadata.validate_provenance(tx, common, &live())?;
+    origin.validate_metadata(metadata, common)?;
     raw_state.validate_context(common)?;
     state.validate_context(common)?;
     let expected = metadata.runtime_binding_for_state_hash_bounded_v1(
@@ -192,9 +183,8 @@ pub(super) fn format_current_projection_data_v1<
         observation,
         aux,
         reader,
-        tx,
+        origin,
         common,
-        live,
     )?;
     let mut visible = super::visible_state::compose_non_rule_visible_state_data_v1(
         observation,
@@ -215,10 +205,9 @@ pub(super) fn format_current_projection_data_v1<
         metadata,
         raw_state,
         reader,
-        tx,
+        origin,
         common,
         canonical,
-        live,
     )?;
     let (status, status_fees) = status.into_parts_v1();
     let mut private = PrivateFees {
@@ -243,10 +232,9 @@ pub(super) fn format_current_projection_data_v1<
             binding,
             agent,
             retained,
-            tx,
+            origin,
             common,
             canonical,
-            live,
         )?;
         let (fence, view, fees) = source.into_parts_v1();
         owner = fence;
@@ -259,10 +247,9 @@ pub(super) fn format_current_projection_data_v1<
             metadata,
             raw_state,
             agent,
-            tx,
+            origin,
             common,
             canonical,
-            live,
         )?;
         let (history, fees) = source.into_parts_v1();
         feedback = Some(history);
@@ -287,9 +274,8 @@ pub(super) fn format_current_projection_data_v1<
             aux,
             metadata,
             agent,
-            tx,
+            origin,
             common,
-            live,
         )?;
         let (native, fees) = source.into_parts_v1();
         projection.native_delegation_authorizations = native;
@@ -301,9 +287,8 @@ pub(super) fn format_current_projection_data_v1<
             metadata,
             agent,
             reader_key,
-            tx,
+            origin,
             common,
-            live,
         )?;
         if key.matches_data_v1() {
             projection.canonical_agent_chat = chat;
@@ -320,9 +305,8 @@ pub(super) fn format_current_projection_data_v1<
             reader_key,
             retained,
             canonical,
-            tx,
+            origin,
             common,
-            live,
         )?;
         let (control, fees) = task.into_parts_v1();
         projection.game_task_control = control;
@@ -337,10 +321,9 @@ pub(super) fn format_current_projection_data_v1<
         binding,
         reader,
         execution_actor,
-        tx,
+        origin,
         common,
         canonical,
-        live,
     )?;
     let (query, query_fees) = query.into_parts_v1();
     oasis7_world_state::observation_projection::original_formatter::attach_gameplay_query_data_v1(
@@ -353,16 +336,12 @@ pub(super) fn format_current_projection_data_v1<
             electricity,
             aux,
             metadata,
-            process,
-            authorization,
-            finality,
             raw_state,
             binding,
             agent,
-            tx,
+            origin,
             common,
             canonical,
-            live,
         )?;
         private._cognition = Some(cognition.apply_to_projection_v1(&mut projection));
     }
@@ -382,7 +361,7 @@ pub(super) fn format_current_projection_data_v1<
         header,
         events,
     );
-    metadata.validate_provenance(tx, common, &live())?;
+    origin.validate_metadata(metadata, common)?;
     Ok(PaidCurrentProjectionFormatDataV1 {
         projection,
         _private: private,

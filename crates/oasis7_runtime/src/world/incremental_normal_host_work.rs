@@ -48,6 +48,12 @@ use oasis7_world_state::{
     incremental_world_event_decode::WorldEventDecodeWorkV1,
 };
 
+#[path = "incremental_normal_host_work_builder.rs"]
+mod builder;
+pub use builder::{NormalHostLaneLimitsV1, NormalHostWorkLimitsV1};
+#[cfg(any(test, feature = "test_tier_required"))]
+pub use builder::two_agent_host_work_limits_v1;
+
 /// Independent caller-provided logical IO lanes are not copies of one balance.
 /// Each borrowed context returns to the very same counters on Err and unwind.
 pub struct NormalHostReadWorkV1 {
@@ -369,6 +375,9 @@ pub struct NormalHostWorkV1 {
     pub io: NormalHostIoWorkV1,
     pub materials: NormalHostMaterialWorkV1,
     pub driver: NormalHostDriverWorkV1,
+    startup: builder::StartupDirectoryWork,
+    core: oasis7_formal_protocol::controlled_authority::formal::bounded_context::WorkIdentityV1,
+    allocation: oasis7_proto::memory_budget::MemoryReservation,
 }
 
 /// Combined original-input queue writes and the genuine fixed tick result.

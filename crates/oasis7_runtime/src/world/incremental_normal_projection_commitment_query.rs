@@ -13,8 +13,8 @@ struct Evidence<'a, R, P, A> {
     preview: &'a P,
     authorization: &'a A,
 }
-struct CurrentRecovery<'f, 'a, 's, 'c, 'w, M> {
-    facts: &'f CurrentProjectionReadFactsV1<'a, 's, 'c, M>,
+struct CurrentRecovery<'f, 'a, 'c, 'w> {
+    facts: &'f CurrentProjectionReadFactsV1<'a, 'c>,
     state: &'f OriginalStateColumnsDataV1,
     electricity: &'f OriginalProjectionRowsDataV1,
     aux: &'f oasis7_world_state::observation_projection::current_commitment::ProjectionColumnDataV1,
@@ -28,7 +28,7 @@ struct CurrentRecovery<'f, 'a, 's, 'c, 'w, M> {
     quote_fees: RefCell<Vec<CurrentProjectionFactsFeesV1>>,
     json_fees: RefCell<Vec<MemoryReservation>>,
 }
-impl<M: MerkleNodeReader> CurrentRecovery<'_, '_, '_, '_, '_, M> {
+impl CurrentRecovery<'_, '_, '_, '_> {
     fn json<T: serde::Serialize>(&self, value: &T) -> Result<serde_json::Value, BodyMutationError> {
         let raw = super::super::shared_json::capture_shared_v1(
             value,
@@ -51,7 +51,7 @@ impl<M: MerkleNodeReader> CurrentRecovery<'_, '_, '_, '_, '_, M> {
         Ok(value)
     }
 }
-impl<M: MerkleNodeReader> RecoveryAssemblyOpsV1 for CurrentRecovery<'_, '_, '_, '_, '_, M> {
+impl RecoveryAssemblyOpsV1 for CurrentRecovery<'_, '_, '_, '_> {
     type Error = BodyMutationError;
     fn text(&self, v: &str) -> Result<String, Self::Error> {
         self.facts.before_owned(size_of::<String>() + v.len())?;
@@ -89,7 +89,6 @@ impl<M: MerkleNodeReader> RecoveryAssemblyOpsV1 for CurrentRecovery<'_, '_, '_, 
         let paid = {
             let mut common = self.facts.common.borrow_mut();
             let mut canonical = self.canonical.borrow_mut();
-            let mut live = self.facts.live.borrow_mut();
             super::prepare_current_builtin_recipe_quote_data_v1(
                 self.state,
                 self.electricity,
@@ -101,10 +100,9 @@ impl<M: MerkleNodeReader> RecoveryAssemblyOpsV1 for CurrentRecovery<'_, '_, '_, 
                 factory,
                 recipe,
                 1,
-                self.facts.tx,
+                self.facts.source,
                 &mut common,
                 &mut canonical,
-                &mut **live,
             )?
         };
         let (result, fee) = paid.into_parts_v1();
@@ -151,7 +149,7 @@ impl PaidCurrentGameplayQueryDataV1 {
         (self.query, self._fees)
     }
 }
-pub(in crate::world) fn prepare_current_gameplay_query_data_v1<M: MerkleNodeReader>(
+pub(in crate::world) fn prepare_current_gameplay_query_data_v1(
     state: &OriginalStateColumnsDataV1,
     electricity: &OriginalProjectionRowsDataV1,
     aux: &oasis7_world_state::observation_projection::current_commitment::ProjectionColumnDataV1,
@@ -160,18 +158,16 @@ pub(in crate::world) fn prepare_current_gameplay_query_data_v1<M: MerkleNodeRead
     binding: Option<&ReservedValue<oasis7_agent_api::RuntimeBindingV1>>,
     agent: Option<&str>,
     execution_actor: Option<&str>,
-    tx: &ExecutionTransaction<'_, M>,
+    origin: &dyn crate::world::incremental_normal_projection_commitment::facts::ProjectionReadSourceV1,
     common: &mut FormalBoundedContextV1<'_>,
     canonical: &mut CanonicalCborWorkV1,
-    live: &mut dyn FnMut() -> ExecutionFence,
 ) -> Result<PaidCurrentGameplayQueryDataV1, BodyMutationError> {
-    let facts = CurrentProjectionReadFactsV1::for_source_data_v1(
+    let facts = CurrentProjectionReadFactsV1::for_projection_data_v1(
         state,
         electricity,
         metadata,
-        tx,
+        origin,
         common,
-        live,
     )?;
     let (query, quote_fees, json_fees) = {
         let source = CurrentRecovery {

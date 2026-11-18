@@ -707,7 +707,27 @@ fn stage_source(
         endpoint.supply_iws_candidate_work(supplied)?;
         // The original complete Core/Current/dualHistory/router/original fsync and
         // genuine local closure pipeline creates the only PreparedCandidateInstall.
-        endpoint.verify_iws_page_backed_material(candidate, context.value(), &mut || stop())?;
+        let stopped = std::cell::RefCell::new(&mut *stop);
+        let mut first = None;
+        let mut catalog_work = |steps, bytes| {
+            work.charge(steps, bytes, &mut || (*stopped.borrow_mut())())
+                .map_err(|error| {
+                    first.get_or_insert(error);
+                    oasis7_formal_protocol::incremental_execution::ExecutionError::ResourceLimited(
+                        "execution catalog Common work",
+                    )
+                })
+        };
+        let result = endpoint.verify_iws_page_backed_material(
+            candidate,
+            context.value(),
+            Some(&mut catalog_work),
+            &mut || (*stopped.borrow_mut())(),
+        );
+        if let Some(error) = first {
+            return Err(error.into());
+        }
+        result?;
     }
     let capability = endpoint
         .iws_page_store

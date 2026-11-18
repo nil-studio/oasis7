@@ -1,5 +1,6 @@
 //! One immutable GEN borrow feeds both the existing typed and raw physical producers
 //! and its exact typed projection columns. The result remains provisional DATA.
+pub use super::incremental_normal_projection_commitment::PaidGenesisProjectionCommitmentV1;
 use super::{
     World,
     incremental_body::BodyMutationError,
@@ -20,9 +21,18 @@ use oasis7_proto::memory_budget::{MemoryClass, MemoryReservation, ReservedValue}
 use oasis7_world_state::incremental_field_member::MemberRecordWriteContext;
 use oasis7_world_state::incremental_runtime_artifact_content::RuntimeArtifactOriginalWorkDebitV1;
 
+/// Closed cross-crate oracle runner. All original GEN work and actual bytes
+/// stay inside the test fixture; no source qualification or budget escapes.
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+pub fn assert_genesis_projection_matches_original_for_test_v1(world: &World, expected: &str) {
+    super::incremental_genesis::tests::projection_commitment::assert_world_root(world, expected);
+}
+
 /// No public constructor, Clone or root-based setter. The columns cannot be
 /// detached into an accepted source: full Current/readback/seal gates remain.
 pub struct RuntimeProjectedGenesisV1 {
+    projection_originals:
+        super::incremental_normal_projection_commitment::GenesisProjectionOriginalsV1,
     outer: MemoryReservation,
     business_metadata:
         super::incremental_normal_business_commitment::PreparedNormalBusinessMetadataGenesisV1,
@@ -33,6 +43,25 @@ pub struct RuntimeProjectedGenesisV1 {
     event_count: usize,
 }
 impl RuntimeProjectedGenesisV1 {
+    pub(in crate::world) fn projection_originals(
+        &self,
+    ) -> &super::incremental_normal_projection_commitment::GenesisProjectionOriginalsV1 {
+        &self.projection_originals
+    }
+    /// Reuse this same immutable GEN's paid columns and genuine original sources.
+    /// The resulting DATA is independently rechecked by accepted bootstrap.
+    pub fn prepare_formal_projection_commitment_bounded_v1<
+        R: crate::world::PaidProjectionRetainedOriginalReaderV1<RetainedError = BodyMutationError>,
+    >(
+        &self,
+        retained: &mut R,
+        common: &mut FormalBoundedContextV1<'_>,
+        canonical: &mut oasis7_wasm_abi::CanonicalCborWorkV1,
+    ) -> Result<PaidGenesisProjectionCommitmentV1, BodyMutationError> {
+        super::incremental_normal_projection_commitment::prepare_genesis_projection_commitment_v1(
+            self, retained, common, canonical,
+        )
+    }
     pub fn validate_context_bounded_v1(
         &self,
         common: &mut FormalBoundedContextV1<'_>,
@@ -45,7 +74,8 @@ impl RuntimeProjectedGenesisV1 {
         }
         self.columns.validate_context(common)?;
         self.witness.validate_context(common)?;
-        self.business_metadata.validate_context(common)
+        self.business_metadata.validate_context(common)?;
+        self.projection_originals.validate_context(common)
     }
 
     /// Complete original GEN journal from this same immutable World capture.
@@ -397,6 +427,8 @@ impl World {
         let business_metadata = self
             .prepare_normal_business_metadata_parent_v1(common)
             .map_err(RuntimeProjectedGenesisErrorV1::Source)?;
+        let projection_originals = super::incremental_normal_projection_commitment::capture_genesis_projection_originals_v1(self,common)
+            .map_err(RuntimeProjectedGenesisErrorV1::Source)?;
         let mut witness =
             super::incremental_normal_projection_bootstrap::ProjectionGenesisWitnessV1::new(common)
                 .map_err(RuntimeProjectedGenesisErrorV1::Source)?;
@@ -413,6 +445,7 @@ impl World {
             .validate_context(common)
             .map_err(RuntimeProjectedGenesisErrorV1::Source)?;
         Ok(RuntimeProjectedGenesisV1 {
+            projection_originals,
             outer,
             genesis,
             columns,

@@ -15,6 +15,8 @@ use oasis7_world_state::{
 #[cfg(test)]
 use std::collections::BTreeSet;
 use std::{collections::BTreeMap, sync::Arc};
+#[path = "incremental_genesis_projection_commitment_tests.rs"]
+pub(in crate::world) mod projection_commitment;
 #[derive(Default)]
 struct Pages(BTreeMap<[u8; 32], Arc<ReservedValue<Vec<u8>>>>);
 impl ValueNodeWriter for Pages {
