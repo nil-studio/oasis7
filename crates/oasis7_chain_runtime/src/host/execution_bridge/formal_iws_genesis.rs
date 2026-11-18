@@ -234,17 +234,6 @@ fn prepare_iws_genesis_for_endpoints_inner_v1(
         targets: &targets,
         memory,
     };
-    let mut persist_artifact =
-        |reference: oasis7_formal_protocol::incremental_artifacts::OriginalArtifactRefV1,
-         bytes: &[u8]| {
-            originals
-                .borrow_mut()
-                .raw(reference.id, bytes)
-                .map_err(|error| {
-                    *body_error.borrow_mut() = Some(error);
-                    ValueTreeError::Invalid("IWS GEN artifact original transfer failed")
-                })
-        };
     let mut persist_action = |_ordinal: u64, action: &oasis7_world_state::ActionEnvelope| {
         let receipt = persist_action_original_v1(
             action,
@@ -298,6 +287,22 @@ fn prepare_iws_genesis_for_endpoints_inner_v1(
         };
     let result = match common {
         Some((common, retention_work)) => {
+            let mut persist_artifact =
+                |reference: oasis7_formal_protocol::incremental_artifacts::OriginalArtifactRefV1,
+                 bytes: &[u8],
+                 common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>| {
+                    originals
+                        .borrow_mut()
+                        .raw_bounded(reference, bytes, common)
+                        .map(|_| ())
+                        .map_err(|error| {
+                            let mut first = body_error.borrow_mut();
+                            if first.is_none() {
+                                *first = Some(error);
+                            }
+                            ValueTreeError::Invalid("IWS GEN artifact original transfer failed")
+                        })
+                };
             let mut journal_original = |event: &oasis7_world_state::WorldEvent,
                                         common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>| {
                 originals
@@ -346,23 +351,36 @@ fn prepare_iws_genesis_for_endpoints_inner_v1(
             )
             .map(GenesisEndpointOutputV1::Projected)
         }
-        None => prepare_runtime_genesis_index_with_writer_v1(
-            world,
-            source,
-            config,
-            context,
-            producer,
-            RuntimeGenesisIndexBudgetsV1 {
-                index_reads,
-                index_writes,
-                index,
-            },
-            &mut fanout,
-            &mut persist_artifact,
-            &mut persist_action,
-            &mut mailbox_original,
-        )
-        .map(GenesisEndpointOutputV1::Original),
+        None => {
+            let mut persist_artifact =
+                |reference: oasis7_formal_protocol::incremental_artifacts::OriginalArtifactRefV1,
+                 bytes: &[u8]| {
+                    originals
+                        .borrow_mut()
+                        .raw(reference.id, bytes)
+                        .map_err(|error| {
+                            *body_error.borrow_mut() = Some(error);
+                            ValueTreeError::Invalid("IWS GEN artifact original transfer failed")
+                        })
+                };
+            prepare_runtime_genesis_index_with_writer_v1(
+                world,
+                source,
+                config,
+                context,
+                producer,
+                RuntimeGenesisIndexBudgetsV1 {
+                    index_reads,
+                    index_writes,
+                    index,
+                },
+                &mut fanout,
+                &mut persist_artifact,
+                &mut persist_action,
+                &mut mailbox_original,
+            )
+            .map(GenesisEndpointOutputV1::Original)
+        }
     };
     if let Some(error) = failed.borrow_mut().take() {
         return Err(IwsGenesisTransferErrorV1::Store(error));

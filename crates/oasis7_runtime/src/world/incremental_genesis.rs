@@ -14,6 +14,7 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueNodeReader, ValueTreeError},
 };
 use oasis7_proto::memory_budget::ReservedValue;
+use oasis7_world_state::incremental_runtime_artifact_content::RuntimeArtifactOriginalWorkDebitV1;
 use oasis7_world_state::{
     ActionEnvelope, DomainEvent,
     incremental_field_member::{MemberRecordError, MemberRecordWriteContext},
@@ -70,6 +71,32 @@ impl World {
         mailbox_original: &mut L,
         sink: &mut S,
     ) -> Result<RuntimeGenesisSummaryV1, RuntimeGenesisErrorV1> {
+        self.prepare_iws_genesis_with_artifact_work_v1(
+            ctx,
+            work,
+            (persist_artifact, None),
+            persist_action,
+            mailbox_original,
+            sink,
+        )
+    }
+
+    pub(in crate::world) fn prepare_iws_genesis_with_artifact_work_v1<
+        W: StatePageWriter + ValueNodeReader + SchedulePageWriter,
+        C: FnMut() -> bool,
+        P: FnMut(OriginalArtifactRefV1, &[u8]) -> Result<(), ValueTreeError>,
+        A: FnMut(u64, &ActionEnvelope) -> Result<OriginalArtifactRefV1, ValueTreeError>,
+        L: FnMut(&str, u64, &DomainEvent) -> Result<[u8; 32], BodyMutationError>,
+        S: FnMut(ReservedValue<ExecutionWriteV1>) -> Result<(), ValueTreeError>,
+    >(
+        &self,
+        ctx: &mut MemberRecordWriteContext<'_, W, C>,
+        work: &mut RuntimeGenesisWorkV1,
+        artifact: (&mut P, Option<&RuntimeArtifactOriginalWorkDebitV1<'_>>),
+        persist_action: &mut A,
+        mailbox_original: &mut L,
+        sink: &mut S,
+    ) -> Result<RuntimeGenesisSummaryV1, RuntimeGenesisErrorV1> {
         if (ctx.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());
         }
@@ -81,10 +108,10 @@ impl World {
             sink(row)
         };
         let typed = self
-            .prepare_iws_runtime_typed_genesis_v1(
+            .prepare_iws_runtime_typed_genesis_with_artifact_work_v1(
                 ctx,
                 &mut work.typed,
-                persist_artifact,
+                artifact,
                 persist_action,
                 &mut output,
             )

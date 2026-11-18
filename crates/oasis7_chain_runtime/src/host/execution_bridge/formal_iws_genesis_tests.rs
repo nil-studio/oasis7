@@ -262,3 +262,6 @@ mod business;
 
 #[path = "formal_iws_genesis_event_original_tests.rs"]
 mod journal_originals;
+
+#[path = "formal_iws_genesis_artifact_original_tests.rs"]
+mod artifacts;

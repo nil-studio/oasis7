@@ -288,3 +288,213 @@ fn borrowed_genesis_preserves_independent_string_keys_and_byte_reference_kind() 
         (2, 2, 2, 2, 0)
     );
 }
+
+const ACTUAL_WASM: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../oasis7_chain_runtime/tests/fixtures/iws_rule_transfer_candidate/m1.rule.transfer.wasm"
+));
+
+// The public producer below still builds its actual field records. These
+// hash-hook tests discard only the resulting value pages, not the P source.
+fn actual_artifact_hash_case(
+    memory: &MemoryBudget,
+    original_work: &mut RuntimeArtifactOriginalWorkV1,
+    debit: Option<&dyn Fn(u64, u64) -> Result<(), ValueTreeError>>,
+    mut persist: &mut dyn FnMut(OriginalArtifactRefV1, &[u8]) -> Result<(), ValueTreeError>,
+) -> Result<(), crate::incremental_field_member::MemberRecordError> {
+    use crate::incremental_field_member::*;
+    use std::collections::{BTreeMap, BTreeSet};
+    struct Discard;
+    impl ValueNodeWriter for Discard {
+        fn put_node(
+            &mut self,
+            id: [u8; 32],
+            bytes: ReservedValue<Vec<u8>>,
+        ) -> Result<(), ValueTreeError> {
+            assert_eq!(blake3::hash(&bytes).as_bytes(), &id);
+            Ok(())
+        }
+    }
+    // One real fixture plus the fixed map/key bookkeeping fits the existing
+    // original 1MiB source allowance, within the unchanged 8MiB test pool.
+    let _input = memory.reserve(1 << 20, MemoryClass::Ordinary).unwrap();
+    let registered = BTreeSet::from(["actual-wasm".to_owned()]);
+    let originals = BTreeMap::from([("actual-wasm".to_owned(), Arc::from(ACTUAL_WASM))]);
+    let mut io = oasis7_formal_protocol::incremental_value::ValueIoBudget {
+        nodes_remaining: 1000,
+        read_bytes_remaining: 1 << 20,
+        write_bytes_remaining: 1 << 20,
+    };
+    let mut keys = SemanticKeyBudget {
+        bytes_remaining: 1 << 20,
+    };
+    prepare_runtime_artifact_content_genesis_with_work_v1(
+        &registered,
+        &originals,
+        &mut MemberRecordWriteContext {
+            sink: &mut Discard,
+            memory,
+            io: &mut io,
+            key_work: &mut keys,
+            limits: MemberRecordLimitsV1 {
+                semantic_bytes: 4096,
+                payload_bytes: 4096,
+                record_bytes: 8192,
+            },
+            cancelled: || false,
+        },
+        &mut 6,
+        original_work,
+        (&mut persist, debit),
+        &mut |_| Ok(()),
+    )
+}
+
+#[test]
+fn actual_borrowed_artifact_hash_pays_chunks_and_preserves_no_hook_path() {
+    assert_eq!(ACTUAL_WASM.len(), 407277);
+    assert_eq!(&ACTUAL_WASM[..8], b"\0asm\x01\0\0\0");
+    let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
+    let baseline = memory.used();
+    let calls = Cell::new(0usize);
+    let seen = std::cell::RefCell::new([(0u64, 0u64); 9]);
+    let hook = |steps, bytes| {
+        let index = calls.get();
+        assert!(index < 9);
+        seen.borrow_mut()[index] = (steps, bytes);
+        calls.set(index + 1);
+        Ok(())
+    };
+    let mut metered = work();
+    let mut persisted = 0;
+    let mut actual = None;
+    actual_artifact_hash_case(
+        &memory,
+        &mut metered,
+        Some(&hook),
+        &mut |reference, bytes| {
+            persisted += 1;
+            assert_eq!(bytes, ACTUAL_WASM);
+            assert_eq!(reference.id, *blake3::hash(ACTUAL_WASM).as_bytes());
+            assert_eq!(reference.byte_len, 407277);
+            actual = Some(reference);
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(calls.get(), 9);
+    assert_eq!(
+        *seen.borrow(),
+        [
+            (1, 8192),
+            (1, 65536),
+            (1, 65536),
+            (1, 65536),
+            (1, 65536),
+            (1, 65536),
+            (1, 65536),
+            (1, 14061),
+            (1, 40)
+        ]
+    );
+    assert_eq!(seen.borrow().iter().map(|v| v.1).sum::<u64>(), 415509);
+    assert_eq!(persisted, 1);
+    assert_eq!(metered.objects_remaining, 0);
+    assert_eq!(metered.bytes_remaining, (1 << 20) - 407277);
+    assert_eq!(memory.used(), baseline);
+    let mut original = work();
+    let legacy =
+        prepare_borrowed_original(ACTUAL_WASM, &memory, &mut original, &mut || false).unwrap();
+    assert_eq!(Some(legacy), actual);
+    assert_eq!(original.objects_remaining, metered.objects_remaining);
+    assert_eq!(original.bytes_remaining, metered.bytes_remaining);
+    assert_eq!(memory.used(), baseline);
+}
+
+#[test]
+fn borrowed_artifact_hash_refusal_and_chunk_cancel_preserve_original_accounts() {
+    use crate::incremental_field_member::MemberRecordError;
+    let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
+    // Refuse the first admission, an actual second chunk, or finalization.
+    // No callback can receive a purported ref from any incomplete hash.
+    for refusal in [0, 2, 8] {
+        let baseline = memory.used();
+        let mut original = work();
+        let calls = Cell::new(0usize);
+        let persisted = Cell::new(false);
+        let hook = |_, _| {
+            let index = calls.get();
+            calls.set(index + 1);
+            if index == refusal {
+                return Err(if refusal == 0 {
+                    ValueTreeError::ResourceLimited("test actual P hash admission")
+                } else {
+                    ValueTreeError::Cancelled
+                });
+            }
+            Ok(())
+        };
+        let result = actual_artifact_hash_case(&memory, &mut original, Some(&hook), &mut |_, _| {
+            persisted.set(true);
+            Ok(())
+        });
+        if refusal == 0 {
+            assert!(matches!(
+                result,
+                Err(MemberRecordError::Value(ValueTreeError::ResourceLimited(
+                    "test actual P hash admission"
+                )))
+            ));
+            assert_eq!(original.objects_remaining, 1);
+            assert_eq!(original.bytes_remaining, 1 << 20);
+        } else {
+            assert!(matches!(
+                result,
+                Err(MemberRecordError::Value(ValueTreeError::Cancelled))
+            ));
+            assert_eq!(original.objects_remaining, 0);
+            assert_eq!(original.bytes_remaining, (1 << 20) - 407277);
+        }
+        assert_eq!(calls.get(), refusal + 1);
+        assert!(!persisted.get());
+        assert_eq!(memory.used(), baseline);
+    }
+}
+
+#[test]
+fn borrowed_artifact_hash_keeps_original_cancel_and_quota_before_hook() {
+    let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
+    let calls = Cell::new(0);
+    let hook = |_, _| {
+        calls.set(calls.get() + 1);
+        Ok(())
+    };
+    let mut original = work();
+    let result = prepare_borrowed_original_with_work(
+        ACTUAL_WASM,
+        &memory,
+        &mut original,
+        &mut || true,
+        Some(&hook),
+    );
+    assert!(matches!(result, Err(ValueTreeError::Cancelled)));
+    assert_eq!(original.objects_remaining, 1);
+    assert_eq!(original.bytes_remaining, 1 << 20);
+    original.objects_remaining = 0;
+    let result = prepare_borrowed_original_with_work(
+        ACTUAL_WASM,
+        &memory,
+        &mut original,
+        &mut || false,
+        Some(&hook),
+    );
+    assert!(matches!(
+        result,
+        Err(ValueTreeError::ResourceLimited(
+            "Runtime artifact new original allowance"
+        ))
+    ));
+    assert_eq!(calls.get(), 0);
+    assert_eq!(original.bytes_remaining, 1 << 20);
+    assert_eq!(memory.used(), 0);
+}

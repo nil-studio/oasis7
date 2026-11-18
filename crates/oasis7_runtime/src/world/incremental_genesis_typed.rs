@@ -8,6 +8,7 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueNodeReader, ValueTreeError},
 };
 use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
+use oasis7_world_state::incremental_runtime_artifact_content::RuntimeArtifactOriginalWorkDebitV1;
 use oasis7_world_state::{
     incremental_cognition_fields::CognitionControlFieldV1,
     incremental_cognition_json::CognitionJsonFieldV1,
@@ -63,8 +64,17 @@ pub struct RuntimeTypedGenesisSummaryV1 {
     process: ReservedValue<super::incremental_normal_process_source::NormalGenesisProcessSourceV1>,
 }
 impl RuntimeTypedGenesisSummaryV1 {
-    pub fn process_source_v1(&self)->&ReservedValue<super::incremental_normal_process_source::NormalGenesisProcessSourceV1>{&self.process}
-    pub fn into_process_source_v1(self)->ReservedValue<super::incremental_normal_process_source::NormalGenesisProcessSourceV1>{self.process}
+    pub fn process_source_v1(
+        &self,
+    ) -> &ReservedValue<super::incremental_normal_process_source::NormalGenesisProcessSourceV1>
+    {
+        &self.process
+    }
+    pub fn into_process_source_v1(
+        self,
+    ) -> ReservedValue<super::incremental_normal_process_source::NormalGenesisProcessSourceV1> {
+        self.process
+    }
 }
 pub use oasis7_world_state::incremental_runtime_registry::RUNTIME_TYPED_GENESIS_FIELDS_V1;
 pub const RUNTIME_TYPED_RAW_FIELDS_V1: &[&str] = &[
@@ -331,6 +341,32 @@ impl World {
         persist_action: &mut A,
         sink: &mut S,
     ) -> Result<RuntimeTypedGenesisSummaryV1, MemberRecordError> {
+        self.prepare_iws_runtime_typed_genesis_with_artifact_work_v1(
+            ctx,
+            work,
+            (persist_artifact, None),
+            persist_action,
+            sink,
+        )
+    }
+
+    pub(in crate::world) fn prepare_iws_runtime_typed_genesis_with_artifact_work_v1<
+        W: StatePageWriter + ValueNodeReader,
+        C: FnMut() -> bool,
+        P: FnMut(OriginalArtifactRefV1, &[u8]) -> Result<(), ValueTreeError>,
+        A: FnMut(
+            u64,
+            &oasis7_world_state::ActionEnvelope,
+        ) -> Result<OriginalArtifactRefV1, ValueTreeError>,
+        S: FnMut(ReservedValue<ExecutionWriteV1>) -> Result<(), ValueTreeError>,
+    >(
+        &self,
+        ctx: &mut MemberRecordWriteContext<'_, W, C>,
+        work: &mut RuntimeTypedGenesisWorkV1,
+        artifact: (&mut P, Option<&RuntimeArtifactOriginalWorkDebitV1<'_>>),
+        persist_action: &mut A,
+        sink: &mut S,
+    ) -> Result<RuntimeTypedGenesisSummaryV1, MemberRecordError> {
         if (ctx.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());
         }
@@ -370,11 +406,11 @@ impl World {
             &mut work.artifact_resources,
             &mut emit,
         )?;
-        self.prepare_iws_runtime_artifact_content_genesis_v1(
+        self.prepare_iws_runtime_artifact_content_genesis_with_work_v1(
             ctx,
             &mut work.records_remaining,
             &mut work.artifact_originals,
-            persist_artifact,
+            artifact,
             &mut emit,
         )?;
         self.prepare_incremental_runtime_controls_genesis_v1(
@@ -449,7 +485,12 @@ impl World {
             return Err(ValueTreeError::Cancelled.into());
         }
         coverage.finish()?;
-        let process=super::incremental_normal_process_source::capture_genesis_process_v1(self,&mut work.records_remaining,&mut ctx.io.read_bytes_remaining,ctx.memory)?;
+        let process = super::incremental_normal_process_source::capture_genesis_process_v1(
+            self,
+            &mut work.records_remaining,
+            &mut ctx.io.read_bytes_remaining,
+            ctx.memory,
+        )?;
         Ok(RuntimeTypedGenesisSummaryV1 {
             world_state,
             runtime_fields: u64::from(coverage.runtime.count_ones()),

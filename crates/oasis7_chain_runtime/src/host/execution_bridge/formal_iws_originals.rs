@@ -12,12 +12,11 @@ use oasis7_formal_protocol::{
     incremental_artifacts::OriginalArtifactRefV1,
     incremental_value::{ValueIoBudget, ValueTreeError},
 };
-use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation};
 use oasis7_runtime::{
     BodyMutationError,
     incremental_action_original::{
-        ActionOriginalReceiptV1, ActionOriginalSinkV1, ActionOriginalStreamV1,
-        persist_world_event_original_with_work_v1,
+        ActionOriginalReceiptV1, ActionOriginalStreamV1, persist_world_event_original_with_work_v1,
     },
 };
 use oasis7_wasm_abi::CanonicalCborWorkV1;
@@ -132,21 +131,23 @@ struct EventMeterFrame<'a> {
 /// Only the concrete borrowed DTOs below can enter this private child.
 /// Static dispatch retains one source reference and adds no owned frame.
 trait BoundedOriginalSource {
+    type Work;
     type Receipt;
     const POOL_ERROR: &'static str;
     const LANE_ERROR: &'static str;
     fn persist<C: FnMut() -> bool>(
         &self,
         memory: &MemoryBudget,
-        canonical: &mut CanonicalCborWorkV1,
+        canonical: &mut Self::Work,
         cancelled: &mut C,
         max_bytes: usize,
-        sink: &mut dyn ActionOriginalSinkV1,
+        originals: &mut Originals<'_, '_, '_>,
         debit: &dyn Fn(u64, u64) -> Result<(), BodyMutationError>,
     ) -> Result<Self::Receipt, BodyMutationError>;
     fn reference(receipt: Self::Receipt) -> OriginalArtifactRefV1;
 }
 impl BoundedOriginalSource for oasis7_world_state::WorldEvent {
+    type Work = CanonicalCborWorkV1;
     type Receipt = ActionOriginalReceiptV1;
     const POOL_ERROR: &'static str = "GEN journal original source pool";
     const LANE_ERROR: &'static str = "GEN journal original lane increased";
@@ -156,11 +157,19 @@ impl BoundedOriginalSource for oasis7_world_state::WorldEvent {
         canonical: &mut CanonicalCborWorkV1,
         cancelled: &mut C,
         max_bytes: usize,
-        sink: &mut dyn ActionOriginalSinkV1,
+        originals: &mut Originals<'_, '_, '_>,
         debit: &dyn Fn(u64, u64) -> Result<(), BodyMutationError>,
     ) -> Result<Self::Receipt, BodyMutationError> {
         persist_world_event_original_with_work_v1(
-            self, memory, canonical, cancelled, max_bytes, sink, debit,
+            self,
+            memory,
+            canonical,
+            cancelled,
+            max_bytes,
+            &mut |source: &mut dyn ActionOriginalStreamV1, poll: &mut dyn FnMut() -> bool| {
+                originals.stream(source, poll)
+            },
+            debit,
         )
     }
     fn reference(receipt: Self::Receipt) -> OriginalArtifactRefV1 {
@@ -171,6 +180,7 @@ impl BoundedOriginalSource for oasis7_world_state::WorldEvent {
     }
 }
 impl BoundedOriginalSource for oasis7_world_state::snapshot::SnapshotRecord {
+    type Work = CanonicalCborWorkV1;
     type Receipt = OriginalArtifactRefV1;
     const POOL_ERROR: &'static str = "GEN snapshot original source pool";
     const LANE_ERROR: &'static str = "GEN snapshot original lane increased";
@@ -180,11 +190,14 @@ impl BoundedOriginalSource for oasis7_world_state::snapshot::SnapshotRecord {
         canonical: &mut CanonicalCborWorkV1,
         cancelled: &mut C,
         max_bytes: usize,
-        sink: &mut dyn ActionOriginalSinkV1,
+        originals: &mut Originals<'_, '_, '_>,
         debit: &dyn Fn(u64, u64) -> Result<(), BodyMutationError>,
     ) -> Result<Self::Receipt, BodyMutationError> {
         oasis7_world_state::incremental_runtime_history_original::persist_snapshot_record_original_with_work_v1(
-            self, memory, canonical, cancelled, max_bytes, sink, debit,
+            self, memory, canonical, cancelled, max_bytes,
+            &mut |source: &mut dyn ActionOriginalStreamV1, poll: &mut dyn FnMut() -> bool| {
+                originals.stream(source, poll)
+            }, debit,
         )
     }
     fn reference(receipt: Self::Receipt) -> OriginalArtifactRefV1 {
@@ -192,6 +205,7 @@ impl BoundedOriginalSource for oasis7_world_state::snapshot::SnapshotRecord {
     }
 }
 impl BoundedOriginalSource for oasis7_world_state::consensus::TickConsensusRecord {
+    type Work = CanonicalCborWorkV1;
     type Receipt = OriginalArtifactRefV1;
     const POOL_ERROR: &'static str = "GEN hot Tick original source pool";
     const LANE_ERROR: &'static str = "GEN hot Tick original lane increased";
@@ -201,11 +215,14 @@ impl BoundedOriginalSource for oasis7_world_state::consensus::TickConsensusRecor
         canonical: &mut CanonicalCborWorkV1,
         cancelled: &mut C,
         max_bytes: usize,
-        sink: &mut dyn ActionOriginalSinkV1,
+        originals: &mut Originals<'_, '_, '_>,
         debit: &dyn Fn(u64, u64) -> Result<(), BodyMutationError>,
     ) -> Result<Self::Receipt, BodyMutationError> {
         oasis7_world_state::incremental_runtime_history_original::persist_tick_consensus_record_original_with_work_v1(
-            self, memory, canonical, cancelled, max_bytes, sink, debit,
+            self, memory, canonical, cancelled, max_bytes,
+            &mut |source: &mut dyn ActionOriginalStreamV1, poll: &mut dyn FnMut() -> bool| {
+                originals.stream(source, poll)
+            }, debit,
         )
     }
     fn reference(receipt: Self::Receipt) -> OriginalArtifactRefV1 {
@@ -213,6 +230,7 @@ impl BoundedOriginalSource for oasis7_world_state::consensus::TickConsensusRecor
     }
 }
 impl BoundedOriginalSource for oasis7_world_state::consensus::TickConsensusRejectionAuditEvent {
+    type Work = CanonicalCborWorkV1;
     type Receipt = OriginalArtifactRefV1;
     const POOL_ERROR: &'static str = "GEN retained audit original source pool";
     const LANE_ERROR: &'static str = "GEN retained audit original lane increased";
@@ -222,12 +240,48 @@ impl BoundedOriginalSource for oasis7_world_state::consensus::TickConsensusRejec
         canonical: &mut CanonicalCborWorkV1,
         cancelled: &mut C,
         max_bytes: usize,
-        sink: &mut dyn ActionOriginalSinkV1,
+        originals: &mut Originals<'_, '_, '_>,
         debit: &dyn Fn(u64, u64) -> Result<(), BodyMutationError>,
     ) -> Result<Self::Receipt, BodyMutationError> {
         oasis7_world_state::incremental_runtime_history_original::persist_tick_consensus_rejection_audit_original_with_work_v1(
-            self, memory, canonical, cancelled, max_bytes, sink, debit,
+            self, memory, canonical, cancelled, max_bytes,
+            &mut |source: &mut dyn ActionOriginalStreamV1, poll: &mut dyn FnMut() -> bool| {
+                originals.stream(source, poll)
+            }, debit,
         )
+    }
+    fn reference(receipt: Self::Receipt) -> OriginalArtifactRefV1 {
+        receipt
+    }
+}
+
+/// The preceding borrowed producer already paid for the exact raw digest.
+/// This immediate adapter neither measures nor retains another source.
+struct RawOriginalSource<'a> {
+    reference: OriginalArtifactRefV1,
+    bytes: &'a [u8],
+}
+impl BoundedOriginalSource for RawOriginalSource<'_> {
+    type Work = ();
+    type Receipt = OriginalArtifactRefV1;
+    const POOL_ERROR: &'static str = "GEN artifact original source pool";
+    const LANE_ERROR: &'static str = "GEN artifact original lane increased";
+    fn persist<C: FnMut() -> bool>(
+        &self,
+        _memory: &MemoryBudget,
+        _work: &mut (),
+        cancelled: &mut C,
+        _max_bytes: usize,
+        originals: &mut Originals<'_, '_, '_>,
+        _debit: &dyn Fn(u64, u64) -> Result<(), BodyMutationError>,
+    ) -> Result<Self::Receipt, BodyMutationError> {
+        let length = u64::try_from(self.bytes.len())
+            .map_err(|_| BodyMutationError::Invalid("IWS original byte length"))?;
+        if self.reference.byte_len != length {
+            return Err(BodyMutationError::Invalid("GEN artifact original length"));
+        }
+        originals.raw_with_poll(self.reference.id, self.bytes, Some(cancelled))?;
+        Ok(self.reference)
     }
     fn reference(receipt: Self::Receipt) -> OriginalArtifactRefV1 {
         receipt
@@ -299,10 +353,35 @@ impl Originals<'_, '_, '_> {
         self.source_bounded(audit, canonical, common)
     }
 
+    pub(super) fn raw_bounded(
+        &mut self,
+        reference: OriginalArtifactRefV1,
+        bytes: &[u8],
+        common: &mut FormalBoundedContextV1<'_>,
+    ) -> Result<OriginalArtifactRefV1, BodyMutationError> {
+        // This new source/result/poll frame is separate from EventMeterFrame.
+        // Eight fixed operations: construction, length check, six endpoint polls.
+        let frame_bytes = std::mem::size_of::<RawOriginalSource<'_>>()
+            + 3 * std::mem::size_of::<OriginalArtifactRefV1>()
+            + std::mem::size_of::<Option<&mut dyn FnMut() -> bool>>()
+            + 4 * std::mem::size_of::<usize>()
+            + std::mem::size_of::<MemoryReservation>()
+            + std::mem::size_of::<Result<OriginalArtifactRefV1, BodyMutationError>>()
+            + std::mem::size_of::<Result<(), BodyMutationError>>();
+        common
+            .charge(8, frame_bytes as u64)
+            .map_err(context_error)?;
+        let _frame_fee = common
+            .memory()
+            .reserve(frame_bytes, MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
+        self.source_bounded(&RawOriginalSource { reference, bytes }, &mut (), common)
+    }
+
     fn source_bounded<S: BoundedOriginalSource>(
         &mut self,
         source: &S,
-        canonical: &mut CanonicalCborWorkV1,
+        canonical: &mut S::Work,
         common: &mut FormalBoundedContextV1<'_>,
     ) -> Result<OriginalArtifactRefV1, BodyMutationError> {
         common.consume_steps(1).map_err(context_error)?;
@@ -357,9 +436,7 @@ impl Originals<'_, '_, '_> {
                     cancelled.load(std::sync::atomic::Ordering::Acquire) || frame.codec.cancelled()
                 },
                 max_bytes,
-                &mut |source: &mut dyn ActionOriginalStreamV1, poll: &mut dyn FnMut() -> bool| {
-                    self.stream(source, poll)
-                },
+                self,
                 &|steps, bytes| frame.codec.charge(steps, bytes),
             )
         })) {
@@ -434,10 +511,23 @@ impl Originals<'_, '_, '_> {
         Ok(())
     }
     pub(super) fn raw(&mut self, id: [u8; 32], bytes: &[u8]) -> Result<(), BodyMutationError> {
+        self.raw_with_poll(id, bytes, None)
+    }
+    fn raw_with_poll(
+        &mut self,
+        id: [u8; 32],
+        bytes: &[u8],
+        mut poll: Option<&mut dyn FnMut() -> bool>,
+    ) -> Result<(), BodyMutationError> {
         let length = u64::try_from(bytes.len())
             .map_err(|_| BodyMutationError::Invalid("IWS original byte length"))?;
         self.begin(length)?;
         for (index, store) in self.stores.iter().enumerate() {
+            if let Some(poll) = poll.as_mut()
+                && poll()
+            {
+                return Err(ValueTreeError::Cancelled.into());
+            }
             let mut io = ObjectIo {
                 physical: &mut self.physical[index],
                 logical: &mut self.logical[index],
@@ -447,6 +537,13 @@ impl Originals<'_, '_, '_> {
             store
                 .write_object(&mut &bytes[..], length, Some(id), &mut io)
                 .map_err(|e| store_error(e, self.error))?;
+            // The actual writer's first error returns above. Only a successful
+            // complete endpoint can be followed by a Common cancellation poll.
+            if let Some(poll) = poll.as_mut()
+                && poll()
+            {
+                return Err(ValueTreeError::Cancelled.into());
+            }
         }
         Ok(())
     }

@@ -326,7 +326,11 @@ pub(crate) fn prepare_projected_runtime_genesis_index_with_writer_v1<
     W: StatePageWriter
         + ValueNodeReader
         + oasis7_formal_protocol::incremental_schedule::SchedulePageWriter,
-    P: FnMut(OriginalArtifactRefV1, &[u8]) -> Result<(), ValueTreeError>,
+    P: FnMut(
+        OriginalArtifactRefV1,
+        &[u8],
+        &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+    ) -> Result<(), ValueTreeError>,
     A: FnMut(u64, &ActionEnvelope) -> Result<OriginalArtifactRefV1, ValueTreeError>,
     L: FnMut(&str, u64, &DomainEvent) -> Result<[u8; 32], BodyMutationError>,
 >(
@@ -358,7 +362,7 @@ pub(crate) fn prepare_projected_runtime_genesis_index_with_writer_v1<
         &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
     ) -> Result<OriginalArtifactRefV1, BodyMutationError>,
     common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
-) -> Result<ProvisionalProjectedRuntimeGenesisIndexV1, RuntimeGenesisPhysicalErrorV1> {
+) -> Result<ProvisionalProjectedRuntimeGenesisIndexV1, RuntimeGenesisPhysicalErrorV1>{
     if context.cancelled.load(Ordering::Acquire) {
         return Err(ValueTreeError::Cancelled.into());
     }
@@ -385,7 +389,7 @@ pub(crate) fn prepare_projected_runtime_genesis_index_with_writer_v1<
     let cancelled = context.cancelled;
     let (roots, projected) = with_genesis_index_v1(store, config, physical, cancelled, |sink| {
         world
-            .prepare_iws_genesis_with_projection_v1(
+            .prepare_iws_genesis_with_projection_and_artifact_work_v1(
                 &mut MemberRecordWriteContext {
                     sink: &mut *pages,
                     memory: context.memory,
@@ -394,8 +398,7 @@ pub(crate) fn prepare_projected_runtime_genesis_index_with_writer_v1<
                     limits: context.limits,
                     cancelled: || cancelled.load(Ordering::Acquire),
                 },
-                work,
-                persist_artifact,
+                (work, persist_artifact),
                 persist_action,
                 mailbox_original,
                 &mut |row| sink(row),

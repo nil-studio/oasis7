@@ -185,11 +185,25 @@ mod family_tests;
 mod receiver;
 pub use receiver::*;
 
+/// Borrowed synchronous work admission; it owns no source or allowance.
+pub type RuntimeArtifactOriginalWorkDebitV1<'a> =
+    dyn Fn(u64, u64) -> Result<(), ValueTreeError> + 'a;
+
 fn prepare_borrowed_original<C: FnMut() -> bool>(
     bytes: &[u8],
     memory: &MemoryBudget,
     work: &mut RuntimeArtifactOriginalWorkV1,
     cancelled: &mut C,
+) -> Result<OriginalArtifactRefV1, ValueTreeError> {
+    prepare_borrowed_original_with_work(bytes, memory, work, cancelled, None)
+}
+
+fn prepare_borrowed_original_with_work<C: FnMut() -> bool>(
+    bytes: &[u8],
+    memory: &MemoryBudget,
+    work: &mut RuntimeArtifactOriginalWorkV1,
+    cancelled: &mut C,
+    debit: Option<&RuntimeArtifactOriginalWorkDebitV1<'_>>,
 ) -> Result<OriginalArtifactRefV1, ValueTreeError> {
     if cancelled() {
         return Err(ValueTreeError::Cancelled);
@@ -203,6 +217,11 @@ fn prepare_borrowed_original<C: FnMut() -> bool>(
             "Runtime artifact new original allowance",
         ));
     }
+    // Admit the fixed hash state and finalization before the original scratch
+    // and source debit. This hook adds work, not a second memory reservation.
+    if let Some(debit) = debit {
+        debit(1, 8192)?;
+    }
     let _scratch = memory.reserve(8192, MemoryClass::Ordinary)?;
     work.objects_remaining -= 1;
     work.bytes_remaining -= length;
@@ -211,10 +230,16 @@ fn prepare_borrowed_original<C: FnMut() -> bool>(
         if cancelled() {
             return Err(ValueTreeError::Cancelled);
         }
+        if let Some(debit) = debit {
+            debit(1, chunk.len() as u64)?;
+        }
         hash.update(chunk);
     }
     if cancelled() {
         return Err(ValueTreeError::Cancelled);
+    }
+    if let Some(debit) = debit {
+        debit(1, 40)?;
     }
     Ok(OriginalArtifactRefV1 {
         id: *hash.finalize().as_bytes(),

@@ -64,6 +64,35 @@ where
     P: FnMut(OriginalArtifactRefV1, &[u8]) -> Result<(), ValueTreeError>,
     S: FnMut(ReservedValue<ExecutionWriteV1>) -> Result<(), ValueTreeError>,
 {
+    prepare_runtime_artifact_content_genesis_with_work_v1(
+        registered,
+        originals,
+        ctx,
+        records_remaining,
+        work,
+        (persist, None),
+        sink,
+    )
+}
+
+/// The synchronous hook precedes each actual borrowed hash operation. Neither
+/// the original source allowance nor the collection traversal is duplicated.
+pub fn prepare_runtime_artifact_content_genesis_with_work_v1<W, C, P, S>(
+    registered: &BTreeSet<String>,
+    originals: &BTreeMap<String, Arc<[u8]>>,
+    ctx: &mut MemberRecordWriteContext<'_, W, C>,
+    records_remaining: &mut u64,
+    work: &mut RuntimeArtifactOriginalWorkV1,
+    artifact: (&mut P, Option<&RuntimeArtifactOriginalWorkDebitV1<'_>>),
+    sink: &mut S,
+) -> Result<(), MemberRecordError>
+where
+    W: ValueNodeWriter,
+    C: FnMut() -> bool,
+    P: FnMut(OriginalArtifactRefV1, &[u8]) -> Result<(), ValueTreeError>,
+    S: FnMut(ReservedValue<ExecutionWriteV1>) -> Result<(), ValueTreeError>,
+{
+    let (persist, debit) = artifact;
     for field in RuntimeArtifactContentFieldV1::ALL {
         if (ctx.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());
@@ -104,8 +133,13 @@ where
             return Err(ValueTreeError::Cancelled.into());
         }
         spend_record(records_remaining)?;
-        let original =
-            super::prepare_borrowed_original(bytes, ctx.memory, work, &mut ctx.cancelled)?;
+        let original = super::prepare_borrowed_original_with_work(
+            bytes,
+            ctx.memory,
+            work,
+            &mut ctx.cancelled,
+            debit,
+        )?;
         persist(original, bytes)?;
         if (ctx.cancelled)() {
             return Err(ValueTreeError::Cancelled.into());
