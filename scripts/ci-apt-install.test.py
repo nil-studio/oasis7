@@ -264,6 +264,17 @@ class ErrorClassification(unittest.TestCase):
             with self.subTest(reason=reason):
                 self.assertTrue(apt.transient_update('E: Failed to fetch http://mirror/index ' + reason))
 
+    def test_repository_http_rate_limit_retries_only_without_permanent_errors(self):
+        failure = (
+            'E: Failed to fetch https://packages.microsoft.com/ubuntu/24.04/prod/dists/noble/InRelease'
+            '  429  Too Many Requests [IP: 13.107.246.41 443]\n'
+            'E: Some index files failed to download. They have been ignored, or old ones used instead.'
+        )
+        self.assertTrue(apt.transient_update(failure))
+        self.assertFalse(apt.transient_update(failure + '\nW: The repository is not signed.'))
+        self.assertFalse(apt.transient_update(failure.replace('429  Too Many Requests', '404  Not Found')))
+        self.assertFalse(apt.transient_update(failure.replace('  429  Too Many Requests', '/429')))
+
     def test_unknown_permanent_and_mixed_errors_do_not_retry(self):
         for line in ('E: Unable to locate package x', 'E: Invalid operation',
                      'E: Permission denied', 'E: Could not get lock /var/lib/dpkg/lock',
