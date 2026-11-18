@@ -83,7 +83,7 @@ class VerifyStagesTests(unittest.TestCase):
         helper_scripts = self.root / "scripts"
         helper_scripts.mkdir()
         repository_scripts = Path(__file__).resolve().parents[3] / "scripts"
-        for filename in ("ci-worker-build.py", "ci_process_runner.py"):
+        for filename in ("ci-worker-build.py", "ci-tool-cache.py", "ci_process_runner.py"):
             shutil.copyfile(repository_scripts / filename, helper_scripts / filename)
         self.commands = self.root / "bin"
         self.commands.mkdir()

@@ -5,6 +5,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import platform
+import re
 import shutil
 import subprocess
 import tempfile
@@ -135,6 +137,20 @@ test('standard debugger preserves original child contracts', { timeout: 15_000 }
 '''
 
 
+def compile_fixture(source, binary):
+    compiler = 'cc'
+    if platform.system() == 'Linux' and platform.machine() in ('x86_64', 'aarch64'):
+        key = f'CARGO_TARGET_{platform.machine().upper()}_UNKNOWN_LINUX_GNU_LINKER'
+        compiler = os.environ.get(key) or compiler
+    subprocess.run([compiler, '-std=c11', '-D_POSIX_C_SOURCE=200809L', '-Wall', '-Wextra', '-Werror',
+                    '-O0', '-g', str(source), '-o', str(binary)], check=True, timeout=30)
+    if Path(compiler).name == 'oasis7-mold-gcc':
+        comment = subprocess.run(['readelf', '-p', '.comment', str(binary)], check=True,
+                                 capture_output=True, text=True, timeout=30).stdout
+        if not re.search(r'\bmold 3\.0\.0(?:\s|$)', comment):
+            raise AssertionError('GDB fixture was not linked by the pinned mold')
+
+
 class GdbContracts(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -156,9 +172,7 @@ class GdbContracts(unittest.TestCase):
         source.write_text(C_FIXTURE)
         cls.node_fixture = cls.directory / 'contract.test.mjs'
         cls.node_fixture.write_text(NODE_FIXTURE)
-        subprocess.run(['cc', '-std=c11', '-D_POSIX_C_SOURCE=200809L', '-Wall', '-Wextra', '-Werror',
-                        '-O0', '-g', str(source),
-                        '-o', str(cls.binary)], check=True, timeout=30)
+        compile_fixture(source, cls.binary)
         cls.engine_sha = hashlib.sha256(cls.binary.read_bytes()).hexdigest()
 
     def observe(self, mode):

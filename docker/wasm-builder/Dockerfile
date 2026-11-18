@@ -27,8 +27,13 @@ RUN apt-get update \
         curl \
         git \
         pkg-config \
+        python3 \
         xz-utils \
     && rm -rf /var/lib/apt/lists/*
+
+COPY --chmod=0755 .github/actions/setup-linux-mold/setup.py /opt/oasis7/.github/actions/setup-linux-mold/setup.py
+RUN python3 /opt/oasis7/.github/actions/setup-linux-mold/setup.py
+ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=/opt/oasis7-mold/3.0.0-v1/bin/oasis7-mold-gcc
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
     | sh -s -- -y --profile minimal --default-toolchain none \
@@ -44,6 +49,7 @@ COPY --chmod=0755 crates /opt/oasis7/crates
 COPY --chmod=0755 vendor-if-watch-3.2.2 /opt/oasis7/vendor-if-watch-3.2.2
 COPY --chmod=0755 vendor-libp2p-swarm-0.48.0 /opt/oasis7/vendor-libp2p-swarm-0.48.0
 COPY --chmod=0755 vendor-libp2p-rendezvous-0.18.1 /opt/oasis7/vendor-libp2p-rendezvous-0.18.1
+COPY --chmod=0755 vendor-libp2p-quic-0.14.0 /opt/oasis7/vendor-libp2p-quic-0.14.0
 COPY --chmod=0755 tools/scenario_test_runner /opt/oasis7/tools/scenario_test_runner
 COPY --chmod=0755 tools/wasm_build_suite /opt/oasis7/tools/wasm_build_suite
 COPY --chmod=0755 tools/wasm_module_observe /opt/oasis7/tools/wasm_module_observe
@@ -52,6 +58,7 @@ COPY --chmod=0755 docker/wasm-builder/prepare-workspace.sh /opt/oasis7/docker/wa
 
 RUN bash /opt/oasis7/docker/wasm-builder/prepare-workspace.sh \
     && env -u RUSTC_WRAPPER CARGO_TARGET_DIR=/tmp/oasis7-producer-target cargo install --locked --path /opt/oasis7/tools/wasm_build_suite \
+    && readelf -p .comment /cargo/bin/wasm_build_suite | grep -E 'mold 3[.]0[.]0([[:space:]]|$)' \
     && chmod a+rx /cargo/bin/wasm_build_suite \
     && rm -rf /tmp/oasis7-producer-target /cargo/registry /cargo/git
 

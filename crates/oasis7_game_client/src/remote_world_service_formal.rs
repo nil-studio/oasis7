@@ -433,6 +433,10 @@ impl<P: FormalReadProjection> RemoteWorldServiceReader<P> {
         let verifier = FormalReadVerifier::<P>::new(&trust, anchor)
             .map_err(WorldServiceClientError::Configuration)?;
         let mut client = Self::new_base_with_evidence_policy(config, ReadEvidencePolicy::Ordinary)?;
+        // Formal reads must use the same explicit transport policy as full-sync
+        // material reads. Ordinary clients retain their existing proxy behavior.
+        client.transport.http = crate::formal_read_http_client(client.config.timeout)
+            .map_err(|error| WorldServiceClientError::Configuration(error.to_string()))?;
         client.formal_read = Some(std::sync::Arc::new(std::sync::Mutex::new(verifier)));
         client.formal_trust_identity = Some(identity);
         Ok(client)

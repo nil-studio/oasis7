@@ -78,10 +78,37 @@ pub(super) fn read_member(
         return Err(bad());
     }
     let (mut low, mut high) = (0, count);
+    // The caller's admitted workspace covers this fixed index block. Once
+    // the remaining range fits, read it once and keep the original binary
+    // comparison order; unselected rows are still only untrusted locators.
+    let mut rows = [0; 4 * ROW];
+    let mut tail_start = None;
     while low < high {
         let middle = low + (high - low) / 2;
-        let mut row = [0; ROW];
-        read_at(file, index + (middle * ROW) as u64, &mut row, io, cancelled)?;
+        let row_start = if let Some(start) = tail_start {
+            check_cancelled(cancelled)?;
+            (middle - start) * ROW
+        } else if high - low <= 4 {
+            read_at(
+                file,
+                index + (low * ROW) as u64,
+                &mut rows[..(high - low) * ROW],
+                io,
+                cancelled,
+            )?;
+            tail_start = Some(low);
+            (middle - low) * ROW
+        } else {
+            read_at(
+                file,
+                index + (middle * ROW) as u64,
+                &mut rows[..ROW],
+                io,
+                cancelled,
+            )?;
+            0
+        };
+        let row = &rows[row_start..row_start + ROW];
         match row[..32].cmp(&wanted) {
             std::cmp::Ordering::Less => low = middle + 1,
             std::cmp::Ordering::Greater => high = middle,

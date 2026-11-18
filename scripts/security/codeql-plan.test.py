@@ -99,6 +99,99 @@ class PlannerTests(unittest.TestCase):
         self.assertEqual(self.run_plan(full=True)['selected_units'],
                          ['actions-repo', 'python-repo', 'javascript-repo', 'rust-repo'])
 
+    def test_wasm_builder_inputs_add_modify_delete_route_known_consumers(self):
+        expected = ['actions-repo', 'python-repo', 'rust-repo']
+        for path in ('.dockerignore', 'docker/wasm-builder/Dockerfile'):
+            for value in ('before', 'after', None):
+                with self.subTest(path=path, value=value):
+                    self.base = self.git('rev-parse', 'HEAD')
+                    if value is None:
+                        (self.root / path).unlink()
+                    else:
+                        self.write(path, value)
+                    self.commit()
+                    result = self.run_plan()
+                    self.assertEqual(result['completeness']['diff_paths'], [path])
+                    self.assertEqual(result['candidate_units'], expected)
+                    self.assertEqual(result['selected_units'], expected)
+                    self.assertEqual([row['unit'] for row in result['matrix']['include']], expected)
+                    self.assertEqual(result['fallback_reasons'], [])
+                    for unit in expected:
+                        self.assertEqual(result['reasons'][unit], [path])
+                    self.assertEqual(result['reasons']['javascript-repo'], [])
+
+    def test_wasm_builder_neighbors_and_rename_fail_closed(self):
+        for path in ('.dockerignore.local', 'nested/.dockerignore',
+                     'docker/other/Dockerfile', 'docker/wasm-builder/Dockerfile.backup'):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path); self.commit()
+                for full in (False, True):
+                    with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                        self.run_plan(full=full)
+                (self.root / path).unlink(); self.commit()
+        for known in ('.dockerignore', 'docker/wasm-builder/Dockerfile'):
+            unknown = known + '.backup'
+            for old, new in ((known, unknown), (unknown, known)):
+                with self.subTest(old=old, new=new):
+                    self.write(old); self.base = self.commit()
+                    self.git('mv', old, new); self.commit()
+                    self.assertTrue(self.git('diff', '--name-status', self.base, 'HEAD').startswith('R100\t'))
+                    with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                        self.run_plan()
+                    (self.root / new).unlink(); self.commit()
+
+    def test_wasm_builder_input_symlinks_require_review(self):
+        for path in ('.dockerignore', 'docker/wasm-builder/Dockerfile'):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                target = self.root / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.symlink_to(self.root / 'docs/guide.md'); self.commit()
+                with self.assertRaisesRegex(ValueError, 'symbolic link'):
+                    self.run_plan()
+                target.unlink(); self.commit()
+
+    def test_wasm_builder_inputs_preserve_old_and_new_rust_consumers(self):
+        for path in ('.dockerignore', 'docker/wasm-builder/Dockerfile'):
+            for source, content in (
+                    ('src/lib.rs', 'const S: &str = include_str!("../' + path + '");'),
+                    ('src/lib.rs', 'const S: &str = include_str!(env!("INPUT"));'),
+                    ('build.rs', 'fn main() {}')):
+                with self.subTest(path=path, source=source, content=content):
+                    self.write('src/lib.rs', '')
+                    (self.root / 'build.rs').unlink(missing_ok=True)
+                    self.write(path, 'before'); self.write(source, content)
+                    self.base = self.commit()
+                    (self.root / source).unlink()
+                    self.write(path, 'after'); self.commit()
+                    reason = 'embedded or possible build input: ' + path
+                    self.assertIn(reason, self.run_plan()['reasons']['rust-repo'])
+                    self.base = self.git('rev-parse', 'HEAD')
+                    self.write(source, content)
+                    self.write(path, 'new consumer'); self.commit()
+                    self.assertIn(reason, self.run_plan()['reasons']['rust-repo'])
+
+    def test_wasm_builder_inputs_preserve_batch_limits_and_full_maintenance(self):
+        for path in ('.dockerignore', 'docker/wasm-builder/Dockerfile'):
+            self.write(path)
+        self.commit()
+        result = self.run_plan(batch_modes='{"actions-repo/default":"observe","python-repo/default":"observe"}')
+        self.assertEqual(result['candidate_units'], ['actions-repo', 'python-repo', 'rust-repo'])
+        self.assertEqual(result['selected_units'], ['actions-repo', 'python-repo'])
+        self.assertEqual(result['not_selected_reasons']['rust-repo'], 'batch_disabled')
+        self.assertEqual(result['not_selected_reasons']['javascript-repo'], 'not_affected')
+        disabled = self.run_plan(batch_modes='{}')
+        self.assertEqual(disabled['status'], 'disabled')
+        self.assertEqual(disabled['selected_units'], [])
+        self.assertEqual(disabled['matrix']['include'], [])
+        full = self.run_plan(event='schedule', full=True)
+        self.assertEqual(full['selected_units'],
+                         ['actions-repo', 'python-repo', 'javascript-repo', 'rust-repo'])
+        self.assertEqual(full['fallback_reasons'], ['full maintenance scan'])
+        self.write('web/app.js', 'export const value = 1;'); self.commit()
+        self.assertEqual(self.run_plan()['selected_units'], full['selected_units'])
+
     def test_issue_metadata_add_modify_delete_is_not_executable_code(self):
         for name in ('code-development', 'config', 'decision', 'defect', 'document', 'test'):
             path = '.github/ISSUE_TEMPLATE/' + name + '.yml'
@@ -207,6 +300,27 @@ class PlannerTests(unittest.TestCase):
         for full in (False, True):
             with self.assertRaisesRegex(ValueError, 'unregistered input'):
                 self.run_plan(full=full)
+
+    def test_fixed_quic_vendor_metadata_routes_to_rust(self):
+        for path in ('vendor-libp2p-quic-0.14.0/.gitignore', 'vendor-libp2p-quic-0.14.0/LICENSE'):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, 'fixed vendor metadata\n')
+                self.commit()
+                result = self.run_plan()
+                self.assertEqual(result['selected_units'], ['rust-repo'])
+                self.assertIn(path, result['reasons']['rust-repo'])
+                self.assertEqual(result['fallback_reasons'], [])
+
+    def test_fixed_quic_vendor_registration_does_not_admit_neighbors(self):
+        for path in ('vendor-libp2p-quic-0.14.0/unregistered.json',
+                     'vendor-libp2p-quic-0.14.1/LICENSE'):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, '{}')
+                self.commit()
+                with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                    self.run_plan()
 
     def test_viewer_stylesheet_keeps_javascript_owner_across_changes(self):
         path = 'crates/oasis7_viewer/viewer_terminal_shell.css'
@@ -357,6 +471,23 @@ class PlannerTests(unittest.TestCase):
         path.parent.mkdir(parents=True)
         path.symlink_to('../docs/guide.md'); self.commit()
         with self.assertRaisesRegex(ValueError, 'symbolic link'):
+            self.run_plan()
+
+    def test_ci_base_image_inputs_select_actions(self):
+        paths = ('docker/ci-base/Dockerfile', 'docker/ci-base/build.sh',
+                 'docker/ci-base/runtime-packages.txt', 'docker/ci-base/build-packages.txt')
+        for path in paths:
+            self.write(path, 'fixture\n')
+        self.commit()
+        plan = self.run_plan()
+        self.assertEqual(plan['selected_units'], ['actions-repo'])
+        for path in paths:
+            self.assertIn(path, plan['reasons']['actions-repo'])
+
+    def test_ci_base_image_does_not_register_neighboring_dockerfile(self):
+        self.write('docker/ci-base/nested/Dockerfile', 'FROM scratch\n')
+        self.commit()
+        with self.assertRaisesRegex(ValueError, 'unregistered input'):
             self.run_plan()
 
     def test_ci_required_scope_selects_its_python_and_actions_consumers(self):

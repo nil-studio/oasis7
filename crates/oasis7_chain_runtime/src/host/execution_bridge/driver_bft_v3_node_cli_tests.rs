@@ -2,6 +2,8 @@
 //! The backend remains the explicit in-memory test double from the parent.
 use super::*;
 use std::os::unix::fs::PermissionsExt;
+#[path = "driver_bft_checkpoint_trust_cli_tests.rs"]
+mod checkpoint_trust_tests;
 
 #[test]
 fn wire3_formal_read_shipping_node_cli_commits_private_input_via_native_provider() {
@@ -136,6 +138,7 @@ fn cli_case(process_output_failure: bool, deadline: Option<Instant>) {
     }
     let second_report = crate::formal_bft_header_cli::prepare_node_binding_report(&config).unwrap();
     assert_eq!(second_report.binding_digest, report.binding_digest);
+    checkpoint_trust_tests::check_preparation(&h, root.path(), &config, &report.binding);
     // Independently restore actual H rather than deserializing the descriptor
     // into a trust capability. Its retained H closure needs no fixture reader.
     let original = driver_with_source(&h, root.path(), &store, Arc::new(EmptyIndexReader));

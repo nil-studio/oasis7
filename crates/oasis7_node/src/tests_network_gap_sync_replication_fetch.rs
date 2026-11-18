@@ -41,10 +41,21 @@ fn runtime_network_replication_gap_sync_fetches_missing_commits() {
     let mut runtime_a = with_noop_execution_hook(NodeRuntime::new(config_a))
         .with_replication_network(NodeReplicationNetworkHandle::new(Arc::clone(&network)));
     runtime_a.start().expect("start a");
-    let reached = wait_until(Instant::now() + Duration::from_secs(2), || {
-        runtime_a.snapshot().consensus.committed_height >= 3
+    let start = Instant::now();
+    let mut rounds = 0usize;
+    let mut last_snapshot = runtime_a.snapshot();
+    let reached = wait_until(start + Duration::from_secs(2), || {
+        rounds += 1;
+        last_snapshot = runtime_a.snapshot();
+        last_snapshot.consensus.committed_height >= 3
     });
-    assert!(reached, "sequencer did not reach target height in time");
+    assert!(
+        reached,
+        "sequencer did not reach target height in time: elapsed={:?}, rounds={}, snapshot={:?}",
+        start.elapsed(),
+        rounds,
+        last_snapshot
+    );
     let target_height = runtime_a.snapshot().consensus.committed_height;
     runtime_a.stop().expect("stop a");
 
@@ -143,10 +154,21 @@ fn runtime_network_replication_gap_sync_fetches_missing_commits() {
         )
         .expect("register blob handler");
 
-    let synced = wait_until(Instant::now() + Duration::from_secs(8), || {
-        runtime_b.snapshot().consensus.committed_height >= target_height
+    let sync_start = Instant::now();
+    let mut sync_rounds = 0usize;
+    let mut sync_snapshot = runtime_b.snapshot();
+    let synced = wait_until(sync_start + Duration::from_secs(8), || {
+        sync_rounds += 1;
+        sync_snapshot = runtime_b.snapshot();
+        sync_snapshot.consensus.committed_height >= target_height
     });
-    assert!(synced, "observer did not sync missing commits in time");
+    assert!(
+        synced,
+        "observer did not sync missing commits in time: elapsed={:?}, rounds={}, snapshot={:?}",
+        sync_start.elapsed(),
+        sync_rounds,
+        sync_snapshot
+    );
 
     runtime_b.stop().expect("stop b");
     let snapshot_b = runtime_b.snapshot();

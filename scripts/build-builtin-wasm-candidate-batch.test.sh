@@ -24,12 +24,18 @@ if a[:2]==['buildx','version']:sys.exit(1)
 if a[:2]==['image','inspect']:
  if (s/'missing').exists():sys.exit(1)
  env={'PATH':'/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin','DEBIAN_FRONTEND':'noninteractive','CARGO_HOME':'/cargo','RUSTUP_HOME':'/rustup','OASIS7_WASM_TOOLCHAIN':'nightly-2025-12-11','OASIS7_WASM_TARGET':'wasm32-unknown-unknown','OASIS7_WASM_BUILD_STD':'1','OASIS7_WASM_BUILD_STD_COMPONENTS':'std,panic_abort','OASIS7_WASM_BUILD_STD_FEATURES':'','OASIS7_WASM_BUILD_IN_CONTAINER':'1','OASIS7_WASM_BUILD_SUITE_BIN':'/cargo/bin/wasm_build_suite','TZ':'UTC','LANG':'C','LC_ALL':'C','SOURCE_DATE_EPOCH':'0'}
+ host_linker='CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER'
+ env[host_linker]='/opt/oasis7-mold/3.0.0-v1/bin/oasis7-mold-gcc'
+ if (s/'wrong-linker').exists():env[host_linker]='/usr/bin/gcc'
+ if (s/'missing-linker').exists():del env[host_linker]
+ if (s/'wasm-linker').exists():env['CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_LINKER']=env[host_linker]
  if (s/'wrong-suite').exists():env['OASIS7_WASM_BUILD_SUITE_BIN']='/bin/true'
  if (s/'missing-suite').exists():del env['OASIS7_WASM_BUILD_SUITE_BIN']
  if (s/'unknown-wasm-env').exists():env['OASIS7_WASM_BUILDER_IMAGE']='other'
  if (s/'shell-env').exists():env['BASH_ENV']='/tmp/other'
  if (s/'wrong-path').exists():env['PATH']='/tmp/other'
  env=[k+'='+v for k,v in env.items()]
+ if (s/'duplicate-linker').exists():env.append(host_linker+'=/opt/oasis7-mold/3.0.0-v1/bin/oasis7-mold-gcc')
  if (s/'duplicate-suite').exists():env.append('OASIS7_WASM_BUILD_SUITE_BIN=/cargo/bin/wasm_build_suite')
  entry=['/bin/true'] if (s/'wrong-entrypoint').exists() else ['/opt/oasis7/scripts/build-wasm-module.sh']
  if (s/'missing-entrypoint').exists():entry=None
@@ -106,6 +112,10 @@ class Batch(unittest.TestCase):
     (self.state/marker).touch();c=self.execute(False);self.assertFalse(any(a[0] in ['run','create'] for role,a in c if role=='docker'));(self.state/marker).unlink()
  def test_actual_guest_producer_mismatch_is_not_a_label_success(self):
   (self.state/'producer-mismatch').touch();c=self.execute(False);self.assertEqual(sum(a[0]=='run' for role,a in c if role=='docker'),1)
+ def test_native_linker_is_required_and_cannot_replace_the_wasm_target_linker(self):
+  for marker in ['wrong-linker','missing-linker','duplicate-linker','wasm-linker']:
+   with self.subTest(marker=marker):
+    (self.state/marker).touch();c=self.execute(False);self.assertFalse(any(a[0] in ['run','create'] for role,a in c if role=='docker'));(self.state/marker).unlink()
  def test_recipe_mutation_stops_batch_after_first_module(self):
   (self.state/'mutate').touch();c=self.execute(False);self.assertEqual(sum(a[0]=='run' for role,a in c if role=='docker'),1)
  def test_guest_failure_cleans_only_own_pin_and_directories(self):

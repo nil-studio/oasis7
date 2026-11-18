@@ -1,5 +1,105 @@
 use super::*;
 use serde_json::json;
+use std::ffi::{OsStr, OsString};
+
+fn configure_fixture_linker(
+    rustc: &mut Command,
+    version: &str,
+    lookup: impl FnOnce(&str) -> Option<OsString>,
+) -> bool {
+    let host = version
+        .lines()
+        .find_map(|line| line.strip_prefix("host: "))
+        .expect("rustc version must identify the broker fixture host");
+    let key = format!(
+        "CARGO_TARGET_{}_LINKER",
+        host.to_ascii_uppercase().replace('-', "_")
+    );
+    let Some(linker) = lookup(&key).filter(|linker| !linker.is_empty()) else {
+        return false;
+    };
+    let verify_mold = Path::new(&linker).file_name() == Some(OsStr::new("oasis7-mold-gcc"));
+    let mut option = OsString::from("linker=");
+    option.push(linker);
+    rustc.arg("-C").arg(option);
+    verify_mold
+}
+
+fn fixture_has_pinned_mold_comment(comment: &str) -> bool {
+    let mut previous = "";
+    comment.split_whitespace().any(|word| {
+        let matches = previous == "mold" && word == "3.0.0";
+        previous = word;
+        matches
+    })
+}
+
+#[test]
+fn broker_fixture_selects_cargo_linker_for_rustc_host() {
+    for (host, key) in [
+        (
+            "x86_64-unknown-linux-gnu",
+            "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER",
+        ),
+        (
+            "aarch64-unknown-linux-gnu",
+            "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER",
+        ),
+    ] {
+        let mut rustc = Command::new("rustc");
+        assert!(configure_fixture_linker(
+            &mut rustc,
+            &format!("rustc 1.96.0\nhost: {host}\nrelease: 1.96.0\n"),
+            |name| {
+                assert_eq!(name, key);
+                Some(OsString::from("/tmp/path with spaces/oasis7-mold-gcc"))
+            },
+        ));
+        assert_eq!(
+            rustc.get_args().collect::<Vec<_>>(),
+            [
+                OsStr::new("-C"),
+                OsStr::new("linker=/tmp/path with spaces/oasis7-mold-gcc"),
+            ]
+        );
+    }
+}
+
+#[test]
+fn broker_fixture_preserves_optional_local_linker() {
+    for linker in [None, Some(OsString::new()), Some(OsString::from("gcc"))] {
+        let mut rustc = Command::new("rustc");
+        let configured = linker.as_ref().is_some_and(|value| !value.is_empty());
+        assert!(!configure_fixture_linker(
+            &mut rustc,
+            "host: x86_64-unknown-linux-gnu\n",
+            |_| linker,
+        ));
+        let expected = if configured {
+            vec![OsStr::new("-C"), OsStr::new("linker=gcc")]
+        } else {
+            Vec::new()
+        };
+        assert_eq!(rustc.get_args().collect::<Vec<_>>(), expected);
+    }
+}
+
+#[test]
+fn broker_fixture_mold_comment_requires_exact_version() {
+    assert!(fixture_has_pinned_mold_comment(
+        "String dump of section '.comment':\n  [ 0] mold 3.0.0 (commit)\n"
+    ));
+    for comment in [
+        "",
+        "LLD 20.1.0",
+        "mold 3.0.1",
+        "mold 3.0.00",
+        "notmold 3.0.0",
+    ] {
+        assert!(!fixture_has_pinned_mold_comment(comment), "{comment}");
+    }
+}
+
 struct Fixture {
     root: PathBuf,
     c: BrokerConfig,
@@ -32,8 +132,21 @@ fn fixture(budget: u64) -> Fixture {
     let src = root.join("helper.rs");
     std::fs::write(&src,r#"use std::io::Read;fn main(){let a=std::env::args().collect::<Vec<_>>();assert_eq!(a[1],"--executor-config");assert!(std::env::var("BROKER_TEST_SECRET").is_err());let mut b=String::new();std::io::stdin().read_to_string(&mut b).unwrap();assert_eq!(b,"private-unlock-test");if a[3]=="industry"{std::thread::sleep(std::time::Duration::from_secs(2));}else if a[3]=="task"{print!("{}","\u{1}".repeat(300000));}else if a[3]=="capabilities"{print!("{}","x".repeat(1024));}else{println!("{{\"executor\":\"{}\"}}",a[2]);}}"#).unwrap();
     let binary = root.join("helper");
+    let mut rustc = Command::new("rustc");
+    // Direct rustc does not consume Cargo's target linker configuration itself.
+    let verify_mold = if cfg!(target_os = "linux") {
+        let version = Command::new("rustc").arg("-vV").output().unwrap();
+        assert!(version.status.success(), "failed to query rustc host");
+        configure_fixture_linker(
+            &mut rustc,
+            std::str::from_utf8(&version.stdout).unwrap(),
+            |key| std::env::var_os(key),
+        )
+    } else {
+        false
+    };
     assert!(
-        Command::new("rustc")
+        rustc
             .arg(&src)
             .arg("-o")
             .arg(&binary)
@@ -41,6 +154,23 @@ fn fixture(budget: u64) -> Fixture {
             .unwrap()
             .success()
     );
+    if verify_mold {
+        let comment = Command::new("readelf")
+            .args(["-p", ".comment"])
+            .arg(&binary)
+            .output()
+            .unwrap();
+        assert!(
+            comment.status.success(),
+            "cannot inspect broker fixture ELF: {}",
+            String::from_utf8_lossy(&comment.stderr)
+        );
+        assert!(
+            fixture_has_pinned_mold_comment(&String::from_utf8_lossy(&comment.stdout)),
+            "broker fixture was not linked by mold 3.0.0: {}",
+            String::from_utf8_lossy(&comment.stdout)
+        );
+    }
     std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
     let client_binary = PinnedArtifact {
         sha256: hex::encode(Sha256::digest(std::fs::read(&binary).unwrap())),

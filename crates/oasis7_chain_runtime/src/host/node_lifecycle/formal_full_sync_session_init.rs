@@ -31,11 +31,7 @@ impl FormalFullSyncSession {
         let timeout = Duration::from_millis(config.request_timeout_ms);
         let client =
             providers::build_read_client(&config, active_provider, &node_private_key_hex, timeout)?;
-        let http = HttpClient::builder()
-            .connect_timeout(timeout)
-            .timeout(timeout)
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
+        let http = oasis7_game_client::formal_read_http_client(timeout)
             .map_err(|error| error.to_string())?;
         let node_public_key_hex = signed.subject_public_key;
         let cas = Arc::new(LocalCasStore::new(cas_root));
@@ -99,7 +95,7 @@ impl FormalFullSyncSession {
 
     /// Capture the original verified minimum, not a provider's advertised head.
     /// This is request preparation only, not owner admission or recovery.
-    #[cfg(unix)]
+    #[cfg(all(test, unix))]
     pub(super) fn prepare_operation_request(
         &self,
         policy: &operation_ledger::Policy,
@@ -148,7 +144,8 @@ impl FormalFullSyncSession {
         }))
     }
 
-    /// Explicit operation dependency; does not enable V2 configuration by itself.
+    /// Explicit operation dependency for the shared-exchange validation fixture.
+    #[cfg(all(test, unix))]
     pub(in super::super) fn bind_shared_exchange(
         &mut self,
         exchange: Arc<dyn oasis7_game_client::formal_sync_exchange::FullSyncExchange>,
@@ -206,7 +203,7 @@ impl FormalFullSyncSession {
     /// Recovery entry with journal admission preceding any CAS mutation.
     /// A pending, acknowledged or legacy publication cannot enter the ordinary
     /// constructor, whose pin stabilization/pruning is not recovery authority.
-    #[cfg(unix)]
+    #[cfg(all(test, unix))]
     pub(super) fn recover_pre_target(
         config: FormalFullSyncConfigV1,
         node_private_key_hex: String,
@@ -303,7 +300,7 @@ impl FormalFullSyncSession {
     /// Resume the exact selected target only before any local publication.
     /// An unknown or acknowledged publication remains blocked for separate
     /// installation reconciliation; it is never treated as a fresh transfer.
-    #[cfg(unix)]
+    #[cfg(all(test, unix))]
     pub(super) fn recover_selected_target(
         config: FormalFullSyncConfigV1,
         node_private_key_hex: String,
@@ -439,7 +436,7 @@ impl FormalFullSyncSession {
     /// Recover only an original pre-target operation on its exact native node.
     /// A selected/installed target requires the separate history/install recovery
     /// path and is rejected here rather than replaced with a fresh request.
-    #[cfg(unix)]
+    #[cfg(all(test, unix))]
     pub(super) fn resume_pre_target_operation(
         &mut self,
         mut ledger: operation_ledger::Ledger,

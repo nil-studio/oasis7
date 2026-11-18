@@ -54,10 +54,10 @@ mod attempt;
 pub(super) mod cas_lifecycle;
 #[path = "formal_full_sync_compatibility.rs"]
 mod compatibility;
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 #[path = "formal_full_sync_direct_http.rs"]
 mod direct_http;
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 #[path = "formal_full_sync_dns.rs"]
 mod dns;
 #[path = "formal_full_sync_failover.rs"]
@@ -72,12 +72,12 @@ mod install_handoff;
 mod local_closure;
 #[path = "formal_full_sync_manifest.rs"]
 mod manifest_original;
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 #[path = "formal_full_sync_metered_io.rs"]
 mod metered_io;
 #[path = "formal_full_sync_native.rs"]
 mod native_environment;
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 #[path = "formal_full_sync_operation_ledger.rs"]
 mod operation_ledger;
 #[cfg(all(test, unix))]
@@ -87,13 +87,13 @@ mod operation_tests;
 mod providers;
 #[path = "formal_full_sync_session_init.rs"]
 mod session_init;
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 #[path = "formal_full_sync_shared_exchange.rs"]
 mod shared_exchange;
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 #[path = "formal_full_sync_tls_http.rs"]
 mod tls_http;
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 #[path = "formal_full_sync_tls_io.rs"]
 mod tls_io;
 use attempt::{

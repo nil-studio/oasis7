@@ -5,6 +5,33 @@ const DOCKERFILE: &str = include_str!("../../../docker/wasm-builder/Dockerfile")
 const CONTEXT: &str = include_str!("../../../.dockerignore");
 
 #[test]
+fn builder_context_includes_only_the_shared_native_linker_installer() {
+    let context: Vec<_> = CONTEXT.lines().collect();
+    for required in [
+        "!.github/",
+        "!.github/actions/",
+        "!.github/actions/setup-linux-mold/",
+        "!.github/actions/setup-linux-mold/setup.py",
+    ] {
+        assert!(
+            context.contains(&required),
+            "missing installer input {required}"
+        );
+    }
+    for broad in [
+        "!.github/**",
+        "!.github/actions/**",
+        "!.github/actions/setup-linux-mold/**",
+    ] {
+        assert!(
+            !context.contains(&broad),
+            "unrelated workflow inputs must stay excluded"
+        );
+    }
+    assert!(DOCKERFILE.lines().any(|line| line == "COPY --chmod=0755 .github/actions/setup-linux-mold/setup.py /opt/oasis7/.github/actions/setup-linux-mold/setup.py"));
+}
+
+#[test]
 fn builder_context_contains_every_workspace_tool() {
     let members = WORKSPACE
         .split("members = [")
