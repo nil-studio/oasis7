@@ -114,11 +114,16 @@ impl NetworkBehaviour for Behaviour {
         local: &Multiaddr,
         remote: &Multiaddr,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        let admission = self
+            .connection_budget
+            .as_ref()
+            .map(|budget| budget.authorize_inbound(id, peer))
+            .transpose()?;
         let handler = self
             .inner
             .handle_established_inbound_connection(id, peer, local, remote)?;
-        if let Some(budget) = &self.connection_budget {
-            budget.establish_inbound(id, peer)?;
+        if let Some(admission) = admission {
+            admission.establish()?;
         }
         Ok(handler)
     }
@@ -158,11 +163,16 @@ impl NetworkBehaviour for Behaviour {
         role: libp2p::core::Endpoint,
         port: libp2p::core::transport::PortUse,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
+        let admission = self
+            .connection_budget
+            .as_ref()
+            .map(|budget| budget.authorize_outbound(id, address, peer))
+            .transpose()?;
         let handler = self
             .inner
             .handle_established_outbound_connection(id, peer, address, role, port)?;
-        if let Some(budget) = &self.connection_budget {
-            budget.establish_outbound(id, address, peer)?;
+        if let Some(admission) = admission {
+            admission.establish()?;
         }
         Ok(handler)
     }

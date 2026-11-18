@@ -42,7 +42,14 @@ impl AttemptKey {
 struct Attempt {
     serial: u64,
     peer: Option<PeerId>,
-    pending: bool,
+    phase: AttemptPhase,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AttemptPhase {
+    Pending,
+    Authorized,
+    Established,
 }
 
 #[derive(Default)]
@@ -69,7 +76,7 @@ impl ActiveAttempts {
             return;
         };
         self.entries.remove(key);
-        if attempt.pending {
+        if attempt.phase != AttemptPhase::Established {
             let lane = &mut self.pending[key.pending_lane()];
             if let Some(remaining) = lane.checked_sub(1) {
                 *lane = remaining;
@@ -184,7 +191,7 @@ impl ConnectionBudget {
             Attempt {
                 serial,
                 peer,
-                pending: true,
+                phase: AttemptPhase::Pending,
             },
         );
         Ok(Box::new(AttemptPermit {
@@ -194,24 +201,28 @@ impl ConnectionBudget {
         }))
     }
 
-    pub(super) fn establish_inbound(
+    pub(super) fn authorize_inbound(
         &self,
         connection: ConnectionId,
         peer: PeerId,
-    ) -> Result<(), ConnectionDenied> {
-        self.establish(&AttemptKey::Inbound(connection), peer)
+    ) -> Result<ConnectionAdmission, ConnectionDenied> {
+        self.authorize(AttemptKey::Inbound(connection), peer)
     }
 
-    pub(super) fn establish_outbound(
+    pub(super) fn authorize_outbound(
         &self,
         connection: ConnectionId,
         address: &Multiaddr,
         peer: PeerId,
-    ) -> Result<(), ConnectionDenied> {
-        self.establish(&AttemptKey::Outbound(connection, address.clone()), peer)
+    ) -> Result<ConnectionAdmission, ConnectionDenied> {
+        self.authorize(AttemptKey::Outbound(connection, address.clone()), peer)
     }
 
-    fn establish(&self, key: &AttemptKey, peer: PeerId) -> Result<(), ConnectionDenied> {
+    fn authorize(
+        &self,
+        key: AttemptKey,
+        peer: PeerId,
+    ) -> Result<ConnectionAdmission, ConnectionDenied> {
         let mut state = self
             .0
             .state
@@ -223,8 +234,9 @@ impl ConnectionBudget {
         }
         let attempt = state
             .entries
-            .get_mut(key)
-            .filter(|attempt| attempt.pending)
+            .get(&key)
+            .filter(|attempt| attempt.phase == AttemptPhase::Pending)
+            .copied()
             .ok_or_else(|| denied("authenticated connection lacks a pending permit"))?;
         let add_peer = match attempt.peer {
             Some(expected) if expected != peer => {
@@ -238,16 +250,52 @@ impl ConnectionBudget {
         if add_peer && state.for_peer(peer) >= self.0.limits.per_peer {
             return Err(denied("authenticated peer connection budget exhausted"));
         }
-        let attempt = state
+        let current = state
             .entries
-            .get_mut(key)
+            .get_mut(&key)
             .ok_or_else(|| denied("connection permit disappeared"))?;
-        attempt.peer = Some(peer);
-        attempt.pending = false;
-        state.pending[lane] -= 1;
+        // Reserve the authenticated peer bucket before child behaviours see the
+        // connection. Still hold the pending slot until they all approve it.
+        current.peer = Some(peer);
+        current.phase = AttemptPhase::Authorized;
         if add_peer {
             *state.peers.entry(peer).or_default() += 1;
         }
+        Ok(ConnectionAdmission {
+            budget: self.clone(),
+            key,
+            serial: attempt.serial,
+        })
+    }
+}
+
+pub(super) struct ConnectionAdmission {
+    budget: ConnectionBudget,
+    key: AttemptKey,
+    serial: u64,
+}
+
+impl ConnectionAdmission {
+    pub(super) fn establish(self) -> Result<(), ConnectionDenied> {
+        let mut state = self
+            .budget
+            .0
+            .state
+            .lock()
+            .map_err(|_| denied("connection budget unavailable"))?;
+        let lane = self.key.pending_lane();
+        if state.failed || state.pending[lane] == 0 {
+            return Err(denied("connection budget unavailable"));
+        }
+        let attempt = state
+            .entries
+            .get_mut(&self.key)
+            .filter(|attempt| {
+                attempt.serial == self.serial && attempt.phase == AttemptPhase::Authorized
+            })
+            .ok_or_else(|| denied("authorized connection permit disappeared"))?;
+        attempt.phase = AttemptPhase::Established;
+        state.pending[lane] -= 1;
         Ok(())
     }
 }

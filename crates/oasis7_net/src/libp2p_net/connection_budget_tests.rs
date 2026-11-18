@@ -22,7 +22,7 @@ fn limits() -> ConnectionLimits {
         total: 3,
         pending: 2,
         inbound_unknown: 1,
-        outbound: 1,
+        outbound: 2,
         per_peer: 1,
     }
 }
@@ -47,6 +47,7 @@ fn opposite_pending_lanes_share_capacity_and_authentication_preserves_occupancy(
     let incoming = dial_for(peer, address.clone()).connection_id();
     let outgoing = dial_for(peer, address.clone()).connection_id();
     let other = dial_for(peer, address.clone()).connection_id();
+    let replacement = AttemptKey::Inbound(dial_for(peer, address.clone()).connection_id());
     let inbound = AttemptKey::Inbound(incoming);
     let outbound = AttemptKey::Outbound(outgoing, address.clone());
     let inbound_permit = budget.reserve(inbound.clone(), None).unwrap();
@@ -59,14 +60,31 @@ fn opposite_pending_lanes_share_capacity_and_authentication_preserves_occupancy(
     );
     assert_eq!(occupancy(&budget, peer), (2, [1, 1], 1));
 
-    assert!(budget.establish_inbound(incoming, peer).is_err());
+    assert!(budget.authorize_inbound(incoming, peer).is_err());
     assert_eq!(occupancy(&budget, peer), (2, [1, 1], 1));
     drop(outbound_permit);
     assert_eq!(occupancy(&budget, peer), (1, [1, 0], 0));
-    budget.establish_inbound(incoming, peer).unwrap();
+    let admission = budget.authorize_inbound(incoming, peer).unwrap();
+    assert_eq!(occupancy(&budget, peer), (1, [1, 0], 1));
+    admission.establish().unwrap();
     assert_eq!(occupancy(&budget, peer), (1, [0, 0], 1));
-    assert!(budget.reserve(outbound, Some(peer)).is_err());
+    assert!(budget.reserve(outbound.clone(), Some(peer)).is_err());
+
+    let other_peer = Keypair::generate_ed25519().public().to_peer_id();
+    let other_inbound = budget.reserve(AttemptKey::Inbound(other), None).unwrap();
+    budget
+        .authorize_inbound(other, other_peer)
+        .unwrap()
+        .establish()
+        .unwrap();
+    let last_outbound = budget.reserve(outbound, None).unwrap();
+    assert_eq!(occupancy(&budget, peer), (3, [0, 1], 1));
+    // The pending and inbound caps still have room, but the overall cap is full.
+    assert!(budget.reserve(replacement.clone(), None).is_err());
     drop(inbound_permit);
+    let replacement = budget.reserve(replacement, None).unwrap();
+    assert_eq!(occupancy(&budget, peer), (3, [1, 1], 0));
+    drop((replacement, last_outbound, other_inbound));
     assert_eq!(occupancy(&budget, peer), (0, [0, 0], 0));
 }
 
