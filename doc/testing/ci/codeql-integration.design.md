@@ -807,7 +807,7 @@ GitHub 原生结果检查、告警状态和配置覆盖提示另行读取；job 
 
 Rust default 的平台补采入口为 `codeql-platform-observation.yml`，只接受本仓 `main` 的手动 dispatch，输入已完成生产 run、最新 attempt 和完整 source SHA；ref/category 固定为 `refs/heads/main` / `oasis7/rust-repo/default`。从 dispatch 的可信 main SHA checkout，复用现有 upload association reader 验证 job/check/provider、官方 SARIF ID、artifact digest 与唯一 analysis；不得按同 SHA、时间或上传步骤成功推断平台接收。入口只有 contents/actions/checks/security-events read 权限，不执行提取、查询、上传 SARIF 或设置变更。
 
-补采 API 共用 240 秒绝对预算，job 上限 7 分钟；完整分页或身份校验失败保留 unknown，并尽可能上传失败报告。报告保留 analysis 的错误、警告、结果数与读取到的 open findings；alerts 的 most_recent_instance 仅表示当前观察，不能冒充本次扫描新发现，也不能证明完整历史或零告警。关联成功只补足 CQ-R05 的平台观察，不代签 manifest/宏/target 覆盖或持续启用验收。
+补采 API 共用 240 秒绝对预算，job 上限 7 分钟。精确 analysis 查询保持最多 10 页；findings 先读取 main 全仓 CodeQL open alerts，再按目标 SHA/ref/category 筛选，使用独立的最多 100 页预算，每页 100 条，收据记录该上限。读取遇到短页才算结束；100 个满页仍属不完整，丢弃部分 findings 并保留 unknown，不以 analysis 的结果数推算告警总量或提前终止。身份、API 或总预算失败同样保留 unknown，并尽可能上传失败报告。报告保留 analysis 的错误、警告、结果数与读取到的 open findings；alerts 的 most_recent_instance 仅表示当前观察，不能冒充本次扫描新发现，也不能证明完整历史或零告警。关联成功只补足 CQ-R05 的平台观察，不代签 manifest/宏/target 覆盖或持续启用验收。
 
 ## 10. 执行安全与供应链
 
