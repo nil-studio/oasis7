@@ -118,7 +118,7 @@ class NetworkSourceContract(unittest.TestCase):
         hashes = json.loads((vendor / "upstream-source-sha256.json").read_text())
         hashes.update({
             "src/lib.rs": "3b73c50b07332ab2939c2f50f689c47f0c2ea3c6d657333d007901046ff8d7a5",
-            "src/transport_attempt.rs": "e3d0025f5afc30bc98232bfd1df58b66d51458f606a311ecec7742929e0d7f1c",
+            "src/transport_attempt.rs": "0b3495957be3cc42906a8c55ef80c6345db2c77e25e74ab66713a56fabccb571",
         })
         actual = {str(p.relative_to(vendor)): hashlib.sha256(p.read_bytes()).hexdigest()
                   for p in (vendor / "src").rglob("*.rs")}

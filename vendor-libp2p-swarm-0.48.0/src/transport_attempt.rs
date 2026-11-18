@@ -44,6 +44,7 @@ pub(crate) fn hold_attempt_permit(future: DialFuture, permit: OutboundAttemptPer
     Box::pin(PermittedAttempt {
         future,
         permit: Some(permit),
+        on_ready: |(address, result), permit| (address, retain_connected(result, permit)),
     })
 }
 
@@ -54,22 +55,26 @@ pub(crate) fn hold_listener_permit(
     Box::pin(PermittedAttempt {
         future,
         permit: Some(permit),
+        on_ready: retain_connected,
     })
 }
 
-struct PermittedAttempt<F> {
+type AttemptResult<E> = Result<(PeerId, StreamMuxerBox), E>;
+type ReadyMapper<T> = fn(T, &mut Option<TransportAttemptPermit>) -> T;
+
+struct PermittedAttempt<F: Future> {
     // Drop the transport future before releasing its permit on cancellation.
     future: F,
     permit: Option<TransportAttemptPermit>,
+    on_ready: ReadyMapper<F::Output>,
 }
 
-impl<F> PermittedAttempt<F> {
-    fn retain_connected(
-        &mut self,
-        peer: PeerId,
-        muxer: StreamMuxerBox,
-    ) -> (PeerId, StreamMuxerBox) {
-        let permit = self.permit.take().expect("attempt completes only once");
+fn retain_connected<E>(
+    result: AttemptResult<E>,
+    permit: &mut Option<TransportAttemptPermit>,
+) -> AttemptResult<E> {
+    result.map(|(peer, muxer)| {
+        let permit = permit.take().expect("attempt completes only once");
         (
             peer,
             StreamMuxerBox::new(PermittedMuxer {
@@ -77,25 +82,15 @@ impl<F> PermittedAttempt<F> {
                 _permit: permit,
             }),
         )
-    }
+    })
 }
 
-impl Future for PermittedAttempt<DialFuture> {
-    type Output = <DialFuture as Future>::Output;
+impl<F: Future + Unpin> Future for PermittedAttempt<F> {
+    type Output = F::Output;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let (address, result) = ready!(self.future.as_mut().poll(cx));
-        let result = result.map(|(peer, muxer)| self.retain_connected(peer, muxer));
-        Poll::Ready((address, result))
-    }
-}
-
-impl Future for PermittedAttempt<ListenerUpgrade> {
-    type Output = <ListenerUpgrade as Future>::Output;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let result = ready!(self.future.as_mut().poll(cx));
-        Poll::Ready(result.map(|(peer, muxer)| self.retain_connected(peer, muxer)))
+        let result = ready!(Pin::new(&mut self.future).poll(cx));
+        Poll::Ready((self.on_ready)(result, &mut self.permit))
     }
 }
 
