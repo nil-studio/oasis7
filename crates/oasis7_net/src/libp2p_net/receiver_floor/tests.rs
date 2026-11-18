@@ -1399,3 +1399,69 @@ fn pruning_watermark_persists_across_restart_and_rejects_resurrection_under_skew
     );
     assert_eq!(reopened.floor_count().unwrap(), 1);
 }
+
+#[test]
+fn conflict_preserves_primary_and_historical_expiry_across_cold_reopen() {
+    for conflict_ttl in [30_000, 90_000] {
+        for historical_ttl in [None, Some(120_000)] {
+            let fixture = fixture();
+            let remote_key = Keypair::generate_ed25519();
+            let primary = signed(&remote_key, 9, "peer-primary");
+            let peer_id = primary.record.peer_id.clone();
+            let primary_expiry = primary.record.expires_at_ms().unwrap();
+            let receiver = open(&fixture);
+            assert_eq!(
+                receiver.admit_serialized(&primary).unwrap(),
+                ReceiverAdmission::Accepted
+            );
+            drop(receiver);
+
+            // None serializes without the optional field, matching a pre-GC ledger.
+            // The other case retains a bound from a superseded publication.
+            let mut ledger: ReceiverLedgerV2 =
+                serde_cbor::from_slice(&fs::read(state_path(&fixture)).unwrap()).unwrap();
+            let historical_expiry =
+                historical_ttl.map(|ttl| primary.record.published_at_ms + ttl);
+            ledger.floors.get_mut(&peer_id).unwrap().max_expiry_ms = historical_expiry;
+            write_state(&fixture, &state_bytes(&ledger));
+
+            let receiver = open(&fixture);
+            let mut conflict_body = primary.record.clone();
+            conflict_body.node_id = "peer-conflict".into();
+            conflict_body.ttl_ms = conflict_ttl;
+            let conflict = super::super::peer_record::sign_peer_record_v2(
+                &conflict_body,
+                primary.publication.clone().unwrap(),
+                &remote_key,
+            )
+            .unwrap();
+            assert_eq!(
+                receiver.admit_serialized(&conflict).unwrap(),
+                ReceiverAdmission::Conflict
+            );
+            drop(receiver);
+
+            // Exercise the real durable open and validation, not only in-memory state.
+            let reopened = open(&fixture);
+            let persisted: ReceiverLedgerV2 =
+                serde_cbor::from_slice(&fs::read(state_path(&fixture)).unwrap()).unwrap();
+            let floor = persisted.floors.get(&peer_id).unwrap();
+            assert_eq!(
+                floor.max_expiry_ms,
+                Some(
+                    primary_expiry
+                        .max(historical_expiry.unwrap_or(primary_expiry))
+                        .max(conflict.record.expires_at_ms().unwrap())
+                )
+            );
+            assert!(floor.isolated);
+            assert!(floor.conflict_signed_record_cbor.is_some());
+            assert!(reopened.lease_guard(&primary).is_err());
+            assert!(
+                reopened
+                    .admit_serialized(&signed(&remote_key, 10, "higher"))
+                    .is_err()
+            );
+        }
+    }
+}
