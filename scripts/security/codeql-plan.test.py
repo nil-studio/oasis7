@@ -452,6 +452,23 @@ class PlannerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'symbolic link'):
             self.run_plan()
 
+    def test_ci_base_image_inputs_select_actions(self):
+        paths = ('docker/ci-base/Dockerfile', 'docker/ci-base/build.sh',
+                 'docker/ci-base/runtime-packages.txt', 'docker/ci-base/build-packages.txt')
+        for path in paths:
+            self.write(path, 'fixture\n')
+        self.commit()
+        plan = self.run_plan()
+        self.assertEqual(plan['selected_units'], ['actions-repo'])
+        for path in paths:
+            self.assertIn(path, plan['reasons']['actions-repo'])
+
+    def test_ci_base_image_does_not_register_neighboring_dockerfile(self):
+        self.write('docker/ci-base/nested/Dockerfile', 'FROM scratch\n')
+        self.commit()
+        with self.assertRaisesRegex(ValueError, 'unregistered input'):
+            self.run_plan()
+
     def test_ci_required_scope_selects_its_python_and_actions_consumers(self):
         path = 'scripts/ci-required-scope.json'
         self.write(path, '{"groups":["baseline"]}\n')
