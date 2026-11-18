@@ -1000,7 +1000,7 @@ fn ensure_record_matches_binding(
     Ok(())
 }
 
-fn validate_loaded_ledger(ledger: &ReceiverLedgerV2) -> Result<(), WorldError> {
+fn validate_ledger_structure(ledger: &ReceiverLedgerV2) -> Result<(), WorldError> {
     if ledger.floors.len() + ledger.pre_migration_v1_expiries.len() > MAX_RECEIVER_FLOORS {
         return Err(protocol_error("receiver floor capacity exceeded".into()));
     }
@@ -1023,6 +1023,11 @@ fn validate_loaded_ledger(ledger: &ReceiverLedgerV2) -> Result<(), WorldError> {
             ));
         }
     }
+    Ok(())
+}
+
+fn validate_loaded_ledger(ledger: &ReceiverLedgerV2) -> Result<(), WorldError> {
+    validate_ledger_structure(ledger)?;
     for (peer_id, floor) in &ledger.floors {
         let primary = decode_stored_record(&floor.primary_signed_record_cbor)?;
         validate_record_paths(&primary)?;
@@ -1157,7 +1162,7 @@ fn ensure_durable_usable(durable: &DurableReceiver) -> Result<(), WorldError> {
 }
 
 fn persist_next(durable: &mut DurableReceiver, next: ReceiverLedgerV2) -> Result<(), WorldError> {
-    validate_loaded_ledger(&next)?;
+    validate_ledger_structure(&next)?;
     let bytes = super::durable_peer_record_publisher::canonical_cbor(&next)?;
     if bytes.len() > RECEIVER_STATE_MAX_BYTES {
         return Err(protocol_error(
