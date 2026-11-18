@@ -1182,4 +1182,6 @@ fn protocol_error(message: String) -> WorldError {
 }
 
 #[cfg(all(test, unix))]
+mod pruning_tests;
+#[cfg(all(test, unix))]
 mod tests;
