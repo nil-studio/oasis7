@@ -72,6 +72,7 @@ impl PersistedFormalReadHistoryV1 {
 
     /// The original operation minimum is a verified page boundary, not an
     /// arbitrary commit within a page. Preserve the general stage API above.
+    #[cfg(all(test, unix))]
     pub(super) fn verify_read_only_exact_boundary(
         config: &FormalFullSyncConfigV1,
         client: &RemoteWorldServiceClient,

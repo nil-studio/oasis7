@@ -97,6 +97,7 @@ pub(super) struct ProcessOwnership {
     directory_identity: (u64, u64),
 }
 impl ProcessOwnership {
+    #[cfg(all(test, unix))]
     pub(super) fn binding_digest(&self) -> Result<String, String> {
         self.require_current_directory()?;
         let held = self.file.metadata().map_err(|e| e.to_string())?;
@@ -108,6 +109,7 @@ impl ProcessOwnership {
             held.ino(),
         ))
     }
+    #[cfg(all(test, unix))]
     pub(super) fn require_current_directory(&self) -> Result<(), String> {
         self.require_directory(&self.directory)
     }

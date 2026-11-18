@@ -73,7 +73,7 @@ impl FormalFullSyncSession {
             error: None,
         };
         let mut session = Self {
-            #[cfg(unix)]
+            #[cfg(all(test, unix))]
             cas_root: cas_root.to_path_buf(),
             config,
             client,

@@ -269,7 +269,7 @@ pub(crate) struct RestoredFormalFullSyncWorldV1 {
 }
 
 pub(crate) struct FormalFullSyncSession {
-    #[cfg(unix)]
+    #[cfg(all(test, unix))]
     cas_root: std::path::PathBuf,
     config: FormalFullSyncConfigV1,
     client: RemoteWorldServiceClient,
