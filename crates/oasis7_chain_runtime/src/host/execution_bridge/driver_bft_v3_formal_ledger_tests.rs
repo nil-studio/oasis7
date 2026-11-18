@@ -497,13 +497,22 @@ fn committed_archive() {
         material_identity: "34".repeat(32),
     };
     let input = fixture(&h);
-    let (height, id) = target(&input);
+    let (later_height, later_id) = target(&input);
+    let original_cut = &input.entries()[input.entries().len() - 2].certificate;
+    let height = original_cut.execution_commitment.height;
+    let id = original_cut.header.block_id().unwrap();
+    assert_eq!(height + 1, later_height);
+
     let root = Scratch::new();
     let store = cas(root.path());
-    let durable = open(&h, root.path(), &store, true)
-        .unwrap()
-        .install_prefix(&input, height, &id)
+    let mut ledger = open(&h, root.path(), &store, true).unwrap();
+    ledger
+        .install_prefix(&input, later_height, &later_id)
         .unwrap();
+    // The complete live ledger contains a later certified record. The
+    // archive and publication plan use only records through the chosen cut.
+    let durable = ledger.verified_cut(height, &id).unwrap();
+    drop(ledger);
     let destination = Scratch::new();
     let archive = LocalBftSuccessorArchiveStoreV1::new(cas(destination.path())).unwrap();
     let mut original_ledger = open(&h, root.path(), &store, false).unwrap();
