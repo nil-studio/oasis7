@@ -718,7 +718,12 @@ pub(super) fn handle_command(
                     if let Some(handler) = handlers.get(&protocol) {
                         let invoke = || {
                             let context = NetworkRequestContext::new(
-                                std::time::Instant::now() + std::time::Duration::from_secs(30),
+                                deadline
+                                    .map(tokio::time::Instant::into_std)
+                                    .unwrap_or_else(|| {
+                                        std::time::Instant::now()
+                                            + std::time::Duration::from_secs(30)
+                                    }),
                                 Arc::new(std::sync::atomic::AtomicBool::new(false)),
                             );
                             (handler.handler)(&context, &payload)

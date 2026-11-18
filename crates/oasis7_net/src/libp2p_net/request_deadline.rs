@@ -1,7 +1,10 @@
 //! Local request expiry at the existing application CBOR boundary.
-use std::{future::Future, io, time::Duration};
+use std::{future::Future, io, pin::pin, time::Duration};
 
-use futures::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use futures::{
+    AsyncRead, AsyncWrite, AsyncWriteExt,
+    future::{Either, select},
+};
 use libp2p::{
     StreamProtocol,
     request_response::{Codec, cbor},
@@ -66,10 +69,9 @@ async fn before_deadline<T>(
     if Instant::now() >= deadline {
         return Err(elapsed());
     }
-    tokio::select! {
-        biased;
-        _ = sleep_until(deadline) => Err(elapsed()),
-        result = operation => result,
+    match select(pin!(sleep_until(deadline)), pin!(operation)).await {
+        Either::Left(_) => Err(elapsed()),
+        Either::Right((result, _)) => result,
     }
 }
 
@@ -178,33 +180,39 @@ mod tests {
     #[test]
     fn legacy_cbor_request_is_byte_identical_with_local_deadline_metadata() {
         let protocol = StreamProtocol::new("/test/request-encoding");
-        futures::executor::block_on(async {
-            let mut original = Vec::new();
-            let mut wrapped = Vec::new();
-            cbor::codec::Codec::<NetworkRequest, NetworkResponse>::default()
-                .write_request(&protocol, &mut original, request())
-                .await
-                .unwrap();
-            RequestCodec::default()
-                .write_request(
-                    &protocol,
-                    &mut wrapped,
-                    LocalRequest {
-                        message: request(),
-                        deadline: None,
-                    },
-                )
-                .await
-                .unwrap();
-            assert_eq!(wrapped, original);
-            let mut input = futures::io::Cursor::new(wrapped);
-            let received = RequestCodec::default()
-                .read_request(&protocol, &mut input)
-                .await
-                .unwrap();
-            assert_eq!(received.message, request());
-            assert!(received.deadline.is_none());
-        });
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let mut original = Vec::new();
+                cbor::codec::Codec::<NetworkRequest, NetworkResponse>::default()
+                    .write_request(&protocol, &mut original, request())
+                    .await
+                    .unwrap();
+                for deadline in [None, Some(deadline_in(Duration::from_secs(3)))] {
+                    let mut wrapped = Vec::new();
+                    RequestCodec::default()
+                        .write_request(
+                            &protocol,
+                            &mut wrapped,
+                            LocalRequest {
+                                message: request(),
+                                deadline,
+                            },
+                        )
+                        .await
+                        .unwrap();
+                    assert_eq!(wrapped, original);
+                    let mut input = futures::io::Cursor::new(wrapped);
+                    let received = RequestCodec::default()
+                        .read_request(&protocol, &mut input)
+                        .await
+                        .unwrap();
+                    assert_eq!(received.message, request());
+                    assert!(received.deadline.is_none());
+                }
+            });
     }
 
     #[derive(Default)]
