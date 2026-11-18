@@ -100,10 +100,8 @@ fn swarm(key: &Keypair, budget: Option<ConnectionBudget>) -> Swarm<Behaviour> {
     )
 }
 
-async fn listen(swarm: &mut Swarm<Behaviour>) -> Multiaddr {
-    swarm
-        .listen_on("/ip4/127.0.0.1/udp/0/quic-v1".parse().unwrap())
-        .unwrap();
+async fn listen(swarm: &mut Swarm<Behaviour>, address: &str) -> Multiaddr {
+    swarm.listen_on(address.parse().unwrap()).unwrap();
     loop {
         if let SwarmEvent::NewListenAddr { address, .. } = swarm.select_next_some().await {
             return address;
@@ -126,6 +124,15 @@ async fn budgeted_event(
 
 #[test]
 fn assembled_quic_swarm_shares_peer_occupancy_between_inbound_and_outbound() {
+    exercise_direct_transport("/ip4/127.0.0.1/udp/0/quic-v1");
+}
+
+#[test]
+fn assembled_tcp_swarm_shares_peer_occupancy_between_inbound_and_outbound() {
+    exercise_direct_transport("/ip4/127.0.0.1/tcp/0");
+}
+
+fn exercise_direct_transport(bind: &str) {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -137,8 +144,8 @@ fn assembled_quic_swarm_shares_peer_occupancy_between_inbound_and_outbound() {
                 let mut remote = swarm(&Keypair::generate_ed25519(), None);
                 let local_peer = *budgeted.local_peer_id();
                 let remote_peer = *remote.local_peer_id();
-                let local_address = listen(&mut budgeted).await;
-                let remote_address = listen(&mut remote).await;
+                let local_address = listen(&mut budgeted, bind).await;
+                let remote_address = listen(&mut remote, bind).await;
                 remote.dial(dial_for(local_peer, local_address.clone())).unwrap();
 
                 let first_incoming = loop {
