@@ -78,9 +78,12 @@ pub(super) fn run<'a>(
     if action == "archive-prefix" {
         let archive = archive.ok_or("bft-header archive-prefix requires --archive")?;
         let report = archive_from_paths(&config, &archive)?;
-        println!("{}", serde_json::to_string(&report)
-            .map_err(|_| "encode committed archive report")?);
-        return Ok(());
+        let line = serde_json::to_string(&report).map_err(|_| "encode committed archive report")?;
+        use std::io::Write;
+        let mut output = std::io::stdout().lock();
+        return writeln!(output, "{line}")
+            .and_then(|()| output.flush())
+            .map_err(|_| "write committed archive report".into());
     }
     let report = from_paths(&config, history.as_deref())?;
     println!(
