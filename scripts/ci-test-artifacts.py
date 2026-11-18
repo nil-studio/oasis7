@@ -1577,6 +1577,11 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
         command = ['cargo', *args, '--locked', '--message-format=json-render-diagnostics']
         if diagnostics_dir is not None:
             command.append('--timings')
+        if variant == RUNTIME_WORKER_BUILD:
+            # Only the final worker loses native symbols. Preserve dependency
+            # compilation and the current profile; hash the linked image below.
+            # Cargo options must precede the rustc argument separator.
+            command.extend(['--', '-C', 'strip=symbols'])
         print('+ ' + ' '.join(command), flush=True)
         with BuildObservation(variant, diagnostics_dir, timing_directory) as observation, \
                 subprocess.Popen(command, stdout=subprocess.PIPE, text=True, env=env, cwd=ROOT) as process:
@@ -1708,7 +1713,7 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
     # or a package name cannot prove that this particular harness needs a worker.
     if scope in ('ordinary', 'all') and runtime_worker_test_selected(manifest):
         build_variant(RUNTIME_WORKER_BUILD,
-                      ['build', '-p', 'oasis7_wasm_executor', '--no-default-features',
+                      ['rustc', '-p', 'oasis7_wasm_executor', '--no-default-features',
                        '--features', RUNTIME_WORKER_FEATURE, '--bin', 'oasis7-wasm-worker'],
                       [RUNTIME_WORKER_FEATURE])
         if worker_companion is None:

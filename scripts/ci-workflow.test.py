@@ -3316,8 +3316,8 @@ run_group iws_host_native
             'CARGO|run --quiet --locked -p oasis7_distfs --features sync-builtin-wasm-identity '
             '--bin sync_builtin_wasm_identity -- --verify-iws-rule-candidate-fixture '
             f'{ROOT} {ROOT}/crates/oasis7_chain_runtime/tests/fixtures/iws_rule_transfer_candidate',
-            'CARGO|build --locked -p oasis7_wasm_executor --bin oasis7-wasm-worker '
-            '--no-default-features --features wasmtime',
+            'CARGO|rustc --locked -p oasis7_wasm_executor --bin oasis7-wasm-worker '
+            '--no-default-features --features wasmtime -- -C strip=symbols',
             'CARGO|test --locked -p oasis7_runtime --test iws_rule_core '
             '--no-default-features --features test_tier_full,wasmtime -- --test-threads=1',
             'CARGO|test --locked -p oasis7_chain_runtime --test iws_host_linux '
@@ -3378,8 +3378,8 @@ run_group iws_host_native
                         'IWS_CARGO|run --quiet --locked -p oasis7_distfs --features sync-builtin-wasm-identity '
                         '--bin sync_builtin_wasm_identity -- --verify-iws-rule-candidate-fixture '
                         f'{ROOT} {ROOT}/crates/oasis7_chain_runtime/tests/fixtures/iws_rule_transfer_candidate',
-                        'IWS_CARGO|build --locked -p oasis7_wasm_executor --bin oasis7-wasm-worker '
-                        '--no-default-features --features wasmtime',
+                        'IWS_CARGO|rustc --locked -p oasis7_wasm_executor --bin oasis7-wasm-worker '
+                        '--no-default-features --features wasmtime -- -C strip=symbols',
                         'IWS_CARGO|test --locked -p oasis7_runtime --test iws_rule_core '
                         '--no-default-features --features test_tier_full,wasmtime -- --test-threads=1',
                         'IWS_CARGO|test --locked -p oasis7_chain_runtime --test iws_host_linux '
@@ -3543,7 +3543,7 @@ build_oasis7_viewer_binary() {
 }
 run_cargo() {
   printf '%s\n' "$*" >> "$CARGO_LOG"
-  if [[ "$*" == 'build --locked -p oasis7_wasm_executor '* ]]; then
+  if [[ "$*" == 'rustc --locked -p oasis7_wasm_executor '* ]]; then
     record WORKER
   elif [[ "$*" == 'test --locked -p oasis7_runtime --test iws_rule_core '* ]]; then
     echo 'full execution duplicated the Rule target' >&2; return 95

@@ -350,8 +350,12 @@ build_oasis7_iws_rule_worker() {
   esac
   # The actual sealed-process Rule path loads the executor's real worker binary.
   # Build it explicitly on a clean checkout before entering the component cases.
-  run_cargo build --locked -p oasis7_wasm_executor --bin oasis7-wasm-worker --no-default-features \
-    --features wasmtime
+  # Strip native symbols at link time, before image hashing and admission, so
+  # symbol-table growth does not exhaust the fixture's complete-image budget.
+  # cargo rustc applies this only to the selected binary, preserving dependencies
+  # and the current development profile, including its assertions.
+  run_cargo rustc --locked -p oasis7_wasm_executor --bin oasis7-wasm-worker --no-default-features \
+    --features wasmtime -- -C strip=symbols
 }
 
 run_oasis7_iws_rule_core_tests() {

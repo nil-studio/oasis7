@@ -247,6 +247,8 @@ env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime \
 
 该目标只支持 Linux x86_64/aarch64，显式分组在其他平台拒绝执行，避免零测试成功；Linux `full-extended` 会运行整目标。它不加入快速 native-worker 测试组合。首次构建和真实 GEN 闭包验证较重，应串行运行；降低构建调试信息时记录实际 profile，不在捕获后 strip 或修改 descriptor。该用例证明 GEN 到实际 native Host admission，完整业务、独立远端存储域、normal/resume、resident 初始化和冷恢复续写仍由相应集成验收承担。
 
+Rule 的 `oasis7-wasm-worker` 由分组入口或 native artifact producer 使用 `cargo rustc --bin oasis7-wasm-worker ... -- -C strip=symbols` 构建，仅在最终二进制链接时去掉本机符号表，保留原 profile、断言、依赖与 Wasm feature。随后按实际完整镜像计算哈希、打包和预留内存；64 MiB 上限仍适用，不在捕获、复制或消费后改写镜像。
+
 ### 当前计划与执行命令
 
 workflow 将可信 BASE 的 planner、scope、结果汇总器和 Formal 库存放在同一 authority 目录。下面的变量代表这次已固定的输入；`CI_AUTHORITY` 不能指向候选自行修改的策略目录。

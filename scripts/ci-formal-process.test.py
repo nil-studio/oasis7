@@ -5265,7 +5265,7 @@ class RuntimeWorkerCompanionContracts(unittest.TestCase):
             if command[0] != 'cargo':
                 return original_popen(command, **kwargs)
             commands.append(command)
-            if command[1] == 'build':
+            if command[1] == 'rustc':
                 items = [] if worker_error == 'missing' else [worker_message]
                 if worker_error == 'duplicate':
                     items *= 2
@@ -5529,9 +5529,9 @@ class RuntimeWorkerCompanionContracts(unittest.TestCase):
         self.assertEqual(worker['libraries'], ['lib/libexecutor_fixture.so'])
         self.assertEqual(manifest['libraries']['lib/libexecutor_fixture.so'],
                          artifacts.digest(bundle / 'lib/libexecutor_fixture.so'))
-        self.assertEqual(commands[1], ['cargo', 'build', '-p', 'oasis7_wasm_executor',
+        self.assertEqual(commands[1], ['cargo', 'rustc', '-p', 'oasis7_wasm_executor',
             '--no-default-features', '--features', 'wasmtime', '--bin', 'oasis7-wasm-worker',
-            '--locked', '--message-format=json-render-diagnostics'])
+            '--locked', '--message-format=json-render-diagnostics', '--', '-C', 'strip=symbols'])
         self.assertEqual(observed, ['required', artifacts.RUNTIME_WORKER_BUILD])
         self.assertEqual([entry['variant'] for entry in manifest['build_timings']], observed)
         self.assertEqual([item['target']['name'] for item in recorded],
@@ -5645,9 +5645,9 @@ class RuntimeWorkerCompanionContracts(unittest.TestCase):
         self.assertEqual(commands[0], ['cargo', 'test', '-p', 'oasis7_runtime', '--test',
             'iws_action_body', '--no-default-features', '--features', 'test_tier_required,test-support',
             '--no-run', '--locked', '--message-format=json-render-diagnostics'])
-        self.assertEqual(commands[1], ['cargo', 'build', '-p', 'oasis7_wasm_executor',
+        self.assertEqual(commands[1], ['cargo', 'rustc', '-p', 'oasis7_wasm_executor',
             '--no-default-features', '--features', 'wasmtime', '--bin', 'oasis7-wasm-worker',
-            '--locked', '--message-format=json-render-diagnostics'])
+            '--locked', '--message-format=json-render-diagnostics', '--', '-C', 'strip=symbols'])
         worker = manifest['worker_companion']
         self.assertEqual(worker['features'], ['wasmtime'])
         self.assertEqual(worker['requested_features'], ['wasmtime'])
@@ -5806,9 +5806,9 @@ class RuntimeWorkerCompanionContracts(unittest.TestCase):
         harness = next(iter(manifest['binaries'].values()))
         self.assertEqual(harness['features'], ['test_tier_required'])
         self.assertNotIn(artifacts.RUNTIME_WORKER_TEST, harness['tests'])
-        self.assertEqual(commands[1], ['cargo', 'build', '-p', 'oasis7_wasm_executor',
+        self.assertEqual(commands[1], ['cargo', 'rustc', '-p', 'oasis7_wasm_executor',
             '--no-default-features', '--features', 'wasmtime', '--bin', 'oasis7-wasm-worker',
-            '--locked', '--message-format=json-render-diagnostics'])
+            '--locked', '--message-format=json-render-diagnostics', '--', '-C', 'strip=symbols'])
         worker = manifest['worker_companion']
         self.assertEqual(worker['sha256'], artifacts.digest(bundle / artifacts.RUNTIME_WORKER_PATH))
         self.assertEqual(worker['features'], ['wasmtime'])
@@ -7154,7 +7154,7 @@ class Process(unittest.TestCase):
             (root / 'worker/Cargo.toml').write_text(
                 '[package]\nname="oasis7_wasm_executor"\nversion="0.1.0"\nedition="2021"\n'
                 '[features]\nwasmtime=[]\n[[bin]]\nname="oasis7-wasm-worker"\npath="src/main.rs"\n')
-            (root / 'worker/src/main.rs').write_text('fn main() {}\n')
+            (root / 'worker/src/main.rs').write_text('fn main() { assert!(cfg!(debug_assertions)); }\n')
         config = root / 'scripts/ci-formal-process-suites.json'
         config.parent.mkdir()
         config.write_text('{}')
@@ -7183,11 +7183,21 @@ class Process(unittest.TestCase):
             with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', config), \
                  patch.dict(os.environ, SOURCE_SHA=sha):
                 bundle, consumer = root / 'producer', root / 'consumer'
-                artifacts.build(bundle, 'ordinary', plan=selected)
+                # Exercise Cargo's options before the rustc separator as well as
+                # the actual linked image, including the diagnostics-only flag.
+                artifacts.build(bundle, 'ordinary', plan=selected,
+                                diagnostics_dir=root / 'build-diagnostics')
                 manifest = json.loads((bundle / 'manifest.json').read_text())
                 self.assertEqual(len(manifest['binaries']), 1)
                 self.assertEqual('worker_companion' in manifest, sys.platform == 'linux')
                 self.assertEqual(len(manifest['build_timings']), 2 if sys.platform == 'linux' else 1)
+                if sys.platform == 'linux':
+                    worker = bundle / artifacts.RUNTIME_WORKER_PATH
+                    sections = subprocess.check_output(
+                        ['readelf', '--wide', '--section-headers', str(worker)], text=True)
+                    self.assertRegex(sections, r'\s\.text\s')
+                    self.assertNotRegex(sections, r'\s\.(?:symtab|strtab)\s')
+                    self.assertEqual(manifest['worker_companion']['sha256'], artifacts.digest(worker))
                 archive_path = root / 'ordinary.tar.gz'
                 artifacts.pack(bundle, archive_path, suite='ordinary', plan=selected)
                 with tarfile.open(archive_path) as archive:
