@@ -244,6 +244,9 @@ def plan(args):
             add('actions-repo', path)
             add('python-repo', path)
             add('rust-repo', path)
+        elif path in ('docker/ci-base/Dockerfile', 'docker/ci-base/build.sh',
+                      'docker/ci-base/runtime-packages.txt', 'docker/ci-base/build-packages.txt'):
+            add('actions-repo', path)
         elif path in ISSUE_METADATA_INPUTS:
             # GitHub renders these as form data, not executable Actions YAML.
             pass

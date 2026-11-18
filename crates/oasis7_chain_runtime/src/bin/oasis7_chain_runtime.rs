@@ -19,6 +19,12 @@ const PUBLIC_DELIVERY_FAILURE: &str =
 const PUBLIC_NODE_FAILURES: &[&str] = &[
     PUBLIC_DELIVERY_FAILURE,
     "header Node actual qualified H driver recovery rejected",
+    "header Node actual qualified H driver recovery rejected; recovery_stage=storage_paths",
+    "header Node actual qualified H driver recovery rejected; recovery_stage=private_store",
+    "header Node actual qualified H driver recovery rejected; recovery_stage=ledger",
+    "header Node actual qualified H driver recovery rejected; recovery_stage=h_index",
+    "header Node actual qualified H driver recovery rejected; recovery_stage=bind_origin",
+    "header Node actual qualified H driver recovery rejected; recovery_stage=unknown",
     "header Node actual startup recovery rejected",
     "header Node canonical private actions rejected",
     "header Node private action admission rejected",
@@ -50,6 +56,26 @@ fn report_public_failure(error: &str, stderr: &mut impl std::io::Write) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recovery_stage_diagnostics_survive_failed_stdout() {
+        let error =
+            "header Node actual qualified H driver recovery rejected; recovery_stage=private_store";
+        let mut output = Vec::new();
+        report_public_failure(error, &mut output);
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "header Node actual qualified H driver recovery rejected; recovery_stage=private_store\n"
+        );
+        for error in [
+            "header Node actual qualified H driver recovery rejected; recovery_stage=foreign",
+            "header Node actual qualified H driver recovery rejected; recovery_stage=ledger: private/path/token",
+        ] {
+            let mut output = Vec::new();
+            report_public_failure(error, &mut output);
+            assert!(output.is_empty());
+        }
+    }
 
     #[test]
     fn every_allowlisted_error_is_exact_and_bounded() {

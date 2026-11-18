@@ -11,6 +11,7 @@ Testnet 在同一个不可变 source plan 后并行启动 Web 构建与原生编
 - 通用规则：[开发流程规范](../../engineering/workflow/source-of-truth.md)
 - 上游要求：[CI 分级执行 PRD](ci-tiered-execution.prd.md)
 - 可执行测试命令和平台限制：[testing-manual.md](../../../testing-manual.md)
+- 提案：[CI 基础镜像](ci-base-images.design.md)
 
 **实施边界**：[快速反馈与周期回归设计](#ci-fast-pr-periodic-full-design)已在当前候选接线。以下接口描述同一变更内的选择器、driver、workflow 和发布消费者；生效范围仍由可信 BASE、部署的 workflow 与实际保护决定。hosted 完整覆盖、十分钟/P95 和四小时容量分别待实测，不能由本地 fixture 或文档状态代签。
 
