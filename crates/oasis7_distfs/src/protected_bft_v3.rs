@@ -9,10 +9,13 @@ mod crypto;
 mod install;
 #[cfg(feature = "protected-bft-luna-key")]
 mod luna_key;
+#[cfg(feature = "protected-bft-luna-key")]
+pub use luna_key::LunaBftSigningKeyV3;
 mod membership;
 mod rotation;
 mod service;
 mod state;
+mod successor_archive_store;
 mod successor_source;
 #[cfg(test)]
 mod tests;
@@ -53,5 +56,6 @@ pub use bootstrap_rotation::{
     BftBootstrapFinalityRotationProofArchiveV3, BftBootstrapFinalityRotationProofRecordV3,
 };
 
-#[cfg(feature = "protected-bft-luna-key")]
-pub use luna_key::LunaBftSigningKeyV3;
+pub use successor_archive_store::{
+    BftSuccessorArchiveStoreV1, BftSuccessorWindowArchiveRefV1, LocalBftSuccessorArchiveStoreV1,
+};
