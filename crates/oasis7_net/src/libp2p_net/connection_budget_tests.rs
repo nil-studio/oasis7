@@ -380,6 +380,9 @@ fn expired_pending_permit_rejects_authentication_before_peer_accounting() {
     assert_eq!(occupancy(&budget, peer), (0, [0, 0], 0));
 }
 
+#[path = "connection_budget_relay_io_tests.rs"]
+mod relay_io;
+
 #[test]
 fn assembled_relay_circuit_uses_shared_connection_budget_and_recovers_after_close() {
     tokio::runtime::Builder::new_current_thread()
@@ -413,11 +416,10 @@ async fn exercise_relay_circuit() {
 
     let source_budget = ConnectionBudget::new(limits()).unwrap();
     let destination_budget = ConnectionBudget::new(limits()).unwrap();
-    let mut source = swarm(&Keypair::generate_ed25519(), Some(source_budget.clone()));
-    let mut destination = swarm(
-        &Keypair::generate_ed25519(),
-        Some(destination_budget.clone()),
-    );
+    let (mut source, source_bytes) =
+        relay_io::swarm_with_byte_window(&Keypair::generate_ed25519(), source_budget.clone());
+    let (mut destination, destination_bytes) =
+        relay_io::swarm_with_byte_window(&Keypair::generate_ed25519(), destination_budget.clone());
     let source_peer = *source.local_peer_id();
     let destination_peer = *destination.local_peer_id();
     let listener = destination
@@ -475,6 +477,13 @@ async fn exercise_relay_circuit() {
         &source_budget,
         &destination_budget,
         circuit_address.clone(),
+    )
+    .await;
+    relay_io::verify_nested_request(
+        &mut source,
+        &mut destination,
+        &source_bytes,
+        &destination_bytes,
     )
     .await;
     assert!(matches!(
