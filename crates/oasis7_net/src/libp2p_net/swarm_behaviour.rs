@@ -61,11 +61,12 @@ impl Behaviour {
         protocol_dials: ProtocolDialOrigins,
         peer_record_admission_budget: SharedPeerRecordAdmissionBudget,
         connection_budget: Option<ConnectionBudget>,
+        discovery_budget: super::discovery_budget::DiscoveryWorkBudget,
     ) -> Self {
         Self {
             inner,
             connection_budget,
-            discovery_budget: Default::default(),
+            discovery_budget,
             peer_record_admission_budget,
             dial_policy: DiscoveryDialPolicy::default(),
             protocol_dials,
@@ -356,6 +357,7 @@ pub(super) fn build_swarm_with_receiver(
         protocol_dials,
         peer_record_admission_budget,
         connection_budget,
+        super::discovery_budget::DiscoveryWorkBudget::with_wire_window(wire_byte_counters.window()),
     );
 
     let quic_transport = libp2p::quic::tokio::Transport::new(libp2p::quic::Config::new(keypair));
