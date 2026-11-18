@@ -59,18 +59,54 @@ impl Codec for ArtifactCodec {
         Ok(node)
     }
 }
+static HASHES: OnceLock<Result<Vec<String>, String>> = OnceLock::new();
+
 pub(super) fn empty() -> Result<&'static [String], String> {
-    static HASHES: OnceLock<Result<Vec<String>, String>> = OnceLock::new();
-    HASHES
-        .get_or_init(|| {
-            let mut w = Writer::new();
-            w.u8(2);
-            let marker = w
-                .finish(MAGIC, ARTIFACT_MAX_PAGE_BYTES)
-                .map_err(|e| e.to_string())?;
-            crate::merkle::build_empty_hashes::<ArtifactCodec>(&marker)
-        })
+    empty_cached(&HASHES, None)
+}
+
+pub(super) fn empty_with_meter(
+    meter: Option<&crate::merkle::WorkMeter<'_>>,
+) -> Result<&'static [String], String> {
+    empty_cached(&HASHES, meter)
+}
+
+// Keep cancelled/limited construction out of the shared cache. Concurrent
+// cold callers pay for the work each actually performs; only success is stored.
+pub(super) fn empty_cached<'a>(
+    cache: &'a OnceLock<Result<Vec<String>, String>>,
+    meter: Option<&crate::merkle::WorkMeter<'_>>,
+) -> Result<&'a [String], String> {
+    let Some(meter) = meter else {
+        return cache
+            .get_or_init(|| build_empty(None))
+            .as_ref()
+            .map(Vec::as_slice)
+            .map_err(Clone::clone);
+    };
+    meter(0)?;
+    if let Some(value) = cache.get() {
+        return value.as_ref().map(Vec::as_slice).map_err(Clone::clone);
+    }
+    let built = build_empty(Some(meter))?;
+    meter(0)?;
+    let _ = cache.set(Ok(built));
+    cache
+        .get()
+        .ok_or_else(|| "artifact empty cache".to_owned())?
         .as_ref()
         .map(Vec::as_slice)
         .map_err(Clone::clone)
+}
+
+fn build_empty(meter: Option<&crate::merkle::WorkMeter<'_>>) -> Result<Vec<String>, String> {
+    if let Some(meter) = meter {
+        meter(MAGIC.len() + 5)?;
+    }
+    let mut w = Writer::new();
+    w.u8(2);
+    let marker = w
+        .finish(MAGIC, ARTIFACT_MAX_PAGE_BYTES)
+        .map_err(|e| e.to_string())?;
+    crate::merkle::build_empty_hashes_with_meter::<ArtifactCodec>(&marker, meter)
 }

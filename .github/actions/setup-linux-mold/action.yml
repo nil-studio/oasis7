@@ -1,0 +1,67 @@
+name: Set up Linux mold
+description: Install and verify the pinned linker for Linux native and host Rust artifacts
+outputs:
+  linker:
+    description: Absolute path to the compiler driver using mold
+    value: ${{ steps.mold.outputs.linker }}
+  version:
+    description: Verified mold version
+    value: ${{ steps.mold.outputs.version }}
+  setup-seconds:
+    description: Download, installation and smoke-check elapsed seconds
+    value: ${{ steps.mold.outputs.setup-seconds }}
+runs:
+  using: composite
+  steps:
+    - name: Cache pinned mold release archive
+      if: runner.os == 'Linux'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/oasis7-mold-cache/release.tar.gz
+        key: mold-archive-v3.0.0-${{ runner.arch }}-v1
+    - name: Prepare and verify cached mold archive
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        set -euo pipefail
+        cache_dir="${{ runner.temp }}/oasis7-mold-cache"
+        mkdir -p "$cache_dir"
+        archive="$cache_dir/release.tar.gz"
+        arch="${{ runner.arch }}"
+        version="3.0.0"
+        if [[ "$arch" == "X64" || "$arch" == "x86_64" ]]; then
+          expected_sha256="6c90d4a474c7c0409dfb575be03a5345878ac14fdba18de8b40fa58c60121189"
+          release_arch="x86_64"
+        elif [[ "$arch" == "ARM64" || "$arch" == "aarch64" ]]; then
+          expected_sha256="52c759d3689babaea4c42af2f31062a74ab83e17ffb5a8090232534c67b70577"
+          release_arch="aarch64"
+        else
+          echo "Unsupported runner architecture: $arch" >&2
+          exit 1
+        fi
+        verify_digest() {
+          echo "$expected_sha256  $1" | sha256sum -c --status
+        }
+        if [[ -f "$archive" ]] && verify_digest "$archive"; then
+          echo "Valid cached mold archive present: $archive"
+        else
+          rm -f "$archive"
+          url="https://github.com/rui314/mold/releases/download/v${version}/mold-${version}-${release_arch}-linux.tar.gz"
+          temp_download="$archive.download.$$"
+          curl --fail --location --silent --show-error \
+            --retry 3 --retry-all-errors --retry-connrefused \
+            --retry-max-time 120 --connect-timeout 15 --max-time 120 \
+            --output "$temp_download" "$url"
+          if verify_digest "$temp_download"; then
+            mv -f "$temp_download" "$archive"
+          else
+            rm -f "$temp_download"
+            echo "Downloaded mold archive SHA-256 mismatch" >&2
+            exit 1
+          fi
+        fi
+    - name: Install and verify Linux mold
+      id: mold
+      if: runner.os == 'Linux'
+      shell: bash
+      run: python3 "${{ github.action_path }}/setup.py" --archive "${{ runner.temp }}/oasis7-mold-cache/release.tar.gz"

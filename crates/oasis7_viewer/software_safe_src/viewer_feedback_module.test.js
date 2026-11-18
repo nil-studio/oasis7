@@ -1016,3 +1016,127 @@ describe("recovery guidance evidence boundaries", () => {
     expect(summary.economicSurface.repairAction).toMatch(/inspect the committed result/i);
   });
 });
+
+describe("snapshot query vs claim feedback and unconfirmed control scope (#5167)", () => {
+  it("keeps snapshot refresh query feedback isolated from empty-world claim submission", () => {
+    const state = {
+      uiLocale: "en",
+      snapshot: {
+        model: { agents: {}, locations: {} },
+        player_gameplay: {
+          blocker_kind: "runtime_snapshot_empty_entities",
+          available_actions: [
+            { action_id: "claim_first_agent", execute_kind: "claim_first_agent", label: "Claim First Agent" },
+            { action_id: "refresh_snapshot", protocol_action: "request_snapshot", label: "Refresh Snapshot" },
+            { action_id: "step", protocol_action: "live_control.step", label: "Advance Step" },
+          ],
+        },
+      },
+      lastGameplayActionFeedback: {
+        id: "req-1",
+        kind: "gameplay_action",
+        action: "request_snapshot",
+        agentId: null,
+        accepted: true,
+        ok: true,
+        stage: "ack",
+        reason: null,
+        effect: "snapshot refresh requested",
+        response: {
+          action_id: "request_snapshot",
+          accepted_at_tick: 53093,
+          message: "snapshot refresh requested",
+        },
+      },
+    };
+    const module = createFeedbackModule(state);
+    const summary = module.buildGameplaySummary();
+
+    // Query feedback is retained for request_snapshot without claiming an Agent
+    expect(summary.recentFeedback.action).toBe("request_snapshot");
+    expect(summary.recentFeedback.stage).toBe("ack");
+
+    // Empty world blocker remains blocked, not accepted
+    expect(summary.blockerKind).toBe("runtime_snapshot_empty_entities");
+    expect(summary.executionState).toBe("blocked");
+
+    // Must not state that claim was submitted
+    expect(summary.nextStepHint).not.toMatch(/claim has been submitted|waiting for committed world sync/i);
+    expect(summary.narrativeBlockerDetail).not.toMatch(/claim has been submitted|waiting for committed world sync/i);
+
+    // Accepted intent remains empty for player
+    expect(summary.acceptedIntentSummary).toMatch(/no player-facing accepted intent yet/i);
+    expect(summary.acceptedIntentDetail).not.toMatch(/system has accepted the claim/i);
+
+    // describeSemanticFeedback describes snapshot refresh accurately as a read-only query
+    const semantic = module.describeSemanticFeedback(state.lastGameplayActionFeedback, "en");
+    expect(semantic.label).toMatch(/snapshot refresh requested/i);
+    expect(semantic.summary).toMatch(/snapshot refresh requested; awaiting updated world snapshot/i);
+    expect(semantic.detail).toMatch(/read-only query.*does not change world state/i);
+
+    const semanticZh = module.describeSemanticFeedback(state.lastGameplayActionFeedback, "zh");
+    expect(semanticZh.label).toMatch(/快照刷新已请求/);
+    expect(semanticZh.detail).toMatch(/只读查询/);
+  });
+
+  it("clarifies observer scope for step and play while claim outcome is unconfirmed", () => {
+    const state = {
+      uiLocale: "en",
+      auth: { available: true, registrationStatus: "unverified" },
+      snapshot: {
+        model: { agents: {}, locations: {} },
+        player_gameplay: {
+          blocker_kind: "runtime_snapshot_empty_entities",
+          available_actions: [
+            { action_id: "claim_first_agent", execute_kind: "claim_first_agent", label: "Claim First Agent" },
+            { action_id: "refresh_snapshot", protocol_action: "request_snapshot", label: "Refresh Snapshot" },
+            { action_id: "step", protocol_action: "live_control.step", label: "Advance Step" },
+            { action_id: "play", protocol_action: "live_control.play", label: "Resume Play" },
+            { action_id: "agent_action", protocol_action: "gameplay_action.submit", target_agent_id: "agent-0", label: "Agent Action" },
+          ],
+        },
+      },
+      lastGameplayActionFeedback: {
+        kind: "gameplay_action",
+        action: "claim_first_agent",
+        stage: "unknown",
+        accepted: false,
+        ok: false,
+        reason: "auth_verification_timeout",
+      },
+    };
+
+    const module = createFeedbackModule(state);
+    const summary = module.buildGameplaySummary();
+
+    // Execution state and cause reflect unconfirmed outcome
+    expect(summary.executionState).toBe("unknown");
+    expect(summary.executionCauseKind).toBe("outcome_unconfirmed");
+
+    // Next step and intent detail guide verification without resubmitting
+    expect(summary.nextStepHint).toMatch(/refresh the original request's authoritative result; do not submit the claim again/i);
+    expect(summary.acceptedIntentDetail).toMatch(/claim request outcome is unconfirmed; refresh the snapshot/i);
+
+    // claim_first_agent is disabled to prevent duplicate submission
+    const claimAction = summary.availableActions.find((a) => a.actionId === "claim_first_agent");
+    expect(claimAction.disabledReason).toMatch(/original claim request outcome is unconfirmed/i);
+
+    // Agent write actions requiring agent binding are disabled
+    const agentAction = summary.availableActions.find((a) => a.actionId === "agent_action");
+    expect(agentAction.disabledReason).toMatch(/claim outcome unconfirmed.*actions requiring agent binding are unavailable/i);
+
+    // Observer controls remain accessible, explicitly annotating observer scope without player authority
+    const stepAction = summary.availableActions.find((a) => a.actionId === "step");
+    expect(stepAction.disabledReason).toBeNull();
+    expect(stepAction.playerDetail).toMatch(/observer clock control: advance one committed step; does not grant player entry or agent authority/i);
+
+    const playAction = summary.availableActions.find((a) => a.actionId === "play");
+    expect(playAction.disabledReason).toBeNull();
+    expect(playAction.playerDetail).toMatch(/observer clock control: resume live progression; does not grant player entry or agent authority/i);
+
+    // Snapshot query remains accessible with read-only query scope
+    const refreshAction = summary.availableActions.find((a) => a.actionId === "refresh_snapshot");
+    expect(refreshAction.disabledReason).toBeNull();
+    expect(refreshAction.playerDetail).toMatch(/read-only query: refresh the gameplay snapshot.*does not advance world clock/i);
+  });
+});

@@ -117,10 +117,12 @@ classify_changed_path() {
 
   case "$path" in
     crates/oasis7_runtime/src/world/artifacts/builtin_wasm_candidate_baseline.v1.json|\
-    Cargo.toml|Cargo.lock|rust-toolchain.toml|\
+    Cargo.toml|Cargo.lock|rust-toolchain.toml|.dockerignore|\
+    .github/actions/setup-linux-mold/setup.py|\
     .github/workflows/wasm-determinism-gate.yml|\
     scripts/plan-wasm-determinism-scope.sh|\
     scripts/build-builtin-wasm-modules.sh|\
+    scripts/build-builtin-wasm-candidate-batch-lib.sh|\
     scripts/build-wasm-module.sh|\
     scripts/ci-m1-wasm-summary.sh|\
     scripts/ci-verify-m1-wasm-summaries.py|\

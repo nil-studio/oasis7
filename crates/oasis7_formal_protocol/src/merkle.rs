@@ -40,6 +40,15 @@ pub trait MerkleNodeReader {
     fn read_node(&self, digest: &str, max_bytes: usize) -> Result<Option<Self::Node>, String>;
 }
 
+/// Operation charging/cancellation only. The hook cannot select roots, bytes,
+/// predicates or child paths, and is absent on all legacy entrypoints.
+pub(crate) type WorkMeter<'m> = dyn Fn(usize) -> Result<(), String> + 'm;
+fn charge(meter: Option<&WorkMeter<'_>>, bytes: usize) -> Result<(), String> {
+    if let Some(meter) = meter {
+        meter(bytes)?;
+    }
+    Ok(())
+}
 pub(crate) struct Updater<'a, C: Codec, R> {
     reader: &'a R,
     pub(crate) pending: BTreeMap<String, Vec<u8>>,
@@ -48,6 +57,7 @@ pub(crate) struct Updater<'a, C: Codec, R> {
     pending_bytes: usize,
     max_pending_bytes: usize,
     codec: PhantomData<C>,
+    meter: Option<&'a WorkMeter<'a>>,
 }
 
 impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
@@ -60,9 +70,17 @@ impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
             pending_bytes: 0,
             max_pending_bytes,
             codec: PhantomData,
+            meter: None,
         }
     }
 
+    pub(crate) fn with_meter(mut self, meter: Option<&'a WorkMeter<'a>>) -> Self {
+        self.meter = meter;
+        self
+    }
+    fn pay(&self, bytes: usize) -> Result<(), String> {
+        charge(self.meter, bytes)
+    }
     /// Only final-new-node construction needs this set. Point readers and the
     /// historical business v1 writer must not pay for tracking old paths.
     pub(crate) fn track_parent_nodes(mut self) -> Self {
@@ -71,32 +89,61 @@ impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
     }
 
     fn read(&mut self, digest: &str, depth: usize) -> Result<Option<Node<C::Leaf>>, String> {
+        self.pay(digest.len())?;
         if digest == self.empty[depth] {
             return Ok(None);
         }
+        self.pay(
+            digest
+                .len()
+                .saturating_mul(11)
+                .saturating_mul((self.pending.len() + 1).ilog2() as usize + 1),
+        )?;
         if let Some(bytes) = self.pending.get(digest) {
-            Self::decode(bytes, digest, depth)
+            charge(self.meter, bytes.len())?;
+            Self::decode(bytes, digest, depth, self.meter)
         } else {
+            self.pay(digest.len())?;
+            // Conservatively prepay the complete bounded source attempt before
+            // reader IO; actual bytes below pay subsequent hash/parse work.
+            self.pay(C::MAX_NODE_BYTES)?;
             let bytes = self
                 .reader
                 .read_node(digest, C::MAX_NODE_BYTES)?
                 .ok_or("Merkle path node missing")?;
+            charge(self.meter, bytes.as_ref().len())?;
+            if let Some(parent) = &self.parent_nodes {
+                self.pay(
+                    digest
+                        .len()
+                        .saturating_mul(11)
+                        .saturating_mul((parent.len() + 1).ilog2() as usize + 1),
+                )?;
+            }
             if let Some(parent) = &mut self.parent_nodes
                 && !parent.contains(digest)
             {
+                charge(self.meter, digest.len())?;
                 parent.insert(digest.to_owned());
             }
-            Self::decode(bytes.as_ref(), digest, depth)
+            Self::decode(bytes.as_ref(), digest, depth, self.meter)
         }
     }
 
-    fn decode(bytes: &[u8], digest: &str, depth: usize) -> Result<Option<Node<C::Leaf>>, String> {
+    fn decode(
+        bytes: &[u8],
+        digest: &str,
+        depth: usize,
+        meter: Option<&WorkMeter<'_>>,
+    ) -> Result<Option<Node<C::Leaf>>, String> {
         if bytes.len() > C::MAX_NODE_BYTES {
             return Err("Merkle source node byte bound".into());
         }
+        charge(meter, bytes.len() + 64)?;
         if blake3::hash(bytes).to_hex().as_str() != digest {
             return Err("Merkle node content hash mismatch".into());
         }
+        charge(meter, bytes.len())?;
         let node = C::decode(bytes)?;
         match &node {
             Node::Branch { depth: stored, .. } if *stored == depth && depth < DEPTH => {}
@@ -167,6 +214,7 @@ impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
     }
 
     pub(crate) fn lookup(&mut self, root: &str, key: &[u8; 32]) -> Result<Option<C::Leaf>, String> {
+        self.pay(root.len())?;
         let mut current = root.to_owned();
         for depth in 0..=DEPTH {
             let Some(node) = self.read(&current, depth)? else {
@@ -177,6 +225,7 @@ impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
                     current = if key_bit(key, depth) { right } else { left };
                 }
                 Node::Leaf(leaf) => {
+                    self.pay(C::MAX_NODE_BYTES)?;
                     if C::key(&leaf)? != *key {
                         return Err("Merkle key digest collision".into());
                     }
@@ -193,6 +242,7 @@ impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
         depth: usize,
         leaf: &C::Leaf,
     ) -> Result<(String, bool), String> {
+        self.pay(C::MAX_NODE_BYTES)?;
         let key = C::key(leaf)?;
         let (root, old) = self.replace(root, depth, &key, Some(leaf))?;
         Ok((root, old.is_none()))
@@ -207,12 +257,18 @@ impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
         key: &[u8; 32],
         leaf: Option<&C::Leaf>,
     ) -> Result<(String, Option<C::Leaf>), String> {
+        self.pay(C::MAX_NODE_BYTES)?;
         if depth > DEPTH || leaf.is_some_and(|leaf| C::key(leaf).ok().as_ref() != Some(key)) {
             return Err("Merkle replacement key/depth".into());
         }
+        self.pay(root.len())?;
         let mut current = root.to_owned();
+        self.pay(
+            (DEPTH - depth).saturating_mul(std::mem::size_of::<(usize, String, String, bool)>()),
+        )?;
         let mut path = Vec::with_capacity(DEPTH - depth);
         for level in depth..DEPTH {
+            self.pay(3 * 64)?;
             let (left, right) = match self.read(&current, level)? {
                 Some(Node::Branch { left, right, .. }) => (left, right),
                 None => (self.empty[level + 1].clone(), self.empty[level + 1].clone()),
@@ -226,13 +282,17 @@ impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
             };
             path.push((level, left, right, right_selected));
         }
+        self.pay(C::MAX_NODE_BYTES)?;
         let old = match self.read(&current, DEPTH)? {
             Some(Node::Leaf(old)) if C::key(&old)? == *key => Some(old),
             None => None,
             _ => return Err("Merkle replacement leaf mismatch".into()),
         };
         let mut digest = match leaf {
-            Some(leaf) => self.store(Node::Leaf(leaf.clone()))?,
+            Some(leaf) => {
+                self.pay(C::MAX_NODE_BYTES)?;
+                self.store(Node::Leaf(leaf.clone()))?
+            }
             None => self.empty[DEPTH].clone(),
         };
         for (level, mut left, mut right, right_selected) in path.into_iter().rev() {
@@ -255,14 +315,23 @@ impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
     }
 
     fn store(&mut self, node: Node<C::Leaf>) -> Result<String, String> {
+        self.pay(C::MAX_NODE_BYTES)?;
         let bytes = C::encode(node)?;
+        self.pay(bytes.len() + 64)?;
         let digest = blake3::hash(&bytes).to_hex().to_string();
+        self.pay(
+            digest
+                .len()
+                .saturating_mul(11)
+                .saturating_mul((self.pending.len() + 1).ilog2() as usize + 1),
+        )?;
         if !self.pending.contains_key(&digest) {
             let next = self
                 .pending_bytes
                 .checked_add(bytes.len())
                 .filter(|total| *total <= self.max_pending_bytes)
                 .ok_or("ResourceLimited: Merkle transaction pending bytes")?;
+            self.pay(digest.len() + bytes.len())?;
             self.pending.insert(digest.clone(), bytes);
             self.pending_bytes = next;
         }
@@ -276,9 +345,16 @@ impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
             .parent_nodes
             .as_ref()
             .ok_or("Merkle parent tracking not enabled")?;
-        let mut result = BTreeMap::new();
+        let mut result: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+        self.pay(root.len() + std::mem::size_of::<(String, usize)>())?;
         let mut stack = vec![(root.to_owned(), 0)];
         while let Some((digest, depth)) = stack.pop() {
+            self.pay(digest.len().saturating_mul(11).saturating_mul(
+                (parent_nodes.len() + 1).ilog2() as usize
+                    + (self.pending.len() + 1).ilog2() as usize
+                    + (result.len() + 1).ilog2() as usize
+                    + 3,
+            ))?;
             if digest == self.empty[depth] || parent_nodes.contains(&digest) {
                 continue;
             }
@@ -288,6 +364,7 @@ impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
             if result.contains_key(&digest) {
                 continue;
             }
+            self.pay(bytes.len())?;
             match C::decode(bytes)? {
                 Node::Branch {
                     depth: stored,
@@ -300,6 +377,7 @@ impl<'a, C: Codec, R: MerkleNodeReader> Updater<'a, C, R> {
                 Node::Leaf(_) if depth == DEPTH => {}
                 _ => return Err("Merkle final node depth".into()),
             }
+            self.pay(bytes.len())?;
             result.insert(digest, bytes.clone());
         }
         Ok(result)
@@ -311,9 +389,20 @@ fn key_bit(key: &[u8; 32], depth: usize) -> bool {
 }
 
 pub(crate) fn build_empty_hashes<C: Codec>(empty_leaf: &[u8]) -> Result<Vec<String>, String> {
+    build_empty_hashes_with_meter::<C>(empty_leaf, None)
+}
+pub(crate) fn build_empty_hashes_with_meter<C: Codec>(
+    empty_leaf: &[u8],
+    meter: Option<&WorkMeter<'_>>,
+) -> Result<Vec<String>, String> {
+    charge(
+        meter,
+        (DEPTH + 1) * std::mem::size_of::<String>() + empty_leaf.len(),
+    )?;
     let mut hashes = vec![String::new(); DEPTH + 1];
     hashes[DEPTH] = blake3::hash(empty_leaf).to_hex().to_string();
     for depth in (0..DEPTH).rev() {
+        charge(meter, C::MAX_NODE_BYTES + 3 * 64)?;
         hashes[depth] = blake3::hash(&C::encode(Node::Branch {
             depth,
             left: hashes[depth + 1].clone(),
@@ -334,3 +423,51 @@ pub(crate) enum VisitError<E> {
 #[cfg(test)]
 #[path = "merkle_range_tests.rs"]
 mod range_tests;
+#[cfg(test)]
+mod pre_read_work_tests {
+    use super::*;
+    use std::cell::Cell;
+    struct TestCodec;
+    impl Codec for TestCodec {
+        type Leaf = [u8; 32];
+        const MAX_NODE_BYTES: usize = 67;
+        fn key(v: &Self::Leaf) -> Result<[u8; 32], String> {
+            Ok(*v)
+        }
+        fn encode(_: Node<Self::Leaf>) -> Result<Vec<u8>, String> {
+            Err("not reached".into())
+        }
+        fn decode(_: &[u8]) -> Result<Node<Self::Leaf>, String> {
+            Err("not reached".into())
+        }
+    }
+    struct Source(Cell<usize>);
+    impl MerkleNodeReader for Source {
+        type Node = Vec<u8>;
+        fn read_node(&self, _: &str, _: usize) -> Result<Option<Vec<u8>>, String> {
+            self.0.set(self.0.get() + 1);
+            Err("physical read must not happen".into())
+        }
+    }
+    #[test]
+    fn insufficient_attempt_allowance_rejects_before_external_read() {
+        let source = Source(Cell::new(0));
+        let empty = vec!["0".repeat(64); DEPTH + 1];
+        let attempts = Cell::new(0);
+        let meter = |n| {
+            if n == TestCodec::MAX_NODE_BYTES {
+                attempts.set(attempts.get() + 1);
+                Err("pre-read budget".into())
+            } else {
+                Ok(())
+            }
+        };
+        let mut updater = Updater::<TestCodec, _>::new(&source, &empty, 0).with_meter(Some(&meter));
+        assert_eq!(
+            updater.lookup(&"1".repeat(64), &[0; 32]).unwrap_err(),
+            "pre-read budget"
+        );
+        assert_eq!(source.0.get(), 0);
+        assert_eq!(attempts.get(), 1);
+    }
+}

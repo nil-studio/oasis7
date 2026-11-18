@@ -233,6 +233,8 @@ enum FixtureCase {
     FullNodeStorage,
     AttemptRelease,
     InitialLostResponse,
+    GovernedParticipant,
+    RegisteredSurvivor,
 }
 
 fn run_protected_runtime_case(
@@ -422,8 +424,11 @@ fn run_protected_runtime_fixture(
         &owner_key,
         fixture_case,
     )?;
-    let (world, module_emits_initial) =
+    let (mut world, module_emits_initial) =
         snapshot_and_restore_fixture_world(world, &identity, genesis_mode)?;
+    if matches!(fixture_case, FixtureCase::GovernedParticipant | FixtureCase::RegisteredSurvivor) {
+        oracle_support::survivor_tests::governed_participant::install_genesis_policy(&mut world, &identity)?;
+    }
 
     let mut definition = seed_anchor.authority().definition().clone();
     let recovery = seed_anchor.authority().policy().clone();
@@ -685,7 +690,9 @@ fn run_protected_runtime_fixture(
         world_id: identity.world_id.clone(),
         genesis_digest: identity.genesis_digest.clone(),
     };
-    let owner_request = if genesis_mode {
+    let owner_request = if fixture_case == FixtureCase::RegisteredSurvivor {
+        oracle_support::survivor_tests::governed_participant::registration_request(&world, &world_identity)?
+    } else if genesis_mode {
         request_for_first_agent(&owner_key, &world_identity)?
     } else {
         request_for_owner(&owner_key, &world_identity)
@@ -702,6 +709,9 @@ fn run_protected_runtime_fixture(
         timeout: Duration::from_secs(30),
         max_response_bytes: 16 * 1024 * 1024,
     };
+    let registered_scope = if fixture_case == FixtureCase::RegisteredSurvivor {
+        Some(oracle_support::survivor_tests::governed_participant::registered_scope(&owner_request)?)
+    } else { None };
     let owner_client_config = || {
         let mut config = client_config();
         config.scope_id = if genesis_mode {
@@ -712,6 +722,10 @@ fn run_protected_runtime_fixture(
             "agent:agent".into()
         };
         config.read_private_key_hex = hex::encode(owner_key.to_bytes());
+        if let Some(scope) = &registered_scope {
+            config.scope_id = scope.clone();
+            config.read_private_key_hex = hex::encode(fixtures::key(72).to_bytes());
+        }
         config
     };
 
@@ -736,6 +750,7 @@ fn run_protected_runtime_fixture(
             &owner_request,
             module_emits_initial,
             oracle_support::survivor_tests::SurvivorResources {
+                governed_participant: matches!(fixture_case, FixtureCase::GovernedParticipant | FixtureCase::RegisteredSurvivor),
                 primary_child,
                 replica_child,
                 pdir,

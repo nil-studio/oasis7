@@ -278,3 +278,334 @@ fn descriptor_and_manifest_have_exact_profile_bytes_and_reject_unknown_forms() {
         execute
     );
 }
+
+#[test]
+fn metered_catalog_keeps_exact_bytes_and_unordered_streamed_append() {
+    let mut source = source();
+    let entries = entries();
+    let mut charged = (0u64, 0u64);
+    let mut work = |steps, bytes| {
+        charged.0 += steps;
+        charged.1 += bytes;
+        Ok(())
+    };
+    let empty = ArtifactCatalogV1::empty_with_work(ArtifactKindV1::Wasm, &mut work).unwrap();
+    assert_eq!(
+        empty,
+        ArtifactCatalogV1::empty(ArtifactKindV1::Wasm).unwrap()
+    );
+    let legacy = empty
+        .append(&entries, &source, &source.memory, 4 << 20)
+        .unwrap();
+    let metered = empty
+        .append_with_work(&entries, &source, &source.memory, 4 << 20, &mut work)
+        .unwrap();
+    assert_eq!(*metered, *legacy);
+    assert_eq!(metered.after.node_root, reference(&entries));
+    let mut root = empty;
+    for entry in [entries[1], entries[0]] {
+        let delta = root
+            .append_with_work(&[entry], &source, &source.memory, 4 << 20, &mut work)
+            .unwrap();
+        install(&mut source, &delta);
+        root = delta.after.clone();
+    }
+    assert_eq!(root, legacy.after);
+    let repeated = root
+        .append_with_work(&entries[1..], &source, &source.memory, 4 << 20, &mut work)
+        .unwrap();
+    assert_eq!(repeated.after, root);
+    assert!(repeated.new_nodes.is_empty());
+    let mut conflict = entries[0];
+    conflict.original.byte_len += 1;
+    assert!(matches!(
+        root.append_with_work(&[conflict], &source, &source.memory, 4 << 20, &mut work),
+        Err(ExecutionError::Invalid("artifact identity length/kind"))
+    ));
+    let wire = root.canonical_bytes_with_work(&mut work).unwrap();
+    assert_eq!(wire, root.canonical_bytes().unwrap());
+    assert_eq!(
+        ArtifactCatalogV1::from_canonical_bytes_with_work(&wire, &mut work).unwrap(),
+        root
+    );
+    for entry in entries {
+        assert_eq!(
+            root.get_with_work(&entry.original.id, &source, &mut work)
+                .unwrap(),
+            Some(entry)
+        );
+    }
+    assert!(charged.0 > 0 && charged.1 > 0);
+}
+
+struct ObservedSource<'a> {
+    source: &'a Source,
+    reads: std::cell::Cell<usize>,
+    fail: bool,
+}
+impl MerkleNodeReader for ObservedSource<'_> {
+    type Node = Page;
+    fn allocation_class(&self) -> Option<MemoryClass> {
+        self.source.allocation_class()
+    }
+    fn allocation_budget(&self) -> Option<&MemoryBudget> {
+        self.source.allocation_budget()
+    }
+    fn read_node(&self, id: &str, max: usize) -> Result<Option<Page>, String> {
+        self.reads.set(self.reads.get() + 1);
+        if self.fail {
+            return Err("artifact original source error".into());
+        }
+        self.source.read_node(id, max)
+    }
+}
+
+#[test]
+fn metered_catalog_stops_before_source_read_and_preserves_hash_work_error() {
+    let mut source = source();
+    let entry = entries()[0];
+    let empty = ArtifactCatalogV1::empty(ArtifactKindV1::Wasm).unwrap();
+    let delta = empty
+        .append(&[entry], &source, &source.memory, 4 << 20)
+        .unwrap();
+    install(&mut source, &delta);
+    let observed = ObservedSource {
+        source: &source,
+        reads: std::cell::Cell::new(0),
+        fail: false,
+    };
+    let before = source.memory.used();
+    let result = delta
+        .after
+        .get_with_work(&entry.original.id, &observed, &mut |_, bytes| {
+            if bytes == ARTIFACT_MAX_PAGE_BYTES as u64 {
+                Err(ExecutionError::ResourceLimited("artifact source attempt"))
+            } else {
+                Ok(())
+            }
+        });
+    assert!(matches!(
+        result,
+        Err(ExecutionError::ResourceLimited("artifact source attempt"))
+    ));
+    assert_eq!(observed.reads.get(), 0);
+    let root_bytes = source.nodes[&delta.after.node_root].len();
+    let result = delta
+        .after
+        .get_with_work(&entry.original.id, &observed, &mut |_, bytes| {
+            if observed.reads.get() == 1 && bytes == (root_bytes + 64) as u64 {
+                Err(ExecutionError::Aborted)
+            } else {
+                Ok(())
+            }
+        });
+    assert!(matches!(result, Err(ExecutionError::Aborted)));
+    assert_eq!(observed.reads.get(), 1);
+    assert_eq!(source.memory.used(), before);
+    let foreign = MemoryBudget::new(4 << 20, 0).unwrap();
+    assert!(matches!(
+        empty.append_with_work(&[entry], &observed, &foreign, 4 << 20, &mut |_, _| Ok(())),
+        Err(ExecutionError::Invalid("artifact producer pool/class"))
+    ));
+    assert_eq!(observed.reads.get(), 1);
+    assert_eq!(foreign.used(), 0);
+    let failed = ObservedSource {
+        source: &source,
+        reads: std::cell::Cell::new(0),
+        fail: true,
+    };
+    let error = delta
+        .after
+        .get_with_work(&entry.original.id, &failed, &mut |_, _| {
+            if failed.reads.get() > 0 {
+                Err(ExecutionError::Aborted)
+            } else {
+                Ok(())
+            }
+        });
+    assert!(
+        matches!(error, Err(ExecutionError::Tree(message)) if message == "artifact original source error")
+    );
+    assert_eq!(failed.reads.get(), 1);
+    struct Unqualified;
+    impl MerkleNodeReader for Unqualified {
+        type Node = Vec<u8>;
+        fn read_node(&self, _: &str, _: usize) -> Result<Option<Self::Node>, String> {
+            panic!("an unqualified source must be rejected before reading")
+        }
+    }
+    assert!(matches!(
+        empty.append_with_work(
+            &[entry],
+            &Unqualified,
+            &source.memory,
+            4 << 20,
+            &mut |_, _| Ok(())
+        ),
+        Err(ExecutionError::Invalid("artifact producer pool/class"))
+    ));
+    assert_eq!(source.memory.used(), before);
+}
+
+#[test]
+fn metered_append_failure_releases_workspace_and_final_success_is_cancellable() {
+    let mut source = source();
+    let entry = entries()[0];
+    let empty = ArtifactCatalogV1::empty(ArtifactKindV1::Wasm).unwrap();
+    let initial = empty
+        .append(&[entry], &source, &source.memory, 4 << 20)
+        .unwrap();
+    install(&mut source, &initial);
+    let one = [entry];
+    for (root, input) in [
+        (&empty, &[][..]),
+        (&empty, &one[..]),
+        (&initial.after, &one[..]),
+    ] {
+        let baseline = source.memory.used();
+        let mut calls = Vec::new();
+        let output = root
+            .append_with_work(
+                input,
+                &source,
+                &source.memory,
+                4 << 20,
+                &mut |steps, bytes| {
+                    assert_eq!(steps, 1);
+                    calls.push(bytes);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        let retained = output.reserved_bytes();
+        assert_eq!(source.memory.used(), baseline + retained);
+        drop(output);
+        assert_eq!(source.memory.used(), baseline);
+        let mut points = std::collections::BTreeSet::from([
+            0,
+            1,
+            calls.len() / 4,
+            calls.len() / 2,
+            calls.len() * 3 / 4,
+            calls.len() - 2,
+            calls.len() - 1,
+        ]);
+        // Exercise the existing tree source/codec bound and BTree comparison
+        // admission, in addition to late result mapping/retention and final poll.
+        for bytes in [ARTIFACT_MAX_PAGE_BYTES as u64, 64 * 11] {
+            if let Some(index) = calls.iter().position(|value| *value == bytes) {
+                points.insert(index);
+            }
+        }
+        for fail_at in points {
+            let mut visits = 0;
+            let mut stopped = false;
+            let result =
+                root.append_with_work(input, &source, &source.memory, 4 << 20, &mut |_, _| {
+                    assert!(!stopped, "work resumed after its first error");
+                    let current = visits;
+                    visits += 1;
+                    if current == fail_at {
+                        stopped = true;
+                        Err(ExecutionError::ResourceLimited("artifact first work error"))
+                    } else {
+                        Ok(())
+                    }
+                });
+            assert!(matches!(
+                result,
+                Err(ExecutionError::ResourceLimited("artifact first work error"))
+            ));
+            assert_eq!(visits, fail_at + 1);
+            assert_eq!(source.memory.used(), baseline);
+        }
+    }
+}
+
+#[test]
+fn cold_artifact_empty_errors_never_poison_cache_and_warm_access_still_pays() {
+    use std::sync::OnceLock;
+    fn initialize(
+        cache: &OnceLock<Result<Vec<String>, String>>,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<(), ExecutionError> {
+        with_artifact_work(work, |_, tree| {
+            let hashes = codec::empty_cached(cache, Some(tree)).map_err(ExecutionError::Tree)?;
+            assert_eq!(hashes[0], reference(&[]));
+            Ok(())
+        })
+    }
+    let successful = OnceLock::new();
+    let mut cold_calls = 0;
+    initialize(&successful, &mut |_, _| {
+        cold_calls += 1;
+        Ok(())
+    })
+    .unwrap();
+    assert!(cold_calls > 256);
+    for fail_at in 0..cold_calls {
+        let cache = OnceLock::new();
+        let mut visited = 0;
+        let error = initialize(&cache, &mut |_, _| {
+            let current = visited;
+            visited += 1;
+            if current == fail_at {
+                Err(ExecutionError::Aborted)
+            } else {
+                Ok(())
+            }
+        });
+        assert!(matches!(error, Err(ExecutionError::Aborted)));
+        assert_eq!(visited, fail_at + 1);
+        assert!(cache.get().is_none());
+        initialize(&cache, &mut |_, _| Ok(())).unwrap();
+        assert!(cache.get().unwrap().is_ok());
+    }
+    let mut warm_calls = 0;
+    initialize(&successful, &mut |steps, bytes| {
+        assert_eq!((steps, bytes), (1, 0));
+        warm_calls += 1;
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(warm_calls, 1);
+    assert!(matches!(
+        initialize(&successful, &mut |_, _| Err(ExecutionError::Aborted)),
+        Err(ExecutionError::Aborted)
+    ));
+    assert!(successful.get().unwrap().is_ok());
+}
+
+#[test]
+fn metered_catalog_wire_and_empty_preserve_first_and_final_work_errors() {
+    let root = ArtifactCatalogV1::empty(ArtifactKindV1::Wasm).unwrap();
+    let wire = root.canonical_bytes().unwrap();
+    for operation in 0..3 {
+        let run = |work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>| match operation {
+            0 => ArtifactCatalogV1::empty_with_work(ArtifactKindV1::Wasm, work).map(|_| ()),
+            1 => root.canonical_bytes_with_work(work).map(|_| ()),
+            _ => ArtifactCatalogV1::from_canonical_bytes_with_work(&wire, work).map(|_| ()),
+        };
+        let mut total = 0;
+        run(&mut |_, _| {
+            total += 1;
+            Ok(())
+        })
+        .unwrap();
+        for fail_at in 0..total {
+            let mut visited = 0;
+            let result = run(&mut |_, _| {
+                assert!(visited <= fail_at, "work resumed after its first error");
+                let current = visited;
+                visited += 1;
+                if current == fail_at {
+                    Err(ExecutionError::Aborted)
+                } else {
+                    Ok(())
+                }
+            });
+            assert!(matches!(result, Err(ExecutionError::Aborted)));
+            assert_eq!(visited, fail_at + 1);
+        }
+    }
+}

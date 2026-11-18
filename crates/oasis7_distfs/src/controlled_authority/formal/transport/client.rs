@@ -5,6 +5,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 #[path = "client_attestation.rs"]
 mod attestation;
+#[path = "client_observation.rs"]
+mod observation;
+pub use observation::VerifiedEndpointObservationV1;
 #[path = "client_native.rs"]
 mod native;
 #[path = "client_native_context.rs"]
@@ -116,6 +119,11 @@ impl RemoteFormalEndpoint {
         }
     }
     fn call(&mut self, command: Command) -> Result<(Value, FormalHeadRefV1), FormalError> {
+        let (body, _) = self.call_verified(command)?;
+        Ok((body.result?, body.head))
+    }
+
+    fn call_verified(&mut self, command: Command) -> Result<(ResponseBody, bool), FormalError> {
         let body = RequestBody {
             schema_version: 1,
             world: self.authority.definition().world.clone(),
@@ -167,7 +175,11 @@ impl RemoteFormalEndpoint {
             ));
         }
         hash_hex(&body.head.record_id)?;
-        super::super::endpoint::verify_formal_rpc_checkpoint(&body, &self.authority, self.role)?;
+        let pending = super::super::endpoint::verify_formal_rpc_checkpoint(
+            &body,
+            &self.authority,
+            self.role,
+        )?;
         fencing::verify_monotonic_checkpoint_evidence(
             &body.provider,
             self.instance(),
@@ -196,9 +208,9 @@ impl RemoteFormalEndpoint {
             native_context::context_after_authenticated_call(&body, &self.authority, self.role)?;
         self.remaining_timeout(deadline)?;
         self.last_native_context = Some(native_context);
-        self.last_checkpoint = Some(body.checkpoint);
+        self.last_checkpoint = Some(body.checkpoint.clone());
         self.minimum = body.head.clone();
-        Ok((body.result?, body.head))
+        Ok((body, pending))
     }
     fn complete(&mut self, command: Command) -> Result<(), FormalError> {
         match self.call(command)?.0 {

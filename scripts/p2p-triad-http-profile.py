@@ -79,6 +79,11 @@ def _fetch(url, deadline, owned):
             chunks.extend(chunk)
             if len(chunks) > CAP:
                 return None, "output_limit"
+        # read1() permits EOF before the declared Content-Length and does not
+        # raise IncompleteRead like read() without an amount. A parseable JSON
+        # prefix is not a complete HTTP observation.
+        if response.length not in (None, 0):
+            return None, "invalid_status"
         status = json.loads(chunks.decode("utf-8"))
         if not isinstance(status, dict):
             return None, "invalid_status"

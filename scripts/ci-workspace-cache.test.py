@@ -141,7 +141,9 @@ class Workspace(unittest.TestCase):
                                 cache.restore_cache(args, report)
                         self.assertFalse(report['restored'])
                         unpack.assert_not_called()
-                    for variable in ('RUSTFLAGS', 'CARGO_PROFILE_TEST_DEBUG', 'OASIS7_WASM_TOOLCHAIN'):
+                    for variable in ('RUSTFLAGS', 'CARGO_PROFILE_TEST_DEBUG', 'OASIS7_WASM_TOOLCHAIN',
+                                     'CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER',
+                                     'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER'):
                         with self.subTest(scope=scope, variable=variable), patch.dict(os.environ, {variable: 'changed'}):
                             self.assertNotEqual(cache.identity(scope)['prefix'], baseline)
                     for name in (*inputs, *operational):

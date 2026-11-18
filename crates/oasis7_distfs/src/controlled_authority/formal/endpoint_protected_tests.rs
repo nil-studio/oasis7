@@ -134,12 +134,15 @@ fn simulated_remote_protected_signer_qualifies_reopens_and_seals_without_local_r
             Ok(super::super::super::transport::Value::Complete),
         )
         .unwrap();
-    super::super::native_rpc::verify_formal_rpc_checkpoint(
-        &response.body,
-        &fixture.authority,
-        EndpointRole::Primary,
-    )
-    .unwrap();
+    assert!(
+        super::super::native_rpc::verify_formal_rpc_checkpoint(
+            &response.body,
+            &fixture.authority,
+            EndpointRole::Primary,
+        )
+        .unwrap(),
+        "the authenticated native Frozen request slot must remain visible"
+    );
     let mut wrong = response.body.clone();
     wrong.minimum.record_id = h(235);
     assert!(

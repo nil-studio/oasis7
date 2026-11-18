@@ -46,22 +46,39 @@ use std::{
     },
     time::Duration,
 };
+// Experimental disk/TCP accounting harness only. These modules do not enable
+// V2 configuration, change V1 behavior, or grant production sync capability.
 #[path = "formal_full_sync_attempt.rs"]
 mod attempt;
 #[path = "formal_full_sync_cas.rs"]
 pub(super) mod cas_lifecycle;
 #[path = "formal_full_sync_compatibility.rs"]
 mod compatibility;
+#[cfg(all(test, unix))]
+#[path = "formal_full_sync_direct_http.rs"]
+mod direct_http;
 #[path = "formal_full_sync_failover.rs"]
 mod failover;
 #[path = "formal_full_sync_grant_reconcile.rs"]
 mod grant_reconcile;
 #[path = "formal_full_sync_history.rs"]
 pub(super) mod history_chain;
+#[cfg(all(test, unix))]
+#[path = "formal_full_sync_metered_io.rs"]
+mod metered_io;
 #[path = "formal_full_sync_native.rs"]
 mod native_environment;
+#[cfg(all(test, unix))]
+#[path = "formal_full_sync_operation_ledger.rs"]
+mod operation_ledger;
+#[cfg(all(test, unix))]
+#[path = "formal_full_sync_operation_tests.rs"]
+mod operation_tests;
 #[path = "formal_full_sync_providers.rs"]
 mod providers;
+#[cfg(all(test, unix))]
+#[path = "formal_full_sync_tls_io.rs"]
+mod tls_io;
 use attempt::{
     FullSyncAttemptV1, cut_from_anchor, native_role, nondecreasing_cut, now_unix_ms, object_bytes,
     valid_hex, verified_anchor, verified_local_object,
@@ -281,11 +298,7 @@ impl FormalFullSyncSession {
         let timeout = Duration::from_millis(config.request_timeout_ms);
         let client =
             providers::build_read_client(&config, active_provider, &node_private_key_hex, timeout)?;
-        let http = HttpClient::builder()
-            .connect_timeout(timeout)
-            .timeout(timeout)
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
+        let http = oasis7_game_client::formal_read_http_client(timeout)
             .map_err(|error| error.to_string())?;
         let node_public_key_hex = signed.subject_public_key;
         let cas = Arc::new(LocalCasStore::new(cas_root));

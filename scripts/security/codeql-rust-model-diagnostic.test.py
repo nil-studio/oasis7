@@ -30,7 +30,228 @@ def workflow_job(text, name):
     return matches[0]
 
 
+class ResourceTimeline(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.now = 100.0
+        self.clock = patch.object(r.time, 'monotonic', side_effect=lambda: self.now)
+        self.clock.start(); self.addCleanup(self.clock.stop)
+        self.timeline = r.ResourceTimeline(42, self.root)
+        self.write_pressure(100)
+
+    def stat(self, folder, pid, start, cpu, pgid=42, faults=(3, 2)):
+        folder.mkdir(parents=True, exist_ok=True)
+        fields = ['0'] * 22
+        for index, value in {0: 'R', 2: pgid, 7: faults[0], 9: faults[1],
+                             11: cpu, 12: 2, 19: start, 21: 1}.items():
+            fields[index] = str(value)
+        (folder / 'stat').write_text(str(pid) + ' (private ) process name) ' + ' '.join(fields))
+
+    def process(self, pid=100, start=20, cpu=10, io=100, faults=(3, 2), threads=None, pgid=42):
+        folder = self.root / str(pid)
+        self.stat(folder, pid, start, cpu, pgid, faults)
+        (folder / 'io').write_text(''.join(name + ': ' + str(io) + '\n' for name in sorted(r.IO_KEYS)))
+        for tid, thread_start, thread_cpu in threads or [(pid, start, cpu)]:
+            self.stat(folder / 'task' / str(tid), tid, thread_start, thread_cpu, pgid)
+        return folder
+
+    def write_pressure(self, value):
+        folder = self.root / 'pressure'; folder.mkdir(exist_ok=True)
+        for name in ('cpu', 'memory', 'io'):
+            (folder / name).write_text(''.join(kind + ' avg10=0.00 avg60=0.00 avg300=0.00 total=' +
+                str(value) + '\n' for kind in ('some', 'full')))
+
+    def poll(self, available=None):
+        data = self.timeline.poll(10000, self.timeline.MAX_BYTES if available is None else available)
+        if data is None:
+            return None
+        self.assertLessEqual(len(data), self.timeline.MAX_RECORD)
+        self.assertNotIn(b'private', data)
+        self.timeline.written(data)
+        self.now += self.timeline.PERIOD
+        return json.loads(data)
+
+    def test_process_thread_io_fault_and_system_pressure_deltas_share_clock(self):
+        self.process(threads=[(100, 20, 10), (101, 21, 3)])
+        first = self.poll()
+        self.assertIsNone(first['interval_seconds'])
+        self.assertIsNone(first['processes'][0]['cpu_delta_ticks'])
+        self.assertEqual(first['processes'][0]['threads'], [[100, 20, 12, None], [101, 21, 5, None]])
+        self.process(cpu=40, io=117, faults=(8, 4), threads=[(100, 20, 35), (101, 21, 8)])
+        self.write_pressure(120)
+        second = self.poll(); process = second['processes'][0]
+        self.assertEqual(second['interval_seconds'], 15)
+        self.assertEqual(second['started_monotonic'], 115)
+        self.assertGreater(second['started_wall'], 0)
+        self.assertGreaterEqual(second['finished_monotonic'], second['started_monotonic'])
+        self.assertEqual(process['cpu_delta_ticks'], 30)
+        self.assertEqual(process['fault_deltas'], {'minor_faults': 5, 'major_faults': 2})
+        self.assertEqual(process['io_deltas'], {name: 17 for name in r.IO_KEYS})
+        self.assertEqual([row[3] for row in process['threads']], [25, 5])
+        self.assertEqual(second['pressure_scope'], 'system')
+        self.assertEqual(second['system_pressure']['cpu']['delta_us'], {'some': 20})
+        self.assertNotIn('full', second['system_pressure']['cpu']['total_us'])
+        self.assertEqual(self.timeline.result()['records'], 2)
+
+    def test_pid_and_tid_reuse_and_foreign_group_never_share_deltas(self):
+        self.process(); self.poll()
+        self.process(start=30, cpu=100, threads=[(100, 30, 100)]);
+        reused = self.poll()['processes'][0]
+        self.assertIsNone(reused['cpu_delta_ticks'])
+        self.assertIsNone(reused['threads'][0][3])
+        self.process(start=30, cpu=120, threads=[(100, 31, 120)])
+        thread_reused = self.poll()['processes'][0]
+        self.assertEqual(thread_reused['cpu_delta_ticks'], 20)
+        self.assertIsNone(thread_reused['threads'][0][3])
+        self.process(start=30, pgid=77)
+        self.assertEqual(self.poll()['processes'], [])
+        self.process(start=30, cpu=130)
+        self.assertIsNone(self.poll()['processes'][0]['cpu_delta_ticks'])
+
+    def test_parent_identity_change_discards_the_entire_combination(self):
+        folder = self.process(); self.poll()
+        real_stat = self.timeline.stat
+        calls = 0
+        def changed(path, pid, end):
+            nonlocal calls
+            value = real_stat(path, pid, end)
+            if path == folder:
+                calls += 1
+                if calls == 2:
+                    value['start_ticks'] += 1
+            return value
+        with patch.object(self.timeline, 'stat', side_effect=changed):
+            row = self.poll()
+        self.assertEqual(row['processes'], [])
+        self.assertIn('PROCESS_IDENTITY_CHANGED', row['limits'])
+        self.assertIsNone(self.poll()['processes'][0]['cpu_delta_ticks'])
+
+    def test_missing_or_bad_counters_clear_only_their_previous_sample(self):
+        folder = self.process(); self.poll()
+        (folder / 'io').write_bytes(b'private\xff')
+        (folder / 'task/100/stat').unlink()
+        (self.root / 'pressure/memory').write_text('some avg10=0 total=10\n')
+        missing = self.poll(); process = missing['processes'][0]
+        self.assertIsNone(process['io'])
+        self.assertEqual(process['threads'], [])
+        self.assertNotIn('memory', missing['system_pressure'])
+        self.process(cpu=40, io=999); self.write_pressure(400)
+        restored = self.poll(); process = restored['processes'][0]
+        self.assertEqual(process['cpu_delta_ticks'], 30)
+        self.assertTrue(all(value is None for value in process['io_deltas'].values()))
+        self.assertIsNone(process['threads'][0][3])
+        self.assertTrue(all(value is None for value in restored['system_pressure']['memory']['delta_us'].values()))
+
+    def test_decreasing_counters_are_unknown_not_zero(self):
+        self.process(cpu=100, io=100, faults=(100, 100)); self.poll()
+        self.process(cpu=10, io=10, faults=(10, 10)); self.write_pressure(10)
+        row = self.poll(); process = row['processes'][0]
+        self.assertEqual(row['status'], 'PARTIAL')
+        self.assertIsNone(process['cpu_delta_ticks'])
+        self.assertTrue(all(value is None for value in process['fault_deltas'].values()))
+        self.assertTrue(all(value is None for value in process['io_deltas'].values()))
+        self.assertIsNone(process['threads'][0][3])
+        self.assertIsNone(row['system_pressure']['io']['delta_us']['some'])
+        self.assertGreater(row['counter_regressions'], 0)
+
+    def test_process_thread_directory_and_read_bounds_are_explicit(self):
+        self.process(threads=[(tid, 20, 10) for tid in range(100, 170)])
+        row = self.poll()
+        self.assertEqual(len(row['processes'][0]['threads']), 64)
+        self.assertFalse(row['processes'][0]['threads_complete'])
+        self.assertIn('THREAD_LIMIT', row['limits'])
+        for pid in range(200, 210):
+            self.process(pid=pid)
+        row = self.poll()
+        self.assertEqual(len(row['processes']), 8)
+        self.assertIn('PROCESS_LIMIT', row['limits'])
+        with patch.object(self.timeline, 'MAX_PROC_ENTRIES', 1):
+            self.assertIn('PROCESS_DIRECTORY_LIMIT', self.poll()['limits'])
+        (self.root / '100/io').write_bytes(b'x' * 4097)
+        # Selection is an observation subset, so isolate this PID for the bad-read assertion.
+        for pid in range(200, 210):
+            shutil.rmtree(self.root / str(pid))
+        row = self.poll()
+        self.assertIsNone(row['processes'][0]['io'])
+        self.assertGreater(row['read_errors'], 0)
+
+    def test_sample_record_and_total_byte_limits_stop_only_extra_observation(self):
+        self.process()
+        with patch.object(self.timeline, 'MAX_SAMPLES', 1):
+            self.poll()
+            self.assertIsNone(self.poll())
+        self.assertEqual(self.timeline.result()['stopped'], 'SAMPLE_LIMIT')
+        for attribute, limit, expected in (('MAX_RECORD', 1, 'RECORD_LIMIT'), ('MAX_BYTES', 1, 'EVIDENCE_LIMIT')):
+            self.timeline = r.ResourceTimeline(42, self.root)
+            with patch.object(self.timeline, attribute, limit):
+                self.assertIsNone(self.poll())
+            self.assertEqual(self.timeline.result()['stopped'], expected)
+            self.assertEqual(self.timeline.result()['bytes'], 0)
+        self.timeline = r.ResourceTimeline(42, self.root)
+        self.assertIsNone(self.poll(available=1))
+        self.assertEqual(self.timeline.result()['stopped'], 'EVIDENCE_LIMIT')
+
+    def test_soft_deadline_stops_reads_and_absolute_deadline_does_not_renew(self):
+        self.process()
+        real_stat = self.timeline.stat
+        def slow(*args):
+            value = real_stat(*args)
+            self.now += .1
+            return value
+        with patch.object(self.timeline, 'stat', side_effect=slow):
+            row = self.poll()
+        self.assertIn('TIME_LIMIT', row['limits'])
+        self.assertEqual(row['processes'], [])
+        with patch.object(self.timeline, 'collect') as collect:
+            self.assertIsNone(self.timeline.poll(self.now, 10000))
+        collect.assert_not_called()
+        self.assertEqual(self.timeline.result()['stopped'], 'FIXED_DEADLINE')
+
+    def test_discarded_process_record_does_not_upgrade_persisted_unknown(self):
+        self.assertEqual(self.poll()['processes'], [])
+        self.process()
+        with patch.object(self.timeline, 'MAX_RECORD', 1):
+            self.assertIsNone(self.poll())
+        self.assertEqual(self.timeline.result()['records'], 1)
+        self.assertEqual(self.timeline.result()['observed_process_samples'], 0)
+        self.assertEqual(self.timeline.result()['status'], 'UNAVAILABLE')
+
+
 class Runtime(unittest.TestCase):
+    def test_optional_timeline_observes_real_owned_process_and_threads(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(r.ResourceTimeline, 'PERIOD', .1):
+            root = Path(directory)
+            program = ('import threading,time\n'
+                       'def work():\n'
+                       ' end=time.monotonic()+.8\n'
+                       ' while time.monotonic()<end: sum(range(1000))\n'
+                       't=threading.Thread(target=work);t.start();work();t.join()\n')
+            result = r.run([sys.executable, '-c', program], root, root/'run.log',
+                           time.monotonic()+10, 5, root, dict(os.environ), resource_details=True)
+            rows = [json.loads(line) for line in (root/'run.log.resources.jsonl').read_text().splitlines()]
+            owned = [process for row in rows for process in row['processes'] if process['pid'] == result['pid']]
+            self.assertGreaterEqual(result['resource_timeline']['records'], 2)
+            self.assertTrue(any(len(process['threads']) >= 2 for process in owned))
+            self.assertTrue(any((process['cpu_delta_ticks'] or 0) > 0 for process in owned))
+            self.assertEqual(result['resource_timeline']['bytes'], (root/'run.log.resources.jsonl').stat().st_size)
+            self.assertEqual(result['exit'], 0)
+
+    def test_sampling_error_preserves_real_timeout_and_cleanup(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+                r.ResourceTimeline, 'collect', side_effect=RuntimeError('private proc text')):
+            root = Path(directory)
+            with self.assertRaises(r.PhaseError) as failed:
+                r.run([sys.executable, '-c', 'import time;time.sleep(10)'], root, root/'run.log',
+                      time.monotonic()+5, .4, root, dict(os.environ), resource_details=True)
+            result = failed.exception.result
+            self.assertTrue(failed.exception.clean_timeout)
+            self.assertEqual(result['failure_kind'], 'timeout')
+            self.assertEqual(result['resource_timeline']['stopped'], 'SAMPLING_ERROR')
+            self.assertEqual(result['cleanup_errors'], [])
+            self.assertNotIn('private proc text', json.dumps(result))
+
     def test_actual_fifo_keeps_structured_stdout_and_stderr_distinct(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -42,6 +263,8 @@ class Runtime(unittest.TestCase):
             self.assertEqual((root/'stdout.log.stderr').read_text(), 'stderr\n')
             self.assertEqual(json.loads((root/'events.jsonl').read_text()), {'type':'LOG_HEADER'})
             self.assertFalse((root/'events.fifo').exists())
+            self.assertNotIn('resource_timeline', value)
+            self.assertFalse((root/'stdout.log.resources.jsonl').exists())
 
     def test_timeout_preserves_partial_event_and_reaps_group(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -405,6 +628,34 @@ class Workflow(unittest.TestCase):
         self.assertIn('permissions:\n      contents: read',job)
         for forbidden in ('security-events','GH_TOKEN','GITHUB_TOKEN','upload-sarif','codeql/analyze','--admin','continue-on-error'):
             self.assertNotIn(forbidden,job)
+
+    def test_native_extraction_uses_mold_within_the_fixed_preparation_budget(self):
+        text=(P.resolve().parents[2]/'.github/workflows/rust.yml').read_text()
+        job=workflow_job(text, 'codeql-rust-model-diagnostic')
+        steps=re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+        setups=[i for i, step in enumerate(steps)
+                if 'uses: ./.github/actions/setup-linux-mold' in step]
+        self.assertEqual(len(setups), 1)
+        setup=setups[0]
+        # Rust extraction can compile build.rs and procedural macros even with
+        # build-mode=none; the QL-only plan must retain its no-Rust preparation.
+        self.assertIn("if: inputs.model_probe != 'trait-scope-plan'\n", steps[setup])
+        self.assertIn('MODEL_DEADLINE=', steps[0])
+        self.assertLess(0, setup)
+        self.assertIn('ref: ${{ github.workflow_sha }}', steps[setup-1])
+        self.assertIn('sparse-checkout: .github/actions/setup-linux-mold\n', steps[setup-1])
+        self.assertNotIn('path:', steps[setup-1])
+        self.assertIn('ref: ${{ github.workflow_sha }}', steps[setup+1])
+        self.assertNotIn('sparse-checkout:', steps[setup+1])
+        self.assertNotIn('path:', steps[setup+1])
+        self.assertIn('ref: 49b25e1ab631ffb433bce88709fa5601720cfc17\n', steps[setup+2])
+        self.assertIn('path: model-source\n', steps[setup+2])
+        for checkout in (steps[setup-1], steps[setup+1], steps[setup+2]):
+            self.assertIn('uses: actions/checkout@', checkout)
+            self.assertIn('persist-credentials: false\n', checkout)
+        for boundary in ('Set up selected immutable Rust CodeQL bundle',
+                         'Diagnose selected public-model partition'):
+            self.assertLess(setup, next(i for i, step in enumerate(steps) if boundary in step))
 
     def test_literal_manual_has_no_scan_or_required_override(self):
         root=P.resolve().parents[2];text=(root/'.github/workflows/rust.yml').read_text()

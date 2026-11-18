@@ -38,6 +38,65 @@ plan = module('ci-formal-plan')
 from ci_process_runner import run, owned_processes, _Capture, READ_BYTES, SUMMARY_LINE_BYTES
 
 
+def compile_rust_fixture(source, executable, *, test=False, env=None):
+    environment = os.environ if env is None else env
+    command = ['rustc', *(['--test'] if test else []), str(source), '-o', str(executable)]
+    linker = None
+    if sys.platform == 'linux':
+        version = subprocess.check_output(['rustc', '-vV'], text=True, env=environment)
+        host = next(line[6:] for line in version.splitlines() if line.startswith('host: '))
+        linker = environment.get('CARGO_TARGET_' + host.upper().replace('-', '_') + '_LINKER')
+        if linker:
+            # Direct rustc invocations do not read Cargo's target linker setting.
+            command += ['-C', 'linker=' + linker]
+    subprocess.run(command, check=True, env=environment)
+    if linker and Path(linker).name == 'oasis7-mold-gcc':
+        comment = subprocess.check_output(
+            ['readelf', '-p', '.comment', str(executable)], text=True, env=environment)
+        if not re.search(r'\bmold 3\.0\.0(?:\s|$)', comment):
+            raise AssertionError('native Rust fixture was not linked by the pinned mold')
+
+
+class NativeRustFixtureLinker(unittest.TestCase):
+    def test_native_linker_preserves_fixture_environment_and_verifies_elf(self):
+        environment = dict(CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER='/local/oasis7-mold-gcc',
+                           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER='/wrong-host',
+                           CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_LINKER='/wasm-only',
+                           CARGO_BIN_EXE_tool='/prepared/tool')
+        with patch.object(sys, 'platform', 'linux'), \
+             patch.object(subprocess, 'check_output', side_effect=[
+                 'host: aarch64-unknown-linux-gnu\n', '  [  0]  mold 3.0.0\n']) as output, \
+             patch.object(subprocess, 'run') as compile:
+            compile_rust_fixture('fixture.rs', 'fixture', test=True, env=environment)
+        self.assertEqual(compile.call_args.args[0], ['rustc', '--test', 'fixture.rs', '-o',
+                         'fixture', '-C', 'linker=/local/oasis7-mold-gcc'])
+        self.assertIs(compile.call_args.kwargs['env'], environment)
+        self.assertEqual(output.call_args.args[0], ['readelf', '-p', '.comment', 'fixture'])
+
+    def test_mold_configuration_rejects_an_elf_from_another_linker(self):
+        with patch.object(sys, 'platform', 'linux'), \
+             patch.object(subprocess, 'check_output', side_effect=[
+                 'host: x86_64-unknown-linux-gnu\n', 'GCC: GNU ld\n']), \
+             patch.object(subprocess, 'run'), \
+             self.assertRaisesRegex(AssertionError, 'not linked by the pinned mold'):
+            compile_rust_fixture('fixture.rs', 'fixture',
+                env={'CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER': '/local/oasis7-mold-gcc'})
+
+    def test_unconfigured_native_and_other_platforms_keep_the_existing_linker(self):
+        for platform, environment in [
+            ('linux', {}),
+            ('linux', {'CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_LINKER': '/wasm-only'}),
+            ('darwin', {'CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER': '/unrelated'}),
+            ('win32', {'CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER': '/unrelated'}),
+        ]:
+            with self.subTest(platform=platform, environment=environment), \
+                 patch.object(sys, 'platform', platform), \
+                 patch.object(subprocess, 'check_output', return_value='host: x86_64-unknown-linux-gnu\n'), \
+                 patch.object(subprocess, 'run') as compile:
+                compile_rust_fixture('fixture.rs', 'fixture', env=environment)
+                self.assertEqual(compile.call_args.args[0], ['rustc', 'fixture.rs', '-o', 'fixture'])
+
+
 
 class ProviderArtifactContracts(unittest.TestCase):
     def setUp(self):
@@ -1973,7 +2032,7 @@ class OrdinaryExclusiveExecution(unittest.TestCase):
 #[test] #[ignore] fn ignored() { panic!("must remain ignored"); }
 ''')
             executable = root / 'fixture'
-            subprocess.run(['rustc', '--test', str(source), '-o', str(executable)], check=True)
+            compile_rust_fixture(source, executable, test=True)
             tests = artifacts.inventory(executable)
             ignored = artifacts.inventory(executable, True)
             manifest = dict(binaries={'runtime': dict(path='fixture', cwd='.', ordinary=True,
@@ -3992,6 +4051,8 @@ fn rendezvous(name: &str, peer: &str) {
             'compiler': lambda m: m.update(rustc_version='wrong compiler'),
             'target': lambda m: m.update(target_triple='wrong-target'),
             'compiler-flags': lambda m: m['compiler_environment'].update(RUSTFLAGS='--cfg other_behavior'),
+            'host-linker': lambda m: m['compiler_environment'].update(
+                CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER='/changed/linker'),
             'scope': lambda m: m.update(scope='formal-endpoint'),
             'missing-bin': lambda m: m['binaries'].pop('required-test-oasis7_chain_runtime-bin-oasis7_chain_runtime'),
             'features': lambda m: m['binaries']['runtime-tests'].update(requested_features=[]),
@@ -5666,7 +5727,7 @@ class Process(unittest.TestCase):
         source = cls.root / 'fixture.rs'
         source.write_text('#[test] fn ordinary() {}\n#[test] #[ignore] fn acceptance() {}\n#[test] #[ignore] fn crash_child() {}\n')
         cls.binary = cls.root / 'fixture'
-        subprocess.run(['rustc', '--test', str(source), '-o', str(cls.binary)], check=True)
+        compile_rust_fixture(source, cls.binary, test=True)
 
     @classmethod
     def tearDownClass(cls):
@@ -5698,7 +5759,7 @@ class Process(unittest.TestCase):
 }
 #[test] #[ignore] fn ignored_case() { panic!("ignored"); }
 ''')
-            subprocess.run(['rustc', '--test', str(source), '-o', str(executable)], check=True)
+            compile_rust_fixture(source, executable, test=True)
             selected = FastExecutionSelection().selection(('oasis7_chain_runtime',)) | dict(
                 formal_full_profiles_only_version=1, formal_shards=[],
                 formal_deferred_ordinary_cases={'runtime-tests': ['formal_heavy']})
@@ -6361,11 +6422,11 @@ compile_error!("full scale target must not be compiled by the required tuple");
             original.parent.mkdir(parents=True)
             source = root / 'tool.rs'
             source.write_text('fn main() {}')
-            subprocess.run(['rustc', str(source), '-o', str(original)], check=True)
+            compile_rust_fixture(source, original)
             harness = root / 'harness'
             source.write_text('#[test] fn calls_tool() { assert!(std::process::Command::new(env!("CARGO_BIN_EXE_tool")).status().unwrap().success()); }')
-            subprocess.run(['rustc', '--test', str(source), '-o', str(harness)], check=True,
-                           env=dict(os.environ, CARGO_BIN_EXE_tool=str(original)))
+            compile_rust_fixture(source, harness, test=True,
+                                 env=dict(os.environ, CARGO_BIN_EXE_tool=str(original)))
             bundle = root / 'bundle'
             bundle.mkdir()
             config_path = root / 'suites.json'
@@ -6390,7 +6451,7 @@ compile_error!("full scale target must not be compiled by the required tuple");
             }.items():
                 source.write_text(rust_source)
                 destination = bundle / logical
-                subprocess.run(['rustc', '--test', str(source), '-o', str(destination)], check=True)
+                compile_rust_fixture(source, destination, test=True)
                 binaries[logical] = dict(path=logical, sha256=artifacts.digest(destination),
                     original_executable=str(destination), test=True, ordinary=logical == 'empty-tests', cwd='.',
                     tests=artifacts.inventory(destination), ignored_tests=[])
@@ -6431,12 +6492,12 @@ compile_error!("full scale target must not be compiled by the required tuple");
             original.parent.mkdir(parents=True)
             source = root / 'fixture.rs'
             source.write_text('fn main() {}')
-            subprocess.run(['rustc', str(source), '-o', str(original)], check=True)
+            compile_rust_fixture(source, original)
             bundle = root / 'bundle'
             bundle.mkdir()
             source.write_text('#[test] #[ignore] fn formal_acceptance() { assert!(std::process::Command::new(env!("CARGO_BIN_EXE_tool")).status().unwrap().success()); }\n#[test] fn ordinary() {}\n#[test] #[ignore] fn crash_child() {}\n')
-            subprocess.run(['rustc', '--test', str(source), '-o', str(bundle / 'runtime-tests')], check=True,
-                           env=dict(os.environ, CARGO_BIN_EXE_tool=str(original)))
+            compile_rust_fixture(source, bundle / 'runtime-tests', test=True,
+                                 env=dict(os.environ, CARGO_BIN_EXE_tool=str(original)))
             binaries = {}
             for name in ('runtime', 'runtime-tests', 'viewer'):
                 destination = bundle / name

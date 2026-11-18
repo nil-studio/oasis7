@@ -82,6 +82,8 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - id: snapshot
         name: Freeze the helper closure outside the collection tree
         run: |
@@ -325,6 +327,8 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - id: snapshot
         name: Freeze the helper closure outside the collection tree
         run: |

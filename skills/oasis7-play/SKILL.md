@@ -38,6 +38,25 @@ profile; model socket callers must use the equivalent `args` form.
 
 仅在操作者明确提供托管控制 socket 时，遵循[托管控制参考](references/custody-control.md)。该模式使用独立 Host 保管凭据，模型只能调用闭合 Control；当前不开放业务 Actions、原件 Read 或独立世界清理，不能转用普通设备配置绕过缺失能力。
 
+## Browser client Context recovery
+
+Adapters using the supplied `createBrowserGameClient` must call
+`client.context(operationId, runBudget)` for a decision and repeat that same
+operation ID after an interrupted capture. If a prefix already exists, this
+entry queries the original prefix and reads its Context only after canonical
+commitment and current fence checks; it does not replay prepare or create a
+replacement prefix. An existing action or outcome requires original result
+recovery instead. A new budget argument cannot change stored originals.
+
+`client.recover()` only reconciles original results. It does not read private
+Context or terminate an expired turn. Explicit authorized expired-turn recovery
+uses `client.retireExpiredContexts()`, which verifies the current fence, strictly
+expired lease and absence of competing originals before creating the unique
+`context_expired` outcome. Do not replace it with ordinary
+`client.outcome(..., "context_expired")`, which requires captured private content.
+Only a committed terminal result allows another decision. A read failure is not
+permission to re-prepare or reset the original budget.
+
 ## Browser execution
 
 For the explicitly enabled browser BYOK profile, follow the [browser owner and execution reference](references/browser-byok.md). Its owner UI prepares canonical entry separately from model credentials and execution consent. The CLI examples below do not authorize a parallel executor for that Agent.

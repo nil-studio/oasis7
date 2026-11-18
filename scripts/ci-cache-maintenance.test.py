@@ -289,7 +289,7 @@ class WorkspaceRetentionTests(unittest.TestCase):
                    self.entry(2, 'ordinary', size=upload + 1), self.entry(3, size=1)]
         plan = maintenance.plan_retention(entries, [entries[1]['key'], entries[2]['key']], START)
         self.assertEqual(plan['families']['ordinary']['max_bytes'], 2 * upload)
-        self.assertEqual(plan['families']['ecs']['max_bytes'], 2 * 1024 ** 3)
+        self.assertEqual(plan['families']['ecs']['max_bytes'], 3 * 1024 ** 3)
         self.assertEqual(plan['protected_over_budget_bytes'], 2)
         self.assertEqual(plan['delete'], [])
 
