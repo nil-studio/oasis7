@@ -1,4 +1,5 @@
 //! Fresh accepted GEN or normal ownership, not a historical proof or WorldReady grant.
+use super::genesis_receipts::ProviderPolicyRefs;
 use super::*;
 use crate::controlled_authority::fencing::{
     BoundedAcquireErrorV1, PaidRemoteLeaseV1, ProtectedSignerCustodyV1,
@@ -144,8 +145,10 @@ impl FileFormalEndpoint {
         stop: &mut dyn FnMut() -> bool,
     ) -> Result<PaidAcceptedGenesisHostSourceV1, BoundedAcquireErrorV1> {
         self.into_accepted_host_source_bounded(
-            provider,
-            pinned,
+            ProviderPolicyRefs {
+                provider,
+                policy: pinned,
+            },
             memory,
             work,
             stop,
@@ -162,8 +165,10 @@ impl FileFormalEndpoint {
         stop: &mut dyn FnMut() -> bool,
     ) -> Result<PaidAcceptedGenesisHostSourceV1, BoundedAcquireErrorV1> {
         self.into_accepted_host_source_bounded(
-            provider,
-            pinned,
+            ProviderPolicyRefs {
+                provider,
+                policy: pinned,
+            },
             memory,
             work,
             stop,
@@ -182,8 +187,10 @@ impl FileFormalEndpoint {
         stop: &mut dyn FnMut() -> bool,
     ) -> Result<PaidAcceptedGenesisHostSourceV1, BoundedAcquireErrorV1> {
         self.into_accepted_host_source_bounded(
-            provider,
-            pinned,
+            ProviderPolicyRefs {
+                provider,
+                policy: pinned,
+            },
             memory,
             work,
             stop,
@@ -201,8 +208,10 @@ impl FileFormalEndpoint {
         stop: &mut dyn FnMut() -> bool,
     ) -> Result<PaidAcceptedGenesisHostSourceV1, BoundedAcquireErrorV1> {
         self.into_accepted_host_source_bounded(
-            provider,
-            pinned,
+            ProviderPolicyRefs {
+                provider,
+                policy: pinned,
+            },
             memory,
             work,
             stop,
@@ -227,14 +236,17 @@ impl FileFormalEndpoint {
     /// A retained Qualified receipt, cold metadata or a staged job cannot.
     fn into_accepted_host_source_bounded(
         self,
-        provider: &RemoteMonotonicEndpointProvider,
-        pinned: &TrustedFencingPolicyV1,
+        fencing: ProviderPolicyRefs<'_, '_>,
         memory: &MemoryBudget,
         work: &FormalArchiveReadWorkV1,
         stop: &mut dyn FnMut() -> bool,
         kind: AcceptedHostKind,
         supplied_lease: Option<PaidRemoteLeaseV1>,
     ) -> Result<PaidAcceptedGenesisHostSourceV1, BoundedAcquireErrorV1> {
+        let ProviderPolicyRefs {
+            provider,
+            policy: pinned,
+        } = fencing;
         charge(work, 0, stop)?;
         if self.poisoned || (self.recovery.is_some() && kind != AcceptedHostKind::AuthenticatedCold)
         {
