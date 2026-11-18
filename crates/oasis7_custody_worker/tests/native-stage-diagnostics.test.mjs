@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {assertNativeStage,createNativeTimings,projectNativeState} from './fixtures/native_stage_diagnostics.mjs';
+import {assertNativeStage,createNativeTimings,projectNativeState,readIdentityNativeDiagnostic} from './fixtures/native_stage_diagnostics.mjs';
 
 const secret='NEVER_PRINT_COOKIE_NONCE_SIGNATURE_OR_ORIGINAL';
 const selected='selected-private-operation';
@@ -167,4 +167,48 @@ test('bounded timing retains completed and failed calls without changing their v
   assert.equal(recorder.facts.events.length,16);assert.equal(recorder.facts.omitted_events,3);
   assert.equal(recorder.facts.events.at(-1).kind,'managed_continue');
   assert.ok(recorder.facts.events.every(v=>Number.isSafeInteger(v.started_at) && v.finished_at>=v.started_at));
+});
+
+
+test('Identity diagnostic is failure-only, follows suspension, whitelists output and preserves errors',async()=>{
+  const {runtime,calls}=failingRuntime({readIdentityNativeDiagnostic(){calls.push('identity');return {status:'available',cookie:secret,phase:{state:secret,result_kind:secret,result_present:true,private_sid_generation_present:false,stored_slots:{session_cookie:1,[secret]:8}}};}});
+  let report;
+  await assertNativeStage(runtime,{stage:'approved'},'approved',{managedOperationId:selected,emit:()=>assert.fail()});
+  assert.deepEqual(calls,[]);
+  await assert.rejects(assertNativeStage(runtime,{stage:'approved'},'native_session_ready',{managedOperationId:selected,emit:v=>{report=JSON.parse(v);}}),originalAssertion);
+  assert.deepEqual(calls,['timings','requests','suspend','identity','snapshot']);
+  assert.equal(report.identity.phase.state,'unknown');assert.equal(report.identity.phase.stored_slots.session_cookie,1);
+  assert.equal(JSON.stringify(report).includes(secret),false);
+  runtime.readIdentityNativeDiagnostic=()=>{throw Error(secret);};
+  await assert.rejects(assertNativeStage(runtime,{stage:'approved'},'native_session_ready',{managedOperationId:selected,emit:v=>{report=JSON.parse(v);}}),originalAssertion);
+  assert.deepEqual(report.identity,{status:'unavailable'});
+});
+
+test('real SQLite Identity projection isolates permit and scope, bounds bytes, and never emits private records',async()=>{
+  const {mkdtempSync,rmSync,readFileSync}=await import('node:fs');
+  const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+  const {execFileSync}=await import('node:child_process');
+  const directory=mkdtempSync(join(tmpdir(),'identity-stage-'));
+  const path=join(directory,'manifest.sqlite');
+  const manifest={schema_version:1,scope:{role_scope:{context:{identity:{account_id:'account',environment:'test'}},provision_id:'provision'}},
+    phases:[{phase:'managed_login',permit_id:selected,operation_id:'login',state:'unknown',result:null,result_private_sid_generation:null}],
+    records:[{operation_id:'login',kind:'login_dispatch',stored:true,record_id:secret,plaintext_digest:secret},{operation_id:'other',kind:'session_cookie',stored:true}],cookie:secret};
+  const save=value=>execFileSync('python3',['-c',`import sqlite3,sys
+with sqlite3.connect(sys.argv[1]) as db:
+ db.execute('CREATE TABLE IF NOT EXISTS custody_records(id TEXT PRIMARY KEY,payload TEXT)')
+ db.execute('INSERT OR REPLACE INTO custody_records VALUES(?,?)',('custody-native-manifest-v1',sys.argv[2]))`,path,JSON.stringify(value)],{stdio:'ignore'});
+  try {
+    save(manifest);const before=readFileSync(path);
+    const actual=readIdentityNativeDiagnostic(directory,'account','provision',selected);
+    assert.equal(actual.status,'available');assert.equal(actual.phase.state,'unknown');
+    assert.deepEqual(actual.phase.stored_slots,{login_dispatch:1,session_cookie:0,session_csrf:0});
+    assert.equal(JSON.stringify(actual).includes(secret),false);assert.deepEqual(readFileSync(path),before);
+    for(const args of [['wrong','provision',selected],['account','wrong',selected],['account','provision','other']])
+      assert.equal(readIdentityNativeDiagnostic(directory,...args).status,'absent');
+    manifest.phases.push({...manifest.phases[0]});save(manifest);
+    assert.equal(readIdentityNativeDiagnostic(directory,'account','provision',selected).status,'unavailable');
+    manifest.phases.pop();manifest.cookie='é'.repeat(32768);save(manifest);
+    assert.equal(readIdentityNativeDiagnostic(directory,'account','provision',selected).status,'unavailable');
+    assert.equal(readIdentityNativeDiagnostic(join(directory,'missing'),'account','provision',selected).status,'unavailable');
+  } finally {rmSync(directory,{recursive:true,force:true});}
 });

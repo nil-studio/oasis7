@@ -13,7 +13,7 @@ import {fixtureRecoveryPolicy,signFixtureRecoveryActivation} from './fence_activ
 import {freshAccessStatusBarrier} from './fresh_access_status_barrier.mjs';
 import {worldAuthority} from './world_runtime_support.mjs';
 import {readSavedAccountSnapshot} from './account_restore_bench.mjs';
-import {createNativeTimings} from './native_stage_diagnostics.mjs';
+import {createNativeTimings,readIdentityNativeDiagnostic} from './native_stage_diagnostics.mjs';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
 const defaultWorld={world_id:'world-one',genesis_digest:'genesis-one',branch_id:'branch-one',reorg_epoch:'0',service_public_key:'ab'.repeat(32)};
 const defaultRoutes={environment:'test',identity_route:'native-one',world_route:'world-route-one',world_identity:defaultWorld.world_id};
@@ -260,6 +260,7 @@ export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits
     nativeTiming.facts.provision_approved_at=Date.now();
     await run({persist,account:original.entry.custody_account_id,provisionId:original.entry.provision_id,
       nativeTimings:()=>nativeTiming.facts,
+      readIdentityNativeDiagnostic:permit=>readIdentityNativeDiagnostic(persist,original.entry.custody_account_id,original.entry.provision_id,permit),
       readNativeDiagnosticState:()=>JSON.parse(readSavedAccountSnapshot(persist,original.entry.custody_account_id)).state,
       fixedToolIngressProbe:async(kind,init)=>{
         let reply;
