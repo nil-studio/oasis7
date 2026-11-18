@@ -624,7 +624,7 @@ v4 另外从可信 checkout 的完整 fast target 清单补齐精确 `default_fe
 
 生产者与消费者在缓存步骤前对齐实际已安装的 Rust/WASM 工具链、Cargo 配置及参与 key 的环境值；`shared-key` 相同本身不足以消除工具链或环境 hash 的差异。共享 native 族固定 stable 与 builtin nightly，保留显式 `CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM` 指纹。准备 helper 只在 GitHub-hosted 临时 Linux runner 上工作，验证所需的精确工具链与当前 active 工具链后，移除无关预装工具链；缺失、非固定版本或卸载失败均失败，不关闭环境 hash。
 
-Linux CI 的 Rust native 构建及 WASM 构建所需的 host 程序统一使用 `setup-linux-mold` 维护的固定版本、固定摘要 mold 3.0.0。普通任务通过该 action 只为当前 Linux 架构导出 `CARGO_TARGET_<HOST>_LINKER`，指向稳定的 `3.0.0-v1/bin/oasis7-mold-gcc` 路径；wrapper 经 GCC 调用该版本的 mold，不替换系统 `ld`，不设置全局 `RUSTFLAGS`。WASM target 继续使用自身链接器；canonical Docker 的构建镜像、环境与确定性合同保持。macOS、Windows 维持原链接路径。
+Linux CI 的 Rust native 构建及 WASM 构建所需的 host 程序统一使用 `setup-linux-mold` 维护的固定版本、固定摘要 mold 3.0.0。普通任务通过该 action 只为当前 Linux 架构导出 `CARGO_TARGET_<HOST>_LINKER`，指向稳定的 `3.0.0-v1/bin/oasis7-mold-gcc` 路径；wrapper 经 GCC 调用该版本的 mold，不替换系统 `ld`，不设置全局 `RUSTFLAGS`。canonical Docker 镜像复用同一 installer，在容器内配置 Linux host linker，并把 installer 纳入 producer recipe；安装时验证 producer 的真实 ELF 使用 mold。WASM target 继续使用自身链接器，镜像身份与候选基线按 [WASM 构建合同](../../world-runtime/wasm/wasm-deterministic-build-pipeline.design.md#build-wrapper-contract)核对。macOS、Windows 维持原生链接路径。
 
 安装和配置必须在依赖缓存恢复及 workspace identity 计算前完成，并覆盖共享 writer、真实 reader 及 Formal merge。target linker 环境与带版本的 wrapper 路径进入既有 `CARGO_*` 环境指纹和 Formal component identity；改变 mold 版本或 wrapper 的链接语义时更新路径版本，避免新旧链接配置串用。只读 WASM metadata 诊断不安装或继承 linker。无 checkout 的 CodeQL WASM context 将同一 installer 纳入固定 tool SHA 的 verified helper closure，在绑定原 job clock 后、既有 prepare deadline 内受控安装到私有目录；只将本机 Linux native linker 传给编译环境，保留其他 target 和 flags 的隔离。installer 摘要、wrapper 与 mold 字节、`ld.mold` 别名进入证据，结束前再次核对身份，失败或变化不能报告完整语义观测。
 

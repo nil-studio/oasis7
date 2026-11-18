@@ -1,4 +1,11 @@
 **
+!.github/
+.github/*
+!.github/actions/
+.github/actions/*
+!.github/actions/setup-linux-mold/
+.github/actions/setup-linux-mold/*
+!.github/actions/setup-linux-mold/setup.py
 !docker/
 docker/*
 !docker/wasm-builder/
