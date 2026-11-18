@@ -180,23 +180,27 @@ impl WireByteWindow {
 
     #[cfg(test)]
     pub(super) fn with_aged_first_read(limits: WireByteLimits, age: Duration) -> (Self, Instant) {
-        let mut window = Self::new(limits).unwrap();
-        window.origin -= age;
-        let expiry = window.bucket_expiry(window.origin).unwrap();
-        window
-            .state
-            .get_mut()
+        let window = Self::new(limits).unwrap();
+        let expiry = window.seed_aged_first_read(age);
+        (window, expiry)
+    }
+
+    #[cfg(test)]
+    pub(super) fn seed_aged_first_read(&self, age: Duration) -> Instant {
+        let expiry = self.bucket_expiry(self.origin).unwrap() - age;
+        self.state
+            .lock()
             .unwrap()
             .record(
                 Direction::Read as usize,
                 Charge {
-                    actual: limits.total,
+                    actual: self.limits.total,
                     conservative: 0,
                 },
                 expiry,
             )
             .unwrap();
-        (window, expiry)
+        expiry
     }
 
     pub(super) fn with_diagnostics(

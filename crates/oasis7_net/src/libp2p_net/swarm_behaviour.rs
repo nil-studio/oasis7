@@ -23,6 +23,7 @@ use super::peer_record_admission::{PeerRecordAdmissionBudget, SharedPeerRecordAd
 use super::peer_record_dial_gate::DiscoveryDialPolicy;
 use super::peer_record_protocol_dial::{ProtocolDialBehaviour, ProtocolDialOrigins};
 use super::peer_record_store::PeerRecordStore;
+use super::request_deadline::{LocalRequest, RequestCodec, deadline_in};
 use super::wire_bytes::{InstrumentedStreamMuxer, SharedLibp2pWireByteCounters};
 
 pub(super) const KAD_MAX_PROVIDED_KEYS: usize = 65_536;
@@ -34,7 +35,7 @@ pub(super) const KAD_MAX_PROVIDED_KEYS: usize = 65_536;
 )]
 pub(super) struct InnerBehaviour {
     pub(super) gossipsub: gossipsub::Behaviour,
-    pub(super) request_response: request_response::cbor::Behaviour<NetworkRequest, NetworkResponse>,
+    pub(super) request_response: request_response::Behaviour<RequestCodec>,
     pub(super) kademlia: kad::Behaviour<PeerRecordStore>,
     pub(super) autonat: Toggle<ProtocolDialBehaviour<autonat::Behaviour>>,
     pub(super) relay_client: ProtocolDialBehaviour<relay::client::Behaviour>,
@@ -48,6 +49,7 @@ pub(super) struct InnerBehaviour {
 pub(super) struct Behaviour {
     inner: InnerBehaviour,
     connection_budget: Option<ConnectionBudget>,
+    request_timeout: Option<std::time::Duration>,
     pub(super) discovery_budget: super::discovery_budget::DiscoveryWorkBudget,
     peer_record_admission_budget: SharedPeerRecordAdmissionBudget,
     dial_policy: DiscoveryDialPolicy,
@@ -62,16 +64,33 @@ impl Behaviour {
         peer_record_admission_budget: SharedPeerRecordAdmissionBudget,
         connection_budget: Option<ConnectionBudget>,
         discovery_budget: super::discovery_budget::DiscoveryWorkBudget,
+        request_timeout: Option<std::time::Duration>,
     ) -> Self {
         Self {
             inner,
             connection_budget,
             discovery_budget,
+            request_timeout,
             peer_record_admission_budget,
             dial_policy: DiscoveryDialPolicy::default(),
             protocol_dials,
             automatic_dials: Default::default(),
         }
+    }
+
+    pub(super) fn send_rr_request(
+        &mut self,
+        peer: &PeerId,
+        message: NetworkRequest,
+        caller_deadline: Option<tokio::time::Instant>,
+    ) -> request_response::OutboundRequestId {
+        let deadline = self.request_timeout.map(|timeout| {
+            let configured = deadline_in(timeout);
+            caller_deadline.map_or(configured, |caller| configured.min(caller))
+        });
+        self.inner
+            .request_response
+            .send_request(peer, LocalRequest { message, deadline })
     }
 
     pub(super) fn note_handshake_deadline(&self) {
@@ -214,7 +233,7 @@ impl NetworkBehaviour for Behaviour {
 #[derive(Debug)]
 pub(super) enum BehaviourEvent {
     Gossipsub(gossipsub::Event),
-    RequestResponse(request_response::Event<NetworkRequest, NetworkResponse>),
+    RequestResponse(request_response::Event<LocalRequest, NetworkResponse>),
     Kademlia(kad::Event),
     Autonat(autonat::Event),
     RelayClient(relay::client::Event),
@@ -229,8 +248,8 @@ impl From<gossipsub::Event> for BehaviourEvent {
     }
 }
 
-impl From<request_response::Event<NetworkRequest, NetworkResponse>> for BehaviourEvent {
-    fn from(event: request_response::Event<NetworkRequest, NetworkResponse>) -> Self {
+impl From<request_response::Event<LocalRequest, NetworkResponse>> for BehaviourEvent {
+    fn from(event: request_response::Event<LocalRequest, NetworkResponse>) -> Self {
         BehaviourEvent::RequestResponse(event)
     }
 }
@@ -317,7 +336,8 @@ pub(super) fn build_swarm_with_receiver(
         StreamProtocol::new(RR_PROTOCOL_PREFIX),
         ProtocolSupport::Full,
     )];
-    let request_response = request_response::cbor::Behaviour::new(
+    let request_response = request_response::Behaviour::with_codec(
+        RequestCodec::default(),
         protocols,
         request_response::Config::default().with_request_timeout(request_response_timeout),
     );
@@ -358,12 +378,15 @@ pub(super) fn build_swarm_with_receiver(
         ),
     };
 
+    let wire_window = wire_byte_counters.window();
+    let request_timeout = wire_window.as_ref().map(|_| request_response_timeout);
     let behaviour = Behaviour::new(
         inner,
         protocol_dials,
         peer_record_admission_budget,
         connection_budget,
-        super::discovery_budget::DiscoveryWorkBudget::with_wire_window(wire_byte_counters.window()),
+        super::discovery_budget::DiscoveryWorkBudget::with_wire_window(wire_window),
+        request_timeout,
     );
 
     let quic_transport = libp2p::quic::tokio::Transport::new(libp2p::quic::Config::new(keypair));

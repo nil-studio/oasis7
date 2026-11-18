@@ -129,6 +129,7 @@ where
             counters: this.counters.clone(),
             read_wait: BudgetWait::default(),
             write_wait: BudgetWait::default(),
+            send_closed: false,
         }))
     }
 
@@ -143,6 +144,7 @@ where
             counters: this.counters.clone(),
             read_wait: BudgetWait::default(),
             write_wait: BudgetWait::default(),
+            send_closed: false,
         }))
     }
 
@@ -159,6 +161,7 @@ pub(crate) struct InstrumentedSubstream<SMInner> {
     counters: SharedLibp2pWireByteCounters,
     read_wait: BudgetWait,
     write_wait: BudgetWait,
+    send_closed: bool,
 }
 
 fn offered_vectored_bytes(lengths: impl Iterator<Item = usize>) -> io::Result<usize> {
@@ -293,6 +296,11 @@ impl<SMInner: AsyncWrite> AsyncWrite for InstrumentedSubstream<SMInner> {
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self.project();
-        this.inner.poll_close(cx)
+        if *this.send_closed {
+            return Poll::Ready(Ok(()));
+        }
+        ready!(this.inner.poll_close(cx))?;
+        *this.send_closed = this.counters.window.is_some();
+        Poll::Ready(Ok(()))
     }
 }

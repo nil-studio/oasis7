@@ -116,10 +116,15 @@ impl Libp2pNetwork {
         timeout: Duration,
     ) -> Result<Vec<u8>, WorldError> {
         let (sender, receiver) = mpsc::channel();
+        let deadline = self
+            .resource_budget
+            .as_ref()
+            .map(|_| super::request_deadline::deadline_in(timeout));
         self.enqueue_command(Command::RequestToPeer {
             protocol: protocol.to_string(),
             payload: payload.to_vec(),
             peer,
+            deadline,
             response: sender,
         })?;
         let operation = format!("request_to_peer protocol={protocol} peer={peer}");
@@ -343,10 +348,15 @@ impl ProtoDistributedNetwork<WorldError> for Libp2pNetwork {
         providers: &[String],
     ) -> Result<Vec<u8>, WorldError> {
         let (sender, receiver) = mpsc::channel();
+        let deadline = self
+            .resource_budget
+            .as_ref()
+            .map(|_| super::request_deadline::deadline_in(LIBP2P_COMMAND_RESPONSE_TIMEOUT));
         self.enqueue_command(Command::Request {
             protocol: protocol.to_string(),
             payload: payload.to_vec(),
             providers: providers.to_vec(),
+            deadline,
             response: sender,
         })?;
         let operation = if providers.is_empty() {

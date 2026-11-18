@@ -87,12 +87,14 @@ pub(super) enum Command {
         protocol: String,
         payload: Vec<u8>,
         providers: Vec<String>,
+        deadline: Option<tokio::time::Instant>,
         response: CommandResponseSender<Vec<u8>>,
     },
     RequestToPeer {
         protocol: String,
         payload: Vec<u8>,
         peer: PeerId,
+        deadline: Option<tokio::time::Instant>,
         response: CommandResponseSender<Vec<u8>>,
     },
     RegisterAuthenticatedHandler {
@@ -601,6 +603,9 @@ pub(super) fn handle_command(
         peer_discovery_query_last_started_at_ms,
     } = state;
 
+    if super::request_deadline::reject_expired_command(command.as_ref()) {
+        return CommandOutcome::Continue;
+    }
     match command {
         Some(Command::Publish {
             topic,
@@ -703,6 +708,7 @@ pub(super) fn handle_command(
             protocol,
             payload,
             providers,
+            deadline,
             response,
         }) => {
             let connected_request_peers =
@@ -797,8 +803,7 @@ pub(super) fn handle_command(
             let request = NetworkRequest { protocol, payload };
             let request_id = swarm
                 .behaviour_mut()
-                .request_response
-                .send_request(&peer, request);
+                .send_rr_request(&peer, request, deadline);
             pending.insert(
                 request_id,
                 PendingResponse {
@@ -812,6 +817,7 @@ pub(super) fn handle_command(
             protocol,
             payload,
             peer,
+            deadline,
             response,
         }) => {
             if !request_peer_is_connected_or_active(
@@ -833,10 +839,11 @@ pub(super) fn handle_command(
             let payload_len = payload.len();
             let pending_protocol = protocol.clone();
             record_request_outbound(ctx.event_traffic_metrics, protocol.as_str(), payload_len);
-            let request_id = swarm
-                .behaviour_mut()
-                .request_response
-                .send_request(&peer, NetworkRequest { protocol, payload });
+            let request_id = swarm.behaviour_mut().send_rr_request(
+                &peer,
+                NetworkRequest { protocol, payload },
+                deadline,
+            );
             pending.insert(
                 request_id,
                 PendingResponse {
