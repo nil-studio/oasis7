@@ -36,6 +36,8 @@ fn dial_for(peer: PeerId, address: Multiaddr) -> DialOpts {
     DialOpts::peer_id(peer)
         .condition(PeerCondition::Always)
         .addresses(vec![address])
+        // Repeated TCP dials must be separate sockets so authentication is exercised.
+        .allocate_new_port()
         .build()
 }
 
