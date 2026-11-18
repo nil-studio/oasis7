@@ -889,6 +889,34 @@ fn poisoned_state_signed_http_recovery(admission_poisoned: bool) {
     );
     assert!(before.ready && before.can_propose && before.node_running);
 
+    if !admission_poisoned {
+        const PRIVATE_DETAIL: &str = "private-diagnostic-canary";
+        *state.last_error.lock().unwrap() = Some(PRIVATE_DETAIL.into());
+        *state.effect_delivery.lock().unwrap() = Some(
+            super::super::formal_live_effect_delivery::FormalEffectDeliveryStatusV1 {
+                pending: 2,
+                last_error: Some(PRIVATE_DETAIL.into()),
+                ..Default::default()
+            },
+        );
+        let diagnostic: FormalLiveStatusV1 = exchange(
+            address,
+            CHAIN_STATUS_PATH,
+            None,
+            200,
+            &status_digest,
+            &signer,
+        );
+        assert!(diagnostic.state == "degraded" && !diagnostic.can_propose);
+        assert!(diagnostic.last_error.as_deref() == Some("formal runtime error"));
+        let delivery = diagnostic.effect_delivery.unwrap();
+        assert_eq!(delivery.pending, 2);
+        assert!(delivery.last_error.as_deref() == Some("formal effect delivery error"));
+        assert!(state.last_error.lock().unwrap().take().as_deref() == Some(PRIVATE_DETAIL));
+        let stored_delivery = state.effect_delivery.lock().unwrap().take().unwrap();
+        assert!(stored_delivery.last_error.as_deref() == Some(PRIVATE_DETAIL));
+    }
+
     if admission_poisoned {
         let gate = Arc::clone(&admission_gate);
         assert!(
