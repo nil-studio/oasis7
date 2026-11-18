@@ -2004,6 +2004,11 @@
       "reason": "libp2p_source_contract"
     },
     {
+      "match": [".github/workflows/ci-base-images.yml", "docker/ci-base/**"],
+      "groups": ["workflow_governance", "packaging_contracts"],
+      "reason": "ci_base_image_producer"
+    },
+    {
       "match": [".dockerignore", "docker/wasm-builder/Dockerfile"],
       "groups": ["net", "packaging_contracts"],
       "reason": "wasm_builder_patch_context"
