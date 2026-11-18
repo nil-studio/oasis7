@@ -2474,25 +2474,16 @@ jobs:
           python-version: '3.12'
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22'
+          node-version: '24'
           cache: npm
           cache-dependency-path: crates/oasis7_viewer/package-lock.json
       - name: Install viewer dependencies
         run: npm ci --prefix crates/oasis7_viewer
       - name: Install pinned security smoke browser
-        shell: bash
+        uses: ./.github/actions/setup-ci-browser
         timeout-minutes: 11
-        run: |
-          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 10 --prepare-sources-only
-          npm install --prefix "$RUNNER_TEMP/viewer-security-browser" --no-save --package-lock=false agent-browser@0.37.1
-          browser_bin="$RUNNER_TEMP/viewer-security-browser/node_modules/.bin/agent-browser"
-          if "$browser_bin" install --with-deps; then
-            printf 'AGENT_BROWSER_BIN=%s\n' "$browser_bin" >> "$GITHUB_ENV"
-          else
-            install_status=$?
-            python3 scripts/security/viewer-browser-install-diagnostic.py output/viewer-browser-install/diagnostic.json || echo 'Browser install diagnostic unavailable'
-            exit "$install_status"
-          fi
+        with:
+          browser: agent
       - name: Upload browser installation failure observation
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -2588,7 +2579,7 @@ jobs:
           python-version: '3.12'
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22'
+          node-version: '24'
           cache: npm
           cache-dependency-path: crates/oasis7_viewer/package-lock.json
       - name: Install viewer dependencies
@@ -2645,14 +2636,10 @@ jobs:
         run: |
           sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
       - name: Install pinned performance browser
-        shell: bash
+        uses: ./.github/actions/setup-ci-browser
         timeout-minutes: 15
-        run: |
-          printf 'Acquire::http::Timeout "15";\nAcquire::https::Timeout "15";\nAcquire::Retries "0";\n' | sudo -n tee /etc/apt/apt.conf.d/99oasis7-browser-network-timeout >/dev/null
-          npm install --prefix "$RUNNER_TEMP/viewer-performance-browser" --no-save --package-lock=false agent-browser@0.37.1
-          browser_bin="$RUNNER_TEMP/viewer-performance-browser/node_modules/.bin/agent-browser"
-          "$browser_bin" install --with-deps
-          printf 'AGENT_BROWSER_BIN=%s\n' "$browser_bin" >> "$GITHUB_ENV"
+        with:
+          browser: agent
       - name: Execute selected group
         shell: bash
         env:
@@ -3640,16 +3627,14 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
       - name: Install pinned deck security browser
-        shell: bash
+        uses: ./.github/actions/setup-ci-browser
         timeout-minutes: 10
-        run: |
-          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 10 --prepare-sources-only
-          node -e 'if (Number(process.versions.node.split(".")[0]) < 20) throw new Error("Deck browser tests require Node >= 20"); console.log("Using runner Node", process.version);'
-          npm --version
-          npm install --prefix "$RUNNER_TEMP/site-security-browser" --no-save --package-lock=false --ignore-scripts playwright@1.62.1
-          node "$RUNNER_TEMP/site-security-browser/node_modules/playwright/cli.js" install chromium --with-deps --only-shell
-          printf 'OASIS7_PLAYWRIGHT_MODULE=%s\n' "$RUNNER_TEMP/site-security-browser/node_modules/playwright" >> "$GITHUB_ENV"
+        with:
+          browser: playwright
       - name: Execute selected group
         shell: bash
         env:

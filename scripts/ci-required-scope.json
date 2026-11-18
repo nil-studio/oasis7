@@ -1118,6 +1118,12 @@
     "scripts/ci-custody-workerd-gdb.py": ["workflow_governance"],
     "scripts/ci-custody-workerd-gdb-contracts.py": ["workflow_governance"],
     "scripts/ci-custody-workerd-capture.test.py": ["workflow_governance"],
+    "scripts/ci-browser-deps.py": ["workflow_governance", "viewer_js_required", "viewer_performance_report", "site_quality"],
+    ".github/actions/setup-ci-browser/action.yml": ["workflow_governance", "viewer_js_required", "viewer_performance_report", "site_quality"],
+    "scripts/ci-browser-deps.test.py": ["workflow_governance"],
+    "scripts/ci-browser-offline-apt.test.py": ["workflow_governance"],
+    "scripts/ci-tool-cache.py": ["workflow_governance"],
+    "scripts/ci-tool-cache.test.py": ["workflow_governance"],
     "scripts/ci-worker-build.py": ["workflow_governance"],
     "scripts/ci-worker-build.test.py": ["workflow_governance"],
     "scripts/ci-ecs-build-metrics.py": ["compile_metrics"],
@@ -1185,6 +1191,9 @@
     "scripts/ci-support-profiles.test.py",
     "scripts/ci-custody-platform.test.py",
     "scripts/ci-custody-workerd-capture.test.py",
+    "scripts/ci-browser-deps.test.py",
+    "scripts/ci-browser-offline-apt.test.py",
+    "scripts/ci-tool-cache.test.py",
     "scripts/ci-worker-build.test.py",
     "crates/oasis7_custody_worker/scripts/verify-stages.test.py",
     "scripts/ci-local-signer-tests.test.py",
@@ -1215,7 +1224,7 @@
     },
     "scripts/ci-apt-install.py": {
       "group": "workflow_governance",
-      "tests": ["scripts/ci-apt-install.test.py", "scripts/ci-apt-dns.test.py", "scripts/ci-workflow.test.py"]
+      "tests": ["scripts/ci-apt-install.test.py", "scripts/ci-apt-dns.test.py", "scripts/ci-browser-offline-apt.test.py", "scripts/ci-workflow.test.py"]
     },
     "scripts/ci-apt-dns.py": {
       "group": "workflow_governance",
@@ -1344,6 +1353,26 @@
     "scripts/ci-custody-workerd-capture.test.py": {
       "group": "workflow_governance",
       "tests": ["scripts/ci-custody-workerd-capture.test.py"]
+    },
+    "scripts/ci-browser-deps.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-browser-deps.test.py", "scripts/ci-browser-offline-apt.test.py", "scripts/ci-tool-cache.test.py", "scripts/ci-workflow.test.py"]
+    },
+    "scripts/ci-browser-deps.test.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-browser-deps.test.py"]
+    },
+    "scripts/ci-browser-offline-apt.test.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-browser-offline-apt.test.py"]
+    },
+    "scripts/ci-tool-cache.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-tool-cache.test.py", "scripts/ci-worker-build.test.py", "scripts/ci-browser-deps.test.py", "scripts/ci-workflow.test.py"]
+    },
+    "scripts/ci-tool-cache.test.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-tool-cache.test.py"]
     },
     "scripts/ci-worker-build.py": {
       "group": "workflow_governance",
