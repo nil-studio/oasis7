@@ -31,12 +31,12 @@ pub(crate) mod formal_writer;
 mod governance_authorization;
 #[cfg(all(test, unix))]
 pub(crate) mod governance_authorization_tests;
+pub(crate) mod historical_material;
 mod product_validation_intent;
 mod provider_bootstrap;
 mod world_service_cleanup_v2;
 mod world_service_execution;
 pub(crate) mod world_service_read;
-pub(crate) mod historical_material;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ExecutionBridgeState {
@@ -873,9 +873,10 @@ pub(crate) use self::driver::NodeRuntimeExecutionDriver;
 pub(super) use self::driver::derive_local_execution_bootstrap;
 #[cfg(all(unix, not(target_arch = "wasm32")))]
 pub(crate) use self::driver::{
-    CommittedPrefixArchiveRefV1, FormalBftHeaderExecutionV3, FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3, ReplayedCommittedPrefixV1,
-    FormalBftPrefixExecutionV1, FormalBftReadExecutionV1, PRIVATE_HEADER_PREFIX_MAX_BYTES_V3,
-    PrivateHeaderPrefixV3,
+    CommittedPrefixArchiveRefV1, FormalBftHeaderExecutionV3, FormalBftHeaderLedgerExecutionV3,
+    FormalBftHeaderNodeDriverV3, FormalBftPrefixExecutionV1, FormalBftReadExecutionV1,
+    OriginalCandidateArchivePinV1, PRIVATE_HEADER_PREFIX_MAX_BYTES_V3, PrivateHeaderPrefixV3,
+    ReplayedCommittedPrefixV1, ReplayedOriginalCandidateV1,
 };
 #[allow(unused_imports)]
 pub(crate) use self::driver::{load_execution_world, load_execution_world_with_policy};

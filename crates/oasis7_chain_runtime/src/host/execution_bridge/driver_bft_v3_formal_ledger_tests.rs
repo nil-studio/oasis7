@@ -506,23 +506,50 @@ fn committed_archive() {
         .unwrap();
     let destination = Scratch::new();
     let archive = LocalBftSuccessorArchiveStoreV1::new(cas(destination.path())).unwrap();
-    let (reference, original) = open(&h, root.path(), &store, false)
-        .unwrap()
+    let mut original_ledger = open(&h, root.path(), &store, false).unwrap();
+    let (reference, original) = original_ledger
         .export_committed_prefix(&archive, &source, height, &id)
         .unwrap();
-    assert_eq!(original.durable_record_digest, durable.durable_record_digest());
+    let (candidate, expected_header, expected_root) = original_ledger.fixture_archived_candidate(
+        &archive,
+        &source,
+        EMPTY_ACTIONS_CBOR.to_vec(),
+        None,
+    );
+    let (missing, _, _) = original_ledger.fixture_archived_candidate(
+        &archive,
+        &source,
+        EMPTY_ACTIONS_CBOR.to_vec(),
+        Some("missing"),
+    );
+    let (extra, _, _) = original_ledger.fixture_archived_candidate(
+        &archive,
+        &source,
+        EMPTY_ACTIONS_CBOR.to_vec(),
+        Some("extra"),
+    );
+    drop(original_ledger);
+    assert_eq!(
+        original.durable_record_digest,
+        durable.durable_record_digest()
+    );
     assert_eq!(original.world_tick, durable.world().state().time);
 
     drop(archive);
     drop(store);
     drop(root);
-    let reopened = LocalBftSuccessorArchiveStoreV1::new(LocalCasStore::new(
-        destination.path().join("cas"),
-    ))
-    .unwrap();
+    let reopened =
+        LocalBftSuccessorArchiveStoreV1::new(LocalCasStore::new(destination.path().join("cas")))
+            .unwrap();
     let replay = |reference, source, id| {
         FormalBftHeaderLedgerExecutionV3::replay_committed_prefix(
-            &reopened, reference, source, h.anchor.clone(), h.target.clone(), height, id,
+            &reopened,
+            reference,
+            source,
+            h.anchor.clone(),
+            h.target.clone(),
+            height,
+            id,
         )
     };
     assert_eq!(replay(&reference, &source, &id).unwrap(), original);
@@ -555,14 +582,19 @@ fn committed_archive() {
             },
         });
     }
-    excessive.entries.sort_by(|a, b| a.identity_digest.cmp(&b.identity_digest));
+    excessive
+        .entries
+        .sort_by(|a, b| a.identity_digest.cmp(&b.identity_digest));
     excessive.usage.objects += oversized_count as u64;
     excessive.usage.total_bytes += (oversized_count * BUSINESS_INDEX_MAX_NODE_BYTES) as u64;
     let mut excessive_reference = reference.clone();
     excessive_reference.manifest = reopened.persist_manifest(&excessive).unwrap();
     excessive_reference.root = excessive.digest().unwrap();
-    assert!(replay(&excessive_reference, &source, &id).unwrap_err()
-        .contains("retained-index byte capacity"));
+    assert!(
+        replay(&excessive_reference, &source, &id)
+            .unwrap_err()
+            .contains("retained-index byte capacity")
+    );
 
     let write_config = |name: &str, value: serde_json::Value| {
         let path = destination.path().join(name);
@@ -571,21 +603,75 @@ fn committed_archive() {
         path
     };
     let trust = write_config("trust.json", serde_json::to_value(&h.trust).unwrap());
-    let ledger_config = write_config("ledger.json", serde_json::json!({
-        "schema_version": 1, "trust_config_path": trust, "target": h.target,
-        "handoff_material_path": destination.path().join("absent-handoff"),
-        "cas_directory": destination.path().join("absent-live-cas"),
-        "ledger_directory": destination.path().join("absent-live-ledger"),
-        "exact_height": height, "exact_header_id": id,
-    }));
-    let archive_config = write_config("archive.json", serde_json::json!({
+    let ledger_config = write_config(
+        "ledger.json",
+        serde_json::json!({
+            "schema_version": 1, "trust_config_path": trust, "target": h.target,
+            "handoff_material_path": destination.path().join("absent-handoff"),
+            "cas_directory": destination.path().join("absent-live-cas"),
+            "ledger_directory": destination.path().join("absent-live-ledger"),
+            "exact_height": height, "exact_header_id": id,
+        }),
+    );
+    let candidate_pin: super::super::super::formal_header::OriginalCandidateArchivePinV1 =
+        serde_json::from_value(candidate.clone()).unwrap();
+    let (_, result) = candidate_pin
+        .replay(
+            &reopened,
+            &reference,
+            &source,
+            h.anchor.clone(),
+            h.target.clone(),
+            (height, &id),
+        )
+        .unwrap();
+    let result = serde_json::to_value(result).unwrap();
+    assert_eq!(result["header_id"], expected_header);
+    assert_eq!(result["semantic_state_root"], expected_root);
+
+    let run_cli = |archive_config: &Path| {
+        crate::identity_receipt::dispatch(
+            [
+                "bft-header",
+                "archive-prefix",
+                "--config",
+                ledger_config.to_str().unwrap(),
+                "--archive",
+                archive_config.to_str().unwrap(),
+            ]
+            .into_iter(),
+        )
+        .unwrap()
+    };
+    let mut archive_options = serde_json::json!({
         "schema_version": 1,
         "archive_directory": destination.path().join("cas"),
         "source": source,
         "reference": reference,
-    }));
-    crate::identity_receipt::dispatch(
-        ["bft-header", "archive-prefix", "--config", ledger_config.to_str().unwrap(),
-            "--archive", archive_config.to_str().unwrap()].into_iter(),
-    ).unwrap().unwrap();
+    });
+    run_cli(&write_config(
+        "ordinary-archive.json",
+        archive_options.clone(),
+    ))
+    .unwrap();
+    archive_options["candidate"] = candidate;
+    run_cli(&write_config(
+        "candidate-archive.json",
+        archive_options.clone(),
+    ))
+    .unwrap();
+    archive_options["candidate"] = missing;
+    assert!(
+        run_cli(&write_config(
+            "missing-candidate.json",
+            archive_options.clone()
+        ))
+        .is_err()
+    );
+    archive_options["candidate"] = extra;
+    let error = run_cli(&write_config("extra-candidate.json", archive_options)).unwrap_err();
+    assert!(
+        error.contains("closed candidate archive contains unobserved dependencies"),
+        "{error}"
+    );
 }

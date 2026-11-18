@@ -4,14 +4,18 @@ use super::*;
 mod serve;
 #[cfg(not(test))]
 use crate::execution_bridge::{
-    CommittedPrefixArchiveRefV1, FormalBftHeaderLedgerExecutionV3, ReplayedCommittedPrefixV1,
+    CommittedPrefixArchiveRefV1, FormalBftHeaderLedgerExecutionV3, OriginalCandidateArchivePinV1,
+    ReplayedCommittedPrefixV1, ReplayedOriginalCandidateV1,
 };
 #[cfg(test)]
 use crate::execution_bridge_real_tests::real_execution_bridge::{
-    CommittedPrefixArchiveRefV1, FormalBftHeaderLedgerExecutionV3, ReplayedCommittedPrefixV1,
+    CommittedPrefixArchiveRefV1, FormalBftHeaderLedgerExecutionV3, OriginalCandidateArchivePinV1,
+    ReplayedCommittedPrefixV1, ReplayedOriginalCandidateV1,
 };
 
-use oasis7_distfs::protected_bft_v3::{BftSuccessorWindowSourceV1, LocalBftSuccessorArchiveStoreV1};
+use oasis7_distfs::protected_bft_v3::{
+    BftSuccessorWindowSourceV1, LocalBftSuccessorArchiveStoreV1,
+};
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -147,6 +151,7 @@ struct ArchiveConfig {
     source: BftSuccessorWindowSourceV1,
     /// Absent for export. A cold verifier supplies its independently pinned root/ref.
     reference: Option<CommittedPrefixArchiveRefV1>,
+    candidate: Option<OriginalCandidateArchivePinV1>,
 }
 
 #[derive(Serialize)]
@@ -154,20 +159,24 @@ struct ArchiveReport {
     schema_version: &'static str,
     reference: CommittedPrefixArchiveRefV1,
     replayed: ReplayedCommittedPrefixV1,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    candidate: Option<ReplayedOriginalCandidateV1>,
 }
 
 fn archive_from_paths(config_path: &Path, archive_path: &Path) -> Result<ArchiveReport, String> {
     let config = load_config(config_path)?;
     let bytes = read_private(archive_path, 64 * 1024)?;
-    let options: ArchiveConfig = serde_json::from_slice(&bytes)
-        .map_err(|_| "invalid committed archive config")?;
+    let options: ArchiveConfig =
+        serde_json::from_slice(&bytes).map_err(|_| "invalid committed archive config")?;
     if options.schema_version != 1 {
         return Err("unsupported committed archive config schema".into());
     }
     options.source.validate()?;
-    let archive_root = require_existing_directory(
-        &options.archive_directory, "private committed archive CAS",
-    )?;
+    if options.candidate.is_some() && options.reference.is_none() {
+        return Err("candidate replay requires an independently pinned committed archive".into());
+    }
+    let archive_root =
+        require_existing_directory(&options.archive_directory, "private committed archive CAS")?;
     crate::controlled_live_config::require_private_owned(&archive_root, true)?;
     let archive = LocalBftSuccessorArchiveStoreV1::new(LocalCasStore::new(&archive_root))
         .map_err(|_| "committed archive CAS path rejected")?;
@@ -176,26 +185,63 @@ fn archive_from_paths(config_path: &Path, archive_path: &Path) -> Result<Archive
     let (reference, original) = if let Some(reference) = options.reference {
         (reference, None)
     } else {
-        let LoadedH { anchor, material, store } = load_h(&config)?;
-        let ledger_root = require_existing_directory(&config.ledger_directory, "private header ledger")?;
-        if [store.root(), ledger_root.as_path()].into_iter().any(|live| {
-            super::super::formal_bft_read_cli::paths_overlap(&archive_root, live)
-        }) {
+        let LoadedH {
+            anchor,
+            material,
+            store,
+        } = load_h(&config)?;
+        let ledger_root =
+            require_existing_directory(&config.ledger_directory, "private header ledger")?;
+        if [store.root(), ledger_root.as_path()]
+            .into_iter()
+            .any(|live| super::super::formal_bft_read_cli::paths_overlap(&archive_root, live))
+        {
             return Err("committed archive and original ledger/CAS must be disjoint".into());
         }
-        let source = Arc::new(CasBusinessIndexReader { store: store.clone() });
+        let source = Arc::new(CasBusinessIndexReader {
+            store: store.clone(),
+        });
         let mut ledger = FormalBftHeaderLedgerExecutionV3::open_from_handoff(
-            &ledger_root, store, anchor, config.target.clone(), material, source, false,
+            &ledger_root,
+            store,
+            anchor,
+            config.target.clone(),
+            material,
+            source,
+            false,
         )?;
         let (reference, original) = ledger.export_committed_prefix(
-            &archive, &options.source, config.exact_height, &config.exact_header_id,
+            &archive,
+            &options.source,
+            config.exact_height,
+            &config.exact_header_id,
         )?;
         (reference, Some(original))
     };
-    let replayed = FormalBftHeaderLedgerExecutionV3::replay_committed_prefix(
-        &archive, &reference, &options.source, anchor, config.target,
-        config.exact_height, &config.exact_header_id,
-    )?;
+    let (replayed, candidate) = if let Some(candidate) = options.candidate {
+        let (cut, replayed) = candidate.replay(
+            &archive,
+            &reference,
+            &options.source,
+            anchor,
+            config.target,
+            (config.exact_height, &config.exact_header_id),
+        )?;
+        (cut, Some(replayed))
+    } else {
+        (
+            FormalBftHeaderLedgerExecutionV3::replay_committed_prefix(
+                &archive,
+                &reference,
+                &options.source,
+                anchor,
+                config.target,
+                config.exact_height,
+                &config.exact_header_id,
+            )?,
+            None,
+        )
+    };
     if original.is_some_and(|original| original != replayed) {
         return Err("cold archive replay differs from original durable cut".into());
     }
@@ -203,6 +249,7 @@ fn archive_from_paths(config_path: &Path, archive_path: &Path) -> Result<Archive
         schema_version: "oasis7.formal_bft_committed_prefix_archive.v1",
         reference,
         replayed,
+        candidate,
     })
 }
 
