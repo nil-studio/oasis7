@@ -469,6 +469,11 @@ def validate_candidate_graph(workflow, config):
                 'python3 "$RUNNER_TEMP/ci-authority/ci-python-control-contracts.py" run' not in job
                 or 'bash ./scripts/ci-tests.sh required --group "workflow_governance"' not in job):
             raise ValueError('trusted Python assertions and candidate governance must both execute')
+        if group in ('operational_contracts', 'packaging_contracts'):
+            if f'needs.select.outputs.run_{group}' not in job:
+                raise ValueError(f'{group} must bind its exact select output run_{group}')
+            if f'bash ./scripts/ci-tests.sh required --group "{group}"' not in job:
+                raise ValueError(f'{group} must execute its exact driver group {group}')
     return True
 
 
@@ -4066,7 +4071,11 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                                       '      - name: Run full test tier\n        continue-on-error: true\n', 1),
                      WORKFLOW.replace(' --host-smoke', ''),
                      WORKFLOW.replace('    if: always()', '    if: success()'),
-                     WORKFLOW.replace("fromJSON(needs.select.outputs.plan).scope == 'full'", 'false', 1)]
+                     WORKFLOW.replace("fromJSON(needs.select.outputs.plan).scope == 'full'", 'false', 1),
+                     WORKFLOW.replace('needs.select.outputs.run_operational_contracts', 'needs.select.outputs.run_other_contracts', 1),
+                     WORKFLOW.replace('needs.select.outputs.run_packaging_contracts', 'needs.select.outputs.run_other_contracts', 1),
+                     WORKFLOW.replace('required --group "operational_contracts"', 'required --group "other_contracts"', 1),
+                     WORKFLOW.replace('required --group "packaging_contracts"', 'required --group "other_contracts"', 1)]
         for workflow in mutations:
             self.assertNotEqual(workflow, WORKFLOW, 'mutation must exercise the current workflow')
             with self.subTest(workflow=workflow[-100:]), self.assertRaises(ValueError):
