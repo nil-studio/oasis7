@@ -101,27 +101,7 @@ def append_actions_file(variable, text):
             output.write(text)
 
 
-def resolve_cache_directory(cache_dir=None):
-    if cache_dir is not None:
-        return Path(cache_dir).expanduser()
-    env_cache = os.environ.get('OASIS7_MOLD_CACHE_DIR')
-    if env_cache:
-        return Path(env_cache).expanduser()
-    return None
-
-
-def download_release_archive(destination, arch, checksum):
-    url = (f'https://github.com/rui314/mold/releases/download/v{VERSION}/'
-           f'mold-{VERSION}-{arch}-linux.tar.gz')
-    subprocess.run(['curl', '--fail', '--location', '--silent', '--show-error',
-                    '--retry', '3', '--retry-all-errors', '--retry-connrefused',
-                    '--retry-max-time', '120', '--connect-timeout', '15',
-                    '--max-time', '120', '--output', str(destination), url],
-                   check=True, timeout=150)
-    verify_archive(destination, checksum)
-
-
-def install(directory, archive=None, cache_dir=None):
+def install(directory, archive=None):
     started = time.monotonic()
     arch, triple, checksum = platform_release()
     directory = directory.absolute()
@@ -135,38 +115,18 @@ def install(directory, archive=None, cache_dir=None):
     key = 'CARGO_TARGET_' + triple.upper().replace('-', '_') + '_LINKER'
     if os.environ.get(key) not in (None, '', str(linker)):
         raise ValueError('mold setup conflicts with existing ' + key)
-
-    resolved_cache = resolve_cache_directory(cache_dir)
-    cache_archive = resolved_cache / f'mold-{VERSION}-{arch}-linux.tar.gz' if resolved_cache else None
-    cache_hit = False
-
-    archive_to_extract = archive
-    if archive_to_extract is not None:
-        verify_archive(archive_to_extract, checksum)
-    elif cache_archive and cache_archive.is_file():
-        try:
-            verify_archive(cache_archive, checksum)
-            archive_to_extract = cache_archive
-            cache_hit = True
-        except ValueError:
-            cache_archive.unlink(missing_ok=True)
-
     with tempfile.TemporaryDirectory(prefix='oasis7-mold-') as temporary:
         stage = Path(temporary)
-        if archive_to_extract is None:
-            downloaded = stage / 'release.tar.gz'
-            download_release_archive(downloaded, arch, checksum)
-            archive_to_extract = downloaded
-            if cache_archive:
-                try:
-                    resolved_cache.mkdir(parents=True, exist_ok=True)
-                    temp_cache = resolved_cache / f'.mold-{os.getpid()}.tar.gz'
-                    shutil.copyfile(downloaded, temp_cache)
-                    temp_cache.replace(cache_archive)
-                except OSError:
-                    pass
-
-        with tarfile.open(archive_to_extract, 'r:gz') as release:
+        if archive is None:
+            archive = stage / 'release.tar.gz'
+            url = (f'https://github.com/rui314/mold/releases/download/v{VERSION}/'
+                   f'mold-{VERSION}-{arch}-linux.tar.gz')
+            subprocess.run(['curl', '--fail', '--location', '--silent', '--show-error',
+                            '--retry', '3', '--retry-max-time', '120', '--connect-timeout', '15',
+                            '--max-time', '120', '--output', str(archive), url],
+                           check=True, timeout=150)
+        verify_archive(archive, checksum)
+        with tarfile.open(archive, 'r:gz') as release:
             prefix = f'mold-{VERSION}-{arch}-linux/'
             extract_file(release, prefix + 'bin/mold', stage / 'mold')
             extract_file(release, prefix + 'share/doc/mold/LICENSE', stage / 'LICENSE')
@@ -191,17 +151,15 @@ def install(directory, archive=None, cache_dir=None):
     elapsed = round(time.monotonic() - started, 3)
     # Publish configuration only after checking an actual linked, runnable ELF.
     append_actions_file('GITHUB_ENV', f'{key}={linker}\n')
-    append_actions_file('GITHUB_OUTPUT',
-                        f'linker={linker}\nversion={VERSION}\nsetup-seconds={elapsed}\ncache-hit={str(cache_hit).lower()}\n')
+    append_actions_file('GITHUB_OUTPUT', f'linker={linker}\nversion={VERSION}\nsetup-seconds={elapsed}\n')
     append_actions_file('GITHUB_STEP_SUMMARY',
                         f'\n### Linux native linker\n\n'
                         f'- mold `{VERSION}`, target `{triple}`\n'
-                        f'- Setup: {elapsed}s (cache hit: {cache_hit}); C link and execution smoke: {smoke_seconds}s\n'
+                        f'- Setup: {elapsed}s; C link and execution smoke: {smoke_seconds}s\n'
                         '- Native Cargo linker configured; WASM target linker unchanged.\n')
     return dict(version=VERSION, binary_version=version, target=triple, linker=str(linker),
                 environment={key: str(linker)},
-                archive_sha256=checksum, setup_seconds=elapsed, smoke_seconds=smoke_seconds,
-                cache_hit=cache_hit)
+                archive_sha256=checksum, setup_seconds=elapsed, smoke_seconds=smoke_seconds)
 
 
 def main():
@@ -210,12 +168,10 @@ def main():
                         help='versioned installation directory (override for local verification)')
     parser.add_argument('--archive', type=Path,
                         help='previously downloaded official archive; SHA-256 is always verified')
-    parser.add_argument('--cache-dir', type=Path,
-                        help='cache directory for the verified release archive (default: OASIS7_MOLD_CACHE_DIR)')
     parser.add_argument('--json', action='store_true', help='print only the JSON setup report')
     args = parser.parse_args()
     try:
-        report = install(args.install_dir, args.archive, cache_dir=args.cache_dir)
+        report = install(args.install_dir, args.archive)
     except (OSError, ValueError, KeyError, tarfile.TarError, subprocess.SubprocessError) as error:
         parser.exit(1, 'mold setup failed: ' + str(error) + '\n')
     print(('' if args.json else 'linux_mold=') + json.dumps(report, sort_keys=True))
