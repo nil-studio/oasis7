@@ -75,7 +75,11 @@ jobs:
         run: echo "MODEL_DEADLINE=$(( $(date +%s) + 1080 ))" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.workflow_sha }}
           persist-credentials: false
+      - name: Configure mold for Linux host linking
+        if: inputs.model_probe != 'trait-scope-plan'
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: 49b25e1ab631ffb433bce88709fa5601720cfc17
