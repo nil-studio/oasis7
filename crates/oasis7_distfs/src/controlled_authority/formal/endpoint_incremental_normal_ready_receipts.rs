@@ -4,6 +4,30 @@ use crate::controlled_authority::fencing::PaidRemoteLeaseV1;
 use oasis7_formal_protocol::controlled_authority::formal::{
     PaidVerifiedNormalDecisionV1, normal_final_receipt_body_bounded,
 };
+
+/// Borrow the caller's existing sources and work for one receipt operation.
+/// Independent lifetimes preserve each input's original borrow boundary.
+pub(in crate::controlled_authority::formal::endpoint) struct ReceiptContext<
+    'provider,
+    'policy,
+    'memory,
+    'work,
+    'stop,
+> {
+    pub(in crate::controlled_authority::formal::endpoint) provider:
+        &'provider RemoteMonotonicEndpointProvider,
+    pub(in crate::controlled_authority::formal::endpoint) policy: &'policy TrustedFencingPolicyV1,
+    pub(in crate::controlled_authority::formal::endpoint) memory: &'memory MemoryBudget,
+    pub(in crate::controlled_authority::formal::endpoint) work: &'work FormalArchiveReadWorkV1,
+    pub(in crate::controlled_authority::formal::endpoint) stop: &'stop mut dyn FnMut() -> bool,
+}
+
+struct ReceiptWorkContext<'memory, 'work, 'stop> {
+    memory: &'memory MemoryBudget,
+    work: &'work FormalArchiveReadWorkV1,
+    stop: &'stop mut dyn FnMut() -> bool,
+}
+
 /// Establish the true complete job and current durable state before any signer
 /// source is created. Raw candidate/role metadata never supplies that evidence.
 pub(in crate::controlled_authority::formal::endpoint) fn admit_normal(
@@ -143,12 +167,15 @@ fn persist_same_lease(
     endpoint: &mut FileFormalEndpoint,
     lease: &mut Option<PaidRemoteLeaseV1>,
     next: Next<'_>,
-    provider: &RemoteMonotonicEndpointProvider,
-    policy: &TrustedFencingPolicyV1,
-    memory: &MemoryBudget,
-    work: &FormalArchiveReadWorkV1,
-    stop: &mut dyn FnMut() -> bool,
+    context: ReceiptContext<'_, '_, '_, '_, '_>,
 ) -> ResultV<()> {
+    let ReceiptContext {
+        provider,
+        policy,
+        memory,
+        work,
+        stop,
+    } = context;
     let state = next_state(next, memory, work, stop)?;
     let update = endpoint
         .store
@@ -213,10 +240,9 @@ fn verify_normal_prepare(
     role: EndpointRole,
     candidate: &FormalCandidateMaterialV1,
     certificate: &FormalFrozenCertificateV1,
-    memory: &MemoryBudget,
-    work: &FormalArchiveReadWorkV1,
-    stop: &mut dyn FnMut() -> bool,
+    context: ReceiptWorkContext<'_, '_, '_>,
 ) -> Result<(), FormalError> {
+    let ReceiptWorkContext { memory, work, stop } = context;
     let expected = normal_prepare_body(endpoint, candidate, certificate, role, memory, work, stop)?;
     if !same(&receipt.body, &*expected, memory, work, stop)? {
         return Err(invalid("normal Prepare original candidate context"));
@@ -254,12 +280,15 @@ pub(in crate::controlled_authority::formal::endpoint) fn prepare(
     lease: &mut Option<PaidRemoteLeaseV1>,
     candidate: &FormalCandidateMaterialV1,
     cert: &FormalFrozenCertificateV1,
-    provider: &RemoteMonotonicEndpointProvider,
-    policy: &TrustedFencingPolicyV1,
-    memory: &MemoryBudget,
-    work: &FormalArchiveReadWorkV1,
-    stop: &mut dyn FnMut() -> bool,
+    context: ReceiptContext<'_, '_, '_, '_, '_>,
 ) -> ResultV<PaidGenesisPrepareReceiptV1> {
+    let ReceiptContext {
+        provider,
+        policy,
+        memory,
+        work,
+        stop,
+    } = context;
     let state = admit_normal(endpoint, candidate, cert, memory, work, stop)?;
     let existing = match state.state() {
         FormalRequestStateV1::Prepared {
@@ -276,9 +305,11 @@ pub(in crate::controlled_authority::formal::endpoint) fn prepare(
             endpoint.role,
             candidate,
             cert,
-            memory,
-            work,
-            stop,
+            ReceiptWorkContext {
+                memory,
+                work,
+                stop: &mut *stop,
+            },
         )?;
         return Ok(copy_prepare(&r.body, &r.signature_hex, memory, work, stop)?);
     }
@@ -289,11 +320,13 @@ pub(in crate::controlled_authority::formal::endpoint) fn prepare(
             candidate,
             receipt: None,
         },
-        provider,
-        policy,
-        memory,
-        work,
-        stop,
+        ReceiptContext {
+            provider,
+            policy,
+            memory,
+            work,
+            stop: &mut *stop,
+        },
     )?;
     let body = normal_prepare_body(endpoint, candidate, cert, endpoint.role, memory, work, stop)?;
     let instance = match endpoint.role {
@@ -327,11 +360,13 @@ pub(in crate::controlled_authority::formal::endpoint) fn prepare(
             candidate,
             receipt: Some(receipt.receipt()),
         },
-        provider,
-        policy,
-        memory,
-        work,
-        stop,
+        ReceiptContext {
+            provider,
+            policy,
+            memory,
+            work,
+            stop: &mut *stop,
+        },
     )?;
     Ok(receipt)
 }
@@ -342,12 +377,15 @@ pub(in crate::controlled_authority::formal::endpoint) fn finalize(
     cert: &FormalFrozenCertificateV1,
     primary: &PaidGenesisPrepareReceiptV1,
     replica: &PaidGenesisPrepareReceiptV1,
-    provider: &RemoteMonotonicEndpointProvider,
-    policy: &TrustedFencingPolicyV1,
-    memory: &MemoryBudget,
-    work: &FormalArchiveReadWorkV1,
-    stop: &mut dyn FnMut() -> bool,
+    context: ReceiptContext<'_, '_, '_, '_, '_>,
 ) -> ResultV<PaidGenesisFinalReceiptV1> {
+    let ReceiptContext {
+        provider,
+        policy,
+        memory,
+        work,
+        stop,
+    } = context;
     let state = admit_normal(endpoint, candidate, cert, memory, work, stop)?;
     let (prepare, existing) = match state.state() {
         FormalRequestStateV1::Prepared {
@@ -373,9 +411,11 @@ pub(in crate::controlled_authority::formal::endpoint) fn finalize(
         EndpointRole::Primary,
         candidate,
         cert,
-        memory,
-        work,
-        stop,
+        ReceiptWorkContext {
+            memory,
+            work,
+            stop: &mut *stop,
+        },
     )?;
     verify_normal_prepare(
         endpoint,
@@ -383,9 +423,11 @@ pub(in crate::controlled_authority::formal::endpoint) fn finalize(
         EndpointRole::Replica,
         candidate,
         cert,
-        memory,
-        work,
-        stop,
+        ReceiptWorkContext {
+            memory,
+            work,
+            stop: &mut *stop,
+        },
     )?;
     let local = match endpoint.role {
         EndpointRole::Primary => primary.receipt(),
@@ -459,11 +501,13 @@ pub(in crate::controlled_authority::formal::endpoint) fn finalize(
             prepare,
             receipt: receipt.receipt(),
         },
-        provider,
-        policy,
-        memory,
-        work,
-        stop,
+        ReceiptContext {
+            provider,
+            policy,
+            memory,
+            work,
+            stop: &mut *stop,
+        },
     )?;
     Ok(receipt)
 }
@@ -473,12 +517,15 @@ pub(in crate::controlled_authority::formal::endpoint) fn complete(
     candidate: &FormalCandidateMaterialV1,
     cert: &FormalFrozenCertificateV1,
     decision: &PaidVerifiedNormalDecisionV1,
-    provider: &RemoteMonotonicEndpointProvider,
-    policy: &TrustedFencingPolicyV1,
-    memory: &MemoryBudget,
-    work: &FormalArchiveReadWorkV1,
-    stop: &mut dyn FnMut() -> bool,
+    context: ReceiptContext<'_, '_, '_, '_, '_>,
 ) -> ResultV<PaidGenesisCompleteReceiptV1> {
+    let ReceiptContext {
+        provider,
+        policy,
+        memory,
+        work,
+        stop,
+    } = context;
     decision.validate_context(&mut work.bounded_context(memory, stop))?;
     let state = admit_normal(endpoint, candidate, cert, memory, work, stop)?;
     let raw = decision.decision();
@@ -551,11 +598,13 @@ pub(in crate::controlled_authority::formal::endpoint) fn complete(
             decision: raw,
             complete: None,
         },
-        provider,
-        policy,
-        memory,
-        work,
-        stop,
+        ReceiptContext {
+            provider,
+            policy,
+            memory,
+            work,
+            stop: &mut *stop,
+        },
     )?;
     let instance = match endpoint.role {
         EndpointRole::Primary => &endpoint.authority.definition().primary.instance,
@@ -590,11 +639,13 @@ pub(in crate::controlled_authority::formal::endpoint) fn complete(
             decision: raw,
             complete: Some(receipt.receipt()),
         },
-        provider,
-        policy,
-        memory,
-        work,
-        stop,
+        ReceiptContext {
+            provider,
+            policy,
+            memory,
+            work,
+            stop: &mut *stop,
+        },
     )?;
     Ok(receipt)
 }

@@ -110,22 +110,26 @@ impl PaidNormalFrozenPairV1 {
                 &mut self.primary.source.lease,
                 candidate,
                 &self.certificate,
-                primary_provider,
-                primary_policy,
-                memory,
-                work,
-                stop,
+                receipts::ReceiptContext {
+                    provider: primary_provider,
+                    policy: primary_policy,
+                    memory,
+                    work,
+                    stop: &mut *stop,
+                },
             )?;
             let replica = receipts::prepare(
                 &mut self.replica.source.endpoint,
                 &mut self.replica.source.lease,
                 candidate,
                 &self.certificate,
-                replica_provider,
-                replica_policy,
-                memory,
-                work,
-                stop,
+                receipts::ReceiptContext {
+                    provider: replica_provider,
+                    policy: replica_policy,
+                    memory,
+                    work,
+                    stop: &mut *stop,
+                },
             )?;
             let pfinal = receipts::finalize(
                 &mut self.primary.source.endpoint,
@@ -134,11 +138,13 @@ impl PaidNormalFrozenPairV1 {
                 &self.certificate,
                 &primary,
                 &replica,
-                primary_provider,
-                primary_policy,
-                memory,
-                work,
-                stop,
+                receipts::ReceiptContext {
+                    provider: primary_provider,
+                    policy: primary_policy,
+                    memory,
+                    work,
+                    stop: &mut *stop,
+                },
             )?;
             let rfinal = receipts::finalize(
                 &mut self.replica.source.endpoint,
@@ -147,11 +153,13 @@ impl PaidNormalFrozenPairV1 {
                 &self.certificate,
                 &primary,
                 &replica,
-                replica_provider,
-                replica_policy,
-                memory,
-                work,
-                stop,
+                receipts::ReceiptContext {
+                    provider: replica_provider,
+                    policy: replica_policy,
+                    memory,
+                    work,
+                    stop: &mut *stop,
+                },
             )?;
             let fee = graph_fee(
                 &(
@@ -192,11 +200,13 @@ impl PaidNormalFrozenPairV1 {
                 candidate,
                 &self.certificate,
                 &verified,
-                primary_provider,
-                primary_policy,
-                memory,
-                work,
-                stop,
+                receipts::ReceiptContext {
+                    provider: primary_provider,
+                    policy: primary_policy,
+                    memory,
+                    work,
+                    stop: &mut *stop,
+                },
             )?;
             let rcomplete = receipts::complete(
                 &mut self.replica.source.endpoint,
@@ -204,11 +214,13 @@ impl PaidNormalFrozenPairV1 {
                 candidate,
                 &self.certificate,
                 &verified,
-                replica_provider,
-                replica_policy,
-                memory,
-                work,
-                stop,
+                receipts::ReceiptContext {
+                    provider: replica_provider,
+                    policy: replica_policy,
+                    memory,
+                    work,
+                    stop: &mut *stop,
+                },
             )?;
             let fee = graph_fee(
                 &(
