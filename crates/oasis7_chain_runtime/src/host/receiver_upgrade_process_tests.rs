@@ -253,7 +253,6 @@ fn receiver_upgrade_rejects_live_process_then_cold_reopens_v2() {
     fields.insert(serde_cbor::Value::Text("mode".into()), serde_cbor::value::to_value(oasis7_node::PeerRecordReceiverMode::V2Only).unwrap());
     assert_eq!(expected_ledger, serde_cbor::from_slice::<serde_cbor::Value>(&upgraded).unwrap());
     let mut expected_files = stable_files;
-    expected_files.remove("peer-record-receiver-v2.lock");
     expected_files.insert(state.file_name().unwrap().to_str().unwrap().into(), upgraded.clone());
     assert_eq!(expected_files, receiver_files(receiver_directory));
     assert_eq!(original_config, fs::read(root.join("config.json")).unwrap());
