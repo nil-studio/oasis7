@@ -267,7 +267,11 @@ adapter 复用单节点相同的 schema/profile/world/chain/genesis、incarnatio
 
 观测器生成 32 字节随机挑战，以 JSON `observation_nonce` 提交到同路径的 POST。服务将挑战纳入现有响应签名绑定。观测器以固定公钥和本次挑战验签，再比对 World、节点和 profile。原 GET 和签名输入保留，旧 GET 的签名不能通过本次挑战校验。单次连接和读取共用五秒请求超时，响应上限 64 KiB，不跟随重定向或自动重试。校验失败时命令失败，不生成成功观测。
 
-成功输出是 `oasis7.formal-live-status-observation/v1`。Host 状态、准入标志和最近发布位置是本次认证的诊断，双端资格 `authority_qualification` 保持 unknown。输出只保留错误存在标志，不复制内部文本。固定身份的 triad 采集、权威时点和双端当前资格另按 #5512 的验收贯通。
+成功输出是 `oasis7.formal-live-status-observation/v1`。Host 状态、准入标志和最近发布位置是本次认证的诊断，双端资格 `authority_qualification` 保持 unknown。输出只保留错误存在标志，不复制内部文本。双端当前资格和权威时点另按 #5512 的验收贯通。
+
+外层 monitor 的 `--controlled-status-inventory FILE` 接受 `oasis7.controlled-status-inventory/v1`。它由 `api_version`、指向受信任 shipping CLI 的绝对 `runtime_bin` 和 `slots` 对象组成。只允许 `local_node`、`sequencer_ecs`、`storage_ecs`，每个 slot 使用上述四项固定输入。同一 slot 只选一处 profile 来源。调用者明确选择并信任此本地 CLI。预留 attempt 前固定 inventory 内容摘要，采集时再次核对并将已解析 pins 通过标准输入交给该 CLI。内容变化或验签失败产生 unknown，其他 slot 仍继续采集。
+
+报告记录本次本地认证回执时间和时效，旧报告重读不刷新原时间。生成的 JSON／Markdown 带 Host 诊断、固定 World/Node 及最近发布位置，不复制 endpoint、验签公钥、inventory 或原始错误。Host 观测过期标为 stale，双端资格仍为 unknown。此入口沿原 attempt 原子发布语义，不改变其他 profile 或 traffic 数据。
 
 ### 本地正式 profile 采集与验证读取
 

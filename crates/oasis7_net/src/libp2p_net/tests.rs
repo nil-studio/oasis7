@@ -34,6 +34,7 @@ mod peer_record_receiver_transport_tests;
 mod peer_record_tests;
 mod peer_record_tombstone_startup_tests;
 mod quic_inbound_admission;
+mod quic_outbound_admission;
 mod rendezvous_trigger_tests;
 mod rendezvous_ttl_tests;
 mod request_peer_filter_tests;

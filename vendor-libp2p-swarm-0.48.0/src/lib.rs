@@ -66,6 +66,7 @@ pub mod dial_opts;
 pub mod dummy;
 pub mod handler;
 mod listen_opts;
+mod outbound_attempt;
 mod translation;
 
 /// Bundles all symbols required for the [`libp2p_swarm_derive::NetworkBehaviour`] macro.
@@ -113,6 +114,8 @@ use connection::{
     pool::{EstablishedConnection, Pool, PoolConfig, PoolEvent, concurrent_dial::PendingDial},
 };
 use dial_opts::{DialOpts, PeerCondition};
+pub use outbound_attempt::OutboundAttemptPermit;
+use outbound_attempt::{OutboundAttemptAdmission, hold_attempt_permit};
 pub use executor::Executor;
 use futures::{prelude::*, stream::FusedStream};
 pub use handler::{
@@ -312,6 +315,7 @@ where
 {
     /// [`Transport`] for dialing remote peers and listening for incoming connection.
     transport: transport::Boxed<(PeerId, StreamMuxerBox)>,
+    outbound_attempt_admission: Option<OutboundAttemptAdmission>,
 
     /// The nodes currently active.
     pool: Pool<THandler<TBehaviour>>,
@@ -358,6 +362,7 @@ where
         Swarm {
             local_peer_id,
             transport,
+            outbound_attempt_admission: config.outbound_attempt_admission,
             pool: Pool::new(local_peer_id, config.pool_config),
             behaviour,
             supported_protocols: Default::default(),
@@ -513,11 +518,24 @@ where
             addresses_from_opts
         };
 
-        let dials = addresses
+        let mut admission_denial = None;
+        let dials: Vec<_> = addresses
             .into_iter()
-            .map(|a| {
+            .filter_map(|a| {
                 let fut = match peer_id.map_or(Ok(a.clone()), |p| a.clone().with_p2p(p)) {
                     Ok(address) => {
+                        let permit = self
+                            .outbound_attempt_admission
+                            .as_mut()
+                            .map(|admit| admit(connection_id, peer_id, &address))
+                            .transpose();
+                        let permit = match permit {
+                            Ok(permit) => permit,
+                            Err(denied) => {
+                                admission_denial = Some(denied);
+                                return None;
+                            }
+                        };
                         let transport_dial = self.transport.dial(
                             address.clone(),
                             transport::DialOpts {
@@ -528,10 +546,16 @@ where
                         let span = tracing::debug_span!(parent: tracing::Span::none(), "Transport::dial", %address);
                         span.follows_from(tracing::Span::current());
                         match transport_dial {
-                            Ok(fut) => fut
-                                .map(|r| (address, r.map_err(TransportError::Other)))
-                                .instrument(span)
-                                .boxed(),
+                            Ok(fut) => {
+                                let future = fut
+                                    .map(|r| (address, r.map_err(TransportError::Other)))
+                                    .instrument(span)
+                                    .boxed();
+                                match permit {
+                                    Some(permit) => hold_attempt_permit(future, permit),
+                                    None => future,
+                                }
+                            }
                             Err(err) => futures::future::ready((address, Err(err))).boxed(),
                         }
                     }
@@ -541,8 +565,22 @@ where
                     ))
                         .boxed(),
                 };
-                PendingDial { addr: a, fut }})
+                Some(PendingDial { addr: a, fut })
+            })
             .collect();
+
+        if dials.is_empty() {
+            let error = DialError::Denied {
+                cause: admission_denial.expect("all outbound candidates were denied"),
+            };
+            self.behaviour
+                .on_swarm_event(FromSwarm::DialFailure(DialFailure {
+                    peer_id,
+                    error: &error,
+                    connection_id,
+                }));
+            return Err(error);
+        }
 
         self.pool.add_outgoing(
             dials,
@@ -1376,6 +1414,7 @@ where
 
 pub struct Config {
     pool_config: PoolConfig,
+    outbound_attempt_admission: Option<OutboundAttemptAdmission>,
 }
 
 impl Config {
@@ -1384,6 +1423,7 @@ impl Config {
     pub fn with_executor(executor: impl Executor + Send + 'static) -> Self {
         Self {
             pool_config: PoolConfig::new(Some(Box::new(executor))),
+            outbound_attempt_admission: None,
         }
     }
 
@@ -1392,7 +1432,30 @@ impl Config {
     pub fn without_executor() -> Self {
         Self {
             pool_config: PoolConfig::new(None),
+            outbound_attempt_admission: None,
         }
+    }
+
+    /// Check each outbound address before calling the transport's dial method.
+    ///
+    /// All address candidates are checked while preparing the concurrent dial.
+    /// Denied candidates are excluded from the transport failure list. A dial
+    /// with no remaining candidates returns a local denial.
+    /// An accepted candidate can hold resources even if its future has not been
+    /// polled. Its permit is retained through pending work and, on a successful
+    /// dial, through the lifetime of its connection muxer.
+    pub fn with_outbound_transport_admission(
+        mut self,
+        admit: impl FnMut(
+            ConnectionId,
+            Option<PeerId>,
+            &Multiaddr,
+        ) -> Result<OutboundAttemptPermit, ConnectionDenied>
+        + Send
+        + 'static,
+    ) -> Self {
+        self.outbound_attempt_admission = Some(Box::new(admit));
+        self
     }
 
     /// Sets executor to the `wasm` executor.
