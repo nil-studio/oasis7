@@ -950,7 +950,10 @@ fn stale_trusted_bound_must_not_allow_unobserved_sequence_resurrection() {
     // no fresh admission bound could be established. An early prune attempt at T + 31,000 ms
     // MUST NOT reclaim the floor.
     let pruned = receiver.prune_floors(t + 31_000, &BTreeSet::new()).unwrap();
-    assert_eq!(pruned, 0, "stale trusted bound must not allow premature floor reclamation");
+    assert_eq!(
+        pruned, 0,
+        "stale trusted bound must not allow premature floor reclamation"
+    );
     assert!(receiver.contains_floor(&peer_id).unwrap());
 
     // Delivering sequence 1 while floor is preserved is rejected
@@ -1017,6 +1020,9 @@ fn legacy_missing_admission_bound_must_retain_floor_after_reopen() {
 
     // Pruning attempt at T + 31,000 ms MUST NOT reclaim sequence 2 floor when admitted_at_ms is None
     let pruned = receiver.prune_floors(t + 31_000, &BTreeSet::new()).unwrap();
-    assert_eq!(pruned, 0, "legacy floor without admitted_at_ms must be retained against lower sequence resurrection");
+    assert_eq!(
+        pruned, 0,
+        "legacy floor without admitted_at_ms must be retained against lower sequence resurrection"
+    );
     assert!(receiver.contains_floor(&peer_id).unwrap());
 }

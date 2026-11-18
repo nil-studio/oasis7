@@ -507,7 +507,8 @@ impl PeerRecordReceiver {
                         Some(base.max(new_expiry))
                     }
                 };
-                let admitted_at_ms = match (current.and_then(|e| e.admitted_at_ms), admission_time) {
+                let admitted_at_ms = match (current.and_then(|e| e.admitted_at_ms), admission_time)
+                {
                     (Some(prev), Some(fresh)) => Some(prev.max(fresh)),
                     (Some(prev), None) => Some(prev),
                     (None, Some(fresh)) => Some(fresh),
