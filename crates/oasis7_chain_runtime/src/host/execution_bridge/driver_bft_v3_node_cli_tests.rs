@@ -18,7 +18,21 @@ pub(crate) fn wire3_shipping_node_process_output_failure(deadline: Instant) {
         Instant::now() < deadline,
         "shipping recovery budget exhausted"
     );
-    cli_case(true, Some(deadline));
+    let shipping_binary = std::env::var_os("OASIS7_CHAIN_RUNTIME_BIN")
+        .expect("real process test requires OASIS7_CHAIN_RUNTIME_BIN");
+    let (_, shipping_digest, _) = formal_initial::test_execution_policy_material(
+        Path::new(&shipping_binary),
+        &ReleaseSecurityPolicy::default(),
+    )
+    .expect("pin the actual shipping image before signing H");
+    assert_ne!(
+        shipping_digest,
+        oasis7_executable_image::executable_digest().unwrap(),
+        "shipping CLI and fixture harness must be different executable images"
+    );
+    crate::controlled_execution_policy::with_fixture_image_digest(shipping_digest, || {
+        cli_case(true, Some(deadline));
+    });
     assert!(
         Instant::now() < deadline,
         "shipping recovery exceeded original scenario budget"

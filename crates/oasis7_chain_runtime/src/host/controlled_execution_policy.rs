@@ -54,7 +54,38 @@ impl GuardedExecutionPolicy {
         WasmExecutor::new_for_deterministic_replay(config).map_err(|e| e.to_string())
     }
 }
+#[cfg(not(all(test, unix, not(target_arch = "wasm32"))))]
 pub(crate) use oasis7_executable_image::executable_digest;
+
+#[cfg(all(test, unix, not(target_arch = "wasm32")))]
+thread_local! {
+    static FIXTURE_IMAGE_DIGEST: std::cell::RefCell<Option<String>> = const {
+        std::cell::RefCell::new(None)
+    };
+}
+
+#[cfg(all(test, unix, not(target_arch = "wasm32")))]
+pub(crate) fn executable_digest() -> Result<String, String> {
+    match FIXTURE_IMAGE_DIGEST.with(|digest| digest.borrow().clone()) {
+        Some(digest) => Ok(digest),
+        None => oasis7_executable_image::executable_digest(),
+    }
+}
+
+/// Build and inspect a synthetic fixture for a separate shipping executable.
+/// The child independently verifies its own loaded image through the normal CLI.
+#[cfg(all(test, unix, not(target_arch = "wasm32")))]
+pub(crate) fn with_fixture_image_digest<T>(digest: String, run: impl FnOnce() -> T) -> T {
+    struct Restore(Option<String>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            FIXTURE_IMAGE_DIGEST.with(|digest| digest.replace(self.0.take()));
+        }
+    }
+
+    let _restore = Restore(FIXTURE_IMAGE_DIGEST.with(|value| value.replace(Some(digest))));
+    run()
+}
 
 #[cfg(test)]
 mod tests {
