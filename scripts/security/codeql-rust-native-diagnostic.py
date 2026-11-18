@@ -17,6 +17,7 @@ import codeql_rust_native_observer as observation
 spec = importlib.util.spec_from_file_location('native_prepare', Path(__file__).with_name('codeql-rust-cargo-check.py'))
 native = importlib.util.module_from_spec(spec); spec.loader.exec_module(native)
 CAP = 16 * 1024**2
+SOURCE_PROFILES = {'runner-sources': 360, 'ubuntu-archive-https': 180}
 HELPERS = ('codeql-rust-native-diagnostic.py', 'codeql_rust_native_observer.py',
            'codeql-rust-cargo-check.py', 'codeql_rust_diagnostic_runtime.py',
            'codeql_rust_capacity_evidence.py', 'codeql_rust_capacity_layout.py')
@@ -39,14 +40,15 @@ def identity(source, expected_sha, env):
         'scope': 'Native preparation only. This helper checkout is not a business extraction source identity.'}
 
 
-def diagnose(source, out, deadline, expected_sha, env):
+def diagnose(source, out, deadline, expected_sha, env, source_profile='runner-sources'):
     runtime.CAP, runtime.WRITE_CAP = CAP, CAP-1024**2
     now = time.time()
     end = time.monotonic() + deadline - now
     child_env = {key: value for key, value in env.items() if key not in ('GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER')}
     controller = observation.NativeObservation(out, child_env)
     terminal = {'status': 'NATIVE_INCOMPLETE', 'started_wall': now, 'deadline_wall': deadline,
-                'maximum_job_seconds': 600, 'maximum_native_seconds': 360,
+                'maximum_job_seconds': 600, 'maximum_native_seconds': SOURCE_PROFILES.get(source_profile),
+                'source_profile': source_profile,
                 'production_capacity': 'UNKNOWN', 'full_rust_coverage': 'HOLD',
                 'rust_codeql_execution': 'NOT_REQUESTED', 'error': None}
     before = None; stage = 'admission'
@@ -55,6 +57,12 @@ def diagnose(source, out, deadline, expected_sha, env):
             raise ValueError('invalid remaining job clock')
         if not re.fullmatch('[0-9a-f]{40}', expected_sha):
             raise ValueError('invalid helper identity')
+        if source_profile not in SOURCE_PROFILES:
+            raise ValueError('unsupported source profile')
+        clock = json.loads(layout._read_regular(out/'job-clock.json', 16*1024))
+        if (clock.get('source_profile') != source_profile or clock.get('tool_sha') != expected_sha or
+                clock.get('maximum_job_seconds') != 600 or clock.get('deadline_wall') != deadline):
+            raise ValueError('source profile or deadline differs from admitted job')
         stage = 'identity'
         before = identity(source, expected_sha, child_env)
         runtime.save(out/'identity.json', before, out)
@@ -66,12 +74,19 @@ def diagnose(source, out, deadline, expected_sha, env):
         runtime.run(['apt-get', '--version'], source, out/'apt-version.stdout', end-90, 5,
                     out, child_env, file_limit=None, observer=controller.phase(stage))
         stage = 'native-preparation'
-        native.prepare_native(source, out, end, child_env, maximum_seconds=360, observation=controller)
+        if source_profile == 'runner-sources':
+            runtime.save(out/'native-source-profile.json', {'schema_version': 1,
+                'source_profile': source_profile, 'maximum_native_seconds': SOURCE_PROFILES[source_profile],
+                'source_override': False}, out)
+        native.prepare_native(source, out, end, child_env, maximum_seconds=SOURCE_PROFILES[source_profile],
+                              observation=controller, source_profile=source_profile)
         terminal['status'] = 'NATIVE_READY'
     except Exception as exc:
         terminal['error'] = {'stage': stage, 'type': type(exc).__name__}
         if isinstance(exc, runtime.PhaseError):
             terminal['error'].update(exit=exc.result.get('exit'), failure_kind=exc.result.get('failure_kind'))
+        if hasattr(exc, 'native_source_evidence_error'):
+            terminal['source_evidence_error'] = exc.native_source_evidence_error
     finally:
         try:
             if before is not None:
@@ -100,6 +115,7 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--deadline', type=float, required=True)
     parser.add_argument('--tool-sha', required=True)
+    parser.add_argument('--source-profile', choices=SOURCE_PROFILES, default='runner-sources')
     args = parser.parse_args()
     source, out = args.source.absolute(), args.output.absolute()
     if source.resolve() != source or out.resolve() != out or source == out or source in out.parents:
@@ -107,7 +123,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
     if any(p.name != 'job-clock.json' or not p.is_file() or p.is_symlink() for p in out.iterdir()):
         parser.error('evidence directory is not fresh')
-    return diagnose(source, out, args.deadline, args.tool_sha, dict(os.environ))
+    return diagnose(source, out, args.deadline, args.tool_sha, dict(os.environ), args.source_profile)
 
 
 if __name__ == '__main__':

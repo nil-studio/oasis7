@@ -290,6 +290,16 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3。本切片目标为显�
 
 验证必须覆盖真实 host→node→net 的独立接收配置、TCP/DHT 接收后重启拒绝低序号与 V1、同序号冲突后缓存／转发／排队拨号失效、原件丢失／损坏／绑定／重复实例、容量拒绝与既有 peer 正向升序，以及持久提交失败不暴露新候选。纯 helper 测试不代替上述生产路径。
 
+### 原账本接收策略显式升级
+
+Trace refs：O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；#5507。
+
+标准 development host 使用 `--p2p-peer-record-reception v2_only --upgrade-peer-record-receiver` 明确执行一次升级／恢复，然后退出，不启动网络或 World，也不创建 publisher。它不持久化到普通运行配置，不与初始化、Withdraw/Resume 共用一次命令。仅允许已有 DurableCompatible 账本到 V2Only；已达目标的重复命令不写入。空目录、Legacy、错误身份／域、旧配置及并发写者保持拒绝，formal/guarded host 不新增模式。
+
+事务先取得原 receiver 文件锁并核对锁路径、private filesystem、ready、canonical ledger、身份／域和所有签名 floor。原账本的签名原件、floor、V1 退休、冲突隔离与 tombstone 不变，只改变 mode。转换记录版本为 3，绑定原身份／域与源、目标 canonical CBOR 的 BLAKE3 摘要；复用 `initializing.cbor` 及其临时文件作为阻断标记，使旧 reader／initializer 也拒绝未知转换。写入次序为转换记录落盘并同步目录、原 state 原子替换并回读与同步目录、移除转换记录并同步目录。未完成时普通启动失败关闭，必须重复同一显式命令恢复。
+
+恢复从原 state 或已替换的目标 state 重建两侧 canonical 图像并逐字核对转换记录；只删除与本次目标严格前缀一致的 torn temp，再继续同一替换。无转换记录的普通 ingress 未知写入、混杂记录、错误摘要或非匹配临时文件保留并诊断，不清空、不回宽松 default。现有 1,024 floors、64 MiB ledger、16 KiB signed record 与 TTL 边界不变；GC、可信时间和既有认证会话撤销不在本次升级范围内。
+
 <a id="discovery-record-admission-budget"></a>
 ### 本进程 peer-record 准入预算
 
@@ -318,7 +328,7 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3。`peer-record-admission
 
 统一发布器覆盖初始、周期、监听地址、relay 与外部地址变化等本机入口：先以文件和父目录 fsync 原子预留递增序号及完整物化 payload，再签名并持久保存原 signed record，之后才允许对外 put。崩溃恢复只能重签同一预留 payload，或明确消耗该序号留下空洞；不能以新地址／时间覆盖旧序号。网络重试与恢复重发保持原 signed bytes；新地址或下一周期属于新发布意图，可用更高序号替代发送结果不确定的旧意图。过期预留不得通过重写时间重新生效，须消耗原号后另分配。Kademlia `Quorum::One` 不是全网安装确认，不以丢失 ACK 无限阻塞后续新发布；状态和未决材料有固定字节上限，不保存无界发布历史。V2 的远端 `RR_GET_LOCAL_PEER_RECORD` 查询只读取内存中已有、未过期且匹配当前声明与地址的持久签名原件；缺失或过期时返回不可用，等待本机刷新。远端查询不得签发新序号、签名或触发磁盘读写／fsync，避免未受信 peer 驱动同步持久化。转发远端缓存记录保持远端原签名与序号，不经过本机分配器。
 
-该切片只提供正常持久存储上的本机发行连续性，普通文件与 OS 锁不抵抗同密钥／磁盘的恶意快照回滚。接收端跨重启 sequence 高水位、同序冲突隔离与显式 V2-only 接纳由[独立接收账本](#discovery-receiver-floor-v2)承接；[发现撤销](#discovery-tombstone-v2)要求显式持久接收策略；策略转换和可信时间仍待实现，能够验证 V2 签名不表示已具备完整防重放保证。验证方法见 [持久发布验证](../../../testing-manual.md#discovery-durable-publication-v2)。
+该切片只提供正常持久存储上的本机发行连续性，普通文件与 OS 锁不抵抗同密钥／磁盘的恶意快照回滚。接收端跨重启 sequence 高水位、同序冲突隔离与显式 V2-only 接纳由[独立接收账本](#discovery-receiver-floor-v2)承接；[发现撤销](#discovery-tombstone-v2)要求显式持久接收策略；策略转换按上述显式原账本升级执行，可信时间仍待实现，能够验证 V2 签名不表示已具备完整防重放保证。验证方法见 [持久发布验证](../../../testing-manual.md#discovery-durable-publication-v2)。
 
 <a id="discovery-peer-record-implementation-boundary"></a>
 ### 当前实现边界
@@ -333,7 +343,7 @@ rendezvous 的 ID-only 注册仅触发独立的签名记录查询，不作为 re
 
 来源不足的健康状态与已建立会话的传输准入分开：允许符合实际路径及 unknown 域预算的既有会话继续获取材料，健康仍降级。每个会话都计入路径、relay、operator/ASN 分母与桶；无 record 或远端自报 `observer_light` 不能豁免这些预算。候选按稳定 peer ID 顺序准入，配额拒绝进入 quarantine，不以缺 record 提前跳过统计。该策略改变旧版依赖自述标签的 healthy 结果及 observer 配额豁免；没有新增 wire 字段或重签旧记录。
 
-[PeerRecord](../../../crates/oasis7_proto/src/distributed_dht.rs) body 保留既有 `published_at_ms/ttl_ms`；legacy V1 签名不含 sequence。新增可选 V2 envelope 与[本机持久发布器](../../../crates/oasis7_net/src/libp2p_net/durable_peer_record_publisher.rs)，由标准 host 显式配置、首次初始化后打开现存状态，覆盖正常重启发行连续性；正式 authority profile 的 P2P 组装不由该入口代签。libp2p 已接入上述 v1 时间策略、到期缓存过滤、DHT store 转发检查与记录路径租约，候选缓存上限 1024、单条 16 KiB。活动会话保留限制性元数据且不再贡献来源；测试内 InMemoryDht 并非该真实网络时间入口。显式[接收端账本](../../../crates/oasis7_net/src/libp2p_net/receiver_floor.rs)在标准 host→node→net 路径保护 live V2 sequence、同序冲突隔离和已迁移 peer 的 V1 退役，并在租约读时限制旧候选。[显式撤销与恢复](#discovery-tombstone-v2)已接入持久发布、接收水位和原件转发；legacy 接收模式拒绝 tombstone，撤销状态重开也要求持久 receiver。rendezvous ID-only 触发链已按上述有界、一次性、精确 live payload 规则保留本地诊断，不增加独立来源。持久可信时间、首次观察与配置版本、入站 rendezvous 服务／响应列表预算、跨重启配额及 reception 策略转换仍待实现；自动 DHT／RR／缓存重发布及本机 rendezvous register／discover 采用[共享发现工作预算](#discovery-work-budget)，限额延后不清空已建立会话；该预算不覆盖全部网络操作。缓存候选按[到期前刷新策略](#discovery-record-refresh)尽力提前获取新材料，保留短 TTL／cooldown 和失败时可能到期的限制。本切片不宣称完整来源独立性、抗 Sybil 或生命周期保证。验证方法见 [本地发现信任边界](../../../testing-manual.md#discovery-observation-local-trust-boundary)，三节点 loopback TCP 不代签真实公网或独立物理故障域。
+[PeerRecord](../../../crates/oasis7_proto/src/distributed_dht.rs) body 保留既有 `published_at_ms/ttl_ms`；legacy V1 签名不含 sequence。新增可选 V2 envelope 与[本机持久发布器](../../../crates/oasis7_net/src/libp2p_net/durable_peer_record_publisher.rs)，由标准 host 显式配置、首次初始化后打开现存状态，覆盖正常重启发行连续性；正式 authority profile 的 P2P 组装不由该入口代签。libp2p 已接入上述 v1 时间策略、到期缓存过滤、DHT store 转发检查与记录路径租约，候选缓存上限 1024、单条 16 KiB。活动会话保留限制性元数据且不再贡献来源；测试内 InMemoryDht 并非该真实网络时间入口。显式[接收端账本](../../../crates/oasis7_net/src/libp2p_net/receiver_floor.rs)在标准 host→node→net 路径保护 live V2 sequence、同序冲突隔离和已迁移 peer 的 V1 退役，并在租约读时限制旧候选。[显式撤销与恢复](#discovery-tombstone-v2)已接入持久发布、接收水位和原件转发；legacy 接收模式拒绝 tombstone，撤销状态重开也要求持久 receiver。rendezvous ID-only 触发链已按上述有界、一次性、精确 live payload 规则保留本地诊断，不增加独立来源。持久可信时间、首次观察与配置版本、入站 rendezvous 服务／响应列表预算、跨重启配额仍待实现；reception 策略转换按上述显式原账本升级执行；自动 DHT／RR／缓存重发布及本机 rendezvous register／discover 采用[共享发现工作预算](#discovery-work-budget)，限额延后不清空已建立会话；该预算不覆盖全部网络操作。缓存候选按[到期前刷新策略](#discovery-record-refresh)尽力提前获取新材料，保留短 TTL／cooldown 和失败时可能到期的限制。本切片不宣称完整来源独立性、抗 Sybil 或生命周期保证。验证方法见 [本地发现信任边界](../../../testing-manual.md#discovery-observation-local-trust-boundary)，三节点 loopback TCP 不代签真实公网或独立物理故障域。
 
 ## Peer Reachability Contract Normalization
 本节是 2026-06-15 iroh-inspired follow-up 的设计落点。借鉴点只限于 identity-first address boundary、显式 selected path 与 reachability evidence；不引入 iroh 依赖，不替换 libp2p，也不采用 iroh relay/DNS/Pkarr 默认。

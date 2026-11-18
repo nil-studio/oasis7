@@ -7,6 +7,13 @@ on:
         description: Run one short native preparation diagnostic
         type: boolean
         default: false
+      source_profile:
+        description: Select the existing sources or the bounded official archive candidate
+        type: choice
+        default: runner-sources
+        options:
+          - runner-sources
+          - ubuntu-archive-https
 
 permissions:
   contents: read
@@ -18,6 +25,8 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.execute == true && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    env:
+      NATIVE_SOURCE_PROFILE: ${{ inputs.source_profile }}
     concurrency:
       group: oasis7-codeql-scan-slot-1
       queue: max
@@ -29,6 +38,8 @@ jobs:
         run: |
           python3 - <<'PY'
           import datetime,email.utils,json,os,pathlib,time,urllib.request
+          profile=os.environ['NATIVE_SOURCE_PROFILE']
+          if profile not in ('runner-sources','ubuntu-archive-https'):raise SystemExit('unsupported source profile')
           url=f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}/attempts/{os.environ['GITHUB_RUN_ATTEMPT']}/jobs?per_page=100"
           req=urllib.request.Request(url,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
           requested_at=time.monotonic()
@@ -51,7 +62,7 @@ jobs:
           (out/'job-clock.json').write_text(json.dumps({'job_id':jobs[0]['id'],'started_at':jobs[0]['started_at'],
               'run_id':os.environ['GITHUB_RUN_ID'],'run_attempt':os.environ['GITHUB_RUN_ATTEMPT'],
               'tool_sha':os.environ['GITHUB_SHA'],'github_date':server_date,'job_age_upper_seconds':age,
-              'deadline_wall':deadline,'maximum_job_seconds':600},indent=2)+'\n')
+              'deadline_wall':deadline,'maximum_job_seconds':600,'source_profile':profile},indent=2)+'\n')
           with open(os.environ['GITHUB_ENV'],'a') as env:env.write(f"NATIVE_DEADLINE={deadline}\n")
           PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -62,7 +73,8 @@ jobs:
         run: |
           python3 scripts/security/codeql-rust-native-diagnostic.py \
             --source "$GITHUB_WORKSPACE" --output "$RUNNER_TEMP/rust-native-diagnostic" \
-            --deadline "$NATIVE_DEADLINE" --tool-sha "$GITHUB_SHA"
+            --deadline "$NATIVE_DEADLINE" --tool-sha "$GITHUB_SHA" \
+            --source-profile "$NATIVE_SOURCE_PROFILE"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         timeout-minutes: 1

@@ -685,12 +685,13 @@ impl FormalLiveRuntime {
     }
 
     pub(crate) fn start(&mut self) -> Result<(), String> {
-        self.start_with_full_sync_read_authorization(None)
+        let gate = self.validated.build_full_sync_read_gate(&self.node_signer)?;
+        self.start_with_full_sync_read_authorization(gate)
     }
 
     /// Starts the same production host with explicit V3 read dependencies.
-    /// The ordinary `start` path passes no dependencies and therefore fails
-    /// before opening the listener when the operator selected `v3_required`.
+    /// The ordinary `start` path constructs these from the operator-pinned
+    /// configuration. Missing dependencies still fail before the listener.
     pub(crate) fn start_with_full_sync_read_authorization(
         &mut self,
         gate_config: Option<FullSyncV3ReadGateConfig>,

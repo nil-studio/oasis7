@@ -228,6 +228,14 @@ producer 发布实际 profile、world/chain、构建与实例身份，adapter �
 | 字段缺失或身份/实例不匹配 | 对受影响能力显示 unknown/不可判定，不以默认 true 或零差距补齐 |
 | 后续采集恢复 | 仅更新实际重新取得的事实；采集恢复不自动解除 producer 的权限或安全阻断 |
 
+### wire-3 worker 诊断接线子范围
+
+`bft-header node --serve` 可在私有配置中显式设置 `status_address` 为非零 loopback 地址，暴露只读 `GET /v1/bft/status`，schema 为 `oasis7.bft-node-observation/v1`。未设置不监听；非 serve、非 loopback 或端口冲突拒绝。监听器随同一 Node invocation 释放，每次启动随机 incarnation；不新增 submit 或 private-read 入口。请求至多 2048 字节、100ms 绝对读取预算，响应至多 16KiB，不提供 CORS 或缓存。URL 必须使用配置中数值 loopback 地址及端口（例如 `http://127.0.0.1:8901/v1/bft/status`）；请求只接受一个精确匹配的 Host，拒绝 Origin，不接受 localhost 别名或浏览器跨源访问。loopback 不是 OS 用户认证，本机其他进程也可读取这些公开诊断字段；读取和写入各有独立 100ms 绝对预算，单次请求最坏约 200ms。
+
+此入口只输出 worker 从其已经验证的 checkpoint 和 opaque schedule 取得的有界事实：world/chain/operator instance、epoch/height/round、active/pending set hash、binding digest、checkpoint revision、已观测 lease generation、原窗口起点/累计提交数、pending apply 及最近 applied height/header。观察时间由 worker 更新，HTTP 读取不刷新它；不输出 journal、action、凭据、路径或原始错误。`running` 及固定 blocker 是查询时的实例诊断，不是资格来源。服务故障或停止后的采集失败保持 unknown，不能借最后成功恢复当前资格。
+
+既有三槽 HTTP collector 可明确选择该 URL，并经过同一 attempt/adapter/JSON/Markdown 路径。文件重放仍标 replay。adapter 对 schema、类型、计数/摘要限额和观察年龄失败关闭，保留真实观察时间；`qualification`、backend 保护、当前 membership/lease/private-closure 资格仍为 unknown，`can_propose=false`，不得由这份诊断变为 ready。该子范围提供实时排障事实，不完成正式 BFT 资格、成功/拒绝/冷恢复或 read4 同 cut 验收，也不以手工 fixture 代替实际 producer 验收；完整资格接线沿原合同继续。
+
 <a id="single-node-profile-report"></a>
 ### 单节点正式 CLI 适配子范围
 

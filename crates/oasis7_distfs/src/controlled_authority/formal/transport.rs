@@ -12,8 +12,8 @@ pub use archive_delegation::{
 };
 mod server;
 mod wire;
-pub use client::RemoteFormalEndpoint;
 pub(crate) use client::VerifiedNativeRpcContextV1;
+pub use client::{RemoteFormalEndpoint, VerifiedEndpointObservationV1};
 pub use durable_set::{DurableSetCandidateServerV1, RemoteDurableSetCandidateV1};
 pub use server::FormalEndpointServer;
 pub(crate) use wire::{Command, Request, RequestBody, Response, ResponseBody, Value};

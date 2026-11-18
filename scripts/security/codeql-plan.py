@@ -234,6 +234,16 @@ def plan(args):
             # JSON registration; possible Rust consumers are still added below.
             add('actions-repo', path)
             add('python-repo', path)
+        elif path == 'deny.toml':
+            # Exact cargo-deny policy consumed by CI shell/Actions, not Rust source.
+            # Preserve possible embedded/build consumers below and batch limits.
+            add('actions-repo', path)
+        elif path in ('.dockerignore', 'docker/wasm-builder/Dockerfile'):
+            # Fixed canonical builder inputs consumed by Actions, Python context
+            # contracts and Rust producer recipes. Keep the consumer union below.
+            add('actions-repo', path)
+            add('python-repo', path)
+            add('rust-repo', path)
         elif path in ISSUE_METADATA_INPUTS:
             # GitHub renders these as form data, not executable Actions YAML.
             pass

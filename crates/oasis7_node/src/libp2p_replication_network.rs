@@ -26,6 +26,7 @@ use crate::NodeError;
 use crate::replication::REPLICATION_FETCH_COMMIT_PROTOCOL;
 
 mod net_impl;
+mod receiver_maintenance;
 
 #[cfg(test)]
 #[path = "libp2p_replication_network/admission_tests.rs"]
@@ -251,19 +252,6 @@ impl Libp2pReplicationNetwork {
             keypair: Some(keypair.clone()),
             peer_record: Some(peer_record.clone()),
             peer_record_publication_directory: Some(publication_directory.clone()),
-            ..Libp2pNetworkConfig::default()
-        })
-    }
-
-    /// Creates the durable receiver floor without starting a network.
-    /// Ordinary construction only opens the existing receiver state.
-    pub fn initialize_peer_record_receiver(
-        config: &Libp2pReplicationNetworkConfig,
-    ) -> Result<(), WorldError> {
-        Libp2pNetwork::initialize_peer_record_receiver(&Libp2pNetworkConfig {
-            keypair: config.keypair.clone(),
-            peer_record: config.peer_record.clone(),
-            peer_record_receiver: config.peer_record_receiver.clone(),
             ..Libp2pNetworkConfig::default()
         })
     }

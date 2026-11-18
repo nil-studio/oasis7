@@ -11,6 +11,8 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const FORMAL_FULL_SYNC_MANIFEST_PATH: &str = "/v1/formal/full-sync/manifest";
 pub const FORMAL_FULL_SYNC_OBJECT_PATH: &str = "/v1/formal/full-sync/object";
 pub const MAX_FULL_SYNC_CHUNK_BYTES: usize = 64 * 1024;
+/// Complete signed JSON body limit, not the decoded byte-array limit.
+pub const MAX_FULL_SYNC_OBJECT_RESPONSE_BYTES: usize = 256 * 1024;
 pub const MAX_FULL_SYNC_RECORD_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_FULL_SYNC_OBJECTS: usize = 256;
 pub const MAX_FULL_SYNC_HISTORY_PATH: usize = 257;
@@ -398,6 +400,48 @@ pub struct FormalFullSyncObjectChunkV1 {
     pub bytes: Vec<u8>,
 }
 impl FormalFullSyncObjectChunkV1 {
+    /// Select a chunk that fits the complete signed JSON envelope even when
+    /// every payload byte needs three decimal digits. Uses the actual cut,
+    /// including JSON escaping, and conservative numeric metadata for clients
+    /// that have not learned the object length yet. No wire limits are relaxed.
+    pub fn bounded_payload_bytes(
+        cut: &FormalFullSyncCutV1,
+        content_hash: &str,
+    ) -> Result<usize, String> {
+        cut.validate()?;
+        if !digest(content_hash) {
+            return Err("formal full-sync object hash is invalid".into());
+        }
+        let empty = Self {
+            schema_version: 1,
+            cut: cut.clone(),
+            content_hash: content_hash.to_owned(),
+            total_bytes: MAX_FULL_SYNC_RECORD_BYTES as u64,
+            offset: MAX_FULL_SYNC_RECORD_BYTES as u64,
+            bytes: Vec::new(),
+        };
+        // These are the fixed encodings emitted by authority::request_digest
+        // and Ed25519 signing, not claims supplied by a remote peer.
+        let envelope = crate::world_service::SignedServiceResponse {
+            request_digest: format!("blake3:{}", "0".repeat(64)),
+            payload: empty,
+            signature_hex: "0".repeat(128),
+        };
+        let overhead = serde_json::to_vec(&envelope)
+            .map_err(|error| error.to_string())?
+            .len();
+        // Replacing [] with n entries costs at most 4*n - 1 additional
+        // octets. Reserving 4*n is conservative, including the first comma.
+        let capacity = MAX_FULL_SYNC_OBJECT_RESPONSE_BYTES
+            .checked_sub(overhead)
+            .ok_or("full-sync object envelope exceeds response bound")?
+            / 4;
+        if capacity == 0 {
+            return Err("full-sync object envelope leaves no payload capacity".into());
+        }
+        Ok(capacity.min(MAX_FULL_SYNC_CHUNK_BYTES))
+    }
+
     pub fn validate_for(&self, request: &FormalFullSyncObjectRequestV1) -> Result<(), String> {
         let end = self
             .offset
@@ -562,6 +606,59 @@ mod tests {
                 )
                 .is_err()
         );
+    }
+
+    #[test]
+    fn signed_object_chunk_bound_covers_json_expansion_and_metadata() {
+        let cut = FormalFullSyncCutV1 {
+            world: world(),
+            chain_id: "\\\"\u{0000}\u{001f}".repeat(64),
+            position: u64::MAX,
+            record_id: "b".repeat(64),
+            after_state_root: "c".repeat(64),
+            active_authority_id: "d".repeat(64),
+            finalizing_authority_id: "e".repeat(64),
+            authority_epoch: u64::MAX,
+        };
+        let hash = "f".repeat(64);
+        let limit = FormalFullSyncObjectChunkV1::bounded_payload_bytes(&cut, &hash).unwrap();
+        assert!(limit > 0 && limit < MAX_FULL_SYNC_CHUNK_BYTES);
+        for byte in [0, 9, 10, 99, 100, 255] {
+            let payload = FormalFullSyncObjectChunkV1 {
+                schema_version: 1,
+                cut: cut.clone(),
+                content_hash: hash.clone(),
+                total_bytes: MAX_FULL_SYNC_RECORD_BYTES as u64,
+                offset: (MAX_FULL_SYNC_RECORD_BYTES - MAX_FULL_SYNC_CHUNK_BYTES) as u64,
+                bytes: vec![byte; limit],
+            };
+            let signed = crate::world_service::sign_service_response(
+                FORMAL_FULL_SYNC_OBJECT_PATH,
+                format!("blake3:{}", "a".repeat(64)),
+                &payload,
+                &hex::encode([23; 32]),
+            )
+            .unwrap();
+            assert!(
+                serde_json::to_vec(&signed).unwrap().len() <= MAX_FULL_SYNC_OBJECT_RESPONSE_BYTES
+            );
+        }
+        let oversized = FormalFullSyncObjectChunkV1 {
+            schema_version: 1,
+            cut,
+            content_hash: hash,
+            total_bytes: MAX_FULL_SYNC_RECORD_BYTES as u64,
+            offset: 0,
+            bytes: vec![255; MAX_FULL_SYNC_CHUNK_BYTES],
+        };
+        let signed = crate::world_service::sign_service_response(
+            FORMAL_FULL_SYNC_OBJECT_PATH,
+            format!("blake3:{}", "a".repeat(64)),
+            &oversized,
+            &hex::encode([23; 32]),
+        )
+        .unwrap();
+        assert!(serde_json::to_vec(&signed).unwrap().len() > MAX_FULL_SYNC_OBJECT_RESPONSE_BYTES);
     }
 
     #[test]

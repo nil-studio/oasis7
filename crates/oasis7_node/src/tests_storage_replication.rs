@@ -22,6 +22,8 @@ mod storage_replication_peer_head_tests;
 mod storage_replication_progress_tests;
 #[path = "tests_storage_replication_diagnostics.rs"]
 mod storage_replication_diagnostics;
+#[path = "tests_storage_replication_follower.rs"]
+mod storage_replication_follower;
 #[path = "tests_storage_replication_recovery.rs"]
 mod storage_replication_recovery_tests;
 
@@ -741,14 +743,8 @@ fn runtime_gossip_replication_with_signature_applies_files() {
         .with_auto_attest_all_validators(true)
         .with_gossip_optional(addr_a, vec![addr_b])
         .with_replication(signed_replication_config(dir_a.clone(), 11));
-    let config_b = NodeConfig::new("node-b", "world-signed", NodeRole::Observer)
-        .expect("config b")
-        .with_tick_interval(Duration::from_millis(10))
-        .expect("tick b")
-        .with_pos_config(pos_config)
-        .expect("pos config b")
-        .with_gossip_optional(addr_b, vec![addr_a])
-        .with_replication(signed_replication_config(dir_b.clone(), 22));
+    let config_b = storage_replication_follower::observer_config(pos_config, dir_b.clone())
+        .with_gossip_optional(addr_b, vec![addr_a]);
 
     let mut runtime_a = with_noop_execution_hook(NodeRuntime::new(config_a));
     let mut runtime_b = NodeRuntime::new(config_b);

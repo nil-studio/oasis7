@@ -7,6 +7,7 @@ import json
 import math
 import os
 from pathlib import Path, PurePosixPath
+import platform
 import re
 import resource
 import selectors
@@ -825,13 +826,32 @@ def metadata_graph(raw, source, cache, target, expected_members, lock_packages):
     return graph, observation
 
 
-def child_environment(environment, work, proxy):
+def host_linker_environment(environment):
+    """Select only this Linux host's linker; target flags stay outside the context."""
+    if platform.system() != 'Linux':
+        return {}
+    target = {'x86_64': 'X86_64_UNKNOWN_LINUX_GNU', 'aarch64': 'AARCH64_UNKNOWN_LINUX_GNU'}.get(platform.machine())
+    if target is None:
+        return {}
+    key = 'CARGO_TARGET_' + target + '_LINKER'
+    if key not in environment:
+        return {}
+    value = environment[key]
+    if (not isinstance(value, str) or not value or any(c in value for c in '\0\r\n')
+            or not Path(value).is_absolute()):
+        raise Rejected()
+    return {key: value}
+
+
+def child_environment(environment, work, proxy, *, native_linker=False):
     keep = ('PATH', 'HOME', 'CODEX_HOME', 'USER', 'LOGNAME', 'LANG', 'LC_ALL', 'TMPDIR', 'SSL_CERT_FILE', 'SSL_CERT_DIR')
     result = {k: environment[k] for k in keep if k in environment}
     result.update(PATH=str(proxy.parent) + os.pathsep + environment.get('PATH', ''),
                   CARGO_HOME=str(work/'cargo-home'), RUSTUP_HOME=str(work/'rustup'),
                   CARGO_TARGET_DIR=str(work/'target'), RUSTUP_TOOLCHAIN='1.99.0',
                   CARGO_NET_RETRY='0', CARGO_TERM_COLOR='never', PYTHONDONTWRITEBYTECODE='1')
+    if native_linker:
+        result.update(host_linker_environment(environment))
     if any(result.get(k) != environment.get(k) for k in ('HOME', 'CODEX_HOME')):
         raise Rejected()
     return result

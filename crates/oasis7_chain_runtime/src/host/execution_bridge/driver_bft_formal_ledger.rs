@@ -5,7 +5,7 @@ use super::formal_prefix_files as files;
 use super::*;
 use serde::{Serialize, de::DeserializeOwned};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File};
+use std::fs;
 use std::path::{Path, PathBuf};
 
 pub(super) const MAX_RECORD: usize = 8 * 1024 * 1024;
@@ -118,8 +118,8 @@ impl Capacity {
 pub(super) struct GenericLedger<F: Format> {
     root: PathBuf,
     dir: PathBuf,
-    _lock: File,
-    _format_lock: File,
+    _lock: common_storage::BftLock,
+    _format_lock: common_storage::BftLock,
     pin: Option<F::Origin>,
     slots: BTreeMap<u64, Slot<F::Record>>,
     capacity: Capacity,

@@ -36,7 +36,7 @@ def workspace_support_fixture_functions(driver):
 
 
 def workflow_jobs(workflow):
-    jobs = dict(re.findall(r'^  ([a-z][a-z0-9-]*):\n(.*?)(?=^  [a-z][a-z0-9-]*:|\Z)',
+    jobs = dict(re.findall(r'^  ([a-z][a-z0-9_-]*):\n(.*?)(?=^  [a-z][a-z0-9_-]*:|\Z)',
                           workflow.split('\njobs:\n', 1)[1], re.M | re.S))
     anchors = {}
     for job in jobs.values():
@@ -127,10 +127,15 @@ def selected_source_steps(name):
     steps = JOBS[name].split('    steps:\n', 1)[1]
     checkouts = [step for step in re.findall(r'^      - .*?(?=^      - |\Z)', steps, re.M | re.S)
                  if re.search(r'^\s+(?:- )?uses: actions/checkout@', step, re.M)]
-    assert len(checkouts) == 1, 'one selected checkout is required'
+    if 'uses: ./.github/actions/setup-linux-mold' in steps:
+        assert len(checkouts) == 2, 'workflow tools and one selected checkout are required'
+        assert '          ref: ${{ github.workflow_sha }}\n' in checkouts[0], 'linker tools must use the workflow revision'
+        assert '          sparse-checkout: .github/actions/setup-linux-mold\n' in checkouts[0], 'only linker tools may precede source'
+    else:
+        assert len(checkouts) == 1, 'one selected checkout is required'
     if name in TRUSTED_SOURCE_WRITERS:
         assert steps.startswith(checkouts[0]), 'writer checkout must be first'
-    checkout = checkouts[0]
+    checkout = checkouts[-1]
     refs = re.findall(r'^          ref: (.*)$', checkout, re.M)
     tested = '${{ needs.select.outputs.tested_sha }}'
     allowed = (tested, '${{ github.sha }}') if name in TRUSTED_SOURCE_WRITERS else (tested,)
@@ -195,6 +200,39 @@ def worker_tool_cache_writer(job):
     return admissions[0]
 
 
+def browser_archive_cache_writer(job):
+    """Browser downloads have one bounded, verified main writer."""
+    header = job.split('    steps:', 1)[0]
+    for required in ('cache-mode: write', 'contents: read', 'actions: read',
+                     "github.ref == 'refs/heads/main'", 'github.workflow_sha == github.sha',
+                     "github.event_name == 'schedule'", "github.event_name == 'workflow_dispatch'",
+                     "inputs.run_mode == 'full'", 'timeout-minutes: 10', 'max-parallel: 1',
+                     'component: [fonts-noto-cjk, fonts-freefont-ttf, chrome]'):
+        assert required in header, 'browser cache requires the bounded trusted main writer'
+    assert 'actions: write' not in job and 'secrets.' not in job and 'continue-on-error' not in job
+    assert 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"' in job
+    assert 'persist-credentials: false' in job
+    steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+    restores = [step for step in steps if 'uses: actions/cache/restore@' in step]
+    saves = [step for step in steps if 'uses: actions/cache/save@' in step]
+    admissions = [step for step in steps if 'ci-browser-deps.py admit-save' in step]
+    assert len(restores) == len(saves) == len(admissions) == 1
+    for step in (*restores, *saves):
+        assert 'key: ${{ steps.browser-meta.outputs.key }}' in step
+        assert 'path: ${{ steps.browser-meta.outputs.root }}' in step
+        assert 'restore-keys:' not in step
+    for required in ('success()', "steps.prepare-browser.outcome == 'success'",
+                     "steps.browser-archive.outputs.cache-hit != 'true'",
+                     "steps.browser-admission.outcome == 'success'",
+                     "steps.browser-admission.outputs.save == 'true'"):
+        assert required in saves[0], 'browser cache requires verified preparation and capacity admission'
+    assert 'ci-browser-deps.py fetch --component "$BROWSER_COMPONENT"' in job
+    assert 'id: browser-admission' in admissions[0]
+    assert '"$BROWSER_CACHE_KEY"' in admissions[0] and '--github-output "$GITHUB_OUTPUT"' in admissions[0]
+    assert 'GH_TOKEN: ${{ github.token }}' in admissions[0] and job.count('GH_TOKEN:') == 1
+    return admissions[0]
+
+
 def web_cache_layout(cache_workflow, release_workflow, admission_source):
     """Accept only the complete old or new sole-writer wiring during migration."""
     assignments = [node for node in ast.parse(admission_source).body
@@ -214,6 +252,9 @@ def web_cache_layout(cache_workflow, release_workflow, admission_source):
     tool_jobs = {'worker-build-cache'} if 'worker-build-cache' in cache_jobs else set()
     if tool_jobs:
         worker_tool_cache_writer(cache_jobs['worker-build-cache'])
+    if 'browser-archive-cache' in cache_jobs:
+        browser_archive_cache_writer(cache_jobs['browser-archive-cache'])
+        tool_jobs.add('browser-archive-cache')
     assert set(cache_jobs) == (({'shared-native-cache', 'web-wasm-cache'} if migrated
                                else {'shared-native-cache'}) | tool_jobs), 'incomplete cache producer layout'
     active = []
@@ -341,6 +382,8 @@ def validate_workerd_capture(node, summary):
         raise ValueError('standard GDB process contracts must actually run on the hosted consumer')
     uploads = [step for step in steps if 'name: custody-workerd-fault-' in step]
     if (len(uploads) != 1 or 'if: always()' not in uploads[0]
+            or not re.search(r'^        timeout-minutes: 5$', uploads[0], re.M)
+            or 'continue-on-error' in uploads[0]
             or 'name: custody-workerd-fault-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.shard }}' not in uploads[0]
             or 'overwrite:' in uploads[0]
             or '/workerd-fault/records.jsonl' not in uploads[0]
@@ -462,10 +505,125 @@ def validate_candidate_graph(workflow, config):
                 'python3 "$RUNNER_TEMP/ci-authority/ci-python-control-contracts.py" run' not in job
                 or 'bash ./scripts/ci-tests.sh required --group "workflow_governance"' not in job):
             raise ValueError('trusted Python assertions and candidate governance must both execute')
+        if group in ('operational_contracts', 'packaging_contracts'):
+            if f'needs.select.outputs.run_{group}' not in job:
+                raise ValueError(f'{group} must bind its exact select output run_{group}')
+            if f'bash ./scripts/ci-tests.sh required --group "{group}"' not in job:
+                raise ValueError(f'{group} must execute its exact driver group {group}')
     return True
 
 
 class Workflow(unittest.TestCase):
+    def test_linux_mold_precedes_cache_identity_in_builders_warmers_and_formal_merger(self):
+        # Missing one producer/merger or a warmer silently changes the cache or
+        # Formal component identity even if the ordinary build itself succeeds.
+        required = {
+            'rust.yml': (
+                'pr-governance-preview', 'packaging-contracts',
+                'oasis7-test-build-candidate', 'oasis7-test-build-trusted',
+                'formal-debug-build', 'formal-debug-build-trusted',
+                'formal-endpoint-build', 'formal-endpoint-build-trusted',
+                'formal-test-build', 'oasis7-required', 'viewer-js-required',
+                'viewer-performance-report', 'launcher-web',
+                'custody-wasm-production', 'custody-wasm-approval',
+            ),
+            'rust-cache.yml': ('worker-build-cache', 'shared-native-cache', 'web-wasm-cache'),
+            'ecs-packages.yml': ('web', 'native', 'native-trusted', 'build-metrics'),
+            'native-cache-diagnostic.yml': ('diagnose',),
+            'storage-acceptance.yml': ('build',),
+        }
+        action = 'uses: ./.github/actions/setup-linux-mold'
+        for filename, names in required.items():
+            jobs = workflow_jobs((ROOT / '.github/workflows' / filename).read_text())
+            for name in names:
+                with self.subTest(workflow=filename, job=name):
+                    steps = jobs[name].split('    steps:', 1)[1]
+                    self.assertEqual(steps.count(action), 1)
+                    self.assertLess(steps.index('uses: actions/checkout@'), steps.index(action))
+                    boundaries = re.finditer(
+                        r'Swatinem/rust-cache@|actions/cache(?:/restore)?@|'
+                        r'ci-workspace-cache\.py|ci-ecs-cache\.py|ci-test-artifacts\.py', steps)
+                    for boundary in boundaries:
+                        self.assertLess(steps.index(action), boundary.start())
+
+    def test_historical_source_builds_load_mold_from_the_workflow_revision(self):
+        # A historical product checkout may predate the local action entirely.
+        for filename in ('rust.yml', 'mainnet-packages.yml', 'release-packages.yml', 'testnet-packages.yml'):
+            jobs = workflow_jobs((ROOT / '.github/workflows' / filename).read_text())
+            for name, job in jobs.items():
+                if 'uses: ./.github/actions/setup-linux-mold' not in job:
+                    continue
+                if filename == 'rust.yml' and name == 'newapi-bridge-package':
+                    continue  # This job always builds the executing github.sha.
+                with self.subTest(workflow=filename, job=name):
+                    steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+                    setup = next(i for i, step in enumerate(steps)
+                                 if 'uses: ./.github/actions/setup-linux-mold' in step)
+                    self.assertIn('uses: actions/checkout@', steps[setup - 1])
+                    self.assertIn('ref: ${{ github.workflow_sha }}', steps[setup - 1])
+                    self.assertIn('sparse-checkout: .github/actions/setup-linux-mold\n', steps[setup - 1])
+                    self.assertNotIn('sparse-checkout-cone-mode: false', steps[setup - 1])
+                    self.assertIn('uses: actions/checkout@', steps[setup + 1])
+                    self.assertNotIn('sparse-checkout:', steps[setup + 1])
+                    if 'runs-on: ${{ matrix.' in job:
+                        self.assertIn("if: runner.os == 'Linux'", steps[setup - 1])
+                        self.assertIn("if: runner.os == 'Linux'", steps[setup])
+
+    def test_real_git_restores_business_files_after_sparse_linker_tools(self):
+        tools = re.search(r'^      - name: Check out workflow linker setup\n.*?(?=^      - |\Z)',
+                          JOBS['pr-governance-preview'], re.M | re.S).group()
+        pattern = re.search(r'^          sparse-checkout: (.+)$', tools, re.M)[1]
+        cone = 'sparse-checkout-cone-mode: false' not in tools
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'source'
+            source.mkdir()
+
+            def git(cwd, *args):
+                return subprocess.run(['git', *args], cwd=cwd, text=True,
+                                      capture_output=True, check=True).stdout.strip()
+
+            git(source, 'init', '-q', '--initial-branch=main')
+            git(source, 'config', 'user.name', 'CI fixture')
+            git(source, 'config', 'user.email', 'fixture@example.invalid')
+            git(source, 'config', 'commit.gpgSign', 'false')
+            (source / 'scripts').mkdir()
+            (source / 'scripts/ci-tests.sh').write_text('echo historical-source\n')
+            (source / 'Cargo.toml').write_text('[workspace]\n')
+            git(source, 'add', '.')
+            git(source, 'commit', '-qm', 'Business source before linker action')
+            historical = git(source, 'rev-parse', 'HEAD')
+            action = source / '.github/actions/setup-linux-mold'
+            action.mkdir(parents=True)
+            (action / 'action.yml').write_text('name: fixture\n')
+            (source / 'scripts/ci-tests.sh').write_text('echo current-source\n')
+            git(source, 'add', '.')
+            git(source, 'commit', '-qm', 'Add workflow linker tools')
+            current = git(source, 'rev-parse', 'HEAD')
+            for label, revision in (('current', current), ('historical', historical)):
+                with self.subTest(source=label):
+                    checkout = root / label
+                    git(root, 'clone', '-q', '--no-checkout', str(source), str(checkout))
+                    if cone:
+                        git(checkout, 'sparse-checkout', 'set', pattern)
+                    else:
+                        git(checkout, 'config', 'core.sparseCheckout', 'true')
+                        (checkout / '.git/info/sparse-checkout').write_text(pattern + '\n')
+                    git(checkout, 'checkout', '--force', current)
+                    self.assertTrue((checkout / '.github/actions/setup-linux-mold/action.yml').is_file())
+                    self.assertFalse((checkout / 'scripts/ci-tests.sh').exists())
+                    # Exact sparse-disable sequence in the pinned checkout action:
+                    # non-cone common config can become active again after unset.
+                    git(checkout, 'sparse-checkout', 'disable')
+                    git(checkout, 'config', '--local', '--unset-all', 'extensions.worktreeConfig')
+                    git(checkout, 'checkout', '--force', revision)
+                    self.assertEqual((checkout / 'scripts/ci-tests.sh').read_text(), f'echo {label}-source\n')
+                    self.assertTrue((checkout / 'Cargo.toml').is_file())
+                    self.assertEqual(git(checkout, 'rev-parse', 'HEAD'), revision)
+                    self.assertEqual(git(checkout, 'status', '--porcelain'), '')
+                    self.assertEqual((checkout / '.github/actions/setup-linux-mold/action.yml').exists(),
+                                     label == 'current')
+
     def test_step_aliases_preserve_order_and_reject_unknown_or_duplicate_definitions(self):
         workflow = '''jobs:
   reader:
@@ -2534,10 +2692,9 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
 
     def test_viewer_security_smoke_uses_installed_browser_after_formal_build(self):
         job = JOBS['viewer-js-required']
-        self.assertIn('agent-browser@0.37.1', job)
-        self.assertIn('--prefix "$RUNNER_TEMP/viewer-security-browser"', job)
-        self.assertIn('"$browser_bin" install --with-deps', job)
-        self.assertIn("printf 'AGENT_BROWSER_BIN=%s\\n'", job)
+        self.assertIn('uses: ./.github/actions/setup-ci-browser', job)
+        self.assertIn('browser: agent', job)
+        self.assertIn("node-version: '24'", job)
         self.assertNotIn('cache-mode: write', job)
         group = re.search(r'^    viewer_js_required\) (.*?) ;;$',
                           (ROOT / 'scripts/ci-tests.sh').read_text(), re.M).group(1)
@@ -2567,10 +2724,9 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             self.assertEqual(JOBS[name].count('name: Execute selected group'), 1)
             self.assertIn(f'bash ./scripts/ci-tests.sh required --group "{name.replace(chr(45), chr(95))}"', JOBS[name])
         performance = JOBS['viewer-performance-report']
-        self.assertIn('agent-browser@0.37.1', performance)
-        self.assertIn('--prefix "$RUNNER_TEMP/viewer-performance-browser"', performance)
-        self.assertIn('"$browser_bin" install --with-deps', performance)
-        self.assertIn("printf 'AGENT_BROWSER_BIN=%s\\n'", performance)
+        self.assertIn('uses: ./.github/actions/setup-ci-browser', performance)
+        self.assertIn('browser: agent', performance)
+        self.assertIn("node-version: '24'", performance)
         self.assertLess(performance.index('Install pinned performance browser'), performance.index('Execute selected group'))
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         for job, forbidden in [('net', 'Verify pinned network source'),
@@ -3566,8 +3722,9 @@ run_cargo() {
 
     def test_download_caches_follow_actual_worksets(self):
         node_jobs={name for name,job in JOBS.items() if 'uses: actions/setup-node@' in job}
-        self.assertEqual(node_jobs,{'viewer-js-required','viewer-performance-report','launcher-web','workspace-support-legacy','workspace-support-other','custody-native','custody-wasm-production','custody-wasm-approval','custody-node','full-regression','candidate-full-regression'})
-        for name in node_jobs - {'workspace-support-legacy','workspace-support-other','custody-native','custody-wasm-production','custody-wasm-approval','custody-node'}:
+        self.assertEqual(node_jobs,{'viewer-js-required','viewer-performance-report','site-quality','launcher-web','workspace-support-legacy','workspace-support-other','custody-native','custody-wasm-production','custody-wasm-approval','custody-node','full-regression','candidate-full-regression'})
+        self.assertIn("node-version: '24'", JOBS['site-quality'])
+        for name in node_jobs - {'site-quality','workspace-support-legacy','workspace-support-other','custody-native','custody-wasm-production','custody-wasm-approval','custody-node'}:
             self.assertIn('cache: npm',JOBS[name])
             self.assertIn('cache-dependency-path: crates/oasis7_viewer/package-lock.json',JOBS[name])
             self.assertIn('npm ci --prefix crates/oasis7_viewer',JOBS[name])
@@ -3692,6 +3849,10 @@ run_cargo() {
         cache_workflow, _ = self.shared_cache_workflow()
         without_admitted_uploads = cache_workflow
         for name, writer in workflow_jobs(cache_workflow).items():
+            if name == 'browser-archive-cache':
+                admission = browser_archive_cache_writer(writer)
+                without_admitted_uploads = without_admitted_uploads.replace(admission, '', 1)
+                continue
             if name == 'worker-build-cache':
                 admission = worker_tool_cache_writer(writer)
                 without_admitted_uploads = without_admitted_uploads.replace(admission, '', 1)
@@ -3949,7 +4110,11 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                                       '      - name: Run full test tier\n        continue-on-error: true\n', 1),
                      WORKFLOW.replace(' --host-smoke', ''),
                      WORKFLOW.replace('    if: always()', '    if: success()'),
-                     WORKFLOW.replace("fromJSON(needs.select.outputs.plan).scope == 'full'", 'false', 1)]
+                     WORKFLOW.replace("fromJSON(needs.select.outputs.plan).scope == 'full'", 'false', 1),
+                     WORKFLOW.replace('needs.select.outputs.run_operational_contracts', 'needs.select.outputs.run_other_contracts', 1),
+                     WORKFLOW.replace('needs.select.outputs.run_packaging_contracts', 'needs.select.outputs.run_other_contracts', 1),
+                     WORKFLOW.replace('required --group "operational_contracts"', 'required --group "other_contracts"', 1),
+                     WORKFLOW.replace('required --group "packaging_contracts"', 'required --group "other_contracts"', 1)]
         for workflow in mutations:
             self.assertNotEqual(workflow, WORKFLOW, 'mutation must exercise the current workflow')
             with self.subTest(workflow=workflow[-100:]), self.assertRaises(ValueError):
@@ -4663,11 +4828,12 @@ class AptWorkflow(unittest.TestCase):
         step = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', JOBS['viewer-performance-report'], re.M | re.S)
                     if 'name: Install pinned performance browser' in step)
         self.assertIn('timeout-minutes: 15', step)
-        self.assertIn('Acquire::http::Timeout "15";', step)
-        self.assertIn('Acquire::https::Timeout "15";', step)
-        self.assertIn('Acquire::Retries "0";', step)
-        self.assertLess(step.index('sudo -n tee'), step.index('"$browser_bin" install --with-deps'))
-        self.assertIn('agent-browser@0.37.1', step)
+        self.assertIn('uses: ./.github/actions/setup-ci-browser', step)
+        self.assertIn('browser: agent', step)
+        action = (ROOT / '.github/actions/setup-ci-browser/action.yml').read_text()
+        self.assertIn('scripts/ci-apt-install.py --budget-seconds 300 --no-remove', action)
+        self.assertLess(action.index('ci-browser-deps.py prepare'), action.index('scripts/ci-apt-install.py'))
+        self.assertLess(action.index('scripts/ci-apt-install.py'), action.index('ci-browser-deps.py activate'))
         self.assertNotIn('continue-on-error', step)
 
     def test_existing_lsof_does_not_invoke_package_manager(self):
@@ -4695,35 +4861,39 @@ class AptWorkflow(unittest.TestCase):
         self.assertIn('scripts/ci-apt-dns.test.py', CONFIG['workflow_governance_python_tests'])
 
     def test_browser_install_prepares_the_shared_mirrors_and_blocks_on_failure(self):
-        expected = {'viewer-js-required': ('Install pinned security smoke browser', 11),
-                    'site-quality': ('Install pinned deck security browser', 10)}
-        actual = {}
-        for name, job in JOBS.items():
-            for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S):
-                if '--prepare-sources-only' in step:
-                    actual[name] = step
-        self.assertEqual(set(actual), set(expected))
-        for name, step in actual.items():
-            title, limit = expected[name]
-            self.assertIn('name: ' + title, step)
-            self.assertIn('        shell: bash\n', step)
-            self.assertIn(f'        timeout-minutes: {limit}\n', step)
+        expected = {'viewer-js-required': ('agent', 11),
+                    'viewer-performance-report': ('agent', 15), 'site-quality': ('playwright', 10)}
+        for name, (browser, limit) in expected.items():
+            job = JOBS[name]
+            step = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+                        if 'uses: ./.github/actions/setup-ci-browser' in step)
+            self.assertIn('browser: ' + browser, step)
+            self.assertIn(f'timeout-minutes: {limit}', step)
             self.assertNotIn('continue-on-error', step)
-            self.assertIn('--with-deps', step)
-            script = textwrap.dedent(step.split('        run: |\n', 1)[1])
-            prefix = script.split('--prepare-sources-only', 1)[0] + '--prepare-sources-only\n'
-            self.assertEqual(prefix.strip(), 'sudo -n /usr/bin/python3 scripts/ci-apt-install.py '
-                             '--budget-seconds 10 --prepare-sources-only')
-            for code in (0, 42):
-                with self.subTest(job=name, code=code):
-                    result = subprocess.run(['bash', '-euo', 'pipefail', '-c',
-                        'sudo() { return "$CODE"; };\n' + prefix + 'printf browser-install'],
-                        env=dict(os.environ, CODE=str(code)), text=True, capture_output=True)
-                    self.assertEqual(result.returncode, code, result.stderr)
-                    self.assertEqual('browser-install' in result.stdout, code == 0)
-        performance = JOBS['viewer-performance-report']
-        self.assertLess(performance.index('scripts/ci-apt-install.py --budget-seconds 600'),
-                        performance.index('install --with-deps'))
+            self.assertLess(job.index('uses: ./.github/actions/setup-ci-browser'), job.index('name: Execute selected group'))
+        action = (ROOT / '.github/actions/setup-ci-browser/action.yml').read_text()
+        step = next(step for step in re.findall(r'^    - .*?(?=^    - |\Z)', action, re.M | re.S)
+                    if 'name: Install missing browser system dependencies' in step)
+        script = textwrap.dedent(step.split('      run: |\n', 1)[1])
+        self.assertIn('ci-apt-install.py --budget-seconds 300 --no-remove', script)
+        self.assertNotIn('continue-on-error', step)
+        for missing, code in ((True, 0), (True, 42), (False, 0)):
+            with self.subTest(missing=missing, code=code), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                work = root / 'oasis7-ci-browser-agent'
+                work.mkdir()
+                (work / 'apt-arguments.txt').write_text('--\nlibnss3\n' if missing else '')
+                capture = root / 'called'
+                result = subprocess.run(['bash', '-euo', 'pipefail', '-c',
+                    'sudo() { printf "%s\\n" "$@" > "$CAPTURE"; return "$CODE"; };\n' + script + '\nprintf browser-activation'],
+                    env=dict(os.environ, RUNNER_TEMP=str(root), BROWSER_KIND='agent',
+                             CAPTURE=str(capture), CODE=str(code)), text=True, capture_output=True)
+                self.assertEqual(result.returncode, code if missing else 0, result.stderr)
+                self.assertEqual('browser-activation' in result.stdout, not missing or code == 0)
+                self.assertEqual(capture.exists(), missing)
+                if missing:
+                    self.assertEqual(capture.read_text().splitlines(), ['-n', '/usr/bin/python3',
+                        'scripts/ci-apt-install.py', '--budget-seconds', '300', '--no-remove', '--', 'libnss3'])
 
 
 # Append this class before unittest.main() in scripts/ci-workflow.test.py.
@@ -4737,23 +4907,42 @@ class TargetedOrdinaryArtifactWorkflow(unittest.TestCase):
             'name: Install pinned Rust toolchains', 'name: Stabilize Rust cache toolchains',
             'uses: Swatinem/rust-cache@'))]
         self.assertEqual(len(prepared), 3)
+        named_bundle_owners = ('runtime', 'component-libs', 'integrations-0', 'integrations-1',
+                               'native-0', 'native-1', 'native-2', 'native-3')
         for step in prepared:
+            is_toolchain = 'name: Install pinned Rust toolchains' in step
             condition = re.search(r'^        if: >-\n(.*?)(?=^        \w|\Z)', step, re.M | re.S)[1]
-            for version in (None, 1, 2):
-                for owner in ('controls', 'native-0', 'native-1', 'native-2', 'native-3',
-                              'all', 'runtime', 'oasis7_runtime', 'unknown'):
-                    for packages in (['oasis7_chain_runtime'], ['oasis7_chain_runtime', 'oasis7_game_client'],
-                                     ['oasis7_game_client'], []):
-                        values = {
-                            'fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version': version,
-                            'matrix.partition': owner,
-                            "join(fromJSON(needs.select.outputs.plan).oasis7_required_packages, ',')": ','.join(packages),
-                        }
-                        skipped = (version == 2 and owner in ('native-0', 'native-1', 'native-2', 'native-3')
-                                   and packages == ['oasis7_chain_runtime'])
-                        with self.subTest(version=version, owner=owner, packages=packages):
-                            self.assertEqual(effective_job_condition(condition, values, []), not skipped)
-                            self.assertFalse(effective_job_condition(condition, values, ['failure']))
+            for execution in (None, 'inline'):
+                for version in (None, 1, 2):
+                    if execution == 'inline' and version == 2:
+                        continue
+                    for owner in ('controls', 'native-0', 'native-1', 'native-2', 'native-3',
+                                  'all', 'runtime', 'component-libs', 'integrations-0', 'integrations-1',
+                                  'oasis7_runtime', 'unknown'):
+                        for packages in (['oasis7_chain_runtime'], ['oasis7_chain_runtime', 'oasis7_game_client'],
+                                         ['oasis7_wasm_materializer'], ['oasis7_game_client'], []):
+                            values = {
+                                'fromJSON(needs.select.outputs.plan).ordinary_execution': execution,
+                                'fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version': version,
+                                'matrix.partition': owner,
+                                'fromJSON(needs.select.outputs.plan).oasis7_required_packages': packages,
+                                "join(fromJSON(needs.select.outputs.plan).oasis7_required_packages, ',')": ','.join(packages),
+                            }
+                            must_run = (
+                                execution == 'inline'
+                                or owner not in named_bundle_owners
+                                or (is_toolchain and owner != 'runtime' and (
+                                    version != 2
+                                    or not packages
+                                    or 'oasis7_game_client' in packages
+                                    or 'oasis7_wasm_materializer' in packages
+                                ))
+                            )
+                            actual = effective_job_condition(condition, values, [])
+                            with self.subTest(step=is_toolchain, execution=execution, version=version, owner=owner, packages=packages):
+                                if must_run:
+                                    self.assertTrue(actual)
+                                self.assertFalse(effective_job_condition(condition, values, ['failure']))
         native = next(step for step in steps if 'name: Install native libraries' in step)
         self.assertNotIn('        if:', native)
         self.assertIn('scripts/ci-apt-install.py --budget-seconds 600', native)
@@ -4892,6 +5081,19 @@ class OrdinaryDeliveryWorkflow(unittest.TestCase):
 
 
 class WorkerdFaultCapture(unittest.TestCase):
+    def test_evidence_upload_is_bounded_without_masking_failure(self):
+        node, summary = JOBS['custody-node'], JOBS['workspace-support']
+        marker = '      - name: Preserve workerd evidence for this attempt\n'
+        self.assertEqual(node.count(marker), 1)
+        before, upload = node.split(marker)
+        validate_workerd_capture(node, summary)
+        for replacement in ('', '        timeout-minutes: 0\n',
+                            '        timeout-minutes: 60\n',
+                            '        timeout-minutes: 5\n        continue-on-error: true\n'):
+            with self.subTest(replacement=replacement), self.assertRaises(ValueError):
+                validate_workerd_capture(before + marker + upload.replace(
+                    '        timeout-minutes: 5\n', replacement, 1), summary)
+
     def test_real_capture_and_attempt_scoped_artifacts_are_required(self):
         validate_workerd_capture(JOBS['custody-node'], JOBS['workspace-support'])
         for path in ('scripts/ci-custody-workerd-capture.py', 'scripts/ci-custody-workerd-gdb.py',
@@ -4914,6 +5116,63 @@ class WorkerdFaultCapture(unittest.TestCase):
                 validate_workerd_capture(node.replace(before, after), summary)
         with self.assertRaises(ValueError):
             validate_workerd_capture(node, summary.replace(' --capture-workerd-faults', ''))
+
+
+class BrowserDownloadCache(unittest.TestCase):
+    def test_readers_preserve_exact_caches_locked_tools_and_real_consumers(self):
+        action = (ROOT / '.github/actions/setup-ci-browser/action.yml').read_text()
+        steps = re.findall(r'^    - .*?(?=^    - |\Z)', action, re.M | re.S)
+        restores = [step for step in steps if 'uses: actions/cache/restore@' in step]
+        self.assertEqual(len(restores), 3)
+        for component in ('fonts_noto_cjk', 'fonts_freefont_ttf', 'chrome'):
+            restore = next(step for step in restores if f'steps.downloads.outputs.{component}_root' in step)
+            self.assertIn(f'key: ${{{{ steps.downloads.outputs.{component}_key }}}}', restore)
+            self.assertNotIn('restore-keys:', restore)
+            if component != 'fonts_freefont_ttf':
+                self.assertIn("if: inputs.browser == 'agent'", restore)
+        self.assertNotIn('actions/cache/save@', action)
+        self.assertNotIn('GH_TOKEN', action)
+        for job in ('viewer-js-required', 'viewer-performance-report', 'site-quality'):
+            self.assertIn('uses: ./.github/actions/setup-ci-browser', JOBS[job])
+            self.assertIn("node-version: '24'", JOBS[job])
+            self.assertNotIn('cache-mode: write', JOBS[job])
+        lock = json.loads((ROOT / 'scripts/ci-browser-tools/package-lock.json').read_text())
+        for name, version in (('agent-browser', '0.37.1'), ('playwright', '1.62.1'), ('playwright-core', '1.62.1')):
+            entry = lock['packages']['node_modules/' + name]
+            self.assertEqual(entry['version'], version)
+            self.assertTrue(entry['integrity'].startswith('sha512-'))
+        helper = (ROOT / 'scripts/ci-browser-deps.py').read_text()
+        self.assertIn("'--ignore-scripts'", helper)
+        self.assertIn('AGENT_BROWSER_EXECUTABLE_PATH', helper)
+        self.assertIn('PLAYWRIGHT_BROWSERS_PATH', helper)
+
+    def test_archive_writer_rejects_foreign_identity_unbounded_restore_and_unadmitted_save(self):
+        writer = workflow_jobs((ROOT / '.github/workflows/rust-cache.yml').read_text())['browser-archive-cache']
+        browser_archive_cache_writer(writer)
+        for before, after in (
+                ("github.ref == 'refs/heads/main'", 'true'),
+                ('github.workflow_sha == github.sha', 'true'),
+                ("inputs.run_mode == 'full'", 'true'),
+                ('key: ${{ steps.browser-meta.outputs.key }}', 'key: unbound'),
+                ('path: ${{ steps.browser-meta.outputs.root }}', 'path: ${{ github.workspace }}'),
+                ("steps.prepare-browser.outcome == 'success'", 'true'),
+                ("steps.browser-admission.outputs.save == 'true'", 'true'),
+                ('ci-browser-deps.py admit-save', 'ci-browser-deps.py metadata')):
+            with self.subTest(before=before), self.assertRaises(AssertionError):
+                browser_archive_cache_writer(writer.replace(before, after))
+        with self.assertRaises(AssertionError):
+            browser_archive_cache_writer(writer.replace('          key:', '          restore-keys: ci-browser-\n          key:', 1))
+
+    def test_shared_inputs_keep_governance_and_all_three_browser_consumers(self):
+        for path in ('scripts/ci-browser-deps.py', '.github/actions/setup-ci-browser/action.yml'):
+            self.assertEqual(set(CONFIG['scoped_control_paths'][path]),
+                             {'workflow_governance', 'viewer_js_required', 'viewer_performance_report', 'site_quality'})
+        for path, test in (('scripts/ci-browser-deps.py', 'scripts/ci-browser-deps.test.py'),
+                           ('scripts/ci-tool-cache.py', 'scripts/ci-tool-cache.test.py')):
+            self.assertIn(test, CONFIG['python_control_contracts'][path]['tests'])
+            self.assertIn(test, CONFIG['workflow_governance_python_tests'])
+        self.assertIn('scripts/ci-worker-build.test.py',
+                      CONFIG['python_control_contracts']['scripts/ci-tool-cache.py']['tests'])
 
 
 class WorkerToolCache(unittest.TestCase):

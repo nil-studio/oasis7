@@ -8,6 +8,32 @@
 use super::*;
 use std::sync::mpsc;
 
+#[cfg(test)]
+#[path = "formal_full_sync_worker_ownership_tests.rs"]
+mod worker_ownership_tests;
+
+/// The last live worker, not merely the control socket, owns the lifetime fence.
+/// Stop may detach a bounded network poll; it must not permit a new incarnation
+/// to enter while the old poll can still access the same persistent state.
+fn spawn_owned_worker<T, F>(
+    ownership: Arc<ProcessOwnership>,
+    work: F,
+) -> std::io::Result<std::thread::JoinHandle<T>>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    std::thread::Builder::new()
+        .name("formal-full-state-sync".into())
+        .spawn(move || {
+            let result = work();
+            // Also released by unwinding if work panics. No explicit unlock:
+            // the supervisor may still own this same file description.
+            drop(ownership);
+            result
+        })
+}
+
 struct WorkerStop {
     flag: Arc<AtomicBool>,
     status_gate: Arc<Mutex<()>>,
@@ -30,10 +56,11 @@ impl Drop for WorkerStop {
 pub(super) fn supervise(
     config: &NodeConfig,
     intent: &mut ActionRecord,
-    ownership: File,
+    ownership: ProcessOwnership,
     full_sync_config: &super::super::formal_full_sync::FormalFullSyncConfigV1,
 ) -> Result<(), String> {
     let data = &config.identity.data_dir;
+    ownership.require_directory(data)?;
     let socket_dir = control_dir(data)?;
     io::private_dir(&socket_dir)?;
     let socket_path = control_path(data)?;
@@ -84,38 +111,23 @@ pub(super) fn supervise(
     let worker_stop = Arc::clone(&stop_polling);
     let worker_status_gate = Arc::clone(&status_gate);
     let poll_interval = session.poll_interval();
+    // Establish cleanup before spawning: any later initialization failure must
+    // stop the worker as well as retain its ownership until it actually exits.
+    let stop_guard = WorkerStop {
+        flag: Arc::clone(&stop_polling),
+        status_gate,
+    };
     let (worker_result_tx, worker_result_rx) = mpsc::channel();
-    let worker = std::thread::Builder::new()
-        .name("formal-full-state-sync".into())
-        .spawn(move || {
-            let result = (|| {
-                let mut next_poll = Instant::now();
-                let mut restored_world: Option<oasis7_runtime::World> = None;
-                while !worker_stop.load(Ordering::SeqCst) {
-                    if Instant::now() >= next_poll {
-                        drop(restored_world.take());
-                        session.begin_poll();
-                        {
-                            let _status_guard = worker_status_gate
-                                .lock()
-                                .map_err(|error| error.to_string())?;
-                            if worker_stop.load(Ordering::SeqCst) {
-                                break;
-                            }
-                            io::write(&status_path, session.status())?;
-                        }
-                        match session.sync_latest() {
-                            Ok(restored) => restored_world = Some(restored.world),
-                            Err(_) => restored_world = None,
-                        }
-                        session.set_world_loaded(restored_world.is_some());
-                        if session.status().ready
-                            && (!session.status().state_root_verified || restored_world.is_none())
-                        {
-                            return Err(
-                                "full-sync readiness lacked a retained verified World".into()
-                            );
-                        }
+    let ownership = Arc::new(ownership);
+    let worker = spawn_owned_worker(Arc::clone(&ownership), move || {
+        let result = (|| {
+            let mut next_poll = Instant::now();
+            let mut restored_world: Option<oasis7_runtime::World> = None;
+            while !worker_stop.load(Ordering::SeqCst) {
+                if Instant::now() >= next_poll {
+                    drop(restored_world.take());
+                    session.begin_poll();
+                    {
                         let _status_guard = worker_status_gate
                             .lock()
                             .map_err(|error| error.to_string())?;
@@ -123,15 +135,33 @@ pub(super) fn supervise(
                             break;
                         }
                         io::write(&status_path, session.status())?;
-                        next_poll = Instant::now() + poll_interval;
                     }
-                    std::thread::sleep(Duration::from_millis(20));
+                    match session.sync_latest() {
+                        Ok(restored) => restored_world = Some(restored.world),
+                        Err(_) => restored_world = None,
+                    }
+                    session.set_world_loaded(restored_world.is_some());
+                    if session.status().ready
+                        && (!session.status().state_root_verified || restored_world.is_none())
+                    {
+                        return Err("full-sync readiness lacked a retained verified World".into());
+                    }
+                    let _status_guard = worker_status_gate
+                        .lock()
+                        .map_err(|error| error.to_string())?;
+                    if worker_stop.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    io::write(&status_path, session.status())?;
+                    next_poll = Instant::now() + poll_interval;
                 }
-                Ok(())
-            })();
-            let _ = worker_result_tx.send(result);
-        })
-        .map_err(|error| error.to_string())?;
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Ok(())
+        })();
+        let _ = worker_result_tx.send(result);
+    })
+    .map_err(|error| error.to_string())?;
 
     let signal_stop = Arc::new(AtomicBool::new(false));
     let signal_flag = Arc::clone(&signal_stop);
@@ -139,10 +169,6 @@ pub(super) fn supervise(
         signal_flag.store(true, Ordering::SeqCst);
     })
     .map_err(|error| error.to_string())?;
-    let stop_guard = WorkerStop {
-        flag: Arc::clone(&stop_polling),
-        status_gate,
-    };
     loop {
         if signal_stop.load(Ordering::SeqCst) {
             stop_guard.stop();

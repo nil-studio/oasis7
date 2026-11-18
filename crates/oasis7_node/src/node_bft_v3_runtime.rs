@@ -46,6 +46,31 @@ pub struct NodeBftStatusV3 {
     pub committed_height: u64,
     pub durable_event_count: usize,
     pub blocked_reason: Option<String>,
+    /// Last worker observation, not a live lease check or admission capability.
+    pub observation: Option<NodeBftObservationV1>,
+}
+/// Bounded diagnostic facts from the worker's verified checkpoint and opaque schedule.
+/// No private journal, payload, credential or raw provider error is exposed.
+/// A reader must not interpret these historical facts as signing permission.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct NodeBftObservationV1 {
+    pub observed_at_unix_ms: i64,
+    pub world_id: String,
+    pub chain_id: String,
+    pub operator_instance_id: String,
+    pub authority_epoch: u64,
+    pub height: u64,
+    pub round: u64,
+    pub active_set_hash: String,
+    pub pending_set_hash: Option<String>,
+    pub binding_digest: String,
+    pub checkpoint_revision: u64,
+    pub observed_lease_generation: u64,
+    pub window_start_height: u64,
+    pub committed_window_heights: usize,
+    pub pending_driver_apply: bool,
+    pub last_applied_height: Option<u64>,
+    pub last_applied_header_id: Option<String>,
 }
 pub(super) fn error(reason: impl Into<String>) -> NodeError {
     NodeError::Consensus {

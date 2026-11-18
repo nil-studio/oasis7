@@ -227,9 +227,9 @@ fn wait_until(deadline: Instant, mut predicate: impl FnMut() -> bool) -> bool {
         if predicate() {
             return true;
         }
-        thread::sleep(Duration::from_millis(20));
+        thread::sleep(Duration::from_millis(10));
     }
-    false
+    predicate()
 }
 
 type TestHandler = Arc<dyn Fn(&[u8]) -> Result<Vec<u8>, WorldError> + Send + Sync>;

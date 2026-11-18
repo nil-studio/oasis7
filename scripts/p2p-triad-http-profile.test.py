@@ -24,11 +24,64 @@ attempts = load("attempt_fixtures_http", "p2p-real-env-observability-attempt.tes
 adapter = load("profile_adapter_http", "p2p-profile-readiness.py")
 
 class ProfileHttpTests(unittest.TestCase):
+    def test_bft_diagnostics_flow_through_actual_collector_without_qualification(self):
+        self.status = fixtures.bft_fixture()
+        self.status["observation"]["private_action"] = "DO_NOT_COPY"
+        report = self.run_outer()
+        profile = report["nodes"]["local_node"]["profile_readiness"]
+        self.assertEqual(profile["height"], 10)
+        self.assertEqual(profile["runtime_profile"], "bft/version=1")
+        self.assertEqual(profile["status"], "unknown")
+        self.assertFalse(profile["can_propose"])
+        self.assertEqual(profile["observed_at_unix_ms"], self.status["observation"]["observed_at_unix_ms"])
+        self.assertNotIn("DO_NOT_COPY", json.dumps(report))
+        child = load("bft_http_reader", "p2p-triad-http-profile.py")
+        observed = self.status["observation"]["observed_at_unix_ms"]
+        expired = child.refresh_report(report, observed+60_001)["nodes"]["local_node"]["profile_readiness"]
+        self.assertEqual(expired["status"], "stale")
+        self.assertEqual(expired["source_freshness"], "stale")
+        self.assertNotIn("running", expired)
+        future = child.refresh_report(report, observed-1)["nodes"]["local_node"]["profile_readiness"]
+        self.assertEqual(future["source_freshness"], "unknown")
+
+    def test_truncated_content_length_is_not_a_complete_observation(self):
+        self.status = fixtures.bft_fixture()
+        self.content_length_extra = 10
+        report = self.run_outer(expected=1)
+        node = report["nodes"]["local_node"]
+        self.assertEqual(node["profile_collection"]["result"], "invalid_status")
+        self.assertFalse(node["profile_collection"]["complete"])
+        self.assertEqual(node["profile_readiness"]["status"], "unknown")
+        self.assertNotIn("height", node["profile_readiness"])
+        # A subsequent complete response may recover collection; neither
+        # response grants formal BFT write qualification.
+        self.content_length_extra = 0
+        recovered = self.run_outer()["nodes"]["local_node"]
+        self.assertTrue(recovered["profile_collection"]["complete"])
+        self.assertEqual(recovered["profile_readiness"]["height"], 10)
+        self.assertFalse(recovered["profile_readiness"]["can_propose"])
+
     def test_formal_http_uses_same_identity_and_producer_age_as_file(self):
         status = fixtures.fixture()
         now = time.time_ns() // 1_000_000
         self.assertEqual(adapter.project(status, "file", now)["status"], "ready")
         self.assertEqual(adapter.project(status, "http", now)["status"], "ready")
+
+    def test_missing_bft_blocker_does_not_abort_later_node_collection(self):
+        self.status = fixtures.bft_fixture()
+        del self.status["blocker"]
+        process = self.fixture.start(self.env, ["--local-profile-status-url", self.url,
+            "--storage-profile-status-url", self.url])
+        out, err = process.communicate(timeout=20)
+        self.assertEqual(process.returncode, 0, (out.decode(), err.decode()))
+        report = json.loads((self.fixture.out / "latest_summary.json").read_text())
+        self.assertEqual(self.hits, 2, "malformed first node must not abort later probes")
+        for label in ("local_node", "storage_ecs"):
+            node = report["nodes"][label]
+            self.assertEqual(node["profile_collection"]["result"], "success")
+            self.assertEqual(node["profile_readiness"]["status"], "unknown")
+            self.assertEqual(node["profile_readiness"]["reason"], "invalid_bft_observation")
+            self.assertFalse(node["profile_readiness"]["can_propose"])
 
     def setUp(self):
         self.fixture = attempts.AttemptWrapperTests("runTest")
@@ -44,17 +97,21 @@ class ProfileHttpTests(unittest.TestCase):
         self.body = None
         self.hits = 0
         self.header_delay = 0
+        self.content_length_extra = None
         owner = self
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
                 owner.hits += 1
                 time.sleep(owner.header_delay)
+                body = owner.body if owner.body is not None else json.dumps(owner.status).encode()
                 self.send_response(owner.http_code)
+                if owner.content_length_extra is not None:
+                    self.send_header("Content-Length", str(len(body) + owner.content_length_extra))
                 if owner.http_code == 302:
                     self.send_header("Location", owner.url + "/redirect-target")
                 self.end_headers()
                 try:
-                    self.wfile.write(owner.body if owner.body is not None else json.dumps(owner.status).encode())
+                    self.wfile.write(body)
                 except (BrokenPipeError, ConnectionResetError):
                     pass
             def log_message(self, *args):

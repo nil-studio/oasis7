@@ -42,6 +42,60 @@ where
                 format!("status socket was already bound after rejected startup: {error}")
             })?;
             drop(listener);
+            // After the missing-dependency rejection, use the ordinary config
+            // loader and start path, never explicit gate injection. The RPC
+            // fixture signs real protocol objects but is NOT a protected-clock
+            // or production witness qualification.
+            let fixture = crate::node_lifecycle::StartupV3Fixture::new(
+                runtime.validated.trust.initial_trust.clone(),
+            );
+            let mut configured = runtime.validated.config.clone();
+            configured.full_sync_read_authorization_v3 = Some(fixture.configuration());
+            runtime.validated.config = configured.clone();
+            runtime
+                .validated
+                .config
+                .full_sync_provider_read_authorization =
+                crate::formal_live_config::FullSyncProviderReadAuthorizationModeV1::LegacyV1;
+            let error = runtime
+                .start()
+                .expect_err("legacy mode must not accept V3 dependencies");
+            if !error.contains("conflict with legacy_v1") || runtime.server.is_some() {
+                return Err(format!(
+                    "legacy/V3 configuration did not fail closed: {error}"
+                ));
+            }
+            drop(TcpListener::bind(status_bind).map_err(|error| error.to_string())?);
+            let replacement = runtime_config_path.with_extension("v3-pending.json");
+            oracle_support::write_private(
+                &replacement,
+                &serde_json::to_vec(&configured).map_err(|error| error.to_string())?,
+            )?;
+            std::fs::rename(&replacement, runtime_config_path)
+                .map_err(|error| error.to_string())?;
+            std::fs::File::open(
+                runtime_config_path
+                    .parent()
+                    .ok_or("config parent missing")?,
+            )
+            .and_then(|directory| directory.sync_all())
+            .map_err(|error| error.to_string())?;
+            drop(runtime);
+            for _ in 0..2 {
+                let mut reopened =
+                    FormalLiveRuntime::open_with_native_history(runtime_config_path)?;
+                reopened.start()?;
+                let cut = reopened.published.current()?;
+                let status = fixture.read_manifest(&format!("http://{status_bind}"), &cut.anchor);
+                reopened.stop(Duration::from_secs(10))?;
+                drop(reopened);
+                if status != 200 {
+                    return Err(format!(
+                        "configured ordinary V3 manifest rejected: {status}"
+                    ));
+                }
+            }
+            fixture.finish();
             return Ok(None);
         }
         if crash_phase == Some("identity_runtime_lease") {

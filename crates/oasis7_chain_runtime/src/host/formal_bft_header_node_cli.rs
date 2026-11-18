@@ -19,9 +19,17 @@ use std::{
 #[path = "formal_bft_header_node_network.rs"]
 mod network;
 
+#[path = "formal_bft_header_node_status.rs"]
+pub(super) mod status;
+
+#[path = "formal_bft_header_node_output.rs"]
+mod output;
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Config {
+    #[serde(default)]
+    status_address: Option<SocketAddr>,
     schema_version: u32,
     trust_config_path: PathBuf,
     target: BftProfileTargetV2,
@@ -122,21 +130,18 @@ pub(super) fn run<'a>(
             return Err("header Node --print-binding cannot be combined with --actions".into());
         }
         let report = super::prepare_node_binding_report(&config)?;
-        println!(
-            "{}",
-            serde_json::to_string(&report).map_err(|_| "encode public header Node binding")?
-        );
-        return Ok(());
+        let encoded =
+            serde_json::to_string(&report).map_err(|_| "encode public header Node binding")?;
+        return output::write_line(&mut std::io::stdout().lock(), &encoded);
     }
     if !serve && actions.is_none() {
         return Err("bft-header node requires --actions or --serve".into());
     }
     let report = from_paths(&config, actions.as_deref(), serve, shutdown)?;
-    println!(
-        "{}",
-        serde_json::to_string(&report).map_err(|_| "encode public header Node receipt")?
-    );
-    Ok(())
+    let encoded =
+        serde_json::to_string(&report).map_err(|_| "encode public header Node receipt")?;
+    // The runtime has already stopped. Output failure must not resubmit actions.
+    output::write_line(&mut std::io::stdout().lock(), &encoded)
 }
 
 fn from_paths(
@@ -146,6 +151,13 @@ fn from_paths(
     shutdown: Option<Arc<AtomicBool>>,
 ) -> Result<Report, String> {
     let config = load_config(config_path)?;
+    if config.status_address.is_some() && !serve {
+        return Err("header Node status requires --serve".into());
+    }
+    let status_listener = config
+        .status_address
+        .map(status::Listener::bind)
+        .transpose()?;
     #[cfg(feature = "node-libp2p")]
     if config.network.is_some() && !serve {
         return Err("header Node network configuration requires --serve".into());
@@ -227,7 +239,7 @@ fn from_paths(
         .start()
         .map_err(|_| "header Node actual startup recovery rejected")?;
     let result = if serve {
-        serve_until_shutdown(&runtime, &actions, shutdown)
+        serve_until_shutdown(&runtime, &actions, shutdown, status_listener.as_ref())
     } else {
         submit_and_wait(
             &runtime,
@@ -248,6 +260,7 @@ fn serve_until_shutdown(
     runtime: &NodeRuntime,
     actions: &[oasis7_node::NodeConsensusAction],
     shutdown: Option<Arc<AtomicBool>>,
+    status_listener: Option<&status::Listener>,
 ) -> Result<Report, String> {
     let shutdown = match shutdown {
         Some(shutdown) => shutdown,
@@ -267,6 +280,9 @@ fn serve_until_shutdown(
     let signal = runtime.committed_action_batches_handle();
     let mut receipts = Vec::new();
     loop {
+        if let Some(listener) = status_listener {
+            listener.poll(runtime);
+        }
         for batch in runtime.drain_committed_action_batches() {
             if receipts.len() >= 64 {
                 return Err("header Node report history capacity reached".into());
@@ -388,7 +404,7 @@ fn prepare(config: &Config) -> Result<Prepared, String> {
         material,
         source,
     )
-    .map_err(|_| "header Node actual qualified H driver recovery rejected")?;
+    .map_err(|error| recovery_rejection(&error))?;
     let binding = BftSignerBindingV3::new(
         driver.handoff().clone(),
         driver.initial_schedule().clone(),
@@ -554,5 +570,55 @@ mod tests {
         assert_eq!(value["receipts"][0]["height"], 9);
         assert_eq!(value["receipts"][0].as_object().unwrap().len(), 4);
         assert!(value["receipts"][0].get("actions").is_none());
+    }
+}
+
+// Never expose paths, private actions, or arbitrary underlying error text.
+fn recovery_rejection(error: &str) -> String {
+    let stage = [
+        "storage_paths",
+        "private_store",
+        "ledger",
+        "h_index",
+        "bind_origin",
+    ]
+    .into_iter()
+    .find(|stage| error.starts_with(&format!("node_recovery_stage={stage}: ")))
+    .unwrap_or("unknown");
+    format!("header Node actual qualified H driver recovery rejected; recovery_stage={stage}")
+}
+
+#[cfg(test)]
+mod recovery_diagnostic_tests {
+    use super::recovery_rejection;
+
+    #[test]
+    fn recovery_diagnostics_hide_private_error_details() {
+        for stage in [
+            "storage_paths",
+            "private_store",
+            "ledger",
+            "h_index",
+            "bind_origin",
+        ] {
+            let message =
+                recovery_rejection(&format!("node_recovery_stage={stage}: private/path/token"));
+            assert_eq!(
+                message,
+                format!(
+                    "header Node actual qualified H driver recovery rejected; recovery_stage={stage}"
+                )
+            );
+        }
+        for error in [
+            "private/path/token",
+            "node_recovery_stage=foreign: secret",
+            "prefix node_recovery_stage=ledger: secret",
+        ] {
+            assert_eq!(
+                recovery_rejection(error),
+                "header Node actual qualified H driver recovery rejected; recovery_stage=unknown"
+            );
+        }
     }
 }

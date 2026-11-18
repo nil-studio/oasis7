@@ -199,6 +199,7 @@ use replication_state_reconcile::{
     NodeEngineTickResult, ReplicationCommitPayloadView, parse_replication_commit_payload,
     parse_replication_commit_payload_view, reconcile_engine_with_persisted_replication,
 };
+pub(crate) use runtime_util::with_execution_hook;
 use runtime_util::{lock_state, now_unix_ms};
 
 const STORAGE_GATE_NETWORK_SAMPLES_PER_CHECK: usize = 3;
@@ -231,16 +232,6 @@ impl NodePosStatusAdapter for PosConsensusStatus {
 
     fn rejected() -> Self {
         PosConsensusStatus::Rejected
-    }
-}
-
-fn with_execution_hook<T>(
-    execution_hook: &mut Option<&mut dyn NodeExecutionHook>,
-    f: impl FnOnce(Option<&mut dyn NodeExecutionHook>) -> T,
-) -> T {
-    match execution_hook {
-        Some(hook) => f(Some(&mut **hook)),
-        None => f(None),
     }
 }
 
@@ -708,11 +699,15 @@ impl NodeRuntime {
                                             max_committed_action_batch_bytes,
                                         );
                                     }
+                                    drop(current);
+
                                     if let Some(store) = pos_state_store.as_ref()
                                         && let Err(err) = store.save_engine_state(&engine)
-                                        && current.last_error.is_none()
                                     {
-                                        current.last_error = Some(err.to_string());
+                                        let mut current = lock_state(&state);
+                                        if current.last_error.is_none() {
+                                            current.last_error = Some(err.to_string());
+                                        }
                                     }
                                 }
                                 Err(err) => {

@@ -1,0 +1,19 @@
+--- a/codeql/typeinference/internal/TypeInference.qll
++++ b/codeql/typeinference/internal/TypeInference.qll
+@@ -450,0 +451,10 @@
++      /** Negative matching only consumes paths with a known non-pseudo app type. */
++      pragma[nomagic]
++      private Type getTypeAtForNonPseudoApp(
++        App app, TypeAbstraction abs, Constraint constraint, TypePath path
++      ) {
++        potentialInstantiationOf(app, abs, constraint) and
++        exists(getNonPseudoTypeAt(app, path)) and
++        result = constraint.getTypeAt(path)
++      }
++
+@@ -584 +594 @@
+-        tp = getTypeAt(app, abs, constraint, path) and
++        tp = getTypeAtForNonPseudoApp(app, abs, constraint, path) and
+@@ -622 +632 @@
+-          t = getTypeAt(app, abs, constraint, path) and
++          t = getTypeAtForNonPseudoApp(app, abs, constraint, path) and

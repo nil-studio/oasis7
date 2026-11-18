@@ -220,8 +220,21 @@ class WorkflowTests(unittest.TestCase):
     def test_permissions_pins_and_no_business_chain(self):
         uses = re.findall(r"uses: ([^\s]+)", WORKFLOW)
         self.assertTrue(uses)
-        self.assertTrue(all(re.fullmatch(r"(?:actions/(?:checkout|upload-artifact)|github/codeql-action/(?:init|analyze|upload-sarif))@[0-9a-f]{40}", action) for action in uses))
-        self.assertEqual(WORKFLOW.count("persist-credentials: false"), 2)
+        local_linker = "./.github/actions/setup-linux-mold"
+        self.assertTrue(all(action == local_linker or re.fullmatch(r"(?:actions/(?:checkout|upload-artifact)|github/codeql-action/(?:init|analyze|upload-sarif))@[0-9a-f]{40}", action) for action in uses))
+        self.assertEqual(uses.count(local_linker), 1)
+        self.assertEqual(WORKFLOW.count("persist-credentials: false"), 3)
+        # The local action is bound to the executing workflow revision, even
+        # when the subsequent analysis checkout is historical product source.
+        steps = re.findall(r'^      - .*?(?=^      - |\Z)', WORKFLOW.split('  analyze:', 1)[1], re.M | re.S)
+        setup = next(i for i, step in enumerate(steps) if 'uses: ' + local_linker in step)
+        self.assertIn('ref: ${{ github.workflow_sha }}', steps[setup - 1])
+        self.assertIn('sparse-checkout: .github/actions/setup-linux-mold\n', steps[setup - 1])
+        self.assertNotIn('sparse-checkout-cone-mode: false', steps[setup - 1])
+        for step in steps[setup - 1:setup + 1]:
+            self.assertIn("if: matrix.language == 'rust'", step)
+        self.assertIn('ref: ${{ needs.plan.outputs.checkout }}', steps[setup + 1])
+        self.assertNotIn('sparse-checkout:', steps[setup + 1])
         for forbidden in ("pull_request_target", "continue-on-error", "secrets.", "secrets: inherit", "cargo build", "cargo test", "npm install", "npm build", "workflow_run", "environment:"):
             self.assertNotIn(forbidden, WORKFLOW)
         self.assertIn("security-events: write", WORKFLOW)
@@ -248,7 +261,9 @@ class WorkflowTests(unittest.TestCase):
         step = WORKFLOW.split('      - id: rust_native\n', 1)[1].split('      - id:', 1)[0]
         self.assertIn("if: matrix.language == 'rust'", step)
         self.assertIn('timeout-minutes: 5', step)
-        self.assertNotIn('needs.plan.outputs.profile', step)
+        self.assertIn("CODEQL_NATIVE_SOURCE_PROFILE: ${{ needs.plan.outputs.profile == 'default' && github.event_name != 'pull_request' && 'ubuntu-archive-https' || 'runner-sources' }}", step)
+        self.assertNotIn('Debug::pkgAcquire::Worker', step)
+        self.assertNotIn('NativeObservation', step)
         artifact = WORKFLOW.split('      - name: Persist Rust native preparation evidence\n', 1)[1].split('\n  summary:', 1)[0]
         self.assertIn("if: always() && matrix.language == 'rust' && steps.rust_native.outcome != 'skipped'", artifact)
         self.assertIn('path: ${{ runner.temp }}/codeql-rust-native', artifact)
@@ -259,37 +274,53 @@ class WorkflowTests(unittest.TestCase):
         section = WORKFLOW.split('name: Prepare Rust native extraction prerequisites', 1)[1]
         body = section.split("python3 -I - <<'PY'\n", 1)[1].split('          PY', 1)[0]
         body = '\n'.join(line[10:] for line in body.splitlines())
-        for fail in (False, True):
-            with self.subTest(fail=fail), tempfile.TemporaryDirectory() as directory:
+        class PhaseError(RuntimeError):
+            def __init__(self):
+                super().__init__('private-apt-error-canary')
+                self.result = {'exit':124, 'failure_kind':'child_exit'}
+                self.native_source_evidence_error = {'stage':'final-source-receipt', 'type':'OSError'}
+        for profile, failure in ((profile, failure) for profile in ('runner-sources', 'ubuntu-archive-https')
+                                 for failure in (None, RuntimeError, PhaseError)):
+            with self.subTest(profile=profile, failure=failure), tempfile.TemporaryDirectory() as directory:
                 folder = Path(directory)
                 calls = []
-                def prepare(source, out, end, env):
-                    calls.append((source, out, end, env))
-                    if fail:
-                        raise RuntimeError('missing native module')
-                native = SimpleNamespace(runtime=SimpleNamespace(), prepare_native=prepare)
+                error = None if failure is None else (PhaseError() if failure is PhaseError else RuntimeError('private-source-error-canary'))
+                def prepare(source, out, end, env, **kwargs):
+                    calls.append((source, out, end, env, kwargs))
+                    if error is not None: raise error
+                native = SimpleNamespace(runtime=SimpleNamespace(PhaseError=PhaseError), prepare_native=prepare)
                 spec = SimpleNamespace(loader=SimpleNamespace(exec_module=lambda module: None))
                 env = dict(GITHUB_WORKSPACE=str(ROOT), RUNNER_TEMP=directory,
-                           GH_TOKEN='hidden', GITHUB_TOKEN='hidden', RUSTC_WRAPPER='wrapper')
+                           GH_TOKEN='hidden', GITHUB_TOKEN='hidden', RUSTC_WRAPPER='wrapper',
+                           CODEQL_NATIVE_SOURCE_PROFILE=profile)
                 with patch.dict(os.environ, env), patch.object(sys, 'path', list(sys.path)), \
                         patch('importlib.util.spec_from_file_location', return_value=spec), \
                         patch('importlib.util.module_from_spec', return_value=native), \
                         patch('time.monotonic', side_effect=[100, 103]):
-                    if fail:
-                        with self.assertRaisesRegex(RuntimeError, 'missing native module'):
+                    if error is not None:
+                        with self.assertRaises(type(error)) as caught:
                             exec(compile(body, 'codeql.yml:native', 'exec'), {})
+                        self.assertIs(caught.exception, error)
                     else:
                         exec(compile(body, 'codeql.yml:native', 'exec'), {})
                 self.assertEqual(len(calls), 1)
-                source, out, end, child_env = calls[0]
+                source, out, end, child_env, kwargs = calls[0]
                 self.assertEqual((source, out, end), (ROOT, folder / 'codeql-rust-native', 370))
+                self.assertEqual(kwargs, {'source_profile':profile})
                 self.assertFalse({'GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER'} & child_env.keys())
                 self.assertEqual((native.runtime.CAP, native.runtime.WRITE_CAP), (16 * 1024**2, 15 * 1024**2))
                 terminal = json.loads((out / 'native-terminal.json').read_text())
-                self.assertEqual(terminal['status'], 'FAILED' if fail else 'PASS')
+                self.assertEqual(terminal['status'], 'FAILED' if error else 'PASS')
                 self.assertEqual(terminal['elapsed_seconds'], 3)
                 self.assertEqual(terminal['preparation_budget_seconds'], 180)
-                self.assertEqual(terminal.get('error'), 'missing native module' if fail else None)
+                self.assertEqual(terminal['source_profile'], profile)
+                self.assertEqual(terminal.get('error_type'), None if failure is None else failure.__name__)
+                self.assertNotIn('error', terminal)
+                self.assertNotIn('canary', json.dumps(terminal))
+                if failure is PhaseError:
+                    self.assertEqual(terminal['exit'], 124)
+                    self.assertEqual(terminal['failure_kind'], 'child_exit')
+                    self.assertEqual(terminal['source_evidence_error'], error.native_source_evidence_error)
 
     def test_upload_evidence_actual_producer_and_failure_identity(self):
         # Execute the actual workflow producer, rather than a mirror serializer.
@@ -373,6 +404,94 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('path: ${{ runner.temp }}/codeql-rust-production-evidence', artifact)
         self.assertNotIn('codeql_databases', artifact)
         self.assertNotIn('codeql-upload-evidence', artifact)
+
+
+class FixedSourceWorkflowTests(unittest.TestCase):
+    def setUp(self):
+        self.workflow = (ROOT / '.github/workflows/codeql-rust-capacity.yml').read_text()
+        self.text = '  observe:\n' + self.workflow.split('  observe:\n', 1)[1]
+
+    def section(self, text, start, end):
+        return text.split(start, 1)[1].split(end, 1)[0]
+
+    def python_body(self, section):
+        body = section.split("python3 -I - <<'PY'\n", 1)[1].split('          PY', 1)[0]
+        return '\n'.join(line[10:] for line in body.splitlines())
+
+    def test_closed_manual_workflow_keeps_source_tool_and_upload_boundaries(self):
+        text = self.text
+        dispatch = self.section(self.workflow, '  workflow_dispatch:\n', '\npermissions:')
+        self.assertEqual(re.findall(r'^      (\w+):', dispatch, re.M), ['execute', 'compare_qualifier_patch', 'mode'])
+        self.assertIn('type: boolean\n        default: false', dispatch)
+        self.assertIn('default: capacity', dispatch)
+        self.assertIn('          - rust-default-fixed-source-observation', dispatch)
+        self.assertIn('          - rust-default-negative-projection-observation', dispatch)
+        self.assertIn("if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.execute == true && (inputs.mode == 'rust-default-fixed-source-observation' || inputs.mode == 'rust-default-negative-projection-observation')", text)
+        self.assertIn("if: github.event_name == 'workflow_dispatch' && inputs.execute == true && inputs.mode != 'rust-default-fixed-source-observation' && inputs.mode != 'rust-default-negative-projection-observation'",
+                      self.workflow.split('  observe:\n', 1)[0])
+        self.assertIn('OASIS7_CODEQL_PRODUCTION_MODE: ${{ inputs.mode }}', text)
+        self.assertIn('if [ "$COMPARE_QUALIFIER_PATCH" != false ]; then', text)
+        self.assertIn('timeout-minutes: 90', text)
+        self.assertIn('group: oasis7-codeql-scan-slot-1\n      queue: max\n      cancel-in-progress: false', text)
+        self.assertIn('ref: ${{ github.sha }}', text)
+        self.assertIn('ref: ${{ env.OASIS7_CODEQL_PRODUCTION_SOURCE }}', text)
+        self.assertIn('OASIS7_CODEQL_PRODUCTION_SOURCE: 2bcc4edafdc615f395c9138a0b39ede366726d34', text)
+        self.assertNotRegex(text, r'(?m)^\s+GITHUB_SHA:', 'the real event SHA must not be overwritten')
+        self.assertEqual(text.count('persist-credentials: false'), 2)
+        self.assertEqual(text.count('--production-default'), 2)
+        self.assertEqual(text.count('--mode "$OASIS7_CODEQL_PRODUCTION_MODE"'), 2)
+        self.assertEqual(text.count('$RUNNER_TEMP/codeql-rust-fixed-source-helper/codeql-rust-production.py'), 2)
+        self.assertIn('NODE_OPTIONS: ${{ steps.rust_prepare.outputs.node_options }}', text)
+        self.assertIn("if: always() && steps.rust_prepare.outcome == 'success'", text)
+        for forbidden in ('security-events: write', 'upload-sarif@', 'codeql-platform-observation',
+                          'CODEQL_BATCH_MODES', 'repository-dispatch', 'candidate-workload-research'):
+            self.assertNotIn(forbidden, text)
+        self.assertIn('upload: never\n          skip-queries: true\n          upload-database: false', text)
+        artifact = text.split('      - name: Persist bounded observation evidence\n', 1)[1]
+        for forbidden in ('codeql_databases', 'codeql-results', 'fixed-source-helper', 'github.workspace', '*.sarif'):
+            self.assertNotIn(forbidden, artifact)
+        self.assertIn('codeql-rust-production-evidence', artifact)
+        scope = json.loads((ROOT / 'scripts/ci-required-scope.json').read_text())
+        self.assertEqual(scope['scoped_control_paths']['.github/workflows/codeql-rust-capacity.yml'], ['workflow_governance'])
+
+    def test_original_init_selection_resources_and_budget_allocation_are_preserved(self):
+        text = self.text
+        init = self.section(text, '      - id: init\n', '      - id: rust_budget\n')
+        self.assertIn('ram: 14570\n          threads: 4', init)
+        self.assertIn('dependency-caching: false\n          trap-caching: false', init)
+        self.assertIn('CODEQL_OVERLAY_DATABASE_MODE: none', init)
+        self.assertIn('codeql-bundle-v2.27.4/codeql-bundle-rust-linux64.tar.zst', text)
+        self.assertIn('1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b', text)
+        self.assertEqual(re.findall(r'uses: github/codeql-action/(?:init|analyze)@([0-9a-f]+)', text),
+                         ['33d7b85da1a04171e211befe2c739303b9a4c066'] * 2)
+        original_init = self.section(WORKFLOW, '      - id: init\n', '      - name: Verify Actions query')
+        self.assertEqual(re.findall(r'^              - (.+)$', init, re.M),
+                         re.findall(r'^              - (.+)$', original_init, re.M))
+        original = self.python_body(self.section(WORKFLOW, '      - id: rust_budget\n', '      - id: rust_prepare\n'))
+        observed = self.python_body(self.section(text, '      - id: rust_budget\n', '      - id: rust_prepare\n'))
+        normalized = observed.replace('CodeQL Rust fixed source observation', 'CodeQL / rust-repo / default')
+        normalized = normalized.replace("mode=os.environ['OASIS7_CODEQL_PRODUCTION_MODE']", "mode='rust-default-production'")
+        normalized = normalized.replace("source_sha=os.environ['OASIS7_CODEQL_PRODUCTION_SOURCE'], tool_sha=os.environ['GITHUB_SHA'],",
+                                        "source_sha=os.environ['EXPECTED_CHECKOUT'],")
+        # The existing real-clock fixture tests the same AST, including late/expired starts.
+        self.assertEqual(ast.dump(ast.parse(normalized)), ast.dump(ast.parse(original)))
+        native = self.python_body(self.section(text, '      - id: rust_native\n', '      - id: rust_tools\n'))
+        original_native = self.python_body(self.section(WORKFLOW, '      - id: rust_native\n', '      - id: rust_tools\n'))
+        native = native.replace("pathlib.Path(os.environ['RUNNER_TEMP']) / 'codeql-rust-fixed-source-helper'", "source / 'scripts/security'")
+        # Fixed-source research retains runner sources and its historical error text.
+        # Only the production profile selection and safe error projection differ.
+        original_native = original_native.replace("profile = os.environ['CODEQL_NATIVE_SOURCE_PROFILE']\n", '')
+        original_native = original_native.replace(", 'source_profile': profile", '')
+        original_native = original_native.replace(', source_profile=profile)', ')')
+        projected = ("terminal.update(error_type=type(error).__name__)\n"
+                     "    if isinstance(error, native.runtime.PhaseError):\n"
+                     "        terminal.update(exit=error.result.get('exit'), failure_kind=error.result.get('failure_kind'))\n"
+                     "    if hasattr(error, 'native_source_evidence_error'):\n"
+                     "        terminal['source_evidence_error'] = error.native_source_evidence_error")
+        self.assertEqual(original_native.count(projected), 1)
+        original_native = original_native.replace(projected,
+            "terminal.update(error_type=type(error).__name__, error=str(error))")
+        self.assertEqual(ast.dump(ast.parse(native)), ast.dump(ast.parse(original_native)))
 
 
 if __name__ == "__main__":

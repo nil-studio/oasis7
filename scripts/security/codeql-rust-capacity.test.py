@@ -21,8 +21,9 @@ spec=importlib.util.spec_from_file_location('capacity',P);m=importlib.util.modul
 ROOT=Path('/frozen')
 
 def workflow_steps():
-    # Select this workflow's literal step blocks without adding a test dependency.
+    # Select the original capacity job, independently of the closed observation job.
     text=(P.parents[2]/'.github/workflows/codeql-rust-capacity.yml').read_text()
+    text=text.split('  capacity:\n',1)[1].split('\n  observe:\n',1)[0]
     steps=re.split(r'^      - ',text,flags=re.MULTILINE)[1:]
     by_id={s.splitlines()[0][4:]:s for s in steps if s.startswith('id: ')}
     return steps,by_id
@@ -40,6 +41,15 @@ class Capacity(unittest.TestCase):
                 self.assertEqual(observed,[(selected or m.EXCLUSION_SOURCE,selected or m.EXCLUSION_SOURCE)])
                 with patch.object(sys,"argv",argv+["--source-sha","f"*40]),patch.object(m.argparse.ArgumentParser,"error",side_effect=ValueError("rejected")):
                     with self.assertRaises(ValueError):m.main()
+
+    def test_observation_mode_and_source_cannot_enter_capacity_cli(self):
+        argv=['capacity','capture','--source','/source','--database','/db','--output','/out',
+              '--work','/work','--sarif','/sarif','--deadline',str(time.time()+300)]
+        for extra in (['--mode',m.action_deadline.FIXED_SOURCE_MODE],
+                      ['--mode',m.action_deadline.NEGATIVE_PROJECTION_MODE],
+                      ['--source-sha',m.action_deadline.FIXED_SOURCE]):
+            with patch.object(sys,'argv',argv+extra),patch.object(m.argparse.ArgumentParser,'error',side_effect=ValueError('rejected')):
+                with self.assertRaises(ValueError):m.main()
 
     def test_failed_analysis_dirty_checkout_and_missing_resources_still_capture(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -349,6 +359,9 @@ class Capacity(unittest.TestCase):
         import contextlib
         with tempfile.TemporaryDirectory() as temp, contextlib.ExitStack() as stack:
             root=Path(temp);source=root/'source';source.mkdir();out=root/'out';work=root/'work'
+            # runtime.run below substitutes every Cargo call; the real guard still
+            # records a stable executable identity without requiring host Rust.
+            proxy=root/'bin/cargo';proxy.parent.mkdir();proxy.write_text('#!/bin/sh\nexit 97\n');proxy.chmod(0o700)
             official=root/'official';suite=official/'qlpacks/codeql/rust-queries/1/codeql-suites/rust-code-scanning.qls'
             suite.parent.mkdir(parents=True);suite.write_text('official')
             query=suite.parent.parent/'official.ql';query.write_text('/** @id rust/official */')
@@ -387,7 +400,8 @@ class Capacity(unittest.TestCase):
             patches=[patch.object(sys,'argv',['capacity','prepare','--mode',mode,'--source-sha',source_sha or m.EXCLUSION_SOURCE,
                 '--codeql',str(official/'codeql'),'--source',str(source),'--database',str(root/'db'),
                 '--output',str(out),'--work',str(work),'--sarif',str(root/'sarif'),'--deadline',str(time.time()+job_seconds)]),
-                patch.dict(os.environ,{'CODEQL_ACTION_TEMP':str(action),'GITHUB_OUTPUT':str(root/'outputs'),'GITHUB_ENV':str(root/'github-env')}),
+                patch.dict(os.environ,{'CODEQL_ACTION_TEMP':str(action),'GITHUB_OUTPUT':str(root/'outputs'),'GITHUB_ENV':str(root/'github-env'),
+                                      'PATH':str(proxy.parent)+os.pathsep+os.environ.get('PATH','')}),
                 patch.object(m,'resources',return_value={'CODEQL_THREADS':4,'CODEQL_RAM':14575}),
                 patch.object(m.evidence,'capture_identity',side_effect=[{'status':'PASS'},{'status':'PARTIAL'}] if identity_failure else None,return_value={'status':'PASS'}),
                 patch.object(m,'snapshot',return_value=frozen),patch.object(m.plan,'inventory',return_value=(manifests,None)),

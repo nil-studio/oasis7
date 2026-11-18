@@ -32,6 +32,12 @@ impl RemoteFullSyncReadEvidenceSourceV3 {
         let endpoint =
             reqwest::Url::parse(endpoint).map_err(|_| "invalid full-sync evidence endpoint")?;
         let loopback = endpoint.host_str().is_some_and(|host| {
+            // URL hosts retain IPv6 brackets, but IpAddr parses the address
+            // itself. Strip only a complete bracket pair after URL validation.
+            let host = host
+                .strip_prefix('[')
+                .and_then(|host| host.strip_suffix(']'))
+                .unwrap_or(host);
             host.parse::<std::net::IpAddr>()
                 .is_ok_and(|ip| ip.is_loopback())
         });

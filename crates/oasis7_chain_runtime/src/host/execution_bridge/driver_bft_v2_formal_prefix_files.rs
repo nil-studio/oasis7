@@ -6,7 +6,7 @@ use std::fs::{self, File};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
-pub(super) fn lock(directory: &Path, initialize: bool) -> Result<File, String> {
+pub(super) fn lock(directory: &Path, initialize: bool) -> Result<common_storage::BftLock, String> {
     let existed = directory.exists();
     if !existed && !initialize {
         return Err("formal prefix ledger is absent; verification cannot initialize it".into());

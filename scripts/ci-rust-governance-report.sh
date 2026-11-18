@@ -89,7 +89,13 @@ run_report "RustSec ignore baseline" "$out_dir/rustsec-ignore-baseline.log" ./sc
 run_report "standalone tool lockfiles" "$out_dir/standalone-tool-lockfiles.log" ./scripts/check-standalone-tool-lockfiles.sh
 run_report "launcher p2p dependency surface" "$out_dir/launcher-p2p-dependency-surface.log" ./scripts/check-launcher-p2p-dependency-surface.sh
 run_report "duplicate dependencies" "$out_dir/cargo-tree-duplicates.log" cargo tree -d
-run_report "unsafe usage" "$out_dir/unsafe-usage.log" rg -n --glob '*.rs' '\bunsafe\b' .
+if command -v rg >/dev/null 2>&1; then
+  run_report "unsafe usage" "$out_dir/unsafe-usage.log" rg -n --glob '*.rs' '\bunsafe\b' .
+elif command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  run_report "unsafe usage" "$out_dir/unsafe-usage.log" git grep -n -E '\bunsafe\b' -- '*.rs'
+else
+  run_report "unsafe usage" "$out_dir/unsafe-usage.log" rg -n --glob '*.rs' '\bunsafe\b' .
+fi
 
 python3 - "$out_dir" <<'PY'
 from __future__ import annotations
@@ -109,24 +115,40 @@ def read_rc(name: str) -> int:
     except FileNotFoundError:
         return 127
 
+unsafe_rc = read_rc("unsafe-usage.log")
 unsafe_counts: Counter[str] = Counter()
+unsafe_total: int | None = None
 unsafe_log = out_dir / "unsafe-usage.log"
-if unsafe_log.exists():
-    for line in unsafe_log.read_text(encoding="utf-8", errors="replace").splitlines():
-        path = line.split(":", 1)[0]
-        if path:
+unsafe_hit_re = re.compile(r"^([^:\r\n]+?\.rs):(\d+):(.*)$")
+
+if unsafe_rc in (0, 1):
+    unsafe_total = 0
+    if unsafe_rc == 0 and unsafe_log.exists():
+        for line in unsafe_log.read_text(encoding="utf-8", errors="replace").splitlines():
+            match = unsafe_hit_re.match(line)
+            if not match:
+                continue
+            path = match.group(1)
+            if path.startswith("./"):
+                path = path[2:]
             parts = Path(path).parts
             bucket = "/".join(parts[:3]) if len(parts) >= 3 else path
             unsafe_counts[bucket] += 1
+        unsafe_total = sum(unsafe_counts.values())
+else:
+    unsafe_total = None
 
 duplicate_warning_re = re.compile(
-    r"warning\[duplicate\]: found (\d+) duplicate entries for crate '([^']+)'"
+    r"warning\[duplicate\]\s*:\s*found (\d+) duplicate entries for crate '([^']+)'"
 )
+ansi_escape_re = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 duplicate_warning_entries: list[tuple[str, int]] = []
 duplicate_crate_counts: Counter[str] = Counter()
+cargo_deny_rc = read_rc("cargo-deny.log")
 cargo_deny_log = out_dir / "cargo-deny.log"
 if cargo_deny_log.exists():
-    for line in cargo_deny_log.read_text(encoding="utf-8", errors="replace").splitlines():
+    for raw_line in cargo_deny_log.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = ansi_escape_re.sub("", raw_line)
         match = duplicate_warning_re.search(line)
         if not match:
             continue
@@ -166,7 +188,7 @@ summary = {
     "rustsec_ignore_baseline_rc": read_rc("rustsec-ignore-baseline.log"),
     "standalone_tool_lockfiles_rc": read_rc("standalone-tool-lockfiles.log"),
     "launcher_p2p_dependency_surface_rc": read_rc("launcher-p2p-dependency-surface.log"),
-    "cargo_deny_rc": read_rc("cargo-deny.log"),
+    "cargo_deny_rc": cargo_deny_rc,
     "duplicate_dependencies_rc": read_rc("cargo-tree-duplicates.log"),
     "duplicate_dependency_tree_output_lines": duplicate_tree_output_lines,
     "duplicate_dependency_cluster_count": len(duplicate_warning_entries),
@@ -176,14 +198,27 @@ summary = {
     ),
     "duplicate_dependency_crates": duplicate_crates,
     "duplicate_dependency_top_crates": duplicate_top_crates,
-    "unsafe_usage_rc": read_rc("unsafe-usage.log"),
-    "unsafe_usage_total": sum(unsafe_counts.values()),
+    "unsafe_usage_rc": unsafe_rc,
+    "unsafe_usage_total": unsafe_total,
     "unsafe_usage_top_buckets": unsafe_counts.most_common(20),
 }
 
 (out_dir / "summary.json").write_text(
     json.dumps(summary, ensure_ascii=False, indent=2) + "\n",
     encoding="utf-8",
+)
+
+unsafe_matches_display = (
+    "unknown" if summary["unsafe_usage_total"] is None else str(summary["unsafe_usage_total"])
+)
+duplicate_clusters_display = (
+    "unknown" if summary["cargo_deny_rc"] == 127 else str(summary["duplicate_dependency_cluster_count"])
+)
+duplicate_crates_display = (
+    "unknown" if summary["cargo_deny_rc"] == 127 else str(summary["duplicate_dependency_unique_crates"])
+)
+duplicate_entries_display = (
+    "unknown" if summary["cargo_deny_rc"] == 127 else str(summary["duplicate_dependency_entry_total"])
 )
 
 lines = [
@@ -200,11 +235,11 @@ lines = [
     f"| cargo tree -d | {summary['duplicate_dependencies_rc']} | `cargo-tree-duplicates.log` |",
     f"| unsafe usage scan | {summary['unsafe_usage_rc']} | `unsafe-usage.log` |",
     "",
-    f"- Duplicate dependency clusters: `{summary['duplicate_dependency_cluster_count']}`",
-    f"- Duplicate dependency unique crates: `{summary['duplicate_dependency_unique_crates']}`",
-    f"- Duplicate dependency entries: `{summary['duplicate_dependency_entry_total']}`",
+    f"- Duplicate dependency clusters: `{duplicate_clusters_display}`",
+    f"- Duplicate dependency unique crates: `{duplicate_crates_display}`",
+    f"- Duplicate dependency entries: `{duplicate_entries_display}`",
     f"- Duplicate dependency tree output lines: `{summary['duplicate_dependency_tree_output_lines']}`",
-    f"- Unsafe usage matches: `{summary['unsafe_usage_total']}`",
+    f"- Unsafe usage matches: `{unsafe_matches_display}`",
 ]
 
 if summary["duplicate_dependency_top_crates"]:

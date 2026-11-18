@@ -1,6 +1,7 @@
 """Owned process execution and bounded evidence for the manual Rust model diagnostic."""
 import hashlib
 from contextlib import contextmanager
+from itertools import islice
 import json
 import os
 from pathlib import Path
@@ -136,6 +137,276 @@ class GroupSamples:
                       'per-process observations, not additive physical device traffic.'}
 
 
+class SamplingLimit(Exception):
+    """A fixed observation limit, never a reason to stop the owned workload."""
+
+
+class ResourceTimeline:
+    """Optional, bounded Linux counters; no process names, command lines or raw proc text."""
+    PERIOD = 15
+    MAX_SAMPLES = 320
+    MAX_RECORD = 12 * 1024
+    MAX_BYTES = 4 * 1024**2
+    MAX_PROCESSES = 8
+    MAX_THREADS = 64
+    MAX_PROC_ENTRIES = 1024
+    MAX_THREAD_ENTRIES = 128
+    MAX_READ = 4096
+    SAMPLE_SECONDS = .05
+
+    def __init__(self, pgid, proc=Path('/proc')):
+        self.pgid, self.proc = pgid, proc
+        self.next_sample = 0
+        self.attempts = self.records = self.bytes = self.read_errors = 0
+        self.observed_process_samples = self.counter_regressions = 0
+        self.pending_process_samples = 0
+        self.previous, self.previous_pressure = {}, {}
+        self.previous_time = None
+        self.stopped = None
+        self.limit_counts = {}
+
+    @staticmethod
+    def unsigned(value):
+        if not value.isascii() or not value.isdecimal() or len(value) > 20:
+            raise ValueError('invalid counter')
+        result = int(value)
+        if result > 2**64-1:
+            raise ValueError('counter overflow')
+        return result
+
+    def read(self, path, end):
+        if time.monotonic() >= end:
+            raise SamplingLimit('TIME_LIMIT')
+        with path.open('rb') as stream:
+            value = stream.read(self.MAX_READ + 1)
+        if len(value) > self.MAX_READ:
+            raise ValueError('proc input limit')
+        return value.decode('ascii')
+
+    def stat(self, folder, pid, end):
+        value = self.read(folder / 'stat', end)
+        if self.unsigned(value.split(' (', 1)[0]) != pid:
+            raise ValueError('stat PID differs')
+        fields = value[value.rindex(')') + 2:].split()
+        # /proc/PID/stat fields 5, 10, 12, 14, 15 and 22; exclude child counters.
+        return {name: self.unsigned(fields[index]) for name, index in
+                (('pgid', 2), ('minor_faults', 7), ('major_faults', 9),
+                 ('utime', 11), ('stime', 12), ('start_ticks', 19))}
+
+    def io(self, folder, end):
+        result = {}
+        for line in self.read(folder / 'io', end).splitlines():
+            name, value = line.split(':', 1)
+            if name not in IO_KEYS or name in result:
+                raise ValueError('unknown or duplicate I/O counter')
+            result[name] = self.unsigned(value.strip())
+        if set(result) != IO_KEYS:
+            raise ValueError('incomplete I/O counters')
+        return result
+
+    def pressure(self, name, end):
+        result = {}
+        for line in self.read(self.proc / 'pressure' / name, end).splitlines():
+            fields = line.split()
+            if not fields or fields[0] not in ('some', 'full') or fields[0] in result:
+                raise ValueError('unknown or duplicate pressure counter')
+            values = {}
+            for field in fields[1:]:
+                key, value = field.split('=', 1)
+                if key in values:
+                    raise ValueError('duplicate pressure field')
+                values[key] = value
+            if set(values) != {'avg10', 'avg60', 'avg300', 'total'}:
+                raise ValueError('incomplete pressure counters')
+            result[fields[0]] = self.unsigned(values['total'])
+        wanted = {'some'} if name == 'cpu' else {'some', 'full'}
+        if not wanted <= result.keys():
+            raise ValueError('missing pressure counter')
+        # System CPU full is undefined; do not interpret its compatibility zero.
+        return {key: result[key] for key in sorted(wanted)}
+
+    def delta(self, value, old):
+        if old is None:
+            return None
+        if value < old:
+            self.counter_regressions += 1
+            return None
+        return value - old
+
+    def stop(self, reason):
+        self.stopped = self.stopped or reason
+        self.previous, self.previous_pressure = {}, {}
+        self.pending_process_samples = 0
+
+    def collect(self, end):
+        processes, current, pressure, limits = [], {}, {}, set()
+        process_entries = thread_entries = thread_reads = selected = 0
+        errors_before, regressions_before = self.read_errors, self.counter_regressions
+        try:
+            # scandir is lazy: the directory cap also bounds enumeration memory.
+            with os.scandir(self.proc) as entries:
+                for entry in islice(entries, self.MAX_PROC_ENTRIES):
+                    if time.monotonic() >= end:
+                        raise SamplingLimit('TIME_LIMIT')
+                    process_entries += 1
+                    if not entry.name.isascii() or not entry.name.isdecimal():
+                        continue
+                    folder, pid = Path(entry.path), self.unsigned(entry.name)
+                    try:
+                        before = self.stat(folder, pid, end)
+                        if before['pgid'] != self.pgid:
+                            continue
+                        if selected >= self.MAX_PROCESSES:
+                            raise SamplingLimit('PROCESS_LIMIT')
+                        selected += 1
+                        key = (pid, before['start_ticks'])
+                        old = self.previous.get(key, {})
+                        counters, threads = None, {}
+                        try:
+                            counters = self.io(folder, end)
+                        except (OSError, ValueError, IndexError):
+                            self.read_errors += 1
+                        threads_complete = True
+                        try:
+                            with os.scandir(folder / 'task') as tasks:
+                                for task in islice(tasks, max(0, self.MAX_THREAD_ENTRIES-thread_entries)):
+                                    if time.monotonic() >= end:
+                                        raise SamplingLimit('TIME_LIMIT')
+                                    thread_entries += 1
+                                    if thread_reads >= self.MAX_THREADS:
+                                        threads_complete = False
+                                        limits.add('THREAD_LIMIT')
+                                        break
+                                    if not task.name.isascii() or not task.name.isdecimal():
+                                        continue
+                                    thread_reads += 1
+                                    tid = self.unsigned(task.name)
+                                    try:
+                                        thread = self.stat(Path(task.path), tid, end)
+                                        if thread['pgid'] != self.pgid:
+                                            threads_complete = False
+                                            limits.add('THREAD_IDENTITY_CHANGED')
+                                            continue
+                                        threads[(tid, thread['start_ticks'])] = thread['utime'] + thread['stime']
+                                    except (OSError, ValueError, IndexError):
+                                        threads_complete = False
+                                        self.read_errors += 1
+                                if thread_entries >= self.MAX_THREAD_ENTRIES:
+                                    threads_complete = False
+                                    limits.add('THREAD_LIMIT')
+                        except OSError:
+                            threads_complete = False
+                            self.read_errors += 1
+                        after = self.stat(folder, pid, end)
+                        if (after['pgid'], after['start_ticks']) != (self.pgid, before['start_ticks']):
+                            limits.add('PROCESS_IDENTITY_CHANGED')
+                            continue  # Discard the entire stat/I/O/thread combination.
+                        cpu = before['utime'] + before['stime']
+                        faults = {name: before[name] for name in ('minor_faults', 'major_faults')}
+                        processes.append(dict(pid=pid, start_ticks=before['start_ticks'], cpu_ticks=cpu,
+                            cpu_delta_ticks=self.delta(cpu, old.get('cpu')), faults=faults,
+                            fault_deltas={name: self.delta(value, old.get('faults', {}).get(name))
+                                          for name, value in faults.items()},
+                            io=counters, io_deltas={name: self.delta(value, (old.get('io') or {}).get(name))
+                                                   for name, value in counters.items()} if counters is not None else None,
+                            threads=[[tid, start, value, self.delta(value, old.get('threads', {}).get((tid, start)))]
+                                     for (tid, start), value in sorted(threads.items())],
+                            threads_complete=threads_complete))
+                        current[key] = dict(cpu=cpu, faults=faults, io=counters, threads=threads)
+                    except (OSError, ValueError, IndexError):
+                        self.read_errors += 1
+        except SamplingLimit as exc:
+            limits.add(str(exc))
+        except OSError:
+            self.read_errors += 1
+        if process_entries >= self.MAX_PROC_ENTRIES:
+            limits.add('PROCESS_DIRECTORY_LIMIT')
+        for name in ('cpu', 'memory', 'io'):
+            try:
+                values = self.pressure(name, end)
+                pressure[name] = dict(total_us=values, delta_us={key: self.delta(
+                    value, self.previous_pressure.get(name, {}).get(key)) for key, value in values.items()})
+            except SamplingLimit as exc:
+                limits.add(str(exc))
+                break
+            except (OSError, ValueError, IndexError):
+                self.read_errors += 1
+        self.previous = current
+        self.previous_pressure = {name: value['total_us'] for name, value in pressure.items()}
+        for reason in limits:
+            self.limit_counts[reason] = self.limit_counts.get(reason, 0) + 1
+        return dict(pgid=self.pgid, processes=processes, system_pressure=pressure,
+                    pressure_scope='system', limits=sorted(limits),
+                    read_errors=self.read_errors-errors_before,
+                    counter_regressions=self.counter_regressions-regressions_before)
+
+    def poll(self, end, available):
+        now = time.monotonic()
+        if self.stopped or now < self.next_sample:
+            return None
+        if now >= end:
+            self.stop('FIXED_DEADLINE')
+            return None
+        if self.attempts >= self.MAX_SAMPLES:
+            self.stop('SAMPLE_LIMIT')
+            return None
+        if available <= 0 or self.bytes >= self.MAX_BYTES:
+            self.stop('EVIDENCE_LIMIT')
+            return None
+        self.attempts += 1
+        self.next_sample = now + self.PERIOD
+        try:
+            wall = time.time()
+            value = self.collect(min(end, now + self.SAMPLE_SECONDS))
+            value.update(schema='linux-resource-timeline/v1', sample=self.attempts,
+                         started_wall=wall, started_monotonic=now, finished_monotonic=time.monotonic(),
+                         interval_seconds=now-self.previous_time if self.previous_time is not None else None)
+            value['status'] = ('UNKNOWN_NO_ACCEPTED_IDENTITY' if not value['processes'] else
+                               'PARTIAL' if value['read_errors'] or value['limits'] or value['counter_regressions'] else 'OBSERVED_PARTIAL_SAMPLING')
+            data = (json.dumps(value, separators=(',', ':')) + '\n').encode()
+            if len(data) > self.MAX_RECORD:
+                self.stop('RECORD_LIMIT')
+                return None
+            if self.bytes + len(data) > self.MAX_BYTES or len(data) > available:
+                self.stop('EVIDENCE_LIMIT')
+                return None
+            if time.monotonic() >= end:
+                self.stop('FIXED_DEADLINE')
+                return None
+            self.previous_time = now
+            self.pending_process_samples = len(value['processes'])
+            return data
+        except Exception:
+            # Extra diagnostics cannot replace cancellation, timeout or the primary failure.
+            self.stop('SAMPLING_ERROR')
+            return None
+
+    def written(self, data):
+        self.records += 1
+        self.bytes += len(data)
+        self.observed_process_samples += self.pending_process_samples
+        self.pending_process_samples = 0
+
+    def result(self):
+        return dict(schema='linux-resource-timeline/v1', instrumented=True,
+                    status='OBSERVED_PARTIAL_SAMPLING' if self.observed_process_samples and self.records else 'UNAVAILABLE',
+                    stopped=self.stopped, attempts=self.attempts, records=self.records, bytes=self.bytes,
+                    observed_process_samples=self.observed_process_samples,
+                    read_errors=self.read_errors, limit_counts=self.limit_counts,
+                    counter_regressions=self.counter_regressions, sample_period_seconds=self.PERIOD,
+                    clock_ticks_per_second=os.sysconf('SC_CLK_TCK'),
+                    thread_columns=['tid', 'start_ticks', 'cpu_ticks', 'cpu_delta_ticks'],
+                    bounds=dict(samples=self.MAX_SAMPLES, record_bytes=self.MAX_RECORD, total_bytes=self.MAX_BYTES,
+                                processes=self.MAX_PROCESSES, threads=self.MAX_THREADS,
+                                process_directory_entries=self.MAX_PROC_ENTRIES,
+                                thread_directory_entries=self.MAX_THREAD_ENTRIES,
+                                accepted_read_bytes=self.MAX_READ, read_probe_bytes=1,
+                                sample_soft_seconds=self.SAMPLE_SECONDS),
+                    limits='Same PGID/PID/start and parent-bound TID/start snapshots; missing/first/decreasing deltas are null. '
+                           'May miss short-lived/final work. Per-process I/O includes waited-for children; do not add as device traffic. '
+                           'PSI is system-wide, not attributable workload stalls. Time checks are soft, not syscall/RSS limits.')
+
+
 class PhaseError(RuntimeError):
     def __init__(self, result):
         self.result = result
@@ -172,10 +443,11 @@ def cancellation_guard():
 
 
 def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=None, observer=None, *, inherit_stdio=False, reap_orphans=False,
-        evaluator_capture=None, restricted_output=False):
+        evaluator_capture=None, restricted_output=False, resource_details=False):
     options = dict(file_limit=file_limit, evaluator=evaluator, observer=observer,
                    inherit_stdio=inherit_stdio, reap_orphans=reap_orphans,
-                   evaluator_capture=evaluator_capture, restricted_output=restricted_output)
+                   evaluator_capture=evaluator_capture, restricted_output=restricted_output,
+                   resource_details=resource_details)
     active_guard = getattr(signal.getsignal(signal.SIGTERM), '_codeql_cancellation', None)
     if restricted_output or evaluator_capture is not None or active_guard is not None:
         with cancellation_guard() as state:
@@ -184,7 +456,7 @@ def run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=No
 
 
 def _run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=None, observer=None, *, inherit_stdio=False, reap_orphans=False,
-         evaluator_capture=None, restricted_output=False, _cancellation=None):
+         evaluator_capture=None, restricted_output=False, resource_details=False, _cancellation=None):
     """Separate stdout/stderr/evaluator FIFO; all evidence writes pass the shared cap."""
     start = time.monotonic()
     deadline = min(end, start + timeout)
@@ -216,7 +488,7 @@ def _run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=N
     fifo_eof = False
     fifo_created = False
     files = []
-    sample = None
+    sample = detail = None
     streams = {}
     stream_names = {}
     finalized_streams = set()
@@ -277,6 +549,10 @@ def _run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=N
         sample = GroupSamples(proc.pid)
         samples = output.with_name(output.name + '.samples.jsonl').open('xb')
         files.append(samples)
+        if resource_details:
+            detail = ResourceTimeline(proc.pid)
+            detail_file = output.with_name(output.name + '.resources.jsonl').open('xb')
+            files.append(detail_file)
         last_sample = 0
         while True:
             if _cancellation and _cancellation['cancelled']:
@@ -290,6 +566,11 @@ def _run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=N
                 if output_bytes(root) + len(data) > WRITE_CAP:
                     raise RuntimeError('combined evidence budget exceeded before write')
                 samples.write(data); samples.flush()
+                if detail:
+                    data = detail.poll(payload_end, WRITE_CAP-output_bytes(root))
+                    if data is not None:
+                        detail_file.write(data); detail_file.flush()
+                        detail.written(data)
                 last_sample = time.monotonic()
             events = selector.select(.05)
             for key, _ in events:
@@ -456,6 +737,8 @@ def _run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=N
         result['cleanup_errors'] = [str(error)[:1024] for error in result['cleanup_errors']]
         if sample:
             result['resource_observation'] = sample.result()
+        if detail:
+            result['resource_timeline'] = detail.result()
         if len((json.dumps(result,indent=2)+'\n').encode()) > MAX_PROCESS_RECEIPT:
             result['resource_observation'] = {'status': 'UNKNOWN_RECEIPT_LIMIT'}
             result['error'] = result['error'] or 'maximum process receipt exceeded'

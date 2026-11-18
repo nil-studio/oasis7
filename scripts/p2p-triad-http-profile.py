@@ -79,6 +79,11 @@ def _fetch(url, deadline, owned):
             chunks.extend(chunk)
             if len(chunks) > CAP:
                 return None, "output_limit"
+        # read1() permits EOF before the declared Content-Length and does not
+        # raise IncompleteRead like read() without an amount. A parseable JSON
+        # prefix is not a complete HTTP observation.
+        if response.length not in (None, 0):
+            return None, "invalid_status"
         status = json.loads(chunks.decode("utf-8"))
         if not isinstance(status, dict):
             return None, "invalid_status"
@@ -133,6 +138,16 @@ def refresh_node(node, as_of):
     observed = profile.get("observed_at_unix_ms")
     valid_observed = type(observed) is int and 0 <= observed <= as_of
     profile.update(as_of_unix_ms=as_of, age_ms=as_of - observed if valid_observed else None)
+    if profile.get("runtime_profile") == "bft/version=1":
+        profile["source_freshness"] = ("unknown" if not valid_observed else
+            "fresh" if as_of-observed <= adapter.MAX_AGE_MS else "stale")
+        if not valid_observed:
+            profile.update(status="unknown", reason="bft_observation_clock_uncertain")
+        elif as_of-observed > adapter.MAX_AGE_MS:
+            profile.update(status="stale", reason="bft_observation_expired")
+        elif (collection.get("result") != "success" or collection.get("complete") is not True
+              or collection["freshness"] != "fresh"):
+            profile.update(status="unknown", reason="collection_unavailable")
     if profile.get("status") == "ready":
         if not valid_observed:
             profile.update(status="unknown", reason="observation_clock_uncertain")

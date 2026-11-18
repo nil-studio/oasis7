@@ -400,7 +400,82 @@ fn node_case() {
     node.submit_consensus_action_payload(9001, first_payload.clone())
         .unwrap();
     let first = wait_batch(&node, 9001);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let observation = loop {
+        if let Some(observation) = node.bft_v3_status().unwrap().observation
+            && observation.last_applied_height == Some(first.height)
+        {
+            break observation;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "worker did not publish applied observation"
+        );
+        thread::sleep(Duration::from_millis(10));
+    };
+    assert_eq!(
+        observation.last_applied_header_id.as_deref(),
+        Some(first.block_hash.as_str())
+    );
+    assert_eq!(observation.binding_digest, binding.digest().unwrap());
+    assert_eq!(observation.world_id, binding.scope.world_id);
+    assert_eq!(observation.chain_id, binding.scope.chain_id);
+    assert_eq!(
+        observation.window_start_height,
+        binding.initial_schedule().height()
+    );
+    assert!(!observation.pending_driver_apply);
+    let report = crate::formal_bft_header_cli::collect_node_diagnostics_for_test(&node);
+    assert_eq!(report["profile"]["last_applied_height"], first.height);
+    assert_eq!(
+        report["profile"]["last_applied_header_id"],
+        first.block_hash
+    );
+    assert_eq!(
+        report["profile"]["binding_digest"],
+        binding.digest().unwrap()
+    );
+    assert_eq!(report["profile"]["status"], "unknown");
+    assert_eq!(report["profile"]["can_propose"], false);
+    assert_eq!(report["profile"]["source"], "http");
+    assert!(
+        report["markdown"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|line| line.as_str().unwrap().contains("last_applied_height"))
+    );
+    assert!(!report.to_string().contains("node-wire3-first-agent"));
+    let encoded = serde_json::to_string(&observation).unwrap();
+    assert!(!encoded.contains("node-wire3-first-agent"));
+    assert!(!encoded.contains("payload_cbor"));
     node.stop().unwrap();
+    let stopped = node.bft_v3_status().unwrap();
+    assert!(!stopped.running);
+    let stopped_at = stopped.observation.as_ref().unwrap().observed_at_unix_ms;
+    let stopped_report = crate::formal_bft_header_cli::collect_node_diagnostics_for_test(&node);
+    assert_eq!(stopped_report["profile"]["status"], "blocked");
+    assert_eq!(stopped_report["profile"]["reason"], "runtime_not_running");
+    assert_eq!(stopped_report["profile"]["observed_running"], false);
+    assert_eq!(stopped_report["profile"]["can_propose"], false);
+    assert_eq!(stopped_report["profile"]["observed_at_unix_ms"], stopped_at);
+    assert_eq!(
+        stopped_report["profile"]["last_applied_height"],
+        first.height
+    );
+    assert_eq!(
+        stopped_report["profile"]["last_applied_header_id"],
+        first.block_hash
+    );
+    // Querying historical diagnostics must never refresh the producer timestamp.
+    assert_eq!(
+        stopped.observation.unwrap().observed_at_unix_ms,
+        node.bft_v3_status()
+            .unwrap()
+            .observation
+            .unwrap()
+            .observed_at_unix_ms
+    );
     drop(node);
     server.join().unwrap().unwrap();
     assert!(first.height >= binding.initial_schedule().height());
@@ -483,6 +558,58 @@ fn node_case() {
     node.submit_consensus_action_payload(9002, second_payload)
         .unwrap();
     let second = wait_batch(&node, 9002);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if node
+            .bft_v3_status()
+            .unwrap()
+            .observation
+            .is_some_and(|observation| observation.last_applied_height == Some(second.height))
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "reopened worker did not publish applied observation"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+    let recovered_report = crate::formal_bft_header_cli::collect_node_diagnostics_for_test(&node);
+    assert_eq!(recovered_report["profile"]["observed_running"], true);
+    assert_eq!(
+        recovered_report["profile"]["producer_blocker"],
+        serde_json::Value::Null
+    );
+    assert_eq!(
+        recovered_report["profile"]["last_applied_height"],
+        second.height
+    );
+    assert_eq!(
+        recovered_report["profile"]["last_applied_header_id"],
+        second.block_hash
+    );
+    assert_eq!(
+        recovered_report["profile"]["binding_digest"],
+        binding.digest().unwrap()
+    );
+    // Recovery restores diagnostics, not independently proven write eligibility.
+    assert_eq!(recovered_report["profile"]["status"], "unknown");
+    assert_eq!(
+        recovered_report["profile"]["reason"],
+        "bft_qualification_not_observed"
+    );
+    assert_eq!(recovered_report["profile"]["can_propose"], false);
+    assert!(
+        recovered_report["profile"]["observed_at_unix_ms"]
+            .as_i64()
+            .unwrap()
+            >= stopped_at
+    );
+    assert!(
+        !recovered_report
+            .to_string()
+            .contains("node-wire3-second-agent")
+    );
     node.stop().unwrap();
     drop(node);
     server.join().unwrap().unwrap();
@@ -579,3 +706,8 @@ fn read_generated_cut(
 #[cfg(feature = "node-libp2p")]
 #[path = "driver_bft_v3_node_network_tests.rs"]
 mod node_network_tests;
+
+// Test-only bridge for the trusted shipping CLI process owner; no production export.
+#[cfg(all(test, unix, not(target_arch = "wasm32")))]
+#[allow(unused_imports)] // The same execution module also has an independent test mount.
+pub(crate) use node_cli_tests::wire3_shipping_node_process_output_failure;
