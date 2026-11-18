@@ -6,6 +6,10 @@ use oasis7_distfs::protected_bft_v3::{
 };
 use oasis7_node::NodeBftPrivateCandidateV3;
 
+#[path = "driver_bft_v3_archived_publication_metadata.rs"]
+mod publication_metadata;
+use publication_metadata::PublicationReservationV1;
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct OriginalCandidateArchivePinV1 {
@@ -104,7 +108,7 @@ impl OriginalCandidateArchivePinV1 {
         for object in input.objects {
             match object.kind {
                 Kind::OriginalData => data = Some(object.bytes),
-                Kind::PublicationMetadata => metadata = Some(object.reference.digest),
+                Kind::PublicationMetadata => metadata = Some(object),
                 Kind::Dependency => dependencies.push((object.reference.digest, object.bytes)),
             }
         }
@@ -129,7 +133,8 @@ impl OriginalCandidateArchivePinV1 {
             || data.ledger_origin_digest != origin
             || data.material_identity != source.material_identity
             || data.height != self.reference.key.height
-            || metadata.as_ref() != Some(&data.publication_reservation_ref)
+            || metadata.as_ref().map(|object| &object.reference.digest)
+                != Some(&data.publication_reservation_ref)
             || data
                 .references
                 .iter()
@@ -138,6 +143,11 @@ impl OriginalCandidateArchivePinV1 {
         {
             return Err("protected candidate Data differs from pinned original material".into());
         }
+        let metadata = PublicationReservationV1::decode(
+            &metadata
+                .ok_or("original publication metadata absent")?
+                .bytes,
+        )?;
         let candidate = NodeBftPrivateCandidateV3 {
             public_value: data.value.ok_or("original candidate public value absent")?,
             actions_cbor: data.actions_cbor,
@@ -151,6 +161,13 @@ impl OriginalCandidateArchivePinV1 {
         {
             return Err("original candidate differs from exact parent execution".into());
         }
+        metadata.verify_execution(
+            origin,
+            &data.material_identity,
+            &data.instance_id,
+            &candidate.actions_cbor,
+            &executed,
+        )?;
         Ok(ReplayedOriginalCandidateV1 {
             height: data.height,
             header_id: self.reference.key.header_id.clone(),
@@ -192,7 +209,8 @@ impl FormalBftHeaderLedgerExecutionV3 {
         )
         .unwrap();
         let original = self.origin.with_candidate_reader(recorder.clone()).unwrap();
-        let candidate = original.build_candidate(&actions_cbor).unwrap();
+        let executed = original.execute(&actions_cbor).unwrap();
+        let candidate = &executed.candidate;
         let state_root = candidate.commitment.state_root.clone();
         let header_id = candidate.header.block_id().unwrap();
         let mut nodes = recorder.accessed_nodes().unwrap();
@@ -204,13 +222,21 @@ impl FormalBftHeaderLedgerExecutionV3 {
                 let extra = b"unobserved archived node".to_vec();
                 nodes.insert(blake3_hex(&extra), extra);
             }
+            Some("snapshot" | "journal" | "derived") => {}
             Some(other) => panic!("unsupported fixture mutation {other}"),
             None => {}
         }
         let origin = self.ledger.origin().unwrap().digest().unwrap();
         let metadata = record(
             Kind::PublicationMetadata,
-            b"pinned fixture metadata".to_vec(),
+            PublicationReservationV1::fixture(
+                &origin,
+                &source.material_identity,
+                &"11".repeat(32),
+                &actions_cbor,
+                &executed,
+                mutation,
+            ),
         );
         let data = OriginalCandidateData {
             schema_version: 11,
@@ -221,8 +247,8 @@ impl FormalBftHeaderLedgerExecutionV3 {
             instance_id: "11".repeat(32),
             height: candidate.commitment.height,
             value: Some(BftHeaderValueV3 {
-                header: candidate.header,
-                execution_commitment: candidate.commitment,
+                header: candidate.header.clone(),
+                execution_commitment: candidate.commitment.clone(),
             }),
             actions_cbor,
             references: nodes.keys().cloned().collect(),

@@ -528,6 +528,15 @@ fn committed_archive() {
         EMPTY_ACTIONS_CBOR.to_vec(),
         Some("extra"),
     );
+    let altered_metadata = ["snapshot", "journal", "derived"].map(|kind| {
+        let (candidate, _, _) = original_ledger.fixture_archived_candidate(
+            &archive,
+            &source,
+            EMPTY_ACTIONS_CBOR.to_vec(),
+            Some(kind),
+        );
+        (kind, candidate)
+    });
     drop(original_ledger);
     assert_eq!(
         original.durable_record_digest,
@@ -669,9 +678,22 @@ fn committed_archive() {
         .is_err()
     );
     archive_options["candidate"] = extra;
-    let error = run_cli(&write_config("extra-candidate.json", archive_options)).unwrap_err();
+    let error = run_cli(&write_config(
+        "extra-candidate.json",
+        archive_options.clone(),
+    ))
+    .unwrap_err();
     assert!(
         error.contains("closed candidate archive contains unobserved dependencies"),
         "{error}"
     );
+    for (kind, candidate) in altered_metadata {
+        archive_options["candidate"] = candidate;
+        let invalid = write_config("altered-metadata.json", archive_options.clone());
+        let error = run_cli(&invalid).unwrap_err();
+        assert!(
+            error.contains("original publication metadata differs from actual execution"),
+            "{kind}: {error}"
+        );
+    }
 }
