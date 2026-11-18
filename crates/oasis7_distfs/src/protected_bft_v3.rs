@@ -7,6 +7,10 @@ mod bootstrap_rotation;
 mod client;
 mod crypto;
 mod install;
+#[cfg(feature = "protected-bft-luna-key")]
+mod luna_key;
+#[cfg(feature = "protected-bft-luna-key")]
+pub use luna_key::LunaBftSigningKeyV3;
 mod membership;
 mod rotation;
 mod service;
