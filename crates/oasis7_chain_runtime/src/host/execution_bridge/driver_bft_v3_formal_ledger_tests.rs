@@ -472,3 +472,91 @@ fn wire3_formal_read_durable_process_child() {
         panic!("wire3 child reached a cut instead of its durable seam");
     }).unwrap().join().unwrap();
 }
+
+#[test]
+fn wire3_committed_archive_replays_original_world_without_live_ledger() {
+    run(committed_archive);
+}
+
+fn committed_archive() {
+    use oasis7_distfs::protected_bft_v3::{
+        BftSuccessorWindowSourceV1, LocalBftSuccessorArchiveStoreV1,
+    };
+    use oasis7_formal_protocol::bft::verify_formal_bft_handoff_v2;
+
+    let h = qualified_handoff_v3();
+    let handoff = verify_formal_bft_handoff_v2(&h.anchor, h.target.clone()).unwrap();
+    let source = BftSuccessorWindowSourceV1 {
+        scope: handoff.target().scope.clone(),
+        binding_digest: "12".repeat(32),
+        handoff_position: handoff.handoff_position(),
+        handoff_record_id: handoff.handoff_head().record_id.clone(),
+        handoff_snapshot_root: handoff.raw_snapshot_root().into(),
+        target_digest: handoff.target_digest().into(),
+        activation_digest: handoff.activation_digest().into(),
+        material_identity: "34".repeat(32),
+    };
+    let input = fixture(&h);
+    let (height, id) = target(&input);
+    let root = Scratch::new();
+    let store = cas(root.path());
+    let durable = open(&h, root.path(), &store, true)
+        .unwrap()
+        .install_prefix(&input, height, &id)
+        .unwrap();
+    let destination = Scratch::new();
+    let archive = LocalBftSuccessorArchiveStoreV1::new(cas(destination.path())).unwrap();
+    let (reference, original) = open(&h, root.path(), &store, false)
+        .unwrap()
+        .export_committed_prefix(&archive, &source, height, &id)
+        .unwrap();
+    assert_eq!(original.durable_record_digest, durable.durable_record_digest());
+    assert_eq!(original.world_tick, durable.world().state().time);
+
+    drop(archive);
+    drop(store);
+    drop(root);
+    let reopened = LocalBftSuccessorArchiveStoreV1::new(LocalCasStore::new(
+        destination.path().join("cas"),
+    ))
+    .unwrap();
+    let replay = |reference, source, id| {
+        FormalBftHeaderLedgerExecutionV3::replay_committed_prefix(
+            &reopened, reference, source, h.anchor.clone(), h.target.clone(), height, id,
+        )
+    };
+    assert_eq!(replay(&reference, &source, &id).unwrap(), original);
+    let mut wrong_source = source.clone();
+    wrong_source.material_identity = "56".repeat(32);
+    assert!(replay(&reference, &wrong_source, &id).is_err());
+    let wrong_id = "78".repeat(32);
+    assert!(replay(&reference, &source, &wrong_id).is_err());
+    let mut wrong_root = reference.clone();
+    wrong_root.root = wrong_root.manifest.digest.clone();
+    assert!(replay(&wrong_root, &source, &id).is_err());
+
+    let write_config = |name: &str, value: serde_json::Value| {
+        let path = destination.path().join(name);
+        fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        path
+    };
+    let trust = write_config("trust.json", serde_json::to_value(&h.trust).unwrap());
+    let ledger_config = write_config("ledger.json", serde_json::json!({
+        "schema_version": 1, "trust_config_path": trust, "target": h.target,
+        "handoff_material_path": destination.path().join("absent-handoff"),
+        "cas_directory": destination.path().join("absent-live-cas"),
+        "ledger_directory": destination.path().join("absent-live-ledger"),
+        "exact_height": height, "exact_header_id": id,
+    }));
+    let archive_config = write_config("archive.json", serde_json::json!({
+        "schema_version": 1,
+        "archive_directory": destination.path().join("cas"),
+        "source": source,
+        "reference": reference,
+    }));
+    crate::identity_receipt::dispatch(
+        ["bft-header", "archive-prefix", "--config", ledger_config.to_str().unwrap(),
+            "--archive", archive_config.to_str().unwrap()].into_iter(),
+    ).unwrap().unwrap();
+}

@@ -21,12 +21,13 @@ pub(crate) struct CommittedPrefixArchiveRefV1 {
     pub(crate) root: String,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct ReplayedCommittedPrefixV1 {
     pub(crate) header_id: String,
     pub(crate) height: u64,
     pub(crate) durable_record_digest: String,
     pub(crate) world_tick: u64,
+    pub(crate) semantic_state_root: String,
     pub(crate) result_root: String,
 }
 
@@ -89,6 +90,15 @@ fn charge(entries: &[BftSuccessorWindowArchiveEntryV1]) -> Result<BftSuccessorWi
     })
 }
 
+fn check_archive_capacity(object_bytes: u64, manifest_bytes: u64) -> Result<(), String> {
+    if object_bytes.checked_add(manifest_bytes)
+        .is_none_or(|total| total > MAX_COMMITTED_ARCHIVE_BYTES)
+    {
+        return Err("committed archive capacity including manifest".into());
+    }
+    Ok(())
+}
+
 impl FormalBftHeaderLedgerExecutionV3 {
     /// Export committed records from an actual durable H-to-cut replay.
     /// The explicitly pinned source describes this local archive, not signer authority.
@@ -98,48 +108,56 @@ impl FormalBftHeaderLedgerExecutionV3 {
         source: &BftSuccessorWindowSourceV1,
         height: u64,
         header_id: &str,
-    ) -> Result<CommittedPrefixArchiveRefV1, String> {
+    ) -> Result<(CommittedPrefixArchiveRefV1, ReplayedCommittedPrefixV1), String> {
         source_at_h(source, &self.origin.handoff)?;
-        self.verified_cut(height, header_id)?;
+        let cut = self.verified_cut(height, header_id)?;
+        let original = ReplayedCommittedPrefixV1 {
+            header_id: header_id.into(),
+            height,
+            durable_record_digest: cut.durable_record_digest().into(),
+            world_tick: cut.world().state().time,
+            semantic_state_root: cut.proof().commitment().state_root.clone(),
+            result_root: cut.result_tree().root()?,
+        };
+        drop(cut);
         let prior = self.ledger.origin()?;
         let prefix = PrivateHeaderPrefixV3::from_entries(
             self.ledger.records_through(height)?.map(storage::Record::input).collect(),
         )?;
-        let mut entries = Vec::new();
-        for (domain, bytes, max) in [
-            (H_MATERIAL, encoded_h_material(&self.inputs.material)?, MAX_H_BYTES),
-            (LEDGER_ORIGIN, encode_origin(prior)?, MAX_ORIGIN_BYTES),
+        let mut objects = vec![
+            (blake3_hex(H_MATERIAL), encoded_h_material(&self.inputs.material)?, MAX_H_BYTES),
+            (blake3_hex(LEDGER_ORIGIN), encode_origin(prior)?, MAX_ORIGIN_BYTES),
             (
-                PRIVATE_PREFIX,
+                blake3_hex(PRIVATE_PREFIX),
                 prefix.canonical_private_bytes()?,
                 PRIVATE_HEADER_PREFIX_MAX_BYTES_V3,
             ),
-        ] {
-            let object = archive.persist_object(&bytes, max).map_err(error)?;
-            entries.push(BftSuccessorWindowArchiveEntryV1 {
-                identity_digest: blake3_hex(domain),
-                object,
-            });
-        }
+        ];
         let nodes = self.origin.retained_nodes.accessed_nodes()?;
-        if nodes.len() + entries.len()
+        if nodes.len() + objects.len()
             > oasis7_distfs::protected_bft_v3::BFT_SUCCESSOR_WINDOW_MAX_REFS_V1
         {
             return Err("committed archive dependency count capacity".into());
         }
         for (digest, bytes) in nodes {
-            let object = archive
-                .persist_object(&bytes, BUSINESS_INDEX_MAX_NODE_BYTES)
-                .map_err(error)?;
-            if digest != object.digest {
+            if digest != blake3_hex(&bytes) {
                 return Err("committed archive dependency differs from original hash".into());
             }
-            entries.push(BftSuccessorWindowArchiveEntryV1 {
-                identity_digest: digest,
-                object,
-            });
+            objects.push((digest, bytes, BUSINESS_INDEX_MAX_NODE_BYTES));
         }
-        entries.sort_by(|left, right| left.identity_digest.cmp(&right.identity_digest));
+        objects.sort_by(|left, right| left.0.cmp(&right.0));
+        let entries = objects.iter().map(|(identity_digest, bytes, maximum)| {
+            if bytes.is_empty() || bytes.len() > *maximum {
+                return Err("committed archive object length outside its role bound".into());
+            }
+            Ok(BftSuccessorWindowArchiveEntryV1 {
+                identity_digest: identity_digest.clone(),
+                object: BftSuccessorWindowArchiveRefV1 {
+                    digest: blake3_hex(bytes),
+                    bytes: bytes.len() as u64,
+                },
+            })
+        }).collect::<Result<Vec<_>, String>>()?;
         let manifest = BftSuccessorWindowArchiveManifestV1 {
             public_index: None,
             schema_version: 1,
@@ -152,9 +170,20 @@ impl FormalBftHeaderLedgerExecutionV3 {
             usage: charge(&entries)?,
             entries,
         };
+        check_archive_capacity(
+            manifest.usage.total_bytes,
+            manifest.encode_canonical().map_err(error)?.len() as u64,
+        )?;
         let root = manifest.digest().map_err(error)?;
+        // Compute the complete manifest and all role/cumulative bounds before
+        // creating staged objects; publish the reference only after every readback.
+        for ((_, bytes, maximum), entry) in objects.iter().zip(&manifest.entries) {
+            if archive.persist_object(bytes, *maximum).map_err(error)? != entry.object {
+                return Err("committed archive published object differs from its manifest".into());
+            }
+        }
         let manifest = archive.persist_manifest(&manifest).map_err(error)?;
-        Ok(CommittedPrefixArchiveRefV1 { manifest, root })
+        Ok((CommittedPrefixArchiveRefV1 { manifest, root }, original))
     }
 
     pub(crate) fn replay_committed_prefix(
@@ -180,6 +209,7 @@ impl FormalBftHeaderLedgerExecutionV3 {
         {
             return Err("committed archive manifest differs from its pinned source or cut".into());
         }
+        check_archive_capacity(manifest.usage.total_bytes, reference.manifest.bytes)?;
         let mut entries = manifest
             .entries
             .into_iter()
@@ -255,6 +285,7 @@ impl FormalBftHeaderLedgerExecutionV3 {
             height,
             durable_record_digest: previous,
             world_tick: execution.parent_world.state().time,
+            semantic_state_root: proof.commitment().state_root.clone(),
             result_root: execution.parent_result_tree.root()?,
         })
     }

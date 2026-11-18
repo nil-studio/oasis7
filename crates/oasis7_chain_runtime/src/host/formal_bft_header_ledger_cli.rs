@@ -170,13 +170,13 @@ fn archive_from_paths(config_path: &Path, archive_path: &Path) -> Result<Archive
         .map_err(|_| "committed archive CAS path rejected")?;
     let anchor = load_qualified_handoff_anchor(&config.trust_config_path)
         .map_err(|_| "committed archive independent H trust rejected")?;
-    let reference = if let Some(reference) = options.reference {
-        reference
+    let (reference, original) = if let Some(reference) = options.reference {
+        (reference, None)
     } else {
         let LoadedH { anchor, material, store } = load_h(&config)?;
         let ledger_root = require_existing_directory(&config.ledger_directory, "private header ledger")?;
         if [store.root(), ledger_root.as_path()].into_iter().any(|live| {
-            archive_root.starts_with(live) || live.starts_with(&archive_root)
+            super::super::formal_bft_read_cli::paths_overlap(&archive_root, live)
         }) {
             return Err("committed archive and original ledger/CAS must be disjoint".into());
         }
@@ -184,14 +184,18 @@ fn archive_from_paths(config_path: &Path, archive_path: &Path) -> Result<Archive
         let mut ledger = FormalBftHeaderLedgerExecutionV3::open_from_handoff(
             &ledger_root, store, anchor, config.target.clone(), material, source, false,
         )?;
-        ledger.export_committed_prefix(
+        let (reference, original) = ledger.export_committed_prefix(
             &archive, &options.source, config.exact_height, &config.exact_header_id,
-        )?
+        )?;
+        (reference, Some(original))
     };
     let replayed = FormalBftHeaderLedgerExecutionV3::replay_committed_prefix(
         &archive, &reference, &options.source, anchor, config.target,
         config.exact_height, &config.exact_header_id,
     )?;
+    if original.is_some_and(|original| original != replayed) {
+        return Err("cold archive replay differs from original durable cut".into());
+    }
     Ok(ArchiveReport {
         schema_version: "oasis7.formal_bft_committed_prefix_archive.v1",
         reference,
