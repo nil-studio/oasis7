@@ -145,6 +145,12 @@ fn libp2p_traffic_metrics_track_requests_and_gossip_payloads() {
 
 #[test]
 fn typed_net_budget_caps_real_business_substream_before_remote_decode() {
+    for address in ["/ip4/127.0.0.1/tcp/0", "/ip4/127.0.0.1/udp/0/quic-v1"] {
+        exercise_active_business_substream(address);
+    }
+}
+
+fn exercise_active_business_substream(address: &str) {
     use std::sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -158,7 +164,7 @@ fn typed_net_budget_caps_real_business_substream_before_remote_decode() {
     )
     .unwrap();
     let server = Libp2pNetwork::try_new(Libp2pNetworkConfig {
-        listen_addrs: vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()],
+        listen_addrs: vec![address.parse().unwrap()],
         enable_autonat: false,
         ..Libp2pNetworkConfig::default()
     })
@@ -176,7 +182,7 @@ fn typed_net_budget_caps_real_business_substream_before_remote_decode() {
         )
         .unwrap();
     wait_until(
-        "TCP listener",
+        "transport listener",
         Instant::now() + Duration::from_secs(5),
         || !server.listening_addrs().is_empty(),
     );
