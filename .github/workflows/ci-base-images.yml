@@ -45,6 +45,7 @@ jobs:
             --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace,readonly" \
             --mount "type=bind,source=$node_home,target=/opt/node,readonly" \
             --workdir /workspace \
+            --env OASIS7_GDB_CONTRACT_RESULTS=/tmp/oasis7-gdb-contracts \
             --env OASIS7_REQUIRE_GDB_TESTS=1 \
             --env PYTHONDONTWRITEBYTECODE=1 \
             oasis7-ci-build:candidate \
