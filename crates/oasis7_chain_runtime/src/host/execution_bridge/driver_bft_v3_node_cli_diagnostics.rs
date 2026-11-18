@@ -41,6 +41,24 @@ pub(super) fn classify_stderr(stderr: &str) -> &'static str {
             if found.is_some() {
                 return "multiple";
             }
+            let category = if category == "driver_recovery" {
+                match stderr
+                    .split(
+                        "header Node actual qualified H driver recovery rejected; recovery_stage=",
+                    )
+                    .nth(1)
+                    .and_then(|tail| tail.split_whitespace().next())
+                {
+                    Some("storage_paths") => "driver_recovery_storage_paths",
+                    Some("private_store") => "driver_recovery_private_store",
+                    Some("ledger") => "driver_recovery_ledger",
+                    Some("h_index") => "driver_recovery_h_index",
+                    Some("bind_origin") => "driver_recovery_bind_origin",
+                    _ => category,
+                }
+            } else {
+                category
+            };
             found = Some(category);
         }
     }
@@ -68,11 +86,38 @@ mod tests {
     }
 
     #[test]
+    fn recovery_stage_is_visible_without_echoing_private_details() {
+        assert_eq!(
+            classify_stderr(
+                "unrelated recovery_stage=private_store\nheader Node actual qualified H driver recovery rejected; recovery_stage=ledger\n"
+            ),
+            "driver_recovery_ledger"
+        );
+        for (stage, expected) in [
+            ("storage_paths", "driver_recovery_storage_paths"),
+            ("private_store", "driver_recovery_private_store"),
+            ("ledger", "driver_recovery_ledger"),
+            ("h_index", "driver_recovery_h_index"),
+            ("bind_origin", "driver_recovery_bind_origin"),
+            ("foreign", "driver_recovery"),
+        ] {
+            assert_eq!(
+                classify_stderr(&format!(
+                    "header Node actual qualified H driver recovery rejected; recovery_stage={stage}\n"
+                )),
+                expected
+            );
+        }
+    }
+
+    #[test]
     fn absent_ambiguous_and_oversize_evidence_stays_distinct() {
         assert_eq!(classify_stderr(""), "empty");
         assert_eq!(classify_stderr("private path/token/error"), "unknown");
         assert_eq!(
-            classify_stderr("header Node could not stop cleanly; header Node private action admission rejected"),
+            classify_stderr(
+                "header Node could not stop cleanly; header Node private action admission rejected"
+            ),
             "multiple"
         );
         assert_eq!(classify_stderr(&"x".repeat(16 * 1024 + 1)), "oversize");
