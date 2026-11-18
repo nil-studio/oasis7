@@ -81,12 +81,23 @@ where
             .and_then(|directory| directory.sync_all())
             .map_err(|error| error.to_string())?;
             drop(runtime);
-            for _ in 0..2 {
+            for attempt in 0..2 {
                 let mut reopened =
                     FormalLiveRuntime::open_with_native_history(runtime_config_path)?;
                 reopened.start()?;
                 let cut = reopened.published.current()?;
-                let status = fixture.read_manifest(&format!("http://{status_bind}"), &cut.anchor);
+                let endpoint = format!("http://{status_bind}");
+                if attempt == 0 {
+                    let (status, body) = fixture.read_manifest(&endpoint, &cut.anchor);
+                    let response: serde_json::Value =
+                        serde_json::from_slice(&body).map_err(|error| error.to_string())?;
+                    if status != 410 || response["payload"]["code"] != "history_unavailable" {
+                        return Err(format!(
+                            "configured ordinary V3 returned unexpected status during issuer outage: {status}"
+                        ));
+                    }
+                }
+                let (status, _) = fixture.read_manifest(&endpoint, &cut.anchor);
                 reopened.stop(Duration::from_secs(10))?;
                 drop(reopened);
                 if status != 200 {
@@ -96,6 +107,7 @@ where
                 }
             }
             fixture.finish();
+            eprintln!("configured ordinary V3 HTTP manifest withheld during issuer outage and restored on the same runtime");
             return Ok(None);
         }
         if crash_phase == Some("identity_runtime_lease") {

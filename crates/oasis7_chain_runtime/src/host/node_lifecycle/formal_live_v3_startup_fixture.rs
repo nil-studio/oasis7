@@ -36,11 +36,26 @@ impl StartupV3Fixture {
         let server = std::thread::spawn(move || {
             let mut incarnations = Vec::new();
             let mut exact_replays = 0;
+            // The provider's first history fetch reaches the real configured
+            // transport, but authorization evidence is temporarily unavailable.
+            let (mut stream, unavailable) = read_query(&listener);
+            assert_eq!(unavailable.provider_public_key, public(90));
+            assert!(unavailable.provider_lease_request.is_none());
+            stream
+                .write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .unwrap();
+            drop(stream);
             // Each fresh runtime performs observation + lease acquisition on
             // the pre-material check, then observes again before release.
             for rpc_index in 0..6 {
                 let (mut stream, q) = read_query(&listener);
                 assert_eq!(q.provider_public_key, public(90));
+                if rpc_index == 0 {
+                    assert_eq!(q.provider_incarnation, unavailable.provider_incarnation);
+                    assert_ne!(q.observation_nonce, unavailable.observation_nonce);
+                    assert_eq!(q.target, unavailable.target);
+                    assert_eq!(q.minimum_anchor, unavailable.minimum_anchor);
+                }
                 let start = Instant::now();
                 let request = FullSyncIssuerReadEvidenceRequestV3 {
                     observation_nonce: hex::decode(&q.observation_nonce)
@@ -154,7 +169,11 @@ impl StartupV3Fixture {
     pub(crate) fn configuration(&self) -> FormalLiveReadAuthorizationV3 {
         self.config.clone()
     }
-    pub(crate) fn read_manifest(&self, endpoint: &str, anchor: &VerifiedFormalReadAnchorV1) -> u16 {
+    pub(crate) fn read_manifest(
+        &self,
+        endpoint: &str,
+        anchor: &VerifiedFormalReadAnchorV1,
+    ) -> (u16, Vec<u8>) {
         let requested = cut(anchor);
         let reader = key(READER_KEY);
         let grant = FormalNodeReadGrantV1::sign(
@@ -172,7 +191,7 @@ impl StartupV3Fixture {
             &hex::encode(key(9).to_bytes()),
         )
         .unwrap();
-        post_manifest(endpoint, &reader, grant, requested).0
+        post_manifest(endpoint, &reader, grant, requested)
     }
     pub(crate) fn finish(self) {
         let incarnations = self.server.join().unwrap();
