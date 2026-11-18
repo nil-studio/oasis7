@@ -579,6 +579,11 @@ fn recovery_rejection(error: &str) -> String {
         "storage_paths",
         "private_store",
         "ledger",
+        "ledger_handoff",
+        "ledger_open",
+        "ledger_preload",
+        "ledger_replay",
+        "ledger_origin",
         "h_index",
         "bind_origin",
     ]
@@ -598,6 +603,11 @@ mod recovery_diagnostic_tests {
             "storage_paths",
             "private_store",
             "ledger",
+            "ledger_handoff",
+            "ledger_open",
+            "ledger_preload",
+            "ledger_replay",
+            "ledger_origin",
             "h_index",
             "bind_origin",
         ] {

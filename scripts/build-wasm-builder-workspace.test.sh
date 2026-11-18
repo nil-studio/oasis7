@@ -15,7 +15,7 @@ import unittest
 ROOT = Path(sys.argv.pop()).resolve()
 HELPER = ROOT / 'docker/wasm-builder/prepare-workspace.sh'
 PRODUCERS = ('crates/oasis7_wasm_build', 'tools/wasm_build_suite')
-VENDORS = ('vendor-if-watch-3.2.2', 'vendor-libp2p-swarm-0.48.0', 'vendor-libp2p-rendezvous-0.18.1')
+VENDORS = ('vendor-if-watch-3.2.2', 'vendor-libp2p-swarm-0.48.0', 'vendor-libp2p-rendezvous-0.18.1', 'vendor-libp2p-quic-0.14.0')
 
 class Workspace(unittest.TestCase):
     def setUp(self):
