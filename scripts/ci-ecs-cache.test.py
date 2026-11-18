@@ -500,7 +500,7 @@ class RealCargoArchiveTests(unittest.TestCase):
                     staged = {'save': False}
                     ecs.stage_cache(SimpleNamespace(cache=cache, state=state, preview=True),
                                     10_000_000_000, staged)
-                self.assertTrue(staged['would_save'], staged)
+                self.assertIs(staged.get('would_save'), True, staged)
                 self.assertFalse(staged['save'])
                 self.assertTrue((cache / ecs.ARCHIVE_NAME).is_file())
                 for changed in (False, True):
@@ -533,7 +533,7 @@ class RealCargoArchiveTests(unittest.TestCase):
                                 restaged = {'save': False}
                                 ecs.stage_cache(SimpleNamespace(cache=base / 'consumer-cache',
                                     state=consumer_state, preview=True), 10_000_000_000, restaged)
-                            self.assertTrue(restaged['would_save'], restaged)
+                            self.assertIs(restaged.get('would_save'), True, restaged)
 
 
 if __name__ == '__main__':
