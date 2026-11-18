@@ -505,14 +505,16 @@ fn committed_archive() {
 
     let root = Scratch::new();
     let store = cas(root.path());
-    let mut ledger = open(&h, root.path(), &store, true).unwrap();
-    ledger
+    open(&h, root.path(), &store, true)
+        .unwrap()
         .install_prefix(&input, later_height, &later_id)
         .unwrap();
     // The complete live ledger contains a later certified record. The
     // archive and publication plan use only records through the chosen cut.
-    let durable = ledger.verified_cut(height, &id).unwrap();
-    drop(ledger);
+    let durable = open(&h, root.path(), &store, false)
+        .unwrap()
+        .verified_cut(height, &id)
+        .unwrap();
     let destination = Scratch::new();
     let archive = LocalBftSuccessorArchiveStoreV1::new(cas(destination.path())).unwrap();
     let mut original_ledger = open(&h, root.path(), &store, false).unwrap();
