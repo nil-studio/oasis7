@@ -465,6 +465,7 @@ fn run_recovery(consecutive: bool) {
         error.starts_with("endpoint child closed stdout before readiness"),
         "{error}"
     );
+    assert!(!rolled_back.wait().unwrap().success());
     assert_eq!(po.stale_checkpoint_opens(), before + 1);
     assert_eq!(fs::read(&primary_checkpoint).unwrap(), original_checkpoint);
 

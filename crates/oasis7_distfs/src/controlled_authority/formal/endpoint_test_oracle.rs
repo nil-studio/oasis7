@@ -235,19 +235,21 @@ impl Oracle {
                                     });
                                 }
                                 let state = ledger.as_ref().unwrap();
-                                if reg.existing_checkpoint.as_ref().is_some_and(|bytes| {
-                                    Store::verify_public(bytes, &instance.endpoint_public_key)
-                                        .map(|body| {
-                                            let binding = Store::binding(&body, bytes);
-                                            binding != state.checkpoint
-                                                && !state.pending.as_ref().is_some_and(|p| {
-                                                    binding == p.previous || binding == p.next
-                                                })
+                                if let Some(bytes) = &reg.existing_checkpoint {
+                                    let Ok(body) =
+                                        Store::verify_public(bytes, &instance.endpoint_public_key)
+                                    else {
+                                        break;
+                                    };
+                                    let binding = Store::binding(&body, bytes);
+                                    if binding != state.checkpoint
+                                        && !state.pending.as_ref().is_some_and(|p| {
+                                            binding == p.previous || binding == p.next
                                         })
-                                        .unwrap_or(true)
-                                }) {
-                                    rejected_opens.fetch_add(1, Ordering::Relaxed);
-                                    break;
+                                    {
+                                        rejected_opens.fetch_add(1, Ordering::Relaxed);
+                                        break;
+                                    }
                                 }
                             }
                             MonotonicOracleCommandV1::Acquire(checkpoint) => {
