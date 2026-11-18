@@ -18,6 +18,16 @@ pub(crate) fn now_unix_ms() -> i64 {
         .unwrap_or(0)
 }
 
+pub(crate) fn with_execution_hook<T>(
+    execution_hook: &mut Option<&mut dyn crate::NodeExecutionHook>,
+    f: impl FnOnce(Option<&mut dyn crate::NodeExecutionHook>) -> T,
+) -> T {
+    match execution_hook {
+        Some(hook) => f(Some(&mut **hook)),
+        None => f(None),
+    }
+}
+
 pub(crate) fn millis_until_next_logical_tick(
     now_ms: i64,
     genesis_unix_ms: i64,
