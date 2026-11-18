@@ -389,7 +389,13 @@ impl PeerRecordReceiver {
         let current = durable.ledger.floors.get(&peer_id);
         let outcome = match current {
             None => {
-                if durable.ledger.floors.len() >= MAX_RECEIVER_FLOORS {
+                let combined_len =
+                    durable.ledger.floors.len() + durable.ledger.pre_migration_v1_expiries.len();
+                let is_tracked_v1 = durable
+                    .ledger
+                    .pre_migration_v1_expiries
+                    .contains_key(&peer_id);
+                if !is_tracked_v1 && combined_len >= MAX_RECEIVER_FLOORS {
                     return Err(protocol_error(
                         "peer-record receiver floor capacity exhausted".into(),
                     ));
@@ -1101,6 +1107,7 @@ fn ensure_durable_usable(durable: &DurableReceiver) -> Result<(), WorldError> {
 }
 
 fn persist_next(durable: &mut DurableReceiver, next: ReceiverLedgerV2) -> Result<(), WorldError> {
+    validate_loaded_ledger(&next)?;
     let bytes = super::durable_peer_record_publisher::canonical_cbor(&next)?;
     if bytes.len() > RECEIVER_STATE_MAX_BYTES {
         return Err(protocol_error(

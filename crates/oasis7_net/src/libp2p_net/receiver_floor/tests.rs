@@ -1598,3 +1598,57 @@ fn pre_migration_v1_record_expiry_bounds_subsequent_v2_floor_reclamation_and_pre
         "expected watermark rejection, got {replay_watermark_err:?}"
     );
 }
+
+#[test]
+fn combined_v1_and_v2_capacity_limits_admission_and_allows_v1_migration_at_capacity() {
+    let fixture = fixture();
+    let mut pre_migration_v1_expiries = BTreeMap::new();
+    let mut tracked_key = None;
+    for i in 0..MAX_RECEIVER_FLOORS {
+        let key = Keypair::generate_ed25519();
+        let peer_id = PeerId::from(key.public()).to_string();
+        pre_migration_v1_expiries.insert(peer_id, 10_000_000);
+        if i == 0 {
+            tracked_key = Some(key);
+        }
+    }
+    let ledger = ReceiverLedgerV2 {
+        schema_version: RECEIVER_SCHEMA_VERSION,
+        binding: receiver_binding(&fixture.template, &fixture.local_key).unwrap(),
+        mode: fixture.config.mode,
+        floors: BTreeMap::new(),
+        pruned_trusted_time_watermark_ms: None,
+        pre_migration_v1_expiries,
+    };
+    write_state(&fixture, &state_bytes(&ledger));
+
+    let receiver = open(&fixture);
+
+    // 1. New untracked V1 peer is rejected
+    let untracked_v1_key = Keypair::generate_ed25519();
+    let v1_rec = record_body(&untracked_v1_key, "untracked-v1");
+    let signed_untracked_v1 =
+        super::super::peer_record::sign_peer_record(&v1_rec, &untracked_v1_key).unwrap();
+    let err = receiver.admit_serialized(&signed_untracked_v1).unwrap_err();
+    assert!(format!("{err:?}").contains("capacity"));
+
+    // 2. New untracked V2 peer is rejected
+    let untracked_v2_key = Keypair::generate_ed25519();
+    let signed_untracked_v2 = signed(&untracked_v2_key, 1, "untracked-v2");
+    let err = receiver.admit_serialized(&signed_untracked_v2).unwrap_err();
+    assert!(format!("{err:?}").contains("capacity"));
+
+    // 3. Already tracked V1 peer migrating to V2 SUCCEEDS because total count does not increase
+    let tracked_key = tracked_key.unwrap();
+    let tracked_v2 = signed(&tracked_key, 1, "tracked-v1-migrating");
+    assert_eq!(
+        receiver.admit_serialized(&tracked_v2).unwrap(),
+        ReceiverAdmission::Accepted
+    );
+    assert_eq!(receiver.floor_count().unwrap(), 1);
+
+    // 4. Dropping and reopening passes validation cleanly
+    drop(receiver);
+    let reopened = open(&fixture);
+    assert_eq!(reopened.floor_count().unwrap(), 1);
+}
