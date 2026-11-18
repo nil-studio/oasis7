@@ -10,7 +10,7 @@ var __exportAll = (all, no_symbols) => {
 	if (!no_symbols) __defProp(target, Symbol.toStringTag, { value: "Module" });
 	return target;
 };
-// ../../../oasis7-viewer-unknown-claim-feedback-5167/crates/oasis7_viewer/node_modules/solid-js/dist/solid.js
+// node_modules/solid-js/dist/solid.js
 var sharedConfig = {
 	context: void 0,
 	registry: void 0,
@@ -196,14 +196,6 @@ function useContext(context) {
 	return Owner && Owner.context && (value = Owner.context[context.id]) !== void 0 ? value : context.defaultValue;
 }
 var SuspenseContext;
-function repairObserverSlots(source) {
-	source.observerSlots = source.observers.map((observer, slot) => {
-		const sources = observer.sources;
-		if (!sources) return -1;
-		for (let i = sources.length - 1; i >= 0; i--) if (sources[i] === source && observer.sourceSlots && observer.sourceSlots[i] === slot) return i;
-		return sources.lastIndexOf(source);
-	});
-}
 function readSignal() {
 	const runningTransition = Transition && Transition.running;
 	if (this.sources && (runningTransition ? this.tState : this.state)) {
@@ -220,21 +212,16 @@ function readSignal() {
 		if (!observers || observers[observers.length - 1] !== Listener) {
 			const sSlot = observers ? observers.length : 0;
 			if (!Listener.sources) {
-				const sources = [this];
-				const sourceSlots = [sSlot];
-				Listener.sources = sources;
-				Listener.sourceSlots = sourceSlots;
+				Listener.sources = [this];
+				Listener.sourceSlots = [sSlot];
 			} else {
 				Listener.sources.push(this);
 				Listener.sourceSlots.push(sSlot);
 			}
 			if (!observers) {
-				const newObservers = [Listener];
-				const newObserverSlots = [Listener.sources.length - 1];
-				this.observers = newObservers;
-				this.observerSlots = newObserverSlots;
+				this.observers = [Listener];
+				this.observerSlots = [Listener.sources.length - 1];
 			} else {
-				if (!this.observerSlots || this.observerSlots.length !== observers.length) repairObserverSlots(this);
 				observers.push(Listener);
 				this.observerSlots.push(Listener.sources.length - 1);
 			}
@@ -277,7 +264,7 @@ function writeSignal(node, value, isComp) {
 }
 function updateComputation(node) {
 	if (!node.fn) return;
-	cleanNode(node, true);
+	cleanNode(node);
 	const time = ExecCount;
 	runComputation(node, Transition && Transition.running && Transition.sources.has(node) ? node.tValue : node.value, time);
 	if (Transition && !Transition.running && Transition.sources.has(node)) queueMicrotask(() => {
@@ -299,11 +286,11 @@ function runComputation(node, value, time) {
 		if (node.pure) {
 			if (Transition && Transition.running) {
 				node.tState = STALE;
-				node.tOwned && node.tOwned.forEach((n) => cleanNode(n));
+				node.tOwned && node.tOwned.forEach(cleanNode);
 				node.tOwned = void 0;
 			} else {
 				node.state = STALE;
-				node.owned && node.owned.forEach((n) => cleanNode(n));
+				node.owned && node.owned.forEach(cleanNode);
 				node.owned = null;
 			}
 		}
@@ -530,18 +517,11 @@ function markDownstream(node) {
 		}
 	}
 }
-function releaseTransitionSource(node) {
-	if (Transition && Transition.sources.has(node)) {
-		Transition.sources.delete(node);
-		delete node.tValue;
-	}
-}
-function cleanNode(node, recompute) {
+function cleanNode(node) {
 	let i;
 	if (node.sources) while (node.sources.length) {
 		const source = node.sources.pop(), index = node.sourceSlots.pop(), obs = source.observers;
 		if (obs && obs.length) {
-			if (!source.observerSlots || source.observerSlots.length !== obs.length) repairObserverSlots(source);
 			const n = obs.pop(), s = source.observerSlots.pop();
 			if (index < obs.length) {
 				n.sourceSlots[s] = index;
@@ -549,7 +529,6 @@ function cleanNode(node, recompute) {
 				source.observerSlots[index] = s;
 			}
 		}
-		if (!recompute && (!obs || !obs.length) && Transition) releaseTransitionSource(source);
 	}
 	if (node.tOwned) {
 		for (i = node.tOwned.length - 1; i >= 0; i--) cleanNode(node.tOwned[i]);
@@ -560,7 +539,6 @@ function cleanNode(node, recompute) {
 		for (i = node.owned.length - 1; i >= 0; i--) cleanNode(node.owned[i]);
 		node.owned = null;
 	}
-	if (!recompute) releaseTransitionSource(node);
 	if (node.cleanups) {
 		for (i = node.cleanups.length - 1; i >= 0; i--) node.cleanups[i]();
 		node.cleanups = null;
@@ -572,7 +550,6 @@ function reset(node, top) {
 	if (!top) {
 		node.tState = 0;
 		Transition.disposed.add(node);
-		releaseTransitionSource(node);
 	}
 	if (node.owned) for (let i = 0; i < node.owned.length; i++) reset(node.owned[i]);
 }
@@ -774,7 +751,7 @@ function Show(props) {
 		return props.fallback;
 	}, void 0, void 0);
 }
-// ../../../oasis7-viewer-unknown-claim-feedback-5167/crates/oasis7_viewer/node_modules/solid-js/web/dist/web.js
+// node_modules/solid-js/web/dist/web.js
 var memo = (fn) => createMemo(() => fn());
 function reconcileArrays(parentNode, a, b) {
 	let bLength = b.length, aEnd = a.length, bEnd = bLength, aStart = 0, bStart = 0, after = a[aEnd - 1].nextSibling, map = null;
@@ -4130,6 +4107,27 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		});
 		return result.prepared;
 	}
+	async function context(operationId, runBudget = null) {
+		if (await find(operationId, "action") || await find(operationId, "outcome")) fail$5("original_result_requires_recovery");
+		const prefix = await find(operationId, "prefix");
+		if (!prefix) return captureContext(operationId, await prepareContext(operationId, runBudget), runBudget);
+		const result = await lookup(prefix);
+		await recovery.settle(prefix.operationId, {
+			state: result.state,
+			receipt: { rawJson: json(result.receipt) }
+		});
+		if (result.state !== "committed") fail$5(terminal(result.state) ? "context_rejected" : "operation_pending");
+		const identity = field(decoded(prefix.signedRequest.rawJson), [
+			"signed_payload",
+			"payload",
+			"request",
+			"operation",
+			"data",
+			"context"
+		]);
+		if (!same$3((await freshFence()).fence, identity.fence)) fail$5("task_fence_changed");
+		return readContext(operationId, identity);
+	}
 	async function captureContext(operationId, prepared, runBudget = null) {
 		await freshFence();
 		const result = await submit(operationId, "prefix", {
@@ -4282,6 +4280,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		bindFence,
 		publicView,
 		snapshot,
+		context,
 		prepareContext,
 		captureContext,
 		readContext,
@@ -7123,7 +7122,7 @@ function viewerRuntimeConfig() {
 	if (!fixedConfig) fixedConfig = parseViewerRuntimeConfig(document);
 	return fixedConfig;
 }
-// ../../../oasis7-viewer-unknown-claim-feedback-5167/crates/oasis7_viewer/node_modules/solid-js/store/dist/store.js
+// node_modules/solid-js/store/dist/store.js
 var $RAW = Symbol("store-raw");
 var $NODE = Symbol("store-node");
 var $HAS = Symbol("store-has");
@@ -7252,10 +7251,8 @@ function wrap(value) {
 			let curProto = proto;
 			while (curProto != null) {
 				const descriptors = Object.getOwnPropertyDescriptors(curProto);
-				for (const prop of Object.keys(descriptors)) {
-					keys.push(prop);
-					if (!Object.prototype.hasOwnProperty.call(desc, prop)) desc[prop] = descriptors[prop];
-				}
+				keys.push(...Object.keys(descriptors));
+				Object.assign(desc, descriptors);
 				curProto = Object.getPrototypeOf(curProto);
 			}
 		}

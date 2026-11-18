@@ -228,6 +228,20 @@ export function createBrowserGameClient({ config, codec, ownerSigner, executorSi
   await recovery.settle(original.operationId, { state: result.state, receipt: result.receipt });
   return result.prepared;
  }
+ async function context(operationId, runBudget = null) {
+  // A completed/unknown effect owns this operation forever; never reopen it.
+  if (await find(operationId, "action") || await find(operationId, "outcome")) fail("original_result_requires_recovery");
+  const prefix = await find(operationId, "prefix");
+  if (!prefix) return captureContext(operationId, await prepareContext(operationId, runBudget), runBudget);
+  const result = await lookup(prefix);
+  await recovery.settle(prefix.operationId, { state: result.state, receipt: { rawJson: json(result.receipt) } });
+  if (result.state !== "committed") fail(terminal(result.state) ? "context_rejected" : "operation_pending");
+  const submitted = decoded(prefix.signedRequest.rawJson);
+  const identity = field(submitted, ["signed_payload", "payload", "request", "operation", "data", "context"]);
+  const current = await freshFence();
+  if (!same(current.fence, identity.fence)) fail("task_fence_changed");
+  return readContext(operationId, identity);
+ }
  async function captureContext(operationId, prepared, runBudget = null) {
   await freshFence();
   const prefix = build("prefix", prepared);
@@ -300,5 +314,5 @@ export function createBrowserGameClient({ config, codec, ownerSigner, executorSi
  function modelContext(captured) {
   return json({ goal: field(captured, ["prepared", "snapshot", "active_goal", "owner_proof", "request", "content"]), context_identity: field(captured, ["prepared", "identity"]), actor_observation: field(captured, ["current_public_context", "actor_observation"]), native_authority: field(captured, ["current_public_context", "native_authority"]) });
  }
- return { describe, readTask, freshFence, bindFence, publicView, snapshot, prepareContext, captureContext, readContext, quote, action, outcome, lookup, recover, retireExpiredContexts, registerExecutor, hasUnresolved, modelContext, world: copy(world), agentId, executorPublicKey: executorSigner.publicKeyHex };
+ return { describe, readTask, freshFence, bindFence, publicView, snapshot, context, prepareContext, captureContext, readContext, quote, action, outcome, lookup, recover, retireExpiredContexts, registerExecutor, hasUnresolved, modelContext, world: copy(world), agentId, executorPublicKey: executorSigner.publicKeyHex };
 }
