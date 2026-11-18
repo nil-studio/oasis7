@@ -31,9 +31,19 @@ pub(super) fn send_control_on_stream(
     instance: &FormalRuntimeInstanceV1,
     action: &str,
     deadline: Instant,
-    mut stream: UnixStream,
+    stream: UnixStream,
 ) -> Result<FormalRuntimeOwnerSnapshotV1, String> {
-    if !matches!(action, "query" | "stop") {
+    Ok(send_control_reply(state_path, instance, action, deadline, stream)?.snapshot)
+}
+
+pub(super) fn send_control_reply(
+    state_path: &Path,
+    instance: &FormalRuntimeInstanceV1,
+    action: &str,
+    deadline: Instant,
+    mut stream: UnixStream,
+) -> Result<ControlReply, String> {
+    if !matches!(action, "query" | "stop" | "observe_protected") {
         return Err("unsupported formal runtime owner control action".into());
     }
     let remaining = control_wire::remaining(deadline).map_err(|error| error.to_string())?;
@@ -68,7 +78,7 @@ pub(super) fn send_control_on_stream(
     {
         return Err("formal runtime owner durable/live status mismatch".into());
     }
-    Ok(reply.snapshot)
+    Ok(reply)
 }
 
 // Reserve transport, durable result publication and reply time *inside* the
@@ -76,7 +86,7 @@ pub(super) fn send_control_on_stream(
 // caller deadline; sub-millisecond wire budgets cannot authorize a stop.
 pub(super) fn control_work_timeout(action: &str, timeout: Duration) -> Result<Duration, String> {
     let timeout = timeout.min(Duration::from_secs(60));
-    let work = if action == "stop" {
+    let work = if matches!(action, "stop" | "observe_protected") {
         timeout - (timeout / 2).min(Duration::from_secs(2))
     } else {
         timeout

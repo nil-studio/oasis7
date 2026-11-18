@@ -1,0 +1,58 @@
+//! Manual qualification against an isolated Luna partition and a non-production key.
+use cryptoki::context::{CInitializeArgs, CInitializeFlags, Pkcs11};
+use cryptoki::session::UserType;
+use cryptoki::types::AuthPin;
+use ed25519_dalek::{Signature, VerifyingKey};
+use oasis7_distfs::protected_bft_v3::{BftSigningKeyHandleV3, LunaBftSigningKeyV3};
+
+fn main() {
+    let module = std::env::var_os("OASIS7_LUNA_TEST_MODULE").expect("qualified PKCS#11 module");
+    let serial = std::env::var("OASIS7_LUNA_TEST_SERIAL").expect("qualified token serial");
+    let key_id = hex::decode(std::env::var("OASIS7_LUNA_TEST_KEY_ID").expect("test key ID"))
+        .expect("hex test key ID");
+    let public_key = std::env::var("OASIS7_LUNA_TEST_PUBLIC_KEY").expect("test key public key");
+    let pin_path = std::env::var_os("OASIS7_LUNA_TEST_PIN_FILE").expect("private PIN file");
+    let preimage_len: usize = std::env::var("OASIS7_LUNA_TEST_PREIMAGE_BYTES")
+        .expect("qualified original-byte signing size")
+        .parse()
+        .expect("valid qualification size");
+    assert!((4097..=LunaBftSigningKeyV3::MAX_PREIMAGE_BYTES).contains(&preimage_len));
+
+    let library = Pkcs11::new(module).expect("load qualified PKCS#11 module");
+    library
+        .initialize(CInitializeArgs::new(CInitializeFlags::OS_LOCKING_OK))
+        .expect("initialize Luna module");
+    let eligible: Vec<_> = library
+        .get_slots_with_token()
+        .expect("enumerate tokens")
+        .into_iter()
+        .filter(|slot| {
+            library
+                .get_token_info(*slot)
+                .is_ok_and(|token| token.serial_number().trim() == serial)
+        })
+        .collect();
+    let [slot] = eligible.as_slice() else {
+        panic!("expected one provisioned Luna token with the configured serial");
+    };
+    let session = library.open_ro_session(*slot).expect("open Luna session");
+    let mut pin = std::fs::read_to_string(pin_path).expect("read private PIN file");
+    pin.truncate(pin.trim_end_matches(['\r', '\n']).len());
+    let pin = AuthPin::new(pin.into_boxed_str());
+    session
+        .login(UserType::User, Some(&pin))
+        .expect("authenticate isolated Luna session");
+    drop(pin);
+
+    let key = LunaBftSigningKeyV3::open(session, &key_id, &public_key)
+        .expect("bind hardware key against provisioned Ed25519 public key");
+    let mut original = vec![0xA5; preimage_len];
+    let signature = Signature::from_bytes(&key.sign_preimage(&original).unwrap());
+    let raw_key = hex::decode(public_key).expect("hex test key public key");
+    let verifying_key = VerifyingKey::from_bytes(&raw_key.try_into().expect("32-byte public key"))
+        .expect("valid Ed25519 public key");
+    assert!(verifying_key.verify_strict(&original, &signature).is_ok());
+    original[preimage_len - 1] ^= 1;
+    assert!(verifying_key.verify_strict(&original, &signature).is_err());
+    println!("qualified PureEdDSA multipart signing for {preimage_len} original bytes");
+}

@@ -54,11 +54,55 @@ impl GuardedExecutionPolicy {
         WasmExecutor::new_for_deterministic_replay(config).map_err(|e| e.to_string())
     }
 }
-pub(crate) use oasis7_executable_image::executable_digest;
+pub(crate) fn executable_digest() -> Result<String, String> {
+    #[cfg(test)]
+    if let Some(digest) = tests::fixture_image_digest() {
+        return Ok(digest);
+    }
+    oasis7_executable_image::executable_digest()
+}
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+
+    thread_local! {
+        static FIXTURE_IMAGE_DIGEST: std::cell::RefCell<Option<String>> = const {
+            std::cell::RefCell::new(None)
+        };
+    }
+
+    pub(super) fn fixture_image_digest() -> Option<String> {
+        FIXTURE_IMAGE_DIGEST.with(|digest| digest.borrow().clone())
+    }
+
+    /// Build and inspect a synthetic fixture for a separate shipping executable.
+    /// The child independently verifies its loaded image through the normal CLI.
+    pub(crate) fn with_fixture_image_digest<T>(digest: String, run: impl FnOnce() -> T) -> T {
+        struct Restore(Option<String>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                FIXTURE_IMAGE_DIGEST.with(|digest| digest.replace(self.0.take()));
+            }
+        }
+
+        let _restore = Restore(FIXTURE_IMAGE_DIGEST.with(|value| value.replace(Some(digest))));
+        run()
+    }
+
+    #[test]
+    fn fixture_image_digest_is_thread_local_and_restored() {
+        let original = executable_digest();
+        with_fixture_image_digest("fixture-image".into(), || {
+            assert_eq!(executable_digest().as_deref(), Ok("fixture-image"));
+            let original = original.clone();
+            std::thread::spawn(move || assert_eq!(executable_digest(), original))
+                .join()
+                .unwrap();
+        });
+        assert_eq!(executable_digest(), original);
+    }
+
     #[test]
     fn original_native_policy_binds_anonymous_heap_initialization() {
         let policy = GuardedExecutionPolicy::current();

@@ -216,6 +216,15 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
     {
         return Err("C06 pre-failure proof differs from exact controlled baseline".into());
     }
+    let pair = case.runtime.observe_protected_pair(Duration::from_secs(2))?;
+    if !pair.both_heads_match_unchanged_cut
+        || pair.verified_published_cut.head != baseline.anchor.head().head()
+        || pair.verified_published_cut.finalizing_authority_id
+            != baseline.anchor.head().finalizing_authority_id()
+    {
+        return Err("C06 authenticated endpoints did not match the fixed published cut".into());
+    }
+    eprintln!("C06 protected_pair=matched_before_replica_loss");
     case.replica_child.kill_sigkill_and_wait()?;
     let after_kill = case.runtime.published.current()?;
     if after_kill.anchor.head().head() != baseline.anchor.head().head() {
@@ -256,6 +265,17 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
             "C06 lost-replica status did not report degraded pending at the old cut: {status:?}"
         ));
     }
+    let degraded_pair = case.runtime.observe_protected_pair(Duration::from_secs(2))?;
+    if degraded_pair.both_heads_match_unchanged_cut
+        || !matches!(
+            degraded_pair.replica,
+            crate::formal_live_runtime::observation::EndpointObservation::Unavailable
+        )
+        || degraded_pair.verified_published_cut.head != pair.verified_published_cut.head
+    {
+        return Err("C06 lost replica was credited with paired readback or lost the old cut".into());
+    }
+    eprintln!("C06 protected_pair=replica_unavailable_old_cut_retained");
     match owner_client.submit(case.owner_request.clone()) {
         Err(oasis7::world_service::client::WorldServiceClientError::Rejected {
             status: 503,
@@ -364,6 +384,13 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
     if recovery_boundary.position != recovery_position || recovery_position < target_position {
         return Err("C06 recovery did not publish the exact successor boundary".into());
     }
+    let recovered_pair = reopened.observe_protected_pair(Duration::from_secs(2))?;
+    if !recovered_pair.both_heads_match_unchanged_cut
+        || recovered_pair.verified_published_cut.head.position != recovery_boundary.position
+    {
+        return Err("C06 recovered endpoints did not match the published successor".into());
+    }
+    eprintln!("C06 protected_pair=matched_recovered_cut");
     recovery_control.release()?;
 
     // Volatile admission is not durable pending state and may disappear on

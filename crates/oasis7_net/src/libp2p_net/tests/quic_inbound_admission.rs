@@ -186,3 +186,115 @@ fn quic_swarm_pending_inbound_policy_rejects_attempt() {
             .expect("denied Swarm attempt must terminate");
         });
 }
+
+#[test]
+fn quic_inbound_permit_is_checked_before_upgrade_and_held_until_close() {
+    use futures::StreamExt;
+    use libp2p::{
+        core::muxing::StreamMuxerBox,
+        swarm::{Config, ConnectionDenied, ListenError, Swarm, SwarmEvent, dummy},
+    };
+    use std::{
+        io,
+        sync::{
+            Arc, Mutex,
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+        },
+    };
+
+    struct Permit(Arc<AtomicUsize>);
+    impl Drop for Permit {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                let may_enter = Arc::new(AtomicBool::new(false));
+                let dropped = Arc::new(AtomicUsize::new(0));
+                let attempts = Arc::new(Mutex::new(Vec::new()));
+                let admission = Arc::clone(&may_enter);
+                let permit_drops = Arc::clone(&dropped);
+                let seen = Arc::clone(&attempts);
+                let config = Config::with_tokio_executor()
+                    .with_idle_connection_timeout(Duration::from_secs(30))
+                    .with_inbound_transport_admission(move |id, local, remote| {
+                        seen.lock().unwrap().push((id, local.clone(), remote.clone()));
+                        if !admission.load(Ordering::SeqCst) {
+                            return Err(ConnectionDenied::new(io::Error::other("no permit")));
+                        }
+                        Ok(Box::new(Permit(Arc::clone(&permit_drops))))
+                    });
+                let server_key = Keypair::generate_ed25519();
+                let transport = quic::tokio::Transport::new(quic::Config::new(&server_key))
+                    .map(|(peer, muxer), _| (peer, StreamMuxerBox::new(muxer)))
+                    .boxed();
+                let server_peer = server_key.public().to_peer_id();
+                let mut server = Swarm::new(transport, dummy::Behaviour, server_peer, config);
+                server
+                    .listen_on("/ip4/127.0.0.1/udp/0/quic-v1".parse().unwrap())
+                    .unwrap();
+                let address = loop {
+                    if let SwarmEvent::NewListenAddr { address, .. } = server.select_next_some().await {
+                        break address;
+                    }
+                };
+                let mut client = quic::tokio::Transport::new(quic::Config::new(&Keypair::generate_ed25519()));
+                let mut dial = || {
+                    tokio::spawn(client.dial(
+                        address.clone(),
+                        DialOpts { role: Endpoint::Dialer, port_use: PortUse::Reuse },
+                    ).unwrap())
+                };
+
+                let denied = dial();
+                let rejected_id = loop {
+                    match server.select_next_some().await {
+                        SwarmEvent::IncomingConnectionError {
+                            connection_id,
+                            error: ListenError::Denied { .. },
+                            ..
+                        } => break connection_id,
+                        SwarmEvent::IncomingConnection { .. } | SwarmEvent::ConnectionEstablished { .. } => {
+                            panic!("denied listener upgrade reached the pool");
+                        }
+                        _ => {}
+                    }
+                };
+                assert!(denied.await.unwrap().is_err());
+                assert_eq!(dropped.load(Ordering::SeqCst), 0);
+
+                may_enter.store(true, Ordering::SeqCst);
+                let accepted = dial();
+                let connection = loop {
+                    if let SwarmEvent::ConnectionEstablished { connection_id, .. } = server.select_next_some().await {
+                        break connection_id;
+                    }
+                };
+                let (remote, _client_connection) = accepted.await.unwrap().unwrap();
+                assert_eq!(remote, server_peer);
+                {
+                    let seen = attempts.lock().unwrap();
+                    assert_eq!(seen.len(), 2);
+                    assert_eq!(seen[0].0, rejected_id);
+                    assert_eq!(seen[1].0, connection);
+                    assert!(seen.iter().all(|(_, local, remote)| local == &address && !remote.is_empty()));
+                }
+                assert_eq!(dropped.load(Ordering::SeqCst), 0);
+                assert!(server.close_connection(connection));
+                assert_eq!(dropped.load(Ordering::SeqCst), 0);
+                while !matches!(
+                    server.select_next_some().await,
+                    SwarmEvent::ConnectionClosed { connection_id, .. } if connection_id == connection
+                ) {}
+                assert_eq!(dropped.load(Ordering::SeqCst), 1);
+            })
+            .await
+            .expect("inbound permit probe timed out");
+        });
+}

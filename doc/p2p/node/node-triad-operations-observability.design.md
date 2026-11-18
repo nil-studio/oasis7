@@ -261,6 +261,20 @@ adapter 复用单节点相同的 schema/profile/world/chain/genesis、incarnatio
 验收沿真实 HTTP stub→child→outer→merger→canonical，核对 ready、producer stale、错误实例/profile、最新 HTTP 失败和恢复；另验精确路由、redirect、超限、超时和 legacy 未选择路径。stub 只证明该适配合同，不证明部署端点、可信绝对时间、物理防回退或角色授权协议已验收。
 
 <a id="local-profile-collection"></a>
+### controlled-v2 Host 签名状态观测
+
+`oasis7_chain_runtime op formal-status-observe --request FILE` 使用显式 JSON 配置中的 `status_url`（完整 `/v1/chain/status` URL）、`service_public_key`（服务验签公钥）、`expected_world`（`world_id` 与 `genesis_digest`）和 `expected_node_id`。配置由调用者固定，响应不得提供或替换这些值。
+
+观测器生成 32 字节随机挑战，以 JSON `observation_nonce` 提交到同路径的 POST。服务将挑战纳入现有响应签名绑定。观测器以固定公钥和本次挑战验签，再比对 World、节点和 profile。原 GET 和签名输入保留，旧 GET 的签名不能通过本次挑战校验。单次连接和读取共用五秒请求超时，响应上限 64 KiB，不跟随重定向或自动重试。校验失败时命令失败，不生成成功观测。
+
+成功输出是 `oasis7.formal-live-status-observation/v1`。Host 状态、准入标志和最近发布位置是本次认证的诊断，双端资格 `authority_qualification` 保持 unknown。输出只保留错误存在标志，不复制内部文本。双端当前资格和权威时点另按 #5512 的验收贯通。
+
+外层 monitor 的 `--controlled-status-inventory FILE` 接受 `oasis7.controlled-status-inventory/v1`。它由 `api_version`、指向受信任 shipping CLI 的绝对 `runtime_bin` 和 `slots` 对象组成。只允许 `local_node`、`sequencer_ecs`、`storage_ecs`，每个 slot 使用上述四项固定输入。同一 slot 只选一处 profile 来源。调用者明确选择并信任此本地 CLI。预留 attempt 前固定 inventory 内容摘要，采集时再次核对并将已解析 pins 通过标准输入交给该 CLI。内容变化或验签失败产生 unknown，其他 slot 仍继续采集。
+
+报告记录本次本地认证回执时间和时效，旧报告重读不刷新原时间。生成的 JSON／Markdown 带 Host 诊断、固定 World/Node 及最近发布位置，不复制 endpoint、验签公钥、inventory 或原始错误。Host 观测过期标为 stale，双端资格仍为 unknown。此入口沿原 attempt 原子发布语义，不改变其他 profile 或 traffic 数据。
+
+私有 owner 命令 `oasis7_chain_runtime op formal-protected-observe --config FILE` 针对现有运行时的确切 owner incarnation。owner 从同一个已验证发布视图取得历史 cut，然后使用各自绑定的 P/R 客户端，在同一绝对观测期限内取得签名 guarded Head。报告分别保存已验证历史 cut、端点的认证观察或不可用、以及两个已观测 head 是否与本次前后相同的发布 cut 一致。认证过程各端独立，`current_writer_qualification` 保持 unknown。观测只走私有 owner 控制面，HTTP 服务与原读写准入继续沿各自入口。报告使用固定字段与有界错误结果，保留 epoch floor、checkpoint revision、seal 和请求槽存在性。
+
 ### 本地正式 profile 采集与验证读取
 
 独立入口 `scripts/p2p-node-profile-monitor.sh --node-binary <absolute-executable> --data-dir <absolute-existing-directory> --out-dir <root>` 只执行显式选择的 `node status --data-dir`，不启动、停止或修复节点。输出目录不能与节点数据目录重叠，不能包住所选二进制。binary／data-dir／参数先验证，再通过既有持久发布器的独立 `node-profile` 类型预留单调序号和 pending；预发布失败不执行 CLI，旧慢任务不能覆盖新 pending／失败。该类型不能读取其他 collector 的存储。候选二进制内容摘要、数据目录摘要和超时绑定报告范围；路径／配置／grant 不复制到报告。范围改变时不沿用另一范围的 last-success；已取得的实例身份显式记录，跨实例历史不能填作当前读取。

@@ -573,6 +573,24 @@ class Selection(unittest.TestCase):
         with self.assertRaises(selector.UnknownInputsError):
             selector.select(config, base, self.commit())
 
+    def test_fixed_swarm_patch_sources_select_network_consumers(self):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        for path in ('vendor-libp2p-swarm-0.48.0/src/lib.rs',
+                     'vendor-libp2p-swarm-0.48.0/src/outbound_attempt.rs'):
+            with self.subTest(path=path):
+                base = self.git('rev-parse', 'HEAD')
+                self.write(path, 'fixed Swarm patch source')
+                plan = selector.select(config, base, self.commit())
+                self.assertEqual(plan['scope'], 'targeted')
+                self.assertTrue({'rust_baseline', 'net', 'node'}.issubset(plan['groups']))
+        for path in ('vendor-libp2p-swarm-0.48.0/unregistered.json',
+                     'vendor-libp2p-swarm-0.49.0/src/lib.rs'):
+            with self.subTest(path=path):
+                base = self.git('rev-parse', 'HEAD')
+                self.write(path, 'unregistered input')
+                with self.assertRaises(selector.UnknownInputsError):
+                    selector.select(config, base, self.commit())
+
     def test_rendezvous_patch_inputs_select_network_consumers(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
         for path in ('vendor-libp2p-rendezvous-0.18.1/src/client.rs',
