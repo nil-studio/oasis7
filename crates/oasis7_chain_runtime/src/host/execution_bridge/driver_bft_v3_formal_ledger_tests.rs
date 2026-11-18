@@ -629,54 +629,49 @@ fn committed_archive() {
     assert_eq!(result["header_id"], expected_header);
     assert_eq!(result["semantic_state_root"], expected_root);
 
-    let archive_config = write_config(
-        "archive.json",
-        serde_json::json!({
-            "schema_version": 1,
-            "archive_directory": destination.path().join("cas"),
-            "source": source,
-            "reference": reference,
-            "candidate": candidate,
-        }),
-    );
-    crate::identity_receipt::dispatch(
-        [
-            "bft-header",
-            "archive-prefix",
-            "--config",
-            ledger_config.to_str().unwrap(),
-            "--archive",
-            archive_config.to_str().unwrap(),
-        ]
-        .into_iter(),
-    )
-    .unwrap()
+    let run_cli = |archive_config: &Path| {
+        crate::identity_receipt::dispatch(
+            [
+                "bft-header",
+                "archive-prefix",
+                "--config",
+                ledger_config.to_str().unwrap(),
+                "--archive",
+                archive_config.to_str().unwrap(),
+            ]
+            .into_iter(),
+        )
+        .unwrap()
+    };
+    let mut archive_options = serde_json::json!({
+        "schema_version": 1,
+        "archive_directory": destination.path().join("cas"),
+        "source": source,
+        "reference": reference,
+    });
+    run_cli(&write_config(
+        "ordinary-archive.json",
+        archive_options.clone(),
+    ))
     .unwrap();
-    for bad_candidate in [missing, extra] {
-        let bad_config = write_config(
-            "bad-candidate.json",
-            serde_json::json!({
-                "schema_version": 1,
-                "archive_directory": destination.path().join("cas"),
-                "source": source,
-                "reference": reference,
-                "candidate": bad_candidate,
-            }),
-        );
-        assert!(
-            crate::identity_receipt::dispatch(
-                [
-                    "bft-header",
-                    "archive-prefix",
-                    "--config",
-                    ledger_config.to_str().unwrap(),
-                    "--archive",
-                    bad_config.to_str().unwrap()
-                ]
-                .into_iter(),
-            )
-            .unwrap()
-            .is_err()
-        );
-    }
+    archive_options["candidate"] = candidate;
+    run_cli(&write_config(
+        "candidate-archive.json",
+        archive_options.clone(),
+    ))
+    .unwrap();
+    archive_options["candidate"] = missing;
+    assert!(
+        run_cli(&write_config(
+            "missing-candidate.json",
+            archive_options.clone()
+        ))
+        .is_err()
+    );
+    archive_options["candidate"] = extra;
+    let error = run_cli(&write_config("extra-candidate.json", archive_options)).unwrap_err();
+    assert!(
+        error.contains("closed candidate archive contains unobserved dependencies"),
+        "{error}"
+    );
 }
