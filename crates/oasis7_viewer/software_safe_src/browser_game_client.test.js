@@ -19,7 +19,7 @@ function fixture(recoveryOverride) {
   signingBytes: (domain, request) => { signed.push({ domain, request: JSON.parse(request) }); return new Uint8Array([1]); },
   verifyGatewayResponse: vi.fn((domain, request, response, serviceKey) => { expect(serviceKey).toBe(key); const parsed = JSON.parse(response); if (parsed.tampered) throw new Error("bad signature"); return JSON.stringify(parsed.world_response.payload); }),
   validate: vi.fn((kind, request, payload) => payload),
-  build: (kind, value) => { const v = JSON.parse(value); if (kind === "field") return JSON.stringify(v.path.reduce((current, name) => current[name], JSON.parse(v.json))); if (kind === "fence") return JSON.stringify(v); if (kind === "correlation") return JSON.stringify({ key: { world: v.world, request_id_or_nonce: JSON.parse(v.payload_json).kind }, payload_digest: JSON.parse(v.payload_json).kind }); if (kind === "prefix") return JSON.stringify({ operation: { operation: "task_provider_prefix", data: { context: v.identity } } }); if (kind === "action") return JSON.stringify({ request: { agent_id: "agent" }, action: v.action }); if (kind === "retire_context") return JSON.stringify({ operation: { operation: "task_provider_failure", data: { context: JSON.parse(v.context_json), reason: "context_expired" } } }); if (kind === "outcome") return JSON.stringify({ operation: { operation: "task_provider_failure", data: { context: JSON.parse(v.captured_json).prepared.identity, reason: v.reason } } }); throw new Error("unsupported"); },
+  build: (kind, value) => { const v = JSON.parse(value); if (kind === "field") return JSON.stringify(v.path.reduce((current, name) => current[name], JSON.parse(v.json))); if (kind === "fence") return JSON.stringify(v); if (kind === "correlation") return JSON.stringify({ key: { world: v.world, request_id_or_nonce: JSON.parse(v.payload_json).kind }, payload_digest: JSON.parse(v.payload_json).kind }); if (kind === "prefix") return JSON.stringify({ operation: { operation: "task_provider_prefix", data: { context: v.identity } } }); if (kind === "action") return JSON.stringify({ request: { agent_id: "agent" }, action: v.action }); if (kind === "retire_context") return JSON.stringify({ operation: { operation: "task_provider_failure", data: { context: JSON.parse(v.context_json), reason: "context_expired" } } }); if (kind === "outcome") return JSON.stringify({ captured_base_binding: JSON.parse(v.captured_json).current_public_context.captured_base_binding, operation: { operation: "task_provider_failure", data: { context: JSON.parse(v.captured_json).prepared.identity, reason: v.reason } } }); throw new Error("unsupported"); },
  };
  const gatewayCall = vi.fn(async (path, body, options) => {
   await options?.beforeSend?.();
@@ -29,7 +29,7 @@ function fixture(recoveryOverride) {
   let payload;
   if (op.kind === "prepare_context") payload = prepared;
   else if (op.kind === "read_view") payload = { logical_tick: logicalTick, view: { game_task_control: stateFence, runtime_binding: { base_tick: logicalTick } } };
-  else if (op.kind === "read_context") payload = { prepared, current_public_context: { captured_base_binding: {}, actor_observation: {} } };
+  else if (op.kind === "read_context") payload = { prepared, current_public_context: { captured_base_binding: { base_tick: logicalTick }, actor_observation: {} } };
   else if (op.kind === "submit" || op.kind === "lookup" || op.kind === "lookup_executor") payload = { correlation: op.request.correlation ?? { key: op.request.request.key }, outcome: { status: op.kind === "submit" ? "pending" : (op.request.original?.payload?.request?.operation?.operation === "task_provider_failure" ? outcomeLookupStatus ?? lookupStatus : lookupStatus) } };
   else payload = {};
   return { world_response: { payload } };
@@ -274,4 +274,17 @@ it("resumes a prefix through durable recovery after discarding client-local capt
  expect(captured.prepared.identity).toEqual(first.prepared.identity);
  expect(resumed.calls.some((c) => ["prepare_context", "submit"].includes(c.body.operation?.kind))).toBe(false);
  expect((await resumed.recovery.load()).operations.map((e) => e.original)).toEqual(before.operations.map((e) => e.original));
+});
+
+it("signs the first abort against a refreshed context and only looks up its original on retry", async () => {
+ const f = fixture(); await f.client.bindFence(fence);
+ const prepared = await f.client.prepareContext("abort-refresh");
+ const captured = await f.client.captureContext("abort-refresh", prepared);
+ f.setTick(2);
+ await f.client.outcome("abort-refresh", captured, "executor_aborted");
+ const original = f.entries.find((entry) => entry.original.kind === "outcome").original;
+ expect(JSON.parse(original.signedRequest.rawJson).signed_payload.payload.request.captured_base_binding).toEqual({ base_tick: 2 });
+ const before = f.calls.length;
+ await f.client.outcome("abort-refresh", captured, "executor_aborted");
+ expect(f.calls.slice(before).map((call) => call.body.operation.kind)).toEqual(["lookup_executor"]);
 });
