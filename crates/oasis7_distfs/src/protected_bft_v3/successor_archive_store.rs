@@ -1,6 +1,7 @@
 //! Durable, content-addressed public material for successor-window recovery.
 //! Storage is not authority: the provider must verify the returned state from
 //! its admitted H and protected predecessor before adopting a checkpoint.
+use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::Read;
 use std::path::{Component, Path};
@@ -10,7 +11,43 @@ use oasis7_cas::{BlobStore, HashAlgorithm, LocalCasStore, decode_local_blob_into
 use super::binding::{BftSignerErrorV3, invalid};
 use super::crypto::{BFT_SIGNER_MAX_FRAME_BYTES_V3, decode_bounded, encode_bounded};
 use super::state::BftSignerStateV3;
-use super::successor_window::BftSuccessorWindowArchiveRefV1;
+fn hash(value: &str) -> Result<(), BftSignerErrorV3> {
+    if value.len() != 64
+        || !value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err(invalid(
+            "successor window requires a lowercase 32-byte hash",
+        ));
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BftSuccessorWindowArchiveRefV1 {
+    pub digest: String,
+    pub bytes: u64,
+}
+impl BftSuccessorWindowArchiveRefV1 {
+    pub fn validate(&self) -> Result<(), BftSignerErrorV3> {
+        hash(&self.digest)?;
+        if self.bytes == 0 || self.bytes > 512 * 1024 * 1024 {
+            return Err(invalid("successor archive object bound"));
+        }
+        Ok(())
+    }
+    pub fn validate_bytes(&self, bytes: &[u8]) -> Result<(), BftSignerErrorV3> {
+        self.validate()?;
+        if u64::try_from(bytes.len()).ok() != Some(self.bytes)
+            || blake3::hash(bytes).to_hex().as_str() != self.digest
+        {
+            return Err(invalid("successor archive object length/hash mismatch"));
+        }
+        Ok(())
+    }
+}
 
 /// Implementations must publish immutable bytes durably and verify reads.
 /// The independently protected minimum remains in the signer backend CAS;
