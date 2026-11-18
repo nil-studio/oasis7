@@ -132,3 +132,85 @@ jobs:
           docker push "$ref"
           digest=$(docker buildx imagetools inspect "$ref" --format "{{json .Manifest}}" | jq -er .digest)
           printf "%s@%s\n" "$image" "$digest" >> "$GITHUB_STEP_SUMMARY"
+
+  custody-replay:
+    name: custody-node image replay (${{ matrix.shard }})
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Build candidate Linux image
+        run: ./docker/ci-base/build.sh build
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 5f651c9f7cbf49a1b9e3b0e6b34c20aef7a5dfa3
+          path: custody-source
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Download the exact successful producer artifacts from PR 6023
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          download() {
+            gh run download 44297220098 --repo nil-studio/oasis7 --name "$1" --dir "$RUNNER_TEMP/custody-replay/$2"
+          }
+          download ci-selection-44297220098-1 plan
+          download custody-native-44297220098-2 bundles/native
+          download custody-wasm-production-44297220098-1 bundles/wasm-production
+          download custody-wasm-approval-44297220098-1 bundles/wasm-approval
+      - name: Restore producer outputs and install locked Node dependencies
+        run: |
+          set -euo pipefail
+          node_home=$(dirname "$(dirname "$(command -v node)")")
+          docker run --rm --user "$(id -u):$(id -g)" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/custody-source,target=/workspace" \
+            --mount "type=bind,source=$RUNNER_TEMP/custody-replay,target=/inputs,readonly" \
+            --mount "type=bind,source=$node_home,target=/opt/node,readonly" \
+            --workdir /workspace --env HOME=/tmp oasis7-ci-build:candidate bash -ec '
+              export PATH="/opt/node/bin:$PATH"
+              python3 scripts/ci-custody-platform.py restore --run-id 44297220098 --attempt 4 \
+                --plan /inputs/plan/selection.json --bundles /inputs/bundles \
+                --producer-attempts '"'"'{"native":2,"wasm-production":1,"wasm-approval":1}'"'"'
+              npm ci --prefix crates/oasis7_custody_worker --ignore-scripts
+            '
+      - name: Run the complete custody-node shard in the image
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          node_home=$(dirname "$(dirname "$(command -v node)")")
+          docker run --rm --network none --user "$(id -u):$(id -g)" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/custody-source,target=/workspace" \
+            --mount "type=bind,source=$RUNNER_TEMP/custody-replay,target=/inputs,readonly" \
+            --mount "type=bind,source=$node_home,target=/opt/node,readonly" \
+            --workdir /workspace --env HOME=/tmp --env SHARD oasis7-ci-build:candidate bash -ec '
+              export PATH="/opt/node/bin:$PATH"
+              if [[ "$SHARD" == 0 ]]; then
+                OASIS7_REQUIRE_GDB_TESTS=1 OASIS7_GDB_CONTRACT_RESULTS=output/workerd-gdb-contracts \
+                  python3 scripts/ci-custody-workerd-gdb-contracts.py --failfast GdbContracts
+                npm run test:types --prefix crates/oasis7_custody_worker
+              fi
+              python3 scripts/ci-custody-platform.py run --run-id 44297220098 --attempt 4 \
+                --plan /inputs/plan/selection.json --shard "$SHARD" \
+                --results "output/custody-$SHARD" --capture-workerd-faults
+            '
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: always()
+        with:
+          name: custody-image-replay-${{ matrix.shard }}-${{ github.run_attempt }}
+          path: custody-source/output/custody-${{ matrix.shard }}
+          retention-days: 7
