@@ -60,6 +60,8 @@ struct PeerFloorV2 {
     isolated: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     max_expiry_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    admitted_at_ms: Option<i64>,
 }
 
 #[derive(Debug)]
@@ -434,6 +436,18 @@ impl PeerRecordReceiver {
             Some(_) => ReceiverAdmission::Accepted,
         };
 
+        let admission_time = match durable.last_trusted_now_ms {
+            Some(trusted) => trusted.max(record.record.published_at_ms),
+            None => {
+                let wall = crate::util::unix_now_ms_i64();
+                if (wall - record.record.published_at_ms).abs() < 86_400_000 {
+                    wall.max(record.record.published_at_ms)
+                } else {
+                    record.record.published_at_ms
+                }
+            }
+        };
+
         let mut next = durable.ledger.clone();
         match outcome {
             ReceiverAdmission::Conflict => {
@@ -459,6 +473,8 @@ impl PeerRecordReceiver {
                 });
                 current.max_expiry_ms =
                     Some(existing_max.max(new_expiry).max(pre_v1_expiry.unwrap_or(0)));
+                let existing_admitted = current.admitted_at_ms.unwrap_or(0);
+                current.admitted_at_ms = Some(existing_admitted.max(admission_time));
             }
             ReceiverAdmission::Accepted => {
                 let new_expiry = record
@@ -484,6 +500,12 @@ impl PeerRecordReceiver {
                         Some(base.max(new_expiry))
                     }
                 };
+                let admitted_at_ms = match current {
+                    Some(existing) => {
+                        Some(existing.admitted_at_ms.unwrap_or(0).max(admission_time))
+                    }
+                    None => Some(admission_time),
+                };
                 next.floors.insert(
                     peer_id,
                     PeerFloorV2 {
@@ -493,6 +515,7 @@ impl PeerRecordReceiver {
                         conflict_signed_record_cbor: None,
                         isolated: false,
                         max_expiry_ms,
+                        admitted_at_ms,
                     },
                 );
             }
@@ -664,6 +687,24 @@ impl PeerRecordReceiver {
         Ok(prunable_peers.len())
     }
 
+    pub(super) fn observe_trusted_time(&self, trusted_now_ms: i64) -> Result<(), WorldError> {
+        if self.state.mode == PeerRecordReceiverMode::Legacy {
+            return Ok(());
+        }
+        let mut durable = self.durable_lock_required()?;
+        ensure_durable_usable(&durable)?;
+        if trusted_now_ms <= 0 {
+            return Err(protocol_error("trusted time must be positive".into()));
+        }
+        if let Some(last) = durable.last_trusted_now_ms
+            && trusted_now_ms < last
+        {
+            return Err(protocol_error("trusted time moved backward".into()));
+        }
+        durable.last_trusted_now_ms = Some(trusted_now_ms);
+        Ok(())
+    }
+
     pub(super) fn prune_offline(
         config: &PeerRecordReceiverConfig,
         keypair: &Keypair,
@@ -734,9 +775,11 @@ fn is_floor_prunable(
     if trusted_now_ms < effective_max_expiry {
         return Ok(false);
     }
-    let max_possible_expiry = primary
-        .record
-        .published_at_ms
+    let admission_time = floor
+        .admitted_at_ms
+        .unwrap_or(primary.record.published_at_ms)
+        .max(primary.record.published_at_ms);
+    let max_possible_expiry = admission_time
         .saturating_add(MAX_RECORD_TTL_MS)
         .saturating_add(MAX_FUTURE_SKEW_MS);
     if trusted_now_ms < max_possible_expiry {
@@ -996,6 +1039,13 @@ fn validate_loaded_ledger(ledger: &ReceiverLedgerV2) -> Result<(), WorldError> {
         {
             return Err(protocol_error(
                 "receiver floor max expiry precedes primary expiry".into(),
+            ));
+        }
+        if let Some(admitted_at) = floor.admitted_at_ms
+            && admitted_at <= 0
+        {
+            return Err(protocol_error(
+                "receiver floor admission timestamp must be positive".into(),
             ));
         }
         let publication = primary.publication.as_ref().ok_or_else(|| {

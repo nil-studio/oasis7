@@ -219,6 +219,7 @@ fn full_receiver_floor_rejects_new_peers_but_allows_existing_peer_updates() {
                 conflict_signed_record_cbor: None,
                 isolated: false,
                 max_expiry_ms: None,
+                admitted_at_ms: None,
             },
         );
         if index == 0 {
@@ -916,6 +917,7 @@ fn pruning_reclaims_expired_floors_and_allows_new_peers_at_capacity() {
                 conflict_signed_record_cbor: None,
                 isolated: false,
                 max_expiry_ms: None,
+                admitted_at_ms: None,
             },
         );
     }
@@ -947,6 +949,7 @@ fn pruning_reclaims_expired_floors_and_allows_new_peers_at_capacity() {
                 conflict_signed_record_cbor: None,
                 isolated: false,
                 max_expiry_ms: None,
+                admitted_at_ms: None,
             },
         );
     }
@@ -1437,6 +1440,7 @@ fn pre_upgrade_floor_with_none_max_expiry_survives_conflict_with_earlier_expiry(
             conflict_signed_record_cbor: None,
             isolated: false,
             max_expiry_ms: None,
+            admitted_at_ms: None,
         },
     );
     let ledger = ReceiverLedgerV2 {
@@ -1651,4 +1655,118 @@ fn combined_v1_and_v2_capacity_limits_admission_and_allows_v1_migration_at_capac
     drop(receiver);
     let reopened = open(&fixture);
     assert_eq!(reopened.floor_count().unwrap(), 1);
+}
+
+#[test]
+fn unobserved_lower_sequence_record_cannot_resurrect_withdrawn_peer_after_pruning() {
+    let fixture = fixture();
+    let receiver = open(&fixture);
+    let key = Keypair::generate_ed25519();
+    let peer_id = PeerId::from(key.public()).to_string();
+
+    let t = 10_000_000i64;
+    // Receiver observes trusted time T before sequence 2 arrives
+    receiver.observe_trusted_time(t).unwrap();
+
+    // Sequence 1: published at T with 3,600,000 ms TTL (expires at T + 3,600,000 ms),
+    // but WITHHELD from receiver (receiver has never observed it).
+    let mut rec1 = record_body(&key, "peer-unobserved-seq1");
+    rec1.published_at_ms = t;
+    rec1.ttl_ms = 3_600_000;
+    let signed1 = super::super::peer_record::sign_peer_record_v2(
+        &rec1,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 1,
+            state: PeerRecordPublicationStateV2::Live,
+        },
+        &key,
+    )
+    .unwrap();
+
+    // Sequence 2: tombstone published at T - 3,599,000 ms with 3,600,000 ms TTL
+    // (expires at T + 1,000 ms). Delivered to receiver at T.
+    let mut tombstone_rec = record_body(&key, "peer-unobserved-seq2-tombstone");
+    tombstone_rec.direct_addrs.clear();
+    tombstone_rec.hole_punch_addrs.clear();
+    tombstone_rec.relay_addrs.clear();
+    tombstone_rec.published_at_ms = t - 3_599_000;
+    tombstone_rec.ttl_ms = 3_600_000;
+    let signed2 = super::super::peer_record::sign_peer_record_v2(
+        &tombstone_rec,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 2,
+            state: PeerRecordPublicationStateV2::Tombstone,
+        },
+        &key,
+    )
+    .unwrap();
+
+    assert_eq!(
+        receiver.admit_serialized(&signed2).unwrap(),
+        ReceiverAdmission::Accepted
+    );
+    assert_eq!(receiver.floor_count().unwrap(), 1);
+
+    // Floor records admitted_at_ms = T = 10_000_000
+    let floor = receiver
+        .durable_lock()
+        .unwrap()
+        .unwrap()
+        .ledger
+        .floors
+        .get(&peer_id)
+        .cloned()
+        .unwrap();
+    assert_eq!(floor.admitted_at_ms, Some(t));
+
+    // Pruning attempt at T + 31,000 ms MUST be rejected because unobserved lower-sequence
+    // records published prior to admission could still be valid until:
+    // T + MAX_RECORD_TTL_MS + MAX_FUTURE_SKEW_MS = T + 3_630_000 ms.
+    let pruned = receiver.prune_floors(t + 31_000, &BTreeSet::new()).unwrap();
+    assert_eq!(pruned, 0);
+    assert!(receiver.contains_floor(&peer_id).unwrap());
+
+    // Delivering withheld sequence 1 while floor is retained is rejected due to sequence regression
+    let regressed_err = receiver.admit_serialized(&signed1).unwrap_err();
+    assert!(
+        format!("{regressed_err:?}").contains("peer-record V2 sequence regressed"),
+        "expected sequence regressed error, got {regressed_err:?}"
+    );
+
+    // Reopening receiver from disk preserves admitted_at_ms and retains floor at T + 31,000 ms
+    drop(receiver);
+    let reopened = open(&fixture);
+    assert!(reopened.contains_floor(&peer_id).unwrap());
+    let reopened_floor = reopened
+        .durable_lock()
+        .unwrap()
+        .unwrap()
+        .ledger
+        .floors
+        .get(&peer_id)
+        .cloned()
+        .unwrap();
+    assert_eq!(reopened_floor.admitted_at_ms, Some(t));
+    assert_eq!(
+        reopened.prune_floors(t + 31_000, &BTreeSet::new()).unwrap(),
+        0
+    );
+
+    // When trusted time advances past the unobserved retention bound (T + 3_600_000 + 30_000 + 1000):
+    let safe_prune_time = t + 3_600_000 + MAX_FUTURE_SKEW_MS + 1000;
+    let pruned = reopened
+        .prune_floors(safe_prune_time, &BTreeSet::new())
+        .unwrap();
+    assert_eq!(pruned, 1);
+    assert!(!reopened.contains_floor(&peer_id).unwrap());
+
+    // Delivering sequence 1 after floor pruning is rejected by receiver pruning watermark
+    let replay_watermark_err = reopened.admit_serialized(&signed1).unwrap_err();
+    assert!(
+        format!("{replay_watermark_err:?}")
+            .contains("peer record expired before receiver pruning watermark"),
+        "expected watermark rejection, got {replay_watermark_err:?}"
+    );
 }

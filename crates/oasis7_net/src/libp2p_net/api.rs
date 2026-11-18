@@ -75,6 +75,14 @@ impl Libp2pNetwork {
             .prune_floors(trusted_now_ms, &all_retained)
     }
 
+    pub fn observe_peer_record_receiver_trusted_time(
+        &self,
+        trusted_now_ms: i64,
+    ) -> Result<(), WorldError> {
+        self.peer_record_receiver
+            .observe_trusted_time(trusted_now_ms)
+    }
+
     pub fn published(&self) -> Vec<NetworkMessage> {
         self.published.lock().expect("lock published").clone()
     }
