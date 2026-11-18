@@ -110,8 +110,13 @@ fn run_unix(args: Vec<String>) -> Result<(), String> {
         if tail.len() != 3 || tail[1] != "--request" {
             return Err("formal-status-observe requires --request FILE".into());
         }
-        let pins = io::read(std::path::Path::new(&tail[2]))?;
-        let report = super::formal_live_status_observation::observe(&pins)?;
+        use super::formal_live_status_observation::{observe, read_pins};
+        let pins = if tail[2] == "-" {
+            read_pins(std::io::stdin().lock())?
+        } else {
+            io::read(std::path::Path::new(&tail[2]))?
+        };
+        let report = observe(&pins)?;
         println!(
             "{}",
             serde_json::to_string(&report).map_err(|_| "serialize formal status observation")?

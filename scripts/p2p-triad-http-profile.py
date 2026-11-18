@@ -9,10 +9,14 @@ import hashlib
 import http.client
 import importlib.util
 import json
+import os
+import re
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import time
+import unicodedata
 from urllib.parse import urlsplit
 
 _spec = importlib.util.spec_from_file_location("http_profile_adapter", Path(__file__).with_name("p2p-profile-readiness.py"))
@@ -21,6 +25,8 @@ _spec.loader.exec_module(adapter)
 LABELS = ("local_node", "sequencer_ecs", "storage_ecs")
 CAP = 4 * 1024 * 1024
 TIMEOUT = 5
+CONTROLLED_CAP = 16 * 1024
+CONTROLLED_TIMEOUT = 6
 START = "<!-- triad-profile-start -->"
 END = "<!-- triad-profile-end -->"
 
@@ -47,6 +53,103 @@ def unknown(reason, state="unknown"):
     result = adapter.project(None, "http", now())
     result.update(status=state, reason=reason)
     return result
+
+
+def decode_object(pairs):
+    result = {}
+    for name, value in pairs:
+        if name in result:
+            raise ValueError("duplicate JSON field")
+        result[name] = value
+    return result
+
+
+def hex_digest(value):
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-fA-F]{64}", value) is not None
+
+
+def valid_pins(pins):
+    if not isinstance(pins, dict) or set(pins) != {
+            "status_url", "service_public_key", "expected_world", "expected_node_id"}:
+        return False
+    if not isinstance(pins["status_url"], str):
+        return False
+    world = pins["expected_world"]
+    node = adapter.text(pins["expected_node_id"])
+    address = pins["status_url"]
+    url = endpoint(address)
+    return (url.path == "/v1/chain/status" and not any(delimiter in address for delimiter in ("?", "#"))
+            and isinstance(world, dict) and set(world) == {"world_id", "genesis_digest"}
+            and adapter.text(world["world_id"]) is not None and hex_digest(world["genesis_digest"])
+            and hex_digest(pins["service_public_key"]) and node is not None
+            and len(node.encode("utf-8")) <= 256 and all(unicodedata.category(c) != "Cc" for c in node))
+
+
+def controlled_inventory(path):
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0))
+    with os.fdopen(descriptor, "rb") as source:
+        if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+            raise ValueError("controlled status inventory is not a regular file")
+        data = source.read(CONTROLLED_CAP + 1)
+    if len(data) > CONTROLLED_CAP:
+        raise ValueError("controlled status inventory exceeds bound")
+    inventory = json.loads(data.decode("utf-8"), object_pairs_hook=decode_object)
+    if (not isinstance(inventory, dict) or set(inventory) != {"api_version", "runtime_bin", "slots"}
+            or inventory["api_version"] != "oasis7.controlled-status-inventory/v1"
+            or not isinstance(inventory["runtime_bin"], str)):
+        raise ValueError("invalid controlled inventory schema")
+    runtime = Path(inventory["runtime_bin"])
+    slots = inventory["slots"]
+    if (not runtime.is_absolute() or not runtime.is_file() or not os.access(runtime, os.X_OK)
+            or not isinstance(slots, dict) or not slots or not set(slots) <= set(LABELS)
+            or not all(valid_pins(pins) for pins in slots.values())):
+        raise ValueError("invalid controlled profile pins")
+    return runtime, slots, hashlib.sha256(data).hexdigest()
+
+
+def observe_controlled(runtime, pins):
+    try:
+        # The selected verifier is the operator's trusted shipping binary. Pins
+        # go through stdin and raw stdout/error are never published.
+        result = subprocess.run([str(runtime), "op", "formal-status-observe", "--request", "-"],
+                                input=json.dumps(pins).encode("utf-8"), stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, timeout=CONTROLLED_TIMEOUT, check=False)
+        if result.returncode != 0:
+            return None, "controlled_observation_failed"
+        if len(result.stdout) > 64 * 1024:
+            return None, "output_limit"
+        status = json.loads(result.stdout.decode("utf-8"), object_pairs_hook=decode_object)
+    except subprocess.TimeoutExpired:
+        return None, "timeout"
+    except (OSError, ValueError, UnicodeError):
+        return None, "invalid_status"
+    if (not isinstance(status, dict)
+            or status.get("api_version") != "oasis7.formal-live-status-observation/v1"
+            or status.get("observation_scope") != "authenticated_host_diagnostics_only"
+            or status.get("authority_qualification") != "unknown"
+            or status.get("node_id") != pins["expected_node_id"] or status.get("world") != pins["expected_world"]
+            or status.get("host_state") not in ("starting", "stopped", "degraded", "ready", "stopping")
+            or any(type(status.get(key)) is not bool for key in
+                   ("node_running", "host_reports_ready", "runtime_error_present"))
+            or status["host_reports_ready"] != (status["host_state"] == "ready")
+            or (status["host_reports_ready"] and not status["node_running"])):
+        return None, "invalid_status"
+    position, record = status.get("committed_position"), status.get("committed_record_id")
+    if ((position is None) != (record is None)
+            or (position is not None and (adapter.uint(position) is None or not hex_digest(record)))
+            or (status["host_reports_ready"] and position is None)):
+        return None, "invalid_status"
+    profile = unknown("controlled_authority_qualification_unobserved")
+    profile.update(source="verified_controlled_status", runtime_profile="formal_live_v1",
+                   observation_scope="authenticated_host_diagnostics_only",
+                   authority_qualification="unknown", protected_services_readiness="unknown",
+                   sample_time_basis="local_authenticated_receipt", observed_at_unix_ms=now(),
+                   world_id=pins["expected_world"]["world_id"], genesis_digest=pins["expected_world"]["genesis_digest"],
+                   node_id=pins["expected_node_id"],
+                   committed_position=position, committed_record_id=record,
+                   **{key: status[key] for key in
+                      ("host_state", "node_running", "host_reports_ready", "runtime_error_present")})
+    return profile, "success"
 
 
 def _fetch(url, deadline, owned):
@@ -138,16 +241,19 @@ def refresh_node(node, as_of):
     observed = profile.get("observed_at_unix_ms")
     valid_observed = type(observed) is int and 0 <= observed <= as_of
     profile.update(as_of_unix_ms=as_of, age_ms=as_of - observed if valid_observed else None)
-    if profile.get("runtime_profile") == "bft/version=1":
+    runtime_profile = profile.get("runtime_profile")
+    freshness_scope = ({"bft/version=1": "bft", "formal_live_v1": "controlled_host"}.get(runtime_profile)
+                       if isinstance(runtime_profile, str) else None)
+    if freshness_scope:
         profile["source_freshness"] = ("unknown" if not valid_observed else
             "fresh" if as_of-observed <= adapter.MAX_AGE_MS else "stale")
         if not valid_observed:
             # A null timestamp carries the adapter's more specific failure reason.
             profile["status"] = "unknown"
             if observed is not None:
-                profile["reason"] = "bft_observation_clock_uncertain"
+                profile["reason"] = freshness_scope + "_observation_clock_uncertain"
         elif as_of-observed > adapter.MAX_AGE_MS:
-            profile.update(status="stale", reason="bft_observation_expired")
+            profile.update(status="stale", reason=freshness_scope + "_observation_expired")
         elif (collection.get("result") != "success" or collection.get("complete") is not True
               or collection["freshness"] != "fresh"):
             profile.update(status="unknown", reason="collection_unavailable")
@@ -190,6 +296,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for label in LABELS:
         parser.add_argument("--" + label.replace("_", "-") + "-url", action="append", default=[])
+    parser.add_argument("--controlled-inventory")
+    parser.add_argument("--expected-controlled-inventory-digest")
     parser.add_argument("--summary-json")
     parser.add_argument("--validate-only", action="store_true")
     args = parser.parse_args()
@@ -201,22 +309,51 @@ def main():
     except ValueError:
         parser.error("invalid profile endpoint")
     urls = {label: values[-1] if values else None for label, values in supplied.items()}
+    runtime, controlled, digest = None, {}, None
+    inventory_failed = False
+    if args.controlled_inventory:
+        try:
+            runtime, controlled, digest = controlled_inventory(args.controlled_inventory)
+            if any(urls[label] is not None for label in controlled):
+                raise ValueError("controlled and HTTP profile inputs share a slot")
+            if not args.validate_only and digest != args.expected_controlled_inventory_digest:
+                raise ValueError("controlled profile inventory changed after preflight")
+        except (OSError, ValueError, UnicodeError):
+            if args.validate_only:
+                parser.error("invalid controlled status inventory or conflicting profile slot")
+            controlled = {}
+            inventory_failed = True
     if args.validate_only:
+        if digest is not None:
+            print(digest)
         return 0
     if not args.summary_json:
         parser.error("--summary-json is required")
     nodes = {}
-    failed = False
+    failed = inventory_failed
     for label, value in urls.items():
         started = now()
-        status, result = fetch(value) if value is not None else (None, "not_selected")
+        mode = "http"
+        scope = hashlib.sha256(value.encode()).hexdigest() if value else None
+        if label in controlled:
+            mode = "controlled_verified_http"
+            pins = controlled[label]
+            scope = hashlib.sha256(json.dumps(pins, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+            profile, result = observe_controlled(runtime, pins)
+        elif value is not None:
+            status, result = fetch(value)
+            profile = adapter.project(status, "http", now()) if result == "success" else None
+        else:
+            result = "controlled_inventory_unavailable" if inventory_failed else "not_selected"
+            profile = None
         finished = now()
         failed |= result not in ("success", "not_selected")
-        profile = adapter.project(status, "http", finished) if result == "success" else unknown(result, "unsupported" if value is None else "unknown")
+        if profile is None:
+            profile = unknown(result, "unsupported" if result == "not_selected" else "unknown")
         nodes[label] = refresh_node({"profile_collection": {
-            "mode": "http", "result": result, "complete": result == "success",
+            "mode": mode, "result": result, "complete": result == "success",
             "started_at_unix_ms": started, "finished_at_unix_ms": finished,
-            "endpoint_scope_digest": hashlib.sha256(value.encode()).hexdigest() if value else None,
+            "endpoint_scope_digest": scope,
         }, "profile_readiness": profile}, finished)
     Path(args.summary_json).write_text(json.dumps({"api_version": "oasis7.triad-http-profile/v1", "nodes": nodes}) + "\n")
     return 1 if failed else 0

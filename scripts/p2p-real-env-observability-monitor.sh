@@ -33,6 +33,7 @@ Options:
   --local-status-url/--sequencer-status-url/--storage-status-url <url>  snapshot and traffic
   --local-storage-path/--sequencer-storage-path/--storage-storage-path <path>  host only
   --local-profile-status-url/--sequencer-profile-status-url/--storage-profile-status-url <url>  explicit HTTP profile only
+  --controlled-status-inventory <path>  pinned controlled-v2 profile observer for selected slots
   --world-id <id>                  snapshot only
   --local-health-url/--sequencer-health-url/--storage-health-url <url>  snapshot only
   --local-env-file/--sequencer-env-file/--storage-env-file <path>  snapshot only
@@ -58,6 +59,7 @@ ssh_timeout_secs=8
 out_root=".tmp/p2p_real_env_observability"
 
 profile_args=()
+controlled_status_inventory=""
 profile_report_args=()
 snapshot_args=()
 host_args=()
@@ -97,7 +99,7 @@ while [[ $# -gt 0 ]]; do
       echo "this outer monitor is triad-only; --node is not supported" >&2
       exit 2
       ;;
-    --local-profile-status-url|--sequencer-profile-status-url|--storage-profile-status-url|--samples|--interval-secs|--traffic-samples|--traffic-interval-secs|--window-minutes|--ssh-timeout-secs|--out-dir|--traffic-history-path|--as-of-unix-ms|--max-sample-age-secs|--max-sample-gap-secs|--top-n|--history-retention-minutes|--sequencer-target|--storage-target|--local-service|--sequencer-service|--storage-service|--local-status-url|--sequencer-status-url|--storage-status-url|--local-storage-path|--sequencer-storage-path|--storage-storage-path|--world-id|--local-health-url|--sequencer-health-url|--storage-health-url|--local-env-file|--sequencer-env-file|--storage-env-file|--sequencer-public-status-url|--sequencer-public-health-url|--storage-public-status-url|--storage-public-health-url)
+    --local-profile-status-url|--sequencer-profile-status-url|--storage-profile-status-url|--controlled-status-inventory|--samples|--interval-secs|--traffic-samples|--traffic-interval-secs|--window-minutes|--ssh-timeout-secs|--out-dir|--traffic-history-path|--as-of-unix-ms|--max-sample-age-secs|--max-sample-gap-secs|--top-n|--history-retention-minutes|--sequencer-target|--storage-target|--local-service|--sequencer-service|--storage-service|--local-status-url|--sequencer-status-url|--storage-status-url|--local-storage-path|--sequencer-storage-path|--storage-storage-path|--world-id|--local-health-url|--sequencer-health-url|--storage-health-url|--local-env-file|--sequencer-env-file|--storage-env-file|--sequencer-public-status-url|--sequencer-public-health-url|--storage-public-status-url|--storage-public-health-url)
       if [[ $# -lt 2 || -z "$2" || "$2" == -* ]]; then
         echo "$1 requires a nonempty value" >&2
         exit 2
@@ -145,6 +147,14 @@ while [[ $# -gt 0 ]]; do
     --local-profile-status-url) profile_args+=(--local-node-url "$value") ;;
     --sequencer-profile-status-url) profile_args+=(--sequencer-ecs-url "$value") ;;
     --storage-profile-status-url) profile_args+=(--storage-ecs-url "$value") ;;
+    --controlled-status-inventory)
+      if [[ -n "$controlled_status_inventory" ]]; then
+        echo "controlled status inventory must be supplied once" >&2
+        exit 2
+      fi
+      controlled_status_inventory=$value
+      profile_args+=(--controlled-inventory "$value")
+      ;;
     --local-status-url|--sequencer-status-url|--storage-status-url)
       snapshot_args+=("$1" "$value")
       traffic_args+=("$1" "$value")
@@ -177,14 +187,27 @@ if [[ -n "$historical_as_of" || -n "$traffic_history_path" ]]; then
 fi
 
 
+controlled_inventory_digest=""
 if (( ${#profile_args[@]} > 0 )); then
-  python3 "$repo_root/scripts/p2p-triad-http-profile.py" --validate-only "${profile_args[@]}"
+  controlled_inventory_digest=$(python3 "$repo_root/scripts/p2p-triad-http-profile.py" --validate-only "${profile_args[@]}")
+  if [[ -n "$controlled_inventory_digest" ]]; then
+    profile_args+=(--expected-controlled-inventory-digest "$controlled_inventory_digest")
+  fi
 fi
 
 attempt_helper="$repo_root/scripts/p2p-real-env-observability-attempt.py"
 scope_args=()
+skip_controlled_inventory_path=0
 for argument in "${original_args[@]+"${original_args[@]}"}"; do
+  if (( skip_controlled_inventory_path )); then
+    skip_controlled_inventory_path=0
+    continue
+  fi
   scope_args+=("--scope-arg=$argument")
+  if [[ "$argument" == --controlled-status-inventory ]]; then
+    skip_controlled_inventory_path=1
+    scope_args+=("--scope-arg=controlled-inventory-sha256:$controlled_inventory_digest")
+  fi
 done
 reservation=$(python3 "$attempt_helper" begin --out-dir "$out_root" ${scope_args[@]+"${scope_args[@]}"})
 sequence=$(printf '%s' "$reservation" | python3 -c 'import json,sys; print(json.load(sys.stdin)["sequence"])')
