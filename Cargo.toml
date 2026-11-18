@@ -109,6 +109,7 @@ debug-assertions = false
 if-watch = { path = "vendor-if-watch-3.2.2" }
 
 [patch."https://github.com/libp2p/rust-libp2p"]
+libp2p-quic = { path = "vendor-libp2p-quic-0.14.0" }
 libp2p-swarm = { path = "vendor-libp2p-swarm-0.48.0" }
 libp2p-rendezvous = { path = "vendor-libp2p-rendezvous-0.18.1" }
 

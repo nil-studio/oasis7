@@ -142,7 +142,10 @@ def refresh_node(node, as_of):
         profile["source_freshness"] = ("unknown" if not valid_observed else
             "fresh" if as_of-observed <= adapter.MAX_AGE_MS else "stale")
         if not valid_observed:
-            profile.update(status="unknown", reason="bft_observation_clock_uncertain")
+            # A null timestamp carries the adapter's more specific failure reason.
+            profile["status"] = "unknown"
+            if observed is not None:
+                profile["reason"] = "bft_observation_clock_uncertain"
         elif as_of-observed > adapter.MAX_AGE_MS:
             profile.update(status="stale", reason="bft_observation_expired")
         elif (collection.get("result") != "success" or collection.get("complete") is not True

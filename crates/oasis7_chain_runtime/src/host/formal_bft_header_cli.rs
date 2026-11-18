@@ -1,4 +1,6 @@
 //! Explicit qualified-H previews, private durable imports, and native Node commands.
+#[path = "formal_bft_checkpoint_trust_cli.rs"]
+mod checkpoint_trust;
 #[path = "formal_bft_header_ledger_cli.rs"]
 mod ledger;
 #[path = "formal_bft_header_node_cli.rs"]
@@ -66,6 +68,9 @@ pub(super) fn run_with_shutdown<'a>(
     }
     if action == "node" {
         return node::run(args, shutdown);
+    }
+    if action == "prepare-checkpoint-trust" {
+        return checkpoint_trust::run(args);
     }
     if matches!(action, "install" | "verify" | "serve") {
         return ledger::run(action, args, shutdown);
@@ -177,7 +182,7 @@ fn read_private(path: &Path, maximum: u64) -> Result<Vec<u8>, String> {
     super::controlled_history_cli::read_bounded(path, maximum)
 }
 fn help() -> String {
-    "Usage: oasis7_chain_runtime bft-header preview --config ABS --actions ABS [--history ABS]\nAdditional commands: bft-header node --config ABS (--actions ABS | --print-binding | --serve [--actions ABS]); bft-header install --config ABS --history ABS; bft-header verify --config ABS; bft-header serve --config ABS.\nNetwork Node operation requires --serve and explicit network configuration. Offline actual World execution preview from qualified H and an optional fully replayed private history. Preview output is public header/commitment only, with no durable receipt. Install/verify return a private local ledger report with a public prefix; neither grants canonical publication, validator signature or read authority.".into()
+    "Usage: oasis7_chain_runtime bft-header preview --config ABS --actions ABS [--history ABS]\nPreparation only: bft-header prepare-checkpoint-trust --config ABS --node-config ABS --policy-pin HEX32 --consumer-binding HEX32 --original-c0-pin HEX32. Pins must come from the original independent deployment authorization, never this candidate. This may initialize or recover the original private Node ledger/namespace like --print-binding, including before a later source comparison rejects. It does not prove C0-to-H history, current authorization, protected time or installation; it never starts provider signing/serving.\nAdditional commands: bft-header node --config ABS (--actions ABS | --print-binding | --serve [--actions ABS]); bft-header install --config ABS --history ABS; bft-header verify --config ABS; bft-header serve --config ABS.\nNetwork Node operation requires --serve and explicit network configuration. Offline actual World execution preview from qualified H and an optional fully replayed private history. Preview output is public header/commitment only, with no durable receipt. Install/verify return a private local ledger report with a public prefix; neither grants canonical publication, validator signature or read authority.".into()
 }
 
 #[cfg(test)]

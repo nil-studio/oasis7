@@ -301,6 +301,27 @@ class PlannerTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'unregistered input'):
                 self.run_plan(full=full)
 
+    def test_fixed_quic_vendor_metadata_routes_to_rust(self):
+        for path in ('vendor-libp2p-quic-0.14.0/.gitignore', 'vendor-libp2p-quic-0.14.0/LICENSE'):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, 'fixed vendor metadata\n')
+                self.commit()
+                result = self.run_plan()
+                self.assertEqual(result['selected_units'], ['rust-repo'])
+                self.assertIn(path, result['reasons']['rust-repo'])
+                self.assertEqual(result['fallback_reasons'], [])
+
+    def test_fixed_quic_vendor_registration_does_not_admit_neighbors(self):
+        for path in ('vendor-libp2p-quic-0.14.0/unregistered.json',
+                     'vendor-libp2p-quic-0.14.1/LICENSE'):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, '{}')
+                self.commit()
+                with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                    self.run_plan()
+
     def test_viewer_stylesheet_keeps_javascript_owner_across_changes(self):
         path = 'crates/oasis7_viewer/viewer_terminal_shell.css'
         for value in ('body { color: red; }', 'body { color: blue; }'):
@@ -450,6 +471,23 @@ class PlannerTests(unittest.TestCase):
         path.parent.mkdir(parents=True)
         path.symlink_to('../docs/guide.md'); self.commit()
         with self.assertRaisesRegex(ValueError, 'symbolic link'):
+            self.run_plan()
+
+    def test_ci_base_image_inputs_select_actions(self):
+        paths = ('docker/ci-base/Dockerfile', 'docker/ci-base/build.sh',
+                 'docker/ci-base/runtime-packages.txt', 'docker/ci-base/build-packages.txt')
+        for path in paths:
+            self.write(path, 'fixture\n')
+        self.commit()
+        plan = self.run_plan()
+        self.assertEqual(plan['selected_units'], ['actions-repo'])
+        for path in paths:
+            self.assertIn(path, plan['reasons']['actions-repo'])
+
+    def test_ci_base_image_does_not_register_neighboring_dockerfile(self):
+        self.write('docker/ci-base/nested/Dockerfile', 'FROM scratch\n')
+        self.commit()
+        with self.assertRaisesRegex(ValueError, 'unregistered input'):
             self.run_plan()
 
     def test_ci_required_scope_selects_its_python_and_actions_consumers(self):

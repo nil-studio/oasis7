@@ -40,7 +40,7 @@ class NetworkSourceContract(unittest.TestCase):
         docker = (ROOT / "docker/wasm-builder/Dockerfile").read_text().splitlines()
         context_policy = (ROOT / ".dockerignore").read_text().splitlines()
         paths = [root["patch"][URL][name]["path"]
-                 for name in ("libp2p-swarm", "libp2p-rendezvous")]
+                 for name in ("libp2p-swarm", "libp2p-rendezvous", "libp2p-quic")]
         paths.append(root["patch"]["crates-io"]["if-watch"]["path"])
         for patch in paths:
             self.assertIn(f"COPY --chmod=0755 {patch} /opt/oasis7/{patch}", docker)
