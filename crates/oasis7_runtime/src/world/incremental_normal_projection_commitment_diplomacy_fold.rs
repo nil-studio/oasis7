@@ -1,8 +1,13 @@
 //! Fold only the exact original diplomacy-cell changes. Counts are checked
 //! after all member patches, independently of sparse-tree visitation order.
 use super::*;
-use super::{state_columns::OriginalStateColumnsDataV1,original_rows::{OriginalProjectionRowsDataV1,OriginalProjectionRowDataV1},diplomacy_rows::OriginalDiplomacyRecordDataV1};
-use oasis7_world_state::incremental_diplomacy::{CurrentDiplomacyProjectionDeltaV1,DiplomacyProjectionPathRefV1 as Path,DiplomacyFieldV1 as Field};
+use super::{
+    diplomacy_rows::OriginalDiplomacyRecordDataV1, original_rows::OriginalProjectionRowDataV1,
+    state_columns::OriginalStateColumnsDataV1,
+};
+use oasis7_world_state::incremental_diplomacy::{
+    CurrentDiplomacyProjectionDeltaV1, DiplomacyProjectionPathRefV1 as Path,
+};
 use oasis7_formal_protocol::{incremental_execution::{ExecutionTransaction,ExecutionFence},incremental_state::MerkleNodeReader};
 use std::cell::RefCell;
 fn bytes(value:&[u8],common:&mut FormalBoundedContextV1<'_>)->Result<ReservedValue<Vec<u8>>,BodyMutationError>{super::initial::capture(common,|out|std::io::Write::write_all(out,value).map_err(paid))}

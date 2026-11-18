@@ -1,6 +1,4 @@
 use super::*;
-use crate::FACTORY_BUILD_STARTED_MODERN_VERSION;
-use crate::FactoryBuildPowerObligationV1;
 use oasis7_wasm_abi::FactoryModuleSpec;
 
 impl World {

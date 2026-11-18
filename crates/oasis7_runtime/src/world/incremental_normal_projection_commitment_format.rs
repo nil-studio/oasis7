@@ -1,9 +1,6 @@
 //! Fixed actual-source formatter consumers. Closed uses the complete original
 //! historical reducer and permanent terminal validation, with paid source owners.
-pub(super) use super::facts::task_reduce::{
-    PaidCurrentClosedProjectionDataV1,
-    prepare_current_closed_projection_data_v1 as current_closed_projection_data_v1,
-};
+pub(super) use super::facts::task_reduce::prepare_current_closed_projection_data_v1 as current_closed_projection_data_v1;
 use super::*;
 
 use super::{

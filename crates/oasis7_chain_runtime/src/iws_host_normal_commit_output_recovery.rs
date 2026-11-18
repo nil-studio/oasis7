@@ -16,6 +16,8 @@ impl NormalOutputCommitFailureV1 {
         memory: &MemoryBudget,
         archive: &FormalArchiveReadWorkV1,
         cancelled: &AtomicBool,
+        cold: &NormalColdRecoveryInputsV1<'_>,
+        compiler: &oasis7_runtime::RuntimeSourceCompiler,
     ) -> Result<NormalCommitWorkV1, Self> {
         match self {
             Self::Input {
@@ -144,6 +146,19 @@ impl NormalOutputCommitFailureV1 {
                     archive,
                     cancelled,
                 )
+                .or_else(|failure| {
+                    failure.recover_cold_bounded_v1(
+                        primary,
+                        replica,
+                        cold,
+                        crate::iws_host_runtime::cold_recovery::HostColdRecoveryContextV1 {
+                            memory,
+                            archive,
+                            cancelled,
+                            compiler,
+                        },
+                    )
+                })
                 .map_err(|failure| {
                     Self::Publication(NormalCommitStartFailureV1::Publication(failure))
                 }),

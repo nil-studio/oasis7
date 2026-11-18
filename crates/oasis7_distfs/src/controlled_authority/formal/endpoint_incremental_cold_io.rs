@@ -7,6 +7,9 @@ use oasis7_formal_protocol::controlled_authority::formal::bounded_context::{
 };
 use oasis7_proto::memory_budget::MemoryClass;
 const CAPACITY: usize = 512;
+#[path = "endpoint_incremental_cold_suffix_io.rs"]
+mod suffix;
+pub(super) use suffix::run_suffix;
 fn cold_lanes(work: &mut IwsColdParentWorkV1, mut lane: impl FnMut(&mut u64, bool)) {
     lane(&mut work.mailbox_occurrences, false);
     lane(&mut work.current.raw.instance_scratch.reads, false);

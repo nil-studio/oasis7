@@ -3,7 +3,10 @@
 //! member maps/option arrays receive actual changed paths and tail edits.
 use super::*;
 use super::state_columns::OriginalStateColumnsDataV1;
-use oasis7_world_state::incremental_governance_records::{CurrentGovernanceProjectionDeltaV1,GovernanceProjectionPathRefV1 as Cell,GovernanceCollectionV1 as Collection,GovernanceColumnV1 as Column,GovernanceRecordKindV1 as Kind};
+use oasis7_world_state::incremental_governance_records::{
+    CurrentGovernanceProjectionDeltaV1, GovernanceCollectionV1 as Collection,
+    GovernanceProjectionPathRefV1 as Cell, GovernanceRecordKindV1 as Kind,
+};
 use oasis7_world_state::observation_projection::current_commitment::{ProjectionColumnDataV1,ProjectionDataPathRefV1 as Path};
 use oasis7_formal_protocol::{incremental_execution::{ExecutionTransaction,ExecutionFence},incremental_state::MerkleNodeReader};
 use std::{cell::RefCell,mem::size_of};

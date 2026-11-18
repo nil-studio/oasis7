@@ -297,8 +297,6 @@ pub(super) fn industry_stage_label(stage: crate::IndustryStage) -> &'static str 
     }
 }
 
-pub(crate) use oasis7_world_state::world::pure_helpers::recipe_preferred_tags_compatible;
-
 pub(super) fn normalized_factory_tags(tags: &[String]) -> Vec<String> {
     let normalized: BTreeSet<String> = tags
         .iter()

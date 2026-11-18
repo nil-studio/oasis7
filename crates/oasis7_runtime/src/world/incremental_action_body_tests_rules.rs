@@ -100,7 +100,7 @@ pub(in crate::world) struct NonmovementExecutionFixtureV1<'p> {
 }
 pub(in crate::world) type NonmovementFixtureErrorV1 =
     crate::world::incremental_module_invocation::NonmovementSelectedErrorV1<ValueTreeError>;
-enum FixtureInputV1<'a> {
+pub(super) enum FixtureInputV1<'a> {
     PendingFallible(
         &'a mut oasis7_proto::memory_budget::ReservedValue<
             oasis7_world_state::incremental_pending_action_overlay::PendingActionCurrentV1,
@@ -202,7 +202,7 @@ pub(in crate::world) fn cancelled_empty_transfer_probe<'a>(
     assert!(result.0.is_none());
 }
 #[allow(clippy::too_many_arguments)]
-fn evaluate<'a>(
+pub(super) fn evaluate<'a>(
     fixture: &genesis::Fixture<'a>,
     reader: &Reader<'a>,
     transaction: &mut ExecutionTransaction<'_, Reader<'a>>,
@@ -958,7 +958,3 @@ pub(in crate::world) fn evaluate_with_alliance<'a>(
     assert!(result.1.is_none());
     result.0.expect("actual selected Rule outcome")
 }
-
-#[cfg(test)]
-#[path = "incremental_action_main_token_transfer_tests.rs"]
-mod main_token_transfer;

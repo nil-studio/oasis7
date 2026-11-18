@@ -1,8 +1,6 @@
 //! Conditional native production preview; never applies events or reserves assets.
 use super::*;
-use crate::{
-    Action, AgentDecisionCausalContextV1, DomainEvent, WorldEventBody, builtin_recipe_plan,
-};
+use crate::{Action, DomainEvent, WorldEventBody, builtin_recipe_plan};
 use oasis7_agent_api::world_action::ResourceKind;
 
 pub use oasis7_agent_api::world_quote::{BuiltinRecipeStartPreview, NativeBuiltinRecipeQuote};

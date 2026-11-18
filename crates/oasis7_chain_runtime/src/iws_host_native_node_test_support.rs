@@ -1,6 +1,7 @@
 //! Test-only adapter around the shipping fixed consumers. A real Node engine
 //! is the sole issuer of continuation provenance; fixture originals are only
 //! independent assertions/Node recovery DATA and never source qualifications.
+use super::normal_commit::NormalCommitFaultV1;
 use super::*;
 use oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::CborDataLimitsV1;
 use oasis7_node::{
@@ -14,6 +15,12 @@ use oasis7_runtime::{
 };
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
+
+#[path = "iws_host_native_cold_recovery_test_support.rs"]
+mod cold_recovery;
+pub(crate) use cold_recovery::NativeColdRecoverySettingsV1;
+#[cfg(feature = "iws-host-native-test-support")]
+pub(crate) use cold_recovery::admit_initial_cold_recovery_work_v1;
 
 pub(crate) struct NativeNodeOwnersV1 {
     pub primary: IwsHostRuntimeV1,
@@ -39,6 +46,7 @@ pub(crate) struct NativeNodeSettingsV1 {
     pub policy: NormalCommitHeaderLimitsV1,
     pub max_action_bytes: usize,
     pub max_grant_payload_bytes: u64,
+    pub cold: NativeColdRecoverySettingsV1,
 }
 impl NativeNodeSettingsV1 {
     fn environment<'a>(
@@ -65,6 +73,11 @@ impl NativeNodeSettingsV1 {
             memory,
             archive,
             cancelled,
+            cold: self.cold.inputs(
+                [&self.primary_provider, &self.replica_provider],
+                [&self.primary_policy, &self.replica_policy],
+                self.policy.transaction,
+            ),
         }
     }
 }
@@ -93,6 +106,10 @@ struct State {
     execution_advances: usize,
     response_refusals: usize,
     completion_count: usize,
+    expected_fault: Option<NormalCommitFaultV1>,
+    cold_refusals: usize,
+    source_work_refusals: usize,
+    source_work_refused_targets: Option<[u64; 2]>,
     failure: Option<String>,
     observed: Option<mpsc::SyncSender<()>>,
 }
@@ -261,17 +278,27 @@ impl NodeExecutionHook for Hook {
             execution_advances,
             response_refusals,
             cognition,
+            expected_fault,
+            cold_refusals,
+            source_work_refusals,
+            source_work_refused_targets,
             ..
         } = &mut *state;
         let retained = phase.take().ok_or("fixture retained phase missing")?;
         let mut owner = match retained {
             Phase::Attempt(attempt) => {
-                let source_result = match cognition {
-                    NativeNodeCognitionV1::Startup(owner) => {
-                        primary.cognition_parent_sources_bounded(owner, memory, archive, cancelled)
-                    }
-                    NativeNodeCognitionV1::Resident => {
-                        Ok(NormalHostCognitionParentSourcesV1::Resident)
+                let needs_preparation = attempt.requires_preparation_fixture_v1();
+                let source_result = if !needs_preparation {
+                    // Output recovery cannot re-enter Runtime or borrow its
+                    // old parent. This DATA selector is never consumed there.
+                    Ok(NormalHostCognitionParentSourcesV1::Resident)
+                } else {
+                    match cognition {
+                        NativeNodeCognitionV1::Startup(owner) => primary
+                            .cognition_parent_sources_bounded(owner, memory, archive, cancelled),
+                        NativeNodeCognitionV1::Resident => {
+                            Ok(NormalHostCognitionParentSourcesV1::Resident)
+                        }
                     }
                 };
                 let sources = match source_result {
@@ -285,7 +312,7 @@ impl NodeExecutionHook for Hook {
                         return Ok(NodeExecutionCommitOutcome::Deferred);
                     }
                 };
-                *execution_advances += 1;
+                *execution_advances += usize::from(needs_preparation);
                 match attempt.advance_bounded(
                     primary,
                     replica,
@@ -295,6 +322,54 @@ impl NodeExecutionHook for Hook {
                 ) {
                     Ok(owner) => owner,
                     Err(attempt) => {
+                        let actual = attempt.cold_disposition_fixture_v1();
+                        let expected = match *expected_fault {
+                            Some(NormalCommitFaultV1::BeforeResident) => {
+                                Some(NormalCommitRecoveryDispositionV1::ColdBeforePublication)
+                            }
+                            Some(NormalCommitFaultV1::AfterPublication) => Some(
+                                NormalCommitRecoveryDispositionV1::DurableAcceptedHostNotInstalled,
+                            ),
+                            Some(NormalCommitFaultV1::BeforeSourceWorkReturn) => {
+                                Some(NormalCommitRecoveryDispositionV1::RetryAcceptedSourceWork)
+                            }
+                            Some(NormalCommitFaultV1::BeforeReplicaSource) => {
+                                Some(NormalCommitRecoveryDispositionV1::RecoverActualPublicationOrColdReconcile)
+                            }
+                            None => None,
+                        };
+                        if *cold_refusals + *source_work_refusals == 0
+                            && expected.is_some()
+                            && actual == expected
+                        {
+                            // The injected cancellation reached the real
+                            // gate and retained its actual owners and phase.
+                            if matches!(
+                                *expected_fault,
+                                Some(
+                                    NormalCommitFaultV1::BeforeSourceWorkReturn
+                                        | NormalCommitFaultV1::BeforeReplicaSource
+                                )
+                            ) {
+                                let targets = attempt.retained_source_work_targets_fixture_v1();
+                                if targets != Some([0, 0]) {
+                                    *failure = Some("cancelled source return lost its actual accepted owner or partially filled a target".into());
+                                    *phase = Some(Phase::Attempt(attempt));
+                                    if let Some(sender) = observed.take() {
+                                        let _ = sender.send(());
+                                    }
+                                    return Ok(NodeExecutionCommitOutcome::Deferred);
+                                }
+                                *source_work_refused_targets = targets;
+                                *source_work_refusals += 1;
+                            } else {
+                                *cold_refusals += 1;
+                            }
+                            cancelled.store(false, Ordering::Release);
+                            *phase = Some(Phase::Attempt(attempt));
+                            eprintln!("REAL_NORMAL_COLD_REFUSAL phase={actual:?}");
+                            return Ok(NodeExecutionCommitOutcome::Deferred);
+                        }
                         *failure = Some(format!("normal attempt: {attempt:?}"));
                         *phase = Some(Phase::Attempt(attempt));
                         if let Some(sender) = observed.take() {
@@ -424,6 +499,22 @@ pub(crate) fn run_native_node_tick_v1(
         None
     };
     let (send, receive) = mpsc::sync_channel(1);
+    let expected_fault = owners.work.fault;
+    let before_cold_work = owners.work.cold.remaining_for_fixture_v1();
+    let before_source_hash_work = [
+        owners
+            .work
+            .primary_source
+            .as_ref()
+            .ok_or("original primary source work missing")?
+            .history_hash_bytes,
+        owners
+            .work
+            .replica_source
+            .as_ref()
+            .ok_or("original replica source work missing")?
+            .history_hash_bytes,
+    ];
     let state = Arc::new(Mutex::new(State {
         primary: owners.primary,
         replica: owners.replica,
@@ -441,6 +532,10 @@ pub(crate) fn run_native_node_tick_v1(
         execution_advances: 0,
         response_refusals: 0,
         completion_count: 0,
+        expected_fault,
+        cold_refusals: 0,
+        source_work_refusals: 0,
+        source_work_refused_targets: None,
         failure: None,
         observed: Some(send),
     }));
@@ -486,6 +581,19 @@ pub(crate) fn run_native_node_tick_v1(
         || state.context_refusals != 1
         || state.execution_advances != 1
         || state.response_refusals != 1
+        || state.cold_refusals
+            != usize::from(matches!(
+                state.expected_fault,
+                Some(NormalCommitFaultV1::BeforeResident | NormalCommitFaultV1::AfterPublication)
+            ))
+        || state.source_work_refusals
+            != usize::from(matches!(
+                state.expected_fault,
+                Some(
+                    NormalCommitFaultV1::BeforeSourceWorkReturn
+                        | NormalCommitFaultV1::BeforeReplicaSource
+                )
+            ))
     {
         return Err(format!("actual Node completion mismatch: {snapshot:?}"));
     }
@@ -499,10 +607,56 @@ pub(crate) fn run_native_node_tick_v1(
     let Some(Phase::Complete(work)) = state.phase.take() else {
         return Err("actual Node completion did not return original remaining work".into());
     };
+    let after_cold_work = work.cold.remaining_for_fixture_v1();
+    if after_cold_work
+        .into_iter()
+        .zip(before_cold_work)
+        .any(|(after, before)| after > before)
+        || (matches!(
+            state.expected_fault,
+            Some(
+                NormalCommitFaultV1::BeforeResident
+                    | NormalCommitFaultV1::AfterPublication
+                    | NormalCommitFaultV1::BeforeReplicaSource
+            )
+        ) && after_cold_work == before_cold_work)
+    {
+        return Err("actual normal Cold work was reset or never consumed".into());
+    }
+    let after_source_hash_work = [
+        work.primary_source
+            .as_ref()
+            .ok_or("returned primary source work missing")?
+            .history_hash_bytes,
+        work.replica_source
+            .as_ref()
+            .ok_or("returned replica source work missing")?
+            .history_hash_bytes,
+    ];
+    let replica_unobservable =
+        state.expected_fault == Some(NormalCommitFaultV1::BeforeReplicaSource);
+    if after_source_hash_work
+        .into_iter()
+        .zip(before_source_hash_work)
+        .enumerate()
+        .any(|(index, (after, before))| {
+            if replica_unobservable && index == 1 {
+                after != 0
+            } else {
+                after == 0 || after >= before
+            }
+        })
+    {
+        return Err("actual source hash accounts were lost, reset or not consumed".into());
+    }
     let receipt = serde_json::json!({"node_context":original.context,"applied":state.applied,
         "fresh_captures":state.fresh_count,"completed":state.completion_count,"amounts":amounts,
         "altered_context_refused":state.context_refusals,"runtime_advances":state.execution_advances,
         "actual_cancelled_responses":state.response_refusals,
+        "actual_cold_refusals":state.cold_refusals,"cold_work_before":before_cold_work,"cold_work_after":after_cold_work,
+        "actual_source_work_refusals":state.source_work_refusals,"source_work_refused_targets":state.source_work_refused_targets,
+        "source_hash_work_before":before_source_hash_work,"source_hash_work_after":after_source_hash_work,
+        "unobservable_replica_source_work_burned":replica_unobservable,
         "remaining_common_steps":state.archive.remaining_steps(),"remaining_common_bytes":state.archive.remaining_read_bytes(),
         "primary_record":state.primary.current_record_id().map(hex::encode),"replica_record":state.replica.current_record_id().map(hex::encode)});
     Ok((

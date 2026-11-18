@@ -13,6 +13,9 @@ pub(in crate::controlled_authority::formal::endpoint) struct PaidColdStoreHeadV1
     parent: Option<super::bounded_request::PaidRequestStateV1>,
 }
 impl PaidColdStoreHeadV1 {
+    pub(in crate::controlled_authority::formal::endpoint) fn head(&self) -> &FormalHeadRefV1 {
+        &self.node.node().head
+    }
     pub(in crate::controlled_authority::formal::endpoint) fn state(&self) -> &FormalRequestStateV1 {
         self.request.state()
     }
@@ -127,6 +130,92 @@ impl Store {
         if node.node().head != self.body.head {
             return Err(invalid("formal signed checkpoint head identity"));
         }
+        self.read_cold_qualified_node_bounded_v1(node, memory, work, stop)
+    }
+    /// Follow the original signed native skip links. This returns paid data;
+    /// the native checkpoint verifier must still authenticate the selected
+    /// proof against the actual live monotonic checkpoint before it is used.
+    pub(in crate::controlled_authority::formal::endpoint) fn read_cold_qualified_position_bounded_v1(
+        &self,
+        position: u64,
+        memory: &MemoryBudget,
+        work: &FormalArchiveReadWorkV1,
+        stop: &mut dyn FnMut() -> bool,
+    ) -> Result<PaidColdStoreHeadV1, FormalError> {
+        work.consume_steps(1, stop)?;
+        if position == 0 || position > self.body.head.position {
+            return Err(invalid("cold historical target position"));
+        }
+        let id = self
+            .body
+            .head_node
+            .as_ref()
+            .or(self.body.imported_head_node.as_ref())
+            .ok_or_else(|| invalid("native provenance history root"))?;
+        let mut node = super::bounded_history_read::read_history_object_bounded_v1(
+            self, id, memory, work, stop,
+        )?;
+        work.charge(
+            1,
+            (node.node().head.record_id.len() + self.body.head.record_id.len()) as u64,
+            stop,
+        )?;
+        if node.node().head != self.body.head {
+            return Err(invalid("formal signed checkpoint head identity"));
+        }
+        for _ in 0..=64 {
+            work.consume_steps(1, stop)?;
+            if node.node().ancestors.len() > 64 {
+                return Err(invalid("cold historical skip bound"));
+            }
+            if node.node().head.position == position {
+                return self.read_cold_qualified_node_bounded_v1(node, memory, work, stop);
+            }
+            let distance = node
+                .node()
+                .head
+                .position
+                .checked_sub(position)
+                .ok_or_else(|| invalid("cold historical ancestry position"))?;
+            let level = ((63 - distance.leading_zeros()) as usize).min(
+                node.node()
+                    .ancestors
+                    .len()
+                    .checked_sub(1)
+                    .ok_or_else(|| invalid("cold historical ancestor missing"))?,
+            );
+            let link = &node.node().ancestors[level];
+            let step = 1u64
+                .checked_shl(level as u32)
+                .ok_or_else(|| invalid("cold historical skip overflow"))?;
+            if node.node().head.position.checked_sub(step) != Some(link.head.position)
+                || link.head.position < position
+            {
+                return Err(invalid("cold historical skip distance"));
+            }
+            let next = super::bounded_history_read::read_history_object_bounded_v1(
+                self, &link.node, memory, work, stop,
+            )?;
+            work.charge(
+                1,
+                (next.node().head.record_id.len() + link.head.record_id.len()) as u64,
+                stop,
+            )?;
+            if next.node().head != link.head {
+                return Err(invalid("cold historical skip target binding"));
+            }
+            // Both original owners remain paid until the checked move.
+            node = next;
+        }
+        Err(invalid("cold historical ancestry bound"))
+    }
+    fn read_cold_qualified_node_bounded_v1(
+        &self,
+        node: super::bounded_history_read::PaidHistoryNodeV1,
+        memory: &MemoryBudget,
+        work: &FormalArchiveReadWorkV1,
+        stop: &mut dyn FnMut() -> bool,
+    ) -> Result<PaidColdStoreHeadV1, FormalError> {
         let read = |id: &str,
                     stop: &mut dyn FnMut() -> bool|
          -> Result<FormalArchiveReadOwnerV1, FormalError> {

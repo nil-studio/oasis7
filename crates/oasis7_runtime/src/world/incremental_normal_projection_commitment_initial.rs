@@ -553,7 +553,6 @@ pub(in crate::world) fn compare_projection_original_keys_v1(
 
 #[path = "incremental_normal_projection_commitment_emission.rs"]
 mod emission;
-pub(in crate::world) use emission::ProjectionOriginalStateEmissionV1;
 
 #[path = "incremental_normal_projection_commitment_initial_dedicated.rs"]
 mod dedicated;

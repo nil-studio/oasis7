@@ -7,8 +7,8 @@ use crate::iws_normal_input_origin::PaidNodeInputOriginV1;
 use oasis7_distfs::controlled_authority::formal::endpoint::FormalCandidateMaterialV1;
 use oasis7_distfs::controlled_authority::formal::endpoint::IwsCandidateSourceWorkV1;
 use oasis7_distfs::controlled_authority::formal::endpoint::{
-    NormalReadyPairFailureV1, NormalReadyPublicationFailureV1, PaidNormalFrozenPairV1,
-    PaidNormalReadyPairV1,
+    FormalEndpointPairPublicationRefsV1, NormalReadyPairFailureV1, NormalReadyPublicationFailureV1,
+    PaidNormalAcceptedPairV1, PaidNormalFrozenPairV1, PaidNormalReadyPairV1,
 };
 use oasis7_proto::memory_budget::{MemoryReservation, ReservedValue};
 use oasis7_runtime::{NormalHostWorkV1, PreparedNormalHostResidentV1, PreparedNormalHostRuntimeV1};
@@ -24,7 +24,19 @@ pub(crate) struct NormalCommitWorkV1 {
     pub replica_source: Option<IwsCandidateSourceWorkV1>,
     pub physical: HostNormalIoWorkV1,
     pub runtime: NormalHostWorkV1,
+    pub cold: cold_recovery::NormalColdRecoveryWorkV1,
+    #[cfg(any(test, feature = "iws-host-native-test-support"))]
+    pub fault: Option<NormalCommitFaultV1>,
 }
+#[cfg(any(test, feature = "iws-host-native-test-support"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NormalCommitFaultV1 {
+    BeforeResident,
+    BeforeSourceWorkReturn,
+    BeforeReplicaSource,
+    AfterPublication,
+}
+
 enum Phase {
     BeforeReady {
         frozen: PaidNormalFrozenPairV1,
@@ -47,9 +59,24 @@ enum Phase {
         primary: PreparedNormalHostResidentV1,
         replica: PreparedNormalHostResidentV1,
     },
+    /// Durable acceptance already happened. Retain both original sources and
+    /// residents until the two actual staged accounts have been returned.
+    Accepted {
+        accepted: PaidNormalAcceptedPairV1,
+        primary: PreparedNormalHostResidentV1,
+        replica: PreparedNormalHostResidentV1,
+    },
     /// The Runtime preparation was consumed by primary resident preflight.
     /// Keep real Ready for explicit cold recovery; never rerun committed input.
-    ColdBeforePublication { _ready: PaidNormalReadyPairV1 },
+    ColdBeforePublication {
+        ready: PaidNormalReadyPairV1,
+    },
+    ColdPublication {
+        failure: NormalReadyPublicationFailureV1,
+    },
+    ColdAccepted {
+        accepted: PaidNormalAcceptedPairV1,
+    },
     /// Existing install API consumes accepted FDs/residents even on error.
     /// Durable publication has succeeded: only actual cold recovery may resume.
     ColdAfterPublication,
@@ -59,6 +86,7 @@ pub(crate) enum NormalCommitRecoveryDispositionV1 {
     RetryActualReady,
     RetryReplicaPreflight,
     RecoverActualPublicationOrColdReconcile,
+    RetryAcceptedSourceWork,
     ColdBeforePublication,
     DurableAcceptedHostNotInstalled,
 }
@@ -73,11 +101,13 @@ pub(crate) enum NormalCommitFailureCauseV1<'a> {
 pub(crate) struct NormalCommitFailureV1 {
     package: super::normal_package::PersistedNormalCandidatePackageV1,
     node: PaidNodeInputOriginV1,
-    _source_fee: ReservedValue<()>,
-    fee: Option<MemoryReservation>,
     work: NormalCommitWorkV1,
     phase: Option<Phase>,
     cause: Option<IwsHostRuntimeErrorV1>,
+    _source_fee: ReservedValue<()>,
+    // The initial admission includes the complete Phase layout and remains
+    // held until every retained source, resident, error and work owner drops.
+    fee: Option<MemoryReservation>,
 }
 impl std::fmt::Debug for NormalCommitFailureV1 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -88,6 +118,23 @@ impl std::fmt::Debug for NormalCommitFailureV1 {
     }
 }
 impl NormalCommitFailureV1 {
+    #[cfg(any(test, feature = "iws-host-native-test-support"))]
+    pub(crate) fn retained_source_work_targets_fixture_v1(&self) -> Option<[u64; 2]> {
+        let retained = match self.phase.as_ref()? {
+            Phase::Accepted { .. } | Phase::ColdAccepted { .. } => true,
+            Phase::Publication { failure, .. } | Phase::ColdPublication { failure } => {
+                failure.has_observable_primary_source_for_fixture_v1()
+            }
+            _ => false,
+        };
+        if !retained {
+            return None;
+        }
+        Some([
+            self.work.primary_source.as_ref()?.history_hash_bytes,
+            self.work.replica_source.as_ref()?.history_hash_bytes,
+        ])
+    }
     pub(crate) fn cause(&self) -> Option<NormalCommitFailureCauseV1<'_>> {
         if let Some(error) = self.cause.as_ref() {
             return Some(NormalCommitFailureCauseV1::Host(error));
@@ -96,7 +143,7 @@ impl NormalCommitFailureV1 {
             Some(Phase::ReadyFailure { failure, .. }) => {
                 Some(NormalCommitFailureCauseV1::Ready(failure))
             }
-            Some(Phase::Publication { failure, .. }) => {
+            Some(Phase::Publication { failure, .. } | Phase::ColdPublication { failure }) => {
                 Some(NormalCommitFailureCauseV1::Publication(failure))
             }
             _ => None,
@@ -115,8 +162,11 @@ impl NormalCommitFailureV1 {
             Phase::ReplicaPreflight { .. } => {
                 NormalCommitRecoveryDispositionV1::RetryReplicaPreflight
             }
-            Phase::Publication { .. } => {
+            Phase::Publication { .. } | Phase::ColdPublication { .. } => {
                 NormalCommitRecoveryDispositionV1::RecoverActualPublicationOrColdReconcile
+            }
+            Phase::Accepted { .. } | Phase::ColdAccepted { .. } => {
+                NormalCommitRecoveryDispositionV1::RetryAcceptedSourceWork
             }
             Phase::ColdBeforePublication { .. } => {
                 NormalCommitRecoveryDispositionV1::ColdBeforePublication
@@ -128,55 +178,36 @@ impl NormalCommitFailureV1 {
     }
 }
 impl NormalCommitFailureV1 {
-    /// Explicit escape to the independent cold resident/source recovery route.
-    /// This returns the real retained Ready owner; it cannot recreate the
-    /// already-consumed Runtime preparation or replay its input actions.
-    pub(crate) fn into_cold_ready_parts(
-        mut self,
-    ) -> Result<
-        (
-            PaidNormalReadyPairV1,
-            PaidNodeInputOriginV1,
-            ReservedValue<()>,
-            Option<MemoryReservation>,
-            NormalCommitWorkV1,
-        ),
-        Self,
-    > {
-        if !matches!(self.phase, Some(Phase::ColdBeforePublication { .. })) {
-            return Err(self);
+    fn publish_ready_bounded(
+        &mut self,
+        ready: PaidNormalReadyPairV1,
+        publication: FormalEndpointPairPublicationRefsV1<'_>,
+        cancelled: &AtomicBool,
+    ) -> Result<PaidNormalAcceptedPairV1, NormalReadyPublicationFailureV1> {
+        #[cfg(any(test, feature = "iws-host-native-test-support"))]
+        if self.work.fault == Some(NormalCommitFaultV1::BeforeReplicaSource) {
+            self.work.fault = None;
+            return ready
+                .publish_with_replica_source_cancellation_for_fixture_v1(publication, cancelled);
         }
-        let Phase::ColdBeforePublication { _ready: ready } =
-            self.phase.take().expect("checked cold Ready")
-        else {
-            unreachable!("checked cold Ready variant")
-        };
-        Ok((ready, self.node, self._source_fee, self.fee, self.work))
+        let FormalEndpointPairPublicationRefsV1 {
+            primary_provider,
+            replica_provider,
+            primary_policy,
+            replica_policy,
+            memory,
+            work,
+        } = publication;
+        ready.publish_bounded(
+            primary_provider,
+            replica_provider,
+            primary_policy,
+            replica_policy,
+            memory,
+            work,
+            &mut || cancelled.load(Ordering::Acquire),
+        )
     }
-
-    /// Publication succeeded but installation consumed its accepted owners.
-    /// Return only the original provenance, fees and remaining work for actual
-    /// authenticated cold recovery. These parts grant no Ready/Accepted right;
-    /// the caller must reopen and validate the real durable endpoint state.
-    pub(crate) fn into_cold_after_publication_parts(
-        self,
-    ) -> Result<
-        (
-            PaidNodeInputOriginV1,
-            ReservedValue<()>,
-            Option<MemoryReservation>,
-            NormalCommitWorkV1,
-        ),
-        Self,
-    > {
-        if !matches!(self.phase, Some(Phase::ColdAfterPublication)) {
-            return Err(self);
-        }
-        Ok((self.node, self._source_fee, self.fee, self.work))
-    }
-
-    /// Uses the retained endpoint recovery methods, never sends an old lease
-    /// again and never reconstructs an execution preparation from candidate DATA.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn recover_bounded(
         mut self,
@@ -192,7 +223,12 @@ impl NormalCommitFailureV1 {
     ) -> Result<NormalCommitWorkV1, Self> {
         if matches!(
             self.phase,
-            Some(Phase::ColdBeforePublication { .. } | Phase::ColdAfterPublication)
+            Some(
+                Phase::ColdBeforePublication { .. }
+                    | Phase::ColdPublication { .. }
+                    | Phase::ColdAccepted { .. }
+                    | Phase::ColdAfterPublication
+            )
         ) {
             return Err(self);
         }
@@ -260,6 +296,20 @@ impl NormalCommitFailureV1 {
                     }
                 }
                 Phase::Ready { ready, prepared } => {
+                    if let Err(error) = self
+                        .work
+                        .cold
+                        .bind_ready_bounded(&ready, memory, archive, cancelled)
+                    {
+                        self.cause = Some(error);
+                        self.phase = Some(Phase::Ready { ready, prepared });
+                        return Err(self);
+                    }
+                    #[cfg(any(test, feature = "iws-host-native-test-support"))]
+                    if self.work.fault == Some(NormalCommitFaultV1::BeforeResident) {
+                        self.work.fault = None;
+                        cancelled.store(true, Ordering::Release);
+                    }
                     match primary.prepare_normal_resident_successor_bounded(
                         &ready,
                         prepared,
@@ -274,7 +324,7 @@ impl NormalCommitFailureV1 {
                         }
                         Err(error) => {
                             self.cause = Some(error);
-                            self.phase = Some(Phase::ColdBeforePublication { _ready: ready });
+                            self.phase = Some(Phase::ColdBeforePublication { ready });
                             return Err(self);
                         }
                     }
@@ -296,14 +346,17 @@ impl NormalCommitFailureV1 {
                             return Err(self);
                         }
                     };
-                    match ready.publish_bounded(
-                        primary_provider,
-                        replica_provider,
-                        primary_policy,
-                        replica_policy,
-                        memory,
-                        archive,
-                        &mut || cancelled.load(Ordering::Acquire),
+                    match self.publish_ready_bounded(
+                        ready,
+                        FormalEndpointPairPublicationRefsV1 {
+                            primary_provider,
+                            replica_provider,
+                            primary_policy,
+                            replica_policy,
+                            memory,
+                            work: archive,
+                        },
+                        cancelled,
                     ) {
                         Err(failure) => {
                             self.phase = Some(Phase::Publication {
@@ -313,30 +366,39 @@ impl NormalCommitFailureV1 {
                             });
                             return Err(self);
                         }
-                        Ok(mut accepted) => {
-                            if let Err(error) = accepted.return_source_work_bounded(
-                                &mut self.work.primary_source,
-                                &mut self.work.replica_source,
-                                memory,
-                                archive,
-                                &mut || cancelled.load(Ordering::Acquire),
-                            ) {
-                                self.cause = Some(error.into());
-                                self.phase = Some(Phase::ColdAfterPublication);
-                                return Err(self);
-                            }
-                            match IwsHostRuntimeV1::install_accepted_normal_pair_with_residents_bounded(primary,replica,accepted,resident,second,memory,archive,cancelled) {
-                                Ok(())=>return Ok(self.work),
-                                Err(error)=>{self.cause=Some(error);self.phase=Some(Phase::ColdAfterPublication);return Err(self)}
-                            }
+                        Ok(accepted) => {
+                            self.phase = Some(Phase::Accepted {
+                                accepted,
+                                primary: resident,
+                                replica: second,
+                            });
                         }
                     }
                 }
                 Phase::Publication {
-                    failure,
+                    mut failure,
                     primary: resident,
                     replica: second,
                 } => {
+                    if failure.requires_authenticated_cold_reopen_v1() {
+                        if let Err(error) = failure.return_observable_source_work_bounded(
+                            &mut self.work.primary_source,
+                            memory,
+                            archive,
+                            &mut || cancelled.load(Ordering::Acquire),
+                        ) {
+                            self.cause = Some(error.into());
+                            self.phase = Some(Phase::Publication {
+                                failure,
+                                primary: resident,
+                                replica: second,
+                            });
+                            return Err(self);
+                        }
+                        drop(failure);
+                        self.phase = Some(Phase::ColdAfterPublication);
+                        continue;
+                    }
                     match failure.recover_bounded(
                         primary_provider,
                         replica_provider,
@@ -354,26 +416,63 @@ impl NormalCommitFailureV1 {
                             });
                             return Err(self);
                         }
-                        Ok(mut accepted) => {
-                            if let Err(error) = accepted.return_source_work_bounded(
-                                &mut self.work.primary_source,
-                                &mut self.work.replica_source,
-                                memory,
-                                archive,
-                                &mut || cancelled.load(Ordering::Acquire),
-                            ) {
-                                self.cause = Some(error.into());
-                                self.phase = Some(Phase::ColdAfterPublication);
-                                return Err(self);
-                            }
-                            match IwsHostRuntimeV1::install_accepted_normal_pair_with_residents_bounded(primary,replica,accepted,resident,second,memory,archive,cancelled) {
-                                Ok(())=>return Ok(self.work),
-                                Err(error)=>{self.cause=Some(error);self.phase=Some(Phase::ColdAfterPublication);return Err(self)}
-                            }
+                        Ok(accepted) => {
+                            self.phase = Some(Phase::Accepted {
+                                accepted,
+                                primary: resident,
+                                replica: second,
+                            });
                         }
                     }
                 }
-                phase @ (Phase::ColdBeforePublication { .. } | Phase::ColdAfterPublication) => {
+                Phase::Accepted {
+                    mut accepted,
+                    primary: resident,
+                    replica: second,
+                } => {
+                    #[cfg(any(test, feature = "iws-host-native-test-support"))]
+                    if self.work.fault == Some(NormalCommitFaultV1::BeforeSourceWorkReturn) {
+                        self.work.fault = None;
+                        cancelled.store(true, Ordering::Release);
+                    }
+                    if let Err(error) = accepted.return_source_work_bounded(
+                        &mut self.work.primary_source,
+                        &mut self.work.replica_source,
+                        memory,
+                        archive,
+                        &mut || cancelled.load(Ordering::Acquire),
+                    ) {
+                        self.cause = Some(error.into());
+                        self.phase = Some(Phase::Accepted {
+                            accepted,
+                            primary: resident,
+                            replica: second,
+                        });
+                        return Err(self);
+                    }
+                    #[cfg(any(test, feature = "iws-host-native-test-support"))]
+                    if self.work.fault == Some(NormalCommitFaultV1::AfterPublication) {
+                        self.work.fault = None;
+                        cancelled.store(true, Ordering::Release);
+                    }
+                    match IwsHostRuntimeV1::install_accepted_normal_pair_with_residents_bounded(
+                        primary, replica, accepted, resident, second, memory, archive, cancelled,
+                    ) {
+                        Ok(()) => {
+                            self.work.cold.completed();
+                            return Ok(self.work);
+                        }
+                        Err(error) => {
+                            self.cause = Some(error);
+                            self.phase = Some(Phase::ColdAfterPublication);
+                            return Err(self);
+                        }
+                    }
+                }
+                phase @ (Phase::ColdBeforePublication { .. }
+                | Phase::ColdPublication { .. }
+                | Phase::ColdAccepted { .. }
+                | Phase::ColdAfterPublication) => {
                     self.phase = Some(phase);
                     return Err(self);
                 }
@@ -470,3 +569,7 @@ mod package_tail;
 pub(crate) use package_tail::{
     NormalOutputCommitFailureV1, commit_prepared_normal_output_bounded_v1,
 };
+
+#[path = "iws_host_normal_commit_cold.rs"]
+mod cold_recovery;
+pub(crate) use cold_recovery::{NormalColdRecoveryInputsV1, NormalColdRecoveryWorkV1};

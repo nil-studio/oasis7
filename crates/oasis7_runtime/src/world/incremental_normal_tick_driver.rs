@@ -138,9 +138,7 @@ impl<'p> NormalTickCurrentDataV1<'p> {
     }
     pub(in crate::world) fn cognition_for_final_source(
         &mut self,
-    ) -> &mut Option<
-        oasis7_world_state::incremental_cognition_history::PendingCurrentCognitionJournalV1<'p>,
-    > {
+    ) -> &mut Option<Box<PendingCurrentCognitionJournalV1<'p>>> {
         self.cognition.pending_for_final_source()
     }
 

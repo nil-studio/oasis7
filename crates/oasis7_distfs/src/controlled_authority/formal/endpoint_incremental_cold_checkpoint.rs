@@ -95,6 +95,27 @@ pub(super) fn recover_authenticated_checkpoint_bounded_v1(
     work: &FormalArchiveReadWorkV1,
     stop: &mut dyn FnMut() -> bool,
 ) -> Result<AuthenticatedColdCheckpointV1, ColdCheckpointErrorV1> {
+    recover_authenticated_checkpoint_at_bounded_v1(
+        endpoint,
+        lease,
+        pinned,
+        endpoint.store.body.head.position,
+        memory,
+        work,
+        stop,
+    )
+}
+/// A historical target is authenticated below the same actual current signed
+/// checkpoint. Selecting a position is only a hint, never an accepted source.
+pub(super) fn recover_authenticated_checkpoint_at_bounded_v1(
+    endpoint: &FileFormalEndpoint,
+    lease: &crate::controlled_authority::fencing::PaidRemoteLeaseV1,
+    pinned: &fencing::TrustedFencingPolicyV1,
+    position: u64,
+    memory: &MemoryBudget,
+    work: &FormalArchiveReadWorkV1,
+    stop: &mut dyn FnMut() -> bool,
+) -> Result<AuthenticatedColdCheckpointV1, ColdCheckpointErrorV1> {
     let mut common = work.bounded_context(memory, stop);
     let instance = match endpoint.role {
         EndpointRole::Primary => &endpoint.authority.definition().primary.instance,
@@ -107,6 +128,19 @@ pub(super) fn recover_authenticated_checkpoint_bounded_v1(
     let authority_id = oasis7_formal_protocol::controlled_authority::formal::normal_frozen_bounded::normal_frozen_hash_bounded(
         oasis7_formal_protocol::controlled_authority::formal::record::AUTHORITY_ID_DOMAIN_V1,
         endpoint.authority.definition(), &mut common)?;
+    let historical = if position == endpoint.store.body.head.position {
+        None
+    } else {
+        let (memory, _, stop) = common.parts();
+        Some(
+            endpoint
+                .store
+                .read_cold_qualified_position_bounded_v1(position, memory, work, stop)?,
+        )
+    };
+    let target = historical
+        .as_ref()
+        .map_or(&endpoint.store.body.head, |source| source.head());
     let native = NativeCheckpointVerdictV1::verify_bounded(
         signed,
         &endpoint.authority,
@@ -115,7 +149,7 @@ pub(super) fn recover_authenticated_checkpoint_bounded_v1(
         lease
             .evidence()
             .ok_or_else(|| invalid("cold checkpoint trusted provider evidence required"))?,
-        &endpoint.store.body.head,
+        target,
         &endpoint.store.body.head,
         &authority_id,
         |id, common| {
@@ -131,11 +165,14 @@ pub(super) fn recover_authenticated_checkpoint_bounded_v1(
     .map_err(ColdCheckpointErrorV1::Native)?;
     // The actual selected Store state is read by the original complete decoder;
     // its candidate payload cannot be replaced by an archive locator or Bool.
-    let store = {
-        let (memory, _, stop) = common.parts();
-        endpoint
-            .store
-            .read_cold_qualified_head_bounded_v1(memory, work, stop)?
+    let store = match historical {
+        Some(source) => source,
+        None => {
+            let (memory, _, stop) = common.parts();
+            endpoint
+                .store
+                .read_cold_qualified_head_bounded_v1(memory, work, stop)?
+        }
     };
     let FormalRequestStateV1::Qualified {
         candidate, proof, ..

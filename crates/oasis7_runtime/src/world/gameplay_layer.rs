@@ -2,8 +2,7 @@ use std::collections::BTreeSet;
 
 use super::super::{
     ActiveGameplayModule, GAMEPLAY_BASELINE_KINDS, GameplayContract, GameplayKindCoverage,
-    GameplayModeReadiness, GameplayModuleKind, ModuleManifest, ModuleRegistry, ModuleRole,
-    WorldError,
+    GameplayModeReadiness, ModuleManifest, ModuleRegistry, ModuleRole, WorldError,
 };
 use super::World;
 

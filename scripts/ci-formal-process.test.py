@@ -654,25 +654,31 @@ class RiskTargetInventory(unittest.TestCase):
 
     # Keep the historical test identity stable as the registered cases expand.
     def test_iws_rule_full_supplement_keeps_four_cases_and_one_worker_owner(self):
+        self.assert_iws_component_owner('iws_rule_core', artifacts.IWS_RULE_CORE_TESTS)
+
+    def test_iws_action_body_full_supplement_keeps_six_cases_and_one_worker_owner(self):
+        self.assert_iws_component_owner('iws_action_body', artifacts.IWS_ACTION_BODY_TESTS)
+
+    def assert_iws_component_owner(self, target_name, expected_cases):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
         target = next(item for item in config['ordinary_scale_contract']['targets']
-                      if item['package'] == 'oasis7_runtime' and item['target_name'] == 'iws_rule_core')
-        self.assertEqual(set(target['cases']), artifacts.IWS_RULE_CORE_TESTS)
+                      if item['package'] == 'oasis7_runtime' and item['target_name'] == target_name)
+        self.assertEqual(set(target['cases']), expected_cases)
         fixture = TargetedArtifactPartitions()
         selected = fixture.selection() | dict(
             oasis7_required_packages=['oasis7_chain_runtime', 'oasis7_runtime'],
             risk_test_inventory_version=1, ordinary_risk_targets=[target])
         manifest = fixture.manifest(selected)
         full = FastTargetInventory().binary(target, 'required-risk-0')
-        manifest['binaries']['iws-rule-core'] = full | dict(path='iws-rule-core', cwd='.')
+        manifest['binaries'][target_name] = full | dict(path=target_name, cwd='.')
         manifest['binaries']['runtime-required'] = full | dict(
             path='runtime-required', cwd='.', target='oasis7_runtime', target_kind=['lib'],
             variant='required', tests=['ordinary_runtime_case'], features=['test_tier_required'],
             requested_features=['oasis7_runtime/test_tier_required'])
         artifacts.validate_ordinary_selection(manifest)
         commands = artifacts.required_native_commands(selected)
-        self.assertEqual([args for args in commands if 'iws_rule_core' in args],
-                         [['-p', 'oasis7_runtime', '--test', 'iws_rule_core', '--features', 'test_tier_full']])
+        self.assertEqual([args for args in commands if target_name in args],
+                         [['-p', 'oasis7_runtime', '--test', target_name, '--features', 'test_tier_full']])
         owners, covered = [], []
         with patch.object(artifacts.sys, 'platform', 'linux'):
             for owner in selected['ordinary_partitions'][1:]:
@@ -680,11 +686,11 @@ class RiskTargetInventory(unittest.TestCase):
                     entries = artifacts.ordinary_artifact_entries(manifest, selected, owner)
                 binaries = {entry['binary'] for entry in entries}
                 self.assertEqual(artifacts.runtime_worker_test_selected(manifest, binaries),
-                                 'iws-rule-core' in binaries)
-                if 'iws-rule-core' in binaries:
+                                 target_name in binaries)
+                if target_name in binaries:
                     owners.append(owner)
                 covered.extend(case for binary, case in fixture.coverage(manifest, entries)
-                               if binary == 'iws-rule-core')
+                               if binary == target_name)
         self.assertEqual(len(owners), 1)
         # The generic fixture also has an unlisted active regression: the
         # minimum registered-case contract must not trim the actual whole harness.
@@ -693,18 +699,18 @@ class RiskTargetInventory(unittest.TestCase):
         for damage in ('missing', 'empty', 'ignored'):
             broken = copy.deepcopy(manifest)
             if damage == 'missing':
-                del broken['binaries']['iws-rule-core']
+                del broken['binaries'][target_name]
             elif damage == 'empty':
-                broken['binaries']['iws-rule-core']['tests'] = []
+                broken['binaries'][target_name]['tests'] = []
             else:
-                broken['binaries']['iws-rule-core']['ignored_tests'] = target['cases'][:1]
+                broken['binaries'][target_name]['ignored_tests'] = target['cases'][:1]
             with self.subTest(damage=damage), self.assertRaises(ValueError):
                 artifacts.validate_ordinary_selection(broken)
 
         for case in target['cases']:
             for damage in ('omitted', 'ignored'):
                 broken = copy.deepcopy(manifest)
-                binary = broken['binaries']['iws-rule-core']
+                binary = broken['binaries'][target_name]
                 if damage == 'omitted':
                     binary['tests'].remove(case)
                 else:
@@ -5680,10 +5686,11 @@ class RuntimeWorkerCompanionContracts(unittest.TestCase):
             artifacts.validate_runtime_worker_companion(self.bundle, bad_library)
 
     def test_iws_action_body_worker_requires_exact_target_and_active_case_inventory(self):
-        for case in (
-            'actual_queued_body_actions_match_world_and_read_prior_current_write',
-            'queued_alliance_lifecycle_preserves_outer_risk_war_rejections_and_exact_world_originals',
-        ):
+        source = (HERE.parent / 'crates/oasis7_runtime/tests/iws_action_body.rs').read_text()
+        cases = re.findall(r'#\[test\]\s*fn (\w+)\(', source)
+        self.assertEqual(len(cases), 6)
+        self.assertEqual(set(cases), artifacts.IWS_ACTION_BODY_TESTS)
+        for case in cases:
             manifest = self.manifest()
             binary = manifest['binaries']['runtime-module-tests']
             binary.update(target='iws_action_body', target_kind=['test'], tests=[case])
@@ -5811,27 +5818,32 @@ class RuntimeWorkerCompanionContracts(unittest.TestCase):
 
 
 
-    def test_main_token_lib_cases_require_worker_at_both_registered_module_paths(self):
-        source = (HERE.parent / 'crates/oasis7_runtime/src/world/'
-                  'incremental_action_main_token_transfer_tests.rs').read_text()
-        cases = re.findall(r'#\[test\]\s*fn (\w+)\(', source)
+    def test_main_token_cases_have_only_the_component_worker_owner(self):
+        source = (HERE.parent / 'crates/oasis7_runtime/tests/iws_action_body.rs').read_text()
+        cases = [case for case in re.findall(r'#\[test\]\s*fn (\w+)\(', source)
+                 if 'main_token' in case]
         self.assertEqual(len(cases), 4)
         manifest = self.manifest(include_companion=False)
         binary = manifest['binaries']['runtime-module-tests']
         with patch.object(artifacts.sys, 'platform', 'linux'):
-            for prefix in (
-                    'world::incremental_genesis::tests::module_execution::action_body::rules::main_token_transfer::',
-                    'world::incremental_genesis::execution_test_support::rules::main_token_transfer::'):
-                for case in cases:
-                    name = prefix + case
-                    binary.update(tests=[name], ignored_tests=[])
-                    with self.subTest(case=name):
-                        self.assertTrue(artifacts.runtime_worker_test_selected(manifest))
-                        self.assertFalse(artifacts.runtime_worker_test_selected(manifest, ['viewer']))
-                        binary['ignored_tests'] = [name]
+            for case in cases:
+                binary.update(target='iws_action_body', target_kind=['test'],
+                              tests=[case], ignored_tests=[])
+                with self.subTest(case=case):
+                    self.assertTrue(artifacts.runtime_worker_test_selected(manifest))
+                    self.assertFalse(artifacts.runtime_worker_test_selected(manifest, ['viewer']))
+                    binary['ignored_tests'] = [case]
+                    self.assertFalse(artifacts.runtime_worker_test_selected(manifest))
+                    for prefix in (
+                            'world::incremental_genesis::tests::module_execution::action_body::rules::main_token_transfer::',
+                            'world::incremental_genesis::execution_test_support::rules::main_token_transfer::',
+                            'world::incremental_genesis::execution_test_support::main_token_case::',
+                            '', 'other::'):
+                        name = prefix + case
+                        binary.update(target=artifacts.RUNTIME_WORKER_TARGET, target_kind=['lib'],
+                                      tests=[name], ignored_tests=[])
                         self.assertFalse(artifacts.runtime_worker_test_selected(manifest))
-                        self.assertFalse(artifacts.runtime_worker_case_selected([case]))
-                        self.assertFalse(artifacts.runtime_worker_case_selected(['other::' + case]))
+                        self.assertFalse(artifacts.runtime_worker_case_selected([name]))
 
     def test_exact_worker_consumers_require_active_runtime_library_inventory(self):
         prefix = 'world::incremental_genesis::tests::module_execution::'

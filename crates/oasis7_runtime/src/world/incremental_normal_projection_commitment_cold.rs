@@ -10,7 +10,6 @@ use oasis7_formal_protocol::{
     incremental_execution::{ExecutionFence, ExecutionTransaction},
     incremental_state::MerkleNodeReader,
 };
-use oasis7_world_state::incremental_world_rule_projection_delta::QualifiedWorldRuleProjectionColumnsV1;
 pub(in crate::world) struct QualifiedColdProjectionSourceFeesV1 {
     sources: QualifiedNormalStateSourcesV1,
     aux: ActualCurrentNormalProjectionAuxV1,

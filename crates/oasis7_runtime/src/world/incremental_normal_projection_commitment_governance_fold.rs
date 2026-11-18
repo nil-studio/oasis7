@@ -1,7 +1,10 @@
 //! Fold only the exact original governance-cell changes. Counts are checked
 //! after all member patches, independently of sparse-tree visitation order.
 use super::*;
-use super::{state_columns::OriginalStateColumnsDataV1,original_rows::{OriginalProjectionRowsDataV1,OriginalProjectionRowDataV1},governance_rows::OriginalGovernanceRecordDataV1};
+use super::{
+    governance_rows::OriginalGovernanceRecordDataV1, original_rows::OriginalProjectionRowDataV1,
+    state_columns::OriginalStateColumnsDataV1,
+};
 use oasis7_world_state::incremental_governance_records::{CurrentGovernanceProjectionDeltaV1,GovernanceProjectionPathRefV1 as Path,GovernanceCollectionV1 as Collection};
 use oasis7_formal_protocol::{incremental_execution::{ExecutionTransaction,ExecutionFence},incremental_state::MerkleNodeReader};
 use std::cell::RefCell;

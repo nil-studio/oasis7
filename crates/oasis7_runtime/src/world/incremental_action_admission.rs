@@ -6,7 +6,7 @@ use oasis7_formal_protocol::{
     incremental_state::MerkleNodeReader,
     incremental_value::{ValueNodeReader, ValueTreeError},
 };
-use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
+use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, MemoryReservation, ReservedValue};
 use oasis7_world_state::{
     incremental_field_overlay::{WorldFieldOverlayContextV1, WorldFieldOverlayErrorV1},
     incremental_field_read::WorldFieldReadContextV1,
@@ -118,9 +118,56 @@ impl CoreActionAdmissionV1<'_, '_, '_> {
         }
     }
 }
+/// The record keeps its original data charge. Its fixed storage uses the
+/// admission already acquired before the Current read, including when this
+/// owner is moved into a scope-required error. Drop the box before that charge.
+pub(super) struct PaidSafeAlternativeAdmissionRecordV1 {
+    record: Box<ReservedValue<CurrentSafeAlternativeRecordV1>>,
+    _storage: MemoryReservation,
+}
+impl PaidSafeAlternativeAdmissionRecordV1 {
+    fn storage_bytes() -> usize {
+        std::mem::size_of::<ReservedValue<CurrentSafeAlternativeRecordV1>>()
+            + std::mem::size_of::<Self>()
+    }
+
+    fn from_admitted(
+        record: ReservedValue<CurrentSafeAlternativeRecordV1>,
+        storage: MemoryReservation,
+    ) -> Self {
+        assert!(storage.bytes() >= Self::storage_bytes());
+        Self {
+            record: Box::new(record),
+            _storage: storage,
+        }
+    }
+
+    /// The signed-record consumer takes the same original paid record. Moving
+    /// it out releases this box before returning its fixed storage charge.
+    pub(super) fn into_record(self) -> ReservedValue<CurrentSafeAlternativeRecordV1> {
+        let Self {
+            record,
+            _storage: storage,
+        } = self;
+        let original = {
+            let boxed = record;
+            *boxed
+        };
+        drop(storage);
+        original
+    }
+}
+impl std::ops::Deref for PaidSafeAlternativeAdmissionRecordV1 {
+    type Target = ReservedValue<CurrentSafeAlternativeRecordV1>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.record
+    }
+}
+
 pub(super) enum SelectedActionAdmissionV1<'selected> {
     Unbound(ReservedValue<UnboundActionAdmissionV1<'selected>>),
-    RequiresSafeAlternativeScope(ReservedValue<CurrentSafeAlternativeRecordV1>),
+    RequiresSafeAlternativeScope(PaidSafeAlternativeAdmissionRecordV1),
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -156,7 +203,10 @@ where
         let fee = overlay
             .values
             .memory
-            .reserve(1024, MemoryClass::Ordinary)
+            .reserve(
+                1024.max(PaidSafeAlternativeAdmissionRecordV1::storage_bytes()),
+                MemoryClass::Ordinary,
+            )
             .map_err(|error| ActionAdmissionErrorV1::Execution(ExecutionError::Memory(error)))?;
         let record = read_current_safe_alternative_for_action_v1(
             selected.envelope().id,
@@ -172,7 +222,7 @@ where
         if let Some(record) = record {
             record.validate(overlay.transaction, live)?;
             return Ok(SelectedActionAdmissionV1::RequiresSafeAlternativeScope(
-                record,
+                PaidSafeAlternativeAdmissionRecordV1::from_admitted(record, fee),
             ));
         }
         Ok(SelectedActionAdmissionV1::Unbound(fee.retain(

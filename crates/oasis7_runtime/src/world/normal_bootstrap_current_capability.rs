@@ -52,6 +52,8 @@ pub(in crate::world) fn verify_current_bootstrap_capability_v1<
         // and selected-source graphs are admitted by the original Current
         // Facts implementation at their actual use sites.
         let bytes = std::mem::size_of::<PaidModuleCapabilityAdmissionV1>()
+            .checked_add(ModuleCapabilityAdmissionFeesV1::heap_bytes())
+            .ok_or_else(bad)?
             .checked_add(16384)
             .ok_or_else(bad)?;
         common
@@ -91,11 +93,7 @@ pub(in crate::world) fn verify_current_bootstrap_capability_v1<
             common,
             live,
             bootstrap_canonical:Some(canonical),
-            held: ModuleCapabilityAdmissionFeesV1 {
-                fees: Vec::with_capacity(32),
-                slots,
-                _layout: layout,
-            },
+            held: ModuleCapabilityAdmissionFeesV1::from_admitted(layout, slots),
         };
         let result = (|| -> Result<(), Error> {
             // The original install and grant-registration APIs verify the

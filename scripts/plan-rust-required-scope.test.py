@@ -4740,7 +4740,8 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
                     {(target['package'], target['target_kind'], target['target_name']): len(target['cases'])
                      for target in current['ordinary_risk_targets']},
                     {('oasis7', 'test', 'incremental_full_scales'): 5,
-                     ('oasis7_runtime', 'test', 'iws_rule_core'): 6})
+                     ('oasis7_runtime', 'test', 'iws_rule_core'): 7,
+                     ('oasis7_runtime', 'test', 'iws_action_body'): 6})
 
     def test_main_fast_cache_capability_preserves_complete_v1_v2_and_expanded_builds(self):
         field = 'ordinary_main_fast_cache_writer_version'

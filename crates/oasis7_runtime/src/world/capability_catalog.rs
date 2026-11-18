@@ -10,7 +10,7 @@ use crate::capability_authorization::CapabilityInvocationContext;
 use crate::error::WorldError;
 use oasis7_wasm_abi::{
     CapabilityCatalogEntry, CapabilityCatalogSnapshot, CapabilityGrantV2, CapabilityPresenter,
-    CapabilitySubject, canonical_hash,
+    CapabilitySubject,
 };
 use serde_json::Value;
 

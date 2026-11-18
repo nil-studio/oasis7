@@ -115,34 +115,157 @@ where
         &[u8; 32],
     ) -> Result<oasis7_formal_protocol::incremental_material::FactLocationV1, String>,
 {
+    let (cache, head) = recover_authenticated_cold_parent_bounded_v1(
+        ColdParentReadRefsV1 {
+            endpoint,
+            lease,
+            pinned,
+            memory,
+            archive,
+        },
+        work,
+        source_work,
+        hints,
+        mailbox_hint,
+        stop,
+    )?;
+    endpoint
+        .iws_page_store
+        .as_ref()
+        .ok_or_else(|| invalid("cold page capability removed"))?
+        .jobs
+        .restore_cold(cache, &head)?;
+    endpoint.parent = Some(head);
+    Ok(())
+}
+
+/// Actual source reconstruction is shared by ordinary startup and the fixed
+/// Ready-parent recovery consumer. Neither caller may invent a parent cache.
+pub(super) struct ColdParentReadRefsV1<'a> {
+    pub(super) endpoint: &'a FileFormalEndpoint,
+    pub(super) lease: &'a crate::controlled_authority::fencing::PaidRemoteLeaseV1,
+    pub(super) pinned: &'a fencing::TrustedFencingPolicyV1,
+    pub(super) memory: &'a MemoryBudget,
+    pub(super) archive: &'a FormalArchiveReadWorkV1,
+}
+
+pub(super) fn recover_authenticated_cold_parent_bounded_v1<L>(
+    refs: ColdParentReadRefsV1<'_>,
+    work: &mut IwsColdParentWorkV1,
+    source_work: &mut super::work::IwsCandidateSourceWorkV1,
+    hints: IwsColdParentHintsV1,
+    mailbox_hint: L,
+    stop: &mut dyn FnMut() -> bool,
+) -> Result<
+    (
+        super::provisional::AcceptedCandidateCache,
+        VerifiedFormalCommitV1,
+    ),
+    AuthenticatedColdHostErrorV1,
+>
+where
+    L: FnMut(
+        &[u8; 32],
+    ) -> Result<oasis7_formal_protocol::incremental_material::FactLocationV1, String>,
+{
+    let ColdParentReadRefsV1 {
+        endpoint,
+        lease,
+        pinned,
+        memory,
+        archive,
+    } = refs;
     let checkpoint = super::cold_checkpoint::recover_authenticated_checkpoint_bounded_v1(
         endpoint, lease, pinned, memory, archive, stop,
     )?;
-    let mut common = archive.bounded_context(memory, stop);
-    let core =
-        super::cold_core::recover_ordinary_core_v1(endpoint, &checkpoint, work, &mut common)?;
+    // End only the Common borrow here. The recovered source still owns its
+    // original fees throughout the final conjunction below.
+    let (core, _recovered, ordinary) = {
+        let mut common = archive.bounded_context(memory, stop);
+        let core =
+            super::cold_core::recover_ordinary_core_v1(endpoint, &checkpoint, work, &mut common)?;
+        let pages = &endpoint
+            .iws_page_store
+            .as_ref()
+            .ok_or_else(|| invalid("cold actual pages"))?
+            .pages;
+        let recovered = super::cold_recovery_paid::recover_complete_sources_bounded_v1(
+            pages,
+            &checkpoint,
+            &core,
+            work,
+            hints,
+            mailbox_hint,
+            &mut common,
+        )?;
+        let ordinary = super::cold_readmission_paid::readmit_complete_sources_bounded_v1(
+            pages,
+            &checkpoint,
+            &recovered,
+            &core,
+            work,
+            &mut common,
+        )?;
+        (core, recovered, ordinary)
+    };
+    finish_authenticated_cold_parent_bounded_v1(
+        ColdParentReadRefsV1 {
+            endpoint,
+            lease,
+            pinned,
+            memory,
+            archive,
+        },
+        ColdParentSourcesV1 {
+            checkpoint,
+            core,
+            ordinary,
+        },
+        work,
+        source_work,
+        stop,
+    )
+}
+
+/// Only actual checked/readmitted source owners enter the shared final
+/// conjunction. A suffix producer must supply the same original owner types.
+pub(super) struct ColdParentSourcesV1 {
+    pub(super) checkpoint: super::cold_checkpoint::AuthenticatedColdCheckpointV1,
+    pub(super) core: ReservedValue<CheckedCommitCore>,
+    pub(super) ordinary: super::cold_readmission_paid::OrdinaryColdSourcesV1,
+}
+
+pub(super) fn finish_authenticated_cold_parent_bounded_v1(
+    refs: ColdParentReadRefsV1<'_>,
+    inputs: ColdParentSourcesV1,
+    work: &mut IwsColdParentWorkV1,
+    source_work: &mut super::work::IwsCandidateSourceWorkV1,
+    stop: &mut dyn FnMut() -> bool,
+) -> Result<
+    (
+        super::provisional::AcceptedCandidateCache,
+        VerifiedFormalCommitV1,
+    ),
+    AuthenticatedColdHostErrorV1,
+> {
+    let ColdParentReadRefsV1 {
+        endpoint,
+        lease,
+        pinned: _,
+        memory,
+        archive,
+    } = refs;
+    let ColdParentSourcesV1 {
+        checkpoint,
+        core,
+        ordinary,
+    } = inputs;
     let pages = &endpoint
         .iws_page_store
         .as_ref()
         .ok_or_else(|| invalid("cold actual pages"))?
         .pages;
-    let recovered = super::cold_recovery_paid::recover_complete_sources_bounded_v1(
-        pages,
-        &checkpoint,
-        &core,
-        work,
-        hints,
-        mailbox_hint,
-        &mut common,
-    )?;
-    let ordinary = super::cold_readmission_paid::readmit_complete_sources_bounded_v1(
-        pages,
-        &checkpoint,
-        &recovered,
-        &core,
-        work,
-        &mut common,
-    )?;
+    let mut common = archive.bounded_context(memory, stop);
     let source = oasis7_world_state::incremental_world_storage_source_cold::qualify_authenticated_cold_world_storage_source_v1(
         checkpoint.head(), &core, ordinary.current, ordinary.results, &ordinary.runtime,
         &ordinary.cognition, &mut common).map_err(storage_error)?;
@@ -297,13 +420,5 @@ where
     cache.complete_data = Some(complete);
     cache.formal_parent_fee = Some(head_fee.retain(()));
     common.consume_steps(0)?;
-    endpoint
-        .iws_page_store
-        .as_ref()
-        .ok_or_else(|| invalid("cold page capability removed"))?
-        .jobs
-        .restore_cold(cache, &head)?;
-    // All fallible source reads/checks/admissions precede the final source move.
-    endpoint.parent = Some(head);
-    Ok(())
+    Ok((cache, head))
 }

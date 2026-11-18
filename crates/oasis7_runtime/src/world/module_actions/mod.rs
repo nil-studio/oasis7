@@ -1,15 +1,11 @@
-use super::super::state::ModuleReleaseRequestStatus;
 use super::super::{
     Action, ActionEnvelope, ActionId, CausedBy, DomainEvent, GovernanceFinalityCertificate,
-    ModuleActivation, ModuleChangeSet, ModuleProfileChanges, ModuleUpgrade, ProposalDecision,
-    ProposalId, RejectReason, WorldError, WorldEventBody,
+    ModuleActivation, ModuleChangeSet, ModuleProfileChanges, ProposalDecision, ProposalId,
+    RejectReason, WorldError, WorldEventBody,
 };
 use super::World;
-use super::event_processing::action_to_event_economy::ensure_profile_field_whitelist;
-use super::governance::governance_finality_signed_stake_bps;
 use oasis7_agent_api::world_action::ModuleInstallTarget;
 use oasis7_agent_api::world_action::ResourceKind;
-use std::collections::BTreeSet;
 
 mod artifact_actions;
 mod release_actions;

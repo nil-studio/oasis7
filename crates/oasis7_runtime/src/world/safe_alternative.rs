@@ -3,7 +3,7 @@
 use super::*;
 use crate::cognition_recovery::cognition_digest_v1;
 use crate::service_admission::{SignedReadRequest, safe_alternative::validate_owner};
-use crate::{Action, CausedBy, DomainEvent, WorldEventBody};
+use crate::Action;
 use oasis7_client_api::safe_alternative::{
     SafeAlternativeCommandV1, SafeAlternativeOperationV1 as Op,
 };

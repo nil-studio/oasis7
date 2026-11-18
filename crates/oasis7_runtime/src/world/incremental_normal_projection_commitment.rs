@@ -16,8 +16,7 @@ pub(in crate::world) use inventory::*;
 mod initial;
 pub(in crate::world) use initial::{
     NormalProjectionColumnInitializerV1, NormalProjectionColumnSeedDataV1,
-    ProjectionOriginalColumnFieldV1, ProjectionOriginalColumnRowV1,
-    compare_projection_original_keys_v1,
+    ProjectionOriginalColumnFieldV1, compare_projection_original_keys_v1,
 };
 fn invalid(note: &'static str) -> BodyMutationError {
     BodyMutationError::Invalid(note)
@@ -40,8 +39,7 @@ mod state_columns;
 mod template;
 pub use owner::AcceptedNormalProjectionCacheV1;
 pub(in crate::world) use owner::{
-    ActualCurrentStateHashSnapshotV1, CurrentNormalProjectionCommitmentV1,
-    FrozenNormalProjectionCommitmentV1,
+    ActualCurrentStateHashSnapshotV1, FrozenNormalProjectionCommitmentV1,
 };
 #[path = "incremental_normal_projection_commitment_work.rs"]
 mod work;

@@ -5,7 +5,8 @@ use super::native_cold_test_support::{
     selected_fact_hints_bounded,
 };
 use super::native_node_test_support::{
-    NativeNodeCognitionV1, NativeNodeOwnersV1, NativeNodeSettingsV1, run_native_node_tick_v1,
+    NativeColdRecoverySettingsV1, NativeNodeCognitionV1, NativeNodeOwnersV1, NativeNodeSettingsV1,
+    admit_initial_cold_recovery_work_v1, run_native_node_tick_v1,
 };
 use super::native_observe_test_support::{
     HostObservationV1, HostObservationWorkV1, observe_current_bounded,
@@ -27,14 +28,20 @@ use std::{path::Path, sync::Arc};
 
 #[path = "../tests/support/genesis_endpoint_work.rs"]
 mod endpoint_work;
+#[path = "iws_host_native_suffix_refusal_test_support.rs"]
+mod suffix_refusals;
 
 fn diagnostic(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
 
-// These finite ceilings are instantiated once at each new request boundary.
-// Runtime and physical balances move from GEN/Cold; retries never call this.
-fn normal_work(runtime: NormalHostWorkV1, io: [HostColdIoWorkV1; 2]) -> NormalCommitWorkV1 {
+// These finite ceilings are instantiated once at GEN or a new Cold process.
+// Warm ticks move the returned whole work owner; retries never call this.
+fn normal_work(
+    runtime: NormalHostWorkV1,
+    io: [HostColdIoWorkV1; 2],
+    cold: super::normal_commit::NormalColdRecoveryWorkV1,
+) -> NormalCommitWorkV1 {
     let [primary, replica] = io;
     NormalCommitWorkV1 {
         canonical: primary.process_canonical,
@@ -51,6 +58,8 @@ fn normal_work(runtime: NormalHostWorkV1, io: [HostColdIoWorkV1; 2]) -> NormalCo
             replica_original_values: replica.original_values,
         },
         runtime,
+        cold,
+        fault: None,
     }
 }
 fn settings(
@@ -60,6 +69,7 @@ fn settings(
     replica: &Arc<RemoteMonotonicEndpointProvider>,
     pinned: &TrustedFencingPolicyV1,
     transaction: oasis7_formal_protocol::incremental_execution::TransactionLimits,
+    cold: NativeColdRecoverySettingsV1,
 ) -> NativeNodeSettingsV1 {
     NativeNodeSettingsV1 {
         world_id: world_id.into(),
@@ -85,6 +95,7 @@ fn settings(
         },
         max_action_bytes: 1 << 20,
         max_grant_payload_bytes: 1 << 20,
+        cold,
     }
 }
 fn balances(observation: &HostObservationV1) -> Result<[i64; 4], String> {
@@ -204,6 +215,42 @@ fn verify_tick(
 }
 
 pub(crate) fn run(root: &Path) -> Result<Vec<u8>, String> {
+    run_with_recovery(root, None, false)
+}
+pub(crate) fn run_with_fault(root: &Path, before_publication: bool) -> Result<Vec<u8>, String> {
+    use super::normal_commit::NormalCommitFaultV1;
+    run_with_recovery(
+        root,
+        Some(if before_publication {
+            NormalCommitFaultV1::BeforeResident
+        } else {
+            NormalCommitFaultV1::AfterPublication
+        }),
+        false,
+    )
+}
+pub(crate) fn run_checkpoint_suffix(root: &Path) -> Result<Vec<u8>, String> {
+    run_with_recovery(root, None, true)
+}
+pub(crate) fn run_source_work_return_fault(
+    root: &Path,
+    partial_source: bool,
+) -> Result<Vec<u8>, String> {
+    run_with_recovery(
+        root,
+        Some(if partial_source {
+            super::normal_commit::NormalCommitFaultV1::BeforeReplicaSource
+        } else {
+            super::normal_commit::NormalCommitFaultV1::BeforeSourceWorkReturn
+        }),
+        false,
+    )
+}
+fn run_with_recovery(
+    root: &Path,
+    fault: Option<super::normal_commit::NormalCommitFaultV1>,
+    checkpoint_suffix: bool,
+) -> Result<Vec<u8>, String> {
     with_genuine_genesis_hosts(root, |fixture| {
         let GenuineGenesisHostsV1 {
             primary,
@@ -232,6 +279,24 @@ pub(crate) fn run(root: &Path) -> Result<Vec<u8>, String> {
             transaction,
             stop,
         } = fixture;
+        let checkpoint_page = if checkpoint_suffix {
+            Some(suffix_refusals::business_page_bounded(
+                &primary, &memory, &archive, &stop,
+            )?)
+        } else {
+            None
+        };
+        let checkpoints = if checkpoint_suffix {
+            Some([
+                selected_fact_hints_bounded(&primary, &memory, &archive, &stop).map_err(diagnostic)?,
+                selected_fact_hints_bounded(&replica, &memory, &archive, &stop).map_err(diagnostic)?,
+            ].map(|checkpoint_hints| oasis7_distfs::controlled_authority::formal::endpoint::IwsColdCheckpointSuffixV1 {
+                checkpoint_position: 1, checkpoint_hints,
+            }))
+        } else {
+            None
+        };
+        let checkpoints = checkpoints.map_or([None, None], |values| values.map(Some));
         let mut observe_work = HostObservationWorkV1::new_bounded(
             &mut archive.bounded_context(&memory, &mut || false),
         )
@@ -282,7 +347,9 @@ pub(crate) fn run(root: &Path) -> Result<Vec<u8>, String> {
             )
             .map_err(diagnostic)?;
         drop(cognition_work);
-        let work = normal_work(runtime, genesis_io);
+        let cold_work = admit_initial_cold_recovery_work_v1(&current_limits, &memory, &archive)?;
+        let mut work = normal_work(runtime, genesis_io, cold_work);
+        work.fault = fault;
         let first_settings = settings(
             "iws-genuine-host-transfer",
             &writer,
@@ -290,6 +357,23 @@ pub(crate) fn run(root: &Path) -> Result<Vec<u8>, String> {
             &replica_provider,
             &pinned,
             transaction,
+            NativeColdRecoverySettingsV1 {
+                endpoint_paths: [
+                    paths.primary_endpoint.clone(),
+                    paths.replica_endpoint.clone(),
+                ],
+                pages_paths: [paths.primary_pages.clone(), paths.replica_pages.clone()],
+                authorization_hint_path: paths.authorization_hint.clone(),
+                authority: authority.clone(),
+                process: release_policy.clone(),
+                configuration: configuration.clone(),
+                worker: worker_limits(),
+                current_limits,
+                budgets: endpoint_work::budgets(),
+                projection_limits,
+                mailbox_hints: mailbox_hints.clone(),
+                checkpoints,
+            },
         );
         let (owners, first_settings, first_node) = run_native_node_tick_v1(
             NativeNodeOwnersV1 {
@@ -355,6 +439,18 @@ pub(crate) fn run(root: &Path) -> Result<Vec<u8>, String> {
             selected_fact_hints_bounded(&primary, &memory, &archive, &stop).map_err(diagnostic)?;
         let replica_hints =
             selected_fact_hints_bounded(&replica, &memory, &archive, &stop).map_err(diagnostic)?;
+        let target_page = if let Some(checkpoint_page) = checkpoint_page {
+            let target =
+                suffix_refusals::business_page_bounded(&primary, &memory, &archive, &stop)?;
+            if target == checkpoint_page {
+                return Err(
+                    "actual nonempty transfer did not change the selected Business root".into(),
+                );
+            }
+            Some(target)
+        } else {
+            None
+        };
         let first_remaining = (archive.remaining_steps(), archive.remaining_read_bytes());
         let old_pool = memory.clone();
         // These are every original Common/pool-bound owner of the first phase.
@@ -394,6 +490,37 @@ pub(crate) fn run(root: &Path) -> Result<Vec<u8>, String> {
             )
             .map_err(diagnostic)?;
         drop(authority);
+        let suffix_refusal_receipt = if let Some(target_page) = target_page {
+            let budgets = endpoint_work::budgets();
+            let worker = worker_limits();
+            Some(suffix_refusals::run_refusals(
+                super::cold_recovery::HostColdReopenInputV1 {
+                    endpoint: super::cold_recovery::ColdEndpointReopenRefsV1 {
+                        endpoint_path: &paths.primary_endpoint,
+                        pages_path: &paths.primary_pages,
+                        authority: &restored_authority,
+                        role: EndpointRole::Primary,
+                        provider: &primary_provider,
+                        policy: &pinned,
+                        budgets: &budgets,
+                        current_limits,
+                        checkpoint: checkpoints[0],
+                    },
+                    authorization_hint_path: &paths.authorization_hint,
+                    projection_limits,
+                    process: super::cold::ProcessInput::Governed(&release_policy),
+                    configuration: &configuration,
+                    worker: &worker,
+                    transaction,
+                    facts: primary_hints,
+                },
+                &mailbox_hints,
+                target_page,
+            )?)
+        } else {
+            None
+        };
+        let cold_work = admit_initial_cold_recovery_work_v1(&current_limits, &memory, &archive)?;
         let mut primary_work = ColdFixtureWorkV1::new_bounded(
             &current_limits,
             &mut archive.bounded_context(&memory, &mut || false),
@@ -421,6 +548,7 @@ pub(crate) fn run(root: &Path) -> Result<Vec<u8>, String> {
                 current_limits: current_limits.clone(),
                 projection_limits,
                 facts: primary_hints,
+                checkpoint: checkpoints[0],
             },
             &mut primary_work,
             |id| {
@@ -445,12 +573,13 @@ pub(crate) fn run(root: &Path) -> Result<Vec<u8>, String> {
                 provider: &replica_provider,
                 pinned: &pinned,
                 process: ColdFixtureProcessV1::Governed(&release_policy),
-                configuration,
+                configuration: configuration.clone(),
                 worker: worker_limits(),
                 transaction,
                 current_limits,
                 projection_limits,
                 facts: replica_hints,
+                checkpoint: checkpoints[1],
             },
             &mut replica_work,
             |id| {
@@ -515,6 +644,7 @@ pub(crate) fn run(root: &Path) -> Result<Vec<u8>, String> {
         let work = normal_work(
             primary_work.runtime,
             [primary_work.physical, replica_work.physical],
+            cold_work,
         );
         let second_settings = settings(
             "iws-genuine-host-transfer",
@@ -523,8 +653,25 @@ pub(crate) fn run(root: &Path) -> Result<Vec<u8>, String> {
             &replica_provider,
             &pinned,
             transaction,
+            NativeColdRecoverySettingsV1 {
+                endpoint_paths: [
+                    paths.primary_endpoint.clone(),
+                    paths.replica_endpoint.clone(),
+                ],
+                pages_paths: [paths.primary_pages.clone(), paths.replica_pages.clone()],
+                authorization_hint_path: paths.authorization_hint.clone(),
+                authority: restored_authority.clone(),
+                process: release_policy.clone(),
+                configuration: configuration.clone(),
+                worker: worker_limits(),
+                current_limits,
+                budgets: endpoint_work::budgets(),
+                projection_limits,
+                mailbox_hints: mailbox_hints.clone(),
+                checkpoints,
+            },
         );
-        let (owners, second_settings, second_node) = run_native_node_tick_v1(
+        let (owners, mut second_settings, second_node) = run_native_node_tick_v1(
             NativeNodeOwnersV1 {
                 primary,
                 replica,
@@ -570,10 +717,21 @@ pub(crate) fn run(root: &Path) -> Result<Vec<u8>, String> {
             return Err("second actual dual acceptance/balance differs".into());
         }
         let after_second = balances(&second)?;
+        for event in second.events.iter() {
+            second_settings.cold.mailbox_hints.insert(
+                event.original,
+                FactLocationV1 {
+                    height: second.height,
+                    ordinal: event.ordinal as u64,
+                    original: event.original,
+                },
+            );
+        }
         drop(second);
         drop(second_other);
         eprintln!("REAL_SECOND_NONEMPTY_NODE_ACCEPTED height=2 sender=2");
         let before_warm_common = [archive.remaining_steps(), archive.remaining_read_bytes()];
+        let before_warm_cold_work = work.cold.remaining_for_fixture_v1();
         // Continue from the returned accepted Hosts and their remaining work.
         // The resident holds the actual terminal Cognition delta from the
         // preceding acceptance; no GEN/Cold scan or work factory runs here.
@@ -593,6 +751,12 @@ pub(crate) fn run(root: &Path) -> Result<Vec<u8>, String> {
             owners.archive.remaining_steps(),
             owners.archive.remaining_read_bytes(),
         ];
+        let after_warm_cold_work = owners.work.cold.remaining_for_fixture_v1();
+        if before_warm_cold_work != after_warm_cold_work {
+            return Err(
+                "Warm tick replaced or consumed its original inactive Cold accounts".into(),
+            );
+        }
         if after_warm_common[0] >= before_warm_common[0]
             || after_warm_common[1] >= before_warm_common[1]
         {
@@ -634,6 +798,8 @@ pub(crate) fn run(root: &Path) -> Result<Vec<u8>, String> {
         let result = serde_json::json!({"schema":"oasis7.iws.nonempty_normal_cold.fixture.v1",
             "seed":seed_receipt,"genesis":genesis_observation,"first_node":first_node,"first":first_receipt,
             "old_pool_used_after_drop":0,"first_remaining_common":first_remaining,"cold":cold_summary,
+            "cold_checkpoint_position":if checkpoint_suffix { Some(1u64) } else { None },"cold_target_position":2,
+            "cold_suffix_refusals":suffix_refusal_receipt,
             "second_node":second_node,"second":second_receipt,"second_sender_electricity":2,
             "third_node":third_node,"third":third_receipt,"final_sender_electricity":1,
             "cold_remaining_common":before_warm_common,"warm_remaining_common":after_warm_common});

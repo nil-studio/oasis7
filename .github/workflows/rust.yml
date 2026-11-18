@@ -2120,6 +2120,14 @@ jobs:
             --common-archive "$RUNNER_TEMP/ordinary-archives/common.tar.gz" \
             --partition-archive "$RUNNER_TEMP/ordinary-archives/$ORDINARY_PARTITION.tar.gz" \
             --ordinary-partition "$ORDINARY_PARTITION" --bundle "$RUNNER_TEMP/native-tests"
+      - name: Execute complete IWS native Host target
+        if: >-
+          matrix.partition == fromJSON(needs.select.outputs.ordinary_partitions)[0] &&
+          contains(fromJSON(needs.select.outputs.plan).oasis7_required_packages, 'oasis7_chain_runtime')
+        shell: bash
+        env:
+          CI_VERBOSE: "1"
+        run: bash ./scripts/ci-tests.sh required --group "iws_host_native" --repo-root "$GITHUB_WORKSPACE"
       - name: Execute selected group
         shell: bash
         env:

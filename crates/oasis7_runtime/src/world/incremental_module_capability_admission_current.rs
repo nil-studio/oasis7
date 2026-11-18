@@ -39,9 +39,31 @@ pub(in crate::world) struct ModuleCapabilityAdmissionSourcesV1<'a>{
     pub primitive:&'a ReservedValue<oasis7_world_state::incremental_owner_closure::WorldPrimitiveQualificationV1>,
 }
 pub(in crate::world) struct ModuleCapabilityAdmissionFeesV1 {
+    storage: Box<ModuleCapabilityAdmissionFeeStorageV1>,
+    _layout: MemoryReservation,
+}
+struct ModuleCapabilityAdmissionFeeStorageV1 {
     fees: Vec<MemoryReservation>,
     slots: MemoryReservation,
-    _layout: MemoryReservation,
+}
+impl ModuleCapabilityAdmissionFeesV1 {
+    fn heap_bytes() -> usize {
+        std::mem::size_of::<ModuleCapabilityAdmissionFeeStorageV1>()
+    }
+
+    /// Both admissions precede the first allocation. Keep the actual record
+    /// charges and slot charge intact; release the box before its layout fee.
+    fn from_admitted(layout: MemoryReservation, slots: MemoryReservation) -> Self {
+        assert!(layout.bytes() >= Self::heap_bytes() + std::mem::size_of::<Self>());
+        assert!(slots.bytes() >= 32 * std::mem::size_of::<MemoryReservation>());
+        Self {
+            storage: Box::new(ModuleCapabilityAdmissionFeeStorageV1 {
+                fees: Vec::with_capacity(32),
+                slots,
+            }),
+            _layout: layout,
+        }
+    }
 }
 pub(in crate::world) struct PaidModuleCapabilityAdmissionV1 {
     result: Result<(), WorldError>,
@@ -146,8 +168,14 @@ where
     PC: FnMut() -> bool,
 {
     fn hold(&mut self, fee: MemoryReservation) -> Result<(), Error> {
-        if self.held.fees.len() == self.held.fees.capacity() {
-            let cap = self.held.fees.capacity().checked_mul(2).ok_or_else(bad)?;
+        if self.held.storage.fees.len() == self.held.storage.fees.capacity() {
+            let cap = self
+                .held
+                .storage
+                .fees
+                .capacity()
+                .checked_mul(2)
+                .ok_or_else(bad)?;
             let n = cap
                 .checked_mul(std::mem::size_of::<MemoryReservation>())
                 .ok_or_else(bad)?;
@@ -159,13 +187,16 @@ where
                 .memory()
                 .reserve(n, MemoryClass::Ordinary)
                 .map_err(ValueTreeError::Memory)?;
-            self.held.fees.reserve_exact(cap - self.held.fees.len());
-            if self.held.fees.capacity() > cap {
+            self.held
+                .storage
+                .fees
+                .reserve_exact(cap - self.held.storage.fees.len());
+            if self.held.storage.fees.capacity() > cap {
                 return Err(bad().into());
             }
-            self.held.slots = fee;
+            self.held.storage.slots = fee;
         }
-        self.held.fees.push(fee);
+        self.held.storage.fees.push(fee);
         Ok(())
     }
     fn selected(&mut self, request: Request<'_>) -> Result<ReservedValue<Value>, Error> {
@@ -928,7 +959,13 @@ fn validate_current_inner<
     let n = cap
         .len()
         .checked_mul(32)
-        .and_then(|n| n.checked_add(std::mem::size_of::<PaidModuleCapabilityAdmissionV1>() + 16384))
+        .and_then(|n| {
+            n.checked_add(
+                std::mem::size_of::<PaidModuleCapabilityAdmissionV1>()
+                    + ModuleCapabilityAdmissionFeesV1::heap_bytes()
+                    + 16384,
+            )
+        })
         .ok_or_else(bad)?;
     common
         .charge(1, n as u64)
@@ -953,11 +990,7 @@ fn validate_current_inner<
         common,
         live,
         bootstrap_canonical: None,
-        held: ModuleCapabilityAdmissionFeesV1 {
-            fees: Vec::with_capacity(32),
-            slots,
-            _layout: layout,
-        },
+        held: ModuleCapabilityAdmissionFeesV1::from_admitted(layout, slots),
     };
     let result = match admission(&mut current, cap) {
         Ok(v) => Ok(v),
@@ -1038,8 +1071,10 @@ pub(in crate::world) fn validate_current_module_required_capability_v1<
 #[path = "incremental_module_governance_finality_current.rs"]
 mod governance_finality;
 pub(in crate::world) use governance_finality::{
-    CurrentModuleGovernanceFinalityErrorV1, PaidCurrentModuleGovernanceFinalityV1, PaidCurrentLocalModuleGovernanceFinalityV1, PaidCurrentModuleEpochSnapshotV1,
-    build_current_local_module_governance_finality_v1, read_current_module_epoch_snapshot_v1, validate_current_module_governance_finality_v1,
+    CurrentModuleGovernanceFinalityErrorV1, PaidCurrentLocalModuleGovernanceFinalityV1,
+    PaidCurrentModuleEpochSnapshotV1, PaidCurrentModuleGovernanceFinalityV1,
+    build_current_local_module_governance_finality_v1, read_current_module_epoch_snapshot_v1,
+    validate_current_module_governance_finality_v1,
 };
 
 #[path = "normal_bootstrap_current_capability.rs"]

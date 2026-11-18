@@ -140,4 +140,3 @@ impl<'a> OriginalProjectionRowIteratorV1<'a>{
 }
 
 #[path="incremental_normal_projection_commitment_original_sequence.rs"] mod sequence;
-pub(super) use sequence::OriginalProjectionValueSequenceSerializeV1;

@@ -54,10 +54,18 @@ impl std::fmt::Display for HostColdStartupErrorV1 {
 }
 impl std::error::Error for HostColdStartupErrorV1 {}
 
-enum ProcessInput<'a> {
+#[derive(Clone, Copy)]
+pub(crate) enum ProcessInput<'a> {
     Governed(&'a oasis7_runtime::ReleaseSecurityPolicy),
     #[cfg(feature = "node-libp2p")]
     DevLocal(&'a crate::execution_config::DevLocalParticipantConfig),
+}
+pub(crate) struct HostColdResidentInputsV1<'a> {
+    pub process: ProcessInput<'a>,
+    pub limits: WorkerLimitsV1,
+    pub configuration: WorldRuntimeMemoryLimits,
+    pub projection: ProvisionalAuthorizationProjectionV1,
+    pub transaction: TransactionLimits,
 }
 pub(super) fn take(slot: &mut PageIoBudget) -> PageIoBudget {
     std::mem::replace(
@@ -249,6 +257,49 @@ impl IwsHostRuntimeV1 {
                 &mut || cancelled.load(Ordering::Acquire),
             )
             .map_err(HostColdStartupErrorV1::Source)?;
+        self.install_authenticated_cold_source_bounded_v1(
+            source,
+            HostColdResidentInputsV1 {
+                process,
+                limits,
+                configuration,
+                projection,
+                transaction,
+            },
+            (io, runtime_work),
+            super::cold_recovery::HostColdRecoveryContextV1 {
+                memory,
+                archive,
+                cancelled,
+                compiler,
+            },
+        )
+    }
+    pub(crate) fn install_authenticated_cold_source_bounded_v1(
+        &mut self,
+        source: PaidAcceptedGenesisHostSourceV1,
+        inputs: HostColdResidentInputsV1<'_>,
+        work: (&mut HostColdIoWorkV1, &mut NormalHostWorkV1),
+        context: super::cold_recovery::HostColdRecoveryContextV1<'_>,
+    ) -> Result<(), HostColdStartupErrorV1> {
+        let HostColdResidentInputsV1 {
+            process,
+            limits,
+            configuration,
+            projection,
+            transaction,
+        } = inputs;
+        let (io, runtime_work) = work;
+        let super::cold_recovery::HostColdRecoveryContextV1 {
+            memory,
+            archive,
+            cancelled,
+            compiler,
+        } = context;
+        archive.consume_steps(1, &mut || cancelled.load(Ordering::Acquire))?;
+        if !self.current.is_empty() || self.continuation.is_some() {
+            return Err(IwsHostRuntimeErrorV1::Move(ExecutionError::ParentConflict).into());
+        }
         let resident = source.with_parent_read_view_bounded(
             memory,
             archive,

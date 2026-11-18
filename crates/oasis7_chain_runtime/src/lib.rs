@@ -35,6 +35,32 @@ pub fn native_worker_fixture_iws_nonempty_normal_cold_v1(
     iws_host_runtime::native_closure_test_support::run(root)
 }
 
+#[cfg(all(unix, feature = "iws-host-native-test-support"))]
+pub fn native_worker_fixture_iws_normal_cold_failure_v1(
+    root: &std::path::Path,
+    before_publication: bool,
+) -> Result<Vec<u8>, String> {
+    iws_host_runtime::native_closure_test_support::run_with_fault(root, before_publication)
+}
+
+#[cfg(all(unix, feature = "iws-host-native-test-support"))]
+pub fn native_worker_fixture_iws_checkpoint_suffix_v1(
+    root: &std::path::Path,
+) -> Result<Vec<u8>, String> {
+    iws_host_runtime::native_closure_test_support::run_checkpoint_suffix(root)
+}
+
+#[cfg(all(unix, feature = "iws-host-native-test-support"))]
+pub fn native_worker_fixture_iws_source_work_return_v1(
+    root: &std::path::Path,
+    partial_source: bool,
+) -> Result<Vec<u8>, String> {
+    iws_host_runtime::native_closure_test_support::run_source_work_return_fault(
+        root,
+        partial_source,
+    )
+}
+
 #[cfg(all(unix, not(target_arch = "wasm32")))]
 mod iws_normal_input_decode;
 

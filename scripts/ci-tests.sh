@@ -380,7 +380,56 @@ verify_oasis7_iws_host_native_fixture() {
     "$repo_root/crates/oasis7_chain_runtime/tests/fixtures/iws_rule_transfer_candidate"
 }
 
+verify_oasis7_iws_host_native_inventory() {
+  local inventory_dir status
+  local command=(test --locked -p oasis7_chain_runtime --test iws_host_linux --no-default-features
+    --features iws-host-native-test-support)
+  inventory_dir="$(mktemp -d)" || return
+  # Inspect this exact built harness, including its ignored cases. These seven
+  # are a minimum contract; the complete target below also runs future cases.
+  if run_cargo "${command[@]}" -- --list --format terse > "$inventory_dir/all" \
+    && run_cargo "${command[@]}" -- --list --format terse --ignored > "$inventory_dir/ignored" \
+    && "$ci_python" - "$inventory_dir/all" "$inventory_dir/ignored" <<'PY_IWS_HOST_INVENTORY'
+from pathlib import Path
+import sys
+
+expected = {
+    'real_linux_accepted_genesis_installs_native_host',
+    'real_linux_nonempty_node_commit_reopens_cold_and_commits_again',
+    'real_linux_normal_before_publication_recovers_parent_and_same_ready',
+    'real_linux_normal_after_publication_recovers_child_and_node_boundary',
+    'real_linux_checkpoint_and_original_suffix_restore_actual_nonempty_head',
+    'real_linux_accepted_sources_return_original_work_after_cancelled_handoff',
+    'real_linux_partial_source_failure_returns_only_observable_original_work',
+}
+
+
+def cases(path):
+    names = [line.removesuffix(': test') for line in Path(path).read_text().splitlines()
+             if line.endswith(': test')]
+    if len(names) != len(set(names)):
+        raise SystemExit('IWS native Host inventory contains duplicate cases')
+    return set(names)
+
+
+all_cases, ignored = map(cases, sys.argv[1:])
+missing = expected - all_cases
+inactive = expected & ignored
+if missing or inactive or not ignored <= all_cases:
+    raise SystemExit(f'IWS native Host minimum cases missing={sorted(missing)} ignored={sorted(inactive)}')
+print(f'IWS native Host inventory: {len(all_cases - ignored)} active, {len(expected)} required', file=sys.stderr)
+PY_IWS_HOST_INVENTORY
+  then
+    status=0
+  else
+    status=$?
+  fi
+  rm -rf -- "$inventory_dir"
+  return "$status"
+}
+
 run_oasis7_iws_host_native_target() {
+  verify_oasis7_iws_host_native_inventory || return
   run_cargo test --locked -p oasis7_chain_runtime --test iws_host_linux --no-default-features \
     --features iws-host-native-test-support -- --test-threads=1
 }

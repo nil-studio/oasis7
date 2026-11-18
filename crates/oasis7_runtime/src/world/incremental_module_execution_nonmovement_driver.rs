@@ -147,7 +147,7 @@ pub(in crate::world) enum NonmovementSelectedErrorV1<OE> {
     Rules(SelectedRuleLaneErrorV1<OE>),
     Business(OrdinaryDriverErrorV1<OE>),
 }
-#[cfg(test)]
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
 impl<OE> NonmovementSelectedErrorV1<OE> {
     /// Observe the actual nested cause without replacing the production error.
     pub(in crate::world) fn body_error_for_fixture(&self) -> Option<&BodyMutationError> {

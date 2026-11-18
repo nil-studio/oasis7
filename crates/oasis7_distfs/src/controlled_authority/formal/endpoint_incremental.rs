@@ -660,4 +660,15 @@ mod cold_readmission_paid;
 #[path = "endpoint_incremental_cold_recovery_paid.rs"]
 mod cold_recovery_paid;
 #[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_cold_suffix.rs"]
+mod cold_suffix;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_cold_suffix_ledger.rs"]
+mod cold_suffix_ledger;
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_incremental_cold_suffix_step.rs"]
+mod cold_suffix_step;
+#[cfg(not(target_arch = "wasm32"))]
 pub use cold_install::AuthenticatedColdHostErrorV1;
+#[cfg(not(target_arch = "wasm32"))]
+pub use cold_suffix::IwsColdCheckpointSuffixV1;

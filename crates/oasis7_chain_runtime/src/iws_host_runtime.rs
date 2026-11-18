@@ -33,6 +33,8 @@ pub enum IwsHostRuntimeErrorV1 {
     NormalSource(oasis7_runtime::BodyMutationError),
     GenesisNormal(oasis7_runtime::NormalHostGenesisBootstrapErrorV1<oasis7_distfs::incremental_page_store::PageStoreError>),
     ColdNormal(oasis7_runtime::NormalHostColdBootstrapErrorV1<oasis7_distfs::incremental_page_store::PageStoreError>),
+    ColdSource(oasis7_distfs::controlled_authority::formal::endpoint::AuthenticatedColdHostErrorV1),
+    ColdProjection(oasis7_runtime::AuthorizationRootCacheErrorV1),
     NormalFixed(oasis7_runtime::NormalHostFixedFailureV1<oasis7_distfs::incremental_page_store::PageStoreError>),
     Source(BoundedAcquireErrorV1),
     Formal(FormalError),
@@ -368,6 +370,9 @@ pub use normal::NormalCommitPersistErrorV1;
 #[path = "iws_host_cold.rs"]
 mod cold;
 pub use cold::{HostColdIoWorkV1, HostColdStartupErrorV1};
+
+#[path = "iws_host_cold_recovery.rs"]
+mod cold_recovery;
 
 #[path = "iws_host_genesis_resident.rs"]
 mod genesis_resident;

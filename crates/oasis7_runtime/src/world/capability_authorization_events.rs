@@ -4,7 +4,6 @@
 //! also be journal evidence.  This module applies those evidence records
 //! during both normal append and stale-snapshot recovery.
 
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use oasis7_wasm_abi::{
     CapabilityAudience, CapabilityCatalogEntry, CapabilityGrantV2, ModuleCallCaller,
     canonical_hash, capability_scope_hash,
@@ -13,12 +12,11 @@ use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::capability_authorization::{
-    CapabilityAgentIdentity, CapabilityAuthorityFinalityBinding, CapabilityAuthorityFinalityProof,
-    CapabilityAuthorityRecord, CapabilityAuthorizationAuditReceipt,
-    CapabilityAuthorizationNonceRecord, CapabilityBudgetAccount, CapabilityEffectReceiptLink,
-    CapabilityInvocationContext,
+    CapabilityAgentIdentity, CapabilityAuthorityFinalityProof, CapabilityAuthorityRecord,
+    CapabilityAuthorizationAuditReceipt, CapabilityAuthorizationNonceRecord,
+    CapabilityBudgetAccount, CapabilityEffectReceiptLink, CapabilityInvocationContext,
 };
-use super::super::governance::{GovernanceFinalityCertificate, ProposalStatus};
+use super::super::governance::GovernanceFinalityCertificate;
 use super::super::{CapabilityAuthorizationEvent, WorldError, WorldTime};
 use super::World;
 use super::capability_authorization::{

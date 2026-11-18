@@ -327,7 +327,7 @@ where
                 }
             };
             let signed = prepare_signed_safe_alternative_record_v1(
-                record,
+                record.into_record(),
                 selected,
                 &proof,
                 self.ctx.transaction,
@@ -391,7 +391,7 @@ where
                         }
                     };
                     let signed = prepare_signed_safe_alternative_record_v1(
-                        record,
+                        record.into_record(),
                         selected,
                         &proof,
                         self.ctx.transaction,

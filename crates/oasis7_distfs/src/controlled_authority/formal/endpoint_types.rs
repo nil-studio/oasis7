@@ -2,6 +2,14 @@ use super::*;
 use crate::controlled_authority::replicated_protocol::{ClosedRecord, EndpointRole};
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone)]
+pub struct FormalEndpointAuthorizationV1 {
+    pub authority: VerifiedAuthorityV1,
+    pub original: VerifiedAuthorityV1,
+    pub recovery: Option<VerifiedRecovery>,
+    pub parent: Option<VerifiedFormalCommitV1>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FormalCandidateMaterialV1 {
     pub candidate: SignedCanonicalCandidateV1,

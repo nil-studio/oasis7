@@ -342,8 +342,7 @@ fn real_linux_accepted_genesis_installs_native_host() {
     prepare_bundle(&directory.0);
     accepted_host(&directory.0);
 }
-#[test]
-fn real_linux_nonempty_node_commit_reopens_cold_and_commits_again() {
+fn run_nonempty_node_cold_fixture(mode: &str) -> serde_json::Value {
     use std::os::unix::fs::PermissionsExt;
     let directory = Directory::new();
     let stable = directory.0.join("native-normal-cold-fixture");
@@ -363,7 +362,7 @@ fn real_linux_nonempty_node_commit_reopens_cold_and_commits_again() {
     drop(target);
     fs::set_permissions(&stable, fs::Permissions::from_mode(0o700)).unwrap();
     let result = Command::new(&stable)
-        .arg("--iws-nonempty-normal-cold-v1")
+        .arg(mode)
         .arg(directory.0.join("actual-pair"))
         .output()
         .expect("actual fixture process");
@@ -400,4 +399,147 @@ fn real_linux_nonempty_node_commit_reopens_cold_and_commits_again() {
     assert_eq!(receipt["third"]["fifo_transfers"], serde_json::json!([1]));
     eprintln!("{}", String::from_utf8_lossy(&result.stderr));
     eprintln!("{}", serde_json::to_string_pretty(&receipt).unwrap());
+    receipt
+}
+#[test]
+fn real_linux_nonempty_node_commit_reopens_cold_and_commits_again() {
+    let receipt = run_nonempty_node_cold_fixture("--iws-nonempty-normal-cold-v1");
+    for phase in ["first_node", "second_node", "third_node"] {
+        assert_eq!(receipt[phase]["actual_cold_refusals"], 0);
+    }
+}
+fn assert_actual_cold_failure_recovered(mode: &str) {
+    let receipt = run_nonempty_node_cold_fixture(mode);
+    assert_eq!(receipt["first_node"]["actual_cold_refusals"], 1);
+    assert_eq!(receipt["second_node"]["actual_cold_refusals"], 0);
+    assert_eq!(receipt["third_node"]["actual_cold_refusals"], 0);
+    let before = receipt["first_node"]["cold_work_before"]
+        .as_array()
+        .unwrap();
+    let after = receipt["first_node"]["cold_work_after"].as_array().unwrap();
+    assert_eq!(before.len(), 6);
+    assert_eq!(after.len(), before.len());
+    assert!(
+        after
+            .iter()
+            .zip(before)
+            .all(|(after, before)| after.as_u64().unwrap() <= before.as_u64().unwrap())
+    );
+    assert_ne!(
+        after, before,
+        "actual original Cold allowances must be consumed"
+    );
+    assert_eq!(
+        receipt["third_node"]["cold_work_before"], receipt["third_node"]["cold_work_after"],
+        "Warm continuation preserves the original unused Cold accounts"
+    );
+}
+#[test]
+fn real_linux_normal_before_publication_recovers_parent_and_same_ready() {
+    assert_actual_cold_failure_recovered("--iws-normal-cold-before-v1");
+}
+#[test]
+fn real_linux_normal_after_publication_recovers_child_and_node_boundary() {
+    assert_actual_cold_failure_recovered("--iws-normal-cold-after-v1");
+}
+
+#[test]
+fn real_linux_checkpoint_and_original_suffix_restore_actual_nonempty_head() {
+    let receipt = run_nonempty_node_cold_fixture("--iws-checkpoint-suffix-v1");
+    assert_eq!(receipt["cold_checkpoint_position"], 1);
+    assert_eq!(receipt["cold_target_position"], 2);
+    assert_eq!(
+        receipt["cold_suffix_refusals"]["pool_used_after_each_drop"],
+        0
+    );
+    let refusals = receipt["cold_suffix_refusals"]["attempts"]
+        .as_array()
+        .unwrap();
+    assert_eq!(refusals.len(), 3);
+    for (refusal, expected) in refusals.iter().zip([
+        "missing_target_page",
+        "exhausted_suffix_rows",
+        "cancelled_cold_request",
+    ]) {
+        assert_eq!(refusal["case"], expected);
+        assert_eq!(refusal["host_created"], false);
+        assert!(!refusal["error"].as_str().unwrap().is_empty());
+        let before = refusal["common_before"].as_array().unwrap();
+        let after = refusal["common_after"].as_array().unwrap();
+        assert!(
+            after
+                .iter()
+                .zip(before)
+                .all(|(after, before)| after.as_u64().unwrap() <= before.as_u64().unwrap())
+        );
+    }
+    assert_eq!(refusals[1]["suffix_rows_after"], 0);
+    for phase in ["first_node", "second_node", "third_node"] {
+        assert_eq!(receipt[phase]["actual_cold_refusals"], 0);
+    }
+}
+
+#[test]
+fn real_linux_accepted_sources_return_original_work_after_cancelled_handoff() {
+    let receipt = run_nonempty_node_cold_fixture("--iws-normal-return-work-v1");
+    assert_eq!(receipt["first_node"]["actual_source_work_refusals"], 1);
+    assert_eq!(
+        receipt["first_node"]["source_work_refused_targets"],
+        serde_json::json!([0, 0])
+    );
+    for phase in ["first_node", "second_node", "third_node"] {
+        assert_eq!(receipt[phase]["actual_cold_refusals"], 0);
+        let before = receipt[phase]["source_hash_work_before"]
+            .as_array()
+            .unwrap();
+        let after = receipt[phase]["source_hash_work_after"].as_array().unwrap();
+        assert_eq!(before.len(), 2);
+        assert_eq!(after.len(), 2);
+        assert!(after.iter().zip(before).all(|(after, before)| {
+            let after = after.as_u64().unwrap();
+            after > 0 && after < before.as_u64().unwrap()
+        }));
+    }
+    for phase in ["second_node", "third_node"] {
+        assert_eq!(receipt[phase]["actual_source_work_refusals"], 0);
+    }
+    assert_eq!(
+        receipt["second_node"]["source_hash_work_after"],
+        receipt["third_node"]["source_hash_work_before"],
+        "Warm tick inherits the actual prior returned accounts",
+    );
+}
+
+#[test]
+fn real_linux_partial_source_failure_returns_only_observable_original_work() {
+    let receipt = run_nonempty_node_cold_fixture("--iws-normal-partial-source-v1");
+    let first = &receipt["first_node"];
+    assert_eq!(first["actual_source_work_refusals"], 1);
+    assert_eq!(
+        first["source_work_refused_targets"],
+        serde_json::json!([0, 0])
+    );
+    assert_eq!(first["unobservable_replica_source_work_burned"], true);
+    let before = first["source_hash_work_before"].as_array().unwrap();
+    let after = first["source_hash_work_after"].as_array().unwrap();
+    assert!(after[0].as_u64().unwrap() > 0);
+    assert!(after[0].as_u64().unwrap() < before[0].as_u64().unwrap());
+    assert_eq!(
+        after[1], 0,
+        "the unavailable replica account cannot be refilled"
+    );
+    assert_ne!(first["cold_work_before"], first["cold_work_after"]);
+    // Only the already asserted full old-owner release starts a new Cold
+    // request. The following Warm tick must still inherit that request's work.
+    for phase in ["second_node", "third_node"] {
+        assert_eq!(receipt[phase]["actual_source_work_refusals"], 0);
+        assert_eq!(
+            receipt[phase]["unobservable_replica_source_work_burned"],
+            false
+        );
+    }
+    assert_eq!(
+        receipt["second_node"]["source_hash_work_after"],
+        receipt["third_node"]["source_hash_work_before"]
+    );
 }

@@ -211,18 +211,13 @@ impl ActualCurrentNormalProjectionAuxV1 {
 
 #[path = "incremental_normal_projection_runtime_fold.rs"]
 mod fold;
-pub(in crate::world) use fold::{
-    fold_current_revocation_projection_v1, initialize_revocation_set_projection_v1,
-};
+pub(in crate::world) use fold::initialize_revocation_set_projection_v1;
 
 #[path = "incremental_normal_projection_runtime_cognition.rs"]
 mod cognition;
 pub(in crate::world) use cognition::{
     apply as retention_path_apply_v1, check as retention_path_check_v1,
     presence as retention_path_presence_v1,
-};
-pub(in crate::world) use cognition::{
-    fold_current_cognition_proof_projection_v1, fold_current_cognition_state_projection_v1,
 };
 
 #[path = "incremental_normal_projection_runtime_metadata.rs"]

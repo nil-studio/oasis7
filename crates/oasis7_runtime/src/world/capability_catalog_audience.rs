@@ -1,6 +1,5 @@
 //! Unique catalog audience rules. Readonly source callbacks expose actual
 //! records; the source cannot bypass any target/authority/binding predicate.
-use super::*;
 use crate::world::{World,WorldError};
 use crate::capability_authorization::CapabilityAuthorityRecord;
 use oasis7_world_state::ModuleInstanceState;

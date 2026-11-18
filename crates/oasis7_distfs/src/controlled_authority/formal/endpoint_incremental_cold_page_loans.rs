@@ -123,6 +123,9 @@ impl<'work, 'pages> ValueLoan<'work, 'pages> {
     pub(super) fn source(&self) -> &ValuePageSession<'pages> {
         &self.session
     }
+    pub(super) fn sink(&mut self) -> &mut ValuePageSession<'pages> {
+        &mut self.session
+    }
 }
 impl Drop for ValueLoan<'_, '_> {
     fn drop(&mut self) {

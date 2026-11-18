@@ -316,6 +316,7 @@ impl FileFormalEndpoint {
             parent,
             poisoned: false,
             physical_maintenance: storage_maintenance::MaintenanceState::default(),
+            _bounded_reopen_fee: None,
             native_environment_jobs: std::collections::BTreeMap::new(),
             published_closure_jobs: std::collections::BTreeMap::new(),
             iws_page_store: None,

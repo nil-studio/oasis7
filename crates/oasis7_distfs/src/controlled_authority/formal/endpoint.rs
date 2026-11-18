@@ -43,8 +43,8 @@ mod business;
 mod incremental;
 #[cfg(not(target_arch = "wasm32"))]
 pub use incremental::{
-    IwsCandidateSourceWorkV1, IwsColdParentHintsV1, IwsColdParentWorkV1, IwsCurrentLimitsV1,
-    NativeWorkerLeaseV1,
+    AuthenticatedColdHostErrorV1, IwsCandidateSourceWorkV1, IwsColdCheckpointSuffixV1,
+    IwsColdParentHintsV1, IwsColdParentWorkV1, IwsCurrentLimitsV1, NativeWorkerLeaseV1,
 };
 pub use incremental::{IwsEndpointVerificationBudgetsV1, IwsPageStoreCapabilityV1};
 #[path = "endpoint_durable_set_install.rs"]
@@ -61,6 +61,9 @@ mod durable_set_provider;
 pub use durable_set_provider::{
     VerifiedDurableSetNativeInstallPlanV1, verify_durable_set_native_install_plan,
 };
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_bounded_cold_reopen.rs"]
+mod bounded_cold_reopen;
 #[path = "endpoint_recovery.rs"]
 mod native_recovery;
 #[path = "endpoint_rpc.rs"]
@@ -85,13 +88,6 @@ pub(super) fn fencing_error(error: fencing::FencingError) -> FormalError {
         other => FormalError::Rollback(other.to_string()),
     }
 }
-#[derive(Debug, Clone)]
-pub struct FormalEndpointAuthorizationV1 {
-    pub authority: VerifiedAuthorityV1,
-    pub original: VerifiedAuthorityV1,
-    pub recovery: Option<VerifiedRecovery>,
-    pub parent: Option<VerifiedFormalCommitV1>,
-}
 pub struct FileFormalEndpoint {
     store: Store,
     authority: VerifiedAuthorityV1,
@@ -111,6 +107,9 @@ pub struct FileFormalEndpoint {
     iws_page_store: Option<incremental::IwsPageStoreCapabilityV1>,
     #[cfg(any(test, feature = "test-support"))]
     controlled: bool,
+    // The bounded reopen owns its copied authority graph until every endpoint
+    // field has dropped. Legacy constructors carry no such new allocation.
+    _bounded_reopen_fee: Option<oasis7_proto::memory_budget::MemoryReservation>,
 }
 impl FileFormalEndpoint {
     /// Recovery endpoints receive the verified predecessor as `original` and
@@ -212,6 +211,7 @@ impl FileFormalEndpoint {
             parent,
             poisoned: false,
             physical_maintenance: storage_maintenance::MaintenanceState::default(),
+            _bounded_reopen_fee: None,
             native_environment_jobs: std::collections::BTreeMap::new(),
             published_closure_jobs: std::collections::BTreeMap::new(),
             iws_page_store: None,
@@ -1196,5 +1196,3 @@ pub(in crate::controlled_authority) use tests::{
 };
 #[path = "endpoint_checkpoint_parent.rs"]
 mod checkpoint_parent;
-#[cfg(not(target_arch = "wasm32"))]
-pub use incremental::AuthenticatedColdHostErrorV1;

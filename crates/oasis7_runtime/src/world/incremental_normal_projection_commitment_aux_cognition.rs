@@ -141,16 +141,12 @@ pub(in crate::world) fn prepare_current_cognition_projection_data_v1(
 
 #[path = "incremental_normal_projection_commitment_aux_cognition_native.rs"]
 mod native;
-pub(in crate::world) use native::{
-    PaidCurrentNativeAuthorizationsDataV1, prepare_current_native_authorizations_data_v1,
-};
+pub(in crate::world) use native::prepare_current_native_authorizations_data_v1;
 
 #[path = "incremental_normal_projection_commitment_aux_cognition_feedback.rs"]
 pub(in crate::world) mod feedback;
 
-pub(in crate::world) use native::{
-    PaidCurrentBuiltinRecipeQuoteDataV1, prepare_current_builtin_recipe_quote_data_v1,
-};
+pub(in crate::world) use native::prepare_current_builtin_recipe_quote_data_v1;
 
 #[path = "incremental_normal_projection_commitment_status.rs"]
 pub(super) mod status;

@@ -43,6 +43,23 @@
           "selected_rule_modify_form_alliance_to_resource_transfer_keeps_guard_and_current_effects",
           "selected_rule_modify_form_alliance_to_main_token_transfer_keeps_fees_and_nonce"
         ]
+      },
+      {
+        "package": "oasis7_runtime",
+        "target_kind": "test",
+        "target_name": "iws_action_body",
+        "default_features": true,
+        "features": [
+          "test_tier_full"
+        ],
+        "cases": [
+          "actual_queued_body_actions_match_world_and_read_prior_current_write",
+          "queued_alliance_lifecycle_preserves_outer_risk_war_rejections_and_exact_world_originals",
+          "actual_main_token_fifo_matches_world_balances_nonces_events_and_mailboxes",
+          "main_token_original_failure_keeps_charge_and_aborts_transaction",
+          "main_token_work_exhaustion_keeps_original_common_debit",
+          "main_token_work_rejects_equal_numeric_foreign_common"
+        ]
       }
     ],
     "isolated_sources": {

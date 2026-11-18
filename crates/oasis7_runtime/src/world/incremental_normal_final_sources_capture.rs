@@ -385,15 +385,19 @@ where
                     live_owner,
                     &mut loan,
                     |root, live, loan| {
-                        *slot = Some(PendingCurrentCognitionJournalV1::from_accepted_at_head_v1(
-                            parent.refs().cognition,
-                            parent.refs().head,
-                            root.ctx.transaction,
-                            root.ctx.values.memory,
-                            loan.0,
-                            &live(),
-                            &mut root.ctx.cancelled,
-                        )?);
+                        // The live service Outcome prepaid this fixed storage
+                        // even when the original scheduler left no frontier.
+                        *slot = Some(Box::new(
+                            PendingCurrentCognitionJournalV1::from_accepted_at_head_v1(
+                                parent.refs().cognition,
+                                parent.refs().head,
+                                root.ctx.transaction,
+                                root.ctx.values.memory,
+                                loan.0,
+                                &live(),
+                                &mut root.ctx.cancelled,
+                            )?,
+                        ));
                         Ok(())
                     },
                 )?;
@@ -507,6 +511,10 @@ where
                 live_owner,
                 &mut loan,
                 |root, live, loan| {
+                    let pending = {
+                        let boxed = pending;
+                        *boxed
+                    };
                     let written = pending.finish(
                         root.ctx.transaction,
                         loan.0,

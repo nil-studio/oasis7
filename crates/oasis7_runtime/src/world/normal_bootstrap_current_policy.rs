@@ -202,7 +202,8 @@ pub(in crate::world) fn read_current_bootstrap_policy_v1<
     let memory = common.memory().clone();
     let layout = memory
         .reserve(
-            std::mem::size_of::<PaidCurrentBootstrapPolicyV1>(),
+            std::mem::size_of::<PaidCurrentBootstrapPolicyV1>()
+                + ModuleCapabilityAdmissionFeesV1::heap_bytes(),
             MemoryClass::Ordinary,
         )
         .map_err(|e| CurrentBootstrapPolicyErrorV1::Body(ValueTreeError::Memory(e).into()))?;
@@ -225,11 +226,7 @@ pub(in crate::world) fn read_current_bootstrap_policy_v1<
         // catalogue hashes the returned paid PolicySet with its mandatory
         // actual Cognition canonical-work loan after this observer returns.
         bootstrap_canonical: None,
-        held: ModuleCapabilityAdmissionFeesV1 {
-            fees: Vec::with_capacity(32),
-            slots,
-            _layout: layout,
-        },
+        held: ModuleCapabilityAdmissionFeesV1::from_admitted(layout, slots),
     };
     let policy = match current.complete_policy_set() {
         Ok(value) => value,

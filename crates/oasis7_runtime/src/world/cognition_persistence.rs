@@ -26,7 +26,7 @@ use crate::cognition_recovery::{
 };
 use crate::cognition_retention::CognitionRetentionStore;
 use crate::error::WorldError;
-use cognition_persistence_support::{stale_base_error, validate_marker};
+use cognition_persistence_support::stale_base_error;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 use std::collections::BTreeMap;

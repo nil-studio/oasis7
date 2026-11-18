@@ -1,9 +1,3 @@
-use std::collections::BTreeSet;
-
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
-use oasis7_wasm_abi::validate_module_command_declarations;
-use oasis7_wasm_router::{validate_subscription_filters, validate_subscription_stage};
-
 use super::super::{
     ModuleArtifactIdentity, ModuleCommandCatalogEntry, ModuleLimits, ModuleManifest,
     ModuleRegistry, WorldError, module_command_catalog,

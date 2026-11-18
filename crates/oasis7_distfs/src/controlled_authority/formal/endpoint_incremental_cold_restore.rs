@@ -53,6 +53,7 @@ pub struct IwsColdParentWorkV1 {
 }
 /// The two selected positions and mailbox locator callback are untrusted hints.
 /// Every selected occurrence is independently authenticated by Formal readers.
+#[derive(Clone, Copy)]
 pub struct IwsColdParentHintsV1 {
     pub runtime: FactLocationV1,
     pub cognition: FactLocationV1,

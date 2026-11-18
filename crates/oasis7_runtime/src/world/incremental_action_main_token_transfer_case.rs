@@ -1,5 +1,9 @@
 //! Actual FIFO/Rule/Current owner tests. The World oracle independently checks
 //! event publication, balances, nonces and optional sender mailbox effects.
+use super::rules::{
+    FixtureInputV1, NonmovementExecutionFixtureV1, NonmovementFixtureWorkV1, directory_work,
+    evaluate,
+};
 use super::*;
 use crate::main_token::{MainTokenConfig, MainTokenSupplyState};
 use crate::world::incremental_action_data::main_token_transfer::MainTokenTransferWorkV1;
@@ -237,7 +241,7 @@ fn run(case: Failure) {
     if matches!(case, Failure::ForeignCommon) {
         work.core = foreign.identity();
     }
-    let mut audit = super::super::audit_work();
+    let mut audit = super::audit_work();
     let mut failure = None;
     for event in &expected {
         let mut persist =
@@ -416,19 +420,15 @@ fn run(case: Failure) {
     );
 }
 
-#[test]
-fn actual_main_token_fifo_matches_world_balances_nonces_events_and_mailboxes() {
+pub(in crate::world::incremental_genesis) fn fifo() {
     run(Failure::None);
 }
-#[test]
-fn main_token_original_failure_keeps_charge_and_aborts_transaction() {
+pub(in crate::world::incremental_genesis) fn original_failure() {
     run(Failure::Original);
 }
-#[test]
-fn main_token_work_exhaustion_keeps_original_common_debit() {
+pub(in crate::world::incremental_genesis) fn work_exhaustion() {
     run(Failure::LocalWork);
 }
-#[test]
-fn main_token_work_rejects_equal_numeric_foreign_common() {
+pub(in crate::world::incremental_genesis) fn foreign_common() {
     run(Failure::ForeignCommon);
 }

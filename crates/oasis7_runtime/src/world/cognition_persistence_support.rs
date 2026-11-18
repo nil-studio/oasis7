@@ -13,8 +13,7 @@ use super::{
     IdempotencyProjection, WORLD_COMMIT_SCHEMA, append_cognition_event,
 };
 use crate::cognition::{
-    AgentDecisionEnvelopeV1, finality_binding_digest_v1, finality_binding_is_legal,
-    world_state_binding_digest_v1,
+    AgentDecisionEnvelopeV1, finality_binding_is_legal, world_state_binding_digest_v1,
 };
 use crate::cognition_recovery::{
     RuntimeCognitionCommitRequestV1, RuntimeCognitionResponseArtifactV1, RuntimeReceiptLineageV1,

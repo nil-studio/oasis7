@@ -28,37 +28,123 @@ mod returned_work_tests {
 
     #[test]
     fn returned_hash_account_is_record_bound_and_consumed_once() {
-        let jobs = EndpointIwsState::new();
+        let primary = EndpointIwsState::new();
+        let replica = EndpointIwsState::new();
         let record = [7; 32];
         // A private bookkeeping fixture only; it creates no accepted source,
         // quorum, current qualification or public access to this work slot.
-        *jobs.returned_hash_work.borrow_mut() = Some(ReturnedHashWork { record, bytes: 19 });
-        let mut target = 0;
-        assert!(jobs.return_source_hash_work([8; 32], &mut target).is_err());
-        assert_eq!(target, 0);
-        let mut occupied = 1;
-        assert!(jobs.return_source_hash_work(record, &mut occupied).is_err());
-        assert_eq!(occupied, 1);
-        jobs.return_source_hash_work(record, &mut target).unwrap();
-        assert_eq!(target, 19);
-        let mut second = 0;
-        assert!(jobs.return_source_hash_work(record, &mut second).is_err());
-        assert_eq!(second, 0);
+        *primary.returned_hash_work.borrow_mut() = Some(ReturnedHashWork { record, bytes: 19 });
+        *replica.returned_hash_work.borrow_mut() = Some(ReturnedHashWork { record, bytes: 23 });
+        let (mut first, mut second) = (0, 0);
+        assert!(
+            primary
+                .return_source_hash_work_pair(&replica, [8; 32], (&mut first, &mut second))
+                .is_err()
+        );
+        assert_eq!((first, second), (0, 0));
+        second = 1;
+        assert!(
+            primary
+                .return_source_hash_work_pair(&replica, record, (&mut first, &mut second))
+                .is_err()
+        );
+        assert_eq!((first, second), (0, 1));
+        second = 0;
+        primary
+            .return_source_hash_work_pair(&replica, record, (&mut first, &mut second))
+            .unwrap();
+        assert_eq!((first, second), (19, 23));
+        let (mut again_first, mut again_second) = (0, 0);
+        assert!(
+            primary
+                .return_source_hash_work_pair(
+                    &replica,
+                    record,
+                    (&mut again_first, &mut again_second)
+                )
+                .is_err()
+        );
+        assert_eq!((again_first, again_second), (0, 0));
     }
 
     #[test]
     fn unavailable_returned_account_never_restores_a_ceiling() {
-        let jobs = EndpointIwsState::new();
+        let primary = EndpointIwsState::new();
+        let replica = EndpointIwsState::new();
         let record = [9; 32];
-        let mut target = 0;
-        assert!(jobs.return_source_hash_work(record, &mut target).is_err());
-        *jobs.returned_hash_work.borrow_mut() = Some(ReturnedHashWork { record, bytes: 0 });
-        let held = jobs.returned_hash_work.borrow_mut();
-        assert!(jobs.return_source_hash_work(record, &mut target).is_err());
-        assert_eq!(target, 0);
+        let (mut first, mut second) = (0, 0);
+        *primary.returned_hash_work.borrow_mut() = Some(ReturnedHashWork { record, bytes: 0 });
+        assert!(
+            primary
+                .return_source_hash_work_pair(&replica, record, (&mut first, &mut second))
+                .is_err()
+        );
+        *replica.returned_hash_work.borrow_mut() = Some(ReturnedHashWork { record, bytes: 0 });
+        let held = replica.returned_hash_work.borrow_mut();
+        assert!(
+            primary
+                .return_source_hash_work_pair(&replica, record, (&mut first, &mut second))
+                .is_err()
+        );
+        assert_eq!((first, second), (0, 0));
         drop(held);
-        jobs.return_source_hash_work(record, &mut target).unwrap();
-        assert_eq!(target, 0, "an exhausted staged account remains exhausted");
+        primary
+            .return_source_hash_work_pair(&replica, record, (&mut first, &mut second))
+            .unwrap();
+        assert_eq!(
+            (first, second),
+            (0, 0),
+            "exhausted staged accounts remain exhausted"
+        );
+    }
+
+    #[test]
+    fn second_endpoint_refusal_retains_both_original_accounts() {
+        let primary = EndpointIwsState::new();
+        let replica = EndpointIwsState::new();
+        let record = [11; 32];
+        *primary.returned_hash_work.borrow_mut() = Some(ReturnedHashWork { record, bytes: 17 });
+        *replica.returned_hash_work.borrow_mut() = Some(ReturnedHashWork {
+            record: [12; 32],
+            bytes: 31,
+        });
+        let (mut first, mut second) = (0, 0);
+        assert!(
+            primary
+                .return_source_hash_work_pair(&replica, record, (&mut first, &mut second))
+                .is_err()
+        );
+        assert_eq!((first, second), (0, 0));
+        assert_eq!(
+            primary.returned_hash_work.borrow().as_ref().unwrap().bytes,
+            17
+        );
+        assert_eq!(
+            replica.returned_hash_work.borrow().as_ref().unwrap().bytes,
+            31
+        );
+        replica
+            .returned_hash_work
+            .borrow_mut()
+            .as_mut()
+            .unwrap()
+            .record = record;
+        let held = replica.returned_hash_work.borrow_mut();
+        assert!(
+            primary
+                .return_source_hash_work_pair(&replica, record, (&mut first, &mut second))
+                .is_err()
+        );
+        assert_eq!((first, second), (0, 0));
+        assert_eq!(
+            primary.returned_hash_work.borrow().as_ref().unwrap().bytes,
+            17
+        );
+        drop(held);
+        primary
+            .return_source_hash_work_pair(&replica, record, (&mut first, &mut second))
+            .unwrap();
+        assert_eq!((first, second), (17, 31));
     }
 }
 impl EndpointIwsState {
@@ -243,6 +329,48 @@ impl EndpointIwsState {
         *target = returned.take().expect("checked original source work").bytes;
         Ok(())
     }
+
+    /// Complete accepted pairs return both accounts in one indivisible move.
+    pub(super) fn return_source_hash_work_pair(
+        &self,
+        replica: &Self,
+        record: [u8; 32],
+        targets: (&mut u64, &mut u64),
+    ) -> Result<(), FormalError> {
+        let mut primary_returned = self
+            .returned_hash_work
+            .try_borrow_mut()
+            .map_err(|_| invalid("IWS returned source work borrowed"))?;
+        let mut replica_returned = replica
+            .returned_hash_work
+            .try_borrow_mut()
+            .map_err(|_| invalid("IWS returned source work borrowed"))?;
+        let primary_remaining = primary_returned
+            .as_ref()
+            .ok_or_else(|| invalid("IWS accepted source work missing"))?;
+        let replica_remaining = replica_returned
+            .as_ref()
+            .ok_or_else(|| invalid("IWS accepted source work missing"))?;
+        if primary_remaining.record != record
+            || replica_remaining.record != record
+            || *targets.0 != 0
+            || *targets.1 != 0
+        {
+            return Err(invalid("IWS accepted source work exact record/empty lane"));
+        }
+        // Both original slots are exclusively held and both targets were
+        // checked before either move. No cancellation, charge or fallible
+        // operation may split this one-shot return into a partial transfer.
+        let primary = primary_returned
+            .take()
+            .expect("checked primary source work");
+        let replica = replica_returned
+            .take()
+            .expect("checked replica source work");
+        *targets.0 = primary.bytes;
+        *targets.1 = replica.bytes;
+        Ok(())
+    }
 }
 
 fn material_digest(
@@ -304,6 +432,39 @@ fn material_digest(
 }
 
 impl EndpointIwsState {
+    /// A retained Ready may replace only its already accepted parent cache.
+    /// The actual staged job, its hash account and its candidate qualification
+    /// remain in place. Ordinary cold startup still refuses every staged job.
+    pub(super) fn restore_ready_parent(
+        &self,
+        cache: AcceptedCandidateCache,
+        head: &VerifiedFormalCommitV1,
+        ready: &oasis7_formal_protocol::controlled_authority::formal::PaidVerifiedNormalCommitV1,
+        memory: &oasis7_proto::memory_budget::MemoryBudget,
+    ) -> Result<(), FormalError> {
+        if cache.commit_record != head.verified_record_id() || cache.authenticated_cold().is_none()
+        {
+            return Err(invalid("IWS Ready cold exact authenticated parent"));
+        }
+        {
+            let job = self.normal_job(head, memory)?;
+            let (core, _, _, _) =
+                job.normal_candidate_read_sources_v1(ready.verified(), head, memory)?;
+            if core.candidate_record_id() != ready.verified().verified_record_id() {
+                return Err(invalid("IWS Ready cold exact retained candidate"));
+            }
+        }
+        let mut parent = self
+            .accepted
+            .try_borrow_mut()
+            .map_err(|_| invalid("IWS Ready cold parent cache borrow"))?;
+        if parent.as_ref().map(|value| value.commit_record) != Some(cache.commit_record) {
+            return Err(invalid("IWS Ready cold cannot replace a different parent"));
+        }
+        *parent = Some(cache);
+        Ok(())
+    }
+
     pub(super) fn restore_cold(
         &self,
         cache: AcceptedCandidateCache,

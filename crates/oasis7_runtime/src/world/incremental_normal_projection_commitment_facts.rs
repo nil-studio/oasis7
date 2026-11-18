@@ -1081,24 +1081,20 @@ impl std::error::Error for ProjectionAuthorizationCause {}
 #[path = "incremental_normal_projection_commitment_aux_cognition.rs"]
 mod aux_cognition;
 pub(super) use aux_cognition::{
-    CognitionProjectionFeesV1, PaidCurrentCognitionProjectionDataV1,
-    prepare_current_cognition_projection_data_v1,
+    CognitionProjectionFeesV1, prepare_current_cognition_projection_data_v1,
 };
 
-pub(super) use aux_cognition::{
-    PaidCurrentNativeAuthorizationsDataV1, prepare_current_native_authorizations_data_v1,
-};
+pub(super) use aux_cognition::prepare_current_native_authorizations_data_v1;
 
 pub(super) use aux_cognition::feedback::{
-    CurrentFeedbackHistoryFeesV1, PaidCurrentFeedbackHistoryDataV1,
-    prepare_current_feedback_history_data_v1,
+    CurrentFeedbackHistoryFeesV1, prepare_current_feedback_history_data_v1,
 };
 
 #[path = "incremental_normal_projection_commitment_owner_chat.rs"]
 mod owner_chat;
 pub(in crate::world) use owner_chat::{
-    PaidCurrentOwnerChatProjectionDataV1, PaidCurrentOwnerKeyMatchDataV1,
-    prepare_current_owner_chat_projection_data_v1, prepare_current_owner_key_match_data_v1,
+    PaidCurrentOwnerKeyMatchDataV1, prepare_current_owner_chat_projection_data_v1,
+    prepare_current_owner_key_match_data_v1,
 };
 
 impl oasis7_world_state::world_rules::SubstitutionReadonlyFactsV1
@@ -1146,9 +1142,7 @@ impl oasis7_world_state::world_rules::SubstitutionReadonlyFactsV1
     }
 }
 
-pub(super) use aux_cognition::{
-    PaidCurrentBuiltinRecipeQuoteDataV1, prepare_current_builtin_recipe_quote_data_v1,
-};
+pub(super) use aux_cognition::prepare_current_builtin_recipe_quote_data_v1;
 
 #[path = "incremental_normal_projection_commitment_visible_rules.rs"]
 pub(super) mod visible_rules;
@@ -1157,6 +1151,5 @@ pub(super) mod visible_rules;
 pub(super) mod query;
 
 pub(in crate::world) use aux_cognition::status::{
-    CurrentWorldRuleStatusFeesV1, PaidCurrentWorldRuleStatusDataV1,
-    prepare_current_world_rule_status_data_v1,
+    CurrentWorldRuleStatusFeesV1, prepare_current_world_rule_status_data_v1,
 };

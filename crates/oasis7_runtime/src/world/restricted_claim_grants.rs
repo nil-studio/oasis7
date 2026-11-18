@@ -1,6 +1,8 @@
+#[cfg(test)]
+use super::super::DomainEvent;
 use super::super::{
-    AgentClaimState, DomainEvent, RestrictedStarterClaimGrantStatus,
-    RestrictedStarterClaimRefundSink, WorldError, WorldEvent, WorldEventBody,
+    AgentClaimState, RestrictedStarterClaimGrantStatus, RestrictedStarterClaimRefundSink,
+    WorldError, WorldEvent, WorldEventBody,
 };
 use super::World;
 

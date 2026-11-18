@@ -9,7 +9,7 @@ use fixed::{FactoryRecipeFactsV1, FactoryScheduleRecordV1, RecipeFactoryV1};
 use oasis7_world_state::{
     MaterialLedgerId, MaterialStack, gameplay_capability::GameplayCapabilityReadonlyFactsV1,
 };
-use std::{borrow::Cow, ops::ControlFlow};
+use std::borrow::Cow;
 pub(super) struct RecipeFacts<'v, 'f, 'a, 'c>(pub(super) &'v values::View<'f, 'a, 'c>);
 fn limited() -> BodyMutationError {
     ValueTreeError::ResourceLimited("Current native recipe facts").into()

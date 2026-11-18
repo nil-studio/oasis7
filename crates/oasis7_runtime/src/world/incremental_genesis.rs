@@ -151,10 +151,15 @@ pub(crate) mod execution_test_support;
 
 #[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
 mod action_body_case_runner {
+    use super::execution_test_support::main_token_case;
     /// Fixed cases backed by the original lib-test bodies and paid fixtures.
     pub enum IwsActionBodyCaseV1 {
         QueuedBodyActions,
         AllianceLifecycle,
+        MainTokenFifo,
+        MainTokenOriginalFailure,
+        MainTokenWorkExhaustion,
+        MainTokenForeignCommon,
     }
 
     pub fn run_iws_action_body_case_v1(case: IwsActionBodyCaseV1) {
@@ -162,6 +167,18 @@ mod action_body_case_runner {
             IwsActionBodyCaseV1::QueuedBodyActions => run_case(),
             IwsActionBodyCaseV1::AllianceLifecycle => {
                 super::execution_test_support::alliance_case::run();
+            }
+            IwsActionBodyCaseV1::MainTokenFifo => {
+                main_token_case::fifo();
+            }
+            IwsActionBodyCaseV1::MainTokenOriginalFailure => {
+                main_token_case::original_failure();
+            }
+            IwsActionBodyCaseV1::MainTokenWorkExhaustion => {
+                main_token_case::work_exhaustion();
+            }
+            IwsActionBodyCaseV1::MainTokenForeignCommon => {
+                main_token_case::foreign_common();
             }
         }
     }

@@ -4,8 +4,6 @@ use super::*;
 use super::cold_sources::QualifiedNormalStateSourcesV1;
 use crate::world::{incremental_normal_sources::BoundNormalTickParentV1,incremental_normal_projection_runtime::ActualCurrentNormalProjectionAuxV1};
 use oasis7_formal_protocol::{incremental_execution::{ExecutionTransaction,ExecutionFence},incremental_state::MerkleNodeReader};
-use oasis7_world_state::incremental_world_rule_projection_delta::QualifiedWorldRuleProjectionColumnsV1;
-use std::{cell::RefCell,sync::Arc};
 pub(super) fn assemble_qualified_projection_seed_v1<M:MerkleNodeReader>(parent:&BoundNormalTickParentV1<'_>,sources:&QualifiedNormalStateSourcesV1,aux:&ActualCurrentNormalProjectionAuxV1,retained_json:&[u8],tx:&ExecutionTransaction<'_,M>,max_json:usize,common:&mut FormalBoundedContextV1<'_>,live:&ExecutionFence)->Result<NormalProjectionColumnSeedDataV1,BodyMutationError>{
  parent.validate_context(common).map_err(paid)?;let refs=parent.refs();sources.validate_v1(refs.roots,tx,common,live)?;aux.validate(parent,tx,common,live)?;
  let mut out=NormalProjectionColumnInitializerV1::new(common)?;

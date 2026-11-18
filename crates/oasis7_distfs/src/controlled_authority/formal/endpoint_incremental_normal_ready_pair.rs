@@ -385,14 +385,12 @@ impl PaidNormalAcceptedPairV1 {
         let replica = replica_work
             .as_mut()
             .ok_or_else(|| invalid("normal replica source work owner missing"))?;
-        self.primary.return_candidate_hash_work_bounded(
-            &mut primary.history_hash_bytes,
-            memory,
-            work,
-            stop,
-        )?;
-        self.replica.return_candidate_hash_work_bounded(
-            &mut replica.history_hash_bytes,
+        self.primary.return_candidate_hash_work_pair_bounded(
+            &self.replica,
+            (
+                &mut primary.history_hash_bytes,
+                &mut replica.history_hash_bytes,
+            ),
             memory,
             work,
             stop,
@@ -427,10 +425,58 @@ impl std::fmt::Display for NormalReadyPublicationFailureV1 {
     }
 }
 impl std::error::Error for NormalReadyPublicationFailureV1 {}
+impl NormalReadyPublicationFailureV1 {
+    /// Both durable Qualified writes have completed before the retained Ready
+    /// can be consumed by accepted-source construction. The caller must still
+    /// authenticate the actual durable child; this observation grants no right.
+    pub fn requires_authenticated_cold_reopen_v1(&self) -> bool {
+        self.ready.is_none()
+    }
+    #[cfg(feature = "test-support")]
+    pub fn has_observable_primary_source_for_fixture_v1(&self) -> bool {
+        self.ready.is_none() && self._primary.is_some()
+    }
+
+    /// Preserve the one actual accepted source that can survive a failed
+    /// replica-source constructor. An absent source has no observable account
+    /// to return; it never licenses replacing the other endpoint's empty lane.
+    pub fn return_observable_source_work_bounded(
+        &mut self,
+        primary_work: &mut Option<
+            crate::controlled_authority::formal::endpoint::incremental::IwsCandidateSourceWorkV1,
+        >,
+        memory: &MemoryBudget,
+        work: &FormalArchiveReadWorkV1,
+        stop: &mut dyn FnMut() -> bool,
+    ) -> Result<(), FormalError> {
+        if self.ready.is_some() {
+            return Err(invalid(
+                "normal partial source return requires consumed Ready",
+            ));
+        }
+        let Some(primary) = self._primary.as_ref() else {
+            return Ok(());
+        };
+        if !primary.uses_budget(memory) || primary.value.endpoint_role() != EndpointRole::Primary {
+            return Err(invalid("normal partial accepted source pool/role"));
+        }
+        let target = &mut primary_work
+            .as_mut()
+            .ok_or_else(|| invalid("normal primary source work owner missing"))?
+            .history_hash_bytes;
+        primary
+            .value
+            .return_candidate_hash_work_bounded(target, memory, work, stop)?;
+        // The exact surviving source and its fee stay in this failure on Err.
+        // Only the completed one-shot return permits its no-fail release.
+        drop(self._primary.take());
+        Ok(())
+    }
+}
 impl PaidNormalReadyPairV1 {
     #[allow(clippy::too_many_arguments)]
     pub fn publish_bounded(
-        mut self,
+        self,
         primary_provider: &RemoteMonotonicEndpointProvider,
         replica_provider: &RemoteMonotonicEndpointProvider,
         primary_policy: &TrustedFencingPolicyV1,
@@ -439,6 +485,49 @@ impl PaidNormalReadyPairV1 {
         work: &FormalArchiveReadWorkV1,
         stop: &mut dyn FnMut() -> bool,
     ) -> Result<PaidNormalAcceptedPairV1, NormalReadyPublicationFailureV1> {
+        self.publish_with_replica_source_stop(
+            FormalEndpointPairPublicationRefsV1 {
+                primary_provider,
+                replica_provider,
+                primary_policy,
+                replica_policy,
+                memory,
+                work,
+            },
+            stop,
+            None,
+        )
+    }
+
+    /// Stop the actual replica-source gate after the real primary source has
+    /// been obtained. This fixture hook cannot construct any result or owner.
+    #[cfg(feature = "test-support")]
+    pub fn publish_with_replica_source_cancellation_for_fixture_v1(
+        self,
+        publication: FormalEndpointPairPublicationRefsV1<'_>,
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> Result<PaidNormalAcceptedPairV1, NormalReadyPublicationFailureV1> {
+        self.publish_with_replica_source_stop(
+            publication,
+            &mut || cancelled.load(std::sync::atomic::Ordering::Acquire),
+            Some(cancelled),
+        )
+    }
+
+    fn publish_with_replica_source_stop(
+        mut self,
+        publication: FormalEndpointPairPublicationRefsV1<'_>,
+        stop: &mut dyn FnMut() -> bool,
+        before_replica_source: Option<&std::sync::atomic::AtomicBool>,
+    ) -> Result<PaidNormalAcceptedPairV1, NormalReadyPublicationFailureV1> {
+        let FormalEndpointPairPublicationRefsV1 {
+            primary_provider,
+            replica_provider,
+            primary_policy,
+            replica_policy,
+            memory,
+            work,
+        } = publication;
         let published = (|| {
             self.owned
                 .value
@@ -527,6 +616,9 @@ impl PaidNormalReadyPairV1 {
                 });
             }
         };
+        if let Some(cancelled) = before_replica_source {
+            cancelled.store(true, std::sync::atomic::Ordering::Release);
+        }
         let replica = match (*r.endpoint).into_accepted_normal_host_source_with_lease_bounded(
             rlease,
             replica_provider,
@@ -968,4 +1060,6 @@ impl NormalReadyPairFailureV1 {
 
 #[path = "endpoint_incremental_normal_ready_candidate.rs"]
 mod candidate_read;
+#[path = "endpoint_incremental_normal_ready_cold.rs"]
+mod cold_parent;
 pub use candidate_read::NormalReadyCandidateReadViewV1;

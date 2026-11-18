@@ -5,7 +5,6 @@ use super::*;
 use super::original_rows::{OriginalProjectionRowsDataV1,OriginalProjectionRowDataV1};
 use oasis7_world_state::incremental_governance_records::{GovernanceRecordKindV1 as Kind,GovernanceColumnV1 as Column,GovernanceCollectionV1 as Collection};
 use oasis7_world_state::{GovernanceIdentityStatus,GovernanceProposalStatus,GovernanceVoteWeightSnapshotState,GovernanceVoteBallotState};
-use serde::Serialize;
 use std::{cell::RefCell,mem::size_of,sync::Arc};
 pub(super) struct Scalar{value:serde_json::Value,_fee:MemoryReservation}
 impl Scalar{pub(super) fn value(&self)->&serde_json::Value{&self.value}}

@@ -63,26 +63,54 @@ pub(in crate::world) struct CurrentCognitionServiceWorkV2<'a> {
 /// than RawModuleCall/Sandbox permissions; provider handoff requires its real
 /// typed admission/lease and the Host bound worker independently.
 pub(in crate::world) struct CurrentCognitionServiceOutcomeV2<'p> {
-    pending: Option<PendingCurrentCognitionJournalV1<'p>>,
+    pending: Option<Box<PendingCurrentCognitionJournalV1<'p>>>,
+    state: Box<CurrentCognitionServiceStateV2>,
+    _fee: ReservedValue<()>,
+}
+struct CurrentCognitionServiceStateV2 {
     selected: selection::PaidSelectedCognitionWakesV2,
     written: Option<journal::WrittenCurrentCognitionServiceV2>,
     guard: PreparedGuard,
     core: WorkIdentityV1,
-    _fee: ReservedValue<()>,
 }
 impl<'p> CurrentCognitionServiceOutcomeV2<'p> {
-    pub(in crate::world) fn pending_for_final_source(&mut self)->&mut Option<PendingCurrentCognitionJournalV1<'p>>{&mut self.pending}
+    fn admission_bytes() -> usize {
+        // Reserve the pending allocation even on the empty path: final capture
+        // may install its genuine frontier while this same fee is still held.
+        std::mem::size_of::<Self>()
+            + std::mem::size_of::<PendingCurrentCognitionJournalV1<'p>>()
+            + std::mem::size_of::<CurrentCognitionServiceStateV2>()
+    }
 
-    pub(in crate::world) fn into_detached_after_capture(self) -> Result<CurrentCognitionServiceOutcomeV2<'static>, Self> {
-        if self.pending.is_some() { return Err(self); }
-        Ok(CurrentCognitionServiceOutcomeV2 { pending: None, selected: self.selected, written: self.written, guard: self.guard, core: self.core, _fee: self._fee })
+    pub(in crate::world) fn pending_for_final_source(
+        &mut self,
+    ) -> &mut Option<Box<PendingCurrentCognitionJournalV1<'p>>> {
+        &mut self.pending
+    }
+
+    pub(in crate::world) fn into_detached_after_capture(
+        self,
+    ) -> Result<CurrentCognitionServiceOutcomeV2<'static>, Self> {
+        if self.pending.is_some() {
+            return Err(self);
+        }
+        Ok(CurrentCognitionServiceOutcomeV2 {
+            pending: None,
+            state: self.state,
+            _fee: self._fee,
+        })
     }
 
     pub(in crate::world) fn selected(&self) -> &[crate::cognition_scheduler::SchedulerWakeV1] {
-        self.selected.wakes()
+        self.state.selected.wakes()
     }
     pub(in crate::world) fn into_pending(self) -> Option<PendingCurrentCognitionJournalV1<'p>> {
-        self.pending
+        // The closure frees the pending Box before releasing its storage fee;
+        // the original Journal owner keeps its own reservations on return.
+        let pending = self.pending.map(|pending| *pending);
+        drop(self.state);
+        drop(self._fee);
+        pending
     }
     pub(in crate::world) fn validate_evidence<M: MerkleNodeReader>(
         &self,
@@ -90,15 +118,15 @@ impl<'p> CurrentCognitionServiceOutcomeV2<'p> {
         common: &mut FormalBoundedContextV1<'_>,
         live: &ExecutionFence,
     ) -> Result<(), BodyMutationError> {
-        tx.validate_transaction_identity(&self.guard)?;
+        tx.validate_transaction_identity(&self.state.guard)?;
         tx.validate_guard(&tx.guard(), live)?;
-        if self.core != common.work().identity() || !self._fee.uses_budget(common.memory()) {
+        if self.state.core != common.work().identity() || !self._fee.uses_budget(common.memory()) {
             return Err(bad().into());
         }
         if let Some(pending) = &self.pending {
             pending.validate_evidence(tx, common.memory(), live)?;
         }
-        if let Some(written) = &self.written {
+        if let Some(written) = &self.state.written {
             written.validate_evidence(tx, common, live)?;
         }
         Ok(())
@@ -159,7 +187,7 @@ where
             let fee = common
                 .memory()
                 .reserve(
-                    std::mem::size_of::<CurrentCognitionServiceOutcomeV2>(),
+                    CurrentCognitionServiceOutcomeV2::admission_bytes(),
                     MemoryClass::Ordinary,
                 )
                 .map_err(ValueTreeError::Memory)?
@@ -170,13 +198,16 @@ where
             let current =
                 self.read_current_cognition_service_state_v2(sources, work, common, live_owner)?;
             if !current.has_active_or_pending() {
+                let selected = selection::PaidSelectedCognitionWakesV2::empty(common)
+                    .map_err(RootModuleExecutionErrorV1::Body)?;
                 return Ok(CurrentCognitionServiceOutcomeV2 {
-                    pending,
-                    selected: selection::PaidSelectedCognitionWakesV2::empty(common)
-                        .map_err(RootModuleExecutionErrorV1::Body)?,
-                    written: None,
-                    guard: self.ctx.transaction.guard(),
-                    core: common.work().identity(),
+                    pending: pending.map(Box::new),
+                    state: Box::new(CurrentCognitionServiceStateV2 {
+                        selected,
+                        written: None,
+                        guard: self.ctx.transaction.guard(),
+                        core: common.work().identity(),
+                    }),
                     _fee: fee,
                 });
             }
@@ -237,11 +268,13 @@ where
             )?;
             let selected = plan.into_selected();
             Ok(CurrentCognitionServiceOutcomeV2 {
-                pending,
-                selected,
-                written: Some(written),
-                guard: self.ctx.transaction.guard(),
-                core: common.work().identity(),
+                pending: pending.map(Box::new),
+                state: Box::new(CurrentCognitionServiceStateV2 {
+                    selected,
+                    written: Some(written),
+                    guard: self.ctx.transaction.guard(),
+                    core: common.work().identity(),
+                }),
                 _fee: fee,
             })
         }));
@@ -316,24 +349,28 @@ where
             common
                 .charge(
                     1,
-                    std::mem::size_of::<CurrentCognitionServiceOutcomeV2>() as u64,
+                    CurrentCognitionServiceOutcomeV2::admission_bytes() as u64,
                 )
                 .map_err(|e| RootModuleExecutionErrorV1::Body(formal(e)))?;
             let fee = common
                 .memory()
                 .reserve(
-                    std::mem::size_of::<CurrentCognitionServiceOutcomeV2>(),
+                    CurrentCognitionServiceOutcomeV2::admission_bytes(),
                     MemoryClass::Ordinary,
                 )
                 .map_err(ValueTreeError::Memory)?
                 .retain(());
+            let pending = expiry.into_pending();
+            let selected = selection::PaidSelectedCognitionWakesV2::empty(common)
+                .map_err(RootModuleExecutionErrorV1::Body)?;
             let outcome = CurrentCognitionServiceOutcomeV2 {
-                pending: expiry.into_pending(),
-                selected: selection::PaidSelectedCognitionWakesV2::empty(common)
-                    .map_err(RootModuleExecutionErrorV1::Body)?,
-                written: None,
-                guard: self.ctx.transaction.guard(),
-                core: common.work().identity(),
+                pending: pending.map(Box::new),
+                state: Box::new(CurrentCognitionServiceStateV2 {
+                    selected,
+                    written: None,
+                    guard: self.ctx.transaction.guard(),
+                    core: common.work().identity(),
+                }),
                 _fee: fee,
             };
             outcome

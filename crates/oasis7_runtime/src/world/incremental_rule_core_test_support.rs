@@ -660,3 +660,9 @@ mod rules;
 #[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
 #[path = "incremental_normal_action_diplomacy_case.rs"]
 pub(in crate::world) mod alliance_case;
+
+// One fixture module and no lib #[test] wrappers: the action-body component
+// harness owns the four original MainToken cases exactly once.
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+#[path = "incremental_action_main_token_transfer_case.rs"]
+pub(super) mod main_token_case;

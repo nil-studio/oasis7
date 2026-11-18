@@ -1145,7 +1145,6 @@ pub(in crate::world) use incremental_normal_action_module_state_keys_current::{
 };
 
 mod incremental_module_artifact_original;
-pub(in crate::world) use incremental_module_artifact_original::{persist_artifact_original_data_v1,ArtifactOriginalWriteErrorV1};
 
 mod incremental_module_capability_admission_rules;
 pub(in crate::world) use incremental_module_capability_admission_rules::{

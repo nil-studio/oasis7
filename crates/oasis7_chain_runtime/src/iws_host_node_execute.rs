@@ -33,6 +33,7 @@ pub(crate) struct NodeNormalExecutionEnvironmentV1<'a> {
     pub memory: &'a MemoryBudget,
     pub archive: &'a FormalArchiveReadWorkV1,
     pub cancelled: &'a AtomicBool,
+    pub cold: super::normal_commit::NormalColdRecoveryInputsV1<'a>,
 }
 
 enum Phase {
@@ -102,6 +103,31 @@ fn same_context(
 }
 
 impl NodeNormalExecutionAttemptV1 {
+    #[cfg(any(test, feature = "iws-host-native-test-support"))]
+    pub(crate) fn requires_preparation_fixture_v1(&self) -> bool {
+        matches!(
+            self.phase,
+            Some(Phase::Freeze { .. } | Phase::Execute { .. })
+        )
+    }
+    #[cfg(any(test, feature = "iws-host-native-test-support"))]
+    pub(crate) fn cold_disposition_fixture_v1(&self) -> Option<NormalCommitRecoveryDispositionV1> {
+        match self.phase.as_ref()? {
+            Phase::Output(NormalOutputCommitFailureV1::Publication(
+                NormalCommitStartFailureV1::Publication(failure),
+            )) => Some(failure.disposition()),
+            _ => None,
+        }
+    }
+    #[cfg(any(test, feature = "iws-host-native-test-support"))]
+    pub(crate) fn retained_source_work_targets_fixture_v1(&self) -> Option<[u64; 2]> {
+        match self.phase.as_ref()? {
+            Phase::Output(NormalOutputCommitFailureV1::Publication(
+                NormalCommitStartFailureV1::Publication(failure),
+            )) => failure.retained_source_work_targets_fixture_v1(),
+            _ => None,
+        }
+    }
     pub(crate) fn fresh_bounded(
         primary: &IwsHostRuntimeV1,
         original: &VerifiedNodeLocalContinuationV1<'_>,
@@ -113,6 +139,9 @@ impl NodeNormalExecutionAttemptV1 {
             let mut stop = || e.cancelled.load(Ordering::Acquire);
             let mut common = e.archive.bounded_context(e.memory, &mut stop);
             work.runtime.validate_context_bounded_v1(&mut common)?;
+            work.cold
+                .validate_context(&mut common)
+                .map_err(NormalPackageErrorV1::Boundary)?;
             let fee = e
                 .memory
                 .reserve(size_of::<Self>(), MemoryClass::Ordinary)
@@ -159,6 +188,9 @@ impl NodeNormalExecutionAttemptV1 {
             let mut stop = || e.cancelled.load(Ordering::Acquire);
             let mut common = e.archive.bounded_context(e.memory, &mut stop);
             work.runtime.validate_context_bounded_v1(&mut common)?;
+            work.cold
+                .validate_context(&mut common)
+                .map_err(NormalPackageErrorV1::Boundary)?;
             let fee = e
                 .memory
                 .reserve(size_of::<Self>(), MemoryClass::Ordinary)
@@ -319,6 +351,8 @@ impl NodeNormalExecutionAttemptV1 {
                         e.memory,
                         e.archive,
                         e.cancelled,
+                        &e.cold,
+                        e.compiler,
                     ) {
                         Ok(work) => self.phase = Some(Phase::ReadAcceptedBoundary(work)),
                         Err(failure) => {

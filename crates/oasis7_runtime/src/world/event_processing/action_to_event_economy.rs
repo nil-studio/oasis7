@@ -547,11 +547,7 @@ mod action_to_event_economy_support;
 
 use super::super::economy::invalid_recipe_plan_stack_note;
 pub(crate) use action_to_event_economy_support::build_material_market_quotes;
-use action_to_event_economy_support::{
-    compute_local_scarcity_delay_ticks, industry_stage_label,
-    merge_recipe_consume_with_maintenance_sink, product_unlock_stage_allowed,
-    resolve_recipe_bottleneck_tags,
-};
+use action_to_event_economy_support::{industry_stage_label, product_unlock_stage_allowed};
 
 pub(crate) fn ensure_profile_field_whitelist<T: serde::Serialize>(
     profile: &T,
@@ -565,9 +561,7 @@ pub(crate) fn ensure_profile_field_whitelist<T: serde::Serialize>(
     )
 }
 
-pub(crate) use action_to_event_economy_support::{
-    recipe_preferred_tags_compatible, recipe_stage_gate_allowed,
-};
+pub(crate) use action_to_event_economy_support::recipe_stage_gate_allowed;
 
 #[path = "../incremental_normal_action_factory_schedule_build.rs"]
 mod factory_schedule_build;

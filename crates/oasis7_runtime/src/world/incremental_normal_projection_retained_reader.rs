@@ -20,7 +20,7 @@ pub trait PaidProjectionRetainedOriginalReaderV1 {
 
 #[path="incremental_normal_projection_retained_reader_node.rs"]
 mod node;
-pub(in crate::world) use node::{PaidRetainedNodeReadErrorV1,get_retained_index_leaf_bounded_v1};
+pub(in crate::world) use node::get_retained_index_leaf_bounded_v1;
 
 #[path="incremental_normal_projection_retained_reader_canonical.rs"]
 mod canonical;
@@ -30,7 +30,7 @@ mod decode;
 #[path="incremental_normal_projection_retained_reader_tasks.rs"]
 mod tasks;
 
-pub(in crate::world) use tasks::{PaidRetainedTaskResultsDataV1,read_task_results_data_v1};
+pub(in crate::world) use tasks::read_task_results_data_v1;
 
 pub(in crate::world) use decode::decode_hot_service_result_json_data_v1;
 
@@ -42,7 +42,6 @@ pub(in crate::world) use decode::is_canonical_empty_retained_root_data_v1;
 
 pub(in crate::world) use decode::equal_canonical_service_result_data_v1;
 
-pub(in crate::world) use decode::decode_current_task_terminal_record_data_v2;
 
 pub(in crate::world) use decode::decode_current_task_terminal_index_data_v2;
 
@@ -52,4 +51,4 @@ pub(in crate::world) use decode::blake3_raw_data_v1;
 
 #[path="incremental_normal_projection_retained_reader_chat.rs"]
 mod chat;
-pub(in crate::world) use chat::{PaidRetainedChatResultsDataV1,read_chat_results_data_v1};
+pub(in crate::world) use chat::read_chat_results_data_v1;

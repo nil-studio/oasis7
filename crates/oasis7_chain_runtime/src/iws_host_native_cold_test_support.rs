@@ -5,28 +5,23 @@
 use super::*;
 use oasis7_distfs::{
     controlled_authority::formal::endpoint::{
-        FormalEndpointAuthorizationV1, IwsCandidateSourceWorkV1, IwsColdParentHintsV1,
-        IwsColdParentWorkV1, IwsCurrentLimitsV1, IwsPageStoreCapabilityV1,
+        IwsColdParentHintsV1, IwsColdParentWorkV1, IwsCurrentLimitsV1,
     },
-    incremental_page_store::{IncrementalPageStore, PageCompression, PageStoreError},
+    incremental_page_store::PageStoreError,
 };
 use oasis7_formal_protocol::{
     controlled_authority::{
-        formal::{
-            VerifiedAuthorityV1,
-            bounded_context::{FormalBoundedContextV1, WorkIdentityV1},
-        },
+        formal::{VerifiedAuthorityV1, bounded_context::FormalBoundedContextV1},
         replicated_protocol::EndpointRole,
     },
     incremental_execution::TransactionLimits,
     incremental_material::FactLocationV1,
     incremental_value::ValueTreeError,
 };
-use oasis7_proto::{cbor_decode_preflight::CborPreflightWorkV1, memory_budget::MemoryReservation};
+use oasis7_proto::cbor_decode_preflight::CborPreflightWorkV1;
 use oasis7_runtime::{
     AuthorizationRootCacheErrorV1, AuthorizationRootCacheLimitsV1, BodyMutationError,
-    NormalHostWorkV1, ProvisionalAuthorizationProjectionV1, ReleaseSecurityPolicy,
-    RuntimeSourceCompiler, WorldRuntimeMemoryLimits,
+    NormalHostWorkV1, ReleaseSecurityPolicy, RuntimeSourceCompiler, WorldRuntimeMemoryLimits,
 };
 use oasis7_world_state::{
     incremental_cognition_history::CognitionHistoryIndexWorkV1,
@@ -38,7 +33,7 @@ use oasis7_world_state::{
     incremental_world_event_decode::WorldEventDecodeWorkV1,
     incremental_world_result_router::WorldResultRouterWorkV1,
 };
-use std::{io::Read, path::Path, sync::Arc};
+use std::{path::Path, sync::Arc};
 
 // Reuse the established explicit finite integration allowances verbatim. These
 // factories produce local ceilings, never a copy of Common's remaining bank.
@@ -72,14 +67,7 @@ impl std::error::Error for ColdFixtureErrorV1 {}
 
 /// Original finite accounts for one cold startup, retained on both success and
 /// error. A retry must borrow this same value; reopening never calls its maker.
-pub(crate) struct ColdFixtureWorkV1 {
-    pub cold: IwsColdParentWorkV1,
-    pub source: IwsCandidateSourceWorkV1,
-    pub physical: HostColdIoWorkV1,
-    pub runtime: NormalHostWorkV1,
-    core: WorkIdentityV1,
-    fee: MemoryReservation,
-}
+pub(crate) type ColdFixtureWorkV1 = super::cold_recovery::HostColdRecoveryWorkV1;
 
 fn structure() -> CborPreflightWorkV1 {
     CborPreflightWorkV1 {
@@ -112,13 +100,6 @@ impl ColdFixtureWorkV1 {
         limits: &IwsCurrentLimitsV1,
         common: &mut FormalBoundedContextV1<'_>,
     ) -> Result<Self, ColdFixtureErrorV1> {
-        common
-            .charge(1, size_of::<Self>() as u64)
-            .map_err(ColdFixtureErrorV1::Formal)?;
-        let fee = common
-            .memory()
-            .reserve(size_of::<Self>(), MemoryClass::Ordinary)
-            .map_err(|error| ColdFixtureErrorV1::Value(error.into()))?;
         let runtime =
             NormalHostWorkV1::new_bounded(oasis7_runtime::two_agent_host_work_limits_v1(), common)
                 .map_err(ColdFixtureErrorV1::Body)?;
@@ -181,35 +162,23 @@ impl ColdFixtureWorkV1 {
             local_records_remaining: limits.current.records_remaining,
             local_original_bytes_remaining: limits.current.original_bytes_remaining,
         };
-        Ok(Self {
-            cold,
-            source: endpoint_work::source_work(),
-            physical: HostColdIoWorkV1 {
-                process_canonical: endpoint_work::canonical_work(),
-                state: endpoint_work::physical(),
-                values: endpoint_work::physical(),
-                members: endpoint_work::physical(),
-                originals: endpoint_work::physical(),
-                original_values: endpoint_work::logical(),
+        Self::from_parts_bounded(
+            super::cold_recovery::HostColdRecoveryPartsV1 {
+                cold,
+                source: endpoint_work::source_work(),
+                physical: HostColdIoWorkV1 {
+                    process_canonical: endpoint_work::canonical_work(),
+                    state: endpoint_work::physical(),
+                    values: endpoint_work::physical(),
+                    members: endpoint_work::physical(),
+                    originals: endpoint_work::physical(),
+                    original_values: endpoint_work::logical(),
+                },
+                runtime,
             },
-            runtime,
-            core: common.work().identity(),
-            fee,
-        })
-    }
-    fn validate_context(
-        &self,
-        common: &mut FormalBoundedContextV1<'_>,
-    ) -> Result<(), ColdFixtureErrorV1> {
-        common
-            .consume_steps(1)
-            .map_err(ColdFixtureErrorV1::Formal)?;
-        if self.core != common.work().identity() || !self.fee.uses_budget(common.memory()) {
-            return Err(ColdFixtureErrorV1::Formal(FormalError::Invalid(
-                "cold fixture work Core/pool".into(),
-            )));
-        }
-        Ok(())
+            common,
+        )
+        .map_err(|error| ColdFixtureErrorV1::Host(HostColdStartupErrorV1::Host(error)))
     }
 }
 
@@ -236,72 +205,8 @@ pub(crate) struct ColdFixtureInputV1<'a> {
     pub current_limits: IwsCurrentLimitsV1,
     pub projection_limits: AuthorizationRootCacheLimitsV1,
     pub facts: IwsColdParentHintsV1,
-}
-
-fn read_projection_hint(
-    path: &Path,
-    limits: AuthorizationRootCacheLimitsV1,
-    common: &mut FormalBoundedContextV1<'_>,
-) -> Result<ProvisionalAuthorizationProjectionV1, ColdFixtureErrorV1> {
-    common
-        .consume_steps(2)
-        .map_err(ColdFixtureErrorV1::Formal)?;
-    let mut file = std::fs::File::open(path).map_err(ColdFixtureErrorV1::Io)?;
-    let metadata = file.metadata().map_err(ColdFixtureErrorV1::Io)?;
-    let length = usize::try_from(metadata.len())
-        .ok()
-        .filter(|length| *length <= limits.max_wire_bytes)
-        .ok_or(ColdFixtureErrorV1::Projection(
-            AuthorizationRootCacheErrorV1::Invalid("cold hint file bound"),
-        ))?;
-    if !metadata.is_file() {
-        return Err(ColdFixtureErrorV1::Projection(
-            AuthorizationRootCacheErrorV1::Invalid("cold hint must be a regular file"),
-        ));
-    }
-    let layout = length
-        .checked_add(size_of::<Vec<u8>>())
-        .ok_or(ColdFixtureErrorV1::Projection(
-            AuthorizationRootCacheErrorV1::Invalid("cold hint layout"),
-        ))?;
-    common
-        .charge(1, layout as u64)
-        .map_err(ColdFixtureErrorV1::Formal)?;
-    let fee = common
-        .memory()
-        .reserve(layout, MemoryClass::Ordinary)
-        .map_err(|error| ColdFixtureErrorV1::Value(error.into()))?;
-    let mut raw = Vec::new();
-    raw.try_reserve_exact(length).map_err(|_| {
-        ColdFixtureErrorV1::Projection(AuthorizationRootCacheErrorV1::Invalid(
-            "cold hint allocation",
-        ))
-    })?;
-    if raw.capacity() > length {
-        return Err(ColdFixtureErrorV1::Projection(
-            AuthorizationRootCacheErrorV1::Invalid("cold hint capacity"),
-        ));
-    }
-    raw.resize(length, 0);
-    for chunk in raw.chunks_mut(8192) {
-        common
-            .charge(1, chunk.len() as u64)
-            .map_err(ColdFixtureErrorV1::Formal)?;
-        file.read_exact(chunk).map_err(ColdFixtureErrorV1::Io)?;
-    }
-    common.charge(1, 1).map_err(ColdFixtureErrorV1::Formal)?;
-    if file.read(&mut [0u8; 1]).map_err(ColdFixtureErrorV1::Io)? != 0 {
-        return Err(ColdFixtureErrorV1::Projection(
-            AuthorizationRootCacheErrorV1::Invalid("cold hint changed length"),
-        ));
-    }
-    ProvisionalAuthorizationProjectionV1::read_hint_data(
-        &fee.retain(raw),
-        limits,
-        common,
-        MemoryClass::Ordinary,
-    )
-    .map_err(ColdFixtureErrorV1::Projection)
+    pub checkpoint:
+        Option<oasis7_distfs::controlled_authority::formal::endpoint::IwsColdCheckpointSuffixV1>,
 }
 
 /// Exactly one strict cold attempt. All work is borrowed and remains visible
@@ -311,7 +216,7 @@ fn read_projection_hint(
 pub(crate) fn reopen_host_bounded<L>(
     input: ColdFixtureInputV1<'_>,
     work: &mut ColdFixtureWorkV1,
-    mailbox_hint: L,
+    mut mailbox_hint: L,
     compiler: &RuntimeSourceCompiler,
     memory: &MemoryBudget,
     archive: &FormalArchiveReadWorkV1,
@@ -320,92 +225,54 @@ pub(crate) fn reopen_host_bounded<L>(
 where
     L: FnMut(&[u8; 32]) -> Result<FactLocationV1, String>,
 {
-    let projection = {
-        let mut stop = || cancelled.load(Ordering::Acquire);
-        let mut common = archive.bounded_context(memory, &mut stop);
-        work.validate_context(&mut common)?;
-        read_projection_hint(
-            input.authorization_hint_path,
-            input.projection_limits,
-            &mut common,
-        )?
+    let process = match input.process {
+        ColdFixtureProcessV1::Governed(policy) => super::cold::ProcessInput::Governed(policy),
+        #[cfg(feature = "node-libp2p")]
+        ColdFixtureProcessV1::DevLocal(control) => super::cold::ProcessInput::DevLocal(control),
     };
-    // Opening these actual paths requires the old fixed namespace lease to be
-    // gone. No new directory, snapshot restore or caller parent is supplied.
-    let pages = IncrementalPageStore::open(
-        input.pages_path,
-        memory.clone(),
-        PageCompression::Raw,
-        MemoryClass::Ordinary,
-    )
-    .map_err(ColdFixtureErrorV1::Physical)?;
-    let mut endpoint = FileFormalEndpoint::open_protected(
-        input.endpoint_path,
-        FormalEndpointAuthorizationV1 {
-            authority: input.authority.clone(),
-            original: input.authority.clone(),
-            recovery: None,
-            parent: None,
+    let budgets = endpoint_work::budgets();
+    super::cold_recovery::reopen_host_bounded_v1(
+        super::cold_recovery::HostColdReopenInputV1 {
+            endpoint: super::cold_recovery::ColdEndpointReopenRefsV1 {
+                endpoint_path: input.endpoint_path,
+                pages_path: input.pages_path,
+                authority: input.authority,
+                role: input.role,
+                provider: input.provider,
+                policy: input.pinned,
+                budgets: &budgets,
+                current_limits: input.current_limits,
+                checkpoint: input.checkpoint,
+            },
+            authorization_hint_path: input.authorization_hint_path,
+            projection_limits: input.projection_limits,
+            process,
+            configuration: &input.configuration,
+            worker: &input.worker,
+            transaction: input.transaction,
+            facts: input.facts,
         },
-        input.role,
-        input.provider.clone(),
-        None,
-    )
-    .map_err(ColdFixtureErrorV1::Formal)?;
-    endpoint
-        .install_iws_page_store(
-            IwsPageStoreCapabilityV1::new(pages, endpoint_work::budgets())
-                .and_then(|capability| capability.with_current_limits(input.current_limits))
-                .map_err(ColdFixtureErrorV1::Formal)?,
-        )
-        .map_err(ColdFixtureErrorV1::Formal)?;
-    let mut host = IwsHostRuntimeV1::default();
-    let result = match input.process {
-        ColdFixtureProcessV1::Governed(policy) => host.install_authenticated_cold_governed_bounded(
-            endpoint,
-            input.provider.as_ref(),
-            input.pinned,
-            policy,
-            input.worker,
-            input.configuration,
-            projection,
-            &mut work.cold,
-            &mut work.source,
-            input.facts,
-            mailbox_hint,
-            &mut work.physical,
-            &mut work.runtime,
-            compiler,
-            input.transaction,
+        work,
+        &mut mailbox_hint,
+        super::cold_recovery::HostColdRecoveryContextV1 {
             memory,
             archive,
             cancelled,
-        ),
-        #[cfg(feature = "node-libp2p")]
-        ColdFixtureProcessV1::DevLocal(control) => host
-            .install_authenticated_cold_devlocal_bounded(
-                endpoint,
-                input.provider.as_ref(),
-                input.pinned,
-                control,
-                input.worker,
-                input.configuration,
-                projection,
-                &mut work.cold,
-                &mut work.source,
-                input.facts,
-                mailbox_hint,
-                &mut work.physical,
-                &mut work.runtime,
-                compiler,
-                input.transaction,
-                memory,
-                archive,
-                cancelled,
-            ),
-    };
-    result.map_err(ColdFixtureErrorV1::Host)?;
-    Ok(host)
+            compiler,
+        },
+    )
+    .map_err(|error| match error {
+        IwsHostRuntimeErrorV1::ColdProjection(error) => ColdFixtureErrorV1::Projection(error),
+        IwsHostRuntimeErrorV1::Physical(PageStoreError::Io(error)) => ColdFixtureErrorV1::Io(error),
+        IwsHostRuntimeErrorV1::Physical(error) => ColdFixtureErrorV1::Physical(error),
+        IwsHostRuntimeErrorV1::Value(error) => ColdFixtureErrorV1::Value(error),
+        IwsHostRuntimeErrorV1::NormalSource(error) => ColdFixtureErrorV1::Body(error),
+        IwsHostRuntimeErrorV1::Formal(error) => ColdFixtureErrorV1::Formal(error),
+        IwsHostRuntimeErrorV1::ColdSource(error) => {
+            ColdFixtureErrorV1::Host(HostColdStartupErrorV1::Source(error))
+        }
+        error => ColdFixtureErrorV1::Host(HostColdStartupErrorV1::Host(error)),
+    })
 }
 
 /// A fixed small snapshot of current selected positions for later *untrusted*

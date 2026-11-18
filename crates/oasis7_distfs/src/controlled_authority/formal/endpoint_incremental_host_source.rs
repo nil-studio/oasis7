@@ -43,6 +43,34 @@ impl PaidAcceptedGenesisHostSourceV1 {
             .jobs
             .return_source_hash_work(self.record, target)
     }
+    pub(in crate::controlled_authority::formal::endpoint) fn return_candidate_hash_work_pair_bounded(
+        &self,
+        replica: &Self,
+        targets: (&mut u64, &mut u64),
+        memory: &MemoryBudget,
+        work: &FormalArchiveReadWorkV1,
+        stop: &mut dyn FnMut() -> bool,
+    ) -> Result<(), FormalError> {
+        let mut common = work.bounded_context(memory, stop);
+        self.validate_context(&mut common)?;
+        replica.validate_context(&mut common)?;
+        if self.record != replica.record {
+            return Err(invalid("Host returned source work pair record"));
+        }
+        let primary = &self
+            .endpoint
+            .iws_page_store
+            .as_ref()
+            .ok_or_else(|| invalid("Host accepted source page capability"))?
+            .jobs;
+        let replica = &replica
+            .endpoint
+            .iws_page_store
+            .as_ref()
+            .ok_or_else(|| invalid("Host accepted source page capability"))?
+            .jobs;
+        primary.return_source_hash_work_pair(replica, self.record, targets)
+    }
     pub fn endpoint_role(&self) -> EndpointRole {
         self.endpoint.role
     }

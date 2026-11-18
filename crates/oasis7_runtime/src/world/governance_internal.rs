@@ -1,5 +1,4 @@
 use super::*;
-use crate::GovernanceValidatorAdmissionStatus;
 impl World {
     pub(crate) fn governance_finality_registry_epoch_snapshot(
         &self,

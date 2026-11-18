@@ -25,7 +25,7 @@ type Body = wire::ConsensusActionPayloadBody<
 >;
 enum Stop {
     Resource(BoundedCborDataErrorV1),
-    Side(PaidCborDataV1<Envelope>),
+    Side(Box<PaidCborDataV1<Envelope>>),
 }
 impl From<BoundedCborDataErrorV1> for Stop {
     fn from(error: BoundedCborDataErrorV1) -> Self {
@@ -163,7 +163,9 @@ impl ConsensusPayloadDecodeOpsV1<Body> for Ops<'_, '_> {
                 let envelope: &Envelope = owner.borrow();
                 if !matches!(envelope.body.runtime_action(),Some(action) if !matches!(action,Action::WorldServiceIntent{..}))
                 {
-                    Err(Stop::Side(owner))
+                    // The outer kernel admission already covers this actual
+                    // box and remains live across the shared decoder's return.
+                    Err(Stop::Side(Box::new(owner)))
                 } else {
                     Ok(Ok(owner))
                 }
@@ -182,17 +184,22 @@ impl ConsensusPayloadDecodeOpsV1<Body> for Ops<'_, '_> {
     }
 }
 enum PayloadData {
-    Runtime(PaidCborDataV1<Envelope>),
-    Side(PaidCborDataV1<Envelope>),
+    Runtime(Box<PaidCborDataV1<Envelope>>),
+    Side(Box<PaidCborDataV1<Envelope>>),
     Refusal(String),
+}
+struct PayloadStorage {
+    data: PayloadData,
+    errors: [Option<MemoryReservation>; 4],
 }
 /// Private constructor, no Clone or bare DTO extraction. These are original
 /// DATA classifications, never a processed-input or execution qualification.
 pub(in crate::world) struct PaidRuntimeInputPayloadV1 {
-    data: PayloadData,
+    // Both boxes and the original DATA/refusal fees drop before the kernel
+    // reservation that admitted their storage before decoding started.
+    storage: Box<PayloadStorage>,
     core: WorkIdentityV1,
     _kernel: MemoryReservation,
-    _errors: [Option<MemoryReservation>; 4],
 }
 pub(in crate::world) enum RuntimePayloadConsumeErrorV1 {
     Context {
@@ -212,7 +219,8 @@ impl PaidRuntimeInputPayloadV1 {
         if self.core != common.work().identity()
             || !self._kernel.uses_budget(common.memory())
             || self
-                ._errors
+                .storage
+                .errors
                 .iter()
                 .flatten()
                 .any(|fee| !fee.uses_budget(common.memory()))
@@ -221,7 +229,7 @@ impl PaidRuntimeInputPayloadV1 {
                 "normal Runtime payload context",
             ));
         }
-        match &self.data {
+        match &self.storage.data {
             PayloadData::Runtime(owner) | PayloadData::Side(owner) => {
                 owner.validate_context(common)
             }
@@ -229,7 +237,7 @@ impl PaidRuntimeInputPayloadV1 {
         }
     }
     pub(in crate::world) fn refusal(&self) -> Option<&str> {
-        match &self.data {
+        match &self.storage.data {
             PayloadData::Refusal(note) => Some(note),
             _ => None,
         }
@@ -245,24 +253,31 @@ impl PaidRuntimeInputPayloadV1 {
                 source: self,
             });
         }
-        match &self.data {
+        match &self.storage.data {
             PayloadData::Side(_) => return Err(RuntimePayloadConsumeErrorV1::Side(self)),
             PayloadData::Refusal(_) => return Err(RuntimePayloadConsumeErrorV1::Refusal(self)),
             _ => {}
         }
         let Self {
-            data,
+            storage,
             core: _,
             _kernel,
-            _errors,
         } = self;
+        let PayloadStorage { data, errors } = {
+            let boxed = storage;
+            *boxed
+        };
         let PayloadData::Runtime(owner) = data else {
             unreachable!("private classified Runtime source")
+        };
+        let owner = {
+            let boxed = owner;
+            *boxed
         };
         let result = owner
             .with_data(common, consume)
             .map_err(RuntimePayloadConsumeErrorV1::Resource);
-        drop(_errors);
+        drop(errors);
         drop(_kernel);
         result
     }
@@ -295,7 +310,13 @@ pub(in crate::world) fn decode_runtime_input_payload_data_v1(
                 .checked_mul(8)
                 .and_then(|m| n.checked_add(m))
         })
-        .and_then(|n| n.checked_add(4096 + std::mem::size_of::<PaidRuntimeInputPayloadV1>()))
+        .and_then(|n| {
+            n.checked_add(
+                4096 + std::mem::size_of::<PaidRuntimeInputPayloadV1>()
+                    + std::mem::size_of::<PayloadStorage>()
+                    + std::mem::size_of::<PaidCborDataV1<Envelope>>(),
+            )
+        })
         .ok_or_else(limit)?;
     common.charge(1, kernel_bytes as u64)?;
     let kernel = common
@@ -341,9 +362,9 @@ pub(in crate::world) fn decode_runtime_input_payload_data_v1(
                         envelope.body.runtime_action(),
                         Some(Action::WorldServiceIntent { .. })
                     ) {
-                        PayloadData::Side(owner)
+                        PayloadData::Side(Box::new(owner))
                     } else {
-                        PayloadData::Runtime(owner)
+                        PayloadData::Runtime(Box::new(owner))
                     }
                 }
                 Err(note) => PayloadData::Refusal(note),
@@ -352,10 +373,12 @@ pub(in crate::world) fn decode_runtime_input_payload_data_v1(
     };
     ops.common.consume_steps(0)?;
     Ok(PaidRuntimeInputPayloadV1 {
-        data,
+        storage: Box::new(PayloadStorage {
+            data,
+            errors: ops.error_fees,
+        }),
         core: ops.common.work().identity(),
         _kernel: kernel,
-        _errors: ops.error_fees,
     })
 }
 
@@ -469,12 +492,12 @@ pub(in crate::world) fn validate_bound_reserved_input_data_v1(
 mod tests;
 
 impl std::fmt::Debug for RuntimePayloadConsumeErrorV1 {
-    fn fmt(&self,f:&mut std::fmt::Formatter<'_>)->std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Context{error,..}=>f.debug_tuple("Context").field(error).finish(),
-            Self::Resource(error)=>f.debug_tuple("Resource").field(error).finish(),
-            Self::Side(_)=>f.write_str("UnappliedSideInput"),
-            Self::Refusal(_)=>f.write_str("PayloadRefusal"),
+            Self::Context { error, .. } => f.debug_tuple("Context").field(error).finish(),
+            Self::Resource(error) => f.debug_tuple("Resource").field(error).finish(),
+            Self::Side(_) => f.write_str("UnappliedSideInput"),
+            Self::Refusal(_) => f.write_str("PayloadRefusal"),
         }
     }
 }

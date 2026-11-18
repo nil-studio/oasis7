@@ -117,6 +117,4 @@ mod safe_alt;
 
 #[path = "incremental_normal_projection_commitment_aux_cognition_native_recipe_sources.rs"]
 mod recipe_sources;
-pub(in crate::world) use recipe_binding::{
-    PaidCurrentBuiltinRecipeQuoteDataV1, prepare_current_builtin_recipe_quote_data_v1,
-};
+pub(in crate::world) use recipe_binding::prepare_current_builtin_recipe_quote_data_v1;

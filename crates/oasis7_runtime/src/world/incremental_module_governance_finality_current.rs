@@ -78,6 +78,7 @@ pub(in crate::world) fn validate_current_module_governance_finality_v1<
             let n = approved_hash
                 .len()
                 .checked_add(std::mem::size_of::<PaidCurrentModuleGovernanceFinalityV1>() + 16384)
+                .and_then(|n| n.checked_add(ModuleCapabilityAdmissionFeesV1::heap_bytes()))
                 .ok_or_else(bad)?;
             common
                 .charge(1, n as u64)
@@ -116,11 +117,7 @@ pub(in crate::world) fn validate_current_module_governance_finality_v1<
                 common,
                 live,
                 bootstrap_canonical: None,
-                held: ModuleCapabilityAdmissionFeesV1 {
-                    fees: Vec::with_capacity(32),
-                    slots,
-                    _layout: layout,
-                },
+                held: ModuleCapabilityAdmissionFeesV1::from_admitted(layout, slots),
             };
             let business =
                 match current.verify_certificate(proposal_id, approved_hash, epoch, certificate) {
@@ -224,7 +221,9 @@ pub(in crate::world) fn build_current_local_module_governance_finality_v1<
             if !ctx.values.memory.same_pool(common.memory()) {
                 return Err(bad());
             }
-            let n = std::mem::size_of::<PaidCurrentLocalModuleGovernanceFinalityV1>() + 16384;
+            let n = std::mem::size_of::<PaidCurrentLocalModuleGovernanceFinalityV1>()
+                + ModuleCapabilityAdmissionFeesV1::heap_bytes()
+                + 16384;
             common
                 .charge(1, n as u64)
                 .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
@@ -262,11 +261,7 @@ pub(in crate::world) fn build_current_local_module_governance_finality_v1<
                 common,
                 live,
                 bootstrap_canonical: None,
-                held: ModuleCapabilityAdmissionFeesV1 {
-                    fees: Vec::with_capacity(32),
-                    slots,
-                    _layout: layout,
-                },
+                held: ModuleCapabilityAdmissionFeesV1::from_admitted(layout, slots),
             };
             let certificate = match current.local_certificate(proposal_id, counter) {
                 Ok(value) => value,
@@ -358,12 +353,12 @@ pub(in crate::world) fn read_current_module_epoch_snapshot_v1<
     let result=ctx.transaction.contribute(|tx|->Result<_,BodyMutationError>{
         tx.validate_guard(&tx.guard(),live)?;
         if !ctx.values.memory.same_pool(common.memory()){return Err(bad())}
-        let n=std::mem::size_of::<PaidCurrentModuleEpochSnapshotV1>()+16384;
+        let n=std::mem::size_of::<PaidCurrentModuleEpochSnapshotV1>()+ModuleCapabilityAdmissionFeesV1::heap_bytes()+16384;
         common.charge(1,n as u64).map_err(|error|BodyMutationError::Original(Box::new(error)))?;
         let layout=common.memory().reserve(n,MemoryClass::Ordinary).map_err(ValueTreeError::Memory)?;
         let slots=common.memory().reserve(32*std::mem::size_of::<MemoryReservation>(),MemoryClass::Ordinary).map_err(ValueTreeError::Memory)?;
         let mut overlay=WorldFieldOverlayContextV1{transaction:tx,values:ValueReadContext{source:ctx.values.source,memory:ctx.values.memory,class:ctx.values.class,io:&mut*ctx.values.io},key_work:&mut*ctx.key_work,semantic_bytes:ctx.semantic_bytes,record_bytes:ctx.record_bytes,take_state_error:&mut ctx.take_state_error,cancelled:&mut ctx.cancelled};
-        let mut current=Current{sources,ctx:&mut overlay,parent,factory,module,common,live,bootstrap_canonical:None,held:ModuleCapabilityAdmissionFeesV1{fees:Vec::with_capacity(32),slots,_layout:layout}};
+        let mut current=Current{sources,ctx:&mut overlay,parent,factory,module,common,live,bootstrap_canonical:None,held:ModuleCapabilityAdmissionFeesV1::from_admitted(layout,slots)};
         let make=|current:&mut Current<'_,'_,'_,'_,'_,'_,'_,'_,M,P,R,_,_,PE,PC>|->Result<_,Error>{
             let now=current.tick()?;
             let cap=current.sources.capability;

@@ -23,7 +23,7 @@ pub(super) struct OrdinaryColdSourcesV1 {
         >,
     >,
     pub(super) retention:Option<ReservedValue<oasis7_world_state::incremental_cognition_retention_ledger::AcceptedCognitionRetentionLedgerV1>>,
-    _outer: ReservedValue<()>,
+    pub(super) _outer: ReservedValue<()>,
 }
 #[allow(clippy::too_many_arguments)]
 pub(super) fn readmit_complete_sources_bounded_v1(

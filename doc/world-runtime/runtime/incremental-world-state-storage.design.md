@@ -1639,6 +1639,10 @@ GEN 与 authenticated cold 的投影缓存初始化必须重新计算完整原�
 
 跨 Node 回调保留的 normal 提交状态拥有原 physical、logical、input-material 和双端 candidate-source work；失败阶段与剩余 work 一起移动，成功也返还同一剩余 work。长期 work 只记录真实 Core 的不透明 identity，实际调用时校验并短期借用原 Core；相同数值的新 Core 不可替换原 Core。每次 Action、tail 与恢复仅重新借用原计数，不创建新额度，也不通过共享引用、线程安全标记或重建 Core 改变原单线程扣账语义。
 
+Normal 的 Cold 恢复账户在初始 GEN 或新 Cold 进程的请求准入时建立，随同一 normal work 保留和返还；Warm 后续 tick 继承实际余额，失败后不得新建同额账户。若发布前 resident 准备已经消费 Runtime preparation，恢复必须在原 Ready 的同一双端 lease 下认证原 parent，只替换同 record 的 accepted parent cache，并保留原 staged candidate、quorum 与剩余 work；随后发布同一 Ready，不能重新运行 input。普通 Cold restore 对 staged candidate 的拒绝保持不变。
+
+双端 durable Qualified 已形成后的恢复从实际受保护 checkpoint 重新认证该 child，建立真实 Host source 和 resident，再读取原 Node boundary。定位 paths、FactLocation、历史 checkpoint position 与保留的 record/roots 都只是 DATA，不能产生接受资格；历史 checkpoint 恢复仍须验证原连续 CommitBody/Transition 后继链。双端恢复中已成功的一端保留，另一端失败只保留原阶段和剩余 work，不能覆盖已安装的不同 child 或重置 nonce。最终 Node applied result 继续逐字节核对原 context 与真实接受边界。
+
 
 #### IWS 本地 Node 的接受边界
 

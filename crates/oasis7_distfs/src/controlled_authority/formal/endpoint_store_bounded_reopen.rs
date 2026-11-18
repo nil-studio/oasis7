@@ -1,21 +1,18 @@
 //! Existing local, same-authority cold reopen. No initialization or archive import.
 use super::super::FormalArchiveReadWorkV1;
 use super::*;
-#[cfg(test)]
 use crate::controlled_authority::fencing::BoundedAcquireErrorV1;
-#[cfg(test)]
 use crate::controlled_authority::formal::endpoint::FormalEndpointPublicationRefsV1;
-#[cfg(test)]
+#[cfg(unix)]
 use crate::controlled_authority::formal::endpoint::store::bounded_transaction::NativePublicationFencingRefsV1;
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use std::mem::size_of;
-#[cfg(test)]
 type ResultV<T> = Result<T, BoundedAcquireErrorV1>;
 fn add(a: usize, b: usize) -> Result<usize, FormalError> {
     a.checked_add(b)
         .ok_or_else(|| invalid("bounded cold reopen layout"))
 }
-#[cfg(test)]
+#[cfg(unix)]
 fn mul(a: usize, b: usize) -> Result<usize, FormalError> {
     a.checked_mul(b)
         .ok_or_else(|| invalid("bounded cold reopen layout"))
@@ -72,7 +69,7 @@ pub(in crate::controlled_authority::formal::endpoint) fn hash_encoded<T: Seriali
     }
     Ok(fee.retain(text))
 }
-#[cfg(all(test, unix))]
+#[cfg(unix)]
 fn canonical_directory(
     path: &Path,
     work: &FormalArchiveReadWorkV1,
@@ -118,8 +115,7 @@ fn canonical_directory(
     Ok(canonical)
 }
 impl Store {
-    #[cfg(test)]
-    pub(super) fn reopen_existing_bounded(
+    pub(in crate::controlled_authority::formal::endpoint) fn reopen_existing_bounded(
         path: &Path,
         authority: &VerifiedAuthorityV1,
         role: EndpointRole,

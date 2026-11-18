@@ -1,18 +1,16 @@
 //! Shared Root admission/Rule/Modify consumer for genuine selected input.
 use super::*;
 use crate::world::{
-    incremental_action_admission::UnboundActionAdmissionV1,
+    incremental_action_admission::{
+        PaidSafeAlternativeAdmissionRecordV1, UnboundActionAdmissionV1,
+    },
     incremental_action_execution::SelectedPendingActionV1,
     incremental_module_invocation::RootRulePhaseOutcomeV1,
 };
 pub(in crate::world) enum SelectedRuleLaneErrorV1<OE> {
     Module(RootModuleExecutionErrorV1<OE>),
     Admission(crate::world::incremental_action_admission::ActionAdmissionErrorV1),
-    SafeAlternativeScopeRequired(
-        ReservedValue<
-            oasis7_world_state::incremental_runtime_revocation::CurrentSafeAlternativeRecordV1,
-        >,
-    ),
+    SafeAlternativeScopeRequired(PaidSafeAlternativeAdmissionRecordV1),
 }
 impl<OE: std::fmt::Debug> std::fmt::Debug for SelectedRuleLaneErrorV1<OE> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

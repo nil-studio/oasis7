@@ -5,7 +5,7 @@
 //! cloned world is allowed to call the sandbox.  The clone is published only
 //! after the call and its output have passed all checks.
 
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use ed25519_dalek::VerifyingKey;
 use oasis7_wasm_abi::CapabilityGrantV2;
 use std::collections::BTreeSet;
 

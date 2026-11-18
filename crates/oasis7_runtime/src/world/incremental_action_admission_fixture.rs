@@ -174,6 +174,25 @@ fn common_admission_actual_match_never_mints_unbound_permission() {
         SelectedActionAdmissionV1::RequiresSafeAlternativeScope(record) => {
             record.validate(&tx, &live).unwrap();
             assert_eq!(record.lineage(), "matching");
+            let original_charge = record.reserved_bytes();
+            let retained = memory.used();
+            let failure: Result<(), _> = Err(record);
+            assert_eq!(memory.used(), retained, "scope failure retains its storage");
+            let record = match failure {
+                Err(record) => record,
+                Ok(()) => unreachable!(),
+            };
+            let original = record.into_record();
+            assert!(
+                memory.used() < retained,
+                "consuming the box releases its storage"
+            );
+            assert!(original.uses_budget(&memory));
+            original.validate(&tx, &live).unwrap();
+            assert_eq!(original.lineage(), "matching");
+            let with_original = memory.used();
+            drop(original);
+            assert_eq!(memory.used(), with_original - original_charge);
         }
         SelectedActionAdmissionV1::Unbound(_) => panic!("matching action bypassed scope"),
     }

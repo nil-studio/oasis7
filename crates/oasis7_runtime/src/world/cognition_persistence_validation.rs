@@ -1,5 +1,5 @@
 use super::World;
-use crate::cognition::{finality_binding_is_legal, world_state_binding_digest_v1};
+use crate::cognition::finality_binding_is_legal;
 use crate::cognition_recovery::{
     CognitionRecoveryReport, CognitionResponseRecordV1, RuntimeCognitionResponseArtifactV1,
     WorldCommitRecordV1, WorldRootViewV1, cognition_digest_v1, response_artifact_digest,

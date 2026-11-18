@@ -3,13 +3,11 @@
 use super::*;
 use oasis7_agent_api::world_action::*;
 use oasis7_world_state::incremental_world_rule_projection_delta::WorldRuleLogicalColumnV1 as C;
-use oasis7_world_state::observation_projection::current_commitment::ProjectionDataPathRefV1;
 use oasis7_world_state::observation_projection::current_commitment::{
     ProjectionColumnDataV1, ProjectionColumnErrorV1, ProjectionColumnRefV1,
 };
 use oasis7_world_state::world_rules::{
-    IndustrialOwnerReadonlyFactsV1, IndustrialScratchReadonlyFactsV1,
-    IndustrialStartReadonlyFactsV1,
+    IndustrialScratchReadonlyFactsV1, IndustrialStartReadonlyFactsV1,
 };
 use oasis7_world_state::world_rules::{
     emergency_visibility_plan_v1, organization_visibility_plan_v1, supply_visibility_plan_v1,

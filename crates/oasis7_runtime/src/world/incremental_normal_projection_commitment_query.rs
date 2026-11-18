@@ -4,7 +4,7 @@ use crate::world_rules::readonly_recovery::{
     RecoveryAssemblyOpsV1, append_recipe_recovery_data_v1,
 };
 use oasis7_wasm_abi::CanonicalCborWorkV1;
-use oasis7_world_state::gameplay_capability::{GameplayCapabilityQuery, GameplaySubject};
+use oasis7_world_state::gameplay_capability::GameplaySubject;
 use std::{cell::RefCell, mem::size_of};
 #[derive(serde::Serialize)]
 struct Evidence<'a, R, P, A> {
