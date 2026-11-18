@@ -172,8 +172,8 @@ def prepare_native(source, out, end, env, *, maximum_seconds=180, observation=No
         raise ValueError('unsupported native preparation budget')
     if source_profile not in ('runner-sources', 'ubuntu-archive-https'):
         raise ValueError('unsupported native source profile')
-    if source_profile == 'ubuntu-archive-https' and (maximum_seconds != 180 or observation is None):
-        raise ValueError('source candidate requires the observed 180-second diagnostic')
+    if source_profile == 'ubuntu-archive-https' and maximum_seconds != 180:
+        raise ValueError('source profile requires the 180-second preparation budget')
     started = time.monotonic()
     preparation_end = min(end - 90, started + maximum_seconds)
     budget = {'maximum_seconds': maximum_seconds, 'started_monotonic': started,
@@ -182,7 +182,8 @@ def prepare_native(source, out, end, env, *, maximum_seconds=180, observation=No
               'probe_reserve_seconds': 20, 'privileged_cleanup_reserve_seconds': 5,
               'scope': 'allocations only; actual outcomes are in native-*.stdout.result.json',
               'allocations': []}
-    if observation is not None: budget['source_profile'] = source_profile
+    if observation is not None or source_profile != 'runner-sources':
+        budget['source_profile'] = source_profile
     runtime.save(out / 'native-budget.json', budget, out)
 
     def record(name, seconds, privileged_seconds=None):

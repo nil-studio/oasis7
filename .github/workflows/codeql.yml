@@ -221,6 +221,8 @@ jobs:
         name: Prepare Rust native extraction prerequisites
         if: matrix.language == 'rust'
         timeout-minutes: 5
+        env:
+          CODEQL_NATIVE_SOURCE_PROFILE: ${{ needs.plan.outputs.profile == 'default' && github.event_name != 'pull_request' && 'ubuntu-archive-https' || 'runner-sources' }}
         run: |
           python3 -I - <<'PY'
           import importlib.util, json, os, pathlib, sys, time
@@ -235,13 +237,18 @@ jobs:
           native.runtime.CAP, native.runtime.WRITE_CAP = 16 * 1024**2, 15 * 1024**2
           env = {key: value for key, value in os.environ.items()
                  if key not in ('GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER')}
+          profile = os.environ['CODEQL_NATIVE_SOURCE_PROFILE']
           started = time.monotonic()
-          terminal = {'status': 'FAILED', 'preparation_budget_seconds': 180}
+          terminal = {'status': 'FAILED', 'preparation_budget_seconds': 180, 'source_profile': profile}
           try:
-              native.prepare_native(source, out, started + 270, env)
+              native.prepare_native(source, out, started + 270, env, source_profile=profile)
               terminal['status'] = 'PASS'
           except Exception as error:
-              terminal.update(error_type=type(error).__name__, error=str(error))
+              terminal.update(error_type=type(error).__name__)
+              if isinstance(error, native.runtime.PhaseError):
+                  terminal.update(exit=error.result.get('exit'), failure_kind=error.result.get('failure_kind'))
+              if hasattr(error, 'native_source_evidence_error'):
+                  terminal['source_evidence_error'] = error.native_source_evidence_error
               raise
           finally:
               terminal['elapsed_seconds'] = time.monotonic() - started

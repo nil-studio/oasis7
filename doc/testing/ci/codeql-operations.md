@@ -103,6 +103,8 @@ live reader 使用精确 run attempt 的 jobs API，并通过独立验证的 evi
 
 Rust 的 default/extended 扫描先执行 `Prepare Rust native extraction prerequisites`，复用容量入口的 GTK 3、WebKitGTK 4.1、D-Bus 安装与 pkg-config 探针；准备共用最多 180 秒，计入对应 job 的总预算；默认分支 Rust default 为 90 分钟，其他 Rust 场景保持 45 分钟。失败时从独立 `oasis7-codeql-native-<run>-<attempt>-rust-repo-<profile>` artifact 查看安装 stdout/stderr、包和模块版本及 `native-terminal.json`；失败会阻止提取、查询和 SARIF 上传。native PASS 只表示该 runner 的依赖准备成功，覆盖和上传关联仍须分别验收。
 
+仅 Rust default 的非 PR 维护调用采用 `ubuntu-archive-https`：使用已验证的私有源副本策略，源准备、四步命令、前后核验及清理共用原 180 秒；PR、extended 与研究入口保留 `runner-sources`。先核 native terminal/budget 的实际 profile，再核 `native-source-profile.json` 的唯一替换、原输入和有效副本前后摘要、未改系统源及清理成功，最后核四条命令的真实 exit、argv 与分配。正式 native 保留普通日志，不开启短诊断的 Worker 投影或采样；其收据在分析分配前产生，须与 production 查询 artifact 分开验收。失败终态保留异常类型、命令 exit/failure_kind 与源收据保存错误的固定字段，不保存异常原文；不由候选诊断的成功代签本次 native 或整体生产通过。
+
 分析 job 从官方 pinned upload-sarif action 的 `steps.upload.outputs.sarif-id` 生成闭合 schema `oasis7-codeql-upload-evidence/v1`，记录 repository、workflow path/ref/SHA、run/attempt、job key/name、checkout SHA/ref、unit/profile/category 与真实 execution/upload outcomes。上传未成功时 ID 为空。每个 job/attempt 使用独立 `oasis7-codeql-upload-<run_id>-<run_attempt>-<unit>-<profile>` artifact，唯一文件为 `evidence.json`，由完整 SHA 固定的 upload-artifact action 上传且不覆盖。取消、超时或 runner 丢失可能没有 artifact，不能补写或借用旧输出。
 
 consumer 不信任 JSON 自述或 artifact 名称：先独立验证 live repository/default branch、可信 workflow、精确 run/latest attempt、唯一 job/check/provider/suite，并确认执行时 workflow 字节与当前默认分支 workflow 相同。无关 main 前进且 workflow 字节不变不使结果失效；workflow 改动、候选执行或读取失败保持 unknown。随后完整、有界读取该 run 的 artifact 清单，要求唯一、未过期、元数据匹配，并在下载后复验 run/attempt 与 artifact 身份。
