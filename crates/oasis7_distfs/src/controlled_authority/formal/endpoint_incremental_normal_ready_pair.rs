@@ -490,14 +490,17 @@ impl PaidNormalReadyPairV1 {
 /// reconciles actual signed disk/provider state; it never restores old live.
 fn recover_pair_leases(
     pair: &mut PaidNormalFrozenPairV1,
-    primary_provider: &RemoteMonotonicEndpointProvider,
+    primary: receipts::ReceiptContext<'_, '_, '_, '_, '_>,
     replica_provider: &RemoteMonotonicEndpointProvider,
-    primary_policy: &TrustedFencingPolicyV1,
     replica_policy: &TrustedFencingPolicyV1,
-    memory: &MemoryBudget,
-    work: &FormalArchiveReadWorkV1,
-    stop: &mut dyn FnMut() -> bool,
 ) -> Result<(), BoundedAcquireErrorV1> {
+    let receipts::ReceiptContext {
+        provider: primary_provider,
+        policy: primary_policy,
+        memory,
+        work,
+        stop,
+    } = primary;
     for (source, provider, policy) in [
         (&mut pair.primary.source, primary_provider, primary_policy),
         (&mut pair.replica.source, replica_provider, replica_policy),
@@ -567,13 +570,15 @@ impl NormalReadyPairFailureV1 {
         };
         if let Err(cause) = recover_pair_leases(
             pair,
-            primary_provider,
+            receipts::ReceiptContext {
+                provider: primary_provider,
+                policy: primary_policy,
+                memory,
+                work,
+                stop: &mut *stop,
+            },
             replica_provider,
-            primary_policy,
             replica_policy,
-            memory,
-            work,
-            stop,
         ) {
             self.cause = cause;
             return Err(self);
@@ -610,13 +615,15 @@ impl NormalReadyPublicationFailureV1 {
         };
         if let Err(cause) = recover_pair_leases(
             &mut ready.pair,
-            primary_provider,
+            receipts::ReceiptContext {
+                provider: primary_provider,
+                policy: primary_policy,
+                memory,
+                work,
+                stop: &mut *stop,
+            },
             replica_provider,
-            primary_policy,
             replica_policy,
-            memory,
-            work,
-            stop,
         ) {
             self.cause = cause;
             return Err(self);
@@ -834,13 +841,15 @@ impl NormalReadyPairFailureV1 {
         };
         if let Err(cause) = recover_pair_leases(
             pair,
-            primary_provider,
+            receipts::ReceiptContext {
+                provider: primary_provider,
+                policy: primary_policy,
+                memory,
+                work,
+                stop: &mut *stop,
+            },
             replica_provider,
-            primary_policy,
             replica_policy,
-            memory,
-            work,
-            stop,
         ) {
             self.cause = cause;
             return Err(self);
