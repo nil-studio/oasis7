@@ -4,6 +4,7 @@
 #[path = "endpoint_incremental_genesis_stage.rs"]
 mod stage;
 use super::super::FormalArchiveReadWorkV1;
+use super::genesis_receipts::ProviderPolicyRefs;
 use super::*;
 use crate::controlled_authority::fencing::{
     BoundedAcquireErrorV1, RemoteMonotonicEndpointProvider, TrustedFencingPolicyV1,
@@ -359,7 +360,12 @@ impl FileFormalEndpoint {
             EndpointRole::Replica => &self.authority.definition().replica.instance,
         };
         let publication = self.store.publish_genesis_install_bounded(
-            permit, provider, instance, policy, memory, work, stop,
+            permit,
+            ProviderPolicyRefs { provider, policy },
+            instance,
+            memory,
+            work,
+            stop,
         )?;
         // Only a successful real native atomic+Finish can create publication.
         // It retains the private job lease and quorum until this promotion.

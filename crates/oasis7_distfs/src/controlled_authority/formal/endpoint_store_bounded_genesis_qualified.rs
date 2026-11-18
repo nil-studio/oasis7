@@ -2,6 +2,7 @@
 //! Inputs are privately issued from full GEN bytes plus the SAME verified quorum.
 use super::super::FormalArchiveReadWorkV1;
 use super::super::incremental::genesis::GenesisValidatedInputs;
+use super::super::incremental::genesis_receipts::ProviderPolicyRefs;
 use super::bounded_index::copy_paid;
 use super::*;
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
@@ -140,9 +141,8 @@ impl Store {
     pub(in crate::controlled_authority::formal::endpoint) fn publish_genesis_install_bounded<'j>(
         &mut self,
         permit: super::super::incremental::genesis::GenesisInstallPermit<'j>,
-        provider: &crate::controlled_authority::fencing::RemoteMonotonicEndpointProvider,
+        publication: ProviderPolicyRefs<'_, '_>,
         instance: &fencing::EndpointInstanceBindingV1,
-        policy: &fencing::TrustedFencingPolicyV1,
         memory: &MemoryBudget,
         work: &FormalArchiveReadWorkV1,
         stop: &mut dyn FnMut() -> bool,
@@ -150,6 +150,7 @@ impl Store {
         DurableGenesisPublication<'j>,
         crate::controlled_authority::fencing::BoundedAcquireErrorV1,
     > {
+        let ProviderPolicyRefs { provider, policy } = publication;
         use crate::controlled_authority::fencing::acquire_provider_lease_bounded_v1;
         let (job, inputs) = permit.split();
         if self.body.head.position == 1 {

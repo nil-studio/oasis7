@@ -11,9 +11,11 @@ use oasis7_formal_protocol::controlled_authority::formal::bounded_context::{
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use std::mem::size_of;
 type ResultV<T> = Result<T, BoundedAcquireErrorV1>;
-pub(super) struct ProviderPolicyRefs<'provider, 'policy> {
-    pub(super) provider: &'provider RemoteMonotonicEndpointProvider,
-    pub(super) policy: &'policy TrustedFencingPolicyV1,
+pub(in crate::controlled_authority::formal::endpoint) struct ProviderPolicyRefs<'provider, 'policy>
+{
+    pub(in crate::controlled_authority::formal::endpoint) provider:
+        &'provider RemoteMonotonicEndpointProvider,
+    pub(in crate::controlled_authority::formal::endpoint) policy: &'policy TrustedFencingPolicyV1,
 }
 fn add(a: usize, b: usize) -> Result<usize, FormalError> {
     a.checked_add(b)
