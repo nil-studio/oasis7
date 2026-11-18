@@ -1399,3 +1399,89 @@ fn pruning_watermark_persists_across_restart_and_rejects_resurrection_under_skew
     );
     assert_eq!(reopened.floor_count().unwrap(), 1);
 }
+
+#[test]
+fn pre_upgrade_floor_with_none_max_expiry_survives_conflict_with_earlier_expiry() {
+    let fixture = fixture();
+    let remote_key = Keypair::generate_ed25519();
+    let peer_id = remote_key.public().to_peer_id().to_string();
+
+    // Primary record has a long expiry (10_000_000 + 3_600_000 = 13_600_000)
+    let mut rec_primary = record_body(&remote_key, "peer-primary");
+    rec_primary.published_at_ms = 10_000_000;
+    rec_primary.ttl_ms = 3_600_000;
+    let signed_primary = super::super::peer_record::sign_peer_record_v2(
+        &rec_primary,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 5,
+            state: PeerRecordPublicationStateV2::Live,
+        },
+        &remote_key,
+    )
+    .unwrap();
+    let publication = signed_primary.publication.as_ref().unwrap();
+    let identity = record_identity(&signed_primary, publication).unwrap();
+
+    // Create a pre-upgrade floor with max_expiry_ms: None
+    let mut floors = BTreeMap::new();
+    floors.insert(
+        peer_id.clone(),
+        PeerFloorV2 {
+            sequence: 5,
+            signing_payload_digest_hex: encode_digest(&identity),
+            primary_signed_record_cbor: canonical_record_bytes(&signed_primary).unwrap(),
+            conflict_signed_record_cbor: None,
+            isolated: false,
+            max_expiry_ms: None,
+        },
+    );
+    let ledger = ReceiverLedgerV2 {
+        schema_version: RECEIVER_SCHEMA_VERSION,
+        binding: receiver_binding(&fixture.template, &fixture.local_key).unwrap(),
+        mode: fixture.config.mode,
+        floors,
+        pruned_trusted_time_watermark_ms: None,
+    };
+    write_state(&fixture, &state_bytes(&ledger));
+
+    let receiver = open(&fixture);
+    assert_eq!(receiver.floor_count().unwrap(), 1);
+
+    // Now present a conflicting record with same sequence (5) but earlier publication and short TTL
+    // (published_at_ms = 8_000_000, ttl = 60_000, expiry = 8_060_000 < 13_600_000)
+    let mut rec_conflict = record_body(&remote_key, "peer-conflict");
+    rec_conflict.published_at_ms = 8_000_000;
+    rec_conflict.ttl_ms = 60_000;
+    let signed_conflict = super::super::peer_record::sign_peer_record_v2(
+        &rec_conflict,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 5,
+            state: PeerRecordPublicationStateV2::Live,
+        },
+        &remote_key,
+    )
+    .unwrap();
+
+    assert_eq!(
+        receiver.admit_serialized(&signed_conflict).unwrap(),
+        ReceiverAdmission::Conflict
+    );
+    drop(receiver);
+
+    // Reopening receiver from disk MUST succeed and not fail validation
+    let reopened = open(&fixture);
+    assert_eq!(reopened.floor_count().unwrap(), 1);
+    let floor = reopened
+        .durable_lock()
+        .unwrap()
+        .unwrap()
+        .ledger
+        .floors
+        .get(&peer_id)
+        .cloned()
+        .unwrap();
+    assert!(floor.isolated);
+    assert_eq!(floor.max_expiry_ms, Some(13_600_000));
+}

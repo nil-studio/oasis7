@@ -419,11 +419,16 @@ impl PeerRecordReceiver {
                     .expect("same-sequence conflict requires an existing floor");
                 current.conflict_signed_record_cbor = Some(signed_bytes);
                 current.isolated = true;
-                if let Some(ref mut max_expiry) = current.max_expiry_ms {
-                    *max_expiry = (*max_expiry).max(new_expiry);
-                } else {
-                    current.max_expiry_ms = Some(new_expiry);
-                }
+                let existing_max = current.max_expiry_ms.unwrap_or_else(|| {
+                    decode_stored_record(&current.primary_signed_record_cbor)
+                        .and_then(|r| {
+                            r.record.expires_at_ms().map_err(|reason| {
+                                protocol_error(format!("invalid expiry: {reason}"))
+                            })
+                        })
+                        .unwrap_or(0)
+                });
+                current.max_expiry_ms = Some(existing_max.max(new_expiry));
             }
             ReceiverAdmission::Accepted => {
                 let new_expiry = record
