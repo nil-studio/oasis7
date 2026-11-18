@@ -43,3 +43,8 @@ sync-builtin-wasm-identity = ["dep:oasis7_wasm_build"]
 name = "sync_builtin_wasm_identity"
 path = "src/bin/sync_builtin_wasm_identity.rs"
 required-features = ["sync-builtin-wasm-identity"]
+
+[[example]]
+name = "qualify_luna_bft_key"
+required-features = ["protected-bft-luna-key"]
+test = false
