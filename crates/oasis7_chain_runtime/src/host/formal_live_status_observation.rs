@@ -1,5 +1,9 @@
 //! Operator-side verification of challenge-bound Host diagnostics.
 use super::formal_live_config::MAX_NODE_ID_BYTES;
+use super::formal_live_runtime::{
+    observation::{EndpointObservation, ProtectedPairObservation},
+    observe_operation_owner,
+};
 use super::formal_live_service::{
     CHAIN_STATUS_PATH, FormalLiveStatusV1, http::FormalLiveStatusChallengeV1,
 };
@@ -9,7 +13,7 @@ use oasis7::world_service::{
 };
 use oasis7_client_api::world_service::WorldIdentity;
 use serde::{Deserialize, Serialize};
-use std::{io::Read, time::Duration};
+use std::{io::Read, path::Path, time::{Duration, SystemTime, UNIX_EPOCH}};
 
 const MAX_RESPONSE_BYTES: usize = 64 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(5);
@@ -36,6 +40,79 @@ pub(super) struct StatusObservation {
     committed_position: Option<u64>,
     committed_record_id: Option<String>,
     runtime_error_present: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    protected_pair: Option<OwnerPair>,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+enum OwnerPair {
+    Observed {
+        sample_started_at_unix_ms: u64,
+        finalizing_authority_id: String,
+        primary: EndpointObservation,
+        replica: EndpointObservation,
+        both_heads_match_unchanged_cut: bool,
+    },
+    Unavailable,
+    IdentityMismatch,
+    CutMismatch,
+}
+
+pub(super) fn observe_with_owner(pins: &StatusPins, config: &Path) -> Result<StatusObservation, String> {
+    let Some(sample_started_at_unix_ms) = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|age| u64::try_from(age.as_millis()).ok())
+    else {
+        let mut status = observe(pins)?;
+        status.protected_pair = Some(OwnerPair::Unavailable);
+        return Ok(status);
+    };
+    // Sample owner first. The independently signed Host response collected
+    // afterwards must still name the exact verified published cut.
+    let owner = observe_operation_owner(config).ok();
+    let mut status = observe(pins)?;
+    status.protected_pair = Some(owner.map_or(OwnerPair::Unavailable, |pair| {
+        bind_owner_observation(&status, pins, pair, sample_started_at_unix_ms)
+    }));
+    Ok(status)
+}
+
+fn bind_owner_observation(
+    status: &StatusObservation,
+    pins: &StatusPins,
+    pair: ProtectedPairObservation,
+    sample_started_at_unix_ms: u64,
+) -> OwnerPair {
+    if pair.world != status.world || pair.node_id != status.node_id
+        || !pair.service_public_key.eq_ignore_ascii_case(&pins.service_public_key)
+    {
+        return OwnerPair::IdentityMismatch;
+    }
+    let cut = pair.verified_published_cut;
+    if status.committed_position != Some(cut.head.position)
+        || status.committed_record_id.as_deref() != Some(cut.head.record_id.as_str())
+    {
+        return OwnerPair::CutMismatch;
+    }
+    OwnerPair::Observed {
+        sample_started_at_unix_ms,
+        finalizing_authority_id: cut.finalizing_authority_id,
+        primary: pair.primary,
+        replica: pair.replica,
+        both_heads_match_unchanged_cut: pair.both_heads_match_unchanged_cut,
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn observe_with_fixture_pair(
+    pins: &StatusPins,
+    pair: ProtectedPairObservation,
+) -> Result<serde_json::Value, String> {
+    let mut status = observe(pins)?;
+    status.protected_pair = Some(bind_owner_observation(&status, pins, pair, 1));
+    serde_json::to_value(status).map_err(|_| "serialize fixture paired observation".into())
 }
 
 pub(super) fn read_pins(input: impl Read) -> Result<StatusPins, String> {
@@ -148,6 +225,7 @@ fn verify(
         committed_position: status.committed_position,
         committed_record_id: status.committed_record_id,
         runtime_error_present: status.last_error.is_some(),
+        protected_pair: None,
     })
 }
 
@@ -189,8 +267,8 @@ mod tests {
             world,
             node_running: false,
             tick_count: 0,
-            committed_position: None,
-            committed_record_id: None,
+            committed_position: Some(7),
+            committed_record_id: Some("d".repeat(64)),
             last_error: None,
             effect_delivery: None,
         };
@@ -210,6 +288,35 @@ mod tests {
 
         let digest = request_digest(CHAIN_STATUS_PATH, &challenge).unwrap();
         let signed = sign_service_response(CHAIN_STATUS_PATH, digest, status, &signing_key).unwrap();
-        assert!(verify(&pins, &challenge, signed).is_ok());
+        let verified = verify(&pins, &challenge, signed).unwrap();
+        let pair = |key: &str, position: u64| -> ProtectedPairObservation {
+            serde_json::from_value(serde_json::json!({
+                "api_version": "oasis7.formal-protected-pair-observation/v1",
+                "world": pins.expected_world,
+                "node_id": pins.expected_node_id,
+                "service_public_key": key,
+                "verified_published_cut": {
+                    "head": { "position": position, "record_id": "d".repeat(64) },
+                    "finalizing_authority_id": "e".repeat(64),
+                    "active_authority_id": "e".repeat(64)
+                },
+                "primary": { "status": "unavailable" },
+                "replica": { "status": "unavailable" },
+                "both_heads_match_unchanged_cut": false,
+                "current_writer_qualification": "unknown"
+            })).unwrap()
+        };
+        assert!(matches!(
+            bind_owner_observation(&verified, &pins, pair(&"f".repeat(64), 7), 1),
+            OwnerPair::IdentityMismatch
+        ));
+        assert!(matches!(
+            bind_owner_observation(&verified, &pins, pair(&pins.service_public_key, 6), 1),
+            OwnerPair::CutMismatch
+        ));
+        assert!(matches!(
+            bind_owner_observation(&verified, &pins, pair(&pins.service_public_key, 7), 1),
+            OwnerPair::Observed { both_heads_match_unchanged_cut: false, .. }
+        ));
     }
 }

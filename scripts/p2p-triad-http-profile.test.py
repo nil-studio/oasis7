@@ -182,14 +182,21 @@ class ProfileHttpTests(unittest.TestCase):
         runtime = self.fixture.root / "fixture-status-verifier"
         runtime.write_text('''#!/usr/bin/env python3
 import json, sys
-assert sys.argv[1:] == ["op", "formal-status-observe", "--request", "-"]
+assert sys.argv[1:5] == ["op", "formal-status-observe", "--request", "-"]
+assert len(sys.argv) in (5, 7)
 pins = json.load(sys.stdin)
 assert pins["service_public_key"] == "e" * 64
-print(json.dumps(dict(api_version="oasis7.formal-live-status-observation/v1",
+assert "owner_config" not in pins
+result = dict(api_version="oasis7.formal-live-status-observation/v1",
     observation_scope="authenticated_host_diagnostics_only", authority_qualification="unknown",
     node_id=pins["expected_node_id"], world=pins["expected_world"], host_state="ready",
     host_reports_ready=True, node_running=True, runtime_error_present=False,
-    committed_position=8, committed_record_id="f" * 64, raw_error="DO_NOT_COPY")))
+    committed_position=8, committed_record_id="f" * 64, raw_error="DO_NOT_COPY")
+if len(sys.argv) == 7:
+    assert sys.argv[5] == "--owner-config"
+    with open(sys.argv[6]) as config:
+        result["protected_pair"] = json.load(config)
+print(json.dumps(result))
 ''')
         runtime.chmod(0o700)
         pins = dict(status_url=self.url.replace("/status", "/v1/chain/status"),
@@ -231,6 +238,43 @@ print(json.dumps(dict(api_version="oasis7.formal-live-status-observation/v1",
         self.assertEqual(stale["reason"], "controlled_host_observation_expired")
         self.assertEqual(stale["source_freshness"], "stale")
         self.assertEqual(stale["observed_at_unix_ms"], profile["observed_at_unix_ms"])
+
+    def test_controlled_owner_observation_keeps_its_original_sample_time(self):
+        inventory = self.controlled_inventory_fixture()
+        config = self.fixture.root / "owner-private-config"
+        pins = json.loads(inventory.read_text())
+        pins["slots"]["local_node"]["owner_config"] = str(config)
+        inventory.write_text(json.dumps(pins))
+        endpoint = dict(status="authenticated", head=dict(position=8, record_id="f" * 64),
+                        instance_digest="b" * 64, checkpoint_revision=3, epoch_floor=2,
+                        sealed=False, native_request_pending=True, private_path="DO_NOT_COPY")
+        started_at = time.time_ns() // 1_000_000
+        pair = dict(status="observed", sample_started_at_unix_ms=started_at,
+                    finalizing_authority_id="a" * 64, both_heads_match_unchanged_cut=True,
+                    primary=endpoint, replica=endpoint)
+        for expected in ("observed", "invalid_observation"):
+            config.write_text(json.dumps(pair))
+            process = self.fixture.start(self.env, ["--controlled-status-inventory", str(inventory)])
+            out, err = process.communicate(timeout=20)
+            self.assertEqual(process.returncode, 0, (out.decode(), err.decode()))
+            report = json.loads((self.fixture.out / "latest_summary.json").read_text())
+            markdown = (self.fixture.out / "latest_summary.md").read_text()
+            profile = report["nodes"]["local_node"]["profile_readiness"]
+            self.assertEqual(profile["authority_qualification"], "unknown")
+            self.assertFalse(profile["can_propose"])
+            self.assertEqual(profile["protected_pair"]["status"], expected)
+            self.assertNotIn(str(config), json.dumps(report) + markdown)
+            self.assertNotIn("DO_NOT_COPY", json.dumps(report) + markdown)
+            if expected == "observed":
+                self.assertEqual(profile["protected_pair"]["primary"]["checkpoint_revision"], 3)
+                child = load("controlled_owner_reader", "p2p-triad-http-profile.py")
+                expired = child.refresh_report(report, started_at + 60_001)
+                protected = expired["nodes"]["local_node"]["profile_readiness"]["protected_pair"]
+                self.assertEqual(protected["freshness"], "stale")
+                self.assertEqual(protected["sample_started_at_unix_ms"], started_at)
+                pair["replica"] = dict(endpoint, head=dict(position=9, record_id="d" * 64))
+            else:
+                self.assertEqual(profile["protected_pair"], {"status": "invalid_observation"})
 
     def test_controlled_inventory_rejects_conflict_and_mutation(self):
         inventory = self.controlled_inventory_fixture()
