@@ -8,6 +8,7 @@ import sys
 import tempfile
 import time
 import unittest
+from contextlib import contextmanager
 from contextlib import redirect_stdout
 from io import StringIO
 from unittest.mock import patch
@@ -178,12 +179,15 @@ class NativeDiagnostic(unittest.TestCase):
             path = commands/name; path.write_text('#!'+sys.executable+'\n'+body+'\n'); path.chmod(0o755)
         for code in (0, 124):
             out = self.out/str(code); out.mkdir()
+            deadline = time.time()+590
+            (out/'job-clock.json').write_text(json.dumps({'source_profile':'runner-sources',
+                'tool_sha':'a'*40, 'maximum_job_seconds':600, 'deadline_wall':deadline}))
             env = dict(os.environ, PATH=str(commands)+os.pathsep+os.environ['PATH'],
                        GH_TOKEN='fixture-secret', FIXTURE_EXIT=str(code))
             with patch.object(m, 'identity', return_value={'tool_sha':'a'*40}), \
                  patch.object(observation, 'source_snapshot', return_value={'files':[]}), \
                  patch.object(observation.NativeObservation, 'poll'), redirect_stdout(StringIO()):
-                result = m.diagnose(self.root, out, time.time()+590, 'a'*40, env)
+                result = m.diagnose(self.root, out, deadline, 'a'*40, env)
             terminal = json.loads((out/'native-terminal.json').read_text())
             self.assertEqual(result, int(bool(code)))
             self.assertEqual(terminal['status'], 'NATIVE_INCOMPLETE' if code else 'NATIVE_READY')
@@ -250,6 +254,179 @@ class NativeDiagnostic(unittest.TestCase):
         self.assertIn('run python3 ./scripts/security/'+Path(__file__).name, (repo/'scripts/ci-tests.sh').read_text())
         scope = json.loads((repo/'scripts/ci-required-scope.json').read_text())
         self.assertEqual(scope['scoped_control_paths']['.github/workflows/codeql-rust-native-diagnostic.yml'], ['workflow_governance'])
+
+
+class NativeSourceProfiles(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name); self.out = self.root/'out'; self.out.mkdir()
+        self.apt = self.root/'apt'; (self.apt/'sources.list.d').mkdir(parents=True)
+        self.original = (b'# private-source-canary\nTypes: deb\n'
+            b'URIs: mirror+file:/etc/apt/apt-mirrors.txt\n'
+            b'Suites: noble noble-updates noble-backports\n'
+            b'Components: main universe restricted multiverse\n'
+            b'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n\n'
+            b'Types: deb\nURIs: http://security.ubuntu.com/ubuntu/\n'
+            b'Suites: noble-security\nComponents: main universe restricted multiverse\n'
+            b'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n')
+        self.ubuntu = self.apt/'sources.list.d/ubuntu.sources'; self.ubuntu.write_bytes(self.original)
+        (self.apt/'sources.list').write_bytes(b'# sources moved to ubuntu.sources\n')
+        self.other = self.apt/'sources.list.d/microsoft-prod.list'
+        self.other.write_bytes(b'deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main\n')
+        (self.apt/'apt-mirrors.txt').write_bytes(b'http://us-east-2.ec2.archive.ubuntu.com/ubuntu/\tpriority:1\nhttps://archive.ubuntu.com/ubuntu/\tpriority:2\nhttps://security.ubuntu.com/ubuntu/\tpriority:3\n')
+        self.addCleanup(patch.stopall)
+        patch.object(m.native, 'NATIVE_APT_ROOT', self.apt).start()
+
+    def test_private_sources_change_only_one_uri_and_are_removed(self):
+        with m.native._https_archive_sources(self.out) as options:
+            self.assertEqual(options[::2], ['-o', '-o'])
+            values = dict(value.split('=', 1) for value in options[1::2])
+            private = Path(values['Dir::Etc::sourcelist']).parent
+            self.assertNotIn(self.out, private.parents)
+            changed = (private/'sources.list.d/ubuntu.sources').read_bytes()
+            self.assertEqual(changed, self.original.replace(b'mirror+file:/etc/apt/apt-mirrors.txt', b'https://archive.ubuntu.com/ubuntu/', 1))
+            self.assertEqual((private/'sources.list.d/microsoft-prod.list').read_bytes(), self.other.read_bytes())
+            self.assertEqual((private/'sources.list').read_bytes(), (self.apt/'sources.list').read_bytes())
+            self.assertEqual(self.ubuntu.read_bytes(), self.original)
+        self.assertFalse(private.exists())
+        receipt = json.loads((self.out/'native-source-profile.json').read_text())
+        self.assertEqual(receipt['source_profile'], 'ubuntu-archive-https')
+        self.assertEqual(receipt['replacement_count'], 1)
+        self.assertTrue(receipt['system_sources_unchanged'])
+        self.assertTrue(receipt['private_sources_unchanged'])
+        self.assertEqual(receipt['cleanup'], 'REMOVED')
+        self.assertNotIn('private-source-canary', ''.join(p.read_text() for p in self.out.iterdir()))
+
+    def test_unknown_layouts_fail_before_yield_and_never_persist_raw_sources(self):
+        variants = [
+            self.original.replace(b'URIs: mirror', b'URIs: https://extra.example/ mirror', 1),
+            self.original.replace(b'Suites: noble', b'URIs: https://extra.example/\nSuites: noble', 1),
+            self.original.replace(b'Suites: noble noble-updates', b'Suites: noble\n noble-updates', 1),
+            self.original.replace(b'noble-backports', b'jammy-backports'),
+            self.original.replace(b'Types: deb\n', b'Enabled: no\nTypes: deb\n', 1),
+            self.original + b'\n' + self.original,
+        ]
+        for value in variants:
+            self.ubuntu.write_bytes(value)
+            with self.subTest(value=value[:40]), self.assertRaises(ValueError):
+                with m.native._https_archive_sources(self.out):
+                    self.fail('unknown source layout reached apt')
+            self.assertNotIn('private-source-canary', ''.join(p.read_text() for p in self.out.iterdir()))
+        self.ubuntu.write_bytes(self.original)
+        (self.apt/'apt-mirrors.txt').write_text('http://us-east-2.ec2.archive.ubuntu.com/ubuntu/\n')
+        with self.assertRaises(ValueError), m.native._https_archive_sources(self.out):
+            self.fail('missing candidate reached apt')
+
+    def test_input_mutation_and_private_mutation_refuse_ready_but_keep_primary_exit(self):
+        for target in ('system', 'private', 'primary'):
+            self.ubuntu.write_bytes(self.original)
+            with self.subTest(target=target):
+                expected = runtime.PhaseError if target == 'primary' else ValueError
+                with self.assertRaises(expected) as failure:
+                    with m.native._https_archive_sources(self.out) as options:
+                        private = Path(options[1].split('=', 1)[1]).parent
+                        path = self.ubuntu if target in ('system', 'primary') else private/'sources.list.d/ubuntu.sources'
+                        path.write_bytes(path.read_bytes()+b'# changed\n')
+                        if target == 'primary':
+                            raise runtime.PhaseError({'exit':124, 'failure_kind':'child_exit'})
+                self.assertFalse(private.exists())
+                if target == 'primary': self.assertEqual(failure.exception.result['exit'], 124)
+                receipt = json.loads((self.out/'native-source-profile.json').read_text())
+                self.assertEqual(receipt['status'], 'INCOMPLETE')
+
+    def test_sources_reject_symlinks_and_bounded_listing(self):
+        self.other.unlink(); self.other.symlink_to(self.ubuntu)
+        with self.assertRaises(Exception), m.native._https_archive_sources(self.out):
+            self.fail('symlink reached apt')
+        self.other.unlink()
+        for index in range(33): (self.apt/'sources.list.d'/f'part-{index}.list').write_text('# empty\n')
+        with self.assertRaises(ValueError), m.native._https_archive_sources(self.out):
+            self.fail('incomplete enumeration reached apt')
+
+    def test_final_source_receipt_error_preserves_primary_apt_exit(self):
+        save = runtime.save
+        def fail_final(path, value, root, **kwargs):
+            if path.name == 'native-source-profile.json' and kwargs.get('terminal'):
+                raise OSError('fixture evidence write failure')
+            return save(path, value, root, **kwargs)
+        primary = runtime.PhaseError({'exit':124, 'failure_kind':'child_exit'})
+        with patch.object(runtime, 'save', side_effect=fail_final):
+            with self.assertRaises(runtime.PhaseError) as caught:
+                with m.native._https_archive_sources(self.out) as options:
+                    private = Path(options[1].split('=', 1)[1]).parent
+                    raise primary
+        self.assertIs(caught.exception, primary)
+        self.assertFalse(private.exists())
+        self.assertEqual(primary.native_source_evidence_error, {'stage':'final-source-receipt', 'type':'OSError'})
+
+    def test_candidate_source_setup_consumes_the_original_180_seconds(self):
+        clock = [100.0]; calls = []
+        @contextmanager
+        def sources(out):
+            clock[0] += 12
+            yield ['-o', 'Dir::Etc::sourcelist=/fixture/sources.list', '-o', 'Dir::Etc::sourceparts=/fixture/sources.list.d']
+        def run(argv, cwd, output, end, timeout, root, env, **kw):
+            calls.append((argv, end, timeout))
+            clock[0] += 14 if 'update' in argv else 1
+        observer = observation.NativeObservation(self.out, {})
+        with patch.object(m.native.time, 'monotonic', side_effect=lambda:clock[0]), \
+             patch.object(m.native, '_https_archive_sources', side_effect=sources), \
+             patch.object(m.native.runtime, 'run', side_effect=run):
+            m.native.prepare_native(self.root, self.out, 1000, {}, maximum_seconds=180,
+                                    observation=observer, source_profile='ubuntu-archive-https')
+        self.assertEqual(len(calls), 4)
+        self.assertTrue(all(end == 280 for _, end, _ in calls))
+        self.assertEqual(calls[1][2], 134)
+        self.assertEqual(calls[1][0][5], '129')
+        for argv, _, _ in calls[:2]:
+            self.assertIn('Dir::Etc::sourcelist=/fixture/sources.list', argv)
+            self.assertIn('Acquire::Retries=0', argv)
+            self.assertNotIn('Acquire::https::Timeout=20', argv)
+        self.assertEqual(calls[1][0][-4:], list(m.native.NATIVE_PACKAGES))
+
+    def test_candidate_cannot_change_budget_or_run_without_observer(self):
+        with patch.object(m.native.runtime, 'run') as run:
+            for maximum, observer, profile in ((360, object(), 'ubuntu-archive-https'),
+                    (180, None, 'ubuntu-archive-https'), (180, object(), 'unexpected')):
+                with self.subTest(maximum=maximum, profile=profile), self.assertRaises(ValueError):
+                    m.native.prepare_native(self.root, self.out, 1000, {}, maximum_seconds=maximum,
+                                            observation=observer, source_profile=profile)
+            run.assert_not_called()
+
+    def test_job_profile_and_deadline_binding_refuses_commands(self):
+        deadline = time.time()+590
+        for values in ({'source_profile':'runner-sources'}, {'tool_sha':'b'*40}, {'deadline_wall':deadline+1}):
+            clock = {'source_profile':'ubuntu-archive-https', 'tool_sha':'a'*40,
+                     'maximum_job_seconds':600, 'deadline_wall':deadline}
+            clock.update(values); (self.out/'job-clock.json').write_text(json.dumps(clock))
+            with patch.object(m, 'identity') as identity, patch.object(runtime, 'run') as run, redirect_stdout(StringIO()):
+                result = m.diagnose(self.root, self.out, deadline, 'a'*40, {}, 'ubuntu-archive-https')
+            self.assertEqual(result, 1); identity.assert_not_called(); run.assert_not_called()
+            self.assertEqual(json.loads((self.out/'native-terminal.json').read_text())['error']['stage'], 'admission')
+
+    def test_candidate_entry_binds_profile_budget_and_sealed_source_receipt(self):
+        deadline = time.time()+590
+        (self.out/'job-clock.json').write_text(json.dumps({'source_profile':'ubuntu-archive-https',
+            'tool_sha':'a'*40, 'maximum_job_seconds':600, 'deadline_wall':deadline}))
+        calls = []
+        with patch.object(m, 'identity', return_value={'tool_sha':'a'*40}), \
+             patch.object(observation, 'source_snapshot', return_value={'files':[]}), \
+             patch.object(runtime, 'run', side_effect=lambda argv, *a, **kw:calls.append(argv)), redirect_stdout(StringIO()):
+            result = m.diagnose(self.root, self.out, deadline, 'a'*40, {}, 'ubuntu-archive-https')
+        self.assertEqual(result, 0)
+        terminal = json.loads((self.out/'native-terminal.json').read_text())
+        self.assertEqual(terminal['source_profile'], 'ubuntu-archive-https')
+        self.assertEqual(terminal['maximum_native_seconds'], 180)
+        self.assertEqual(terminal['status'], 'NATIVE_READY')
+        budget = json.loads((self.out/'native-budget.json').read_text())
+        self.assertEqual(budget['maximum_seconds'], 180)
+        self.assertEqual(budget['source_profile'], terminal['source_profile'])
+        self.assertEqual(len(calls), 5)
+        self.assertTrue(all(any('Dir::Etc::sourcelist=' in arg for arg in argv) for argv in calls[1:3]))
+        self.assertEqual(json.loads((self.out/'native-source-profile.json').read_text())['cleanup'], 'REMOVED')
+        seal = json.loads((self.out/'sha256.json').read_text())
+        self.assertEqual(set(seal), {p.name for p in self.out.iterdir()}-{'sha256.json'})
+        self.assertTrue(all(runtime.digest(self.out/name) == digest for name,digest in seal.items()))
 
 
 if __name__ == '__main__':

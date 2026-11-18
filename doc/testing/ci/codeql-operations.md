@@ -318,7 +318,9 @@ bootstrap 的时钟读取最多使用初始 20 秒，只有身份完整匹配的
 
 ### 短原生准备诊断
 
-安装阶段的无时间戳输出不足以解释耗时时，经一次短诊断授权，在默认分支手动运行 `CodeQL Rust Native Diagnostic` 并设置 `execute=true`。它最多 10 分钟，原生 update/install/probe 共用 360 秒；包、镜像顺序和获取参数保持原样，仅增加受限 Worker 观测。不会准备 Rust/CodeQL 或启动完整研究，运行一次后停止。
+安装阶段的无时间戳输出不足以解释耗时时，经一次短诊断授权，在默认分支手动运行 `CodeQL Rust Native Diagnostic` 并设置 `execute=true`。默认 `source_profile=runner-sources` 最多 10 分钟，原生 update/install/probe 共用 360 秒；包、镜像顺序和获取参数保持原样，仅增加受限 Worker 观测。不会准备 Rust/CodeQL 或启动完整研究，运行一次后停止。
+
+已有实际获取事件支持路径验证时，可显式选择 `source_profile=ubuntu-archive-https`。此候选将受支持 Noble 源布局中的唯一 Ubuntu mirror 字段在临时副本中改为原镜像列表已有的官方 HTTPS archive，其他源内容和四包/模块探针保持；原 `/etc/apt` 文件不改。候选包括源准备的 native 窗口为固定 180 秒，整个 job 仍为 600 秒，不重试。未知布局在 APT 启动前失败。先核 `job-clock.json`、`native-terminal.json` 的 profile 与 `native-source-profile.json` 的前后输入/副本摘要、替换计数及清理结果，再读实际 Worker URI 和有效参数；命令行 override 只是选择意图。候选失败不自动回退重跑，成功也只表示本次候选准备就绪，不单独证明 HTTPS 的因果收益或正式生产通过。
 
 从 `native-diagnostic-<run>-<attempt>-<sha>` artifact 先读 `native-terminal.json`、`native-budget.json` 和各命令 `.result.json`，再按 stdout/stderr 中的 JSONL 投影接收时间及原流 offset 关联 URI Start/Done/Failure/Redirect。文件是白名单投影，不是原字节日志；未知、截断和被丢弃内容的摘要不能当作下载结果。601 配置记录只含允许的有效参数，`sources.json` 保存受限源/镜像观察，`archives.jsonl` 保存固定缓存目录的只读元数据采样。只有 Done 才是协议报告的下载完成，Get 或 partial 大小变化均不能独立证明包安装完成。
 
