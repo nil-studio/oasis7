@@ -1,7 +1,7 @@
 //! Operator-side verification of challenge-bound Host diagnostics.
 use super::formal_live_config::MAX_NODE_ID_BYTES;
 use super::formal_live_service::{
-    CHAIN_STATUS_PATH, FormalLiveStatusChallengeV1, FormalLiveStatusV1,
+    CHAIN_STATUS_PATH, FormalLiveStatusV1, http::FormalLiveStatusChallengeV1,
 };
 use oasis7::world_service::{
     authority::{request_digest, verify_service_response},
