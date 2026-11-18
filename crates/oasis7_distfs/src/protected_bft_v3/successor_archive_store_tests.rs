@@ -288,3 +288,76 @@ fn blob_symlink_is_rejected_on_load_and_persist_without_modifying_target() {
             .is_symlink()
     );
 }
+
+#[test]
+fn manifest_cold_read_requires_canonical_metadata_and_original_domain_root() {
+    use super::super::{
+        BftSuccessorWindowArchiveEntryV1, BftSuccessorWindowArchiveKindV1,
+        BftSuccessorWindowArchiveManifestV1, BftSuccessorWindowArchiveUsageV1,
+        BftSuccessorWindowSourceV1,
+    };
+
+    let scratch = Scratch::new();
+    let store = scratch.store();
+    let original = store.persist_object(b"original", 32).unwrap();
+    let source = BftSuccessorWindowSourceV1 {
+        scope: oasis7_proto::distributed_bft::v2::BftScopeV2 {
+            world_id: "world".into(),
+            chain_id: "chain".into(),
+            genesis_hash: "01".repeat(32),
+        },
+        binding_digest: "02".repeat(32),
+        handoff_position: 2,
+        handoff_record_id: "03".repeat(32),
+        handoff_snapshot_root: "04".repeat(32),
+        target_digest: "05".repeat(32),
+        activation_digest: "06".repeat(32),
+        material_identity: "07".repeat(32),
+    };
+    let manifest = BftSuccessorWindowArchiveManifestV1 {
+        public_index: None,
+        schema_version: 1,
+        source,
+        kind: BftSuccessorWindowArchiveKindV1::Execution,
+        segment_sequence: 1,
+        predecessor_root: None,
+        first_height: 3,
+        last_height: 3,
+        entries: vec![BftSuccessorWindowArchiveEntryV1 {
+            identity_digest: "08".repeat(32),
+            object: original.clone(),
+        }],
+        usage: BftSuccessorWindowArchiveUsageV1 {
+            segments: 1,
+            objects: 1,
+            total_bytes: original.bytes,
+        },
+    };
+    let archive_root = manifest.digest().unwrap();
+    let reference = store.persist_manifest(&manifest).unwrap();
+    drop(store);
+
+    let reopened = scratch.store();
+    let verified = reopened.load_manifest(&reference, &archive_root).unwrap();
+    assert_eq!(verified, manifest);
+    assert_eq!(
+        reopened
+            .load_object(&verified.entries[0].object, 32)
+            .unwrap(),
+        b"original"
+    );
+    assert!(
+        reopened
+            .load_manifest(&reference, &reference.digest)
+            .is_err()
+    );
+    assert!(reopened.load_manifest(&original, &archive_root).is_err());
+
+    let mut changed = manifest;
+    let mut alias = changed.entries[0].clone();
+    alias.identity_digest = "09".repeat(32);
+    changed.entries.push(alias);
+    assert!(changed.validate().is_ok());
+    changed.entries[1].object.bytes += 1;
+    assert!(reopened.persist_manifest(&changed).is_err());
+}

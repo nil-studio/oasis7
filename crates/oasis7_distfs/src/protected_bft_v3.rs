@@ -12,6 +12,7 @@ mod rotation;
 mod service;
 mod state;
 mod successor_archive_store;
+mod successor_manifest;
 mod successor_source;
 #[cfg(test)]
 mod tests;
@@ -54,4 +55,12 @@ pub use bootstrap_rotation::{
 
 pub use successor_archive_store::{
     BftSuccessorArchiveStoreV1, BftSuccessorWindowArchiveRefV1, LocalBftSuccessorArchiveStoreV1,
+};
+
+pub use successor_manifest::{
+    BFT_SUCCESSOR_WINDOW_ARCHIVE_DOMAIN_V1, BFT_SUCCESSOR_WINDOW_MAX_ARCHIVE_BYTES_V1,
+    BFT_SUCCESSOR_WINDOW_MAX_REFS_V1, BFT_SUCCESSOR_WINDOW_MAX_SEGMENTS_V1,
+    BFT_SUCCESSOR_WINDOW_METADATA_MAX_BYTES_V1, BftSuccessorWindowArchiveEntryV1,
+    BftSuccessorWindowArchiveKindV1, BftSuccessorWindowArchiveManifestV1,
+    BftSuccessorWindowArchiveUsageV1, BftSuccessorWindowCutV1, BftSuccessorWindowPublicIndexV1,
 };
