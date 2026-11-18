@@ -3,7 +3,10 @@
 Source: libp2p/rust-libp2p revision `2d8497b2615086bd88018ef3a1fb32bc613a07ca`,
 `transports/quic`, package 0.14.0. MIT license retained in LICENSE and source headers.
 Cargo workspace dependencies are expanded to the same pinned git revision or
-upstream registry versions; no dependency version upgrade is intended.
+upstream registry versions; no dependency version upgrade is intended. The
+workspace vendors the production library. The upstream unit and integration
+suites remain in the pinned upstream tree. Oasis7 exercises the patched crate
+through the root-lock admission regressions below.
 
 Refs #5506. Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3.
 
