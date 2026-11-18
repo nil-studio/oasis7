@@ -24,6 +24,20 @@ pub(super) struct Map<'a, 'e, 'v, T: ?Sized, A: CanonicalCborAllocator, C: FnMut
     pending: Option<Key<A::Charge>>,
     _rows: A::Charge,
 }
+
+// The fixed row layout and comparator do not depend on the map's source or
+// context types. Share this stable sort across their generic instantiations.
+#[inline(never)]
+fn sort_rows(rows: &mut [(ciborium::Value, ciborium::Value)]) -> u64 {
+    let mut comparisons = 0u64;
+    rows.sort_by(|(left, _), (right, _)| {
+        comparisons = comparisons.saturating_add(1);
+        ciborium::value::CanonicalValue::from(left.clone())
+            .cmp(&ciborium::value::CanonicalValue::from(right.clone()))
+    });
+    comparisons
+}
+
 impl<A: CanonicalCborAllocator, C: FnMut() -> bool> Engine<'_, A, C> {
     pub(super) fn key<T: Serialize + ?Sized>(
         &mut self,
@@ -177,12 +191,7 @@ impl<'a, 'e, 'v, T: Serialize + ?Sized, A: CanonicalCborAllocator, C: FnMut() ->
                 .checked_sub(allowance)
                 .ok_or(Error::ResourceLimited("map sort visits"))?;
             let _scratch = self.engine.allocator.reserve(scratch)?;
-            let mut comparisons = 0u64;
-            self.rows.sort_by(|(left, _), (right, _)| {
-                comparisons = comparisons.saturating_add(1);
-                ciborium::value::CanonicalValue::from(left.clone())
-                    .cmp(&ciborium::value::CanonicalValue::from(right.clone()))
-            });
+            let comparisons = sort_rows(&mut self.rows);
             self.engine.metrics.map_sorts = self
                 .engine
                 .metrics
