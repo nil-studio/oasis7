@@ -169,14 +169,24 @@ fn expired_v2_record_keeps_sequence_and_legacy_retirement_after_reopen() {
     original.published_at_ms = reopened_now;
     let lower = sign_v2(&original, 6);
     let legacy = super::super::peer_record::sign_peer_record(&original, &peer).unwrap();
-    for record in [&lower, &legacy] {
+    for (record, expected_error) in [
+        (&lower, "peer-record V2 sequence regressed"),
+        (
+            &legacy,
+            "legacy peer record rejected after V2 floor migration",
+        ),
+    ] {
         assert!(
             clock
                 .check_at(&record.record, reopened_now, reopened_at)
                 .is_ok(),
             "time validation alone cannot enforce sequence or retirement"
         );
-        assert!(reopened.admit_serialized(record).is_err());
+        assert!(matches!(
+            reopened.admit_serialized(record),
+            Err(WorldError::NetworkProtocolUnavailable { protocol })
+                if protocol == expected_error
+        ));
     }
     assert_eq!(fs::read(state_path(&fixture)).unwrap(), persisted_floor);
     assert_eq!(
