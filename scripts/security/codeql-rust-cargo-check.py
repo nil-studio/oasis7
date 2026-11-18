@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """One fixed Cargo compile-time dependency check, without CodeQL execution."""
 import argparse
+from contextlib import contextmanager, nullcontext
 import hashlib
 import importlib.util
+from itertools import islice
 import json
 import os
 from pathlib import Path
+import re
+import tempfile
 import time
 
 import codeql_rust_capacity_evidence as evidence
@@ -22,12 +26,154 @@ NATIVE_MODULES = ('gdk-3.0 >= 3.22', 'atk >= 2.28', 'dbus-1 >= 1.6',
                   'glib-2.0 >= 2.70', 'cairo >= 1.14', 'gdk-pixbuf-2.0 >= 2.36.8',
                   'pango >= 1.40', 'gobject-2.0 >= 2.70', 'gio-2.0 >= 2.70',
                   'javascriptcoregtk-4.1 >= 2.38', 'libsoup-3.0 >= 3.0')
+NATIVE_APT_ROOT = Path('/etc/apt')
+UBUNTU_MIRROR = b'mirror+file:/etc/apt/apt-mirrors.txt'
+UBUNTU_ARCHIVE = b'https://archive.ubuntu.com/ubuntu/'
 
 
-def prepare_native(source, out, end, env, *, maximum_seconds=180, observation=None):
+def _native_source_files(root, *, mirror=True):
+    """Read the complete supported source set; never save its raw contents."""
+    parts = root/'sources.list.d'
+    if root.resolve() != root or parts.resolve() != parts or not parts.is_dir():
+        raise ValueError('unsupported apt source directory')
+    with os.scandir(parts) as entries:
+        names = [entry.name for entry in islice(entries, 65)]
+    if len(names) > 64:
+        raise ValueError('apt source listing limit')
+    names = sorted(name for name in names if re.fullmatch(r'[A-Za-z0-9_.-]+\.(?:list|sources)', name))
+    if len(names) > 32:
+        raise ValueError('apt source file limit')
+    result = {'sources.list.d/'+name: layout._read_regular(parts/name, 256*1024) for name in names}
+    main = root/'sources.list'
+    if main.exists() or main.is_symlink():
+        result['sources.list'] = layout._read_regular(main, 256*1024)
+    if mirror:
+        result['apt-mirrors.txt'] = layout._read_regular(root/'apt-mirrors.txt', 16*1024)
+    if sum(map(len, result.values())) > 1024*1024:
+        raise ValueError('apt source byte limit')
+    return result
+
+
+def _archive_source_candidate(inputs):
+    """Replace one supported Noble URI field, retaining all other bytes."""
+    candidates = [line.split() for line in inputs['apt-mirrors.txt'].splitlines()
+                  if line.strip() and not line.lstrip().startswith(b'#')]
+    matches = [items for items in candidates if items[0] == UBUNTU_ARCHIVE]
+    if (len(matches) != 1 or len(matches[0]) > 2 or
+            (len(matches[0]) == 2 and not re.fullmatch(rb'priority:[0-9]+', matches[0][1]))):
+        raise ValueError('official archive is not an unconditional listed candidate')
+    if sum(value.count(UBUNTU_MIRROR) for key, value in inputs.items() if key != 'apt-mirrors.txt') != 1:
+        raise ValueError('ambiguous Ubuntu mirror source')
+    original = inputs.get('sources.list.d/ubuntu.sources')
+    if original is None:
+        raise ValueError('missing supported Ubuntu source')
+    lines = original.splitlines(keepends=True)
+    stanzas = []; fields = {}
+    for index, line in enumerate(lines):
+        raw = line.rstrip(b'\r\n')
+        if not raw.strip():
+            if fields: stanzas.append(fields); fields = {}
+            continue
+        if raw.lstrip().startswith(b'#'): continue
+        match = re.fullmatch(rb'([A-Za-z0-9-]+):[ \t]*(.*)', raw)
+        if not match:
+            raise ValueError('unsupported Ubuntu source field or continuation')
+        key = match[1].lower()
+        if key in fields:
+            raise ValueError('duplicate Ubuntu source field')
+        fields[key] = (match[2].strip(), index)
+    if fields: stanzas.append(fields)
+    targets = [item for item in stanzas if item.get(b'uris', (None,))[0] == UBUNTU_MIRROR]
+    if len(targets) != 1:
+        raise ValueError('missing unique Ubuntu mirror URI field')
+    target = targets[0]
+    value = lambda key: target.get(key, (b'',))[0]
+    if (value(b'types') != b'deb' or
+            sorted(value(b'suites').split()) != [b'noble', b'noble-backports', b'noble-updates'] or
+            sorted(value(b'components').split()) != [b'main', b'multiverse', b'restricted', b'universe'] or
+            value(b'signed-by') != b'/usr/share/keyrings/ubuntu-archive-keyring.gpg' or
+            value(b'enabled').lower() not in (b'', b'yes')):
+        raise ValueError('unsupported Ubuntu Noble source layout')
+    index = target[b'uris'][1]
+    lines[index] = lines[index].replace(UBUNTU_MIRROR, UBUNTU_ARCHIVE, 1)
+    effective = {key: data for key, data in inputs.items() if key != 'apt-mirrors.txt'}
+    effective.setdefault('sources.list', b'')
+    effective['sources.list.d/ubuntu.sources'] = b''.join(lines)
+    return effective
+
+
+def _source_digests(files):
+    return {name: hashlib.sha256(data).hexdigest() for name, data in sorted(files.items())}
+
+
+@contextmanager
+def _https_archive_sources(out):
+    """One private source override, with before/after identity and cleanup."""
+    receipt = {'schema_version': 1, 'source_profile': 'ubuntu-archive-https',
+               'maximum_native_seconds': 180, 'started_monotonic': time.monotonic(),
+               'target': UBUNTU_ARCHIVE.decode(), 'replacement_count': 0,
+               'status': 'INCOMPLETE', 'system_sources_unchanged': None,
+               'private_sources_unchanged': None, 'cleanup': 'NOT_CREATED'}
+    private = None; inputs = None; effective = None; primary_error = None
+    try:
+        inputs = _native_source_files(NATIVE_APT_ROOT)
+        receipt['input_sha256'] = _source_digests(inputs)
+        effective = _archive_source_candidate(inputs)
+        receipt.update(effective_sha256=_source_digests(effective), replacement_count=1)
+        private = tempfile.TemporaryDirectory(prefix='native-apt-', dir=out.parent)
+        root = Path(private.name)
+        (root/'sources.list.d').mkdir()
+        for name, data in effective.items():
+            with (root/name).open('xb') as stream: stream.write(data)
+        receipt.update(status='PREPARED', cleanup='PENDING')
+        runtime.save(out/'native-source-profile.json', receipt, out)
+        yield ['-o', 'Dir::Etc::sourcelist='+str(root/'sources.list'),
+               '-o', 'Dir::Etc::sourceparts='+str(root/'sources.list.d')]
+    except BaseException as exc:
+        primary_error = exc
+        raise
+    finally:
+        errors = []
+        if inputs is not None:
+            try:
+                after = _native_source_files(NATIVE_APT_ROOT)
+                receipt['input_after_sha256'] = _source_digests(after)
+                receipt['system_sources_unchanged'] = after == inputs
+            except Exception as exc: errors.append({'stage':'system-identity', 'type':type(exc).__name__})
+        if private is not None:
+            try:
+                after = _native_source_files(Path(private.name), mirror=False)
+                receipt['effective_after_sha256'] = _source_digests(after)
+                receipt['private_sources_unchanged'] = after == effective
+            except Exception as exc: errors.append({'stage':'private-identity', 'type':type(exc).__name__})
+            try:
+                private.cleanup()
+                receipt['cleanup'] = 'REMOVED'
+            except Exception as exc:
+                receipt['cleanup'] = 'FAILED'
+                errors.append({'stage':'cleanup', 'type':type(exc).__name__})
+        complete = (receipt['system_sources_unchanged'] is True and
+                    receipt['private_sources_unchanged'] is True and receipt['cleanup'] == 'REMOVED')
+        receipt.update(status='VERIFIED' if complete and not errors else 'INCOMPLETE', errors=errors)
+        receipt['completed_monotonic'] = time.monotonic()
+        try:
+            runtime.save(out/'native-source-profile.json', receipt, out, terminal=True)
+        except Exception as exc:
+            if primary_error is None: raise
+            primary_error.native_source_evidence_error = {'stage':'final-source-receipt', 'type':type(exc).__name__}
+        if not complete and primary_error is None:
+            raise ValueError('native source identity or cleanup failed')
+
+
+def prepare_native(source, out, end, env, *, maximum_seconds=180, observation=None,
+                   source_profile='runner-sources'):
     """Repair the observed native prerequisites within the original job clock."""
     if type(maximum_seconds) is not int or maximum_seconds not in (180, 360):
         raise ValueError('unsupported native preparation budget')
+    if source_profile not in ('runner-sources', 'ubuntu-archive-https'):
+        raise ValueError('unsupported native source profile')
+    if source_profile == 'ubuntu-archive-https' and maximum_seconds != 180:
+        raise ValueError('source profile requires the 180-second preparation budget')
     started = time.monotonic()
     preparation_end = min(end - 90, started + maximum_seconds)
     budget = {'maximum_seconds': maximum_seconds, 'started_monotonic': started,
@@ -36,6 +182,8 @@ def prepare_native(source, out, end, env, *, maximum_seconds=180, observation=No
               'probe_reserve_seconds': 20, 'privileged_cleanup_reserve_seconds': 5,
               'scope': 'allocations only; actual outcomes are in native-*.stdout.result.json',
               'allocations': []}
+    if observation is not None or source_profile != 'runner-sources':
+        budget['source_profile'] = source_profile
     runtime.save(out / 'native-budget.json', budget, out)
 
     def record(name, seconds, privileged_seconds=None):
@@ -43,32 +191,37 @@ def prepare_native(source, out, end, env, *, maximum_seconds=180, observation=No
                                       'privileged_timeout_seconds': privileged_seconds})
         runtime.save(out / 'native-budget.json', budget, out)
 
-    for name, args, limit in (
-            ('native-update', ['update'], 60),
-            ('native-install', ['install', '-y', '--no-install-recommends', *NATIVE_PACKAGES], maximum_seconds)):
-        # Reserve both 10-second package/module observations within the same window.
-        remaining = min(limit, preparation_end - time.monotonic() - 20)
-        if remaining < 10:
-            raise RuntimeError('insufficient native preparation budget')
-        # The privileged timeout terminates its own apt children before our outer watchdog.
-        record(name, remaining, int(remaining) - 5)
-        argv = ['sudo', '-n', 'timeout', '--signal=TERM', '--kill-after=2s',
-                str(int(remaining) - 5), 'env', 'DEBIAN_FRONTEND=noninteractive',
-                'apt-get', '-o', 'Acquire::Retries=0', '-o', 'Acquire::http::Timeout=20',
-                *(['-o', 'Debug::pkgAcquire::Worker=1'] if observation else []), *args]
-        observed = {'observer': observation.phase(name)} if observation else {}
-        runtime.run(argv, source, out / (name + '.stdout'), preparation_end,
-                    remaining, out, env, file_limit=None, **observed)
-    for name, argv in (
-            ('native-packages', ['dpkg-query', '-W', '-f=${binary:Package}\t${Version}\n', *NATIVE_PACKAGES]),
-            ('native-modules', ['pkg-config', '--print-errors', '--modversion', *NATIVE_MODULES])):
-        remaining = min(10, preparation_end - time.monotonic())
-        if remaining < 1:
-            raise RuntimeError('insufficient native observation budget')
-        record(name, remaining)
-        observed = {'observer': observation.phase(name)} if observation else {}
-        runtime.run(argv, source, out / (name + '.stdout'), preparation_end,
-                    remaining, out, env, file_limit=None, **observed)
+    sources = _https_archive_sources(out) if source_profile == 'ubuntu-archive-https' else nullcontext([])
+    with sources as source_options:
+        for name, args, limit in (
+                ('native-update', ['update'], 60),
+                ('native-install', ['install', '-y', '--no-install-recommends', *NATIVE_PACKAGES], maximum_seconds)):
+            # Source setup and both probes share this original preparation window.
+            remaining = min(limit, preparation_end - time.monotonic() - 20)
+            if remaining < 10:
+                raise RuntimeError('insufficient native preparation budget')
+            # The privileged timeout terminates its own apt children before our outer watchdog.
+            record(name, remaining, int(remaining) - 5)
+            argv = ['sudo', '-n', 'timeout', '--signal=TERM', '--kill-after=2s',
+                    str(int(remaining) - 5), 'env', 'DEBIAN_FRONTEND=noninteractive',
+                    'apt-get', '-o', 'Acquire::Retries=0', '-o', 'Acquire::http::Timeout=20',
+                    *source_options, *(['-o', 'Debug::pkgAcquire::Worker=1'] if observation else []), *args]
+            observed = {'observer': observation.phase(name)} if observation else {}
+            runtime.run(argv, source, out / (name + '.stdout'), preparation_end,
+                        remaining, out, env, file_limit=None, **observed)
+        for name, argv in (
+                ('native-packages', ['dpkg-query', '-W', '-f=${binary:Package}\t${Version}\n', *NATIVE_PACKAGES]),
+                ('native-modules', ['pkg-config', '--print-errors', '--modversion', *NATIVE_MODULES])):
+            remaining = min(10, preparation_end - time.monotonic())
+            if remaining < 1:
+                raise RuntimeError('insufficient native observation budget')
+            record(name, remaining)
+            observed = {'observer': observation.phase(name)} if observation else {}
+            runtime.run(argv, source, out / (name + '.stdout'), preparation_end,
+                        remaining, out, env, file_limit=None, **observed)
+
+    if source_profile == 'ubuntu-archive-https' and time.monotonic() > preparation_end:
+        raise RuntimeError('native source candidate exceeded its preparation deadline')
 
 
 def check_argv(source, work):

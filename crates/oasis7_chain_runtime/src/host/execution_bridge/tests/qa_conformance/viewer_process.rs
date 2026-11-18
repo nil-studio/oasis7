@@ -2,19 +2,25 @@
 use super::*;
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, Stdio};
+use std::{cell::Cell, rc::Rc};
+
+#[path = "viewer_process_diagnostics.rs"]
+mod diagnostics;
 
 struct ViewerProcess {
     child: Child,
+    phase: Rc<Cell<diagnostics::Phase>>,
     addr: String,
     root: std::path::PathBuf,
 }
 impl Drop for ViewerProcess {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        // Observe natural status before cleanup: a cleanup kill is not the failure cause.
         if std::thread::panicking() {
             println!("shipped_viewer_failure_diagnostics={}", self.diagnostics());
         }
+        let _ = self.child.kill();
+        let _ = self.child.wait();
         let _ = fs::remove_dir_all(&self.root);
     }
 }
@@ -83,7 +89,12 @@ impl ViewerProcess {
             .stderr(stderr)
             .spawn()
             .unwrap();
-        Self { child, addr, root }
+        Self {
+            child,
+            addr,
+            root,
+            phase: Rc::new(Cell::new(diagnostics::Phase::Connecting)),
+        }
     }
     fn connect(&mut self) -> Protocol {
         let deadline = Instant::now() + Duration::from_secs(10);
@@ -92,7 +103,8 @@ impl ViewerProcess {
                 stream
                     .set_read_timeout(Some(Duration::from_millis(200)))
                     .unwrap();
-                return Protocol(BufReader::new(stream));
+                self.phase.set(diagnostics::Phase::Connected);
+                return Protocol(BufReader::new(stream), Rc::clone(&self.phase));
             }
             if let Some(status) = self.child.try_wait().unwrap() {
                 panic!("shipped viewer exited {status}: {}", self.diagnostics());
@@ -105,11 +117,17 @@ impl ViewerProcess {
             thread::sleep(Duration::from_millis(10));
         }
     }
-    fn diagnostics(&self) -> String {
-        fs::read_to_string(self.root.join("stderr.log")).unwrap_or_default()
+    fn diagnostics(&mut self) -> String {
+        format!(
+            "phase={:?} child={} stdout=({}) stderr=({})",
+            self.phase.get(),
+            diagnostics::child_status(&mut self.child),
+            diagnostics::log_summary(&self.root.join("stdout.log")),
+            diagnostics::log_summary(&self.root.join("stderr.log"))
+        )
     }
 }
-struct Protocol(BufReader<TcpStream>);
+struct Protocol(BufReader<TcpStream>, Rc<Cell<diagnostics::Phase>>);
 impl Protocol {
     fn send(&mut self, value: serde_json::Value) {
         let mut bytes = serde_json::to_vec(&value).unwrap();
@@ -117,6 +135,11 @@ impl Protocol {
         self.0.get_mut().write_all(&bytes).unwrap();
     }
     fn receive(&mut self, kind: &str) -> serde_json::Value {
+        self.1.set(if kind == "hello_ack" {
+            diagnostics::Phase::AwaitingHelloAck
+        } else {
+            diagnostics::Phase::AwaitingResponse
+        });
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             let mut line = String::new();
@@ -125,6 +148,7 @@ impl Protocol {
                 Ok(_) => {
                     let value: serde_json::Value = serde_json::from_str(&line).unwrap();
                     if value["type"] == kind {
+                        self.1.set(diagnostics::Phase::ResponseReceived);
                         return value;
                     }
                     if value["type"]
@@ -523,6 +547,7 @@ fn real_tcp_shipped_viewer_wrong_trust_world_scope_fail_closed() {
         protocol
             .send(serde_json::json!({"type":"subscribe","streams":["snapshot"],"event_kinds":[]}));
         protocol.send(serde_json::json!({"type":"request_snapshot"}));
+        process.phase.set(diagnostics::Phase::RejectingSnapshot);
         let deadline = Instant::now() + Duration::from_secs(2);
         while Instant::now() < deadline {
             let mut line = String::new();

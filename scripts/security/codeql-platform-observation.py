@@ -31,6 +31,7 @@ JOB = "CodeQL / rust-repo / default"
 WORKFLOW = ".github/workflows/codeql-platform-observation.yml"
 API_BUDGET_SECONDS = 240
 PAGE_LIMIT = 10
+FINDINGS_PAGE_LIMIT = 100
 READ_ERRORS = (RuntimeError, ValueError, TypeError, KeyError, OSError, subprocess.TimeoutExpired)
 
 
@@ -101,7 +102,7 @@ def initial_receipt(requested, collector, now, budget_seconds):
             "analysis_results_count": None, "analysis_errors": [], "warnings": [], "errors": errors,
             "findings": {"status": "unknown", "read_status": "not_started", "alerts_read": None,
                          "observed_open_findings": None, "alert_instances_complete": False,
-                         "page_limit": PAGE_LIMIT, "per_page": 100,
+                         "page_limit": FINDINGS_PAGE_LIMIT, "per_page": 100,
                          "scope": "current open alerts whose most_recent_instance matches target SHA/ref/category; "
                                   "not new findings attributed to this run attempt; no complete-instance or zero-findings proof"},
             "_health": {"identity": {"repository": REPOSITORY, "ref": REF, "sha": requested.get("sha")},
@@ -191,7 +192,7 @@ def gather(data):
 
     try:
         alerts = health.read_pages(REPOSITORY, "code-scanning/alerts?state=open&ref="
-                                   + quote(REF, safe="") + "&tool_name=CodeQL", limit=PAGE_LIMIT)
+                                   + quote(REF, safe="") + "&tool_name=CodeQL", limit=FINDINGS_PAGE_LIMIT)
         ids = [alert.get("number") for alert in alerts]
         require(all(association.integer(number) for number in ids) and len(ids) == len(set(ids)),
                 "open alert identity missing or duplicate across pages")

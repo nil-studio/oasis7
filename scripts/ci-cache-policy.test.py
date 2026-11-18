@@ -27,6 +27,9 @@ OBSERVED_FIXED_BYTES = 3_960_422_714
 LEGACY_FORMAL_LIMITS = dict(staging_bytes=8 * 1024 ** 3, max_upload_bytes=768 * 1024 ** 2,
                             max_bytes=1536 * 1024 ** 2, rotation_bytes=2304 * 1024 ** 2)
 LEGACY_ORDINARY_LIMITS = dict(LEGACY_FORMAL_LIMITS, staging_bytes=6 * 1024 ** 3)
+LEGACY_ECS_LIMITS = dict(staging_bytes=6 * 1024 ** 3, max_upload_bytes=1024 ** 3,
+                         max_bytes=2 * 1024 ** 3, rotation_bytes=3 * 1024 ** 3,
+                         migration_bytes=4 * 1024 ** 3)
 
 
 def key(name, number, compatibility='a'):
@@ -305,6 +308,7 @@ class AdmissionTests(unittest.TestCase):
 
     @patch.dict(policy.FAMILIES['formal'], LEGACY_FORMAL_LIMITS)
     @patch.dict(policy.FAMILIES['ordinary'], LEGACY_ORDINARY_LIMITS)
+    @patch.dict(policy.FAMILIES['ecs'], LEGACY_ECS_LIMITS)
     def test_raw_staging_single_upload_resident_and_rotation_are_distinct(self):
         for name, upload, raw in (('ordinary', 768 * 1024 ** 2, 6 * 1024 ** 3),
                                   ('formal', 768 * 1024 ** 2, 8 * 1024 ** 3),
@@ -380,6 +384,7 @@ class AdmissionTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         policy.save_policy([], key(name, 2), size, 10_000_000_000)
 
+    @patch.dict(policy.FAMILIES['ecs'], LEGACY_ECS_LIMITS)
     def test_ecs_migration_headroom_requires_an_absent_new_compatibility_and_full_global_capacity(self):
         entries = [entry('ecs', i, size_in_bytes=size) for i, size in
                    ((1, 865_504_918), (2, 865_609_559), (3, 897_049_399))]
@@ -493,6 +498,7 @@ class InventoryLifecycleTests(unittest.TestCase):
 
     @patch.dict(policy.FAMILIES['formal'], LEGACY_FORMAL_LIMITS)
     @patch.dict(policy.FAMILIES['ordinary'], LEGACY_ORDINARY_LIMITS)
+    @patch.dict(policy.FAMILIES['ecs'], LEGACY_ECS_LIMITS)
     def test_family_ceiling_entitlements_cannot_override_global_capacity(self):
         entries = [entry('ordinary', 100, key='unmanaged-observed-dependencies-and-tools',
                          size_in_bytes=OBSERVED_FIXED_BYTES)]
@@ -764,14 +770,15 @@ class OrdinaryUploadBudgetTests(unittest.TestCase):
         self.assertEqual(report['reason'], 'existing immutable key')
 
     def test_formal_and_ecs_upload_limits_do_not_increase(self):
-        for name, raw in (('formal', 8 * 1024 ** 3), ('ecs', 6 * 1024 ** 3)):
+        for name, upload, raw in (('formal', 1024 ** 3, 8 * 1024 ** 3),
+                                  ('ecs', 3 * 1024 ** 3 // 2, 6 * 1024 ** 3)):
             with self.subTest(name=name):
                 settings = policy.FAMILIES[name]
-                self.assertEqual(settings['max_upload_bytes'], 1024 ** 3)
-                self.assertEqual(settings['max_bytes'], 2 * 1024 ** 3)
-                self.assertEqual(settings['rotation_bytes'], 3 * 1024 ** 3)
+                self.assertEqual(settings['max_upload_bytes'], upload)
+                self.assertEqual(settings['max_bytes'], 2 * upload)
+                self.assertEqual(settings['rotation_bytes'], 3 * upload)
                 self.assertEqual(settings['staging_bytes'], raw)
-                report = policy.save_policy([], key(name, 99), 1024 ** 3 + 1, self.REPOSITORY)
+                report = policy.save_policy([], key(name, 99), upload + 1, self.REPOSITORY)
                 self.assertEqual(report['reason'], name + ' single upload budget')
 
 

@@ -26,7 +26,22 @@ pub struct Metrics {
     physical: [(u64, u64); 3],
     writes: (u64, u64),
     logical_writes: (u64, u64),
-    locator: [(u64, u64); 3],
+    locator: [LocatorMetrics; 3],
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct LocatorMetrics {
+    packs: u64,
+    probes: u64,
+    read_calls: u64,
+    read_bytes: u64,
+}
+impl LocatorMetrics {
+    fn add(&mut self, other: Self) {
+        self.packs += other.packs;
+        self.probes += other.probes;
+        self.read_calls += other.read_calls;
+        self.read_bytes += other.read_bytes;
+    }
 }
 impl Metrics {
     pub fn assert_fixed(&self, other: &Self) {
@@ -35,11 +50,11 @@ impl Metrics {
         assert_eq!(self.writes, other.writes);
         let normalize = |value: &Self| {
             std::array::from_fn::<_, 3, _>(|i| {
-                let (packs, probes) = value.locator[i];
-                assert!(probes <= 9 * packs); // v1 packs admit at most 256 entries.
+                let locator = value.locator[i];
+                assert!(locator.probes <= 9 * locator.packs); // v1 packs admit at most 256 entries.
                 (
-                    value.physical[i].0.checked_sub(probes).unwrap(),
-                    value.physical[i].1.checked_sub(44 * probes).unwrap(),
+                    value.physical[i].0.checked_sub(locator.read_calls).unwrap(),
+                    value.physical[i].1.checked_sub(locator.read_bytes).unwrap(),
                 )
             })
         };
@@ -549,7 +564,7 @@ pub fn run(size: usize) -> Metrics {
 
 /// Independent literal v1 pack locator oracle, outside the measured operation.
 /// It does not deserialize JSON, read full packs, or authorize any page/root.
-fn physical_member(path: &std::path::Path, recipe: bool) -> (u64, u64, Vec<u8>) {
+fn physical_member(path: &std::path::Path, recipe: bool) -> (LocatorMetrics, Vec<u8>) {
     use std::io::{Read, Seek, SeekFrom};
     const MAGIC: &[u8] = b"oasis7.iws.page-pack.v1\0";
     let mut file = std::fs::File::open(path).unwrap();
@@ -563,9 +578,9 @@ fn physical_member(path: &std::path::Path, recipe: bool) -> (u64, u64, Vec<u8>) 
             file.seek(SeekFrom::Start(0)).unwrap();
             let mut bytes = vec![0; length as usize];
             file.read_exact(&mut bytes).unwrap();
-            return (0, 0, bytes);
+            return (LocatorMetrics::default(), bytes);
         }
-        return (0, 0, Vec::new());
+        return (LocatorMetrics::default(), Vec::new());
     }
     let mut header = [0u8; 23];
     file.read_exact(&mut header).unwrap();
@@ -579,19 +594,41 @@ fn physical_member(path: &std::path::Path, recipe: bool) -> (u64, u64, Vec<u8>) 
     let wanted = *blake3::Hash::from_hex(path.file_name().unwrap().to_str().unwrap())
         .unwrap()
         .as_bytes();
-    let (mut low, mut high, mut probes) = (0, count, 0u64);
+    let (mut low, mut high) = (0, count);
+    let mut locator = LocatorMetrics {
+        packs: 1,
+        ..LocatorMetrics::default()
+    };
+    let mut tail_buffered = false;
     while low < high {
         let middle = low + (high - low) / 2;
+        // Audit each original comparison row independently. The physical
+        // profile reads the first <=4-row interval once, including rows that
+        // may never be compared; later comparisons reuse that admitted tail.
+        if !tail_buffered {
+            locator.read_calls += 1;
+            let rows = if high - low <= 4 {
+                tail_buffered = true;
+                high - low
+            } else {
+                1
+            };
+            locator.read_bytes += rows as u64 * 44;
+        }
         let mut row = [0u8; 44];
         file.seek(SeekFrom::Start(index + middle as u64 * 44))
             .unwrap();
         file.read_exact(&mut row).unwrap();
-        probes += 1;
+        locator.probes += 1;
         match row[..32].cmp(&wanted) {
             std::cmp::Ordering::Less => low = middle + 1,
             std::cmp::Ordering::Greater => high = middle,
             std::cmp::Ordering::Equal => {
-                assert!(probes <= u64::from(count.ilog2()) + 1);
+                assert!(locator.probes <= u64::from(count.ilog2()) + 1);
+                assert!(locator.read_calls <= locator.probes);
+                assert!(
+                    (44 * locator.probes..=44 * locator.probes + 132).contains(&locator.read_bytes)
+                );
                 let offset = u64::from_be_bytes(row[32..40].try_into().unwrap());
                 let size = u32::from_be_bytes(row[40..44].try_into().unwrap()) as usize;
                 assert!(size > 0 && offset + size as u64 <= index);
@@ -600,26 +637,25 @@ fn physical_member(path: &std::path::Path, recipe: bool) -> (u64, u64, Vec<u8>) 
                     let mut bytes = vec![0; size];
                     file.seek(SeekFrom::Start(offset)).unwrap();
                     file.read_exact(&mut bytes).unwrap();
-                    return (1, probes, bytes);
+                    return (locator, bytes);
                 }
-                return (1, probes, Vec::new());
+                return (locator, Vec::new());
             }
         }
     }
     panic!("actual node has no original pack locator");
 }
-fn audit_locators(root: &std::path::Path, trace: &Trace) -> [(u64, u64); 3] {
+fn audit_locators(root: &std::path::Path, trace: &Trace) -> [LocatorMetrics; 3] {
     const MAGIC: &[u8] = b"oasis7.iws.page-recipe.v1\0";
-    let mut sums = [(0u64, 0u64); 3];
+    let mut sums = [LocatorMetrics::default(); 3];
     for (channel, id) in trace.rows.borrow().iter() {
-        let (packs, probes, recipe) = physical_member(
+        let (locator, recipe) = physical_member(
             &root
                 .join("recipes")
                 .join(blake3::Hash::from(*id).to_hex().as_str()),
             true,
         );
-        sums[*channel].0 += packs;
-        sums[*channel].1 += probes;
+        sums[*channel].add(locator);
         assert!(recipe.starts_with(MAGIC));
         let header = MAGIC.len() + 32 + 4 + 1;
         let count = recipe[header - 1] as usize;
@@ -628,14 +664,13 @@ fn audit_locators(root: &std::path::Path, trace: &Trace) -> [(u64, u64); 3] {
         assert_eq!(&recipe[MAGIC.len()..MAGIC.len() + 32], id);
         for row in recipe[header..recipe.len() - 32].chunks_exact(69) {
             let stored: [u8; 32] = row[..32].try_into().unwrap();
-            let (packs, probes, _) = physical_member(
+            let (locator, _) = physical_member(
                 &root
                     .join("frames")
                     .join(blake3::Hash::from(stored).to_hex().as_str()),
                 false,
             );
-            sums[*channel].0 += packs;
-            sums[*channel].1 += probes;
+            sums[*channel].add(locator);
         }
     }
     sums

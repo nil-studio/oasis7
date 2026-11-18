@@ -632,3 +632,147 @@ fn cancellation_during_last_staging_sync_never_returns_batch_success() {
     ));
     assert!(cancelled.load(Ordering::Acquire));
 }
+
+#[test]
+fn pack_index_tail_reads_use_exact_bounded_io() {
+    let fixture = Fixture::new();
+    let memory = MemoryBudget::new(8 << 20, 0).unwrap();
+    let store =
+        IncrementalPageStore::create(&fixture.store(), memory.clone(), PageCompression::Raw)
+            .unwrap();
+    let _workspace = memory
+        .reserve(DECODE_WORKSPACE, MemoryClass::Ordinary)
+        .unwrap();
+    let mut entries: Vec<_> = pages(8)
+        .into_iter()
+        .map(|(id, bytes)| Entry { id, bytes })
+        .collect();
+    entries.sort_by_key(|entry| entry.id);
+    let cancelled = AtomicBool::new(false);
+    publish(
+        store.root(),
+        "frames",
+        &entries,
+        &mut physical_io(),
+        &cancelled,
+    )
+    .unwrap();
+    // Eight sorted members: the first probe is row 4. Left/right tails
+    // contain four/three rows; a hit at row 4 reads no unrelated tail.
+    for (at, reads, index_rows) in [(0, 5, 5), (2, 5, 5), (4, 4, 1), (7, 5, 4)] {
+        let entry = &entries[at];
+        let path = store.root().join("frames").join(hex::encode(entry.id));
+        let exact = PageIoBudget {
+            reads_remaining: reads,
+            read_bytes_remaining: (HEADER + index_rows * ROW + entry.bytes.len()) as u64,
+            writes_remaining: 0,
+            write_bytes_remaining: 0,
+        };
+        let mut io = exact.clone();
+        assert_eq!(
+            files::read(&path, entry.bytes.len(), &mut io, &cancelled).unwrap(),
+            entry.bytes
+        );
+        assert_eq!((io.reads_remaining, io.read_bytes_remaining), (0, 0));
+        for resource in 0..2 {
+            let mut short = exact.clone();
+            if resource == 0 {
+                short.reads_remaining -= 1;
+            } else {
+                short.read_bytes_remaining -= 1;
+            }
+            assert!(matches!(
+                files::read(&path, entry.bytes.len(), &mut short, &cancelled),
+                Err(PageStoreError::ResourceLimited("physical read allowance"))
+            ));
+        }
+    }
+    let path = store.root().join("frames").join(hex::encode(entries[0].id));
+    // After the prefix, header and first row, the complete 176-byte tail
+    // must be admitted before any of it is read. A refused read spends none.
+    let mut short = PageIoBudget {
+        reads_remaining: 5,
+        read_bytes_remaining: (HEADER + ROW + 4 * ROW - 1) as u64,
+        writes_remaining: 0,
+        write_bytes_remaining: 0,
+    };
+    assert!(matches!(
+        files::read(&path, entries[0].bytes.len(), &mut short, &cancelled),
+        Err(PageStoreError::ResourceLimited("physical read allowance"))
+    ));
+    assert_eq!(
+        (short.reads_remaining, short.read_bytes_remaining),
+        (2, (4 * ROW - 1) as u64)
+    );
+    cancelled.store(true, Ordering::Release);
+    assert!(matches!(
+        files::read(&path, entries[0].bytes.len(), &mut short, &cancelled),
+        Err(PageStoreError::Cancelled)
+    ));
+    assert_eq!(
+        (short.reads_remaining, short.read_bytes_remaining),
+        (2, (4 * ROW - 1) as u64)
+    );
+}
+
+#[test]
+fn pack_index_tail_preserves_binary_selection_and_selected_span_validation() {
+    let fixture = Fixture::new();
+    let memory = MemoryBudget::new(8 << 20, 0).unwrap();
+    let store =
+        IncrementalPageStore::create(&fixture.store(), memory.clone(), PageCompression::Raw)
+            .unwrap();
+    let _workspace = memory
+        .reserve(DECODE_WORKSPACE, MemoryClass::Ordinary)
+        .unwrap();
+    let mut entries: Vec<_> = pages(8)
+        .into_iter()
+        .map(|(id, bytes)| Entry { id, bytes })
+        .collect();
+    entries.sort_by_key(|entry| entry.id);
+    let cancelled = AtomicBool::new(false);
+    publish(
+        store.root(),
+        "frames",
+        &entries,
+        &mut physical_io(),
+        &cancelled,
+    )
+    .unwrap();
+    let path = store.root().join("frames").join(hex::encode(entries[2].id));
+    let mut encoded = fs::read(&path).unwrap();
+    let index = u64::from_be_bytes(
+        encoded[MAGIC.len() + 7..MAGIC.len() + 15]
+            .try_into()
+            .unwrap(),
+    ) as usize;
+    let selected = encoded[index + 2 * ROW..index + 3 * ROW].to_vec();
+    // A duplicate at row 0 must not replace the original probes 4 -> 2.
+    // The unselected malformed span remains an untrusted locator only.
+    encoded[index..index + ROW].copy_from_slice(&selected);
+    encoded[index + 32..index + 40].fill(0);
+    fs::write(&path, &encoded).unwrap();
+    assert_eq!(
+        files::read(
+            &path,
+            entries[2].bytes.len(),
+            &mut physical_io(),
+            &cancelled
+        )
+        .unwrap(),
+        entries[2].bytes
+    );
+    // Conversely, a valid duplicate cannot rescue the selected bad span.
+    encoded[index..index + ROW].copy_from_slice(&selected);
+    encoded[index + 2 * ROW + 32..index + 2 * ROW + 40].fill(0);
+    fs::write(&path, &encoded).unwrap();
+    assert!(matches!(
+        files::read(
+            &path,
+            entries[2].bytes.len(),
+            &mut physical_io(),
+            &cancelled
+        ),
+        Err(PageStoreError::Corrupt("pack header/index/span"))
+    ));
+}

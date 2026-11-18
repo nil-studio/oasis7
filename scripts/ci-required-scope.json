@@ -43,6 +43,7 @@
   "ordinary_partition_version": 1,
   "ordinary_artifact_partition_version": 2,
   "ordinary_main_fast_cache_writer_version": 1,
+  "ecs_workspace_upload_budget_version": 2,
   "ordinary_harness_costs": {
     "version": 1,
     "fallback_ms": 60000,
@@ -1110,6 +1111,8 @@
     "scripts/ci-cache-maintenance.test.py": ["workflow_governance"],
     "scripts/ci-cache-policy.py": ["workflow_governance"],
     "scripts/ci-cache-policy.test.py": ["workflow_governance"],
+    "scripts/ci-contract-jobs.py": ["workflow_governance"],
+    "scripts/ci-contract-jobs.test.py": ["workflow_governance"],
     "scripts/ci-custody-platform.py": ["workflow_governance"],
     "scripts/ci-custody-platform.test.py": ["workflow_governance"],
     "scripts/ci-custody-workerd-capture.py": ["workflow_governance"],
@@ -1176,6 +1179,7 @@
     "scripts/ci-apt-install.test.py",
     "scripts/ci-apt-dns.test.py",
     "scripts/ci-linux-mold.test.py",
+    "scripts/ci-contract-jobs.test.py",
     "scripts/ci-workflow.test.py",
     "scripts/ci-fast-preview.test.py",
     "scripts/ci-cache-maintenance.test.py",
@@ -1312,6 +1316,19 @@
       "group": "workflow_governance",
       "tests": [
         "scripts/ci-cache-policy.test.py"
+      ]
+    },
+    "scripts/ci-contract-jobs.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-contract-jobs.test.py",
+        "scripts/ci-workflow.test.py"
+      ]
+    },
+    "scripts/ci-contract-jobs.test.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-contract-jobs.test.py"
       ]
     },
     "scripts/ci-custody-platform.py": {

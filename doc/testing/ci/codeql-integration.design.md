@@ -15,7 +15,12 @@
 
 ## 1. 决策摘要
 
-实现支持 Rust、Python、JavaScript/TypeScript、GitHub Actions 四类分析，按下述 unit/profile 批次逐项验收和启用。PR 使用默认查询集并按影响选择语言单元；默认分支每六小时更新已启用的非 Rust 默认查询基线，Rust default 使用独立每日时段；每日运行已启用的扩展批次。初始以四个稳定的语言级单元部署，不预设每个 Rust crate 都有独立扫描价值。
+实现支持 Rust、Python、JavaScript/TypeScript、GitHub Actions 四类分析，按下述 unit/profile 批次逐项验收和启用。已配置为 observe 的非 Rust default 批次按 PR 影响选择语言单元；默认分支每六小时更新已启用的非 Rust 默认查询基线，Rust default 使用独立每日时段；每日运行已启用的扩展批次。初始以四个稳定的语言级单元部署，不预设每个 Rust crate 都有独立扫描价值。
+
+<a id="rust-daily-baseline-goal"></a>
+**Rust 当前目标是每日一次主干 default 扫描。** `rust-repo/default=baseline` 是验收后的正式持续运行模式，每日北京时间 11:29（UTC 03:29）扫描可信 main，保留完整 Rust 分析单元、原 37 条查询、适用 Linux 覆盖、官方上传和平台结果核验。Rust PR observe 不列入当前目标或后续必做项；Rust extended 与更广 target/角色覆盖按各自范围另行安排，不作为日频目标完成前置。其他语言的既有 PR observe 策略保持。
+
+日频目标完成后，后续工作是观察自然调度、失败与新鲜度，并处置实际告警。后续若决定改变 Rust 触发范围，先重新确定执行路径、预算与验收；不因全局 observe 或现有 planner 支持而自行开启 Rust PR 扫描。
 
 所有扫描任务与现有 Rust/required CI 平行运行。扫描工作流不依赖 task Issue 的 PR 回填、impact projection、review receipt 或 integration revalidation。扫描结果不会被纳入现有 CI 收据的身份或复用条件；CodeQL 也不得签发、替代或刷新这些凭据。
 
@@ -109,7 +114,7 @@ CodeQL 默认检测、生成文件识别与提取覆盖并不等价于“每个�
 
 JavaScript 单元显式设置官方 `CODEQL_EXTRACTOR_JAVASCRIPT_ALLOW_MINIFIED_FILES=true`，适用于 default 与 extended；其它语言不启用该开关。CLI 2.24 起默认按平均行长跳过疑似 minified 文件，这会误跳过维护中的长行 JSX/JS，不能作为第一方源码的排除理由。保留现有路径排除、查询集与 vendor 文件，不以格式化业务源码绕过提取规则。验收须比对源码清单、实际提取与 skipped/parse diagnostics；开启提取不取消标准查询对 generated/minified top-level 的既有过滤，也不证明阳性完备，相关查询覆盖边界仍须如实记录。
 
-纯 Python PR 初始选择一个 Python 单元；纯 JS/HTML PR选择一个 JS 单元；纯 Rust PR 选择一个 Rust 单元；跨语言与共享配置变更选相应并集。这样首先消除四语言全部触发与跨工具链安装的浪费。
+纯 Python PR、纯 JS/HTML PR、纯 Rust PR 分别识别对应语言候选；跨语言与共享配置变更取相应并集，再按 §4.2.1 与批次模式取交集。Rust 当前为日频 baseline，Rust 候选不启动 PR 重型扫描；已启用 observe 的其他语言仍按影响执行。
 
 ### 4.2.1 分批验收与启用控制
 
@@ -131,7 +136,7 @@ workflow 还须独立核对每行 unit/profile/category 与全局和批次模式
 
 首次验收使用同一可信控制入口：在覆盖设置与扫描动作的授权下，将目标批次配置为 baseline，读回变量并仅在可信默认分支manual/schedule试运行；该配置仅允许验收执行，批次仍是 pending acceptance，不代表已经验收或正式持续运营，PR仍禁用。失败删除该键回退，禁止绕allowlist启动。
 
-取得本批真实 execution、唯一上传association、coverage/控制样本与findings并完成验收后，才声明该批baseline已验收并按运营授权持续运行；default的PR observe还需其PR路由、权限与来源/排队行为验收。八批总体 healthy 语义保持不变，部分批次通过只陈述其实际范围。
+取得本批真实 execution、唯一上传association、coverage/控制样本与findings并完成验收后，才声明该批baseline已验收并按运营授权持续运行。Rust 按[日频目标](#rust-daily-baseline-goal)持续保持 baseline；拟启用 PR 的其他 default 批次还需其 PR 路由、权限与来源/排队行为验收。八批总体 healthy 语义保持不变，部分批次通过只陈述其实际范围。
 
 回退可删除本批配置键、将default从observe降baseline或全局off，读回配置和新计划；不删除alerts/analysis、不改required保护，已有运行另行按授权处理。
 
@@ -188,7 +193,9 @@ python3 -I scripts/security/codeql-plan.py \
 
 ### 5.3 路由规则
 
-| PR 的完整源差异 | 选择 |
+下表给出影响候选；实际执行继续与 §4.2.1 的批次模式取交集，识别 Rust 影响不等于启动 Rust PR 扫描。
+
+| PR 的完整源差异 | 候选选择 |
 | --- | --- |
 | 纯文档，且没有被代码生成/嵌入引用的输入 | 不启动扫描矩阵；plan 报告 `not_applicable` |
 | `.rs`、Cargo manifest/lock、Rust toolchain/Cargo config | Rust 单元 |
@@ -203,7 +210,7 @@ python3 -I scripts/security/codeql-plan.py \
 | 根路径 `.dockerignore` 与 `docker/wasm-builder/Dockerfile` | canonical WASM 构建的 Actions 调用链、Python context 合同和 Rust producer recipe/嵌入合同共同消费，登记 `actions-repo`、`python-repo`、`rust-repo`。仅匹配这两个精确路径，保留旧/新嵌入与可能 build 消费者并集及批次限制；相邻未知输入和符号链接继续拒绝。登记不代表 CodeQL 分析 Dockerfile 语义或证明提取覆盖 |
 | diff 身份或输入不可信/不可读取 | planner 失败，记录未分析；不以空矩阵成功代替 |
 
-普通 Rust PR 在后续仅修改描述文件时，其整体 PR diff 仍可能包含 Rust，因此可能重新触发 Rust。首版不通过自造旧报告复用来绕过这一点；由取消旧任务、观察态和官方增量机制控制代价。
+普通 Rust PR 后续仅修改描述文件时，整体 PR diff 仍可能包含 Rust，影响候选继续如实保留；当前日频模式按 `pr_baseline_only` 排除 Rust 执行，不将其改记为无影响。其他已启用 PR 扫描的语言按完整差异、取消旧任务和官方增量机制处理，不自造旧报告复用。
 
 Shell 不是独立受支持的 CodeQL 语言。单独 `.sh` 变更保留现有脚本契约检查；涉及 workflow 边界时选择 Actions，但不能把它描述为 Shell 全面安全扫描。
 
@@ -250,7 +257,7 @@ plan 至少包含：`profile`、source/base/checkout identity、策略摘要、�
 
 | 事件 | 档位和范围 | 初始策略 |
 | --- | --- | --- |
-| 非 draft PR opened/reopened/synchronize/ready_for_review | default，按需单元 | 开启 |
+| 非 draft PR opened/reopened/synchronize/ready_for_review | default，按需且配置为 observe 的非 Rust 单元 | Rust 保持日频 baseline，不启动 PR 扫描 |
 | draft PR | 仅轻量 plan 或跳过扫描 | 不占重型槽位 |
 | converted_to_draft、closed | 取消本 PR 旧扫描，不启动新重型任务 | 开启对应事件处理 |
 | main 每 6 小时 | default，已启用非 Rust 单元 | 建立/更新对比与增量基线 |
@@ -446,7 +453,13 @@ Trace ID: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89
 
 #### 7.2.3 短原生准备诊断
 
-原生安装在查询之前耗尽时，可单独授权一次默认关闭的 `CodeQL Rust Native Diagnostic`。仅可信默认分支手动设置 `execute=true` 才执行，整个 job 从实际启动计最多 10 分钟，共用现有扫描槽位。入口复用同一 `prepare_native` 的 360 秒窗口、四个包、模块探针、update/install 顺序、发行版源与 `Acquire::Retries=0`、`Acquire::http::Timeout=20`；不改变镜像优先级、HTTPS 参数或失败即停行为。总截止前保留至少 90 秒收尾/上传，不续期、不重试。该入口只识别实际 helper 提交和 runner，不装 Rust/CodeQL、不提取源码数据库，也不以业务源码 pin 代签已分析该源码。
+原生安装在查询之前耗尽时，可单独授权一次默认关闭的 `CodeQL Rust Native Diagnostic`。仅可信默认分支手动设置 `execute=true` 才执行，整个 job 从实际启动计最多 10 分钟，共用现有扫描槽位。默认 `source_profile=runner-sources` 复用同一 `prepare_native` 的 360 秒窗口、四个包、模块探针、update/install 顺序、发行版源与 `Acquire::Retries=0`、`Acquire::http::Timeout=20`；不改变镜像优先级、HTTPS 参数或失败即停行为。总截止前保留至少 90 秒收尾/上传，不续期、不重试。该入口只识别实际 helper 提交和 runner，不装 Rust/CodeQL、不提取源码数据库，也不以业务源码 pin 代签已分析该源码。
+
+当实际 Worker 与 partial 时间线已将耗时定位到获取路径时，可显式选择固定候选 `source_profile=ubuntu-archive-https`。候选只验证现有官方 HTTPS archive 路径能否完成准备，不预设镜像、协议或代理是根因。其 native 窗口固定为正式生产相同的 180 秒，源副本准备也计入此窗口；job 总计 600 秒、父级 90 秒保留、20 秒探针空间和 5 秒特权收尾差额不变。两种 profile 与固定预算由代码绑定，并在 job-clock、terminal 和源收据中一致记录；不接受任意 URL、APT 参数或预算输入。
+
+候选只接受有界、完整、普通文件的已支持 Ubuntu Noble 源布局。现场读取源原字节，在源码及 artifact 目录之外新建临时副本；仅将 `ubuntu.sources` 中唯一的 `URIs: mirror+file:/etc/apt/apt-mirrors.txt` 字段改为镜像列表已包含的精确 `https://archive.ubuntu.com/ubuntu/`。该 stanza 的 suites/components/签名字段、security stanza、其他来源保持原字节；不从受限投影反造源文件，不修改 `/etc/apt`、信任、认证、HTTPS timeout、pipeline 或重试策略。重复字段、续行、混合 URI、缺失候选或未知布局拒绝启动 APT。update/install 只通过命令行指定副本 sourcelist/sourceparts；包与模块集合不变，失败即停。
+
+`native-source-profile.json` 保存固定 profile/目标、原输入与有效副本的文件集合及 SHA-256、唯一替换计数和最终前后核验；私有源正文不进入 artifact 或异常文本。所有退出路径清理副本，身份或清理失败保持未就绪，原 APT 失败仍保留实际退出。默认诊断与研究调用保持原行为，正式采用范围见 §7.2.6。候选成功只证明本次四步准备在该路径与预算下完成；它同时改变 host 与 scheme，不能单独归因 HTTPS，也不能替代真实生产、37 条结果、Linux 覆盖、官方上传或平台关联。
 
 只为本入口开启 `Debug::pkgAcquire::Worker=1`。运行时的可选观测器在任何 stdout/stderr 字节落盘前投影白名单：URI 状态/重定向/完成/失败、允许的数值/布尔获取配置、包与模块版本；配置帧仅保留必要键，URI 去除认证、查询和片段。未知格式、过长行及不在白名单内的内容只记长度、摘要与丢弃原因，绝不原样回退。普通调用不传观测器，沿用原字节采集。正常读取、无末尾换行与失败后 drain 均经过同一处理和共用 16 MiB 证据上限，预留 1 MiB 保存失败收据与摘要。
 
@@ -593,6 +606,10 @@ Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；复用候选库的固�
 
 本路径承接 CQ-R02/R03/R05/R06/R09，只用于 `codeql.yml` 中可信默认分支的 Rust default 维护扫描。生产输入是本次计划与实际 checkout 一致的提交，不沿用研究入口的冻结业务 SHA、manifest 数量或历史覆盖结论。现有批次变量仍控制是否执行；首次配置为 baseline 时按 §4.2.1 保持 pending acceptance，接线合入和候选研究通过均不代替运营验收。PR default、extended 和其他语言继续各自原有执行路径及预算。
 
+正式 native 前置仅在 default 且非 `pull_request` 的维护调用中显式选择已验证的 `ubuntu-archive-https` profile，复用 §7.2.3 的私有源副本、完整四包与模块探针及前后身份合同。共享 helper 默认仍为 `runner-sources`，PR、extended、固定源码观察、容量研究及独立 Cargo check 不随之切换。选中的 profile 写入 native budget 与 terminal；准备仍受原 180 秒窗口、270 秒父截止与 90 秒收尾保留约束，update 的 60 秒上限、20 秒探针空间和 5 秒特权收尾差额不变。源准备、核验和清理均计入原截止，不失败回退重跑。
+
+正式调用沿用普通 native stdout/stderr 与独立 `oasis7-codeql-native` artifact，不开启诊断 Worker 观察器或 archive 采样。`native-source-profile.json` 与四条实际命令收据分别验收，不能放入分析截止内的 production 查询收据集合。终态只投影异常类型、真实命令 exit/failure_kind 和源收据保存错误的固定字段，保留原失败并阻止后续提取、查询与上传；源身份或清理不完整不能记 PASS。native 成功只表示本次依赖就绪，原 37 条结果、适用 Linux 覆盖、官方上传、唯一平台关联及每日 baseline 验收继续独立完成。
+
 固定 Rust-only CodeQL bundle 2.27.4，下载后核对 SHA-256 `1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b`，通过官方 init 的 `tools` 输入使用该本地包。生产最终库版本独立固定为本节的 `qualifier-lines-negative-projection-v8`，直接基线为 §7.2.4 的 `qualifier-lines-constraint-target-qualified-v7`，其原 v6 基线保持。官方库保持只读，在任务私有目录依次复用 v3 qualifier/arity/lines、shared helper、两处 trait 注解、ConstraintMatching 和 target-qualified 的实际准备函数，再复用本节负向投影的严格准备函数。保留真实 v3/v5 中间快照、v6/v7 全树和各层收据，从已验证的 `candidate-target-typeinference` 独立复制出 `candidate-negative-typeinference`；所选最终完整库集合相对官方仍恰为三个 Rust 文件与一个 shared 文件变化，固定字节和 mode 继续核验。`str::lines` 使用通用 taint summary，不添加业务专用流边。版本或补丁不匹配时失败，不回退到旧库继续上传。
 
 生产准备终态与恢复检查同时绑定 v8 最终身份和 v7 直接基线。进入实际准备或恢复前，分别核对共享 helper 的 `WORKLOAD_VARIANT` 与固定 v6 组件、target helper 的 `RESEARCH_VARIANT` 与固定 v7 组件；这些组件常量与生产最终版本分开，研究版本变化不能自动改变生产选择。原 v6/v7 准备、验证和 closure 接口保持原义，生产仅在已验证的 v7 闭包中显式选择 negative shared 根。`arity-patch-identity.json`、`lines-model-identity.json` 保持 v3，`shared-helper-identity.json`、`trait-visibility-identity.json` 保持 v5，`constraint-matching-identity.json` 单独绑定 v6 及两份 v5 收据，`target-qualified-identity.json` 继续绑定真实 v6 全树和收据摘要、固定 target 补丁及完整 v7 树。`negative-projection-identity.json` 再绑定真实 v7 全树、target 收据摘要、固定补丁及完整 v8 树。恢复及查询后从当次官方库重建全部验证链；不能只比较保存的最终快照或将旧收据改标签。七份收据摘要和全部私有库实际字节纳入执行前后检查，原官方/v6/v7 文件权限检查保留，并核对官方/v7/v8 的完整目录集合与目录、文件权限。旧 v2/v3/v5/v6/v7 production preparation、研究或观测 preparation、缺失或伪造收据、额外文件或 mode 变化、任一私有库被替换均拒绝；即使 production 与 negative observation 使用相同 v8 字节，也不能互相恢复。
@@ -611,7 +628,7 @@ init 后从实际 GitHub job 起点计算一次分析绝对截止：最多 75 �
 
 执行状态由提取和正式 helper 联合决定，提取成功但查询失败不能记录为 execution success。通过原 `upload-sarif` 上传，保留 `oasis7/rust-repo/default` category、实际 SHA/ref 及唯一 `sarif_id` 关联；上传关联 evidence v1 结构保持。独立生产 evidence artifact 保存工具、查询库、源码、结果与覆盖收据及有界日志，不包含数据库或完整源码包。查询执行、平台上传、findings 和覆盖验收分别呈现。
 
-首次验收核对实际执行/容量、唯一上传来源、支持范围与控制样本、Security findings 及运营设置。试运行允许收集尚缺的覆盖事实；持续启用声明须完成适用验收，不能把 REVIEW/UNKNOWN 改记为通过。失败仅回退本次 Rust 批次键，保留其他语言、已有告警、required policy 和历史结果。PR observe 与 extended 的 45 分钟容量及适用行为单独验收。
+首次验收核对实际执行/容量、唯一上传来源、支持范围与控制样本、Security findings 及运营设置。试运行允许收集尚缺的覆盖事实；持续启用声明须完成适用验收，不能把 REVIEW/UNKNOWN 改记为通过。失败仅回退本次 Rust 批次键，保留其他语言、已有告警、required policy 和历史结果。通过后按[日频目标](#rust-daily-baseline-goal)持续运行，不追加 PR observe 验收。现有 PR/extended 的 45 分钟路径未被本次生产结果验证；未来若另行启用这些范围，须分别处理执行路径、容量及适用行为。
 
 ##### 固定源码的同配置性能观察
 
@@ -797,7 +814,7 @@ GitHub 原生结果检查、告警状态和配置覆盖提示另行读取；job 
 
 Rust default 的平台补采入口为 `codeql-platform-observation.yml`，只接受本仓 `main` 的手动 dispatch，输入已完成生产 run、最新 attempt 和完整 source SHA；ref/category 固定为 `refs/heads/main` / `oasis7/rust-repo/default`。从 dispatch 的可信 main SHA checkout，复用现有 upload association reader 验证 job/check/provider、官方 SARIF ID、artifact digest 与唯一 analysis；不得按同 SHA、时间或上传步骤成功推断平台接收。入口只有 contents/actions/checks/security-events read 权限，不执行提取、查询、上传 SARIF 或设置变更。
 
-补采 API 共用 240 秒绝对预算，job 上限 7 分钟；完整分页或身份校验失败保留 unknown，并尽可能上传失败报告。报告保留 analysis 的错误、警告、结果数与读取到的 open findings；alerts 的 most_recent_instance 仅表示当前观察，不能冒充本次扫描新发现，也不能证明完整历史或零告警。关联成功只补足 CQ-R05 的平台观察，不代签 manifest/宏/target 覆盖或持续启用验收。
+补采 API 共用 240 秒绝对预算，job 上限 7 分钟。精确 analysis 查询保持最多 10 页；findings 先读取 main 全仓 CodeQL open alerts，再按目标 SHA/ref/category 筛选，使用独立的最多 100 页预算，每页 100 条，收据记录该上限。读取遇到短页才算结束；100 个满页仍属不完整，丢弃部分 findings 并保留 unknown，不以 analysis 的结果数推算告警总量或提前终止。身份、API 或总预算失败同样保留 unknown，并尽可能上传失败报告。报告保留 analysis 的错误、警告、结果数与读取到的 open findings；alerts 的 most_recent_instance 仅表示当前观察，不能冒充本次扫描新发现，也不能证明完整历史或零告警。关联成功只补足 CQ-R05 的平台观察，不代签 manifest/宏/target 覆盖或持续启用验收。
 
 ## 10. 执行安全与供应链
 
@@ -857,7 +874,7 @@ planner 的固定 matrix/config 输出是 workflow/health 消费者的共同输�
 `OASIS7_CODEQL_MODE` 支持 `off`、`baseline`、`observe`。缺失按 off；非法值报配置错误。
 
 - off：不启动重型扫描；报告为 disabled，不冒充通过。
-- baseline：只允许可信 main 的定时/手动扫描，用于确认覆盖、版本、平台来源和输出。
+- baseline：只允许可信 main 的定时/手动扫描，既用于首次验收，也作为已验收批次的持续运行模式；Rust/default 按此完成日频目标。
 - observe：保留 baseline，并开启非 draft PR 按需扫描。
 
 这是扫描运行模式，不是 required policy。变量、候选 policy、label 或 PR body 都不能减弱现有 branch/ruleset 保护、适用验证或用户限制；Issue/Project 不构成通用准入。
@@ -880,24 +897,13 @@ gh variable list --repo "$REPO"
 
 ### 14.3 合入后激活
 
-PR-C 合入后读回默认分支上预期文件与模式。先启用 baseline，分别运行 default 与 extended，核查四语言、CodeQL 工具/查询包版本、manifest 覆盖、提取诊断和平台上传。
+合入后读回默认分支上的预期文件、全局模式和完整批次配置，按 §4.2.1 仅激活本次授权范围。首次目标批次设为 baseline，在可信默认分支核查其工具/查询包版本、实际执行、manifest 覆盖、提取诊断、官方上传及平台结果；default 与 extended 分别验收，不因一个批次通过而开启另一个。
 
-```bash
-# 仅在实施获得授权、PR-C 已合入且预检通过后执行。
-gh variable set OASIS7_CODEQL_MODE --repo "$REPO" --body baseline
-gh workflow run codeql.yml --repo "$REPO" --ref main -f profile=default
-gh workflow run codeql.yml --repo "$REPO" --ref main -f profile=extended
-```
+Rust default 验收后保持 `rust-repo/default=baseline`，按[日频目标](#rust-daily-baseline-goal)正式持续运行。已有非 Rust PR observe 运行时，保留全局 `OASIS7_CODEQL_MODE=observe` 和其他批次原值；不为 Rust 日频设置降低全局模式，也不把 Rust 升为 observe。
 
-通过已有候选或适当的隔离验证路径确认 check provenance、观察性失败解释及原生队列配置；不为每种故障都创建一个要合入的 PR。fixture、真实扫描与真实 gate 决策证据分开记录。
+只有本次范围明确包含 PR 扫描的批次，才在验证 PR 路由、权限、check provenance 和队列行为后改为 observe，并读回实际非 draft PR 结果。fixture、真实扫描与真实 gate 决策证据分开记录，不为每种故障都创建一个要合入的 PR。
 
-验证满足后切换 observe：
-
-```bash
-gh variable set OASIS7_CODEQL_MODE --repo "$REPO" --body observe
-```
-
-该操作须由明确的运营授权覆盖，实际设置、运行与读回结果记录在对应 PR 或已使用的 Task，并核实 required check/rulesets 没有被意外修改；不以历史 PR-C 合入自动授权激活。首次状态错误时留在 baseline，不宣布全面上线。
+实际设置、运行与读回结果记录在对应 PR 或已使用的 Task，并核实 required check/rulesets 没有被意外修改。操作遵循已有运营授权；实现合入或其他批次验收不自动扩大启用范围。
 
 ### 14.4 回退
 
@@ -915,9 +921,9 @@ gh variable set OASIS7_CODEQL_MODE --repo "$REPO" --body observe
 | CQ-T01 | 纯文档 PR | 零重型扫描，明确 not_applicable |
 | CQ-T02 | Python-only | 只选 Python，不装 Rust/Node 业务链 |
 | CQ-T03 | JS/HTML-only | 只选 JS；模板与内嵌脚本不漏 |
-| CQ-T04 | Rust-only | 只选 Rust，完整稳定上下文 |
+| CQ-T04 | Rust-only | 完整识别 Rust 候选；当前 baseline 配置下 PR 不启动 Rust 重型扫描，日频维护扫描保留完整稳定上下文 |
 | CQ-T05 | workflow/local action | Actions；共享输入按规则扩展 |
-| CQ-T06 | CodeQL policy/workflow/planner 变化 | 四语言保守选择与治理契约 |
+| CQ-T06 | CodeQL policy/workflow/planner 变化 | 四语言保守候选与治理契约；实际执行遵守各批配置 |
 | CQ-T07 | Cargo.lock、target/build/dev/path dependency、patch | Rust 受影响范围完整 |
 | CQ-T08 | 新增/删除独立 manifest | 不静默漏包；base/head 双侧处理 |
 | CQ-T09 | 文件跨目录改名、空格/换行/特殊字符路径 | 两端参与选择，不 shell 注入 |
@@ -980,7 +986,9 @@ gh variable set OASIS7_CODEQL_MODE --repo "$REPO" --body observe
 
 ## 17. 完成定义与实施禁区
 
-以下定义约束未来声明“完整接入”所需证据，不恢复已关闭协调任务或授权启用扫描。声明完整接入必须同时有：规范合入；四语言实现与静态/负例测试合入；实际默认与扩展基线；扫描来源可验证；观察态已启用并真实读回；两个槽位/取消行为验证；coverage gap 明示；原 required 保护不变；运营 owner 和回退路径明确。
+Rust 按[每日主干 default 目标](#rust-daily-baseline-goal)独立判定完成：本批真实执行与原查询结果、适用 Linux 覆盖、官方上传及唯一平台关联完成验收，日频 baseline 配置读回，运营 owner、失败/新鲜度观察及回退路径明确。日频模式是正式目标，Rust PR observe、Rust extended 和强制合入门禁不属于其剩余验收；未来自然调度和告警治理继续按实际运行记录。
+
+全八批的“完整接入”是更广范围的声明，不能用来重开已完成的 Rust 日频目标。该声明仍要求：规范及适用实现与测试合入；四语言实际默认与扩展基线；扫描来源可验证；各批次约定的运行模式已启用并读回；适用槽位/取消行为验证；coverage gap 明示；原 required 保护不变；运营 owner 和回退路径明确。拟启用 PR 的批次另需 PR observe 验收。
 
 **“完整接入”不等于“强制门禁上线”。** 后续启用漏洞阈值保护会引入等待/覆盖要求，必须重新评估按需跳过、所有 category 的基线、fork、平台规则与 gate 行为。不能简单把四个 matrix job 名称勾为 required。
 

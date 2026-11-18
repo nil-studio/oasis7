@@ -44,7 +44,7 @@ FAMILIES = {
     'ecs': {
         'current_pattern': re.compile(r'ecs-workspace-v2-' + SOURCE_SUFFIX + r'\Z', re.ASCII),
         'managed_pattern': re.compile(r'ecs-workspace-v[12]-' + SOURCE_SUFFIX + r'\Z', re.ASCII),
-        'max_upload_bytes': 1024 ** 3, 'staging_bytes': 6 * 1024 ** 3,
+        'max_upload_bytes': 3 * 1024 ** 3 // 2, 'staging_bytes': 6 * 1024 ** 3,
         'keep_generations': 2,
     },
 }
@@ -61,7 +61,7 @@ for _specification in FAMILIES.values():
 # Current ECS v2 can still have three old snapshots across compatibility groups.
 # The first adoption of a genuinely absent compatibility may bridge that state;
 # it never bypasses the per-upload or full repository budget and cannot delete.
-FAMILIES['ecs']['migration_bytes'] = 4 * 1024 ** 3
+FAMILIES['ecs']['migration_bytes'] = 4 * FAMILIES['ecs']['max_upload_bytes']
 
 
 def family_for_key(key):
