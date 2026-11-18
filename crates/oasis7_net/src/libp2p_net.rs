@@ -12,6 +12,7 @@ pub use authenticated_requests::{
 mod api;
 pub use api::Libp2pNetwork;
 mod config;
+mod connection_budget;
 mod connection_lifecycle;
 mod construction;
 mod constructor_support;

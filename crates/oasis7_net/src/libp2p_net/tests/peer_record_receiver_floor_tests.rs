@@ -130,6 +130,7 @@ fn durable_candidate_accepts_relay_hop_with_owner_destination() {
         Duration::from_secs(3),
         super::super::wire_bytes::init_shared_wire_byte_counters(),
         receiver.clone(),
+        None,
     );
     let mut cache = PeerRecordCache::with_dial_policy_and_receiver(
         DiscoveryClock::default(),
@@ -322,6 +323,7 @@ fn lower_v2_sequence_cannot_replace_a_higher_sequence_candidate() {
         Duration::from_secs(3),
         super::super::wire_bytes::init_shared_wire_byte_counters(),
         receiver.clone(),
+        None,
     );
     let mut cache = PeerRecordCache::with_dial_policy_and_receiver(
         DiscoveryClock::default(),
@@ -427,6 +429,7 @@ fn accepted_tombstone_revokes_candidate_but_rr_forwards_floor_until_higher_live(
         Duration::from_secs(3),
         super::super::wire_bytes::init_shared_wire_byte_counters(),
         receiver.clone(),
+        None,
     );
     let dial_policy = swarm.behaviour().discovery_dial_policy();
     let mut cache = PeerRecordCache::with_dial_policy_and_receiver(
@@ -780,6 +783,7 @@ fn same_sequence_conflict_revokes_queued_dial_and_keeps_inflight_connection_unve
         Duration::from_secs(3),
         super::super::wire_bytes::init_shared_wire_byte_counters(),
         receiver.clone(),
+        None,
     );
     let mut cache = PeerRecordCache::with_dial_policy_and_receiver(
         DiscoveryClock::default(),
@@ -879,6 +883,7 @@ fn same_sequence_conflict_revokes_queued_dial_and_keeps_inflight_connection_unve
         Duration::from_secs(3),
         super::super::wire_bytes::init_shared_wire_byte_counters(),
         cache.receiver(),
+        None,
     );
     let mut queued_dials = HashMap::new();
     let mut started_dials = HashMap::new();
