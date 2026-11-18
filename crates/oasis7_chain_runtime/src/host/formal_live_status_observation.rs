@@ -38,6 +38,17 @@ pub(super) struct StatusObservation {
     runtime_error_present: bool,
 }
 
+pub(super) fn read_pins(input: impl Read) -> Result<StatusPins, String> {
+    const MAX_PINS_BYTES: u64 = 16 * 1024;
+    let mut bytes = Vec::new();
+    input.take(MAX_PINS_BYTES + 1).read_to_end(&mut bytes)
+        .map_err(|_| "formal status observation input read failed")?;
+    if bytes.len() as u64 > MAX_PINS_BYTES {
+        return Err("formal status observation input exceeds bound".into());
+    }
+    serde_json::from_slice(&bytes).map_err(|_| "invalid formal status observation input".into())
+}
+
 pub(super) fn observe(pins: &StatusPins) -> Result<StatusObservation, String> {
     let url = reqwest::Url::parse(&pins.status_url).map_err(|_| "invalid formal status URL")?;
     if !matches!(url.scheme(), "https" | "http")
@@ -145,6 +156,15 @@ mod tests {
     use super::*;
     use oasis7::world_service::authority::sign_service_response;
     use ed25519_dalek::SigningKey;
+
+    #[test]
+    fn status_observer_stdin_pins_are_bounded() {
+        let bytes = br#"{"status_url":"http://127.0.0.1:8000/v1/chain/status","service_public_key":"key","expected_world":{"world_id":"world","genesis_digest":"genesis"},"expected_node_id":"node"}"#;
+        let pins = read_pins(bytes.as_slice()).unwrap();
+        assert_eq!(pins.expected_node_id, "node");
+        let oversized = std::io::repeat(b' ').take(16 * 1024 + 1);
+        assert!(read_pins(oversized).is_err());
+    }
 
     #[test]
     fn fixed_legacy_signature_and_other_challenge_do_not_verify() {
