@@ -100,7 +100,7 @@ m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
 i = m.Installer(float(sys.argv[3]), command=(sys.executable, sys.argv[2]), backoff=float(sys.argv[4]))
 if os.environ['MODE'] == 'backpressure':
     for _ in range(1000): i.log('x' * 8192)
-sys.exit(i.install(['pkg-config', 'libudev-dev']))
+sys.exit(i.install(['pkg-config', 'libudev-dev'], no_remove=os.environ['MODE'] == 'no_remove'))
 '''
 
 
@@ -333,6 +333,12 @@ class Lifecycle(unittest.TestCase):
                            'APT::Update::Error-Mode=any'):
                 self.assertIn(option, event['args'])
             self.assertEqual((event['lc'], event['frontend']), ('C', 'noninteractive'))
+
+    def test_browser_dependencies_refuse_removing_installed_packages(self):
+        output = self.run_mode('no_remove', expect=0)
+        self.assertIn('dependencies_ready=true', output)
+        self.assertEqual(self.events()[-1]['args'][-6:],
+                         ['install', '-y', '--no-remove', '--', 'pkg-config', 'libudev-dev'])
 
     def test_transient_update_recovers_with_bounded_retry(self):
         output = self.run_mode('transient', expect=0)

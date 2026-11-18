@@ -280,7 +280,7 @@ class Installer:
         valid = clean and reason == 'exit' and not overflow and time.monotonic() < self.end
         return status, text, valid
 
-    def install(self, packages):
+    def install(self, packages, *, no_remove=False):
         establish_owner()
         previous = {s: signal.signal(s, self.cancel) for s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)}
         try:
@@ -303,7 +303,8 @@ class Installer:
                     if self.cancelled or time.monotonic() >= self.work_end:
                         return 128 + self.cancelled if self.cancelled else 1
                     time.sleep(min(0.02, max(0, until - time.monotonic())))
-            status, _, valid = self.run('install', ['install', '-y', '--', *packages])
+            safety = ['--no-remove'] if no_remove else []
+            status, _, valid = self.run('install', ['install', '-y', *safety, '--', *packages])
             success = status == 0 and valid and not self.cancelled
             self.log(f'dependencies_ready={str(success).lower()} elapsed={time.monotonic() - self.started:.3f}s')
             return 0 if success else (128 + self.cancelled if self.cancelled else 1)
@@ -320,6 +321,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--budget-seconds', type=float, required=True)
     parser.add_argument('--prepare-sources-only', action='store_true')
+    parser.add_argument('--no-remove', action='store_true',
+                         help='reject dependency resolution that would remove installed packages')
     parser.add_argument('--hosted-dns-recovery', action='store_true',
                          help='opt in only for verified disposable GitHub-hosted Ubuntu runners')
     parser.add_argument('packages', nargs='*')
@@ -337,6 +340,8 @@ def main():
             result = installer.prepare_sources()
             installer.log.flush(min(installer.end, time.monotonic() + 0.1))
             return 0 if result else 1
+        if args.no_remove:
+            return installer.install(args.packages, no_remove=True)
         return installer.install(args.packages)
     except (OSError, RuntimeError) as error:
         installer.log(f'failure={type(error).__name__}: {error}')

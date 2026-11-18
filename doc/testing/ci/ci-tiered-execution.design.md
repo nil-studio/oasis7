@@ -811,7 +811,7 @@ Release 在可信 main manual dispatch 且计划 source 等于 event/workflow SH
 
 只接受完整原 runner 列表或本 helper 既有的 Canonical HTTPS 优先列表；未知或自定义内容原样保留。缺失文件保留原安装路径，symlink、非普通文件及写入错误失败。原子替换保留文件权限和所有者，当前目标列表重复准备不再写入。准备计入当前调用预算，未完成或预算耗尽不得开始 update；配置完成不代表依赖安装成功。镜像可用性及包的真实验签/安装必须由 hosted 运行确认，不能用外部目录浏览或诊断探测代替。
 
-native 安装在同一 helper 内复用上述准备；Viewer 安全浏览器和 Deck 安全浏览器在原固定版本 `--with-deps` 命令之前调用同一 helper 的 `--prepare-sources-only` 入口。该入口只准备来源，不调用 apt/dpkg，也不宣称浏览器或其依赖就绪；准备失败阻断后续命令。浏览器原有依赖安装与退出码仍完整保留，Viewer 安装 step 设 11 分钟上限，Deck 保留既有 10 分钟上限；实际网络恢复须由新的 hosted 运行确认，不把来源排序或本地 fixture 当作恢复证据。
+native 安装在同一 helper 内复用上述准备。浏览器系统依赖采用下述固定清单和下载归档，交由同一有界 helper 安装；不再让第三方浏览器安装器另起一轮不受该预算控制的 APT。`--prepare-sources-only` 仅保留来源准备职责，不代表依赖就绪。实际网络恢复须由 hosted 运行确认，不把来源排序或本地 fixture 当作恢复证据。
 
 helper 以具备清理权限的独立进程管理受控子进程，超时和取消先终止、必要时强制终止并等待回收。父进程先退出、忽略终止信号或脱离原进程组都不能被当作清理完成；不得删除锁文件、终止无关进程或恢复不明的 dpkg 状态。清理无法完成时明确失败，交由临时 runner 销毁，不报告安装成功。
 
@@ -1216,4 +1216,17 @@ Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；沿用快速准入、�
 
 Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7；沿用共享产物合同。本能力不登记新的 ignored 测试，也不改变可信 BASE 的选择权限。ordinary expanded／full producer 在实际 native 库存包含启用 `test_tier_full` 的 `oasis7_chain_runtime` 测试消费者时准备材料；不为仅含其他包的隔离编排夹具启动模块构建。准备仍使用官方 `scripts/build-wasm-module.sh --candidate-build`，按同 checkout 构建 `module.runtime.local-test-provider`；原 WASM、官方 metadata 与 native bundle 的 tested/source SHA、两个文件及官方 build receipt、同 candidate 只读 checker 的 hash 一并绑定。checker 复用既有 `sync_builtin_wasm_identity --verify-provider-artifact` 入口，使用官方 SourceRule2 完整闭包、builder recipe／execution 和 receipt 验证 API；不修改 producer recipe，不同步身份或生成发布材料。允许现 API 的 locked Cargo metadata 解析，不启动编译或模块执行。pack／load 验证完整材料、当前 source-input v2 和身份后，才向实际测试进程显式注入 `OASIS7_PREVIEW_TEST_PROVIDER_WASM` 与 `OASIS7_PREVIEW_TEST_PROVIDER_METADATA`。缺失、损坏、跨 source 或路径越界均失败，不回退 placeholder、其他 checkout 或本机缓存材料。`ci-tests.sh full-extended` 使用同一官方准备及验证入口；不新增 secret 或外部写权限。纯 Python 合同不代签真实 WASM 构建或 consumer 执行；后续实际 full-tier consumer 必须在材料缺失时失败而非 skip。
 
-Viewer performance 固定浏览器安装仍保留 `agent-browser@0.37.1 install --with-deps` 的完整依赖。该第三方入口自行执行 APT update，不能继承 helper 的命令预算；在临时 runner 中为 APT HTTP/HTTPS 传输设置 15 秒超时、禁止内层重试，并用 15 分钟步骤期限约束整个安装。来源、签名和摘要校验保持原约定，安装失败不得开始测试。
+<a id="ci-browser-deps-cache-design"></a>
+## 浏览器版本与下载缓存
+
+Trace refs: O7-REQ-d6c7a0eb-77f3-48b8-943e-9312fd0218ea；落实[浏览器依赖准备要求](ci-tiered-execution.prd.md#ci-install-cache-evidence)。
+
+Viewer JS、安全 smoke 和性能采集共用 agent-browser 0.37.1 与 Chrome for Testing 158.0.8127.36 Linux x64；后者固定到已验证的官方归档 URL、字节长度及 SHA-256，安装时不查询浮动 Stable。解包到本轮私有目录，验证实际版本后通过 `AGENT_BROWSER_EXECUTABLE_PATH` 绑定消费路径，避免系统 Chrome 或旧目录改变受测对象。npm 工具使用独立 lockfile 与 Node 24，满足 CLI 的运行要求。Deck 保持 Playwright 1.62.1 的 Chromium headless-shell，仍由其固定 revision 安装器准备 headless-shell 及配套 ffmpeg，不替换为 Viewer 的完整 Chrome。
+
+Ubuntu 24.04 x64 的系统清单逐项对应固定 agent-browser 的全部依赖及 Playwright 的 tools/chromium 依赖。两个 Viewer 保留 emoji、CJK 和 Freefont；Deck 保留原字体及 Xvfb 等依赖。容易重复下载的大字体包固定为 Noble 的 `fonts-noto-cjk=1:20230817+repack1-3` 与 `fonts-freefont-ttf=20211204+svn4273-2`，以 Ubuntu 官方包元数据的长度和 SHA-256 验证 `.deb`。通过本地包路径进入 APT，保留依赖解析、正常配置与 fontconfig 触发器，拒绝移除已有软件包；系统共享库继续由正常 Ubuntu 源维护。平台不符、包状态异常或固定字体版本冲突均明确失败。
+
+包状态检查覆盖完整适用清单；只有所有包已配置且固定字体版本一致，才不启动 APT。其余情况调用已有 `ci-apt-install.py`，update、安装、有限重试与 root 后代清理共用该 helper 的预算。缺失库仍须安装，缓存命中不代表依赖完整。安装完成后再次核对包状态，浏览器版本及真实启动探针成功后才输出供原测试使用的环境变量；任何必要步骤失败沿原 required 汇总传播。
+
+缓存只保存下载归档，字体与 Chrome 分别使用精确 key，包含 Linux/X64、Ubuntu 版本、固定定义及 schema 身份；没有宽泛 restore 前缀，不缓存展开的系统/浏览器目录。每次恢复均校验精确文件集合、普通文件、长度及 SHA-256，拒绝 symlink、hardlink、部分文件和损坏缓存。冷下载只使用固定 HTTPS 来源，在有界下载成功且摘要相符后原子提交文件；解包限制路径、文件类型、数量及展开长度。Chrome 的摘要来自固定官方 HTTPS 归档的审读，不宣称是上游发布签名。
+
+普通三个浏览器消费者保持只读缓存。`rust-cache.yml / browser-archive-cache` 是独立的 main schedule/manual-full writer，只准备和验证下载物，不代替产品测试。保存绑定 event/workflow/实际 checkout/REST run 身份，复用小工具缓存的实际归档测量、完整 all-ref 容量检查、20 GB 仓库预算和 2.5 GiB 依赖轮换保留；身份或容量未知只跳过可选保存。归档单份有界，版本升级才改变 key，不按 PR、source 或 run 保存相同下载物。候选首次安装、合入后 seed 和真实 reader 命中分别记录；缓存不承诺消除必要 APT 索引访问，也不承诺固定加速比例。

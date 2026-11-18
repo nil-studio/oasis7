@@ -40,6 +40,69 @@ env:
   OASIS7_WASM_BUILD_STD_COMPONENTS: std,panic_abort
 
 jobs:
+  browser-archive-cache:
+    cache-mode: write
+    permissions:
+      contents: read
+      actions: read
+    if: >-
+      github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
+      (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        component: [fonts-noto-cjk, fonts-freefont-ttf, chrome]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify current main cache source
+        shell: bash
+        run: |
+          test "$GITHUB_REF" = refs/heads/main
+          test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - name: Identify exact browser archive
+        id: browser-meta
+        env:
+          BROWSER_COMPONENT: ${{ matrix.component }}
+        run: python3 scripts/ci-browser-deps.py metadata --component "$BROWSER_COMPONENT" --github-output "$GITHUB_OUTPUT"
+      - name: Restore exact browser archive
+        id: browser-archive
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.browser-meta.outputs.root }}
+          key: ${{ steps.browser-meta.outputs.key }}
+      - name: Fetch or verify pinned browser archive
+        id: prepare-browser
+        env:
+          BROWSER_COMPONENT: ${{ matrix.component }}
+        run: python3 scripts/ci-browser-deps.py fetch --component "$BROWSER_COMPONENT"
+      - name: Admit bounded browser archive cache
+        id: browser-admission
+        if: steps.browser-archive.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BROWSER_COMPONENT: ${{ matrix.component }}
+          BROWSER_CACHE_KEY: ${{ steps.browser-meta.outputs.key }}
+        run: python3 scripts/ci-browser-deps.py admit-save --component "$BROWSER_COMPONENT" --key "$BROWSER_CACHE_KEY" --github-output "$GITHUB_OUTPUT"
+      - name: Save verified browser archive
+        if: >-
+          success() && steps.prepare-browser.outcome == 'success' &&
+          steps.browser-archive.outputs.cache-hit != 'true' &&
+          steps.browser-admission.outcome == 'success' && steps.browser-admission.outputs.save == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.browser-meta.outputs.root }}
+          key: ${{ steps.browser-meta.outputs.key }}
+
   worker-build-cache:
     cache-mode: write
     permissions:
