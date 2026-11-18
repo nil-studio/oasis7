@@ -822,10 +822,21 @@ fn runtime_network_replication_gap_sync_blocks_without_generic_fallback_after_pr
 
     let mut runtime_a = with_noop_execution_hook(NodeRuntime::new(config_a));
     runtime_a.start().expect("start a");
-    let reached = wait_until(Instant::now() + Duration::from_secs(2), || {
-        runtime_a.snapshot().consensus.committed_height >= 3
+    let start = Instant::now();
+    let mut rounds = 0usize;
+    let mut last_snapshot = runtime_a.snapshot();
+    let reached = wait_until(start + Duration::from_secs(2), || {
+        rounds += 1;
+        last_snapshot = runtime_a.snapshot();
+        last_snapshot.consensus.committed_height >= 3
     });
-    assert!(reached, "sequencer did not reach target height in time");
+    assert!(
+        reached,
+        "sequencer did not reach target height in time: elapsed={:?}, rounds={}, snapshot={:?}",
+        start.elapsed(),
+        rounds,
+        last_snapshot
+    );
     let target_height = runtime_a.snapshot().consensus.committed_height;
     runtime_a.stop().expect("stop a");
 

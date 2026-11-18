@@ -44,6 +44,11 @@ docker build \
 `TMPDIR`，使 rustc 临时文件也使用任务工作区。该目录与 Cargo home 独立，退出时一并清理，不挂载整个容器 `/tmp`。
 输出目录不能通过符号链接指向其他工作区。锁文件、实际 image ID、producer recipe 与 build receipt 校验保持生效。
 
+## Linux 原生链接器
+
+镜像复用 `.github/actions/setup-linux-mold/setup.py` 安装并校验固定的 mold 3.0.0。镜像内的 `wasm_build_suite`、build script 和过程宏通过固定的 GNU host linker wrapper 链接；WASM 目标继续使用自己的链接器。镜像构建会检查 producer 的真实 ELF 使用 mold。
+
+installer、Dockerfile 和 Docker context 属于 producer recipe。修改这些输入后，候选镜像使用新的 recipe hash，旧候选基线必须按[测试手册](../../testing-manual.md)用全部 37 个模块的真实新产物重新准备和检查；不能只改 hash 或重新标注历史 receipt。具体身份与环境约束见 [WASM 构建合同](../../doc/world-runtime/wasm/wasm-deterministic-build-pipeline.design.md#build-wrapper-contract)。
 
 ## 批量候选构建
 

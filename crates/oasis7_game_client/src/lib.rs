@@ -9,6 +9,8 @@ use oasis7_client_api::world_service::{self as authority, *};
 use serde::{Serialize, de::DeserializeOwned};
 use std::{io::Read, time::Duration};
 mod cooldown;
+mod formal_http;
+pub use formal_http::formal_read_http_client;
 #[cfg(unix)]
 pub mod executor_gateway;
 #[cfg(unix)]

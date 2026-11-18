@@ -39,7 +39,7 @@
     "@solidjs/testing-library": "^0.8.10",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/user-event": "^14.6.10",
-    "jsdom": "^31.0.0",
+    "jsdom": "^31.0.1",
     "vite": "^8.3.8",
     "vite-plugin-solid": "^2.11.16",
     "vitest": "^5.1.0",

@@ -1,9 +1,11 @@
+import {projectNativeResponses} from './native_response_diagnostics.mjs';
 // Failure-only observations of the local fixture, never an authorization check.
 import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
 
 const stages=['draft','approved','role_keys_ready','native_registered','native_session_ready','participant_bound','ready_for_setup','prepared','explicit_login_required','frozen'];
 const resultKinds=['registration_challenge','binding_receipt','session_status','explicit_login_required'];
-const paths=['/custody/management-session-status','/custody/approvals/verify','/machine-registration/options','/machine-registration/complete',
+const paths=['/capabilities','/custody/management-session-status','/custody/approvals/verify','/machine-registration/options','/machine-registration/complete',
   '/custody/managed-bindings/options','/custody/managed-bindings/complete','/custody/managed-bindings/lookup',
   '/native-key/options','/native-key/complete','/custody/managed-bindings/session-status'];
 const timingKinds=['restart','provision_continue','managed_approve','managed_continue'];
@@ -113,13 +115,17 @@ export async function assertNativeStage(runtime,progress,expected,{managedOperat
   const report={schema:'oasis7.custody-native-stage-diagnostic/v1',failure_observed_at:String(Date.now()),
     expected_stage:choice(expected,stages),stage:choice(progress?.stage,stages),
     pending_count:Array.isArray(progress?.pending_operations)?progress.pending_operations.length:null,
-    transport_remaining:decimal(progress?.transport_remaining),timings:null,requests:null,snapshot_status:'unavailable',state:null};
+    transport_remaining:decimal(progress?.transport_remaining),timings:null,requests:null,responses:null,snapshot_status:'unavailable',state:null,identity:null};
+  try{report.responses=projectNativeResponses(runtime.nativeResponses());}catch{/* Never replace the original failure. */}
   try{report.timings=timings(runtime.nativeTimings());}catch{/* Keep unknown; never print exception details. */}
   try{const requests=runtime.nativeRequests();report.requests=Object.fromEntries(paths.map(path=>[path,
     object(requests)?Object.hasOwn(requests,path)?count(requests[path]):0:null]));}catch{/* A missing counter is not zero. */}
   try{
     // Freeze before the read. This timestamp is not the time of an authorization check.
     await runtime.suspend();
+    if(managedOperationId!==undefined) {
+      try {report.identity=projectIdentityDiagnostic(await runtime.readIdentityNativeDiagnostic(managedOperationId));} catch {report.identity={status:'unavailable'};}
+    }
     const state=await runtime.readNativeDiagnosticState();
     if(!object(state))throw new Error('diagnostic state unavailable');
     report.state=projectNativeState(state,{managedOperationId});
@@ -127,4 +133,57 @@ export async function assertNativeStage(runtime,progress,expected,{managedOperat
   }catch{/* Diagnostic failure must preserve the original strict assertion. */}
   try{emit(JSON.stringify(report));}catch{/* The original failure still propagates. */}
   throw failure;
+}
+
+// Failure-only, after workerd suspension. Inspect persisted metadata, never secret records.
+// This projection does not authenticate history or identify a rejected runtime check.
+export function readIdentityNativeDiagnostic(persist,account,provision,permit) {
+  if(typeof permit!=='string'||!permit||permit.length>256)return {status:'unavailable'};
+  try {
+    return JSON.parse(execFileSync('python3',['-c',`
+import json,sqlite3,sys
+from pathlib import Path
+out={'status':'unavailable'}
+try:
+ root=Path(sys.argv[1]).resolve(strict=True)
+ found=[]
+ for index,p in enumerate(root.rglob('*.sqlite')):
+  if index>=256: raise ValueError()
+  if p.is_symlink() or not p.resolve().is_relative_to(root): raise ValueError()
+  with sqlite3.connect(p.resolve().as_uri()+'?mode=ro',uri=True,timeout=0) as db:
+   db.execute('PRAGMA query_only=ON')
+   if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='custody_records'").fetchone(): continue
+   row=db.execute("SELECT length(CAST(payload AS BLOB)), substr(CAST(payload AS BLOB),1,32769) FROM custody_records WHERE id=?",('custody-native-manifest-v1',)).fetchone()
+   if row is None: continue
+   if row[0]>32768: raise ValueError()
+   m=json.loads(row[1])
+   scope=m['scope'];role=scope['role_scope'];identity=role['context']['identity']
+   if identity['account_id']!=sys.argv[2] or identity['environment']!='test' or role['provision_id']!=sys.argv[3]: continue
+   if m['schema_version']!=1 or len(m['phases'])>16 or len(m['records'])>64: raise ValueError()
+   for phase in m['phases']:
+    if phase['phase']!='managed_login' or phase['permit_id']!=sys.argv[4]: continue
+    records=[v for v in m['records'] if v['operation_id']==phase['operation_id']]
+    state=phase.get('state');kind=(phase.get('result') or {}).get('kind')
+    found.append({'state':state if state in ['prepared','dispatched','unknown','complete','explicit_login_required'] else 'unknown',
+     'result_present':phase.get('result') is not None,
+     'result_kind':kind if kind in ['session_status','explicit_login_required'] else 'unknown',
+     'private_sid_generation_present':phase.get('result_private_sid_generation') is not None,
+     'stored_slots':{k:sum(1 for v in records if v.get('kind')==k and v.get('stored') is True) for k in ['login_dispatch','session_cookie','session_csrf']}})
+ if len(found)>1: raise ValueError()
+ out={'status':'available' if found else 'absent','phase':found[0] if found else None}
+except Exception: pass
+print(json.dumps(out,separators=(',',':')))
+`,persist,account,provision,permit],{encoding:'utf8',timeout:5000,maxBuffer:8192,stdio:['ignore','pipe','ignore']}));
+  } catch {return {status:'unavailable'};}
+}
+
+function projectIdentityDiagnostic(value) {
+  const status=choice(value?.status,['available','absent','unavailable']);
+  if(status!=='available')return {status:status==='absent'?'absent':'unavailable'};
+  const phase=value?.phase;
+  const flag=v=>typeof v==='boolean'?v:null;
+  return {status,phase:{state:choice(phase?.state,['prepared','dispatched','unknown','complete','explicit_login_required']),
+    result_present:flag(phase?.result_present),result_kind:choice(phase?.result_kind,['session_status','explicit_login_required']),
+    private_sid_generation_present:flag(phase?.private_sid_generation_present),
+    stored_slots:Object.fromEntries(['login_dispatch','session_cookie','session_csrf'].map(k=>[k,count(phase?.stored_slots?.[k])]))}};
 }
