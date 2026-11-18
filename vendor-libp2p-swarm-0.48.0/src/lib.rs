@@ -66,8 +66,8 @@ pub mod dial_opts;
 pub mod dummy;
 pub mod handler;
 mod listen_opts;
-mod outbound_attempt;
 mod translation;
+mod transport_attempt;
 
 /// Bundles all symbols required for the [`libp2p_swarm_derive::NetworkBehaviour`] macro.
 #[doc(hidden)]
@@ -114,8 +114,10 @@ use connection::{
     pool::{EstablishedConnection, Pool, PoolConfig, PoolEvent, concurrent_dial::PendingDial},
 };
 use dial_opts::{DialOpts, PeerCondition};
-pub use outbound_attempt::OutboundAttemptPermit;
-use outbound_attempt::{OutboundAttemptAdmission, hold_attempt_permit};
+pub use transport_attempt::{OutboundAttemptPermit, TransportAttemptPermit};
+use transport_attempt::{
+    InboundAttemptAdmission, OutboundAttemptAdmission, hold_attempt_permit, hold_listener_permit,
+};
 pub use executor::Executor;
 use futures::{prelude::*, stream::FusedStream};
 pub use handler::{
@@ -315,6 +317,7 @@ where
 {
     /// [`Transport`] for dialing remote peers and listening for incoming connection.
     transport: transport::Boxed<(PeerId, StreamMuxerBox)>,
+    inbound_attempt_admission: Option<InboundAttemptAdmission>,
     outbound_attempt_admission: Option<OutboundAttemptAdmission>,
 
     /// The nodes currently active.
@@ -362,6 +365,7 @@ where
         Swarm {
             local_peer_id,
             transport,
+            inbound_attempt_admission: config.inbound_attempt_admission,
             outbound_attempt_admission: config.outbound_attempt_admission,
             pool: Pool::new(local_peer_id, config.pool_config),
             behaviour,
@@ -990,12 +994,18 @@ where
             } => {
                 let connection_id = ConnectionId::next();
 
-                match self.behaviour.handle_pending_inbound_connection(
-                    connection_id,
-                    &local_addr,
-                    &send_back_addr,
-                ) {
-                    Ok(()) => {}
+                let permit = self
+                    .behaviour
+                    .handle_pending_inbound_connection(connection_id, &local_addr, &send_back_addr)
+                    .and_then(|()| {
+                        self.inbound_attempt_admission
+                            .as_mut()
+                            .map(|admit| admit(connection_id, &local_addr, &send_back_addr))
+                            .transpose()
+                    });
+                let upgrade = match permit {
+                    Ok(Some(permit)) => hold_listener_permit(upgrade, permit),
+                    Ok(None) => upgrade,
                     Err(cause) => {
                         let listen_error = ListenError::Denied { cause };
 
@@ -1018,7 +1028,7 @@ where
                             });
                         return;
                     }
-                }
+                };
 
                 self.pool.add_incoming(
                     upgrade,
@@ -1414,6 +1424,7 @@ where
 
 pub struct Config {
     pool_config: PoolConfig,
+    inbound_attempt_admission: Option<InboundAttemptAdmission>,
     outbound_attempt_admission: Option<OutboundAttemptAdmission>,
 }
 
@@ -1423,6 +1434,7 @@ impl Config {
     pub fn with_executor(executor: impl Executor + Send + 'static) -> Self {
         Self {
             pool_config: PoolConfig::new(Some(Box::new(executor))),
+            inbound_attempt_admission: None,
             outbound_attempt_admission: None,
         }
     }
@@ -1432,8 +1444,29 @@ impl Config {
     pub fn without_executor() -> Self {
         Self {
             pool_config: PoolConfig::new(None),
+            inbound_attempt_admission: None,
             outbound_attempt_admission: None,
         }
+    }
+
+    /// Check an inbound listener upgrade before forwarding it to the pool.
+    ///
+    /// The callback runs after behaviour-level admission and before polling the
+    /// upgrade. It protects handshake start only for transports that defer it
+    /// until the first upgrade poll. A successful upgrade retains the permit in
+    /// the connection muxer until termination.
+    pub fn with_inbound_transport_admission(
+        mut self,
+        admit: impl FnMut(
+            ConnectionId,
+            &Multiaddr,
+            &Multiaddr,
+        ) -> Result<TransportAttemptPermit, ConnectionDenied>
+        + Send
+        + 'static,
+    ) -> Self {
+        self.inbound_attempt_admission = Some(Box::new(admit));
+        self
     }
 
     /// Check each outbound address before calling the transport's dial method.

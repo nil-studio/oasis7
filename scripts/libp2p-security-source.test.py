@@ -113,12 +113,12 @@ class NetworkSourceContract(unittest.TestCase):
         self.assertEqual(manifest["patch"][URL]["libp2p-swarm"]["path"],
                          "../vendor-libp2p-swarm-0.48.0")
 
-    def test_swarm_snapshot_matches_outbound_admission_patch(self):
+    def test_swarm_snapshot_matches_transport_admission_patch(self):
         vendor = ROOT / "vendor-libp2p-swarm-0.48.0"
         hashes = json.loads((vendor / "upstream-source-sha256.json").read_text())
         hashes.update({
-            "src/lib.rs": "8b97b6dcb017fe6e4d9a6099fe9d9951a6e68e3c9f14b1e1e1da290195b6b844",
-            "src/outbound_attempt.rs": "67e79218b1285d86571d5197f98733e006f6bf258d4e0e5d1da2975fbe72936a",
+            "src/lib.rs": "3b73c50b07332ab2939c2f50f689c47f0c2ea3c6d657333d007901046ff8d7a5",
+            "src/transport_attempt.rs": "e3d0025f5afc30bc98232bfd1df58b66d51458f606a311ecec7742929e0d7f1c",
         })
         actual = {str(p.relative_to(vendor)): hashlib.sha256(p.read_bytes()).hexdigest()
                   for p in (vendor / "src").rglob("*.rs")}
