@@ -32,21 +32,6 @@ tokio = ["dep:tokio", "if-watch/tokio", "quinn/runtime-tokio"]
 [package.metadata.docs.rs]
 all-features = true
 
-[dev-dependencies]
-libp2p-identity = { version = "0.3.0", features = ["rand"] }
-libp2p-muxer-test-harness = { git = "https://github.com/libp2p/rust-libp2p", rev = "2d8497b2615086bd88018ef3a1fb32bc613a07ca" }
-libp2p-noise = { git = "https://github.com/libp2p/rust-libp2p", rev = "2d8497b2615086bd88018ef3a1fb32bc613a07ca" }
-libp2p-tcp = { git = "https://github.com/libp2p/rust-libp2p", rev = "2d8497b2615086bd88018ef3a1fb32bc613a07ca", features = ["tokio"] }
-libp2p-yamux = { git = "https://github.com/libp2p/rust-libp2p", rev = "2d8497b2615086bd88018ef3a1fb32bc613a07ca" }
-quickcheck = "1"
-tokio = { version = "1.53", default-features = false, features = ["macros", "rt-multi-thread", "time"] }
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-[[test]]
-name = "stream_compliance"
-required-features = ["tokio"]
-
-
 [workspace]
 
 [package.metadata.oasis7-compat]
