@@ -39,6 +39,20 @@ pub(crate) fn init_shared_wire_byte_counters() -> SharedLibp2pWireByteCounters {
     Arc::new(Libp2pWireByteCounters::default())
 }
 
+impl Libp2pWireByteCounters {
+    #[cfg(test)]
+    pub(super) fn with_window(window: Arc<WireByteWindow>) -> SharedLibp2pWireByteCounters {
+        Arc::new(Self {
+            window: Some(window),
+            ..Self::default()
+        })
+    }
+
+    pub(super) fn window(&self) -> Option<Arc<WireByteWindow>> {
+        self.window.clone()
+    }
+}
+
 pub(crate) fn snapshot_wire_byte_counters(
     counters: &SharedLibp2pWireByteCounters,
 ) -> Libp2pWireByteSnapshot {
