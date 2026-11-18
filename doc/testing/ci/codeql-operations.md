@@ -81,7 +81,7 @@ python3 scripts/security/codeql-health.py --fixture "$FIXTURE_PATH" \
 
 采证 job 最多 7 分钟，其中 API 共用 240 秒。读取复用 `codeql_upload_association.py` 与 `codeql-health.py`，从可信 artifact 的官方 SARIF ID 精确查询 analyses，保留平台 `error` / `warning` / `results_count` 与 open alerts 观察；失败也尝试上传独立 `oasis7-codeql-platform-observation-<collector_run>-<collector_attempt>` artifact 中的 `platform-observation.json`。退出零仅表示目标上传有唯一、无错误的平台关联且所请求读取完成，仍须查看 warnings、findings 范围与覆盖证据。
 
-报告的 `analysis_results_count` 属于已关联 analysis；`observed_open_findings` 是读取时 most_recent_instance 恰好匹配目标 SHA/ref/category 的现存 open alerts，不能称为该 attempt 的新增告警。最多读取 10 页、每页 100 条；超限或 API 失败丢弃不完整 findings 并报告 unknown。即使未观察到匹配告警，也不声明零告警，因为此入口不枚举完整 alert instances。完整启用验收仍需单独审查生产覆盖与后续持续运行。
+报告的 `analysis_results_count` 属于已关联 analysis；`observed_open_findings` 是读取时 most_recent_instance 恰好匹配目标 SHA/ref/category 的现存 open alerts，不能称为该 attempt 的新增告警。精确 analyses 和共享 upload association 的原分页预算保持 10 页；findings 需先读全 main 的 CodeQL open alerts，独立最多读取 100 页、每页 100 条，实际预算见 `findings.page_limit`。只有读到短页才算完整；100 页全部满页、API 失败或 240 秒总预算耗尽都保留 unknown，不把部分 findings 当作完整列表，也不以 analysis 结果数停止翻页。分页容量不足时修复 collector 后可继续核对同一已成功的 producer，无需重跑提取、查询或上传。即使未观察到匹配告警，也不声明零告警，因为此入口不枚举完整 alert instances。完整启用验收仍需单独审查生产覆盖与后续持续运行。
 
 ## 状态解释与排障
 
