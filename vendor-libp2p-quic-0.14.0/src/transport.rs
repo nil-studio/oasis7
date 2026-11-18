@@ -728,4 +728,3 @@ fn socketaddr_to_multiaddr(socket_addr: &SocketAddr, version: ProtocolVersion) -
         .with(Protocol::Udp(socket_addr.port()))
         .with(quic_proto)
 }
-
