@@ -10,6 +10,7 @@ import tempfile
 import time
 import unittest
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlsplit
 
 
 def load(name, filename):
@@ -35,6 +36,7 @@ class Platform(fixtures.Platform):
         self.alerts = []
         self.alert_failure = False
         self.alert_pages_full = False
+        self.alert_failure_page = None
         self.rerun_after_analyses = False
         self.analyses_read = False
 
@@ -45,13 +47,14 @@ class Platform(fixtures.Platform):
         if route in (prefix + "/code-scanning/analyses", prefix + "/code-scanning/alerts"):
             self.calls.append(command)
             self.assert_read_only(command)
+            page = int(parse_qs(urlsplit(endpoint).query)["page"][0])
             if route.endswith("/analyses"):
                 self.analyses_read = True
                 value = self.analyses
-            elif self.alert_failure:
+            elif self.alert_failure or page == self.alert_failure_page:
                 return subprocess.CompletedProcess(command, 1, "", "secret-token-must-not-leak")
             else:
-                value = self.alerts * 100 if self.alert_pages_full else self.alerts
+                value = self.alerts * 100 if self.alert_pages_full else self.alerts[(page - 1) * 100:page * 100]
             return subprocess.CompletedProcess(command, 0, json.dumps(value), "")
         if (self.rerun_after_analyses and self.analyses_read
                 and route == prefix + "/actions/runs/20"):
@@ -199,6 +202,56 @@ class ObservationTests(unittest.TestCase):
         self.assertFalse(result["findings"]["alert_instances_complete"])
         self.assertEqual(result["analysis_results_count"], 2)
 
+    def test_findings_after_ten_full_pages_are_read_through_the_final_short_page(self):
+        for count in (1001, 1100):
+            with self.subTest(count=count):
+                platform = Platform()
+                platform.alerts = [dict(self.alert("b" * 40 if number <= 1000 else SHA), number=number)
+                                   for number in range(1, count + 1)]
+                result = self.observe(platform)
+                self.assertEqual(result["status"], "observed")
+                self.assertEqual(result["findings"]["read_status"], "completed")
+                self.assertEqual(result["findings"]["alerts_read"], count)
+                self.assertEqual([alert["number"] for alert in result["findings"]["observed_open_findings"]],
+                                 list(range(1001, count + 1)))
+                self.assertEqual(result["target_health"]["open_findings"], count - 1000)
+                self.assertEqual(result["analysis_results_count"], 2)
+                self.assertFalse(result["findings"]["alert_instances_complete"])
+                endpoints = [command[2] for command in platform.calls if "/code-scanning/alerts?" in command[2]]
+                self.assertEqual(len(endpoints), count // 100 + 1)
+                self.assertTrue(all("per_page=100" in endpoint for endpoint in endpoints))
+
+    def test_late_findings_api_error_or_duplicate_discards_the_entire_prefix(self):
+        for failure in ("api", "duplicate"):
+            with self.subTest(failure=failure):
+                platform = Platform()
+                platform.alerts = [dict(self.alert(), number=number) for number in range(1, 1002)]
+                if failure == "api":
+                    platform.alert_failure_page = 11
+                else:
+                    platform.alerts[-1]["number"] = 1
+                result = self.observe(platform)
+                self.assertEqual(result["status"], "unknown")
+                self.assertEqual(result["target_health"]["upload_status"], "accepted")
+                self.assertEqual(result["findings"]["read_status"], "unknown")
+                self.assertIsNone(result["findings"]["alerts_read"])
+                self.assertIsNone(result["findings"]["observed_open_findings"])
+                self.assertIsNone(result["target_health"]["open_findings"])
+                self.assertNotIn("secret-token-must-not-leak", json.dumps(result))
+                expected = "API read failed" if failure == "api" else "duplicate across pages"
+                self.assertTrue(any(expected in error for error in result["errors"]))
+
+    def test_analysis_pagination_retains_its_ten_page_budget(self):
+        platform = Platform()
+        platform.analyses = [copy.deepcopy(platform.analysis) for _ in range(100)]
+        result = self.observe(platform)
+        self.assertEqual(result["status"], "unknown")
+        self.assertIsNone(result["analyses"])
+        self.assertTrue(any("analysis read" in error and "page budget exceeded" in error
+                            for error in result["errors"]))
+        endpoints = [command[2] for command in platform.calls if "/code-scanning/analyses?" in command[2]]
+        self.assertEqual(len(endpoints), 10)
+
     def test_old_alerts_do_not_become_target_findings_or_zero_findings(self):
         platform = Platform()
         platform.alerts = [self.alert("b" * 40)]
@@ -247,9 +300,15 @@ class ObservationTests(unittest.TestCase):
                 self.assertEqual(result["status"], "unknown")
                 self.assertEqual(result["target_health"]["upload_status"], "accepted")
                 self.assertEqual(result["findings"]["status"], "unknown")
+                self.assertEqual(result["findings"]["page_limit"], 100)
+                self.assertIsNone(result["findings"]["alerts_read"])
                 self.assertIsNone(result["findings"]["observed_open_findings"])
                 self.assertNotIn("secret-token-must-not-leak", json.dumps(result))
                 self.assertTrue(result["errors"])
+                if field == "alert_pages_full":
+                    endpoints = [command[2] for command in platform.calls if "/code-scanning/alerts?" in command[2]]
+                    self.assertEqual(len(endpoints), 100)
+                    self.assertIn("page=100", endpoints[-1])
 
     def test_actual_read_budget_terminates_owned_child_and_returns_partial_unknown(self):
         def stalled(data):

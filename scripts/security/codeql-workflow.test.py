@@ -261,7 +261,9 @@ class WorkflowTests(unittest.TestCase):
         step = WORKFLOW.split('      - id: rust_native\n', 1)[1].split('      - id:', 1)[0]
         self.assertIn("if: matrix.language == 'rust'", step)
         self.assertIn('timeout-minutes: 5', step)
-        self.assertNotIn('needs.plan.outputs.profile', step)
+        self.assertIn("CODEQL_NATIVE_SOURCE_PROFILE: ${{ needs.plan.outputs.profile == 'default' && github.event_name != 'pull_request' && 'ubuntu-archive-https' || 'runner-sources' }}", step)
+        self.assertNotIn('Debug::pkgAcquire::Worker', step)
+        self.assertNotIn('NativeObservation', step)
         artifact = WORKFLOW.split('      - name: Persist Rust native preparation evidence\n', 1)[1].split('\n  summary:', 1)[0]
         self.assertIn("if: always() && matrix.language == 'rust' && steps.rust_native.outcome != 'skipped'", artifact)
         self.assertIn('path: ${{ runner.temp }}/codeql-rust-native', artifact)
@@ -272,37 +274,53 @@ class WorkflowTests(unittest.TestCase):
         section = WORKFLOW.split('name: Prepare Rust native extraction prerequisites', 1)[1]
         body = section.split("python3 -I - <<'PY'\n", 1)[1].split('          PY', 1)[0]
         body = '\n'.join(line[10:] for line in body.splitlines())
-        for fail in (False, True):
-            with self.subTest(fail=fail), tempfile.TemporaryDirectory() as directory:
+        class PhaseError(RuntimeError):
+            def __init__(self):
+                super().__init__('private-apt-error-canary')
+                self.result = {'exit':124, 'failure_kind':'child_exit'}
+                self.native_source_evidence_error = {'stage':'final-source-receipt', 'type':'OSError'}
+        for profile, failure in ((profile, failure) for profile in ('runner-sources', 'ubuntu-archive-https')
+                                 for failure in (None, RuntimeError, PhaseError)):
+            with self.subTest(profile=profile, failure=failure), tempfile.TemporaryDirectory() as directory:
                 folder = Path(directory)
                 calls = []
-                def prepare(source, out, end, env):
-                    calls.append((source, out, end, env))
-                    if fail:
-                        raise RuntimeError('missing native module')
-                native = SimpleNamespace(runtime=SimpleNamespace(), prepare_native=prepare)
+                error = None if failure is None else (PhaseError() if failure is PhaseError else RuntimeError('private-source-error-canary'))
+                def prepare(source, out, end, env, **kwargs):
+                    calls.append((source, out, end, env, kwargs))
+                    if error is not None: raise error
+                native = SimpleNamespace(runtime=SimpleNamespace(PhaseError=PhaseError), prepare_native=prepare)
                 spec = SimpleNamespace(loader=SimpleNamespace(exec_module=lambda module: None))
                 env = dict(GITHUB_WORKSPACE=str(ROOT), RUNNER_TEMP=directory,
-                           GH_TOKEN='hidden', GITHUB_TOKEN='hidden', RUSTC_WRAPPER='wrapper')
+                           GH_TOKEN='hidden', GITHUB_TOKEN='hidden', RUSTC_WRAPPER='wrapper',
+                           CODEQL_NATIVE_SOURCE_PROFILE=profile)
                 with patch.dict(os.environ, env), patch.object(sys, 'path', list(sys.path)), \
                         patch('importlib.util.spec_from_file_location', return_value=spec), \
                         patch('importlib.util.module_from_spec', return_value=native), \
                         patch('time.monotonic', side_effect=[100, 103]):
-                    if fail:
-                        with self.assertRaisesRegex(RuntimeError, 'missing native module'):
+                    if error is not None:
+                        with self.assertRaises(type(error)) as caught:
                             exec(compile(body, 'codeql.yml:native', 'exec'), {})
+                        self.assertIs(caught.exception, error)
                     else:
                         exec(compile(body, 'codeql.yml:native', 'exec'), {})
                 self.assertEqual(len(calls), 1)
-                source, out, end, child_env = calls[0]
+                source, out, end, child_env, kwargs = calls[0]
                 self.assertEqual((source, out, end), (ROOT, folder / 'codeql-rust-native', 370))
+                self.assertEqual(kwargs, {'source_profile':profile})
                 self.assertFalse({'GH_TOKEN', 'GITHUB_TOKEN', 'RUSTC_WRAPPER'} & child_env.keys())
                 self.assertEqual((native.runtime.CAP, native.runtime.WRITE_CAP), (16 * 1024**2, 15 * 1024**2))
                 terminal = json.loads((out / 'native-terminal.json').read_text())
-                self.assertEqual(terminal['status'], 'FAILED' if fail else 'PASS')
+                self.assertEqual(terminal['status'], 'FAILED' if error else 'PASS')
                 self.assertEqual(terminal['elapsed_seconds'], 3)
                 self.assertEqual(terminal['preparation_budget_seconds'], 180)
-                self.assertEqual(terminal.get('error'), 'missing native module' if fail else None)
+                self.assertEqual(terminal['source_profile'], profile)
+                self.assertEqual(terminal.get('error_type'), None if failure is None else failure.__name__)
+                self.assertNotIn('error', terminal)
+                self.assertNotIn('canary', json.dumps(terminal))
+                if failure is PhaseError:
+                    self.assertEqual(terminal['exit'], 124)
+                    self.assertEqual(terminal['failure_kind'], 'child_exit')
+                    self.assertEqual(terminal['source_evidence_error'], error.native_source_evidence_error)
 
     def test_upload_evidence_actual_producer_and_failure_identity(self):
         # Execute the actual workflow producer, rather than a mirror serializer.
@@ -460,6 +478,19 @@ class FixedSourceWorkflowTests(unittest.TestCase):
         native = self.python_body(self.section(text, '      - id: rust_native\n', '      - id: rust_tools\n'))
         original_native = self.python_body(self.section(WORKFLOW, '      - id: rust_native\n', '      - id: rust_tools\n'))
         native = native.replace("pathlib.Path(os.environ['RUNNER_TEMP']) / 'codeql-rust-fixed-source-helper'", "source / 'scripts/security'")
+        # Fixed-source research retains runner sources and its historical error text.
+        # Only the production profile selection and safe error projection differ.
+        original_native = original_native.replace("profile = os.environ['CODEQL_NATIVE_SOURCE_PROFILE']\n", '')
+        original_native = original_native.replace(", 'source_profile': profile", '')
+        original_native = original_native.replace(', source_profile=profile)', ')')
+        projected = ("terminal.update(error_type=type(error).__name__)\n"
+                     "    if isinstance(error, native.runtime.PhaseError):\n"
+                     "        terminal.update(exit=error.result.get('exit'), failure_kind=error.result.get('failure_kind'))\n"
+                     "    if hasattr(error, 'native_source_evidence_error'):\n"
+                     "        terminal['source_evidence_error'] = error.native_source_evidence_error")
+        self.assertEqual(original_native.count(projected), 1)
+        original_native = original_native.replace(projected,
+            "terminal.update(error_type=type(error).__name__, error=str(error))")
         self.assertEqual(ast.dump(ast.parse(native)), ast.dump(ast.parse(original_native)))
 
 

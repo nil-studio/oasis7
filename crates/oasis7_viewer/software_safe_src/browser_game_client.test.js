@@ -19,7 +19,7 @@ function fixture(recoveryOverride) {
   signingBytes: (domain, request) => { signed.push({ domain, request: JSON.parse(request) }); return new Uint8Array([1]); },
   verifyGatewayResponse: vi.fn((domain, request, response, serviceKey) => { expect(serviceKey).toBe(key); const parsed = JSON.parse(response); if (parsed.tampered) throw new Error("bad signature"); return JSON.stringify(parsed.world_response.payload); }),
   validate: vi.fn((kind, request, payload) => payload),
-  build: (kind, value) => { const v = JSON.parse(value); if (kind === "field") return JSON.stringify(v.path.reduce((current, name) => current[name], JSON.parse(v.json))); if (kind === "fence") return JSON.stringify(v); if (kind === "correlation") return JSON.stringify({ key: { world: v.world, request_id_or_nonce: JSON.parse(v.payload_json).kind }, payload_digest: JSON.parse(v.payload_json).kind }); if (kind === "prefix") return JSON.stringify({ operation: { operation: "task_provider_prefix", data: { context: v.identity } } }); if (kind === "action") return JSON.stringify({ request: { agent_id: "agent" }, action: v.action }); if (kind === "retire_context") return JSON.stringify({ operation: { operation: "task_provider_failure", data: { context: JSON.parse(v.context_json), reason: "context_expired" } } }); if (kind === "outcome") return JSON.stringify({ operation: { operation: "task_provider_failure", data: { context: JSON.parse(v.captured_json).prepared.identity, reason: v.reason } } }); throw new Error("unsupported"); },
+  build: (kind, value) => { const v = JSON.parse(value); if (kind === "field") return JSON.stringify(v.path.reduce((current, name) => current[name], JSON.parse(v.json))); if (kind === "fence") return JSON.stringify(v); if (kind === "correlation") return JSON.stringify({ key: { world: v.world, request_id_or_nonce: JSON.parse(v.payload_json).kind }, payload_digest: JSON.parse(v.payload_json).kind }); if (kind === "prefix") return JSON.stringify({ operation: { operation: "task_provider_prefix", data: { context: v.identity } } }); if (kind === "action") return JSON.stringify({ request: { agent_id: "agent" }, action: v.action }); if (kind === "retire_context") return JSON.stringify({ operation: { operation: "task_provider_failure", data: { context: JSON.parse(v.context_json), reason: "context_expired" } } }); if (kind === "outcome") return JSON.stringify({ captured_base_binding: JSON.parse(v.captured_json).current_public_context.captured_base_binding, operation: { operation: "task_provider_failure", data: { context: JSON.parse(v.captured_json).prepared.identity, reason: v.reason } } }); throw new Error("unsupported"); },
  };
  const gatewayCall = vi.fn(async (path, body, options) => {
   await options?.beforeSend?.();
@@ -29,13 +29,13 @@ function fixture(recoveryOverride) {
   let payload;
   if (op.kind === "prepare_context") payload = prepared;
   else if (op.kind === "read_view") payload = { logical_tick: logicalTick, view: { game_task_control: stateFence, runtime_binding: { base_tick: logicalTick } } };
-  else if (op.kind === "read_context") payload = { prepared, current_public_context: { captured_base_binding: {}, actor_observation: {} } };
+  else if (op.kind === "read_context") payload = { prepared, current_public_context: { captured_base_binding: { base_tick: logicalTick }, actor_observation: {} } };
   else if (op.kind === "submit" || op.kind === "lookup" || op.kind === "lookup_executor") payload = { correlation: op.request.correlation ?? { key: op.request.request.key }, outcome: { status: op.kind === "submit" ? "pending" : (op.request.original?.payload?.request?.operation?.operation === "task_provider_failure" ? outcomeLookupStatus ?? lookupStatus : lookupStatus) } };
   else payload = {};
   return { world_response: { payload } };
  });
  const client = createBrowserGameClient({ config: { endpoint: "/api/public/hosted-account/v2", world: { world_id: "world", genesis_digest: "genesis" }, servicePublicKey: key }, codec, ownerSigner: signer(key), executorSigner: signer(executor), participantProofs: async () => ({ owner: { request: "owner" }, admission: { request: "admission" } }), agentId: "agent", taskId: "task", recovery: recoveryOverride ?? recovery, gatewayCall, beforeEffect: () => effectGate() });
- return { client, codec, gatewayCall, recovery, entries, calls, order, signed, prepared, setGate: (gate) => { effectGate = gate; }, setFence: (value) => { stateFence = value; }, setOutcomeLookup: (value) => { outcomeLookupStatus = value; }, setTick: (value) => { logicalTick = value; }, setLookup: (value) => { lookupStatus = value; }, rejectWrite: () => { rejectWrite = true; } };
+ return { client, codec, gatewayCall, recovery: recoveryOverride ?? recovery, entries, calls, order, signed, prepared, setGate: (gate) => { effectGate = gate; }, setFence: (value) => { stateFence = value; }, setOutcomeLookup: (value) => { outcomeLookupStatus = value; }, setTick: (value) => { logicalTick = value; }, setLookup: (value) => { lookupStatus = value; }, rejectWrite: () => { rejectWrite = true; } };
 }
 describe("browser WorldService client", () => {
  it("discovers an owner-signed canonical task and binds its complete fence", async () => {
@@ -204,4 +204,106 @@ describe("semantic fence equality", () => {
   await expect(f.client.freshFence()).rejects.toMatchObject({ code: "task_fence_changed" });
   expect(f.calls.some((call) => call.body.operation?.kind === "submit")).toBe(false);
  });
+});
+
+describe("original context resume", () => {
+ it("reads the original committed prefix without replaying prepare or submitting effects", async () => {
+  const f = fixture(); await f.client.bindFence(fence);
+  const prepared = await f.client.prepareContext("resume"); await f.client.captureContext("resume", prepared);
+  const before = f.calls.length;
+  const captured = await f.client.context("resume");
+  expect(captured.prepared.identity).toEqual(prepared.identity);
+  const resumed = f.calls.slice(before);
+  expect(resumed.some((c) => ["prepare_context", "submit"].includes(c.body.operation?.kind))).toBe(false);
+  expect(resumed.some((c) => c.body.operation?.kind === "read_context")).toBe(true);
+ });
+ it("creates once and resumes the same operation without replacing original budgets", async () => {
+  const f = fixture(); await f.client.bindFence(fence);
+  await f.client.context("new", { runId: "first" });
+  const originals = structuredClone(f.entries.map((e) => e.original)); const count = f.calls.length;
+  await f.client.context("new", { runId: "replacement" });
+  expect(f.entries.map((e) => e.original)).toEqual(originals);
+  expect(f.calls.slice(count).some((c) => ["prepare_context", "submit"].includes(c.body.operation?.kind))).toBe(false);
+ });
+ for (const status of ["unknown", "pending", "rejected", "expired"]) it(`does not read private Context for a ${status} prefix`, async () => {
+  const f = fixture(); await f.client.bindFence(fence); const prepared = await f.client.prepareContext("not-ready");
+  f.setLookup(status); try { await f.client.captureContext("not-ready", prepared); } catch {}
+  const before = f.calls.length;
+  await expect(f.client.context("not-ready")).rejects.toMatchObject({ code: ["unknown", "pending"].includes(status) ? "operation_pending" : "context_rejected" });
+  expect(f.calls.slice(before).some((c) => ["prepare_context", "submit", "read_context"].includes(c.body.operation?.kind))).toBe(false);
+ });
+ it("preserves original action and outcome lanes instead of reopening private Context", async () => {
+  for (const lane of ["action", "outcome"]) {
+   const f = fixture(); await f.client.bindFence(fence); const prepared = await f.client.prepareContext("terminal"); const captured = await f.client.captureContext("terminal", prepared);
+   if (lane === "action") await f.client.action("terminal", captured, { type: "MoveAgent" });
+   else await f.client.outcome("terminal", captured, "executor_aborted");
+   const before = f.calls.length;
+   await expect(f.client.context("terminal")).rejects.toMatchObject({ code: "original_result_requires_recovery" });
+   expect(f.calls).toHaveLength(before);
+  }
+ });
+});
+
+describe("context resume permission boundaries", () => {
+ it("rechecks current fence before exposing private context", async () => {
+  const f = fixture(); await f.client.bindFence(fence); await f.client.context("fence-resume");
+  f.setFence({ ...fence, task_revision: "2" }); const before = f.calls.length;
+  await expect(f.client.context("fence-resume")).rejects.toMatchObject({ code: "task_fence_changed" });
+  expect(f.calls.slice(before).some((c) => ["submit", "read_context", "prepare_context"].includes(c.body.operation?.kind))).toBe(false);
+ });
+ it("does not replace an expired read with a new preparation", async () => {
+  const f = fixture(); await f.client.bindFence(fence); await f.client.context("expired-read");
+  const gateway = f.gatewayCall.getMockImplementation();
+  f.gatewayCall.mockImplementation(async (...args) => { if (args[1].operation?.kind === "read_context") throw new Error("private expiry detail"); return gateway(...args); });
+  const originals = structuredClone(f.entries.map((e) => e.original)); const before = f.calls.length;
+  await expect(f.client.context("expired-read")).rejects.toMatchObject({ code: "game_response_invalid" });
+  expect(f.entries.map((e) => e.original)).toEqual(originals);
+  expect(f.calls.slice(before).some((c) => ["submit", "prepare_context"].includes(c.body.operation?.kind))).toBe(false);
+ });
+});
+
+it("resumes a prefix through durable recovery after discarding client-local capture", async () => {
+ const records = new Map();
+ const storage = { get: async (key) => structuredClone(records.get(key)), update: async (key, mutate) => { const value = mutate(structuredClone(records.get(key))); records.set(key, structuredClone(value)); return structuredClone(value); } };
+ const makeRecovery = () => createBrowserGameRecovery({ scope: { worldId: "world", genesisDigest: "genesis", accountId: "owner", agentId: "agent", taskId: "task", fence }, storage, locks: { request: async (_name, _options, action) => action() } });
+ const first = fixture(makeRecovery()); await first.client.bindFence(fence);
+ await first.client.context("persisted", { runId: "original" });
+ const before = await first.recovery.load();
+ const resumed = fixture(makeRecovery()); await resumed.client.bindFence(fence);
+ const captured = await resumed.client.context("persisted", { runId: "must-not-replace" });
+ expect(captured.prepared.identity).toEqual(first.prepared.identity);
+ expect(resumed.calls.some((c) => ["prepare_context", "submit"].includes(c.body.operation?.kind))).toBe(false);
+ expect((await resumed.recovery.load()).operations.map((e) => e.original)).toEqual(before.operations.map((e) => e.original));
+});
+
+it("signs the first abort against a refreshed context and only looks up its original on retry", async () => {
+ const f = fixture(); await f.client.bindFence(fence);
+ const prepared = await f.client.prepareContext("abort-refresh");
+ const captured = await f.client.captureContext("abort-refresh", prepared);
+ f.setTick(2);
+ await f.client.outcome("abort-refresh", captured, "executor_aborted");
+ const original = f.entries.find((entry) => entry.original.kind === "outcome").original;
+ expect(JSON.parse(original.signedRequest.rawJson).signed_payload.payload.request.captured_base_binding).toEqual({ base_tick: 2 });
+ const before = f.calls.length;
+ await f.client.outcome("abort-refresh", captured, "executor_aborted");
+ expect(f.calls.slice(before).map((call) => call.body.operation.kind)).toEqual(["lookup_executor"]);
+});
+
+it.each(["read rejection", "fence change"])("does not submit a new outcome after %s", async (failure) => {
+ const f = fixture(); await f.client.bindFence(fence);
+ const captured = await f.client.context("abort-blocked");
+ if (failure === "fence change") f.setFence({ ...fence, task_revision: "2" });
+ else {
+  const gateway = f.gatewayCall.getMockImplementation();
+  f.gatewayCall.mockImplementation(async (...args) => {
+   if (args[1].operation?.kind === "read_context") throw new Error("read rejected");
+   return gateway(...args);
+  });
+ }
+ const before = f.calls.length;
+ await expect(f.client.outcome("abort-blocked", captured, "executor_aborted")).rejects.toMatchObject({
+  code: failure === "fence change" ? "task_fence_changed" : "game_response_invalid",
+ });
+ expect(f.entries.some((entry) => entry.original.kind === "outcome")).toBe(false);
+ expect(f.calls.slice(before).some((call) => call.body.operation?.kind === "submit")).toBe(false);
 });

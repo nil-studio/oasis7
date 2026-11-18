@@ -4,7 +4,8 @@ use crate::source_inputs::{include_path, put_string, validate_file};
 use serde::Serialize;
 
 const PRODUCERS: [&str; 2] = ["crates/oasis7_wasm_build", "tools/wasm_build_suite"];
-const FIXED: [&str; 6] = [
+const FIXED: [&str; 7] = [
+    ".github/actions/setup-linux-mold/setup.py",
     "docker/wasm-builder/Dockerfile",
     ".dockerignore",
     "scripts/build-wasm-module.sh",
@@ -178,11 +179,14 @@ fn validate_dockerfile(root: &Path) -> Result<(), SourceHashError> {
     if !pending.is_empty() {
         return Err(invalid("unterminated Dockerfile instruction"));
     }
+    let mold_copy = "COPY --chmod=0755 .github/actions/setup-linux-mold/setup.py /opt/oasis7/.github/actions/setup-linux-mold/setup.py";
+    let mold_environment = "ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=/opt/oasis7-mold/3.0.0-v1/bin/oasis7-mold-gcc";
     let runs = [
-        "RUN apt-get update && apt-get install -y --no-install-recommends bash build-essential ca-certificates curl git pkg-config xz-utils && rm -rf /var/lib/apt/lists/*",
+        "RUN apt-get update && apt-get install -y --no-install-recommends bash build-essential ca-certificates curl git pkg-config python3 xz-utils && rm -rf /var/lib/apt/lists/*",
+        "RUN python3 /opt/oasis7/.github/actions/setup-linux-mold/setup.py",
         "RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none && chmod -R a+rX /cargo /rustup",
         "RUN rustup toolchain install \"${WASM_TOOLCHAIN}\" --profile minimal --component rust-src && rustup target add \"${WASM_TARGET}\" --toolchain \"${WASM_TOOLCHAIN}\" && chmod -R a+rX /rustup",
-        "RUN bash /opt/oasis7/docker/wasm-builder/prepare-workspace.sh && env -u RUSTC_WRAPPER CARGO_TARGET_DIR=/tmp/oasis7-producer-target cargo install --locked --path /opt/oasis7/tools/wasm_build_suite && chmod a+rx /cargo/bin/wasm_build_suite && rm -rf /tmp/oasis7-producer-target /cargo/registry /cargo/git",
+        "RUN bash /opt/oasis7/docker/wasm-builder/prepare-workspace.sh && env -u RUSTC_WRAPPER CARGO_TARGET_DIR=/tmp/oasis7-producer-target cargo install --locked --path /opt/oasis7/tools/wasm_build_suite && readelf -p .comment /cargo/bin/wasm_build_suite | grep -E 'mold 3[.]0[.]0([[:space:]]|$)' && chmod a+rx /cargo/bin/wasm_build_suite && rm -rf /tmp/oasis7-producer-target /cargo/registry /cargo/git",
     ];
     for instruction in &logical {
         let opcode = instruction.split_whitespace().next().unwrap_or_default();
@@ -197,24 +201,27 @@ fn validate_dockerfile(root: &Path) -> Result<(), SourceHashError> {
                 instruction == "ENTRYPOINT [\"/opt/oasis7/scripts/build-wasm-module.sh\"]"
             }
             "RUN" => runs.contains(&instruction.as_str()),
-            "ENV" => matches!(
-                instruction.as_str(),
-                "ENV DEBIAN_FRONTEND=noninteractive"
-                    | "ENV CARGO_HOME=/cargo"
-                    | "ENV RUSTUP_HOME=/rustup"
-                    | "ENV PATH=/cargo/bin:${PATH}"
-                    | "ENV OASIS7_WASM_TOOLCHAIN=${WASM_TOOLCHAIN}"
-                    | "ENV OASIS7_WASM_TARGET=${WASM_TARGET}"
-                    | "ENV OASIS7_WASM_BUILD_STD=1"
-                    | "ENV OASIS7_WASM_BUILD_STD_COMPONENTS=std,panic_abort"
-                    | "ENV OASIS7_WASM_BUILD_STD_FEATURES="
-                    | "ENV OASIS7_WASM_BUILD_IN_CONTAINER=1"
-                    | "ENV OASIS7_WASM_BUILD_SUITE_BIN=/cargo/bin/wasm_build_suite"
-                    | "ENV TZ=UTC"
-                    | "ENV LANG=C"
-                    | "ENV LC_ALL=C"
-                    | "ENV SOURCE_DATE_EPOCH=0"
-            ),
+            "ENV" => {
+                instruction == mold_environment
+                    || matches!(
+                        instruction.as_str(),
+                        "ENV DEBIAN_FRONTEND=noninteractive"
+                            | "ENV CARGO_HOME=/cargo"
+                            | "ENV RUSTUP_HOME=/rustup"
+                            | "ENV PATH=/cargo/bin:${PATH}"
+                            | "ENV OASIS7_WASM_TOOLCHAIN=${WASM_TOOLCHAIN}"
+                            | "ENV OASIS7_WASM_TARGET=${WASM_TARGET}"
+                            | "ENV OASIS7_WASM_BUILD_STD=1"
+                            | "ENV OASIS7_WASM_BUILD_STD_COMPONENTS=std,panic_abort"
+                            | "ENV OASIS7_WASM_BUILD_STD_FEATURES="
+                            | "ENV OASIS7_WASM_BUILD_IN_CONTAINER=1"
+                            | "ENV OASIS7_WASM_BUILD_SUITE_BIN=/cargo/bin/wasm_build_suite"
+                            | "ENV TZ=UTC"
+                            | "ENV LANG=C"
+                            | "ENV LC_ALL=C"
+                            | "ENV SOURCE_DATE_EPOCH=0"
+                    )
+            }
             _ => false,
         };
         if !supported {
@@ -223,12 +230,35 @@ fn validate_dockerfile(root: &Path) -> Result<(), SourceHashError> {
             )));
         }
     }
+    // An allowed instruction is not sufficient: the installer and host-only
+    // selection must occur exactly once before the native producer is linked.
+    let preparation = [
+        runs[0],
+        mold_copy,
+        runs[1],
+        mold_environment,
+        runs[2],
+        runs[3],
+        runs[4],
+    ];
+    if logical
+        .iter()
+        .map(String::as_str)
+        .filter(|instruction| preparation.contains(instruction))
+        .collect::<Vec<_>>()
+        != preparation
+    {
+        return Err(invalid(
+            "missing, repeated or reordered native linker preparation",
+        ));
+    }
     let copies = text
         .lines()
         .map(str::trim)
         .filter(|line| line.starts_with("COPY ") || line.starts_with("ADD "))
         .collect::<Vec<_>>();
     let expected = [
+        mold_copy,
         "COPY --chmod=0755 Cargo.toml Cargo.lock /opt/oasis7/",
         "COPY --chmod=0755 crates /opt/oasis7/crates",
         "COPY --chmod=0755 vendor-if-watch-3.2.2 /opt/oasis7/vendor-if-watch-3.2.2",
@@ -245,12 +275,7 @@ fn validate_dockerfile(root: &Path) -> Result<(), SourceHashError> {
         .map(str::trim)
         .filter(|line| line.starts_with("WORKDIR "))
         .collect::<Vec<_>>();
-    if copies != expected
-        || workdirs != ["WORKDIR /opt/oasis7", "WORKDIR /workspace"]
-        || !text.contains(
-            "env -u RUSTC_WRAPPER CARGO_TARGET_DIR=/tmp/oasis7-producer-target cargo install --locked --path /opt/oasis7/tools/wasm_build_suite",
-        )
-    {
+    if copies != expected || workdirs != ["WORKDIR /opt/oasis7", "WORKDIR /workspace"] {
         return Err(invalid(
             "unsupported Dockerfile COPY/WORKDIR/producer install recipe",
         ));
@@ -600,11 +625,34 @@ mod tests {
             "ADD external /opt/oasis7/input",
             "RUN cp /external/config /opt/oasis7/.cargo/config",
             "ENV CARGO_ENCODED_RUSTFLAGS=external",
+            "ENV CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_LINKER=/opt/oasis7-mold/3.0.0-v1/bin/oasis7-mold-gcc",
             "WORKDIR /other",
         ] {
             fs::write(&path, format!("{original}\n{addition}\n")).unwrap();
             assert!(validate_dockerfile(&dir).is_err(), "accepted {addition}");
         }
+        for instruction in [
+            "RUN python3 /opt/oasis7/.github/actions/setup-linux-mold/setup.py",
+            "ENV CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=/opt/oasis7-mold/3.0.0-v1/bin/oasis7-mold-gcc",
+        ] {
+            let omitted = original.replace(&format!("{instruction}\n"), "");
+            assert_ne!(omitted, original, "fixture must remove {instruction}");
+            for changed in [
+                omitted.clone(),
+                format!("{original}\n{instruction}\n"),
+                format!("{omitted}\n{instruction}\n"),
+            ] {
+                fs::write(&path, changed).unwrap();
+                assert!(
+                    validate_dockerfile(&dir).is_err(),
+                    "accepted missing, duplicate or late {instruction}"
+                );
+            }
+        }
+        let smoke = "    && readelf -p .comment /cargo/bin/wasm_build_suite | grep -E 'mold 3[.]0[.]0([[:space:]]|$)' \\\n";
+        assert!(original.contains(smoke));
+        fs::write(&path, original.replace(smoke, "")).unwrap();
+        assert!(validate_dockerfile(&dir).is_err());
         fs::remove_dir_all(dir).unwrap();
     }
     fn native_producer_fixture() -> PathBuf {
@@ -666,15 +714,25 @@ mod tests {
             String::from_utf8_lossy(&built.stderr)
         );
         let original = compute_builder_recipe(&dir).unwrap();
-        let helper = "docker/wasm-builder/prepare-workspace.sh";
-        assert!(original.inputs.iter().any(|input| input.path == helper));
+        for helper in [
+            "docker/wasm-builder/prepare-workspace.sh",
+            ".github/actions/setup-linux-mold/setup.py",
+        ] {
+            let saved = fs::read(dir.join(helper)).unwrap();
+            assert!(original.inputs.iter().any(|input| input.path == helper));
+            verify_image_producer_recipe(&dir, &original).unwrap();
+            fs::write(dir.join(helper), "changed preparation helper\n").unwrap();
+            assert_ne!(
+                original.producer_recipe_hash,
+                compute_builder_recipe(&dir).unwrap().producer_recipe_hash
+            );
+            assert!(verify_image_producer_recipe(&dir, &original).is_err());
+            fs::remove_file(dir.join(helper)).unwrap();
+            assert!(compute_builder_recipe(&dir).is_err());
+            assert!(verify_image_producer_recipe(&dir, &original).is_err());
+            fs::write(dir.join(helper), saved).unwrap();
+        }
         verify_image_producer_recipe(&dir, &original).unwrap();
-        fs::write(dir.join(helper), "#!/usr/bin/env bash\nexit 0\n").unwrap();
-        assert_ne!(
-            original.producer_recipe_hash,
-            compute_builder_recipe(&dir).unwrap().producer_recipe_hash
-        );
-        assert!(verify_image_producer_recipe(&dir, &original).is_err());
         fs::remove_dir_all(dir).unwrap();
     }
     fn build_native_fixture(dir: &Path) -> std::process::Output {

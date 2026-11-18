@@ -10,7 +10,7 @@ var __exportAll = (all, no_symbols) => {
 	if (!no_symbols) __defProp(target, Symbol.toStringTag, { value: "Module" });
 	return target;
 };
-// ../../../oasis7-viewer-unknown-claim-feedback-5167/crates/oasis7_viewer/node_modules/solid-js/dist/solid.js
+// node_modules/solid-js/dist/solid.js
 var sharedConfig = {
 	context: void 0,
 	registry: void 0,
@@ -774,7 +774,7 @@ function Show(props) {
 		return props.fallback;
 	}, void 0, void 0);
 }
-// ../../../oasis7-viewer-unknown-claim-feedback-5167/crates/oasis7_viewer/node_modules/solid-js/web/dist/web.js
+// node_modules/solid-js/web/dist/web.js
 var memo = (fn) => createMemo(() => fn());
 function reconcileArrays(parentNode, a, b) {
 	let bLength = b.length, aEnd = a.length, bEnd = bLength, aStart = 0, bStart = 0, after = a[aEnd - 1].nextSibling, map = null;
@@ -4130,6 +4130,27 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		});
 		return result.prepared;
 	}
+	async function context(operationId, runBudget = null) {
+		if (await find(operationId, "action") || await find(operationId, "outcome")) fail$5("original_result_requires_recovery");
+		const prefix = await find(operationId, "prefix");
+		if (!prefix) return captureContext(operationId, await prepareContext(operationId, runBudget), runBudget);
+		const result = await lookup(prefix);
+		await recovery.settle(prefix.operationId, {
+			state: result.state,
+			receipt: { rawJson: json(result.receipt) }
+		});
+		if (result.state !== "committed") fail$5(terminal(result.state) ? "context_rejected" : "operation_pending");
+		const identity = field(decoded(prefix.signedRequest.rawJson), [
+			"signed_payload",
+			"payload",
+			"request",
+			"operation",
+			"data",
+			"context"
+		]);
+		if (!same$3((await freshFence()).fence, identity.fence)) fail$5("task_fence_changed");
+		return readContext(operationId, identity);
+	}
 	async function captureContext(operationId, prepared, runBudget = null) {
 		await freshFence();
 		const result = await submit(operationId, "prefix", {
@@ -4200,14 +4221,23 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 	}
 	async function outcome(operationId, captured, reason, runBudget = null) {
 		if (await find(operationId, "action")) fail$5("original_action_requires_recovery");
-		await freshFence();
+		const prior = await find(operationId, "outcome");
+		if (prior) {
+			const result = await lookup(prior);
+			await recovery.settle(prior.operationId, {
+				state: result.state,
+				receipt: { rawJson: json(result.receipt) }
+			});
+			return result.receipt;
+		}
+		const current = await readContext(operationId, captured.prepared.identity);
 		return submit(operationId, "outcome", {
 			kind: "scheduler",
 			payload: await sign("scheduler", build("outcome", {
-				captured_json: json(captured),
+				captured_json: json(current),
 				reason
 			}))
-		}, captured.prepared.identity, runBudget);
+		}, current.prepared.identity, runBudget);
 	}
 	async function registerExecutor({ operationId, executorId, generation, nonce: delegationNonce, confirmedFence }) {
 		if (!confirmedFence) fail$5("run_confirmation_required");
@@ -4282,6 +4312,7 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 		bindFence,
 		publicView,
 		snapshot,
+		context,
 		prepareContext,
 		captureContext,
 		readContext,
@@ -7123,7 +7154,7 @@ function viewerRuntimeConfig() {
 	if (!fixedConfig) fixedConfig = parseViewerRuntimeConfig(document);
 	return fixedConfig;
 }
-// ../../../oasis7-viewer-unknown-claim-feedback-5167/crates/oasis7_viewer/node_modules/solid-js/store/dist/store.js
+// node_modules/solid-js/store/dist/store.js
 var $RAW = Symbol("store-raw");
 var $NODE = Symbol("store-node");
 var $HAS = Symbol("store-has");

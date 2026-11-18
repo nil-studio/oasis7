@@ -112,6 +112,43 @@ impl ArtifactCatalogDeltaV1 {
         Ok(())
     }
 }
+
+type ArtifactWork<'a> = dyn Fn(u64, u64) -> Result<(), ExecutionError> + 'a;
+
+fn with_artifact_work<T>(
+    work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    run: impl FnOnce(&ArtifactWork<'_>, &crate::merkle::WorkMeter<'_>) -> Result<T, ExecutionError>,
+) -> Result<T, ExecutionError> {
+    let work = std::cell::RefCell::new(work);
+    let first = std::cell::RefCell::new(None);
+    let pay = |steps, bytes| (work.borrow_mut())(steps, bytes);
+    let tree = |bytes: usize| {
+        if first.borrow().is_some() {
+            return Err("artifact meter stopped".to_owned());
+        }
+        match pay(1, bytes as u64) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                *first.borrow_mut() = Some(error);
+                Err("artifact meter stopped".to_owned())
+            }
+        }
+    };
+    let result = run(&pay, &tree);
+    if let Some(error) = first.into_inner() {
+        Err(error)
+    } else {
+        result
+    }
+}
+
+fn artifact_work(work: Option<&ArtifactWork<'_>>, bytes: usize) -> Result<(), ExecutionError> {
+    if let Some(work) = work {
+        work(1, bytes as u64)?;
+    }
+    Ok(())
+}
+
 impl ArtifactCatalogV1 {
     pub fn empty(kind: ArtifactKindV1) -> Result<Self, ExecutionError> {
         Ok(Self {
@@ -120,51 +157,160 @@ impl ArtifactCatalogV1 {
             node_root: empty().map_err(ExecutionError::Tree)?[0].clone(),
         })
     }
+
+    /// Charge actual empty-tree initialization on a cold cache and a cancellable
+    /// cache access on a hit. Failed initialization never enters the cache.
+    pub fn empty_with_work(
+        kind: ArtifactKindV1,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<Self, ExecutionError> {
+        with_artifact_work(work, |work, tree| {
+            let hashes = codec::empty_with_meter(Some(tree)).map_err(ExecutionError::Tree)?;
+            work(1, hashes[0].len() as u64)?;
+            let value = Self {
+                kind,
+                count: 0,
+                node_root: hashes[0].clone(),
+            };
+            work(1, 0)?;
+            Ok(value)
+        })
+    }
+
     pub fn validate(&self) -> Result<(), ExecutionError> {
+        self.validate_inner(None, None)
+    }
+
+    fn validate_inner(
+        &self,
+        work: Option<&ArtifactWork<'_>>,
+        tree: Option<&crate::merkle::WorkMeter<'_>>,
+    ) -> Result<(), ExecutionError> {
+        artifact_work(work, self.node_root.len())?;
         parse_hash(&self.node_root)?;
-        if (self.count == 0) != (self.node_root == empty().map_err(ExecutionError::Tree)?[0]) {
+        let hashes = codec::empty_with_meter(tree).map_err(ExecutionError::Tree)?;
+        artifact_work(work, self.node_root.len())?;
+        if (self.count == 0) != (self.node_root == hashes[0]) {
             return Err(ExecutionError::Invalid("artifact count/empty"));
         }
         Ok(())
     }
+
     pub fn canonical_bytes(&self) -> Result<Vec<u8>, ExecutionError> {
-        self.validate()?;
-        let mut w = Writer::new();
+        self.canonical_bytes_inner(None, None)
+    }
+
+    pub fn canonical_bytes_with_work(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<Vec<u8>, ExecutionError> {
+        with_artifact_work(work, |work, tree| {
+            self.canonical_bytes_inner(Some(work), Some(tree))
+        })
+    }
+
+    fn canonical_bytes_inner(
+        &self,
+        work: Option<&ArtifactWork<'_>>,
+        tree: Option<&crate::merkle::WorkMeter<'_>>,
+    ) -> Result<Vec<u8>, ExecutionError> {
+        self.validate_inner(work, tree)?;
+        artifact_work(work, self.node_root.len())?;
+        let root = parse_hash(&self.node_root)?;
+        let mut w = match work {
+            Some(work) => Writer::with_work(work),
+            None => Writer::new(),
+        };
         w.u8(self.kind as u8);
         w.u64(self.count);
-        w.hash(&parse_hash(&self.node_root)?);
-        w.finish(b"oasis7.iws.artifact-root.v1\0", 128)
+        w.hash(&root);
+        let bytes = w.finish(b"oasis7.iws.artifact-root.v1\0", 128)?;
+        artifact_work(work, 0)?;
+        Ok(bytes)
     }
+
     pub fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, ExecutionError> {
+        Self::from_canonical_bytes_inner(bytes, None, None)
+    }
+
+    pub fn from_canonical_bytes_with_work(
+        bytes: &[u8],
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<Self, ExecutionError> {
+        with_artifact_work(work, |work, tree| {
+            Self::from_canonical_bytes_inner(bytes, Some(work), Some(tree))
+        })
+    }
+
+    fn from_canonical_bytes_inner(
+        bytes: &[u8],
+        work: Option<&ArtifactWork<'_>>,
+        tree: Option<&crate::merkle::WorkMeter<'_>>,
+    ) -> Result<Self, ExecutionError> {
+        artifact_work(work, bytes.len().min(128))?;
         let mut r = Reader::new(bytes, b"oasis7.iws.artifact-root.v1\0", 128)?;
+        artifact_work(work, 41 + 64)?;
         let value = Self {
             kind: ArtifactKindV1::from_tag(r.u8()?)?,
             count: r.u64()?,
             node_root: hex::encode(r.array::<32>()?),
         };
         r.finish()?;
-        value.validate()?;
+        value.validate_inner(work, tree)?;
+        artifact_work(work, 0)?;
         Ok(value)
     }
+
     pub fn digest(&self) -> Result<[u8; 32], ExecutionError> {
         Ok(*blake3::hash(&self.canonical_bytes()?).as_bytes())
     }
+
     pub fn get(
         &self,
         id: &[u8; 32],
         source: &impl MerkleNodeReader,
     ) -> Result<Option<ArtifactEntryV1>, ExecutionError> {
-        self.validate()?;
-        let mut view =
-            Updater::<ArtifactCodec, _>::new(source, empty().map_err(ExecutionError::Tree)?, 0);
+        self.get_inner(id, source, None, None)
+    }
+
+    /// The caller's work hook runs before source attempts, hash/decode and
+    /// authenticated-path comparisons; it does not qualify the source.
+    pub fn get_with_work(
+        &self,
+        id: &[u8; 32],
+        source: &impl MerkleNodeReader,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<Option<ArtifactEntryV1>, ExecutionError> {
+        with_artifact_work(work, |work, tree| {
+            self.get_inner(id, source, Some(work), Some(tree))
+        })
+    }
+
+    fn get_inner(
+        &self,
+        id: &[u8; 32],
+        source: &impl MerkleNodeReader,
+        work: Option<&ArtifactWork<'_>>,
+        tree: Option<&crate::merkle::WorkMeter<'_>>,
+    ) -> Result<Option<ArtifactEntryV1>, ExecutionError> {
+        self.validate_inner(work, tree)?;
+        let mut view = Updater::<ArtifactCodec, _>::new(
+            source,
+            codec::empty_with_meter(tree).map_err(ExecutionError::Tree)?,
+            0,
+        )
+        .with_meter(tree);
         let entry = view
             .lookup(&self.node_root, id)
             .map_err(ExecutionError::Tree)?;
+        artifact_work(work, std::mem::size_of::<ArtifactEntryV1>())?;
         if entry.is_some_and(|e| e.kind != self.kind) {
             return Err(ExecutionError::Invalid("artifact catalog kind"));
         }
+        artifact_work(work, 0)?;
         Ok(entry)
     }
+
     /// A bounded delta against the exact parent. Arbitrary CAS hits never
     /// suppress a final new page. Identical existing originals are idempotent.
     pub fn append(
@@ -174,6 +320,34 @@ impl ArtifactCatalogV1 {
         memory: &MemoryBudget,
         max_pending: usize,
     ) -> Result<ReservedValue<ArtifactCatalogDeltaV1>, ExecutionError> {
+        self.append_inner(entries, source, memory, max_pending, None, None)
+    }
+
+    /// The same append and strict source-pool contract, with caller-owned work
+    /// for traversal, encoding, hashing, comparisons and retained metadata.
+    pub fn append_with_work(
+        &self,
+        entries: &[ArtifactEntryV1],
+        source: &impl MerkleNodeReader,
+        memory: &MemoryBudget,
+        max_pending: usize,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<ReservedValue<ArtifactCatalogDeltaV1>, ExecutionError> {
+        with_artifact_work(work, |work, tree| {
+            self.append_inner(entries, source, memory, max_pending, Some(work), Some(tree))
+        })
+    }
+
+    fn append_inner(
+        &self,
+        entries: &[ArtifactEntryV1],
+        source: &impl MerkleNodeReader,
+        memory: &MemoryBudget,
+        max_pending: usize,
+        work: Option<&ArtifactWork<'_>>,
+        tree: Option<&crate::merkle::WorkMeter<'_>>,
+    ) -> Result<ReservedValue<ArtifactCatalogDeltaV1>, ExecutionError> {
+        artifact_work(work, 0)?;
         if entries.len() > ARTIFACT_MAX_APPEND {
             return Err(ExecutionError::ResourceLimited("artifact append count"));
         }
@@ -188,16 +362,19 @@ impl ArtifactCatalogV1 {
         {
             return Err(ExecutionError::Invalid("artifact producer pool/class"));
         }
-        self.validate()?;
+        self.validate_inner(work, tree)?;
         let mut previous = None;
         let mut view = Updater::<ArtifactCodec, _>::new(
             source,
-            empty().map_err(ExecutionError::Tree)?,
+            codec::empty_with_meter(tree).map_err(ExecutionError::Tree)?,
             max_pending,
         )
+        .with_meter(tree)
         .track_parent_nodes();
+        artifact_work(work, self.node_root.len())?;
         let mut after = self.clone();
         for entry in entries {
+            artifact_work(work, std::mem::size_of::<ArtifactEntryV1>() + 32)?;
             if entry.kind != self.kind || previous.is_some_and(|id| id >= entry.original.id) {
                 return Err(ExecutionError::Invalid("artifact append kind/order"));
             }
@@ -206,6 +383,7 @@ impl ArtifactCatalogV1 {
                 .lookup(&after.node_root, &entry.original.id)
                 .map_err(ExecutionError::Tree)?
             {
+                artifact_work(work, std::mem::size_of::<ArtifactEntryV1>())?;
                 if old != *entry {
                     return Err(ExecutionError::Invalid("artifact identity length/kind"));
                 }
@@ -215,34 +393,54 @@ impl ArtifactCatalogV1 {
                 .insert(&after.node_root, 0, entry)
                 .map_err(ExecutionError::Tree)?
                 .0;
+            artifact_work(work, 0)?;
             after.count = after
                 .count
                 .checked_add(1)
                 .ok_or(ExecutionError::Invalid("artifact count overflow"))?;
         }
-        let new_nodes = view
+        let final_nodes = view
             .final_writes(&after.node_root)
-            .map_err(ExecutionError::Tree)?
-            .into_iter()
-            .map(|(digest, bytes)| ArtifactPageWriteV1 { digest, bytes })
-            .collect();
+            .map_err(ExecutionError::Tree)?;
+        let new_nodes = if let Some(work) = work {
+            work(
+                1,
+                (final_nodes.len() * std::mem::size_of::<ArtifactPageWriteV1>()) as u64,
+            )?;
+            let mut nodes = Vec::with_capacity(final_nodes.len());
+            for (digest, bytes) in final_nodes {
+                work(1, 0)?;
+                nodes.push(ArtifactPageWriteV1 { digest, bytes });
+            }
+            nodes
+        } else {
+            final_nodes
+                .into_iter()
+                .map(|(digest, bytes)| ArtifactPageWriteV1 { digest, bytes })
+                .collect()
+        };
+        artifact_work(work, self.node_root.len())?;
+        let before = self.clone();
+        artifact_work(work, std::mem::size_of_val(entries))?;
         let delta = ArtifactCatalogDeltaV1 {
-            before: self.clone(),
+            before,
             after,
             entries: entries.to_vec(),
             new_nodes,
         };
+        let mut node_bytes = 0;
+        for node in &delta.new_nodes {
+            artifact_work(work, std::mem::size_of::<ArtifactPageWriteV1>())?;
+            node_bytes += node.bytes.capacity() + node.digest.capacity();
+        }
         let size = 512
             + delta.entries.capacity() * std::mem::size_of::<ArtifactEntryV1>()
             + delta.new_nodes.capacity() * std::mem::size_of::<ArtifactPageWriteV1>()
-            + delta
-                .new_nodes
-                .iter()
-                .map(|n| n.bytes.capacity() + n.digest.capacity())
-                .sum::<usize>();
+            + node_bytes;
         let charge = phase
             .split(size)
             .map_err(|_| ExecutionError::Invalid("artifact delta admission"))?;
+        artifact_work(work, 0)?;
         Ok(charge.retain(delta))
     }
 }

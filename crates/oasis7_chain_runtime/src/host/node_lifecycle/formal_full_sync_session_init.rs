@@ -31,11 +31,7 @@ impl FormalFullSyncSession {
         let timeout = Duration::from_millis(config.request_timeout_ms);
         let client =
             providers::build_read_client(&config, active_provider, &node_private_key_hex, timeout)?;
-        let http = HttpClient::builder()
-            .connect_timeout(timeout)
-            .timeout(timeout)
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
+        let http = oasis7_game_client::formal_read_http_client(timeout)
             .map_err(|error| error.to_string())?;
         let node_public_key_hex = signed.subject_public_key;
         let cas = Arc::new(LocalCasStore::new(cas_root));
@@ -96,7 +92,7 @@ impl FormalFullSyncSession {
 
     /// Capture the original verified minimum, not a provider's advertised head.
     /// This is request preparation only, not owner admission or recovery.
-    #[cfg(unix)]
+    #[cfg(all(test, unix))]
     pub(super) fn prepare_operation_request(
         &self,
         policy: &operation_ledger::Policy,

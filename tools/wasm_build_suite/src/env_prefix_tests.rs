@@ -185,3 +185,85 @@ fn candidate_recipe_requires_the_actual_fixed_guest_job_environment() {
         );
     }
 }
+
+#[test]
+fn candidate_recipe_requires_only_the_fixed_native_linker() {
+    const CHILD: &str = "OASIS7_TEST_CANDIDATE_LINKER_CHILD";
+    const HOST: &str = "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER";
+    const WASM: &str = "CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_LINKER";
+    const LINKER: &str = "/opt/oasis7-mold/3.0.0-v1/bin/oasis7-mold-gcc";
+    if let Ok(case) = env::var(CHILD) {
+        let request = BuildRequest::with_defaults("fixture.module", "unused/Cargo.toml");
+        if case == "legacy" {
+            assert!(read_candidate_builder(&request).unwrap().is_none());
+            return;
+        }
+        let error = read_candidate_builder(&request).unwrap_err();
+        match case.as_str() {
+            "wasm" | "wasm-empty" => {
+                assert!(
+                    error.to_string().contains("WASM target linker override"),
+                    "{error}"
+                );
+            }
+            "valid" => {
+                // The executable is an existing non-JSON input. Correct linker
+                // configuration must reach evidence parsing without compiling.
+                let bytes = fs::read(env::current_exe().unwrap()).unwrap();
+                let expected =
+                    serde_json::from_slice::<oasis7_wasm_build::CandidateBuilderEvidence>(&bytes)
+                        .unwrap_err();
+                assert_eq!(
+                    error.to_string(),
+                    BuildError::MetadataInvalid(expected.to_string()).to_string()
+                );
+            }
+            _ => assert!(
+                error.to_string().contains("Linux host mold linker"),
+                "{error}"
+            ),
+        }
+        return;
+    }
+    for (case, host, wasm) in [
+        ("missing", None, None),
+        ("empty", Some(""), None),
+        ("relative", Some("gcc"), None),
+        ("wrong", Some("/tmp/other-linker"), None),
+        ("wasm", Some(LINKER), Some("/tmp/other-linker")),
+        ("wasm-empty", Some(LINKER), Some("")),
+        ("valid", Some(LINKER), None),
+        ("legacy", None, Some("/tmp/other-linker")),
+    ] {
+        let executable = env::current_exe().unwrap();
+        let mut command = std::process::Command::new(&executable);
+        command
+            .args([
+                "--exact",
+                "env_prefix_tests::candidate_recipe_requires_only_the_fixed_native_linker",
+                "--nocapture",
+            ])
+            .env(CHILD, case)
+            .env("CARGO_BUILD_JOBS", "2")
+            .env("OASIS7_WASM_CANDIDATE_BUILDER_EVIDENCE", &executable)
+            .env_remove("OASIS7_WASM_BUILDER_IMAGE_REF")
+            .env_remove("OASIS7_WASM_BUILDER_IMAGE_DIGEST");
+        for (key, value) in [(HOST, host), (WASM, wasm)] {
+            if let Some(value) = value {
+                command.env(key, value);
+            } else {
+                command.env_remove(key);
+            }
+        }
+        if case == "legacy" {
+            command.env_remove("OASIS7_WASM_CANDIDATE_BUILDER_EVIDENCE");
+        }
+        let output = command.output().unwrap();
+        assert!(
+            output.status.success(),
+            "case {case}: {}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}

@@ -1,27 +1,72 @@
 use super::*;
 
-pub(crate) struct Writer {
+pub(crate) struct Writer<'a> {
+    work: Option<&'a dyn Fn(u64, u64) -> Result<(), ExecutionError>>,
+    error: Option<ExecutionError>,
     bytes: Vec<u8>,
 }
-impl Writer {
+impl<'a> Writer<'a> {
     pub(crate) fn new() -> Self {
-        Self { bytes: Vec::new() }
+        Self {
+            bytes: Vec::new(),
+            work: None,
+            error: None,
+        }
+    }
+    pub(crate) fn with_work(work: &'a dyn Fn(u64, u64) -> Result<(), ExecutionError>) -> Self {
+        Self {
+            bytes: Vec::new(),
+            work: Some(work),
+            error: None,
+        }
+    }
+    fn pay(&mut self, n: usize) -> bool {
+        if self.error.is_some() {
+            return false;
+        }
+        if let Some(work) = self.work
+            && let Err(error) = work(1, n as u64)
+        {
+            self.error = Some(error);
+            return false;
+        }
+        true
+    }
+    pub(crate) fn check(&mut self) -> Result<(), ExecutionError> {
+        match self.error.take() {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
     pub(crate) fn u8(&mut self, value: u8) {
+        if !self.pay(1) {
+            return;
+        }
         self.bytes.push(value);
     }
     pub(crate) fn u16(&mut self, value: u16) {
+        if !self.pay(2) {
+            return;
+        }
         self.bytes.extend_from_slice(&value.to_be_bytes());
     }
     pub(crate) fn u64(&mut self, value: u64) {
+        if !self.pay(8) {
+            return;
+        }
         self.bytes.extend_from_slice(&value.to_be_bytes());
     }
     pub(crate) fn hash(&mut self, value: &[u8; 32]) {
+        if !self.pay(32) {
+            return;
+        }
         self.bytes.extend_from_slice(value);
     }
     pub(crate) fn string(&mut self, value: &str) {
         self.u16(value.len() as u16);
-        self.bytes.extend_from_slice(value.as_bytes());
+        if self.pay(value.len()) {
+            self.bytes.extend_from_slice(value.as_bytes());
+        }
     }
     pub(crate) fn scope(&mut self, scope: &WorldScopeV1) {
         self.string(&scope.world_id);
@@ -48,12 +93,18 @@ impl Writer {
     }
     pub(crate) fn nested(&mut self, bytes: &[u8]) {
         self.u16(bytes.len() as u16);
-        self.bytes.extend_from_slice(bytes);
+        if self.pay(bytes.len()) {
+            self.bytes.extend_from_slice(bytes);
+        }
     }
-    pub(crate) fn finish(self, magic: &[u8], max: usize) -> Result<Vec<u8>, ExecutionError> {
+    pub(crate) fn finish(mut self, magic: &[u8], max: usize) -> Result<Vec<u8>, ExecutionError> {
+        self.check()?;
         let length = magic.len() + 4 + self.bytes.len();
         if length > max {
             return Err(ExecutionError::Invalid("history encoded byte bound"));
+        }
+        if !self.pay(length) {
+            self.check()?;
         }
         let mut result = Vec::with_capacity(length);
         result.extend_from_slice(magic);

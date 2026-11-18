@@ -54,10 +54,10 @@ mod attempt;
 pub(super) mod cas_lifecycle;
 #[path = "formal_full_sync_compatibility.rs"]
 mod compatibility;
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 #[path = "formal_full_sync_direct_http.rs"]
 mod direct_http;
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 #[path = "formal_full_sync_dns.rs"]
 mod dns;
 #[path = "formal_full_sync_failover.rs"]
@@ -66,28 +66,28 @@ mod failover;
 mod grant_reconcile;
 #[path = "formal_full_sync_history.rs"]
 pub(super) mod history_chain;
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 #[path = "formal_full_sync_metered_io.rs"]
 mod metered_io;
 #[path = "formal_full_sync_native.rs"]
 mod native_environment;
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 #[path = "formal_full_sync_operation_ledger.rs"]
 mod operation_ledger;
 #[cfg(all(test, unix))]
 #[path = "formal_full_sync_operation_tests.rs"]
 mod operation_tests;
-#[path = "formal_full_sync_session_init.rs"]
-mod session_init;
 #[path = "formal_full_sync_providers.rs"]
 mod providers;
-#[cfg(unix)]
+#[path = "formal_full_sync_session_init.rs"]
+mod session_init;
+#[cfg(all(test, unix))]
 #[path = "formal_full_sync_shared_exchange.rs"]
 mod shared_exchange;
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 #[path = "formal_full_sync_tls_http.rs"]
 mod tls_http;
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 #[path = "formal_full_sync_tls_io.rs"]
 mod tls_io;
 use attempt::{
