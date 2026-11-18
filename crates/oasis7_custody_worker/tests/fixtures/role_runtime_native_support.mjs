@@ -1,3 +1,4 @@
+import {createNativeResponses} from './native_response_diagnostics.mjs';
 // Node-only setup for negative tests around actual Rust/native/workerd components.
 import assert from 'node:assert/strict';
 import {spawn, execFileSync} from 'node:child_process';
@@ -12,7 +13,7 @@ import {fixtureRecoveryPolicy,signFixtureRecoveryActivation} from './fence_activ
 import {freshAccessStatusBarrier} from './fresh_access_status_barrier.mjs';
 import {worldAuthority} from './world_runtime_support.mjs';
 import {readSavedAccountSnapshot} from './account_restore_bench.mjs';
-import {createNativeTimings} from './native_stage_diagnostics.mjs';
+import {createNativeTimings,readIdentityNativeDiagnostic} from './native_stage_diagnostics.mjs';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
 const defaultWorld={world_id:'world-one',genesis_digest:'genesis-one',branch_id:'branch-one',reorg_epoch:'0',service_public_key:'ab'.repeat(32)};
 const defaultRoutes={environment:'test',identity_route:'native-one',world_route:'world-route-one',world_identity:defaultWorld.world_id};
@@ -123,6 +124,7 @@ export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits
     let nativeUnavailable=false;
     let accessStatusBarrier=null;
     const nativeRequests={};
+    const nativeResponses=createNativeResponses();
     const approvalFacts=[];
     const worldResults=[];
     let setupArchiveExpiries=0;
@@ -168,7 +170,12 @@ export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits
       }
       if(url.pathname.endsWith('/verify')) nativeVerifications++;
       const headers=new Headers();for(const name of ['authorization','cookie','origin','sec-fetch-site','x-oasis7-csrf','content-type']) {const value=request.headers.get(name);if(value!==null) headers.set(name,value);}
-      const response=await fetch(native.data.address+url.pathname,{method:request.method,headers,...(request.method==='GET'?{}:{body:Buffer.from(await request.arrayBuffer())}),redirect:'manual'});
+      const observation=nativeResponses.begin(suffix);
+      let response;
+      try {
+        response=await fetch(native.data.address+url.pathname,{method:request.method,headers,...(request.method==='GET'?{}:{body:Buffer.from(await request.arrayBuffer())}),redirect:'manual'});
+        observation.headers(response.status);
+      } catch(error) {observation.failed();throw error;}
       if(accessStatusBarrier)accessStatusBarrier.after(suffix,response.status);
       if(mode==='native-participant-lost-submit' && suffix==='/participant/submit' && response.status===200 && !lostParticipantReply) {
         await response.arrayBuffer();lostParticipantReply=true;
@@ -185,6 +192,7 @@ export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits
       const outputHeaders=new Headers({'Content-Type':'application/json'});
       if(nativeMode) for(const cookie of response.headers.getSetCookie()) outputHeaders.append('Set-Cookie',cookie);
       let body=await response.text();
+      observation.body(body);
       if(suffix==='/custody/approvals/verify' && response.status===200) {
         const fact=JSON.parse(body).verification;
         if(fact) approvalFacts.push(Object.fromEntries(['approval_request_id','purpose','proof_state','origin_state','observed_at','proof_expires_at'].map(key=>[key,fact[key]])));
@@ -252,6 +260,7 @@ export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits
     nativeTiming.facts.provision_approved_at=Date.now();
     await run({persist,account:original.entry.custody_account_id,provisionId:original.entry.provision_id,
       nativeTimings:()=>nativeTiming.facts,
+      readIdentityNativeDiagnostic:permit=>readIdentityNativeDiagnostic(persist,original.entry.custody_account_id,original.entry.provision_id,permit),
       readNativeDiagnosticState:()=>JSON.parse(readSavedAccountSnapshot(persist,original.entry.custody_account_id)).state,
       fixedToolIngressProbe:async(kind,init)=>{
         let reply;
@@ -367,7 +376,7 @@ export async function withRoleRuntime(mode, run, {configureOptions,settleSubmits
       },
       accessStatusBarrierFacts:()=>({...accessStatusBarrier.facts}),
       disableBaselineSettlement:()=>worldProcess?.disableBaselineSettlement(),
-      nativeCalls:()=>nativeVerifications,nativeRequests:()=>({...nativeRequests}),worldResults:()=>[...worldResults],approvalFacts:()=>[...approvalFacts]});
+      nativeResponses:()=>nativeResponses.snapshot(),nativeCalls:()=>nativeVerifications,nativeRequests:()=>({...nativeRequests}),worldResults:()=>[...worldResults],approvalFacts:()=>[...approvalFacts]});
   } finally {worldProcess?.disableBaselineSettlement();await mf?.dispose();await native?.close();await worldProcess?.close();rmSync(directory,{recursive:true,force:true});}
 }
 

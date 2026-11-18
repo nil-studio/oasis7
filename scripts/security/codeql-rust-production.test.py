@@ -135,6 +135,7 @@ class Production(unittest.TestCase):
         self.calls, self.guard_manifests, self.call_options = [], [], []
         self.bad_closure = self.query_failure = self.mutate_source = self.missing_result = False
         self.bad_shared_closure = False
+        self.decoded_results = {}
         self.mutate_private = self.mutate_receipt = self.mutate_mode = None
         self.guard_status = 'PASS'
         self.stack = ExitStack()
@@ -270,9 +271,17 @@ class Production(unittest.TestCase):
                         path = args.work / fixture.mutate_mode
                         path.chmod(path.stat().st_mode ^ 0o020)
                 elif name.startswith('info-'):
-                    value = {'result-sets': [{'name': '#select', 'rows': 0}]}
+                    decoded = fixture.decoded_results.get(name[5:], {'#select': {'tuples': []}})
+                    value = {'result-sets': [dict(name=key, rows=len(result['tuples']))
+                                             for key, result in decoded.items()]}
                 elif name.startswith('decoded-'):
-                    value = {'#select': {'tuples': []}}
+                    value = copy.deepcopy(fixture.decoded_results.get(name[8:], {'#select': {'tuples': []}}))
+                    if '--entities=id,string,url' not in args_list:
+                        for result in value.values():
+                            for row in result['tuples']:
+                                for index, cell in enumerate(row):
+                                    if isinstance(cell, dict):
+                                        row[index] = {'label': cell['label']}
                 elif name == 'interpret-default-results':
                     value = {'version': '2.1.0', 'runs': [{'invocations': [{'executionSuccessful': True}], 'results': []}]}
                     target = Path(next(item.split('=', 1)[1] for item in args_list if item.startswith('--output=')))
@@ -331,7 +340,8 @@ class Production(unittest.TestCase):
                          ['default-query-batch'])
         self.supervision.assert_called_once_with(self.output, self.source, self.source_sha,
                                                  self.deadline, mode=self.mode)
-        self.assertEqual(terminal['variant'], m.PRODUCTION_VARIANT)
+        self.assertEqual((terminal['variant'], terminal['base_variant']),
+                         ('qualifier-lines-constraint-target-qualified-v7', 'qualifier-lines-constraint-matching-v6'))
         self.assertFalse((self.work / 'candidate-negative-typeinference').exists())
         self.assertFalse((self.output / 'negative-projection-identity.json').exists())
 
@@ -340,7 +350,7 @@ class Production(unittest.TestCase):
         self.prepare_ok()
         base = m.read_json(self.output / 'target-qualified-identity.json')
         projected = m.read_json(self.output / 'negative-projection-identity.json')
-        self.assertEqual(projected['base_variant'], m.PRODUCTION_VARIANT)
+        self.assertEqual(projected['base_variant'], m.V7_VARIANT)
         self.assertEqual(projected['variant'], m.NEGATIVE_PROJECTION_VARIANT)
         self.assertEqual(projected['before_files'], base['candidate_files'])
         self.assertEqual(projected['changed_files'], [m.candidate.SHARED_FILE])
@@ -356,7 +366,7 @@ class Production(unittest.TestCase):
         self.assertEqual(self.invoke('run'), 0, self.terminal('run'))
         terminal = self.terminal('run')
         self.assertEqual((terminal['variant'], terminal['base_variant']),
-                         (m.NEGATIVE_PROJECTION_VARIANT, m.PRODUCTION_VARIANT))
+                         (m.NEGATIVE_PROJECTION_VARIANT, m.V7_VARIANT))
         self.assertEqual(terminal['mode'], m.action_deadline.NEGATIVE_PROJECTION_MODE)
         self.assertEqual(terminal['upload_status'], 'DISABLED_FOR_OBSERVATION')
         self.assertEqual(terminal['analysis_deadline'], self.deadline)
@@ -369,8 +379,9 @@ class Production(unittest.TestCase):
         self.supervision.assert_called_once_with(self.output, self.source, self.source_sha,
                                                  self.deadline, mode=self.mode)
 
-    def reject_negative_resolver_root(self, wrong):
-        self.observation(m.action_deadline.NEGATIVE_PROJECTION_MODE)
+    def reject_negative_resolver_root(self, wrong, mode=m.action_deadline.NEGATIVE_PROJECTION_MODE):
+        if mode != m.MODE:
+            self.observation(mode)
         self.bad_shared_closure = wrong
         self.assertEqual(self.invoke('prepare'), 1)
         self.assertNotIn('default-query-batch', [name for name, _ in self.calls])
@@ -384,6 +395,15 @@ class Production(unittest.TestCase):
 
     def test_negative_resolver_rejects_official_instead_of_candidate(self):
         self.reject_negative_resolver_root('official')
+
+    def test_production_resolver_rejects_v7_instead_of_negative(self):
+        self.reject_negative_resolver_root('v7', m.MODE)
+
+    def test_production_resolver_rejects_v6_instead_of_negative(self):
+        self.reject_negative_resolver_root('v6', m.MODE)
+
+    def test_production_resolver_rejects_official_instead_of_negative(self):
+        self.reject_negative_resolver_root('official', m.MODE)
 
     def switch_prepared_observation_mode(self, mode):
         self.mode = mode
@@ -411,6 +431,12 @@ class Production(unittest.TestCase):
 
     def test_negative_mode_rejects_an_altered_patch_before_copy(self):
         self.observation(m.action_deadline.NEGATIVE_PROJECTION_MODE)
+        self.reject_altered_negative_patch()
+
+    def test_production_rejects_an_altered_negative_patch_before_copy(self):
+        self.reject_altered_negative_patch()
+
+    def reject_altered_negative_patch(self):
         with patch.object(m, 'NEGATIVE_PROJECTION_PATCH_SHA', '0' * 64):
             self.assertEqual(self.invoke('prepare'), 1)
         self.assertIn('negative-projection patch identity', self.terminal('prepare')['primary_failure']['error'])
@@ -525,8 +551,8 @@ class Production(unittest.TestCase):
         self.assertEqual(len(self.calls), before)
         self.assertIn('tool/layout identity', self.terminal('run')['primary_failure']['error'])
 
-    def test_observation_preparation_cannot_be_restored_as_production(self):
-        self.observation()
+    def reject_observation_preparation_as_production(self, mode):
+        self.observation(mode)
         self.prepare_ok()
         self.mode = m.MODE
         self.env.update(OASIS7_CODEQL_PRODUCTION_MODE=m.MODE, GITHUB_SHA=self.source_sha)
@@ -538,23 +564,35 @@ class Production(unittest.TestCase):
         self.assertEqual(len(self.calls), before)
         self.assertIn('preparation identity', self.terminal('run')['primary_failure']['error'])
 
+    def test_observation_preparation_cannot_be_restored_as_production(self):
+        self.reject_observation_preparation_as_production(m.action_deadline.FIXED_SOURCE_MODE)
+
+    def test_negative_v8_preparation_cannot_be_restored_as_production_v8(self):
+        self.reject_observation_preparation_as_production(m.action_deadline.NEGATIVE_PROJECTION_MODE)
+
     def test_default_production_keeps_current_event_sha_binding(self):
         self.env['GITHUB_SHA'] = 'd' * 40
         self.assertEqual(self.invoke('prepare'), 1)
         self.assertIn('trusted main', self.terminal('prepare')['primary_failure']['error'])
         self.assertEqual(self.calls, [])
 
-    def test_production_preparation_cannot_be_restored_as_observation(self):
+    def reject_production_preparation_as_observation(self, mode):
         self.prepare_ok()
-        self.observation()
+        self.observation(mode)
         (self.output / 'production-budget.json').write_text(json.dumps(self.budget_receipt))
         with patch.dict(os.environ, self.env):
-            provenance = m.action_deadline.fixed_source_identity(self.source_sha)
+            provenance = m.action_deadline.fixed_source_identity(self.source_sha, mode=mode)
         (self.output / 'fixed-source-provenance.json').write_text(json.dumps(provenance))
         before = len(self.calls)
         self.assertEqual(self.invoke('run'), 1)
         self.assertEqual(len(self.calls), before)
         self.assertIn('preparation identity', self.terminal('run')['primary_failure']['error'])
+
+    def test_production_preparation_cannot_be_restored_as_observation(self):
+        self.reject_production_preparation_as_observation(m.action_deadline.FIXED_SOURCE_MODE)
+
+    def test_production_v8_preparation_cannot_be_restored_as_negative_v8(self):
+        self.reject_production_preparation_as_observation(m.action_deadline.NEGATIVE_PROJECTION_MODE)
 
     def test_unset_action_temp_uses_official_runner_temp_default(self):
         (self.action / 'config').rename(self.runner / 'config')
@@ -603,7 +641,7 @@ class Production(unittest.TestCase):
         self.assertEqual((self.original / m.candidate.MODEL_FILE).read_bytes(), self.core)
         self.assertEqual(self.guard_manifests, [self.source / 'Cargo.toml', self.source / 'independent/Cargo.toml'])
         self.assertEqual(self.terminal('prepare')['source_sha'], self.source_sha)
-        self.assertEqual(self.terminal('prepare')['variant'], 'qualifier-lines-constraint-target-qualified-v7')
+        self.assertEqual(self.terminal('prepare')['variant'], 'qualifier-lines-negative-projection-v8')
         self.assertEqual(m.read_json(self.output / 'arity-patch-identity.json'), m.candidate.arity_identity())
         self.assertEqual((self.work / 'candidate-rust-all' / m.comparison.TYPE_FILE).read_text(), 'trait-patched')
         self.assertEqual((self.work / 'candidate-rust-all' / m.candidate.TRAIT_PATH_FILE).read_text(), 'trait-path')
@@ -620,14 +658,15 @@ class Production(unittest.TestCase):
         for receipt in m.read_json(self.output / 'library-resolution.json'):
             paths = receipt['actual']['libraryPath']
             self.assertIn(str(self.work / 'candidate-rust-all'), paths)
-            self.assertIn(str(self.work / 'candidate-target-typeinference'), paths)
+            self.assertIn(str(self.work / 'candidate-negative-typeinference'), paths)
+            self.assertNotIn(str(self.work / 'candidate-target-typeinference'), paths)
             self.assertNotIn(str(self.work / 'candidate-typeinference'), paths)
             self.assertNotIn(str(self.original), paths)
             self.assertNotIn(str(self.shared), paths)
         self.assertEqual([name for name, _ in self.calls if name.startswith('apply-')],
                          ['apply-behavior-patch', 'apply-arity-patch', 'apply-shared-helper-patch',
                           'apply-trait-visibility-patch', 'apply-constraint-matching-patch',
-                          'apply-target-qualified-patch'])
+                          'apply-target-qualified-patch', 'apply-negative-projection-patch'])
         self.assertNotEqual(self.source_sha, m.capacity.CAPACITY_SOURCE)
         self.assertIn('analysis_minutes=', self.github_output.read_text())
         self.assertIn('node_options=--require=', self.github_output.read_text())
@@ -652,7 +691,7 @@ class Production(unittest.TestCase):
             self.assertEqual(self.invoke('prepare'), 1)
         self.assertEqual(self.calls, [])
         self.assertEqual(self.github_env.read_text(), '')
-        self.assertEqual(self.terminal('prepare')['variant'], 'qualifier-lines-constraint-target-qualified-v7')
+        self.assertEqual(self.terminal('prepare')['variant'], 'qualifier-lines-negative-projection-v8')
         self.assertIn('variant differs from the fixed v6', self.terminal('prepare')['primary_failure']['error'])
 
     def test_changed_v6_component_variant_cannot_restore_prepared_production(self):
@@ -661,16 +700,16 @@ class Production(unittest.TestCase):
         with patch.object(m.candidate, 'WORKLOAD_VARIANT', 'future-research-v7'):
             self.assertEqual(self.invoke('run'), 1)
         self.assertEqual(len(self.calls), before)
-        self.assertEqual(self.terminal('run')['variant'], 'qualifier-lines-constraint-target-qualified-v7')
+        self.assertEqual(self.terminal('run')['variant'], 'qualifier-lines-negative-projection-v8')
         self.assertIn('variant differs from the fixed v6', self.terminal('run')['primary_failure']['error'])
         self.assertFalse(self.sarif.exists())
 
-    def test_target_production_prepares_and_restores_with_retained_v6_base(self):
+    def test_negative_production_prepares_and_restores_with_retained_v6_v7_chain(self):
         self.prepare_ok()
         self.assertEqual(self.invoke('run'), 0, self.terminal('run'))
         for phase in ('prepare', 'run'):
-            self.assertEqual(self.terminal(phase)['variant'], 'qualifier-lines-constraint-target-qualified-v7')
-            self.assertEqual(self.terminal(phase)['base_variant'], 'qualifier-lines-constraint-matching-v6')
+            self.assertEqual(self.terminal(phase)['variant'], 'qualifier-lines-negative-projection-v8')
+            self.assertEqual(self.terminal(phase)['base_variant'], 'qualifier-lines-constraint-target-qualified-v7')
         self.assertEqual(m.candidate.WORKLOAD_VARIANT, 'qualifier-lines-constraint-matching-v6')
         self.assertEqual((self.work / 'candidate-typeinference' / m.candidate.SHARED_FILE).read_text(), 'constraint-shared')
         self.assertEqual((self.work / 'candidate-target-typeinference' / m.candidate.SHARED_FILE).read_text(), 'target-shared')
@@ -681,8 +720,21 @@ class Production(unittest.TestCase):
         self.assertEqual(receipt['candidate_files'][m.candidate.SHARED_FILE]['sha256'], sha(b'target-shared'))
         self.assertEqual(receipt['base_receipts_sha256'], {'constraint-matching-identity.json':
                          m.runtime.digest(self.output / 'constraint-matching-identity.json')})
+        projected = m.read_json(self.output / 'negative-projection-identity.json')
+        self.assertEqual(projected['before_files'], receipt['candidate_files'])
+        self.assertEqual(projected['base_variant'], 'qualifier-lines-constraint-target-qualified-v7')
+        self.assertEqual(projected['base_receipts_sha256'], {'target-qualified-identity.json':
+                         m.runtime.digest(self.output / 'target-qualified-identity.json')})
+        self.assertEqual(projected['tree_permissions']['v7'], projected['tree_permissions']['candidate'])
+        self.assertEqual((self.work / 'candidate-negative-typeinference' / m.candidate.SHARED_FILE).read_bytes(),
+                         b'negative-shared')
+        self.assertEqual(m.read_json(self.output / 'input-identities.json')['negative_shared_library'],
+                         projected['candidate_files'])
         self.assertEqual(m.read_json(self.output / 'selected-closure.json')['codeql/typeinference']['root'],
-                         str(self.work / 'candidate-target-typeinference'))
+                         str(self.work / 'candidate-negative-typeinference'))
+        self.assertEqual(self.terminal('run')['upload_status'], 'NOT_PERFORMED_BY_HELPER')
+        self.assertNotIn('tool_sha', self.terminal('run'))
+        self.assertNotIn('acceptance_scope', self.terminal('run'))
 
     def test_changed_target_variant_cannot_enter_production_preparation(self):
         with patch.object(m.candidate, 'RESEARCH_VARIANT', 'future-target-v8'):
@@ -744,6 +796,32 @@ class Production(unittest.TestCase):
                          ['default-query-batch'])
         self.assertEqual(len(m.read_json(self.output / 'default-results.json')), 37)
 
+    def test_full_decode_preserves_entity_identity_locations_and_all_result_sets(self):
+        first = dict(id=101, label='include!(...)',
+                     url=dict(uri='file:///source/host.rs', startLine=4, startColumn=1, endLine=4, endColumn=18))
+        second = dict(id=102, label='include!(...)',
+                      url=dict(uri='file:///source/other.rs', startLine=8, startColumn=1, endLine=8, endColumn=18))
+        expected = {
+            '#select': {'columns': [{'kind': 'Entity'}, {'kind': 'String'}],
+                        'tuples': [[first, 'unexpanded'], [second, 'unexpanded'],
+                                   [dict(id=103, label='location unavailable'), 'unexpanded'],
+                                   [first, 'unexpanded']]},
+            'diagnosticAttributes': {'columns': [{'kind': 'String'}, {'kind': 'String'}],
+                                     'tuples': [['severity', 'warning']]},
+            'emptySet': {'columns': [{'kind': 'Int'}], 'tuples': []},
+        }
+        self.decoded_results['09'] = copy.deepcopy(expected)
+        self.prepare_ok()
+        self.assertEqual(self.invoke('run'), 0, self.terminal('run'))
+        self.assertEqual(m.read_json(self.output / 'decoded-09.log'), expected)
+        decodes = [argv for _, argv in self.calls if argv[1:3] == ['bqrs', 'decode']]
+        self.assertEqual(len(decodes), 37)
+        self.assertTrue(all('--entities=id,string,url' in argv for argv in decodes))
+        self.assertFalse(any(arg.startswith(('--result-set', '--rows', '--start-at', '--limit'))
+                             for argv in decodes for arg in argv))
+        self.assertEqual(sum(name == 'default-query-batch' for name, _ in self.calls), 1)
+        self.assertEqual(self.terminal('run')['coverage_acceptance'], 'PENDING_HOSTED_REVIEW')
+
     def test_failed_extraction_never_starts_queries_but_keeps_failure_and_coverage(self):
         self.prepare_ok()
         before = len(self.calls)
@@ -759,12 +837,12 @@ class Production(unittest.TestCase):
         self.assertRegex(self.terminal('run')['primary_failure']['error'], 'deadline|budget')
         self.assertNotIn('default-query-batch', [name for name, _ in self.calls])
 
-    def test_old_preparation_variants_cannot_be_promoted_to_v7(self):
+    def test_old_preparation_variants_cannot_be_promoted_to_v8(self):
         self.prepare_ok()
         prepared = self.terminal('prepare')
         before = len(self.calls)
         for variant in ('qualifier-lines-v2', 'qualifier-lines-v3', 'qualifier-lines-shared-trait-v5',
-                        'qualifier-lines-constraint-matching-v6'):
+                        'qualifier-lines-constraint-matching-v6', 'qualifier-lines-constraint-target-qualified-v7'):
             with self.subTest(variant=variant):
                 prepared['variant'] = variant
                 (self.output / 'production-prepare.json').write_text(json.dumps(prepared))
@@ -977,21 +1055,24 @@ class Production(unittest.TestCase):
         self.prepare_ok()
         self.mutate_private = 'candidate-rust-all/' + m.comparison.TYPE_FILE
         self.assertEqual(self.invoke('run'), 1)
-        self.assertIn('input changed during analysis', self.terminal('run')['primary_failure']['error'])
+        self.assertIn('candidate differs from the fixed trait visibility annotation patch',
+                      self.terminal('run')['primary_failure']['error'])
         self.assertFalse(self.sarif.exists())
 
     def test_shared_library_mutation_during_queries_blocks_sarif(self):
         self.prepare_ok()
         self.mutate_private = 'candidate-typeinference/Unchanged.qll'
         self.assertEqual(self.invoke('run'), 1)
-        self.assertIn('input changed during analysis', self.terminal('run')['primary_failure']['error'])
+        self.assertIn('candidate differs from the fixed ConstraintMatching overlay',
+                      self.terminal('run')['primary_failure']['error'])
         self.assertFalse(self.sarif.exists())
 
     def test_target_library_mutation_during_queries_blocks_sarif(self):
         self.prepare_ok()
         self.mutate_private = 'candidate-target-typeinference/Unchanged.qll'
         self.assertEqual(self.invoke('run'), 1)
-        self.assertIn('input changed during analysis', self.terminal('run')['primary_failure']['error'])
+        self.assertIn('candidate differs from the fixed target-qualified overlay',
+                      self.terminal('run')['primary_failure']['error'])
         self.assertFalse(self.sarif.exists())
 
     def test_target_non_executable_permission_mutation_during_queries_blocks_sarif(self):
@@ -1005,14 +1086,40 @@ class Production(unittest.TestCase):
         self.prepare_ok()
         self.mutate_receipt = 'constraint-matching-identity.json'
         self.assertEqual(self.invoke('run'), 1)
-        self.assertIn('input changed during analysis', self.terminal('run')['primary_failure']['error'])
+        self.assertIn('ConstraintMatching identity differs after preparation',
+                      self.terminal('run')['primary_failure']['error'])
         self.assertFalse(self.sarif.exists())
 
     def test_target_receipt_mutation_during_queries_blocks_sarif(self):
         self.prepare_ok()
         self.mutate_receipt = 'target-qualified-identity.json'
         self.assertEqual(self.invoke('run'), 1)
-        self.assertIn('input changed during analysis', self.terminal('run')['primary_failure']['error'])
+        self.assertIn('target-qualified identity differs after preparation',
+                      self.terminal('run')['primary_failure']['error'])
+        self.assertFalse(self.sarif.exists())
+
+    def test_production_negative_bytes_are_rechecked_after_query(self):
+        self.prepare_ok()
+        self.mutate_private = 'candidate-negative-typeinference/' + m.candidate.SHARED_FILE
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertIn('negative-projection patch, base or candidate identity differs',
+                      self.terminal('run')['primary_failure']['error'])
+        self.assertFalse(self.sarif.exists())
+
+    def test_production_negative_permissions_are_rechecked_after_query(self):
+        self.prepare_ok()
+        self.mutate_mode = 'candidate-negative-typeinference/' + m.candidate.SHARED_FILE
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertIn('negative-projection tree entries or permissions differ',
+                      self.terminal('run')['primary_failure']['error'])
+        self.assertFalse(self.sarif.exists())
+
+    def test_production_negative_receipt_is_rechecked_after_query(self):
+        self.prepare_ok()
+        self.mutate_receipt = 'negative-projection-identity.json'
+        self.assertEqual(self.invoke('run'), 1)
+        self.assertIn('negative-projection identity differs after preparation',
+                      self.terminal('run')['primary_failure']['error'])
         self.assertFalse(self.sarif.exists())
 
     def test_pr_cannot_enter_main_only_repaired_queries(self):
@@ -1053,7 +1160,7 @@ def validate_real_production_bindings(test, codeql, work, output, *, end, run):
     before = {name: m.candidate.regular_snapshot(Path(pack['root']), end)
               for name, pack in original.items()}
     closure = m.prepare_libraries(args, original, run)
-    m.candidate.verify_target_qualified_identity(original, work, output, end)
+    negative = m.verify_negative_projection_identity(original, work, output, end)
     expected_files = {
         'candidate-rust-all/codeql/rust/internal/typeinference/TypeInference.qll':
             'db190947441166d6a24217f4dd3bdeafdf8965ca4e11998eba54080bbf91016b',
@@ -1065,6 +1172,8 @@ def validate_real_production_bindings(test, codeql, work, output, *, end, run):
             '8b32c4d95cfd39f0fef5d365e27b3a0d734ae815272dc714fc60d40de56edc33',
         'candidate-target-typeinference/codeql/typeinference/internal/TypeInference.qll':
             '8f8ac05fb73efc3d7ebfd3d9ab452e90c13d61c7e651379f57f88b4400080ca9',
+        'candidate-negative-typeinference/codeql/typeinference/internal/TypeInference.qll':
+            'f51a925b05f1a8315248d04cda44cd12cfb12fd7ae424138898805118ffd9f09',
     }
     test.assertEqual({name: m.capacity.digest_until(work / name, end) for name in expected_files}, expected_files)
     v3 = m.read_json(output / 'lines-model-identity.json')
@@ -1082,6 +1191,12 @@ def validate_real_production_bindings(test, codeql, work, output, *, end, run):
     test.assertEqual(target['changed_files'], [m.candidate.SHARED_FILE])
     test.assertEqual(target['base_receipts_sha256'], {'constraint-matching-identity.json':
                      m.capacity.digest_until(output / 'constraint-matching-identity.json', end)})
+    test.assertEqual(negative['variant'], 'qualifier-lines-negative-projection-v8')
+    test.assertEqual(negative['base_variant'], 'qualifier-lines-constraint-target-qualified-v7')
+    test.assertEqual(negative['before_files'], target['candidate_files'])
+    test.assertEqual(negative['base_receipts_sha256'], {'target-qualified-identity.json':
+                     m.capacity.digest_until(output / 'target-qualified-identity.json', end)})
+    test.assertEqual(negative['tree_permissions']['v7'], negative['tree_permissions']['candidate'])
     records, _ = m.source_queries(official, work, suite, end)
     frozen = m.input_snapshot(args, original, end)
     m.resolve_queries(args, records, closure, run)
@@ -1092,11 +1207,12 @@ def validate_real_production_bindings(test, codeql, work, output, *, end, run):
         paths = receipt['actual']['libraryPath']
         test.assertEqual(len(paths), 15)  # Fourteen dependencies plus the query root.
         test.assertIn(str(work / 'candidate-rust-all'), paths)
-        test.assertIn(str(work / 'candidate-target-typeinference'), paths)
+        test.assertIn(str(work / 'candidate-negative-typeinference'), paths)
+        test.assertNotIn(str(work / 'candidate-target-typeinference'), paths)
         test.assertNotIn(str(work / 'candidate-typeinference'), paths)
         test.assertNotIn(original['codeql/rust-all']['root'], paths)
         test.assertNotIn(original['codeql/typeinference']['root'], paths)
-    m.candidate.verify_target_qualified_identity(original, work, output, end)
+    test.assertEqual(m.verify_negative_projection_identity(original, work, output, end), negative)
     test.assertEqual(m.input_snapshot(args, original, end), frozen)
     test.assertEqual({name: m.candidate.regular_snapshot(Path(pack['root']), end)
                       for name, pack in original.items()}, before)
@@ -1106,11 +1222,12 @@ def validate_real_production_bindings(test, codeql, work, output, *, end, run):
         variant=m.PRODUCTION_VARIANT, base_variant=m.PRODUCTION_BASE_VARIANT, queries=records, closure=closure,
         input_snapshot=frozen, published_queries=published_before))
     def verify_after(check_end):
-        m.candidate.verify_target_qualified_identity(original, work, output, check_end)
+        test.assertEqual(m.verify_negative_projection_identity(original, work, output, check_end), negative)
         test.assertEqual(m.input_snapshot(args, original, check_end), frozen)
         test.assertEqual(m.candidate.regular_snapshot(published, check_end), published_before)
     return verify_after, {name: work / name for name in
-                         ('candidate-rust-all', 'candidate-typeinference', 'candidate-target-typeinference', 'default-queries')}
+                         ('candidate-rust-all', 'candidate-typeinference', 'candidate-target-typeinference',
+                          'candidate-negative-typeinference', 'default-queries')}
 
 
 @unittest.skipUnless(os.environ.get('OASIS7_CODEQL_PRODUCTION_CLI'), 'explicit pinned CodeQL integration input required')
@@ -1276,6 +1393,8 @@ class RealNegativeProjectionQL(unittest.TestCase):
             original['codeql/suite-helpers'] = m.candidate.suite_helper(codeql.parent)
             projected = m.prepare_libraries(args, original, run)
             baseline = m.candidate.research_closure(original, work)
+            self.assertEqual(baseline['codeql/typeinference']['root'], str(work / 'candidate-target-typeinference'))
+            self.assertEqual(projected['codeql/typeinference']['root'], str(work / 'candidate-negative-typeinference'))
             pack = 'oasis7/negative-projection-semantic-fixture'
             (query / 'qlpack.yml').write_text('name: ' + pack + '\nversion: 0.0.0\n'
                 'dependencies:\n  codeql/rust-all: 0.2.25\n  codeql/typeinference: 0.0.42\n'
