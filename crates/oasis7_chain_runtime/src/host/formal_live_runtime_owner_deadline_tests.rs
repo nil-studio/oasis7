@@ -83,6 +83,7 @@ fn bounded_stop_receives_pending_after_server_uses_its_work_budget() {
                 },
                 durable_set_status: None,
                 prepared_transition: None,
+                protected_observation: None,
                 control_error: Some(
                     "formal Node stop is still pending; runtime remains owned".into(),
                 ),
@@ -122,6 +123,7 @@ fn stop_reply_still_rejects_a_different_owner_incarnation() {
                 },
                 durable_set_status: None,
                 prepared_transition: None,
+                protected_observation: None,
                 control_error: None,
             },
         )

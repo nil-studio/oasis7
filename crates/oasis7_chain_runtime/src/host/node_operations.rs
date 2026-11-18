@@ -56,7 +56,7 @@ fn run_unix(args: Vec<String>) -> Result<(), String> {
                 .contains(&tail[0].as_str()))
     {
         println!(
-            "op plan|submit|recover --request FILE [--store DIR]\nop status --store DIR --id ID\nop resume|cancel --store DIR --id ID --revision N\nop agent (fixed SSH/systemd helper; JSON on stdin)\nop formal-status-observe --request FILE\nProtected signer handoff requires exact owner identities, externally verified profile-2 recovery evidence, and independent primary/replica readback. Healthy remove_critical_replica uses HealthyDurableSet authorization and waits for externally provisioned candidate management endpoints; cancel is permitted only before arm."
+            "op plan|submit|recover --request FILE [--store DIR]\nop status --store DIR --id ID\nop resume|cancel --store DIR --id ID --revision N\nop agent (fixed SSH/systemd helper; JSON on stdin)\nop formal-status-observe --request FILE\nop formal-protected-observe --config FILE\nProtected signer handoff requires exact owner identities, externally verified profile-2 recovery evidence, and independent primary/replica readback. Healthy remove_critical_replica uses HealthyDurableSet authorization and waits for externally provisioned candidate management endpoints; cancel is permitted only before arm."
         );
         return Ok(());
     }
@@ -121,6 +121,15 @@ fn run_unix(args: Vec<String>) -> Result<(), String> {
             "{}",
             serde_json::to_string(&report).map_err(|_| "serialize formal status observation")?
         );
+        return Ok(());
+    }
+    if command == "formal-protected-observe" {
+        if tail.len() != 3 || tail[1] != "--config" {
+            return Err("formal-protected-observe requires --config FILE".into());
+        }
+        let observation =
+            super::formal_live_runtime::observe_operation_owner(std::path::Path::new(&tail[2]))?;
+        println!("{}", serde_json::to_string(&observation).map_err(|_| "serialize protected observation")?);
         return Ok(());
     }
     if command == "formal-runtime-status" {

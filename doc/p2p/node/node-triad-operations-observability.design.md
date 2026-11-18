@@ -273,6 +273,8 @@ adapter 复用单节点相同的 schema/profile/world/chain/genesis、incarnatio
 
 报告记录本次本地认证回执时间和时效，旧报告重读不刷新原时间。生成的 JSON／Markdown 带 Host 诊断、固定 World/Node 及最近发布位置，不复制 endpoint、验签公钥、inventory 或原始错误。Host 观测过期标为 stale，双端资格仍为 unknown。此入口沿原 attempt 原子发布语义，不改变其他 profile 或 traffic 数据。
 
+私有 owner 命令 `oasis7_chain_runtime op formal-protected-observe --config FILE` 针对现有运行时的确切 owner incarnation。owner 从同一个已验证发布视图取得历史 cut，然后使用各自绑定的 P/R 客户端，在同一绝对观测期限内取得签名 guarded Head。报告分别保存已验证历史 cut、端点的认证观察或不可用、以及两个已观测 head 是否与本次前后相同的发布 cut 一致。认证过程各端独立，`current_writer_qualification` 保持 unknown。观测只走私有 owner 控制面，HTTP 服务与原读写准入继续沿各自入口。报告使用固定字段与有界错误结果，保留 epoch floor、checkpoint revision、seal 和请求槽存在性。
+
 ### 本地正式 profile 采集与验证读取
 
 独立入口 `scripts/p2p-node-profile-monitor.sh --node-binary <absolute-executable> --data-dir <absolute-existing-directory> --out-dir <root>` 只执行显式选择的 `node status --data-dir`，不启动、停止或修复节点。输出目录不能与节点数据目录重叠，不能包住所选二进制。binary／data-dir／参数先验证，再通过既有持久发布器的独立 `node-profile` 类型预留单调序号和 pending；预发布失败不执行 CLI，旧慢任务不能覆盖新 pending／失败。该类型不能读取其他 collector 的存储。候选二进制内容摘要、数据目录摘要和超时绑定报告范围；路径／配置／grant 不复制到报告。范围改变时不沿用另一范围的 last-success；已取得的实例身份显式记录，跨实例历史不能填作当前读取。
