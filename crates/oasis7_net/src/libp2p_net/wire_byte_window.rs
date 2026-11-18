@@ -13,6 +13,10 @@ use tokio::{
     time::{Instant, sleep_until},
 };
 
+use super::resource_budget::{
+    BudgetDiagnostics, ResourceBudgetRejection, ResourceByteBudgetSnapshot, ResourceByteCounts,
+};
+
 const BUCKET_RETENTION_SECS: u64 = 61;
 
 #[derive(Debug, Clone, Copy)]
@@ -161,6 +165,7 @@ pub(super) struct WireByteWindow {
     limits: WireByteLimits,
     state: Mutex<State>,
     settled: Arc<Notify>,
+    diagnostics: Arc<BudgetDiagnostics>,
 }
 
 fn invalid() -> io::Error {
@@ -170,6 +175,13 @@ fn invalid() -> io::Error {
 impl WireByteWindow {
     #[cfg(test)]
     pub(super) fn new(limits: WireByteLimits) -> io::Result<Self> {
+        Self::with_diagnostics(limits, Arc::default())
+    }
+
+    pub(super) fn with_diagnostics(
+        limits: WireByteLimits,
+        diagnostics: Arc<BudgetDiagnostics>,
+    ) -> io::Result<Self> {
         if limits.inbound == 0 || limits.outbound == 0 || limits.total == 0 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -181,7 +193,35 @@ impl WireByteWindow {
             limits,
             state: Mutex::new(State::default()),
             settled: Arc::new(Notify::new()),
+            diagnostics,
         })
+    }
+
+    pub(super) fn snapshot(&self) -> Option<ResourceByteBudgetSnapshot> {
+        fn counts([inbound, outbound]: [u64; 2]) -> Option<ResourceByteCounts> {
+            Some(ResourceByteCounts {
+                inbound,
+                outbound,
+                total: inbound.checked_add(outbound)?,
+            })
+        }
+
+        let mut state = self.state.lock().ok()?;
+        if state.failed || state.prune(Instant::now()).is_err() {
+            state.failed = true;
+            return None;
+        }
+        Some(ResourceByteBudgetSnapshot {
+            actual_bytes: counts(state.used.map(|charge| charge.actual))?,
+            uncertain_charge_bytes: counts(state.used.map(|charge| charge.conservative))?,
+            charged_bytes: counts([state.used[0].total().ok()?, state.used[1].total().ok()?])?,
+            reserved_bytes: counts(state.reserved)?,
+        })
+    }
+
+    fn note_exhausted(&self, state: &State, limit: ResourceBudgetRejection) {
+        self.diagnostics
+            .rejected(limit, state.buckets.front().map(|bucket| bucket.expires));
     }
 
     fn bucket_expiry(&self, now: Instant) -> io::Result<Instant> {
@@ -210,7 +250,23 @@ impl WireByteWindow {
             .and_then(|()| state.charged_headroom(self.limits))
             .and_then(|headroom| headroom.after_reservations(state.reserved));
         match headroom {
-            Ok(headroom) => headroom.total > 0 && !headroom.directions.contains(&0) && admit(),
+            Ok(headroom) => {
+                let exhausted = if headroom.total == 0 {
+                    Some(ResourceBudgetRejection::BytesTotal)
+                } else if headroom.directions[0] == 0 {
+                    Some(ResourceBudgetRejection::BytesIn)
+                } else if headroom.directions[1] == 0 {
+                    Some(ResourceBudgetRejection::BytesOut)
+                } else {
+                    None
+                };
+                if let Some(reason) = exhausted {
+                    self.note_exhausted(&state, reason);
+                    false
+                } else {
+                    admit()
+                }
+            }
             Err(_) => {
                 state.failed = true;
                 false
@@ -246,6 +302,16 @@ impl WireByteWindow {
                 submitted: false,
             }));
         }
+
+        let exhausted = if available.total == 0 {
+            ResourceBudgetRejection::BytesTotal
+        } else {
+            [
+                ResourceBudgetRejection::BytesIn,
+                ResourceBudgetRejection::BytesOut,
+            ][lane]
+        };
+        self.note_exhausted(&state, exhausted);
 
         // Register the notification while the reservation state is locked. A
         // settlement after this point is visible even before the first poll.

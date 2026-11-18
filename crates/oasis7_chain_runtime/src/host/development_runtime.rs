@@ -26,6 +26,22 @@ pub(super) fn read_config(path: &Path) -> Result<DevelopmentNodeConfigV1, String
     }
     serde_json::from_slice(&bytes).map_err(|e| format!("typed engineering config: {e}"))
 }
+pub(super) fn validate_p2p_resource_budget(options: &CliOptions) -> Result<(), String> {
+    if let P2pResourceBudget::SubstreamV1(limits) = options.p2p_resource_budget {
+        if !options.development_runtime
+            || options.formal_live_config.is_some()
+            || options.guarded_initial_config.is_some()
+        {
+            return Err("p2p_resource_budget requires the typed development runtime".into());
+        }
+        limits.validate_connection_limits()?;
+        if std::time::Instant::now().checked_add(limits.handshake_timeout()).is_none() {
+            return Err("p2p_resource_budget handshake_timeout_ms exceeds the monotonic deadline range".into());
+        }
+    }
+    Ok(())
+}
+
 fn path_at(cwd: &Path, path: &Path) -> PathBuf {
     if path.is_absolute() {
         path.into()
@@ -73,6 +89,7 @@ pub(super) fn into_options(
     };
     o.p2p_peer_record_publication = r.p2p_peer_record_publication;
     o.p2p_peer_record_reception = r.p2p_peer_record_reception;
+    o.p2p_resource_budget = r.p2p_resource_budget;
     if let Some(value) = r.storage_profile {
         o.storage_profile = value;
     }
@@ -349,8 +366,8 @@ pub(super) fn into_options(
     o.execution_records_dir = Some(path_at(cwd, &paths.execution_records_dir));
     o.storage_root = Some(path_at(cwd, &paths.storage_root));
     o.replication_root = Some(path_at(cwd, &paths.replication_root));
-    validate_effective_options(&o)?;
     o.development_runtime = true;
+    validate_effective_options(&o)?;
     Ok(o)
 }
 
@@ -372,6 +389,7 @@ pub(super) fn from_options(o: &CliOptions) -> Result<DevelopmentNodeConfigV1, St
     };
     r.p2p_peer_record_publication = o.p2p_peer_record_publication;
     r.p2p_peer_record_reception = o.p2p_peer_record_reception;
+    r.p2p_resource_budget = o.p2p_resource_budget;
     r.storage_profile = Some(o.storage_profile);
     r.p2p_accept_public_entry = Some(o.p2p_accept_public_entry);
     r.node_tick_ms = Some(o.node_tick_ms);

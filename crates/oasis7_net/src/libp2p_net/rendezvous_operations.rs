@@ -164,10 +164,11 @@ pub(super) fn maybe_register_rendezvous_namespace(
     {
         return Ok(false);
     }
-    if !swarm
-        .behaviour_mut()
-        .discovery_budget
-        .begin_rendezvous(RendezvousOperationKind::Register, peer_id)
+    if !super::swarm_behaviour::may_reuse_discovery_connection(swarm, peer_id)
+        || !swarm
+            .behaviour_mut()
+            .discovery_budget
+            .begin_rendezvous(RendezvousOperationKind::Register, peer_id)
     {
         return Ok(false);
     }
@@ -215,10 +216,11 @@ pub(super) fn maybe_discover_rendezvous_namespace(
         return Ok(false);
     }
     let namespace = rendezvous_namespace(template)?;
-    if !swarm
-        .behaviour_mut()
-        .discovery_budget
-        .begin_rendezvous(RendezvousOperationKind::Discover, peer_id)
+    if !super::swarm_behaviour::may_reuse_discovery_connection(swarm, peer_id)
+        || !swarm
+            .behaviour_mut()
+            .discovery_budget
+            .begin_rendezvous(RendezvousOperationKind::Discover, peer_id)
     {
         return Ok(false);
     }

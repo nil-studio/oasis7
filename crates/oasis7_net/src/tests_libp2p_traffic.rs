@@ -142,3 +142,102 @@ fn libp2p_traffic_metrics_track_requests_and_gossip_payloads() {
         Some(5)
     );
 }
+
+#[test]
+fn typed_net_budget_caps_real_business_substream_before_remote_decode() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    let profile = serde_json::from_str(
+        r#"{"profile":"v1-discovery-resource-budget-1",
+        "connections_total":3,"pending_connections_total":2,"pending_inbound_unknown":1,
+        "pending_outbound":2,"connections_per_peer":1,"handshake_timeout_ms":3000,
+        "bytes_in_per_window":16384,"bytes_out_per_window":16384,"bytes_total_per_window":16384}"#,
+    )
+    .unwrap();
+    let server = Libp2pNetwork::try_new(Libp2pNetworkConfig {
+        listen_addrs: vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()],
+        enable_autonat: false,
+        ..Libp2pNetworkConfig::default()
+    })
+    .unwrap();
+    let seen = Arc::new(AtomicUsize::new(0));
+    let observer = Arc::clone(&seen);
+    let protocol = "/test/shared-business-budget";
+    server
+        .register_handler(
+            protocol,
+            Box::new(move |payload| {
+                observer.fetch_add(1, Ordering::Relaxed);
+                Ok(payload.to_vec())
+            }),
+        )
+        .unwrap();
+    wait_until(
+        "TCP listener",
+        Instant::now() + Duration::from_secs(5),
+        || !server.listening_addrs().is_empty(),
+    );
+
+    let client = Libp2pNetwork::try_new(Libp2pNetworkConfig {
+        p2p_resource_budget: profile,
+        enable_autonat: false,
+        request_response_timeout: Duration::from_millis(800),
+        ..Libp2pNetworkConfig::default()
+    })
+    .unwrap();
+    let peer = server.peer_id();
+    client
+        .dial(server.listening_addrs()[0].clone().with_p2p(peer).unwrap())
+        .unwrap();
+    wait_until(
+        "authenticated peer",
+        Instant::now() + Duration::from_secs(5),
+        || client.connected_peers().contains(&peer),
+    );
+    assert_eq!(
+        client
+            .request_to_peer_with_timeout(protocol, b"probe", peer, Duration::from_secs(3))
+            .unwrap_or_else(|error| panic!(
+                "small request failed: {error:?}; client {:?}; server {:?}; budget {:?}",
+                client.debug_errors(),
+                server.debug_errors(),
+                client.traffic_metrics_snapshot().resource_budget,
+            )),
+        b"probe",
+    );
+    assert_eq!(seen.load(Ordering::Relaxed), 1);
+    assert!(
+        client
+            .request_to_peer_with_timeout(protocol, &[7; 32768], peer, Duration::from_secs(3))
+            .is_err()
+    );
+    assert_eq!(
+        seen.load(Ordering::Relaxed),
+        1,
+        "receiver decoded an over-budget request"
+    );
+
+    let status = client.traffic_metrics_snapshot().resource_budget;
+    let connections = status.connections.unwrap();
+    assert_eq!(
+        (
+            connections.total,
+            connections.pending,
+            connections.established
+        ),
+        (1, 0, 1)
+    );
+    let bytes = status.bytes.unwrap();
+    assert_eq!(bytes.charged_bytes.total, 16384);
+    assert!(bytes.actual_bytes.inbound > 0 && bytes.actual_bytes.outbound > 0);
+    assert_eq!(bytes.reserved_bytes.total, 0);
+    assert_eq!(
+        status.last_rejection,
+        Some(crate::ResourceBudgetRejection::BytesTotal)
+    );
+    let retry_ms = status.next_attempt_delay_ms.unwrap();
+    assert!(retry_ms > 0 && retry_ms <= 61_000);
+}

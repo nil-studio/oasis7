@@ -11,6 +11,10 @@ use libp2p::{
     swarm::{Config, ConnectionDenied, ConnectionId, TransportAdmission},
 };
 
+use super::resource_budget::{
+    BudgetDiagnostics, ConnectionBudgetSnapshot, ResourceBudgetRejection,
+};
+
 #[cfg(test)]
 #[path = "connection_budget_tests.rs"]
 mod tests;
@@ -104,6 +108,7 @@ impl ActiveAttempts {
 struct ConnectionLedger {
     limits: ConnectionLimits,
     state: Mutex<ActiveAttempts>,
+    diagnostics: Arc<BudgetDiagnostics>,
 }
 
 #[derive(Clone)]
@@ -116,6 +121,13 @@ fn denied(reason: &'static str) -> ConnectionDenied {
 impl ConnectionBudget {
     #[cfg(test)]
     pub(super) fn new(limits: ConnectionLimits) -> io::Result<Self> {
+        Self::with_diagnostics(limits, Arc::default())
+    }
+
+    pub(super) fn with_diagnostics(
+        limits: ConnectionLimits,
+        diagnostics: Arc<BudgetDiagnostics>,
+    ) -> io::Result<Self> {
         if limits.total == 0
             || !(1..=limits.total).contains(&limits.pending)
             || !(1..=limits.pending).contains(&limits.inbound_unknown)
@@ -134,7 +146,29 @@ impl ConnectionBudget {
         Ok(Self(Arc::new(ConnectionLedger {
             limits,
             state: Mutex::default(),
+            diagnostics,
         })))
+    }
+
+    pub(super) fn snapshot(&self) -> Option<ConnectionBudgetSnapshot> {
+        let state = self.0.state.lock().ok()?;
+        if state.failed {
+            return None;
+        }
+        let total = u32::try_from(state.entries.len()).ok()?;
+        let pending = state.pending[0].checked_add(state.pending[1])?;
+        Some(ConnectionBudgetSnapshot {
+            total,
+            established: total.checked_sub(pending)?,
+            pending,
+            pending_inbound_unknown: state.pending[0],
+            pending_outbound: state.pending[1],
+        })
+    }
+
+    fn rejected(&self, reason: ResourceBudgetRejection, detail: &'static str) -> ConnectionDenied {
+        self.0.diagnostics.rejected(reason, None);
+        denied(detail)
     }
 
     pub(super) fn configure_swarm(&self, config: Config) -> Config {
@@ -170,20 +204,33 @@ impl ConnectionBudget {
             .map_err(|_| denied("connection budget unavailable"))?
             >= limits.total
         {
-            return Err(denied("total connection budget exhausted"));
+            return Err(self.rejected(
+                ResourceBudgetRejection::ConnectionTotal,
+                "total connection budget exhausted",
+            ));
         }
         let pending = state.pending[0]
             .checked_add(state.pending[1])
             .ok_or_else(|| denied("connection budget unavailable"))?;
         if pending >= limits.pending {
-            return Err(denied("shared pending connection budget exhausted"));
+            return Err(self.rejected(
+                ResourceBudgetRejection::PendingTotal,
+                "shared pending connection budget exhausted",
+            ));
         }
         let lane = key.pending_lane();
         if state.pending[lane] >= [limits.inbound_unknown, limits.outbound][lane] {
-            return Err(denied("directional pending connection budget exhausted"));
+            let reason = [
+                ResourceBudgetRejection::PendingInbound,
+                ResourceBudgetRejection::PendingOutbound,
+            ][lane];
+            return Err(self.rejected(reason, "directional pending connection budget exhausted"));
         }
         if peer.is_some_and(|peer| state.for_peer(peer) >= limits.per_peer) {
-            return Err(denied("peer connection budget exhausted"));
+            return Err(self.rejected(
+                ResourceBudgetRejection::PerPeer,
+                "peer connection budget exhausted",
+            ));
         }
         let deadline = Instant::now()
             .checked_add(limits.handshake_timeout)
@@ -253,7 +300,8 @@ impl ConnectionBudget {
             .copied()
             .ok_or_else(|| denied("authenticated connection lacks a pending permit"))?;
         if Instant::now() >= attempt.deadline {
-            return Err(denied(
+            return Err(self.rejected(
+                ResourceBudgetRejection::HandshakeDeadline,
                 "authenticated connection exceeded its handshake deadline",
             ));
         }
@@ -267,7 +315,10 @@ impl ConnectionBudget {
             None => true,
         };
         if add_peer && state.for_peer(peer) >= self.0.limits.per_peer {
-            return Err(denied("authenticated peer connection budget exhausted"));
+            return Err(self.rejected(
+                ResourceBudgetRejection::PerPeer,
+                "authenticated peer connection budget exhausted",
+            ));
         }
         let current = state
             .entries

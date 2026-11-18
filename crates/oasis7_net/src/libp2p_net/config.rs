@@ -4,7 +4,7 @@ use libp2p::identity::Keypair;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use oasis7_proto::distributed_dht::PeerRecord;
+use oasis7_proto::{distributed_dht::PeerRecord, p2p_resource_budget::P2pResourceBudget};
 use serde::{Deserialize, Serialize};
 
 use super::PeerManagerPolicy;
@@ -27,6 +27,7 @@ pub struct Libp2pNetworkConfig {
     pub peer_record_publication_directory: Option<PathBuf>,
     /// Controls inbound peer-record replay protection independently of publishing.
     pub peer_record_receiver: PeerRecordReceiverConfig,
+    pub p2p_resource_budget: P2pResourceBudget,
     /// One explicit durable V2 publisher transition applied during startup.
     pub peer_record_publication_transition: Option<PeerRecordPublicationTransition>,
     pub enable_rendezvous: bool,
@@ -76,6 +77,7 @@ impl Default for Libp2pNetworkConfig {
             peer_record: None,
             peer_record_publication_directory: None,
             peer_record_receiver: PeerRecordReceiverConfig::default(),
+            p2p_resource_budget: P2pResourceBudget::default(),
             peer_record_publication_transition: None,
             enable_rendezvous: false,
             enable_autonat: true,
