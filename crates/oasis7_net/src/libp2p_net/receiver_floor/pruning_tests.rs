@@ -895,3 +895,128 @@ fn unobserved_lower_sequence_record_cannot_resurrect_withdrawn_peer_after_prunin
         "expected watermark rejection, got {replay_watermark_err:?}"
     );
 }
+
+#[test]
+fn stale_trusted_bound_must_not_allow_unobserved_sequence_resurrection() {
+    let fixture = fixture();
+    let receiver = open(&fixture);
+    let key = Keypair::generate_ed25519();
+    let peer_id = PeerId::from(key.public()).to_string();
+
+    let t = 10_000_000i64;
+    // Receiver observes a stale trusted time bound (T - 3,600,000)
+    receiver.observe_trusted_time(t - 3_600_000).unwrap();
+
+    // Sequence 1: published at T with 3,600,000 ms TTL (expires at T + 3,600,000 ms), withheld
+    let mut rec1 = record_body(&key, "peer-stale-bound-seq1");
+    rec1.published_at_ms = t;
+    rec1.ttl_ms = 3_600_000;
+    let signed1 = super::super::peer_record::sign_peer_record_v2(
+        &rec1,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 1,
+            state: PeerRecordPublicationStateV2::Live,
+        },
+        &key,
+    )
+    .unwrap();
+
+    // Sequence 2: tombstone published at T - 3,599,000 ms with 3,600,000 ms TTL
+    let mut tombstone_rec = record_body(&key, "peer-stale-bound-seq2-tombstone");
+    tombstone_rec.direct_addrs.clear();
+    tombstone_rec.hole_punch_addrs.clear();
+    tombstone_rec.relay_addrs.clear();
+    tombstone_rec.published_at_ms = t - 3_599_000;
+    tombstone_rec.ttl_ms = 3_600_000;
+    let signed2 = super::super::peer_record::sign_peer_record_v2(
+        &tombstone_rec,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 2,
+            state: PeerRecordPublicationStateV2::Tombstone,
+        },
+        &key,
+    )
+    .unwrap();
+
+    assert_eq!(
+        receiver.admit_serialized(&signed2).unwrap(),
+        ReceiverAdmission::Accepted
+    );
+    assert_eq!(receiver.floor_count().unwrap(), 1);
+
+    // Because the observed trusted time was stale (T - 3,600,000 < published_at_ms),
+    // no fresh admission bound could be established. An early prune attempt at T + 31,000 ms
+    // MUST NOT reclaim the floor.
+    let pruned = receiver.prune_floors(t + 31_000, &BTreeSet::new()).unwrap();
+    assert_eq!(pruned, 0, "stale trusted bound must not allow premature floor reclamation");
+    assert!(receiver.contains_floor(&peer_id).unwrap());
+
+    // Delivering sequence 1 while floor is preserved is rejected
+    let regressed_err = receiver.admit_serialized(&signed1).unwrap_err();
+    assert!(
+        format!("{regressed_err:?}").contains("peer-record V2 sequence regressed"),
+        "expected sequence regressed error, got {regressed_err:?}"
+    );
+}
+
+#[test]
+fn legacy_missing_admission_bound_must_retain_floor_after_reopen() {
+    let fixture = fixture();
+    let key = Keypair::generate_ed25519();
+    let peer_id = PeerId::from(key.public()).to_string();
+
+    let t = 10_000_000i64;
+    // Sequence 2: tombstone published at T - 3,599,000 ms with 3,600,000 ms TTL
+    let mut tombstone_rec = record_body(&key, "peer-legacy-bound-seq2-tombstone");
+    tombstone_rec.direct_addrs.clear();
+    tombstone_rec.hole_punch_addrs.clear();
+    tombstone_rec.relay_addrs.clear();
+    tombstone_rec.published_at_ms = t - 3_599_000;
+    tombstone_rec.ttl_ms = 3_600_000;
+    let signed2 = super::super::peer_record::sign_peer_record_v2(
+        &tombstone_rec,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 2,
+            state: PeerRecordPublicationStateV2::Tombstone,
+        },
+        &key,
+    )
+    .unwrap();
+    let publication = signed2.publication.as_ref().unwrap();
+    let identity = record_identity(&signed2, publication).unwrap();
+
+    let mut floors = BTreeMap::new();
+    floors.insert(
+        peer_id.clone(),
+        PeerFloorV2 {
+            sequence: 2,
+            signing_payload_digest_hex: encode_digest(&identity),
+            primary_signed_record_cbor: canonical_record_bytes(&signed2).unwrap(),
+            conflict_signed_record_cbor: None,
+            isolated: false,
+            max_expiry_ms: Some(tombstone_rec.published_at_ms + tombstone_rec.ttl_ms),
+            admitted_at_ms: None, // Pre-upgrade legacy floor without admission timestamp
+        },
+    );
+
+    let ledger = ReceiverLedgerV2 {
+        schema_version: RECEIVER_SCHEMA_VERSION,
+        binding: receiver_binding(&fixture.template, &fixture.local_key).unwrap(),
+        mode: fixture.config.mode,
+        floors,
+        pruned_trusted_time_watermark_ms: None,
+        pre_migration_v1_expiries: BTreeMap::new(),
+    };
+    write_state(&fixture, &state_bytes(&ledger));
+
+    let receiver = open(&fixture);
+    assert_eq!(receiver.floor_count().unwrap(), 1);
+
+    // Pruning attempt at T + 31,000 ms MUST NOT reclaim sequence 2 floor when admitted_at_ms is None
+    let pruned = receiver.prune_floors(t + 31_000, &BTreeSet::new()).unwrap();
+    assert_eq!(pruned, 0, "legacy floor without admitted_at_ms must be retained against lower sequence resurrection");
+    assert!(receiver.contains_floor(&peer_id).unwrap());
+}

@@ -437,13 +437,18 @@ impl PeerRecordReceiver {
         };
 
         let admission_time = match durable.last_trusted_now_ms {
-            Some(trusted) => trusted.max(record.record.published_at_ms),
+            Some(trusted) if trusted < record.record.published_at_ms => {
+                // Trusted time observation is stale relative to the published record.
+                // Do not manufacture a prematurely expiring admission bound.
+                None
+            }
+            Some(trusted) => Some(trusted.max(record.record.published_at_ms)),
             None => {
                 let wall = crate::util::unix_now_ms_i64();
                 if (wall - record.record.published_at_ms).abs() < 86_400_000 {
-                    wall.max(record.record.published_at_ms)
+                    Some(wall.max(record.record.published_at_ms))
                 } else {
-                    record.record.published_at_ms
+                    Some(record.record.published_at_ms)
                 }
             }
         };
@@ -473,8 +478,10 @@ impl PeerRecordReceiver {
                 });
                 current.max_expiry_ms =
                     Some(existing_max.max(new_expiry).max(pre_v1_expiry.unwrap_or(0)));
-                let existing_admitted = current.admitted_at_ms.unwrap_or(0);
-                current.admitted_at_ms = Some(existing_admitted.max(admission_time));
+                if let Some(time) = admission_time {
+                    let existing_admitted = current.admitted_at_ms.unwrap_or(0);
+                    current.admitted_at_ms = Some(existing_admitted.max(time));
+                }
             }
             ReceiverAdmission::Accepted => {
                 let new_expiry = record
@@ -500,11 +507,11 @@ impl PeerRecordReceiver {
                         Some(base.max(new_expiry))
                     }
                 };
-                let admitted_at_ms = match current {
-                    Some(existing) => {
-                        Some(existing.admitted_at_ms.unwrap_or(0).max(admission_time))
-                    }
-                    None => Some(admission_time),
+                let admitted_at_ms = match (current.and_then(|e| e.admitted_at_ms), admission_time) {
+                    (Some(prev), Some(fresh)) => Some(prev.max(fresh)),
+                    (Some(prev), None) => Some(prev),
+                    (None, Some(fresh)) => Some(fresh),
+                    (None, None) => None,
                 };
                 next.floors.insert(
                     peer_id,
@@ -775,10 +782,17 @@ fn is_floor_prunable(
     if trusted_now_ms < effective_max_expiry {
         return Ok(false);
     }
-    let admission_time = floor
-        .admitted_at_ms
-        .unwrap_or(primary.record.published_at_ms)
-        .max(primary.record.published_at_ms);
+    let admission_time = match floor.admitted_at_ms {
+        Some(t) => t.max(primary.record.published_at_ms),
+        None => {
+            if floor.sequence > 1 {
+                // Pre-upgrade or unproven floor with sequence > 1 cannot prove
+                // that unobserved lower-sequence records have expired.
+                return Ok(false);
+            }
+            primary.record.published_at_ms
+        }
+    };
     let max_possible_expiry = admission_time
         .saturating_add(MAX_RECORD_TTL_MS)
         .saturating_add(MAX_FUTURE_SKEW_MS);
