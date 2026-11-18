@@ -939,3 +939,111 @@ fn stale_and_mixed_dial_errors_are_scoped_to_the_exact_retry_path() {
     );
     assert!(pending.is_empty());
 }
+
+#[test]
+fn elapsed_caller_deadline_blocks_late_payload_after_real_refill() {
+    use crate::libp2p_net::{Libp2pNetwork, Libp2pNetworkConfig};
+    use oasis7_proto::{distributed_net::DistributedNetwork as _, network_failure::FailureCause};
+    use std::sync::mpsc;
+
+    fn wait_until(message: &str, mut done: impl FnMut() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !done() {
+            assert!(Instant::now() < deadline, "{message}");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    let profile = serde_json::from_str(
+        r#"{"profile":"v1-discovery-resource-budget-1",
+        "connections_total":3,"pending_connections_total":2,"pending_inbound_unknown":1,
+        "pending_outbound":2,"connections_per_peer":1,"handshake_timeout_ms":3000,
+        "bytes_in_per_window":16384,"bytes_out_per_window":16384,"bytes_total_per_window":16384}"#,
+    )
+    .unwrap();
+    let server = Libp2pNetwork::try_new(Libp2pNetworkConfig {
+        listen_addrs: vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()],
+        enable_autonat: false,
+        ..Libp2pNetworkConfig::default()
+    })
+    .unwrap();
+    let protocol = "/test/caller-window-deadline";
+    let (received_tx, received) = mpsc::channel();
+    server
+        .register_handler(
+            protocol,
+            Box::new(move |payload| {
+                received_tx.send(payload.to_vec()).unwrap();
+                Ok(b"ack".to_vec())
+            }),
+        )
+        .unwrap();
+    wait_until("server listener unavailable", || {
+        !server.listening_addrs().is_empty()
+    });
+
+    let client = Libp2pNetwork::try_new(Libp2pNetworkConfig {
+        p2p_resource_budget: profile,
+        enable_autonat: false,
+        request_response_timeout: Duration::from_secs(8),
+        ..Libp2pNetworkConfig::default()
+    })
+    .unwrap();
+    let window = client.wire_byte_counters.window().unwrap();
+    let expiry = window
+        .seed_aged_first_read(Duration::from_secs(58))
+        .into_std();
+    let peer = server.peer_id();
+    client
+        .dial(server.listening_addrs()[0].clone().with_p2p(peer).unwrap())
+        .unwrap();
+    wait_until("authenticated TCP connection unavailable", || {
+        client.connected_peers().contains(&peer)
+    });
+
+    let error = client
+        .request_to_peer_with_timeout(protocol, b"expired", peer, Duration::from_millis(350))
+        .unwrap_err();
+    assert_eq!(
+        error.network_failure(Some(protocol)).cause,
+        FailureCause::Timeout
+    );
+    assert!(
+        Instant::now() < expiry,
+        "caller deadline did not precede byte recovery"
+    );
+    assert!(
+        received.try_recv().is_err(),
+        "request arrived while caller was expired"
+    );
+    std::thread::sleep(
+        expiry.saturating_duration_since(Instant::now()) + Duration::from_millis(10),
+    );
+
+    wait_until("expired request did not reach actual terminal", || {
+        client
+            .debug_errors()
+            .iter()
+            .any(|error| error.contains("RequestDeadlineElapsed"))
+    });
+    assert_eq!(
+        client
+            .request_to_peer_with_timeout(protocol, b"fresh", peer, Duration::from_secs(3))
+            .unwrap(),
+        b"ack",
+    );
+    assert_eq!(
+        received.recv_timeout(Duration::from_secs(1)).unwrap(),
+        b"fresh"
+    );
+    assert!(received.try_recv().is_err());
+    assert_eq!(
+        client
+            .traffic_metrics_snapshot()
+            .resource_budget
+            .connections
+            .unwrap()
+            .established,
+        1
+    );
+}
