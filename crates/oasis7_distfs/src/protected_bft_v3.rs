@@ -11,6 +11,7 @@ mod membership;
 mod rotation;
 mod service;
 mod state;
+mod successor_archive_store;
 mod successor_source;
 #[cfg(test)]
 mod tests;
@@ -49,4 +50,8 @@ pub use rotation::{BftFinalityRotationProofArchiveV3, BftFinalityRotationProofRe
 
 pub use bootstrap_rotation::{
     BftBootstrapFinalityRotationProofArchiveV3, BftBootstrapFinalityRotationProofRecordV3,
+};
+
+pub use successor_archive_store::{
+    BftSuccessorArchiveStoreV1, BftSuccessorWindowArchiveRefV1, LocalBftSuccessorArchiveStoreV1,
 };
