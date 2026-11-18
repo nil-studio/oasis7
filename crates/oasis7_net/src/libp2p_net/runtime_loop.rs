@@ -716,23 +716,9 @@ pub(super) fn handle_command(
             if connected_request_peers.is_empty() {
                 if providers.is_empty() {
                     if let Some(handler) = handlers.get(&protocol) {
-                        let invoke = || {
-                            let context = NetworkRequestContext::new(
-                                deadline
-                                    .map(tokio::time::Instant::into_std)
-                                    .unwrap_or_else(|| {
-                                        std::time::Instant::now()
-                                            + std::time::Duration::from_secs(30)
-                                    }),
-                                Arc::new(std::sync::atomic::AtomicBool::new(false)),
-                            );
-                            (handler.handler)(&context, &payload)
-                        };
-                        let result = if let Some(admission) = handler.admission.as_ref() {
-                            admission(&payload).and_then(|()| invoke())
-                        } else {
-                            invoke()
-                        };
+                        let result = super::request_deadline::dispatch_local_handler(
+                            handler, &payload, deadline,
+                        );
                         let _ = response.send(result);
                     } else {
                         let _ = response.send(Err(WorldError::NetworkProtocolUnavailable {

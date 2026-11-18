@@ -1,5 +1,11 @@
 //! Local request expiry at the existing application CBOR boundary.
-use std::{future::Future, io, pin::pin, time::Duration};
+use std::{
+    future::Future,
+    io,
+    pin::pin,
+    sync::{Arc, atomic::AtomicBool},
+    time::Duration,
+};
 
 use futures::{
     AsyncRead, AsyncWrite, AsyncWriteExt,
@@ -9,10 +15,10 @@ use libp2p::{
     StreamProtocol,
     request_response::{Codec, cbor},
 };
-use oasis7_proto::distributed_net::{NetworkRequest, NetworkResponse};
+use oasis7_proto::distributed_net::{NetworkRequest, NetworkRequestContext, NetworkResponse};
 use tokio::time::{Instant, sleep_until};
 
-use super::runtime_loop::Command;
+use super::runtime_loop::{Command, HandlerRegistration};
 
 pub(super) fn reject_expired_command(command: Option<&Command>) -> bool {
     let Some(
@@ -26,14 +32,42 @@ pub(super) fn reject_expired_command(command: Option<&Command>) -> bool {
     else {
         return false;
     };
-    if deadline.is_none_or(|deadline| deadline > Instant::now()) {
-        return false;
+    match check_dispatch_deadline(*deadline) {
+        Ok(()) => false,
+        Err(error) => {
+            let _ = response.send(Err(error));
+            true
+        }
     }
-    let _ = response.send(Err(super::outbound_failure::request_failure_world_error(
-        libp2p::request_response::OutboundFailure::Timeout,
-        "request expired before dispatch".into(),
-    )));
-    true
+}
+
+pub(super) fn check_dispatch_deadline(deadline: Option<Instant>) -> Result<(), super::WorldError> {
+    if deadline.is_some_and(|deadline| deadline <= Instant::now()) {
+        return Err(super::outbound_failure::request_failure_world_error(
+            libp2p::request_response::OutboundFailure::Timeout,
+            "request expired before dispatch".into(),
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn dispatch_local_handler(
+    handler: &HandlerRegistration,
+    payload: &[u8],
+    deadline: Option<Instant>,
+) -> Result<Vec<u8>, super::WorldError> {
+    check_dispatch_deadline(deadline)?;
+    if let Some(admission) = &handler.admission {
+        admission(payload)?;
+    }
+    check_dispatch_deadline(deadline)?;
+    let context = NetworkRequestContext::new(
+        deadline
+            .unwrap_or_else(|| deadline_in(Duration::from_secs(30)))
+            .into_std(),
+        Arc::new(AtomicBool::new(false)),
+    );
+    (handler.handler)(&context, payload)
 }
 
 #[derive(Debug)]
@@ -213,6 +247,30 @@ mod tests {
                     assert!(received.deadline.is_none());
                 }
             });
+    }
+
+    #[test]
+    fn handler_fallback_rechecks_original_deadline_after_admission() {
+        use oasis7_proto::network_failure::FailureCause;
+        use std::sync::atomic::Ordering;
+
+        let deadline = deadline_in(Duration::from_millis(250));
+        let admitted = Arc::new(AtomicBool::new(false));
+        let callback = Arc::clone(&admitted);
+        let handler = HandlerRegistration {
+            admission: Some(Arc::new(move |_| {
+                callback.store(true, Ordering::Release);
+                std::thread::sleep(
+                    deadline.saturating_duration_since(Instant::now()) + Duration::from_millis(5),
+                );
+                Ok(())
+            })),
+            handler: Arc::new(|_, _| panic!("expired local request reached its handler")),
+            authenticated: None,
+        };
+        let error = dispatch_local_handler(&handler, b"expired", Some(deadline)).unwrap_err();
+        assert!(admitted.load(Ordering::Acquire));
+        assert_eq!(error.network_failure(None).cause, FailureCause::Timeout);
     }
 
     #[derive(Default)]

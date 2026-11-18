@@ -1001,6 +1001,7 @@ fn elapsed_caller_deadline_blocks_late_payload_after_real_refill() {
         client.connected_peers().contains(&peer)
     });
 
+    let original_retry_deadline = Instant::now() + Duration::from_millis(350);
     let error = client
         .request_to_peer_with_timeout(protocol, b"expired", peer, Duration::from_millis(350))
         .unwrap_err();
@@ -1026,6 +1027,13 @@ fn elapsed_caller_deadline_blocks_late_payload_after_real_refill() {
             .iter()
             .any(|error| error.contains("RequestDeadlineElapsed"))
     });
+    let retry = client
+        .request_to_peer_before(protocol, b"late retry", peer, original_retry_deadline)
+        .unwrap_err();
+    assert_eq!(
+        retry.network_failure(Some(protocol)).cause,
+        FailureCause::Timeout
+    );
     assert_eq!(
         client
             .request_to_peer_with_timeout(protocol, b"fresh", peer, Duration::from_secs(3))

@@ -403,11 +403,11 @@ impl Libp2pReplicationNetwork {
         protocol: &str,
         payload: &[u8],
         peer: PeerId,
-        timeout: Duration,
+        deadline: Instant,
     ) -> Result<Vec<u8>, WorldError> {
         let response = self
             .inner
-            .request_to_peer_with_timeout(protocol, payload, peer, timeout)
+            .request_to_peer_before(protocol, payload, peer, deadline)
             .map_err(|err| {
                 let facts = err.network_failure(Some(protocol));
                 err.with_network_failure(facts)
@@ -684,11 +684,14 @@ impl Libp2pReplicationNetwork {
     {
         let cursor = self.request_peer_cursor.fetch_add(1, Ordering::Relaxed);
         let started_at = Instant::now();
+        let retry_deadline = started_at
+            .checked_add(request_retry_budget)
+            .unwrap_or(started_at);
         let mut last_error = None;
         let mut attempted_peers = HashSet::new();
 
         for attempt in 0..=REQUEST_CONNECTION_REFRESH_RETRIES {
-            if started_at.elapsed() >= request_retry_budget {
+            if Instant::now() >= retry_deadline {
                 return Err(replication_request_budget_exhausted(
                     protocol,
                     request_retry_budget,
@@ -722,17 +725,18 @@ impl Libp2pReplicationNetwork {
             let mut retryable_connection_gap = false;
             for peer in ordered_peers {
                 attempted_peers.insert(peer);
-                let elapsed = started_at.elapsed();
-                if elapsed >= request_retry_budget {
+                let now = Instant::now();
+                if now >= retry_deadline {
                     return Err(replication_request_budget_exhausted(
                         protocol,
                         request_retry_budget,
                         last_error,
                     ));
                 }
-                let remaining_budget = request_retry_budget.saturating_sub(elapsed);
-                let peer_request_timeout = request_timeout.min(remaining_budget);
-                match self.request_via_peer(protocol, payload, peer, peer_request_timeout) {
+                let peer_deadline = now
+                    .checked_add(request_timeout)
+                    .map_or(retry_deadline, |deadline| deadline.min(retry_deadline));
+                match self.request_via_peer(protocol, payload, peer, peer_deadline) {
                     Ok(reply) => {
                         self.mark_peer_request_success(peer);
                         return Ok(reply);
@@ -748,7 +752,7 @@ impl Libp2pReplicationNetwork {
                         retryable_connection_gap |=
                             peer_error_indicates_retryable_connection_gap(&err);
                         last_error = Some(err);
-                        if started_at.elapsed() >= request_retry_budget {
+                        if Instant::now() >= retry_deadline {
                             return Err(replication_request_budget_exhausted(
                                 protocol,
                                 request_retry_budget,
