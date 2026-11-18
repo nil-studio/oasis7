@@ -141,7 +141,8 @@ impl FormalFullSyncSession {
         }))
     }
 
-    /// Explicit operation dependency; does not enable V2 configuration by itself.
+    /// Explicit operation dependency for the shared-exchange validation fixture.
+    #[cfg(all(test, unix))]
     pub(in super::super) fn bind_shared_exchange(
         &mut self,
         exchange: Arc<dyn oasis7_game_client::formal_sync_exchange::FullSyncExchange>,
