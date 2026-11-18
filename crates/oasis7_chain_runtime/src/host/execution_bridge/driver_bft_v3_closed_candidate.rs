@@ -9,6 +9,9 @@ use oasis7_node::NodeBftPrivateCandidateV3;
 #[path = "driver_bft_v3_archived_publication_metadata.rs"]
 mod publication_metadata;
 use publication_metadata::PublicationReservationV1;
+#[path = "driver_bft_v3_archived_publication_plan.rs"]
+mod publication_plan;
+use publication_plan::planned_publication_bytes;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -23,6 +26,7 @@ pub(crate) struct ReplayedOriginalCandidateV1 {
     height: u64,
     header_id: String,
     data_schema: u32,
+    publication_bytes: u64,
     semantic_state_root: String,
     result_root: String,
 }
@@ -58,7 +62,7 @@ impl OriginalCandidateArchivePinV1 {
         target: BftProfileTargetV2,
         expected_cut: (u64, &str),
     ) -> Result<(ReplayedCommittedPrefixV1, ReplayedOriginalCandidateV1), String> {
-        let (cut, parent, origin) = FormalBftHeaderLedgerExecutionV3::replay_closed_prefix(
+        let (cut, parent) = FormalBftHeaderLedgerExecutionV3::replay_closed_prefix(
             archive,
             reference,
             source,
@@ -67,7 +71,7 @@ impl OriginalCandidateArchivePinV1 {
             expected_cut.0,
             expected_cut.1,
         )?;
-        let candidate = self.replay_candidate(archive, source, &parent, &origin)?;
+        let candidate = self.replay_candidate(archive, source, &parent)?;
         Ok((cut, candidate))
     }
 
@@ -75,14 +79,15 @@ impl OriginalCandidateArchivePinV1 {
         &self,
         archive: &LocalBftSuccessorArchiveStoreV1,
         source: &BftSuccessorWindowSourceV1,
-        parent: &FormalBftHeaderExecutionV3,
-        origin: &str,
+        parent: &ClosedCandidateParent,
     ) -> Result<ReplayedOriginalCandidateV1, String> {
+        let origin = parent.ledger_origin.as_str();
+        let execution = &parent.execution;
         if self.reference.source.binding_digest != source.binding_digest
             || self.reference.source.handoff_digest != source.handoff_record_id
             || self.reference.source.material_source_digest != source.material_identity
             || self.reference.key.ledger_origin_digest != origin
-            || self.reference.key.height != parent.schedule.height()
+            || self.reference.key.height != execution.schedule.height()
         {
             return Err(
                 "original candidate reference differs from the exact archive parent".into(),
@@ -155,7 +160,11 @@ impl OriginalCandidateArchivePinV1 {
         if candidate.public_value.block_id()? != self.reference.key.header_id {
             return Err("original candidate value differs from its exact header".into());
         }
-        let executed = parent.execute_closed_candidate(&candidate.actions_cbor, dependencies)?;
+        let dependency_sizes = dependencies
+            .iter()
+            .map(|(digest, bytes)| (digest.clone(), bytes.len()))
+            .collect();
+        let executed = execution.execute_closed_candidate(&candidate.actions_cbor, dependencies)?;
         if executed.candidate.header != candidate.public_value.header
             || executed.candidate.commitment != candidate.public_value.execution_commitment
         {
@@ -168,10 +177,19 @@ impl OriginalCandidateArchivePinV1 {
             &candidate.actions_cbor,
             &executed,
         )?;
+        let publication_bytes = planned_publication_bytes(
+            &execution.schedule,
+            &executed,
+            &candidate.actions_cbor,
+            &dependency_sizes,
+            &parent.certified.entries,
+        )?;
+        metadata.verify_publication_bytes(publication_bytes)?;
         Ok(ReplayedOriginalCandidateV1 {
             height: data.height,
             header_id: self.reference.key.header_id.clone(),
             data_schema: data.schema_version,
+            publication_bytes: publication_bytes as u64,
             semantic_state_root: executed.candidate.commitment.state_root,
             result_root: executed.candidate.commitment.result_root,
         })
@@ -214,6 +232,23 @@ impl FormalBftHeaderLedgerExecutionV3 {
         let state_root = candidate.commitment.state_root.clone();
         let header_id = candidate.header.block_id().unwrap();
         let mut nodes = recorder.accessed_nodes().unwrap();
+        let certified = self
+            .ledger
+            .records()
+            .filter(|record| record.height() < original.schedule.height())
+            .map(|record| record.input().certificate)
+            .collect::<Vec<_>>();
+        let planned = planned_publication_bytes(
+            &original.schedule,
+            &executed,
+            &actions_cbor,
+            &nodes
+                .iter()
+                .map(|(id, bytes)| (id.clone(), bytes.len()))
+                .collect(),
+            &certified,
+        )
+        .unwrap();
         match mutation {
             Some("missing") => {
                 assert!(nodes.pop_first().is_some());
@@ -222,7 +257,7 @@ impl FormalBftHeaderLedgerExecutionV3 {
                 let extra = b"unobserved archived node".to_vec();
                 nodes.insert(blake3_hex(&extra), extra);
             }
-            Some("snapshot" | "journal" | "derived") => {}
+            Some("snapshot" | "journal" | "derived" | "publication") => {}
             Some(other) => panic!("unsupported fixture mutation {other}"),
             None => {}
         }
@@ -235,6 +270,7 @@ impl FormalBftHeaderLedgerExecutionV3 {
                 &"11".repeat(32),
                 &actions_cbor,
                 &executed,
+                planned,
                 mutation,
             ),
         );

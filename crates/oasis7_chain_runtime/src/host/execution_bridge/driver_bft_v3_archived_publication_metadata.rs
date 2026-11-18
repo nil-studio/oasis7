@@ -2,7 +2,7 @@
 use super::*;
 
 const DOMAIN: &str = "oasis7.formal.bft.node_publication_reservation.v1";
-const MAX_PUBLICATION_METADATA_BYTES: usize = 16 * 1024;
+pub(super) const MAX_PUBLICATION_METADATA_BYTES: usize = 16 * 1024;
 const MAX_PUBLICATION_BYTES: u64 = 512 * 1024 * 1024;
 
 // Exact original typed CBOR field order from the protected candidate producer.
@@ -76,6 +76,13 @@ impl PublicationReservationV1 {
         Ok(())
     }
 
+    pub(super) fn verify_publication_bytes(&self, observed: usize) -> Result<(), String> {
+        if self.publication_bytes != observed as u64 {
+            return Err("original publication bound differs from actual preparation".into());
+        }
+        Ok(())
+    }
+
     #[cfg(test)]
     pub(super) fn fixture(
         ledger_origin: &str,
@@ -83,6 +90,7 @@ impl PublicationReservationV1 {
         instance_id: &str,
         actions: &[u8],
         executed: &ExecutedFormalHeaderV3,
+        publication_bytes: usize,
         mutation: Option<&str>,
     ) -> Vec<u8> {
         let snapshot_bytes = executed.snapshot_bytes.len() as u64;
@@ -103,12 +111,13 @@ impl PublicationReservationV1 {
             derived_nodes_digest: blake3_hex(
                 &serde_cbor::to_vec(&executed.result_delta.node_writes).unwrap(),
             ),
-            publication_bytes: snapshot_bytes + journal_bytes + 4096,
+            publication_bytes: publication_bytes as u64,
         };
         match mutation {
             Some("snapshot") => reservation.snapshot_digest = "ab".repeat(32),
             Some("journal") => reservation.journal_bytes += 1,
             Some("derived") => reservation.derived_nodes_digest = "cd".repeat(32),
+            Some("publication") => reservation.publication_bytes += 1,
             _ => {}
         }
         serde_cbor::to_vec(&reservation).unwrap()

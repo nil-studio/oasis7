@@ -528,7 +528,7 @@ fn committed_archive() {
         EMPTY_ACTIONS_CBOR.to_vec(),
         Some("extra"),
     );
-    let altered_metadata = ["snapshot", "journal", "derived"].map(|kind| {
+    let altered_metadata = ["snapshot", "journal", "derived", "publication"].map(|kind| {
         let (candidate, _, _) = original_ledger.fixture_archived_candidate(
             &archive,
             &source,
@@ -637,6 +637,7 @@ fn committed_archive() {
     let result = serde_json::to_value(result).unwrap();
     assert_eq!(result["header_id"], expected_header);
     assert_eq!(result["semantic_state_root"], expected_root);
+    assert!(result["publication_bytes"].as_u64().unwrap() > 0);
 
     let run_cli = |archive_config: &Path| {
         crate::identity_receipt::dispatch(
@@ -692,7 +693,11 @@ fn committed_archive() {
         let invalid = write_config("altered-metadata.json", archive_options.clone());
         let error = run_cli(&invalid).unwrap_err();
         assert!(
-            error.contains("original publication metadata differs from actual execution"),
+            error.contains(if kind == "publication" {
+                "original publication bound differs from actual preparation"
+            } else {
+                "original publication metadata differs from actual execution"
+            }),
             "{kind}: {error}"
         );
     }

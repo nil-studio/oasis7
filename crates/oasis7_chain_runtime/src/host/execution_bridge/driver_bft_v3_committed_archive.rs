@@ -37,6 +37,12 @@ pub(crate) struct ReplayedCommittedPrefixV1 {
     pub(crate) result_root: String,
 }
 
+struct ClosedCandidateParent {
+    execution: FormalBftHeaderExecutionV3,
+    ledger_origin: String,
+    certified: FormalBftCertifiedHeaderPrefixV3,
+}
+
 struct ArchiveOnlyReader;
 
 impl BusinessIndexNodeReader for ArchiveOnlyReader {
@@ -224,7 +230,7 @@ impl FormalBftHeaderLedgerExecutionV3 {
         Self::replay_closed_prefix(
             archive, reference, source, anchor, target, height, header_id,
         )
-        .map(|(cut, _, _)| cut)
+        .map(|(cut, _)| cut)
     }
 
     fn replay_closed_prefix(
@@ -235,14 +241,7 @@ impl FormalBftHeaderLedgerExecutionV3 {
         target: BftProfileTargetV2,
         height: u64,
         header_id: &str,
-    ) -> Result<
-        (
-            ReplayedCommittedPrefixV1,
-            FormalBftHeaderExecutionV3,
-            String,
-        ),
-        String,
-    > {
+    ) -> Result<(ReplayedCommittedPrefixV1, ClosedCandidateParent), String> {
         let handoff = verify_formal_bft_handoff_v2(&anchor, target.clone())?;
         source_at_h(source, &handoff)?;
         let manifest = archive
@@ -304,7 +303,8 @@ impl FormalBftHeaderLedgerExecutionV3 {
             .load_object(&prefix_ref, PRIVATE_HEADER_PREFIX_MAX_BYTES_V3)
             .map_err(error)?;
         let prefix = PrivateHeaderPrefixV3::decode_private_canonical(&prefix_bytes)?;
-        let proof = prefix.public_prefix()?.verify(&handoff)?;
+        let certified = prefix.public_prefix()?;
+        let proof = certified.verify(&handoff)?;
         check_target(&proof, height, header_id)?;
         let seeds = entries
             .iter()
@@ -356,6 +356,13 @@ impl FormalBftHeaderLedgerExecutionV3 {
             semantic_state_root: proof.commitment().state_root.clone(),
             result_root: execution.parent_result_tree.root()?,
         };
-        Ok((cut, execution, ledger_origin))
+        Ok((
+            cut,
+            ClosedCandidateParent {
+                execution,
+                ledger_origin,
+                certified,
+            },
+        ))
     }
 }
