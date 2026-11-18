@@ -452,7 +452,7 @@ Trace ID: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89
 
 候选只接受有界、完整、普通文件的已支持 Ubuntu Noble 源布局。现场读取源原字节，在源码及 artifact 目录之外新建临时副本；仅将 `ubuntu.sources` 中唯一的 `URIs: mirror+file:/etc/apt/apt-mirrors.txt` 字段改为镜像列表已包含的精确 `https://archive.ubuntu.com/ubuntu/`。该 stanza 的 suites/components/签名字段、security stanza、其他来源保持原字节；不从受限投影反造源文件，不修改 `/etc/apt`、信任、认证、HTTPS timeout、pipeline 或重试策略。重复字段、续行、混合 URI、缺失候选或未知布局拒绝启动 APT。update/install 只通过命令行指定副本 sourcelist/sourceparts；包与模块集合不变，失败即停。
 
-`native-source-profile.json` 保存固定 profile/目标、原输入与有效副本的文件集合及 SHA-256、唯一替换计数和最终前后核验；私有源正文不进入 artifact 或异常文本。所有退出路径清理副本，身份或清理失败保持未就绪，原 APT 失败仍保留实际退出。默认 profile 和所有生产调用保持原行为。候选成功只证明本次四步准备在该路径与预算下完成；它同时改变 host 与 scheme，不能单独归因 HTTPS，也不能替代真实生产、37 条结果、Linux 覆盖、官方上传或平台关联。
+`native-source-profile.json` 保存固定 profile/目标、原输入与有效副本的文件集合及 SHA-256、唯一替换计数和最终前后核验；私有源正文不进入 artifact 或异常文本。所有退出路径清理副本，身份或清理失败保持未就绪，原 APT 失败仍保留实际退出。默认诊断与研究调用保持原行为，正式采用范围见 §7.2.6。候选成功只证明本次四步准备在该路径与预算下完成；它同时改变 host 与 scheme，不能单独归因 HTTPS，也不能替代真实生产、37 条结果、Linux 覆盖、官方上传或平台关联。
 
 只为本入口开启 `Debug::pkgAcquire::Worker=1`。运行时的可选观测器在任何 stdout/stderr 字节落盘前投影白名单：URI 状态/重定向/完成/失败、允许的数值/布尔获取配置、包与模块版本；配置帧仅保留必要键，URI 去除认证、查询和片段。未知格式、过长行及不在白名单内的内容只记长度、摘要与丢弃原因，绝不原样回退。普通调用不传观测器，沿用原字节采集。正常读取、无末尾换行与失败后 drain 均经过同一处理和共用 16 MiB 证据上限，预留 1 MiB 保存失败收据与摘要。
 
@@ -598,6 +598,10 @@ D1 从 custody cwd 对其 manifest 执行 `locate-project --workspace --message-
 Trace refs: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89；复用候选库的固定组成与身份合同，生产执行及当前源码验收仍按本节独立核对。
 
 本路径承接 CQ-R02/R03/R05/R06/R09，只用于 `codeql.yml` 中可信默认分支的 Rust default 维护扫描。生产输入是本次计划与实际 checkout 一致的提交，不沿用研究入口的冻结业务 SHA、manifest 数量或历史覆盖结论。现有批次变量仍控制是否执行；首次配置为 baseline 时按 §4.2.1 保持 pending acceptance，接线合入和候选研究通过均不代替运营验收。PR default、extended 和其他语言继续各自原有执行路径及预算。
+
+正式 native 前置仅在 default 且非 `pull_request` 的维护调用中显式选择已验证的 `ubuntu-archive-https` profile，复用 §7.2.3 的私有源副本、完整四包与模块探针及前后身份合同。共享 helper 默认仍为 `runner-sources`，PR、extended、固定源码观察、容量研究及独立 Cargo check 不随之切换。选中的 profile 写入 native budget 与 terminal；准备仍受原 180 秒窗口、270 秒父截止与 90 秒收尾保留约束，update 的 60 秒上限、20 秒探针空间和 5 秒特权收尾差额不变。源准备、核验和清理均计入原截止，不失败回退重跑。
+
+正式调用沿用普通 native stdout/stderr 与独立 `oasis7-codeql-native` artifact，不开启诊断 Worker 观察器或 archive 采样。`native-source-profile.json` 与四条实际命令收据分别验收，不能放入分析截止内的 production 查询收据集合。终态只投影异常类型、真实命令 exit/failure_kind 和源收据保存错误的固定字段，保留原失败并阻止后续提取、查询与上传；源身份或清理不完整不能记 PASS。native 成功只表示本次依赖就绪，原 37 条结果、适用 Linux 覆盖、官方上传、唯一平台关联及每日 baseline 验收继续独立完成。
 
 固定 Rust-only CodeQL bundle 2.27.4，下载后核对 SHA-256 `1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b`，通过官方 init 的 `tools` 输入使用该本地包。生产最终库版本独立固定为本节的 `qualifier-lines-negative-projection-v8`，直接基线为 §7.2.4 的 `qualifier-lines-constraint-target-qualified-v7`，其原 v6 基线保持。官方库保持只读，在任务私有目录依次复用 v3 qualifier/arity/lines、shared helper、两处 trait 注解、ConstraintMatching 和 target-qualified 的实际准备函数，再复用本节负向投影的严格准备函数。保留真实 v3/v5 中间快照、v6/v7 全树和各层收据，从已验证的 `candidate-target-typeinference` 独立复制出 `candidate-negative-typeinference`；所选最终完整库集合相对官方仍恰为三个 Rust 文件与一个 shared 文件变化，固定字节和 mode 继续核验。`str::lines` 使用通用 taint summary，不添加业务专用流边。版本或补丁不匹配时失败，不回退到旧库继续上传。
 
