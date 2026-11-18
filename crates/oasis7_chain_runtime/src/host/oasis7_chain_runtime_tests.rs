@@ -1159,3 +1159,52 @@ fn engineering_parser_rejects_deployment_authority_and_malformed_signer_keys() {
     .unwrap_err();
     assert!(error.contains("engineering validator signer identity is invalid or rebound"));
 }
+
+#[test]
+fn typed_resource_budget_reaches_live_host_replication_status_and_rejects_invalid_limits() {
+    use oasis7::development_node_config::P2pResourceBudget;
+
+    let mut input = super::development_runtime::from_options(&CliOptions::default()).unwrap();
+    let raw_profile = r#"{"profile":"v1-discovery-resource-budget-1",
+        "connections_total":3,"pending_connections_total":2,"pending_inbound_unknown":1,
+        "pending_outbound":2,"connections_per_peer":1,"handshake_timeout_ms":2000,
+        "bytes_in_per_window":1024,"bytes_out_per_window":2048,"bytes_total_per_window":3072}"#;
+    let profile: P2pResourceBudget = serde_json::from_str(raw_profile).unwrap();
+    input.runtime.p2p_resource_budget = profile;
+    let options = super::development_runtime::into_options(input.clone(), false).unwrap();
+    assert_eq!(
+        super::development_runtime::from_options(&options).unwrap().runtime.p2p_resource_budget,
+        profile
+    );
+    let signing_key = SigningKey::from_bytes(&[73_u8; 32]);
+    let keypair = node_keypair_config::NodeKeypairConfig {
+        private_key_hex: hex::encode(signing_key.to_bytes()),
+        public_key_hex: hex::encode(signing_key.verifying_key().to_bytes()),
+    };
+    let paths = super::resolve_runtime_paths(&options);
+    let network = super::replication_network::create_default_replication_network(&options, &keypair, &paths).unwrap();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
+    while network.listening_addrs().is_empty() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(!network.listening_addrs().is_empty(), "typed budget host did not listen");
+    let metrics = super::traffic_status::build_chain_traffic_status(&network, None);
+    let budget = metrics.libp2p_replication.resource_budget;
+    assert_eq!(budget.profile, "v1-discovery-resource-budget-1");
+    assert!(budget.instance_id.is_some());
+    assert_eq!(budget.connections.unwrap().total, 0);
+    assert_eq!(budget.bytes.unwrap().charged_bytes.total, 0);
+    let P2pResourceBudget::SubstreamV1(limits) = profile else { unreachable!() };
+    assert_eq!(budget.limits, Some(limits));
+    let second = super::replication_network::create_default_replication_network(&options, &keypair, &paths).unwrap();
+    assert_eq!(network.peer_id(), second.peer_id());
+    assert_ne!(budget.instance_id, second.traffic_metrics_snapshot().resource_budget.instance_id);
+
+    input.runtime.p2p_resource_budget = serde_json::from_str(
+        &raw_profile.replace(r#""pending_connections_total":2"#, r#""pending_connections_total":4"#),
+    ).unwrap();
+    assert!(super::development_runtime::into_options(input, false).is_err());
+    let mut non_development = options;
+    non_development.development_runtime = false;
+    assert!(super::cli::validate_effective_options(&non_development).is_err());
+}

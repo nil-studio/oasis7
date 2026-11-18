@@ -73,6 +73,7 @@ pub(super) fn into_options(
     };
     o.p2p_peer_record_publication = r.p2p_peer_record_publication;
     o.p2p_peer_record_reception = r.p2p_peer_record_reception;
+    o.p2p_resource_budget = r.p2p_resource_budget;
     if let Some(value) = r.storage_profile {
         o.storage_profile = value;
     }
@@ -349,8 +350,8 @@ pub(super) fn into_options(
     o.execution_records_dir = Some(path_at(cwd, &paths.execution_records_dir));
     o.storage_root = Some(path_at(cwd, &paths.storage_root));
     o.replication_root = Some(path_at(cwd, &paths.replication_root));
-    validate_effective_options(&o)?;
     o.development_runtime = true;
+    validate_effective_options(&o)?;
     Ok(o)
 }
 
@@ -372,6 +373,7 @@ pub(super) fn from_options(o: &CliOptions) -> Result<DevelopmentNodeConfigV1, St
     };
     r.p2p_peer_record_publication = o.p2p_peer_record_publication;
     r.p2p_peer_record_reception = o.p2p_peer_record_reception;
+    r.p2p_resource_budget = o.p2p_resource_budget;
     r.storage_profile = Some(o.storage_profile);
     r.p2p_accept_public_entry = Some(o.p2p_accept_public_entry);
     r.node_tick_ms = Some(o.node_tick_ms);

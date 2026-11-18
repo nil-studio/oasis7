@@ -1,8 +1,57 @@
+use oasis7_proto::p2p_resource_budget::P2pResourceBudget;
+
+use super::connection_budget::{ConnectionBudget, ConnectionLimits};
 use super::receiver_floor::PeerRecordReceiver;
+use super::resource_budget_status::{ActiveResourceBudget, BudgetDiagnostics};
+use super::wire_byte_window::{WireByteLimits, WireByteWindow};
+use super::wire_bytes::{Libp2pWireByteCounters, SharedLibp2pWireByteCounters};
 use super::*;
 
 #[path = "construction/peer_record_setup.rs"]
 mod peer_record_setup;
+
+fn setup_resource_budgets(
+    profile: P2pResourceBudget,
+) -> Result<(Option<ActiveResourceBudget>, SharedLibp2pWireByteCounters), WorldError> {
+    let P2pResourceBudget::SubstreamV1(limits) = profile else {
+        return Ok((None, init_shared_wire_byte_counters()));
+    };
+    let error = |reason: &str| WorldError::NetworkProtocolUnavailable {
+        protocol: format!("p2p_resource_budget: {reason}"),
+    };
+    limits.validate_connection_limits().map_err(error)?;
+    let diagnostics = Arc::new(BudgetDiagnostics::default());
+    let connections = ConnectionBudget::with_diagnostics(
+        ConnectionLimits {
+            total: limits.connections_total.get(),
+            pending: limits.pending_connections_total.get(),
+            inbound_unknown: limits.pending_inbound_unknown.get(),
+            outbound: limits.pending_outbound.get(),
+            per_peer: limits.connections_per_peer.get(),
+            handshake_timeout: limits.handshake_timeout(),
+        },
+        Arc::clone(&diagnostics),
+    )
+    .map_err(|err| error(&err.to_string()))?;
+    let bytes = WireByteWindow::with_diagnostics(
+        WireByteLimits {
+            inbound: limits.bytes_in_per_window.get(),
+            outbound: limits.bytes_out_per_window.get(),
+            total: limits.bytes_total_per_window.get(),
+        },
+        Arc::clone(&diagnostics),
+    )
+    .map_err(|err| error(&err.to_string()))?;
+    Ok((
+        Some(ActiveResourceBudget {
+            limits,
+            instance_id: PeerId::random(),
+            connections,
+            diagnostics,
+        }),
+        Libp2pWireByteCounters::with_window(Arc::new(bytes)),
+    ))
+}
 
 impl Libp2pNetwork {
     pub fn new(config: Libp2pNetworkConfig) -> Self {
@@ -11,6 +60,8 @@ impl Libp2pNetwork {
     }
 
     pub fn try_new(config: Libp2pNetworkConfig) -> Result<Self, WorldError> {
+        let (resource_budget, wire_byte_counters) =
+            setup_resource_budgets(config.p2p_resource_budget)?;
         if config.peer_record_publication_transition.is_some()
             && (config.peer_record_publication_directory.is_none()
                 || config.peer_record_receiver.mode == PeerRecordReceiverMode::Legacy)
@@ -86,7 +137,6 @@ impl Libp2pNetwork {
         ));
         let reachability = Arc::new(Mutex::new(Libp2pReachabilitySnapshot::default()));
         let traffic_metrics = init_shared_traffic_metrics();
-        let wire_byte_counters = init_shared_wire_byte_counters();
         let command_buffer_capacity = config.command_buffer_capacity.max(1);
         let (command_tx, command_rx) = mpsc::channel(command_buffer_capacity);
         let max_published_messages = config.max_published_messages.max(1);
@@ -104,6 +154,9 @@ impl Libp2pNetwork {
         let event_peer_record_receiver = Arc::clone(&peer_record_receiver);
         let event_traffic_metrics = Arc::clone(&traffic_metrics);
         let event_wire_byte_counters = Arc::clone(&wire_byte_counters);
+        let connection_budget = resource_budget
+            .as_ref()
+            .map(|budget| budget.connections.clone());
         let config_clone = config.clone();
         let keypair_clone = keypair.clone();
         let local_peer_id = peer_id;
@@ -124,8 +177,7 @@ impl Libp2pNetwork {
                 config_clone.request_response_timeout,
                 Arc::clone(&event_wire_byte_counters),
                 Arc::clone(&event_peer_record_receiver),
-                // Connection admission is inactive until the host profile covers every transport.
-                None,
+                connection_budget,
             );
             let mut subscriptions = HashSet::new();
             let mut topic_map: HashMap<TopicHash, String> = HashMap::new();
@@ -1153,6 +1205,7 @@ impl Libp2pNetwork {
             reachability,
             traffic_metrics,
             wire_byte_counters,
+            resource_budget,
             _shutdown_guard: Arc::new(drop_support::ShutdownGuard::new(command_tx)),
         })
     }

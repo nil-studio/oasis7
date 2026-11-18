@@ -21,7 +21,7 @@ use std::str::FromStr;
 
 use oasis7::chain_pos_defaults;
 use oasis7::development_node_config::{
-    DevelopmentPeerRecordPublicationModeV1, DevelopmentPeerRecordReceptionModeV1,
+    DevelopmentPeerRecordPublicationModeV1, DevelopmentPeerRecordReceptionModeV1, P2pResourceBudget,
 };
 use oasis7::network_tier_manifest::LoadedNetworkTierManifest;
 use oasis7_node::{
@@ -109,6 +109,7 @@ pub(super) struct CliOptions {
     pub p2p_user_mode: NodeUserMode,
     pub p2p_peer_record_publication: DevelopmentPeerRecordPublicationModeV1,
     pub p2p_peer_record_reception: DevelopmentPeerRecordReceptionModeV1,
+    pub p2p_resource_budget: P2pResourceBudget,
     /// One-time V2 publisher bootstrap action; deliberately not part of the persisted runtime config.
     pub initialize_peer_record_publication: bool,
     /// One-time receiver floor bootstrap action; deliberately not persisted in runtime config.
@@ -694,6 +695,18 @@ pub(super) fn validate_effective_options(options: &CliOptions) -> Result<(), Str
         return Err("--config requires a non-empty value".to_string());
     }
     super::peer_record_cli::validate_options(options)?;
+    if let P2pResourceBudget::SubstreamV1(limits) = options.p2p_resource_budget {
+        if !options.development_runtime
+            || options.formal_live_config.is_some()
+            || options.guarded_initial_config.is_some()
+        {
+            return Err("p2p_resource_budget requires the typed development runtime".into());
+        }
+        limits.validate_connection_limits()?;
+        if std::time::Instant::now().checked_add(limits.handshake_timeout()).is_none() {
+            return Err("p2p_resource_budget handshake_timeout_ms exceeds the monotonic deadline range".into());
+        }
+    }
     if options.reward_points_per_credit == 0 {
         return Err("--reward-points-per-credit requires a positive integer".to_string());
     }

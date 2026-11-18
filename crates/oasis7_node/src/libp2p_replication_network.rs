@@ -1,4 +1,5 @@
 use oasis7_proto::network_failure::{FailureCause, FailureEvidence, FailureOrigin, NetworkFailure};
+use oasis7_proto::p2p_resource_budget::P2pResourceBudget;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -104,6 +105,7 @@ pub struct Libp2pReplicationNetworkConfig {
     pub peer_record_publication_directory: Option<PathBuf>,
     /// Independent inbound peer-record policy and its fixed durable receiver directory.
     pub peer_record_receiver: PeerRecordReceiverConfig,
+    pub p2p_resource_budget: P2pResourceBudget,
     /// One-startup durable publisher transition; `None` preserves ordinary restart behavior.
     pub peer_record_publication_transition: Option<PeerRecordPublicationTransition>,
     pub listen_addrs: Vec<Multiaddr>,
@@ -130,6 +132,7 @@ impl Default for Libp2pReplicationNetworkConfig {
             peer_record: None,
             peer_record_publication_directory: None,
             peer_record_receiver: PeerRecordReceiverConfig::default(),
+            p2p_resource_budget: P2pResourceBudget::default(),
             peer_record_publication_transition: None,
             listen_addrs: Vec::new(),
             bootstrap_peers: Vec::new(),
@@ -186,6 +189,7 @@ impl Libp2pReplicationNetwork {
             peer_record: config.peer_record,
             peer_record_publication_directory: config.peer_record_publication_directory,
             peer_record_receiver: config.peer_record_receiver,
+            p2p_resource_budget: config.p2p_resource_budget,
             peer_record_publication_transition: config.peer_record_publication_transition,
             listen_addrs: config.listen_addrs,
             bootstrap_peers: config.bootstrap_peers,

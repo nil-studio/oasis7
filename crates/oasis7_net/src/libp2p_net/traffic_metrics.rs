@@ -63,6 +63,8 @@ impl Default for Libp2pControlPlaneMetricsSnapshot {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Libp2pTrafficMetricsSnapshot {
     #[serde(default)]
+    pub resource_budget: super::resource_budget_status::ResourceBudgetSnapshot,
+    #[serde(default)]
     pub discovery_work: super::discovery_budget::DiscoveryWorkMetricsSnapshot,
     pub observed_since_unix_ms: i64,
     pub scope: String,
@@ -83,6 +85,7 @@ impl Default for Libp2pTrafficMetricsSnapshot {
     fn default() -> Self {
         Self {
             discovery_work: Default::default(),
+            resource_budget: Default::default(),
             observed_since_unix_ms: now_unix_ms(),
             scope: "application_payload_with_substream_wire_bytes".to_string(),
             excludes_transport_overhead: true,

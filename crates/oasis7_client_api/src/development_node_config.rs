@@ -1,5 +1,6 @@
 //! Strict engineering configuration shared by the runtime and its callers.
 //! This declaration carries no formal authority, deployment evidence or argv.
+pub use oasis7_proto::p2p_resource_budget::{P2pResourceBudget, P2pResourceBudgetLimits};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -39,6 +40,8 @@ pub struct DevelopmentRuntimeConfigV1 {
         skip_serializing_if = "DevelopmentPeerRecordReceptionModeV1::is_legacy_compatible"
     )]
     pub p2p_peer_record_reception: DevelopmentPeerRecordReceptionModeV1,
+    #[serde(default, skip_serializing_if = "P2pResourceBudget::is_legacy")]
+    pub p2p_resource_budget: P2pResourceBudget,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub p2p_detected_reachability: Option<oasis7_proto::distributed_dht::PeerReachabilityClass>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
