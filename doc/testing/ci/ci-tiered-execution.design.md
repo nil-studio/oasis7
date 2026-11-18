@@ -1223,9 +1223,9 @@ Trace refs: O7-REQ-d6c7a0eb-77f3-48b8-943e-9312fd0218ea；落实[浏览器依赖
 
 Viewer JS、安全 smoke 和性能采集共用 agent-browser 0.37.1 与 Chrome for Testing 158.0.8127.36 Linux x64；后者固定到已验证的官方归档 URL、字节长度及 SHA-256，安装时不查询浮动 Stable。解包到本轮私有目录，验证实际版本后通过 `AGENT_BROWSER_EXECUTABLE_PATH` 绑定消费路径，避免系统 Chrome 或旧目录改变受测对象。npm 工具使用独立 lockfile 与 Node 24，满足 CLI 的运行要求。Deck 保持 Playwright 1.62.1 的 Chromium headless-shell，仍由其固定 revision 安装器准备 headless-shell 及配套 ffmpeg，不替换为 Viewer 的完整 Chrome。
 
-Ubuntu 24.04 x64 的系统清单逐项对应固定 agent-browser 的全部依赖及 Playwright 的 tools/chromium 依赖。两个 Viewer 保留 emoji、CJK 和 Freefont；Deck 保留原字体及 Xvfb 等依赖。容易重复下载的大字体包固定为 Noble 的 `fonts-noto-cjk=1:20230817+repack1-3` 与 `fonts-freefont-ttf=20211204+svn4273-2`，以 Ubuntu 官方包元数据的长度和 SHA-256 验证 `.deb`。通过本地包路径进入 APT，保留依赖解析、正常配置与 fontconfig 触发器，拒绝移除已有软件包；系统共享库继续由正常 Ubuntu 源维护。平台不符、包状态异常或固定字体版本冲突均明确失败。
+Ubuntu 24.04 x64 的系统清单逐项对应固定 agent-browser 的全部依赖及 Playwright 的 tools/chromium 依赖。两个 Viewer 保留 emoji、CJK 和 Freefont；Deck 保留原字体及 Xvfb 等依赖。容易重复下载的大字体包固定为 Noble 的 `fonts-noto-cjk=1:20230817+repack1-3` 与 `fonts-freefont-ttf=20211204+svn4273-2`，以 Ubuntu 官方包元数据的长度和 SHA-256 验证 `.deb`。缺失字体复制到本轮私有 APT 归档目录并再次校验，文件名包含 APT 编码后的完整 epoch/version；字体单独以 `--no-download --no-remove` 和该归档目录进入正常 APT 安装，保留依赖解析、正常配置与 fontconfig 触发器。只传本地 `.deb` 路径不能阻止 APT 选择同版本远端来源，禁止下载选项和精确归档文件名必须同时保留。系统共享库继续由正常 Ubuntu 源维护。平台不符、包状态异常或固定字体版本冲突均明确失败。
 
-包状态检查覆盖完整适用清单；只有所有包已配置且固定字体版本一致，才不启动 APT。其余情况调用已有 `ci-apt-install.py`，update、安装、有限重试与 root 后代清理共用该 helper 的预算。缺失库仍须安装，缓存命中不代表依赖完整。安装完成后再次核对包状态，浏览器版本及真实启动探针成功后才输出供原测试使用的环境变量；任何必要步骤失败沿原 required 汇总传播。
+包状态检查覆盖完整适用清单，只为缺失项调用已有 `ci-apt-install.py`；不为已满足的浏览器依赖触发整组库升级。缺失普通包仍按原 update/install 流程安装；随后字体使用已验证的私有归档离线安装，两阶段及有限重试、root 后代清理共用一次 helper 预算。只缺少这两个自包含字体时不执行 update，字体材料缺失或不满足依赖时明确失败，不回退远端下载或忽略包状态。缓存命中不代表依赖完整。安装完成后再次核对完整包状态，浏览器版本及真实启动探针成功后才输出供原测试使用的环境变量；任何必要步骤失败沿原 required 汇总传播。
 
 缓存只保存下载归档，字体与 Chrome 分别使用精确 key，包含 Linux/X64、Ubuntu 版本、固定定义及 schema 身份；没有宽泛 restore 前缀，不缓存展开的系统/浏览器目录。每次恢复均校验精确文件集合、普通文件、长度及 SHA-256，拒绝 symlink、hardlink、部分文件和损坏缓存。冷下载只使用固定 HTTPS 来源，在有界下载成功且摘要相符后原子提交文件；解包限制路径、文件类型、数量及展开长度。Chrome 的摘要来自固定官方 HTTPS 归档的审读，不宣称是上游发布签名。
 

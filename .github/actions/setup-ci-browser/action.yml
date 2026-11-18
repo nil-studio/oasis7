@@ -45,7 +45,7 @@ runs:
       run: |
         mapfile -t browser_packages < "$RUNNER_TEMP/oasis7-ci-browser-$BROWSER_KIND/apt-arguments.txt"
         if (( ${#browser_packages[@]} )); then
-          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 300 --no-remove -- "${browser_packages[@]}"
+          sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 300 --no-remove "${browser_packages[@]}"
         fi
     - name: Verify and launch the actual pinned browser
       shell: bash

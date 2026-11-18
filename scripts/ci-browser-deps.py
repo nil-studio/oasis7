@@ -112,6 +112,13 @@ def packages(browser):
     return AGENT_PACKAGES if browser == 'agent' else PLAYWRIGHT_PACKAGES
 
 
+def font_archive_name(component):
+    # APT includes the epoch in its archive cache, even when the upstream URL
+    # omits it. Without this exact name APT may prefer the same version's URI.
+    version = ARCHIVES[component]['version'].replace(':', '%3a')
+    return f'{component}_{version}_all.deb'
+
+
 def environment(extra=None):
     result = {key: value for key, value in os.environ.items()
               if key not in ('GH_TOKEN', 'GITHUB_TOKEN', 'ACTIONS_RUNTIME_TOKEN')}
@@ -275,7 +282,22 @@ def prepare(browser, work, cache_base=None):
     if browser == 'agent':
         extract_chrome(archives['chrome'], work)
     missing = missing_packages(browser)
-    arguments = [str(archives[name]) if name in archives else name for name in packages(browser)] if missing else []
+    ordinary = [name for name in missing if name not in archives]
+    fonts = [name for name in missing if name in archives]
+    arguments = []
+    if fonts:
+        # Keep restored raw downloads immutable. APT receives a private copy,
+        # and --no-download makes choosing a remote same-version URI harmless.
+        local = work / 'apt-archives'
+        local.mkdir()
+        arguments += ['--local-archive-dir', str(local)]
+        for name in fonts:
+            destination = local / font_archive_name(name)
+            shutil.copyfile(archives[name], destination)
+            verify_file(destination, ARCHIVES[name])
+            arguments += ['--local-deb', str(destination)]
+    if missing:
+        arguments += ['--', *ordinary]
     (work / 'apt-arguments.txt').write_text(''.join(value + '\n' for value in arguments))
     print(json.dumps(dict(browser=browser, missing=missing, apt_required=bool(missing)), sort_keys=True))
 

@@ -4873,7 +4873,7 @@ class AptWorkflow(unittest.TestCase):
                 root = Path(temporary)
                 work = root / 'oasis7-ci-browser-agent'
                 work.mkdir()
-                (work / 'apt-arguments.txt').write_text('libnss3\n' if missing else '')
+                (work / 'apt-arguments.txt').write_text('--\nlibnss3\n' if missing else '')
                 capture = root / 'called'
                 result = subprocess.run(['bash', '-euo', 'pipefail', '-c',
                     'sudo() { printf "%s\\n" "$@" > "$CAPTURE"; return "$CODE"; };\n' + script + '\nprintf browser-activation'],

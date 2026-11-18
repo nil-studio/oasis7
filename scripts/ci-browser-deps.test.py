@@ -196,21 +196,48 @@ class BrowserDependencies(unittest.TestCase):
         state = query(overrides={'fonts-freefont-ttf': ('fonts-freefont-ttf', 'not-installed', 'ok', '', '')})
         self.assertEqual(browser.missing_packages('agent', state), ['fonts-freefont-ttf'])
 
-    def test_prepare_emits_local_verified_fonts_and_complete_missing_dependency_plan(self):
+    def test_prepare_installs_only_missing_packages_and_stages_verified_fonts(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
             work = base / 'work'
+            archives = {}
+            pins = {}
+            for name in ('fonts-noto-cjk', 'fonts-freefont-ttf', 'chrome'):
+                archives[name] = base / (name + '.archive')
+                payload = name.encode()
+                archives[name].write_bytes(payload)
+                pins[name] = dict(browser.ARCHIVES[name], size=len(payload),
+                                  sha256=hashlib.sha256(payload).hexdigest())
             with patch.object(browser, 'require_platform'), \
-                    patch.object(browser, 'ensure_archive', side_effect=lambda part, *_args, **_kwargs: base / (part + '.archive')), \
+                    patch.dict(browser.ARCHIVES, pins), \
+                    patch.object(browser, 'ensure_archive', side_effect=lambda part, *_args, **_kwargs: archives[part]), \
                     patch.object(browser, 'extract_chrome'), \
-                    patch.object(browser, 'missing_packages', return_value=['libnss3']):
+                    patch.object(browser, 'missing_packages', return_value=['libnss3', 'fonts-noto-cjk']):
                 browser.prepare('agent', work, base / 'cache')
             arguments = (work / 'apt-arguments.txt').read_text().splitlines()
-            self.assertEqual(len(arguments), 36)
-            self.assertIn('libnss3', arguments)
-            self.assertIn(str(base / 'fonts-noto-cjk.archive'), arguments)
-            self.assertIn(str(base / 'fonts-freefont-ttf.archive'), arguments)
-            self.assertNotIn('fonts-noto-cjk', arguments)
+            staged = work / 'apt-archives/fonts-noto-cjk_1%3a20230817+repack1-3_all.deb'
+            self.assertEqual(arguments, ['--local-archive-dir', str(staged.parent),
+                                        '--local-deb', str(staged), '--', 'libnss3'])
+            self.assertEqual(staged.read_bytes(), b'fonts-noto-cjk')
+            self.assertEqual(staged.stat().st_nlink, 1)
+            self.assertEqual(archives['fonts-noto-cjk'].stat().st_nlink, 1)
+            self.assertNotIn('libgbm1', arguments, 'installed libraries must not be upgraded incidentally')
+            self.assertEqual([p.name for p in staged.parent.iterdir()], [staged.name])
+
+    def test_staged_font_hash_failure_cannot_publish_install_arguments(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            archive = base / 'font.deb'
+            archive.write_bytes(b'corrupt local copy')
+            pin = dict(browser.ARCHIVES['fonts-freefont-ttf'], size=archive.stat().st_size,
+                       sha256=hashlib.sha256(b'x' * archive.stat().st_size).hexdigest())
+            with patch.object(browser, 'require_platform'), \
+                    patch.dict(browser.ARCHIVES, {'fonts-freefont-ttf': pin}), \
+                    patch.object(browser, 'ensure_archive', return_value=archive), \
+                    patch.object(browser, 'missing_packages', return_value=['fonts-freefont-ttf']), \
+                    self.assertRaisesRegex(browser.BrowserError, 'SHA256'):
+                browser.prepare('playwright', base / 'work', base / 'cache')
+            self.assertFalse((base / 'work/apt-arguments.txt').exists())
 
     def test_fully_installed_deck_does_not_request_apt_or_cjk(self):
         with tempfile.TemporaryDirectory() as temporary:
