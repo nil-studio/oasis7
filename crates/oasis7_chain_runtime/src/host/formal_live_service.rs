@@ -64,7 +64,7 @@ const MAX_NODE_ERROR_CHARS: usize = 384;
 const HTTP_CONNECTION_TIMEOUT: Duration = Duration::from_secs(2);
 const FORMAL_HTTP_THREAD_STACK_BYTES: usize = 8 * 1024 * 1024;
 const SERVICE_READINESS_PATH: &str = "/healthz";
-const CHAIN_STATUS_PATH: &str = "/v1/chain/status";
+pub(super) const CHAIN_STATUS_PATH: &str = "/v1/chain/status";
 
 #[derive(Clone)]
 pub(crate) struct PublishedReadCut {
@@ -324,6 +324,12 @@ pub(crate) trait FormalLiveHistoryResolver: Send + Sync {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct FormalLiveStatusChallengeV1 {
+    pub(super) observation_nonce: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct FormalLiveStatusV1 {
@@ -492,6 +498,7 @@ impl FormalLiveService {
         match (method, path) {
             ("GET", SERVICE_READINESS_PATH) => self.handle_health(),
             ("GET", CHAIN_STATUS_PATH) => self.handle_status(),
+            ("POST", CHAIN_STATUS_PATH) => self.handle_status_observation(body),
             ("POST", VIEW_PATH) => self.handle_view(body),
             ("POST", SUBMIT_PATH) => self.handle_submit(body),
             ("POST", LOOKUP_PATH) => self.handle_lookup(body),
@@ -534,6 +541,36 @@ impl FormalLiveService {
             200,
             CHAIN_STATUS_PATH,
             &(),
+            &self.runtime_status(),
+            &self.signer,
+        )
+    }
+
+    fn handle_status_observation(&self, body: &[u8]) -> HttpReply {
+        let challenge = (body.len() <= 128)
+            .then(|| serde_json::from_slice::<FormalLiveStatusChallengeV1>(body).ok())
+            .flatten()
+            .filter(|challenge| {
+                let nonce = &challenge.observation_nonce;
+                nonce.len() == 64
+                    && nonce.bytes().all(|byte| {
+                        byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)
+                    })
+            });
+        let Some(challenge) = challenge else {
+            return signed_error_with_digest(
+                400,
+                CHAIN_STATUS_PATH,
+                authority::request_digest(CHAIN_STATUS_PATH, &()),
+                "invalid_status_challenge",
+                "formal status requires a bounded observation nonce",
+                &self.signer,
+            );
+        };
+        signed_reply(
+            200,
+            CHAIN_STATUS_PATH,
+            &challenge,
             &self.runtime_status(),
             &self.signer,
         )

@@ -889,6 +889,33 @@ fn poisoned_state_signed_http_recovery(admission_poisoned: bool) {
     );
     assert!(before.ready && before.can_propose && before.node_running);
 
+    #[cfg(unix)]
+    if !admission_poisoned {
+        use super::super::formal_live_status_observation::{StatusPins, observe};
+        let mut pins = StatusPins {
+            status_url: format!("http://{address}{CHAIN_STATUS_PATH}"),
+            service_public_key: hex::encode(signer.verifying_key().to_bytes()),
+            expected_world: before.world.clone(),
+            expected_node_id: before.node_id.clone(),
+        };
+        let verified = serde_json::to_value(observe(&pins).unwrap()).unwrap();
+        assert_eq!(verified["api_version"], "oasis7.formal-live-status-observation/v1");
+        assert_eq!(verified["host_reports_ready"], true);
+        assert_eq!(verified["authority_qualification"], "unknown");
+        pins.expected_node_id = "wrong-node".into();
+        assert!(observe(&pins).is_err());
+
+        let invalid: FormalServiceErrorV1 = exchange(
+            address,
+            CHAIN_STATUS_PATH,
+            Some(br#"{"observation_nonce":"short"}"#),
+            400,
+            &status_digest,
+            &signer,
+        );
+        assert_eq!(invalid.code, "invalid_status_challenge");
+    }
+
     if !admission_poisoned {
         const PRIVATE_DETAIL: &str = "private-diagnostic-canary";
         *state.last_error.lock().unwrap() = Some(PRIVATE_DETAIL.into());
