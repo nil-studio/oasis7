@@ -1,0 +1,15 @@
+bash
+ca-certificates
+curl
+gdb
+git
+libasound2t64
+libudev1
+libwayland-client0
+libx11-6
+libxcursor1
+libxi6
+libxinerama1
+libxkbcommon0
+libxrandr2
+sudo

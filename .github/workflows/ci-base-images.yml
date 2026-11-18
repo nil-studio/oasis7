@@ -1,0 +1,84 @@
+name: CI Base Images
+
+on:
+  pull_request:
+    paths:
+      - docker/ci-base/**
+      - .github/workflows/ci-base-images.yml
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions: {}
+
+jobs:
+  build:
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        target: [runtime, build]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Build and smoke test
+        env:
+          TARGET: ${{ matrix.target }}
+        run: ./docker/ci-base/build.sh "$TARGET"
+      - name: Scan OS vulnerabilities
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
+        with:
+          image-ref: oasis7-ci-${{ matrix.target }}:candidate
+          scanners: vuln
+          vuln-type: os
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          cache: false
+      - name: Save verified image
+        if: github.event_name != 'pull_request'
+        env:
+          TARGET: ${{ matrix.target }}
+        run: docker save "oasis7-ci-${TARGET}:candidate" -o "ci-${TARGET}.tar"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        if: github.event_name != 'pull_request'
+        with:
+          name: ci-image-${{ matrix.target }}
+          path: ci-${{ matrix.target }}.tar
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
+  publish:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      packages: write
+    strategy:
+      matrix:
+        target: [runtime, build]
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: ci-image-${{ matrix.target }}
+      - name: Publish verified image
+        env:
+          TARGET: ${{ matrix.target }}
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          docker load -i "ci-${TARGET}.tar"
+          image="ghcr.io/${GITHUB_REPOSITORY,,}/ci-${TARGET}"
+          ref="${image}:${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker tag "oasis7-ci-${TARGET}:candidate" "$ref"
+          printf "%s" "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          trap 'docker logout ghcr.io' EXIT
+          docker push "$ref"
+          digest=$(docker buildx imagetools inspect "$ref" --format "{{json .Manifest}}" | jq -er .digest)
+          printf "%s@%s\n" "$image" "$digest" >> "$GITHUB_STEP_SUMMARY"
