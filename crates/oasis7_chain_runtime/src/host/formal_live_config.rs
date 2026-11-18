@@ -23,7 +23,7 @@ const MAX_TRUST_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_NODE_KEYPAIR_BYTES: u64 = 16 * 1024;
 const MAX_INITIAL_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_PATH_BYTES: usize = 4096;
-const MAX_NODE_ID_BYTES: usize = 256;
+pub(super) const MAX_NODE_ID_BYTES: usize = 256;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]

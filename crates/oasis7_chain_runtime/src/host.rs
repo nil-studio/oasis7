@@ -118,6 +118,9 @@ mod formal_live_runtime;
 #[cfg(unix)]
 #[path = "host/formal_live_service.rs"]
 mod formal_live_service;
+#[cfg(unix)]
+#[path = "host/formal_live_status_observation.rs"]
+mod formal_live_status_observation;
 #[cfg(all(test, unix))]
 pub(crate) use formal_bft_read_cli::{
     run_until_shutdown as run_formal_bft_read_cli_until_shutdown, tests::install_handoff_for_test,
