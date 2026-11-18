@@ -1,14 +1,16 @@
 # IWS 转账 Rule 的真实候选构建原件
 
-本目录保存 `m1.rule.transfer` 的 WASM、metadata 与 receipt4 三件原件，供 Linux 的真实 governed GEN → 双端接受 → Host 驻留集成用例使用。它们来自 [WasmDeterminism run 44045184107](https://github.com/nil-studio/oasis7/actions/runs/44045184107) 的 attempt 1，M1 producer artifact 为 `14311734547`。
+本目录保存 `m1.rule.transfer` 的 WASM、metadata 与 receipt4 三件原件，供 Linux 的真实 governed GEN → 双端接受 → Host 驻留集成用例使用。它们来自 [WasmDeterminism run 44249669224](https://github.com/nil-studio/oasis7/actions/runs/44249669224) 的 attempt 1，[M1 producer job 134617070263](https://github.com/nil-studio/oasis7/actions/runs/44249669224/job/134617070263) artifact 为 `14404046779`。
 
-该次 run 的源码 head 为 `f1c78ca9216805905a33ee5916575cd7ac21ccbc`，实际检出的 PR merge 为 `12200528ad3b53da6a0c139be682000c5a17dae3`，tree 为 `bc69e492b3ba2d98c60ec38ee2b4e85e5f50c40a`。同一 run 的 M1/M4/M5 共 37 组三件原件用于本分支的 candidate baseline；三个 artifact 分别为 `14311734547`、`14311194413`、`14311158959`。
+该次 run 的源码 head 为 `e41c26b64f7362475880aa8d52870301208b1746`，实际检出的 PR merge 为 `21f553fe6de09a58562985374660d0b1ff34aaaf`，tree 为 `afd40ec55482f5de071f6ae6d498913084e769ca`。同一 run 的 M1/M4/M5 共 37 组三件原件用于本分支的 candidate baseline；三个 artifact 分别为 `14404046779`、`14404118001`、`14404270570`。
+
+三个 producer 作业均完成真实 canonical build/hash 检查，随后因原候选 identity 与新 producer 配方不一致退出；这些原件来自已有失败证据上传，未改写 receipt。新配方为 `76037477110038267f322d2fc40c39b05624ac0d0fe8a76cfdb5537270447427`，共享 BuildManifest 为 `2ae6babd15950354742fec8cdaad526c8d01532a9b40fae5689a6b71ccbe49df`。固定 fixture 的 builder execution 与新 descriptor 中同一个 M1 构建记录精确对应，WASM 字节与上一版相同。
 
 | 原件 | 字节数 | SHA-256 |
 | --- | ---: | --- |
 | `m1.rule.transfer.wasm` | 407277 | `4db769768e3bde644cc2e34d65ae61c8ab2776b678541cfe5ddd15b467e6a504` |
-| `m1.rule.transfer.metadata.json` | 7811 | `7f291554ad156df5549ae0c4b31b11f88eab4c2ad1c72bf3b0c32d92dfda59d7` |
-| `m1.rule.transfer.build-receipt.json` | 7763 | `ae55df21e27f100aca78162ae974162ff218712335fd433d6c60a83db6903f05` |
+| `m1.rule.transfer.metadata.json` | 8005 | `5833f1c9050e915e7af808bb9932f68ed071d943484e431d8d95d3e0997871f2` |
+| `m1.rule.transfer.build-receipt.json` | 7957 | `2ca78108f2803730dcbbc4ddf32fc841529c502427e7540e5f58654153ae14aa` |
 
 这些文件的 purpose 保持 `candidate-build`，不赋予 builtin release 资格。测试在自己的初始 World 中，通过真实提案、shadow、approve、apply 路径安装它；不会修改被冻结的 release 六文件、伪造 worker 或替换为 WAT stub。fixture 的专用签名只表达这个测试 World 的治理授权。
 
