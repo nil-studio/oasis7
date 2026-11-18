@@ -18,6 +18,7 @@ use libp2p::{Multiaddr, PeerId, StreamProtocol, Transport as _};
 use oasis7_proto::distributed::RR_PROTOCOL_PREFIX;
 use oasis7_proto::distributed_net::{NetworkRequest, NetworkResponse};
 
+use super::connection_budget::ConnectionBudget;
 use super::peer_record_admission::{PeerRecordAdmissionBudget, SharedPeerRecordAdmissionBudget};
 use super::peer_record_dial_gate::DiscoveryDialPolicy;
 use super::peer_record_protocol_dial::{ProtocolDialBehaviour, ProtocolDialOrigins};
@@ -46,6 +47,7 @@ pub(super) struct InnerBehaviour {
 /// cache addresses internally, but those caches cannot extend signed leases.
 pub(super) struct Behaviour {
     inner: InnerBehaviour,
+    connection_budget: Option<ConnectionBudget>,
     pub(super) discovery_budget: super::discovery_budget::DiscoveryWorkBudget,
     peer_record_admission_budget: SharedPeerRecordAdmissionBudget,
     dial_policy: DiscoveryDialPolicy,
@@ -58,9 +60,11 @@ impl Behaviour {
         inner: InnerBehaviour,
         protocol_dials: ProtocolDialOrigins,
         peer_record_admission_budget: SharedPeerRecordAdmissionBudget,
+        connection_budget: Option<ConnectionBudget>,
     ) -> Self {
         Self {
             inner,
+            connection_budget,
             discovery_budget: Default::default(),
             peer_record_admission_budget,
             dial_policy: DiscoveryDialPolicy::default(),
@@ -110,8 +114,13 @@ impl NetworkBehaviour for Behaviour {
         local: &Multiaddr,
         remote: &Multiaddr,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        self.inner
-            .handle_established_inbound_connection(id, peer, local, remote)
+        let handler = self
+            .inner
+            .handle_established_inbound_connection(id, peer, local, remote)?;
+        if let Some(budget) = &self.connection_budget {
+            budget.establish_inbound(id, peer)?;
+        }
+        Ok(handler)
     }
     fn handle_pending_outbound_connection(
         &mut self,
@@ -149,8 +158,13 @@ impl NetworkBehaviour for Behaviour {
         role: libp2p::core::Endpoint,
         port: libp2p::core::transport::PortUse,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        self.inner
-            .handle_established_outbound_connection(id, peer, address, role, port)
+        let handler = self
+            .inner
+            .handle_established_outbound_connection(id, peer, address, role, port)?;
+        if let Some(budget) = &self.connection_budget {
+            budget.establish_outbound(id, address, peer)?;
+        }
+        Ok(handler)
     }
     fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm<'_>) {
         if let libp2p::swarm::FromSwarm::DialFailure(failure) = event {
@@ -255,6 +269,7 @@ pub(super) fn build_swarm(
         request_response_timeout,
         wire_byte_counters,
         super::receiver_floor::PeerRecordReceiver::legacy(),
+        None,
     )
 }
 
@@ -265,9 +280,14 @@ pub(super) fn build_swarm_with_receiver(
     request_response_timeout: std::time::Duration,
     wire_byte_counters: SharedLibp2pWireByteCounters,
     peer_record_receiver: super::receiver_floor::SharedPeerRecordReceiver,
+    connection_budget: Option<ConnectionBudget>,
 ) -> Swarm<Behaviour> {
     let swarm_config = libp2p::swarm::Config::with_tokio_executor()
         .with_idle_connection_timeout(std::time::Duration::from_secs(30));
+    let swarm_config = match &connection_budget {
+        Some(budget) => budget.configure_swarm(swarm_config),
+        None => swarm_config,
+    };
 
     let peer_id = PeerId::from(keypair.public());
     let gossipsub = gossipsub::Behaviour::new(
@@ -321,7 +341,12 @@ pub(super) fn build_swarm_with_receiver(
         ),
     };
 
-    let behaviour = Behaviour::new(inner, protocol_dials, peer_record_admission_budget);
+    let behaviour = Behaviour::new(
+        inner,
+        protocol_dials,
+        peer_record_admission_budget,
+        connection_budget,
+    );
 
     let quic_transport = libp2p::quic::tokio::Transport::new(libp2p::quic::Config::new(keypair));
     let tcp_transport = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default())

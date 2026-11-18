@@ -1,0 +1,267 @@
+//! Shared active-attempt accounting at the Swarm transport and authentication boundaries.
+use std::{
+    collections::HashMap,
+    io,
+    sync::{Arc, Mutex},
+};
+
+use libp2p::{
+    Multiaddr, PeerId,
+    swarm::{Config, ConnectionDenied, ConnectionId, TransportAttemptPermit},
+};
+
+#[cfg(test)]
+#[path = "connection_budget_tests.rs"]
+mod tests;
+
+#[derive(Clone, Copy)]
+pub(super) struct ConnectionLimits {
+    pub total: u32,
+    pub pending: u32,
+    pub inbound_unknown: u32,
+    pub outbound: u32,
+    pub per_peer: u32,
+}
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum AttemptKey {
+    Inbound(ConnectionId),
+    Outbound(ConnectionId, Multiaddr),
+}
+
+impl AttemptKey {
+    fn pending_lane(&self) -> usize {
+        match self {
+            Self::Inbound(_) => 0,
+            Self::Outbound(..) => 1,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Attempt {
+    serial: u64,
+    peer: Option<PeerId>,
+    pending: bool,
+}
+
+#[derive(Default)]
+struct ActiveAttempts {
+    entries: HashMap<AttemptKey, Attempt>,
+    pending: [u32; 2],
+    peers: HashMap<PeerId, u32>,
+    next_serial: u64,
+    failed: bool,
+}
+
+impl ActiveAttempts {
+    fn for_peer(&self, peer: PeerId) -> u32 {
+        self.peers.get(&peer).copied().unwrap_or(0)
+    }
+
+    fn release(&mut self, key: &AttemptKey, serial: u64) {
+        let Some(attempt) = self
+            .entries
+            .get(key)
+            .filter(|attempt| attempt.serial == serial)
+            .copied()
+        else {
+            return;
+        };
+        self.entries.remove(key);
+        if attempt.pending {
+            let lane = &mut self.pending[key.pending_lane()];
+            if let Some(remaining) = lane.checked_sub(1) {
+                *lane = remaining;
+            } else {
+                self.failed = true;
+            }
+        }
+        if let Some(peer) = attempt.peer {
+            match self.for_peer(peer).checked_sub(1) {
+                Some(0) => {
+                    self.peers.remove(&peer);
+                }
+                Some(remaining) => {
+                    self.peers.insert(peer, remaining);
+                }
+                None => self.failed = true,
+            }
+        }
+    }
+}
+
+struct ConnectionLedger {
+    limits: ConnectionLimits,
+    state: Mutex<ActiveAttempts>,
+}
+
+#[derive(Clone)]
+pub(super) struct ConnectionBudget(Arc<ConnectionLedger>);
+
+fn denied(reason: &'static str) -> ConnectionDenied {
+    ConnectionDenied::new(io::Error::other(reason))
+}
+
+impl ConnectionBudget {
+    #[cfg(test)]
+    pub(super) fn new(limits: ConnectionLimits) -> io::Result<Self> {
+        if limits.total == 0
+            || !(1..=limits.total).contains(&limits.pending)
+            || !(1..=limits.pending).contains(&limits.inbound_unknown)
+            || !(1..=limits.pending).contains(&limits.outbound)
+            || !(1..=limits.total).contains(&limits.per_peer)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "invalid connection budget limits",
+            ));
+        }
+        Ok(Self(Arc::new(ConnectionLedger {
+            limits,
+            state: Mutex::default(),
+        })))
+    }
+
+    pub(super) fn configure_swarm(&self, config: Config) -> Config {
+        let inbound = self.clone();
+        let outbound = self.clone();
+        config
+            .with_inbound_transport_admission(move |connection, _, _| {
+                inbound.reserve(AttemptKey::Inbound(connection), None)
+            })
+            .with_outbound_transport_admission(move |connection, peer, address| {
+                outbound.reserve(AttemptKey::Outbound(connection, address.clone()), peer)
+            })
+    }
+
+    fn reserve(
+        &self,
+        key: AttemptKey,
+        peer: Option<PeerId>,
+    ) -> Result<TransportAttemptPermit, ConnectionDenied> {
+        let mut state = self
+            .0
+            .state
+            .lock()
+            .map_err(|_| denied("connection budget unavailable"))?;
+        let limits = self.0.limits;
+        if state.failed {
+            return Err(denied("connection budget unavailable"));
+        }
+        if state.entries.contains_key(&key) {
+            return Err(denied("duplicate connection attempt"));
+        }
+        if u32::try_from(state.entries.len())
+            .map_err(|_| denied("connection budget unavailable"))?
+            >= limits.total
+        {
+            return Err(denied("total connection budget exhausted"));
+        }
+        let pending = state.pending[0]
+            .checked_add(state.pending[1])
+            .ok_or_else(|| denied("connection budget unavailable"))?;
+        if pending >= limits.pending {
+            return Err(denied("shared pending connection budget exhausted"));
+        }
+        let lane = key.pending_lane();
+        if state.pending[lane] >= [limits.inbound_unknown, limits.outbound][lane] {
+            return Err(denied("directional pending connection budget exhausted"));
+        }
+        if peer.is_some_and(|peer| state.for_peer(peer) >= limits.per_peer) {
+            return Err(denied("peer connection budget exhausted"));
+        }
+        let serial = state.next_serial;
+        state.next_serial = serial
+            .checked_add(1)
+            .ok_or_else(|| denied("connection attempt sequence exhausted"))?;
+        state.pending[lane] += 1;
+        if let Some(peer) = peer {
+            *state.peers.entry(peer).or_default() += 1;
+        }
+        state.entries.insert(
+            key.clone(),
+            Attempt {
+                serial,
+                peer,
+                pending: true,
+            },
+        );
+        Ok(Box::new(AttemptPermit {
+            budget: self.clone(),
+            key,
+            serial,
+        }))
+    }
+
+    pub(super) fn establish_inbound(
+        &self,
+        connection: ConnectionId,
+        peer: PeerId,
+    ) -> Result<(), ConnectionDenied> {
+        self.establish(&AttemptKey::Inbound(connection), peer)
+    }
+
+    pub(super) fn establish_outbound(
+        &self,
+        connection: ConnectionId,
+        address: &Multiaddr,
+        peer: PeerId,
+    ) -> Result<(), ConnectionDenied> {
+        self.establish(&AttemptKey::Outbound(connection, address.clone()), peer)
+    }
+
+    fn establish(&self, key: &AttemptKey, peer: PeerId) -> Result<(), ConnectionDenied> {
+        let mut state = self
+            .0
+            .state
+            .lock()
+            .map_err(|_| denied("connection budget unavailable"))?;
+        let lane = key.pending_lane();
+        if state.failed || state.pending[lane] == 0 {
+            return Err(denied("connection budget unavailable"));
+        }
+        let attempt = state
+            .entries
+            .get_mut(key)
+            .filter(|attempt| attempt.pending)
+            .ok_or_else(|| denied("authenticated connection lacks a pending permit"))?;
+        let add_peer = match attempt.peer {
+            Some(expected) if expected != peer => {
+                return Err(denied(
+                    "authenticated connection differs from reserved peer",
+                ));
+            }
+            Some(_) => false,
+            None => true,
+        };
+        if add_peer && state.for_peer(peer) >= self.0.limits.per_peer {
+            return Err(denied("authenticated peer connection budget exhausted"));
+        }
+        let attempt = state
+            .entries
+            .get_mut(key)
+            .ok_or_else(|| denied("connection permit disappeared"))?;
+        attempt.peer = Some(peer);
+        attempt.pending = false;
+        state.pending[lane] -= 1;
+        if add_peer {
+            *state.peers.entry(peer).or_default() += 1;
+        }
+        Ok(())
+    }
+}
+
+struct AttemptPermit {
+    budget: ConnectionBudget,
+    key: AttemptKey,
+    serial: u64,
+}
+
+impl Drop for AttemptPermit {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.budget.0.state.lock() {
+            state.release(&self.key, self.serial);
+        }
+    }
+}

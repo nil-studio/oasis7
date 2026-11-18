@@ -124,6 +124,8 @@ impl Libp2pNetwork {
                 config_clone.request_response_timeout,
                 Arc::clone(&event_wire_byte_counters),
                 Arc::clone(&event_peer_record_receiver),
+                // Connection admission is inactive until the host profile covers every transport.
+                None,
             );
             let mut subscriptions = HashSet::new();
             let mut topic_map: HashMap<TopicHash, String> = HashMap::new();
