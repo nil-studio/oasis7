@@ -613,7 +613,6 @@ fn validate_handoff_material_for_scope(
         || manifest.authority_id != record.original_authority_id
         || manifest.activation_ref != record.activation_ref
         || manifest.execution_policy_digest != record.execution_policy_digest
-        || manifest.executable_digest != crate::controlled_execution_policy::executable_digest()?
         || manifest.parent.position.checked_add(1) != Some(record.position)
         || manifest.parent.record_id != record.parent_record_id
     {
