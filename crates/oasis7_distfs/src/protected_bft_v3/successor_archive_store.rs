@@ -68,6 +68,11 @@ pub trait BftSuccessorArchiveStoreV1: Send + Sync {
 /// Uses the existing CAS retention lock and compression format. This adapter
 /// additionally fsyncs the material, pin and directory publication before a
 /// provider may advance its independently protected minimum.
+///
+/// The archive directory and its ancestors must be managed by trusted
+/// operators and protected from concurrent path replacement. Publication
+/// uses the path-based CAS writer. Reads check the object and its location
+/// separately when opening a fresh descriptor.
 pub struct LocalBftSuccessorArchiveStoreV1 {
     store: LocalCasStore,
 }
@@ -140,6 +145,9 @@ impl LocalBftSuccessorArchiveStoreV1 {
         self.store
             .put(&reference.digest, bytes)
             .map_err(cas_error)?;
+        // Prune may win between these individually locked CAS operations.
+        // Pin checks existence under the retention lock, so this fails before
+        // returning a reference. Retrying the same bytes is idempotent.
         self.store.pin(&reference.digest).map_err(cas_error)?;
         sync_regular_file(
             &self
