@@ -215,6 +215,39 @@ fn exercise_direct_transport(bind: &str) {
                 ));
                 assert_eq!(occupancy(&budget, remote_peer), (1, [0, 0], 1));
 
+                // An unqualified address holds the outbound slot without a peer
+                // charge until real authentication identifies the already occupied peer.
+                let unknown = DialOpts::unknown_peer_id()
+                    .address(remote_address.clone())
+                    .allocate_new_port()
+                    .build();
+                let unknown_id = unknown.connection_id();
+                budgeted.dial(unknown).unwrap();
+                assert_eq!(occupancy(&budget, remote_peer), (2, [0, 1], 1));
+                loop {
+                    match budgeted_event(&mut budgeted, &mut remote).await {
+                        SwarmEvent::OutgoingConnectionError {
+                            connection_id,
+                            peer_id,
+                            error: DialError::Denied { .. },
+                        } if connection_id == unknown_id => {
+                            assert_eq!(peer_id, Some(remote_peer));
+                            assert_eq!(budget.0.diagnostics.latest().0, Some(ResourceBudgetRejection::PerPeer));
+                            break;
+                        }
+                        SwarmEvent::ConnectionEstablished { connection_id, .. }
+                            if connection_id == unknown_id => panic!("unknown dial bypassed per-peer cap"),
+                        _ => {}
+                    }
+                }
+                while occupancy(&budget, remote_peer).0 == 2 {
+                    let _ = tokio::time::timeout(
+                        Duration::from_millis(10),
+                        budgeted_event(&mut budgeted, &mut remote),
+                    )
+                    .await;
+                }
+
                 assert!(budgeted.close_connection(first_incoming));
                 assert_eq!(occupancy(&budget, remote_peer), (1, [0, 0], 1));
                 while !matches!(
