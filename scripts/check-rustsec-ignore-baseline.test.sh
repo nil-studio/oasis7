@@ -30,6 +30,23 @@ def check(content, passes, diagnostic=""):
 
 check(Path("deny.toml").read_text(), True)
 check(valid, True)
+approved = '{id = "RUSTSEC-2026-0543", reason = "maintenance risk accepted"}'
+check(valid.replace("ignore = []", "ignore = [" + approved + "]"), True)
+# Config regression only: the synthetic ID is not a real vulnerability finding.
+# cargo-deny still evaluates real advisories in CI, without our own filter.
+for denied in (
+    approved.replace("2026-0543", "2099-9999"),
+    approved + ', "RUSTSEC-2099-9999"',
+    approved + ', ' + approved,
+    approved.replace('"maintenance risk accepted"', '" "'),
+    approved.replace('"maintenance risk accepted"', 'false'),
+    approved.replace(', reason = "maintenance risk accepted"', ''),
+    approved[:-1] + ', allow = ["aliyun-tablestore-rs@0.1.2"]}',
+    approved[:-1] + ', expiry = "2026-12-31"}',
+):
+    check(valid.replace("ignore = []", "ignore = [" + denied + "]"), False,
+          "single approved maintenance exception")
+
 check(valid.replace("[advisories]", "['advisories']") + "# RUSTSEC-2024-0436\n", True)
 for ignored in (
     "['RUSTSEC-2021-0127']",
@@ -37,8 +54,8 @@ for ignored in (
     '["RUSTSEC-2024-0436", "RUSTSEC-2024-0436"]',
     '""', "{}", "false", "[12]",
 ):
-    check(valid.replace("ignore = []", f"ignore = {ignored}"), False, "empty array")
-check(valid.replace("ignore = []", ""), False, "empty array")
+    check(valid.replace("ignore = []", f"ignore = {ignored}"), False, "single approved maintenance exception")
+check(valid.replace("ignore = []", ""), False, "single approved maintenance exception")
 for package in ("serde_cbor", "paste", "ttf-parser"):
     entry = "{name = '" + package + "'}"
     for replacement in (
