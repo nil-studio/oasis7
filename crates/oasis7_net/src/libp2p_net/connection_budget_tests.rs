@@ -15,7 +15,6 @@ use libp2p::{
         dial_opts::{DialOpts, PeerCondition},
     },
 };
-use std::time::Duration;
 
 fn limits() -> ConnectionLimits {
     ConnectionLimits {
@@ -24,6 +23,7 @@ fn limits() -> ConnectionLimits {
         inbound_unknown: 1,
         outbound: 2,
         per_peer: 1,
+        handshake_timeout: Duration::from_secs(3),
     }
 }
 
@@ -237,4 +237,106 @@ fn exercise_direct_transport(bind: &str) {
                 assert_eq!(occupancy(&budget, remote_peer), (1, [0, 0], 1));
             }).await.expect("connection budget probe timed out");
         });
+}
+
+#[test]
+fn pending_tcp_handshake_expires_and_releases_its_socket_and_budget() {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            tokio::time::timeout(Duration::from_secs(8), async {
+                let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let address: Multiaddr = format!(
+                    "/ip4/127.0.0.1/tcp/{}",
+                    listener.local_addr().unwrap().port()
+                )
+                .parse()
+                .unwrap();
+                let target = Keypair::generate_ed25519().public().to_peer_id();
+                let budget = ConnectionBudget::new(ConnectionLimits {
+                    handshake_timeout: Duration::from_secs(1),
+                    ..limits()
+                })
+                .unwrap();
+                let mut budgeted = swarm(&Keypair::generate_ed25519(), Some(budget.clone()));
+                let opts = dial_for(target, address.clone());
+                let connection = opts.connection_id();
+                budgeted.dial(opts).unwrap();
+                assert_eq!(occupancy(&budget, target), (1, [0, 1], 1));
+
+                let mut completion = Box::pin(async {
+                    loop {
+                        if let SwarmEvent::OutgoingConnectionError {
+                            connection_id,
+                            error,
+                            ..
+                        } = budgeted.select_next_some().await
+                        {
+                            assert_eq!(connection_id, connection);
+                            return error;
+                        }
+                    }
+                });
+                let mut accept = Box::pin(listener.accept());
+                let (socket, _) = match select(&mut accept, completion.as_mut()).await {
+                    Either::Left((accepted, _)) => accepted.unwrap(),
+                    Either::Right((error, _)) => {
+                        panic!("dial failed before the TCP handshake: {error}")
+                    }
+                };
+                assert_eq!(occupancy(&budget, target), (1, [0, 1], 1));
+
+                let DialError::Transport(errors) = completion.await else {
+                    panic!("expected the pending transport to time out");
+                };
+                let [(failed_address, libp2p::core::transport::TransportError::Other(error))] =
+                    errors.as_slice()
+                else {
+                    panic!("unexpected transport errors: {errors:?}");
+                };
+                assert_eq!(failed_address, &address.with_p2p(target).unwrap());
+                assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+                assert_eq!(error.to_string(), "transport handshake deadline expired");
+                assert_eq!(occupancy(&budget, target), (0, [0, 0], 0));
+
+                // Drain any handshake bytes and verify that timing out shut down the real socket.
+                let mut bytes = [0; 512];
+                loop {
+                    socket.readable().await.unwrap();
+                    match socket.try_read(&mut bytes) {
+                        Ok(0) => break,
+                        Err(error) if error.kind() == io::ErrorKind::ConnectionReset => break,
+                        Ok(_) => {}
+                        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
+                        Err(error) => panic!("unexpected socket error: {error}"),
+                    }
+                }
+            })
+            .await
+            .expect("pending TCP handshake probe timed out");
+        });
+}
+
+#[test]
+fn expired_pending_permit_rejects_authentication_before_peer_accounting() {
+    let budget = ConnectionBudget::new(limits()).unwrap();
+    let peer = Keypair::generate_ed25519().public().to_peer_id();
+    let connection = dial_for(peer, "/ip4/127.0.0.1/tcp/1".parse().unwrap()).connection_id();
+    let key = AttemptKey::Inbound(connection);
+    let permit = budget.reserve(key.clone(), None).unwrap();
+    budget
+        .0
+        .state
+        .lock()
+        .unwrap()
+        .entries
+        .get_mut(&key)
+        .unwrap()
+        .deadline = Instant::now();
+    assert!(budget.authorize_inbound(connection, peer).is_err());
+    assert_eq!(occupancy(&budget, peer), (1, [1, 0], 0));
+    drop(permit);
+    assert_eq!(occupancy(&budget, peer), (0, [0, 0], 0));
 }

@@ -3,11 +3,12 @@ use std::{
     collections::HashMap,
     io,
     sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 
 use libp2p::{
     Multiaddr, PeerId,
-    swarm::{Config, ConnectionDenied, ConnectionId, TransportAttemptPermit},
+    swarm::{Config, ConnectionDenied, ConnectionId, TransportAdmission},
 };
 
 #[cfg(test)]
@@ -21,6 +22,7 @@ pub(super) struct ConnectionLimits {
     pub inbound_unknown: u32,
     pub outbound: u32,
     pub per_peer: u32,
+    pub handshake_timeout: Duration,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -43,6 +45,7 @@ struct Attempt {
     serial: u64,
     peer: Option<PeerId>,
     phase: AttemptPhase,
+    deadline: Instant,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -118,6 +121,10 @@ impl ConnectionBudget {
             || !(1..=limits.pending).contains(&limits.inbound_unknown)
             || !(1..=limits.pending).contains(&limits.outbound)
             || !(1..=limits.total).contains(&limits.per_peer)
+            || limits.handshake_timeout.is_zero()
+            || Instant::now()
+                .checked_add(limits.handshake_timeout)
+                .is_none()
         {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -134,10 +141,10 @@ impl ConnectionBudget {
         let inbound = self.clone();
         let outbound = self.clone();
         config
-            .with_inbound_transport_admission(move |connection, _, _| {
+            .with_timed_inbound_transport_admission(move |connection, _, _| {
                 inbound.reserve(AttemptKey::Inbound(connection), None)
             })
-            .with_outbound_transport_admission(move |connection, peer, address| {
+            .with_timed_outbound_transport_admission(move |connection, peer, address| {
                 outbound.reserve(AttemptKey::Outbound(connection, address.clone()), peer)
             })
     }
@@ -146,7 +153,7 @@ impl ConnectionBudget {
         &self,
         key: AttemptKey,
         peer: Option<PeerId>,
-    ) -> Result<TransportAttemptPermit, ConnectionDenied> {
+    ) -> Result<TransportAdmission, ConnectionDenied> {
         let mut state = self
             .0
             .state
@@ -178,6 +185,9 @@ impl ConnectionBudget {
         if peer.is_some_and(|peer| state.for_peer(peer) >= limits.per_peer) {
             return Err(denied("peer connection budget exhausted"));
         }
+        let deadline = Instant::now()
+            .checked_add(limits.handshake_timeout)
+            .ok_or_else(|| denied("invalid handshake deadline"))?;
         let serial = state.next_serial;
         state.next_serial = serial
             .checked_add(1)
@@ -192,13 +202,17 @@ impl ConnectionBudget {
                 serial,
                 peer,
                 phase: AttemptPhase::Pending,
+                deadline,
             },
         );
-        Ok(Box::new(AttemptPermit {
-            budget: self.clone(),
-            key,
-            serial,
-        }))
+        Ok(TransportAdmission::until(
+            Box::new(AttemptPermit {
+                budget: self.clone(),
+                key,
+                serial,
+            }),
+            deadline,
+        ))
     }
 
     pub(super) fn authorize_inbound(
@@ -238,6 +252,11 @@ impl ConnectionBudget {
             .filter(|attempt| attempt.phase == AttemptPhase::Pending)
             .copied()
             .ok_or_else(|| denied("authenticated connection lacks a pending permit"))?;
+        if Instant::now() >= attempt.deadline {
+            return Err(denied(
+                "authenticated connection exceeded its handshake deadline",
+            ));
+        }
         let add_peer = match attempt.peer {
             Some(expected) if expected != peer => {
                 return Err(denied(
