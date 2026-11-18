@@ -372,7 +372,7 @@ fn journal_fanout(first_count_failure: bool) {
             assert_eq!(reference.id, *blake3::hash(bytes).as_bytes());
             assert_eq!(reference.byte_len, bytes.len() as u64);
         }
-        let business_count = 4 + material.delta().delta().node_writes.len() as u64;
+        let business_count = 5 + material.delta().delta().node_writes.len() as u64;
         assert_eq!(
             before_count - transfer.originals_remaining,
             expected.len() as u64 + world.tick_consensus_records().len() as u64 + business_count

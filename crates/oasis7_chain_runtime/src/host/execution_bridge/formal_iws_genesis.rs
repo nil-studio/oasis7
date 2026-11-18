@@ -136,6 +136,7 @@ pub(crate) fn prepare_projected_iws_genesis_for_endpoints_v1(
                 value,
                 source,
                 targets,
+                config,
                 work,
                 common,
                 context.cancelled,

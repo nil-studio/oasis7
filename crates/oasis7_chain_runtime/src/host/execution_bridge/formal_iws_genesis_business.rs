@@ -19,6 +19,7 @@ use oasis7_formal_protocol::{
     },
     incremental_artifacts::OriginalArtifactRefV1,
     incremental_execution::ExecutionError,
+    incremental_history::GenesisConfigV1,
 };
 use oasis7_proto::memory_budget::{MemoryClass, MemoryReservation, ReservedValue};
 use oasis7_runtime::BodyMutationError;
@@ -40,10 +41,12 @@ pub(crate) struct ProvisionalProjectedGenesisBusinessV1 {
     delta_wire: ReservedValue<Vec<u8>>,
     retention_wire: ReservedValue<Vec<u8>>,
     roots_wire: ReservedValue<Vec<u8>>,
+    config_wire: ReservedValue<Vec<u8>>,
     descriptor_ref: OriginalArtifactRefV1,
     delta_ref: OriginalArtifactRefV1,
     retention_ref: OriginalArtifactRefV1,
     roots_ref: OriginalArtifactRefV1,
+    config_ref: OriginalArtifactRefV1,
     allocation: MemoryReservation,
 }
 
@@ -76,6 +79,10 @@ impl ProvisionalProjectedGenesisBusinessV1 {
         (self.roots_ref, &self.roots_wire)
     }
 
+    pub(crate) fn config_original(&self) -> (OriginalArtifactRefV1, &ReservedValue<Vec<u8>>) {
+        (self.config_ref, &self.config_wire)
+    }
+
     pub(crate) fn validate_context(&self, common: &mut FormalBoundedContextV1<'_>) -> Result<()> {
         self.projected
             .projected()
@@ -91,6 +98,7 @@ impl ProvisionalProjectedGenesisBusinessV1 {
             || !self.delta_wire.uses_budget(common.memory())
             || !self.retention_wire.uses_budget(common.memory())
             || !self.roots_wire.uses_budget(common.memory())
+            || !self.config_wire.uses_budget(common.memory())
             || !self
                 .projected
                 .retention_manifest()
@@ -320,6 +328,7 @@ pub(crate) fn persist_projected_genesis_business_v1(
     projected: ProvisionalProjectedRuntimeGenesisIndexV1,
     source: &IncrementalPageStore,
     targets: [&IncrementalPageStore; 2],
+    config: &GenesisConfigV1,
     work: &mut IwsGenesisTransferWorkV1,
     common: &mut FormalBoundedContextV1<'_>,
     stop: &AtomicBool,
@@ -341,10 +350,12 @@ pub(crate) fn persist_projected_genesis_business_v1(
         delta_wire,
         retention_wire,
         roots_wire,
+        config_wire,
         descriptor_ref,
         delta_ref,
         retention_ref,
         roots_ref,
+        config_ref,
     ) = {
         let business = projected
             .prepare_business_output_bounded_v1(&NoPriorNodes, common, &mut work.canonical)
@@ -429,6 +440,42 @@ pub(crate) fn persist_projected_genesis_business_v1(
             charge.retain(bytes)
         };
         let roots_ref = write_original(&objects, &roots_wire, Some(roots), work, common, stop)?;
+        let (config_wire, config_ref) = {
+            // The frozen codec has a <=516B body Vec and <=419B output alive
+            // together. This 2KiB phase also covers its fixed metadata and up
+            // to 389B of allocator-copy work; each codec hook pays separately.
+            common.charge(1, 2048).map_err(context_error)?;
+            let mut encoding = memory
+                .reserve(2048, MemoryClass::Ordinary)
+                .map_err(PageStoreError::Memory)?;
+            common.charge(1, 32).map_err(context_error)?;
+            let expected = actual_source.final_roots().genesis_config;
+            let mut first = None;
+            let bytes = config.canonical_bytes_with_work(&mut |steps, bytes| {
+                common.charge(steps, bytes).map_err(|error| {
+                    if first.is_none() {
+                        first = Some(error);
+                    }
+                    ExecutionError::Aborted
+                })
+            });
+            if let Some(error) = first {
+                return Err(context_error(error));
+            }
+            let bytes =
+                bytes.map_err(|error| Error::Body(BodyMutationError::Original(Box::new(error))))?;
+            if bytes.len() > 419 || bytes.capacity() > 419 {
+                return Err(PageStoreError::Corrupt("GEN config encoding bound").into());
+            }
+            let fee = encoding
+                .split(bytes.capacity())
+                .map_err(|_| PageStoreError::Corrupt("GEN config wire accounting"))?;
+            let wire = fee.retain(bytes);
+            // The original writer hashes these bytes under Common before its
+            // expected-ID check and three complete local write/readbacks.
+            let reference = write_original(&objects, &wire, Some(expected), work, common, stop)?;
+            (wire, reference)
+        };
         // Consume the same update at the original final source-check boundary.
         // This ends its borrow of projected without releasing either graph.
         let (owned_descriptor, owned_delta) = business
@@ -441,10 +488,12 @@ pub(crate) fn persist_projected_genesis_business_v1(
             delta,
             retention_wire,
             roots_wire,
+            config_wire,
             descriptor_ref,
             delta_ref,
             retention_ref,
             roots_ref,
+            config_ref,
         )
     };
     cancelled(stop)?;
@@ -457,10 +506,12 @@ pub(crate) fn persist_projected_genesis_business_v1(
         delta_wire,
         retention_wire,
         roots_wire,
+        config_wire,
         descriptor_ref,
         delta_ref,
         retention_ref,
         roots_ref,
+        config_ref,
         allocation,
     })
 }

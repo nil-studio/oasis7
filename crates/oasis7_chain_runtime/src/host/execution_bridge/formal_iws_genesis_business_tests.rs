@@ -371,7 +371,7 @@ fn real_projected_genesis_business_output_roundtrips_both_independent_endpoints(
     assert_eq!(retention.reserved_bytes(), 128 * 1024);
     assert_eq!(retention_ref.id, digest(retention, &mut common));
     assert_eq!(retention_ref.byte_len, retention.len() as u64);
-    root_set::assert_original(&material, roots_digest, &mut common);
+    root_set::assert_original(&material, &cfg, roots_digest, &mut common);
     let descriptor_id = digest(descriptor, &mut common);
     let delta_id = digest(delta, &mut common);
     assert_eq!(descriptor_ref.id, descriptor_id);
@@ -457,7 +457,7 @@ fn real_projected_genesis_business_output_roundtrips_both_independent_endpoints(
                 assert_eq!(decoded.previous_record, None);
             }
         }
-        root_set::assert_cold_original(&material, &objects, &mut io, &mut common);
+        root_set::assert_cold_original(&material, &cfg, &objects, &mut io, &mut common);
         let delta_raw = metered(&mut common, &mut io, |io| {
             objects.read_object_owned(&delta_id, delta.len(), io)
         })
@@ -808,6 +808,7 @@ fn business_stage_failure_drops_owner_without_refunding_work(cancel: bool) {
         projected,
         &stores[0],
         [&stores[1], &stores[2]],
+        &cfg,
         &mut transfer,
         &mut common,
         &cancelled,
@@ -1106,6 +1107,7 @@ fn projected_genesis_business_retention_count_limit_returns_no_owner_or_refund()
         projected,
         &stores[0],
         [&stores[1], &stores[2]],
+        &cfg,
         &mut transfer,
         &mut common,
         &cancelled,
