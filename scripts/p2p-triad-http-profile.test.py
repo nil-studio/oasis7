@@ -159,6 +159,22 @@ class ProfileHttpTests(unittest.TestCase):
         report = self.run_outer()
         self.assertEqual(report["nodes"]["local_node"]["profile_readiness"]["status"], "unsupported")
 
+    def test_bft_missing_observation_keeps_producer_reason_in_canonical_report(self):
+        self.status = fixtures.bft_fixture()
+        self.status["observation"] = None
+        report = self.run_outer()
+        profile = report["nodes"]["local_node"]["profile_readiness"]
+        self.assertEqual(profile["status"], "unknown")
+        self.assertEqual(profile["reason"], "bft_observation_unavailable")
+        self.assertEqual(profile["source_freshness"], "unknown")
+        self.assertIs(profile["can_propose"], False)
+        reader = load("bft_attempt_reader", "p2p-real-env-observability-attempt.py")
+        report, markdown, code = reader.read(self.fixture.out)
+        self.assertEqual(code, 0)
+        self.assertEqual(report["nodes"]["local_node"]["profile_readiness"]["reason"],
+                         "bft_observation_unavailable")
+        self.assertIn('"bft_observation_unavailable"', markdown)
+
     def test_latest_http_failure_does_not_borrow_old_ready_and_recovers(self):
         self.run_outer()
         self.http_code = 503

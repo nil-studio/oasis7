@@ -40,3 +40,7 @@ crates/**/target
 crates/**/target/**
 tools/**/target
 tools/**/target/**
+
+!vendor-libp2p-quic-0.14.0/
+vendor-libp2p-quic-0.14.0/*
+!vendor-libp2p-quic-0.14.0/Cargo.toml
