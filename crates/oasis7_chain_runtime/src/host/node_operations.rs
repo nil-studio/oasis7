@@ -56,7 +56,7 @@ fn run_unix(args: Vec<String>) -> Result<(), String> {
                 .contains(&tail[0].as_str()))
     {
         println!(
-            "op plan|submit|recover --request FILE [--store DIR]\nop status --store DIR --id ID\nop resume|cancel --store DIR --id ID --revision N\nop agent (fixed SSH/systemd helper; JSON on stdin)\nop formal-status-observe --request FILE\nop formal-protected-observe --config FILE\nProtected signer handoff requires exact owner identities, externally verified profile-2 recovery evidence, and independent primary/replica readback. Healthy remove_critical_replica uses HealthyDurableSet authorization and waits for externally provisioned candidate management endpoints; cancel is permitted only before arm."
+            "op plan|submit|recover --request FILE [--store DIR]\nop status --store DIR --id ID\nop resume|cancel --store DIR --id ID --revision N\nop agent (fixed SSH/systemd helper; JSON on stdin)\nop formal-status-observe --request FILE [--owner-config FILE]\nop formal-protected-observe --config FILE\nProtected signer handoff requires exact owner identities, externally verified profile-2 recovery evidence, and independent primary/replica readback. Healthy remove_critical_replica uses HealthyDurableSet authorization and waits for externally provisioned candidate management endpoints; cancel is permitted only before arm."
         );
         return Ok(());
     }
@@ -107,16 +107,22 @@ fn run_unix(args: Vec<String>) -> Result<(), String> {
         );
     }
     if command == "formal-status-observe" {
-        if tail.len() != 3 || tail[1] != "--request" {
-            return Err("formal-status-observe requires --request FILE".into());
+        if !matches!(tail.len(), 3 | 5)
+            || tail[1] != "--request"
+            || (tail.len() == 5 && tail[3] != "--owner-config")
+        {
+            return Err("formal-status-observe requires --request FILE [--owner-config FILE]".into());
         }
-        use super::formal_live_status_observation::{observe, read_pins};
+        use super::formal_live_status_observation::{observe, observe_with_owner, read_pins};
         let pins = if tail[2] == "-" {
             read_pins(std::io::stdin().lock())?
         } else {
             io::read(std::path::Path::new(&tail[2]))?
         };
-        let report = observe(&pins)?;
+        let report = match tail.get(4) {
+            Some(path) => observe_with_owner(&pins, std::path::Path::new(path))?,
+            None => observe(&pins)?,
+        };
         println!(
             "{}",
             serde_json::to_string(&report).map_err(|_| "serialize formal status observation")?

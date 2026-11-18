@@ -4,12 +4,16 @@ use oasis7_distfs::controlled_authority::{
     formal::{FormalHeadRefV1, transport::RemoteFormalEndpoint},
     replicated_protocol::EndpointRole,
 };
+use oasis7_client_api::world_service::WorldIdentity;
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct ProtectedPairObservation {
     api_version: String,
+    pub(crate) world: WorldIdentity,
+    pub(crate) node_id: String,
+    pub(crate) service_public_key: String,
     pub(crate) verified_published_cut: PublishedCutObservation,
     pub(crate) primary: EndpointObservation,
     pub(crate) replica: EndpointObservation,
@@ -110,6 +114,9 @@ impl FormalLiveRuntime {
             })?;
         Ok(ProtectedPairObservation {
             api_version: "oasis7.formal-protected-pair-observation/v1".into(),
+            world: self.world.clone(),
+            node_id: self.validated.config.node_id.clone(),
+            service_public_key: hex::encode(self.node_signer.verifying_key().to_bytes()),
             verified_published_cut: cut,
             primary,
             replica,
