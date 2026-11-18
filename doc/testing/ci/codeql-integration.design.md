@@ -446,7 +446,13 @@ Trace ID: O7-REQ-351dbec8-3110-4ccd-aadc-49d0ba84bd89
 
 #### 7.2.3 短原生准备诊断
 
-原生安装在查询之前耗尽时，可单独授权一次默认关闭的 `CodeQL Rust Native Diagnostic`。仅可信默认分支手动设置 `execute=true` 才执行，整个 job 从实际启动计最多 10 分钟，共用现有扫描槽位。入口复用同一 `prepare_native` 的 360 秒窗口、四个包、模块探针、update/install 顺序、发行版源与 `Acquire::Retries=0`、`Acquire::http::Timeout=20`；不改变镜像优先级、HTTPS 参数或失败即停行为。总截止前保留至少 90 秒收尾/上传，不续期、不重试。该入口只识别实际 helper 提交和 runner，不装 Rust/CodeQL、不提取源码数据库，也不以业务源码 pin 代签已分析该源码。
+原生安装在查询之前耗尽时，可单独授权一次默认关闭的 `CodeQL Rust Native Diagnostic`。仅可信默认分支手动设置 `execute=true` 才执行，整个 job 从实际启动计最多 10 分钟，共用现有扫描槽位。默认 `source_profile=runner-sources` 复用同一 `prepare_native` 的 360 秒窗口、四个包、模块探针、update/install 顺序、发行版源与 `Acquire::Retries=0`、`Acquire::http::Timeout=20`；不改变镜像优先级、HTTPS 参数或失败即停行为。总截止前保留至少 90 秒收尾/上传，不续期、不重试。该入口只识别实际 helper 提交和 runner，不装 Rust/CodeQL、不提取源码数据库，也不以业务源码 pin 代签已分析该源码。
+
+当实际 Worker 与 partial 时间线已将耗时定位到获取路径时，可显式选择固定候选 `source_profile=ubuntu-archive-https`。候选只验证现有官方 HTTPS archive 路径能否完成准备，不预设镜像、协议或代理是根因。其 native 窗口固定为正式生产相同的 180 秒，源副本准备也计入此窗口；job 总计 600 秒、父级 90 秒保留、20 秒探针空间和 5 秒特权收尾差额不变。两种 profile 与固定预算由代码绑定，并在 job-clock、terminal 和源收据中一致记录；不接受任意 URL、APT 参数或预算输入。
+
+候选只接受有界、完整、普通文件的已支持 Ubuntu Noble 源布局。现场读取源原字节，在源码及 artifact 目录之外新建临时副本；仅将 `ubuntu.sources` 中唯一的 `URIs: mirror+file:/etc/apt/apt-mirrors.txt` 字段改为镜像列表已包含的精确 `https://archive.ubuntu.com/ubuntu/`。该 stanza 的 suites/components/签名字段、security stanza、其他来源保持原字节；不从受限投影反造源文件，不修改 `/etc/apt`、信任、认证、HTTPS timeout、pipeline 或重试策略。重复字段、续行、混合 URI、缺失候选或未知布局拒绝启动 APT。update/install 只通过命令行指定副本 sourcelist/sourceparts；包与模块集合不变，失败即停。
+
+`native-source-profile.json` 保存固定 profile/目标、原输入与有效副本的文件集合及 SHA-256、唯一替换计数和最终前后核验；私有源正文不进入 artifact 或异常文本。所有退出路径清理副本，身份或清理失败保持未就绪，原 APT 失败仍保留实际退出。默认 profile 和所有生产调用保持原行为。候选成功只证明本次四步准备在该路径与预算下完成；它同时改变 host 与 scheme，不能单独归因 HTTPS，也不能替代真实生产、37 条结果、Linux 覆盖、官方上传或平台关联。
 
 只为本入口开启 `Debug::pkgAcquire::Worker=1`。运行时的可选观测器在任何 stdout/stderr 字节落盘前投影白名单：URI 状态/重定向/完成/失败、允许的数值/布尔获取配置、包与模块版本；配置帧仅保留必要键，URI 去除认证、查询和片段。未知格式、过长行及不在白名单内的内容只记长度、摘要与丢弃原因，绝不原样回退。普通调用不传观测器，沿用原字节采集。正常读取、无末尾换行与失败后 drain 均经过同一处理和共用 16 MiB 证据上限，预留 1 MiB 保存失败收据与摘要。
 
