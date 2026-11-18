@@ -46,6 +46,8 @@ struct ReceiverLedgerV2 {
     floors: BTreeMap<String, PeerFloorV2>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pruned_trusted_time_watermark_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pre_migration_v1_expiries: BTreeMap<String, i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -325,22 +327,42 @@ impl PeerRecordReceiver {
                 "V2-only receiver rejects legacy peer records".into(),
             )),
             PeerRecordReceiverMode::DurableCompatible => {
-                let durable = self.durable_lock_required()?;
+                let mut durable = self.durable_lock_required()?;
                 ensure_durable_usable(&durable)?;
                 if durable.ledger.floors.contains_key(&record.record.peer_id) {
                     return Err(protocol_error(
                         "legacy peer record rejected after V2 floor migration".into(),
                     ));
                 }
-                if let Some(watermark) = durable.ledger.pruned_trusted_time_watermark_ms {
-                    let expiry = record.record.expires_at_ms().map_err(|reason| {
-                        protocol_error(format!("invalid record expiry: {reason}"))
-                    })?;
-                    if expiry <= watermark {
-                        return Err(protocol_error(
-                            "legacy peer record expired before receiver pruning watermark".into(),
-                        ));
-                    }
+                let expiry = record
+                    .record
+                    .expires_at_ms()
+                    .map_err(|reason| protocol_error(format!("invalid record expiry: {reason}")))?;
+                if let Some(watermark) = durable.ledger.pruned_trusted_time_watermark_ms
+                    && expiry <= watermark
+                {
+                    return Err(protocol_error(
+                        "legacy peer record expired before receiver pruning watermark".into(),
+                    ));
+                }
+                let peer_id = record.record.peer_id.clone();
+                let existing_v1 = durable
+                    .ledger
+                    .pre_migration_v1_expiries
+                    .get(&peer_id)
+                    .copied();
+                if existing_v1.is_none()
+                    && durable.ledger.floors.len() + durable.ledger.pre_migration_v1_expiries.len()
+                        >= MAX_RECEIVER_FLOORS
+                {
+                    return Err(protocol_error(
+                        "peer-record receiver floor capacity exhausted".into(),
+                    ));
+                }
+                if existing_v1.is_none_or(|current| expiry > current) {
+                    let mut next = durable.ledger.clone();
+                    next.pre_migration_v1_expiries.insert(peer_id, expiry);
+                    persist_next(&mut durable, next)?;
                 }
                 Ok(ReceiverAdmission::LegacyV1)
             }
@@ -413,6 +435,7 @@ impl PeerRecordReceiver {
                     .record
                     .expires_at_ms()
                     .map_err(|reason| protocol_error(format!("invalid record expiry: {reason}")))?;
+                let pre_v1_expiry = next.pre_migration_v1_expiries.remove(&peer_id);
                 let current = next
                     .floors
                     .get_mut(&peer_id)
@@ -428,13 +451,15 @@ impl PeerRecordReceiver {
                         })
                         .unwrap_or(0)
                 });
-                current.max_expiry_ms = Some(existing_max.max(new_expiry));
+                current.max_expiry_ms =
+                    Some(existing_max.max(new_expiry).max(pre_v1_expiry.unwrap_or(0)));
             }
             ReceiverAdmission::Accepted => {
                 let new_expiry = record
                     .record
                     .expires_at_ms()
                     .map_err(|reason| protocol_error(format!("invalid record expiry: {reason}")))?;
+                let pre_v1_expiry = next.pre_migration_v1_expiries.remove(&peer_id);
                 let max_expiry_ms = match current {
                     Some(existing) => {
                         let existing_max = existing.max_expiry_ms.unwrap_or_else(|| {
@@ -446,9 +471,12 @@ impl PeerRecordReceiver {
                                 })
                                 .unwrap_or(0)
                         });
-                        Some(existing_max.max(new_expiry))
+                        Some(existing_max.max(new_expiry).max(pre_v1_expiry.unwrap_or(0)))
                     }
-                    None => Some(new_expiry),
+                    None => {
+                        let base = pre_v1_expiry.unwrap_or(0);
+                        Some(base.max(new_expiry))
+                    }
                 };
                 next.floors.insert(
                     peer_id,
@@ -607,13 +635,21 @@ impl PeerRecordReceiver {
                 prunable_peers.push(peer_id.clone());
             }
         }
-        if prunable_peers.is_empty() {
+        let expired_v1_count = durable
+            .ledger
+            .pre_migration_v1_expiries
+            .values()
+            .filter(|expiry| **expiry <= trusted_now_ms)
+            .count();
+        if prunable_peers.is_empty() && expired_v1_count == 0 {
             return Ok(0);
         }
         let mut next = durable.ledger.clone();
         for peer_id in &prunable_peers {
             next.floors.remove(peer_id);
         }
+        next.pre_migration_v1_expiries
+            .retain(|_peer_id, expiry| *expiry > trusted_now_ms);
         next.pruned_trusted_time_watermark_ms = Some(
             next.pruned_trusted_time_watermark_ms
                 .map_or(trusted_now_ms, |prev| prev.max(trusted_now_ms)),
@@ -916,7 +952,7 @@ fn ensure_record_matches_binding(
 }
 
 fn validate_loaded_ledger(ledger: &ReceiverLedgerV2) -> Result<(), WorldError> {
-    if ledger.floors.len() > MAX_RECEIVER_FLOORS {
+    if ledger.floors.len() + ledger.pre_migration_v1_expiries.len() > MAX_RECEIVER_FLOORS {
         return Err(protocol_error("receiver floor capacity exceeded".into()));
     }
     if let Some(watermark) = ledger.pruned_trusted_time_watermark_ms
@@ -925,6 +961,18 @@ fn validate_loaded_ledger(ledger: &ReceiverLedgerV2) -> Result<(), WorldError> {
         return Err(protocol_error(
             "receiver pruning watermark must be positive".into(),
         ));
+    }
+    for (peer_id, expiry) in &ledger.pre_migration_v1_expiries {
+        if *expiry <= 0 {
+            return Err(protocol_error(
+                "receiver pre-migration V1 expiry must be positive".into(),
+            ));
+        }
+        if ledger.floors.contains_key(peer_id) {
+            return Err(protocol_error(
+                "receiver pre-migration V1 record retained after floor migration".into(),
+            ));
+        }
     }
     for (peer_id, floor) in &ledger.floors {
         let primary = decode_stored_record(&floor.primary_signed_record_cbor)?;

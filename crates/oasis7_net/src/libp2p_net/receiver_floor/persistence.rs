@@ -66,6 +66,7 @@ pub(super) fn initialize(
         mode,
         floors: Default::default(),
         pruned_trusted_time_watermark_ms: None,
+        pre_migration_v1_expiries: Default::default(),
     };
     let empty_state_bytes = durable_files::canonical_cbor(&empty_state)?;
 
@@ -443,6 +444,7 @@ mod tests {
             mode,
             floors: Default::default(),
             pruned_trusted_time_watermark_ms: None,
+            pre_migration_v1_expiries: Default::default(),
         })
         .expect("encode empty receiver state");
 

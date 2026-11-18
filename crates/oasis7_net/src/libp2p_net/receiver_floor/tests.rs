@@ -115,6 +115,7 @@ fn empty_ledger(fixture: &Fixture, mode: PeerRecordReceiverMode) -> ReceiverLedg
         mode,
         floors: BTreeMap::new(),
         pruned_trusted_time_watermark_ms: None,
+        pre_migration_v1_expiries: BTreeMap::new(),
     }
 }
 
@@ -231,6 +232,7 @@ fn full_receiver_floor_rejects_new_peers_but_allows_existing_peer_updates() {
         mode: fixture.config.mode,
         floors,
         pruned_trusted_time_watermark_ms: None,
+        pre_migration_v1_expiries: BTreeMap::new(),
     };
     write_state(&fixture, &state_bytes(&ledger));
     let receiver = open(&fixture);
@@ -956,6 +958,7 @@ fn pruning_reclaims_expired_floors_and_allows_new_peers_at_capacity() {
         mode: fixture.config.mode,
         floors,
         pruned_trusted_time_watermark_ms: None,
+        pre_migration_v1_expiries: BTreeMap::new(),
     };
     write_state(&fixture, &state_bytes(&ledger));
     let receiver = open(&fixture);
@@ -1442,6 +1445,7 @@ fn pre_upgrade_floor_with_none_max_expiry_survives_conflict_with_earlier_expiry(
         mode: fixture.config.mode,
         floors,
         pruned_trusted_time_watermark_ms: None,
+        pre_migration_v1_expiries: BTreeMap::new(),
     };
     write_state(&fixture, &state_bytes(&ledger));
 
@@ -1484,4 +1488,113 @@ fn pre_upgrade_floor_with_none_max_expiry_survives_conflict_with_earlier_expiry(
         .unwrap();
     assert!(floor.isolated);
     assert_eq!(floor.max_expiry_ms, Some(13_600_000));
+}
+
+#[test]
+fn pre_migration_v1_record_expiry_bounds_subsequent_v2_floor_reclamation_and_prevents_v1_resurrection()
+ {
+    let fixture = fixture();
+    let receiver = open(&fixture);
+    let key = Keypair::generate_ed25519();
+    let peer_id = PeerId::from(key.public()).to_string();
+
+    // 1. Admit a V1 live record published at T with 3,600,000 ms TTL
+    let base_t = 5_000_000;
+    let ttl_ms = 3_600_000;
+    let mut v1_rec = record_body(&key, "peer-v1-migration");
+    v1_rec.published_at_ms = base_t;
+    v1_rec.ttl_ms = ttl_ms;
+    let signed_v1 = super::super::peer_record::sign_peer_record(&v1_rec, &key).unwrap();
+
+    assert_eq!(
+        receiver.admit_serialized(&signed_v1).unwrap(),
+        ReceiverAdmission::LegacyV1
+    );
+
+    // 2. Admit a V2 tombstone published at T - 3,599,000 with 3,600,000 ms TTL (expiry = T + 1,000 ms)
+    let mut tombstone_rec = record_body(&key, "peer-v1-migration");
+    tombstone_rec.direct_addrs.clear();
+    tombstone_rec.published_at_ms = base_t - 3_599_000;
+    tombstone_rec.ttl_ms = ttl_ms;
+    let signed_tombstone = super::super::peer_record::sign_peer_record_v2(
+        &tombstone_rec,
+        PeerRecordPublicationV2 {
+            schema_version: 2,
+            sequence: 1,
+            state: PeerRecordPublicationStateV2::Tombstone,
+        },
+        &key,
+    )
+    .unwrap();
+
+    assert_eq!(
+        receiver.admit_serialized(&signed_tombstone).unwrap(),
+        ReceiverAdmission::Accepted
+    );
+    assert_eq!(receiver.floor_count().unwrap(), 1);
+
+    // Verify floor max_expiry_ms incorporated the pre-migration V1 expiry (base_t + ttl_ms = 8_600_000)
+    let floor = receiver
+        .durable_lock()
+        .unwrap()
+        .unwrap()
+        .ledger
+        .floors
+        .get(&peer_id)
+        .cloned()
+        .unwrap();
+    assert_eq!(floor.max_expiry_ms, Some(base_t + ttl_ms));
+
+    // 3. Pruning at T + 31,000 ms MUST NOT delete the floor because V1 expiry has not passed
+    let pruned = receiver
+        .prune_floors(base_t + 31_000, &BTreeSet::new())
+        .unwrap();
+    assert_eq!(pruned, 0);
+    assert!(receiver.contains_floor(&peer_id).unwrap());
+
+    // 4. Replaying the V1 record while floor is retained is rejected due to migration
+    let replay_err = receiver.admit_serialized(&signed_v1).unwrap_err();
+    assert!(
+        format!("{replay_err:?}").contains("legacy peer record rejected after V2 floor migration"),
+        "expected migration rejection, got {replay_err:?}"
+    );
+
+    // 5. Reopen receiver to ensure max_expiry_ms persisted across restart
+    drop(receiver);
+    let reopened = open(&fixture);
+    assert!(reopened.contains_floor(&peer_id).unwrap());
+    let reopened_floor = reopened
+        .durable_lock()
+        .unwrap()
+        .unwrap()
+        .ledger
+        .floors
+        .get(&peer_id)
+        .cloned()
+        .unwrap();
+    assert_eq!(reopened_floor.max_expiry_ms, Some(base_t + ttl_ms));
+
+    // Prune attempt at T + 31,000 ms on reopened receiver still retains floor
+    assert_eq!(
+        reopened
+            .prune_floors(base_t + 31_000, &BTreeSet::new())
+            .unwrap(),
+        0
+    );
+
+    // 6. When trusted time advances past V1 record max possible expiry:
+    let final_trusted_time = base_t + ttl_ms + 30_000 + 1000;
+    let pruned = reopened
+        .prune_floors(final_trusted_time, &BTreeSet::new())
+        .unwrap();
+    assert_eq!(pruned, 1);
+    assert!(!reopened.contains_floor(&peer_id).unwrap());
+
+    // 7. Replaying the V1 record after floor pruning is rejected by pruning watermark
+    let replay_watermark_err = reopened.admit_serialized(&signed_v1).unwrap_err();
+    assert!(
+        format!("{replay_watermark_err:?}")
+            .contains("legacy peer record expired before receiver pruning watermark"),
+        "expected watermark rejection, got {replay_watermark_err:?}"
+    );
 }
