@@ -79,7 +79,42 @@ struct State {
     failed: bool,
 }
 
+struct Headroom {
+    directions: [u64; 2],
+    total: u64,
+}
+
+impl Headroom {
+    fn after_reservations(&self, reserved: [u64; 2]) -> io::Result<Self> {
+        let reserved_total = reserved[0].checked_add(reserved[1]).ok_or_else(invalid)?;
+        Ok(Self {
+            directions: [
+                self.directions[0]
+                    .checked_sub(reserved[0])
+                    .ok_or_else(invalid)?,
+                self.directions[1]
+                    .checked_sub(reserved[1])
+                    .ok_or_else(invalid)?,
+            ],
+            total: self.total.checked_sub(reserved_total).ok_or_else(invalid)?,
+        })
+    }
+}
+
 impl State {
+    fn charged_headroom(&self, limits: WireByteLimits) -> io::Result<Headroom> {
+        let inbound = self.used[0].total()?;
+        let outbound = self.used[1].total()?;
+        let total = inbound.checked_add(outbound).ok_or_else(invalid)?;
+        Ok(Headroom {
+            directions: [
+                limits.inbound.checked_sub(inbound).ok_or_else(invalid)?,
+                limits.outbound.checked_sub(outbound).ok_or_else(invalid)?,
+            ],
+            total: limits.total.checked_sub(total).ok_or_else(invalid)?,
+        })
+    }
+
     fn prune(&mut self, now: Instant) -> io::Result<()> {
         while self
             .buckets
@@ -161,6 +196,28 @@ impl WireByteWindow {
             .ok_or_else(invalid)
     }
 
+    // Keep the byte ledger locked through the caller's local work-budget
+    // reservation. The closure performs bookkeeping only and cannot poll I/O.
+    pub(super) fn admit_work_with_headroom(&self, admit: impl FnOnce() -> bool) -> bool {
+        let Ok(mut state) = self.state.lock() else {
+            return false;
+        };
+        if state.failed {
+            return false;
+        }
+        let headroom = state
+            .prune(Instant::now())
+            .and_then(|()| state.charged_headroom(self.limits))
+            .and_then(|headroom| headroom.after_reservations(state.reserved));
+        match headroom {
+            Ok(headroom) => headroom.total > 0 && !headroom.directions.contains(&0) && admit(),
+            Err(_) => {
+                state.failed = true;
+                false
+            }
+        }
+    }
+
     fn reserve(self: &Arc<Self>, direction: Direction, requested: usize) -> io::Result<Admission> {
         let requested = u64::try_from(requested).map_err(|_| invalid())?;
         let lane = direction as usize;
@@ -173,27 +230,11 @@ impl WireByteWindow {
             state.failed = true;
             return Err(error);
         }
-        let used = [state.used[0].total()?, state.used[1].total()?];
-        let used_total = used[0].checked_add(used[1]).ok_or_else(invalid)?;
-        let directional_limit = [self.limits.inbound, self.limits.outbound][lane];
-        let directional_free = directional_limit
-            .checked_sub(used[lane])
-            .ok_or_else(invalid)?;
-        let total_free = self
-            .limits
-            .total
-            .checked_sub(used_total)
-            .ok_or_else(invalid)?;
-        let reserved_total = state.reserved[0]
-            .checked_add(state.reserved[1])
-            .ok_or_else(invalid)?;
+        let charged_free = state.charged_headroom(self.limits)?;
+        let available = charged_free.after_reservations(state.reserved)?;
         let allowance = requested
-            .min(
-                directional_free
-                    .checked_sub(state.reserved[lane])
-                    .ok_or_else(invalid)?,
-            )
-            .min(total_free.checked_sub(reserved_total).ok_or_else(invalid)?);
+            .min(available.directions[lane])
+            .min(available.total);
         if allowance != 0 {
             state.reserved[lane] = state.reserved[lane]
                 .checked_add(allowance)
@@ -208,7 +249,7 @@ impl WireByteWindow {
 
         // Register the notification while the reservation state is locked. A
         // settlement after this point is visible even before the first poll.
-        let settlement = (directional_free != 0 && total_free != 0)
+        let settlement = (charged_free.directions[lane] != 0 && charged_free.total != 0)
             .then(|| Arc::clone(&self.settled).notified_owned());
         let deadline = state.buckets.front().map(|bucket| bucket.expires);
         let wait = async move {
@@ -223,7 +264,7 @@ impl WireByteWindow {
             }
         }
         .boxed();
-        if directional_free == 0 || total_free == 0 {
+        if charged_free.directions[lane] == 0 || charged_free.total == 0 {
             deadline.ok_or_else(invalid)?;
         }
         Ok(Admission::Stalled(wait))

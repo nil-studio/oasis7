@@ -216,6 +216,14 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
     {
         return Err("C06 pre-failure proof differs from exact controlled baseline".into());
     }
+    use crate::formal_live_status_observation::{StatusPins, observe_with_fixture_pair};
+    let configured = crate::formal_live_config::FormalLiveConfigV1::load(&case.runtime_config)?;
+    let pins = StatusPins {
+        status_url: format!("{}{CHAIN_STATUS_PATH}", case.public_client_config.endpoint),
+        service_public_key: case.public_client_config.trusted_service_public_key.clone(),
+        expected_world: case.world.clone(),
+        expected_node_id: configured.config.node_id,
+    };
     let pair = case.runtime.observe_protected_pair(Duration::from_secs(2))?;
     if !pair.both_heads_match_unchanged_cut
         || pair.verified_published_cut.head != baseline.anchor.head().head()
@@ -224,6 +232,15 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
     {
         return Err("C06 authenticated endpoints did not match the fixed published cut".into());
     }
+    let old_head = pair.verified_published_cut.head.clone();
+    let report = observe_with_fixture_pair(&pins, pair)?;
+    if report["protected_pair"]["status"] != "observed"
+        || report["protected_pair"]["both_heads_match_unchanged_cut"] != true
+        || report["authority_qualification"] != "unknown"
+    {
+        return Err("C06 signed Host did not bind the matched protected evidence".into());
+    }
+    eprintln!("C06 signed_host_pair=bound_before_replica_loss");
     eprintln!("C06 protected_pair=matched_before_replica_loss");
     case.replica_child.kill_sigkill_and_wait()?;
     let after_kill = case.runtime.published.current()?;
@@ -271,10 +288,19 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
             degraded_pair.replica,
             crate::formal_live_runtime::observation::EndpointObservation::Unavailable
         )
-        || degraded_pair.verified_published_cut.head != pair.verified_published_cut.head
+        || degraded_pair.verified_published_cut.head != old_head
     {
         return Err("C06 lost replica was credited with paired readback or lost the old cut".into());
     }
+    let report = observe_with_fixture_pair(&pins, degraded_pair)?;
+    if report["host_state"] != "degraded"
+        || report["protected_pair"]["status"] != "observed"
+        || report["protected_pair"]["replica"]["status"] != "unavailable"
+        || report["authority_qualification"] != "unknown"
+    {
+        return Err("C06 signed degraded Host did not retain the protected loss observation".into());
+    }
+    eprintln!("C06 signed_host_pair=bound_old_cut_with_lost_replica");
     eprintln!("C06 protected_pair=replica_unavailable_old_cut_retained");
     match owner_client.submit(case.owner_request.clone()) {
         Err(oasis7::world_service::client::WorldServiceClientError::Rejected {
@@ -390,6 +416,15 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
     {
         return Err("C06 recovered endpoints did not match the published successor".into());
     }
+    let report = observe_with_fixture_pair(&pins, recovered_pair)?;
+    if report["protected_pair"]["status"] != "observed"
+        || report["protected_pair"]["both_heads_match_unchanged_cut"] != true
+        || report["committed_position"] != recovery_boundary.position
+        || report["authority_qualification"] != "unknown"
+    {
+        return Err("C06 signed Host did not bind the recovered protected cut".into());
+    }
+    eprintln!("C06 signed_host_pair=bound_recovered_cut");
     eprintln!("C06 protected_pair=matched_recovered_cut");
     recovery_control.release()?;
 
