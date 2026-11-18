@@ -178,6 +178,27 @@ impl WireByteWindow {
         Self::with_diagnostics(limits, Arc::default())
     }
 
+    #[cfg(test)]
+    pub(super) fn with_aged_first_read(limits: WireByteLimits, age: Duration) -> (Self, Instant) {
+        let mut window = Self::new(limits).unwrap();
+        window.origin -= age;
+        let expiry = window.bucket_expiry(window.origin).unwrap();
+        window
+            .state
+            .get_mut()
+            .unwrap()
+            .record(
+                Direction::Read as usize,
+                Charge {
+                    actual: limits.total,
+                    conservative: 0,
+                },
+                expiry,
+            )
+            .unwrap();
+        (window, expiry)
+    }
+
     pub(super) fn with_diagnostics(
         limits: WireByteLimits,
         diagnostics: Arc<BudgetDiagnostics>,

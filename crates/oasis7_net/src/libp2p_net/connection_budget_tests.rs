@@ -688,3 +688,98 @@ fn kademlia_and_rendezvous_use_one_window_on_the_same_authenticated_connection()
             }).await.expect("shared Kademlia/rendezvous fixture timed out");
         });
 }
+
+#[test]
+fn real_request_deadline_survives_natural_byte_window_recovery() {
+    use crate::libp2p_net::{
+        wire_byte_window::{WireByteLimits, WireByteWindow},
+        wire_bytes::Libp2pWireByteCounters,
+    };
+    use libp2p::request_response::{Event, Message, OutboundFailure};
+    use oasis7_proto::distributed_net::{NetworkRequest, NetworkResponse};
+
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            tokio::time::timeout(Duration::from_secs(16), async {
+                // Seed an aged full bucket. The original 10-second swarm
+                // negotiation deadline expires before its real bucket expiry.
+                // The configured RR request timeout applies after negotiation.
+                let (window, expiry) = WireByteWindow::with_aged_first_read(
+                    WireByteLimits { inbound: 16_384, outbound: 16_384, total: 16_384 },
+                    Duration::from_secs(49),
+                );
+                let window = Arc::new(window);
+                let mut client = build_swarm_with_receiver(
+                    &Keypair::generate_ed25519(),
+                    false,
+                    false,
+                    Duration::from_millis(350),
+                    Libp2pWireByteCounters::with_window(Arc::clone(&window)),
+                    PeerRecordReceiver::legacy(),
+                    Some(ConnectionBudget::new(limits()).unwrap()),
+                );
+                let mut server = swarm(&Keypair::generate_ed25519(), None);
+                let peer = *server.local_peer_id();
+                let address = listen(&mut server, "/ip4/127.0.0.1/tcp/0").await;
+                let dial = dial_for(peer, address);
+                let connection = dial.connection_id();
+                client.dial(dial).unwrap();
+                while !matches!(
+                    budgeted_event(&mut client, &mut server).await,
+                    SwarmEvent::ConnectionEstablished { connection_id, .. } if connection_id == connection
+                ) {}
+                let request = |payload: &[u8]| NetworkRequest {
+                    protocol: "/test/window-deadline".into(),
+                    payload: payload.to_vec(),
+                };
+                let expired = client.behaviour_mut().request_response.send_request(&peer, request(b"expired"));
+                loop {
+                    match select(client.select_next_some(), server.select_next_some()).await {
+                        Either::Left((SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
+                            Event::OutboundFailure { request_id, error, .. },
+                        )), _)) if request_id == expired => {
+                            assert!(matches!(error, OutboundFailure::Timeout), "{error}");
+                            assert!(tokio::time::Instant::now() < expiry);
+                            break;
+                        }
+                        Either::Right((SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
+                            Event::Message { message: Message::Request { .. }, .. },
+                        )), _)) => panic!("expired request reached the server before window recovery"),
+                        _ => {}
+                    }
+                }
+                assert_eq!(window.snapshot().unwrap().charged_bytes.total, 16_384);
+                tokio::time::sleep_until(expiry + Duration::from_millis(1)).await;
+                assert_eq!(window.snapshot().unwrap().charged_bytes.total, 0);
+
+                let fresh = client.behaviour_mut().request_response.send_request(&peer, request(b"fresh"));
+                loop {
+                    match select(client.select_next_some(), server.select_next_some()).await {
+                        Either::Right((SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
+                            Event::Message { message: Message::Request { request, channel, .. }, .. },
+                        )), _)) => {
+                            assert_eq!(request.payload, b"fresh", "expired request was revived");
+                            server.behaviour_mut().request_response
+                                .send_response(channel, NetworkResponse { payload: b"ack".to_vec() })
+                                .unwrap();
+                        }
+                        Either::Left((SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
+                            Event::Message { message: Message::Response { request_id, response }, .. },
+                        )), _)) => {
+                            assert_eq!(request_id, fresh);
+                            assert_eq!(response.payload, b"ack");
+                            break;
+                        }
+                        Either::Left((SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
+                            Event::OutboundFailure { request_id, error, .. },
+                        )), _)) => panic!("unexpected second terminal response {request_id}: {error}"),
+                        _ => {}
+                    }
+                }
+                assert!(window.snapshot().unwrap().actual_bytes.total > 0);
+            }).await.expect("natural byte window RR fixture timed out");
+        });
+}

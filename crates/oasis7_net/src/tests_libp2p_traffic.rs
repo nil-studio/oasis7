@@ -241,3 +241,51 @@ fn typed_net_budget_caps_real_business_substream_before_remote_decode() {
     let retry_ms = status.next_attempt_delay_ms.unwrap();
     assert!(retry_ms > 0 && retry_ms <= 61_000);
 }
+
+#[test]
+fn real_transport_deadline_reports_a_fixed_budget_status() {
+    let profile = serde_json::from_str(
+        r#"{"profile":"v1-discovery-resource-budget-1",
+        "connections_total":3,"pending_connections_total":2,"pending_inbound_unknown":1,
+        "pending_outbound":2,"connections_per_peer":1,"handshake_timeout_ms":1000,
+        "bytes_in_per_window":16384,"bytes_out_per_window":16384,"bytes_total_per_window":16384}"#,
+    )
+    .unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let client = Libp2pNetwork::try_new(Libp2pNetworkConfig {
+        p2p_resource_budget: profile,
+        enable_autonat: false,
+        ..Libp2pNetworkConfig::default()
+    })
+    .unwrap();
+    let address = format!(
+        "/ip4/127.0.0.1/tcp/{}",
+        listener.local_addr().unwrap().port()
+    );
+    client.dial(address.parse().unwrap()).unwrap();
+    let mut accepted = None;
+    wait_until(
+        "pending actual TCP socket",
+        Instant::now() + Duration::from_secs(5),
+        || match listener.accept() {
+            Ok((socket, _)) => {
+                accepted = Some(socket);
+                true
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => false,
+            Err(error) => panic!("TCP accept failed: {error}"),
+        },
+    );
+    assert!(accepted.is_some());
+    wait_until(
+        "fixed handshake deadline status",
+        Instant::now() + Duration::from_secs(5),
+        || {
+            let budget = client.traffic_metrics_snapshot().resource_budget;
+            budget.last_rejection == Some(crate::ResourceBudgetRejection::HandshakeDeadline)
+                && budget.connections.unwrap().total == 0
+        },
+    );
+    assert!(client.connected_peers().is_empty());
+}

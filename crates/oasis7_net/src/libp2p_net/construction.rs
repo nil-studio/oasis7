@@ -1,5 +1,8 @@
 use super::receiver_floor::PeerRecordReceiver;
-use super::resource_budget::setup_resource_budgets;
+use super::resource_budget::{
+    dial_hit_handshake_deadline, has_handshake_deadline_error, listener_hit_handshake_deadline,
+    setup_resource_budgets,
+};
 use super::*;
 
 #[path = "construction/peer_record_setup.rs"]
@@ -817,8 +820,11 @@ impl Libp2pNetwork {
                                     peer_id,
                                     connection_id,
                                     endpoint,
-                                    ..
+                                    concurrent_dial_errors, ..
                                 } => {
+                                    if concurrent_dial_errors.as_deref().is_some_and(has_handshake_deadline_error) {
+                                        swarm.behaviour().note_handshake_deadline();
+                                    }
                                     if !peers.contains(&peer_id) {
                                         peers.push(peer_id);
                                     }
@@ -1081,8 +1087,14 @@ impl Libp2pNetwork {
                                     );
                                 }
                                 SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
+                                    let deadline_elapsed = dial_hit_handshake_deadline(&error);
+                                    if deadline_elapsed {
+                                        swarm.behaviour().note_handshake_deadline();
+                                    }
                                     if let Some(peer_id) = peer_id {
-                                        if quarantined_active_peers.contains(&peer_id)
+                                        if deadline_elapsed {
+                                            last_dialed_transport_paths.remove(&peer_id);
+                                        } else if quarantined_active_peers.contains(&peer_id)
                                             || pending_quarantine_disconnects.contains(&peer_id)
                                         {
                                             last_dialed_transport_paths.remove(&peer_id);
@@ -1132,6 +1144,9 @@ impl Libp2pNetwork {
                                         format!("libp2p outgoing connection error peer={peer_id:?}: {error:?}"));
                                 }
                                 SwarmEvent::IncomingConnectionError { error, .. } => {
+                                    if listener_hit_handshake_deadline(&error) {
+                                        swarm.behaviour().note_handshake_deadline();
+                                    }
                                     runtime_support::log_connection_error(&event_errors, max_error_messages,
                                         format!("libp2p incoming connection error: {error:?}"));
                                 }

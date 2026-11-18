@@ -74,6 +74,12 @@ impl Behaviour {
         }
     }
 
+    pub(super) fn note_handshake_deadline(&self) {
+        if let Some(budget) = &self.connection_budget {
+            budget.note_handshake_deadline();
+        }
+    }
+
     pub(super) fn discovery_dial_policy(&self) -> DiscoveryDialPolicy {
         self.dial_policy.clone()
     }
