@@ -13,4 +13,5 @@ libxinerama1
 libxkbcommon0
 libxrandr2
 python3
+python3-venv
 sudo
