@@ -122,6 +122,70 @@ fn state_bytes(ledger: &ReceiverLedgerV2) -> Vec<u8> {
 }
 
 #[test]
+fn expired_v2_record_keeps_sequence_and_legacy_retirement_after_reopen() {
+    use super::super::peer_record_time::DiscoveryClock;
+    use std::time::Instant;
+
+    let fixture = fixture();
+    let peer = Keypair::generate_ed25519();
+    let mut original = record_body(&peer, "original");
+    let now = original.published_at_ms;
+    let reopened_now = now + 7_200_000;
+    let sign_v2 = |body: &PeerRecord, sequence| {
+        super::super::peer_record::sign_peer_record_v2(
+            body,
+            PeerRecordPublicationV2 {
+                schema_version: 2,
+                sequence,
+                state: PeerRecordPublicationStateV2::Live,
+            },
+            &peer,
+        )
+        .unwrap()
+    };
+    let accepted = sign_v2(&original, 7);
+    let receiver = open(&fixture);
+    assert!(
+        DiscoveryClock::default()
+            .check_at(&accepted.record, now, Instant::now())
+            .is_ok()
+    );
+    assert_eq!(
+        receiver.admit_serialized(&accepted).unwrap(),
+        ReceiverAdmission::Accepted
+    );
+    drop(receiver);
+
+    let reopened = open(&fixture);
+    let persisted_floor = fs::read(state_path(&fixture)).unwrap();
+    let clock = DiscoveryClock::default();
+    let reopened_at = Instant::now();
+    assert!(
+        clock
+            .check_at(&accepted.record, reopened_now, reopened_at)
+            .is_err(),
+        "the expired record cannot supply a live lease"
+    );
+    original.published_at_ms = reopened_now;
+    let lower = sign_v2(&original, 6);
+    let legacy = super::super::peer_record::sign_peer_record(&original, &peer).unwrap();
+    for record in [&lower, &legacy] {
+        assert!(
+            clock
+                .check_at(&record.record, reopened_now, reopened_at)
+                .is_ok(),
+            "time validation alone cannot enforce sequence or retirement"
+        );
+        assert!(reopened.admit_serialized(record).is_err());
+    }
+    assert_eq!(fs::read(state_path(&fixture)).unwrap(), persisted_floor);
+    assert_eq!(
+        reopened.admit_serialized(&sign_v2(&original, 8)).unwrap(),
+        ReceiverAdmission::Accepted
+    );
+}
+
+#[test]
 fn same_sequence_conflict_isolation_survives_reopen_and_rejects_higher_records() {
     let fixture = fixture();
     let receiver = open(&fixture);
