@@ -96,13 +96,17 @@ impl FormalBftHeaderLedgerExecutionV3 {
         source: Arc<dyn BusinessIndexNodeReader + Send + Sync>,
         initialize: bool,
     ) -> Result<Self, String> {
-        validate_storage_paths(records, store.root())?;
-        let handoff = verify_formal_bft_handoff_v2(&anchor, target.clone())?;
-        validate_handoff_material_for_scope(&anchor, &target.scope, &material)?;
-        let encoded_h = encoded_h_material(&material)?;
-        let snapshot_h = material
-            .snapshot_bytes()
-            .map_err(|_| "wire 3 H Snapshot unavailable")?;
+        validate_storage_paths(records, store.root())
+            .map_err(|error| recovery_stage("storage_paths", error))?;
+        let handoff = verify_formal_bft_handoff_v2(&anchor, target.clone())
+            .map_err(|error| recovery_stage("ledger_handoff", error))?;
+        validate_handoff_material_for_scope(&anchor, &target.scope, &material)
+            .map_err(|error| recovery_stage("ledger_handoff", error))?;
+        let encoded_h = encoded_h_material(&material)
+            .map_err(|error| recovery_stage("ledger_handoff", error))?;
+        let snapshot_h = material.snapshot_bytes().map_err(|_| {
+            recovery_stage("ledger_handoff", "wire 3 H Snapshot unavailable".into())
+        })?;
         let journal = material
             .roots
             .get(&ArtifactRole::Journal)
@@ -112,14 +116,24 @@ impl FormalBftHeaderLedgerExecutionV3 {
                     .iter()
                     .find(|object| &object.content_hash == reference)
             })
-            .ok_or("wire 3 H Journal unavailable")?;
+            .ok_or_else(|| {
+                recovery_stage("ledger_handoff", "wire 3 H Journal unavailable".into())
+            })?;
         let h_bytes = encoded_h
             .len()
             .checked_add(snapshot_h.len())
             .and_then(|n| n.checked_add(journal.bytes.len()))
-            .ok_or("wire 3 H material capacity overflow")?;
-        let mut ledger = storage::Ledger::open(records, initialize, h_bytes)?;
-        let seed = ledger.preload(&store, None)?;
+            .ok_or_else(|| {
+                recovery_stage(
+                    "ledger_handoff",
+                    "wire 3 H material capacity overflow".into(),
+                )
+            })?;
+        let mut ledger = storage::Ledger::open(records, initialize, h_bytes)
+            .map_err(|error| recovery_stage("ledger_open", error))?;
+        let seed = ledger
+            .preload(&store, None)
+            .map_err(|error| recovery_stage("ledger_preload", error))?;
         let origin = FormalBftHeaderExecutionV3::from_handoff(
             anchor.clone(),
             target.clone(),
@@ -127,11 +141,18 @@ impl FormalBftHeaderLedgerExecutionV3 {
             source.clone(),
             seed,
             !initialize,
-        )?;
-        let pin = material_pin_digest(&origin, &material)?;
-        ledger.bind_retained(&pin, handoff.activation_height()?, |origin, pending| {
-            retain_origin_material(&store, &material, origin, pending)
-        })?;
+        )
+        .map_err(|error| recovery_stage("ledger_replay", error))?;
+        let pin = material_pin_digest(&origin, &material)
+            .map_err(|error| recovery_stage("ledger_origin", error))?;
+        let height = handoff
+            .activation_height()
+            .map_err(|error| recovery_stage("ledger_origin", error))?;
+        ledger
+            .bind_retained(&pin, height, |origin, pending| {
+                retain_origin_material(&store, &material, origin, pending)
+            })
+            .map_err(|error| recovery_stage("ledger_origin", error))?;
         let owner = Self {
             origin,
             ledger,
@@ -143,7 +164,9 @@ impl FormalBftHeaderLedgerExecutionV3 {
                 source,
             },
         };
-        owner.ensure_origin_material()?;
+        owner
+            .ensure_origin_material()
+            .map_err(|error| recovery_stage("ledger_origin", error))?;
         Ok(owner)
     }
 
@@ -427,4 +450,9 @@ fn retain_origin_material(
         }
     }
     Ok(())
+}
+
+// Keep internal detail available to callers; the CLI exposes only allowlisted stages.
+fn recovery_stage(stage: &str, error: String) -> String {
+    format!("node_recovery_stage={stage}: {error}")
 }

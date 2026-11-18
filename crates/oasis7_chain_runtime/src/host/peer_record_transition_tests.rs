@@ -1,3 +1,5 @@
+#[cfg(unix)]
+use super::peer_record_publication_tests::wait_for_publisher_release;
 use super::{
     CliOptions, build_default_replication_network_config, node_keypair_config, parse_options,
 };
@@ -71,6 +73,15 @@ fn read_publisher_state(directory: &Path) -> PublisherStateView {
     let bytes = std::fs::read(directory.join(PUBLICATION_STATE_FILE))
         .expect("read durable publisher state written by production startup");
     serde_cbor::from_slice(&bytes).expect("decode durable publisher state")
+}
+
+#[cfg(unix)]
+fn read_released_publisher_state(directory: &Path) -> PublisherStateView {
+    // A live worker may have persisted an unsigned reservation and still be
+    // signing it. Inspect the terminal snapshot while holding its own claim.
+    let _claim = wait_for_publisher_release(directory, Duration::from_secs(5))
+        .expect("publisher must release its claim before reading shutdown state");
+    read_publisher_state(directory)
 }
 
 fn read_persisted_signed_record(state: &PublisherStateView) -> Option<SignedPeerRecord> {
@@ -355,9 +366,8 @@ fn host_publication_withdrawal_survives_restart_and_resume_publishes_higher_live
     let restarted_network = reopen_after_network_drop(|| {
         super::create_default_replication_network(&ordinary_options, &root_keypair, &paths)
     });
-    std::thread::sleep(Duration::from_millis(150));
     drop(restarted_network);
-    let after_restart = read_publisher_state(&publisher_directory);
+    let after_restart = read_released_publisher_state(&publisher_directory);
     assert_eq!(after_restart.state, PeerRecordPublicationStateV2::Tombstone);
     assert_eq!(after_restart.last_sequence, withdrawn_sequence);
     let after_restart_signed = read_persisted_signed_record(&after_restart)
@@ -434,8 +444,7 @@ fn host_publication_withdrawal_survives_restart_and_resume_publishes_higher_live
         "a retained original owner must prevent reopening"
     );
     drop(ordinary_after_resume);
-    std::thread::sleep(Duration::from_millis(150));
-    let reopened = read_publisher_state(&publisher_directory);
+    let reopened = read_released_publisher_state(&publisher_directory);
     let reopened_signed = read_persisted_signed_record(&reopened)
         .expect("resumed live publication persists across normal restart");
     assert_eq!(reopened.state, PeerRecordPublicationStateV2::Live);
