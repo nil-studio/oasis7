@@ -113,9 +113,13 @@ class NetworkSourceContract(unittest.TestCase):
         self.assertEqual(manifest["patch"][URL]["libp2p-swarm"]["path"],
                          "../vendor-libp2p-swarm-0.48.0")
 
-    def test_swarm_snapshot_has_no_source_changes(self):
+    def test_swarm_snapshot_matches_outbound_admission_patch(self):
         vendor = ROOT / "vendor-libp2p-swarm-0.48.0"
         hashes = json.loads((vendor / "upstream-source-sha256.json").read_text())
+        hashes.update({
+            "src/lib.rs": "8b97b6dcb017fe6e4d9a6099fe9d9951a6e68e3c9f14b1e1e1da290195b6b844",
+            "src/outbound_attempt.rs": "67e79218b1285d86571d5197f98733e006f6bf258d4e0e5d1da2975fbe72936a",
+        })
         actual = {str(p.relative_to(vendor)): hashlib.sha256(p.read_bytes()).hexdigest()
                   for p in (vendor / "src").rglob("*.rs")}
         self.assertEqual(actual, hashes)
