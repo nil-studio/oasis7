@@ -247,6 +247,7 @@ impl GenesisDraftSources {
             Self::NormalComplete(s) => s.uses_budget(memory),
         }
     }
+    #[cfg(test)]
     fn reserved_bytes(&self) -> usize {
         match self {
             Self::None => 0,
@@ -309,9 +310,11 @@ impl PaidNativeCheckpointDraftV1<'_> {
     ) -> &fencing::EndpointCheckpointBindingV1 {
         &self.before
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority) fn before_index(&self) -> Option<&str> {
         self.store.body.index.as_deref()
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority) fn identity(&self) -> WorkIdentityV1 {
         self.identity
     }
@@ -334,6 +337,7 @@ impl PaidNativeCheckpointDraftV1<'_> {
                         .is_none_or(|id| id.uses_budget(memory))
             })
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority) fn reserved_bytes(&self) -> usize {
         self._genesis_sources.reserved_bytes()
             + self.body.reserved_bytes()
@@ -372,6 +376,7 @@ impl PaidNativeCheckpointDraftV1<'_> {
         Ok(())
     }
 }
+#[cfg(test)]
 pub(super) fn prepare_native_checkpoint_draft_bounded_v1<'a>(
     store: &'a Store,
     ctx: &mut FormalBoundedContextV1<'_>,

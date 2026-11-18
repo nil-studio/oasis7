@@ -23,6 +23,7 @@ impl PreparedNormalQualifiedUpdate {
             && self.history.uses_budget(memory)
             && self.record.uses_budget(memory)
     }
+    #[cfg(test)]
     pub(super) fn reserved_bytes(&self) -> usize {
         self.update.reserved_bytes()
             + self.inputs.reserved_bytes()
@@ -239,22 +240,6 @@ impl<'a> DurableNormalPublication<'a> {
     }
 }
 impl Store {
-    #[allow(clippy::too_many_arguments)]
-    pub(in crate::controlled_authority::formal::endpoint) fn publish_normal_install_bounded<'j>(
-        &mut self,
-        permit: NormalInstallPermit<'j>,
-        provider: &RemoteMonotonicEndpointProvider,
-        instance: &EndpointInstanceBindingV1,
-        policy: &TrustedFencingPolicyV1,
-        memory: &MemoryBudget,
-        work: &FormalArchiveReadWorkV1,
-        stop: &mut dyn FnMut() -> bool,
-    ) -> Result<DurableNormalPublication<'j>, BoundedAcquireErrorV1> {
-        let mut lease = None;
-        self.publish_normal_install_with_lease_bounded(
-            permit, &mut lease, provider, instance, policy, memory, work, stop,
-        )
-    }
     #[allow(clippy::too_many_arguments)]
     pub(in crate::controlled_authority::formal::endpoint) fn publish_normal_install_with_lease_bounded<
         'j,

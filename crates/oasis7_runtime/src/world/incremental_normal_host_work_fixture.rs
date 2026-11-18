@@ -70,6 +70,7 @@ pub fn two_agent_host_work_limits_v1() -> NormalHostWorkLimitsV1 {
         driver_actions_authenticated_data: lanes(10_000, 16 << 20, 100_000),
         driver_actions_authenticated_work: lanes(10_000, 16 << 20, 100_000),
         driver_actions_transfer_resource: lanes(10_000, 16 << 20, 100_000),
+        driver_actions_main_token_transfer: lanes(10_000, 16 << 20, 100_000),
         driver_actions_factory_schedule: lanes(10_000, 16 << 20, 100_000),
         driver_actions_contracts: lanes(10_000, 16 << 20, 100_000),
         driver_actions_alliance: lanes(10_000, 16 << 20, 100_000),

@@ -1,6 +1,7 @@
 //! Consuming Host -> real Frozen persistence. A failed/unknown publication
 //! leaves this Host empty and preserves the endpoint's typed recovery owner.
 use super::*;
+use oasis7_distfs::controlled_authority::formal::endpoint::FormalEndpointPublicationRefsV1;
 use oasis7_distfs::controlled_authority::formal::endpoint::PaidNormalFrozenEndpointV1;
 use oasis7_formal_protocol::controlled_authority::formal::{
     IncrementalFrozenMaterialWorkV1, SignedFormalFrozenV1,
@@ -87,10 +88,12 @@ impl IwsHostRuntimeV1 {
                 .freeze_normal_bounded(
                     input,
                     material,
-                    provider,
-                    policy,
-                    memory,
-                    work,
+                    FormalEndpointPublicationRefsV1 {
+                        provider,
+                        policy,
+                        memory,
+                        work,
+                    },
                     material_work,
                     &mut || cancelled.load(Ordering::Acquire),
                 )

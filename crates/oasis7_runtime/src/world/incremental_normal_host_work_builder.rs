@@ -9,6 +9,7 @@ use crate::world::incremental_action_data::CollectDataWorkV1;
 use crate::world::incremental_action_data::auth_current::CollectDataAuthorizationWorkV1;
 use crate::world::incremental_action_data::auth_signature::CollectDataSignatureWorkV1;
 use crate::world::incremental_action_data::data_access::DataAccessWorkV1;
+use crate::world::incremental_action_data::main_token_transfer::MainTokenTransferWorkV1;
 use crate::world::incremental_action_data::transfer_resource::TransferResourceWorkV1;
 use crate::world::incremental_action_factory_lifecycle::FactoryLifecycleWorkV1;
 use crate::world::incremental_action_meta_progress::MetaProgressWorkV1;
@@ -230,6 +231,7 @@ pub struct NormalHostWorkLimitsV1 {
     pub driver_actions_authenticated_data: NormalHostLaneLimitsV1,
     pub driver_actions_authenticated_work: NormalHostLaneLimitsV1,
     pub driver_actions_transfer_resource: NormalHostLaneLimitsV1,
+    pub driver_actions_main_token_transfer: NormalHostLaneLimitsV1,
     pub driver_actions_factory_schedule: NormalHostLaneLimitsV1,
     pub driver_actions_contracts: NormalHostLaneLimitsV1,
     pub driver_actions_alliance: NormalHostLaneLimitsV1,
@@ -320,6 +322,7 @@ impl NormalHostWorkV1 {
         limits.driver_actions_authenticated_data.validate()?;
         limits.driver_actions_authenticated_work.validate()?;
         limits.driver_actions_transfer_resource.validate()?;
+        limits.driver_actions_main_token_transfer.validate()?;
         limits.driver_actions_factory_schedule.validate()?;
         limits.driver_actions_contracts.validate()?;
         limits.driver_actions_alliance.validate()?;
@@ -461,6 +464,10 @@ impl NormalHostWorkV1 {
                     ),
                     authenticated_work: CollectDataAuthorizationWorkV1::from_limits(
                         &limits.driver_actions_authenticated_work,
+                        core,
+                    ),
+                    main_token_transfer: MainTokenTransferWorkV1::from_limits(
+                        &limits.driver_actions_main_token_transfer,
                         core,
                     ),
                     transfer_resource: TransferResourceWorkV1::from_limits(

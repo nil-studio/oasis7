@@ -4,6 +4,7 @@ use super::super::cold_install::{
     AuthenticatedColdHostErrorV1, authenticate_and_install_cold_parent_bounded_v1,
 };
 use super::*;
+use crate::controlled_authority::formal::endpoint::FormalEndpointPublicationRefsV1;
 impl FileFormalEndpoint {
     #[allow(clippy::too_many_arguments)]
     pub fn into_authenticated_cold_host_source_bounded<L>(
@@ -31,10 +32,12 @@ impl FileFormalEndpoint {
         self.store.reconcile_authenticated_cold_scope_bounded_v1(
             &self.authority,
             self.role,
-            provider,
-            pinned,
-            memory,
-            archive,
+            FormalEndpointPublicationRefsV1 {
+                provider,
+                policy: pinned,
+                memory,
+                work: archive,
+            },
             stop,
         )?;
         let lease = {

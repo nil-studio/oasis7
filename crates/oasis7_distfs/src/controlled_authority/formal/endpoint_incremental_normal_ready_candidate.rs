@@ -95,15 +95,17 @@ impl PaidNormalReadyPairV1 {
     where
         E: From<FormalError>,
     {
-        self.quorum
+        self.owned
+            .value
+            .quorum
             .validate_context(&mut work.bounded_context(memory, stop))?;
         work.charge(32, 8192, stop)?;
         if !self.uses_budget(memory) {
             return Err(invalid("normal candidate view pool").into());
         }
         let source = match role {
-            EndpointRole::Primary => &self.pair.primary.source,
-            EndpointRole::Replica => &self.pair.replica.source,
+            EndpointRole::Primary => &self.owned.value.pair.owned.value.primary.owned.value.source,
+            EndpointRole::Replica => &self.owned.value.pair.owned.value.replica.owned.value.source,
         };
         if source.endpoint.role != role {
             return Err(invalid("normal candidate actual endpoint role").into());
@@ -134,12 +136,15 @@ impl PaidNormalReadyPairV1 {
             return Err(invalid("normal candidate exact Ready stage").into());
         }
         let job = capability.jobs.normal_job(parent, memory)?;
-        let (core, storage, roots, proof_ledger) =
-            job.normal_candidate_read_sources_v1(self.quorum.verified(), parent, memory)?;
+        let (core, storage, roots, proof_ledger) = job.normal_candidate_read_sources_v1(
+            self.owned.value.quorum.verified(),
+            parent,
+            memory,
+        )?;
         if !core.uses_budget(memory)
             || !storage.uses_budget(memory)
             || !roots.uses_budget(memory)
-            || core.candidate_record_id() != self.quorum.verified().verified_record_id()
+            || core.candidate_record_id() != self.owned.value.quorum.verified().verified_record_id()
             || roots
                 .digest()
                 .map_err(|_| invalid("normal candidate roots"))?
@@ -158,7 +163,7 @@ impl PaidNormalReadyPairV1 {
             storage,
             roots,
             proof_ledger,
-            quorum: &self.quorum,
+            quorum: &self.owned.value.quorum,
             parent_record: parent.verified_record_id(),
             namespace: (source.page_namespace, source.native_namespace),
             pages: &capability.pages,

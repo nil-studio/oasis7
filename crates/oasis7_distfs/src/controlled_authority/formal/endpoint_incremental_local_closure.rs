@@ -156,6 +156,6 @@ pub(crate) use codec::WIRE_BYTES as LOCAL_DATA_CLOSURE_WIRE_BYTES;
 mod recovery;
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) use recovery::{
-    AuthenticatedLocalClosureV1, LocalClosureReadWorkV1,
+    AuthenticatedLocalClosureV1, LocalClosureReadWorkV1, PaidLocalClosureReadRefsV1,
     recover_authenticated_local_closure_paid_v1, recover_authenticated_local_closure_v1,
 };

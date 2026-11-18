@@ -83,6 +83,7 @@ impl PreparedPendingRequestUpdate {
             && self.index.uses_budget(memory)
             && self.before_checkpoint.uses_budget(memory)
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority::formal::endpoint) fn reserved_bytes(&self) -> usize {
         self.request.reserved_bytes()
             + self.entry.reserved_bytes()

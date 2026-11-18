@@ -27,3 +27,8 @@ fn selected_rule_modify_form_alliance_to_material_transfer_keeps_guard_and_curre
 fn selected_rule_modify_form_alliance_to_resource_transfer_keeps_guard_and_current_effects() {
     run_iws_rule_core_case_v1(IwsRuleCoreCaseV1::ModifyAllianceToResourceTransfer);
 }
+
+#[test]
+fn selected_rule_modify_form_alliance_to_main_token_transfer_keeps_fees_and_nonce() {
+    run_iws_rule_core_case_v1(IwsRuleCoreCaseV1::ModifyAllianceToMainTokenTransfer);
+}

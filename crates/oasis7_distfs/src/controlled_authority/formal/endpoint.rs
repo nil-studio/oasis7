@@ -7,6 +7,9 @@ use ed25519_dalek::Signer;
 use ed25519_dalek::SigningKey;
 use std::path::Path;
 use std::sync::Arc;
+#[path = "endpoint_publication_refs.rs"]
+mod publication_refs;
+pub use publication_refs::{FormalEndpointPairPublicationRefsV1, FormalEndpointPublicationRefsV1};
 #[path = "endpoint_types.rs"]
 mod types;
 pub use types::*;
@@ -1159,6 +1162,7 @@ pub use committed_material::VerifiedCommittedHistoricalMaterialV1;
 pub(crate) use committed_material::verify_committed_historical_material;
 #[path = "endpoint_archive_bounded_read.rs"]
 mod archive_bounded_read;
+#[cfg(test)]
 #[path = "endpoint_bounded_request.rs"]
 mod bounded_request;
 #[path = "endpoint_native_environment.rs"]

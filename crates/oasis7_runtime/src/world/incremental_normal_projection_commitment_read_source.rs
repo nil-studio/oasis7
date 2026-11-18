@@ -4,6 +4,10 @@
 use super::*;
 use crate::world::incremental_normal_bootstrap_finality::CurrentBootstrapFinalityErrorV1;
 use crate::world::incremental_normal_business_commitment::OriginalProjectionReadMetadataV1;
+use oasis7_formal_protocol::{
+    incremental_execution::{ExecutionFence, ExecutionTransaction, PreparedGuard},
+    incremental_state::MerkleNodeReader,
+};
 
 pub(in crate::world) mod sealed {
     pub trait Source {}

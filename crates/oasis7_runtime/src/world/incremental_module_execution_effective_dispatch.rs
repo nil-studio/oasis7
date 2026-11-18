@@ -27,6 +27,7 @@ pub(in crate::world) enum EffectiveActionFamilyV1 {
     CollectData,
     AuthenticatedCollectData,
     TransferResource,
+    MainTokenTransfer,
 }
 
 impl EffectiveActionFamilyV1 {
@@ -70,6 +71,7 @@ impl EffectiveActionFamilyV1 {
             }
             crate::Action::CollectData { .. } => Self::CollectData,
             crate::Action::CollectDataAuthenticated { .. } => Self::AuthenticatedCollectData,
+            crate::Action::TransferMainToken { .. } => Self::MainTokenTransfer,
             crate::Action::TransferResource { .. } | crate::Action::EmitResourceTransfer { .. } => {
                 Self::TransferResource
             }
@@ -83,6 +85,9 @@ impl EffectiveActionFamilyV1 {
 /// genuine Current qualifications. It is consumed by the selected Rule lane;
 /// it never acts as an admission or completion receipt.
 pub(in crate::world) struct EffectiveActionWorkBankV1<'a> {
+    main_token_transfer: Option<&'a mut crate::world::incremental_action_data::main_token_transfer::MainTokenTransferWorkV1>,
+    main_token_primitive: Option<&'a ReservedValue<oasis7_world_state::incremental_owner_closure::WorldPrimitiveQualificationV1>>,
+    main_token_common: Option<&'a oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1>,
     module_lifecycle: Option<crate::world::incremental_normal_action_module_lifecycle::ModuleLifecycleWorkV1<'a>>,
     module_lifecycle_sources: Option<&'a crate::world::incremental_normal_action_module_lifecycle::ModuleLifecycleSourcesV1<'a>>,
     profile_governance:Option<&'a mut crate::world::incremental_normal_action_profile::ProfileGovernanceWorkV1>,
@@ -148,6 +153,9 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
         transfer_resource: &'a mut crate::world::incremental_action_data::transfer_resource::TransferResourceWorkV1,
     ) -> Self {
         Self {
+            main_token_transfer: None,
+            main_token_primitive: None,
+            main_token_common: None,
             profile_governance: None,
             module_lifecycle: None,
             module_lifecycle_sources: None,
@@ -181,6 +189,18 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
             starter_bindings,
             transfer_resource,
         }
+    }
+
+    pub(in crate::world) fn with_main_token_transfer(
+        mut self,
+        work: &'a mut crate::world::incremental_action_data::main_token_transfer::MainTokenTransferWorkV1,
+        primitive: &'a ReservedValue<oasis7_world_state::incremental_owner_closure::WorldPrimitiveQualificationV1>,
+        common: &'a oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1,
+    ) -> Self {
+        self.main_token_transfer = Some(work);
+        self.main_token_primitive = Some(primitive);
+        self.main_token_common = Some(common);
+        self
     }
 
     pub(in crate::world) fn with_module_lifecycle(
@@ -378,6 +398,10 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
             EffectiveActionFamilyV1::TransferResource => {
                 Work::TransferResource(&mut *self.transfer_resource)
             }
+            EffectiveActionFamilyV1::MainTokenTransfer => Work::MainTokenTransfer(
+                self.main_token_transfer.as_deref_mut()?, self.main_token_primitive?,
+                self.main_token_common?,
+            ),
         })
     }
 
@@ -1056,6 +1080,40 @@ impl<'a> EffectiveActionWorkBankV1<'a> {
                 };
                 Some((
                     Work::TransferResource(&mut *self.transfer_resource),
+                    accepted,
+                ))
+            }
+            EffectiveActionFamilyV1::MainTokenTransfer => {
+                let accepted = match source {
+                    Some(EffectiveActionFamilyV1::FactorySchedule) => Some(
+                        &mut self
+                            .factory_schedule
+                            .as_deref_mut()?
+                            .pending_entries_remaining,
+                    ),
+                    Some(EffectiveActionFamilyV1::ContractLifecycle) => Some(
+                        &mut self
+                            .contract_lifecycle
+                            .as_deref_mut()?
+                            .shared
+                            .pending_entries_remaining,
+                    ),
+                    Some(EffectiveActionFamilyV1::Alliance) => {
+                        Some(&mut self.alliance.as_deref_mut()?.pending_entries_remaining)
+                    }
+                    Some(EffectiveActionFamilyV1::Crisis) => {
+                        Some(&mut self.crisis.pending_entries_remaining)
+                    }
+                    Some(EffectiveActionFamilyV1::MetaProgress) => {
+                        Some(&mut self.meta_progress.pending_entries_remaining)
+                    }
+                    Some(EffectiveActionFamilyV1::ContractAccept) => {
+                        Some(&mut self.contract_accept.pending_entries_remaining)
+                    }
+                    _ => None,
+                };
+                Some((
+                    Work::MainTokenTransfer(self.main_token_transfer.as_deref_mut()?, self.main_token_primitive?, self.main_token_common?),
                     accepted,
                 ))
             }

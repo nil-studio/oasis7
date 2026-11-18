@@ -245,8 +245,7 @@ where
         };
         super::local_closure::recover_authenticated_local_closure_paid_v1(
             endpoint,
-            lease,
-            &raw,
+            super::local_closure::PaidLocalClosureReadRefsV1 { lease, raw: &raw },
             actual.checkpoint().head(),
             &cache,
             pages,

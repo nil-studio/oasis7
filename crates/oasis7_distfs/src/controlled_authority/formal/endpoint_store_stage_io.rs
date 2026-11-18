@@ -186,9 +186,6 @@ impl StagedIndexNodeV1<'_> {
     pub(super) fn id(&self) -> &str {
         self.object.id()
     }
-    pub(super) fn uses_budget(&self, memory: &MemoryBudget) -> bool {
-        self.object.uses_budget(memory)
-    }
     pub(in crate::controlled_authority::formal) fn retention_source(
         &self,
         memory: &MemoryBudget,
@@ -210,9 +207,6 @@ impl std::fmt::Debug for StagedRequestStateV1<'_> {
 impl StagedRequestStateV1<'_> {
     pub(super) fn id(&self) -> &str {
         self.object.id()
-    }
-    pub(super) fn uses_budget(&self, memory: &MemoryBudget) -> bool {
-        self.object.uses_budget(memory)
     }
     pub(in crate::controlled_authority::formal) fn retention_source(
         &self,

@@ -4,6 +4,7 @@ use super::*;
 use crate::controlled_authority::fencing::{
     BoundedAcquireErrorV1, RemoteMonotonicEndpointProvider, TrustedFencingPolicyV1,
 };
+use crate::controlled_authority::formal::endpoint::store::bounded_transaction::NativePublicationFencingRefsV1;
 use oasis7_formal_protocol::controlled_authority::formal::{
     PaidVerifiedNormalCommitV1, verify_normal_qualified_bounded,
 };
@@ -29,6 +30,7 @@ impl NormalValidatedInputs {
     ) -> bool {
         self.quorum.uses_budget(memory) && self.qualified.uses_budget(memory)
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority::formal::endpoint) fn reserved_bytes(&self) -> usize {
         self.quorum.reserved_bytes() + self.qualified.reserved_bytes()
     }
@@ -276,9 +278,11 @@ impl FileFormalEndpoint {
             }
         } else {
             self.store.reconcile_pending_update_with_scope(
-                provider,
-                instance,
-                policy,
+                NativePublicationFencingRefsV1 {
+                    provider,
+                    instance,
+                    policy,
+                },
                 memory,
                 work,
                 stop,

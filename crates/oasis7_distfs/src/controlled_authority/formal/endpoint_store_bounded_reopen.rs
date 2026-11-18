@@ -1,16 +1,21 @@
 //! Existing local, same-authority cold reopen. No initialization or archive import.
 use super::super::FormalArchiveReadWorkV1;
 use super::*;
-use crate::controlled_authority::fencing::{
-    BoundedAcquireErrorV1, RemoteMonotonicEndpointProvider, TrustedFencingPolicyV1,
-};
+#[cfg(test)]
+use crate::controlled_authority::fencing::BoundedAcquireErrorV1;
+#[cfg(test)]
+use crate::controlled_authority::formal::endpoint::FormalEndpointPublicationRefsV1;
+#[cfg(test)]
+use crate::controlled_authority::formal::endpoint::store::bounded_transaction::NativePublicationFencingRefsV1;
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use std::mem::size_of;
+#[cfg(test)]
 type ResultV<T> = Result<T, BoundedAcquireErrorV1>;
 fn add(a: usize, b: usize) -> Result<usize, FormalError> {
     a.checked_add(b)
         .ok_or_else(|| invalid("bounded cold reopen layout"))
 }
+#[cfg(test)]
 fn mul(a: usize, b: usize) -> Result<usize, FormalError> {
     a.checked_mul(b)
         .ok_or_else(|| invalid("bounded cold reopen layout"))
@@ -67,7 +72,7 @@ pub(in crate::controlled_authority::formal::endpoint) fn hash_encoded<T: Seriali
     }
     Ok(fee.retain(text))
 }
-#[cfg(unix)]
+#[cfg(all(test, unix))]
 fn canonical_directory(
     path: &Path,
     work: &FormalArchiveReadWorkV1,
@@ -113,16 +118,20 @@ fn canonical_directory(
     Ok(canonical)
 }
 impl Store {
+    #[cfg(test)]
     pub(super) fn reopen_existing_bounded(
         path: &Path,
         authority: &VerifiedAuthorityV1,
         role: EndpointRole,
-        provider: &RemoteMonotonicEndpointProvider,
-        policy: &TrustedFencingPolicyV1,
-        memory: &MemoryBudget,
-        work: &FormalArchiveReadWorkV1,
+        publication: FormalEndpointPublicationRefsV1<'_>,
         stop: &mut dyn FnMut() -> bool,
     ) -> ResultV<Self> {
+        let FormalEndpointPublicationRefsV1 {
+            provider,
+            policy,
+            memory,
+            work,
+        } = publication;
         #[cfg(not(unix))]
         {
             let _ = (path, authority, role, provider, policy, memory, work, stop);
@@ -292,9 +301,11 @@ impl Store {
                 fault: None,
             };
             store.reconcile_pending_update_with_scope(
-                provider,
-                instance,
-                policy,
+                NativePublicationFencingRefsV1 {
+                    provider,
+                    instance,
+                    policy,
+                },
                 memory,
                 work,
                 stop,

@@ -5,12 +5,15 @@ impl FileFormalEndpoint {
         &mut self,
         candidate: &FormalCandidateMaterialV1,
         context: &VerifiedCandidateContextV1,
-        provider: &RemoteMonotonicEndpointProvider,
-        policy: &TrustedFencingPolicyV1,
-        memory: &MemoryBudget,
-        work: &FormalArchiveReadWorkV1,
+        publication: FormalEndpointPublicationRefsV1<'_>,
         stop: &mut dyn FnMut() -> bool,
     ) -> ResultV<PaidGenesisPrepareReceiptV1> {
+        let FormalEndpointPublicationRefsV1 {
+            provider,
+            policy,
+            memory,
+            work,
+        } = publication;
         if let Some(state) = retry_state(self, candidate, context, memory, work, stop)? {
             match state.state() {
                 FormalRequestStateV1::Prepared {
@@ -142,12 +145,15 @@ impl FileFormalEndpoint {
         context: &VerifiedCandidateContextV1,
         primary: &FormalPrepareReceiptV1,
         replica: &FormalPrepareReceiptV1,
-        provider: &RemoteMonotonicEndpointProvider,
-        policy: &TrustedFencingPolicyV1,
-        memory: &MemoryBudget,
-        work: &FormalArchiveReadWorkV1,
+        publication: FormalEndpointPublicationRefsV1<'_>,
         stop: &mut dyn FnMut() -> bool,
     ) -> ResultV<PaidGenesisFinalReceiptV1> {
+        let FormalEndpointPublicationRefsV1 {
+            provider,
+            policy,
+            memory,
+            work,
+        } = publication;
         if let Some(state) = retry_state(self, candidate, context, memory, work, stop)? {
             let receipt = match state.state() {
                 FormalRequestStateV1::Decided { receipt, .. } => Some(receipt),
@@ -296,12 +302,15 @@ impl FileFormalEndpoint {
         candidate: &FormalCandidateMaterialV1,
         context: &VerifiedCandidateContextV1,
         decision: &FormalDecisionProofV1,
-        provider: &RemoteMonotonicEndpointProvider,
-        policy: &TrustedFencingPolicyV1,
-        memory: &MemoryBudget,
-        work: &FormalArchiveReadWorkV1,
+        publication: FormalEndpointPublicationRefsV1<'_>,
         stop: &mut dyn FnMut() -> bool,
     ) -> ResultV<PaidGenesisCompleteReceiptV1> {
+        let FormalEndpointPublicationRefsV1 {
+            provider,
+            policy,
+            memory,
+            work,
+        } = publication;
         if let Some(state) = retry_state(self, candidate, context, memory, work, stop)? {
             let retained = match state.state() {
                 FormalRequestStateV1::Ready {

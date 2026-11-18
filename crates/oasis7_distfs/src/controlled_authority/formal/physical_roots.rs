@@ -408,7 +408,11 @@ fn encode_retention_head(
 
 #[path = "physical_roots_bounded_append.rs"]
 mod bounded_append;
+#[cfg(test)]
 pub(in crate::controlled_authority::formal) use bounded_append::{
-    RetainedAppend, append_one_bounded_v1, append_staged_history_bounded_v1,
-    append_staged_node_bounded_v1, append_staged_request_bounded_v1,
+    RetainedAppend, append_one_bounded_v1,
+};
+pub(in crate::controlled_authority::formal) use bounded_append::{
+    append_staged_history_bounded_v1, append_staged_node_bounded_v1,
+    append_staged_request_bounded_v1,
 };

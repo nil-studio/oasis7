@@ -106,6 +106,18 @@ RUNTIME_WORKER_LIB_TESTS = frozenset(
         'signed_safe_alternative::normal_transits_due::signed_normal_parent_executes_actual_due_material_transit_against_world_oracle',
         'signed_safe_alternative::real_signed_matching_genesis_scope_core_rejection_and_exact_retry',
     )
+) | frozenset(
+    prefix + case
+    for prefix in (
+        'world::incremental_genesis::tests::module_execution::action_body::rules::main_token_transfer::',
+        'world::incremental_genesis::execution_test_support::rules::main_token_transfer::',
+    )
+    for case in (
+        'actual_main_token_fifo_matches_world_balances_nonces_events_and_mailboxes',
+        'main_token_original_failure_keeps_charge_and_aborts_transaction',
+        'main_token_work_exhaustion_keeps_original_common_debit',
+        'main_token_work_rejects_equal_numeric_foreign_common',
+    )
 )
 
 IWS_RULE_CORE_TARGET = 'iws_rule_core'
@@ -116,6 +128,7 @@ IWS_RULE_CORE_TESTS = frozenset((
     'selected_core_genuine_rule_denial_preserves_balance_and_position',
     'selected_rule_modify_form_alliance_to_material_transfer_keeps_guard_and_current_effects',
     'selected_rule_modify_form_alliance_to_resource_transfer_keeps_guard_and_current_effects',
+    'selected_rule_modify_form_alliance_to_main_token_transfer_keeps_fees_and_nonce',
 ))
 IWS_ACTION_BODY_TARGET = 'iws_action_body'
 IWS_ACTION_BODY_TESTS = frozenset((

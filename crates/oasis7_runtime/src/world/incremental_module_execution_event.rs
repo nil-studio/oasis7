@@ -58,6 +58,7 @@ pub(super) struct PersistedWorldEventV1<'event> {
     owner: PersistedEventOwnerV1<'event>,
 }
 enum PersistedEventOwnerV1<'event> {
+    MainTokenTransfer(&'event super::incremental_action_data::main_token_transfer::CompletedMainTokenTransferV1),
     CountedTail(&'event super::incremental_world_event_tail::RecoveredCountedWorldEventV1),
     Module {
         event: &'event WorldEvent,
@@ -301,6 +302,10 @@ impl<'event> PersistedWorldEventV1<'event> {
             owner: PersistedEventOwnerV1::DataAccess(owner),
         }
     }
+    pub(super) fn from_main_token_transfer(owner: &'event super::incremental_action_data::main_token_transfer::CompletedMainTokenTransferV1) -> Self {
+        Self { owner: PersistedEventOwnerV1::MainTokenTransfer(owner) }
+    }
+
     pub(super) fn from_transfer_resource(
         owner: &'event super::incremental_action_data::transfer_resource::CompletedTransferResourceV1,
     ) -> Self {
@@ -382,6 +387,7 @@ impl<'event> PersistedWorldEventV1<'event> {
             PersistedEventOwnerV1::FactoryDepreciation(owner) => owner.event(),
             PersistedEventOwnerV1::CollectData(owner) => owner.event(),
             PersistedEventOwnerV1::TransferResource(owner) => owner.event(),
+            PersistedEventOwnerV1::MainTokenTransfer(owner) => owner.event(),
             PersistedEventOwnerV1::DataAccess(owner) => owner.event(),
         }
     }
@@ -421,6 +427,7 @@ impl<'event> PersistedWorldEventV1<'event> {
             PersistedEventOwnerV1::FactoryDepreciation(owner) => owner.validate(tx),
             PersistedEventOwnerV1::CollectData(owner) => owner.validate(tx),
             PersistedEventOwnerV1::TransferResource(owner) => owner.validate(tx),
+            PersistedEventOwnerV1::MainTokenTransfer(owner) => owner.validate(tx),
             PersistedEventOwnerV1::DataAccess(owner) => owner.validate(tx),
         }
     }
@@ -534,6 +541,43 @@ where
         let guard = txn.guard();
         txn.validate_guard(&guard, live)?;
         prepared.validate(txn, mutation.memory, now)?;
+        persist_event_original_and_fact_v1(
+            now,
+            prepared.event(),
+            txn,
+            values,
+            mutation,
+            original_work,
+            max_event_bytes,
+            persist_original,
+        )?;
+        Ok(())
+    })
+}
+
+/// Publication requires the actual private main-token post-write owner.
+pub(super) fn contribute_main_token_transfer_event_v1<M, V, W, C, F>(
+    now: u64,
+    prepared: &super::incremental_action_data::main_token_transfer::PreparedMainTokenTransferEventV1,
+    live: &oasis7_formal_protocol::incremental_execution::ExecutionFence,
+    txn: &mut ExecutionTransaction<'_, M>,
+    values: &V,
+    mutation: &mut BodyMutationContext<'_, W, C>,
+    original_work: &mut CanonicalCborWorkV1,
+    max_event_bytes: usize,
+    persist_original: &mut F,
+) -> Result<(), BodyMutationError>
+where
+    M: MerkleNodeReader,
+    V: ValueNodeReader,
+    W: ValueNodeWriter,
+    C: FnMut() -> bool,
+    F: FnMut(&mut dyn AgentEventOriginalV1) -> Result<(), BodyMutationError>,
+{
+    txn.contribute(|txn| {
+        let guard = txn.guard();
+        txn.validate_guard(&guard, live)?;
+        prepared.validate(txn, mutation.memory, now, live)?;
         persist_event_original_and_fact_v1(
             now,
             prepared.event(),

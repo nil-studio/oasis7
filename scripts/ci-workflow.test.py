@@ -3434,7 +3434,7 @@ run_group iws_host_native
         path = 'crates/oasis7_runtime/tests/iws_rule_core.rs'
         source = (ROOT / path).read_text()
         cases = re.findall(r'^fn (\w+)\(', source, re.M)
-        self.assertEqual(len(cases), 6)
+        self.assertEqual(len(cases), 7)
         runtime = tomllib.loads((ROOT / 'crates/oasis7_runtime/Cargo.toml').read_text())
         self.assertIn('test-support', runtime['features']['test_tier_full'])
         declaration = next(target for target in runtime['test'] if target['name'] == 'iws_rule_core')

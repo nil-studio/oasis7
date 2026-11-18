@@ -1,5 +1,6 @@
 //! Serial, real dual-endpoint GEN coordination. This is not Host activation,
 //! an ordinary/Frozen executor or a WorldReady/serving permission constructor.
+use oasis7_distfs::controlled_authority::formal::endpoint::FormalEndpointPublicationRefsV1;
 use oasis7_distfs::controlled_authority::{
     fencing::{BoundedAcquireErrorV1, RemoteMonotonicEndpointProvider, TrustedFencingPolicyV1},
     formal::endpoint::{
@@ -216,10 +217,12 @@ pub fn submit_staged_genesis_bounded(
                 .prepare_genesis_bounded(
                     candidate,
                     context,
-                    endpoints.primary_provider,
-                    endpoints.primary_policy,
-                    memory,
-                    work,
+                    FormalEndpointPublicationRefsV1 {
+                        provider: endpoints.primary_provider,
+                        policy: endpoints.primary_policy,
+                        memory,
+                        work,
+                    },
                     stop,
                 )
                 .map_err(|e| endpoint(S::PreparePrimary, e))?;
@@ -228,10 +231,12 @@ pub fn submit_staged_genesis_bounded(
                 .prepare_genesis_bounded(
                     candidate,
                     context,
-                    endpoints.replica_provider,
-                    endpoints.replica_policy,
-                    memory,
-                    work,
+                    FormalEndpointPublicationRefsV1 {
+                        provider: endpoints.replica_provider,
+                        policy: endpoints.replica_policy,
+                        memory,
+                        work,
+                    },
                     stop,
                 )
                 .map_err(|e| endpoint(S::PrepareReplica, e))?;
@@ -242,10 +247,12 @@ pub fn submit_staged_genesis_bounded(
                     context,
                     p.receipt(),
                     r.receipt(),
-                    endpoints.primary_provider,
-                    endpoints.primary_policy,
-                    memory,
-                    work,
+                    FormalEndpointPublicationRefsV1 {
+                        provider: endpoints.primary_provider,
+                        policy: endpoints.primary_policy,
+                        memory,
+                        work,
+                    },
                     stop,
                 )
                 .map_err(|e| endpoint(S::FinalizePrimary, e))?;
@@ -256,10 +263,12 @@ pub fn submit_staged_genesis_bounded(
                     context,
                     p.receipt(),
                     r.receipt(),
-                    endpoints.replica_provider,
-                    endpoints.replica_policy,
-                    memory,
-                    work,
+                    FormalEndpointPublicationRefsV1 {
+                        provider: endpoints.replica_provider,
+                        policy: endpoints.replica_policy,
+                        memory,
+                        work,
+                    },
                     stop,
                 )
                 .map_err(|e| endpoint(S::FinalizeReplica, e))?;
@@ -279,10 +288,12 @@ pub fn submit_staged_genesis_bounded(
                     candidate,
                     context,
                     decision.decision(),
-                    endpoints.primary_provider,
-                    endpoints.primary_policy,
-                    memory,
-                    work,
+                    FormalEndpointPublicationRefsV1 {
+                        provider: endpoints.primary_provider,
+                        policy: endpoints.primary_policy,
+                        memory,
+                        work,
+                    },
                     stop,
                 )
                 .map_err(|e| endpoint(S::CompletePrimary, e))?;
@@ -292,10 +303,12 @@ pub fn submit_staged_genesis_bounded(
                     candidate,
                     context,
                     decision.decision(),
-                    endpoints.replica_provider,
-                    endpoints.replica_policy,
-                    memory,
-                    work,
+                    FormalEndpointPublicationRefsV1 {
+                        provider: endpoints.replica_provider,
+                        policy: endpoints.replica_policy,
+                        memory,
+                        work,
+                    },
                     stop,
                 )
                 .map_err(|e| endpoint(S::CompleteReplica, e))?;
@@ -319,10 +332,12 @@ pub fn submit_staged_genesis_bounded(
             candidate,
             proof.proof(),
             context,
-            endpoints.primary_provider,
-            endpoints.primary_policy,
-            memory,
-            work,
+            FormalEndpointPublicationRefsV1 {
+                provider: endpoints.primary_provider,
+                policy: endpoints.primary_policy,
+                memory,
+                work,
+            },
             stop,
         )
         .map_err(|e| endpoint(S::PublishPrimary, e))?;
@@ -332,10 +347,12 @@ pub fn submit_staged_genesis_bounded(
             candidate,
             proof.proof(),
             context,
-            endpoints.replica_provider,
-            endpoints.replica_policy,
-            memory,
-            work,
+            FormalEndpointPublicationRefsV1 {
+                provider: endpoints.replica_provider,
+                policy: endpoints.replica_policy,
+                memory,
+                work,
+            },
             stop,
         )
         .map_err(|e| endpoint(S::PublishReplica, e))?;

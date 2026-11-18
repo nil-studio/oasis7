@@ -5,6 +5,7 @@ use super::*;
 use crate::iws_normal_input::{
     NormalTickSourcesAdmissionFailureV1, PaidNormalTickSourcesAdmissionV1, PaidNormalTickSourcesV1,
 };
+use oasis7_distfs::controlled_authority::formal::endpoint::FormalEndpointPairPublicationRefsV1;
 use oasis7_distfs::controlled_authority::formal::endpoint::{
     NormalFrozenFailureV1, NormalFrozenPairFailureV1, PaidNormalFrozenEndpointV1,
     PaidNormalFrozenPairV1, join_normal_frozen_endpoints_bounded,
@@ -275,12 +276,14 @@ impl NodeNormalFreezeAttemptV1 {
                 Phase::Join(p, r) => match join_normal_frozen_endpoints_bounded(
                     p,
                     r,
-                    primary_provider,
-                    replica_provider,
-                    primary_policy,
-                    replica_policy,
-                    memory,
-                    archive,
+                    FormalEndpointPairPublicationRefsV1 {
+                        primary_provider,
+                        replica_provider,
+                        primary_policy,
+                        replica_policy,
+                        memory,
+                        work: archive,
+                    },
                     &mut || cancelled.load(Ordering::Acquire),
                 ) {
                     Ok(pair) => Phase::Joined(pair),
@@ -290,12 +293,14 @@ impl NodeNormalFreezeAttemptV1 {
                     }
                 },
                 Phase::RecoverPair(failure) => match failure.recover_bounded(
-                    primary_provider,
-                    replica_provider,
-                    primary_policy,
-                    replica_policy,
-                    memory,
-                    archive,
+                    FormalEndpointPairPublicationRefsV1 {
+                        primary_provider,
+                        replica_provider,
+                        primary_policy,
+                        replica_policy,
+                        memory,
+                        work: archive,
+                    },
                     &mut || cancelled.load(Ordering::Acquire),
                 ) {
                     Ok(pair) => Phase::Joined(pair),

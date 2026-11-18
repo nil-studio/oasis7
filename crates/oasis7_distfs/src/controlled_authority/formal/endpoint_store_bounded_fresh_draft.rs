@@ -44,6 +44,7 @@ pub(super) fn disk_source(
 }
 
 impl Store {
+    #[cfg(test)]
     pub(super) fn prepare_native_checkpoint_draft_from_disk_bounded<'a>(
         &'a self,
         public_key: &str,

@@ -74,7 +74,7 @@ impl BoundNormalActionSourceParentsV1<'_, '_>{
   let alliance=AllianceSourcesV1{agents:raw.agents(),diplomacy:native.diplomacy(),continuity:native.rules().continuity(),organizations:native.rules().organization(),native:native.native(),orders:self.cache.orders,rules:native.rules(),roots:refs.roots};
   let contracts=ContractSourcesV1{shared:&alliance,artifacts:runtime.resources()};
   let profile=ProfileGovernanceSourcesV1{agents:raw.agents(),native:native.native(),proposals:runtime.proposals(),materials:native.material()};
-  let sources=NormalActionSourcesV1{module_lifecycle:&module,crisis_sources:&crisis,contract_sources:&contract,meta_sources:&meta,factory_sources:&factory,logistics:native.logistics(),materials:native.material(),controls:native.controls(),starter_bindings:native.native().starter_binding_index(),factory_schedule:&schedule,contracts:&contracts,alliance:&alliance,profile:&profile};
+  let sources=NormalActionSourcesV1{primitive:native.primitive(),module_lifecycle:&module,crisis_sources:&crisis,contract_sources:&contract,meta_sources:&meta,factory_sources:&factory,logistics:native.logistics(),materials:native.material(),controls:native.controls(),starter_bindings:native.native().starter_binding_index(),factory_schedule:&schedule,contracts:&contracts,alliance:&alliance,profile:&profile};
   Ok(consume(&sources,common))
  }
 }

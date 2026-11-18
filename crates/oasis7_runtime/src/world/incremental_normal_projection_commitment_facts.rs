@@ -6,10 +6,6 @@ use super::{
     original_rows::{OriginalProjectionRowDataV1, OriginalProjectionRowsDataV1},
     state_columns::OriginalStateColumnsDataV1,
 };
-use oasis7_formal_protocol::{
-    incremental_execution::{ExecutionFence, ExecutionTransaction, PreparedGuard},
-    incremental_state::MerkleNodeReader,
-};
 use oasis7_world_state::incremental_semantic_key::{SemanticKeyV1, write_semantic_key_v1};
 use oasis7_world_state::{
     FactorySiteAuthorityV1, FactoryState, GameplayPolicyState, IndustryProgressState,
@@ -72,45 +68,6 @@ impl<'a, 'c> CurrentProjectionReadFactsV1<'a, 'c> {
             slots: RefCell::new(slots),
             _fee: fee,
         })
-    }
-    pub(super) fn with_agent_intents_data_v1(
-        mut self,
-        source: &'a OriginalProjectionRowsDataV1,
-    ) -> Result<Self, BodyMutationError> {
-        self.check()?;
-        source.validate(&mut self.common.borrow_mut())?;
-        self.agent_intents = Some(source);
-        Ok(self)
-    }
-    pub(super) fn with_agent_intent_data_v1<T>(
-        &self,
-        agent: &str,
-        visit: impl FnOnce(Option<&oasis7_world_state::AgentIntentV2>) -> Result<T, BodyMutationError>,
-    ) -> Result<T, BodyMutationError> {
-        self.check()?;
-        let rows = self
-            .agent_intents
-            .ok_or_else(|| invalid("actual projection Agent intent source missing"))?;
-        let key = self.key(agent)?;
-        let row = {
-            let mut common = self.common.borrow_mut();
-            rows.row_data_v1(&key, &mut common)?
-        };
-        let present = self.owner_agent_present_data(agent)?;
-        let result = match row {
-            None if present => return Err(invalid("actual Agent intent cohort row missing")),
-            Some(_) if !present => {
-                return Err(invalid("Agent intent cohort contains absent Agent"));
-            }
-            None => visit(None),
-            Some(row) => fact_decode::with_optional_agent_intent_data_v1(
-                self.raw(row)?,
-                &self.common,
-                |value| visit(value.as_ref()),
-            ),
-        }?;
-        self.check()?;
-        Ok(result)
     }
     pub(super) fn with_security_data_v1(self) -> Result<Self, BodyMutationError> {
         self.source.process_policy(&mut self.common.borrow_mut())?;
@@ -916,30 +873,6 @@ impl PaidCurrentProjectionOwnerDataV1 {
         self.owner.as_ref()
     }
 }
-pub(in crate::world) fn resolve_current_projection_owner_v1<M: MerkleNodeReader>(
-    state: &OriginalStateColumnsDataV1,
-    electricity: &OriginalProjectionRowsDataV1,
-    metadata: &crate::world::incremental_normal_business_commitment::NormalTerminalReadMetadataV1,
-    agent: &str,
-    tx: &ExecutionTransaction<'_, M>,
-    common: &mut FormalBoundedContextV1<'_>,
-    live: &mut dyn FnMut() -> ExecutionFence,
-) -> Result<PaidCurrentProjectionOwnerDataV1, BodyMutationError> {
-    resolve_projection_owner_from_source_v1(state,electricity,&crate::world::incremental_normal_business_commitment::OriginalProjectionReadMetadataV1::Current(metadata),agent,tx,common,live)
-}
-pub(in crate::world) fn resolve_projection_owner_from_source_v1<M: MerkleNodeReader>(
-    state: &OriginalStateColumnsDataV1,
-    electricity: &OriginalProjectionRowsDataV1,
-    metadata:&crate::world::incremental_normal_business_commitment::OriginalProjectionReadMetadataV1<'_>,
-    agent: &str,
-    tx: &ExecutionTransaction<'_, M>,
-    common: &mut FormalBoundedContextV1<'_>,
-    live: &mut dyn FnMut() -> ExecutionFence,
-) -> Result<PaidCurrentProjectionOwnerDataV1, BodyMutationError> {
-    let source = crate::world::incremental_normal_projection_commitment::facts::CurrentProjectionReadSourceV1::new(tx, live);
-    resolve_projection_owner_data_v1(state, electricity, metadata, agent, &source, common)
-}
-
 pub(in crate::world) fn resolve_projection_owner_data_v1(
     state: &OriginalStateColumnsDataV1,
     electricity: &OriginalProjectionRowsDataV1,

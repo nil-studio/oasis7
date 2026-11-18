@@ -270,27 +270,42 @@ pub(in crate::controlled_authority::formal::endpoint::incremental) fn verify_acc
         cancelled,
     )
 }
+pub(crate) struct CandidateExecutionMaterialRequestV1<'a, O, R> {
+    pub(crate) endpoint: &'a FileFormalEndpoint,
+    pub(crate) candidate: &'a FormalCandidateMaterialV1,
+    pub(crate) context:
+        &'a oasis7_formal_protocol::controlled_authority::formal::VerifiedCandidateContextV1,
+    pub(crate) core: &'a ReservedValue<CheckedCommitCore>,
+    pub(crate) objects: &'a mut O,
+    pub(crate) pages: &'a IncrementalPageStore,
+    pub(crate) reader: &'a R,
+    pub(crate) parent: Option<(
+        &'a VerifiedFormalCommitV1,
+        &'a ReservedValue<CandidateExecutionMaterialV1>,
+    )>,
+}
+
 pub(crate) fn verify_candidate_execution_material_v1<
     O: OriginalObjectStreamReader,
     R: MerkleNodeReader,
 >(
-    endpoint: &FileFormalEndpoint,
-    candidate: &FormalCandidateMaterialV1,
-    context: &oasis7_formal_protocol::controlled_authority::formal::VerifiedCandidateContextV1,
-    core: &ReservedValue<CheckedCommitCore>,
-    objects: &mut O,
-    pages: &IncrementalPageStore,
-    reader: &R,
-    parent: Option<(
-        &VerifiedFormalCommitV1,
-        &ReservedValue<CandidateExecutionMaterialV1>,
-    )>,
+    request: CandidateExecutionMaterialRequestV1<'_, O, R>,
     native_work: &mut CoreBudget,
     artifact_work: &mut ExecutionArtifactBudget,
     bridge_work: &mut NativeChunkReadWorkV1,
     catalog_work: Option<&mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>>,
     cancelled: &mut impl FnMut() -> bool,
 ) -> Result<ReservedValue<CandidateExecutionMaterialV1>, FormalError> {
+    let CandidateExecutionMaterialRequestV1 {
+        endpoint,
+        candidate,
+        context,
+        core,
+        objects,
+        pages,
+        reader,
+        parent,
+    } = request;
     let fee = endpoint
         .store
         .path

@@ -1,6 +1,7 @@
 //! Fixed normal producers share GEN's unique body/frame/copy/state/sign kernels.
 use super::*;
 use crate::controlled_authority::fencing::PaidRemoteLeaseV1;
+use crate::controlled_authority::formal::endpoint::store::bounded_transaction::NativePublicationFencingRefsV1;
 use oasis7_formal_protocol::controlled_authority::formal::{
     PaidVerifiedNormalDecisionV1, normal_final_receipt_body_bounded,
 };
@@ -188,7 +189,16 @@ fn persist_same_lease(
         EndpointRole::Replica => &endpoint.authority.definition().replica.instance,
     };
     let next = endpoint.store.publish_pending_update_with_lease_bounded(
-        update, held, provider, instance, policy, memory, work, stop,
+        update,
+        held,
+        NativePublicationFencingRefsV1 {
+            provider,
+            instance,
+            policy,
+        },
+        memory,
+        work,
+        stop,
     )?;
     *lease = Some(next);
     Ok(())

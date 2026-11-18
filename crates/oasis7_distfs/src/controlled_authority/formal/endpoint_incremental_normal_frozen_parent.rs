@@ -14,10 +14,10 @@ impl PaidNormalFrozenPairV1 {
         let mut ctx = work.bounded_context(memory, stop);
         ctx.consume_steps(1)?;
         if !self.uses_budget(memory)
-            || self.primary.source.identity != ctx.work().identity()
-            || self.replica.source.identity != ctx.work().identity()
-            || self.primary.source.lease.is_none()
-            || self.replica.source.lease.is_none()
+            || self.owned.value.primary.owned.value.source.identity != ctx.work().identity()
+            || self.owned.value.replica.owned.value.source.identity != ctx.work().identity()
+            || self.owned.value.primary.owned.value.source.lease.is_none()
+            || self.owned.value.replica.owned.value.source.lease.is_none()
         {
             return Err(invalid(
                 "Frozen parent scope requires actual dual live holders",
@@ -36,7 +36,7 @@ impl PaidNormalFrozenPairV1 {
         E: From<FormalError>,
     {
         self.validate_parent_scope(memory, work, stop)?;
-        let source = &self.primary.source;
+        let source = &self.owned.value.primary.owned.value.source;
         let lease = source
             .lease
             .as_ref()
@@ -67,7 +67,7 @@ impl PaidNormalFrozenPairV1 {
         E: From<FormalError>,
     {
         self.validate_parent_scope(memory, work, stop)?;
-        let source = &self.replica.source;
+        let source = &self.owned.value.replica.owned.value.source;
         let lease = source
             .lease
             .as_ref()
@@ -98,7 +98,7 @@ impl PaidNormalFrozenPairV1 {
         E: From<FormalError>,
     {
         self.validate_parent_scope(memory, work, stop)?;
-        let source = &self.primary.source;
+        let source = &self.owned.value.primary.owned.value.source;
         let parent = source
             .endpoint
             .parent

@@ -1,4 +1,4 @@
-//! Closed entry to six actual Linux bounded-worker cases.
+//! Closed entry to the actual Linux bounded-worker cases.
 /// No data or qualification is returned. These variants only select the
 /// assertion-bearing fixtures and their fixed independent expectations.
 #[derive(Clone, Copy, Debug)]
@@ -9,6 +9,7 @@ pub enum IwsRuleCoreCaseV1 {
     Deny,
     ModifyAllianceToMaterialTransfer,
     ModifyAllianceToResourceTransfer,
+    ModifyAllianceToMainTokenTransfer,
 }
 /// Execute the complete original GEN/FIFO/Root/VM/original/state/counter oracle.
 /// Missing real worker executable or any failed assertion fails the test; there
@@ -24,6 +25,9 @@ pub fn run_iws_rule_core_case_v1(case: IwsRuleCoreCaseV1) {
         }
         IwsRuleCoreCaseV1::ModifyAllianceToResourceTransfer => {
             return super::modify_transfer::run(false);
+        }
+        IwsRuleCoreCaseV1::ModifyAllianceToMainTokenTransfer => {
+            return super::modify_transfer::run_main_token();
         }
     };
     super::rule_cases::run_rule_fixture_composed(payload, publish_override, mode);

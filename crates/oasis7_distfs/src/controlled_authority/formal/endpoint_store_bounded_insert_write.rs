@@ -63,6 +63,7 @@ impl RetainedIndexRewriteV1 {
             && self._directory.uses_budget(memory)
             && self._guard.uses_budget(memory)
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority::formal::endpoint) fn reserved_bytes(&self) -> usize {
         self.root.reserved_bytes()
             + self.before.as_ref().map_or(0, |s| s.reserved_bytes())

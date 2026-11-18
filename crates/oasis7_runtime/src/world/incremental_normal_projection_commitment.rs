@@ -77,10 +77,6 @@ mod shared_json;
 mod fact_decode;
 #[path = "incremental_normal_projection_commitment_facts.rs"]
 mod facts;
-pub(in crate::world) use facts::{
-    PaidCurrentProjectionOwnerDataV1, resolve_current_projection_owner_v1,
-    resolve_projection_owner_from_source_v1,
-};
 
 #[path = "incremental_normal_projection_commitment_coverage.rs"]
 mod coverage;

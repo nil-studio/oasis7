@@ -10,6 +10,17 @@ use crate::controlled_authority::fencing::{
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use std::mem::size_of;
 type ResultV<T> = Result<T, BoundedAcquireErrorV1>;
+
+/// Borrow the original signing endpoint and its pinned policy together. This
+/// carries no lease, admission, or permission to construct a new identity.
+#[derive(Clone, Copy)]
+pub(in crate::controlled_authority::formal::endpoint) struct NativePublicationFencingRefsV1<'a> {
+    pub(in crate::controlled_authority::formal::endpoint) provider:
+        &'a RemoteMonotonicEndpointProvider,
+    pub(in crate::controlled_authority::formal::endpoint) instance: &'a EndpointInstanceBindingV1,
+    pub(in crate::controlled_authority::formal::endpoint) policy: &'a TrustedFencingPolicyV1,
+}
+
 pub(in crate::controlled_authority::formal::endpoint) fn same<T: Serialize + PartialEq>(
     a: &T,
     b: &T,
@@ -195,13 +206,16 @@ impl Store {
     pub(in crate::controlled_authority::formal::endpoint) fn publish_pending_update_bounded(
         &mut self,
         update: PreparedPendingRequestUpdate,
-        provider: &RemoteMonotonicEndpointProvider,
-        instance: &EndpointInstanceBindingV1,
-        policy: &TrustedFencingPolicyV1,
+        fencing: NativePublicationFencingRefsV1<'_>,
         memory: &MemoryBudget,
         work: &FormalArchiveReadWorkV1,
         stop: &mut dyn FnMut() -> bool,
     ) -> ResultV<()> {
+        let NativePublicationFencingRefsV1 {
+            provider,
+            instance,
+            policy,
+        } = fencing;
         let draft = self.prepare_pending_native_checkpoint_draft_from_disk_bounded(
             update,
             &instance.endpoint_public_key,
@@ -254,13 +268,16 @@ impl Store {
         &mut self,
         update: PreparedPendingRequestUpdate,
         lease: PaidRemoteLeaseV1,
-        provider: &RemoteMonotonicEndpointProvider,
-        instance: &EndpointInstanceBindingV1,
-        policy: &TrustedFencingPolicyV1,
+        fencing: NativePublicationFencingRefsV1<'_>,
         memory: &MemoryBudget,
         work: &FormalArchiveReadWorkV1,
         stop: &mut dyn FnMut() -> bool,
     ) -> ResultV<PaidRemoteLeaseV1> {
+        let NativePublicationFencingRefsV1 {
+            provider,
+            instance,
+            policy,
+        } = fencing;
         let draft = self.prepare_pending_native_checkpoint_draft_from_disk_bounded(
             update,
             &instance.endpoint_public_key,
@@ -302,6 +319,7 @@ impl Store {
     }
     /// Every attempt acquires a NEW real FD and reads actual disk Hot. It never
     /// reuses an owner whose Begin/Finish result was unknown.
+    #[cfg(test)]
     pub(super) fn reconcile_pending_update_bounded(
         &mut self,
         provider: &RemoteMonotonicEndpointProvider,
@@ -312,9 +330,11 @@ impl Store {
         stop: &mut dyn FnMut() -> bool,
     ) -> ResultV<()> {
         self.reconcile_pending_update_with_scope(
-            provider,
-            instance,
-            policy,
+            NativePublicationFencingRefsV1 {
+                provider,
+                instance,
+                policy,
+            },
             memory,
             work,
             stop,
@@ -323,14 +343,17 @@ impl Store {
     }
     pub(in crate::controlled_authority::formal::endpoint) fn reconcile_pending_update_with_scope(
         &mut self,
-        provider: &RemoteMonotonicEndpointProvider,
-        instance: &EndpointInstanceBindingV1,
-        policy: &TrustedFencingPolicyV1,
+        fencing: NativePublicationFencingRefsV1<'_>,
         memory: &MemoryBudget,
         work: &FormalArchiveReadWorkV1,
         stop: &mut dyn FnMut() -> bool,
         scope: &RecoveryScope<'_>,
     ) -> ResultV<()> {
+        let NativePublicationFencingRefsV1 {
+            provider,
+            instance,
+            policy,
+        } = fencing;
         let disk = self.read_hot_bounded(&instance.endpoint_public_key, memory, work, stop)?;
         scope.validate(disk.body(), memory, work, stop)?;
         let (actual, _actual_fee) = disk_binding(&disk, memory, work, stop)?;

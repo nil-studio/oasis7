@@ -223,10 +223,13 @@ pub(in super::super) fn recover_authenticated_local_closure_v1(
         cancelled,
     )
 }
+pub(in super::super) struct PaidLocalClosureReadRefsV1<'a> {
+    pub(in super::super) lease: &'a crate::controlled_authority::fencing::PaidRemoteLeaseV1,
+    pub(in super::super) raw: &'a ReservedValue<Vec<u8>>,
+}
 pub(in super::super) fn recover_authenticated_local_closure_paid_v1(
     endpoint: &FileFormalEndpoint,
-    lease: &crate::controlled_authority::fencing::PaidRemoteLeaseV1,
-    raw: &ReservedValue<Vec<u8>>,
+    PaidLocalClosureReadRefsV1 { lease, raw }: PaidLocalClosureReadRefsV1<'_>,
     head: &VerifiedFormalCommitV1,
     cache: &AcceptedCandidateCache,
     pages: &IncrementalPageStore,

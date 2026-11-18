@@ -672,3 +672,6 @@ fn collection_balances(
         .map_err(|error| collection_stock_error(error, "data credit", memory))?;
     Ok((electricity_after, data_after))
 }
+
+#[path = "incremental_action_main_token_transfer.rs"]
+pub(in crate::world) mod main_token_transfer;

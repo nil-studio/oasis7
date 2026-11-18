@@ -119,6 +119,7 @@ fn encode<T: Serialize>(value: &T) -> Result<Vec<u8>, FormalError> {
     Ok(bytes)
 }
 impl Store {
+    #[cfg(test)]
     pub(super) fn prepare_native_checkpoint_draft_bounded<'a>(
         &'a self,
         ctx: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
@@ -918,10 +919,13 @@ impl Store {
 #[path = "endpoint_store_stage_io.rs"]
 pub(in crate::controlled_authority::formal) mod stage_io;
 
+#[cfg(test)]
 #[path = "endpoint_store_bounded_stage.rs"]
 mod bounded_stage;
+#[cfg(test)]
 pub(in crate::controlled_authority::formal) use bounded_stage::StagedIndexBlobV1;
 impl Store {
+    #[cfg(test)]
     pub(super) fn stage_index_leaf_bounded(
         &self,
         request: &str,
@@ -934,12 +938,15 @@ impl Store {
     }
 }
 
+#[cfg(test)]
 #[path = "endpoint_store_retained_stage.rs"]
 mod retained_stage;
+#[cfg(test)]
 pub(in crate::controlled_authority::formal) use retained_stage::RetainedIndexBlobV1;
 #[cfg(test)]
 pub(in crate::controlled_authority::formal) use retained_stage::with_store_for_bounded_retention_fixture;
 impl Store {
+    #[cfg(test)]
     pub(super) fn stage_index_leaf_retained_bounded(
         &self,
         request: &str,
@@ -1024,9 +1031,11 @@ pub(in crate::controlled_authority) fn verify_native_draft_signature_for_test(
 
 #[path = "endpoint_store_bounded_history_read.rs"]
 mod bounded_history_read;
+#[cfg(test)]
 pub(super) use bounded_history_read::PaidHistoryNodeV1;
 impl Store {
     /// Paid typed data point read; this grants no history or publication authority.
+    #[cfg(test)]
     pub(super) fn read_history_object_bounded(
         &self,
         id: &str,
@@ -1040,9 +1049,11 @@ impl Store {
 
 #[path = "endpoint_store_bounded_local_closure_read.rs"]
 mod bounded_local_closure_read;
+#[cfg(test)]
 pub(super) use bounded_local_closure_read::PaidLocalClosureRecordV1;
 impl Store {
     /// Metadata point data only, never continuity or execution qualification.
+    #[cfg(test)]
     pub(super) fn read_local_closure_object_bounded(
         &self,
         id: &str,
@@ -1061,9 +1072,11 @@ pub(in crate::controlled_authority::formal::endpoint) mod context_wire;
 
 #[path = "endpoint_store_bounded_record_id.rs"]
 pub(super) mod bounded_record_id;
+#[cfg(test)]
 pub(super) use bounded_record_id::PaidCanonicalRecordIdV1;
 impl Store {
     /// A data identifier derived from original history; never a verified commit.
+    #[cfg(test)]
     pub(super) fn read_qualified_history_record_id_bounded(
         &self,
         history_id: &str,

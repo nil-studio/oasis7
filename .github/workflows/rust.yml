@@ -2022,10 +2022,14 @@ jobs:
           python-version: '3.12'
       - name: Install pinned Rust toolchains
         if: >-
-          !(fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version == 2 &&
-            (matrix.partition == 'native-0' || matrix.partition == 'native-1' ||
-             matrix.partition == 'native-2' || matrix.partition == 'native-3') &&
-            join(fromJSON(needs.select.outputs.plan).oasis7_required_packages, ',') == 'oasis7_chain_runtime')
+          !(fromJSON(needs.select.outputs.plan).ordinary_execution != 'inline' &&
+            ((matrix.partition == 'runtime') ||
+             (fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version == 2 &&
+              (matrix.partition == 'native-0' || matrix.partition == 'native-1' ||
+               matrix.partition == 'native-2' || matrix.partition == 'native-3') &&
+              join(fromJSON(needs.select.outputs.plan).oasis7_required_packages, ',') != '' &&
+              !contains(fromJSON(needs.select.outputs.plan).oasis7_required_packages, 'oasis7_game_client') &&
+              !contains(fromJSON(needs.select.outputs.plan).oasis7_required_packages, 'oasis7_wasm_materializer'))))
         shell: bash
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
@@ -2035,18 +2039,20 @@ jobs:
           rustup target add wasm32-unknown-unknown
       - name: Stabilize Rust cache toolchains
         if: >-
-          !(fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version == 2 &&
-            (matrix.partition == 'native-0' || matrix.partition == 'native-1' ||
-             matrix.partition == 'native-2' || matrix.partition == 'native-3') &&
-            join(fromJSON(needs.select.outputs.plan).oasis7_required_packages, ',') == 'oasis7_chain_runtime')
+          !(fromJSON(needs.select.outputs.plan).ordinary_execution != 'inline' &&
+            (matrix.partition == 'runtime' || matrix.partition == 'component-libs' ||
+             matrix.partition == 'integrations-0' || matrix.partition == 'integrations-1' ||
+             matrix.partition == 'native-0' || matrix.partition == 'native-1' ||
+             matrix.partition == 'native-2' || matrix.partition == 'native-3'))
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: >-
-          !(fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version == 2 &&
-            (matrix.partition == 'native-0' || matrix.partition == 'native-1' ||
-             matrix.partition == 'native-2' || matrix.partition == 'native-3') &&
-            join(fromJSON(needs.select.outputs.plan).oasis7_required_packages, ',') == 'oasis7_chain_runtime')
+          !(fromJSON(needs.select.outputs.plan).ordinary_execution != 'inline' &&
+            (matrix.partition == 'runtime' || matrix.partition == 'component-libs' ||
+             matrix.partition == 'integrations-0' || matrix.partition == 'integrations-1' ||
+             matrix.partition == 'native-0' || matrix.partition == 'native-1' ||
+             matrix.partition == 'native-2' || matrix.partition == 'native-3'))
         with:
           save-if: false
           shared-key: ci-shared-native-trusted-v4

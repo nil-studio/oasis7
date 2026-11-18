@@ -2,16 +2,19 @@
 //! namespace FDs, complete staged jobs and immutable Frozen originals alive.
 use super::*;
 use crate::controlled_authority::formal::endpoint::incremental::genesis_receipts::normal_ready as receipts;
+use crate::controlled_authority::formal::endpoint::store::bounded_transaction::NativePublicationFencingRefsV1;
 use oasis7_formal_protocol::controlled_authority::formal::{
     PaidVerifiedNormalCommitV1, verify_normal_decision_bounded, verify_normal_qualified_bounded,
 };
 use oasis7_proto::memory_budget::MemoryReservation;
 
 pub struct PaidNormalReadyPairV1 {
+    owned: PaidNormalBoxV1<NormalReadyStateV1>,
+}
+struct NormalReadyStateV1 {
     pair: PaidNormalFrozenPairV1,
     quorum: PaidVerifiedNormalCommitV1,
     original: store::PaidRequestStateV1,
-    _outer: MemoryReservation,
 }
 pub struct NormalReadyPairFailureV1 {
     pair: Option<PaidNormalFrozenPairV1>,
@@ -74,42 +77,51 @@ impl PaidNormalFrozenPairV1 {
         let prepared = (|| {
             work.consume_steps(1, stop)?;
             if !self.uses_budget(memory)
-                || self.primary.source.identity
+                || self.owned.value.primary.owned.value.source.identity
                     != work.bounded_context(memory, stop).work().identity()
-                || self.primary.source.identity != self.replica.source.identity
-                || self.primary.source.endpoint.role != EndpointRole::Primary
-                || self.replica.source.endpoint.role != EndpointRole::Replica
+                || self.owned.value.primary.owned.value.source.identity
+                    != self.owned.value.replica.owned.value.source.identity
+                || self.owned.value.primary.owned.value.source.endpoint.role
+                    != EndpointRole::Primary
+                || self.owned.value.replica.owned.value.source.endpoint.role
+                    != EndpointRole::Replica
             {
                 return Err(invalid("normal Ready actual pair/Core/pool/roles").into());
             }
-            if self.primary.source.lease.is_none() || self.replica.source.lease.is_none() {
+            let pair = &mut *self.owned.value;
+            if pair.primary.owned.value.source.lease.is_none()
+                || pair.replica.owned.value.source.lease.is_none()
+            {
                 return Err(invalid("normal Ready source requires actual recovery").into());
             }
             // Both complete source conjunctions precede the first Prepare mutation.
             let _p = receipts::admit_normal(
-                &self.primary.source.endpoint,
+                &pair.primary.owned.value.source.endpoint,
                 candidate,
-                &self.certificate,
+                &pair.certificate,
                 memory,
                 work,
                 stop,
             )?;
             let _r = receipts::admit_normal(
-                &self.replica.source.endpoint,
+                &pair.replica.owned.value.source.endpoint,
                 candidate,
-                &self.certificate,
+                &pair.certificate,
                 memory,
                 work,
                 stop,
             )?;
             let outer = memory
-                .reserve(size_of::<PaidNormalReadyPairV1>(), MemoryClass::Ordinary)
+                .reserve(
+                    PaidNormalBoxV1::<NormalReadyStateV1>::layout(),
+                    MemoryClass::Ordinary,
+                )
                 .map_err(|_| invalid("normal Ready pair admission"))?;
             let primary = receipts::prepare(
-                &mut self.primary.source.endpoint,
-                &mut self.primary.source.lease,
+                &mut pair.primary.owned.value.source.endpoint,
+                &mut pair.primary.owned.value.source.lease,
                 candidate,
-                &self.certificate,
+                &pair.certificate,
                 receipts::ReceiptContext {
                     provider: primary_provider,
                     policy: primary_policy,
@@ -119,10 +131,10 @@ impl PaidNormalFrozenPairV1 {
                 },
             )?;
             let replica = receipts::prepare(
-                &mut self.replica.source.endpoint,
-                &mut self.replica.source.lease,
+                &mut pair.replica.owned.value.source.endpoint,
+                &mut pair.replica.owned.value.source.lease,
                 candidate,
-                &self.certificate,
+                &pair.certificate,
                 receipts::ReceiptContext {
                     provider: replica_provider,
                     policy: replica_policy,
@@ -132,10 +144,10 @@ impl PaidNormalFrozenPairV1 {
                 },
             )?;
             let pfinal = receipts::finalize(
-                &mut self.primary.source.endpoint,
-                &mut self.primary.source.lease,
+                &mut pair.primary.owned.value.source.endpoint,
+                &mut pair.primary.owned.value.source.lease,
                 candidate,
-                &self.certificate,
+                &pair.certificate,
                 &primary,
                 &replica,
                 receipts::ReceiptContext {
@@ -147,10 +159,10 @@ impl PaidNormalFrozenPairV1 {
                 },
             )?;
             let rfinal = receipts::finalize(
-                &mut self.replica.source.endpoint,
-                &mut self.replica.source.lease,
+                &mut pair.replica.owned.value.source.endpoint,
+                &mut pair.replica.owned.value.source.lease,
                 candidate,
-                &self.certificate,
+                &pair.certificate,
                 &primary,
                 &replica,
                 receipts::ReceiptContext {
@@ -164,7 +176,7 @@ impl PaidNormalFrozenPairV1 {
             let fee = graph_fee(
                 &(
                     &candidate.candidate,
-                    &*self.certificate,
+                    &*pair.certificate,
                     pfinal.receipt(),
                     rfinal.receipt(),
                 ),
@@ -177,12 +189,14 @@ impl PaidNormalFrozenPairV1 {
                 record: candidate.candidate.record.clone(),
                 branch: FormalCompletionBranchV1::Normal,
                 writer_signature_hex: candidate.candidate.writer_signature_hex.clone(),
-                frozen: Some((*self.certificate).clone()),
+                frozen: Some((*pair.certificate).clone()),
                 primary: pfinal.receipt().clone(),
                 replica: rfinal.receipt().clone(),
             });
-            let parent = self
+            let parent = pair
                 .primary
+                .owned
+                .value
                 .source
                 .endpoint
                 .parent
@@ -190,15 +204,15 @@ impl PaidNormalFrozenPairV1 {
                 .ok_or_else(|| invalid("normal Ready real parent missing"))?;
             let verified = verify_normal_decision_bounded(
                 &decision,
-                &self.primary.source.endpoint.authority,
+                &pair.primary.owned.value.source.endpoint.authority,
                 parent,
                 &mut work.bounded_context(memory, stop),
             )?;
             let pcomplete = receipts::complete(
-                &mut self.primary.source.endpoint,
-                &mut self.primary.source.lease,
+                &mut pair.primary.owned.value.source.endpoint,
+                &mut pair.primary.owned.value.source.lease,
                 candidate,
-                &self.certificate,
+                &pair.certificate,
                 &verified,
                 receipts::ReceiptContext {
                     provider: primary_provider,
@@ -209,10 +223,10 @@ impl PaidNormalFrozenPairV1 {
                 },
             )?;
             let rcomplete = receipts::complete(
-                &mut self.replica.source.endpoint,
-                &mut self.replica.source.lease,
+                &mut pair.replica.owned.value.source.endpoint,
+                &mut pair.replica.owned.value.source.lease,
                 candidate,
-                &self.certificate,
+                &pair.certificate,
                 &verified,
                 receipts::ReceiptContext {
                     provider: replica_provider,
@@ -238,8 +252,10 @@ impl PaidNormalFrozenPairV1 {
                 primary_complete: pcomplete.receipt().clone(),
                 replica_complete: rcomplete.receipt().clone(),
             });
-            let parent = self
+            let parent = pair
                 .primary
+                .owned
+                .value
                 .source
                 .endpoint
                 .parent
@@ -247,12 +263,14 @@ impl PaidNormalFrozenPairV1 {
                 .ok_or_else(|| invalid("normal Ready original parent missing"))?;
             let quorum = verify_normal_qualified_bounded(
                 &proof,
-                &self.primary.source.endpoint.authority,
+                &pair.primary.owned.value.source.endpoint.authority,
                 parent,
                 &mut work.bounded_context(memory, stop),
             )?;
-            let original = self
+            let original = pair
                 .primary
+                .owned
+                .value
                 .source
                 .endpoint
                 .store
@@ -295,10 +313,14 @@ impl PaidNormalFrozenPairV1 {
         })();
         match prepared {
             Ok((quorum, original, outer)) => Ok(PaidNormalReadyPairV1 {
-                pair: self,
-                quorum,
-                original,
-                _outer: outer,
+                owned: PaidNormalBoxV1::new(
+                    NormalReadyStateV1 {
+                        pair: self,
+                        quorum,
+                        original,
+                    },
+                    outer,
+                ),
             }),
             Err(cause) => Err(NormalReadyPairFailureV1 {
                 pair: Some(self),
@@ -309,16 +331,16 @@ impl PaidNormalFrozenPairV1 {
 }
 impl PaidNormalReadyPairV1 {
     pub fn proof(&self) -> &FormalQualifiedCommitProofV1 {
-        self.quorum.proof()
+        self.owned.value.quorum.proof()
     }
     pub fn uses_budget(&self, memory: &MemoryBudget) -> bool {
-        self.pair.uses_budget(memory)
-            && self.quorum.uses_budget(memory)
-            && self.original.uses_budget(memory)
-            && self._outer.uses_budget(memory)
+        self.owned.value.pair.uses_budget(memory)
+            && self.owned.value.quorum.uses_budget(memory)
+            && self.owned.value.original.uses_budget(memory)
+            && self.owned.uses_budget(memory)
     }
     fn candidate(&self) -> Result<&FormalCandidateMaterialV1, FormalError> {
-        match self.original.state() {
+        match self.owned.value.original.state() {
             FormalRequestStateV1::Ready { candidate, .. } => Ok(candidate),
             _ => Err(invalid("normal Ready original owner")),
         }
@@ -389,7 +411,7 @@ impl PaidNormalAcceptedPairV1 {
 }
 pub struct NormalReadyPublicationFailureV1 {
     ready: Option<PaidNormalReadyPairV1>,
-    _primary: Option<PaidAcceptedGenesisHostSourceV1>,
+    _primary: Option<PaidNormalBoxV1<PaidAcceptedGenesisHostSourceV1>>,
     cause: BoundedAcquireErrorV1,
 }
 impl std::fmt::Debug for NormalReadyPublicationFailureV1 {
@@ -418,57 +440,57 @@ impl PaidNormalReadyPairV1 {
         stop: &mut dyn FnMut() -> bool,
     ) -> Result<PaidNormalAcceptedPairV1, NormalReadyPublicationFailureV1> {
         let published = (|| {
-            self.quorum
+            self.owned
+                .value
+                .quorum
                 .validate_context(&mut work.bounded_context(memory, stop))?;
             if !self.uses_budget(memory) {
                 return Err(invalid("normal Ready publication pool").into());
             }
             let output_fee = memory
-                .reserve(size_of::<PaidNormalAcceptedPairV1>(), MemoryClass::Ordinary)
+                .reserve(
+                    size_of::<PaidNormalAcceptedPairV1>()
+                        .max(PaidNormalBoxV1::<PaidAcceptedGenesisHostSourceV1>::layout()),
+                    MemoryClass::Ordinary,
+                )
                 .map_err(|_| invalid("normal accepted pair admission"))?;
-            let candidate = match self.original.state() {
+            let state = &mut *self.owned.value;
+            let candidate = match state.original.state() {
                 FormalRequestStateV1::Ready { candidate, .. } => candidate,
                 _ => return Err(invalid("normal Ready actual source").into()),
             };
-            self.pair
-                .primary
-                .source
+            let pair = &mut *state.pair.owned.value;
+            let primary = &mut pair.primary.owned.value.source;
+            primary
                 .endpoint
                 .publish_normal_qualified_with_lease_bounded(
                     candidate,
-                    self.quorum.proof(),
-                    &mut self.pair.primary.source.lease,
+                    state.quorum.proof(),
+                    &mut primary.lease,
                     primary_provider,
                     primary_policy,
                     memory,
                     work,
                     stop,
                 )?;
-            self.pair
-                .replica
-                .source
+            let replica = &mut pair.replica.owned.value.source;
+            replica
                 .endpoint
                 .publish_normal_qualified_with_lease_bounded(
                     candidate,
-                    self.quorum.proof(),
-                    &mut self.pair.replica.source.lease,
+                    state.quorum.proof(),
+                    &mut replica.lease,
                     replica_provider,
                     replica_policy,
                     memory,
                     work,
                     stop,
                 )?;
-            let primary = self
-                .pair
-                .primary
-                .source
+            let primary = primary
                 .lease
                 .take()
                 .ok_or_else(|| invalid("normal primary Finish lease missing"))?;
-            let replica = self
-                .pair
-                .replica
-                .source
+            let replica = replica
                 .lease
                 .take()
                 .ok_or_else(|| invalid("normal replica Finish lease missing"))?;
@@ -486,8 +508,8 @@ impl PaidNormalReadyPairV1 {
         };
         // Partial moves preserve every old source/graph reservation until both new
         // source gates complete. Neither endpoint reacquires a provider FD here.
-        let p = self.pair.primary.source;
-        let r = self.pair.replica.source;
+        let p = self.owned.value.pair.owned.value.primary.owned.value.source;
+        let r = self.owned.value.pair.owned.value.replica.owned.value.source;
         let primary = match (*p.endpoint).into_accepted_normal_host_source_with_lease_bounded(
             please,
             primary_provider,
@@ -517,7 +539,9 @@ impl PaidNormalReadyPairV1 {
             Err(cause) => {
                 return Err(NormalReadyPublicationFailureV1 {
                     ready: None,
-                    _primary: Some(primary),
+                    // Output storage was admitted before either publication.
+                    // Preserve this exact accepted source under that same fee.
+                    _primary: Some(PaidNormalBoxV1::new(primary, output_fee)),
                     cause,
                 });
             }
@@ -525,7 +549,7 @@ impl PaidNormalReadyPairV1 {
         Ok(PaidNormalAcceptedPairV1 {
             primary,
             replica,
-            quorum: self.quorum,
+            quorum: self.owned.value.quorum,
             _outer: output_fee,
         })
     }
@@ -546,14 +570,16 @@ fn recover_pair_leases(
         work,
         stop,
     } = primary;
-    for (source, provider, policy) in [
-        (&mut pair.primary.source, primary_provider, primary_policy),
-        (&mut pair.replica.source, replica_provider, replica_policy),
+    let pair = &mut *pair.owned.value;
+    for (owned, provider, policy) in [
+        (&mut pair.primary.owned, primary_provider, primary_policy),
+        (&mut pair.replica.owned, replica_provider, replica_policy),
     ] {
+        let source = &mut owned.value.source;
         work.consume_steps(1, stop)?;
         if source.identity != work.bounded_context(memory, stop).work().identity()
             || !source.endpoint_fee.uses_budget(memory)
-            || !source._outer.uses_budget(memory)
+            || !owned.fee.uses_budget(memory)
         {
             return Err(invalid("normal Ready recovery actual source/Core/pool").into());
         }
@@ -566,9 +592,11 @@ fn recover_pair_leases(
             EndpointRole::Replica => &endpoint.authority.definition().replica.instance,
         };
         endpoint.store.reconcile_pending_update_with_scope(
-            provider,
-            instance,
-            policy,
+            NativePublicationFencingRefsV1 {
+                provider,
+                instance,
+                policy,
+            },
             memory,
             work,
             stop,
@@ -659,7 +687,7 @@ impl NormalReadyPublicationFailureV1 {
             return Err(self);
         };
         if let Err(cause) = recover_pair_leases(
-            &mut ready.pair,
+            &mut ready.owned.value.pair,
             receipts::ReceiptContext {
                 provider: primary_provider,
                 policy: primary_policy,
@@ -689,7 +717,7 @@ impl NormalReadyPublicationFailureV1 {
 }
 
 fn stage_source(
-    source: &mut super::super::source::NormalFrozenTransactionV1,
+    owned: &mut PaidNormalBoxV1<NormalFrozenStateV1>,
     candidate: &FormalCandidateMaterialV1,
     certificate: &FormalFrozenCertificateV1,
     source_work: &mut Option<
@@ -699,10 +727,11 @@ fn stage_source(
     work: &FormalArchiveReadWorkV1,
     stop: &mut dyn FnMut() -> bool,
 ) -> Result<(), BoundedAcquireErrorV1> {
+    let source = &mut owned.value.source;
     work.consume_steps(1, stop)?;
     if source.identity != work.bounded_context(memory, stop).work().identity()
         || !source.endpoint_fee.uses_budget(memory)
-        || !source._outer.uses_budget(memory)
+        || !owned.fee.uses_budget(memory)
         || source.lease.is_none()
     {
         return Err(invalid("normal stage actual source/lease/Core/pool").into());
@@ -806,18 +835,18 @@ impl PaidNormalFrozenPairV1 {
             return Err(invalid("normal stage pair pool").into());
         }
         stage_source(
-            &mut self.primary.source,
+            &mut self.owned.value.primary.owned,
             candidate,
-            &self.certificate,
+            &self.owned.value.certificate,
             primary_work,
             memory,
             work,
             stop,
         )?;
         stage_source(
-            &mut self.replica.source,
+            &mut self.owned.value.replica.owned,
             candidate,
-            &self.certificate,
+            &self.owned.value.certificate,
             replica_work,
             memory,
             work,

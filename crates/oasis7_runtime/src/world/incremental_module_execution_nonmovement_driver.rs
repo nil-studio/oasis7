@@ -6,6 +6,7 @@ use super::normal_extension_driver;
 use super::*;
 use super::{ordinary_settlement::OrdinaryDriverErrorV1, selected_rule::SelectedRuleLaneErrorV1};
 use crate::world::{
+    incremental_action_data::main_token_transfer::{CompletedMainTokenTransferV1, MainTokenTransferWorkV1},
     incremental_action_body::{BodyActionWorkV1, CompletedBodyActionV1},
     incremental_action_data::data_access::{CompletedDataAccessV1, DataAccessWorkV1},
     incremental_action_data::transfer_resource::{
@@ -50,6 +51,7 @@ pub(in crate::world) enum NonmovementSelectedWorkV1<'a> {
         &'a ReservedValue<oasis7_world_state::incremental_world_native::StarterBindingIndexV1>,
         &'a ReservedValue<oasis7_world_state::incremental_world_collection_controls::WorldCollectionControlsQualificationV1>),
     TransferResource(&'a mut TransferResourceWorkV1),
+    MainTokenTransfer(&'a mut MainTokenTransferWorkV1, &'a ReservedValue<oasis7_world_state::incremental_owner_closure::WorldPrimitiveQualificationV1>, &'a oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1),
     DispatchBank(&'a mut EffectiveActionWorkBankV1<'a>),
 }
 pub(in crate::world) enum CompletedNonmovementActionV1 {
@@ -83,6 +85,7 @@ pub(in crate::world) enum CompletedNonmovementActionV1 {
     DataAccess(CompletedDataAccessV1),
     CollectData(CompletedCollectDataV1),
     TransferResource(CompletedTransferResourceV1),
+    MainTokenTransfer(CompletedMainTokenTransferV1),
 }
 
 impl<'a> NonmovementSelectedWorkV1<'a> {
@@ -107,6 +110,7 @@ impl<'a> NonmovementSelectedWorkV1<'a> {
             Self::CollectData(..) => EffectiveActionFamilyV1::CollectData,
             Self::AuthenticatedCollectData(..) => EffectiveActionFamilyV1::AuthenticatedCollectData,
             Self::TransferResource(..) => EffectiveActionFamilyV1::TransferResource,
+            Self::MainTokenTransfer(..) => EffectiveActionFamilyV1::MainTokenTransfer,
             Self::DispatchBank(..) => return None,
         })
     }

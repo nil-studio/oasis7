@@ -19,6 +19,7 @@ impl PreparedGenesisQualifiedUpdate {
             && self.history.uses_budget(memory)
             && self.record.uses_budget(memory)
     }
+    #[cfg(test)]
     pub(super) fn reserved_bytes(&self) -> usize {
         self.update.reserved_bytes()
             + self.inputs.reserved_bytes()

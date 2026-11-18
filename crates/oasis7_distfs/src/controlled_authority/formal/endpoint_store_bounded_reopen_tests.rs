@@ -1,5 +1,6 @@
 use super::super::super::tests::with_signed_request_states_fixture;
 use super::*;
+use crate::controlled_authority::formal::endpoint::store::bounded_transaction::NativePublicationFencingRefsV1;
 use crate::controlled_authority::formal::endpoint::{
     with_cold_transaction_fixture, with_finish_loss_transaction_fixture,
 };
@@ -29,10 +30,12 @@ fn all_store_owners_drop_then_cold_reopen_and_advance_frozen_to_real_prepared_en
                 path,
                 authority,
                 EndpointRole::Primary,
-                provider,
-                policy,
-                &memory,
-                &work,
+                FormalEndpointPublicationRefsV1 {
+                    provider,
+                    policy,
+                    memory: &memory,
+                    work: &work,
+                },
                 &mut || false,
             )
             .unwrap();
@@ -44,9 +47,11 @@ fn all_store_owners_drop_then_cold_reopen_and_advance_frozen_to_real_prepared_en
             store
                 .publish_pending_update_bounded(
                     update,
-                    provider,
-                    instance,
-                    policy,
+                    NativePublicationFencingRefsV1 {
+                        provider,
+                        instance,
+                        policy,
+                    },
                     &memory,
                     &work,
                     &mut || false,
@@ -83,10 +88,12 @@ fn all_store_owners_drop_then_cold_reopen_and_advance_frozen_to_real_prepared_en
             path,
             authority,
             EndpointRole::Primary,
-            provider,
-            policy,
-            &memory,
-            &work,
+            FormalEndpointPublicationRefsV1 {
+                provider,
+                policy,
+                memory: &memory,
+                work: &work,
+            },
             &mut || false,
         )
         .unwrap();
@@ -118,10 +125,12 @@ fn server_committed_finish_reply_loss_all_drop_cold_reconcile_then_prepared_cont
                 path,
                 authority,
                 EndpointRole::Primary,
-                direct,
-                policy,
-                &memory,
-                &work,
+                FormalEndpointPublicationRefsV1 {
+                    provider: direct,
+                    policy,
+                    memory: &memory,
+                    work: &work,
+                },
                 &mut || false,
             )
             .unwrap();
@@ -135,9 +144,11 @@ fn server_committed_finish_reply_loss_all_drop_cold_reconcile_then_prepared_cont
                 let error = store
                     .publish_pending_update_bounded(
                         update,
-                        via,
-                        instance,
-                        policy,
+                        NativePublicationFencingRefsV1 {
+                            provider: via,
+                            instance,
+                            policy,
+                        },
                         &memory,
                         &work,
                         &mut || false,
@@ -161,9 +172,11 @@ fn server_committed_finish_reply_loss_all_drop_cold_reconcile_then_prepared_cont
                 store
                     .publish_pending_update_bounded(
                         update,
-                        direct,
-                        instance,
-                        policy,
+                        NativePublicationFencingRefsV1 {
+                            provider: direct,
+                            instance,
+                            policy,
+                        },
                         &memory,
                         &work,
                         &mut || false,
@@ -195,10 +208,12 @@ fn cold_wrong_role_policy_missing_hot_cancel_and_zero_heap_fail_closed_release_l
                 path,
                 authority,
                 EndpointRole::Replica,
-                provider,
-                policy,
-                &memory,
-                &work,
+                FormalEndpointPublicationRefsV1 {
+                    provider,
+                    policy,
+                    memory: &memory,
+                    work: &work
+                },
                 &mut || false
             )
             .is_err()
@@ -211,10 +226,12 @@ fn cold_wrong_role_policy_missing_hot_cancel_and_zero_heap_fail_closed_release_l
                 path,
                 authority,
                 EndpointRole::Primary,
-                provider,
-                &wrong,
-                &memory,
-                &work,
+                FormalEndpointPublicationRefsV1 {
+                    provider,
+                    policy: &wrong,
+                    memory: &memory,
+                    work: &work
+                },
                 &mut || false
             )
             .is_err()
@@ -225,10 +242,12 @@ fn cold_wrong_role_policy_missing_hot_cancel_and_zero_heap_fail_closed_release_l
                 path,
                 authority,
                 EndpointRole::Primary,
-                provider,
-                policy,
-                &memory,
-                &work,
+                FormalEndpointPublicationRefsV1 {
+                    provider,
+                    policy,
+                    memory: &memory,
+                    work: &work
+                },
                 &mut || true
             )
             .is_err()
@@ -240,10 +259,12 @@ fn cold_wrong_role_policy_missing_hot_cancel_and_zero_heap_fail_closed_release_l
                 path,
                 authority,
                 EndpointRole::Primary,
-                provider,
-                policy,
-                &zero,
-                &work,
+                FormalEndpointPublicationRefsV1 {
+                    provider,
+                    policy,
+                    memory: &zero,
+                    work: &work
+                },
                 &mut || false
             )
             .is_err()
@@ -255,10 +276,12 @@ fn cold_wrong_role_policy_missing_hot_cancel_and_zero_heap_fail_closed_release_l
                 path,
                 authority,
                 EndpointRole::Primary,
-                provider,
-                policy,
-                &memory,
-                &work,
+                FormalEndpointPublicationRefsV1 {
+                    provider,
+                    policy,
+                    memory: &memory,
+                    work: &work
+                },
                 &mut || false
             )
             .is_err()
@@ -271,10 +294,12 @@ fn cold_wrong_role_policy_missing_hot_cancel_and_zero_heap_fail_closed_release_l
             path,
             authority,
             EndpointRole::Primary,
-            provider,
-            policy,
-            &memory,
-            &work,
+            FormalEndpointPublicationRefsV1 {
+                provider,
+                policy,
+                memory: &memory,
+                work: &work,
+            },
             &mut || false,
         )
         .unwrap();
@@ -283,10 +308,12 @@ fn cold_wrong_role_policy_missing_hot_cancel_and_zero_heap_fail_closed_release_l
                 path,
                 authority,
                 EndpointRole::Primary,
-                provider,
-                policy,
-                &memory,
-                &work,
+                FormalEndpointPublicationRefsV1 {
+                    provider,
+                    policy,
+                    memory: &memory,
+                    work: &work
+                },
                 &mut || false
             )
             .is_err()
@@ -318,10 +345,12 @@ fn genuine_frozen_c_prepared_t_restore_same_epoch_suffix_then_decided_changes_en
                 path,
                 authority,
                 EndpointRole::Primary,
-                provider,
-                policy,
-                &memory,
-                &work,
+                FormalEndpointPublicationRefsV1 {
+                    provider,
+                    policy,
+                    memory: &memory,
+                    work: &work,
+                },
                 &mut || false,
             )
             .unwrap();
@@ -346,9 +375,11 @@ fn genuine_frozen_c_prepared_t_restore_same_epoch_suffix_then_decided_changes_en
             store
                 .publish_pending_update_bounded(
                     update,
-                    provider,
-                    instance,
-                    policy,
+                    NativePublicationFencingRefsV1 {
+                        provider,
+                        instance,
+                        policy,
+                    },
                     &memory,
                     &work,
                     &mut || false,
@@ -419,10 +450,12 @@ fn correctly_signed_durable_marker_is_rejected_by_plain_verified_authority_befor
             path,
             authority,
             EndpointRole::Primary,
-            provider,
-            policy,
-            &memory,
-            &work,
+            FormalEndpointPublicationRefsV1 {
+                provider,
+                policy,
+                memory: &memory,
+                work: &work,
+            },
             &mut || false,
         )
         .err()

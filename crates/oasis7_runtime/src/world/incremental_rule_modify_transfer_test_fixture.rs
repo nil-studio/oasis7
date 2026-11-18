@@ -39,8 +39,14 @@ fn source_action() -> crate::Action {
     }
 }
 
-fn replacement(material: bool) -> crate::Action {
-    if material {
+#[path = "incremental_rule_modify_main_token_test_fixture.rs"]
+mod main_token;
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TransferKind { Material, Resource, MainToken }
+
+fn replacement(kind: TransferKind) -> crate::Action {
+    if kind == TransferKind::MainToken { return main_token::action(); }
+    if kind == TransferKind::Material {
         crate::Action::TransferMaterial {
             requester_agent_id: "sender".into(),
             from_ledger: MaterialLedgerId::agent("sender"),
@@ -65,8 +71,9 @@ fn replacement(material: bool) -> crate::Action {
     }
 }
 
-fn expected_business(material: bool) -> crate::WorldEventBody {
-    crate::WorldEventBody::Domain(if material {
+fn expected_business(kind: TransferKind) -> crate::WorldEventBody {
+    if kind == TransferKind::MainToken { return main_token::event(); }
+    crate::WorldEventBody::Domain(if kind == TransferKind::Material {
         crate::DomainEvent::MaterialTransferred {
             transfer_id: Some(1),
             requester_agent_id: "sender".into(),
@@ -88,7 +95,7 @@ fn expected_business(material: bool) -> crate::WorldEventBody {
     })
 }
 
-fn transfer_world(material: bool) -> World {
+fn transfer_world(kind: TransferKind) -> World {
     let mut world = initialized_world();
     world.state.resources.insert(ResourceKind::Electricity, 100);
     world.state.resources.insert(ResourceKind::Data, 100);
@@ -106,6 +113,7 @@ fn transfer_world(material: bool) -> World {
         MaterialLedgerId::agent("sender"),
         [("water".into(), 8)].into(),
     );
+    if kind == TransferKind::MainToken { main_token::seed(&mut world); }
     let output = ModuleOutput {
         new_state: None,
         effects: vec![],
@@ -114,7 +122,7 @@ fn transfer_world(material: bool) -> World {
             payload: serde_json::to_value(crate::RuleDecision {
                 action_id: 1,
                 verdict: crate::RuleVerdict::Modify,
-                override_action: Some(replacement(material)),
+                override_action: Some(replacement(kind)),
                 cost: crate::ResourceDelta {
                     entries: [(ResourceKind::Electricity, -3)].into(),
                 },
@@ -157,7 +165,7 @@ fn transfer_world(material: bool) -> World {
     world.submit_action(source_action());
     assert_eq!(world.pending_actions.front().unwrap().id, 1);
     assert!(World::should_emit_action_accepted(&source_action()));
-    assert!(!World::should_emit_action_accepted(&replacement(material)));
+    assert!(!World::should_emit_action_accepted(&replacement(kind)));
     world
 }
 
@@ -230,9 +238,15 @@ fn current_resource<'a>(
 }
 
 pub(super) fn run(material: bool) {
+    run_kind(if material { TransferKind::Material } else { TransferKind::Resource });
+}
+pub(super) fn run_main_token() { run_kind(TransferKind::MainToken); }
+fn run_kind(kind: TransferKind) {
+    let material = kind == TransferKind::Material;
+    let resource = kind == TransferKind::Resource;
     let memory = MemoryBudget::new(512 << 20, 32 << 20).unwrap();
     let workspace = memory.reserve(32 << 20, MemoryClass::Ordinary).unwrap();
-    let world = transfer_world(material);
+    let world = transfer_world(kind);
 
     assert!(world.journal.events.is_empty());
     let expected_manifest_hash = crate::util::hash_json(&world.manifest).unwrap();
@@ -499,6 +513,11 @@ pub(super) fn run(material: bool) {
         pending_entries_remaining: 100_000,
         max_scalar_bytes: 1024,
     };
+    let common = oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1::new(100_000, 64 << 20).unwrap();
+    let mut token_work = crate::world::incremental_action_data::main_token_transfer::MainTokenTransferWorkV1 {
+        steps_remaining: 10_000, bytes_remaining: 16 << 20, pending_entries_remaining: 100_000,
+        max_identity_bytes: 1024, core: common.identity(),
+    };
     let mut accepted_entries = 100_000usize;
     let mut backing = MaterialFixtureV1::build(
         &fixture.roots,
@@ -597,7 +616,7 @@ pub(super) fn run(material: bool) {
         assert_eq!(outcome.decision.verdict, crate::RuleVerdict::Modify);
         assert_eq!(
             outcome.decision.override_action.as_ref(),
-            Some(&replacement(material)),
+            Some(&replacement(kind)),
         );
         assert_eq!(
             outcome.decision.cost,
@@ -630,8 +649,21 @@ pub(super) fn run(material: bool) {
                     event.validate(target.ctx.transaction).unwrap();
                     assert_eq!(event.event().time, 11);
                     assert_eq!(event.event().caused_by, Some(crate::CausedBy::Action(1)));
-                    assert_eq!(event.event().body, expected_business(material));
+                    assert_eq!(event.event().body, expected_business(kind));
                 })
+        } else if kind == TransferKind::MainToken {
+            target.execute_main_token_transfer_after_rules_v1(
+                &selected, &admission, &outcome, &mut materials, &mut read, &mut parent_read,
+                &mut token_work, fixture.current.native().primitive(), &common,
+                Some(&mut accepted_entries), &mut override_work, &directory,
+                &mut directory_work(), &mut tail, &mut live_owner,
+            ).map(|completed| {
+                let event = PersistedWorldEventV1::from_main_token_transfer(&completed);
+                event.validate(target.ctx.transaction).unwrap();
+                assert_eq!(event.event().time, 11);
+                assert_eq!(event.event().caused_by, Some(crate::CausedBy::Action(1)));
+                assert_eq!(event.event().body, expected_business(kind));
+            })
         } else {
             target
                 .execute_transfer_resource_after_rules_v1(
@@ -654,7 +686,7 @@ pub(super) fn run(material: bool) {
                     event.validate(target.ctx.transaction).unwrap();
                     assert_eq!(event.event().time, 11);
                     assert_eq!(event.event().caused_by, Some(crate::CausedBy::Action(1)));
-                    assert_eq!(event.event().body, expected_business(material));
+                    assert_eq!(event.event().body, expected_business(kind));
                 })
         }
     };
@@ -680,6 +712,7 @@ pub(super) fn run(material: bool) {
                 crate::WorldEventBody::Domain(
                     crate::DomainEvent::MaterialTransferred { .. }
                         | crate::DomainEvent::ResourceTransferred { .. }
+                        | crate::DomainEvent::MainTokenTransferred { .. }
                 )
             )
         })
@@ -716,6 +749,11 @@ pub(super) fn run(material: bool) {
         assert!(material_work.steps_remaining < 10_000);
         assert!(material_work.inventory.steps_remaining < 10_000);
         assert_eq!(material_work.inventory.pending_entries_remaining, 100_000);
+    } else if kind == TransferKind::MainToken {
+        assert!(token_work.steps_remaining < 10_000);
+        assert!(common.remaining_steps() < 100_000);
+        assert_eq!(token_work.pending_entries_remaining, 100_000);
+        main_token::assert_current(&reader, &mut transaction, &memory);
     } else {
         assert!(resource_work.steps_remaining < 10_000);
         assert_eq!(resource_work.pending_entries_remaining, 100_000);
@@ -727,7 +765,7 @@ pub(super) fn run(material: bool) {
     let expected_override = crate::WorldEventBody::ActionOverridden(crate::ActionOverrideRecord {
         action_id: 1,
         original_action: source_action(),
-        override_action: replacement(material),
+        override_action: replacement(kind),
     });
     let override_positions: Vec<_> = originals
         .iter()
@@ -753,7 +791,7 @@ pub(super) fn run(material: bool) {
     let transfer_positions: Vec<_> = originals
         .iter()
         .enumerate()
-        .filter_map(|(i, event)| (event.body == expected_business(material)).then_some(i))
+        .filter_map(|(i, event)| (event.body == expected_business(kind)).then_some(i))
         .collect();
     assert_eq!(override_positions.len(), 1);
     assert_eq!(accepted_positions.len(), 1);
@@ -793,7 +831,7 @@ pub(super) fn run(material: bool) {
     assert_eq!(decisions[0].verdict, crate::RuleVerdict::Modify);
     assert_eq!(
         decisions[0].override_action.as_ref(),
-        Some(&replacement(material))
+        Some(&replacement(kind))
     );
     assert_eq!(
         decisions[0].cost,
@@ -881,7 +919,7 @@ pub(super) fn run(material: bool) {
             "sender",
             0
         ),
-        Some(if material { 8 } else { 5 }),
+        Some(if resource { 5 } else { 8 }),
     );
     assert_eq!(
         current_resource(
@@ -893,7 +931,7 @@ pub(super) fn run(material: bool) {
             "receiver",
             0
         ),
-        if material { None } else { Some(3) },
+        if resource { Some(3) } else { None },
     );
     assert_eq!(
         current_resource(
@@ -925,12 +963,8 @@ pub(super) fn run(material: bool) {
         ("sender", 11, vec![accepted_original, transfer_original]),
         (
             "receiver",
-            if material { 0 } else { 11 },
-            if material {
-                vec![]
-            } else {
-                vec![transfer_original]
-            },
+            if resource { 11 } else { 0 },
+            if resource { vec![transfer_original] } else { vec![] },
         ),
     ] {
         let key = AgentBodyKeyV1::new(agent).unwrap();

@@ -2,6 +2,7 @@
 //! Retention is data durability, never publication or execution authority.
 use super::*;
 use crate::controlled_authority::formal::endpoint::FormalArchiveReadWorkV1;
+#[cfg(test)]
 use crate::controlled_authority::formal::endpoint::store::StagedIndexBlobV1;
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use std::io::{Read, Write};
@@ -93,12 +94,14 @@ fn head_workspace(n: usize) -> Result<usize, FormalError> {
     )
 }
 impl RetainedAppend {
+    #[cfg(test)]
     pub(in crate::controlled_authority::formal) fn uses_budget(
         &self,
         memory: &MemoryBudget,
     ) -> bool {
         self._phase.uses_budget(memory)
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority::formal) fn reserved_bytes(&self) -> usize {
         self._phase.reserved_bytes()
     }
@@ -337,6 +340,7 @@ impl RetainIo for BoundedRetainIo<'_> {
         self.sync_dir(&directory)
     }
 }
+#[cfg(test)]
 pub(in crate::controlled_authority::formal) fn append_one_bounded_v1(
     staged: &StagedIndexBlobV1,
     memory: &MemoryBudget,

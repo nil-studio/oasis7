@@ -1,6 +1,7 @@
 //! Same-parent-lease schema-4 Frozen persistence. No ordinary execution permit.
 use super::*;
 use crate::controlled_authority::formal::endpoint::store;
+use crate::controlled_authority::formal::endpoint::store::bounded_transaction::NativePublicationFencingRefsV1;
 use oasis7_formal_protocol::controlled_authority::formal::{
     CheckedIncrementalFrozenMaterialV1, IncrementalFrozenMaterialErrorV1,
     IncrementalFrozenMaterialWorkV1, VerifiedFormalReservationV1,
@@ -23,28 +24,32 @@ pub use pair::{
     PaidNormalReadyPairV1, join_normal_frozen_endpoints_bounded,
 };
 pub(in crate::controlled_authority) use receipt::PaidNormalFrozenReceiptSourceV1;
-use source::{NormalFrozenRecoveryV1, NormalFrozenTransactionV1};
+#[path = "endpoint_incremental_normal_paid_owner.rs"]
+mod paid_owner;
+use paid_owner::PaidNormalBoxV1;
+use source::NormalFrozenTransactionV1;
 use store::bounded_request::PaidRequestStateV1;
 
 /// A complete one-endpoint receipt still needs the other endpoint and durable
 /// certificate installation. Its fields cannot be constructed or detached.
 pub struct PaidNormalFrozenEndpointV1 {
+    owned: PaidNormalBoxV1<NormalFrozenStateV1>,
+}
+struct NormalFrozenStateV1 {
     source: NormalFrozenTransactionV1,
     original: PaidRequestStateV1,
     reservation: ReservedValue<VerifiedFormalReservationV1>,
-    receipt: ReservedValue<FormalFrozenReceiptV1>,
+    receipt: Option<ReservedValue<FormalFrozenReceiptV1>>,
 }
 pub struct NormalFrozenFailureV1 {
-    source: Option<NormalFrozenRecoveryV1>,
-    original: Option<PaidRequestStateV1>,
-    reservation: Option<ReservedValue<VerifiedFormalReservationV1>>,
+    owned: Option<PaidNormalBoxV1<NormalFrozenStateV1>>,
     cause: BoundedAcquireErrorV1,
 }
 impl std::fmt::Debug for NormalFrozenFailureV1 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NormalFrozenFailureV1")
             .field("cause", &self.cause)
-            .field("requires_recovery", &self.source.is_some())
+            .field("requires_recovery", &self.owned.is_some())
             .finish()
     }
 }
@@ -56,12 +61,7 @@ impl std::fmt::Display for NormalFrozenFailureV1 {
 impl std::error::Error for NormalFrozenFailureV1 {}
 impl From<BoundedAcquireErrorV1> for NormalFrozenFailureV1 {
     fn from(cause: BoundedAcquireErrorV1) -> Self {
-        Self {
-            source: None,
-            original: None,
-            reservation: None,
-            cause,
-        }
+        Self { owned: None, cause }
     }
 }
 impl From<FormalError> for NormalFrozenFailureV1 {
@@ -71,18 +71,26 @@ impl From<FormalError> for NormalFrozenFailureV1 {
 }
 impl PaidNormalFrozenEndpointV1 {
     pub fn receipt(&self) -> &FormalFrozenReceiptV1 {
-        &self.receipt
+        self.owned
+            .value
+            .receipt
+            .as_deref()
+            .expect("complete normal Frozen receipt")
     }
     pub fn reservation(&self) -> &VerifiedFormalReservationV1 {
-        &self.reservation
+        &self.owned.value.reservation
     }
     pub fn uses_budget(&self, memory: &MemoryBudget) -> bool {
-        self.original.uses_budget(memory)
-            && self.reservation.uses_budget(memory)
-            && self.receipt.uses_budget(memory)
-            && self.source.endpoint_fee.uses_budget(memory)
-            && self.source._outer.uses_budget(memory)
-            && self
+        let state = &self.owned.value;
+        state.original.uses_budget(memory)
+            && state.reservation.uses_budget(memory)
+            && state
+                .receipt
+                .as_ref()
+                .is_some_and(|receipt| receipt.uses_budget(memory))
+            && state.source.endpoint_fee.uses_budget(memory)
+            && self.owned.uses_budget(memory)
+            && state
                 .source
                 .lease
                 .as_ref()
@@ -234,13 +242,11 @@ impl PaidAcceptedGenesisHostSourceV1 {
         self,
         input: &SignedFormalFrozenV1,
         material: &ClosedRecord,
-        provider: &RemoteMonotonicEndpointProvider,
-        policy: &TrustedFencingPolicyV1,
-        memory: &MemoryBudget,
-        work: &FormalArchiveReadWorkV1,
+        publication: FormalEndpointPublicationRefsV1<'_>,
         material_work: &mut IncrementalFrozenMaterialWorkV1,
         stop: &mut impl FnMut() -> bool,
     ) -> Result<PaidNormalFrozenEndpointV1, NormalFrozenFailureV1> {
+        let FormalEndpointPublicationRefsV1 { memory, work, .. } = publication;
         let original = state::state(input, material, None, None, memory, work, stop)?;
         // Persistent exact matches are inspected before fresh-parent admission.
         let retained_receipt = exact_receipt(&self.endpoint, input, material, memory, work, stop)?;
@@ -265,85 +271,67 @@ impl PaidAcceptedGenesisHostSourceV1 {
         if parent.record().artifact_roots.get(&crate::controlled_authority::replicated_protocol::ArtifactRole::NativeExecutionEnvironment)
             != material.roots.get(&crate::controlled_authority::replicated_protocol::ArtifactRole::NativeExecutionEnvironment)
         { return Err(invalid("native frozen environment differs from committed parent").into()); }
-        let source = self.consume_normal_frozen_source(memory, work, stop)?;
-        if let Some(receipt) = retained_receipt {
-            return Ok(PaidNormalFrozenEndpointV1 {
+        let (source, fee) = self.consume_normal_frozen_source(memory, work, stop)?;
+        let complete = retained_receipt.is_some();
+        let owned = PaidNormalBoxV1::new(
+            NormalFrozenStateV1 {
                 source,
                 original,
                 reservation,
-                receipt,
-            });
+                receipt: retained_receipt,
+            },
+            fee,
+        );
+        if complete {
+            return Ok(PaidNormalFrozenEndpointV1 { owned });
         }
-        finish_freeze(
-            source,
-            original,
-            reservation,
-            FrozenProviderPolicy { provider, policy },
-            memory,
-            work,
-            stop,
-        )
+        finish_freeze(owned, publication, stop)
     }
 }
 fn failure(
-    recovery: NormalFrozenRecoveryV1,
-    original: PaidRequestStateV1,
-    reservation: ReservedValue<VerifiedFormalReservationV1>,
+    mut owned: PaidNormalBoxV1<NormalFrozenStateV1>,
+    cause: BoundedAcquireErrorV1,
 ) -> NormalFrozenFailureV1 {
+    // The old consuming flow closed this FD and dropped the transient receipt.
+    // Keep the exact source, request, reservation and their existing phase fee.
+    drop(owned.value.source.lease.take());
+    drop(owned.value.receipt.take());
     NormalFrozenFailureV1 {
-        cause: recovery.cause,
-        source: Some(NormalFrozenRecoveryV1 {
-            source: recovery.source,
-            cause: FormalError::Conflict(
-                "normal Frozen outcome requires disk reconciliation".into(),
-            )
-            .into(),
-        }),
-        original: Some(original),
-        reservation: Some(reservation),
+        owned: Some(owned),
+        cause,
     }
 }
-/// Borrowed publication inputs, unpacked before the existing Frozen flow.
-struct FrozenProviderPolicy<'provider, 'policy> {
-    provider: &'provider RemoteMonotonicEndpointProvider,
-    policy: &'policy TrustedFencingPolicyV1,
-}
-
 fn finish_freeze(
-    mut source: NormalFrozenTransactionV1,
-    original: PaidRequestStateV1,
-    reservation: ReservedValue<VerifiedFormalReservationV1>,
-    publication: FrozenProviderPolicy<'_, '_>,
-    memory: &MemoryBudget,
-    work: &FormalArchiveReadWorkV1,
+    mut owned: PaidNormalBoxV1<NormalFrozenStateV1>,
+    publication: FormalEndpointPublicationRefsV1<'_>,
     stop: &mut dyn FnMut() -> bool,
 ) -> Result<PaidNormalFrozenEndpointV1, NormalFrozenFailureV1> {
-    let FrozenProviderPolicy { provider, policy } = publication;
-    let update = match source
+    let FormalEndpointPublicationRefsV1 {
+        provider,
+        memory,
+        work,
+        ..
+    } = publication;
+    let update = match owned
+        .value
+        .source
         .endpoint
         .store
-        .prepare_request_update_bounded(&original, memory, work, stop)
+        .prepare_request_update_bounded(&owned.value.original, memory, work, stop)
     {
         Ok(value) => value,
-        Err(cause) => {
-            // Preparation already owns the parent, request and reservation.
-            // Close this FD, but keep those exact owners for reconciliation.
-            drop(source.lease.take());
-            return Err(failure(
-                NormalFrozenRecoveryV1 {
-                    source,
-                    cause: cause.into(),
-                },
-                original,
-                reservation,
-            ));
-        }
+        Err(cause) => return Err(failure(owned, cause.into())),
     };
-    let mut source = match source.publish(update, provider, policy, memory, work, stop) {
-        Ok(source) => source,
-        Err(recovery) => return Err(failure(recovery, original, reservation)),
-    };
+    if let Err(cause) = owned
+        .value
+        .source
+        .publish(update, publication, &owned.fee, stop)
+    {
+        return Err(failure(owned, cause));
+    }
     let signed = (|| {
+        let state = &mut *owned.value;
+        let source = &mut state.source;
         let lease = source
             .lease
             .as_ref()
@@ -351,8 +339,8 @@ fn finish_freeze(
         let receipt_source = receipt::source(
             &source.endpoint,
             lease,
-            &reservation,
-            &original,
+            &state.reservation,
+            &state.original,
             memory,
             work,
             stop,
@@ -376,59 +364,33 @@ fn finish_freeze(
     })();
     let (receipt, lease) = match signed {
         Ok(value) => value,
-        Err(cause) => {
-            drop(source.lease.take());
-            return Err(failure(
-                NormalFrozenRecoveryV1 { source, cause },
-                original,
-                reservation,
-            ));
-        }
+        Err(cause) => return Err(failure(owned, cause)),
     };
-    source.lease = Some(lease);
-    let (input, material) = state::input(&original)?;
+    owned.value.source.lease = Some(lease);
+    let (input, material) = state::input(&owned.value.original)?;
     let complete = match state::state(input, material, Some(&receipt), None, memory, work, stop) {
         Ok(value) => value,
-        Err(cause) => {
-            drop(source.lease.take());
-            return Err(failure(
-                NormalFrozenRecoveryV1 {
-                    source,
-                    cause: cause.into(),
-                },
-                original,
-                reservation,
-            ));
-        }
+        Err(cause) => return Err(failure(owned, cause.into())),
     };
-    let update = match source
+    let update = match owned
+        .value
+        .source
         .endpoint
         .store
         .prepare_request_update_bounded(&complete, memory, work, stop)
     {
         Ok(value) => value,
-        Err(cause) => {
-            drop(source.lease.take());
-            return Err(failure(
-                NormalFrozenRecoveryV1 {
-                    source,
-                    cause: cause.into(),
-                },
-                original,
-                reservation,
-            ));
-        }
+        Err(cause) => return Err(failure(owned, cause.into())),
     };
-    let source = match source.publish(update, provider, policy, memory, work, stop) {
-        Ok(source) => source,
-        Err(recovery) => return Err(failure(recovery, original, reservation)),
-    };
-    Ok(PaidNormalFrozenEndpointV1 {
-        source,
-        original,
-        reservation,
-        receipt,
-    })
+    if let Err(cause) = owned
+        .value
+        .source
+        .publish(update, publication, &owned.fee, stop)
+    {
+        return Err(failure(owned, cause));
+    }
+    owned.value.receipt = Some(receipt);
+    Ok(PaidNormalFrozenEndpointV1 { owned })
 }
 
 impl NormalFrozenFailureV1 {
@@ -442,28 +404,17 @@ impl NormalFrozenFailureV1 {
         work: &FormalArchiveReadWorkV1,
         stop: &mut impl FnMut() -> bool,
     ) -> Result<PaidNormalFrozenEndpointV1, Self> {
-        let Self {
-            source,
-            original,
-            reservation,
-            cause,
-        } = self;
-        let (Some(mut recovery), Some(original), Some(reservation)) =
-            (source, original, reservation)
-        else {
-            return Err(Self {
-                source: None,
-                original: None,
-                reservation: None,
-                cause,
-            });
+        let Self { owned, cause } = self;
+        let Some(mut owned) = owned else {
+            return Err(Self { owned: None, cause });
         };
         let result = (|| {
-            let source = &mut recovery.source;
+            let state = &mut *owned.value;
+            let source = &mut state.source;
             work.consume_steps(1, stop)?;
             if source.identity != work.bounded_context(memory, stop).work().identity()
                 || !source.endpoint_fee.uses_budget(memory)
-                || !source._outer.uses_budget(memory)
+                || !owned.fee.uses_budget(memory)
             {
                 return Err(invalid("normal Frozen recovery pool/Core").into());
             }
@@ -474,9 +425,11 @@ impl NormalFrozenFailureV1 {
                 EndpointRole::Replica => &endpoint.authority.definition().replica.instance,
             };
             endpoint.store.reconcile_pending_update_with_scope(
-                provider,
-                instance,
-                policy,
+                NativePublicationFencingRefsV1 {
+                    provider,
+                    instance,
+                    policy,
+                },
                 memory,
                 work,
                 stop,
@@ -493,7 +446,7 @@ impl NormalFrozenFailureV1 {
                 )?
             };
             source.lease = Some(lease);
-            let (input, material) = state::input(&original)?;
+            let (input, material) = state::input(&state.original)?;
             // Exact persistent receipt first, including a certificate installed
             // just before the transport failed. No parent advancement veto here.
             let receipt = exact_receipt(endpoint, input, material, memory, work, stop)?;
@@ -503,32 +456,21 @@ impl NormalFrozenFailureV1 {
             Ok::<_, BoundedAcquireErrorV1>(receipt)
         })();
         match result {
-            Ok(Some(receipt)) => Ok(PaidNormalFrozenEndpointV1 {
-                source: recovery.source,
-                original,
-                reservation,
-                receipt,
-            }),
+            Ok(Some(receipt)) => {
+                owned.value.receipt = Some(receipt);
+                Ok(PaidNormalFrozenEndpointV1 { owned })
+            }
             Ok(None) => finish_freeze(
-                recovery.source,
-                original,
-                reservation,
-                FrozenProviderPolicy { provider, policy },
-                memory,
-                work,
+                owned,
+                FormalEndpointPublicationRefsV1 {
+                    provider,
+                    policy,
+                    memory,
+                    work,
+                },
                 stop,
             ),
-            Err(cause) => {
-                drop(recovery.source.lease.take());
-                Err(failure(
-                    NormalFrozenRecoveryV1 {
-                        source: recovery.source,
-                        cause,
-                    },
-                    original,
-                    reservation,
-                ))
-            }
+            Err(cause) => Err(failure(owned, cause)),
         }
     }
 }

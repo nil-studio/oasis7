@@ -2,6 +2,7 @@
 //! An error retains recovery ownership, never returns an apparently live GEN.
 use super::super::store::PreparedPendingRequestUpdate;
 use super::*;
+use crate::controlled_authority::formal::endpoint::store::bounded_transaction::NativePublicationFencingRefsV1;
 
 pub(super) struct NormalFrozenTransactionV1 {
     pub(super) endpoint: Box<FileFormalEndpoint>,
@@ -14,11 +15,6 @@ pub(super) struct NormalFrozenTransactionV1 {
     pub(super) _environment: [u8; 32],
     pub(super) page_namespace: (u64, u64),
     pub(super) native_namespace: (u64, u64),
-    pub(super) _outer: ReservedValue<()>,
-}
-pub(super) struct NormalFrozenRecoveryV1 {
-    pub(super) source: NormalFrozenTransactionV1,
-    pub(super) cause: BoundedAcquireErrorV1,
 }
 impl PaidAcceptedGenesisHostSourceV1 {
     pub(super) fn consume_normal_frozen_source(
@@ -26,14 +22,22 @@ impl PaidAcceptedGenesisHostSourceV1 {
         memory: &MemoryBudget,
         work: &FormalArchiveReadWorkV1,
         stop: &mut impl FnMut() -> bool,
-    ) -> Result<NormalFrozenTransactionV1, BoundedAcquireErrorV1> {
+    ) -> Result<
+        (
+            NormalFrozenTransactionV1,
+            oasis7_proto::memory_budget::MemoryReservation,
+        ),
+        BoundedAcquireErrorV1,
+    > {
         {
             let mut ctx = work.bounded_context(memory, stop);
             self.validate_context(&mut ctx)?;
         }
+        // The same pre-mutation phase now covers the complete fixed holder,
+        // including its box and fee header; all dynamic children keep their fees.
         let fee = memory
             .reserve(
-                size_of::<NormalFrozenTransactionV1>(),
+                PaidNormalBoxV1::<NormalFrozenStateV1>::layout(),
                 MemoryClass::Ordinary,
             )
             .map_err(|_| invalid("normal Frozen source admission"))?;
@@ -51,34 +55,40 @@ impl PaidAcceptedGenesisHostSourceV1 {
             predecessor: _,
             predecessor_fence: _,
         } = self;
-        Ok(NormalFrozenTransactionV1 {
-            endpoint,
-            endpoint_fee,
-            lease: Some(lease),
-            identity,
-            fence,
-            record,
-            _environment: environment,
-            page_namespace,
-            native_namespace,
-            _outer: fee.retain(()),
-        })
+        Ok((
+            NormalFrozenTransactionV1 {
+                endpoint,
+                endpoint_fee,
+                lease: Some(lease),
+                identity,
+                fence,
+                record,
+                _environment: environment,
+                page_namespace,
+                native_namespace,
+            },
+            fee,
+        ))
     }
 }
 impl NormalFrozenTransactionV1 {
     pub(super) fn publish(
-        mut self,
+        &mut self,
         update: PreparedPendingRequestUpdate,
-        provider: &RemoteMonotonicEndpointProvider,
-        policy: &TrustedFencingPolicyV1,
-        memory: &MemoryBudget,
-        work: &FormalArchiveReadWorkV1,
+        publication: FormalEndpointPublicationRefsV1<'_>,
+        source_fee: &oasis7_proto::memory_budget::MemoryReservation,
         stop: &mut dyn FnMut() -> bool,
-    ) -> Result<Self, NormalFrozenRecoveryV1> {
+    ) -> Result<(), BoundedAcquireErrorV1> {
+        let FormalEndpointPublicationRefsV1 {
+            provider,
+            policy,
+            memory,
+            work,
+        } = publication;
         let result = (|| {
             work.consume_steps(1, stop)?;
             if !self.endpoint_fee.uses_budget(memory)
-                || !self._outer.uses_budget(memory)
+                || !source_fee.uses_budget(memory)
                 || self.identity != work.bounded_context(memory, stop).work().identity()
             {
                 return Err(invalid("normal Frozen source pool/Core").into());
@@ -93,21 +103,27 @@ impl NormalFrozenTransactionV1 {
                 EndpointRole::Replica => &endpoint.authority.definition().replica.instance,
             };
             let lease = endpoint.store.publish_pending_update_with_lease_bounded(
-                update, lease, provider, instance, policy, memory, work, stop,
+                update,
+                lease,
+                NativePublicationFencingRefsV1 {
+                    provider,
+                    instance,
+                    policy,
+                },
+                memory,
+                work,
+                stop,
             )?;
             self.lease = Some(lease);
             Ok(())
         })();
         match result {
-            Ok(()) => Ok(self),
+            Ok(()) => Ok(()),
             Err(cause) => {
                 // Pre-admission errors must close an FD too. Unknown post-Begin
                 // outcomes can only continue through actual disk reconciliation.
                 drop(self.lease.take());
-                Err(NormalFrozenRecoveryV1 {
-                    source: self,
-                    cause,
-                })
+                Err(cause)
             }
         }
     }

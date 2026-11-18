@@ -1,6 +1,9 @@
 //! Actual signed-head Store rows for authenticated cold reconstruction.
-use super::super::{FormalArchiveReadOwnerV1, FormalArchiveReadWorkV1};
+use super::super::{
+    FormalArchiveReadOwnerV1, FormalArchiveReadWorkV1, FormalEndpointPublicationRefsV1,
+};
 use super::*;
+use crate::controlled_authority::formal::endpoint::store::bounded_transaction::NativePublicationFencingRefsV1;
 use oasis7_proto::memory_budget::MemoryBudget;
 
 pub(in crate::controlled_authority::formal::endpoint) struct PaidColdStoreHeadV1 {
@@ -30,24 +33,21 @@ impl PaidColdStoreHeadV1 {
                 .is_none_or(|p| p.uses_budget(memory))
             && self.parent.as_ref().is_none_or(|p| p.uses_budget(memory))
     }
-    pub(in crate::controlled_authority::formal::endpoint) fn reserved_bytes(&self) -> usize {
-        self.node.reserved_bytes()
-            + self.request.reserved_bytes()
-            + self.parent_node.as_ref().map_or(0, |p| p.reserved_bytes())
-            + self.parent.as_ref().map_or(0, |p| p.reserved_bytes())
-    }
 }
 impl Store {
     pub(in crate::controlled_authority::formal::endpoint) fn reconcile_authenticated_cold_scope_bounded_v1(
         &mut self,
         authority: &VerifiedAuthorityV1,
         role: crate::controlled_authority::replicated_protocol::EndpointRole,
-        provider: &crate::controlled_authority::fencing::RemoteMonotonicEndpointProvider,
-        pinned: &fencing::TrustedFencingPolicyV1,
-        memory: &MemoryBudget,
-        work: &FormalArchiveReadWorkV1,
+        publication: FormalEndpointPublicationRefsV1<'_>,
         stop: &mut dyn FnMut() -> bool,
     ) -> Result<(), crate::controlled_authority::fencing::BoundedAcquireErrorV1> {
+        let FormalEndpointPublicationRefsV1 {
+            provider,
+            policy: pinned,
+            memory,
+            work,
+        } = publication;
         let instance = match role {
             crate::controlled_authority::replicated_protocol::EndpointRole::Primary => {
                 &authority.definition().primary.instance
@@ -57,9 +57,11 @@ impl Store {
             }
         };
         self.reconcile_pending_update_with_scope(
-            provider,
-            instance,
-            pinned,
+            NativePublicationFencingRefsV1 {
+                provider,
+                instance,
+                policy: pinned,
+            },
             memory,
             work,
             stop,

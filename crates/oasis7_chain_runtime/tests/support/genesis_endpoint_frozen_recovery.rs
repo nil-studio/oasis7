@@ -10,6 +10,9 @@ use oasis7_distfs::controlled_authority::formal::endpoint::{
     PaidAcceptedGenesisHostSourceV1, PaidNormalFrozenEndpointV1, PaidNormalFrozenPairV1,
     join_normal_frozen_endpoints_bounded,
 };
+use oasis7_distfs::controlled_authority::formal::endpoint::{
+    FormalEndpointPairPublicationRefsV1, FormalEndpointPublicationRefsV1,
+};
 use oasis7_formal_protocol::controlled_authority::formal::{
     FormalFrozenBodyV1, FormalFrozenCertificateV1, FormalFrozenReceiptV1,
     IncrementalFrozenMaterialWorkV1, NativeHotBodyV1, SignedFormalFrozenV1,
@@ -203,10 +206,12 @@ fn recover_primary_prepare_failure(
         .freeze_normal_bounded(
             c.input,
             c.material,
-            c.primary_provider,
-            c.policy,
-            c.memory,
-            c.work,
+            FormalEndpointPublicationRefsV1 {
+                provider: c.primary_provider,
+                policy: c.policy,
+                memory: c.memory,
+                work: c.work,
+            },
             material_work,
             &mut || false,
         )
@@ -331,10 +336,12 @@ fn freeze_replica(
         .freeze_normal_bounded(
             c.input,
             c.material,
-            c.replica_provider,
-            c.policy,
-            c.memory,
-            c.work,
+            FormalEndpointPublicationRefsV1 {
+                provider: c.replica_provider,
+                policy: c.policy,
+                memory: c.memory,
+                work: c.work,
+            },
             material_work,
             &mut || false,
         )
@@ -421,12 +428,14 @@ fn begin_partial_join(
     let failure = join_normal_frozen_endpoints_bounded(
         primary,
         replica,
-        c.primary_provider,
-        c.replica_provider,
-        c.policy,
-        c.policy,
-        c.memory,
-        c.work,
+        FormalEndpointPairPublicationRefsV1 {
+            primary_provider: c.primary_provider,
+            replica_provider: c.replica_provider,
+            primary_policy: c.policy,
+            replica_policy: c.policy,
+            memory: c.memory,
+            work: c.work,
+        },
         &mut || false,
     )
     .err()
@@ -492,12 +501,14 @@ fn finish_partial_join(
     let mut cancel_polls = 0;
     let failure = failure
         .recover_bounded(
-            c.primary_provider,
-            c.replica_provider,
-            c.policy,
-            c.policy,
-            c.memory,
-            c.work,
+            FormalEndpointPairPublicationRefsV1 {
+                primary_provider: c.primary_provider,
+                replica_provider: c.replica_provider,
+                primary_policy: c.policy,
+                replica_policy: c.policy,
+                memory: c.memory,
+                work: c.work,
+            },
             &mut || {
                 cancel_polls += 1;
                 true
@@ -520,12 +531,14 @@ fn finish_partial_join(
     drop(replica_guard);
     let pair = failure
         .recover_bounded(
-            c.primary_provider,
-            c.replica_provider,
-            c.policy,
-            c.policy,
-            c.memory,
-            c.work,
+            FormalEndpointPairPublicationRefsV1 {
+                primary_provider: c.primary_provider,
+                replica_provider: c.replica_provider,
+                primary_policy: c.policy,
+                replica_policy: c.policy,
+                memory: c.memory,
+                work: c.work,
+            },
             &mut || false,
         )
         .unwrap();

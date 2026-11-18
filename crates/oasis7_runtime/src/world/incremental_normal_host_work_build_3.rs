@@ -103,6 +103,18 @@ impl FromLimits for CollectDataAuthorizationWorkV1 {
     }
 }
 
+impl FromLimits for MainTokenTransferWorkV1 {
+    fn from_limits(limits: &NormalHostLaneLimitsV1, core: &FormalBoundedWorkV1) -> Self {
+        Self {
+            steps_remaining: limits.steps_per_counter,
+            bytes_remaining: limits.bytes_per_counter,
+            pending_entries_remaining: limits.entries_per_counter,
+            max_identity_bytes: limits.max_text_bytes as u64,
+            core: core.identity(),
+        }
+    }
+}
+
 impl FromLimits for TransferResourceWorkV1 {
     fn from_limits(limits: &NormalHostLaneLimitsV1, _core: &FormalBoundedWorkV1) -> Self {
         Self {

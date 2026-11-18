@@ -422,6 +422,28 @@ where
                         .map_err(NonmovementSelectedErrorV1::Business)?,
                     )
                 }
+                NonmovementSelectedWorkV1::MainTokenTransfer(work, primitive, common) => {
+                    CompletedNonmovementActionV1::MainTokenTransfer(
+                        self.execute_main_token_transfer_after_rules_v1(
+                            selected,
+                            admission,
+                            &outcome,
+                            materials,
+                            read,
+                            parent_read,
+                            work,
+                            primitive,
+                            common,
+                            accepted_entries,
+                            audit_work,
+                            directory,
+                            enumeration,
+                            tail_work,
+                            live_owner,
+                        )
+                        .map_err(NonmovementSelectedErrorV1::Business)?,
+                    )
+                }
             };
             Ok((outcome, completed))
         })();

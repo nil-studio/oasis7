@@ -235,6 +235,7 @@ impl PaidNativeHotV1 {
     ) -> bool {
         self.hot.uses_budget(m) && self.wire.uses_budget(m) && self.path_fee.uses_budget(m)
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority::formal::endpoint) fn reserved_bytes(&self) -> usize {
         self.hot.reserved_bytes() + self.wire.reserved_bytes() + self.path_fee.reserved_bytes()
     }

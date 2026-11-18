@@ -24,6 +24,49 @@ use oasis7_proto::{
 };
 use oasis7_wasm_abi::CanonicalCborWorkV1;
 use std::{borrow::Borrow, collections::BTreeMap, mem::size_of, sync::Arc};
+
+impl<'a, 'c> CurrentProjectionReadFactsV1<'a, 'c> {
+    pub(super) fn with_agent_intents_data_v1(
+        mut self,
+        source: &'a OriginalProjectionRowsDataV1,
+    ) -> Result<Self, BodyMutationError> {
+        self.check()?;
+        source.validate(&mut self.common.borrow_mut())?;
+        self.agent_intents = Some(source);
+        Ok(self)
+    }
+    pub(super) fn with_agent_intent_data_v1<T>(
+        &self,
+        agent: &str,
+        visit: impl FnOnce(Option<&oasis7_world_state::AgentIntentV2>) -> Result<T, BodyMutationError>,
+    ) -> Result<T, BodyMutationError> {
+        self.check()?;
+        let rows = self
+            .agent_intents
+            .ok_or_else(|| invalid("actual projection Agent intent source missing"))?;
+        let key = self.key(agent)?;
+        let row = {
+            let mut common = self.common.borrow_mut();
+            rows.row_data_v1(&key, &mut common)?
+        };
+        let present = self.owner_agent_present_data(agent)?;
+        let result = match row {
+            None if present => return Err(invalid("actual Agent intent cohort row missing")),
+            Some(_) if !present => {
+                return Err(invalid("Agent intent cohort contains absent Agent"));
+            }
+            None => visit(None),
+            Some(row) => fact_decode::with_optional_agent_intent_data_v1(
+                self.raw(row)?,
+                &self.common,
+                |value| visit(value.as_ref()),
+            ),
+        }?;
+        self.check()?;
+        Ok(result)
+    }
+}
+
 enum ResultValue {
     Hot(PaidCborDataV1<CanonicalIntentResultV1>),
     Cold(retained::PaidDecodedRetainedServiceDataV1),

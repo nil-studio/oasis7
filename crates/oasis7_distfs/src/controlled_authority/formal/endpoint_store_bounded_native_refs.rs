@@ -15,12 +15,15 @@ impl std::fmt::Debug for PaidNativeCheckpointRefsV1<'_> {
     }
 }
 impl PaidNativeCheckpointRefsV1<'_> {
+    #[cfg(test)]
     pub(in crate::controlled_authority) fn draft(&self) -> &PaidNativeCheckpointDraftV1<'_> {
         &self.draft
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority) fn uses_budget(&self, memory: &MemoryBudget) -> bool {
         self.draft.uses_budget(memory) && self._outer.uses_budget(memory)
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority) fn reserved_bytes(&self) -> usize {
         self.draft.reserved_bytes() + self._outer.reserved_bytes()
     }

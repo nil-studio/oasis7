@@ -29,18 +29,22 @@ impl std::fmt::Debug for PaidNativeCheckpointBeginV1<'_> {
     }
 }
 impl PaidNativeCheckpointBeginV1<'_> {
+    #[cfg(test)]
     pub(in crate::controlled_authority) fn intent(&self) -> &CheckpointIntentV1 {
         match &self._rpc.body.command {
             MonotonicOracleCommandV1::Begin(value) => value,
             _ => unreachable!("private Begin request"),
         }
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority) fn pending(&self) -> &CheckpointIntentV1 {
         self.lease.pending().expect("verified Begin pending")
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority) fn checkpoint(&self) -> &EndpointCheckpointBindingV1 {
         self.lease.checkpoint()
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority) fn uses_budget(&self, memory: &MemoryBudget) -> bool {
         self.evidence.draft.uses_budget(memory)
             && self.evidence._rpc.uses_budget(memory)
@@ -52,6 +56,7 @@ impl PaidNativeCheckpointBeginV1<'_> {
             && self._rpc.uses_budget(memory)
             && self._outer.uses_budget(memory)
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority) fn reserved_bytes(&self) -> usize {
         self.evidence.draft.reserved_bytes()
             + self.evidence._rpc.reserved_bytes()
@@ -337,11 +342,5 @@ impl<'a> PaidNativeCheckpointBeginV1<'a> {
         run: impl FnOnce(PaidNativeCheckpointDraftV1<'a>, PaidRemoteLeaseV1) -> T,
     ) -> T {
         run(self.evidence.draft, self.lease)
-    }
-    pub(in crate::controlled_authority) fn consume_draft<T>(
-        self,
-        run: impl FnOnce(PaidNativeCheckpointDraftV1<'a>) -> T,
-    ) -> T {
-        run(self.evidence.draft)
     }
 }

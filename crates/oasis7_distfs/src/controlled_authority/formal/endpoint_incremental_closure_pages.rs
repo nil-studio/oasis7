@@ -412,7 +412,7 @@ impl<'a> StoreSessions<'a> {
 type AuthenticatedLocalClosureV1 = super::super::local_closure::AuthenticatedLocalClosureV1;
 enum StoreWitnessLease {
     Live(Arc<ReservedValue<StoreLease>>),
-    Cold(ReservedValue<AuthenticatedLocalClosureV1>),
+    Cold(Box<ReservedValue<AuthenticatedLocalClosureV1>>),
 }
 impl StoreWitnessLease {
     fn identity(&self) -> (u64, u64) {
@@ -476,7 +476,9 @@ pub(crate) fn restore_store_read_witness_v1(
     }
     let charge = memory
         .reserve(
-            std::mem::size_of::<StoreReadWitness>() + 128,
+            std::mem::size_of::<StoreReadWitness>()
+                + std::mem::size_of::<ReservedValue<AuthenticatedLocalClosureV1>>()
+                + 128,
             MemoryClass::Ordinary,
         )
         .map_err(|_| invalid("cold store witness admission"))?;
@@ -496,7 +498,8 @@ pub(crate) fn restore_store_read_witness_v1(
         record,
         body,
         roots,
-        pin: StoreWitnessLease::Cold(token),
+        // The witness reservation above includes this exact moved owner.
+        pin: StoreWitnessLease::Cold(Box::new(token)),
     }))
 }
 

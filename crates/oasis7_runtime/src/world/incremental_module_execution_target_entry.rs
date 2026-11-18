@@ -569,6 +569,9 @@ mod collect_data_driver;
 #[path = "incremental_module_execution_transfer_resource_driver.rs"]
 mod transfer_resource_driver;
 
+#[path = "incremental_module_execution_main_token_transfer_driver.rs"]
+mod main_token_transfer_driver;
+
 #[path = "incremental_module_execution_selected_rule.rs"]
 mod selected_rule;
 

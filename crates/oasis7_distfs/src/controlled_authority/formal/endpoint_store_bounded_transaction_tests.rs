@@ -1,5 +1,6 @@
 use super::super::super::tests::with_signed_request_states_fixture;
 use super::*;
+use crate::controlled_authority::formal::endpoint::store::bounded_transaction::NativePublicationFencingRefsV1;
 use crate::controlled_authority::formal::endpoint::with_bounded_transaction_fixture;
 fn memory() -> MemoryBudget {
     MemoryBudget::new(512 << 20, 0).unwrap()
@@ -43,9 +44,11 @@ fn real_pending_index_transaction_writes_hot_finishes_same_fd_and_promotes_paid_
             store
                 .publish_pending_update_bounded(
                     update,
-                    provider,
-                    instance,
-                    policy,
+                    NativePublicationFencingRefsV1 {
+                        provider,
+                        instance,
+                        policy,
+                    },
                     memory,
                     work,
                     &mut || false,
@@ -109,9 +112,11 @@ fn after_begin_and_after_disk_errors_close_fd_and_fresh_acquire_reconciles_actua
                 let error = store
                     .publish_pending_update_bounded(
                         update,
-                        provider,
-                        instance,
-                        policy,
+                        NativePublicationFencingRefsV1 {
+                            provider,
+                            instance,
+                            policy,
+                        },
                         memory,
                         work,
                         &mut || false,
@@ -181,9 +186,11 @@ fn cancellation_and_foreign_meter_consume_update_without_changing_hot_or_provide
                     store
                         .publish_pending_update_bounded(
                             update,
-                            provider,
-                            instance,
-                            policy,
+                            NativePublicationFencingRefsV1 {
+                                provider,
+                                instance,
+                                policy
+                            },
                             memory,
                             if mode == 1 { &other } else { work },
                             &mut || mode == 0
@@ -248,9 +255,11 @@ fn reject_changed_pending_policy(change: impl Fn(&mut TrustedFencingPolicyV1)) {
                 .publish_pending_update_with_lease_bounded(
                     update,
                     lease,
-                    provider,
-                    instance,
-                    &wrong,
+                    NativePublicationFencingRefsV1 {
+                        provider,
+                        instance,
+                        policy: &wrong,
+                    },
                     memory,
                     work,
                     &mut || false,
@@ -361,9 +370,11 @@ fn continued_pending_policy_keeps_the_original_lease_across_two_hot_publications
                     .publish_pending_update_with_lease_bounded(
                         update,
                         lease,
-                        provider,
-                        instance,
-                        policy,
+                        NativePublicationFencingRefsV1 {
+                            provider,
+                            instance,
+                            policy,
+                        },
                         memory,
                         work,
                         &mut || false,
@@ -444,9 +455,11 @@ fn continued_pending_policy_preserves_cancellation_and_foreign_core_precedence()
                     .publish_pending_update_with_lease_bounded(
                         update,
                         lease,
-                        provider,
-                        instance,
-                        &wrong,
+                        NativePublicationFencingRefsV1 {
+                            provider,
+                            instance,
+                            policy: &wrong,
+                        },
                         memory,
                         if foreign { &other } else { work },
                         &mut || {

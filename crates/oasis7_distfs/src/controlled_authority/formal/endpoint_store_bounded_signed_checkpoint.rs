@@ -49,12 +49,15 @@ impl std::fmt::Debug for PaidSignedNativeCheckpointV1<'_> {
     }
 }
 impl PaidSignedNativeCheckpointV1<'_> {
+    #[cfg(test)]
     pub(in crate::controlled_authority) fn bytes(&self) -> &[u8] {
         &self.wire
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority) fn binding(&self) -> &EndpointCheckpointBindingV1 {
         &self.binding
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority) fn source(&self) -> &PaidNativeCheckpointSignatureV1<'_> {
         &self.signed
     }
@@ -64,6 +67,7 @@ impl PaidSignedNativeCheckpointV1<'_> {
             && self.binding.uses_budget(memory)
             && self.outer.uses_budget(memory)
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority) fn reserved_bytes(&self) -> usize {
         self.signed.reserved_bytes()
             + self.wire.reserved_bytes()

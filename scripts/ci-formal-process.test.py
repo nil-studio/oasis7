@@ -701,6 +701,17 @@ class RiskTargetInventory(unittest.TestCase):
             with self.subTest(damage=damage), self.assertRaises(ValueError):
                 artifacts.validate_ordinary_selection(broken)
 
+        for case in target['cases']:
+            for damage in ('omitted', 'ignored'):
+                broken = copy.deepcopy(manifest)
+                binary = broken['binaries']['iws-rule-core']
+                if damage == 'omitted':
+                    binary['tests'].remove(case)
+                else:
+                    binary['ignored_tests'] = [case]
+                with self.subTest(case=case, damage=damage), self.assertRaises(ValueError):
+                    artifacts.validate_ordinary_selection(broken)
+
     def test_all_scope_cannot_silently_drop_risk_contracts(self):
         for expanded in (False, True):
             selected = self.selection() | {'test_policy_changed': expanded}
@@ -5799,6 +5810,28 @@ class RuntimeWorkerCompanionContracts(unittest.TestCase):
                 artifacts.pack(self.bundle, self.root / 'corrupt-rule-worker.tar.gz', suite='ordinary')
 
 
+
+    def test_main_token_lib_cases_require_worker_at_both_registered_module_paths(self):
+        source = (HERE.parent / 'crates/oasis7_runtime/src/world/'
+                  'incremental_action_main_token_transfer_tests.rs').read_text()
+        cases = re.findall(r'#\[test\]\s*fn (\w+)\(', source)
+        self.assertEqual(len(cases), 4)
+        manifest = self.manifest(include_companion=False)
+        binary = manifest['binaries']['runtime-module-tests']
+        with patch.object(artifacts.sys, 'platform', 'linux'):
+            for prefix in (
+                    'world::incremental_genesis::tests::module_execution::action_body::rules::main_token_transfer::',
+                    'world::incremental_genesis::execution_test_support::rules::main_token_transfer::'):
+                for case in cases:
+                    name = prefix + case
+                    binary.update(tests=[name], ignored_tests=[])
+                    with self.subTest(case=name):
+                        self.assertTrue(artifacts.runtime_worker_test_selected(manifest))
+                        self.assertFalse(artifacts.runtime_worker_test_selected(manifest, ['viewer']))
+                        binary['ignored_tests'] = [name]
+                        self.assertFalse(artifacts.runtime_worker_test_selected(manifest))
+                        self.assertFalse(artifacts.runtime_worker_case_selected([case]))
+                        self.assertFalse(artifacts.runtime_worker_case_selected(['other::' + case]))
 
     def test_exact_worker_consumers_require_active_runtime_library_inventory(self):
         prefix = 'world::incremental_genesis::tests::module_execution::'

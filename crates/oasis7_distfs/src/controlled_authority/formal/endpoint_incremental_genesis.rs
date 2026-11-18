@@ -1,14 +1,13 @@
 //! GEN-only typed admission and final installation. Ordinary guards remain closed.
 //! Complete staged bytes alone cannot construct an install permit: the SAME
 //! dual-quorum proof and actual durable local Ready/ProofComplete are required.
+use crate::controlled_authority::formal::endpoint::store::bounded_transaction::NativePublicationFencingRefsV1;
 #[path = "endpoint_incremental_genesis_stage.rs"]
 mod stage;
-use super::super::FormalArchiveReadWorkV1;
+use super::super::{FormalArchiveReadWorkV1, FormalEndpointPublicationRefsV1};
 use super::genesis_receipts::ProviderPolicyRefs;
 use super::*;
-use crate::controlled_authority::fencing::{
-    BoundedAcquireErrorV1, RemoteMonotonicEndpointProvider, TrustedFencingPolicyV1,
-};
+use crate::controlled_authority::fencing::BoundedAcquireErrorV1;
 use oasis7_formal_protocol::controlled_authority::formal::{
     PaidVerifiedGenesisCommitV1, verify_genesis_qualified_bounded,
 };
@@ -34,6 +33,7 @@ impl GenesisValidatedInputs {
     ) -> bool {
         self.quorum.uses_budget(memory) && self.qualified.uses_budget(memory)
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority::formal::endpoint) fn reserved_bytes(&self) -> usize {
         self.quorum.reserved_bytes() + self.qualified.reserved_bytes()
     }
@@ -191,12 +191,15 @@ impl FileFormalEndpoint {
         candidate: &FormalCandidateMaterialV1,
         proof: &FormalQualifiedCommitProofV1,
         context: &VerifiedCandidateContextV1,
-        provider: &RemoteMonotonicEndpointProvider,
-        policy: &TrustedFencingPolicyV1,
-        memory: &MemoryBudget,
-        work: &FormalArchiveReadWorkV1,
+        publication: FormalEndpointPublicationRefsV1<'_>,
         stop: &mut dyn FnMut() -> bool,
     ) -> Result<PaidGenesisAcceptanceV1, BoundedAcquireErrorV1> {
+        let FormalEndpointPublicationRefsV1 {
+            provider,
+            policy,
+            memory,
+            work,
+        } = publication;
         work.consume_steps(1, stop)?;
         // Durable exact retries precede fresh-head and staged-source admission.
         // They return the original public proof result without signing, native
@@ -270,9 +273,11 @@ impl FileFormalEndpoint {
             EndpointRole::Replica => &self.authority.definition().replica.instance,
         };
         self.store.reconcile_pending_update_with_scope(
-            provider,
-            instance,
-            policy,
+            NativePublicationFencingRefsV1 {
+                provider,
+                instance,
+                policy,
+            },
             memory,
             work,
             stop,

@@ -87,12 +87,14 @@ impl PaidLocalClosureRecordV1 {
     ) -> &LocalDataClosureRecordV1 {
         &self.value
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority::formal::endpoint) fn uses_budget(
         &self,
         memory: &MemoryBudget,
     ) -> bool {
         self.value.uses_budget(memory)
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority::formal::endpoint) fn reserved_bytes(&self) -> usize {
         self.value.reserved_bytes()
     }

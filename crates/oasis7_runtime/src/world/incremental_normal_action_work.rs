@@ -72,6 +72,7 @@ pub(in crate::world) struct NormalActionWorkSetV1 {
     pub authenticated_data: crate::world::incremental_action_data::CollectDataWorkV1,
     pub authenticated_work:
         crate::world::incremental_action_data::auth_current::CollectDataAuthorizationWorkV1,
+    pub main_token_transfer: crate::world::incremental_action_data::main_token_transfer::MainTokenTransferWorkV1,
     pub transfer_resource:
         crate::world::incremental_action_data::transfer_resource::TransferResourceWorkV1,
     pub factory_schedule:
@@ -84,6 +85,7 @@ pub(in crate::world) struct NormalActionWorkSetV1 {
     pub extension: crate::world::incremental_module_invocation::NormalCoreExtensionWorkV1,
 }
 pub(in crate::world) struct NormalActionSourcesV1<'p> {
+    pub primitive: &'p ReservedValue<oasis7_world_state::incremental_owner_closure::WorldPrimitiveQualificationV1>,
     pub module_lifecycle: &'p crate::world::incremental_normal_action_module_lifecycle::ModuleLifecycleSourcesV1<'p>,
     pub crisis_sources: &'p crate::world::incremental_action_crisis::CrisisSourcesV1<'p>,
     pub contract_sources: &'p crate::world::incremental_action_contract_accept::ContractAcceptSourcesV1<'p>,
@@ -138,6 +140,7 @@ impl NormalActionWorkSetV1 {
             &mut self.transfer_resource,
         )
         .with_normal_extension_view(extension)
+        .with_main_token_transfer(&mut self.main_token_transfer, sources.primitive, common)
         .with_factory_schedule(&mut self.factory_schedule, sources.factory_schedule)
         .with_contract_lifecycle(&mut self.contracts, sources.contracts)
         .with_alliance(&mut self.alliance, sources.alliance)

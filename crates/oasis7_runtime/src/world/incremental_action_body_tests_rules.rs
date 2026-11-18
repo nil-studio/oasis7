@@ -47,6 +47,7 @@ pub(in crate::world) fn outcome<'a>(
     .0
 }
 pub(in crate::world) enum NonmovementFixtureWorkV1<'p> {
+    MainTokenTransfer(&'p mut crate::world::incremental_action_data::main_token_transfer::MainTokenTransferWorkV1, &'p oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1),
     FactorySchedule{work:&'p mut crate::world::incremental_normal_action_factory_schedule::FactoryScheduleWorkV1,sources:&'p crate::world::incremental_normal_action_factory_schedule::FactoryScheduleSourcesV1<'p>,common:&'p oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1,result:&'p mut Option<crate::world::incremental_normal_action_factory_schedule::CompletedFactoryScheduleActionV1>},
     ContractLifecycle{work:&'p mut crate::world::incremental_normal_action_diplomacy::contracts::ContractWorkV1,sources:&'p crate::world::incremental_normal_action_diplomacy::contracts::ContractSourcesV1<'p,'p>,common:&'p oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedWorkV1,result:&'p mut Option<crate::world::incremental_normal_action_diplomacy::CompletedAllianceActionV1>},
     Alliance{
@@ -615,6 +616,9 @@ fn evaluate<'a>(
             NonmovementFixtureWorkV1::CollectData(work) => {
                 NonmovementSelectedWorkV1::CollectData(&mut **work)
             }
+            NonmovementFixtureWorkV1::MainTokenTransfer(work, common) => {
+                NonmovementSelectedWorkV1::MainTokenTransfer(&mut **work, fixture.current.native().primitive(), common)
+            }
             NonmovementFixtureWorkV1::TransferResource(work) => {
                 NonmovementSelectedWorkV1::TransferResource(&mut **work)
             }
@@ -796,7 +800,8 @@ fn evaluate<'a>(
             | CompletedNonmovementActionV1::DataAccess(_)
             | CompletedNonmovementActionV1::Body(_)
             | CompletedNonmovementActionV1::CollectData(_)
-            | CompletedNonmovementActionV1::TransferResource(_)) => (outcome, Some(completed)),
+            | CompletedNonmovementActionV1::TransferResource(_)
+            | CompletedNonmovementActionV1::MainTokenTransfer(_)) => (outcome, Some(completed)),
         }
     } else {
         (
@@ -953,3 +958,7 @@ pub(in crate::world) fn evaluate_with_alliance<'a>(
     assert!(result.1.is_none());
     result.0.expect("actual selected Rule outcome")
 }
+
+#[cfg(test)]
+#[path = "incremental_action_main_token_transfer_tests.rs"]
+mod main_token_transfer;

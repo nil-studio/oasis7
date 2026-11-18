@@ -878,6 +878,12 @@ The one-shot consumer is `bft-header node --config ABS --actions ABS`. Its separ
 
 For first use, run `bft-header node --config ABS --print-binding` without `--actions`. It initializes the original local origin and emits `oasis7.formal_bft_header_node_binding.v3` with a public binding and digest; no provider listener, acquisition or signing is needed. The provider must independently verify qualified H before trusted provisioning; the printed descriptor cannot grant authority. Then add explicit `provider_trust` and run the normal actions command. Repeating print mode must preserve the original digest. Normal submission without provider trust must fail before origin initialization.
 
+长期离线配置准备使用独立入口 `bft-header prepare-checkpoint-trust --config ABS --node-config ABS --policy-pin HEX32 --consumer-binding HEX32 --original-c0-pin HEX32`，对应 [checkpoint renewal 合同](doc/p2p/design.md#des-p2p-bft-checkpoint-renewal-v1)。新配置为 self-described canonical CBOR，字段为 `schema_version`、`formal_read_trust`、`target`、`consumer_binding_digest`、`initial_anchor`、`policy`、`policy_digest` 及合同四个 `initial_*_unix_ms`；只支持 `qualified_handoff_v2`，不接受 successor tag。旧 strict JSON trust loader 不变，没有格式猜测或 fallback。外层 2 MiB、嵌套 trust/policy 各 64 KiB（包括其独立 canonical 自描述 tag），typed 解码前扫描长度及 issuer 数量；完整重编码相等检查仍必需。
+
+三个外部 pin 必须取自绑定同一 world/H/policy 的原独立部署授权或受保护保留记录，不能从当前候选提取作为“独立”参数。C0 checkpoint pin 不等于 H checkpoint digest 或 initial activation digest。SDK 返回的 preparation 仅表示配置一致性；host 进一步复用原 Node preparation，恢复实际 H 闭包并对照原 binding/material/schedule。该命令和 `--print-binding` 一样可能初始化或恢复私有 Node ledger/namespace，即使后续 source 对照失败也不能声称零文件副作用。它不启动 provider、不提交更新、不签写或服务；输出固定 `current_ready=false`、`renewal_ready=false`。C0→H 完整 lineage、当前 status、可信 protected time 与安装恢复尚非本入口的验收结果。
+
+本切片检查：`env -u RUSTC_WRAPPER cargo test --locked -p oasis7_formal_protocol --lib checkpoint_trust -- --test-threads=1`、`env -u RUSTC_WRAPPER cargo test --locked -p oasis7_game_client --lib checkpoint_trust -- --test-threads=1`，并运行本节真实 shipping Node CLI 用例 `wire3_formal_read_shipping_node_cli_commits_private_input_via_native_provider`。后者在启动 provider 前消费完整新配置，核对外部 policy/binding/C0 错配、改 source 后重算摘要、过期上界、版本、旧入口拒新配置、实际 schedule 错配和修正后重读；不能用这些配置准备断言代签当前用途或 #5525 的完成。
+
 | Node config fields | Contract |
 | --- | --- |
 | `schema_version` | 1 |

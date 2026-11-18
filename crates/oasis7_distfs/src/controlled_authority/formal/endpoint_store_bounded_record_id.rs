@@ -48,6 +48,7 @@ impl PaidCanonicalRecordIdV1 {
     ) -> bool {
         self.value.uses_budget(memory)
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority::formal::endpoint) fn reserved_bytes(&self) -> usize {
         self.value.reserved_bytes()
     }
@@ -132,6 +133,7 @@ pub(in crate::controlled_authority::formal::endpoint) fn hash_canonical_record_b
         value: output_fee.retain(id),
     })
 }
+#[cfg(test)]
 pub(super) fn read_qualified_history_record_id_bounded_v1(
     store: &Store,
     history_id: &str,

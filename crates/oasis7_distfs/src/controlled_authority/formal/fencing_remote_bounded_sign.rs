@@ -135,12 +135,15 @@ impl PaidNativeCheckpointSignatureV1<'_> {
     pub(in crate::controlled_authority) fn draft(&self) -> &PaidNativeCheckpointDraftV1<'_> {
         &self.draft
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority) fn checkpoint(&self) -> &EndpointCheckpointBindingV1 {
         self.lease.checkpoint()
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority) fn native_checkpoint_bytes(&self) -> Option<&[u8]> {
         self.lease.native_checkpoint_bytes()
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority) fn request(&self) -> &ProtectedEndpointSigningRequestV1 {
         match &self.rpc.body.command {
             MonotonicOracleCommandV1::ProtectedSign(request) => request,
@@ -152,6 +155,7 @@ impl PaidNativeCheckpointSignatureV1<'_> {
             && self.lease.uses_budget(memory)
             && self.rpc.uses_budget(memory)
     }
+    #[cfg(test)]
     pub(in crate::controlled_authority) fn reserved_bytes(&self) -> usize {
         self.draft.reserved_bytes() + self.lease.reserved_bytes() + self.rpc.reserved_bytes()
     }

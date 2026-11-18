@@ -5,6 +5,7 @@ use crate::controlled_authority::fencing::{
     self, BoundedAcquireErrorV1, ProtectedEndpointSignaturePurposeV1,
     RemoteMonotonicEndpointProvider, TrustedFencingPolicyV1,
 };
+use crate::controlled_authority::formal::endpoint::store::bounded_transaction::NativePublicationFencingRefsV1;
 use oasis7_formal_protocol::controlled_authority::formal::bounded_context::{
     FormalBoundedContextV1, WorkIdentityV1,
 };
@@ -477,9 +478,11 @@ fn admit(
         EndpointRole::Replica => &endpoint.authority.definition().replica.instance,
     };
     endpoint.store.reconcile_pending_update_with_scope(
-        provider,
-        instance,
-        policy,
+        NativePublicationFencingRefsV1 {
+            provider,
+            instance,
+            policy,
+        },
         memory,
         work,
         stop,
@@ -658,7 +661,17 @@ fn persist(
 ) -> ResultV<()> {
     let state = next_state(next, memory, work, stop)?;
     let update = store.prepare_request_update_bounded(&state, memory, work, stop)?;
-    store.publish_pending_update_bounded(update, provider, instance, policy, memory, work, stop)
+    store.publish_pending_update_bounded(
+        update,
+        NativePublicationFencingRefsV1 {
+            provider,
+            instance,
+            policy,
+        },
+        memory,
+        work,
+        stop,
+    )
 }
 fn sign<'a>(
     provider: &RemoteMonotonicEndpointProvider,
