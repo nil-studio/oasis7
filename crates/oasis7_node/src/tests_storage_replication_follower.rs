@@ -11,6 +11,26 @@ pub(super) fn observer_config(pos_config: NodePosConfig, root_dir: PathBuf) -> N
         .with_replication(signed_replication_config(root_dir, 22))
 }
 
+fn replication_runtime(config: &NodeConfig) -> ReplicationRuntime {
+    // Match NodeRuntime::start's validator defaults when driving the engine directly.
+    let validator_signers = config
+        .pos_config
+        .validator_signer_public_keys
+        .values()
+        .cloned()
+        .collect::<Vec<_>>();
+    let effective = config
+        .replication
+        .as_ref()
+        .expect("replication config")
+        .clone()
+        .with_default_remote_writer_allowlist(validator_signers.iter().cloned())
+        .expect("default remote writer allowlist")
+        .with_default_fetch_requester_allowlist(validator_signers)
+        .expect("default fetch requester allowlist");
+    ReplicationRuntime::new(&effective, &config.node_id).expect("replication runtime")
+}
+
 fn tick_gossip(
     engine: &mut PosNodeEngine,
     config: &NodeConfig,
@@ -62,16 +82,8 @@ fn signed_gossip_observer_first_schedule_follows_sequencer() {
     let config_b = observer_config(pos_config, dir_b.clone());
     let mut engine_a = PosNodeEngine::new(&config_a).expect("engine a");
     let mut engine_b = PosNodeEngine::new(&config_b).expect("engine b");
-    let mut replication_a = ReplicationRuntime::new(
-        config_a.replication.as_ref().expect("replication config a"),
-        "node-a",
-    )
-    .expect("replication a");
-    let mut replication_b = ReplicationRuntime::new(
-        config_b.replication.as_ref().expect("replication config b"),
-        "node-b",
-    )
-    .expect("replication b");
+    let mut replication_a = replication_runtime(&config_a);
+    let mut replication_b = replication_runtime(&config_b);
 
     // Bind the actual endpoints once; keep both sockets owned throughout the test.
     let bind_addr = "127.0.0.1:0".parse().expect("loopback address");
