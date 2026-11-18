@@ -408,28 +408,31 @@ pub(super) fn may_reuse_discovery_connection(swarm: &Swarm<Behaviour>, peer: Pee
 pub(super) fn dial_addr_with_optional_peer_id(
     swarm: &mut Swarm<Behaviour>,
     addr: Multiaddr,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<libp2p::swarm::ConnectionId, Box<dyn std::error::Error + Send + Sync>> {
     let (peer_id, dial_addr) = split_peer_id(addr);
-    if let Some(peer_id) = peer_id {
+    let opts = if let Some(peer_id) = peer_id {
         swarm
             .behaviour_mut()
             .kademlia
             .add_address(&peer_id, dial_addr.clone());
-        let opts = libp2p::swarm::dial_opts::DialOpts::peer_id(peer_id)
+        libp2p::swarm::dial_opts::DialOpts::peer_id(peer_id)
             .addresses(vec![dial_addr])
-            .build();
-        swarm.dial(opts)?;
+            .build()
     } else {
-        swarm.dial(dial_addr)?;
-    }
-    Ok(())
+        libp2p::swarm::dial_opts::DialOpts::unknown_peer_id()
+            .address(dial_addr)
+            .build()
+    };
+    let connection_id = opts.connection_id();
+    swarm.dial(opts)?;
+    Ok(connection_id)
 }
 
 /// Dial an already accepted record endpoint without persisting it in routing caches.
 pub(super) fn dial_record_addr(
     swarm: &mut Swarm<Behaviour>,
     addr: Multiaddr,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<libp2p::swarm::ConnectionId, Box<dyn std::error::Error + Send + Sync>> {
     let (peer, addr) = split_peer_id(addr);
     let opts = if let Some(peer) = peer {
         libp2p::swarm::dial_opts::DialOpts::peer_id(peer)
@@ -442,12 +445,10 @@ pub(super) fn dial_record_addr(
     };
     // Record-driven application dials receive the same final freshness check as
     // child protocol dials; only explicit local caller actions bypass it.
-    swarm
-        .behaviour_mut()
-        .automatic_dials
-        .insert(opts.connection_id());
+    let connection_id = opts.connection_id();
+    swarm.behaviour_mut().automatic_dials.insert(connection_id);
     swarm.dial(opts)?;
-    Ok(())
+    Ok(connection_id)
 }
 
 pub(super) fn split_peer_id(mut addr: Multiaddr) -> (Option<PeerId>, Multiaddr) {

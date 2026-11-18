@@ -161,6 +161,15 @@ pub(super) fn dial_hit_handshake_deadline(error: &DialError) -> bool {
     }
 }
 
+pub(super) fn dial_path_hit_handshake_deadline(error: &DialError, address: &Multiaddr) -> bool {
+    match error {
+        DialError::Transport(errors) => errors
+            .iter()
+            .any(|(failed, error)| failed == address && is_handshake_deadline_error(error)),
+        _ => dial_hit_handshake_deadline(error),
+    }
+}
+
 pub(super) fn listener_hit_handshake_deadline(error: &ListenError) -> bool {
     match error {
         ListenError::Transport(error) => is_handshake_deadline_error(error),
