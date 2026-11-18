@@ -535,6 +535,35 @@ fn committed_archive() {
     wrong_root.root = wrong_root.manifest.digest.clone();
     assert!(replay(&wrong_root, &source, &id).is_err());
 
+    use super::super::super::formal_dependencies::{
+        BUSINESS_INDEX_MAX_NODE_BYTES, MAX_RETAINED_INDEX_TOTAL_BYTES,
+    };
+    use oasis7_distfs::protected_bft_v3::{
+        BftSuccessorWindowArchiveEntryV1, BftSuccessorWindowArchiveRefV1,
+    };
+    let mut excessive = reopened
+        .load_manifest(&reference.manifest, &reference.root)
+        .unwrap();
+    let oversized_count = MAX_RETAINED_INDEX_TOTAL_BYTES / BUSINESS_INDEX_MAX_NODE_BYTES + 1;
+    for item in 0..oversized_count {
+        let digest = blake3_hex(format!("committed-archive-capacity-fixture-{item}").as_bytes());
+        excessive.entries.push(BftSuccessorWindowArchiveEntryV1 {
+            identity_digest: digest.clone(),
+            object: BftSuccessorWindowArchiveRefV1 {
+                digest,
+                bytes: BUSINESS_INDEX_MAX_NODE_BYTES as u64,
+            },
+        });
+    }
+    excessive.entries.sort_by(|a, b| a.identity_digest.cmp(&b.identity_digest));
+    excessive.usage.objects += oversized_count as u64;
+    excessive.usage.total_bytes += (oversized_count * BUSINESS_INDEX_MAX_NODE_BYTES) as u64;
+    let mut excessive_reference = reference.clone();
+    excessive_reference.manifest = reopened.persist_manifest(&excessive).unwrap();
+    excessive_reference.root = excessive.digest().unwrap();
+    assert!(replay(&excessive_reference, &source, &id).unwrap_err()
+        .contains("retained-index byte capacity"));
+
     let write_config = |name: &str, value: serde_json::Value| {
         let path = destination.path().join(name);
         fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();

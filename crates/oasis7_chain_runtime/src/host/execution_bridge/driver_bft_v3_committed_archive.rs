@@ -1,6 +1,8 @@
 //! Local transport of the committed part of the original successor closure.
 //! The retained pre-signing candidates and their authority have a separate path.
-use super::super::super::formal_dependencies::BUSINESS_INDEX_MAX_NODE_BYTES;
+use super::super::super::formal_dependencies::{
+    BUSINESS_INDEX_MAX_NODE_BYTES, MAX_RETAINED_INDEX_NODES, MAX_RETAINED_INDEX_TOTAL_BYTES,
+};
 use super::*;
 use oasis7_distfs::protected_bft_v3::{
     BftSuccessorWindowArchiveEntryV1, BftSuccessorWindowArchiveKindV1,
@@ -43,6 +45,9 @@ fn error(error: impl std::fmt::Display) -> String {
     error.to_string()
 }
 
+// The local operator supplies binding_digest and material_identity. The reader
+// checks their equality with the pinned source in the manifest; independent
+// signer-binding qualification remains part of the protected candidate path.
 fn source_at_h(
     source: &BftSuccessorWindowSourceV1,
     handoff: &VerifiedBftHandoffTargetV2,
@@ -215,33 +220,43 @@ impl FormalBftHeaderLedgerExecutionV3 {
             .into_iter()
             .map(|entry| (entry.identity_digest, entry.object))
             .collect::<std::collections::BTreeMap<_, _>>();
-        let mut load = |domain: &[u8], max| -> Result<Vec<u8>, String> {
-            let object = entries.remove(&blake3_hex(domain)).ok_or("committed archive role absent")?;
-            archive.load_object(&object, max).map_err(error)
+        let mut take_role = |domain: &[u8]| {
+            entries.remove(&blake3_hex(domain)).ok_or("committed archive role absent")
         };
-        let material_bytes = load(H_MATERIAL, MAX_H_BYTES)?;
+        let material_ref = take_role(H_MATERIAL)?;
+        let origin_ref = take_role(LEDGER_ORIGIN)?;
+        let prefix_ref = take_role(PRIVATE_PREFIX)?;
+        if entries.len() > MAX_RETAINED_INDEX_NODES {
+            return Err("committed archive retained-index node capacity".into());
+        }
+        let mut index_bytes = 0u64;
+        for (digest, object) in &entries {
+            if digest != &object.digest || object.bytes > BUSINESS_INDEX_MAX_NODE_BYTES as u64 {
+                return Err("committed archive index dependency binding or size differs".into());
+            }
+            index_bytes = index_bytes
+                .checked_add(object.bytes)
+                .filter(|total| *total <= MAX_RETAINED_INDEX_TOTAL_BYTES as u64)
+                .ok_or("committed archive retained-index byte capacity")?;
+        }
+        let material_bytes = archive.load_object(&material_ref, MAX_H_BYTES).map_err(error)?;
         let material: ClosedRecord = serde_cbor::from_slice(&material_bytes).map_err(error)?;
         if encoded_h_material(&material)? != material_bytes {
             return Err("committed archive original H material is not canonical".into());
         }
-        let origin_bytes = load(LEDGER_ORIGIN, MAX_ORIGIN_BYTES)?;
+        let origin_bytes = archive.load_object(&origin_ref, MAX_ORIGIN_BYTES).map_err(error)?;
         let origin: storage::Origin = serde_cbor::from_slice(&origin_bytes).map_err(error)?;
         origin.validate()?;
         if encode_origin(&origin)? != origin_bytes || origin.first_height() != manifest.first_height {
             return Err("committed archive original ledger origin differs".into());
         }
-        let prefix = PrivateHeaderPrefixV3::decode_private_canonical(&load(
-            PRIVATE_PREFIX,
-            PRIVATE_HEADER_PREFIX_MAX_BYTES_V3,
-        )?)?;
+        let prefix_bytes = archive.load_object(&prefix_ref, PRIVATE_HEADER_PREFIX_MAX_BYTES_V3).map_err(error)?;
+        let prefix = PrivateHeaderPrefixV3::decode_private_canonical(&prefix_bytes)?;
         let proof = prefix.public_prefix()?.verify(&handoff)?;
         check_target(&proof, height, header_id)?;
         let seeds = entries
             .iter()
             .map(|(digest, object)| {
-                if digest != &object.digest {
-                    return Err("committed archive index dependency hash differs".into());
-                }
                 archive
                     .load_object(object, BUSINESS_INDEX_MAX_NODE_BYTES)
                     .map(|bytes| (digest.clone(), bytes))
