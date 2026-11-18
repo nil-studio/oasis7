@@ -125,7 +125,7 @@ pub(super) struct WireByteWindow {
     origin: Instant,
     limits: WireByteLimits,
     state: Mutex<State>,
-    released: Arc<Notify>,
+    settled: Arc<Notify>,
 }
 
 fn invalid() -> io::Error {
@@ -145,7 +145,7 @@ impl WireByteWindow {
             origin: Instant::now(),
             limits,
             state: Mutex::new(State::default()),
-            released: Arc::new(Notify::new()),
+            settled: Arc::new(Notify::new()),
         })
     }
 
@@ -208,16 +208,16 @@ impl WireByteWindow {
 
         // Register the notification while the reservation state is locked. A
         // settlement after this point is visible even before the first poll.
-        let release = (directional_free != 0 && total_free != 0)
-            .then(|| Arc::clone(&self.released).notified_owned());
+        let settlement = (directional_free != 0 && total_free != 0)
+            .then(|| Arc::clone(&self.settled).notified_owned());
         let deadline = state.buckets.front().map(|bucket| bucket.expires);
         let wait = async move {
-            match (release, deadline) {
-                (Some(release), Some(deadline)) => {
-                    futures::future::select(Box::pin(release), Box::pin(sleep_until(deadline)))
+            match (settlement, deadline) {
+                (Some(settlement), Some(deadline)) => {
+                    futures::future::select(Box::pin(settlement), Box::pin(sleep_until(deadline)))
                         .await;
                 }
-                (Some(release), None) => release.await,
+                (Some(settlement), None) => settlement.await,
                 (None, Some(deadline)) => sleep_until(deadline).await,
                 (None, None) => {}
             }
@@ -234,7 +234,7 @@ impl WireByteWindow {
         if state.failed {
             return Err(invalid());
         }
-        let settled = (|| -> io::Result<bool> {
+        let settled = (|| -> io::Result<()> {
             let now = Instant::now();
             let used = charge.total()?;
             if used > amount {
@@ -248,20 +248,16 @@ impl WireByteWindow {
                 state.record(lane, charge, self.bucket_expiry(now)?)?;
             }
             state.reserved[lane] = remaining;
-            Ok(amount != used)
+            Ok(())
         })();
-        let released = match settled {
-            Ok(released) => released,
-            Err(error) => {
-                state.failed = true;
-                return Err(error);
-            }
-        };
-        drop(state);
-        if released {
-            self.released.notify_waiters();
+        if settled.is_err() {
+            state.failed = true;
         }
-        Ok(())
+        drop(state);
+        // A fully used reservation can introduce the first charged bucket.
+        // Waiters need to observe its expiry even when no bytes were refunded.
+        self.settled.notify_waiters();
+        settled
     }
 }
 
@@ -356,6 +352,10 @@ impl BudgetWait {
 mod tests {
     use super::*;
     use futures::future::poll_fn;
+    use std::{
+        sync::atomic::{AtomicBool, Ordering},
+        task::{Wake, Waker},
+    };
 
     fn limits() -> WireByteLimits {
         WireByteLimits {
@@ -363,6 +363,42 @@ mod tests {
             outbound: 4,
             total: 4,
         }
+    }
+
+    #[test]
+    fn full_settlement_wakes_waiters_that_have_no_known_expiry() {
+        #[derive(Default)]
+        struct WakeSeen(AtomicBool);
+
+        impl Wake for WakeSeen {
+            fn wake(self: Arc<Self>) {
+                self.0.store(true, Ordering::Relaxed);
+            }
+        }
+
+        let window = Arc::new(WireByteWindow::new(limits()).unwrap());
+        let Admission::Granted(permit) = window.reserve(Direction::Read, 4).unwrap() else {
+            panic!("initial reservation did not succeed");
+        };
+        let seen = Arc::new(WakeSeen::default());
+        let waker = Waker::from(Arc::clone(&seen));
+        let mut wait = BudgetWait::default();
+        let stalled = wait.poll(
+            &window,
+            &mut Context::from_waker(&waker),
+            Direction::Write,
+            4,
+            |_, _| panic!("quota unavailable"),
+        );
+        assert!(stalled.is_pending());
+        assert!(matches!(
+            permit.apply(|_| Poll::Ready(Ok(4))),
+            Poll::Ready(Ok(4))
+        ));
+        assert!(
+            seen.0.load(Ordering::Relaxed),
+            "the first charged bucket must wake waiters"
+        );
     }
 
     #[test]
