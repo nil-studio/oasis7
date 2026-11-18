@@ -60,20 +60,21 @@ enum OwnerPair {
 }
 
 pub(super) fn observe_with_owner(pins: &StatusPins, config: &Path) -> Result<StatusObservation, String> {
-    let sample_started_at_unix_ms = SystemTime::now()
+    let Some(sample_started_at_unix_ms) = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .ok()
-        .and_then(|age| u64::try_from(age.as_millis()).ok());
+        .and_then(|age| u64::try_from(age.as_millis()).ok())
+    else {
+        let mut status = observe(pins)?;
+        status.protected_pair = Some(OwnerPair::Unavailable);
+        return Ok(status);
+    };
     // Sample owner first. The independently signed Host response collected
     // afterwards must still name the exact verified published cut.
-    let owner = sample_started_at_unix_ms.and_then(|sample_started_at_unix_ms| {
-        observe_operation_owner(config)
-            .ok()
-            .map(|pair| (pair, sample_started_at_unix_ms))
-    });
+    let owner = observe_operation_owner(config).ok();
     let mut status = observe(pins)?;
-    status.protected_pair = Some(owner.map_or(OwnerPair::Unavailable, |(pair, started)| {
-        bind_owner_observation(&status, pins, pair, started)
+    status.protected_pair = Some(owner.map_or(OwnerPair::Unavailable, |pair| {
+        bind_owner_observation(&status, pins, pair, sample_started_at_unix_ms)
     }));
     Ok(status)
 }
