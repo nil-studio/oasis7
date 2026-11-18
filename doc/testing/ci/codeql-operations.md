@@ -26,7 +26,9 @@ manual/schedule 仍提出完整四语言候选范围，但实际矩阵受当前 
 
 分批控制不改变八批整体 healthy、category、权限、并发或 required 政策。
 
-Rust default 默认分支维护使用 90 分钟总预算。init 后读取当前 run/attempt 的唯一 Rust job，以 GitHub Date 和 started_at 计算剩余时间，再分配最多 75 分钟分析，预留 600 秒用于上传和采证；余量不足一分钟直接失败。只增加 `rust-repo/default=baseline` 即可允许已授权的每日或手动验收，不能将全局 observe 改回 baseline 而停掉其他语言的 PR 扫描。失败回退仅删除本次 Rust 键。日频共享 slot 1，排队影响仍需观察；24 小时健康判据保持原样，调度或执行波动可能造成短暂 stale。
+按[当前 Rust 日频目标](codeql-integration.design.md#rust-daily-baseline-goal)，Rust/default 验收后长期保持 `baseline`，每日北京时间 11:29 扫描主干；它是正式运行模式，不是等待升级 PR observe 的阶段。Rust PR 扫描不列入本目标后续必做项，extended 和更广 target/角色覆盖另按范围处理。后续关注自然调度、失败、新鲜度和告警处置。
+
+Rust default 默认分支维护使用 90 分钟总预算。init 后读取当前 run/attempt 的唯一 Rust job，以 GitHub Date 和 started_at 计算剩余时间，再分配最多 75 分钟分析，预留 600 秒用于上传和采证；余量不足一分钟直接失败。在完整批次配置中仅设置 `rust-repo/default=baseline`，允许已授权的首次手动验收及验收后的每日持续扫描；保留其他批次原值和支持非 Rust PR 扫描的全局 observe。失败回退仅删除本次 Rust 键。日频共享 slot 1，排队影响仍需观察；24 小时健康判据保持原样，调度或执行波动可能造成短暂 stale。
 
 该场景使用固定 CodeQL 2.27.4 Rust bundle 和独立固定的 `qualifier-lines-negative-projection-v8`，保持官方原始 37 项默认查询。核对生产 prepare/run 的最终 v8 variant、真实 v7 base_variant、原 v3/v5 中间快照和 v6/v7 全链收据，以及四棵私有库的前后完整身份；实际 37 条解析须在 14 项依赖中选择 `candidate-rust-all` 和 `candidate-negative-typeinference`，同时保留并核验真实 v6 `candidate-typeinference` 和 v7 `candidate-target-typeinference`，不能只看 search path 或版本标签。negative 收据重新关联真实 v7 全树、target 收据摘要与固定补丁三 SHA；保留原文件权限检查，并核对官方/v7/v8 完整目录集合和目录、文件权限。旧 v2/v3/v5/v6/v7 生产准备、研究或观测 preparation 不得改标签恢复为生产 v8；实际 shared 解析回退 v7、v6 或官方根均拒绝。官方 Action 负责初始化与提取，生产 helper 校验实际闭包后执行源码查询并生成 SARIF，仍由原上传步骤关联 Security；不加入研究七项见证或研究专用观察器。库准备、提取、查询与结果校验共用一次分析截止，资源沿官方 init 的原导出值；PR 和 extended 保持各自原路径。技术合同见[生产库接入与首次验收](codeql-integration.design.md#726-rust-default-生产库接入与首次验收)。
 
@@ -81,7 +83,7 @@ python3 scripts/security/codeql-health.py --fixture "$FIXTURE_PATH" \
 
 采证 job 最多 7 分钟，其中 API 共用 240 秒。读取复用 `codeql_upload_association.py` 与 `codeql-health.py`，从可信 artifact 的官方 SARIF ID 精确查询 analyses，保留平台 `error` / `warning` / `results_count` 与 open alerts 观察；失败也尝试上传独立 `oasis7-codeql-platform-observation-<collector_run>-<collector_attempt>` artifact 中的 `platform-observation.json`。退出零仅表示目标上传有唯一、无错误的平台关联且所请求读取完成，仍须查看 warnings、findings 范围与覆盖证据。
 
-报告的 `analysis_results_count` 属于已关联 analysis；`observed_open_findings` 是读取时 most_recent_instance 恰好匹配目标 SHA/ref/category 的现存 open alerts，不能称为该 attempt 的新增告警。最多读取 10 页、每页 100 条；超限或 API 失败丢弃不完整 findings 并报告 unknown。即使未观察到匹配告警，也不声明零告警，因为此入口不枚举完整 alert instances。完整启用验收仍需单独审查生产覆盖与后续持续运行。
+报告的 `analysis_results_count` 属于已关联 analysis；`observed_open_findings` 是读取时 most_recent_instance 恰好匹配目标 SHA/ref/category 的现存 open alerts，不能称为该 attempt 的新增告警。精确 analyses 和共享 upload association 的原分页预算保持 10 页；findings 需先读全 main 的 CodeQL open alerts，独立最多读取 100 页、每页 100 条，实际预算见 `findings.page_limit`。只有读到短页才算完整；100 页全部满页、API 失败或 240 秒总预算耗尽都保留 unknown，不把部分 findings 当作完整列表，也不以 analysis 结果数停止翻页。分页容量不足时修复 collector 后可继续核对同一已成功的 producer，无需重跑提取、查询或上传。即使未观察到匹配告警，也不声明零告警，因为此入口不枚举完整 alert instances。完整启用验收仍需单独审查生产覆盖与后续持续运行。
 
 ## 状态解释与排障
 
@@ -103,6 +105,8 @@ live reader 使用精确 run attempt 的 jobs API，并通过独立验证的 evi
 
 Rust 的 default/extended 扫描先执行 `Prepare Rust native extraction prerequisites`，复用容量入口的 GTK 3、WebKitGTK 4.1、D-Bus 安装与 pkg-config 探针；准备共用最多 180 秒，计入对应 job 的总预算；默认分支 Rust default 为 90 分钟，其他 Rust 场景保持 45 分钟。失败时从独立 `oasis7-codeql-native-<run>-<attempt>-rust-repo-<profile>` artifact 查看安装 stdout/stderr、包和模块版本及 `native-terminal.json`；失败会阻止提取、查询和 SARIF 上传。native PASS 只表示该 runner 的依赖准备成功，覆盖和上传关联仍须分别验收。
 
+仅 Rust default 的非 PR 维护调用采用 `ubuntu-archive-https`：使用已验证的私有源副本策略，源准备、四步命令、前后核验及清理共用原 180 秒；PR、extended 与研究入口保留 `runner-sources`。先核 native terminal/budget 的实际 profile，再核 `native-source-profile.json` 的唯一替换、原输入和有效副本前后摘要、未改系统源及清理成功，最后核四条命令的真实 exit、argv 与分配。正式 native 保留普通日志，不开启短诊断的 Worker 投影或采样；其收据在分析分配前产生，须与 production 查询 artifact 分开验收。失败终态保留异常类型、命令 exit/failure_kind 与源收据保存错误的固定字段，不保存异常原文；不由候选诊断的成功代签本次 native 或整体生产通过。
+
 分析 job 从官方 pinned upload-sarif action 的 `steps.upload.outputs.sarif-id` 生成闭合 schema `oasis7-codeql-upload-evidence/v1`，记录 repository、workflow path/ref/SHA、run/attempt、job key/name、checkout SHA/ref、unit/profile/category 与真实 execution/upload outcomes。上传未成功时 ID 为空。每个 job/attempt 使用独立 `oasis7-codeql-upload-<run_id>-<run_attempt>-<unit>-<profile>` artifact，唯一文件为 `evidence.json`，由完整 SHA 固定的 upload-artifact action 上传且不覆盖。取消、超时或 runner 丢失可能没有 artifact，不能补写或借用旧输出。
 
 consumer 不信任 JSON 自述或 artifact 名称：先独立验证 live repository/default branch、可信 workflow、精确 run/latest attempt、唯一 job/check/provider/suite，并确认执行时 workflow 字节与当前默认分支 workflow 相同。无关 main 前进且 workflow 字节不变不使结果失效；workflow 改动、候选执行或读取失败保持 unknown。随后完整、有界读取该 run 的 artifact 清单，要求唯一、未过期、元数据匹配，并在下载后复验 run/attempt 与 artifact 身份。
@@ -116,7 +120,7 @@ CodeQL 扫描保留实际发现和运行来源；required/advisory 由 GitHub CI
 <a id="native-configuration-lifecycle"></a>
 ## 原生配置提示与生命周期
 
-原生 `configurations not found` 表示原生比较尚未匹配到目标分支既有配置的相应分析。PR 固定 default，extended 只参加默认分支维护；按影响范围未选中 default 单元时也不会补传结果。分别核对事件、可信计划和实际分析，再解释覆盖提示与同时展示的告警；不能仅凭检查标题判断失败原因。
+原生 `configurations not found` 表示原生比较尚未匹配到目标分支既有配置的相应分析。PR 固定 default，extended 只参加默认分支维护；按影响范围未选中 default 单元时也不会补传结果。Rust/default 按日频目标保持 baseline，PR 缺少对应 Rust 分析可以是预期行为，应核对当次计划与主干维护扫描；不为消除提示而开启 Rust PR 扫描、删除有效配置或补传空结果。分别核对事件、可信计划和实际分析，再解释覆盖提示与同时展示的告警；不能仅凭检查标题判断失败原因。
 
 PR closed 事件会禁用扫描，plan/summary 成功且分析 job 跳过不代表合入后的 main 已重新扫描。Actions job、SARIF 接收、原生告警状态及原生覆盖提示分别记录，不能用其中一项成功替代其他项。
 
@@ -328,9 +332,9 @@ bootstrap 的时钟读取最多使用初始 20 秒，只有身份完整匹配的
 
 ## Hosted 验收与回退
 
-授权运营者开启 baseline 前，读回默认/advanced setup 的有效状态并处理重复扫描，核对 required checks、rulesets/code-scanning protections、最小权限、action pins、fork/Dependabot 和缓存隔离。随后记录四语言 default/extended 的实际 execution、upload、native Security findings、manifest/extraction diagnostics、控制样本、覆盖缺口及 owner；验证共享槽位峰值、跨 PR 排队、同 PR 取消与实际来源。将样本耗时、runner 竞争和 required CI 延迟作为实测结果，不能用 fixture 或静态 YAML 代替。
+授权运营者开启 baseline 前，读回默认/advanced setup 的有效状态并处理重复扫描，核对 required checks、rulesets/code-scanning protections、最小权限、action pins 和适用的缓存隔离。按本次目标批次记录实际 execution、upload、native Security findings、manifest/extraction diagnostics、控制样本、覆盖缺口及 owner，并验证共享槽位和实际来源。Rust/default 以日频 baseline 验收持续运行；采用 PR observe 的批次另核对 fork/Dependabot、PR 路由、跨 PR 排队与同 PR 取消。将样本耗时、runner 竞争和 required CI 延迟作为实测结果，不能用 fixture 或静态 YAML 代替。
 
-observe 只能在 hosted 验收完成且明确授权后设置，并读回实际变量与非 draft PR 行为。当前文档不证明这些步骤已发生。平台 provenance 无法验证或覆盖缺口未解决时，保留能力不足事实并交验收 owner，不能宣布完整接入。
+只有目标包含 PR 扫描的批次，才在 hosted 验收完成且已有授权覆盖后设置 observe，并读回实际变量与非 draft PR 行为。Rust/default 按日频目标保持 baseline，不追加 PR 验收或以未开启 observe 判定未完成。当前文档不代替实际验收记录；平台 provenance 无法验证或适用覆盖缺口未解决时，保留能力不足事实并交验收 owner。
 
 资源压力时可经授权先将 slots 降为 `1`；需停 PR 扫描时退至 `baseline`；需停全部重型执行时退至 `off`。变量设置影响后续计划，已有运行须另行核对或按授权取消。读回设置并确认新计划行为，保留既有 alerts、analysis 与失败证据；不要删除告警、改 category 或改 required policy 来制造回退成功。
 

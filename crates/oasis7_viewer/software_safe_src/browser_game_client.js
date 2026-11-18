@@ -273,8 +273,15 @@ export function createBrowserGameClient({ config, codec, ownerSigner, executorSi
  }
  async function outcome(operationId, captured, reason, runBudget = null) {
   if (await find(operationId, "action")) fail("original_action_requires_recovery");
-  await freshFence();
-  return submit(operationId, "outcome", { kind: "scheduler", payload: await sign("scheduler", build("outcome", { captured_json: json(captured), reason })) }, captured.prepared.identity, runBudget);
+  const prior = await find(operationId, "outcome");
+  if (prior) {
+   const result = await lookup(prior);
+   await recovery.settle(prior.operationId, { state: result.state, receipt: { rawJson: json(result.receipt) } });
+   return result.receipt;
+  }
+  const current = await readContext(operationId, captured.prepared.identity);
+  const request = build("outcome", { captured_json: json(current), reason });
+  return submit(operationId, "outcome", { kind: "scheduler", payload: await sign("scheduler", request) }, current.prepared.identity, runBudget);
  }
  async function registerExecutor({ operationId, executorId, generation, nonce: delegationNonce, confirmedFence }) {
   if (!confirmedFence) fail("run_confirmation_required");

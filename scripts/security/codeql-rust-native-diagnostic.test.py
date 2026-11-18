@@ -384,10 +384,10 @@ class NativeSourceProfiles(unittest.TestCase):
             self.assertNotIn('Acquire::https::Timeout=20', argv)
         self.assertEqual(calls[1][0][-4:], list(m.native.NATIVE_PACKAGES))
 
-    def test_candidate_cannot_change_budget_or_run_without_observer(self):
+    def test_source_profile_cannot_change_budget_or_accept_unknown_profile(self):
         with patch.object(m.native.runtime, 'run') as run:
             for maximum, observer, profile in ((360, object(), 'ubuntu-archive-https'),
-                    (180, None, 'ubuntu-archive-https'), (180, object(), 'unexpected')):
+                    (360, None, 'ubuntu-archive-https'), (180, object(), 'unexpected')):
                 with self.subTest(maximum=maximum, profile=profile), self.assertRaises(ValueError):
                     m.native.prepare_native(self.root, self.out, 1000, {}, maximum_seconds=maximum,
                                             observation=observer, source_profile=profile)

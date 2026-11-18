@@ -91,6 +91,53 @@ class SingleCheck(unittest.TestCase):
                     m.prepare_native(self.source,self.out,1000,{},maximum_seconds=value)
             run.assert_not_called()
 
+    def test_production_source_profile_uses_private_sources_without_diagnostic_observer(self):
+        apt = self.root/'apt'; parts = apt/'sources.list.d'; parts.mkdir(parents=True)
+        original = (b'Types: deb\nURIs: mirror+file:/etc/apt/apt-mirrors.txt\n'
+                    b'Suites: noble noble-updates noble-backports\n'
+                    b'Components: main universe restricted multiverse\n'
+                    b'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n')
+        (parts/'ubuntu.sources').write_bytes(original)
+        (apt/'apt-mirrors.txt').write_bytes(b'https://archive.ubuntu.com/ubuntu/\tpriority:2\n')
+        for fail in (False, True):
+            with self.subTest(fail=fail):
+                calls = []; private_paths = []
+                def run(argv, cwd, output, end, timeout, root, env, **kwargs):
+                    calls.append((argv, end, kwargs))
+                    if argv[0] == 'sudo':
+                        selected = dict(arg.split('=', 1) for arg in argv if arg.startswith('Dir::Etc::'))
+                        private = Path(selected['Dir::Etc::sourcelist']).parent
+                        self.assertEqual(selected['Dir::Etc::sourceparts'], str(private/'sources.list.d'))
+                        self.assertEqual((private/'sources.list.d/ubuntu.sources').read_bytes(),
+                                         original.replace(b'mirror+file:/etc/apt/apt-mirrors.txt', b'https://archive.ubuntu.com/ubuntu/'))
+                        private_paths.append(private)
+                    if fail and 'install' in argv:
+                        raise m.runtime.PhaseError({'exit':124, 'failure_kind':'child_exit'})
+                with patch.object(m, 'NATIVE_APT_ROOT', apt), patch.object(m.runtime, 'run', side_effect=run):
+                    if fail:
+                        with self.assertRaises(m.runtime.PhaseError) as caught:
+                            m.prepare_native(self.source, self.out, time.monotonic()+270, {}, source_profile='ubuntu-archive-https')
+                        self.assertEqual(caught.exception.result['exit'], 124)
+                    else:
+                        m.prepare_native(self.source, self.out, time.monotonic()+270, {}, source_profile='ubuntu-archive-https')
+                self.assertEqual(len(calls), 2 if fail else 4)
+                self.assertEqual(calls[1][0][-4:], ['pkg-config', 'libgtk-3-dev', 'libwebkit2gtk-4.1-dev', 'libdbus-1-dev'])
+                self.assertTrue(all('observer' not in kwargs for _, _, kwargs in calls))
+                self.assertTrue(all('Debug::pkgAcquire::Worker=1' not in argv for argv, _, _ in calls))
+                self.assertEqual(len(set(private_paths)), 1)
+                self.assertFalse(private_paths[0].exists())
+                self.assertEqual((parts/'ubuntu.sources').read_bytes(), original)
+                budget = json.loads((self.out/'native-budget.json').read_text())
+                self.assertEqual(budget['maximum_seconds'], 180)
+                self.assertEqual(budget['source_profile'], 'ubuntu-archive-https')
+                self.assertEqual(budget['parent_reserve_seconds'], 90)
+                self.assertLessEqual(budget['preparation_deadline_monotonic'], budget['started_monotonic']+180)
+                receipt = json.loads((self.out/'native-source-profile.json').read_text())
+                self.assertEqual(receipt['status'], 'VERIFIED')
+                self.assertTrue(receipt['system_sources_unchanged'])
+                self.assertTrue(receipt['private_sources_unchanged'])
+                self.assertEqual(receipt['cleanup'], 'REMOVED')
+
     def test_native_preparation_stops_at_missing_pkgconfig_module(self):
         calls=[]
         def run(argv, *args, **kwargs):

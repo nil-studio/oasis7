@@ -10,7 +10,6 @@ import contextlib
 from functools import lru_cache
 import hashlib
 import importlib.util
-from itertools import chain
 import json
 import os
 from pathlib import Path
@@ -18,7 +17,6 @@ import re
 import stat
 import subprocess
 import sys
-import tarfile
 import tempfile
 import time
 import tomllib
@@ -58,7 +56,7 @@ def cache_root(value=None):
 def metadata(root):
     root = cache_root(root)
     digest = hashlib.sha256()
-    for name in ('ci-worker-build.py', 'ci_process_runner.py'):
+    for name in ('ci-worker-build.py', 'ci-tool-cache.py', 'ci_process_runner.py'):
         digest.update(name.encode() + b'\0' + hashlib.sha256((ROOT / 'scripts' / name).read_bytes()).digest())
     return dict(version=VERSION, root=str(root), bin=str(root / 'bin' / 'worker-build'),
                 definition_sha=digest.hexdigest())
@@ -138,11 +136,24 @@ def ensure(root):
 
 
 @lru_cache(maxsize=1)
-def load_maintenance():
-    spec = importlib.util.spec_from_file_location('worker_cache_maintenance', ROOT / 'scripts' / 'ci-cache-maintenance.py')
+def load_tool_cache():
+    spec = importlib.util.spec_from_file_location('worker_tool_cache', ROOT / 'scripts' / 'ci-tool-cache.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+@lru_cache(maxsize=1)
+def load_maintenance():
+    return load_tool_cache().load_maintenance(ROOT)
+
+
+def shared_admission_call(name, *args, **kwargs):
+    shared = load_tool_cache()
+    try:
+        return getattr(shared, name)(*args, **kwargs)
+    except shared.ToolCacheError as error:
+        raise ToolError(str(error), error.code) from None
 
 
 def cache_key(environment, root):
@@ -161,147 +172,33 @@ def checkout_sha(environment):
 
 
 def trusted_writer(environment, api, key, root):
-    sha, event, run_id = (environment.get(name, '') for name in
-                         ('GITHUB_SHA', 'GITHUB_EVENT_NAME', 'GITHUB_RUN_ID'))
-    if (environment.get('GITHUB_ACTIONS') != 'true'
-            or environment.get('GITHUB_REPOSITORY') != api.repository
-            or environment.get('GITHUB_REF') != 'refs/heads/main'
-            or environment.get('GITHUB_WORKFLOW_SHA') != sha
-            or environment.get('GITHUB_WORKFLOW_REF') != f'{api.repository}/{WRITER_WORKFLOW}@refs/heads/main'
-            or environment.get('GITHUB_JOB') != WRITER_JOB
-            or event not in ('schedule', 'workflow_dispatch')
-            or not re.fullmatch(r'[0-9a-f]{40}', sha)
-            or not re.fullmatch(r'[1-9][0-9]*', run_id)
-            or not Path(environment.get('GITHUB_WORKSPACE', '')).is_absolute()
-            or Path(environment.get('GITHUB_WORKSPACE', '')).resolve() != ROOT
-            or key != cache_key(environment, root)):
-        raise ToolError('worker-build cache save requires the exact trusted main writer')
-    if event == 'workflow_dispatch':
-        path = Path(environment.get('GITHUB_EVENT_PATH', ''))
-        if path.stat().st_size > 1024 * 1024:
-            raise ToolError('worker-build manual event exceeds its bounded contract')
-        payload = json.loads(path.read_text())
-        if (not isinstance(payload, dict) or not isinstance(payload.get('inputs'), dict)
-                or payload['inputs'].get('run_mode') != 'full'):
-            raise ToolError('worker-build manual cache save requires run_mode=full')
-    if checkout_sha(environment) != sha:
-        raise ToolError('worker-build checkout does not match the trusted main source')
-    run = api.request('GET', f'/actions/runs/{run_id}')
-    if (not isinstance(run, dict) or type(run.get('id')) is not int
-            or run['id'] != int(run_id) or run.get('head_sha') != sha
-            or run.get('head_branch') != 'main' or run.get('event') != event
-            or run.get('path') != WRITER_WORKFLOW or not isinstance(run.get('repository'), dict)
-            or run['repository'].get('full_name') != api.repository):
-        raise ToolError('REST run identity does not match the worker-build writer')
+    return shared_admission_call('trusted_writer', environment, api, key, root,
+        repository_root=ROOT, expected_key=cache_key, writer_workflow=WRITER_WORKFLOW,
+        writer_job=WRITER_JOB, label='worker-build', checkout_reader=checkout_sha)
 
 
 def cache_snapshot(root):
-    root = cache_root(root)
-    rows, raw_bytes = [], 0
-    for path in chain((root,), root.rglob('*')):
-        value = path.lstat()
-        relative = path.relative_to(root).as_posix()
-        if (path.is_symlink() or not (stat.S_ISDIR(value.st_mode) or stat.S_ISREG(value.st_mode))
-                or any(ord(char) < 32 for char in str(path)) or len(os.fsencode(path)) > 4096
-                or path.name in ('cache.tzst', 'cache.tgz')):
-            raise ToolError('unsafe worker-build cache payload')
-        if stat.S_ISREG(value.st_mode):
-            if value.st_nlink != 1:
-                raise ToolError('worker-build cache payload must not use hardlinks')
-            raw_bytes += value.st_size
-        rows.append((relative, value.st_dev, value.st_ino, value.st_mode, value.st_size,
-                     value.st_mtime_ns, value.st_ctime_ns))
-        if len(rows) > MAX_CACHE_ENTRIES or raw_bytes > MAX_CACHE_BYTES:
-            raise ToolError('worker-build cache exceeds the small-tool payload budget')
-    return tuple(sorted(rows)), raw_bytes
+    return shared_admission_call('cache_snapshot', cache_root(root),
+        max_cache_bytes=MAX_CACHE_BYTES, max_entries=MAX_CACHE_ENTRIES, label='worker-build')
 
 
 def upload_bound(root, environment, deadline):
-    """Measure the pinned Linux cache action's exact one-directory tar input.
-
-    actions/cache@55cc8345 resolves this literal root with implicitDescendants
-    disabled. The GNU tar and compression contract is the same one audited by
-    ci-cache-archive.py:upload_bound. Each entry gets an extra complete tar
-    record for possible timestamp/PAX growth before save; no compression ratio
-    is assumed. Only the isolated root is an action input, never the checkout.
-    """
-    if (environment.get('TAR_OPTIONS') or environment.get('GZIP')
-            or any(char in str(root) for char in '*?[]!{}')):
-        raise ToolError('custom archive options or glob paths cannot authorize a tool cache save')
-    before, raw_bytes = cache_snapshot(root)
-    for command, marker in ((['tar', '--version'], 'GNU tar'), (['gzip', '--version'], 'Free Software Foundation')):
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise ToolError('worker-build save admission deadline expired')
-        output = subprocess.check_output(command, env=command_environment(environment),
-                                         text=True, stderr=subprocess.DEVNULL, timeout=min(5, remaining))
-        if marker not in output:
-            raise ToolError('worker-build upload sizing requires GNU tar and GNU gzip')
-    relative = os.path.relpath(root, ROOT)
-    if relative.startswith('-'):
-        raise ToolError('worker-build upload path is outside the fixed archive contract')
-    with tempfile.TemporaryDirectory(prefix='worker-build-size-') as temporary:
-        evidence = Path(temporary)
-        manifest = evidence / 'manifest.txt'
-        manifest.write_text(relative + '\n')
-        archive = evidence / 'cache.tar'
-        checked_process(['tar', '--posix', '-cf', str(archive), '--exclude', 'cache.tzst',
-                         '-P', '-C', str(ROOT), '--files-from', str(manifest)],
-                        evidence, evidence, 'cache-size', min(30, deadline - time.monotonic()))
-        size = archive.stat().st_size
-    if cache_snapshot(root)[0] != before:
-        raise ToolError('worker-build payload changed during upload sizing')
-    bounded_tar = size + tarfile.RECORDSIZE * (len(before) + 1)
-    zstd = bounded_tar + (bounded_tar >> 8) + max(0, ((128 << 10) - bounded_tar) >> 11)
-    gzip_bound = bounded_tar + 5 * ((bounded_tar + 16_383) // 16_384 + 1) + 18
-    return dict(raw_bytes=raw_bytes, payload_entries=len(before), measured_tar_bytes=size,
-                upload_bound_bytes=max(zstd, gzip_bound)), before
+    return shared_admission_call('upload_bound', cache_root(root), environment, deadline,
+        repository_root=ROOT, max_cache_bytes=MAX_CACHE_BYTES, max_entries=MAX_CACHE_ENTRIES,
+        label='worker-build', process_runner=checked_process)
 
 
 def admit_save(root, key, environment, api=None):
-    report = dict(save=False, mode='worker-build-cache-admission', saved_confirmed=None,
-                  reason='tool cache save not authorized')
-    deadline = time.monotonic() + SAVE_TIMEOUT_SECONDS
     try:
         root = cache_root(root)
-        maintenance = load_maintenance()
-        policy = maintenance.policy
-        if api is None:
-            if not environment.get('GH_TOKEN'):
-                raise ToolError('read-only Actions token missing for worker-build cache admission')
-            class ReadOnlyApi(maintenance.GitHubApi):
-                def request(self, method, path):
-                    if method != 'GET':
-                        raise ToolError('worker-build cache admission is read-only')
-                    return super().request(method, path)
-            api = ReadOnlyApi(environment.get('GITHUB_REPOSITORY'), environment['GH_TOKEN'])
-        if hasattr(api, 'deadline'):
-            api.deadline = min(api.deadline, deadline)
-        trusted_writer(environment, api, key, root)
-        check(root, deadline=deadline)
-        measurement, before = upload_bound(root, environment, deadline)
-        report.update(measurement)
-        budget = policy.configured_budget(environment.get('CI_CACHE_REPOSITORY_BUDGET_BYTES'))
-        if budget is None:
-            raise ToolError('verified worker-build repository cache budget is missing')
-        entries = policy.capacity_context(maintenance, api, budget, report)
-        if cache_snapshot(root)[0] != before:
-            raise ToolError('worker-build payload changed during capacity verification')
-        if time.monotonic() >= deadline:
-            raise ToolError('worker-build save admission deadline expired')
-        projected = report['observed_repository_bytes'] + report['upload_bound_bytes']
-        reserve = policy.DEPENDENCY_ROTATION_HEADROOM_BYTES
-        report.update(projected_repository_bytes=projected, reserved_repository_bytes=reserve,
-                      projected_repository_bytes_with_reserve=projected + reserve)
-        if any(entry['key'] == key and entry['ref'] == 'refs/heads/main' for entry in entries):
-            report['reason'] = 'existing immutable key'
-        elif projected + reserve > report['effective_repository_budget_bytes']:
-            report['reason'] = 'repository cache capacity or dependency rotation gap'
-        else:
-            report.update(save=True, reason='measured tool upload fits repository budget with rotation headroom')
-    except (ValueError, OSError, subprocess.SubprocessError, KeyError, TypeError, AttributeError) as error:
-        report['reason'] = str(error) if isinstance(error, ValueError) else 'tool save evidence could not be read'
-    return report
+    except (ValueError, OSError) as error:
+        return dict(save=False, mode='worker-build-cache-admission', saved_confirmed=None,
+                    reason=str(error) if isinstance(error, ValueError) else 'tool save evidence could not be read')
+    return load_tool_cache().admit_save(root, key, environment, repository_root=ROOT,
+        expected_key=cache_key, writer_workflow=WRITER_WORKFLOW, writer_job=WRITER_JOB,
+        check_payload=check, max_cache_bytes=MAX_CACHE_BYTES, max_entries=MAX_CACHE_ENTRIES,
+        api=api, label='worker-build', timeout_seconds=SAVE_TIMEOUT_SECONDS,
+        checkout_reader=checkout_sha, process_runner=checked_process)
 
 
 def main(argv=None):

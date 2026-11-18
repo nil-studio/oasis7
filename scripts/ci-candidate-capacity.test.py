@@ -36,4 +36,10 @@ class Tests(unittest.TestCase):
   from types import SimpleNamespace
   with patch.object(m.pathlib.Path,"stat",side_effect=[SimpleNamespace(st_dev=1),SimpleNamespace(st_dev=2),SimpleNamespace(st_dev=1)]):
    with self.assertRaises(RuntimeError):m.capacity_domains({"GITHUB_WORKSPACE":"/","RUNNER_TEMP":"/"})
+ def test_reclaim_skips_du_by_default(self):
+  with tempfile.TemporaryDirectory() as t:
+   sdk=pathlib.Path(t).resolve()/"sdk";sdk.mkdir();(sdk/"x").write_text("unused")
+   with patch.object(m.subprocess,"run",side_effect=AssertionError("du should not run by default")):
+    m.reclaim([sdk],True)
+   self.assertFalse(sdk.exists())
 if __name__=="__main__":unittest.main()
