@@ -22,8 +22,112 @@ pub(super) struct Map<'a, 'e, 'v, T: ?Sized, A: CanonicalCborAllocator, C: FnMut
     keys: Vec<Key<A::Charge>>,
     rows: Vec<(ciborium::Value, ciborium::Value)>,
     pending: Option<Key<A::Charge>>,
+    max_encoded_key_bytes: usize,
     _rows: A::Charge,
 }
+
+// The fixed row layout and comparator do not depend on the map's source or
+// context types. Share this stable sort across their generic instantiations.
+#[inline(never)]
+fn sort_rows(rows: &mut [(ciborium::Value, ciborium::Value)]) -> u64 {
+    let mut comparisons = 0u64;
+    rows.sort_by(|(left, _), (right, _)| {
+        comparisons = comparisons.saturating_add(1);
+        ciborium::value::CanonicalValue::from(left.clone())
+            .cmp(&ciborium::value::CanonicalValue::from(right.clone()))
+    });
+    comparisons
+}
+
+fn comparison_byte_bound<A: CanonicalCborAllocator, C: FnMut() -> bool>(
+    engine: &mut Engine<'_, A, C>,
+    rows: &[(ciborium::Value, ciborium::Value)],
+    scratch: usize,
+) -> Result<usize, Error> {
+    let header = std::mem::size_of::<ciborium::Value>();
+    let mut longest_text = 0;
+    for (key, _) in rows {
+        // Inspect only the already retained model, after paying for its header.
+        engine.step()?;
+        engine.allocator.charge_work(0, header as u64)?;
+        let ciborium::Value::Text(text) = key else {
+            // In particular, Tag(Text) keeps the original comparator fallback.
+            return Ok(scratch);
+        };
+        longest_text = longest_text.max(text.len());
+    }
+    // ciborium 0.2.2's Text/Text comparator reads lengths, then UTF-8 bytes;
+    // it does not re-encode either model. The unchanged comparator first
+    // clones both Values. Eight header/payload passes cover those two clones'
+    // reads/writes, the length/lexical reads and the temporary owners' teardown.
+    // This is logical byte work; the full original scratch admission still
+    // covers their simultaneous allocated storage during the standard sort.
+    header
+        .checked_add(longest_text)
+        .and_then(|n| n.checked_mul(8))
+        .ok_or(Error::ResourceLimited("text key comparison work overflow"))
+}
+
+// Admission and accounting depend on the engine and retained rows, not the
+// serialized map source. Keep this work shared across source types as well.
+#[inline(never)]
+fn prepare_sorted_rows<A: CanonicalCborAllocator, C: FnMut() -> bool>(
+    engine: &mut Engine<'_, A, C>,
+    rows: &mut [(ciborium::Value, ciborium::Value)],
+    max_encoded_key_bytes: usize,
+) -> Result<(), Error> {
+    // The retained key models come from these exact encoded bytes.
+    // Keep the same conservative bound without charging unused key capacity.
+    let scratch = max_encoded_key_bytes
+        .checked_mul(512)
+        .and_then(|n| n.checked_add(4096))
+        .ok_or(Error::ResourceLimited("key sort scratch"))?;
+    // Admit a deliberately conservative quadratic comparison allowance
+    // before entering the existing bounded standard stable sort. Never
+    // change the comparator when cancellation/work admission fails.
+    engine.step()?;
+    let n = rows.len() as u64;
+    let allowance = n
+        .checked_mul(n)
+        .and_then(|v| v.checked_mul(16))
+        .and_then(|v| v.checked_add(64))
+        .ok_or(Error::ResourceLimited("sort work overflow"))?;
+    // Text/Text comparisons have no re-encoding work. Every other model retains
+    // the original conservative byte bound, including compound and tagged keys.
+    let bytes_per_comparison = comparison_byte_bound(engine, rows, scratch)?;
+    let comparison_bytes = allowance
+        .checked_mul(
+            u64::try_from(bytes_per_comparison)
+                .map_err(|_| Error::ResourceLimited("sort byte work overflow"))?,
+        )
+        .ok_or(Error::ResourceLimited("sort byte work overflow"))?;
+    engine.allocator.charge_work(allowance, comparison_bytes)?;
+    engine.work.visits_remaining = engine
+        .work
+        .visits_remaining
+        .checked_sub(allowance)
+        .ok_or(Error::ResourceLimited("map sort visits"))?;
+    let _scratch = engine.allocator.reserve(scratch)?;
+    let comparisons = sort_rows(rows);
+    engine.metrics.map_sorts = engine
+        .metrics
+        .map_sorts
+        .checked_add(1)
+        .ok_or(Error::ResourceLimited("sort metric overflow"))?;
+    engine.metrics.map_comparisons = engine
+        .metrics
+        .map_comparisons
+        .checked_add(comparisons)
+        .ok_or(Error::ResourceLimited("sort metric overflow"))?;
+    if comparisons > allowance {
+        return Err(Error::ResourceLimited(
+            "standard sort exceeded admitted comparisons",
+        ));
+    }
+    engine.step()?;
+    Ok(())
+}
+
 impl<A: CanonicalCborAllocator, C: FnMut() -> bool> Engine<'_, A, C> {
     pub(super) fn key<T: Serialize + ?Sized>(
         &mut self,
@@ -107,6 +211,7 @@ impl<'a, 'e, 'v, T: Serialize + ?Sized, A: CanonicalCborAllocator, C: FnMut() ->
             keys,
             rows,
             pending: None,
+            max_encoded_key_bytes: 0,
             _rows: charge,
         })
     }
@@ -130,6 +235,7 @@ impl<'a, 'e, 'v, T: Serialize + ?Sized, A: CanonicalCborAllocator, C: FnMut() ->
             u64::try_from(self.keys.len()).map_err(|_| Error::ResourceLimited("map ordinal"))?,
         );
         self.rows.push((value, ordinal));
+        self.max_encoded_key_bytes = self.max_encoded_key_bytes.max(encoded.bytes.len());
         self.pending = Some(Key {
             encoded,
             _model: model,
@@ -152,56 +258,7 @@ impl<'a, 'e, 'v, T: Serialize + ?Sized, A: CanonicalCborAllocator, C: FnMut() ->
         // Exact old comparator and (Value,Value) sort element layout. This also
         // preserves its Tag/Tag semantics and stable duplicate-key order; it is
         // not a wire migration to a different interpretation of RFC ordering.
-        {
-            let scratch = self
-                .engine
-                .work
-                .max_key_bytes
-                .checked_mul(512)
-                .and_then(|n| n.checked_add(4096))
-                .ok_or(Error::ResourceLimited("key sort scratch"))?;
-            // Admit a deliberately conservative quadratic comparison allowance
-            // before entering the existing bounded standard stable sort. Never
-            // change the comparator when cancellation/work admission fails.
-            self.engine.step()?;
-            let n = self.rows.len() as u64;
-            let allowance = n
-                .checked_mul(n)
-                .and_then(|v| v.checked_mul(16))
-                .and_then(|v| v.checked_add(64))
-                .ok_or(Error::ResourceLimited("sort work overflow"))?;
-            self.engine.work.visits_remaining = self
-                .engine
-                .work
-                .visits_remaining
-                .checked_sub(allowance)
-                .ok_or(Error::ResourceLimited("map sort visits"))?;
-            let _scratch = self.engine.allocator.reserve(scratch)?;
-            let mut comparisons = 0u64;
-            self.rows.sort_by(|(left, _), (right, _)| {
-                comparisons = comparisons.saturating_add(1);
-                ciborium::value::CanonicalValue::from(left.clone())
-                    .cmp(&ciborium::value::CanonicalValue::from(right.clone()))
-            });
-            self.engine.metrics.map_sorts = self
-                .engine
-                .metrics
-                .map_sorts
-                .checked_add(1)
-                .ok_or(Error::ResourceLimited("sort metric overflow"))?;
-            self.engine.metrics.map_comparisons = self
-                .engine
-                .metrics
-                .map_comparisons
-                .checked_add(comparisons)
-                .ok_or(Error::ResourceLimited("sort metric overflow"))?;
-            if comparisons > allowance {
-                return Err(Error::ResourceLimited(
-                    "standard sort exceeded admitted comparisons",
-                ));
-            }
-            self.engine.step()?;
-        }
+        prepare_sorted_rows(self.engine, &mut self.rows, self.max_encoded_key_bytes)?;
         self.engine.head(self.out, 5, self.rows.len() as u64)?;
         for (_, ordinal) in &self.rows {
             self.engine.step()?;
