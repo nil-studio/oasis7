@@ -130,6 +130,67 @@ class LinuxMoldTests(unittest.TestCase):
         self.assertFalse(self.install_dir.exists())
         self.assertFalse(self.env_file.exists())
 
+    def test_cache_hit_uses_existing_valid_archive_without_download(self):
+        archive, checksum = self.archive()
+        cache_dir = self.root / 'cache'
+        cache_dir.mkdir()
+        cached_file = cache_dir / 'mold-3.0.0-x86_64-linux.tar.gz'
+        cached_file.write_bytes(archive.read_bytes())
+        with self.release(checksum), patch.object(MOLD, 'smoke', return_value=0.1), \
+                patch.object(MOLD, 'download_release_archive') as download:
+            report = MOLD.install(self.install_dir, cache_dir=cache_dir)
+        download.assert_not_called()
+        self.assertTrue(report['cache_hit'])
+        self.assertIn('cache-hit=true\n', self.output_file.read_text())
+        self.assertIn('cache hit: True', self.summary_file.read_text())
+
+    def test_corrupt_cache_is_discarded_and_falls_back_to_download(self):
+        archive, checksum = self.archive()
+        cache_dir = self.root / 'cache'
+        cache_dir.mkdir()
+        cached_file = cache_dir / 'mold-3.0.0-x86_64-linux.tar.gz'
+        cached_file.write_bytes(b'corrupted content')
+
+        def fake_download(dest, arch, chk):
+            dest.write_bytes(archive.read_bytes())
+
+        with self.release(checksum), patch.object(MOLD, 'smoke', return_value=0.1), \
+                patch.object(MOLD, 'download_release_archive', side_effect=fake_download) as download:
+            report = MOLD.install(self.install_dir, cache_dir=cache_dir)
+        download.assert_called_once()
+        self.assertFalse(report['cache_hit'])
+        self.assertEqual(hashlib.sha256(cached_file.read_bytes()).hexdigest(), checksum)
+        self.assertIn('cache-hit=false\n', self.output_file.read_text())
+
+    def test_cache_miss_populates_cache_directory(self):
+        archive, checksum = self.archive()
+        cache_dir = self.root / 'new_cache'
+
+        def fake_download(dest, arch, chk):
+            dest.write_bytes(archive.read_bytes())
+
+        with self.release(checksum), patch.object(MOLD, 'smoke', return_value=0.1), \
+                patch.object(MOLD, 'download_release_archive', side_effect=fake_download) as download:
+            report = MOLD.install(self.install_dir, cache_dir=cache_dir)
+        download.assert_called_once()
+        self.assertFalse(report['cache_hit'])
+        cached_file = cache_dir / 'mold-3.0.0-x86_64-linux.tar.gz'
+        self.assertTrue(cached_file.is_file())
+        self.assertEqual(hashlib.sha256(cached_file.read_bytes()).hexdigest(), checksum)
+
+    def test_env_var_cache_dir_respected(self):
+        archive, checksum = self.archive()
+        cache_dir = self.root / 'env_cache'
+        cache_dir.mkdir()
+        cached_file = cache_dir / 'mold-3.0.0-x86_64-linux.tar.gz'
+        cached_file.write_bytes(archive.read_bytes())
+        with self.release(checksum), patch.object(MOLD, 'smoke', return_value=0.1), \
+                patch.dict(os.environ, {'OASIS7_MOLD_CACHE_DIR': str(cache_dir)}), \
+                patch.object(MOLD, 'download_release_archive') as download:
+            report = MOLD.install(self.install_dir)
+        download.assert_not_called()
+        self.assertTrue(report['cache_hit'])
+
 
 if __name__ == '__main__':
     unittest.main()

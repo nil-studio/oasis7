@@ -10,11 +10,20 @@ outputs:
   setup-seconds:
     description: Download, installation and smoke-check elapsed seconds
     value: ${{ steps.mold.outputs.setup-seconds }}
+  cache-hit:
+    description: Whether mold was restored from internal archive cache
+    value: ${{ steps.mold.outputs.cache-hit }}
 runs:
   using: composite
   steps:
+    - name: Cache pinned mold release archive
+      if: runner.os == 'Linux'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/oasis7-mold-cache
+        key: mold-archive-v3.0.0-${{ runner.arch }}-v1
     - name: Install and verify Linux mold
       id: mold
       if: runner.os == 'Linux'
       shell: bash
-      run: python3 "${{ github.action_path }}/setup.py"
+      run: python3 "${{ github.action_path }}/setup.py" --cache-dir "${{ runner.temp }}/oasis7-mold-cache"
