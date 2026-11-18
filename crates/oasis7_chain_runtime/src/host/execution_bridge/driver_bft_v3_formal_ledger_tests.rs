@@ -497,12 +497,23 @@ fn committed_archive() {
         material_identity: "34".repeat(32),
     };
     let input = fixture(&h);
-    let (height, id) = target(&input);
+    let (later_height, later_id) = target(&input);
+    let original_cut = &input.entries()[input.entries().len() - 2].certificate;
+    let height = original_cut.execution_commitment.height;
+    let id = original_cut.header.block_id().unwrap();
+    assert_eq!(height + 1, later_height);
+
     let root = Scratch::new();
     let store = cas(root.path());
-    let durable = open(&h, root.path(), &store, true)
+    open(&h, root.path(), &store, true)
         .unwrap()
-        .install_prefix(&input, height, &id)
+        .install_prefix(&input, later_height, &later_id)
+        .unwrap();
+    // The complete live ledger contains a later certified record. The
+    // archive and publication plan use only records through the chosen cut.
+    let durable = open(&h, root.path(), &store, false)
+        .unwrap()
+        .verified_cut(height, &id)
         .unwrap();
     let destination = Scratch::new();
     let archive = LocalBftSuccessorArchiveStoreV1::new(cas(destination.path())).unwrap();
@@ -528,7 +539,7 @@ fn committed_archive() {
         EMPTY_ACTIONS_CBOR.to_vec(),
         Some("extra"),
     );
-    let altered_metadata = ["snapshot", "journal", "derived"].map(|kind| {
+    let altered_metadata = ["snapshot", "journal", "derived", "publication"].map(|kind| {
         let (candidate, _, _) = original_ledger.fixture_archived_candidate(
             &archive,
             &source,
@@ -637,6 +648,7 @@ fn committed_archive() {
     let result = serde_json::to_value(result).unwrap();
     assert_eq!(result["header_id"], expected_header);
     assert_eq!(result["semantic_state_root"], expected_root);
+    assert!(result["publication_bytes"].as_u64().unwrap() > 0);
 
     let run_cli = |archive_config: &Path| {
         crate::identity_receipt::dispatch(
@@ -692,7 +704,11 @@ fn committed_archive() {
         let invalid = write_config("altered-metadata.json", archive_options.clone());
         let error = run_cli(&invalid).unwrap_err();
         assert!(
-            error.contains("original publication metadata differs from actual execution"),
+            error.contains(if kind == "publication" {
+                "original publication bound differs from actual preparation"
+            } else {
+                "original publication metadata differs from actual execution"
+            }),
             "{kind}: {error}"
         );
     }
