@@ -873,7 +873,7 @@ pub(crate) use self::driver::NodeRuntimeExecutionDriver;
 pub(super) use self::driver::derive_local_execution_bootstrap;
 #[cfg(all(unix, not(target_arch = "wasm32")))]
 pub(crate) use self::driver::{
-    FormalBftHeaderExecutionV3, FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3,
+    CommittedPrefixArchiveRefV1, FormalBftHeaderExecutionV3, FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3, ReplayedCommittedPrefixV1,
     FormalBftPrefixExecutionV1, FormalBftReadExecutionV1, PRIVATE_HEADER_PREFIX_MAX_BYTES_V3,
     PrivateHeaderPrefixV3,
 };

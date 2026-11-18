@@ -29,9 +29,9 @@ mod storage;
 #[path = "driver_bft_v2.rs"]
 mod v2;
 pub(crate) use v2::{
-    BftExecutionStateV2, FormalBftHeaderExecutionV3, FormalBftHeaderLedgerExecutionV3,
+    BftExecutionStateV2, CommittedPrefixArchiveRefV1, FormalBftHeaderExecutionV3, FormalBftHeaderLedgerExecutionV3,
     FormalBftHeaderNodeDriverV3, FormalBftPrefixExecutionV1, FormalBftReadExecutionV1,
-    PRIVATE_HEADER_PREFIX_MAX_BYTES_V3, PrivateHeaderPrefixV3,
+    PRIVATE_HEADER_PREFIX_MAX_BYTES_V3, PrivateHeaderPrefixV3, ReplayedCommittedPrefixV1,
 };
 
 const BFT_EXECUTION_TICK_AUTHORITY: &str = "system:bft-execution-v1";

@@ -38,7 +38,7 @@ mod governance;
 #[path = "driver_bft_v2_storage.rs"]
 mod storage;
 pub(crate) use formal_read::{
-    FormalBftHeaderExecutionV3, FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3,
+    CommittedPrefixArchiveRefV1, FormalBftHeaderExecutionV3, FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3, ReplayedCommittedPrefixV1,
     FormalBftPrefixExecutionV1, FormalBftReadExecutionV1, PRIVATE_HEADER_PREFIX_MAX_BYTES_V3,
     PrivateHeaderPrefixV3,
 };
