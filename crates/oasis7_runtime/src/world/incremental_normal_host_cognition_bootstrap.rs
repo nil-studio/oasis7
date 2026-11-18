@@ -44,7 +44,7 @@ pub struct PaidNormalHostCognitionParentSourcesV1 {
     fee: MemoryReservation,
 }
 
-fn validate_ledger(
+pub(super) fn validate_ledger(
     parent: &ReservedValue<BoundNormalTickParentV1<'_>>,
     ledger: &ReservedValue<AcceptedCognitionProofLedgerV1>,
     common: &mut FormalBoundedContextV1<'_>,

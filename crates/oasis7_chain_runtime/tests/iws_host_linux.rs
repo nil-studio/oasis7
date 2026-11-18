@@ -379,8 +379,9 @@ fn real_linux_nonempty_node_commit_reopens_cold_and_commits_again() {
         "oasis7.iws.nonempty_normal_cold.fixture.v1"
     );
     assert_eq!(receipt["old_pool_used_after_drop"], 0);
-    assert_eq!(receipt["final_sender_electricity"], 2);
-    for phase in ["first_node", "second_node"] {
+    assert_eq!(receipt["second_sender_electricity"], 2);
+    assert_eq!(receipt["final_sender_electricity"], 1);
+    for phase in ["first_node", "second_node", "third_node"] {
         assert_eq!(receipt[phase]["fresh_captures"], 1);
         assert_eq!(receipt[phase]["runtime_advances"], 1);
         assert_eq!(receipt[phase]["actual_cancelled_responses"], 1);
@@ -396,6 +397,7 @@ fn real_linux_nonempty_node_commit_reopens_cold_and_commits_again() {
         serde_json::json!([3, 2])
     );
     assert_eq!(receipt["second"]["fifo_transfers"], serde_json::json!([1]));
+    assert_eq!(receipt["third"]["fifo_transfers"], serde_json::json!([1]));
     eprintln!("{}", String::from_utf8_lossy(&result.stderr));
     eprintln!("{}", serde_json::to_string_pretty(&receipt).unwrap());
 }

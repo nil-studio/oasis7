@@ -8,6 +8,9 @@ use crate::world::{
 use oasis7_formal_protocol::incremental_execution::{ExecutionParent, TransactionLimits};
 pub enum NormalHostCognitionParentSourcesV1<'a> {
     Absent,
+    /// Use the actual cache retained by accepted ordinary resident promotion.
+    /// GEN/cold Built residents cannot select this branch.
+    Resident,
     Present { accepted:&'a ReservedValue<oasis7_world_state::incremental_cognition_proof_ledger::AcceptedCognitionProofLedgerV1>, evidence:&'a ReservedValue<crate::world::incremental_normal_cognition_service_evidence::AcceptedCognitionWakeEvidenceV2> },
 }
 pub struct PreparedNormalHostRuntimeV1 {
@@ -168,6 +171,12 @@ where
     let directories = resident
         .tail_directories_v1(parent, common)
         .map_err(NormalHostFixedFailureV1::body)?;
+    let cognition = match cognition {
+        NormalHostCognitionParentSourcesV1::Resident => resident
+            .warm_cognition_sources_v1(parent, common)
+            .map_err(NormalHostFixedFailureV1::body)?,
+        source => source,
+    };
     // Pay the sole bounded RootSet clone, then derive all identity from genuine
     // parent/input owners. Limits are caller resources, never qualifications.
     common
@@ -203,7 +212,19 @@ where
         },
     )
     .map_err(|e| NormalHostFixedFailureV1::body(e.into()))?;
-    let current_ledger=match &cognition { NormalHostCognitionParentSourcesV1::Absent=>None, NormalHostCognitionParentSourcesV1::Present{accepted,..}=>Some(oasis7_world_state::incremental_cognition_proof_ledger::begin_cognition_proof_ledger_current_v1(accepted,parent.refs().head,&mut tx,common,&live_owner()).map_err(|e|NormalHostFixedFailureV1::body(e.into()))?) };
+    let current_ledger = match &cognition {
+        NormalHostCognitionParentSourcesV1::Absent => None,
+        NormalHostCognitionParentSourcesV1::Present { accepted, .. } => Some(
+            oasis7_world_state::incremental_cognition_proof_ledger::begin_cognition_proof_ledger_current_v1(
+                accepted, parent.refs().head, &mut tx, common, &live_owner(),
+            ).map_err(|error| NormalHostFixedFailureV1::body(error.into()))?,
+        ),
+        NormalHostCognitionParentSourcesV1::Resident => {
+            return Err(NormalHostFixedFailureV1::body(BodyMutationError::Invalid(
+                "normal Cognition resident was not resolved",
+            )));
+        }
+    };
     let cognition = match (cognition, current_ledger.as_ref()) {
         (NormalHostCognitionParentSourcesV1::Absent, None) => {
             NormalTailCognitionInputsV1::NoSources

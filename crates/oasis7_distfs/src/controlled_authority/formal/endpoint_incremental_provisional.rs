@@ -54,6 +54,10 @@ pub(super) struct PreparedCandidateInstall {
     cognition: PreparedCompleteCognitionHistoryPromotionV3,
     runtime: PreparedRuntimeHistorySourceV1,
     ledger: Option<oasis7_world_state::incremental_cognition_proof_ledger::PreparedCognitionProofLedgerPromotionV1>,
+    // The actual checked owner remains available to the bounded preaccept
+    // consumer. Finish still promotes the separately prepared owner only after
+    // the genuine Formal commit, then releases this original checked source.
+    checked_ledger: Option<ReservedValue<oasis7_world_state::incremental_cognition_proof_ledger::CheckedCognitionProofLedgerV1>>,
     retention: Option<oasis7_world_state::incremental_cognition_retention_ledger::PreparedCognitionRetentionLedgerPromotionV1>,
     complete_data: Option<ReservedValue<super::closure::CompleteDataClosureEvidenceV1>>,
     local_closure: Option<super::local_closure::PreparedLocalDataClosureV1>,
@@ -133,7 +137,7 @@ impl PreparedCandidateInstall {
                 return Err(super::invalid("IWS ProofLedger exact candidate occurrence"));
             }
         }
-        let ledger=ledger.as_ref().map(|value|oasis7_world_state::incremental_cognition_proof_ledger::prepare_cognition_proof_ledger_promotion_v1(value,memory,&mut cancelled).map_err(|e|super::invalid(format!("IWS prepare ProofLedger: {e:?}")))).transpose()?;
+        let prepared_ledger=ledger.as_ref().map(|value|oasis7_world_state::incremental_cognition_proof_ledger::prepare_cognition_proof_ledger_promotion_v1(value,memory,&mut cancelled).map_err(|e|super::invalid(format!("IWS prepare ProofLedger: {e:?}")))).transpose()?;
         if provisional.core.retention_ledger_artifact_id().is_some() != retention.is_some() {
             return Err(super::invalid("IWS signed retention role selection"));
         }
@@ -183,7 +187,8 @@ impl PreparedCandidateInstall {
             roots,
             cognition,
             runtime,
-            ledger,
+            ledger: prepared_ledger,
+            checked_ledger: ledger,
             retention,
             complete_data: None,
             local_closure: None,
@@ -460,17 +465,12 @@ impl PreparedCandidateInstall {
 impl PreparedCandidateInstall {
     pub(super) fn normal_candidate_read_sources_v1(
         &self,
-    ) -> (
-        &ReservedValue<CheckedCommitCore>,
-        &ReservedValue<
-            oasis7_world_state::incremental_world_storage_source::CheckedWorldStorageSourceV1,
-        >,
-        &ReservedValue<oasis7_formal_protocol::incremental_execution::RootSetV1>,
-    ) {
+    ) -> super::jobs::NormalCandidateReadSources<'_> {
         (
             &self.provisional.core,
             &self.provisional.source,
             &self.roots,
+            self.checked_ledger.as_ref(),
         )
     }
 }

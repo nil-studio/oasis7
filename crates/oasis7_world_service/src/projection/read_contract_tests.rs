@@ -17,7 +17,13 @@ fn populated_world() -> World {
 #[cfg(feature = "test_tier_full")]
 #[test]
 fn actual_genesis_projection_matches_original_owner_delegate_commitment() {
-    let world = populated_world();
+    // GEN needs the real originals of the seed's still-present mailbox. Keep
+    // that original Journal while retaining the same rich projection fields.
+    let world = populated_world_with_source("read-world", |seed, state| {
+        let mut snapshot = seed.snapshot();
+        snapshot.state = state;
+        World::from_snapshot(snapshot, seed.journal().clone()).unwrap()
+    });
     let tree = commitments_for_world(&world).unwrap();
     for audience in [
         ProjectionAudienceV1::public(),
@@ -30,6 +36,12 @@ fn actual_genesis_projection_matches_original_owner_delegate_commitment() {
     oasis7_runtime::incremental_genesis_projection::assert_genesis_projection_matches_original_for_test_v1(&world, &tree.root().unwrap());
 }
 pub(super) fn populated_world_with_binding(world_id: &str) -> World {
+    populated_world_with_source(world_id, |_, state| World::new_with_state(state))
+}
+fn populated_world_with_source(
+    world_id: &str,
+    source: impl FnOnce(&World, oasis7_world_state::WorldState) -> World,
+) -> World {
     let mut seed = World::new();
     seed.submit_action(oasis7_runtime::Action::RegisterAgent {
         agent_id: "7".into(),
@@ -59,7 +71,7 @@ pub(super) fn populated_world_with_binding(world_id: &str) -> World {
         "proposal_key":"7", "votes_by_agent":{}, "tallies":{"007":1},
         "total_weight":1, "last_updated_at":1
     });
-    let mut world = World::new_with_state(serde_json::from_value(state).unwrap());
+    let mut world = source(&seed, serde_json::from_value(state).unwrap());
     world
         .bind_cognition_runtime(world_id, "main", 0, None, "pending", 0)
         .unwrap();

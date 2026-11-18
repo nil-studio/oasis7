@@ -50,9 +50,9 @@ use oasis7_world_state::{
 
 #[path = "incremental_normal_host_work_builder.rs"]
 mod builder;
-pub use builder::{NormalHostLaneLimitsV1, NormalHostWorkLimitsV1};
 #[cfg(any(test, feature = "test_tier_required"))]
 pub use builder::two_agent_host_work_limits_v1;
+pub use builder::{NormalHostLaneLimitsV1, NormalHostWorkLimitsV1};
 
 /// Independent caller-provided logical IO lanes are not copies of one balance.
 /// Each borrowed context returns to the very same counters on Err and unwind.
@@ -572,6 +572,8 @@ where
                 parent,
                 product_delivery,
                 work.final_sources,
+                &mut work.tail.cognition,
+                &mut work.tail.path,
                 work.finish_cut,
                 caches,
                 compiler,

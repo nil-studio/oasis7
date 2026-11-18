@@ -220,6 +220,34 @@ pub(crate) struct StoreSessions<'a> {
     pin: Arc<ReservedValue<StoreLease>>,
 }
 impl<'a> StoreSessions<'a> {
+    #[cfg(all(test, unix))]
+    pub(crate) fn panic_while_holding_publish_io_for_test(&self) {
+        let _io = self
+            .state
+            .publisher
+            .io
+            .lock()
+            .expect("unpoisoned publisher IO");
+        std::panic::panic_any(211u64);
+    }
+    /// Read only at the end of the private candidate loan, before these exact
+    /// sessions are dropped. No caller can turn this observation into a reader.
+    pub(crate) fn remaining_publish_io(&self) -> Result<PageIoBudget, FormalError> {
+        self.state
+            .publisher
+            .io
+            .lock()
+            .map(|io| io.clone())
+            .map_err(|_| invalid("closure publisher work lock"))
+    }
+    pub(crate) fn remaining_memo_steps(&self) -> Result<u64, FormalError> {
+        self.state
+            .publisher
+            .memo_steps
+            .lock()
+            .map(|steps| *steps)
+            .map_err(|_| invalid("closure memo work lock"))
+    }
     pub(crate) fn new(
         pages: &'a IncrementalPageStore,
         state_io: PageIoBudget,

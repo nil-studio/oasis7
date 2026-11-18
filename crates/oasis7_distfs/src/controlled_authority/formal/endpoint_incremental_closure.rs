@@ -43,6 +43,9 @@ mod catalog;
 mod evidence;
 #[path = "endpoint_incremental_closure_originals.rs"]
 mod originals;
-pub(super) use evidence::{CompleteDataClosureEvidenceV1, consume_candidate_data_closure_v1};
+pub(super) use evidence::{
+    CompleteDataClosureEvidenceV1, consume_candidate_data_closure_v1,
+    consume_candidate_data_closure_with_work_v1,
+};
 
 pub(super) use evidence::qualify_cold_complete_data_v1;

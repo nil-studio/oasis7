@@ -9,17 +9,64 @@ struct Staged {
     install: PreparedCandidateInstall,
     material: [u8; 32],
     hash_bytes: u64,
+    return_hash_work: bool,
     memory: oasis7_proto::memory_budget::MemoryBudget,
+}
+struct ReturnedHashWork {
+    record: [u8; 32],
+    bytes: u64,
 }
 pub(super) struct EndpointIwsState {
     staged: RefCell<Option<Staged>>,
     accepted: RefCell<Option<AcceptedCandidateCache>>,
+    returned_hash_work: RefCell<Option<ReturnedHashWork>>,
+}
+
+#[cfg(test)]
+mod returned_work_tests {
+    use super::*;
+
+    #[test]
+    fn returned_hash_account_is_record_bound_and_consumed_once() {
+        let jobs = EndpointIwsState::new();
+        let record = [7; 32];
+        // A private bookkeeping fixture only; it creates no accepted source,
+        // quorum, current qualification or public access to this work slot.
+        *jobs.returned_hash_work.borrow_mut() = Some(ReturnedHashWork { record, bytes: 19 });
+        let mut target = 0;
+        assert!(jobs.return_source_hash_work([8; 32], &mut target).is_err());
+        assert_eq!(target, 0);
+        let mut occupied = 1;
+        assert!(jobs.return_source_hash_work(record, &mut occupied).is_err());
+        assert_eq!(occupied, 1);
+        jobs.return_source_hash_work(record, &mut target).unwrap();
+        assert_eq!(target, 19);
+        let mut second = 0;
+        assert!(jobs.return_source_hash_work(record, &mut second).is_err());
+        assert_eq!(second, 0);
+    }
+
+    #[test]
+    fn unavailable_returned_account_never_restores_a_ceiling() {
+        let jobs = EndpointIwsState::new();
+        let record = [9; 32];
+        let mut target = 0;
+        assert!(jobs.return_source_hash_work(record, &mut target).is_err());
+        *jobs.returned_hash_work.borrow_mut() = Some(ReturnedHashWork { record, bytes: 0 });
+        let held = jobs.returned_hash_work.borrow_mut();
+        assert!(jobs.return_source_hash_work(record, &mut target).is_err());
+        assert_eq!(target, 0);
+        drop(held);
+        jobs.return_source_hash_work(record, &mut target).unwrap();
+        assert_eq!(target, 0, "an exhausted staged account remains exhausted");
+    }
 }
 impl EndpointIwsState {
     pub(super) fn new() -> Self {
         Self {
             staged: RefCell::new(None),
             accepted: RefCell::new(None),
+            returned_hash_work: RefCell::new(None),
         }
     }
     pub(super) fn stage(
@@ -28,6 +75,7 @@ impl EndpointIwsState {
         memory: &oasis7_proto::memory_budget::MemoryBudget,
         install: PreparedCandidateInstall,
         hash_bytes: &mut u64,
+        return_hash_work: bool,
         cancelled: &mut impl FnMut() -> bool,
     ) -> Result<(), FormalError> {
         let mut slot = self
@@ -36,6 +84,16 @@ impl EndpointIwsState {
             .map_err(|_| invalid("IWS candidate job borrow"))?;
         if slot.is_some() {
             return Err(invalid("IWS candidate job already staged"));
+        }
+        if self
+            .returned_hash_work
+            .try_borrow()
+            .map_err(|_| invalid("IWS returned source work borrowed"))?
+            .is_some()
+        {
+            return Err(invalid(
+                "IWS accepted source work must be returned before staging",
+            ));
         }
         let record = install.candidate_record_id();
         let _phase = memory
@@ -46,7 +104,10 @@ impl EndpointIwsState {
             record,
             install,
             material,
-            hash_bytes: *hash_bytes,
+            // All subsequent exact-material checks spend this one account.
+            // The outer work cannot also spend its staged remainder.
+            hash_bytes: std::mem::take(hash_bytes),
+            return_hash_work,
             memory: memory.clone(),
         });
         Ok(())
@@ -143,11 +204,43 @@ impl EndpointIwsState {
             .accepted
             .try_borrow_mut()
             .map_err(|_| invalid("IWS accepted cache borrow"))?;
+        let mut returned = self
+            .returned_hash_work
+            .try_borrow_mut()
+            .map_err(|_| invalid("IWS returned source work borrowed"))?;
+        if returned.is_some() {
+            return Err(invalid("IWS accepted source work already retained"));
+        }
         let candidate = staged
             .take()
             .ok_or_else(|| invalid("IWS missing staged candidate"))?;
+        let remaining = candidate.return_hash_work.then_some(ReturnedHashWork {
+            record,
+            bytes: candidate.hash_bytes,
+        });
         let cache = candidate.install.finish(commit)?;
         *accepted = Some(cache);
+        *returned = remaining;
+        Ok(())
+    }
+    /// Only a real accepted source may return the exact staged account. The
+    /// zero outer lane is the hole left by stage's move, never a fresh ceiling.
+    pub(super) fn return_source_hash_work(
+        &self,
+        record: [u8; 32],
+        target: &mut u64,
+    ) -> Result<(), FormalError> {
+        let mut returned = self
+            .returned_hash_work
+            .try_borrow_mut()
+            .map_err(|_| invalid("IWS returned source work borrowed"))?;
+        let remaining = returned
+            .as_ref()
+            .ok_or_else(|| invalid("IWS accepted source work missing"))?;
+        if remaining.record != record || *target != 0 {
+            return Err(invalid("IWS accepted source work exact record/empty lane"));
+        }
+        *target = returned.take().expect("checked original source work").bytes;
         Ok(())
     }
 }
@@ -428,6 +521,11 @@ pub(super) type NormalCandidateReadSources<'a> = (
     >,
     &'a oasis7_proto::memory_budget::ReservedValue<
         oasis7_formal_protocol::incremental_execution::RootSetV1,
+    >,
+    Option<
+        &'a oasis7_proto::memory_budget::ReservedValue<
+            oasis7_world_state::incremental_cognition_proof_ledger::CheckedCognitionProofLedgerV1,
+        >,
     >,
 );
 

@@ -28,6 +28,21 @@ pub struct PaidAcceptedGenesisHostSourceV1 {
     predecessor_fence: Option<ExecutionFence>,
 }
 impl PaidAcceptedGenesisHostSourceV1 {
+    pub(in crate::controlled_authority::formal::endpoint) fn return_candidate_hash_work_bounded(
+        &self,
+        target: &mut u64,
+        memory: &MemoryBudget,
+        work: &FormalArchiveReadWorkV1,
+        stop: &mut dyn FnMut() -> bool,
+    ) -> Result<(), FormalError> {
+        self.validate_context(&mut work.bounded_context(memory, stop))?;
+        self.endpoint
+            .iws_page_store
+            .as_ref()
+            .ok_or_else(|| invalid("Host accepted source page capability"))?
+            .jobs
+            .return_source_hash_work(self.record, target)
+    }
     pub fn endpoint_role(&self) -> EndpointRole {
         self.endpoint.role
     }

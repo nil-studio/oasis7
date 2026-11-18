@@ -1,11 +1,11 @@
-//! One real native ELF exercises GEN, nonempty Node commits and strict Cold.
+//! One real native ELF exercises GEN, nonempty Node commits, strict Cold and Warm.
 //! Only fixture observation DATA crosses the complete old-owner release point.
 use super::native_cold_test_support::{
     ColdFixtureInputV1, ColdFixtureProcessV1, ColdFixtureWorkV1, reopen_host_bounded,
     selected_fact_hints_bounded,
 };
 use super::native_node_test_support::{
-    NativeNodeOwnersV1, NativeNodeSettingsV1, run_native_node_tick_v1,
+    NativeNodeCognitionV1, NativeNodeOwnersV1, NativeNodeSettingsV1, run_native_node_tick_v1,
 };
 use super::native_observe_test_support::{
     HostObservationV1, HostObservationWorkV1, observe_current_bounded,
@@ -300,7 +300,7 @@ pub(crate) fn run(root: &Path) -> Result<Vec<u8>, String> {
                 work,
             },
             first_settings,
-            cognition,
+            NativeNodeCognitionV1::Startup(cognition),
             &[3, 2],
         )?;
         let NativeNodeOwnersV1 {
@@ -533,7 +533,7 @@ pub(crate) fn run(root: &Path) -> Result<Vec<u8>, String> {
                 work,
             },
             second_settings,
-            cognition,
+            NativeNodeCognitionV1::Startup(cognition),
             &[1],
         )?;
         let NativeNodeOwnersV1 {
@@ -569,22 +569,85 @@ pub(crate) fn run(root: &Path) -> Result<Vec<u8>, String> {
         if summary(&second)? != summary(&second_other)? || balances(&second)?[0] != 2 {
             return Err("second actual dual acceptance/balance differs".into());
         }
+        let after_second = balances(&second)?;
+        drop(second);
+        drop(second_other);
+        eprintln!("REAL_SECOND_NONEMPTY_NODE_ACCEPTED height=2 sender=2");
+        let before_warm_common = [archive.remaining_steps(), archive.remaining_read_bytes()];
+        // Continue from the returned accepted Hosts and their remaining work.
+        // The resident holds the actual terminal Cognition delta from the
+        // preceding acceptance; no GEN/Cold scan or work factory runs here.
+        let (owners, third_settings, third_node) = run_native_node_tick_v1(
+            NativeNodeOwnersV1 {
+                primary,
+                replica,
+                memory,
+                archive,
+                work,
+            },
+            second_settings,
+            NativeNodeCognitionV1::Resident,
+            &[1],
+        )?;
+        let after_warm_common = [
+            owners.archive.remaining_steps(),
+            owners.archive.remaining_read_bytes(),
+        ];
+        if after_warm_common[0] >= before_warm_common[0]
+            || after_warm_common[1] >= before_warm_common[1]
+        {
+            return Err("warm tick did not debit the original remaining Common".into());
+        }
+        let NativeNodeOwnersV1 {
+            primary,
+            replica,
+            memory,
+            archive,
+            work,
+        } = owners;
+        let third = observe_current_bounded(
+            &primary,
+            "sender",
+            "receiver",
+            transaction,
+            &mut observe_work,
+            &memory,
+            &archive,
+            &stop,
+        )
+        .map_err(diagnostic)?;
+        let third_other = observe_current_bounded(
+            &replica,
+            "sender",
+            "receiver",
+            transaction,
+            &mut observe_work,
+            &memory,
+            &archive,
+            &stop,
+        )
+        .map_err(diagnostic)?;
+        let third_receipt = verify_tick(&third, after_second, &[1], 3, 6)?;
+        if summary(&third)? != summary(&third_other)? || balances(&third)?[0] != 1 {
+            return Err("warm actual dual acceptance/balance differs".into());
+        }
         let result = serde_json::json!({"schema":"oasis7.iws.nonempty_normal_cold.fixture.v1",
             "seed":seed_receipt,"genesis":genesis_observation,"first_node":first_node,"first":first_receipt,
             "old_pool_used_after_drop":0,"first_remaining_common":first_remaining,"cold":cold_summary,
-            "second_node":second_node,"second":second_receipt,"final_sender_electricity":2,
-            "cold_remaining_common":[archive.remaining_steps(),archive.remaining_read_bytes()]});
-        drop(second);
-        drop(second_other);
+            "second_node":second_node,"second":second_receipt,"second_sender_electricity":2,
+            "third_node":third_node,"third":third_receipt,"final_sender_electricity":1,
+            "cold_remaining_common":before_warm_common,"warm_remaining_common":after_warm_common});
+        drop(third);
+        drop(third_other);
         drop(observe_work);
-        drop(second_settings);
+        drop(third_settings);
         drop(primary);
         drop(replica);
         drop(work);
         drop(archive);
         // Remaining partially moved cold work has no authority and is released
         // at scope end; the first complete-release check is the cold boundary.
-        eprintln!("REAL_SECOND_NONEMPTY_NODE_ACCEPTED height=2 sender=2");
+        eprintln!("REAL_WARM_NONEMPTY_NODE_ACCEPTED height=3 sender=1");
         serde_json::to_vec_pretty(&result).map_err(diagnostic)
     })
 }

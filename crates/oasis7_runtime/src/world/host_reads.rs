@@ -103,6 +103,7 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use oasis7_world_state::{DomainEvent, WorldEvent, WorldEventBody};
 
     #[test]
     fn formal_projection_raw_counters_match_snapshot_at_wrap_and_empty_journal() {

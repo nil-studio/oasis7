@@ -331,6 +331,51 @@ pub struct PaidNormalAcceptedPairV1 {
     _outer: MemoryReservation,
 }
 impl PaidNormalAcceptedPairV1 {
+    /// Move the original hash accounts back only after both real accepted
+    /// sources exist. All staged Ready/readview/Qualified checks have finished;
+    /// these DATA counters cannot create or replace any acceptance owner.
+    pub fn return_source_work_bounded(
+        &mut self,
+        primary_work: &mut Option<
+            crate::controlled_authority::formal::endpoint::incremental::IwsCandidateSourceWorkV1,
+        >,
+        replica_work: &mut Option<
+            crate::controlled_authority::formal::endpoint::incremental::IwsCandidateSourceWorkV1,
+        >,
+        memory: &MemoryBudget,
+        work: &FormalArchiveReadWorkV1,
+        stop: &mut dyn FnMut() -> bool,
+    ) -> Result<(), FormalError> {
+        self.quorum
+            .validate_context(&mut work.bounded_context(memory, stop))?;
+        let record = self.quorum.verified().verified_record_id();
+        if !self.primary.uses_budget(memory)
+            || !self.replica.uses_budget(memory)
+            || !self._outer.uses_budget(memory)
+            || self.primary.record_id() != record
+            || self.replica.record_id() != record
+        {
+            return Err(invalid("normal returned source work actual accepted pair"));
+        }
+        let primary = primary_work
+            .as_mut()
+            .ok_or_else(|| invalid("normal primary source work owner missing"))?;
+        let replica = replica_work
+            .as_mut()
+            .ok_or_else(|| invalid("normal replica source work owner missing"))?;
+        self.primary.return_candidate_hash_work_bounded(
+            &mut primary.history_hash_bytes,
+            memory,
+            work,
+            stop,
+        )?;
+        self.replica.return_candidate_hash_work_bounded(
+            &mut replica.history_hash_bytes,
+            memory,
+            work,
+            stop,
+        )
+    }
     pub fn into_sources(
         self,
     ) -> (
@@ -702,9 +747,8 @@ fn stage_source(
     };
     if !already {
         let supplied = source_work
-            .take()
+            .as_mut()
             .ok_or_else(|| invalid("normal stage explicit continuous source work required"))?;
-        endpoint.supply_iws_candidate_work(supplied)?;
         // The original complete Core/Current/dualHistory/router/original fsync and
         // genuine local closure pipeline creates the only PreparedCandidateInstall.
         let stopped = std::cell::RefCell::new(&mut *stop);
@@ -718,9 +762,10 @@ fn stage_source(
                     )
                 })
         };
-        let result = endpoint.verify_iws_page_backed_material(
+        let result = endpoint.verify_iws_page_backed_material_with_work(
             candidate,
             context.value(),
+            supplied,
             Some(&mut catalog_work),
             &mut || (*stopped.borrow_mut())(),
         );
@@ -742,8 +787,8 @@ fn stage_source(
 }
 impl PaidNormalFrozenPairV1 {
     /// Actual full-source staging on the same two consumed endpoints and FDs.
-    /// Unused supplied work stays in its original Option; no allowance is cloned,
-    /// initialized or reset on a cached retry.
+    /// Supplied work stays in its original Option, with its real remaining
+    /// accounts. No allowance is cloned, initialized or reset on a cached retry.
     pub fn stage_normal_candidate_sources_bounded(
         &mut self,
         candidate: &FormalCandidateMaterialV1,

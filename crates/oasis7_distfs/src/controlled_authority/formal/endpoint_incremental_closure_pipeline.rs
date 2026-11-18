@@ -8,10 +8,77 @@ use oasis7_formal_protocol::incremental_material::{
 };
 use oasis7_formal_protocol::incremental_state::StateScanBudget;
 use oasis7_formal_protocol::incremental_value::{ValueIoBudget, ValueReadContext};
+
+#[path = "endpoint_incremental_closure_work.rs"]
+mod continuing_work;
+
+/// Legacy one-candidate supply keeps its consuming API. The normal carrier
+/// instead borrows its existing accounts through the entry below.
 pub(crate) fn consume_candidate_data_closure_v1(
     endpoint: &FileFormalEndpoint,
     candidate: &FormalCandidateMaterialV1,
     context: &VerifiedCandidateContextV1,
+    catalog_work: Option<&mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>>,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<(), FormalError> {
+    let capability = endpoint
+        .iws_page_store
+        .as_ref()
+        .ok_or_else(|| invalid("IWS endpoint page-store capability missing"))?;
+    capability
+        .current_limits
+        .as_ref()
+        .ok_or_else(|| invalid("IWS complete Current limits required"))?;
+    let mut source_work = capability
+        .source_work
+        .try_borrow_mut()
+        .map_err(|_| invalid("IWS source work slot borrowed"))?
+        .take()
+        .ok_or_else(|| invalid("IWS explicit candidate source work required"))?;
+    let settlement = continuing_work::Settlement::default();
+    let result = consume_with_work(
+        endpoint,
+        candidate,
+        context,
+        &mut source_work,
+        false,
+        &settlement,
+        catalog_work,
+        cancelled,
+    );
+    settlement.finish(result)
+}
+
+pub(crate) fn consume_candidate_data_closure_with_work_v1(
+    endpoint: &FileFormalEndpoint,
+    candidate: &FormalCandidateMaterialV1,
+    context: &VerifiedCandidateContextV1,
+    source_work: &mut IwsCandidateSourceWorkV1,
+    catalog_work: Option<&mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>>,
+    cancelled: &mut impl FnMut() -> bool,
+) -> Result<(), FormalError> {
+    let settlement = continuing_work::Settlement::default();
+    let result = consume_with_work(
+        endpoint,
+        candidate,
+        context,
+        source_work,
+        true,
+        &settlement,
+        catalog_work,
+        cancelled,
+    );
+    settlement.finish(result)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn consume_with_work(
+    endpoint: &FileFormalEndpoint,
+    candidate: &FormalCandidateMaterialV1,
+    context: &VerifiedCandidateContextV1,
+    source_work: &mut IwsCandidateSourceWorkV1,
+    return_source_hash_work: bool,
+    settlement: &continuing_work::Settlement,
     catalog_work: Option<&mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>>,
     cancelled: &mut impl FnMut() -> bool,
 ) -> Result<(), FormalError> {
@@ -26,12 +93,6 @@ pub(crate) fn consume_candidate_data_closure_v1(
         .current_limits
         .as_ref()
         .ok_or_else(|| invalid("IWS complete Current limits required"))?;
-    let mut source_work = capability
-        .source_work
-        .try_borrow_mut()
-        .map_err(|_| invalid("IWS source work slot borrowed"))?
-        .take()
-        .ok_or_else(|| invalid("IWS explicit candidate source work required"))?;
     let mut original_pages = limits.original_page_io.clone();
     let physical_cancelled = std::sync::atomic::AtomicBool::new(false);
     // This API supplies cooperative polling, not an externally shared
@@ -83,16 +144,16 @@ pub(crate) fn consume_candidate_data_closure_v1(
         class: MemoryClass::Ordinary,
         cancelled: &physical_cancelled,
     };
-    let mut original_sync_work = super::super::originals::DurableOriginalWorkV1 {
-        occurrences_remaining: source_work.original_sync_occurrences,
-        bytes_remaining: source_work.original_sync_bytes,
-    };
+    let mut original_sync_work = continuing_work::OriginalsLoan::new(
+        &mut source_work.original_sync_occurrences,
+        &mut source_work.original_sync_bytes,
+    );
     let mut objects = super::super::originals::DurableOriginalsV1 {
         original: &mut base_objects,
         candidate,
         store: &original_store,
         io: &mut original_sync_io,
-        work: &mut original_sync_work,
+        work: &mut original_sync_work.work,
     };
     let state = pages
         .state_session(limits.state_page_io.clone(), MemoryClass::Ordinary)
@@ -151,11 +212,11 @@ pub(crate) fn consume_candidate_data_closure_v1(
         &mut source_work.frozen_material,
         &mut *cancelled,
     )?;
-    let mut bridge_work = super::super::NativeChunkReadWorkV1 {
-        occurrences_remaining: source_work.native_chunk_occurrences,
-        bytes_remaining: source_work.native_chunk_bytes,
-        frozen_wire_bytes_remaining: source_work.frozen_wire_bytes,
-    };
+    let mut bridge_work = continuing_work::NativeLoan::new(
+        &mut source_work.native_chunk_occurrences,
+        &mut source_work.native_chunk_bytes,
+        &mut source_work.frozen_wire_bytes,
+    );
     let parent_material = match (
         endpoint.parent.as_ref(),
         parent_cache.and_then(|p| p.complete_data()),
@@ -174,21 +235,22 @@ pub(crate) fn consume_candidate_data_closure_v1(
         parent_material,
         &mut core_budget,
         &mut source_work.artifacts,
-        &mut bridge_work,
+        &mut bridge_work.work,
         catalog_work,
         &mut *cancelled,
     )?;
     // Backend/native temporary admission ends before either large memo.
     let remaining_state_io = state.remaining_io().map_err(page_store_formal_error)?;
     drop(state);
-    let sessions = super::super::StoreSessions::new(
+    let sessions = continuing_work::PublicationLoan::new(
         pages,
         remaining_state_io,
         limits.value_page_io.clone(),
-        source_work.publish_physical,
+        &mut source_work.publish_physical,
         source_work.max_synced_pages,
-        source_work.sync_memo_steps,
+        &mut source_work.sync_memo_steps,
         &physical_cancelled,
+        settlement,
     )?;
     let sessions = if let Some((entries, bytes)) = capability.state_memo {
         sessions.with_state_read_memo(entries, bytes)?
@@ -453,10 +515,11 @@ pub(crate) fn consume_candidate_data_closure_v1(
         let runtime_manifest=oasis7_world_state::incremental_runtime_history_manifest::RuntimeHistoryManifestV1::from_canonical_bytes(&manifest_raw).map_err(|e|invalid(format!("IWS Runtime manifest: {e:?}")))?;
         let selected=oasis7_world_state::incremental_cognition_history::check_candidate_cognition_history_view_v1(&selection_request,&mut objects,memory,&mut source_work.router.facts,||(*stop.borrow_mut())()).map_err(|e|invalid(format!("IWS selected Cognition: {e:?}")))?;
         let runtime_request=oasis7_world_state::incremental_runtime_history_source::RuntimeHistoryCandidateReadRequestV1 {candidate:context,core:&core,originals:&originals,manifest:&runtime_manifest,selected_ordinal:routed.runtime_history().occurrence().location().ordinal,parent:parent_cache.map(|p|&p.runtime),prefix:None};
-        let mut writer = pages.value_session(source_work.write_physical);
+        let mut writer =
+            continuing_work::WriterLoan::new(pages, &mut source_work.write_physical, settlement);
         let mut write_ctx =
             oasis7_world_state::incremental_field_member::MemberRecordWriteContext {
-                sink: &mut writer,
+                sink: &mut *writer,
                 memory,
                 io: &mut source_work.write_values,
                 key_work: &mut source_work.write_keys,
@@ -500,7 +563,7 @@ pub(crate) fn consume_candidate_data_closure_v1(
             store: &original_store,
             memory,
             io: &mut cognition_sync_io,
-            work: &mut original_sync_work,
+            work: &mut original_sync_work.work,
         };
         let cognition_checked = oasis7_world_state::incremental_cognition_history::check_candidate_complete_cognition_history_from_readers_v3(
             &selection_request, selected,
@@ -609,6 +672,7 @@ pub(crate) fn consume_candidate_data_closure_v1(
             memory,
             prepared,
             &mut source_work.history_hash_bytes,
+            return_source_hash_work,
             &mut || (*stop.borrow_mut())(),
         )?;
         Ok(())

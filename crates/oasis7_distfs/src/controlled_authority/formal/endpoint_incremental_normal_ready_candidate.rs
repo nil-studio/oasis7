@@ -7,6 +7,11 @@ pub struct NormalReadyCandidateReadViewV1<'a> {
         oasis7_world_state::incremental_world_storage_source::CheckedWorldStorageSourceV1,
     >,
     roots: &'a ReservedValue<oasis7_formal_protocol::incremental_execution::RootSetV1>,
+    proof_ledger: Option<
+        &'a ReservedValue<
+            oasis7_world_state::incremental_cognition_proof_ledger::CheckedCognitionProofLedgerV1,
+        >,
+    >,
     quorum: &'a PaidVerifiedNormalCommitV1,
     parent_record: [u8; 32],
     namespace: ((u64, u64), (u64, u64)),
@@ -38,6 +43,17 @@ impl NormalReadyCandidateReadViewV1<'_> {
     }
     pub fn quorum(&self) -> &PaidVerifiedNormalCommitV1 {
         self.quorum
+    }
+    /// The exact checked candidate source, retained with its original charge.
+    /// This borrow does not confer accepted-source or publication authority.
+    pub fn proof_ledger(
+        &self,
+    ) -> Option<
+        &ReservedValue<
+            oasis7_world_state::incremental_cognition_proof_ledger::CheckedCognitionProofLedgerV1,
+        >,
+    > {
+        self.proof_ledger
     }
     pub fn pages(&self) -> &crate::incremental_page_store::IncrementalPageStore {
         self.pages
@@ -118,7 +134,7 @@ impl PaidNormalReadyPairV1 {
             return Err(invalid("normal candidate exact Ready stage").into());
         }
         let job = capability.jobs.normal_job(parent, memory)?;
-        let (core, storage, roots) =
+        let (core, storage, roots, proof_ledger) =
             job.normal_candidate_read_sources_v1(self.quorum.verified(), parent, memory)?;
         if !core.uses_budget(memory)
             || !storage.uses_budget(memory)
@@ -141,6 +157,7 @@ impl PaidNormalReadyPairV1 {
             core,
             storage,
             roots,
+            proof_ledger,
             quorum: &self.quorum,
             parent_record: parent.verified_record_id(),
             namespace: (source.page_namespace, source.native_namespace),

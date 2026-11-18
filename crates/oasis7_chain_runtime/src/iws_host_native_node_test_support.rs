@@ -9,7 +9,8 @@ use oasis7_node::{
     NodeRuntime, VerifiedNodeLocalContinuationV1, VerifiedNodeRestoredContinuationV1,
 };
 use oasis7_runtime::{
-    NormalCommitHeaderLimitsV1, PaidNormalHostCognitionParentSourcesV1, RuntimeSourceCompiler,
+    NormalCommitHeaderLimitsV1, NormalHostCognitionParentSourcesV1,
+    PaidNormalHostCognitionParentSourcesV1, RuntimeSourceCompiler,
 };
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
@@ -20,6 +21,10 @@ pub(crate) struct NativeNodeOwnersV1 {
     pub memory: MemoryBudget,
     pub archive: FormalArchiveReadWorkV1,
     pub work: NormalCommitWorkV1,
+}
+pub(crate) enum NativeNodeCognitionV1 {
+    Startup(PaidNormalHostCognitionParentSourcesV1),
+    Resident,
 }
 pub(crate) struct NativeNodeSettingsV1 {
     pub world_id: String,
@@ -76,7 +81,7 @@ struct State {
     memory: MemoryBudget,
     archive: FormalArchiveReadWorkV1,
     settings: NativeNodeSettingsV1,
-    cognition: PaidNormalHostCognitionParentSourcesV1,
+    cognition: NativeNodeCognitionV1,
     cancelled: AtomicBool,
     boundary: PaidIwsNodeBoundaryV1,
     phase: Option<Phase>,
@@ -261,9 +266,15 @@ impl NodeExecutionHook for Hook {
         let retained = phase.take().ok_or("fixture retained phase missing")?;
         let mut owner = match retained {
             Phase::Attempt(attempt) => {
-                let sources = match primary
-                    .cognition_parent_sources_bounded(cognition, memory, archive, cancelled)
-                {
+                let source_result = match cognition {
+                    NativeNodeCognitionV1::Startup(owner) => {
+                        primary.cognition_parent_sources_bounded(owner, memory, archive, cancelled)
+                    }
+                    NativeNodeCognitionV1::Resident => {
+                        Ok(NormalHostCognitionParentSourcesV1::Resident)
+                    }
+                };
+                let sources = match source_result {
                     Ok(sources) => sources,
                     Err(error) => {
                         *failure = Some(format!("actual Cognition parent: {error}"));
@@ -379,7 +390,7 @@ impl NodeExecutionHook for Hook {
 pub(crate) fn run_native_node_tick_v1(
     owners: NativeNodeOwnersV1,
     settings: NativeNodeSettingsV1,
-    cognition: PaidNormalHostCognitionParentSourcesV1,
+    cognition: NativeNodeCognitionV1,
     amounts: &[i64],
 ) -> Result<(NativeNodeOwnersV1, NativeNodeSettingsV1, serde_json::Value), String> {
     use oasis7::consensus_action_payload::{

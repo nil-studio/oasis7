@@ -83,6 +83,8 @@ pub(in crate::world) struct CapturedNormalFinalSourcesV1 {
     economy_frontier:
         Option<Arc<ReservedValue<super::normal_bootstrap_current::BootstrapEconomyFrontiersV1>>>,
     ledger: Option<ReservedValue<FrozenCognitionProofLedgerManifestSourceV1>>,
+    cognition_evidence:
+        Option<super::incremental_normal_cognition_service_evidence::FrozenCognitionWakeEvidenceV2>,
     before_guard: PreparedGuard,
     after_guard: PreparedGuard,
     core: WorkIdentityV1,
@@ -198,6 +200,37 @@ fn formal(e: FormalError) -> BodyMutationError {
     BodyMutationError::Original(Box::new(e))
 }
 impl CapturedNormalFinalSourcesV1 {
+    pub(in crate::world) fn cognition_evidence_capture(
+        &self,
+    ) -> Option<&super::incremental_normal_cognition_service_evidence::FrozenCognitionWakeEvidenceV2>
+    {
+        self.cognition_evidence.as_ref()
+    }
+
+    pub(in crate::world) fn owns_cognition_evidence_capture(
+        &self,
+        value: &super::incremental_normal_cognition_service_evidence::FrozenCognitionWakeEvidenceV2,
+    ) -> bool {
+        self.cognition_evidence
+            .as_ref()
+            .is_some_and(|actual| std::ptr::eq(actual, value))
+    }
+
+    pub(in crate::world) fn validate_cognition_evidence_current_v1<M: MerkleNodeReader>(
+        &self,
+        tx: &ExecutionTransaction<'_, M>,
+        common: &mut FormalBoundedContextV1<'_>,
+        live: &ExecutionFence,
+    ) -> Result<(), BodyMutationError> {
+        if let Some(evidence) = &self.cognition_evidence {
+            evidence.validate_guard(tx, common, live)?;
+        }
+        if self.ledger.is_some() != self.cognition_evidence.is_some() {
+            return Err(bad());
+        }
+        Ok(())
+    }
+
     pub(in crate::world) fn projection_capture(
         &self,
     ) -> &super::incremental_normal_projection_commitment::FrozenNormalProjectionCommitmentV1 {
@@ -252,6 +285,7 @@ impl CapturedNormalFinalSourcesV1 {
         if let Some(frontiers) = &self.economy_frontier {
             frontiers.validate(tx, common.memory(), live)?;
         }
+        self.validate_cognition_evidence_current_v1(tx, common, live)?;
         self.event_commitment
             .validate_capture(tx, &self.before_guard, common, live)?;
         tx.validate_guard(&self.after_guard, live)?;

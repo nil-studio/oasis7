@@ -40,10 +40,10 @@ use oasis7_world_state::{
     },
     incremental_runtime_revocation::RuntimeRevocationCurrentV1,
 };
-#[path = "incremental_normal_host_resident_startup_io.rs"]
-mod startup_io;
 #[path = "incremental_normal_host_resident_tail.rs"]
 mod bootstrap_tail;
+#[path = "incremental_normal_host_resident_startup_io.rs"]
+mod startup_io;
 pub use bootstrap_tail::NormalHostBootstrapTailWorkV1;
 /// No public field, default, arbitrary ID constructor or post-install setter.
 /// Every owned component was produced against the same actual accepted parent.
@@ -103,23 +103,42 @@ impl PendingNormalHostResidentSourcesV1 {
     > {
         &self.business
     }
-    pub(in crate::world) fn parent_caches_v1(&self)->&ReservedValue<NormalParentCachesV1>{self.storage.caches()}
-    pub(in crate::world) fn process_source_v1(&self) -> &super::incremental_normal_process_source::NormalProcessSourceV1 {
+    pub(in crate::world) fn parent_caches_v1(&self) -> &ReservedValue<NormalParentCachesV1> {
+        self.storage.caches()
+    }
+    pub(in crate::world) fn process_source_v1(
+        &self,
+    ) -> &super::incremental_normal_process_source::NormalProcessSourceV1 {
         &self.process
     }
     /// Bootstrap metadata source only. The readonly transaction and the pending
     /// carrier cannot satisfy the normal execution constructor's cache input.
-    pub(in crate::world) fn begin_bootstrap_authorization_v1<'a,M:MerkleNodeReader>(
-        &'a self,parent:&BoundNormalTickParentV1<'_>,tx:&oasis7_formal_protocol::incremental_execution::ExecutionTransaction<'_,M>,common:&mut FormalBoundedContextV1<'_>,live:&ExecutionFence,
-    )->Result<CurrentAuthorizationProjectionV1<'a>,BodyMutationError>{
+    pub(in crate::world) fn begin_bootstrap_authorization_v1<'a, M: MerkleNodeReader>(
+        &'a self,
+        parent: &BoundNormalTickParentV1<'_>,
+        tx: &oasis7_formal_protocol::incremental_execution::ExecutionTransaction<'_, M>,
+        common: &mut FormalBoundedContextV1<'_>,
+        live: &ExecutionFence,
+    ) -> Result<CurrentAuthorizationProjectionV1<'a>, BodyMutationError> {
         parent.validate_context(common).map_err(formal)?;
         tx.validate_bootstrap_read_only_v1(live)?;
         common.consume_steps(1).map_err(formal)?;
-        if self.record!=parent.refs().head.verified_record_id() || self.roots!=parent.fence().parent_roots || self.core!=common.work().identity() || !self.fee.uses_budget(common.memory()) || tx.parent_fence()!=parent.fence() || !tx.uses_budget(common.memory()) { return Err(bad()); }
-        self.business.validate_parent(parent,common)?;
-        self.storage.caches().validate_parent_v1(parent,common)?;
-        self.process.is_devlocal_for_current_parent_v1(parent,common)?;
-        self.authorization.begin_current(parent.refs().head,tx,common,live).map_err(original)
+        if self.record != parent.refs().head.verified_record_id()
+            || self.roots != parent.fence().parent_roots
+            || self.core != common.work().identity()
+            || !self.fee.uses_budget(common.memory())
+            || tx.parent_fence() != parent.fence()
+            || !tx.uses_budget(common.memory())
+        {
+            return Err(bad());
+        }
+        self.business.validate_parent(parent, common)?;
+        self.storage.caches().validate_parent_v1(parent, common)?;
+        self.process
+            .is_devlocal_for_current_parent_v1(parent, common)?;
+        self.authorization
+            .begin_current(parent.refs().head, tx, common, live)
+            .map_err(original)
     }
     pub(in crate::world) fn finish_projection_cache_v1(
         self,
@@ -170,6 +189,7 @@ enum ResidentStorage {
     },
     Warm {
         directories: crate::world::incremental_commit::AcceptedRuntimeDirectoryCacheV1,
+        cognition: Option<cognition_promotion::AcceptedNormalHostCognitionV1>,
         capture: std::sync::Arc<
             ReservedValue<
                 crate::world::incremental_normal_final_sources::CapturedNormalFinalSourcesV1,
@@ -501,6 +521,8 @@ impl NormalHostResidentSourcesV1 {
     }
 }
 
+#[path = "incremental_normal_host_resident_cognition.rs"]
+mod cognition_promotion;
 #[path = "incremental_normal_host_resident_promotion.rs"]
 mod promotion;
 pub use promotion::{

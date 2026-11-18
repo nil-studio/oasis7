@@ -47,7 +47,9 @@ impl CompleteDataClosureEvidenceV1 {
 // public logical qualifications is exposed from this module.
 #[path = "endpoint_incremental_closure_pipeline.rs"]
 mod pipeline;
-pub(crate) use pipeline::consume_candidate_data_closure_v1;
+pub(crate) use pipeline::{
+    consume_candidate_data_closure_v1, consume_candidate_data_closure_with_work_v1,
+};
 
 #[path = "endpoint_incremental_closure_cold_evidence.rs"]
 mod cold;

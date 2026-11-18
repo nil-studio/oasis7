@@ -9,7 +9,11 @@ use oasis7_formal_protocol::{
     controlled_authority::formal::{PaidVerifiedNormalCommitV1, VerifiedFormalCommitV1},
     incremental_material::CheckedCommitCore,
 };
-use oasis7_world_state::incremental_runtime_history_source::CheckedRuntimeHistorySourceV1;
+use oasis7_world_state::{
+    incremental_cognition_history::CheckedCognitionHistorySourceV3,
+    incremental_cognition_proof_ledger::CheckedCognitionProofLedgerV1,
+    incremental_runtime_history_source::CheckedRuntimeHistorySourceV1,
+};
 pub struct PreparedNormalHostResidentV1 {
     projection_cache: ReservedValue<
         crate::world::incremental_normal_projection_commitment::AcceptedNormalProjectionCacheV1,
@@ -21,6 +25,7 @@ pub struct PreparedNormalHostResidentV1 {
         ReservedValue<crate::world::incremental_normal_process_source::NormalProcessSourceV1>,
     >,
     directories: PreparedRuntimeDirectoryCacheV1,
+    cognition: Option<cognition_promotion::PreparedNormalHostCognitionV1>,
     manifest: ReservedValue<AcceptedWorldManifestHashV1>,
     delivery: ReservedValue<ProductValidationDeliveryIndexV1>,
     retention: ReservedValue<WorldJournalRetentionV1>,
@@ -40,6 +45,8 @@ pub fn prepare_normal_host_resident_promotion_v1<M, R, E, C>(
     previous: &NormalHostResidentSourcesV1,
     core: &ReservedValue<CheckedCommitCore>,
     history: &ReservedValue<CheckedRuntimeHistorySourceV1>,
+    cognition: &ReservedValue<CheckedCognitionHistorySourceV3>,
+    ledger: Option<&ReservedValue<CheckedCognitionProofLedgerV1>>,
     quorum: &PaidVerifiedNormalCommitV1,
     read: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
     work: &mut ProductValidationDeliveryWorkV1,
@@ -61,10 +68,22 @@ where
         || candidate.commit_id() != core.catalog().entry.commit
         || core.candidate_record_id() != quorum.verified().verified_record_id()
         || previous.record != tick.tick.parent_record_for_resident_v1()
+        || !cognition.uses_budget(common.memory())
+        || cognition.candidate_record_id() != core.candidate_record_id()
+        || cognition.body_id() != core.catalog().entry.commit
+        || cognition.roots_id() != core.body().roots
     {
         return Err(bad());
     }
     let capture = std::sync::Arc::clone(&tick.final_sources);
+    let cognition = cognition_promotion::prepare_primary(
+        capture.cognition_evidence_capture(),
+        &terminal,
+        after,
+        cognition,
+        ledger,
+        common,
+    )?;
     let manifest = capture
         .manifest_capture()
         .prepare_normal_candidate_source_v1(
@@ -144,6 +163,7 @@ where
         business,
         process: std::sync::Arc::clone(&previous.process),
         directories,
+        cognition,
         manifest,
         delivery,
         retention,
@@ -167,6 +187,10 @@ impl PreparedNormalHostResidentV1 {
             ));
         }
         let directories = self.directories.finish(accepted)?;
+        let cognition = self
+            .cognition
+            .map(|value| value.finish(accepted))
+            .transpose()?;
         Ok(self.outer.retain(NormalHostResidentSourcesV1 {
             projection_cache: self.projection_cache,
             business: self.business,
@@ -176,6 +200,7 @@ impl PreparedNormalHostResidentV1 {
             retention: self.retention,
             storage: ResidentStorage::Warm {
                 directories,
+                cognition,
                 capture: self.capture,
             },
             authorization: self.authorization,
@@ -193,6 +218,8 @@ pub fn prepare_normal_host_resident_promotion_from_io_v1<M, R, E, C>(
     previous: &NormalHostResidentSourcesV1,
     core: &ReservedValue<CheckedCommitCore>,
     history: &ReservedValue<CheckedRuntimeHistorySourceV1>,
+    cognition: &ReservedValue<CheckedCognitionHistorySourceV3>,
+    ledger: Option<&ReservedValue<CheckedCognitionProofLedgerV1>>,
     quorum: &PaidVerifiedNormalCommitV1,
     roots: &ReservedValue<oasis7_formal_protocol::incremental_execution::RootSetV1>,
     state: &M,
@@ -226,6 +253,8 @@ where
         previous,
         core,
         history,
+        cognition,
+        ledger,
         quorum,
         &mut read,
         &mut work.driver.final_sources.originals,
@@ -241,6 +270,8 @@ impl PreparedNormalHostResidentV1 {
         previous: &NormalHostResidentSourcesV1,
         core: &ReservedValue<CheckedCommitCore>,
         history: &ReservedValue<CheckedRuntimeHistorySourceV1>,
+        cognition: &ReservedValue<CheckedCognitionHistorySourceV3>,
+        ledger: Option<&ReservedValue<CheckedCognitionProofLedgerV1>>,
         quorum: &PaidVerifiedNormalCommitV1,
         common: &mut FormalBoundedContextV1<'_>,
     ) -> Result<Self, BodyMutationError> {
@@ -256,11 +287,21 @@ impl PreparedNormalHostResidentV1 {
             || history.manifest().roots != self.roots
             || history.occurrence().candidate_record_id() != self.record
             || history.occurrence().body_id() != core.catalog().entry.commit
+            || !cognition.uses_budget(common.memory())
+            || cognition.candidate_record_id() != self.record
+            || cognition.body_id() != core.catalog().entry.commit
+            || cognition.roots_id() != self.roots
         {
             return Err(bad());
         }
         self.process
             .same_configuration_v1(&previous.process, common)?;
+        let cognition = cognition_promotion::prepare_secondary(
+            self.cognition.as_ref(),
+            cognition,
+            ledger,
+            common,
+        )?;
         let directories = self
             .directories
             .share_normal_candidate_v1(core, common)
@@ -297,6 +338,7 @@ impl PreparedNormalHostResidentV1 {
             business,
             process: std::sync::Arc::clone(&previous.process),
             directories,
+            cognition,
             manifest,
             delivery,
             authorization,

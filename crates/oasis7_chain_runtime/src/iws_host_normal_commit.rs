@@ -296,9 +296,35 @@ impl NormalCommitFailureV1 {
                             return Err(self);
                         }
                     };
-                    match ready.publish_bounded(primary_provider,replica_provider,primary_policy,replica_policy,memory,archive,&mut||cancelled.load(Ordering::Acquire)) {
-                        Err(failure)=>{self.phase=Some(Phase::Publication{failure,primary:resident,replica:second});return Err(self)}
-                        Ok(accepted)=>{
+                    match ready.publish_bounded(
+                        primary_provider,
+                        replica_provider,
+                        primary_policy,
+                        replica_policy,
+                        memory,
+                        archive,
+                        &mut || cancelled.load(Ordering::Acquire),
+                    ) {
+                        Err(failure) => {
+                            self.phase = Some(Phase::Publication {
+                                failure,
+                                primary: resident,
+                                replica: second,
+                            });
+                            return Err(self);
+                        }
+                        Ok(mut accepted) => {
+                            if let Err(error) = accepted.return_source_work_bounded(
+                                &mut self.work.primary_source,
+                                &mut self.work.replica_source,
+                                memory,
+                                archive,
+                                &mut || cancelled.load(Ordering::Acquire),
+                            ) {
+                                self.cause = Some(error.into());
+                                self.phase = Some(Phase::ColdAfterPublication);
+                                return Err(self);
+                            }
                             match IwsHostRuntimeV1::install_accepted_normal_pair_with_residents_bounded(primary,replica,accepted,resident,second,memory,archive,cancelled) {
                                 Ok(())=>return Ok(self.work),
                                 Err(error)=>{self.cause=Some(error);self.phase=Some(Phase::ColdAfterPublication);return Err(self)}
@@ -311,9 +337,35 @@ impl NormalCommitFailureV1 {
                     primary: resident,
                     replica: second,
                 } => {
-                    match failure.recover_bounded(primary_provider,replica_provider,primary_policy,replica_policy,memory,archive,&mut||cancelled.load(Ordering::Acquire)) {
-                        Err(failure)=>{self.phase=Some(Phase::Publication{failure,primary:resident,replica:second});return Err(self)}
-                        Ok(accepted)=>{
+                    match failure.recover_bounded(
+                        primary_provider,
+                        replica_provider,
+                        primary_policy,
+                        replica_policy,
+                        memory,
+                        archive,
+                        &mut || cancelled.load(Ordering::Acquire),
+                    ) {
+                        Err(failure) => {
+                            self.phase = Some(Phase::Publication {
+                                failure,
+                                primary: resident,
+                                replica: second,
+                            });
+                            return Err(self);
+                        }
+                        Ok(mut accepted) => {
+                            if let Err(error) = accepted.return_source_work_bounded(
+                                &mut self.work.primary_source,
+                                &mut self.work.replica_source,
+                                memory,
+                                archive,
+                                &mut || cancelled.load(Ordering::Acquire),
+                            ) {
+                                self.cause = Some(error.into());
+                                self.phase = Some(Phase::ColdAfterPublication);
+                                return Err(self);
+                            }
                             match IwsHostRuntimeV1::install_accepted_normal_pair_with_residents_bounded(primary,replica,accepted,resident,second,memory,archive,cancelled) {
                                 Ok(())=>return Ok(self.work),
                                 Err(error)=>{self.cause=Some(error);self.phase=Some(Phase::ColdAfterPublication);return Err(self)}

@@ -149,9 +149,6 @@ impl Codec for CatalogCodec {
         Self::decode_node(bytes).map_err(|e| e.to_string())
     }
 }
-pub(super) fn empty_hashes() -> Result<&'static [String], ExecutionError> {
-    empty_hashes_with_work(&mut |_, _| Ok(()))
-}
 pub(super) fn empty_hashes_with_work(
     work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
 ) -> Result<&'static [String], ExecutionError> {

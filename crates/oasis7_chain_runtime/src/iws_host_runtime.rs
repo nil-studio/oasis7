@@ -359,8 +359,8 @@ pub(crate) use node_boundary::PaidIwsNodeBoundaryV1;
 #[path = "iws_host_node_execute.rs"]
 mod node_execute;
 pub(crate) use node_execute::{
-    NodeNormalExecutionAttemptV1, NodeNormalExecutionEnvironmentV1,
-    NodeNormalStartFailureV1, PaidNodeAppliedNormalV1,
+    NodeNormalExecutionAttemptV1, NodeNormalExecutionEnvironmentV1, NodeNormalStartFailureV1,
+    PaidNodeAppliedNormalV1,
 };
 
 pub use normal::NormalCommitPersistErrorV1;

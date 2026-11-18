@@ -394,6 +394,36 @@ impl FileFormalEndpoint {
             cancelled,
         )
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn verify_iws_page_backed_material_with_work(
+        &self,
+        candidate: &FormalCandidateMaterialV1,
+        context: &VerifiedCandidateContextV1,
+        source_work: &mut IwsCandidateSourceWorkV1,
+        catalog_work: Option<&mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>>,
+        cancelled: &mut impl FnMut() -> bool,
+    ) -> Result<(), FormalError> {
+        let capability = self
+            .iws_page_store
+            .as_ref()
+            .ok_or_else(|| invalid("IWS page capability missing"))?;
+        let supplied = capability
+            .source_work
+            .try_borrow()
+            .map_err(|_| invalid("IWS work slot borrowed"))?;
+        if supplied.is_some() {
+            return Err(invalid("IWS work already supplied"));
+        }
+        closure::consume_candidate_data_closure_with_work_v1(
+            self,
+            candidate,
+            context,
+            source_work,
+            catalog_work,
+            cancelled,
+        )
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]

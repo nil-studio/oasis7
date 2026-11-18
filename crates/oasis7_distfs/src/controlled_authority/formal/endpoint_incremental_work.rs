@@ -1,4 +1,4 @@
-//! Explicit one-candidate work ownership. Exhausted accounts are never reset.
+//! Explicit candidate-source work ownership. Exhausted accounts are never reset.
 use crate::incremental_page_store::PageIoBudget;
 use oasis7_formal_protocol::incremental_value::ValueIoBudget;
 use oasis7_world_state::{
@@ -12,7 +12,8 @@ use oasis7_world_state::{
     incremental_world_result_router::WorldResultRouterWorkV1,
 };
 /// Caller supplies every allowance. This owns work only, never a proof or
-/// authority. A retry requires newly explicit accounts, not an internal reset.
+/// authority. Legacy one-candidate supply consumes it; the normal carrier lends
+/// and returns these same accounts across phases. Neither path refills a retry.
 pub struct IwsCandidateSourceWorkV1 {
     pub router: WorldResultRouterWorkV1,
     /// Fixed manifest hash/decode/occurrence and five-field promotion copies.
@@ -35,6 +36,8 @@ pub struct IwsCandidateSourceWorkV1 {
     pub write_keys: SemanticKeyBudget,
     pub write_limits: MemberRecordLimitsV1,
     pub history_occurrences: u64,
+    /// The actual staged normal job owns this lane during exact-material
+    /// retries. It leaves zero here until its accepted remainder is returned.
     pub history_hash_bytes: u64,
     pub persist_occurrences: u64,
     /// Native/artifact phase runs before Current's large read/sync memos.

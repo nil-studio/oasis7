@@ -1,6 +1,7 @@
 //! Complete original public + every current owner/delegate leaf. Formatter
 //! and terminal-task branches are fixed Current consumers, never callbacks.
 use super::*;
+use crate::world::PaidProjectionRetainedOriginalReaderV1;
 use oasis7_client_api::formal_projection::ProjectionAudienceV1;
 use oasis7_formal_protocol::{
     incremental_execution::{ExecutionFence, ExecutionTransaction},
@@ -8,9 +9,38 @@ use oasis7_formal_protocol::{
 };
 use oasis7_wasm_abi::CanonicalCborWorkV1;
 use oasis7_world_state::observation_projection::current_commitment::ProjectionColumnDataV1;
-use std::mem::size_of;
+use std::{mem::size_of, sync::Arc};
 #[path = "incremental_genesis_projection_commitment.rs"]
 pub(in crate::world) mod genesis;
+
+// Keep the formatter's retained IO type fixed across GEN and Current callers.
+// This borrows the original reader only: downstream adapters still hold a thin
+// `&mut R`, with the same layout, metering and first-error ownership as before.
+struct BorrowedRetainedOriginals<'a> {
+    source: &'a mut dyn PaidProjectionRetainedOriginalReaderV1<RetainedError = BodyMutationError>,
+}
+impl PaidProjectionRetainedOriginalReaderV1 for BorrowedRetainedOriginals<'_> {
+    type RetainedError = BodyMutationError;
+
+    fn allocation_budget(&self) -> &oasis7_proto::memory_budget::MemoryBudget {
+        self.source.allocation_budget()
+    }
+
+    fn allocation_class(&self) -> MemoryClass {
+        self.source.allocation_class()
+    }
+
+    fn read_retained_original_bounded_v1(
+        &mut self,
+        id: &[u8; 32],
+        max_bytes: usize,
+        common: &mut FormalBoundedContextV1<'_>,
+    ) -> Result<Arc<ReservedValue<Vec<u8>>>, BodyMutationError> {
+        self.source
+            .read_retained_original_bounded_v1(id, max_bytes, common)
+    }
+}
+
 struct Leaves {
     values: Vec<(ProjectionAudienceV1, String)>,
     fees: Vec<MemoryReservation>,
@@ -135,9 +165,7 @@ pub(super) fn compute_current_projection_root_v1<
     )
 }
 
-pub(super) fn compute_projection_root_data_v1<
-    R: crate::world::PaidProjectionRetainedOriginalReaderV1<RetainedError = BodyMutationError>,
->(
+pub(super) fn compute_projection_root_data_v1(
     state: &super::state_columns::OriginalStateColumnsDataV1,
     electricity: &super::original_rows::OriginalProjectionRowsDataV1,
     agent_intents: &super::original_rows::OriginalProjectionRowsDataV1,
@@ -148,12 +176,13 @@ pub(super) fn compute_projection_root_data_v1<
     raw_state: &super::raw_hash::PaidOriginalStateHashDataV1,
     binding: Option<&ReservedValue<oasis7_agent_api::RuntimeBindingV1>>,
     origin: &dyn crate::world::incremental_normal_projection_commitment::facts::ProjectionReadSourceV1,
-    retained: &mut R,
+    retained: &mut dyn PaidProjectionRetainedOriginalReaderV1<RetainedError = BodyMutationError>,
     common: &mut FormalBoundedContextV1<'_>,
     canonical: &mut CanonicalCborWorkV1,
 ) -> Result<ReservedValue<String>, BodyMutationError> {
     origin.validate_metadata(metadata, common)?;
     raw_state.validate_context(common)?;
+    let mut retained = BorrowedRetainedOriginals { source: retained };
     let mut leaves = Leaves::new(common)?;
     // The original public formatter/hash happens before audience discovery.
     let public_fee = pay(common, size_of::<ProjectionAudienceV1>() + "public".len())?;
@@ -171,7 +200,7 @@ pub(super) fn compute_projection_root_data_v1<
         binding,
         None,
         "",
-        retained,
+        &mut retained,
         canonical,
         origin,
         common,
@@ -208,7 +237,7 @@ pub(super) fn compute_projection_root_data_v1<
             raw_state,
             binding,
             agent,
-            retained,
+            &mut retained,
             canonical,
             origin,
             common,
@@ -227,7 +256,7 @@ pub(super) fn compute_projection_root_data_v1<
                 binding,
                 Some(agent),
                 reader_key,
-                retained,
+                &mut retained,
                 canonical,
                 origin,
                 common,

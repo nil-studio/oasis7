@@ -159,6 +159,8 @@ where
         parent_read: &mut WorldFieldReadContextV1<'_, P, R, PE, PC>,
         delivery:&mut super::super::incremental_normal_industry_due::delivery::CurrentProductValidationDeliveryIndexV1<'_>,
         work: &mut NormalFinalSourcesWorkV1,
+        cognition_work: &mut crate::world::incremental_normal_cognition_expiry::CurrentCognitionExpiryWorkV1,
+        cognition_path: &mut oasis7_world_state::incremental_json_records::JsonScalarPathReadWorkV1,
         cut_work: &mut NormalHostFinishCutWorkV1,
         parent_caches: &ReservedValue<
             super::super::incremental_normal_parent_caches::NormalParentCachesV1,
@@ -451,6 +453,50 @@ where
         } else if tick.cognition_for_final_source().is_some() {
             return Err(bad().into());
         }
+        // The scheduler may have appended after its own predicate evidence was
+        // read. Fold the actual final journal/ledger deltas only now, using the
+        // original remaining tail lanes, before consuming the pending owner.
+        let cognition_evidence = match &tail.cognition {
+            Some(source) if enabled => {
+                use crate::world::incremental_normal_cognition_service_evidence::{
+                    CurrentEvidenceErrorV2, prepare_current_cognition_wake_evidence_v2,
+                };
+                let pending = tick.cognition_for_final_source().as_ref().ok_or_else(bad)?;
+                let ctx = &mut self.ctx;
+                let mut read = WorldFieldReadContextV1 {
+                    root: parent.refs().roots.state_root(StateNamespaceV1::Artifacts),
+                    state: parent_read.state,
+                    values: ValueReadContext {
+                        source: ctx.values.source,
+                        memory: ctx.values.memory,
+                        class: ctx.values.class,
+                        io: &mut *ctx.values.io,
+                    },
+                    key_work: &mut *ctx.key_work,
+                    semantic_bytes: ctx.semantic_bytes,
+                    record_bytes: ctx.record_bytes,
+                    take_state_error: &mut ctx.take_state_error,
+                    cancelled: &mut ctx.cancelled,
+                };
+                let current = prepare_current_cognition_wake_evidence_v2(
+                    source.evidence, source.accepted_ledger, parent, source.ledger,
+                    pending, ctx.transaction, &mut read, cognition_work, cognition_path,
+                    common, &live_owner(),
+                ).map_err(|error| match error {
+                    CurrentEvidenceErrorV2::Body(error) => RootModuleExecutionErrorV1::Body(error),
+                    CurrentEvidenceErrorV2::Business(error) => RootModuleExecutionErrorV1::Business(error),
+                })?;
+                Some(current.freeze(ctx.transaction, common, &live_owner())?)
+            }
+            Some(source) => Some(
+                crate::world::incremental_normal_cognition_service_evidence::freeze_disabled_current_cognition_wake_evidence_v2(
+                    source.evidence, parent, source.accepted_ledger, source.ledger,
+                    self.ctx.transaction, common, &live_owner(),
+                )?,
+            ),
+            None if !enabled => None,
+            None => return Err(bad().into()),
+        };
         // Consume the actual frontier before the borrowed parent scope ends.
         // The resulting paid owner keeps the exact hash state alive for publication.
         let journal_frontier = if let Some(pending) = tick.cognition_for_final_source().take() {
@@ -634,6 +680,7 @@ where
             archived_ticks: history.manifest().archived_tick_count,
             cognition: cognition_view,
             ledger,
+            cognition_evidence,
             before_guard,
             after_guard: self.ctx.transaction.guard(),
             core: common.work().identity(),

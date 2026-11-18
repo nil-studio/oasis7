@@ -6,7 +6,117 @@ use oasis7_formal_protocol::controlled_authority::formal::{
     bounded_context::{FormalBoundedContextV1, FormalBoundedWorkV1},
 };
 use oasis7_wasm_abi::CanonicalCborWorkV1;
-use std::mem::size_of;
+use std::{cell::RefCell, mem::size_of};
+
+type MailboxOriginals = Vec<(String, Vec<[u8; 32]>)>;
+
+/// Keep the actual Journal originals for the existing raw GEN mailbox visitor.
+/// This is provisional storage, not an accepted occurrence or a fabricated
+/// WorldEvent reconstructed from a Domain payload's ordinal/time.
+fn mailbox_originals(
+    world: &World,
+    memory: &MemoryBudget,
+    originals: &mut BTreeMap<[u8; 32], Arc<ReservedValue<Vec<u8>>>>,
+    canonical: &mut CanonicalCborWorkV1,
+    common: &mut FormalBoundedContextV1<'_>,
+) -> ReservedValue<MailboxOriginals> {
+    use crate::world::incremental_action_original::{
+        ActionOriginalStreamV1, persist_world_event_original_with_work_v1,
+    };
+    let journal = &world.journal().events;
+    let positions_layout = journal
+        .len()
+        .checked_mul(size_of::<(&crate::WorldEvent, [u8; 32], usize)>())
+        .unwrap();
+    common
+        .charge(journal.len() as u64, positions_layout as u64)
+        .unwrap();
+    let positions_fee = memory
+        .reserve(positions_layout, MemoryClass::Ordinary)
+        .unwrap();
+    let mut positions = Vec::with_capacity(journal.len());
+    for event in journal {
+        let paid = RefCell::new(&mut *common);
+        let receipt = persist_world_event_original_with_work_v1(
+            event,
+            memory,
+            canonical,
+            &mut || false,
+            8 << 20,
+            &mut |stream: &mut dyn ActionOriginalStreamV1, _: &mut dyn FnMut() -> bool| {
+                let len = usize::try_from(stream.original_bytes()).unwrap();
+                paid.borrow_mut()
+                    .charge(1, len as u64)
+                    .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
+                let fee = memory
+                    .reserve(size_of::<Vec<u8>>() + len, MemoryClass::Ordinary)
+                    .map_err(ValueTreeError::Memory)?;
+                let mut bytes = Vec::with_capacity(len);
+                stream.write_to(&mut bytes)?;
+                assert_eq!(bytes.len(), len);
+                assert_eq!(*blake3::hash(&bytes).as_bytes(), stream.original_id());
+                if let Some(previous) =
+                    originals.insert(stream.original_id(), Arc::new(fee.retain(bytes)))
+                {
+                    assert_eq!(&**previous, &**originals[&stream.original_id()]);
+                }
+                Ok(())
+            },
+            &|steps, bytes| {
+                paid.borrow_mut()
+                    .charge(steps, bytes)
+                    .map_err(|e| BodyMutationError::Original(Box::new(e)))
+            },
+        )
+        .unwrap();
+        positions.push((
+            event,
+            receipt.original_id(),
+            receipt.original_bytes() as usize,
+        ));
+    }
+
+    let mut layout = size_of::<MailboxOriginals>();
+    let mut occurrences = 0usize;
+    let mut lookup_bytes = 0usize;
+    for (agent, cell) in &world.state().agents {
+        common.charge(1, agent.len() as u64).unwrap();
+        layout = layout
+            .checked_add(size_of::<(String, Vec<[u8; 32]>)>())
+            .and_then(|n| n.checked_add(agent.len()))
+            .and_then(|n| n.checked_add(cell.mailbox.len().checked_mul(32)?))
+            .unwrap();
+        occurrences = occurrences.checked_add(cell.mailbox.len()).unwrap();
+        lookup_bytes = lookup_bytes.checked_add(agent.len() + 1).unwrap();
+    }
+    // The raw GEN callback cannot charge the parent while GEN owns its child.
+    // Admit all of its finite name lookups before entering that exclusive phase.
+    let lookups = occurrences.checked_mul(lookup_bytes).unwrap();
+    common
+        .charge(lookups as u64, (layout + lookups) as u64)
+        .unwrap();
+    let fee = memory.reserve(layout, MemoryClass::Ordinary).unwrap();
+    let mut mailboxes = Vec::with_capacity(world.state().agents.len());
+    for (agent, cell) in &world.state().agents {
+        let mut ids = Vec::with_capacity(cell.mailbox.len());
+        for domain in &cell.mailbox {
+            let mut selected = None;
+            for (event, id, bytes) in &positions {
+                common.charge(*bytes as u64 + 1, *bytes as u64).unwrap();
+                if matches!(&event.body, crate::WorldEventBody::Domain(original) if original == domain)
+                {
+                    selected = Some(*id);
+                    break;
+                }
+            }
+            ids.push(selected.expect("actual mailbox has an original Journal WorldEvent"));
+        }
+        mailboxes.push((agent.clone(), ids));
+    }
+    drop(positions);
+    drop(positions_fee);
+    fee.retain(mailboxes)
+}
 
 struct Retained<'a> {
     memory: &'a MemoryBudget,
@@ -70,6 +180,16 @@ pub(in crate::world) fn assert_world_root(world: &World, expected: &str) {
     let mut common = FormalBoundedContextV1::new(&memory, &meter, &mut stop);
     let mut pages = Pages::default();
     let mut originals = BTreeMap::new();
+    // Exact existing module_execution_fixture_genesis::canonical limits;
+    // actual Journal persistence and projection consume this same work.
+    let mut canonical = CanonicalCborWorkV1 {
+        visits_remaining: 1_000_000,
+        bytes_remaining: 32 << 20,
+        max_depth: 64,
+        max_map_keys: 1024,
+        max_key_bytes: 4096,
+    };
+    let mailboxes = mailbox_originals(world, &memory, &mut originals, &mut canonical, &mut common);
     let mut emitted = 0;
     let mut io = ValueIoBudget {
         nodes_remaining: 1_000_000,
@@ -105,7 +225,21 @@ pub(in crate::world) fn assert_world_root(world: &World, expected: &str) {
                 Ok(())
             }),
             &mut |_, _| Err(ValueTreeError::Invalid("unexpected pending action")),
-            &mut |_, _, _| Err(BodyMutationError::Invalid("unexpected mailbox")),
+            &mut |agent, ordinal, domain| {
+                let ordinal = usize::try_from(ordinal).unwrap();
+                assert!(std::ptr::eq(
+                    &world.state().agents[agent].mailbox[ordinal],
+                    domain
+                ));
+                mailboxes
+                    .iter()
+                    .find(|(original_agent, _)| original_agent == agent)
+                    .and_then(|(_, ids)| ids.get(ordinal))
+                    .copied()
+                    .ok_or(BodyMutationError::Invalid(
+                        "actual mailbox original position missing",
+                    ))
+            },
             &mut |row| {
                 assert!(row.uses_budget(&memory));
                 emitted += 1;
@@ -121,23 +255,20 @@ pub(in crate::world) fn assert_world_root(world: &World, expected: &str) {
         originals: &originals,
         reads: 0,
     };
-    // Exact existing module_execution_fixture_genesis::canonical limits.
-    let mut canonical = CanonicalCborWorkV1 {
-        visits_remaining: 1_000_000,
-        bytes_remaining: 32 << 20,
-        max_depth: 64,
-        max_map_keys: 1024,
-        max_key_bytes: 4096,
-    };
-    let before = (meter.remaining_steps(), meter.remaining_read_bytes());
+    let before = (
+        meter.remaining_steps(),
+        meter.remaining_read_bytes(),
+        canonical.visits_remaining,
+        canonical.bytes_remaining,
+    );
     let result = projected
         .prepare_formal_projection_commitment_bounded_v1(&mut reader, &mut common, &mut canonical)
         .unwrap();
     assert_eq!(result.root_bounded(&mut common).unwrap(), expected);
     assert!(meter.remaining_steps() < before.0);
     assert!(meter.remaining_read_bytes() < before.1);
-    assert!(canonical.visits_remaining < 1_000_000);
-    assert!(canonical.bytes_remaining < 32 << 20);
+    assert!(canonical.visits_remaining < before.2);
+    assert!(canonical.bytes_remaining < before.3);
 
     // Equal fresh numeric limits never replace the source's actual Core.
     let other_work =
@@ -202,6 +333,7 @@ pub(in crate::world) fn assert_world_root(world: &World, expected: &str) {
     drop(result);
     drop(projected);
     drop(reader);
+    drop(mailboxes);
     drop(originals);
     drop(pages);
     assert_eq!(memory.used(), baseline);

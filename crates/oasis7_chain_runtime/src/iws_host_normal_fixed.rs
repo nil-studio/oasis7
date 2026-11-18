@@ -137,7 +137,7 @@ impl IwsHostRuntimeV1 {
             let outcome=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||{
                 let views=super::values::HostNormalValuesV1::new(&mut values,memory).map_err(IwsHostRuntimeErrorV1::Value)?;
                 let read=views.handle();let mut stop=||cancelled.load(Ordering::Acquire);let mut common=archive.bounded_context(memory,&mut stop);
-                oasis7_runtime::prepare_normal_host_resident_promotion_from_io_v1(prepared,resident,candidate.core(),candidate.storage().runtime(),candidate.quorum(),candidate.roots(),&state,&read,work,||state.take_read_error().map(|e|match e{oasis7_distfs::incremental_page_store::PageStoreError::Cancelled=>ValueTreeError::Cancelled,oasis7_distfs::incremental_page_store::PageStoreError::Memory(e)=>ValueTreeError::Memory(e),oasis7_distfs::incremental_page_store::PageStoreError::ResourceLimited(s)=>ValueTreeError::ResourceLimited(s),e=>ValueTreeError::Io(std::io::Error::other(e))}),||cancelled.load(Ordering::Acquire),&mut common).map_err(IwsHostRuntimeErrorV1::NormalSource)
+                oasis7_runtime::prepare_normal_host_resident_promotion_from_io_v1(prepared,resident,candidate.core(),candidate.storage().runtime(),candidate.storage().cognition(),candidate.proof_ledger(),candidate.quorum(),candidate.roots(),&state,&read,work,||state.take_read_error().map(|e|match e{oasis7_distfs::incremental_page_store::PageStoreError::Cancelled=>ValueTreeError::Cancelled,oasis7_distfs::incremental_page_store::PageStoreError::Memory(e)=>ValueTreeError::Memory(e),oasis7_distfs::incremental_page_store::PageStoreError::ResourceLimited(s)=>ValueTreeError::ResourceLimited(s),e=>ValueTreeError::Io(std::io::Error::other(e))}),||cancelled.load(Ordering::Acquire),&mut common).map_err(IwsHostRuntimeErrorV1::NormalSource)
             }));
             let state_error=match state.remaining_io(){Ok(left)=>{physical.state_pages=left;None},Err(e)=>Some(e)};
             let value_error=match values.remaining_io(){Ok(left)=>{physical.value_pages=left;None},Err(e)=>Some(e)};
@@ -183,6 +183,8 @@ impl IwsHostRuntimeV1 {
                         })?,
                         candidate.core(),
                         candidate.storage().runtime(),
+                        candidate.storage().cognition(),
+                        candidate.proof_ledger(),
                         candidate.quorum(),
                         &mut archive
                             .bounded_context(memory, &mut || cancelled.load(Ordering::Acquire)),

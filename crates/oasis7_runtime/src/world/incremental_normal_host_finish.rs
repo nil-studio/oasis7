@@ -98,6 +98,28 @@ impl NormalResidentTerminalSourceV1 {
     }
 }
 impl SealedNormalResidentSourceV1 {
+    pub(in crate::world) fn validate_cognition_evidence_source_v1(
+        &self,
+        source: &super::incremental_normal_cognition_service_evidence::FrozenCognitionWakeEvidenceV2,
+        common: &mut FormalBoundedContextV1<'_>,
+    ) -> Result<(), BodyMutationError> {
+        common
+            .consume_steps(1)
+            .map_err(|error| BodyMutationError::Original(Box::new(error)))?;
+        if !self
+            .terminal
+            .sources
+            .owns_cognition_evidence_capture(source)
+            || self.terminal.core != common.work().identity()
+            || !self.terminal._fee.uses_budget(common.memory())
+        {
+            return Err(BodyMutationError::Invalid(
+                "normal actual sealed Cognition evidence",
+            ));
+        }
+        Ok(())
+    }
+
     pub(in crate::world) fn validate_retention_source_v1(
         &self,
         source: &super::incremental_normal_retention::FrozenNormalRetentionV1,
@@ -585,6 +607,9 @@ where
             directories
                 .validate_terminal_guard(self.ctx.transaction, common.memory(), &live)
                 .map_err(NormalHostFinishErrorV1::Directories)?;
+            tick.final_sources
+                .validate_cognition_evidence_current_v1(self.ctx.transaction, common, &live)
+                .map_err(|error| NormalHostFinishErrorV1::Root(error.into()))?;
             common
                 .charge(
                     1,

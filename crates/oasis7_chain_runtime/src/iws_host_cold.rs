@@ -127,7 +127,7 @@ impl IwsHostRuntimeV1 {
         cold: &mut IwsColdParentWorkV1,
         execution: &mut IwsCandidateSourceWorkV1,
         hints: IwsColdParentHintsV1,
-        mailbox_hint: L,
+        mut mailbox_hint: L,
         physical: &mut HostColdIoWorkV1,
         runtime_work: &mut NormalHostWorkV1,
         compiler: &oasis7_runtime::RuntimeSourceCompiler,
@@ -150,7 +150,7 @@ impl IwsHostRuntimeV1 {
             cold,
             execution,
             hints,
-            mailbox_hint,
+            &mut mailbox_hint,
             physical,
             runtime_work,
             compiler,
@@ -174,7 +174,7 @@ impl IwsHostRuntimeV1 {
         cold: &mut IwsColdParentWorkV1,
         execution: &mut IwsCandidateSourceWorkV1,
         hints: IwsColdParentHintsV1,
-        mailbox_hint: L,
+        mut mailbox_hint: L,
         physical: &mut HostColdIoWorkV1,
         runtime_work: &mut NormalHostWorkV1,
         compiler: &oasis7_runtime::RuntimeSourceCompiler,
@@ -197,7 +197,7 @@ impl IwsHostRuntimeV1 {
             cold,
             execution,
             hints,
-            mailbox_hint,
+            &mut mailbox_hint,
             physical,
             runtime_work,
             compiler,
@@ -208,7 +208,10 @@ impl IwsHostRuntimeV1 {
         )
     }
     #[allow(clippy::too_many_arguments)]
-    fn install_authenticated_cold_inner<L>(
+    // Keep the complete restore/worker/resident body independent of the
+    // caller's locator closure type. The borrowed callback forwards each real
+    // lookup and its original error; it owns no source, cache or work balance.
+    fn install_authenticated_cold_inner(
         &mut self,
         endpoint: FileFormalEndpoint,
         provider: &RemoteMonotonicEndpointProvider,
@@ -220,7 +223,7 @@ impl IwsHostRuntimeV1 {
         cold: &mut IwsColdParentWorkV1,
         execution: &mut IwsCandidateSourceWorkV1,
         hints: IwsColdParentHintsV1,
-        mailbox_hint: L,
+        mailbox_hint: &mut dyn FnMut(&[u8; 32]) -> Result<FactLocationV1, String>,
         io: &mut HostColdIoWorkV1,
         runtime_work: &mut NormalHostWorkV1,
         compiler: &oasis7_runtime::RuntimeSourceCompiler,
@@ -228,10 +231,7 @@ impl IwsHostRuntimeV1 {
         memory: &MemoryBudget,
         archive: &FormalArchiveReadWorkV1,
         cancelled: &AtomicBool,
-    ) -> Result<(), HostColdStartupErrorV1>
-    where
-        L: FnMut(&[u8; 32]) -> Result<FactLocationV1, String>,
-    {
+    ) -> Result<(), HostColdStartupErrorV1> {
         archive.consume_steps(1, &mut || cancelled.load(Ordering::Acquire))?;
         if !self.current.is_empty() || self.continuation.is_some() {
             return Err(IwsHostRuntimeErrorV1::Move(ExecutionError::ParentConflict).into());
