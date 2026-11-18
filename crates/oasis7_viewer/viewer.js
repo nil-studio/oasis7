@@ -4221,14 +4221,23 @@ function createBrowserGameClient({ config, codec, ownerSigner, executorSigner, p
 	}
 	async function outcome(operationId, captured, reason, runBudget = null) {
 		if (await find(operationId, "action")) fail$5("original_action_requires_recovery");
-		await freshFence();
+		const prior = await find(operationId, "outcome");
+		if (prior) {
+			const result = await lookup(prior);
+			await recovery.settle(prior.operationId, {
+				state: result.state,
+				receipt: { rawJson: json(result.receipt) }
+			});
+			return result.receipt;
+		}
+		const current = await readContext(operationId, captured.prepared.identity);
 		return submit(operationId, "outcome", {
 			kind: "scheduler",
 			payload: await sign("scheduler", build("outcome", {
-				captured_json: json(captured),
+				captured_json: json(current),
 				reason
 			}))
-		}, captured.prepared.identity, runBudget);
+		}, current.prepared.identity, runBudget);
 	}
 	async function registerExecutor({ operationId, executorId, generation, nonce: delegationNonce, confirmedFence }) {
 		if (!confirmedFence) fail$5("run_confirmation_required");
