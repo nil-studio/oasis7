@@ -643,8 +643,16 @@ class Workflow(unittest.TestCase):
         self.assertIn('MODEL_DEADLINE=', steps[0])
         self.assertLess(0, setup)
         self.assertIn('ref: ${{ github.workflow_sha }}', steps[setup-1])
+        self.assertIn('sparse-checkout: .github/actions/setup-linux-mold\n', steps[setup-1])
         self.assertNotIn('path:', steps[setup-1])
-        self.assertIn('path: model-source\n', steps[setup+1])
+        self.assertIn('ref: ${{ github.workflow_sha }}', steps[setup+1])
+        self.assertNotIn('sparse-checkout:', steps[setup+1])
+        self.assertNotIn('path:', steps[setup+1])
+        self.assertIn('ref: 49b25e1ab631ffb433bce88709fa5601720cfc17\n', steps[setup+2])
+        self.assertIn('path: model-source\n', steps[setup+2])
+        for checkout in (steps[setup-1], steps[setup+1], steps[setup+2]):
+            self.assertIn('uses: actions/checkout@', checkout)
+            self.assertIn('persist-credentials: false\n', checkout)
         for boundary in ('Set up selected immutable Rust CodeQL bundle',
                          'Diagnose selected public-model partition'):
             self.assertLess(setup, next(i for i, step in enumerate(steps) if boundary in step))

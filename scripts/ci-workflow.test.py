@@ -520,14 +520,7 @@ class Workflow(unittest.TestCase):
                                  if 'uses: ./.github/actions/setup-linux-mold' in step)
                     self.assertIn('uses: actions/checkout@', steps[setup - 1])
                     self.assertIn('ref: ${{ github.workflow_sha }}', steps[setup - 1])
-                    if filename == 'rust.yml' and name == 'codeql-rust-model-diagnostic':
-                        # Diagnostic tools stay at the workflow revision; its
-                        # historical business source has a separate checkout.
-                        self.assertNotIn('path:', steps[setup - 1])
-                        self.assertNotIn('sparse-checkout:', steps[setup - 1])
-                        self.assertIn('path: model-source\n', steps[setup + 1])
-                    else:
-                        self.assertIn('sparse-checkout: .github/actions/setup-linux-mold\n', steps[setup - 1])
+                    self.assertIn('sparse-checkout: .github/actions/setup-linux-mold\n', steps[setup - 1])
                     self.assertNotIn('sparse-checkout-cone-mode: false', steps[setup - 1])
                     self.assertIn('uses: actions/checkout@', steps[setup + 1])
                     self.assertNotIn('sparse-checkout:', steps[setup + 1])

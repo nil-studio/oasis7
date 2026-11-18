@@ -20,7 +20,7 @@
     "builder_recipe": {
       "recipe_schema_version": 1,
       "kind": "producer-content",
-      "producer_recipe_hash": "f7c2e3658f15c3f16e3e1d92ef669fff4ab8aefffb82f93d6c91abbeb91169eb",
+      "producer_recipe_hash": "309c828b28e7411c093b754cbd928c717a9e7d9313b8d7804082eaf2d4ef653b",
       "arguments": [
         {
           "name": "GUEST_CARGO_BUILD_JOBS",
@@ -47,7 +47,12 @@
         {
           "kind": "source-file",
           "path": ".dockerignore",
-          "sha256": "f4cbd8a21fc84c5948e449259abba5ee035a028e7cc085e69ef5438e05361aae"
+          "sha256": "42430c6aa261b5d961471578d665a45f0129a89887219321b1053e98eed269b2"
+        },
+        {
+          "kind": "source-file",
+          "path": ".github/actions/setup-linux-mold/setup.py",
+          "sha256": "faeda82b8ad40217a4a1be9c27aa1d6a67984d959aff8587baa48573298c4a65"
         },
         {
           "kind": "source-file",
@@ -77,7 +82,7 @@
         {
           "kind": "source-file",
           "path": "crates/oasis7_wasm_build/src/producer_recipe.rs",
-          "sha256": "c937d4a573224b65511bf4de8e4ae1e1cefdce8db01cae1d0846fbd30a8a964a"
+          "sha256": "542c9ad0f58f6b34116c2d30893a3bbbd46965154595cdf80b10e0acc022f65d"
         },
         {
           "kind": "source-file",
@@ -102,7 +107,7 @@
         {
           "kind": "source-file",
           "path": "docker/wasm-builder/Dockerfile",
-          "sha256": "1e92bcbe6e6f48f49d3405341d60f145fb1f8544cbfd95f014d24eb703902615"
+          "sha256": "36ca88f5d21fca0a56831c239271a36d0360fc1e3b36b185dc7794a288549f16"
         },
         {
           "kind": "source-file",
@@ -137,17 +142,17 @@
         {
           "kind": "source-file",
           "path": "tools/wasm_build_suite/src/builder_context_tests.rs",
-          "sha256": "04d58a189e36cb2cc900af03386b8a09a88789bdf802733d23b3370d3167a082"
+          "sha256": "57aa49e8b4df6f24347259176ff4843304e60ed4fd4c7e3c305e994c6997ee07"
         },
         {
           "kind": "source-file",
           "path": "tools/wasm_build_suite/src/env_prefix_tests.rs",
-          "sha256": "413f464faf6494dcb7197d63990c2833b015ebf0219c35f5d703a2dc98c8b7ca"
+          "sha256": "0fc1c2f558f4c22915efded4674d061585651ab04a3aa25739b41220d309633f"
         },
         {
           "kind": "source-file",
           "path": "tools/wasm_build_suite/src/lib.rs",
-          "sha256": "cff5e6385fd06573de74a87b8940fa8fbb9dbb0325c0bc82d2924655b54f202c"
+          "sha256": "5971d9bf4d32c75d4be7f43f2acfa3b4a8fe0e7185cc9cf1d57a6c2338b61303"
         },
         {
           "kind": "source-file",
@@ -197,8 +202,8 @@
         }
       ],
       "source_hash": "a1321d1310b0e28f06500561cc99022e4d678967464466ea7b708d810690e239",
-      "build_manifest_hash": "caab046e0e5f716b18481075a0a15adc327f4be8cdf4eac4c4f8db2d85eb2ae9",
-      "identity_hash": "14b6a5853ded7a4c9a606401b7bab1b2e586fe163710b2fd65756b3b7fb70a2f"
+      "build_manifest_hash": "971685fda34d1306d47ad7af650c5a005e36b694ee76db13ab8786236616d740",
+      "identity_hash": "c39f87f4d6db3b7de77b32127fab86d5b6a490b8455c3d49d9d2eda0afe9c29b"
     },
     {
       "module_id": "m1.memory.core",
@@ -239,8 +244,8 @@
         }
       ],
       "source_hash": "dc46db8a654760caef76dddbffca82069edb1735f0b267f96e21ab75eed6a762",
-      "build_manifest_hash": "caab046e0e5f716b18481075a0a15adc327f4be8cdf4eac4c4f8db2d85eb2ae9",
-      "identity_hash": "dfbf2a07541078025848a50bdee59f38f9d5ce6dad37716c739b400c519d2179"
+      "build_manifest_hash": "971685fda34d1306d47ad7af650c5a005e36b694ee76db13ab8786236616d740",
+      "identity_hash": "e96c69f0c5a047661aaf78f84e3e4aa45f14163c365f9c2161f140f636938f05"
     },
     {
       "module_id": "m1.mobility.basic",
@@ -281,8 +286,8 @@
         }
       ],
       "source_hash": "676f12ca18a157ec7a89b73430f80e1aa4229a5aa65d2c5908f02f0b856b343f",
-      "build_manifest_hash": "caab046e0e5f716b18481075a0a15adc327f4be8cdf4eac4c4f8db2d85eb2ae9",
-      "identity_hash": "a2d5d0c6c7025aa96b801b3657cb0e7e98a3b3aa595b7f1f0b0fccda9fac45e7"
+      "build_manifest_hash": "971685fda34d1306d47ad7af650c5a005e36b694ee76db13ab8786236616d740",
+      "identity_hash": "afb012ddbf52dee6205601d7452606909f874f9a3ad4ca5304d2f75dfcf79ef8"
     },
     {
       "module_id": "m1.power.radiation_harvest",
@@ -323,8 +328,8 @@
         }
       ],
       "source_hash": "066293e2017ee2a4f29d30e0aec6ec13fb2da57d339ec226cb641b1019f95b40",
-      "build_manifest_hash": "caab046e0e5f716b18481075a0a15adc327f4be8cdf4eac4c4f8db2d85eb2ae9",
-      "identity_hash": "b562b3870c519a07b3dbb99501a16ad3e540d0ac58f97552a8a4142c5435b7e6"
+      "build_manifest_hash": "971685fda34d1306d47ad7af650c5a005e36b694ee76db13ab8786236616d740",
+      "identity_hash": "23359fafbf009e95b5ea6db777151c89e1b8ee74f47e03e84595dca33aea46e7"
     },
     {
       "module_id": "m1.power.storage",
@@ -365,8 +370,8 @@
         }
       ],
       "source_hash": "1315fe99ad7899d23bbd7938ed710863e9fa4ae2edc76881888a669ab8aef333",
-      "build_manifest_hash": "caab046e0e5f716b18481075a0a15adc327f4be8cdf4eac4c4f8db2d85eb2ae9",
-      "identity_hash": "a7c447ece6d04d6f5056318241e04c2886096c5e3bde9450e07e88c9cdc84d97"
+      "build_manifest_hash": "971685fda34d1306d47ad7af650c5a005e36b694ee76db13ab8786236616d740",
+      "identity_hash": "8106bc6e8b38802d80af40cb3fa7fa2feab9f4b3c6f42cca38ac376367d5fbc1"
     },
     {
       "module_id": "m1.rule.move",
@@ -407,8 +412,8 @@
         }
       ],
       "source_hash": "dcaf63af7fd0561397dc025e8b27ef78a8fc7f9fff0ac146075d798a3efe03ee",
-      "build_manifest_hash": "caab046e0e5f716b18481075a0a15adc327f4be8cdf4eac4c4f8db2d85eb2ae9",
-      "identity_hash": "69ef58f970d39fd551fa308ee320f38e565b040f9a9ea1b6eeb99897534c7fbe"
+      "build_manifest_hash": "971685fda34d1306d47ad7af650c5a005e36b694ee76db13ab8786236616d740",
+      "identity_hash": "9572aab77746b54e8c166302d818c3b5553261d32085ba822d4f5e54323d0575"
     },
     {
       "module_id": "m1.rule.transfer",
@@ -449,8 +454,8 @@
         }
       ],
       "source_hash": "1a3ee6b81376b23ac40bb48c233301af0543a8998c38eab4d5a9b5254ba4da4e",
-      "build_manifest_hash": "caab046e0e5f716b18481075a0a15adc327f4be8cdf4eac4c4f8db2d85eb2ae9",
-      "identity_hash": "f613c34486a80f4b92e3cfa988853da783fcf586930d9a18b69747c6d72dd415"
+      "build_manifest_hash": "971685fda34d1306d47ad7af650c5a005e36b694ee76db13ab8786236616d740",
+      "identity_hash": "1709586df93e9c11c12746ab6f41af186a78817cd6f48d01107d81b0cea5c3af"
     },
     {
       "module_id": "m1.rule.visibility",
@@ -491,8 +496,8 @@
         }
       ],
       "source_hash": "327eaaa8249aa3592164c043e55b4274ae0633eccd46aa67f2088d143a3fc13b",
-      "build_manifest_hash": "caab046e0e5f716b18481075a0a15adc327f4be8cdf4eac4c4f8db2d85eb2ae9",
-      "identity_hash": "642d93f6426cebef2f34d941dc33eb570d75c8d4d8570e03cb234ea89153b573"
+      "build_manifest_hash": "971685fda34d1306d47ad7af650c5a005e36b694ee76db13ab8786236616d740",
+      "identity_hash": "85ada7ea6d1a57b088c67e1111a75fb3a2e8312d1dfb4a29ec575c6f1de90f51"
     },
     {
       "module_id": "m1.sensor.basic",
@@ -533,8 +538,8 @@
         }
       ],
       "source_hash": "b0686dc8d1cd5ebc8ce093b86dfe8c26b986377220bad56d7d73cc4f8d8fd537",
-      "build_manifest_hash": "caab046e0e5f716b18481075a0a15adc327f4be8cdf4eac4c4f8db2d85eb2ae9",
-      "identity_hash": "92d69d8319cd2f83462f3bc0746caeb1948c509e21449dbc2766cb5291045b78"
+      "build_manifest_hash": "971685fda34d1306d47ad7af650c5a005e36b694ee76db13ab8786236616d740",
+      "identity_hash": "84f473fc2973165d9c6dfe89319160624ab25fe51719f0fad7f9116057099ace"
     },
     {
       "module_id": "m1.storage.cargo",
@@ -575,8 +580,8 @@
         }
       ],
       "source_hash": "4078fdde406f2ac4f391a2c37f694c89915243c1d64687b71f46ea48a3d85a74",
-      "build_manifest_hash": "caab046e0e5f716b18481075a0a15adc327f4be8cdf4eac4c4f8db2d85eb2ae9",
-      "identity_hash": "bab120feb423d24aa4daa0779df04f039a8d43f7a3f0ee75b8d9f32bd812ce4e"
+      "build_manifest_hash": "971685fda34d1306d47ad7af650c5a005e36b694ee76db13ab8786236616d740",
+      "identity_hash": "d5182bb314d1c3fcbbeeaf17d6d94e36bb9509dcf929612aa604e3b47afa4b0c"
     }
   ]
 }
