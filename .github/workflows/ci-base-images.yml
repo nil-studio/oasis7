@@ -25,10 +25,60 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - name: Build and smoke test
         env:
           TARGET: ${{ matrix.target }}
         run: ./docker/ci-base/build.sh "$TARGET"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        if: github.event_name == 'pull_request' && matrix.target == 'build'
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Probe custody GDB contracts in candidate image
+        if: github.event_name == 'pull_request' && matrix.target == 'build'
+        timeout-minutes: 8
+        run: |
+          set -euo pipefail
+          node_home=$(dirname "$(dirname "$(command -v node)")")
+          docker run --rm --network none \
+            --user "$(id -u):$(id -g)" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace,readonly" \
+            --mount "type=bind,source=$node_home,target=/opt/node,readonly" \
+            --workdir /workspace \
+            --env OASIS7_GDB_CONTRACT_RESULTS=/tmp/oasis7-gdb-contracts \
+            --env OASIS7_REQUIRE_GDB_TESTS=1 \
+            --env PYTHONDONTWRITEBYTECODE=1 \
+            oasis7-ci-build:candidate \
+            bash -ec 'export PATH="/opt/node/bin:$PATH"; exec python3 scripts/ci-custody-workerd-gdb-contracts.py --failfast GdbContracts'
+      - name: Run existing doc-checker-contracts CI group in runtime image
+        if: github.event_name == 'pull_request' && matrix.target == 'runtime'
+        timeout-minutes: 12
+        env:
+          OASIS7_PRODUCT_DOC_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          wheels=$(mktemp -d)
+          trap 'rm -rf "$wheels"' EXIT
+          python3 -m pip download --only-binary=:all: --dest "$wheels" \
+            --requirement scripts/doc-governance-requirements.txt
+          git cat-file -e "${OASIS7_PRODUCT_DOC_BASE}^{commit}"
+          OASIS7_PRODUCT_DOC_HEAD=$(git rev-parse HEAD)
+          export OASIS7_PRODUCT_DOC_HEAD
+          docker run --rm --network none \
+            --user "$(id -u):$(id -g)" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace" \
+            --mount "type=bind,source=$wheels,target=/wheels,readonly" \
+            --workdir /workspace \
+            --env HOME=/tmp --env CI=true --env CI_VERBOSE=1 \
+            --env OASIS7_PRODUCT_DOC_BASE --env OASIS7_PRODUCT_DOC_HEAD \
+            oasis7-ci-runtime:candidate bash -ec '
+              python3 -m venv /tmp/doc-checker-venv
+              export PATH="/tmp/doc-checker-venv/bin:$PATH"
+              python3 -m pip install --no-index --find-links=/wheels \
+                --requirement scripts/doc-governance-requirements.txt
+              exec bash ./scripts/ci-tests.sh required --group doc_checker_contracts --repo-root /workspace
+            '
       - name: Scan OS vulnerabilities
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
         with:
