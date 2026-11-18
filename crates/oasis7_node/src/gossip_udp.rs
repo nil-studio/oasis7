@@ -111,7 +111,7 @@ impl Default for GossipTrafficMetricsSnapshot {
 }
 
 impl GossipEndpoint {
-    #[cfg(all(test, unix))]
+    #[cfg(test)]
     pub(crate) fn local_addr_for_test(&self) -> std::io::Result<SocketAddr> {
         self.socket.local_addr()
     }
