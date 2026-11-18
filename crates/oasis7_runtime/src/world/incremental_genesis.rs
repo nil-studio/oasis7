@@ -154,11 +154,15 @@ mod action_body_case_runner {
     /// Fixed cases backed by the original lib-test bodies and paid fixtures.
     pub enum IwsActionBodyCaseV1 {
         QueuedBodyActions,
+        AllianceLifecycle,
     }
 
     pub fn run_iws_action_body_case_v1(case: IwsActionBodyCaseV1) {
         match case {
             IwsActionBodyCaseV1::QueuedBodyActions => run_case(),
+            IwsActionBodyCaseV1::AllianceLifecycle => {
+                super::execution_test_support::alliance_case::run();
+            }
         }
     }
 

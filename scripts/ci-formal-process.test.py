@@ -5610,24 +5610,27 @@ class RuntimeWorkerCompanionContracts(unittest.TestCase):
             artifacts.validate_runtime_worker_companion(self.bundle, bad_library)
 
     def test_iws_action_body_worker_requires_exact_target_and_active_case_inventory(self):
-        case = 'actual_queued_body_actions_match_world_and_read_prior_current_write'
-        manifest = self.manifest()
-        binary = manifest['binaries']['runtime-module-tests']
-        binary.update(target='iws_action_body', target_kind=['test'], tests=[case])
-        with patch.object(artifacts.sys, 'platform', 'linux'):
-            self.assertTrue(artifacts.runtime_worker_test_selected(manifest))
-            self.assertFalse(artifacts.runtime_worker_test_selected(manifest, ['viewer']))
-            for field, value in (('package', 'another_package'), ('target', 'another_target'),
-                                 ('target_kind', ['lib']), ('ordinary', False), ('test', False),
-                                 ('tests', []), ('tests', ['unrelated_case']), ('tests', [None]),
-                                 ('tests', [case + '_suffix']), ('tests', ['prefix::' + case]),
-                                 ('ignored_tests', [case]), ('ignored_tests', [None])):
-                broken = copy.deepcopy(manifest)
-                broken['binaries']['runtime-module-tests'][field] = value
-                with self.subTest(field=field, value=value):
-                    self.assertFalse(artifacts.runtime_worker_test_selected(broken))
-        with patch.object(artifacts.sys, 'platform', 'darwin'):
-            self.assertFalse(artifacts.runtime_worker_test_selected(manifest))
+        for case in (
+            'actual_queued_body_actions_match_world_and_read_prior_current_write',
+            'queued_alliance_lifecycle_preserves_outer_risk_war_rejections_and_exact_world_originals',
+        ):
+            manifest = self.manifest()
+            binary = manifest['binaries']['runtime-module-tests']
+            binary.update(target='iws_action_body', target_kind=['test'], tests=[case])
+            with patch.object(artifacts.sys, 'platform', 'linux'):
+                self.assertTrue(artifacts.runtime_worker_test_selected(manifest))
+                self.assertFalse(artifacts.runtime_worker_test_selected(manifest, ['viewer']))
+                for field, value in (('package', 'another_package'), ('target', 'another_target'),
+                                     ('target_kind', ['lib']), ('ordinary', False), ('test', False),
+                                     ('tests', []), ('tests', ['unrelated_case']), ('tests', [None]),
+                                     ('tests', [case + '_suffix']), ('tests', ['prefix::' + case]),
+                                     ('ignored_tests', [case]), ('ignored_tests', [None])):
+                    broken = copy.deepcopy(manifest)
+                    broken['binaries']['runtime-module-tests'][field] = value
+                    with self.subTest(field=field, value=value):
+                        self.assertFalse(artifacts.runtime_worker_test_selected(broken))
+            with patch.object(artifacts.sys, 'platform', 'darwin'):
+                self.assertFalse(artifacts.runtime_worker_test_selected(manifest))
 
     def test_iws_action_body_builder_keeps_required_consumer_and_separate_worker_features(self):
         case = 'actual_queued_body_actions_match_world_and_read_prior_current_write'

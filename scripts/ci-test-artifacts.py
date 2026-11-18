@@ -120,6 +120,7 @@ IWS_RULE_CORE_TESTS = frozenset((
 IWS_ACTION_BODY_TARGET = 'iws_action_body'
 IWS_ACTION_BODY_TESTS = frozenset((
     'actual_queued_body_actions_match_world_and_read_prior_current_write',
+    'queued_alliance_lifecycle_preserves_outer_risk_war_rejections_and_exact_world_originals',
 ))
 # Observation label for an inventory-selected test resource, never a planned
 # test variant or a dependency-cache warming context.

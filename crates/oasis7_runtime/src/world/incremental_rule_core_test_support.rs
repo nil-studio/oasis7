@@ -645,7 +645,7 @@ use crate::world::{
     incremental_step::IwsStepContext,
 };
 #[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
-use action_body::audit_work;
+use action_body::{audit_work, audit_work as transfer_resource_audit_work};
 #[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
 use oasis7_world_state::incremental_agent_body::{
     AGENT_BODY_VALUE_BYTES, AgentBodyKeyV1, AgentBodyValueV1,
@@ -656,3 +656,7 @@ pub(in crate::world) mod action_body_case;
 #[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
 #[path = "incremental_action_body_tests_rules.rs"]
 mod rules;
+
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+#[path = "incremental_normal_action_diplomacy_case.rs"]
+pub(in crate::world) mod alliance_case;

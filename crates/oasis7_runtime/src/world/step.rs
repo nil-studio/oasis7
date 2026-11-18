@@ -136,7 +136,7 @@ impl World {
         )
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
     pub(in crate::world) fn append_legacy_action_accepted_for_test(
         &mut self,
         envelope: &ActionEnvelope,
