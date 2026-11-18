@@ -74,8 +74,7 @@ impl FormalBftHeaderNodeDriverV3 {
             material,
             retained_source,
             true,
-        )
-        .map_err(|error| recovery_stage("ledger", error))?;
+        )?;
         let initial_schedule = execution.origin.schedule.clone();
         if (!peer_network && initial_schedule.active_set().validators().len() != 1)
             || initial_schedule.pending_transition().is_some()
@@ -741,9 +740,4 @@ fn capture_h_index(origin: &FormalBftHeaderExecutionV3) -> Result<(), String> {
         }
     }
     Ok(())
-}
-
-// Keep internal detail available to callers; the CLI exposes only allowlisted stages.
-fn recovery_stage(stage: &str, error: String) -> String {
-    format!("node_recovery_stage={stage}: {error}")
 }
