@@ -15,7 +15,12 @@
 
 ## 1. 决策摘要
 
-实现支持 Rust、Python、JavaScript/TypeScript、GitHub Actions 四类分析，按下述 unit/profile 批次逐项验收和启用。PR 使用默认查询集并按影响选择语言单元；默认分支每六小时更新已启用的非 Rust 默认查询基线，Rust default 使用独立每日时段；每日运行已启用的扩展批次。初始以四个稳定的语言级单元部署，不预设每个 Rust crate 都有独立扫描价值。
+实现支持 Rust、Python、JavaScript/TypeScript、GitHub Actions 四类分析，按下述 unit/profile 批次逐项验收和启用。已配置为 observe 的非 Rust default 批次按 PR 影响选择语言单元；默认分支每六小时更新已启用的非 Rust 默认查询基线，Rust default 使用独立每日时段；每日运行已启用的扩展批次。初始以四个稳定的语言级单元部署，不预设每个 Rust crate 都有独立扫描价值。
+
+<a id="rust-daily-baseline-goal"></a>
+**Rust 当前目标是每日一次主干 default 扫描。** `rust-repo/default=baseline` 是验收后的正式持续运行模式，每日北京时间 11:29（UTC 03:29）扫描可信 main，保留完整 Rust 分析单元、原 37 条查询、适用 Linux 覆盖、官方上传和平台结果核验。Rust PR observe 不列入当前目标或后续必做项；Rust extended 与更广 target/角色覆盖按各自范围另行安排，不作为日频目标完成前置。其他语言的既有 PR observe 策略保持。
+
+日频目标完成后，后续工作是观察自然调度、失败与新鲜度，并处置实际告警。后续若决定改变 Rust 触发范围，先重新确定执行路径、预算与验收；不因全局 observe 或现有 planner 支持而自行开启 Rust PR 扫描。
 
 所有扫描任务与现有 Rust/required CI 平行运行。扫描工作流不依赖 task Issue 的 PR 回填、impact projection、review receipt 或 integration revalidation。扫描结果不会被纳入现有 CI 收据的身份或复用条件；CodeQL 也不得签发、替代或刷新这些凭据。
 
@@ -109,7 +114,7 @@ CodeQL 默认检测、生成文件识别与提取覆盖并不等价于“每个�
 
 JavaScript 单元显式设置官方 `CODEQL_EXTRACTOR_JAVASCRIPT_ALLOW_MINIFIED_FILES=true`，适用于 default 与 extended；其它语言不启用该开关。CLI 2.24 起默认按平均行长跳过疑似 minified 文件，这会误跳过维护中的长行 JSX/JS，不能作为第一方源码的排除理由。保留现有路径排除、查询集与 vendor 文件，不以格式化业务源码绕过提取规则。验收须比对源码清单、实际提取与 skipped/parse diagnostics；开启提取不取消标准查询对 generated/minified top-level 的既有过滤，也不证明阳性完备，相关查询覆盖边界仍须如实记录。
 
-纯 Python PR 初始选择一个 Python 单元；纯 JS/HTML PR选择一个 JS 单元；纯 Rust PR 选择一个 Rust 单元；跨语言与共享配置变更选相应并集。这样首先消除四语言全部触发与跨工具链安装的浪费。
+纯 Python PR、纯 JS/HTML PR、纯 Rust PR 分别识别对应语言候选；跨语言与共享配置变更取相应并集，再按 §4.2.1 与批次模式取交集。Rust 当前为日频 baseline，Rust 候选不启动 PR 重型扫描；已启用 observe 的其他语言仍按影响执行。
 
 ### 4.2.1 分批验收与启用控制
 
@@ -131,7 +136,7 @@ workflow 还须独立核对每行 unit/profile/category 与全局和批次模式
 
 首次验收使用同一可信控制入口：在覆盖设置与扫描动作的授权下，将目标批次配置为 baseline，读回变量并仅在可信默认分支manual/schedule试运行；该配置仅允许验收执行，批次仍是 pending acceptance，不代表已经验收或正式持续运营，PR仍禁用。失败删除该键回退，禁止绕allowlist启动。
 
-取得本批真实 execution、唯一上传association、coverage/控制样本与findings并完成验收后，才声明该批baseline已验收并按运营授权持续运行；default的PR observe还需其PR路由、权限与来源/排队行为验收。八批总体 healthy 语义保持不变，部分批次通过只陈述其实际范围。
+取得本批真实 execution、唯一上传association、coverage/控制样本与findings并完成验收后，才声明该批baseline已验收并按运营授权持续运行。Rust 按[日频目标](#rust-daily-baseline-goal)持续保持 baseline；拟启用 PR 的其他 default 批次还需其 PR 路由、权限与来源/排队行为验收。八批总体 healthy 语义保持不变，部分批次通过只陈述其实际范围。
 
 回退可删除本批配置键、将default从observe降baseline或全局off，读回配置和新计划；不删除alerts/analysis、不改required保护，已有运行另行按授权处理。
 
@@ -188,7 +193,9 @@ python3 -I scripts/security/codeql-plan.py \
 
 ### 5.3 路由规则
 
-| PR 的完整源差异 | 选择 |
+下表给出影响候选；实际执行继续与 §4.2.1 的批次模式取交集，识别 Rust 影响不等于启动 Rust PR 扫描。
+
+| PR 的完整源差异 | 候选选择 |
 | --- | --- |
 | 纯文档，且没有被代码生成/嵌入引用的输入 | 不启动扫描矩阵；plan 报告 `not_applicable` |
 | `.rs`、Cargo manifest/lock、Rust toolchain/Cargo config | Rust 单元 |
@@ -203,7 +210,7 @@ python3 -I scripts/security/codeql-plan.py \
 | 根路径 `.dockerignore` 与 `docker/wasm-builder/Dockerfile` | canonical WASM 构建的 Actions 调用链、Python context 合同和 Rust producer recipe/嵌入合同共同消费，登记 `actions-repo`、`python-repo`、`rust-repo`。仅匹配这两个精确路径，保留旧/新嵌入与可能 build 消费者并集及批次限制；相邻未知输入和符号链接继续拒绝。登记不代表 CodeQL 分析 Dockerfile 语义或证明提取覆盖 |
 | diff 身份或输入不可信/不可读取 | planner 失败，记录未分析；不以空矩阵成功代替 |
 
-普通 Rust PR 在后续仅修改描述文件时，其整体 PR diff 仍可能包含 Rust，因此可能重新触发 Rust。首版不通过自造旧报告复用来绕过这一点；由取消旧任务、观察态和官方增量机制控制代价。
+普通 Rust PR 后续仅修改描述文件时，整体 PR diff 仍可能包含 Rust，影响候选继续如实保留；当前日频模式按 `pr_baseline_only` 排除 Rust 执行，不将其改记为无影响。其他已启用 PR 扫描的语言按完整差异、取消旧任务和官方增量机制处理，不自造旧报告复用。
 
 Shell 不是独立受支持的 CodeQL 语言。单独 `.sh` 变更保留现有脚本契约检查；涉及 workflow 边界时选择 Actions，但不能把它描述为 Shell 全面安全扫描。
 
@@ -250,7 +257,7 @@ plan 至少包含：`profile`、source/base/checkout identity、策略摘要、�
 
 | 事件 | 档位和范围 | 初始策略 |
 | --- | --- | --- |
-| 非 draft PR opened/reopened/synchronize/ready_for_review | default，按需单元 | 开启 |
+| 非 draft PR opened/reopened/synchronize/ready_for_review | default，按需且配置为 observe 的非 Rust 单元 | Rust 保持日频 baseline，不启动 PR 扫描 |
 | draft PR | 仅轻量 plan 或跳过扫描 | 不占重型槽位 |
 | converted_to_draft、closed | 取消本 PR 旧扫描，不启动新重型任务 | 开启对应事件处理 |
 | main 每 6 小时 | default，已启用非 Rust 单元 | 建立/更新对比与增量基线 |
@@ -621,7 +628,7 @@ init 后从实际 GitHub job 起点计算一次分析绝对截止：最多 75 �
 
 执行状态由提取和正式 helper 联合决定，提取成功但查询失败不能记录为 execution success。通过原 `upload-sarif` 上传，保留 `oasis7/rust-repo/default` category、实际 SHA/ref 及唯一 `sarif_id` 关联；上传关联 evidence v1 结构保持。独立生产 evidence artifact 保存工具、查询库、源码、结果与覆盖收据及有界日志，不包含数据库或完整源码包。查询执行、平台上传、findings 和覆盖验收分别呈现。
 
-首次验收核对实际执行/容量、唯一上传来源、支持范围与控制样本、Security findings 及运营设置。试运行允许收集尚缺的覆盖事实；持续启用声明须完成适用验收，不能把 REVIEW/UNKNOWN 改记为通过。失败仅回退本次 Rust 批次键，保留其他语言、已有告警、required policy 和历史结果。PR observe 与 extended 的 45 分钟容量及适用行为单独验收。
+首次验收核对实际执行/容量、唯一上传来源、支持范围与控制样本、Security findings 及运营设置。试运行允许收集尚缺的覆盖事实；持续启用声明须完成适用验收，不能把 REVIEW/UNKNOWN 改记为通过。失败仅回退本次 Rust 批次键，保留其他语言、已有告警、required policy 和历史结果。通过后按[日频目标](#rust-daily-baseline-goal)持续运行，不追加 PR observe 验收。现有 PR/extended 的 45 分钟路径未被本次生产结果验证；未来若另行启用这些范围，须分别处理执行路径、容量及适用行为。
 
 ##### 固定源码的同配置性能观察
 
@@ -867,7 +874,7 @@ planner 的固定 matrix/config 输出是 workflow/health 消费者的共同输�
 `OASIS7_CODEQL_MODE` 支持 `off`、`baseline`、`observe`。缺失按 off；非法值报配置错误。
 
 - off：不启动重型扫描；报告为 disabled，不冒充通过。
-- baseline：只允许可信 main 的定时/手动扫描，用于确认覆盖、版本、平台来源和输出。
+- baseline：只允许可信 main 的定时/手动扫描，既用于首次验收，也作为已验收批次的持续运行模式；Rust/default 按此完成日频目标。
 - observe：保留 baseline，并开启非 draft PR 按需扫描。
 
 这是扫描运行模式，不是 required policy。变量、候选 policy、label 或 PR body 都不能减弱现有 branch/ruleset 保护、适用验证或用户限制；Issue/Project 不构成通用准入。
@@ -890,24 +897,13 @@ gh variable list --repo "$REPO"
 
 ### 14.3 合入后激活
 
-PR-C 合入后读回默认分支上预期文件与模式。先启用 baseline，分别运行 default 与 extended，核查四语言、CodeQL 工具/查询包版本、manifest 覆盖、提取诊断和平台上传。
+合入后读回默认分支上的预期文件、全局模式和完整批次配置，按 §4.2.1 仅激活本次授权范围。首次目标批次设为 baseline，在可信默认分支核查其工具/查询包版本、实际执行、manifest 覆盖、提取诊断、官方上传及平台结果；default 与 extended 分别验收，不因一个批次通过而开启另一个。
 
-```bash
-# 仅在实施获得授权、PR-C 已合入且预检通过后执行。
-gh variable set OASIS7_CODEQL_MODE --repo "$REPO" --body baseline
-gh workflow run codeql.yml --repo "$REPO" --ref main -f profile=default
-gh workflow run codeql.yml --repo "$REPO" --ref main -f profile=extended
-```
+Rust default 验收后保持 `rust-repo/default=baseline`，按[日频目标](#rust-daily-baseline-goal)正式持续运行。已有非 Rust PR observe 运行时，保留全局 `OASIS7_CODEQL_MODE=observe` 和其他批次原值；不为 Rust 日频设置降低全局模式，也不把 Rust 升为 observe。
 
-通过已有候选或适当的隔离验证路径确认 check provenance、观察性失败解释及原生队列配置；不为每种故障都创建一个要合入的 PR。fixture、真实扫描与真实 gate 决策证据分开记录。
+只有本次范围明确包含 PR 扫描的批次，才在验证 PR 路由、权限、check provenance 和队列行为后改为 observe，并读回实际非 draft PR 结果。fixture、真实扫描与真实 gate 决策证据分开记录，不为每种故障都创建一个要合入的 PR。
 
-验证满足后切换 observe：
-
-```bash
-gh variable set OASIS7_CODEQL_MODE --repo "$REPO" --body observe
-```
-
-该操作须由明确的运营授权覆盖，实际设置、运行与读回结果记录在对应 PR 或已使用的 Task，并核实 required check/rulesets 没有被意外修改；不以历史 PR-C 合入自动授权激活。首次状态错误时留在 baseline，不宣布全面上线。
+实际设置、运行与读回结果记录在对应 PR 或已使用的 Task，并核实 required check/rulesets 没有被意外修改。操作遵循已有运营授权；实现合入或其他批次验收不自动扩大启用范围。
 
 ### 14.4 回退
 
@@ -925,9 +921,9 @@ gh variable set OASIS7_CODEQL_MODE --repo "$REPO" --body observe
 | CQ-T01 | 纯文档 PR | 零重型扫描，明确 not_applicable |
 | CQ-T02 | Python-only | 只选 Python，不装 Rust/Node 业务链 |
 | CQ-T03 | JS/HTML-only | 只选 JS；模板与内嵌脚本不漏 |
-| CQ-T04 | Rust-only | 只选 Rust，完整稳定上下文 |
+| CQ-T04 | Rust-only | 完整识别 Rust 候选；当前 baseline 配置下 PR 不启动 Rust 重型扫描，日频维护扫描保留完整稳定上下文 |
 | CQ-T05 | workflow/local action | Actions；共享输入按规则扩展 |
-| CQ-T06 | CodeQL policy/workflow/planner 变化 | 四语言保守选择与治理契约 |
+| CQ-T06 | CodeQL policy/workflow/planner 变化 | 四语言保守候选与治理契约；实际执行遵守各批配置 |
 | CQ-T07 | Cargo.lock、target/build/dev/path dependency、patch | Rust 受影响范围完整 |
 | CQ-T08 | 新增/删除独立 manifest | 不静默漏包；base/head 双侧处理 |
 | CQ-T09 | 文件跨目录改名、空格/换行/特殊字符路径 | 两端参与选择，不 shell 注入 |
@@ -990,7 +986,9 @@ gh variable set OASIS7_CODEQL_MODE --repo "$REPO" --body observe
 
 ## 17. 完成定义与实施禁区
 
-以下定义约束未来声明“完整接入”所需证据，不恢复已关闭协调任务或授权启用扫描。声明完整接入必须同时有：规范合入；四语言实现与静态/负例测试合入；实际默认与扩展基线；扫描来源可验证；观察态已启用并真实读回；两个槽位/取消行为验证；coverage gap 明示；原 required 保护不变；运营 owner 和回退路径明确。
+Rust 按[每日主干 default 目标](#rust-daily-baseline-goal)独立判定完成：本批真实执行与原查询结果、适用 Linux 覆盖、官方上传及唯一平台关联完成验收，日频 baseline 配置读回，运营 owner、失败/新鲜度观察及回退路径明确。日频模式是正式目标，Rust PR observe、Rust extended 和强制合入门禁不属于其剩余验收；未来自然调度和告警治理继续按实际运行记录。
+
+全八批的“完整接入”是更广范围的声明，不能用来重开已完成的 Rust 日频目标。该声明仍要求：规范及适用实现与测试合入；四语言实际默认与扩展基线；扫描来源可验证；各批次约定的运行模式已启用并读回；适用槽位/取消行为验证；coverage gap 明示；原 required 保护不变；运营 owner 和回退路径明确。拟启用 PR 的批次另需 PR observe 验收。
 
 **“完整接入”不等于“强制门禁上线”。** 后续启用漏洞阈值保护会引入等待/覆盖要求，必须重新评估按需跳过、所有 category 的基线、fork、平台规则与 gate 行为。不能简单把四个 matrix job 名称勾为 required。
 
