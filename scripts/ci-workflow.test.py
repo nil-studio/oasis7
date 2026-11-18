@@ -4907,23 +4907,42 @@ class TargetedOrdinaryArtifactWorkflow(unittest.TestCase):
             'name: Install pinned Rust toolchains', 'name: Stabilize Rust cache toolchains',
             'uses: Swatinem/rust-cache@'))]
         self.assertEqual(len(prepared), 3)
+        named_bundle_owners = ('runtime', 'component-libs', 'integrations-0', 'integrations-1',
+                               'native-0', 'native-1', 'native-2', 'native-3')
         for step in prepared:
+            is_toolchain = 'name: Install pinned Rust toolchains' in step
             condition = re.search(r'^        if: >-\n(.*?)(?=^        \w|\Z)', step, re.M | re.S)[1]
-            for version in (None, 1, 2):
-                for owner in ('controls', 'native-0', 'native-1', 'native-2', 'native-3',
-                              'all', 'runtime', 'oasis7_runtime', 'unknown'):
-                    for packages in (['oasis7_chain_runtime'], ['oasis7_chain_runtime', 'oasis7_game_client'],
-                                     ['oasis7_game_client'], []):
-                        values = {
-                            'fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version': version,
-                            'matrix.partition': owner,
-                            "join(fromJSON(needs.select.outputs.plan).oasis7_required_packages, ',')": ','.join(packages),
-                        }
-                        skipped = (version == 2 and owner in ('native-0', 'native-1', 'native-2', 'native-3')
-                                   and packages == ['oasis7_chain_runtime'])
-                        with self.subTest(version=version, owner=owner, packages=packages):
-                            self.assertEqual(effective_job_condition(condition, values, []), not skipped)
-                            self.assertFalse(effective_job_condition(condition, values, ['failure']))
+            for execution in (None, 'inline'):
+                for version in (None, 1, 2):
+                    if execution == 'inline' and version == 2:
+                        continue
+                    for owner in ('controls', 'native-0', 'native-1', 'native-2', 'native-3',
+                                  'all', 'runtime', 'component-libs', 'integrations-0', 'integrations-1',
+                                  'oasis7_runtime', 'unknown'):
+                        for packages in (['oasis7_chain_runtime'], ['oasis7_chain_runtime', 'oasis7_game_client'],
+                                         ['oasis7_wasm_materializer'], ['oasis7_game_client'], []):
+                            values = {
+                                'fromJSON(needs.select.outputs.plan).ordinary_execution': execution,
+                                'fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version': version,
+                                'matrix.partition': owner,
+                                'fromJSON(needs.select.outputs.plan).oasis7_required_packages': packages,
+                                "join(fromJSON(needs.select.outputs.plan).oasis7_required_packages, ',')": ','.join(packages),
+                            }
+                            must_run = (
+                                execution == 'inline'
+                                or owner not in named_bundle_owners
+                                or (is_toolchain and owner != 'runtime' and (
+                                    version != 2
+                                    or not packages
+                                    or 'oasis7_game_client' in packages
+                                    or 'oasis7_wasm_materializer' in packages
+                                ))
+                            )
+                            actual = effective_job_condition(condition, values, [])
+                            with self.subTest(step=is_toolchain, execution=execution, version=version, owner=owner, packages=packages):
+                                if must_run:
+                                    self.assertTrue(actual)
+                                self.assertFalse(effective_job_condition(condition, values, ['failure']))
         native = next(step for step in steps if 'name: Install native libraries' in step)
         self.assertNotIn('        if:', native)
         self.assertIn('scripts/ci-apt-install.py --budget-seconds 600', native)
