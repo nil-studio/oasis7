@@ -12,6 +12,7 @@ use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 const FULL_SYNC_PIN_SCOPE: &str = "formal-full-sync";
@@ -175,6 +176,8 @@ fn verify_read_only_directory_entries(path: &Path, blob_directory: bool) -> Resu
 }
 
 pub(super) struct CasBudget {
+    pub(super) shared_exchange:
+        Option<Arc<dyn oasis7_game_client::formal_sync_exchange::FullSyncExchange>>,
     bytes: u64,
     max_bytes: u64,
     pub(super) objects: BTreeSet<String>,
@@ -218,6 +221,7 @@ impl CasBudget {
         Self {
             bytes: 0,
             max_bytes,
+            shared_exchange: None,
             objects: BTreeSet::new(),
             visited_paths: 0,
         }
@@ -240,6 +244,11 @@ impl CasBudget {
             .ok_or("full-sync CAS byte overflow")?;
         if self.objects.len() + 1 > MAX_RETAINED_TREE_NODES || bytes > self.max_bytes {
             return Err("full-sync retained/record CAS exceeds configured protocol bound".into());
+        }
+        if let Some(exchange) = &self.shared_exchange {
+            exchange
+                .charge_material(digest, size)
+                .map_err(|e| e.to_string())?;
         }
         self.objects.insert(digest.to_owned());
         self.bytes = bytes;

@@ -93,6 +93,12 @@ impl crate::World {
         } else {
             serde_json::json!({"status":"bounded","event_window":2048,"result_limit":16,"missing_result":"unknown"})
         };
+        // Unconfigured worlds retain their existing projection and signing bytes.
+        if self.state().world_rules.as_ref().is_some_and(|rules| {
+            !rules.ordinary_starter.offers.is_empty() || !rules.ordinary_starter.claims.is_empty()
+        }) {
+            status["ordinary_starter"] = serde_json::json!(self.ordinary_starter_status(reader));
+        }
         Some(status)
     }
     pub fn can_read_agent_industrial_order(

@@ -90,6 +90,17 @@ pub(super) fn driver_fixture_with_resource_preload(
 ) {
     fixture_with_controller_preload(true, true, false, None, preload)
 }
+pub(super) fn driver_fixture_without_provider_with_resource_preload(
+    preload: impl FnOnce(&mut oasis7_runtime::World),
+) -> (
+    PathBuf,
+    NodeRuntimeExecutionDriver,
+    WorldIdentity,
+    String,
+    String,
+) {
+    fixture_with_controller_preload(false, false, false, None, preload)
+}
 fn fixture_with_controller_preload(
     verified_authority: bool,
     provider_fixture: bool,

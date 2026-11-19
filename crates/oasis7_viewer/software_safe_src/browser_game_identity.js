@@ -57,8 +57,16 @@ export function browserIdentityScope(scope) {
 }
 const hex = (bytes) => Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
 
-export function createBrowserExecutorIdentity({ indexedDB, storage,
-  cryptoImpl = globalThis.crypto } = {}) {
+export function createBrowserExecutorIdentity(options = {}) { return createSigningIdentityStore(options, "executor", browserIdentityScope); }
+export function createBrowserOwnerIdentity(options = {}) {
+  return createSigningIdentityStore(options, "canonical-owner", (scope) => {
+    const values = [scope?.worldId, scope?.genesisDigest, scope?.accountId];
+    if (values.some((value) => typeof value !== "string" || !value.trim() || value.length > 512)) gameStorageFail("identity_scope_invalid");
+    return JSON.stringify(values);
+  });
+}
+function createSigningIdentityStore({ indexedDB, storage,
+  cryptoImpl = globalThis.crypto } = {}, purpose, identityScope) {
   const database = storage ?? createBrowserGameDatabase(indexedDB);
   async function validate(record, scopeKey) {
     if (record?.schema !== 1 || record.scopeKey !== scopeKey
@@ -72,7 +80,7 @@ export function createBrowserExecutorIdentity({ indexedDB, storage,
     try {
       const publicBytes = Uint8Array.from(record.publicKeyHex.match(/../g), (part) => parseInt(part, 16));
       const publicKey = await cryptoImpl.subtle.importKey("raw", publicBytes, "Ed25519", false, ["verify"]);
-      const challenge = new TextEncoder().encode(`oasis7/browser-executor-storage/v1:${scopeKey}`);
+      const challenge = new TextEncoder().encode(`oasis7/browser-${purpose}-storage/v1:${scopeKey}`);
       const signature = await cryptoImpl.subtle.sign("Ed25519", record.privateKey, challenge);
       if (!await cryptoImpl.subtle.verify("Ed25519", publicKey, signature, challenge)) gameStorageFail("executor_identity_corrupt");
     } catch { gameStorageFail("executor_identity_corrupt"); }
@@ -85,9 +93,9 @@ export function createBrowserExecutorIdentity({ indexedDB, storage,
   }
   return {
     async getOrCreate(scope) {
-      const scopeKey = browserIdentityScope(scope);
+      const scopeKey = identityScope(scope);
       if (!cryptoImpl?.subtle) gameStorageFail("webcrypto_unavailable");
-      const key = `executor:${scopeKey}`;
+      const key = `${purpose}:${scopeKey}`;
       const existing = await database.get(key);
       if (existing !== undefined) return validate(existing, scopeKey);
       let candidate;

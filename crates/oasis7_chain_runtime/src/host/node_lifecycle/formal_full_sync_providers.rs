@@ -41,6 +41,13 @@ pub(crate) struct FormalFullSyncEndpointV1 {
 
 impl FormalFullSyncConfigV1 {
     pub(crate) fn validate(&self) -> Result<(), String> {
+        self.validate_with_authority_profile(None)
+    }
+
+    pub(super) fn validate_with_authority_profile(
+        &self,
+        profile_version: Option<u32>,
+    ) -> Result<(), String> {
         if self.api_version != super::API_VERSION
             || !(100..=60_000).contains(&self.poll_interval_ms)
             || !(100..=MAX_REQUEST_TIMEOUT_MS).contains(&self.request_timeout_ms)
@@ -57,6 +64,9 @@ impl FormalFullSyncConfigV1 {
             .validate()
             .map_err(|error| error.to_string())?;
         let anchor = self.formal_read_trust.verified_anchor()?;
+        if profile_version.is_some_and(|version| anchor.authority().definition().profile_version != version) {
+            return Err("full-sync authority profile differs from the configured operation version".into());
+        }
         let trusted_world = &self.formal_read_trust.initial_trust.world;
         if trusted_world.world_id != self.world_id
             || trusted_world.chain_id != self.chain_id

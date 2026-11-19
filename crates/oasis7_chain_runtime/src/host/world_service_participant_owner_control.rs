@@ -34,9 +34,27 @@ pub(super) fn read(
         let fence = oasis7_agent_api::game::GameTaskFenceV1::from_control(task);
         game_task::validate_task_reader(&pinned.world, &fence, &request.read.subject_public_key)?;
     }
+    let industry = request.response_profile == Some(ParticipantOwnerViewProfileV1::OwnerIndustryV1);
     let view = ParticipantOwnerControlViewV1 {
         canonical_agent_owner: owner,
         game_task_control: task,
+        native_delegation_source_id: industry
+            .then(|| {
+                pinned
+                    .world
+                    .current_agent_owner(&agent)
+                    .map(|owner| owner.source_id)
+            })
+            .flatten(),
+        native_delegation_authorizations: industry
+            .then(|| {
+                pinned
+                    .world
+                    .agent_delegation_authorizations(&agent)
+                    .map_err(|e| format!("{e:?}"))
+            })
+            .transpose()?,
+        ordinary_starter: industry.then(|| pinned.world.ordinary_starter_status(Some(&agent))),
     };
     let response = ParticipantOwnerControlResponseV1 {
         schema_revision: 1,

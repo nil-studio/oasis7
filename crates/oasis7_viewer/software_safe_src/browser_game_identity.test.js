@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { webcrypto } from "node:crypto";
-import { createBrowserExecutorIdentity, createBrowserGameDatabase } from "./browser_game_identity.js";
+import { createBrowserExecutorIdentity, createBrowserOwnerIdentity, createBrowserGameDatabase } from "./browser_game_identity.js";
 
 const scope = { worldId: "world", genesisDigest: "genesis", accountId: "owner", agentId: "agent" };
 function storage() {
@@ -12,6 +12,17 @@ function storage() {
     } };
 }
 describe("browser executor identity", () => {
+  it("restores the canonical owner by world, genesis and signed-in account without an Agent or legacy join", async () => {
+    const database = storage();
+    const owners = createBrowserOwnerIdentity({ storage: database, cryptoImpl: webcrypto });
+    const ownerScope = { worldId: "world", genesisDigest: "genesis", accountId: "account" };
+    const owner = await owners.getOrCreate(ownerScope);
+    expect((await createBrowserOwnerIdentity({ storage: database, cryptoImpl: webcrypto }).getOrCreate(ownerScope)).publicKeyHex).toBe(owner.publicKeyHex);
+    expect((await owners.getOrCreate({ ...ownerScope, agentId: "later-canonical-agent" })).publicKeyHex).toBe(owner.publicKeyHex);
+    for (const field of Object.keys(ownerScope)) expect((await owners.getOrCreate({ ...ownerScope, [field]: "other" })).publicKeyHex).not.toBe(owner.publicKeyHex);
+    expect((await createBrowserExecutorIdentity({ storage: database, cryptoImpl: webcrypto }).getOrCreate({ ...ownerScope, agentId: "agent" })).publicKeyHex).not.toBe(owner.publicKeyHex);
+    expect([...database.records.keys()][0]).toBe('canonical-owner:["world","genesis","account"]');
+  });
   it("persists an independent nonextractable Ed25519 identity and verifies signatures", async () => {
     const database = storage(); const create = () => createBrowserExecutorIdentity({ storage: database, cryptoImpl: webcrypto });
     const first = await create().getOrCreate(scope);

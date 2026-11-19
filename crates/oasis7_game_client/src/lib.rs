@@ -13,6 +13,7 @@ mod formal_http;
 pub use formal_http::formal_read_http_client;
 #[cfg(unix)]
 pub mod executor_gateway;
+pub mod formal_sync_exchange;
 #[cfg(unix)]
 mod identity_cli;
 #[cfg(unix)]
@@ -107,6 +108,7 @@ pub struct WorldServiceTransport {
     config: WorldServiceClientConfig,
     http: reqwest::blocking::Client,
     query_state: WorldServiceQueryState,
+    full_sync_exchange: Option<std::sync::Arc<dyn formal_sync_exchange::FullSyncExchange>>,
     #[cfg(unix)]
     executor_gateway: Option<std::sync::Arc<executor_gateway::ExecutorGatewayContext>>,
 }
@@ -181,10 +183,30 @@ impl WorldServiceTransport {
             config,
             http,
             query_state: WorldServiceQueryState::default(),
+            full_sync_exchange: None,
             #[cfg(unix)]
             executor_gateway,
         })
     }
+    pub fn with_full_sync_exchange(
+        mut self,
+        exchange: std::sync::Arc<dyn formal_sync_exchange::FullSyncExchange>,
+    ) -> Result<Self, WorldServiceClientError> {
+        #[cfg(unix)]
+        if self.executor_gateway.is_some() {
+            return Err(WorldServiceClientError::Configuration(
+                "full-sync exchange cannot replace an executor gateway".into(),
+            ));
+        }
+        if self.full_sync_exchange.is_some() {
+            return Err(WorldServiceClientError::Configuration(
+                "full-sync exchange is already bound".into(),
+            ));
+        }
+        self.full_sync_exchange = Some(exchange);
+        Ok(self)
+    }
+
     pub fn with_query_state(mut self, state: WorldServiceQueryState) -> Self {
         self.query_state = state;
         self
@@ -200,6 +222,11 @@ impl WorldServiceTransport {
         self.config.read_authority_identity()
     }
     pub fn private_connection(&self) -> Result<reqwest::blocking::Client, WorldServiceClientError> {
+        if self.full_sync_exchange.is_some() {
+            return Err(WorldServiceClientError::Configuration(
+                "private transport is unavailable on an operation-bound full-sync client".into(),
+            ));
+        }
         let endpoint = reqwest::Url::parse(&self.config.endpoint).map_err(|_| {
             WorldServiceClientError::Configuration("invalid private endpoint".into())
         })?;
@@ -396,37 +423,71 @@ impl WorldServiceTransport {
         }
         let digest =
             authority::request_digest(path, request).map_err(WorldServiceClientError::Assurance)?;
-        let pending = self
-            .http
-            .post(format!(
-                "{}{}",
-                self.config.endpoint.trim_end_matches('/'),
-                path
-            ))
-            .json(request);
-        let mut response = request_deadline::bound(pending, self.config.timeout)
-            .map_err(|error| WorldServiceClientError::Transport(error.into()))?
-            .send()
-            .map_err(|e| WorldServiceClientError::Transport(e.to_string()))?;
-        let status = response.status().as_u16();
-        if let Some(retry_after) = self.query_state.observe(
-            status,
-            response
-                .headers()
-                .get(reqwest::header::RETRY_AFTER)
-                .and_then(|value| value.to_str().ok()),
-        )? {
-            return Err(WorldServiceClientError::Cooldown {
+        let (status, bytes) = if let Some(exchange) = &self.full_sync_exchange {
+            exchange.check_active()?;
+            let body = serde_json::to_vec(request)
+                .map_err(|e| WorldServiceClientError::Assurance(e.to_string()))?;
+            if body.len() > 256 * 1024 {
+                return Err(WorldServiceClientError::Assurance(
+                    "full-sync request exceeds body bound".into(),
+                ));
+            }
+            let response = exchange.exchange(formal_sync_exchange::EncodedFullSyncExchange {
+                endpoint: &self.config.endpoint,
+                path,
+                signed_body: &body,
+                response_bound: self.config.max_response_bytes,
+                request_timeout: self.config.timeout,
+            })?;
+            if response.retry_after.as_ref().is_some_and(|v| v.len() > 128) {
+                return Err(WorldServiceClientError::Assurance(
+                    "full-sync retry header exceeds bound".into(),
+                ));
+            }
+            if let Some(retry_after) = self
+                .query_state
+                .observe(response.status, response.retry_after.as_deref())?
+            {
+                return Err(WorldServiceClientError::Cooldown {
+                    status: response.status,
+                    retry_after,
+                });
+            }
+            (response.status, response.body)
+        } else {
+            let pending = self
+                .http
+                .post(format!(
+                    "{}{}",
+                    self.config.endpoint.trim_end_matches('/'),
+                    path
+                ))
+                .json(request);
+            let mut response = request_deadline::bound(pending, self.config.timeout)
+                .map_err(|error| WorldServiceClientError::Transport(error.into()))?
+                .send()
+                .map_err(|e| WorldServiceClientError::Transport(e.to_string()))?;
+            let status = response.status().as_u16();
+            if let Some(retry_after) = self.query_state.observe(
                 status,
-                retry_after,
-            });
-        }
-        let mut bytes = Vec::new();
-        response
-            .by_ref()
-            .take((self.config.max_response_bytes as u64).saturating_add(1))
-            .read_to_end(&mut bytes)
-            .map_err(|e| WorldServiceClientError::Transport(e.to_string()))?;
+                response
+                    .headers()
+                    .get(reqwest::header::RETRY_AFTER)
+                    .and_then(|value| value.to_str().ok()),
+            )? {
+                return Err(WorldServiceClientError::Cooldown {
+                    status,
+                    retry_after,
+                });
+            }
+            let mut bytes = Vec::new();
+            response
+                .by_ref()
+                .take((self.config.max_response_bytes as u64).saturating_add(1))
+                .read_to_end(&mut bytes)
+                .map_err(|e| WorldServiceClientError::Transport(e.to_string()))?;
+            (status, bytes)
+        };
         if bytes.len() > self.config.max_response_bytes {
             return Err(WorldServiceClientError::Assurance(
                 "service response exceeds bound".into(),
@@ -466,6 +527,9 @@ impl WorldServiceTransport {
             &self.config.trusted_service_public_key,
         )
         .map_err(WorldServiceClientError::Assurance)?;
+        if let Some(exchange) = &self.full_sync_exchange {
+            exchange.check_active()?;
+        }
         Ok(signed.payload)
     }
     pub fn signed_call<Q: Serialize, R: Serialize + DeserializeOwned>(

@@ -11,6 +11,7 @@ pub(super) const FORMAL_OBSERVER_PROFILE: &str = "formal_public_observer_v1";
 const API_V1: &str = "oasis7.local-node/v1";
 const API_V2: &str = "oasis7.local-node/v2";
 const API_V3: &str = "oasis7.local-node/v3";
+const API_V4: &str = "oasis7.local-node/v4";
 pub(super) struct ChainConfig;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -90,11 +91,27 @@ pub(super) struct FormalFullStateSyncChainAnchorV3 {
     formal_full_sync: super::formal_full_sync::FormalFullSyncConfigV1,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FormalFullStateSyncChainConfigV4 {
+    api_version: String,
+    runtime_profile: String,
+    formal_full_sync: super::formal_full_sync::FormalFullSyncConfigV2,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct FormalFullStateSyncChainAnchorV4 {
+    runtime_profile: String,
+    world_id: String,
+    chain_id: String,
+    formal_full_sync: super::formal_full_sync::FormalFullSyncConfigV2,
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub(super) enum ChainAnchor {
     Compatibility(Box<CompatibilityChainAnchor>),
     FormalPublicObserver(Box<FormalPublicObserverChainAnchorV2>),
     FormalFullStateSync(Box<FormalFullStateSyncChainAnchorV3>),
+    BudgetedFormalFullStateSync(Box<FormalFullStateSyncChainAnchorV4>),
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -133,6 +150,7 @@ impl ChainConfig {
             Some("oasis7.chain-config/v1") => Self::load_compatibility(path, bytes),
             Some("oasis7.chain-config/v2") => Self::load_formal_public_observer(bytes),
             Some("oasis7.chain-config/v3") => Self::load_formal_full_state_sync(bytes),
+            Some("oasis7.chain-config/v4") => Self::load_budgeted_formal_full_state_sync(bytes),
             _ => Err("unsupported chain configuration schema".into()),
         }
     }
@@ -267,6 +285,26 @@ impl ChainConfig {
             },
         )))
     }
+
+    fn load_budgeted_formal_full_state_sync(bytes: &[u8]) -> Result<ChainAnchor, String> {
+        let source: FormalFullStateSyncChainConfigV4 =
+            serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
+        if source.api_version != "oasis7.chain-config/v4"
+            || source.runtime_profile != super::formal_full_sync::PROFILE
+            || source.formal_full_sync.grant.is_some()
+        {
+            return Err("budgeted full-state sync chain config must use its profile and receive its grant after local key creation".into());
+        }
+        source.formal_full_sync.validate()?;
+        Ok(ChainAnchor::BudgetedFormalFullStateSync(Box::new(
+            FormalFullStateSyncChainAnchorV4 {
+                runtime_profile: source.runtime_profile,
+                world_id: source.formal_full_sync.world_id.clone(),
+                chain_id: source.formal_full_sync.chain_id.clone(),
+                formal_full_sync: source.formal_full_sync,
+            },
+        )))
+    }
 }
 impl ChainAnchor {
     pub(super) fn verify(&self) -> Result<(), String> {
@@ -313,6 +351,17 @@ impl ChainAnchor {
                     return Err("full-state sync identity differs from fixed trust".into());
                 }
             }
+            Self::BudgetedFormalFullStateSync(anchor) => {
+                if anchor.runtime_profile != super::formal_full_sync::PROFILE {
+                    return Err("unsupported runtime profile".into());
+                }
+                anchor.formal_full_sync.validate()?;
+                if anchor.world_id != anchor.formal_full_sync.world_id
+                    || anchor.chain_id != anchor.formal_full_sync.chain_id
+                {
+                    return Err("full-state sync identity differs from fixed trust".into());
+                }
+            }
         }
         Ok(())
     }
@@ -321,6 +370,7 @@ impl ChainAnchor {
             Self::Compatibility(anchor) => &anchor.runtime_profile,
             Self::FormalPublicObserver(anchor) => &anchor.runtime_profile,
             Self::FormalFullStateSync(anchor) => &anchor.runtime_profile,
+            Self::BudgetedFormalFullStateSync(anchor) => &anchor.runtime_profile,
         }
     }
     pub(super) fn world_id(&self) -> &str {
@@ -328,6 +378,7 @@ impl ChainAnchor {
             Self::Compatibility(anchor) => &anchor.world_id,
             Self::FormalPublicObserver(anchor) => &anchor.world_id,
             Self::FormalFullStateSync(anchor) => &anchor.world_id,
+            Self::BudgetedFormalFullStateSync(anchor) => &anchor.world_id,
         }
     }
     #[cfg(test)]
@@ -337,7 +388,7 @@ impl ChainAnchor {
             Self::FormalPublicObserver(_) => {
                 Err("formal public observer has no pinned local genesis file".into())
             }
-            Self::FormalFullStateSync(_) => {
+            Self::FormalFullStateSync(_) | Self::BudgetedFormalFullStateSync(_) => {
                 Err("formal full-state sync has no pinned local genesis file".into())
             }
         }
@@ -347,6 +398,7 @@ impl ChainAnchor {
             Self::Compatibility(anchor) => &anchor.chain_id,
             Self::FormalPublicObserver(anchor) => &anchor.chain_id,
             Self::FormalFullStateSync(anchor) => &anchor.chain_id,
+            Self::BudgetedFormalFullStateSync(anchor) => &anchor.chain_id,
         }
     }
     fn local_api_version(&self) -> &'static str {
@@ -354,11 +406,12 @@ impl ChainAnchor {
             Self::Compatibility(_) => API_V1,
             Self::FormalPublicObserver(_) => API_V2,
             Self::FormalFullStateSync(_) => API_V3,
+            Self::BudgetedFormalFullStateSync(_) => API_V4,
         }
     }
     pub(super) fn local_role(&self) -> &'static str {
         match self {
-            Self::FormalFullStateSync(_) => "full_state_sync",
+            Self::FormalFullStateSync(_) | Self::BudgetedFormalFullStateSync(_) => "full_state_sync",
             Self::Compatibility(_) | Self::FormalPublicObserver(_) => "observer",
         }
     }
@@ -367,7 +420,7 @@ impl ChainAnchor {
     ) -> Option<&super::formal_observer::FormalObserverConfigV1> {
         match self {
             Self::FormalPublicObserver(anchor) => Some(&anchor.formal_observer),
-            Self::Compatibility(_) | Self::FormalFullStateSync(_) => None,
+            Self::Compatibility(_) | Self::FormalFullStateSync(_) | Self::BudgetedFormalFullStateSync(_) => None,
         }
     }
     pub(super) fn formal_full_sync(
@@ -375,27 +428,35 @@ impl ChainAnchor {
     ) -> Option<&super::formal_full_sync::FormalFullSyncConfigV1> {
         match self {
             Self::FormalFullStateSync(anchor) => Some(&anchor.formal_full_sync),
+            Self::Compatibility(_) | Self::FormalPublicObserver(_) | Self::BudgetedFormalFullStateSync(_) => None,
+        }
+    }
+    pub(super) fn budgeted_formal_full_sync(
+        &self,
+    ) -> Option<&super::formal_full_sync::FormalFullSyncConfigV2> {
+        match self {
+            Self::BudgetedFormalFullStateSync(anchor) => Some(&anchor.formal_full_sync),
+            Self::Compatibility(_) | Self::FormalPublicObserver(_) | Self::FormalFullStateSync(_) => None,
+        }
+    }
+    pub(super) fn formal_full_sync_grant_mut(
+        &mut self,
+    ) -> Option<&mut Option<oasis7_client_api::world_service_full_sync::FormalNodeReadGrantV1>> {
+        match self {
+            Self::FormalFullStateSync(anchor) => Some(&mut anchor.formal_full_sync.grant),
+            Self::BudgetedFormalFullStateSync(anchor) => Some(&mut anchor.formal_full_sync.grant),
             Self::Compatibility(_) | Self::FormalPublicObserver(_) => None,
         }
     }
-    pub(super) fn formal_full_sync_mut(
-        &mut self,
-    ) -> Option<&mut super::formal_full_sync::FormalFullSyncConfigV1> {
-        match self {
-            Self::FormalFullStateSync(anchor) => Some(&mut anchor.formal_full_sync),
-            Self::Compatibility(_) | Self::FormalPublicObserver(_) => None,
+    fn without_formal_full_sync_grant(mut self) -> Self {
+        if let Some(grant) = self.formal_full_sync_grant_mut() {
+            *grant = None;
         }
+        self
     }
     fn same_immutable_identity(&self, other: &Self) -> bool {
-        let mut left = self.clone();
-        let mut right = other.clone();
-        if let Some(config) = left.formal_full_sync_mut() {
-            config.grant = None;
-        }
-        if let Some(config) = right.formal_full_sync_mut() {
-            config.grant = None;
-        }
-        left == right
+        self.clone().without_formal_full_sync_grant()
+            == other.clone().without_formal_full_sync_grant()
     }
     pub(super) fn compatibility(&self) -> Result<&CompatibilityChainAnchor, String> {
         match self {
@@ -403,7 +464,7 @@ impl ChainAnchor {
             Self::FormalPublicObserver(_) => {
                 Err("formal public observer has no local full-runtime chain bundle".into())
             }
-            Self::FormalFullStateSync(_) => {
+            Self::FormalFullStateSync(_) | Self::BudgetedFormalFullStateSync(_) => {
                 Err("formal full-state sync has no compatibility runtime bundle".into())
             }
         }
@@ -570,16 +631,21 @@ impl NodeConfig {
         let binding: IdentityBinding = io::read(&binding_path)?;
         let mut bound_identity = binding;
         let mut configured_identity = config.identity.clone();
-        if let Some(full_sync) = bound_identity.chain.formal_full_sync_mut() {
-            full_sync.grant = None;
-        }
-        if let Some(full_sync) = configured_identity.chain.formal_full_sync_mut() {
-            full_sync.grant = None;
+        for identity in [&mut bound_identity, &mut configured_identity] {
+            if let Some(grant) = identity.chain.formal_full_sync_grant_mut() {
+                *grant = None;
+            }
         }
         if bound_identity != configured_identity {
             return Err("local node config changed fixed identity/world binding".into());
         }
-        if let Some(full_sync) = config.identity.chain.formal_full_sync()
+        let budgeted_read = config.identity.chain.budgeted_formal_full_sync()
+            .map(|full_sync| {
+                full_sync.validate()?;
+                Ok::<_, String>(full_sync.read_material_config())
+            })
+            .transpose()?;
+        if let Some(full_sync) = config.identity.chain.formal_full_sync().or(budgeted_read.as_ref())
             && let Some(grant) = full_sync.grant.as_ref()
         {
             let (keypair, _) =
@@ -595,6 +661,13 @@ impl NodeConfig {
         }
         Ok(config)
     }
+    pub(super) fn require_active_worker_profile(&self) -> Result<(), String> {
+        if self.identity.chain.budgeted_formal_full_sync().is_some() {
+            return Err("operation-budgeted full sync has no active worker consumer".into());
+        }
+        Ok(())
+    }
+
     pub(super) fn verify_identity(&self) -> Result<(), String> {
         let (keypair, _) =
             super::super::node_keypair_config::read_existing_node_keypair_in_secure_config_dir(

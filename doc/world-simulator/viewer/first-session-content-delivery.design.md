@@ -134,6 +134,26 @@ C01～C03 在当前目标旁说明本次分工：玩家选择目标、约束及�
 
 窄屏沿相同 DOM 阅读顺序将方案/原件作为单一上下文面展开，返回入口始终可达。焦点回到打开它的控件；未知到已结算的更新使用状态说明而不跳焦点。具体桌面与窄屏、键盘、长文和 reduced motion 组合按[设计原型走查](first-session-content-delivery.manual.md#fs-content-prototype)记录；这些设计操作不能代替正式入口及真人验收。
 
+<a id="ordinary-first-session-consumer"></a>
+### 3.8 普通账号首版消费者
+
+普通账号首版采用[默认方案合同](../../product/world-rules-core-gameplay/ordinary-account-first-factory-bootstrap.design.md#ordinary-starter-v1-contract)。这是实施目标，§3.6 的三批设计 fixture 仍只覆盖其原样本；普通首轮采用玩家确认的单批铁锭，批次与成本必须从实际方案读取。
+
+实际交互扩展已有 Browser BYOK 的 canonical participant / Task 会话，在原 Command 入口提供普通起步面板；pure API 消费同一 World Service。面板明确显示当前普通主体和世界，owner key 的取得/恢复沿正式账号入口，不依赖 legacy `/world/join` 先创建另一绑定。不能以相同公钥、选中 Agent 或相同邮箱推断两种玩家 ID 相同，也不能用 legacy snapshot 的库存/工厂补全 canonical 方案。
+
+| 阶段 | 面板必须读到的事实与真实操作 |
+| --- | --- |
+| 准备 | 公开方案的有限场地、资格、真实供给、到账目标、一次配额及主要限制；明确领取还不是建厂或首产。没有发布方案/权限时显示实际 blocker，不指向反复刷新或世界推进。 |
+| 业务授权 | 读取当前 grant，显示对象、动作类别、额度与期限；玩家确认后由 owner signer 经正式 owner-control 提交并保存原件。committed 且权威读取确认匹配后才开放动作；unknown 只查询，不以换 ID 绕过旧 scope。可以并入同一次业务确认。 |
+| 玩家直接动作 | 公开领取的专用 WorldRule、建设和搬料使用匹配业务 grant、当前 executor Context 与原件机制；玩家点击建立限定对象/参数/一次原件的直接操作许可，不依赖模型 Key 或运行状态，与模型 run 互斥并共享恢复检查。点击前显示与实际提交相同的对象和成本，标为玩家操作。 |
+| 代办确认 | 自有工厂和投入已就绪时，显示单批方案、有效业务 grant 的范围/额度/期限、当前目标和模型预算；只有明确确认后才允许实际模型执行。executor 绑定不代替业务 grant。 |
+| 执行与恢复 | 将一次许可、quote/action 及原件状态贯穿 session、runner、client、恢复记录和界面。受理、生产中、已结算和未知分别表达；原件未知只查询，不新开代办。 |
+| 自主下一决定 | 本人且本轮的精确结算成立后，展示实际投入/所得及当前资源，撤去逐步答案；继续生产仅在当前条件确实满足时可选，保留成果/暂缓不取消旧义务。帮助仍可打开。 |
+
+后继不能默认提供厂址产物转回 builder 账本：现有受限 TransferMaterial 消费面只允许从该 Agent 的账本发出，其他方向须先有其真实专业能力。Assembler 候选与可建、可生产继续分判，不用不存在的转移按钮填平缺口。
+
+本人首轮结果与提示淡出按 world、canonical owner/Agent、方案版本和实际原件归属核对。localStorage 只保存帮助展示偏好，不签发成果或学习完成；换账号/世界、别人的工厂、旧请求 accepted 或仅有模型文本都不能触发完成表达。玩家的下一选择、理由及是否打开帮助由原真人方法记录，单次生产成功不转换成学习百分比。
+
 ## 4. 制作规格与交付物
 
 <a id="delivery-index"></a>

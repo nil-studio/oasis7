@@ -103,7 +103,7 @@ impl PeerRecordReceiver {
         Ok(0)
     }
 
-    #[allow(dead_code)]
+    #[cfg(all(test, unix))]
     pub(in crate::libp2p_net) fn contains_floor(&self, peer_id: &str) -> Result<bool, WorldError> {
         let durable = self.durable_lock()?;
         if let Some(durable) = durable.as_ref() {

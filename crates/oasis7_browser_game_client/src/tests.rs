@@ -1,4 +1,6 @@
 use super::*;
+#[path = "owner_industry_tests.rs"]
+mod owner_industry;
 #[test]
 fn canonical_codec_and_digest_match_shared_contract() {
     let value =

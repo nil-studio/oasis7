@@ -292,7 +292,62 @@ Viewer、pure API 和适用 Agent 可以采用不同呈现，但必须对目标�
 
 文档 checker、合成 fixture、运维 bootstrap、局部自动化或 prepared-world 成功只能证明其实际范围，不能证明普通账号首局、玩家理解、继续意愿或发行就绪。
 
-## 10. 实施拆分与未决边界
+<a id="ordinary-starter-v1-contract"></a>
+## 10. 首版默认方案与实际入口
+
+本节将 §6 的公共方案收敛为首版实施合同，承接原 [REQ-FIRST-INDUSTRIAL-001](first-session-and-continuation.prd.md#req-first-industrial-001) 至 [REQ-FIRST-INDUSTRIAL-008](first-session-and-continuation.prd.md#req-first-industrial-008)；它不声明下面的接口已经交付。实现、受测版本和仍未满足的条件由消费 PR 与 #6042 记录。
+
+### 10.1 一个有限公共方案
+
+首版采用世界初始化发布的 `ordinary-industrial-starter-v1` 方案。世界须先发布固定的场地清单、有效 location anchor、建设类型和公开供应账户，并向供应账户一次性投入有来源的有限库存；没有这些事实的世界返回未提供该方案。普通请求只消费已发布库存，不能触发补货或为申请者调用 bootstrap setter。
+
+首个支持的初始化是显式 DevLocal 技术试玩世界：`initialize-preview-world --ordinary-starter ordinary-industrial-starter-v1`。它初始化独立供应主体 `ordinary-starter-supplier-v1`、地点 `ordinary-starter-yard-v1` 与编号 1–8 的固定 slot/site/Smelter 实例；每座建设电力为 10（`StartOnlySink`），生产电力和材料按当前 canonical 配方的两批完整义务推导，供应账户总库存恰为 8 份。有限库存与固定初始化方案进入 genesis artifact；genesis identity 确定后，初始化器绑定世界并发布 offer，之后才开放服务。重复启动只验原结果，不能补货。普通主体入场仍须既有正式 participant policy/identity 配置，供给初始化不授予该权限，也不创建玩家账号或预置个人资产。该选项不与预分配 provider 主体的初始化配置混用；采用范围不扩张到其他既有世界或正式部署。
+
+已发布方案的世界绑定必须在后续真实提交和重启中保持，即使该世界尚未启用 participant 管理。执行器只从已核验的持久世界恢复原 genesis/chain 身份；缺失或与方案不一致时拒绝启动，不重新绑定方案或授予入场权限。
+
+公开供应主体不能通过旧 `ClaimStarterOc` 或经济认领入口变为个人资产；发布时要求它没有个人 owner/claim，已发布后由 Runtime 与权威 reducer 拒绝认领。这个约束保护有限供给来源，不能只靠 Viewer 隐藏旧入口。
+
+供应方使用独立系统主体的材料账本与真实电力余额。方案提供 canonical Smelter 的全部建材、两批 canonical 铁锭配方的原料，以及明确发布的建设和生产电力额度。每个 slot 的实际 factory ID 预先绑定与 kind 相符的有效 factory profile 和 construction power profile，其 revision 纳入方案；建设电力不能由 `base_power_draw` 推算。包内容按该版本的真实建设义务及两次单批生产的完整 `effective_consume` / 电力义务核足，适用 product profile 的 maintenance sink 计入实际投入。条件或供给不足时不发布正向可达承诺。建材、输入与电力的数量、来源和当前余量是同一版本方案的权威内容；显示、扣账和测试使用这份内容，不由 Viewer 重算另一个礼包。材料先进入领取者的合法消费账本；进入厂址输入账本的转移另有正式动作与回执。首版不发放铁锭、已建成工厂或首产物里程碑。
+
+领取采用一次性配额：同一世界创生身份下，每个稳定 owner binding 至多成功领取一份。该限制不随 request、Task、执行端或凭据代数改变而重置，也不因更换 Agent 获得第二份。资格来自正式 participant 登记和当前 owner 证明，不能要求旧 starter OC 领取记录，也不能把可制造 Agent 当作新的普通账号资格。方案不自动给予动作代办授权。
+
+首版使用当前世界已有的 site/location 使用授权和独立建设许可。它不出售永久土地，也不承诺当前 authority 未实现的租期；许可当前有效、失效后的限制及已提交义务均按原专业合同处理。每个已领取 slot 绑定实际 site 与 factory 实例，工厂类型沿 canonical catalog，实例不能使用全世界共享的固定 ID。
+
+### 10.2 领取、恢复与结果隔离
+
+公开读取至少包含方案/世界/规则版本、slot、供应主体、领取资格与限制、确切投入与到账目标、当前主要 blocker，以及可执行领取入口。读取没有预留或发放效果。领取携带所确认的方案与 slot 版本、当前普通主体及原请求身份；owner 证明来自正式验签，不能相信客户端填写的 owner 字段。
+
+一次领取在同一权威提交中完成供应扣账、个人到账、slot 占用、地点/建设授权和稳定 owner 的领取记录；任一条件失败则全部拒绝。请求准备投影、真实安装、增量持久化和 journal replay 必须给出相同状态根。供应不足、竞争失去 slot、资格变化、旧版本或锚点失效不能留下部分到账或部分授权。
+
+相同 actor/request 和内容回读同一结果；相同请求改内容返回冲突。换 request 不能绕过成功领取记录；重启不能补发。收到提交接受还不等于领取、建厂或生产已完成，原件未知时只查询原身份。领取不锁定后续建厂/生产成功：它们仍分别重验权限、材料、电力和当前条件。
+
+后续首产物沿原 `starter-industrial-smelter-to-assembler-v1` / `production_only` 完成边界，按[工业内容的实例适用分支](../../game/gameplay/industrial-native-content-delivery.design.md#starter-and-initial-state-applicability)由普通方案记录显式绑定 owner、真实 factory 实例、配方、profile/revision 和结算原件。旧固定实例的历史样例保留其原有范围；全局里程碑或另一玩家的工厂、产物不能成为本人的完成事实。Assembler 仅为真实后继候选，首版不需要先建成它。
+
+### 10.3 同一普通主体贯通正式消费者
+
+首版正向路径以正式 participant、Task/Context 和其 World Service 为执行来源。Browser BYOK 与 pure API 使用这一身份及同一世界；Browser 使用相同签名公钥，并不能证明 legacy Viewer 的 `player_id`、绑定 Agent 或结果投影已经相同。不得只复制字符串、选择 Agent 或以邮箱相同代替权威绑定。
+
+普通方案的读取、领取、建厂、搬料和排产须具有同一 canonical 主体的真实消费者。玩家直接操作使用正式签名/Context/原件机制，并标为玩家操作；Agent 代办使用模型决定与相应授权。若首版采用 Viewer 内的 canonical 普通账号面板，该面板须完整显示其实际主体、当前目标、成本、合法动作及原结果；不能跳到另一身份的 legacy 按钮继续主路径。未接通的旧入口保留原范围，不由此面板的成功代签。
+
+业务动作授权与 executor 注册分开：正式 owner-control 能力须支持精确对象的 native action grant 创建、撤销和原件查询，并将 owner 签名、当前身份、nonce、世界与额度/期限带入权威处理。`BuildFactory` 必须从正式授权入口进入白名单及后续报价，不使用 test-only grant 作为普通账号证据。服务器尚未发布该能力时，入口应报告授权前置缺失；切回本地模拟 lane 不能当作接通。
+
+面板读取现有业务 grant，显示具体对象、动作类别、额度及期限，玩家确认后经同一 owner signer 调用正式 owner-control，发送前保存原件。只有原件 committed 且当前权威读取确认匹配，才开放对应动作；unknown 只查询。已耗尽但未撤销或条款不同的旧 grant 不能用更换 ID 隐式覆盖，须按正式撤销/重新授权处理。业务授权可合并进一次明确的业务确认，无需另设独立页面；首次铁锭代办只授予本次 factory 的 ScheduleRecipe 与已确认电力上限，不自动续额度。
+
+owner-control 授权写入不依赖模型 Key 或模型运行状态。公开领取沿本节专用 WorldRule 合同，通过明确玩家点击建立的直接操作许可、匹配 offer scope 的业务 grant、当前合法 executor Context 和原件机制提交；建设和搬料使用同一直接操作机制。直接许可限制对象、参数与一次原件，不要求启动模型，不计作 Agent 代办；它与模型 run 互斥并共享未决原件检查。不得放宽现有模型执行许可，或为完成玩家按钮而后台启动模型。
+
+### 10.4 一次真实代办和下一决定
+
+首版选定的 Agent 代办是：在玩家自己的 Smelter、厂址原料和电力已就绪后，检查当前条件，按已确认的 `recipe.smelter.iron_ingot` 单批方案至多提交一次，并沿原件报告结果或阻塞。基础 canonical plan 当前为铁矿 4、燃料 1、配方电力 8，预计铁锭 3 与炉渣 1；实际确认同时展示 fresh quote 的完整消耗，包括适用维护投入。实际提交必须使用同一 fresh signed quote 的 action，不能由模型或 UI 拼造 plan。
+
+确认绑定世界、owner/Agent、Task、当前目标/fence、executor、工厂、配方、批次、主要投入上限、模型预算与一次提交许可。现有 active goal 不被后台默改；不一致时走正式目标变更或停止。本轮只接必要读取、同条件报价、一次排产和停止；建厂与搬料在该代办之前完成，不把未接通工具写进 Agent 承诺。
+
+服务端 grant 负责其实际支持的对象、动作类别、额度和有效期；受限 Browser 执行器另在代码中约束精确配方、批次与一次提交。现有 grant 没有配方/次数字段，不能宣称它已经提供跨客户端的单批硬限制；需要扩大保证范围时先补正式授权合同。只写 prompt 不构成受限执行。
+
+提交许可与原件持久绑定，在发送前占用；pending/unknown 同样消耗许可。刷新、重入、重新 Start 或迟到模型结果不能产生第二次动作。一次接受后仅允许必要查询，不自动新开下一轮排产。停止只取消尚未提交的未来步骤，不能撤销世界已接受的义务。
+
+本人首轮真实结算后，入口展示实际投入/所得、当前库存、有效权利与主要限制，撤去逐步指定下一答案的推荐。玩家可以在当前条件允许时自行选择再做一批，或明确保留资源、暂缓新动作并查看未决义务；无可执行生产时只提供真实恢复与暂缓选择。保留正常帮助，不把“懂了”、关闭卡片或任意点击写成学会。下一决定及理由、帮助介入、实际动作/原件分别记录，仍由原真人方法判断学习；暂缓本身不补齐未观察到的理解维度。
+
+## 11. 实施拆分与未决边界
 
 后续实施按独立结果拆分：
 
@@ -303,7 +358,7 @@ Viewer、pure API 和适用 Agent 可以采用不同呈现，但必须对目标�
 5. Viewer、pure API、Agent 的首读/展开/证据层；
 6. 普通账号端到端和真人最小独立游玩验收。
 
-本普通账号组合的实现与玩家验证尚未核实；已有 starter 局部实现与历史样本仍按原专业来源理解。公共 starter 方案由何种世界主体发布、地点权利/许可是否同一协调事务、build-kit 与 BuildFactory 是否原子预留、B1 世界的数值/配额/补货政策，均由后续专业 owner 决定；不能削弱首局知识预算、真实权利/材料、无特权路径、幂等和无假成功要求。
+本普通账号组合的实现与玩家验证尚未核实；已有 starter 局部实现与历史样本仍按原专业来源理解。首版方案和事务边界沿 §10，具体支持世界的固定场地清单、电力额度和总库存必须在正式初始化中发布并测试；未发布前不宣称方案可用。补货、长期 tenure、跨客户端精确次数硬授权及其他世界/入口的采用不在首版默认能力中。任何后续扩展都不能削弱首局知识预算、真实权利/材料、无特权路径、幂等和无假成功要求。
 
 相邻 authority：[`first claim / generated context`](../agents-world-simulation/prd.md#first-claim-generated-context)拥有入场和 Context；[`REQ-WR-GR-007`](governed-regional-capabilities-and-extensions.prd.md#req-wr-gr-007)及区域治理专业设计拥有地点权利；[`工业原生内容交付设计`](../../game/gameplay/industrial-native-content-delivery.design.md)拥有工业内容和 bootstrap 专业边界；配对首局 PRD 与其主设计拥有首产物、持续能力和回访；runtime、账本、空间/建设与持久化 authority 拥有事务、receipt 和 replay；testing/QA 拥有实际方法和 verdict。
 
