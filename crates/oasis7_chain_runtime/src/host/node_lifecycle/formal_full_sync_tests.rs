@@ -1144,3 +1144,6 @@ fn operation_budget_is_bound_to_v4_chain_and_local_identity() {
     config["formal_full_sync"]["transfer_policy"].as_object_mut().unwrap().remove("reopen_timeout_ms");
     assert!(load(&config).is_err());
 }
+#[cfg(unix)]
+#[path = "formal_full_sync_shared_exchange_tests.rs"]
+mod shared_exchange_tests;

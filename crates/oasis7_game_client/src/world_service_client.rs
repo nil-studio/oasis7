@@ -88,6 +88,14 @@ pub struct RemoteWorldServiceClient<H: ClientWorldProfile> {
     marker: std::marker::PhantomData<H>,
 }
 impl<H: ClientWorldProfile> RemoteWorldServiceClient<H> {
+    pub fn with_full_sync_exchange(
+        mut self,
+        exchange: std::sync::Arc<dyn crate::formal_sync_exchange::FullSyncExchange>,
+    ) -> Result<Self, WorldServiceClientError> {
+        self.reader = self.reader.with_full_sync_exchange(exchange)?;
+        Ok(self)
+    }
+
     /// Clone the validated transport without sharing mutable formal read progress.
     pub fn independent_clone(&self) -> Result<Self, WorldServiceClientError> {
         Ok(Self {
