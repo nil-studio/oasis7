@@ -91,10 +91,13 @@ fn normal_config_file_rejects_invalid_resource_budget_before_start() {
     unknown["runtime"]["p2p_resource_budget"]["profile"] = serde_json::json!("future-version");
     assert!(read_fixture_config(&serde_json::to_vec(&unknown).unwrap()).is_err());
 
-    let duplicate = serde_json::to_string(&wire).unwrap().replace(
+    let valid = serde_json::to_string(&wire).unwrap();
+    assert!(read_fixture_config(valid.as_bytes()).is_ok());
+    let duplicate = valid.replace(
         r#""connections_total":3"#,
         r#""connections_total":3,"connections_total":3"#,
     );
+    assert_ne!(duplicate, valid);
     assert!(read_fixture_config(duplicate.as_bytes()).is_err());
     let overlimit = vec![b' '; 1024 * 1024 + 1];
     assert!(
