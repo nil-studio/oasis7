@@ -1,7 +1,9 @@
 //! Versioned input for an operation-budgeted, read-only full sync.
 
-use super::{FormalFullSyncConfigV1, FormalFullSyncEndpointV1, FormalNodeReadGrantV1,
-    FormalNodeReadRoleV1, FormalReadTrustConfigV1};
+use super::{
+    FormalFullSyncConfigV1, FormalFullSyncEndpointV1, FormalNodeReadGrantV1, FormalNodeReadRoleV1,
+    FormalReadTrustConfigV1,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,7 +41,6 @@ impl FormalFullSyncTransferPolicyV1 {
     }
 }
 
-
 const FULL_SYNC_CONFIG_V2: &str = "oasis7.formal-full-state-sync/v2";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -69,7 +70,8 @@ impl FormalFullSyncConfigV2 {
             return Err("unsupported operation-budgeted full-sync configuration version".into());
         }
         self.transfer_policy.validate()?;
-        self.read_material_config().validate_with_authority_profile(Some(2))
+        self.read_material_config()
+            .validate_with_authority_profile(Some(2))
     }
 
     /// The validated read protocol, grant and material limits keep their V1 wire

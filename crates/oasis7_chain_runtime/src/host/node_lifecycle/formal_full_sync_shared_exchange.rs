@@ -29,8 +29,31 @@ pub(super) struct SharedOperationExchange {
     active: Mutex<ActiveOperation>,
     endpoints: BTreeMap<String, ApprovedEndpoint>,
     tls_config: Option<Arc<ClientConfig>>,
+    owner: Option<(Arc<super::super::process::ProcessOwnership>, std::path::PathBuf)>,
 }
 impl SharedOperationExchange {
+    pub(super) fn with_owner(
+        mut self,
+        owner: Arc<super::super::process::ProcessOwnership>,
+        directory: std::path::PathBuf,
+    ) -> Result<Self, String> {
+        owner.require_directory(&directory)?;
+        if self.active.get_mut().map_err(|error| error.to_string())?
+            .ledger.snapshot().identity.binding_digest != owner.binding_digest()?
+        {
+            return Err("operation ledger differs from its native owner binding".into());
+        }
+        self.owner = Some((owner, directory));
+        Ok(self)
+    }
+
+    fn require_owner(&self) -> Result<(), WorldServiceClientError> {
+        if let Some((owner, directory)) = &self.owner {
+            owner.require_directory(directory).map_err(WorldServiceClientError::Transport)?;
+        }
+        Ok(())
+    }
+
     #[cfg(test)]
     pub fn snapshot(&self) -> super::operation_ledger::Snapshot {
         self.active.lock().unwrap().ledger.snapshot().clone()
@@ -222,11 +245,13 @@ impl PreparedTransport {
             active: Mutex::new(ActiveOperation { ledger, attempt }),
             endpoints: self.endpoints,
             tls_config: self.tls_config,
+            owner: None,
         })
     }
 }
 impl FullSyncExchange for SharedOperationExchange {
     fn original_request_digest(&self) -> Result<String, WorldServiceClientError> {
+        self.require_owner()?;
         let guard = self.active.try_lock().map_err(|_| {
             WorldServiceClientError::Transport("operation occupied or poisoned".into())
         })?;
@@ -238,6 +263,7 @@ impl FullSyncExchange for SharedOperationExchange {
     }
 
     fn bind_verified_target(&self, target_json: &[u8]) -> Result<(), WorldServiceClientError> {
+        self.require_owner()?;
         let mut guard = self.active.try_lock().map_err(|_| {
             WorldServiceClientError::Transport("operation occupied or poisoned".into())
         })?;
@@ -248,6 +274,7 @@ impl FullSyncExchange for SharedOperationExchange {
             .map_err(WorldServiceClientError::Transport)
     }
     fn check_active(&self) -> Result<(), WorldServiceClientError> {
+        self.require_owner()?;
         let guard = self.active.try_lock().map_err(|_| {
             WorldServiceClientError::Transport("operation occupied or poisoned".into())
         })?;
@@ -257,6 +284,7 @@ impl FullSyncExchange for SharedOperationExchange {
             .map_err(WorldServiceClientError::Transport)
     }
     fn finish_attempt(&self) -> Result<(), WorldServiceClientError> {
+        self.require_owner()?;
         let mut guard = self.active.try_lock().map_err(|_| {
             WorldServiceClientError::Transport("operation occupied or poisoned".into())
         })?;
@@ -271,6 +299,7 @@ impl FullSyncExchange for SharedOperationExchange {
         Ok(())
     }
     fn charge_proof(&self, bytes: u64) -> Result<(), WorldServiceClientError> {
+        self.require_owner()?;
         let mut guard = self.active.try_lock().map_err(|_| {
             WorldServiceClientError::Transport("operation occupied or poisoned".into())
         })?;
@@ -281,6 +310,7 @@ impl FullSyncExchange for SharedOperationExchange {
             .map_err(WorldServiceClientError::Transport)
     }
     fn charge_material(&self, digest: &str, bytes: u64) -> Result<(), WorldServiceClientError> {
+        self.require_owner()?;
         let mut guard = self.active.try_lock().map_err(|_| {
             WorldServiceClientError::Transport("operation occupied or poisoned".into())
         })?;
@@ -294,6 +324,7 @@ impl FullSyncExchange for SharedOperationExchange {
         &self,
         request: EncodedFullSyncExchange<'_>,
     ) -> Result<FullSyncHttpResponse, WorldServiceClientError> {
+        self.require_owner()?;
         if !matches!(
             request.path,
             oasis7_client_api::world_service::VIEW_PATH

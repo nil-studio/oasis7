@@ -266,3 +266,83 @@ fn original_request_cannot_be_attached_to_another_transport_policy() {
     assert_eq!(reopened.snapshot(), &before);
     assert_eq!(reopened.snapshot().exchanges_started, 0);
 }
+
+#[test]
+fn v4_config_and_issuer_grant_bind_the_real_owned_worker_to_one_budget() {
+    use super::super::operation_worker::InitialBudgetedSession;
+    use super::super::super::{model, process};
+
+    let (world, trust, anchor, material, proof) = full_sync_fixture();
+    let (mut server, endpoint, key, runtime, _, _) =
+        start_live_service(world, trust.clone(), anchor, material, proof);
+    let mut seed = config(endpoint, key, vec![], trust, &test_key(92));
+    seed.grant = None;
+    let mut wire = serde_json::to_value(&seed).unwrap();
+    wire["api_version"] = serde_json::json!("oasis7.formal-full-state-sync/v2");
+    wire["transfer_policy"] = serde_json::json!({
+        "api_version": "oasis7.formal-full-sync-transfer-policy/v1",
+        "attempt_timeout_ms": 60000,
+        "max_attempts": 2,
+        "max_encoded_io_bytes": 67108864,
+        "max_exchanges": 256,
+        "max_proof_pages": 64,
+        "max_proof_bytes": 16777216,
+        "max_inflight_requests": 1,
+        "reopen_timeout_ms": 10000
+    });
+    let chain = serde_json::json!({
+        "api_version": "oasis7.chain-config/v4",
+        "runtime_profile": PROFILE,
+        "formal_full_sync": wire
+    });
+    let directory = TestPrivateDir::new();
+    let anchor = model::ChainConfig::load_bytes(
+        &directory.0.join("chain.json"), &serde_json::to_vec(&chain).unwrap(),
+    ).unwrap();
+    let data = directory.0.join("node");
+    let node = model::initialize(anchor, &data, None, "127.0.0.1:43170").unwrap();
+    let instance_for = |node: &model::NodeConfig| {
+        LocalInstance { config_digest: local_io::digest(node).unwrap(), ..local_instance("v4-owned") }
+    };
+    let owner = Arc::new(process::lock(&data).unwrap());
+    let denied = InitialBudgetedSession::prepare(&node, &instance_for(&node), Arc::clone(&owner));
+    assert!(denied.err().unwrap().contains("requires an independent issuer grant"));
+    assert!(!data.join("state/full-sync").exists());
+    drop(owner);
+
+    let (keypair, _) =
+        super::super::super::super::node_keypair_config::read_existing_node_keypair_in_secure_config_dir(
+            &data.join("keys"),
+        ).unwrap();
+    let private: [u8; 32] = hex::decode(keypair.private_key_hex).unwrap().try_into().unwrap();
+    let grant = signed_grant(&SigningKey::from_bytes(&private), now_unix_ms().unwrap(), 1);
+    let grant_path = directory.0.join("grant.json");
+    local_io::write(&grant_path, &grant).unwrap();
+    install_grant(&data, &grant_path).unwrap();
+    let node = model::NodeConfig::load(&data.join(model::CONFIG_FILE)).unwrap();
+    let instance = instance_for(&node);
+    let owner = Arc::new(process::lock(&data).unwrap());
+    let owner_digest = owner.binding_digest().unwrap();
+    let worker = InitialBudgetedSession::prepare(&node, &instance, Arc::clone(&owner)).unwrap();
+    assert!(process::lock(&data).is_err());
+
+    let thread = process::spawn_formal_full_sync_owned_worker(owner, move || worker.run_once()).unwrap();
+    let (status, snapshot) = thread.join().unwrap().unwrap();
+    assert!(status.loaded_cut.is_some());
+    assert!(!status.ready);
+    assert_eq!(snapshot.identity.binding_digest, owner_digest);
+    assert_eq!(snapshot.attempts_used, 1);
+    assert!(snapshot.encoded_rx_actual > 0 && snapshot.encoded_tx_actual > 0);
+    assert!(snapshot.material_bytes > 0 && snapshot.proof_pages > 0);
+    assert!(snapshot.active_attempt_nonce.is_none());
+    assert!(snapshot.reservation.is_none());
+
+    let owner = Arc::new(process::lock(&data).unwrap());
+    let ledger_path = data.join("state/full-sync/operation.json");
+    let before = std::fs::read(&ledger_path).unwrap();
+    let resumed = InitialBudgetedSession::prepare(&node, &instance, owner);
+    assert!(resumed.err().unwrap().contains("original full-sync state exists"));
+    assert_eq!(std::fs::read(&ledger_path).unwrap(), before);
+    server.stop().unwrap();
+    runtime.lock().unwrap().stop().unwrap();
+}

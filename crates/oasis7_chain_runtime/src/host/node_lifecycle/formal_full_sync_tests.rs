@@ -1123,6 +1123,9 @@ fn operation_budget_is_bound_to_v4_chain_and_local_identity() {
     let node_path = data.join(model::CONFIG_FILE);
     assert_eq!(model::NodeConfig::load(&node_path).unwrap(), node);
     assert!(process::start(&node_path).unwrap_err().contains("no active worker consumer"));
+    assert!(process::supervise(&node_path, "not-an-admitted-incarnation")
+        .unwrap_err()
+        .contains("no active worker consumer"));
     assert!(!data.join("state/full-sync").exists());
 
     let mut changed_node = serde_json::to_value(&node).unwrap();
