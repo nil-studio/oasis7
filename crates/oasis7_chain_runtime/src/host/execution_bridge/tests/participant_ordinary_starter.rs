@@ -116,7 +116,7 @@ fn owner_read(
             owner,
         )
         .unwrap(),
-        response_profile: Some(ParticipantOwnerViewProfileV1::OwnerControlV1),
+        response_profile: Some(ParticipantOwnerViewProfileV1::OwnerIndustryV1),
     };
     let response = reqwest::blocking::Client::builder()
         .no_proxy()
@@ -639,7 +639,14 @@ fn run_ordinary_first_session(handoff_ready: Option<&Path>) {
         );
         let read = owner_read(&endpoint, &root, &identity, &signer, &participant, &owner);
         assert_eq!(read.view.ordinary_starter.unwrap().claim.unwrap(), claimed);
-        assert_eq!(read.view.native_delegation_authorizations.len(), 1);
+        assert_eq!(
+            read.view
+                .native_delegation_authorizations
+                .as_ref()
+                .unwrap()
+                .len(),
+            1
+        );
         execution.grant(
             "ordinary-build-grant",
             &selected.factory_id,

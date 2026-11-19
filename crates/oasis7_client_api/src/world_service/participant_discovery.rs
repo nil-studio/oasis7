@@ -49,6 +49,7 @@ impl ParticipantPolicyRequestV1 {
 pub enum ParticipantOwnerViewProfileV1 {
     OwnerControlV1,
     OwnerSetupV1,
+    OwnerIndustryV1,
 }
 
 #[path = "owner_setup_observation.rs"]
@@ -59,11 +60,13 @@ pub use owner_setup_observation::OwnerSetupObservationV1;
 pub struct ParticipantOwnerControlViewV1 {
     pub canonical_agent_owner: oasis7_proto::viewer::CanonicalAgentOwnerFenceV1,
     pub game_task_control: Option<oasis7_agent_api::game::GameTaskControlV1>,
+    // Absent in both legacy profiles; all three extensions are required by
+    // OwnerIndustryV1. Some(empty) authenticates an empty complete grant list.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_delegation_source_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_delegation_authorizations:
-        Vec<oasis7_agent_api::world_quote::AgentDelegationAuthorizationV1>,
+        Option<Vec<oasis7_agent_api::world_quote::AgentDelegationAuthorizationV1>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ordinary_starter: Option<oasis7_agent_api::world_action::OrdinaryStarterStatusV1>,
 }
@@ -79,12 +82,22 @@ pub struct ParticipantOwnerControlResponseV1 {
 impl ParticipantOwnerControlResponseV1 {
     pub fn validate(&self, request: &ParticipantOwnerViewRequestV1) -> Result<(), String> {
         use super::authority::request_digest;
+        match request.response_profile {
+            Some(ParticipantOwnerViewProfileV1::OwnerControlV1)
+                if self.view.native_delegation_source_id.is_none()
+                    && self.view.native_delegation_authorizations.is_none()
+                    && self.view.ordinary_starter.is_none() => {}
+            Some(ParticipantOwnerViewProfileV1::OwnerIndustryV1)
+                if self.view.native_delegation_source_id.is_some()
+                    && self.view.native_delegation_authorizations.is_some()
+                    && self.view.ordinary_starter.is_some() => {}
+            _ => return Err("invalid participant owner observation profile".into()),
+        }
         request.read.request.validate().map_err(|e| e.to_string())?;
         self.version.commit.validate().map_err(|e| e.to_string())?;
         let owner = &self.view.canonical_agent_owner;
         let binding = &self.version.commit.binding;
-        if request.response_profile != Some(ParticipantOwnerViewProfileV1::OwnerControlV1)
-            || self.schema_revision != 1
+        if self.schema_revision != 1
             || self.world != request.read.request.world
             || self.version.commit.world != self.world
             || self.version.visibility_scope != request.read.request.scope_id
@@ -106,11 +119,11 @@ impl ParticipantOwnerControlResponseV1 {
             .native_delegation_source_id
             .as_ref()
             .is_some_and(|source| source.trim().is_empty())
-            || (!self.view.native_delegation_authorizations.is_empty()
-                && self.view.native_delegation_source_id.is_none())
             || self
                 .view
                 .native_delegation_authorizations
+                .as_deref()
+                .unwrap_or_default()
                 .iter()
                 .any(|authorization| {
                     authorization.grant.agent_id != owner.agent_id

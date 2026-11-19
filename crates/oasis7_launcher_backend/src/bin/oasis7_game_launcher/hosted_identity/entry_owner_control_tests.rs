@@ -186,6 +186,22 @@ fn compact_owner_observation_checks_signed_payload_context() {
         true,
     );
 }
+#[test]
+fn industry_owner_observation_preserves_signature_context_and_revocation_checks() {
+    for (wrong_domain, wrong_wrapper, wrong_context) in [
+        (false, false, false),
+        (true, false, false),
+        (false, true, false),
+        (false, false, true),
+    ] {
+        revoked_owner_observation(
+            Some(ParticipantOwnerViewProfileV1::OwnerIndustryV1),
+            wrong_domain,
+            wrong_wrapper,
+            wrong_context,
+        );
+    }
+}
 fn revoked_owner_observation(
     profile: Option<ParticipantOwnerViewProfileV1>,
     wrong_domain: bool,
@@ -376,12 +392,19 @@ fn revoked_owner_observation(
         };
         assert_eq!(access.response_profile, profile);
         let signed = if profile.is_some() {
+            let industry = profile == Some(ParticipantOwnerViewProfileV1::OwnerIndustryV1);
+            let ordinary_starter =
+                industry.then(|| oasis7_agent_api::world_action::OrdinaryStarterStatusV1 {
+                    owner_binding: Some(fence.player_id.clone()),
+                    owner_generation: Some(fence.canonical_authority.agent_identity_generation),
+                    ..Default::default()
+                });
             let compact = ParticipantOwnerControlViewV1 {
                 canonical_agent_owner: fence,
                 game_task_control: None,
-                native_delegation_source_id: None,
-                native_delegation_authorizations: Vec::new(),
-                ordinary_starter: None,
+                native_delegation_source_id: industry.then(|| "test-owner-source".into()),
+                native_delegation_authorizations: industry.then(Vec::new),
+                ordinary_starter,
             };
             let mut response = ParticipantOwnerControlResponseV1 {
                 schema_revision: 1,

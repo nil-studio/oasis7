@@ -252,9 +252,17 @@ describe("browser WorldService client", () => {
  it("discovers an owner-signed canonical task and binds its complete fence", async () => {
   const f = fixture(); const task = await f.client.readTask(); expect(task.fence).toEqual(fence);
   await f.client.bindFence(task.fence);
-  expect(f.calls[0]).toMatchObject({ path: "/participant/owner-view", body: { response_profile: "owner_control_v1", read: { subject_public_key: key } } });
+  expect(f.calls[0]).toMatchObject({ path: "/participant/owner-view", body: { response_profile: "owner_industry_v1", read: { subject_public_key: key } } });
   expect(f.codec.verifyGatewayResponse).toHaveBeenCalledWith(WORLD_PATHS.owner, expect.any(String), expect.any(String), key);
   f.setFence({ ...fence, task_revision: "2" }); await expect(f.client.freshFence()).rejects.toMatchObject({ code: "task_fence_changed" });
+ });
+ it("stops when the service rejects the industry profile without retrying a legacy profile", async () => {
+  const f = fixture();
+  f.gatewayCall.mockRejectedValue(new BrowserParticipantError("participant_profile_unsupported"));
+  await expect(f.client.readTask()).rejects.toMatchObject({ code: "participant_profile_unsupported" });
+  expect(f.gatewayCall).toHaveBeenCalledTimes(1);
+  expect(f.gatewayCall.mock.calls[0][1].response_profile).toBe("owner_industry_v1");
+  expect(f.entries).toHaveLength(0);
  });
  it("persists prepare and prefix originals before submit, then looks up before reading Context", async () => {
   const f = fixture(); await f.client.bindFence(fence);

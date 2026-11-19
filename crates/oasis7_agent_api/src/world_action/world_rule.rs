@@ -4,9 +4,6 @@ use std::collections::BTreeSet;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", deny_unknown_fields)]
 pub enum WorldRuleCommandV1 {
-    OrdinaryStarter {
-        command: Box<super::OrdinaryStarterCommandV1>,
-    },
     IndustrialWork {
         command: Box<super::IndustrialWorkCommandV1>,
     },
@@ -118,6 +115,10 @@ pub enum WorldRuleCommandV1 {
     },
     DeliverAgentOrder {
         order_id: String,
+    },
+    // Append new variants to preserve historical packed-CBOR discriminants.
+    OrdinaryStarter {
+        command: Box<super::OrdinaryStarterCommandV1>,
     },
 }
 

@@ -1,6 +1,8 @@
 use super::*;
 use crate::world_service::{request_digest, sign_service_response, signing_bytes};
 use serde_json::json;
+#[path = "participant_owner_profile_compat_tests.rs"]
+mod profile_compat;
 fn request() -> ParticipantOwnerViewRequestV1 {
     let ns = json!({"service_id":"identity","environment_id":"test","instance_epoch":"1"});
     serde_json::from_value(json!({

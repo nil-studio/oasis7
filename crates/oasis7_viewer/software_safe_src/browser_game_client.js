@@ -51,7 +51,7 @@ export function createBrowserGameClient({ config, codec, ownerSigner, executorSi
  async function ownerAccess() {
   const proofs = typeof participantProofs === "function" ? await participantProofs() : participantProofs;
   if (!proofs?.owner || !proofs?.admission) fail("participant_proofs_required");
-  return { owner: proofs.owner, admission: proofs.admission, read: await sign(WORLD_PATHS.view, readRequest(), ownerSigner), response_profile: "owner_control_v1" };
+  return { owner: proofs.owner, admission: proofs.admission, read: await sign(WORLD_PATHS.view, readRequest(), ownerSigner), response_profile: "owner_industry_v1" };
  }
  async function gatewayEnvelope(path, wire) {
   if (path === WORLD_PATHS.owner) return { path: "/participant/owner-view", body: wire };

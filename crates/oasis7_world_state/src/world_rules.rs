@@ -225,13 +225,15 @@ impl PreparedWorldRule {
         let result_id = match command {
             WorldRuleCommandV1::OrdinaryStarter { command } => next.ordinary_starter_command(
                 state,
-                actor_id,
-                request_id,
-                &key,
                 command,
-                now,
-                world_binding.as_deref(),
-                *action_id == 0,
+                ordinary_starter::OrdinaryStarterCommandContext {
+                    actor: actor_id,
+                    request: request_id,
+                    key: &key,
+                    now,
+                    world_binding: world_binding.as_deref(),
+                    system: *action_id == 0,
+                },
             )?,
             WorldRuleCommandV1::IndustrialWork { command } => next.industrial_work_command(
                 state,

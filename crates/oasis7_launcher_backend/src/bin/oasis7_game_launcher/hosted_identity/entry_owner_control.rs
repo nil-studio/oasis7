@@ -243,7 +243,10 @@ fn owner_observation(
                 control.version.commit,
             ))
         }
-        Some(ParticipantOwnerViewProfileV1::OwnerControlV1) => {
+        Some(
+            ParticipantOwnerViewProfileV1::OwnerControlV1
+            | ParticipantOwnerViewProfileV1::OwnerIndustryV1,
+        ) => {
             let response: SignedServiceResponse<ParticipantOwnerControlResponseV1> =
                 serde_json::from_value(reply["world_response"].clone())
                     .map_err(|_| reject("owner_control_unavailable"))?;

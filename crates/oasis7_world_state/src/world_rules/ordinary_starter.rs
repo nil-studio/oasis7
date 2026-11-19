@@ -288,18 +288,30 @@ fn validate_offer(
     Ok(())
 }
 
+pub(super) struct OrdinaryStarterCommandContext<'a> {
+    pub actor: &'a str,
+    pub request: &'a str,
+    pub key: &'a str,
+    pub now: WorldTime,
+    pub world_binding: Option<&'a str>,
+    pub system: bool,
+}
+
 impl PreparedWorldRule {
     pub(super) fn ordinary_starter_command(
         &mut self,
         state: &WorldState,
-        actor: &str,
-        request: &str,
-        key: &str,
         command: &OrdinaryStarterCommandV1,
-        now: WorldTime,
-        world_binding: Option<&str>,
-        system: bool,
+        context: OrdinaryStarterCommandContext<'_>,
     ) -> Result<String, WorldError> {
+        let OrdinaryStarterCommandContext {
+            actor,
+            request,
+            key,
+            now,
+            world_binding,
+            system,
+        } = context;
         match command {
             OrdinaryStarterCommandV1::Publish { offer } => {
                 if !system
