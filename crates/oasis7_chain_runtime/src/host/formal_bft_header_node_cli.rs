@@ -1,9 +1,11 @@
 //! Singleton actual-World Node consumer of an independently provisioned wire-3 provider.
 use super::*;
 #[cfg(not(test))]
-use crate::execution_bridge::FormalBftHeaderNodeDriverV3;
+use crate::execution_bridge::{FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3};
 #[cfg(test)]
-use crate::execution_bridge_real_tests::real_execution_bridge::FormalBftHeaderNodeDriverV3;
+use crate::execution_bridge_real_tests::real_execution_bridge::{
+    FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3,
+};
 use oasis7_consensus::tendermint_v1::BftTimeoutsV1;
 use oasis7_distfs::protected_bft_v3::{
     BftSignerBindingV3, BftSignerKeyIdentityV3, BftSignerTrustV3, RemoteBftSignerProviderV3,

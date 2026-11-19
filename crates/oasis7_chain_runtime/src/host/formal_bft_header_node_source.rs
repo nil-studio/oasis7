@@ -1,9 +1,5 @@
 //! Explicit activation of the original Node private H namespace.
 use super::*;
-#[cfg(not(test))]
-use crate::execution_bridge::FormalBftHeaderLedgerExecutionV3;
-#[cfg(test)]
-use crate::execution_bridge_real_tests::real_execution_bridge::FormalBftHeaderLedgerExecutionV3;
 use oasis7_distfs::protected_bft_v3::{
     BftPrivateRetentionAttestorV1, BftPrivateRetentionCreationMarkerV1,
     BftSuccessorWindowArchiveRefV1,
