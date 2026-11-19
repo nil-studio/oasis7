@@ -164,6 +164,25 @@ impl BftSigningKeyHandleV3 for Handle {
 struct Backend {
     binding: String,
     snapshot: Arc<Mutex<BftSignerBackendSnapshotV3>>,
+    fresh: Option<Arc<Mutex<FreshSlot>>>,
+}
+
+struct FreshSlot {
+    marker: BftPrivateRetentionCreationMarkerV1,
+    original: Option<BftPrivateRetentionActivationV1>,
+    reserved_response_bytes: u64,
+    mismatched_readback: bool,
+    activation_signs: Arc<AtomicUsize>,
+}
+impl FreshSlot {
+    fn with_signer(&self, signer: &BftSignerBackendSnapshotV3) -> BftFreshCoverageSnapshotV1 {
+        BftFreshCoverageSnapshotV1 {
+            signer: signer.clone(),
+            marker: self.marker.clone(),
+            original: self.original.clone(),
+            reserved_response_bytes: self.reserved_response_bytes,
+        }
+    }
 }
 impl Backend {
     fn check(
@@ -232,6 +251,58 @@ impl BftSignerBackendV3 for Backend {
         s.protected_time_floor_ms += 1;
         Ok(s.protected_time_floor_ms)
     }
+    fn read_fresh_coverage_for_lease(
+        &mut self,
+        generation: u64,
+        token: &str,
+    ) -> Result<BftFreshCoverageSnapshotV1, BftSignerErrorV3> {
+        let signer = self.snapshot.lock().unwrap();
+        Self::check(&signer, generation, token)?;
+        let original = self
+            .fresh
+            .as_ref()
+            .ok_or_else(|| invalid("test Fresh namespace absent"))?;
+        let original = original.lock().unwrap();
+        let mut observed = original.with_signer(&signer);
+        if original.mismatched_readback && observed.original.is_some() {
+            observed.reserved_response_bytes += 1;
+        }
+        Ok(observed)
+    }
+
+    fn compare_and_commit_fresh_coverage(
+        &mut self,
+        expected: &BftFreshCoverageSnapshotV1,
+        next: &BftFreshCoverageSnapshotV1,
+    ) -> Result<(), BftSignerErrorV3> {
+        // Both snapshots are protected by the signer lock across the whole
+        // comparison and replacement. Every sidecar reader takes it first.
+        let mut signer = self.snapshot.lock().unwrap();
+        let mut slot = self
+            .fresh
+            .as_ref()
+            .ok_or_else(|| invalid("test Fresh namespace absent"))?
+            .lock()
+            .unwrap();
+        if slot.with_signer(&signer) != *expected
+            || next.marker != expected.marker
+            || next.signer.lease_generation != signer.lease_generation
+            || next.signer.lease_token_digest != signer.lease_token_digest
+            || next.signer.protected_time_floor_ms != signer.protected_time_floor_ms
+            || next.reserved_response_bytes <= slot.reserved_response_bytes
+            || next.original.is_none()
+            || slot.original.as_ref().is_some_and(|original| {
+                next.original.as_ref() != Some(original) || next.signer.state != signer.state
+            })
+        {
+            return Err(invalid("test Fresh atomic transaction differs"));
+        }
+        *signer = next.signer.clone();
+        slot.original = next.original.clone();
+        slot.reserved_response_bytes = next.reserved_response_bytes;
+        Ok(())
+    }
+
     fn compare_and_swap(
         &mut self,
         generation: u64,
@@ -243,6 +314,10 @@ impl BftSignerBackendV3 for Backend {
     ) -> Result<BftSignerBackendSnapshotV3, BftSignerErrorV3> {
         let mut s = self.snapshot.lock().unwrap();
         Self::check(&s, generation, token)?;
+        assert!(
+            s.state.private_retention.is_none(),
+            "generic CAS touched a covered source"
+        );
         if s.state.revision != revision
             || s.state.state_digest != digest
             || next.revision != revision + 1
@@ -280,9 +355,25 @@ pub(in crate::protected_bft_v3) fn native(
         Box::new(Backend {
             binding: binding.digest().unwrap(),
             snapshot: snapshot.clone(),
+            fresh: None,
         }),
     )
     .unwrap();
+    native_service(binding, service)
+}
+
+fn native_service(
+    binding: &BftSignerBindingV3,
+    service: BftSignerServiceV3,
+) -> (RemoteBftSignerProviderV3, thread::JoinHandle<()>) {
+    native_service_expected(binding, service, false)
+}
+
+fn native_service_expected(
+    binding: &BftSignerBindingV3,
+    service: BftSignerServiceV3,
+    expect_error: bool,
+) -> (RemoteBftSignerProviderV3, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address: SocketAddr = listener.local_addr().unwrap();
     let server = thread::spawn(move || {
@@ -290,7 +381,7 @@ pub(in crate::protected_bft_v3) fn native(
         stream
             .set_read_timeout(Some(Duration::from_secs(20)))
             .unwrap();
-        service.serve_connection(&mut stream).unwrap();
+        assert_eq!(service.serve_connection(&mut stream).is_err(), expect_error);
     });
     let client = RemoteBftSignerProviderV3::new(
         address,
@@ -306,6 +397,9 @@ pub(in crate::protected_bft_v3) fn native(
     .unwrap();
     (client, server)
 }
+#[path = "fresh_coverage_tests.rs"]
+mod fresh_coverage_tests;
+
 #[test]
 fn native_typed_rotation_proofs_are_archived_before_release_and_cold_retry_never_resigns() {
     let binding = binding();
