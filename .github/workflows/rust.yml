@@ -3714,12 +3714,22 @@ jobs:
       (needs.select.outputs.run_site_quality == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-browser@sha256:60ff26345b28212994d2a9754e249383ab1ca25d2a9015e82a91a527efffc016
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Trust the checked-out workspace path in the job container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
@@ -3731,6 +3741,7 @@ jobs:
         timeout-minutes: 10
         with:
           browser: playwright
+          prebuilt: "true"
       - name: Execute selected group
         shell: bash
         env:
