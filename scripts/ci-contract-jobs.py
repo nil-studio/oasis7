@@ -23,11 +23,15 @@ GROUPS_WITH_MOLD = {"packaging_contracts"}
 def render_job(group: str) -> str:
     job_id = group.replace("_", "-")
     mold_prefix = ""
+    source_checkout_condition = ""
     if group in GROUPS_WITH_MOLD:
         mold_prefix = (
             "      - *linux-mold-tools-checkout\n"
             "      - name: Configure mold for Linux host linking\n"
             "        uses: ./.github/actions/setup-linux-mold\n"
+        )
+        source_checkout_condition = (
+            "        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}\n"
         )
     rust_setup = (
         '      - name: Install Rust for packaging contract fixtures\n'
@@ -44,6 +48,7 @@ def render_job(group: str) -> str:
         f"    steps:\n"
         f"{mold_prefix}"
         f"      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n"
+        f"{source_checkout_condition}"
         f"        with:\n"
         f"          ref: ${{{{ needs.select.outputs.tested_sha }}}}\n"
         f"          fetch-depth: 0\n"

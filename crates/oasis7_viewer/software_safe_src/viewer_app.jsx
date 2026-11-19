@@ -2,7 +2,8 @@ import { targetSyncProgressLines } from "./viewer_target_sync_progress.js";
 import { LiveControlStatus } from "./viewer_live_control_status.jsx";
 import { Badge, EmptyState } from "./viewer_ui_primitives.jsx";
 import { RecipeSubstitutionPanel } from "./recipe_substitution_panel.jsx";
-import { BrowserByokSurface } from "./browser_byok_surface.jsx"; import { viewerRuntimeConfig } from "./viewer_runtime_config_module.js"; import { authSigningIdentity } from "./viewer_auth_session_module.js";
+import { viewerRuntimeConfig } from "./viewer_runtime_config_module.js"; import { authSigningIdentity } from "./viewer_auth_session_module.js";
+import { BrowserCanonicalEntry } from "./browser_canonical_entry.jsx";
 import { AgentChatOwnerControls } from "./agent_chat_owner_controls.jsx";
 import { IndustrialStarterOutcomeCard } from "./industrial_starter_outcome_card.jsx";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
@@ -3710,7 +3711,7 @@ function DetailsPanel() {
         <Badge>{selectedLabel()}</Badge>
       </div>
       <Show when={viewerRuntimeConfig().browserGameClient}>
-        <BrowserByokSurface locale={locale} onCanonicalAgent={(id) => core.select({ kind: "agent", id }).ok} config={() => viewerRuntimeConfig().browserGameClient} agentId={() => { observeViewerStateRevision(); return core.state.selectedKind === "agent" ? core.state.selectedId : null; }} ownerSigner={() => { observeViewerStateRevision(); return core.state.auth.available ? authSigningIdentity(core.state.auth) : null; }} accountId={() => { observeViewerStateRevision(); return core.state.auth.available ? core.state.auth.hostedAccountId : null; }} />
+        <BrowserCanonicalEntry locale={locale} config={() => viewerRuntimeConfig().browserGameClient} legacyOwnerSigner={() => { observeViewerStateRevision(); return core.state.auth.available ? authSigningIdentity(core.state.auth) : null; }} legacyAccountId={() => { observeViewerStateRevision(); return core.state.auth.available ? core.state.auth.hostedAccountId : null; }} />
       </Show>
       <Show
         when={!hiddenSelectedAgent() && core.state.selectedKind !== "module_visual"}

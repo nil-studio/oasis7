@@ -4,6 +4,7 @@ pub mod agent_authority;
 pub mod agent_chat;
 pub mod correlation;
 pub mod game_task;
+pub mod native_delegation;
 pub(crate) mod retained_queries;
 pub mod wire;
 pub use correlation::derive_correlation;

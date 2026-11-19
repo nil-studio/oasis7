@@ -182,6 +182,10 @@ For a production goal, select a factory owned by the configured Agent and an exa
 
 Read the signed quote's rejection or start preview, input/output ledgers, materials, byproducts, electricity and duration. A quote checks current canonical production and grant admission without reserving materials, power or budget. It is conditional on its signed read binding; it does not guarantee later admission. `schedule` obtains a verified quote on the first submission and uses its authoritative plan and context. Do not supply a raw plan, costs or grant. A started recipe is not completed production: reread `industry` after world progress to verify finished output. Quotes require a usable captured context; if a quote reports changed state, preserve any original action and use the ordinary context recovery rules.
 
+For an ordinary first-factory claim, read `industry.world_rule_status.ordinary_starter.claim.first_production` for personal completion. Check its Agent, owner, factory, site, recipe and profile against the current claim, then reconcile its job, settlement tick, actual inputs, outputs and electricity with the factory and ledgers. `industry.gameplay_capability.first_settlement` describes the legacy fixed-instance starter; a null value there does not negate an ordinary claim's completed production. Read `personal_stage` and `current_stable_line` separately as sustained-capacity facts: one completed batch does not establish a stable line.
+
+For native execution, inspect current `capabilities`, Task/Context authority and the signed action quote. The owner-scoped `gameplay_capability` candidate can report `current_execution_authority_unavailable` for an executor reader; this alone does not determine that executor's native grant status. Use the current grant's object, actions, expiry and remaining budget, and retain any actual admission rejection.
+
 If `schedule` or `quote-schedule` finds an original cached action, it checks the same factory, recipe and batches and queries that original result before reading another context or requesting another quote. Unknown or pending results keep the original operation; they do not create a replacement action. This lookup also works after a process restart. Use `lookup --kind action` to recover a lost submission response.
 
 Each context has one original action shared by movement, transfer, construction and production. Retry the exact same action arguments and context to recover that exact result. Changing the action kind, route order, ledgers, amount or other arguments conflicts and leaves the original intact. After a committed action, capture a new context with a new operation ID before another decision.
@@ -217,9 +221,9 @@ Report the goal revision, chosen action, canonical result and observed effect co
 
 原 operation 回读若为 `HistoryUnavailable`，保留原 request/correlation、run 与持久预算并停止新副作用；交由宿主恢复历史材料，不能把记录头仍存在当作回执可用，也不能换世界或新建操作来代替恢复。
 
-工业制造交付后，从 `industry.world_rule_status.agent_orders[order_id].current_owner` 和 `current_control` 核对当前玩家、主 Agent、控制来源与 generation；只有 `current_control.status=active` 才是当前权威证据。字段为 null 或 blocked 时不可把历史 quote 的 owner 字段当作当前控制。
+制造新 Agent 并交付后，从 `industry.world_rule_status.agent_orders[order_id].current_owner` 和 `current_control` 核对当前玩家、主 Agent、控制来源与 generation；只有 `current_control.status=active` 才是当前权威证据。字段为 null 或 blocked 时不可把历史 quote 的 owner 字段当作当前控制。
 
-工业制造先从 `industry.world_rule_status.manufacturing_quotes` 读取当前 quote，再把同一 `quoted_at` 和 `quote_digest` 填入 `ConfirmAgentOrder`。报价只读，不预留；过期或状态漂移应重读，已确认订单继续查询原订单。生产需 12 个合法工作 tick；未开工可取消，开工后按原订单失败/报废合同处置，不能换请求重复交付。
+制造额外 Agent 时，先从 `industry.world_rule_status.manufacturing_quotes` 读取当前 quote，再把同一 `quoted_at` 和 `quote_digest` 填入 `ConfirmAgentOrder`。这组报价及其 `primary_bound_agent_required` 等前置条件适用于 Agent 制造订单；普通材料配方按上述 `quote-schedule` / `schedule` 的真实授权与报价判断，不为材料生产自行领取旧 starter OC。报价只读，不预留；过期或状态漂移应重读，已确认订单继续查询原订单。生产需 12 个合法工作 tick；未开工可取消，开工后按原订单失败/报废合同处置，不能换请求重复交付。
 
 紧急电力仅可消费已登记最低服务义务的受限额度：`schedule-essential --context <id> --factory <factory> --recipe <recipe> --batches <n> --obligation <registered-id>`。它与普通排程共用设施、物料和权限检查；不会把额度加入普通可转移电力。未知权威来源、过期区间或未支持路线应保持 blocker，不能以自报库存或提案文案代替供给事实。
 

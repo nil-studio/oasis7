@@ -25,7 +25,94 @@ function fixture(turns = [response("abort")], recovery) {
  const runner = createBrowserAgentRunner({ gameClient, budget, recovery, getCredential, modelCall, visibility: () => visible });
  return { runner, gameClient, budget, modelCall, order, getCredential, setUnresolved: (value) => { unresolved = value; }, hide: () => { visible = false; } };
 }
+const selectedRecipe = { factory: "factory", recipe: "recipe.smelter.iron_ingot", batches: 1 };
+const oneBatch = { ...selectedRecipe, maxElectricity: 8,
+ maxConsume: [{ kind: "iron_ore", amount: 4 }, { kind: "carbon_fuel", amount: 1 }, { kind: "maintenance_part", amount: 1 }] };
+function boundedFixture(turns, actionState = "committed") {
+ const journal = { actionPermits: [], operations: [] };
+ const recovery = {
+  load: vi.fn(async () => structuredClone(journal)),
+  initializeActionPermit: vi.fn(async (permitId, value) => {
+   const prior = journal.actionPermits.find((item) => item.permitId === permitId);
+   if (prior) return structuredClone(prior);
+   const permit = { permitId, ...value, originalOperationId: null }; journal.actionPermits.push(permit); return structuredClone(permit);
+  }),
+  getActionPermit: vi.fn(async (id) => structuredClone(journal.actionPermits.find((item) => item.permitId === id))),
+ };
+ const f = fixture(turns, recovery);
+ const captured = { prepared: { identity: { fence }, snapshot: { active_goal: { owner_proof: { request: { content: "goal" } } } } }, current_public_context: {} };
+ const action = { type: "ScheduleRecipe", data: { requester_agent_id: "agent", factory_id: "factory", recipe_id: oneBatch.recipe,
+  plan: { accepted_batches: 1, power_required: 8, consume: [{ kind: "iron_ore", amount: 4 }, { kind: "carbon_fuel", amount: 1 }] }, logistics_route_ids: [], logistics_path_ids: [] } };
+ f.gameClient.quote.mockResolvedValue({ captured, quoted: { quote: { action, rejection: null,
+  preview: { power_required: 8, consume: oneBatch.maxConsume } } } });
+ f.gameClient.action.mockImplementation(async (operation, _context, _action, runBudget) => {
+  const permit = journal.actionPermits.find((item) => item.permitId === runBudget.permitId);
+  permit.originalOperationId = `${operation}:action`;
+  journal.operations.push({ original: { operationId: permit.originalOperationId, kind: "action", runBudget }, state: actionState });
+  return { outcome: { status: actionState } };
+ });
+ f.gameClient.context = vi.fn(async () => captured);
+ return { ...f, recovery, journal, action, captured, run: { runId: "run", confirmedFence: fence,
+  delegation: { permitId: "first-production", selection: oneBatch } } };
+}
 describe("browser Agent native-task runner", () => {
+ it.each(["committed", "rejected", "pending", "unknown"])("stops the bounded fixture after one %s original and only recovers it on restart", async (state) => {
+  const f = boundedFixture([response("schedule", selectedRecipe), response("schedule", selectedRecipe)], state);
+  const first = await f.runner.start(f.run);
+  expect(first).toMatchObject({ submissionState: state, agentDelegated: true });
+  expect(first.phase).toBe(["committed", "rejected"].includes(state) ? "settled" : "paused");
+  expect(f.gameClient.prepareContext).toHaveBeenCalledTimes(1); expect(f.modelCall).toHaveBeenCalledTimes(1);
+  expect(f.modelCall.mock.calls[0][0].tools.map((tool) => tool.function.name))
+   .toEqual(["observe", "industry", "capabilities", "quote_schedule", "schedule", "abort"]);
+  await f.runner.start(f.run);
+  expect(f.gameClient.action).toHaveBeenCalledTimes(1); expect(f.modelCall).toHaveBeenCalledTimes(1);
+  expect(f.budget.initialize).toHaveBeenCalledTimes(1);
+  expect(f.gameClient.action.mock.calls[0][3]).toMatchObject({ runId: "run", permitId: "first-production", modelInvoked: true });
+ });
+ it.each([
+  ["build", { factory: "factory", site: "site", kind: "factory.smelter.mk1" }],
+  ["move", { to: [1, 2, 3] }],
+  ["schedule", { ...selectedRecipe, recipe: "recipe.smelter.copper_wire" }],
+  ["schedule", { ...selectedRecipe, factory: "different-factory" }],
+  ["schedule", { ...selectedRecipe, batches: 2 }],
+  ["schedule", { ...selectedRecipe, unexpected: true }],
+ ])("rejects out-of-scope model tool %s before quoting or signing an action", async (tool, args) => {
+  const f = boundedFixture([response(tool, args)]);
+  expect(await f.runner.start(f.run)).toMatchObject({ phase: "paused", code: "action_permit_scope_mismatch" });
+  expect(f.gameClient.action).not.toHaveBeenCalled(); expect(f.gameClient.quote).not.toHaveBeenCalled();
+ });
+ it("rejects a quote whose action escapes the exact recipe or full confirmed consumption", async () => {
+  for (const mutate of [
+   (value) => { value.quote.action.data.recipe_id = "recipe.smelter.copper_wire"; },
+   (value) => { value.quote.action.data.plan.accepted_batches = 2; },
+   (value) => { value.quote.preview.consume.push({ kind: "unconfirmed_sink", amount: 1 }); },
+  ]) {
+   const f = boundedFixture([response("schedule", selectedRecipe)]);
+   const value = structuredClone(await f.gameClient.quote()); mutate(value.quoted); f.gameClient.quote.mockResolvedValue(value);
+   expect(await f.runner.start(f.run)).toMatchObject({ code: "action_permit_scope_mismatch" });
+   expect(f.gameClient.action).not.toHaveBeenCalled();
+  }
+ });
+ it("reuses the player-confirmed preview Context without retiring it or silently capturing another", async () => {
+  const f = boundedFixture([response("schedule", selectedRecipe)]);
+  f.run.delegation.contextOperationId = "preview:single";
+  f.journal.operations.push({ original: { operationId: "preview:single:prefix", kind: "prefix",
+   runBudget: { previewRequest: { kind: "schedule", selection: selectedRecipe } } }, state: "committed" });
+  f.setUnresolved(true); f.gameClient.retireExpiredContexts = vi.fn();
+  expect(await f.runner.start(f.run)).toMatchObject({ phase: "settled", submissionState: "committed" });
+  expect(f.gameClient.context).toHaveBeenCalledWith("preview:single", { runId: "run" });
+  expect(f.gameClient.prepareContext).not.toHaveBeenCalled(); expect(f.gameClient.captureContext).not.toHaveBeenCalled();
+  expect(f.gameClient.retireExpiredContexts).not.toHaveBeenCalled();
+ });
+ it("requires a new explicit confirmation after preview Context expiry", async () => {
+  const f = boundedFixture([response("schedule", selectedRecipe)]);
+  f.run.delegation.contextOperationId = "preview:single";
+  f.journal.operations.push({ original: { operationId: "preview:single:prefix", kind: "prefix", runBudget: { previewRequest: { kind: "schedule", selection: selectedRecipe } } }, state: "committed" });
+  f.captured.prepared.valid_until_tick = "10"; f.gameClient.freshFence.mockResolvedValue({ fence, logicalTick: "11" });
+  expect(await f.runner.start(f.run)).toMatchObject({ code: "context_expired" });
+  expect(f.gameClient.action).not.toHaveBeenCalled(); expect(f.modelCall).not.toHaveBeenCalled();
+  expect(f.gameClient.prepareContext).not.toHaveBeenCalled();
+ });
  it("recovers first, captures one legal Context and records a typed abort outcome", async () => {
   const f = fixture();
   expect(await f.runner.start({ runId: "run", confirmedFence: fence })).toMatchObject({ phase: "stopped", code: "executor_aborted" });

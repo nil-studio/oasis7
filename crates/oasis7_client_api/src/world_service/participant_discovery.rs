@@ -49,6 +49,7 @@ impl ParticipantPolicyRequestV1 {
 pub enum ParticipantOwnerViewProfileV1 {
     OwnerControlV1,
     OwnerSetupV1,
+    OwnerIndustryV1,
 }
 
 #[path = "owner_setup_observation.rs"]
@@ -59,6 +60,15 @@ pub use owner_setup_observation::OwnerSetupObservationV1;
 pub struct ParticipantOwnerControlViewV1 {
     pub canonical_agent_owner: oasis7_proto::viewer::CanonicalAgentOwnerFenceV1,
     pub game_task_control: Option<oasis7_agent_api::game::GameTaskControlV1>,
+    // Absent in both legacy profiles; all three extensions are required by
+    // OwnerIndustryV1. Some(empty) authenticates an empty complete grant list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_delegation_source_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_delegation_authorizations:
+        Option<Vec<oasis7_agent_api::world_quote::AgentDelegationAuthorizationV1>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ordinary_starter: Option<oasis7_agent_api::world_action::OrdinaryStarterStatusV1>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -72,12 +82,22 @@ pub struct ParticipantOwnerControlResponseV1 {
 impl ParticipantOwnerControlResponseV1 {
     pub fn validate(&self, request: &ParticipantOwnerViewRequestV1) -> Result<(), String> {
         use super::authority::request_digest;
+        match request.response_profile {
+            Some(ParticipantOwnerViewProfileV1::OwnerControlV1)
+                if self.view.native_delegation_source_id.is_none()
+                    && self.view.native_delegation_authorizations.is_none()
+                    && self.view.ordinary_starter.is_none() => {}
+            Some(ParticipantOwnerViewProfileV1::OwnerIndustryV1)
+                if self.view.native_delegation_source_id.is_some()
+                    && self.view.native_delegation_authorizations.is_some()
+                    && self.view.ordinary_starter.is_some() => {}
+            _ => return Err("invalid participant owner observation profile".into()),
+        }
         request.read.request.validate().map_err(|e| e.to_string())?;
         self.version.commit.validate().map_err(|e| e.to_string())?;
         let owner = &self.view.canonical_agent_owner;
         let binding = &self.version.commit.binding;
-        if request.response_profile != Some(ParticipantOwnerViewProfileV1::OwnerControlV1)
-            || self.schema_revision != 1
+        if self.schema_revision != 1
             || self.world != request.read.request.world
             || self.version.commit.world != self.world
             || self.version.visibility_scope != request.read.request.scope_id
@@ -93,6 +113,32 @@ impl ParticipantOwnerControlResponseV1 {
             || owner.reorg_epoch != binding.reorg_generation
         {
             return Err("invalid participant owner control observation".into());
+        }
+        if self
+            .view
+            .native_delegation_source_id
+            .as_ref()
+            .is_some_and(|source| source.trim().is_empty())
+            || self
+                .view
+                .native_delegation_authorizations
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .any(|authorization| {
+                    authorization.grant.agent_id != owner.agent_id
+                        || authorization.grant.resource_kind != "electricity"
+                        || authorization.cost_units != 0
+                        || authorization
+                            .spent_units
+                            .checked_add(authorization.remaining_units)
+                            != Some(authorization.grant.limit_units)
+                })
+        {
+            return Err("invalid participant native delegation observation".into());
+        }
+        if let Some(starter) = &self.view.ordinary_starter {
+            validate_starter_owner_observation(starter, owner)?;
         }
         if let Some(minimum) = &request.read.request.min_commit
             && !self
@@ -118,6 +164,44 @@ impl ParticipantOwnerControlResponseV1 {
         }
         Ok(())
     }
+}
+
+fn validate_starter_owner_observation(
+    status: &oasis7_agent_api::world_action::OrdinaryStarterStatusV1,
+    owner: &oasis7_proto::viewer::CanonicalAgentOwnerFenceV1,
+) -> Result<(), String> {
+    if status
+        .owner_binding
+        .as_ref()
+        .is_some_and(|binding| binding != &owner.player_id)
+        || status.owner_generation.is_some_and(|generation| {
+            generation != owner.canonical_authority.agent_identity_generation
+        })
+        || status.owner_binding.is_some() != status.owner_generation.is_some()
+        || (status.eligible && (status.owner_binding.is_none() || status.claim.is_some()))
+        || status.offers.iter().any(|(key, row)| {
+            key != &row.offer.offer_id
+                || status.world_binding.as_ref() != Some(&row.offer.world_binding)
+        })
+        || status.claim.as_ref().is_some_and(|claim| {
+            claim.agent_id != owner.agent_id
+                || claim.owner_binding != owner.player_id
+                || status.world_binding.as_ref() != Some(&claim.world_binding)
+                || claim.receipt.actor_id != claim.agent_id
+                || claim.first_production.as_ref().is_some_and(|first| {
+                    first.agent_id != claim.agent_id
+                        || first.owner_binding != claim.owner_binding
+                        || first.site_id != claim.site_id
+                        || first.factory_id != claim.factory_id
+                        || first.profile_id != claim.profile_id
+                        || first.profile_revision != claim.profile_revision
+                        || first.recipe_id != claim.recipe_id
+                })
+        })
+    {
+        return Err("participant starter differs from current owner observation".into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

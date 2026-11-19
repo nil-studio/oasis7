@@ -79,6 +79,14 @@ pub(crate) fn verify_existing_origin(
                 .transpose()
                 .map_err(|_| "provider commitment encoding failed")?
                 .as_ref()
+        || value.get("ordinary_starter")
+            != receipt
+                .ordinary_starter
+                .as_ref()
+                .map(serde_json::to_value)
+                .transpose()
+                .map_err(|_| "ordinary starter commitment encoding failed")?
+                .as_ref()
     {
         return Err("preview origin artifact or genesis mismatch".into());
     }

@@ -888,6 +888,9 @@ fn outcome_agent_id(world: &World, payload: &WorldServicePayloadV1) -> Result<St
         WorldServicePayloadV1::GameExecutorControl(request) => {
             Ok(request.request.fence.agent_id.clone())
         }
+        WorldServicePayloadV1::GameNativeDelegation(request) => {
+            Ok(request.request.fence.agent_id.clone())
+        }
         WorldServicePayloadV1::GameplayJson(bytes) => {
             if let Ok(request) =
                 serde_json::from_slice::<oasis7_proto::viewer::GameplayActionRequest>(bytes)

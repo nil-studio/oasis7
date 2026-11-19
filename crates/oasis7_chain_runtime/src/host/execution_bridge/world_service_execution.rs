@@ -84,6 +84,12 @@ pub(super) fn apply_intents(
                 candidate.apply_participant_registration(&owner, &admission, &binding.branch_id, binding.reorg_epoch)
                     .and_then(|receipt| serde_json::to_value(receipt).map_err(|e| e.to_string()))
             }
+            WorldServicePayloadV1::GameNativeDelegation(signed) => {
+                candidate.apply_native_delegation_control(
+                    &signed,
+                    staged.iter().map(|entry: &StagedResult| &entry.result),
+                )
+            }
             WorldServicePayloadV1::GameExecutorControl(_) => {
                 oasis7::world_service::game_task::prepare_executor_control(
                     &candidate,

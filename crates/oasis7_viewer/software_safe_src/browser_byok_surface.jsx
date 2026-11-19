@@ -5,6 +5,7 @@ import { createBrowserGameSession } from "./browser_game_session.js";
 import { ModelConnectionPanel } from "./model_connection_panel.jsx";
 import { createBrowserOwnerEntry } from "./browser_owner_entry.js";
 import { loadBrowserGameProtocol } from "./browser_game_protocol.js";
+import { BrowserFirstSessionPane } from "./browser_first_session_pane.jsx";
 
 export function BrowserByokSurface(props) {
   const read = (value) => typeof value === "function" ? value() : value;
@@ -51,7 +52,7 @@ export function BrowserByokSurface(props) {
   const showFailure = (failure, operation) => setError(diagnosticMessage(failure, operation));
   function refresh() {
     const value = driver()?.snapshot(); setState(value || null);
-    if (value?.code) showFailure(value, "game_session");
+    if (value?.code && !["original_action_committed", "original_action_rejected", "original_action_expired"].includes(value.code)) showFailure(value, "game_session");
   }
   const ownerKey = (owner) => owner?.identityId || owner?.publicKey || "";
   const trustKey = (trusted) => JSON.stringify(trusted || null);
@@ -67,7 +68,7 @@ export function BrowserByokSurface(props) {
   function openEntry({ accountId, owner, trusted }, resetGoal = false) {
     entryKey = `${entryIdentityKey}:${++entryGeneration}`;
     entryController?.abort(); entry()?.dispose?.(); setEntry(null); setEntryState(null);
-    setEntryConsent(false); if (resetGoal) setGoal(""); setProjectionPending(false); setError("");
+    setEntryConsent(false); if (resetGoal) setGoal(props.firstSession ? tr("了解材料、电力和授权，建成第一座冶炼厂，完成一批铁锭生产，再由我决定下一步。", "Understand materials, electricity and authority; build my first smelter, complete one iron-ingot batch, then let me choose the next step.") : ""); setProjectionPending(false); setError("");
     if (!accountId || !owner || !trusted) { setEntryBusy(false); return; }
     const captured = entryKey, controller = new AbortController(); entryController = controller; setEntryBusy(true);
     void (async () => {
@@ -161,10 +162,14 @@ export function BrowserByokSurface(props) {
         <button type="button" disabled={["running", "preparing"].includes(state()?.phase)} onClick={() => { setConfirm(false); void act((session) => session.prepare({ inspectOnly: true }), "executor_inspect"); }}>{tr("只读核对当前任务", "Inspect current task")}</button>
         <label><input type="checkbox" checked={confirm()} onChange={(event) => setConfirm(event.currentTarget.checked)} disabled={!state()?.fence || ["running", "preparing"].includes(state()?.phase)} />{tr("确认核对既有任务并授权此浏览器执行身份；若已有其他执行方，明确同意切换。", "Confirm the existing task and authorize this browser executor; explicitly switch if another executor is bound.")}</label>
         <button type="button" disabled={!state()?.fence || !confirm() || ["running", "preparing"].includes(state()?.phase)} onClick={() => { const confirmedFence = state()?.fence; setConfirm(false); void act((session) => session.prepare({ takeover: true, confirmedFence }), "executor_prepare"); }}>{tr("核对任务并登记执行身份", "Check task and register executor")}</button>
+        <Show when={props.firstSession}><BrowserFirstSessionPane locale={props.locale} driver={driver} state={state} /></Show>
         <BrowserModelConnectionPanel locale={props.locale} accountId={props.accountId} executionReady={() => state()?.ready === true} session={() => driver()?.modelSession} onStop={() => driver()?.stop()} />
+        <Show when={!props.firstSession}>
         <label><input type="checkbox" checked={runConsent()} onChange={(event) => setRunConsent(event.currentTarget.checked)} disabled={!state()?.ready || state()?.phase === "running"} />{tr("确认上述实际 Agent、任务和目标；开始后供应商账户计费。检查与执行共享本站账号最多 8 次调用、131072 token；每次执行输出最多 512 token，本轮 120 秒。", "Confirm the actual Agent, Task and goal above. Starting charges your provider account. Checks and execution share an account limit of 8 calls and 131072 reserved tokens. Each execution call allows 512 output tokens; this run lasts 120 seconds.")}</label>
         <div class="model-connection-panel__actions">
           <button type="button" disabled={!runConsent() || !state()?.ready || !modelReady() || state()?.phase === "running"} onClick={() => void act((session) => session.start(), "executor_start")}>{tr("确认开始 Agent", "Confirm Agent start")}</button>
+        </div></Show>
+        <div class="model-connection-panel__actions">
           <button type="button" onClick={() => driver()?.stop()}>{tr("停止新决策", "Stop new decisions")}</button>
           <button type="button" disabled={state()?.phase === "running"} onClick={() => void act((session) => session.recover(), "executor_recover")}>{tr("只读核对原件", "Look up original operations")}</button>
           <button type="button" onClick={() => void act((session) => session.forget(), "executor_forget")}>{tr("忘记本机 Key", "Forget local key")}</button>

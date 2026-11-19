@@ -87,6 +87,7 @@ impl WorldRulesStateV1 {
             .map(|(id, receipt)| (id.clone(), receipt.clone()))
             .collect();
         view.requests.retain(|_, receipt| match &receipt.command {
+            WorldRuleCommandV1::OrdinaryStarter { .. } => false,
             WorldRuleCommandV1::IndustrialWork { command } => match command.as_ref() {
                 IndustrialWorkCommandV1::ImportQualifiedLot { facts, .. } => {
                     facts.owner_binding_digest == binding
