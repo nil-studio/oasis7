@@ -179,7 +179,9 @@ fn native_fresh_retention_activates_atomically_and_cold_retry_returns_original()
     drop(lease);
     server.join().unwrap();
 
-    let reader = service(&binding, &snapshot, &slot, &marker, &role, true).unwrap();
+    // The original live verifier is now unavailable. Readback relies on the
+    // committed receipt and independently pinned marker across the new lease.
+    let reader = service(&binding, &snapshot, &slot, &marker, &role, false).unwrap();
     let (provider, server) = native_service(&binding, reader);
     let mut lease = provider.acquire(&binding).unwrap();
     let recovered = lease.provision_private_retention(&role, &marker).unwrap();

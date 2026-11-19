@@ -83,10 +83,6 @@ impl BftSignerServiceV3 {
                 "atomic Fresh source read differs from leased original",
             ));
         }
-        support
-            .verifier
-            .verify_original_runtime_source(&self.binding, &observed.marker)?;
-
         let (activation, next_state) = match &observed.original {
             Some(original) => {
                 original.verify(
@@ -98,12 +94,17 @@ impl BftSignerServiceV3 {
                 )?;
                 (original.clone(), snapshot.state.clone())
             }
-            None if snapshot.state == initial => BftPrivateRetentionActivationV1::prepare(
-                &support.attestor,
-                &snapshot,
-                observed.reserved_response_bytes,
-                self.provider_key.as_ref(),
-            )?,
+            None if snapshot.state == initial => {
+                support
+                    .verifier
+                    .verify_original_runtime_source(&self.binding, &observed.marker)?;
+                BftPrivateRetentionActivationV1::prepare(
+                    &support.attestor,
+                    &snapshot,
+                    observed.reserved_response_bytes,
+                    self.provider_key.as_ref(),
+                )?
+            }
             None => return Err(invalid("original Fresh activation receipt is absent")),
         };
         let mut next = observed.clone();
