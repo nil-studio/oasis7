@@ -114,6 +114,7 @@ fn context<'a>(
         cancelled: || false,
     }
 }
+
 #[test]
 fn inventory_full_qualification_and_general_delta_close_unchanged_ledger_members() {
     let memory = MemoryBudget::new(128 << 20, 16 << 20).unwrap();

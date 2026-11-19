@@ -2552,6 +2552,179 @@ class OrdinaryExclusiveExecution(unittest.TestCase):
             self.assertTrue(all(record['passed'] and record['count_ok'] for record in records))
 
 
+class BoundedOrdinaryRuntimeExecution(unittest.TestCase):
+    OWNERS = {'oasis7_chain_runtime': 'runtime', 'oasis7_runtime': 'component-libs'}
+
+    def fixture(self, package):
+        selected = CompleteArtifactPartitions().selection()
+        name = ('runtime-tests' if package == 'oasis7_chain_runtime'
+                else RuntimeLiveDiagnostics.RUNTIME)
+        binary = dict(package=package, target=package, target_kind=['lib'], variant='required',
+                      ordinary=True, path='fixture', cwd='.',
+                      tests=[f'case_{index}' for index in range(17)] + ['case_1_suffix', 'ignored'],
+                      ignored_tests=['ignored'])
+        return name, dict(scope='ordinary', execution_plan=selected, binaries={name: binary})
+
+    def test_exact_batches_cover_both_libraries_without_changing_deferred_or_exclusive_cases(self):
+        for package in self.OWNERS:
+            name, manifest = self.fixture(package)
+            binary = manifest['binaries'][name]
+            binary['tests'] += sorted(artifacts.ORDINARY_EXCLUSIVE_RUNTIME_CASES)
+            original = [dict(binary=name, batch=True, skip=['case_1'])]
+            original = artifacts.expand_ordinary_batches(original, manifest['binaries'])
+            before = copy.deepcopy((original, manifest))
+            entries = artifacts.bounded_ordinary_runtime_batches(original, manifest['binaries'])
+            batches = [entry for entry in entries if entry.get('batch')]
+            seen = []
+            for entry in entries:
+                cases = (set(binary['tests']) - set(binary['ignored_tests'])
+                         - set(entry.get('skip', ())) - set(entry.get('skip_exact', ()))
+                         if entry.get('batch') else {entry['name']})
+                seen.extend(cases)
+                if entry.get('batch'):
+                    self.assertEqual(entry['count'], len(cases))
+                    self.assertEqual(entry['skip'], ['case_1'])
+            with self.subTest(package=package):
+                self.assertEqual(len(batches), 4)
+                self.assertEqual(len({entry['name'] for entry in batches}), 4)
+                self.assertCountEqual(seen, set(binary['tests']) - {'case_1', 'ignored'})
+                self.assertEqual(len(seen), len(set(seen)))
+                self.assertIn('case_1_suffix', seen)
+                self.assertEqual([entry for entry in entries if not entry.get('batch')],
+                                 [entry for entry in original if not entry.get('batch')])
+                self.assertEqual((original, manifest), before)
+                binary['tests'].reverse()
+                self.assertEqual(artifacts.bounded_ordinary_runtime_batches(original, manifest['binaries']), entries)
+
+    def test_only_complete_required_libraries_change_and_invalid_inventory_fails_closed(self):
+        for package in self.OWNERS:
+            for change in ('small', 'package', 'target', 'target_kind', 'variant', 'singleton'):
+                name, manifest = self.fixture(package)
+                binary = manifest['binaries'][name]
+                entry = dict(binary=name, batch=True)
+                if change == 'small':
+                    binary.update(tests=['one', 'two', 'three', 'four'], ignored_tests=[])
+                elif change == 'singleton':
+                    entry = dict(binary=name, name='case_1', ignored=False)
+                else:
+                    binary[change] = ['test'] if change == 'target_kind' else 'other'
+                with self.subTest(package=package, unchanged=change):
+                    self.assertEqual(artifacts.bounded_ordinary_runtime_batches([entry], manifest['binaries']), [entry])
+            for change in ('duplicate', 'unknown-ignored', 'unknown-skip', 'unknown-exact', 'empty'):
+                name, manifest = self.fixture(package)
+                binary = manifest['binaries'][name]
+                entry = dict(binary=name, batch=True)
+                if change == 'duplicate':
+                    binary['tests'].append(binary['tests'][0])
+                elif change == 'unknown-ignored':
+                    binary['ignored_tests'].append('missing')
+                elif change in ('unknown-skip', 'unknown-exact'):
+                    entry['skip' if change == 'unknown-skip' else 'skip_exact'] = ['missing']
+                else:
+                    binary['ignored_tests'] = list(binary['tests'])
+                with self.subTest(package=package, invalid=change), self.assertRaises(ValueError):
+                    artifacts.bounded_ordinary_runtime_batches([entry], manifest['binaries'])
+
+    def test_v1_owner_commands_preserve_runner_budget_and_failure_cleanup(self):
+        for package, owner in self.OWNERS.items():
+            for outcome in ('pass', 'failure', 'timeout', 'cleanup'):
+                name, manifest = self.fixture(package)
+                calls = []
+                def invoke(command, cwd, env, suite, test_name, results, **kwargs):
+                    self.assertEqual(set(kwargs), {'expected_count'})
+                    self.assertEqual(suite, 'ordinary')
+                    self.assertNotIn('OASIS7_FORMAL_TEST', env)
+                    self.assertEqual(env['RUST_TEST_THREADS'], '3')
+                    self.assertIn('--exact', command)
+                    self.assertEqual('--nocapture' in command, package == 'oasis7_runtime')
+                    excluded = {command[index + 1] for index, arg in enumerate(command) if arg == '--skip'}
+                    cases = set(manifest['binaries'][name]['tests']) - {'ignored'} - excluded
+                    self.assertEqual(kwargs['expected_count'], len(cases))
+                    calls.append((test_name, cases))
+                    failed = len(calls) == 2 and outcome != 'pass'
+                    return dict(passed=not failed, timeout=failed and outcome == 'timeout',
+                                cleanup_result='unresolved' if failed and outcome == 'cleanup' else 'clean')
+                with self.subTest(package=package, outcome=outcome), tempfile.TemporaryDirectory() as temporary, \
+                     patch.object(artifacts, 'snapshot_regressions', return_value=()), \
+                     patch.object(artifacts, 'load', return_value=(manifest, {
+                         'OASIS7_FORMAL_TEST': 'remove', 'RUST_TEST_THREADS': '3'})), \
+                     patch('ci_process_runner.run', side_effect=invoke):
+                    root = Path(temporary)
+                    if outcome == 'pass':
+                        artifacts.execute(root, 'ordinary', root / 'results',
+                                          plan=manifest['execution_plan'], ordinary_partition=owner)
+                    else:
+                        with self.assertRaises(RuntimeError):
+                            artifacts.execute(root, 'ordinary', root / 'results',
+                                              plan=manifest['execution_plan'], ordinary_partition=owner)
+                self.assertEqual(len(calls), 2 if outcome == 'cleanup' else 4)
+                self.assertEqual(len({test_name for test_name, _ in calls}), len(calls))
+                if outcome != 'cleanup':
+                    self.assertCountEqual([case for _, cases in calls for case in cases],
+                                          set(manifest['binaries'][name]['tests']) - {'ignored'})
+
+    def test_unpartitioned_and_v2_execution_do_not_use_v1_batches(self):
+        for version in (None, 2):
+            fixture = TargetedArtifactPartitions()
+            manifest = fixture.manifest()
+            selected = manifest['execution_plan']
+            with self.subTest(version=version), tempfile.TemporaryDirectory() as temporary, \
+                 patch.object(artifacts, 'snapshot_regressions', return_value=()), \
+                 patch.object(artifacts, 'load', return_value=(manifest, {})), \
+                 patch.object(artifacts, 'bounded_ordinary_runtime_batches', side_effect=AssertionError('v1 only')), \
+                 patch('ci_process_runner.run', return_value=dict(passed=True, cleanup_result='clean')):
+                root = Path(temporary)
+                artifacts.execute(root, 'ordinary', root / 'results', plan=selected,
+                                  ordinary_partition='native-0' if version == 2 else None)
+
+    def test_real_libtest_batches_execute_each_case_once_keep_ignored_and_propagate_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, executable = root / 'fixture.rs', root / 'fixture'
+            names = ['heavy', 'other', 'case_1', 'case_1_suffix', 'prefix_case_1']
+            names += [f'case_{index}' for index in range(2, 11)]
+            source.write_text('''
+fn record(name: &str) {
+    let path = std::path::PathBuf::from(std::env::var_os("CASE_OUTPUT").unwrap()).join(name);
+    std::fs::OpenOptions::new().write(true).create_new(true).open(path).unwrap();
+    assert_ne!(std::env::var("FAIL_CASE").ok().as_deref(), Some(name));
+}
+#[test] #[ignore] fn ignored() { panic!("must remain ignored"); }
+''' + '\n'.join(f'#[test] fn {name}() {{ record("{name}"); }}' for name in names))
+            compile_rust_fixture(source, executable, test=True)
+            tests, ignored = artifacts.inventory(executable), artifacts.inventory(executable, True)
+            for package, owner in self.OWNERS.items():
+                for fail in (False, True):
+                    name, manifest = self.fixture(package)
+                    manifest['binaries'][name].update(tests=tests, ignored_tests=ignored)
+                    output = root / f'{package}-{fail}'
+                    output.mkdir()
+                    results = output / 'results.jsonl'
+                    environment = dict(os.environ, CASE_OUTPUT=str(output), FAIL_CASE='case_1' if fail else '')
+                    with self.subTest(package=package, fail=fail), (root / 'runner.log').open('w') as log, \
+                         redirect_stdout(log), \
+                         patch.object(artifacts, 'ROOT', root), \
+                         patch.object(artifacts, 'ORDINARY_EXCLUSIVE_RUNTIME_CASES', frozenset(('heavy', 'other'))), \
+                         patch.object(artifacts, 'snapshot_regressions', return_value=()), \
+                         patch.object(artifacts, 'load', return_value=(manifest, environment)):
+                        if fail:
+                            with self.assertRaises(RuntimeError):
+                                artifacts.execute(root, 'ordinary', results,
+                                    plan=manifest['execution_plan'], ordinary_partition=owner)
+                        else:
+                            artifacts.execute(root, 'ordinary', results,
+                                plan=manifest['execution_plan'], ordinary_partition=owner)
+                    records = [json.loads(line) for line in results.read_text().splitlines()]
+                    self.assertEqual(len(records), 6 if package == 'oasis7_chain_runtime' else 4)
+                    self.assertEqual(sum(record['expected_count'] for record in records), len(names))
+                    self.assertTrue(all(not record['timeout'] and record['cleanup_result'] == 'clean'
+                                        for record in records))
+                    self.assertEqual(sum(not record['count_ok'] for record in records), int(fail))
+                    self.assertEqual(sum(not record['passed'] for record in records), int(fail))
+                    self.assertEqual({path.name for path in output.iterdir()} - {'results.jsonl'}, set(names))
+                    self.assertIn('test ignored ... ignored', (root / 'runner.log').read_text())
+
+
 class CasePartitionArtifactDelivery(unittest.TestCase):
     install_worker_companion = OrdinaryArtifactDelivery.install_worker_companion
 

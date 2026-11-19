@@ -375,7 +375,7 @@ verify_oasis7_iws_host_native_fixture() {
   # Fixed actual candidate test bytes are versioned with this checkout. Verify
   # their complete source/recipe/receipt and current candidate identity first.
   # This read-only path neither refreshes release manifests nor falls back to Docker.
-  run_cargo run --quiet --locked -p oasis7_distfs --features sync-builtin-wasm-identity \
+  run_cargo run --locked -p oasis7_distfs --features sync-builtin-wasm-identity \
     --bin sync_builtin_wasm_identity -- --verify-iws-rule-candidate-fixture "$repo_root" \
     "$repo_root/crates/oasis7_chain_runtime/tests/fixtures/iws_rule_transfer_candidate"
 }

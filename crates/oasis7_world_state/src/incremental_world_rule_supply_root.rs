@@ -147,6 +147,7 @@ pub use closure::{
 
 #[path = "incremental_world_rule_supply_family.rs"]
 mod family;
+pub(crate) use family::qualify_supply_family_with_lifecycle_v1;
 pub use family::{
     CurrentSupplyLifecycleDirectoryV1, SupplyFamilyQualificationV1,
     open_current_supply_lifecycle_directory_v1, qualify_supply_family_v1,

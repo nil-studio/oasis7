@@ -3354,7 +3354,7 @@ run_cargo() {
 run_group iws_host_native
 '''
         expected = [
-            'CARGO|run --quiet --locked -p oasis7_distfs --features sync-builtin-wasm-identity '
+            'CARGO|run --locked -p oasis7_distfs --features sync-builtin-wasm-identity '
             '--bin sync_builtin_wasm_identity -- --verify-iws-rule-candidate-fixture '
             f'{ROOT} {ROOT}/crates/oasis7_chain_runtime/tests/fixtures/iws_rule_transfer_candidate',
             'CARGO|rustc --locked -p oasis7_wasm_executor --bin oasis7-wasm-worker '
@@ -3553,6 +3553,13 @@ run_oasis7_iws_host_native_target
             trace = directory / 'cargo-trace'
             cargo = directory / 'cargo'
             cargo.write_text('#!/usr/bin/env bash\nprintf "IWS_CARGO|%s\\n" "$*" >> "$IWS_CARGO_LOG"\n'
+                             'verbose=0 quiet=0\n'
+                             'for argument in "$@"; do\n'
+                             '  [[ "$argument" != -- ]] || break\n'
+                             '  case "$argument" in --verbose|-v) verbose=1 ;; --quiet|-q) quiet=1 ;; esac\n'
+                             'done\n'
+                             'if [[ "$verbose" == 1 && "$quiet" == 1 ]]; then\n'
+                             '  echo "cannot set both --verbose and --quiet" >&2; exit 101\nfi\n'
                              'if [[ -n "$MOCK_FAIL_PACKAGE" && "$*" == *"-p $MOCK_FAIL_PACKAGE "* ]]; then\n'
                              '  exit "$MOCK_CARGO_STATUS"\nfi\n'
                              'if [[ "$*" == *" --list "* && "$*" != *" --ignored"* ]]; then\n'
@@ -3562,11 +3569,11 @@ run_oasis7_iws_host_native_target
             uname.write_text('#!/usr/bin/env bash\ncase "$1" in\n'
                              '-s) echo Linux ;;\n-m) echo x86_64 ;;\n*) exit 92 ;;\nesac\n')
             uname.chmod(0o755)
-            for failed_package, status, count in (
+            for verbose, (failed_package, status, count) in itertools.product(('0', '1'), (
                     ('', 0, 6), ('oasis7_distfs', 39, 1), ('oasis7_wasm_executor', 40, 2),
                     ('oasis7_runtime', 41, 3),
-                    ('oasis7_chain_runtime', 42, 4)):
-                with self.subTest(failed_package=failed_package, status=status):
+                    ('oasis7_chain_runtime', 42, 4))):
+                with self.subTest(verbose=verbose, failed_package=failed_package, status=status):
                     trace.write_text('')
                     result = subprocess.run(
                         ['bash', str(ROOT / 'scripts/ci-tests.sh'), 'required',
@@ -3574,28 +3581,30 @@ run_oasis7_iws_host_native_target
                         env=dict(os.environ, PATH=str(directory) + os.pathsep + os.environ['PATH'],
                                  MOCK_FAIL_PACKAGE=failed_package, MOCK_CARGO_STATUS=str(status),
                                  IWS_CARGO_LOG=str(trace), IWS_CASE_LIST=str(inventory),
-                                 OASIS7_LOCAL_CHECK='0', CI_VERBOSE='0',
+                                 OASIS7_LOCAL_CHECK='0', CI_VERBOSE=verbose,
                                  OASIS7_CI_RUN_PROVIDER_LIVE_GATE='false',
                                  OASIS7_CI_RUN_HOSTED_ACCOUNT_SMOKE='false'))
                     self.assertEqual(result.returncode, status, result.stderr)
                     calls = trace.read_text().splitlines()
-                    self.assertEqual(calls, [
-                        'IWS_CARGO|run --quiet --locked -p oasis7_distfs --features sync-builtin-wasm-identity '
+                    arguments = [
+                        'run --locked -p oasis7_distfs --features sync-builtin-wasm-identity '
                         '--bin sync_builtin_wasm_identity -- --verify-iws-rule-candidate-fixture '
                         f'{ROOT} {ROOT}/crates/oasis7_chain_runtime/tests/fixtures/iws_rule_transfer_candidate',
-                        'IWS_CARGO|rustc --locked -p oasis7_wasm_executor --bin oasis7-wasm-worker '
+                        'rustc --locked -p oasis7_wasm_executor --bin oasis7-wasm-worker '
                         '--no-default-features --features wasmtime -- -C strip=symbols',
-                        'IWS_CARGO|test --locked -p oasis7_runtime --test iws_rule_core '
+                        'test --locked -p oasis7_runtime --test iws_rule_core '
                         '--no-default-features --features test_tier_full,wasmtime -- --test-threads=1',
-                        'IWS_CARGO|test --locked -p oasis7_chain_runtime --test iws_host_linux '
+                        'test --locked -p oasis7_chain_runtime --test iws_host_linux '
                         '--no-default-features --features iws-host-native-test-support '
                         '-- --list --format terse',
-                        'IWS_CARGO|test --locked -p oasis7_chain_runtime --test iws_host_linux '
+                        'test --locked -p oasis7_chain_runtime --test iws_host_linux '
                         '--no-default-features --features iws-host-native-test-support '
                         '-- --list --format terse --ignored',
-                        'IWS_CARGO|test --locked -p oasis7_chain_runtime --test iws_host_linux '
+                        'test --locked -p oasis7_chain_runtime --test iws_host_linux '
                         '--no-default-features --features iws-host-native-test-support '
-                        '-- --test-threads=1'][:count])
+                        '-- --test-threads=1']
+                    prefix = 'IWS_CARGO|' + ('--verbose ' if verbose == '1' else '')
+                    self.assertEqual(calls, [prefix + argument for argument in arguments[:count]])
 
     def test_iws_rule_target_uses_expanded_artifacts_without_controls_duplicate(self):
         import contextlib, importlib.util, tomllib
@@ -3766,7 +3775,7 @@ run_cargo() {
     record WORKER
   elif [[ "$*" == 'test --locked -p oasis7_runtime --test iws_rule_core '* ]]; then
     echo 'full execution duplicated the Rule target' >&2; return 95
-  elif [[ "$*" == 'run --quiet --locked -p oasis7_distfs '* ]]; then
+  elif [[ "$*" == 'run --locked -p oasis7_distfs '* ]]; then
     record CANDIDATE
   elif [[ "$*" == 'test --locked -p oasis7_chain_runtime --test iws_host_linux '* ]]; then
     record HOST

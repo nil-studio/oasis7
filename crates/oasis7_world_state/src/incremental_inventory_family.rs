@@ -89,7 +89,14 @@ pub fn qualify_inventory_family_v1<
                     },
                     || stop.borrow_mut()(),
                 );
+                // Merkle's String boundary does not retain the original
+                // physical read failure. Take it even after a successful scan;
+                // cancellation still wins before either error is returned.
+                let original = (local.take_state_error)();
                 local.check()?;
+                if let Some(error) = original {
+                    return Err(error);
+                }
                 match result {
                     Ok(_) => (),
                     Err(StateScanError::Visitor(e)) => return Err(e),

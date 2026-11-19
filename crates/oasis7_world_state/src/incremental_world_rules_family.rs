@@ -16,7 +16,8 @@ use crate::{
         readmit_organization_family_ordinary_v1,
     },
     incremental_world_rule_supply_root::{
-        SupplyFamilyQualificationV1, qualify_supply_family_v1, readmit_supply_family_ordinary_v1,
+        SupplyFamilyQualificationV1, qualify_supply_family_with_lifecycle_v1,
+        readmit_supply_family_ordinary_v1,
     },
 };
 use oasis7_formal_protocol::incremental_execution::RootSetV1;
@@ -125,7 +126,7 @@ macro_rules! branches {
             let retained=ctx.values.memory.reserve(CARRIER,ctx.values.class)?;
             router::qualify(roots,ctx,outer_scan,work)?;
             let organization=qualify_organization_family_v1(roots,ctx,outer_scan,inner_scan,&mut work.legacy_cells_remaining,work.max_record_bytes)?;
-            let supply=qualify_supply_family_v1(roots,ctx,outer_scan,inner_scan,&mut work.legacy_cells_remaining,work.max_record_bytes)?;
+            let supply=qualify_supply_family_with_lifecycle_v1(roots,ctx,outer_scan,inner_scan,&mut work.legacy_cells_remaining,work.max_record_bytes)?;
             let remainder=qualify_world_rule_remainder_v1(roots,ctx,outer_scan,&mut work.remainder)?;
             $(let $slot=qualify_world_rule_branch_v1::<$ty,_,_,_,_>(roots,ctx,inner_scan,&mut work.composite)?;)+
             let lifecycle_index=lifecycle_index::qualify_world_rule_lifecycle_index_v1(roots,ctx,outer_scan,inner_scan,work,&supply,&remainder,&$emergency)?;

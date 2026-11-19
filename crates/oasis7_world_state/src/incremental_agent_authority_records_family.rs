@@ -493,7 +493,7 @@ pub(super) fn read_intent_epoch_from_closed_body<
         &value,
         &key,
         &mut body.records(),
-        0,
+        std::mem::size_of::<u64>() as u64,
         &mut std::io::sink(),
     )? {
         AgentAuthorityValueV1::Unsigned(value) => Ok(Some(value)),

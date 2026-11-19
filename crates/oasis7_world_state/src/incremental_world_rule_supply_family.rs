@@ -16,11 +16,21 @@ pub struct SupplyFamilyQualificationV1 {
     records: [u64; 2],
     present: bool,
     class: MemoryClass,
-    lifecycle: std::sync::Arc<lifecycle::SupplyLifecycleRowsV1>,
+    // Structural closure never implies admission of the retained business
+    // projection. Only the explicit WorldRules bootstrap creates these rows.
+    lifecycle: Option<std::sync::Arc<lifecycle::SupplyLifecycleRowsV1>>,
 }
 impl SupplyFamilyQualificationV1 {
     pub(crate) fn allocation_class(&self) -> MemoryClass {
         self.class
+    }
+    pub(super) fn has_lifecycle(&self) -> bool {
+        self.lifecycle.is_some()
+    }
+    fn require_lifecycle(&self) -> Result<&lifecycle::SupplyLifecycleRowsV1, ValueTreeError> {
+        self.lifecycle.as_deref().ok_or(ValueTreeError::Invalid(
+            "supply lifecycle projection not admitted",
+        ))
     }
     pub(super) fn validate_lifecycle_record(
         &self,
@@ -28,6 +38,7 @@ impl SupplyFamilyQualificationV1 {
         root: &StateRootV1,
         cells: &mut u64,
     ) -> Result<(), ValueTreeError> {
+        let lifecycle = self.require_lifecycle()?;
         let id = match owner {
             SupplyRootKeyV1::Authorization(id) | SupplyRootKeyV1::Batch(id) => id,
         };
@@ -40,7 +51,7 @@ impl SupplyFamilyQualificationV1 {
             .ok_or(ValueTreeError::ResourceLimited(
                 "supply projection before join",
             ))?;
-        let proof = self.lifecycle.record(owner).ok_or_else(invalid)?;
+        let proof = lifecycle.record(owner).ok_or_else(invalid)?;
         if proof.root() != root {
             return Err(invalid());
         }
@@ -53,21 +64,28 @@ impl SupplyFamilyQualificationV1 {
         cells: &mut u64,
         cancelled: &mut impl FnMut() -> bool,
     ) -> Result<lifecycle::SupplyLifecycleRowsV1, ValueTreeError> {
-        self.lifecycle.share(memory, class, cells, cancelled)
+        self.require_lifecycle()?
+            .share(memory, class, cells, cancelled)
     }
     pub(crate) fn lifecycle_authorizations(
         &self,
-    ) -> &[std::sync::Arc<
-        ReservedValue<crate::incremental_world_rules_family::LifecycleSupplyAuthorizationV1>,
-    >] {
-        &self.lifecycle.authorizations
+    ) -> Result<
+        &[std::sync::Arc<
+            ReservedValue<crate::incremental_world_rules_family::LifecycleSupplyAuthorizationV1>,
+        >],
+        ValueTreeError,
+    > {
+        Ok(&self.require_lifecycle()?.authorizations)
     }
     pub(crate) fn lifecycle_batches(
         &self,
-    ) -> &[std::sync::Arc<
-        ReservedValue<crate::incremental_world_rules_family::LifecycleSupplyBatchV1>,
-    >] {
-        &self.lifecycle.batches
+    ) -> Result<
+        &[std::sync::Arc<
+            ReservedValue<crate::incremental_world_rules_family::LifecycleSupplyBatchV1>,
+        >],
+        ValueTreeError,
+    > {
+        Ok(&self.require_lifecycle()?.batches)
     }
     /// Readmit only the actually selected retained proof. The family itself
     /// must already have Ordinary admission; no source scan or body is copied.
@@ -84,6 +102,7 @@ impl SupplyFamilyQualificationV1 {
         if cancelled() {
             return Err(ValueTreeError::Cancelled);
         }
+        let lifecycle = self.require_lifecycle()?;
         let id = match owner {
             SupplyRootKeyV1::Authorization(id) | SupplyRootKeyV1::Batch(id) => id,
         };
@@ -96,7 +115,7 @@ impl SupplyFamilyQualificationV1 {
             .ok_or(ValueTreeError::ResourceLimited(
                 "supply selected proof comparisons",
             ))?;
-        let Some(source) = self.lifecycle.record(owner) else {
+        let Some(source) = lifecycle.record(owner) else {
             return Ok(None);
         };
         if !source.uses_budget(memory) {
@@ -171,7 +190,7 @@ fn outer<
     inner_scan: &mut StateScanBudget,
     cells: &mut u64,
     max_payload: u64,
-    lifecycle: &mut lifecycle::SupplyLifecycleRowsV1,
+    lifecycle: Option<&mut lifecycle::SupplyLifecycleRowsV1>,
 ) -> Result<Option<usize>, ValueTreeError> {
     if !entry.key.starts_with(b"oasis7.iws.world-field-key.v1\0") {
         return Ok(None);
@@ -291,18 +310,20 @@ fn outer<
         cells,
         max_payload,
     )?;
-    lifecycle.insert(
-        outer_id,
-        match owner {
-            SupplyRootKeyV1::Authorization(_) => 0,
-            SupplyRootKeyV1::Batch(_) => 1,
-        },
-        qualification,
-        &mut inner,
-        inner_scan,
-        cells,
-        max_payload,
-    )?;
+    if let Some(lifecycle) = lifecycle {
+        lifecycle.insert(
+            outer_id,
+            match owner {
+                SupplyRootKeyV1::Authorization(_) => 0,
+                SupplyRootKeyV1::Batch(_) => 1,
+            },
+            qualification,
+            &mut inner,
+            inner_scan,
+            cells,
+            max_payload,
+        )?;
+    }
     Ok(Some(match owner {
         SupplyRootKeyV1::Authorization(_) => 0,
         SupplyRootKeyV1::Batch(_) => 1,
@@ -310,6 +331,7 @@ fn outer<
 }
 /// Full bootstrap/recovery only. All six authenticated roots are checked for
 /// misplaced Supply field keys; unchanged normal updates use a receiver.
+/// This proves storage closure without materializing business selector rows.
 pub fn qualify_supply_family_v1<
     M: MerkleNodeReader,
     R: ValueNodeReader,
@@ -322,6 +344,60 @@ pub fn qualify_supply_family_v1<
     inner_scan: &mut StateScanBudget,
     cells: &mut u64,
     max_payload: u64,
+) -> Result<ReservedValue<SupplyFamilyQualificationV1>, ValueTreeError> {
+    qualify(
+        roots,
+        context,
+        outer_scan,
+        inner_scan,
+        cells,
+        max_payload,
+        None,
+    )
+}
+
+/// WorldRules consumers require the complete paid lifecycle projection as well
+/// as structural closure. Failure to admit any row rejects the whole bootstrap.
+pub(crate) fn qualify_supply_family_with_lifecycle_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    roots: &RootSetV1,
+    context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    outer_scan: &mut StateScanBudget,
+    inner_scan: &mut StateScanBudget,
+    cells: &mut u64,
+    max_payload: u64,
+) -> Result<ReservedValue<SupplyFamilyQualificationV1>, ValueTreeError> {
+    context.check()?;
+    let lifecycle =
+        lifecycle::SupplyLifecycleRowsV1::empty(context.values.memory, context.values.class)?;
+    qualify(
+        roots,
+        context,
+        outer_scan,
+        inner_scan,
+        cells,
+        max_payload,
+        Some(lifecycle),
+    )
+}
+
+fn qualify<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    roots: &RootSetV1,
+    context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    outer_scan: &mut StateScanBudget,
+    inner_scan: &mut StateScanBudget,
+    cells: &mut u64,
+    max_payload: u64,
+    mut lifecycle: Option<lifecycle::SupplyLifecycleRowsV1>,
 ) -> Result<ReservedValue<SupplyFamilyQualificationV1>, ValueTreeError> {
     roots.validate().map_err(|_| invalid())?;
     context.check()?;
@@ -340,7 +416,6 @@ pub fn qualify_supply_family_v1<
     let retained = memory.reserve(std::mem::size_of::<SupplyFamilyQualificationV1>(), class)?;
     let cancelled = RefCell::new(&mut context.cancelled);
     let mut records = [0u64; 2];
-    let mut lifecycle = lifecycle::SupplyLifecycleRowsV1::empty(memory, class)?;
     for root in &roots.state {
         let mut local = WorldFieldReadContextV1 {
             root,
@@ -375,7 +450,7 @@ pub fn qualify_supply_family_v1<
                     inner_scan,
                     cells,
                     max_payload,
-                    &mut lifecycle,
+                    lifecycle.as_mut(),
                 )? {
                     records[index] = records[index].checked_add(1).ok_or_else(invalid)?;
                 }
@@ -413,7 +488,7 @@ pub fn qualify_supply_family_v1<
         records,
         present,
         class,
-        lifecycle: std::sync::Arc::new(lifecycle),
+        lifecycle: lifecycle.map(std::sync::Arc::new),
     }))
 }
 
@@ -423,7 +498,7 @@ pub(super) fn advanced(
     present: bool,
     memory: &oasis7_proto::memory_budget::MemoryBudget,
     class: MemoryClass,
-    lifecycle: lifecycle::SupplyLifecycleRowsV1,
+    lifecycle: Option<lifecycle::SupplyLifecycleRowsV1>,
 ) -> Result<ReservedValue<SupplyFamilyQualificationV1>, ValueTreeError> {
     Ok(memory
         .reserve(std::mem::size_of::<SupplyFamilyQualificationV1>(), class)?
@@ -432,7 +507,7 @@ pub(super) fn advanced(
             records,
             present,
             class,
-            lifecycle: std::sync::Arc::new(lifecycle),
+            lifecycle: lifecycle.map(std::sync::Arc::new),
         }))
 }
 

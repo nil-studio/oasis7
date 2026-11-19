@@ -123,8 +123,28 @@ impl MaterialFixtureV1 {
                 take_state_error: take_error,
                 cancelled,
             };
+            let mut qualification_scan = scan();
             let qualification =
-                qualify_inventory_family_v1(roots, &mut read, &mut scan(), &mut family).unwrap();
+                qualify_inventory_family_v1(roots, &mut read, &mut qualification_scan, &mut family)
+                    .unwrap_or_else(|error| {
+                        let state_error = (read.take_state_error)();
+                        panic!(
+                            "inventory qualification failed at height={}: {error:?}; \
+                     state_error={state_error:?}; scan nodes={} bytes={} leaves={}; \
+                     Value nodes={} read_bytes={} write_bytes={}; \
+                     key_bytes={}; family_records={} index_steps={}",
+                            roots.height,
+                            qualification_scan.nodes_remaining,
+                            qualification_scan.read_bytes_remaining,
+                            qualification_scan.leaves_remaining,
+                            read.values.io.nodes_remaining,
+                            read.values.io.read_bytes_remaining,
+                            read.values.io.write_bytes_remaining,
+                            read.key_work.bytes_remaining,
+                            family.records_remaining,
+                            family.index_steps_remaining,
+                        )
+                    });
             build_parent_inventory_material_scope_v1(
                 &qualification,
                 roots,

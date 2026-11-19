@@ -287,12 +287,13 @@ fn copy_supply_rows(
     cancelled: &mut impl FnMut() -> bool,
 ) -> Result<(), ValueTreeError> {
     let counts = supply.record_counts();
-    if usize::try_from(counts[0]).map_err(|_| limited())? != supply.lifecycle_authorizations().len()
-        || usize::try_from(counts[1]).map_err(|_| limited())? != supply.lifecycle_batches().len()
+    if usize::try_from(counts[0]).map_err(|_| limited())?
+        != supply.lifecycle_authorizations()?.len()
+        || usize::try_from(counts[1]).map_err(|_| limited())? != supply.lifecycle_batches()?.len()
     {
         return Err(invalid());
     }
-    for row in supply.lifecycle_authorizations() {
+    for row in supply.lifecycle_authorizations()? {
         if cancelled() {
             return Err(ValueTreeError::Cancelled);
         }
@@ -303,7 +304,7 @@ fn copy_supply_rows(
         debit_outer(work, value.bytes()?)?;
         builder.push_supply_authorization_ref(Arc::clone(row))?;
     }
-    for row in supply.lifecycle_batches() {
+    for row in supply.lifecycle_batches()? {
         if cancelled() {
             return Err(ValueTreeError::Cancelled);
         }
@@ -385,11 +386,11 @@ fn validate_source_families<
     }
     supply.validate_binding(&digest)?;
     if supply
-        .lifecycle_authorizations()
+        .lifecycle_authorizations()?
         .iter()
         .any(|row| !row.uses_budget(ctx.values.memory))
         || supply
-            .lifecycle_batches()
+            .lifecycle_batches()?
             .iter()
             .any(|row| !row.uses_budget(ctx.values.memory))
     {

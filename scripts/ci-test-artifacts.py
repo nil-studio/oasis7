@@ -3439,6 +3439,40 @@ def expand_ordinary_batches(entries, binaries):
     return expanded
 
 
+def bounded_ordinary_runtime_batches(entries, binaries):
+    """Give complete v1 runtime case batches separate unchanged runner budgets."""
+    expanded = []
+    for entry in entries:
+        binary = binaries[entry['binary']]
+        if not (entry.get('batch') and binary.get('package') == binary.get('target')
+                and binary.get('package') in ('oasis7_chain_runtime', 'oasis7_runtime')
+                and binary.get('target_kind') == ['lib'] and binary.get('variant') == 'required'):
+            expanded.append(entry)
+            continue
+        tests, ignored = set(binary['tests']), set(binary['ignored_tests'])
+        excluded = set(entry.get('skip', ())) | set(entry.get('skip_exact', ()))
+        if (len(tests) != len(binary['tests']) or not ignored <= tests or not excluded <= tests):
+            raise ValueError('invalid bounded runtime case inventory')
+        cases = tests - ignored - excluded
+        if not cases:
+            raise ValueError('empty bounded runtime case inventory')
+        batch_count = 4
+        if len(cases) <= batch_count:
+            expanded.append(entry)
+            continue
+        # Hash ordering disperses expensive modules while retaining all actual
+        # nonignored cases. Existing exact exclusive jobs remain independent.
+        ordered = sorted(cases, key=lambda name: (hashlib.sha256(name.encode()).digest(), name))
+        selected = [set(ordered[index::batch_count]) for index in range(batch_count)]
+        if (set.union(*selected) != cases or sum(map(len, selected)) != len(cases)
+                or any(not names for names in selected)):
+            raise ValueError('incomplete or overlapping bounded runtime batches')
+        for index, names in enumerate(selected):
+            expanded.append(dict(entry, name=f'{entry["binary"]}-batch-{index + 1}-of-{batch_count}',
+                skip_exact=sorted(set(entry.get('skip_exact', ())) | (cases - names)), count=len(names)))
+    return expanded
+
+
 def targeted_ordinary_artifact_entries(manifest, partition):
     """Partition real runtime cases, retaining every other complete harness."""
     owners = TARGETED_ORDINARY_ARTIFACT_PARTITIONS[1:]
@@ -3555,6 +3589,8 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
                    if artifact_partition else ordinary_entries(manifest))
         if not (artifact_partition and plan['ordinary_artifact_partition_version'] == 2):
             entries = expand_ordinary_batches(entries, manifest['binaries'])
+        if artifact_partition and plan['ordinary_artifact_partition_version'] == 1:
+            entries = bounded_ordinary_runtime_batches(entries, manifest['binaries'])
         # Original ordinary environment did not contain formal-process child paths.
         for variable in list(env):
             if variable.startswith('OASIS7_FORMAL_') or variable in ('OASIS7_CHAIN_RUNTIME_BIN', 'OASIS7_NODE_LIFECYCLE_TEST_BIN'):

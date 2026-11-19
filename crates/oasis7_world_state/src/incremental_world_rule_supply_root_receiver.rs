@@ -280,12 +280,18 @@ pub(crate) fn accept_supply_verified_v1<
     let verified = witness.prepared();
     let _phase = supply_preflight(parent, &verified.record, context)?;
     let mut counts = parent.record_counts();
-    let mut lifecycle = parent.share_lifecycle(
-        context.values.memory,
-        context.values.class,
-        cells,
-        &mut context.cancelled,
-    )?;
+    // A structural family inherits only structural closure. Retained business
+    // rows are advanced only when the exact parent already admitted them.
+    let mut lifecycle = if parent.has_lifecycle() {
+        Some(parent.share_lifecycle(
+            context.values.memory,
+            context.values.class,
+            cells,
+            &mut context.cancelled,
+        )?)
+    } else {
+        None
+    };
     for write in &verified.record.writes {
         *cells = cells.checked_sub(1).ok_or(ValueTreeError::ResourceLimited(
             "supply outer changed cells",
@@ -321,7 +327,9 @@ pub(crate) fn accept_supply_verified_v1<
         }
         let old = edge(&key, write.mutation.before, context)?;
         let new = edge(&key, write.mutation.after, context)?;
-        if let Some((owner, root, id)) = &old {
+        if lifecycle.is_some()
+            && let Some((owner, root, id)) = &old
+        {
             let actual_owner = match owner {
                 SupplyRootKeyV1::Authorization(_) => SupplyRootKeyV1::Authorization(id),
                 SupplyRootKeyV1::Batch(_) => SupplyRootKeyV1::Batch(id),
@@ -360,52 +368,54 @@ pub(crate) fn accept_supply_verified_v1<
                     cells,
                     max_payload,
                 )?;
-                let q_fee = context
-                    .values
-                    .memory
-                    .reserve(512, context.values.class)
-                    .map_err(ValueTreeError::Memory)?;
-                let q = q_fee.retain(SupplyRecordQualificationV1 {
-                    schema: owner.schema(),
-                    owner: binding.semantic_key.ok_or_else(invalid)?,
-                    root: (*new).clone(),
-                    class: context.values.class,
-                });
-                let _copy_fee = context
-                    .values
-                    .memory
-                    .reserve(
-                        outer_id
-                            .len()
-                            .checked_add(std::mem::size_of::<String>())
-                            .ok_or_else(invalid)?,
-                        context.values.class,
-                    )
-                    .map_err(ValueTreeError::Memory)?;
-                let mut inner = WorldFieldReadContextV1 {
-                    root: &new,
-                    state: context.state,
-                    values: oasis7_formal_protocol::incremental_value::ValueReadContext {
-                        source: context.values.source,
-                        memory: context.values.memory,
+                if let Some(lifecycle) = lifecycle.as_mut() {
+                    let q_fee = context
+                        .values
+                        .memory
+                        .reserve(512, context.values.class)
+                        .map_err(ValueTreeError::Memory)?;
+                    let q = q_fee.retain(SupplyRecordQualificationV1 {
+                        schema: owner.schema(),
+                        owner: binding.semantic_key.ok_or_else(invalid)?,
+                        root: (*new).clone(),
                         class: context.values.class,
-                        io: &mut *context.values.io,
-                    },
-                    key_work: &mut *context.key_work,
-                    semantic_bytes: context.semantic_bytes,
-                    record_bytes: context.record_bytes,
-                    take_state_error: &mut context.take_state_error,
-                    cancelled: &mut context.cancelled,
-                };
-                lifecycle.insert(
-                    (*outer_id).clone(),
-                    index(owner),
-                    q,
-                    &mut inner,
-                    scan,
-                    cells,
-                    max_payload,
-                )?;
+                    });
+                    let _copy_fee = context
+                        .values
+                        .memory
+                        .reserve(
+                            outer_id
+                                .len()
+                                .checked_add(std::mem::size_of::<String>())
+                                .ok_or_else(invalid)?,
+                            context.values.class,
+                        )
+                        .map_err(ValueTreeError::Memory)?;
+                    let mut inner = WorldFieldReadContextV1 {
+                        root: &new,
+                        state: context.state,
+                        values: oasis7_formal_protocol::incremental_value::ValueReadContext {
+                            source: context.values.source,
+                            memory: context.values.memory,
+                            class: context.values.class,
+                            io: &mut *context.values.io,
+                        },
+                        key_work: &mut *context.key_work,
+                        semantic_bytes: context.semantic_bytes,
+                        record_bytes: context.record_bytes,
+                        take_state_error: &mut context.take_state_error,
+                        cancelled: &mut context.cancelled,
+                    };
+                    lifecycle.insert(
+                        (*outer_id).clone(),
+                        index(owner),
+                        q,
+                        &mut inner,
+                        scan,
+                        cells,
+                        max_payload,
+                    )?;
+                }
             }
         }
         if (context.cancelled)() {
