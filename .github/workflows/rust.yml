@@ -2453,6 +2453,8 @@ jobs:
       packages: read
     container:
       image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f
+      # Match the hosted runner owner of the workspace and temporary mounts.
+      options: --user 1001:1001
       credentials:
         username: ${{ github.actor }}
         password: ${{ github.token }}
@@ -2497,7 +2499,12 @@ jobs:
           CI_VERBOSE: "1"
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
-        run: bash ./scripts/ci-tests.sh required --group "node" --repo-root "$GITHUB_WORKSPACE"
+        run: |
+          if [[ "$(id -u)" == 0 ]]; then
+            echo "::error::Node permission tests require an unprivileged user."
+            exit 1
+          fi
+          bash ./scripts/ci-tests.sh required --group "node" --repo-root "$GITHUB_WORKSPACE"
 
   net:
     needs: select
