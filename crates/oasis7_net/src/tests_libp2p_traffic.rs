@@ -295,3 +295,74 @@ fn real_transport_deadline_reports_a_fixed_budget_status() {
     );
     assert!(client.connected_peers().is_empty());
 }
+
+#[test]
+fn typed_net_budget_caps_real_gossip_before_delivery() {
+    let profile = serde_json::from_str(
+        r#"{"profile":"v1-discovery-resource-budget-1",
+        "connections_total":3,"pending_connections_total":2,"pending_inbound_unknown":1,
+        "pending_outbound":2,"connections_per_peer":1,"handshake_timeout_ms":3000,
+        "bytes_in_per_window":8192,"bytes_out_per_window":8192,"bytes_total_per_window":16384}"#,
+    )
+    .unwrap();
+    let receiver = Libp2pNetwork::try_new(Libp2pNetworkConfig {
+        p2p_resource_budget: profile,
+        listen_addrs: vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()],
+        enable_autonat: false,
+        ..Libp2pNetworkConfig::default()
+    })
+    .unwrap();
+    let sender = Libp2pNetwork::try_new(Libp2pNetworkConfig {
+        enable_autonat: false,
+        ..Libp2pNetworkConfig::default()
+    })
+    .unwrap();
+    let topic = "aw.traffic.shared-gossip-budget";
+    let subscription = receiver.subscribe(topic).unwrap();
+    let _publisher_subscription = sender.subscribe(topic).unwrap();
+    let deadline = || Instant::now() + Duration::from_secs(5);
+    wait_until("gossip listener", deadline(), || {
+        !receiver.listening_addrs().is_empty()
+    });
+    sender
+        .dial(
+            receiver.listening_addrs()[0]
+                .clone()
+                .with_p2p(receiver.peer_id())
+                .unwrap(),
+        )
+        .unwrap();
+
+    wait_until("gossip subscription propagated", deadline(), || {
+        sender.publish(topic, b"budgeted gossip").is_ok()
+    });
+    wait_until("small gossip received", deadline(), || {
+        subscription
+            .drain()
+            .iter()
+            .any(|payload| payload == b"budgeted gossip")
+    });
+
+    sender.publish(topic, &[7; 16384]).unwrap();
+    wait_until(
+        "receiver reached its shared inbound cap",
+        deadline(),
+        || {
+            receiver
+                .traffic_metrics_snapshot()
+                .resource_budget
+                .last_rejection
+                == Some(crate::ResourceBudgetRejection::BytesIn)
+        },
+    );
+    let status = receiver.traffic_metrics_snapshot();
+    let budget = status.resource_budget;
+    let bytes = budget.bytes.unwrap();
+    assert_eq!(bytes.actual_bytes.inbound, 8192);
+    assert_eq!(bytes.charged_bytes.inbound, 8192);
+    assert!(bytes.charged_bytes.total <= 16384);
+    assert_eq!(bytes.reserved_bytes.total, 0);
+    assert_eq!(budget.connections.unwrap().established, 1);
+    assert_eq!(status.by_topic[topic].inbound.messages, 1);
+    assert!(subscription.drain().is_empty());
+}
