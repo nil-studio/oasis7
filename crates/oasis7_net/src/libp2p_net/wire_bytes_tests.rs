@@ -132,3 +132,107 @@ fn quic_muxer_shares_directional_and_total_byte_budget_across_streams() {
             .expect("QUIC byte window probe timed out")
         });
 }
+
+#[test]
+fn real_tcp_yamux_write_zero_refunds_only_the_failed_poll() {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                let tcp = |key: &Keypair| {
+                    Transport::boxed(
+                        libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default())
+                            .upgrade(libp2p::core::upgrade::Version::V1)
+                            .authenticate(libp2p::noise::Config::new(key).unwrap())
+                            .multiplex(libp2p::yamux::Config::default()),
+                    )
+                };
+                let mut server = tcp(&Keypair::generate_ed25519());
+                let mut client = tcp(&Keypair::generate_ed25519());
+                server
+                    .listen_on(ListenerId::next(), "/ip4/127.0.0.1/tcp/0".parse().unwrap())
+                    .unwrap();
+                let address = loop {
+                    if let TransportEvent::NewAddress { listen_addr, .. } =
+                        poll_fn(|cx| Pin::new(&mut server).poll(cx)).await
+                    {
+                        break listen_addr;
+                    }
+                };
+                let dial = client
+                    .dial(
+                        address,
+                        DialOpts {
+                            role: Endpoint::Dialer,
+                            port_use: PortUse::Reuse,
+                        },
+                    )
+                    .unwrap();
+                let dial = tokio::spawn(dial);
+                let incoming = loop {
+                    if let TransportEvent::Incoming { upgrade, .. } =
+                        poll_fn(|cx| Pin::new(&mut server).poll(cx)).await
+                    {
+                        break upgrade;
+                    }
+                };
+                let (_, mut server_muxer) = incoming.await.unwrap();
+                let (_, client_muxer) = dial.await.unwrap().unwrap();
+
+                let bytes = Arc::new(
+                    WireByteWindow::new(WireByteLimits {
+                        inbound: 8,
+                        outbound: 8,
+                        total: 16,
+                    })
+                    .unwrap(),
+                );
+                let mut client = InstrumentedStreamMuxer::new_yamux(
+                    client_muxer,
+                    Libp2pWireByteCounters::with_window(Arc::clone(&bytes)),
+                );
+                let mut stream = poll_fn(|cx| Pin::new(&mut client).poll_outbound(cx))
+                    .await
+                    .unwrap();
+                let drive_client = tokio::spawn(async move {
+                    poll_fn(|cx| {
+                        let _ = Pin::new(&mut client).poll(cx);
+                        Poll::<()>::Pending
+                    })
+                    .await;
+                });
+                stream.write_all(b"seen").await.unwrap();
+                let mut remote = poll_fn(|cx| Pin::new(&mut server_muxer).poll_inbound(cx))
+                    .await
+                    .unwrap();
+                let mut received = [0; 4];
+                remote.read_exact(&mut received).await.unwrap();
+                assert_eq!(&received, b"seen");
+
+                stream.close().await.unwrap();
+                assert_eq!(
+                    stream.write(b"not sent").await.unwrap_err().kind(),
+                    io::ErrorKind::WriteZero
+                );
+                assert_eq!(bytes.snapshot().unwrap().charged_bytes.outbound, 4);
+                let failed = [IoSlice::new(b"vector"), IoSlice::new(b"data")];
+                assert_eq!(
+                    poll_fn(|cx| Pin::new(&mut stream).poll_write_vectored(cx, &failed))
+                        .await
+                        .unwrap_err()
+                        .kind(),
+                    io::ErrorKind::WriteZero
+                );
+                let snapshot = bytes.snapshot().unwrap();
+                assert_eq!(snapshot.actual_bytes.outbound, 4);
+                assert_eq!(snapshot.charged_bytes.outbound, 4);
+                assert_eq!(snapshot.uncertain_charge_bytes.outbound, 0);
+                assert_eq!(snapshot.reserved_bytes.outbound, 0);
+                drive_client.abort();
+            })
+            .await
+            .expect("real Yamux write-zero fixture timed out");
+        });
+}
