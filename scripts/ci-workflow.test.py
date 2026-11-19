@@ -3143,6 +3143,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertNotIn('continue-on-error:', workflow)
         for filename in ('wasm-determinism-gate.yml',):
             workflow = (ROOT / '.github/workflows' / filename).read_text()
+            self.assertNotRegex(workflow, r'(?m)^  push:')
             self.assertIn("group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}", workflow)
             self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", workflow)
 
@@ -4526,8 +4527,9 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
 
     def test_concurrency_is_per_pr_and_per_non_pr_run(self):
         self.assertIn("format('pr-{0}', github.event.pull_request.number)", WORKFLOW)
+        self.assertIn("format('push-{0}', github.ref)", WORKFLOW)
         self.assertIn("format('run-{0}', github.run_id)", WORKFLOW)
-        self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", WORKFLOW)
+        self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}", WORKFLOW)
         concurrency = WORKFLOW.split('concurrency:', 1)[1].split('permissions:', 1)[0]
         self.assertIn("format('periodic-observe-{0}', github.run_id)", concurrency)
         self.assertIn('group: rust-periodic-admission-main', JOBS['periodic-admission'])
