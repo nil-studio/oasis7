@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 mod authority;
+pub mod ordinary_starter;
 pub use authority::verify_world_rule_authority;
+pub use ordinary_starter::*;
 
 pub mod industrial;
 mod industrial_completion;
@@ -17,7 +19,7 @@ mod industrial_work_terminate;
 pub use industrial_completion::validate_industrial_completion;
 pub mod recipe_substitution;
 pub mod substitution_read;
-use oasis7_agent_api::world_action::IndustrialWorkStateV1;
+use oasis7_agent_api::world_action::{IndustrialWorkStateV1, OrdinaryStarterStateV1};
 pub use recipe_substitution::*;
 mod organization;
 #[cfg(test)]
@@ -47,6 +49,12 @@ pub struct WorldRulesStateV1 {
     pub industrial_work: IndustrialWorkStateV1,
     #[serde(default, skip_serializing_if = "substitution_is_empty")]
     pub substitution: SubstitutionStateV1,
+    #[serde(default, skip_serializing_if = "ordinary_starter_is_empty")]
+    pub ordinary_starter: OrdinaryStarterStateV1,
+}
+
+fn ordinary_starter_is_empty(value: &OrdinaryStarterStateV1) -> bool {
+    value == &OrdinaryStarterStateV1::default()
 }
 
 fn industrial_work_is_empty(value: &IndustrialWorkStateV1) -> bool {
@@ -66,7 +74,8 @@ impl Serialize for WorldRulesContinuityProjection<'_> {
         let mut output = serializer.serialize_struct(
             "WorldRulesStateV1",
             11 + usize::from(!industrial_work_is_empty(&self.base.industrial_work))
-                + usize::from(!substitution_is_empty(&self.base.substitution)),
+                + usize::from(!substitution_is_empty(&self.base.substitution))
+                + usize::from(!ordinary_starter_is_empty(&self.base.ordinary_starter)),
         )?;
         output.serialize_field("requests", &self.base.requests)?;
         output.serialize_field("governance_effects", &self.base.governance_effects)?;
@@ -84,6 +93,9 @@ impl Serialize for WorldRulesContinuityProjection<'_> {
         }
         if !substitution_is_empty(&self.base.substitution) {
             output.serialize_field("substitution", &self.base.substitution)?;
+        }
+        if !ordinary_starter_is_empty(&self.base.ordinary_starter) {
+            output.serialize_field("ordinary_starter", &self.base.ordinary_starter)?;
         }
         output.end()
     }
@@ -103,6 +115,7 @@ pub struct PreparedWorldRule {
     pub ledgers: BTreeMap<MaterialLedgerId, BTreeMap<String, i64>>,
     pub agents: BTreeMap<String, AgentCell>,
     pub locations: BTreeMap<String, crate::AgentLocationAuthorityV1>,
+    pub sites: BTreeMap<String, crate::FactorySiteAuthorityV1>,
     pub token_accounts: BTreeMap<String, crate::MainTokenAccountBalance>,
     pub removed_alliance: Option<String>,
     pub industry: Option<crate::state::industry_transition::PreparedIndustryEvent>,
@@ -140,6 +153,7 @@ impl PreparedWorldRule {
             removed_alliance: None,
             token_accounts: BTreeMap::new(),
             locations: BTreeMap::new(),
+            sites: BTreeMap::new(),
             industry: None,
             claim: None,
         };
@@ -209,6 +223,16 @@ impl PreparedWorldRule {
             return Err(invalid("runtime_observation_is_system_only"));
         }
         let result_id = match command {
+            WorldRuleCommandV1::OrdinaryStarter { command } => next.ordinary_starter_command(
+                state,
+                actor_id,
+                request_id,
+                &key,
+                command,
+                now,
+                world_binding.as_deref(),
+                *action_id == 0,
+            )?,
             WorldRuleCommandV1::IndustrialWork { command } => next.industrial_work_command(
                 state,
                 actor_id,
@@ -323,6 +347,7 @@ impl PreparedWorldRule {
             state.agents.extend(self.agents);
         }
         state.agent_location_authorities.extend(self.locations);
+        state.factory_site_authorities.extend(self.sites);
         state.main_token_balances.extend(self.token_accounts);
         state.material_ledgers.extend(self.ledgers);
         if let Some(id) = self.removed_alliance {
@@ -578,11 +603,14 @@ impl WorldRulesStateV1 {
                     r.command,
                     WorldRuleCommandV1::IndustrialWork { .. }
                         | WorldRuleCommandV1::RecipeSubstitution { .. }
+                        | WorldRuleCommandV1::OrdinaryStarter { .. }
                 )
         });
         // Without the canonical owner source, private industrial records stay closed.
         value.industrial_work = IndustrialWorkStateV1::default();
         value.substitution = SubstitutionStateV1::default();
+        // Participant ownership lives in Runtime; an Agent string is insufficient here.
+        value.ordinary_starter.claims.clear();
         value.emergency_supply = self.emergency_supply.for_reader(reader);
         value.organization_continuity = self.organization_continuity.for_reader(reader);
         let mut visible_lineages = std::collections::BTreeSet::new();

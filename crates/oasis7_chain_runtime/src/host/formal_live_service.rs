@@ -1010,7 +1010,14 @@ impl FormalLiveService {
             if actual.key != request.request.key {
                 return Err("lookup key does not match the signed payload".into());
             }
-            validate_payload(&self.published.current()?.world, &request.original)?;
+            let current = self.published.current()?;
+            if let WorldServicePayloadV1::GameNativeDelegation(signed) = &request.original {
+                oasis7_runtime::service_admission::native_delegation::validate_receipt_owner(
+                    &current.world, signed,
+                )?;
+            } else {
+                validate_payload(&current.world, &request.original)?;
+            }
             Ok::<_, String>(())
         })();
         if let Err(error) = validation {
@@ -1111,6 +1118,9 @@ fn validate_payload(world: &World, payload: &WorldServicePayloadV1) -> Result<()
         }
         WorldServicePayloadV1::GameExecutorControl(signed) => {
             game_task::validate_executor_owner(world, signed)
+        }
+        WorldServicePayloadV1::GameNativeDelegation(signed) => {
+            oasis7_runtime::service_admission::native_delegation::validate_owner(world, signed)
         }
         WorldServicePayloadV1::GameplayJson(bytes) => {
             gameplay::authenticated_action(world, bytes).map(|_| ())

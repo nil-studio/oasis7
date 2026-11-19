@@ -38,6 +38,14 @@ impl World {
                         },
                     }));
                 }
+                if self.state.is_ordinary_starter_supplier(agent_id) {
+                    return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
+                        action_id,
+                        reason: RejectReason::RuleDenied {
+                            notes: vec!["ordinary_starter_supplier_reserved".into()],
+                        },
+                    }));
+                }
                 if self.state.is_manufactured_agent(agent_id) {
                     return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
                         action_id,
@@ -166,6 +174,14 @@ impl World {
                         action_id,
                         reason: RejectReason::AgentNotFound {
                             agent_id: target_agent_id.clone(),
+                        },
+                    }));
+                }
+                if self.state.is_ordinary_starter_supplier(target_agent_id) {
+                    return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
+                        action_id,
+                        reason: RejectReason::RuleDenied {
+                            notes: vec!["ordinary_starter_supplier_reserved".into()],
                         },
                     }));
                 }

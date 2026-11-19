@@ -63,6 +63,7 @@ impl crate::World {
         {
             return PreparedWorldRule::prepare(self.state(), event, now);
         }
+        self.validate_ordinary_starter_event(event)?;
         let principal = match command {
             WorldRuleCommandV1::ConfirmAgentOrder { .. } => self
                 .state()

@@ -54,6 +54,7 @@ mod body_projection;
 mod command_projection;
 pub mod core_policy_transition;
 mod factory_authority;
+pub(crate) use factory_authority::canonical_factory_profile_matches_spec;
 mod formal_retention_projection;
 mod governance_identity_projection;
 pub mod industry_history_transition;

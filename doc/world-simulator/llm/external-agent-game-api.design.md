@@ -33,6 +33,7 @@ Game Task 创建复用既有签名 World Service submit/lookup 与 Runtime 共�
 
 `GET /v1/game/worlds/{world}/agents/{agent}/task-control` 通过原设备读签名返回当前 owner 或当前绑定且真实 delegation 有效的 executor 的控制记录及 committed `world_binding`，没有可见任务时返回 `404 task_control_unavailable`。普通 delegate 的 Agent 观察权限不授予任务读取权限。控制记录初始 `suspended`，目标 revision 为零、executor epoch 为零且没有执行方；发布目标后附带 public-only `active_goal_reference`（版本、不透明承诺、准备/发布操作标识和激活 committed height）。读取 bootstrap schema revision 4 还描述可选 executor binding；旧初始记录仍省略这些字段。任务初始 `suspended`；此记录不是完整 TaskSnapshot 或可行动 context，也不把已有 owner chat goal 当作任务目标。
 
+<a id="owner-goal-prepare-publish-current-read"></a>
 ### 已实施切片：owner 目标准备、发布与当前正文回读
 
 这段流使用原生 World Service，不提前开放 Game HTTP 写路由或 token 会话。默认关闭的私有准备与回读端点、operator 密钥配置、单记录幂等和不可枚举的 salted commitment 见[协作合同](../../world-runtime/runtime/player-runtime-collaboration.design.md#6-接口与数据合同)。`oasis7::world_service::private_goal_read` 导出路径、请求/响应及 owner 客户端验证方法。
@@ -305,7 +306,7 @@ owner gateway 仅接受明确的 task、goal、delegation、executor bind/stop/r
 认证与世界授权分层：入口验证 token/device/session，Runtime 再验证 world、Agent、task、当前 executor epoch、goal revision、grant revision 与剩余额度。撤销或替换执行方不依赖 token 自然到期。无权读取返回不泄露对象存在性的错误；先校验权限，再返回版本冲突或最新值。
 
 <a id="cognition-material-source-authority"></a>
-#### Cognition material-source authority
+#### Cognition authority for material sources
 
 Trace refs: O7-REQ-d30925fe-d798-4056-9641-062255931a61; O7-REQ-7d6cef7f-9419-49ed-b445-663382383458. This specializes [resource ownership and delegation](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-002) and [server-side safety](../../product/agents-world-simulation/external-agent-runtime-play.prd.md#req-ext-013); the product requirements already prohibit obtaining another resource's authority through connection identity.
 

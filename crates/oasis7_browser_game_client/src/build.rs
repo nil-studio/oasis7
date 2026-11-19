@@ -42,6 +42,8 @@ fn raw_or_typed<'de, D: serde::Deserializer<'de>, T: DeserializeOwned>(
 }
 pub(super) fn build(kind: &str, input: &str) -> Result<String, &'static str> {
     match kind {
+        "native_delegation" => crate::native_delegation::build(input),
+        "ordinary_starter_claim" => crate::ordinary_starter::claim(input),
         "task_create" | "task_id" | "goal_prepare" | "goal_publish" | "participant_agent_id" => {
             crate::entry::build(kind, input)
         }

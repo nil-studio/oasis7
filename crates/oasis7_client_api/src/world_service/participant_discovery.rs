@@ -59,6 +59,13 @@ pub use owner_setup_observation::OwnerSetupObservationV1;
 pub struct ParticipantOwnerControlViewV1 {
     pub canonical_agent_owner: oasis7_proto::viewer::CanonicalAgentOwnerFenceV1,
     pub game_task_control: Option<oasis7_agent_api::game::GameTaskControlV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_delegation_source_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub native_delegation_authorizations:
+        Vec<oasis7_agent_api::world_quote::AgentDelegationAuthorizationV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ordinary_starter: Option<oasis7_agent_api::world_action::OrdinaryStarterStatusV1>,
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -94,6 +101,32 @@ impl ParticipantOwnerControlResponseV1 {
         {
             return Err("invalid participant owner control observation".into());
         }
+        if self
+            .view
+            .native_delegation_source_id
+            .as_ref()
+            .is_some_and(|source| source.trim().is_empty())
+            || (!self.view.native_delegation_authorizations.is_empty()
+                && self.view.native_delegation_source_id.is_none())
+            || self
+                .view
+                .native_delegation_authorizations
+                .iter()
+                .any(|authorization| {
+                    authorization.grant.agent_id != owner.agent_id
+                        || authorization.grant.resource_kind != "electricity"
+                        || authorization.cost_units != 0
+                        || authorization
+                            .spent_units
+                            .checked_add(authorization.remaining_units)
+                            != Some(authorization.grant.limit_units)
+                })
+        {
+            return Err("invalid participant native delegation observation".into());
+        }
+        if let Some(starter) = &self.view.ordinary_starter {
+            validate_starter_owner_observation(starter, owner)?;
+        }
         if let Some(minimum) = &request.read.request.min_commit
             && !self
                 .version
@@ -118,6 +151,44 @@ impl ParticipantOwnerControlResponseV1 {
         }
         Ok(())
     }
+}
+
+fn validate_starter_owner_observation(
+    status: &oasis7_agent_api::world_action::OrdinaryStarterStatusV1,
+    owner: &oasis7_proto::viewer::CanonicalAgentOwnerFenceV1,
+) -> Result<(), String> {
+    if status
+        .owner_binding
+        .as_ref()
+        .is_some_and(|binding| binding != &owner.player_id)
+        || status.owner_generation.is_some_and(|generation| {
+            generation != owner.canonical_authority.agent_identity_generation
+        })
+        || status.owner_binding.is_some() != status.owner_generation.is_some()
+        || (status.eligible && (status.owner_binding.is_none() || status.claim.is_some()))
+        || status.offers.iter().any(|(key, row)| {
+            key != &row.offer.offer_id
+                || status.world_binding.as_ref() != Some(&row.offer.world_binding)
+        })
+        || status.claim.as_ref().is_some_and(|claim| {
+            claim.agent_id != owner.agent_id
+                || claim.owner_binding != owner.player_id
+                || status.world_binding.as_ref() != Some(&claim.world_binding)
+                || claim.receipt.actor_id != claim.agent_id
+                || claim.first_production.as_ref().is_some_and(|first| {
+                    first.agent_id != claim.agent_id
+                        || first.owner_binding != claim.owner_binding
+                        || first.site_id != claim.site_id
+                        || first.factory_id != claim.factory_id
+                        || first.profile_id != claim.profile_id
+                        || first.profile_revision != claim.profile_revision
+                        || first.recipe_id != claim.recipe_id
+                })
+        })
+    {
+        return Err("participant starter differs from current owner observation".into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

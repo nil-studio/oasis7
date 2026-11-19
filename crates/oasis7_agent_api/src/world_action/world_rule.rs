@@ -4,6 +4,9 @@ use std::collections::BTreeSet;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "data", deny_unknown_fields)]
 pub enum WorldRuleCommandV1 {
+    OrdinaryStarter {
+        command: Box<super::OrdinaryStarterCommandV1>,
+    },
     IndustrialWork {
         command: Box<super::IndustrialWorkCommandV1>,
     },
@@ -170,6 +173,7 @@ impl WorldRuleCommandV1 {
     /// Exact object used by existing native delegation grants; no wildcard scope.
     pub fn authority_scope(&self) -> String {
         match self {
+            Self::OrdinaryStarter { command } => command.authority_scope(),
             Self::IndustrialWork { command } => command.authority_scope(),
             Self::RecipeSubstitution { command } => command.authority_scope(),
             Self::EmergencySupply { command } => command.authority_scope(),

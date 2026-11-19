@@ -13,6 +13,12 @@ use std::{
     },
     time::{Duration, Instant},
 };
+#[cfg(unix)]
+#[path = "participant_ordinary_starter.rs"]
+mod ordinary_starter;
+#[cfg(unix)]
+#[path = "participant_native_delegation.rs"]
+mod native_delegation;
 #[path = "participant_http_fixture.rs"]
 mod custody_fixture;
 #[path = "participant_governance.rs"]

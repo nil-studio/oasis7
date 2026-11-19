@@ -93,6 +93,7 @@ impl crate::World {
         } else {
             serde_json::json!({"status":"bounded","event_window":2048,"result_limit":16,"missing_result":"unknown"})
         };
+        status["ordinary_starter"] = serde_json::json!(self.ordinary_starter_status(reader));
         Some(status)
     }
     pub fn can_read_agent_industrial_order(

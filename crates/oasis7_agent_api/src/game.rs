@@ -16,6 +16,8 @@
 mod participant;
 pub use participant::*;
 mod executor;
+mod native_delegation;
+pub use native_delegation::*;
 mod goal;
 mod goal_prepare;
 mod goal_publish;

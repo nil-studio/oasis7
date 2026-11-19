@@ -379,6 +379,9 @@ fn revoked_owner_observation(
             let compact = ParticipantOwnerControlViewV1 {
                 canonical_agent_owner: fence,
                 game_task_control: None,
+                native_delegation_source_id: None,
+                native_delegation_authorizations: Vec::new(),
+                ordinary_starter: None,
             };
             let mut response = ParticipantOwnerControlResponseV1 {
                 schema_revision: 1,
@@ -486,5 +489,81 @@ fn revoked_owner_observation(
         );
     } else {
         assert!(matches!(result,Err(StoreError::Rejected(code)) if code=="session_expired"));
+    }
+}
+
+#[test]
+fn owner_gateway_accepts_native_action_grants_only_for_current_owner_scope() {
+    let owner = owner();
+    let fence = GameTaskFenceV1 {
+        world_id: "world".into(),
+        genesis_digest: "genesis".into(),
+        branch_id: "main".into(),
+        reorg_epoch: DecimalU64(3),
+        agent_id: "agent-a".into(),
+        owner_binding: "account-a".into(),
+        owner_generation: DecimalU64(2),
+        owner_public_key: owner.public_key.clone(),
+        task_id: "task".into(),
+        task_revision: DecimalU64(1),
+        task_status: GameTaskStatusV1::Suspended,
+        latest_goal_revision: DecimalU64(0),
+        active_goal_revision: DecimalU64(0),
+        active_goal_reference: None,
+        executor_epoch: DecimalU64(0),
+        executor_binding: None,
+    };
+    let signed = SignedReadRequest {
+        request: GameNativeDelegationControlV1 {
+            api_rev: 1,
+            client_operation_id: "native-grant".into(),
+            fence,
+            operation: GameNativeDelegationOperationV1::Install {
+                grant_id: "grant".into(),
+                object_id: "factory".into(),
+                action_kinds: vec!["BuildFactory".into()],
+                period_id: "first-factory".into(),
+                valid_from_tick: DecimalU64(0),
+                valid_until_tick: DecimalU64(100),
+                limit_units: DecimalU64(7),
+            },
+        },
+        subject_public_key: owner.public_key.clone(),
+        signature_hex: "verified-upstream".into(),
+    };
+    assert!(
+        validate_payload(
+            &WorldServicePayloadV1::GameNativeDelegation(signed.clone()),
+            &owner,
+            &world()
+        )
+        .is_ok()
+    );
+    for field in [
+        "agent",
+        "signer",
+        "world",
+        "genesis",
+        "branch",
+        "generation",
+    ] {
+        let mut invalid = signed.clone();
+        match field {
+            "agent" => invalid.request.fence.agent_id = "agent-b".into(),
+            "signer" => invalid.subject_public_key = "b".repeat(64),
+            "world" => invalid.request.fence.world_id = "other".into(),
+            "genesis" => invalid.request.fence.genesis_digest = "other".into(),
+            "branch" => invalid.request.fence.branch_id = "other".into(),
+            _ => invalid.request.fence.owner_generation.0 += 1,
+        }
+        assert!(
+            validate_payload(
+                &WorldServicePayloadV1::GameNativeDelegation(invalid),
+                &owner,
+                &world()
+            )
+            .is_err(),
+            "{field}"
+        );
     }
 }

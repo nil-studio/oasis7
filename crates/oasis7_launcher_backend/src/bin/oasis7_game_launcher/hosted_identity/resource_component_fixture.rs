@@ -338,6 +338,9 @@ impl Data {
                         current_intent_id: None,
                     },
                     game_task_control: Some(self.state.control.clone()),
+                    native_delegation_source_id: None,
+                    native_delegation_authorizations: Vec::new(),
+                    ordinary_starter: None,
                 };
                 let control = ParticipantOwnerControlResponseV1 {
                     schema_revision: 1,

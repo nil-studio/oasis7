@@ -110,6 +110,17 @@ fn validate_current_against_tasks(
     Ok(())
 }
 
+/// Owner mutations validate the same complete fence against canonical and
+/// preceding same-block task results. This grants no executor authority.
+pub fn validate_owner_task_fence_staged<'a>(
+    world: &World,
+    fence: &GameTaskFenceV1,
+    staged: impl IntoIterator<Item = &'a CanonicalIntentResultV1>,
+) -> Result<(), String> {
+    let tasks = reduce(collect(world, staged)?)?;
+    validate_current_against_tasks(world, fence, &tasks)
+}
+
 fn validate_executor_binding(
     world: &World,
     fence: &GameTaskFenceV1,

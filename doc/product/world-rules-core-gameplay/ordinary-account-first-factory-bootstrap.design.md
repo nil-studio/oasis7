@@ -301,6 +301,12 @@ Viewer、pure API 和适用 Agent 可以采用不同呈现，但必须对目标�
 
 首版采用世界初始化发布的 `ordinary-industrial-starter-v1` 方案。世界须先发布固定的场地清单、有效 location anchor、建设类型和公开供应账户，并向供应账户一次性投入有来源的有限库存；没有这些事实的世界返回未提供该方案。普通请求只消费已发布库存，不能触发补货或为申请者调用 bootstrap setter。
 
+首个支持的初始化是显式 DevLocal 技术试玩世界：`initialize-preview-world --ordinary-starter ordinary-industrial-starter-v1`。它初始化独立供应主体 `ordinary-starter-supplier-v1`、地点 `ordinary-starter-yard-v1` 与编号 1–8 的固定 slot/site/Smelter 实例；每座建设电力为 10（`StartOnlySink`），生产电力和材料按当前 canonical 配方的两批完整义务推导，供应账户总库存恰为 8 份。有限库存与固定初始化方案进入 genesis artifact；genesis identity 确定后，初始化器绑定世界并发布 offer，之后才开放服务。重复启动只验原结果，不能补货。普通主体入场仍须既有正式 participant policy/identity 配置，供给初始化不授予该权限，也不创建玩家账号或预置个人资产。该选项不与预分配 provider 主体的初始化配置混用；采用范围不扩张到其他既有世界或正式部署。
+
+已发布方案的世界绑定必须在后续真实提交和重启中保持，即使该世界尚未启用 participant 管理。执行器只从已核验的持久世界恢复原 genesis/chain 身份；缺失或与方案不一致时拒绝启动，不重新绑定方案或授予入场权限。
+
+公开供应主体不能通过旧 `ClaimStarterOc` 或经济认领入口变为个人资产；发布时要求它没有个人 owner/claim，已发布后由 Runtime 与权威 reducer 拒绝认领。这个约束保护有限供给来源，不能只靠 Viewer 隐藏旧入口。
+
 供应方使用独立系统主体的材料账本与真实电力余额。方案提供 canonical Smelter 的全部建材、两批 canonical 铁锭配方的原料，以及明确发布的建设和生产电力额度。每个 slot 的实际 factory ID 预先绑定与 kind 相符的有效 factory profile 和 construction power profile，其 revision 纳入方案；建设电力不能由 `base_power_draw` 推算。包内容按该版本的真实建设义务及两次单批生产的完整 `effective_consume` / 电力义务核足，适用 product profile 的 maintenance sink 计入实际投入。条件或供给不足时不发布正向可达承诺。建材、输入与电力的数量、来源和当前余量是同一版本方案的权威内容；显示、扣账和测试使用这份内容，不由 Viewer 重算另一个礼包。材料先进入领取者的合法消费账本；进入厂址输入账本的转移另有正式动作与回执。首版不发放铁锭、已建成工厂或首产物里程碑。
 
 领取采用一次性配额：同一世界创生身份下，每个稳定 owner binding 至多成功领取一份。该限制不随 request、Task、执行端或凭据代数改变而重置，也不因更换 Agent 获得第二份。资格来自正式 participant 登记和当前 owner 证明，不能要求旧 starter OC 领取记录，也不能把可制造 Agent 当作新的普通账号资格。方案不自动给予动作代办授权。

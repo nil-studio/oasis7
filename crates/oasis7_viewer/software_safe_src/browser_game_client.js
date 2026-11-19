@@ -1,5 +1,7 @@
 import { BrowserParticipantError } from "./browser_participant_entry.js";
 import { browserGameDiagnostic } from "./browser_game_diagnostics.js";
+import { assertBrowserPermitAction } from "./browser_game_permit.js";
+import { openBrowserContexts, expiredBrowserPreviewContexts } from "./browser_context_recovery.js";
 // WorldService task lane only. The WASM codec owns canonical bytes and typed proofs.
 export class BrowserGameError extends Error {
  constructor(code, diagnostic) { const safe = browserGameDiagnostic({ code, diagnostic }, "game_session"); super(code); this.name = "BrowserGameError"; this.code = code; this.diagnostic = safe; }
@@ -55,7 +57,7 @@ export function createBrowserGameClient({ config, codec, ownerSigner, executorSi
   if (path === WORLD_PATHS.owner) return { path: "/participant/owner-view", body: wire };
   if (path === WORLD_PATHS.submit || path === WORLD_PATHS.lookup) {
    const payload = path === WORLD_PATHS.submit ? wire.signed_payload : wire.original;
-   const ownerOperation = ["delegation", "game_executor_control"].includes(payload.kind);
+   const ownerOperation = ["delegation", "game_executor_control", "game_native_delegation"].includes(payload.kind);
    if (ownerOperation || path === WORLD_PATHS.lookup) return { path: "/entry-owner/control", body: { access: await ownerAccess(), operation: { kind: path === WORLD_PATHS.submit ? "submit" : ownerOperation ? "lookup" : "lookup_executor", request: wire } } };
   }
   // Replaying the identical read-only prepare proof can recover its result on
@@ -94,7 +96,7 @@ export function createBrowserGameClient({ config, codec, ownerSigner, executorSi
    const payload = validate(kind, validationRequest, decoded(raw));
    if (payload?.formal_profile || payload?.execution_evidence_scope != null) fail("unsupported_world_evidence");
    // Attach canonical raw nested values needed by later signed requests/builders.
-   for (const nestedPath of [["identity"], ["prepared"], ["prepared", "identity"], ["snapshot"], ["current_public_context"], ["current_public_context", "captured_base_binding"], ["quote"], ["quote", "action"]]) {
+   for (const nestedPath of [["identity"], ["prepared"], ["prepared", "identity"], ["snapshot"], ["current_public_context"], ["current_public_context", "captured_base_binding"], ["quote"], ["quote", "action"], ["view", "ordinary_starter"], ["view", "game_task_control"]]) {
     let parent = payload;
     for (const name of nestedPath.slice(0, -1)) parent = parent?.[name];
     const last = nestedPath.at(-1);
@@ -109,9 +111,14 @@ export function createBrowserGameClient({ config, codec, ownerSigner, executorSi
   const proof = await sign(WORLD_PATHS.describe, request);
   return call(WORLD_PATHS.describe, proof, proof, "describe", world);
  }
- async function readTask() {
+ async function ownerView() {
   const request = await ownerAccess();
   const result = await call(WORLD_PATHS.owner, request, request, "owner_control", request);
+  if (result.view?.canonical_agent_owner?.agent_id !== agentId) fail("owner_mismatch");
+  return result;
+ }
+ async function readTask() {
+  const result = await ownerView();
   const task = field(result, ["view", "game_task_control"]);
   if (!task || (taskId && task.task_id !== taskId) || task.agent_id !== agentId || task.owner_public_key !== ownerSigner.publicKeyHex) fail("task_unavailable");
   const fence = build("fence", task);
@@ -161,10 +168,11 @@ export function createBrowserGameClient({ config, codec, ownerSigner, executorSi
   return { state: response.outcome.status, receipt: response };
  }
  async function submitOriginal(original) {
-  await beforeEffect();
+  const permit = () => beforeEffect({ operationId: original.operationId, kind: original.kind, runBudget: original.runBudget });
+  await permit();
   const request = decoded(original.signedRequest.rawJson);
   let result;
-  try { result = await call(WORLD_PATHS.submit, request, request, "intent", request.correlation, beforeEffect); }
+  try { result = await call(WORLD_PATHS.submit, request, request, "intent", request.correlation, permit); }
   catch (error) { const detail = browserGameDiagnostic(error, "game_session"); fail("operation_unknown", { ...detail, causeCode: detail.code }); }
   // Submission admission is never substituted for an original lookup result.
   const checked = await lookup(original);
@@ -184,12 +192,19 @@ export function createBrowserGameClient({ config, codec, ownerSigner, executorSi
   const { operations } = await recovery.load();
   const actions = new Set(operations.filter((entry) => entry.original.kind === "action").map((entry) => entry.original.operationId.replace(/:action$/, "")));
   if (operations.some((entry) => entry.original.kind === "outcome" && actions.has(entry.original.operationId.replace(/:outcome$/, "")))) return true;
-  // A committed prefix owns a live Context until its exact action/outcome settles.
-  return operations.some((entry) => entry.original.kind === "prefix" && entry.state === "committed" &&
-   !operations.some((other) => ["action", "outcome"].includes(other.original.kind) && terminal(other.state) &&
-    other.original.operationId.replace(/:(action|outcome)$/, "") === entry.original.operationId.replace(/:prefix$/, "")));
+  // A canonical rejection does not apply the action/outcome candidate, so it
+  // cannot prove that a previously committed Context was released.
+  return openBrowserContexts(operations).length > 0;
  }
- async function retireExpiredContexts() {
+ async function checkExpiredRetirement(runBudget) {
+  const requested = runBudget?.expiredContextRetirements;
+  if (!Array.isArray(requested) || !requested.length) return false;
+  const journal = await recovery.load(), current = await freshFence();
+  const available = expiredBrowserPreviewContexts(journal.operations, current);
+  if (!available || !same(requested, available)) fail("recovery_required");
+  return true;
+ }
+ async function retireExpiredContexts({ operationId: onlyOperation } = {}) {
   // This is an explicitly authorized effect path, separate from read-only
   // reconciliation. Any original action/outcome retains its immutable lane.
   const loaded = await recovery.load();
@@ -198,6 +213,7 @@ export function createBrowserGameClient({ config, codec, ownerSigner, executorSi
   for (const entry of loaded.operations) {
    if (entry.original.kind !== "prefix" || entry.state !== "committed") continue;
    const operationId = entry.original.operationId.replace(/:prefix$/, "");
+   if (onlyOperation && operationId !== onlyOperation) continue;
    const action = await find(operationId, "action"), priorOutcome = await find(operationId, "outcome");
    if (action || priorOutcome) continue;
    const verified = await lookup(entry.original);
@@ -220,7 +236,7 @@ export function createBrowserGameClient({ config, codec, ownerSigner, executorSi
  async function prepareContext(operationId, runBudget = null) {
   const prior = await find(operationId, "prepare");
   if (prior) return (await lookup(prior)).prepared;
-  if (await hasUnresolved()) fail("recovery_required");
+  if (await hasUnresolved() && !await checkExpiredRetirement(runBudget)) fail("recovery_required");
   const { fence } = await freshFence();
   const proof = await sign(WORLD_PATHS.prepare, { authority_mode: "native_executor_v1", schema_revision: 2, fence, client_operation_id: operationId, client_nonce: nonce() });
   const original = await record(`${operationId}:prepare`, "prepare", proof, null, runBudget);
@@ -244,6 +260,7 @@ export function createBrowserGameClient({ config, codec, ownerSigner, executorSi
  }
  async function captureContext(operationId, prepared, runBudget = null) {
   await freshFence();
+  if (runBudget?.expiredContextRetirements) await checkExpiredRetirement(runBudget);
   const prefix = build("prefix", prepared);
   const result = await submit(operationId, "prefix", { kind: "scheduler", payload: await sign("scheduler", prefix) }, prepared.identity, runBudget);
   if (result.outcome.status !== "committed") fail(terminal(result.outcome.status) ? "context_rejected" : "operation_pending");
@@ -265,6 +282,11 @@ export function createBrowserGameClient({ config, codec, ownerSigner, executorSi
   return { captured: build("replace", { json: json(current), path: ["current_public_context"], value_json: json(quoted.current_public_context) }), quoted };
  }
  async function action(operationId, captured, action, runBudget = null) {
+  if (runBudget?.permitId) {
+   const permit = await recovery.getActionPermit(runBudget.permitId);
+   assertBrowserPermitAction(permit.selection, action, runBudget.quotePreview);
+   if (permit.originalOperationId && permit.originalOperationId !== `${operationId}:action`) fail("action_permit_consumed");
+  }
   const existing = await find(operationId, "action"), outcome = await find(operationId, "outcome");
   if (existing || outcome) { const original = existing ?? outcome, result = await lookup(original); await recovery.settle(original.operationId, { state: result.state, receipt: { rawJson: json(result.receipt) } }); return result.receipt; }
   await freshFence();
@@ -321,5 +343,39 @@ export function createBrowserGameClient({ config, codec, ownerSigner, executorSi
  function modelContext(captured) {
   return json({ goal: field(captured, ["prepared", "snapshot", "active_goal", "owner_proof", "request", "content"]), context_identity: field(captured, ["prepared", "identity"]), actor_observation: field(captured, ["current_public_context", "actor_observation"]), native_authority: field(captured, ["current_public_context", "native_authority"]) });
  }
- return { describe, readTask, freshFence, bindFence, publicView, snapshot, context, prepareContext, captureContext, readContext, quote, action, outcome, lookup, recover, retireExpiredContexts, registerExecutor, hasUnresolved, modelContext, world: copy(world), agentId, executorPublicKey: executorSigner.publicKeyHex };
+ async function nativeGrant({ permitId, confirmedFence, operation }) {
+  if (!permitId || !confirmedFence) fail("owner_consent_required");
+  const operationId = `grant:${permitId}`;
+  await recover();
+  const existing = await find(operationId, "native_grant");
+  if (await recovery.hasUnresolved() && !existing) fail("recovery_required");
+  const current = await freshFence();
+  if (!same(current.fence, confirmedFence)) fail("task_fence_changed");
+  const request = build("native_delegation", { fence_json: json(current.fence), client_operation_id: operationId, operation });
+  if (existing) {
+   const retained = field(decoded(existing.signedRequest.rawJson), ["signed_payload", "payload", "request"]);
+   if (!same(retained, request)) fail("owner_original_conflict");
+  }
+  const payload = existing ? field(decoded(existing.signedRequest.rawJson), ["signed_payload"])
+   : { kind: "game_native_delegation", payload: await sign("game_native_delegation/v1", request, ownerSigner) };
+  const receipt = await submit(operationId, "native_grant", payload, current.fence, { ownerPermitId: permitId });
+  if (receipt.outcome.status !== "committed") fail("native_grant_not_committed");
+  const observed = await ownerView();
+  const grant = observed.view.native_delegation_authorizations?.find((item) => item.grant?.grant_id === operation.grant_id)?.grant;
+  if (!grant || ![grant.revision, grant.valid_from_tick, grant.valid_until_tick, grant.limit_units].every(Number.isSafeInteger)
+   || grant.agent_id !== agentId || grant.source_id !== observed.view.native_delegation_source_id) fail("native_grant_readback_required");
+  if (operation.operation === "revoke") {
+   if (!grant.revoked || String(grant.revision) !== String(BigInt(operation.expected_revision) + 1n)) fail("native_grant_readback_required");
+  } else if (grant.revoked || grant.object_id !== operation.object_id || !same([...grant.action_kinds].sort(), [...operation.action_kinds].sort())
+   || grant.period_id !== operation.period_id || String(grant.valid_from_tick) !== operation.valid_from_tick
+   || String(grant.valid_until_tick) !== operation.valid_until_tick || String(grant.limit_units) !== operation.limit_units) fail("native_grant_readback_required");
+  return { receipt, observation: observed, grant };
+ }
+ async function starterClaim({ offerId, slotId, requestId }) {
+  const observation = await ownerView();
+  const status = field(observation, ["view", "ordinary_starter"]);
+  return build("ordinary_starter_claim", { status_json: json(status), agent_id: agentId,
+   offer_id: offerId, slot_id: slotId, request_id: requestId });
+ }
+ return { describe, ownerView, readTask, freshFence, bindFence, publicView, snapshot, context, prepareContext, captureContext, readContext, quote, action, outcome, lookup, recover, retireExpiredContexts, registerExecutor, nativeGrant, starterClaim, hasUnresolved, modelContext, world: copy(world), agentId, executorPublicKey: executorSigner.publicKeyHex };
 }

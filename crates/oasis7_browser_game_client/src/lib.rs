@@ -13,6 +13,8 @@ use wasm_bindgen::prelude::*;
 
 mod build;
 mod entry;
+mod native_delegation;
+mod ordinary_starter;
 mod participant;
 mod retire;
 pub use build::world_build;
@@ -189,6 +191,11 @@ fn validate(kind: &str, request: &str, payload: &str) -> Result<String, &'static
         "fence" => parse::<oasis7_agent_api::game::GameTaskFenceV1>(payload)?
             .validate()
             .map_err(|_| "contract_mismatch")?,
+        "native_delegation" => {
+            parse::<oasis7_agent_api::game::GameNativeDelegationControlV1>(payload)?
+                .validate()
+                .map_err(|_| "contract_mismatch")?
+        }
         _ => return Err("unsupported_contract"),
     }
     encode(&parse::<Value>(payload)?)

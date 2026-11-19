@@ -58,8 +58,9 @@ impl DelegationControlError {
 
 /// This construction deliberately does not validate the fresh-install profile:
 /// an old nonce must match historical identity before any fresh-only checks.
-fn grant_from_request(
-    request: &AgencyControlRequest,
+fn grant_from_command(
+    agent_id: &str,
+    command: &AgencyControlOperation,
     player: &str,
     source: &str,
 ) -> Option<AgentDelegationGrantV1> {
@@ -71,7 +72,7 @@ fn grant_from_request(
         valid_from_tick,
         valid_until_tick,
         limit_units,
-    } = &request.command
+    } = command
     else {
         return None;
     };
@@ -81,7 +82,7 @@ fn grant_from_request(
         issuer_id: player.into(),
         owner_id: player.into(),
         organization_id: None,
-        agent_id: request.agent_id.clone(),
+        agent_id: agent_id.into(),
         object_id: object_id.clone(),
         action_kinds: action_kinds.clone(),
         revision: 1,
@@ -138,7 +139,12 @@ impl World {
                 "owner_source_unavailable",
             )
         })?;
-        Ok(grant_from_request(request, &player, &owner.source_id))
+        Ok(grant_from_command(
+            &request.agent_id,
+            &request.command,
+            &player,
+            &owner.source_id,
+        ))
     }
     /// Reverify current signature, registration/binding and owner on every read.
     /// No mutation, persistence or host nonce consumption is possible here.
@@ -159,9 +165,83 @@ impl World {
         request: &AgencyControlRequest,
         host: &dyn OwnerControlHostAuthority,
     ) -> Result<DelegationControlOutcome, DelegationControlError> {
-        use DelegationControlStage as Stage;
         let grant = self.delegation_request_grant(request, host)?;
-        let operation = match &request.command {
+        self.apply_authenticated_delegation_control(&request.agent_id, &request.command, grant)
+    }
+
+    /// Formal service path: verify the owner signature and complete current
+    /// task fence before sharing the local path's sole grant lifecycle.
+    pub fn apply_native_delegation_control<'a>(
+        &mut self,
+        signed: &crate::service_admission::SignedReadRequest<
+            oasis7_agent_api::game::GameNativeDelegationControlV1,
+        >,
+        staged: impl IntoIterator<Item = &'a crate::service_admission::CanonicalIntentResultV1>,
+    ) -> Result<serde_json::Value, String> {
+        use oasis7_agent_api::game::GameNativeDelegationOperationV1 as Native;
+        crate::service_admission::native_delegation::validate_owner_staged(self, signed, staged)?;
+        let agent_id = &signed.request.fence.agent_id;
+        let command = match &signed.request.operation {
+            Native::Install {
+                grant_id,
+                object_id,
+                action_kinds,
+                period_id,
+                valid_from_tick,
+                valid_until_tick,
+                limit_units,
+            } => AgencyControlOperation::InstallDelegation {
+                grant_id: grant_id.clone(),
+                object_id: object_id.clone(),
+                action_kinds: action_kinds.clone(),
+                period_id: period_id.clone(),
+                valid_from_tick: valid_from_tick.0,
+                valid_until_tick: valid_until_tick.0,
+                limit_units: limit_units.0,
+            },
+            Native::Revoke {
+                grant_id,
+                expected_revision,
+            } => AgencyControlOperation::RevokeDelegation {
+                grant_id: grant_id.clone(),
+                expected_revision: expected_revision.0,
+            },
+        };
+        let owner = self
+            .current_agent_owner(agent_id)
+            .ok_or("owner source unavailable")?;
+        let grant = grant_from_command(agent_id, &command, &owner.player_id, &owner.source_id);
+        // This World is the canonical block candidate. Local owner controls
+        // persist before acknowledgement, but a staged formal grant must not
+        // publish a compatibility snapshot ahead of its canonical result.
+        let persistence_dir = self.persistence_dir.replace(None);
+        let outcome = self.apply_authenticated_delegation_control(agent_id, &command, grant);
+        self.persistence_dir.replace(persistence_dir);
+        let outcome = outcome
+            .map_err(|e| format!("native delegation {:?}: {:?}", e.stage, e.source))?;
+        Ok(serde_json::json!({
+            "kind": "game_native_delegation",
+            "schema_revision": 1,
+            "operation": match outcome.operation {
+                DelegationControlOperation::Install => "install",
+                DelegationControlOperation::Revoke => "revoke",
+            },
+            "disposition": match outcome.disposition {
+                DelegationControlDisposition::Applied => "applied",
+                DelegationControlDisposition::ExactReplay => "exact_replay",
+            },
+            "authorization": outcome.authorization,
+        }))
+    }
+
+    fn apply_authenticated_delegation_control(
+        &mut self,
+        agent_id: &str,
+        command: &AgencyControlOperation,
+        grant: Option<AgentDelegationGrantV1>,
+    ) -> Result<DelegationControlOutcome, DelegationControlError> {
+        use DelegationControlStage as Stage;
+        let operation = match command {
             AgencyControlOperation::InstallDelegation { .. } => DelegationControlOperation::Install,
             AgencyControlOperation::RevokeDelegation { .. } => DelegationControlOperation::Revoke,
             _ => {
@@ -179,7 +259,11 @@ impl World {
                 || grant.action_kinds.iter().any(|kind| {
                     !matches!(
                         kind.as_str(),
-                        "MoveAgent" | "TransferMaterial" | "ScheduleRecipe" | "WorldRule"
+                        "MoveAgent"
+                            | "TransferMaterial"
+                            | "BuildFactory"
+                            | "ScheduleRecipe"
+                            | "WorldRule"
                     )
                 })
                 || grant
@@ -195,9 +279,9 @@ impl World {
             ));
         }
         let rows = self
-            .agent_delegation_authorizations(&request.agent_id)
+            .agent_delegation_authorizations(agent_id)
             .map_err(|e| DelegationControlError::at(Stage::Read, e))?;
-        match history_match(&request.command, grant.as_ref(), &rows) {
+        match history_match(command, grant.as_ref(), &rows) {
             DelegationReplayMatch::ExactReplay(authorization) => {
                 return Ok(DelegationControlOutcome {
                     operation,
@@ -236,7 +320,7 @@ impl World {
                 let AgencyControlOperation::RevokeDelegation {
                     grant_id,
                     expected_revision,
-                } = &request.command
+                } = command
                 else {
                     unreachable!()
                 };

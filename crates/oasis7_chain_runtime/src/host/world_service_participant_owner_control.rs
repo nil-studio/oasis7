@@ -37,6 +37,11 @@ pub(super) fn read(
     let view = ParticipantOwnerControlViewV1 {
         canonical_agent_owner: owner,
         game_task_control: task,
+        native_delegation_source_id: pinned.world.current_agent_owner(&agent)
+            .map(|owner| owner.source_id),
+        native_delegation_authorizations: pinned.world.agent_delegation_authorizations(&agent)
+            .map_err(|e| format!("{e:?}"))?,
+        ordinary_starter: Some(pinned.world.ordinary_starter_status(Some(&agent))),
     };
     let response = ParticipantOwnerControlResponseV1 {
         schema_revision: 1,
