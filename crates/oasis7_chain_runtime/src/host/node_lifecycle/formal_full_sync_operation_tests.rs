@@ -423,3 +423,71 @@ fn publication_acknowledgement_is_durable_but_not_install_authority() {
     assert_eq!(ledger.snapshot(), &completed);
     assert!(ledger.begin_attempt().is_err());
 }
+
+#[test]
+fn fenced_pre_target_reopen_preserves_the_original_pending_reservation() {
+    use super::super::process;
+
+    let temp = TestDir::new();
+    let data = temp.path();
+    local_io::private_file(&data.join("process.lock")).unwrap();
+    local_io::private_dir(&data.join("state")).unwrap();
+    let sync = data.join("state/full-sync");
+    local_io::private_dir(&sync).unwrap();
+    let path = sync.join("operation.json");
+    let owner = process::lock(data).unwrap();
+    let binding = owner.binding_digest().unwrap();
+    let request = serde_json::json!({
+        "native_owner_binding": binding,
+        "original": "pinned request"
+    });
+    let policy = policy();
+    let mut identity = identity(&policy);
+    identity.request_digest = local_io::digest(&request).unwrap();
+    identity.binding_digest = binding;
+    let mut ledger = Ledger::create(&path, identity.clone(), policy.clone()).unwrap();
+    ledger.bind_original_request(&request).unwrap();
+    let old_attempt = ledger.begin_attempt().unwrap();
+    let old_exchange = ledger.begin_exchange(&old_attempt, 32, 48).unwrap();
+    let old_reservation = ledger
+        .reserve(&old_attempt, &old_exchange, Direction::Rx, 24)
+        .unwrap();
+    let before = ledger.snapshot().clone();
+    assert_eq!(before.unresolved_reserved().unwrap(), 80);
+    assert!(process::lock(data).is_err());
+    drop(ledger);
+    drop(owner);
+
+    let owner = process::lock(data).unwrap();
+    let mut reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
+    let mut wrong = request.clone();
+    wrong["original"] = serde_json::json!("different");
+    assert!(reopened.resume_before_target(&owner, data, &wrong).is_err());
+    assert_eq!(reopened.snapshot(), &before);
+    let next = reopened
+        .resume_before_target(&owner, data, &request)
+        .unwrap();
+    let retained = reopened.snapshot();
+    assert_eq!(retained.attempts_used, 2);
+    assert_eq!(retained.identity, identity);
+    assert_eq!(retained.unresolved_reserved().unwrap(), 80);
+    assert_eq!(
+        retained.interrupted_attempts[0].reservation,
+        Some(old_reservation.clone())
+    );
+    assert_eq!(retained.exchanges_started, 1);
+    assert!(retained.reservation.is_none());
+    assert!(reopened.settle(&old_reservation, 0).is_err());
+    assert!(reopened.begin_exchange(&old_attempt, 1, 1).is_err());
+    reopened.finish_attempt(&next).unwrap();
+    let closed = reopened.snapshot().clone();
+    drop(reopened);
+
+    let mut reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
+    assert!(
+        reopened
+            .resume_before_target(&owner, data, &request)
+            .is_err()
+    );
+    assert_eq!(reopened.snapshot(), &closed);
+}

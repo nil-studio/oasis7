@@ -4,11 +4,11 @@
 //! delivery to the peer. A pending reservation survives restart unchanged.
 use super::super::local_io;
 pub(super) use super::operation_config::FormalFullSyncTransferPolicyV1 as Policy;
-use super::operation_snapshot::Publication;
 use super::operation_snapshot::{
     API, MAX_LEDGER_JSON, MAX_REQUEST_BODY, MAX_WINDOW, read_snapshot,
 };
 pub(super) use super::operation_snapshot::{Direction, Identity, Reservation, Snapshot};
+use super::operation_snapshot::{InterruptedAttempt, Publication};
 use serde::Serialize;
 use sha2::Digest;
 use std::path::{Path, PathBuf};
@@ -44,6 +44,7 @@ pub(super) struct Ledger {
     state: Snapshot,
     poisoned: bool,
     recovered: bool,
+    reopen_deadline: Option<Instant>,
 }
 
 impl Ledger {
@@ -82,6 +83,7 @@ impl Ledger {
             materials: Default::default(),
             window_seq: 0,
             attempts_used: 0,
+            interrupted_attempts: Vec::new(),
             active_attempt_nonce: None,
             active_request: None,
             active_request_nonce: None,
@@ -103,6 +105,7 @@ impl Ledger {
             state,
             poisoned: false,
             recovered: false,
+            reopen_deadline: None,
         })
     }
 
@@ -137,6 +140,7 @@ impl Ledger {
             state,
             poisoned: false,
             recovered: true,
+            reopen_deadline: Some(deadline),
         })
     }
 
@@ -150,10 +154,14 @@ impl Ledger {
         &self.state
     }
 
-    fn save(&mut self, mut next: Snapshot) -> Result<(), String> {
+    fn save(&mut self, next: Snapshot) -> Result<(), String> {
         if self.recovered {
             return Err("operation_recovery_required: reopened handle is observation-only until explicit fenced attempt admission".into());
         }
+        self.save_exact(next)
+    }
+
+    fn save_exact(&mut self, mut next: Snapshot) -> Result<(), String> {
         if self.poisoned {
             return Err("operation_recovery_required: uncertain prior persistence".into());
         }
@@ -206,6 +214,83 @@ impl Ledger {
         let mut next = self.state.clone();
         next.original_request_json = Some(bytes);
         self.save(next)
+    }
+
+    /// Resume only the same, existing pre-target operation after a fresh native
+    /// lock takeover. Bytes reserved by the interrupted owner remain charged.
+    pub(super) fn resume_before_target(
+        &mut self,
+        owner: &super::super::process::ProcessOwnership,
+        data: &Path,
+        request: &serde_json::Value,
+    ) -> Result<AttemptPermit, String> {
+        let deadline = self.reopen_deadline.ok_or("not a reopened operation")?;
+        if !self.recovered
+            || self.poisoned
+            || Instant::now() >= deadline
+            || self.state.publication_journal_version != Some(1)
+            || self.state.publication.is_some()
+            || self.state.verified_target_json.is_some()
+        {
+            return Err("operation_recovery_required: pre-target recovery unavailable".into());
+        }
+        owner.require_directory(data)?;
+        let owner_binding = owner.binding_digest()?;
+        if self.path != data.join("state/full-sync/operation.json")
+            || self.state.identity.binding_digest != owner_binding
+            || request["native_owner_binding"].as_str() != Some(owner_binding.as_str())
+            || self.state.original_request_json.as_deref()
+                != Some(
+                    serde_json::to_vec(request)
+                        .map_err(|error| error.to_string())?
+                        .as_slice(),
+                )
+        {
+            return Err(
+                "operation_recovery_required: original owner and request continuity unavailable"
+                    .into(),
+            );
+        }
+        if self.state.attempts_used >= self.state.policy.max_attempts {
+            return Err("operation_budget_exhausted: attempts".into());
+        }
+        let mut next = self.state.clone();
+        if let Some(nonce) = next.active_attempt_nonce.take() {
+            next.interrupted_attempts.push(InterruptedAttempt {
+                attempt_no: next.attempts_used,
+                attempt_nonce: nonce,
+                request: next.active_request.take(),
+                request_nonce: next.active_request_nonce.take(),
+                tx_credit: std::mem::take(&mut next.tx_credit),
+                rx_credit: std::mem::take(&mut next.rx_credit),
+                reservation: next.reservation.take(),
+            });
+        }
+        next.attempts_used += 1;
+        let nonce = local_io::random_id()?;
+        next.active_attempt_nonce = Some(nonce.clone());
+        if next.charged()? != self.state.charged()? {
+            return Err("recovery changed charged budget".into());
+        }
+        owner.require_directory(data)?;
+        if Instant::now() >= deadline {
+            return Err("operation_reopen_expired".into());
+        }
+        self.save_exact(next)?;
+        if Instant::now() >= deadline {
+            self.poisoned = true;
+            return Err("operation_reopen_expired".into());
+        }
+        self.recovered = false;
+        self.reopen_deadline = None;
+        Ok(AttemptPermit {
+            identity: self.state.identity.clone(),
+            number: self.state.attempts_used,
+            nonce,
+            deadline: Instant::now()
+                .checked_add(Duration::from_millis(self.state.policy.attempt_timeout_ms))
+                .ok_or("attempt deadline overflow")?,
+        })
     }
 
     pub fn begin_attempt(&mut self) -> Result<AttemptPermit, String> {

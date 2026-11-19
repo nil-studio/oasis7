@@ -56,6 +56,27 @@ pub(super) struct Publication {
     pub completed: bool,
 }
 
+/// An interrupted attempt retains unresolved credits under its original identity.
+/// These bytes are neither confirmed actual nor a refundable balance.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct InterruptedAttempt {
+    pub(super) attempt_no: u64,
+    pub(super) attempt_nonce: String,
+    pub(super) request: Option<(u64, u64)>,
+    pub(super) request_nonce: Option<String>,
+    pub(super) tx_credit: u64,
+    pub(super) rx_credit: u64,
+    pub(super) reservation: Option<Reservation>,
+}
+impl InterruptedAttempt {
+    fn charged(&self) -> Option<u64> {
+        self.tx_credit
+            .checked_add(self.rx_credit)?
+            .checked_add(self.reservation.as_ref().map_or(0, |r| r.bytes))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Snapshot {
@@ -80,6 +101,8 @@ pub(super) struct Snapshot {
     pub materials: std::collections::BTreeMap<String, u64>,
     pub window_seq: u64,
     pub attempts_used: u64,
+    #[serde(default)]
+    pub interrupted_attempts: Vec<InterruptedAttempt>,
     pub active_attempt_nonce: Option<String>,
     pub active_request: Option<(u64, u64)>,
     pub active_request_nonce: Option<String>,
@@ -90,9 +113,16 @@ pub(super) struct Snapshot {
 
 impl Snapshot {
     pub(super) fn unresolved_reserved(&self) -> Result<u64, String> {
-        self.tx_credit
+        let active = self
+            .tx_credit
             .checked_add(self.rx_credit)
-            .and_then(|bytes| bytes.checked_add(self.reservation.as_ref().map_or(0, |r| r.bytes)))
+            .and_then(|bytes| bytes.checked_add(self.reservation.as_ref().map_or(0, |r| r.bytes)));
+        self.interrupted_attempts
+            .iter()
+            .try_fold(
+                active.ok_or("operation reservation accounting overflow")?,
+                |total, old| total.checked_add(old.charged()?),
+            )
             .ok_or_else(|| "operation reservation accounting overflow".into())
     }
 
@@ -125,6 +155,42 @@ impl Snapshot {
                     .all(|c| c.is_ascii_hexdigit()))
         {
             return Err("invalid operation publication identity".into());
+        }
+        let mut previous = 0;
+        for old in &self.interrupted_attempts {
+            if old.attempt_no <= previous
+                || old.attempt_no >= self.attempts_used
+                || old.attempt_nonce.len() != 32
+                || !old.attempt_nonce.bytes().all(|c| c.is_ascii_hexdigit())
+                || old.tx_credit > MAX_REQUEST_BODY
+                || old.rx_credit > MAX_WINDOW
+                || old.request.is_some() != old.request_nonce.is_some()
+                || old.request.is_none()
+                    && (old.tx_credit != 0 || old.rx_credit != 0 || old.reservation.is_some())
+                || old.request.is_some_and(|(a, r)| {
+                    a != old.attempt_no || r == 0 || r > self.exchanges_started
+                })
+                || old
+                    .request_nonce
+                    .as_ref()
+                    .is_some_and(|n| n.len() != 32 || !n.bytes().all(|c| c.is_ascii_hexdigit()))
+                || old.reservation.as_ref().is_some_and(|r| {
+                    r.identity != self.identity
+                        || Some((r.attempt_no, r.request_seq)) != old.request
+                        || old.request_nonce.as_ref() != Some(&r.request_nonce)
+                        || r.bytes == 0
+                        || r.bytes > MAX_WINDOW
+                        || r.nonce.len() != 32
+                        || !r.nonce.bytes().all(|c| c.is_ascii_hexdigit())
+                        || r.window_seq > self.window_seq
+                })
+            {
+                return Err("invalid interrupted attempt accounting".into());
+            }
+            previous = old.attempt_no;
+        }
+        if self.interrupted_attempts.len() > 4 {
+            return Err("interrupted attempt capacity".into());
         }
         if let Some(bytes) = &self.original_request_json
             && (bytes.is_empty()
