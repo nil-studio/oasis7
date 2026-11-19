@@ -279,6 +279,60 @@ fn exercise_direct_transport(bind: &str) {
 }
 
 #[test]
+fn real_multiaddress_quic_dial_shares_one_peer_admission_slot() {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            tokio::time::timeout(Duration::from_secs(8), async {
+                let budget = ConnectionBudget::new(limits()).unwrap();
+                let mut source = swarm(&Keypair::generate_ed25519(), Some(budget.clone()));
+                let mut remote = swarm(&Keypair::generate_ed25519(), None);
+                let peer = *remote.local_peer_id();
+                let bind = "/ip4/127.0.0.1/udp/0/quic-v1";
+                let first = listen(&mut remote, bind).await.with_p2p(peer).unwrap();
+                let second = listen(&mut remote, bind).await.with_p2p(peer).unwrap();
+                assert_ne!(first, second);
+                assert_eq!(budget.0.diagnostics.latest().0, None);
+                let opts = DialOpts::peer_id(peer)
+                    .addresses(vec![first.clone(), second])
+                    .build();
+                let expected = opts.connection_id();
+                source.dial(opts).unwrap();
+                assert_eq!(occupancy(&budget, peer), (1, [0, 1], 1));
+                assert_eq!(
+                    budget.0.diagnostics.latest().0,
+                    Some(ResourceBudgetRejection::PerPeer)
+                );
+                loop {
+                    match budgeted_event(&mut source, &mut remote).await {
+                        SwarmEvent::ConnectionEstablished {
+                            connection_id,
+                            endpoint,
+                            ..
+                        } if connection_id == expected => {
+                            assert_eq!(endpoint.get_remote_address(), &first);
+                            assert_eq!(occupancy(&budget, peer), (1, [0, 0], 1));
+                            break;
+                        }
+                        SwarmEvent::OutgoingConnectionError {
+                            connection_id,
+                            error,
+                            ..
+                        } if connection_id == expected => {
+                            panic!("first admissible QUIC address failed: {error}");
+                        }
+                        _ => {}
+                    }
+                }
+            })
+            .await
+            .expect("real QUIC multi-address dial did not establish");
+        });
+}
+
+#[test]
 fn pending_tcp_handshake_expires_and_releases_its_socket_and_budget() {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
