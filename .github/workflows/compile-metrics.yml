@@ -222,7 +222,7 @@ jobs:
           if [[ "${MEASURE_WARM}" == "true" ]]; then
             cmd+=(--measure-warm-check)
           fi
-          cmd+=("${extra_args[@]}")
+          cmd+=(${extra_args[@]+"${extra_args[@]}"})
           if [[ -n "${BASELINE_REF}" ]]; then
             cmd+=(--baseline-ref "${BASELINE_REF}")
           fi
