@@ -142,6 +142,11 @@
       },
       {
         "binary": "distfs-tests",
+        "name": "controlled_authority::formal::endpoint::tests::protected_tests::recovery_process_tests::recovered_endpoint_children_keep_committed_handoff_closed_before_bft_commit",
+        "ignored": true
+      },
+      {
+        "binary": "distfs-tests",
         "name": "controlled_authority::formal::endpoint::tests::long_run_c10_tests::native_profile2_c10_over_64_records_and_16mib_reopens_and_retries_original_once",
         "ignored": true
       }
