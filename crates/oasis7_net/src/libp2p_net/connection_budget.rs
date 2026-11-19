@@ -8,7 +8,10 @@ use std::{
 
 use libp2p::{
     Multiaddr, PeerId,
-    swarm::{Config, ConnectionDenied, ConnectionId, TransportAdmission},
+    swarm::{
+        Config, ConnectionDenied, ConnectionId, TransportAdmission,
+        TransportHandshakeDeadlineElapsed,
+    },
 };
 
 use super::resource_budget::{
@@ -166,6 +169,12 @@ impl ConnectionBudget {
         })
     }
 
+    pub(super) fn note_handshake_deadline(&self) {
+        self.0
+            .diagnostics
+            .rejected(ResourceBudgetRejection::HandshakeDeadline, None);
+    }
+
     fn rejected(&self, reason: ResourceBudgetRejection, detail: &'static str) -> ConnectionDenied {
         self.0.diagnostics.rejected(reason, None);
         denied(detail)
@@ -300,10 +309,8 @@ impl ConnectionBudget {
             .copied()
             .ok_or_else(|| denied("authenticated connection lacks a pending permit"))?;
         if Instant::now() >= attempt.deadline {
-            return Err(self.rejected(
-                ResourceBudgetRejection::HandshakeDeadline,
-                "authenticated connection exceeded its handshake deadline",
-            ));
+            self.note_handshake_deadline();
+            return Err(ConnectionDenied::new(TransportHandshakeDeadlineElapsed));
         }
         let add_peer = match attempt.peer {
             Some(expected) if expected != peer => {

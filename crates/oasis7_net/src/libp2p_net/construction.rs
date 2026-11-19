@@ -1,5 +1,8 @@
 use super::receiver_floor::PeerRecordReceiver;
-use super::resource_budget::setup_resource_budgets;
+use super::resource_budget::{
+    dial_hit_handshake_deadline, has_handshake_deadline_error, listener_hit_handshake_deadline,
+    setup_resource_budgets,
+};
 use super::*;
 
 #[path = "construction/peer_record_setup.rs"]
@@ -159,7 +162,7 @@ impl Libp2pNetwork {
                 bootstrap_transport_path_state(&config_clone.bootstrap_peers);
             let mut discovery_observations = peer_discovery_observations::DiscoveryObservations::default();
             discovery_observations.set_static_bootstrap_peers(static_bootstrap_peer_ids.clone());
-            let mut last_dialed_transport_paths: HashMap<PeerId, TransportPath> = HashMap::new();
+            let mut last_dialed_transport_paths = HashMap::new();
             let mut active_transport_paths: HashMap<PeerId, TransportPath> = HashMap::new();
             let mut established_transport_paths_by_connection: HashMap<
                 libp2p::swarm::ConnectionId,
@@ -817,8 +820,11 @@ impl Libp2pNetwork {
                                     peer_id,
                                     connection_id,
                                     endpoint,
-                                    ..
+                                    concurrent_dial_errors, ..
                                 } => {
+                                    if concurrent_dial_errors.as_deref().is_some_and(has_handshake_deadline_error) {
+                                        swarm.behaviour().note_handshake_deadline();
+                                    }
                                     if !peers.contains(&peer_id) {
                                         peers.push(peer_id);
                                     }
@@ -1080,7 +1086,10 @@ impl Libp2pNetwork {
                                         &event_reachability,
                                     );
                                 }
-                                SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
+                                SwarmEvent::OutgoingConnectionError { peer_id, connection_id, error } => {
+                                    if dial_hit_handshake_deadline(&error) {
+                                        swarm.behaviour().note_handshake_deadline();
+                                    }
                                     if let Some(peer_id) = peer_id {
                                         if quarantined_active_peers.contains(&peer_id)
                                             || pending_quarantine_disconnects.contains(&peer_id)
@@ -1094,13 +1103,15 @@ impl Libp2pNetwork {
                                                 max_error_messages,
                                                 "lock errors",
                                             );
-                                        } else {
+                                        } else if let Some(last_path) = transport_paths::take_retryable_transport_path(
+                                            &mut last_dialed_transport_paths, peer_id, connection_id, &error,
+                                        ) {
                                             match retry_transport_path_after_error(
                                                 &mut swarm,
                                                 &known_transport_paths,
                                                 &mut last_dialed_transport_paths,
                                                 &mut failed_transport_path_labels,
-                                                peer_id,
+                                                last_path,
                                             ) {
                                                 Ok(Some((last_path, next_path))) => {
                                                     push_bounded_clone(
@@ -1132,6 +1143,9 @@ impl Libp2pNetwork {
                                         format!("libp2p outgoing connection error peer={peer_id:?}: {error:?}"));
                                 }
                                 SwarmEvent::IncomingConnectionError { error, .. } => {
+                                    if listener_hit_handshake_deadline(&error) {
+                                        swarm.behaviour().note_handshake_deadline();
+                                    }
                                     runtime_support::log_connection_error(&event_errors, max_error_messages,
                                         format!("libp2p incoming connection error: {error:?}"));
                                 }

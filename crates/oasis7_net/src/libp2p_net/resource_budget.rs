@@ -1,9 +1,14 @@
 use std::{
+    io,
     sync::{Arc, Mutex},
     time::Duration,
 };
 
-use libp2p::PeerId;
+use libp2p::{
+    Multiaddr, PeerId,
+    core::transport::TransportError,
+    swarm::{DialError, ListenError, TransportHandshakeDeadlineElapsed},
+};
 use oasis7_proto::p2p_resource_budget::{P2pResourceBudget, P2pResourceBudgetLimits};
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
@@ -133,6 +138,48 @@ impl ActiveResourceBudget {
     }
 }
 
+fn is_handshake_deadline_error(error: &TransportError<io::Error>) -> bool {
+    matches!(error, TransportError::Other(error)
+        if error.get_ref().is_some_and(|cause| cause.is::<TransportHandshakeDeadlineElapsed>()))
+}
+
+pub(super) fn has_handshake_deadline_error(
+    errors: &[(Multiaddr, TransportError<io::Error>)],
+) -> bool {
+    errors
+        .iter()
+        .any(|(_, error)| is_handshake_deadline_error(error))
+}
+
+pub(super) fn dial_hit_handshake_deadline(error: &DialError) -> bool {
+    match error {
+        DialError::Transport(errors) => has_handshake_deadline_error(errors),
+        DialError::Denied { cause } => cause
+            .downcast_ref::<TransportHandshakeDeadlineElapsed>()
+            .is_some(),
+        _ => false,
+    }
+}
+
+pub(super) fn dial_path_hit_handshake_deadline(error: &DialError, address: &Multiaddr) -> bool {
+    match error {
+        DialError::Transport(errors) => errors
+            .iter()
+            .any(|(failed, error)| failed == address && is_handshake_deadline_error(error)),
+        _ => dial_hit_handshake_deadline(error),
+    }
+}
+
+pub(super) fn listener_hit_handshake_deadline(error: &ListenError) -> bool {
+    match error {
+        ListenError::Transport(error) => is_handshake_deadline_error(error),
+        ListenError::Denied { cause } => cause
+            .downcast_ref::<TransportHandshakeDeadlineElapsed>()
+            .is_some(),
+        _ => false,
+    }
+}
+
 pub(super) fn setup_resource_budgets(
     profile: P2pResourceBudget,
 ) -> Result<(Option<ActiveResourceBudget>, SharedLibp2pWireByteCounters), WorldError> {
@@ -174,4 +221,24 @@ pub(super) fn setup_resource_budgets(
         }),
         Libp2pWireByteCounters::with_window(Arc::new(bytes)),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_fixed_local_cause_is_a_budget_handshake_deadline() {
+        let address = "/ip4/127.0.0.1/tcp/1".parse::<Multiaddr>().unwrap();
+        let error =
+            |cause| DialError::Transport(vec![(address.clone(), TransportError::Other(cause))]);
+        assert!(dial_hit_handshake_deadline(&error(io::Error::new(
+            io::ErrorKind::TimedOut,
+            TransportHandshakeDeadlineElapsed,
+        ))));
+        assert!(!dial_hit_handshake_deadline(&error(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "transport handshake deadline expired",
+        ))));
+    }
 }

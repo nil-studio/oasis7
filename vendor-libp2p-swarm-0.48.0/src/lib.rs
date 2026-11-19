@@ -114,7 +114,9 @@ use connection::{
     pool::{EstablishedConnection, Pool, PoolConfig, PoolEvent, concurrent_dial::PendingDial},
 };
 use dial_opts::{DialOpts, PeerCondition};
-pub use transport_attempt::{OutboundAttemptPermit, TransportAdmission, TransportAttemptPermit};
+pub use transport_attempt::{
+    OutboundAttemptPermit, TransportAdmission, TransportAttemptPermit, TransportHandshakeDeadlineElapsed,
+};
 use transport_attempt::{
     InboundAttemptAdmission, OutboundAttemptAdmission, hold_attempt_permit, hold_listener_permit,
 };

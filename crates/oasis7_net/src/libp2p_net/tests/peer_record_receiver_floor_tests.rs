@@ -473,7 +473,15 @@ fn accepted_tombstone_revokes_candidate_but_rr_forwards_floor_until_higher_live(
         .and_then(|paths| paths.first())
         .expect("candidate transport path")
         .clone();
-    last_dialed.insert(peer_id, live_path.clone());
+    last_dialed.insert(
+        peer_id,
+        super::super::transport_paths::DialedTransportPath {
+            connection_id: libp2p::swarm::dial_opts::DialOpts::peer_id(peer_id)
+                .build()
+                .connection_id(),
+            path: live_path.clone(),
+        },
+    );
 
     let static_address: Multiaddr = format!("/ip4/192.0.2.10/tcp/4104/p2p/{peer_id}")
         .parse()

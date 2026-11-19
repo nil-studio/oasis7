@@ -688,3 +688,254 @@ fn kademlia_and_rendezvous_use_one_window_on_the_same_authenticated_connection()
             }).await.expect("shared Kademlia/rendezvous fixture timed out");
         });
 }
+
+#[test]
+fn real_request_deadline_survives_natural_byte_window_recovery() {
+    use crate::libp2p_net::{
+        wire_byte_window::{WireByteLimits, WireByteWindow},
+        wire_bytes::Libp2pWireByteCounters,
+    };
+    use libp2p::request_response::{Event, Message, OutboundFailure};
+    use oasis7_proto::distributed_net::{NetworkRequest, NetworkResponse};
+
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            tokio::time::timeout(Duration::from_secs(16), async {
+                // Seed an aged full bucket. The original 10-second swarm
+                // negotiation deadline expires before its real bucket expiry.
+                // The configured RR request timeout applies after negotiation.
+                let (window, expiry) = WireByteWindow::with_aged_first_read(
+                    WireByteLimits { inbound: 16_384, outbound: 16_384, total: 16_384 },
+                    Duration::from_secs(49),
+                );
+                let window = Arc::new(window);
+                let mut client = build_swarm_with_receiver(
+                    &Keypair::generate_ed25519(),
+                    false,
+                    false,
+                    Duration::from_millis(350),
+                    Libp2pWireByteCounters::with_window(Arc::clone(&window)),
+                    PeerRecordReceiver::legacy(),
+                    Some(ConnectionBudget::new(limits()).unwrap()),
+                );
+                let mut server = swarm(&Keypair::generate_ed25519(), None);
+                let peer = *server.local_peer_id();
+                let address = listen(&mut server, "/ip4/127.0.0.1/tcp/0").await;
+                let dial = dial_for(peer, address);
+                let connection = dial.connection_id();
+                client.dial(dial).unwrap();
+                while !matches!(
+                    budgeted_event(&mut client, &mut server).await,
+                    SwarmEvent::ConnectionEstablished { connection_id, .. } if connection_id == connection
+                ) {}
+                let request = |payload: &[u8]| NetworkRequest {
+                    protocol: "/test/window-deadline".into(),
+                    payload: payload.to_vec(),
+                };
+                let expired = client.behaviour_mut().request_response.send_request(&peer, request(b"expired"));
+                loop {
+                    match select(client.select_next_some(), server.select_next_some()).await {
+                        Either::Left((SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
+                            Event::OutboundFailure { request_id, error, .. },
+                        )), _)) if request_id == expired => {
+                            assert!(matches!(error, OutboundFailure::Timeout), "{error}");
+                            assert!(tokio::time::Instant::now() < expiry);
+                            break;
+                        }
+                        Either::Right((SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
+                            Event::Message { message: Message::Request { .. }, .. },
+                        )), _)) => panic!("expired request reached the server before window recovery"),
+                        _ => {}
+                    }
+                }
+                assert_eq!(window.snapshot().unwrap().charged_bytes.total, 16_384);
+                tokio::time::sleep_until(expiry + Duration::from_millis(1)).await;
+                // Other substreams can use recovered capacity immediately.
+                // The seeded full charge must be gone even if control I/O ran.
+                assert!(window.snapshot().unwrap().charged_bytes.total < 16_384);
+
+                let fresh = client.behaviour_mut().request_response.send_request(&peer, request(b"fresh"));
+                loop {
+                    match select(client.select_next_some(), server.select_next_some()).await {
+                        Either::Right((SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
+                            Event::Message { message: Message::Request { request, channel, .. }, .. },
+                        )), _)) => {
+                            assert_eq!(request.payload, b"fresh", "expired request was revived");
+                            server.behaviour_mut().request_response
+                                .send_response(channel, NetworkResponse { payload: b"ack".to_vec() })
+                                .unwrap();
+                        }
+                        Either::Left((SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
+                            Event::Message { message: Message::Response { request_id, response }, .. },
+                        )), _)) => {
+                            assert_eq!(request_id, fresh);
+                            assert_eq!(response.payload, b"ack");
+                            break;
+                        }
+                        Either::Left((SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
+                            Event::OutboundFailure { request_id, error, .. },
+                        )), _)) => panic!("unexpected second terminal response {request_id}: {error}"),
+                        _ => {}
+                    }
+                }
+                assert!(window.snapshot().unwrap().actual_bytes.total > 0);
+            }).await.expect("natural byte window RR fixture timed out");
+        });
+}
+
+#[test]
+fn real_tracked_handshake_deadline_does_not_dial_the_alternate_path() {
+    use crate::libp2p_net::transport_paths::{
+        bootstrap_transport_path_state, dial_transport_path, retry_transport_path_after_error,
+        take_retryable_transport_path,
+    };
+
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            tokio::time::timeout(Duration::from_secs(6), async {
+                let stalled = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let alternate = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let peer = Keypair::generate_ed25519().public().to_peer_id();
+                let address = |listener: &tokio::net::TcpListener| {
+                    format!(
+                        "/ip4/127.0.0.1/tcp/{}/p2p/{peer}",
+                        listener.local_addr().unwrap().port()
+                    )
+                    .parse::<Multiaddr>()
+                    .unwrap()
+                };
+                let first_address = address(&stalled);
+                let (known, mut failed, _) =
+                    bootstrap_transport_path_state(&[first_address.clone(), address(&alternate)]);
+                let first = known[&peer]
+                    .iter()
+                    .find(|path| path.addr == first_address)
+                    .unwrap()
+                    .clone();
+                let mut pending = std::collections::HashMap::new();
+                let budget = ConnectionBudget::new(ConnectionLimits {
+                    handshake_timeout: Duration::from_secs(1),
+                    ..limits()
+                })
+                .unwrap();
+                let mut client = swarm(&Keypair::generate_ed25519(), Some(budget));
+                dial_transport_path(&mut client, &mut pending, first).unwrap();
+                let connection = pending[&peer].connection_id;
+
+                let mut terminal = Box::pin(async {
+                    loop {
+                        if let SwarmEvent::OutgoingConnectionError {
+                            connection_id,
+                            peer_id,
+                            error,
+                        } = client.select_next_some().await
+                        {
+                            assert_eq!(connection_id, connection);
+                            assert_eq!(peer_id, Some(peer));
+                            return error;
+                        }
+                    }
+                });
+                let mut accept = Box::pin(stalled.accept());
+                let (_socket, _) = match select(&mut accept, terminal.as_mut()).await {
+                    Either::Left((accepted, _)) => accepted.unwrap(),
+                    Either::Right((error, _)) => {
+                        panic!("tracked TCP dial failed before accept: {error}")
+                    }
+                };
+                let error = terminal.await;
+                assert!(crate::libp2p_net::resource_budget::dial_hit_handshake_deadline(&error));
+                if let Some(path) =
+                    take_retryable_transport_path(&mut pending, peer, connection, &error)
+                {
+                    retry_transport_path_after_error(
+                        &mut client,
+                        &known,
+                        &mut pending,
+                        &mut failed,
+                        path,
+                    )
+                    .unwrap();
+                }
+                assert!(
+                    !pending.contains_key(&peer),
+                    "timed-out dial started alternate tracking"
+                );
+                assert!(
+                    failed.is_empty(),
+                    "local deadline mislabeled the remote path"
+                );
+                let pump = async {
+                    loop {
+                        client.select_next_some().await;
+                    }
+                };
+                let attempt = select(Box::pin(alternate.accept()), Box::pin(pump));
+                assert!(
+                    tokio::time::timeout(Duration::from_millis(150), attempt)
+                        .await
+                        .is_err()
+                );
+            })
+            .await
+            .expect("tracked deadline fixture timed out");
+        });
+}
+
+#[test]
+fn stale_and_mixed_dial_errors_are_scoped_to_the_exact_retry_path() {
+    use crate::libp2p_net::transport_paths::{
+        DialedTransportPath, bootstrap_transport_path_state, take_retryable_transport_path,
+    };
+    use libp2p::{core::transport::TransportError, swarm::TransportHandshakeDeadlineElapsed};
+    use std::collections::HashMap;
+
+    let peer = Keypair::generate_ed25519().public().to_peer_id();
+    let address = |port| {
+        format!("/ip4/127.0.0.1/tcp/{port}/p2p/{peer}")
+            .parse::<Multiaddr>()
+            .unwrap()
+    };
+    let first_address = address(1);
+    let other_address = address(2);
+    let (known, _, _) = bootstrap_transport_path_state(std::slice::from_ref(&first_address));
+    let path = known[&peer][0].clone();
+    let old = dial_for(peer, first_address.clone()).connection_id();
+    let current = dial_for(peer, first_address.clone()).connection_id();
+    let mut pending = HashMap::from([(
+        peer,
+        DialedTransportPath {
+            connection_id: current,
+            path: path.clone(),
+        },
+    )]);
+    let marked = || {
+        TransportError::Other(io::Error::new(
+            io::ErrorKind::TimedOut,
+            TransportHandshakeDeadlineElapsed,
+        ))
+    };
+
+    let stale = DialError::Transport(vec![(first_address.clone(), marked())]);
+    assert!(take_retryable_transport_path(&mut pending, peer, old, &stale).is_none());
+    assert_eq!(pending[&peer].connection_id, current);
+
+    let mixed = DialError::Transport(vec![
+        (other_address, marked()),
+        (
+            first_address,
+            TransportError::Other(io::Error::from(io::ErrorKind::ConnectionRefused)),
+        ),
+    ]);
+    assert_eq!(
+        take_retryable_transport_path(&mut pending, peer, current, &mixed),
+        Some(path)
+    );
+    assert!(pending.is_empty());
+}

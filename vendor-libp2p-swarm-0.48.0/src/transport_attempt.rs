@@ -49,7 +49,7 @@ impl TransportAdmission {
             .deadline
             .is_some_and(|deadline| Instant::now() >= deadline)
         {
-            return Err(ConnectionDenied::new(timed_out()));
+            return Err(ConnectionDenied::new(TransportHandshakeDeadlineElapsed));
         }
         Ok(self)
     }
@@ -110,11 +110,20 @@ pub(crate) fn hold_listener_permit(
     })
 }
 
+/// The caller's absolute handshake deadline elapsed before admission.
+#[derive(Debug)]
+pub struct TransportHandshakeDeadlineElapsed;
+
+impl std::fmt::Display for TransportHandshakeDeadlineElapsed {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("transport handshake deadline expired")
+    }
+}
+
+impl std::error::Error for TransportHandshakeDeadlineElapsed {}
+
 fn timed_out() -> io::Error {
-    io::Error::new(
-        io::ErrorKind::TimedOut,
-        "transport handshake deadline expired",
-    )
+    io::Error::new(io::ErrorKind::TimedOut, TransportHandshakeDeadlineElapsed)
 }
 
 async fn until<F: Future + Unpin>(mut future: F, deadline: Instant) -> io::Result<F::Output> {
