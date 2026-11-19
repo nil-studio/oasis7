@@ -34,7 +34,7 @@
 
 `PRD-WORLD_SIMULATOR-002/003` 的历史 rule-hook adapter 保留 `KernelRuleDecision.cost` 作为决策与合并结果中的数据。`WorldKernel` 当前只聚合该字段，不据此自动检查余额或扣账；字段存在也不承诺成本已作为独立记录写入 journal。已有动作自身的资源规则继续由动作实现负责，正式 runtime 的规则成本结算由 [world-runtime 专业合同](../world-runtime/prd.md) 及其执行链负责。
 
-后续若改变该字段的结算作用，须明确付款主体、成本符号、拒绝与原子性、事件/replay 和旧消费者兼容方案，并同步需求、设计与相应行为验证。本条补回现有边界，不新增成本生效或资源结算功能。实现解释与验证关系见 [设计条款](design.md#kernel-rule-cost-boundary)。
+后续若改变该字段的结算作用，须明确付款主体、成本符号、拒绝与原子性、事件/replay 和旧消费者兼容方案，并同步需求、设计与相应行为验证。本条补回现有边界，不新增成本生效或资源结算功能。实现解释与验证关系见 [设计条款](design.md#kernel-rule-cost-boundary)；面向长期统一规则结算策略（`AdvisoryOnly` / `AuthoritativeDebit`）与共享 `chain_resource` 派生的目标契约草案见 [world-runtime §6.5](../world-runtime/design.md#module-layering-and-core-contracts)（当前未落地，不改变现行 `WorldKernel` 不自动扣账行为）。
 
 <a id="runner-metrics-action-window-contract"></a>
 ### RunnerMetrics 的动作与统计窗口
