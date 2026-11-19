@@ -13,6 +13,8 @@ use oasis7_node::{
 
 #[path = "driver_bft_v3_node_private_store.rs"]
 mod private_store;
+#[path = "driver_bft_v3_covered_source.rs"]
+mod covered_source;
 use private_store::NodePrivateStore;
 
 #[cfg(test)]
