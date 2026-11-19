@@ -105,6 +105,7 @@ jobs:
         timeout-minutes: 35
         run: |
           docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --env CI_VERBOSE=1 \
+            --env GITHUB_ACTIONS --env RUNNER_OS \
             --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace" --workdir /workspace \
             oasis7-ci-rust-wasm-build:candidate \
             bash ./scripts/ci-tests.sh required --group net --repo-root /workspace
