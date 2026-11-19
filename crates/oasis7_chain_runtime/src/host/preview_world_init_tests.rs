@@ -70,6 +70,11 @@ fn ordinary_starter_preview_publishes_finite_bound_pool_and_never_replenishes() 
     )
     .unwrap();
     let status = pinned.world.ordinary_starter_status(None);
+    assert_eq!(
+        pinned.world.world_rule_status(None).unwrap()["ordinary_starter"],
+        serde_json::to_value(&status).unwrap()
+    );
+    assert!(status.owner_binding.is_none());
     let offered = &status.offers["ordinary-industrial-starter-v1"];
     assert_eq!(offered.available_slots.len(), 8, "{status:?}");
     assert_eq!(

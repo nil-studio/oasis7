@@ -50,6 +50,15 @@ fn ordinary_starter_runtime_requires_canonical_participant_without_starter_oc() 
             .is_ok()
     );
     let status = world.ordinary_starter_status(Some(&receipt.agent_id));
+    // An explicit industry read reports the blocker without changing the legacy
+    // generic projection merely because a canonical participant has registered.
+    assert!(
+        world
+            .world_rule_status(Some(&receipt.agent_id))
+            .unwrap()
+            .get("ordinary_starter")
+            .is_none()
+    );
     assert_eq!(status.owner_binding, Some(receipt.owner_binding));
     assert!(!status.eligible);
     assert_eq!(
