@@ -93,7 +93,7 @@
 ### 3) 固定序列离线回归（TODO-3）
 - 位置：
   - `crates/oasis7/src/simulator/llm_agent/tests.rs`
-  - `crates/oasis7/src/simulator/llm_agent/tests_part2.rs`
+  - `crates/oasis7/src/simulator/llm_agent/tests_followups_actions.rs`
   - 可按需继续扩展 `crates/oasis7/src/simulator/llm_agent/tests.rs` 或新增分段测试文件
 - 用例设计：
   - 用例 A（成功主链路）：

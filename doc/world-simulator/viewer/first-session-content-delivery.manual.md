@@ -104,7 +104,7 @@ npm --prefix crates/oasis7_viewer run test:ui -- \
 <a id="fs-content-candidate"></a>
 ## 4. 实际候选准备与证据定位
 
-运行时复用 [S6 浏览器闭环手册](../../testing/manual/web-ui-agent-browser-closure-manual.manual.md)，按实际任务选择已经具备条件的 execution lane。需要本地普通 starter 路径时，可遵循其 [W3 DevLocal Builtin LLM](../../testing/manual/web-ui-agent-browser-closure-manual.manual.md#w3：devlocal-builtin-llm-免邮箱启动)原步骤和就绪检查；不得把该 lane 改称 ProviderBacked 或 public_testnet。缺 WASM/metadata、有效授权、端口、构建或允许启动条件时记录 blocker。LetAI 专属开发 hold 仍按 [Viewer 原手册](viewer-manual.manual.md#本地真实-llm-游戏测试)执行，本文不恢复其排期。
+运行时复用 [S6 浏览器闭环手册](../../testing/manual/web-ui-agent-browser-closure-manual.manual.md)，按实际任务选择已经具备条件的 execution lane。需要本地普通 starter 路径时，可遵循其 [W3 DevLocal Builtin LLM](../../testing/manual/web-ui-agent-browser-closure-manual.manual.md#w3devlocal-builtin-llm-免邮箱启动)原步骤和就绪检查；不得把该 lane 改称 ProviderBacked 或 public_testnet。缺 WASM/metadata、有效授权、端口、构建或允许启动条件时记录 blocker。LetAI 专属开发 hold 仍按 [Viewer 原手册](viewer-manual.manual.md#本地真实-llm-游戏测试)执行，本文不恢复其排期。
 
 1. 在原 PR/运行记录固定 source/tested tree、实际 bundle/资源身份、profile/revision、world/branch/window、主体与权限、场景/有效生成输入、语言、viewport 和 lane。外部内容另留可取得的固定版本；`session.meta`/`GAME_URL` 及资源加载记录保留原位置。
 2. 按 [S6 页面采样](../../testing/manual/web-ui-agent-browser-closure-manual.manual.md#3-打开页面并采样)建立独立浏览器会话，使用本次真实 `GAME_URL`，在桌面与窄屏保存状态、console/error 和截图；使用其 cleanup，只关闭自己的会话。正式输入从可见页面执行，`__AW_TEST__` 只读取状态/诊断。
@@ -118,11 +118,11 @@ npm --prefix crates/oasis7_viewer run test:ui -- \
 
 | 场景 | 实际步骤 | 预期结果与证据 |
 | --- | --- | --- |
-| R1：首目标与同源方案 | 从原 Next Move 进入首局目标，记录 feasibility/profile 与实际工厂。已有合法 Smelter 则直接核对；否则按实际建设入口提交并观察建设结果。打开固定生产方案，记录对象、配方、批次、消费账本及已发布成本/产出。 | 采用目标/查询不产生生产结算；建造接受与建成不同；无安全链保留真实原因和恢复。方案/提交参数相同，缺少输入明确未知。记录前后权威状态与页面。 |
+| R1：首目标与同源方案 | 从原 Next Move 进入首局目标，记录 feasibility/profile 与实际工厂。已有合法 Smelter 则直接核对；普通账号先沿[首厂路径](../../product/world-rules-core-gameplay/ordinary-account-first-factory-bootstrap.design.md)核对地点、建设资格、可支配建材及实际取得入口，条件成立后再建设。打开固定生产方案，记录对象、配方、批次、消费账本、已发布成本/产出，以及哪些决定由玩家确认、哪些步骤已有 Agent 授权执行。 | 采用目标/查询不产生生产结算；建造接受与建成不同；缺取得或委托能力时保留具体 blocker、真实恢复及未覆盖范围，不用预置资产或作者代操作补齐。方案/提交参数相同，主要承诺在确认前可读，缺少输入明确未知。记录前后权威状态与页面。 |
 | R2：接受到首产物 | 在合法输入、电力与授权满足时明确提交当前方案；用当前适用权威状态分别核“已接受未开始”“正在执行尚未结算”和实际生产结算，不能从旧 accepted 或无 receipt 推断阶段。沿原结果读取 receipt、所属 site 的 owner-bound ledger、正量铁锭与持久 milestone。 | 页面实际投入/产出与权威结果一致；接受与执行分别表达，无法确认当前结果则保持 C06，不庆祝完成也不判未生效。结算后只完成 production_only，Assembler 为候选，稳定与交付独立；若实际结果含卡片未投影的决策细目，保留缺口。 |
 | R3：离场、重入与未知 | 有结算后离开并从同一授权入口回来，检查旧成果与下一步。另在受控本地场景使用原运行方法造成连接中断；只在确实观察到原请求未知时，恢复连接并使用已有原请求查询。 | 旧结果不重复产生/播报；断连不撤销成果；未知只按原 identity 核对，查询失败不变成原操作拒绝。保存原请求与前后 world 值；未取得未知样例时只记重入覆盖，不宣称丢回复/重启通过。 |
 | R4：真实阻塞与恢复 | 在同来源的合法准备场景选择一个已知缺料或缺电的方案；读取预览/拒绝及实际可用恢复动作。仅通过当前支持的正式动作补足或暂缓，然后重查同一方案。 | 主 blocker、保留/已耗价值、复查条件可读；拒绝不编造成功/退款；恢复后的文案随事实更新。某种补足操作不存在时，记录可用的安全下一决策及功能缺口。 |
-| R5：跨入口同义 | 对同一主体、world/profile/window，用原 pure API 授权读入口取状态，与 Viewer 的目标、blocker、完成边界、结果和下一步逐项对照。另需验证 canonical 生产 smoke 时，沿[首产物合同 §5](../../game/gameplay/gameplay-industrial-starter-completion-contract.prd.md#5-exactly-once、replay-与跨-surface-验收)及[原脚本](../../../scripts/oasis7-pure-api-parity-smoke.sh)选择其已有参数。 | 逐项含义一致而非仅字符串相似。smoke 会执行真实建厂/排产，须使用相应隔离测试世界；它自身的另一窗口结果不代替本次同世界双入口 join，也不证明灾备或 Agent parity。 |
+| R5：跨入口同义 | 对同一主体、world/profile/window，用原 pure API 授权读入口取状态，与 Viewer 的目标、blocker、完成边界、结果和下一步逐项对照。另需验证 canonical 生产 smoke 时，沿[首产物合同 §5](../../game/gameplay/gameplay-industrial-starter-completion-contract.prd.md#5-exactly-oncereplay-与跨-surface-验收)及[原脚本](../../../scripts/oasis7-pure-api-parity-smoke.sh)选择其已有参数。 | 逐项含义一致而非仅字符串相似。smoke 会执行真实建厂/排产，须使用相应隔离测试世界；它自身的另一窗口结果不代替本次同世界双入口 join，也不证明灾备或 Agent parity。 |
 | R6：语言与可访问性 | 对 R1/R2/R4 的实际页面按 [PW-ACCESSIBILITY](../../testing/manual/pixel-world-visualization-validation.manual.md#pw-accessibility)选桌面、窄屏、zh/en、长中文、文字放大和 reduced motion；用 Tab/Shift+Tab、返回/Escape 及原可用触控路径完成查看。 | 四个决策锚点、主要成本、动作和返回入口不被裁切；缺译文/字体如实降级，切语言不改世界结果；焦点不被更新夺走。记录实际覆盖组合，图形故障仅在实际注入并观察到时另按 PW-RECOVERY 计入。 |
 | R7：本人结果与其他主体 | 在两名已鉴权玩家各自已有可信反馈后，分别由本人、另一玩家及匿名连接发起其有权尝试的拒绝请求；交叉刷新、重连/换身份并观察各自原反馈。 | 请求方只读本人可见拒绝；另一玩家反馈不被覆盖，匿名失败不归属已鉴权玩家；换身份不残留旧私有结果。公开世界事件仍可存在但不冒充个人回执。没有两个独立主体时记未执行。 |
 
@@ -137,6 +137,7 @@ R3/R7 若出现权限泄露、重复效果或错误归因，先保留 exact fail
 
 | 所观察状态 | 提问与正确语义 |
 | --- | --- |
+| C01～C03 的分工与确认 | “这次由你决定什么，Agent 实际会做什么？确认后要承担什么？”答案对应当前目标、约束、主要投入及适用期限/风险；区分已接入的授权代办与仍由玩家直接提交的步骤，不把解释或意图接受当作 Agent 已经执行。 |
 | C01/C03/C04 | “现在的目标、主要阻塞和下一步是什么？”答案必须对应当前对象与真实条件；不能把独立查询理解成已经配置提交。 |
 | C05/C06 | “世界已经发生了什么，什么还没确认？”当前权威确认的已接受未开始与正在执行未结算须分清；只有旧 accepted/无 receipt 且无法确认当前结果时答未知，不能答确定失败、未生效或再生产一次。 |
 | C07/C08 | “已经得到什么、属于谁，下一项现在能做什么？”分清实际首笔铁锭、归属、候选资格与尚待满足的建设条件；不回答已经稳定/交付/建成 Assembler。 |
@@ -146,7 +147,7 @@ R3/R7 若出现权限泄露、重复效果或错误归因，先保留 exact fail
 
 新目标文案未进入实际候选时，可另做标明“静态稿”的概念审读，但不能计为上述运行理解。缺真人参与则记未执行，作者自测、模型 persona 和 UI 单测均不能替代。继续意愿、经营分支和 Agent 主体感若需结论，仍按[首局分项验证](../../product/world-rules-core-gameplay/first-session-and-continuation.design.md#val-first-decision-sample)独立组织，不由本手册的识读结果推导。
 
-需要把识读与首局目标、真实选择、Agent 委托和返回后的继续行为连成实际研究时，按[首局真人试玩手册](../../testing/manual/first-session-human-playtest.manual.md)执行筛选、两次会话、提示与原始记录；本节的局部可读性判据保持原范围，各分项分别报告。
+完整首局的[独立游玩目标](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#minimum-independent-play)继续按[首局真人试玩手册的一般自主观察](../../testing/manual/first-session-human-playtest.manual.md#human-study-independent-play)核验：把识读、真实选择、实际分工和返回后的继续行为连起来，观察一个未被逐步指定答案的真实下一决定；生产后的单约束迁移仍按该手册 §7 单独取证。需要提示时记录介入，提示后的完成仍单独报告；当前候选没有实际委托能力时，代办行为与主体感保持未覆盖，分工认知按实际事实观察。此处新增分工识读题不改变原局部可读性判据，也不替代独立行为、主体感或继续动机的结论。
 
 ## 7. 结果与复测范围
 

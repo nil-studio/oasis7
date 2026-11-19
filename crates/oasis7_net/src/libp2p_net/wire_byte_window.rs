@@ -180,23 +180,27 @@ impl WireByteWindow {
 
     #[cfg(test)]
     pub(super) fn with_aged_first_read(limits: WireByteLimits, age: Duration) -> (Self, Instant) {
-        let mut window = Self::new(limits).unwrap();
-        window.origin -= age;
-        let expiry = window.bucket_expiry(window.origin).unwrap();
-        window
-            .state
-            .get_mut()
+        let window = Self::new(limits).unwrap();
+        let expiry = window.seed_aged_first_read(age);
+        (window, expiry)
+    }
+
+    #[cfg(test)]
+    pub(super) fn seed_aged_first_read(&self, age: Duration) -> Instant {
+        let expiry = self.bucket_expiry(self.origin).unwrap() - age;
+        self.state
+            .lock()
             .unwrap()
             .record(
                 Direction::Read as usize,
                 Charge {
-                    actual: limits.total,
+                    actual: self.limits.total,
                     conservative: 0,
                 },
                 expiry,
             )
             .unwrap();
-        (window, expiry)
+        expiry
     }
 
     pub(super) fn with_diagnostics(
@@ -404,6 +408,7 @@ struct Reservation {
 impl Reservation {
     fn apply(
         mut self,
+        yamux_write_zero: bool,
         operation: impl FnOnce(usize) -> Poll<io::Result<usize>>,
     ) -> Poll<io::Result<usize>> {
         let allowance = usize::try_from(self.amount).map_err(|_| invalid())?;
@@ -415,6 +420,11 @@ impl Reservation {
                 conservative: 0,
             },
             Poll::Pending => Charge::default(),
+            Poll::Ready(Err(ref error))
+                if yamux_write_zero && error.kind() == io::ErrorKind::WriteZero =>
+            {
+                Charge::default()
+            }
             // The erased transport does not expose a reliable progress count on error.
             Poll::Ready(_) => Charge {
                 actual: 0,
@@ -444,9 +454,19 @@ impl Drop for Reservation {
 }
 
 #[derive(Default)]
-pub(super) struct BudgetWait(Option<BoxFuture<'static, ()>>);
+pub(super) struct BudgetWait {
+    wait: Option<BoxFuture<'static, ()>>,
+    yamux_write_zero: bool,
+}
 
 impl BudgetWait {
+    pub(super) fn for_write(yamux_write_zero: bool) -> Self {
+        Self {
+            wait: None,
+            yamux_write_zero,
+        }
+    }
+
     pub(super) fn poll(
         &mut self,
         window: &Arc<WireByteWindow>,
@@ -458,17 +478,20 @@ impl BudgetWait {
         if requested == 0 {
             return Poll::Ready(Ok(0));
         }
-        if let Some(wait) = &mut self.0 {
+        if let Some(wait) = &mut self.wait {
             ready!(wait.as_mut().poll(cx));
-            self.0 = None;
+            self.wait = None;
         }
         match window.reserve(direction, requested)? {
-            Admission::Granted(permit) => permit.apply(|len| operation(len, cx)),
+            Admission::Granted(permit) => permit.apply(
+                self.yamux_write_zero && matches!(direction, Direction::Write),
+                |len| operation(len, cx),
+            ),
             Admission::Stalled(mut wait) => {
                 if wait.as_mut().poll(cx).is_ready() {
                     cx.waker().wake_by_ref();
                 } else {
-                    self.0 = Some(wait);
+                    self.wait = Some(wait);
                 }
                 Poll::Pending
             }
@@ -520,7 +543,7 @@ mod tests {
         );
         assert!(stalled.is_pending());
         assert!(matches!(
-            permit.apply(|_| Poll::Ready(Ok(4))),
+            permit.apply(false, |_| Poll::Ready(Ok(4))),
             Poll::Ready(Ok(4))
         ));
         assert!(
@@ -543,10 +566,14 @@ mod tests {
             ))
             .is_pending()
         );
-        assert!(permit.apply(|_| Poll::Pending).is_pending());
+        assert!(permit.apply(false, |_| Poll::Pending).is_pending());
         let uncertain = wait.poll(&window, cx, Direction::Write, 2, |len, _| {
             assert_eq!(len, 2);
-            Poll::Ready(Err(io::Error::other("unobserved transport progress")))
+            // A generic erased stream's error kind alone does not prove progress.
+            Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::WriteZero,
+                "unobserved transport progress",
+            )))
         });
         assert!(matches!(uncertain, Poll::Ready(Err(_))));
         let Admission::Granted(permit) = window.reserve(Direction::Read, 4).unwrap() else {
@@ -554,7 +581,7 @@ mod tests {
         };
         assert_eq!(permit.amount, 2);
         assert!(matches!(
-            permit.apply(|_| Poll::Ready(Ok(1))),
+            permit.apply(false, |_| Poll::Ready(Ok(1))),
             Poll::Ready(Ok(1))
         ));
         let state = window.state.lock().unwrap();

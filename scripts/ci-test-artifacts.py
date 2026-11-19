@@ -2370,14 +2370,31 @@ def cache_record(state, message, *, ordinary_baseline=False):
                 if path.parent.name == 'deps' and match:
                     hashed.append((path.parent.parent, match.group(1)))
             if not hashed:
-                # Cargo reports only the public path for a normal binary. Its
-                # concrete deps output is a hard link, not a guessed crate hash.
+                # Cargo reports the public executable and can copy its deps
+                # output on filesystems that cannot link it directly.
                 public = target_root / filenames[0]
                 profile = Path(filenames[0]).parent
+                executable = message.get('executable')
+                is_public_bin = (message['target']['kind'] == ['bin'] and executable
+                                 and _cache_relative(state, executable) == filenames[0])
+                copies = []
                 for candidate in (target_root / profile / 'deps').glob(target_name + '-*'):
                     match = pattern.fullmatch(candidate.name)
-                    if match and candidate.is_file() and os.path.samefile(public, candidate):
-                        hashed.append((profile, match.group(1)))
+                    if not match or candidate.is_symlink() or not candidate.is_file():
+                        continue
+                    unit = (profile, match.group(1))
+                    if os.path.samefile(public, candidate):
+                        hashed.append(unit)
+                    elif (candidate.name == target_name + '-' + unit[1]
+                          and is_public_bin
+                          and candidate.stat().st_size == public.stat().st_size):
+                        fingerprint = (profile / '.fingerprint' / (package + '-' + unit[1])
+                                       / ('bin-' + target_name)).as_posix()
+                        if _cache_path(target_root, fingerprint).is_file():
+                            copies.append((unit, candidate))
+                if not hashed and copies:
+                    public_digest = digest(public)
+                    hashed = [unit for unit, candidate in copies if digest(candidate) == public_digest]
             if not hashed and _cache_defer_unhashed_library(state, message, package, filenames):
                 return
             if len(set(hashed)) != 1:
@@ -2850,11 +2867,11 @@ def formal_parallel_cases(config):
     return result
 
 
-def execute_inline_jobs(jobs, results, *, formal=False, shard=None, ordinary_partition=None):
+def execute_inline_jobs(jobs, results, *, formal=False, shard=None, ordinary_partition=None, artifact_partition=False):
     """Run complete validated jobs, with one receipt and owner per child."""
     from ci_process_runner import run
     cpus = native_cpu_budget()
-    workers = min(4 if formal else 1 if ordinary_partition not in (None, 'all') else 2, cpus, len(jobs))
+    workers = min(4 if formal else 2 if (ordinary_partition in (None, 'all') or artifact_partition) else 1, cpus, len(jobs))
     threads = 1 if formal else max(1, cpus // workers)
     # An existing lower limit remains useful; never multiply libtest's normal
     # CPU-sized pool by the number of concurrently running harnesses.
@@ -3238,9 +3255,11 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
         if (entry.get('binary'), name) in resources:
             job['cpu_weight'] = resources[(entry['binary'], name)]
         jobs.append(job)
-    if formal or inline:
+    native_artifact_partition = artifact_partition and plan.get('ordinary_artifact_partition_version') == 2
+    if formal or inline or native_artifact_partition:
         execute_inline_jobs(jobs, results, formal=formal, shard=shard,
-                            ordinary_partition=manifest.get('ordinary_partition'))
+                            ordinary_partition=manifest.get('ordinary_partition'),
+                            artifact_partition=native_artifact_partition)
         return
     failed = False
     for job in jobs:

@@ -207,6 +207,7 @@ fn handle_command_request_uses_swarm_connections_when_runtime_peers_are_empty() 
             protocol: "/aw/test/runtime-empty-request/1.0.0".to_string(),
             payload: b"ping".to_vec(),
             providers: Vec::new(),
+            deadline: None,
             response: sender,
         }),
         CommandStateRefs {
@@ -321,6 +322,7 @@ fn handle_command_request_uses_active_transport_peer_when_snapshots_are_empty() 
             protocol: "/aw/test/active-transport-request/1.0.0".to_string(),
             payload: b"ping".to_vec(),
             providers: vec![active_peer.to_string()],
+            deadline: None,
             response: sender,
         }),
         CommandStateRefs {
@@ -439,6 +441,7 @@ fn handle_command_request_to_peer_accepts_active_transport_peer() {
             protocol: "/aw/test/active-transport-request-to-peer/1.0.0".to_string(),
             payload: b"ping".to_vec(),
             peer: active_peer,
+            deadline: None,
             response: sender,
         }),
         CommandStateRefs {

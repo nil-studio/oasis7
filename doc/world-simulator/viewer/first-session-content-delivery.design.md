@@ -7,7 +7,7 @@
 
 ## 1. 问题、目标与范围
 
-现有产品设计已经说明“先完成一笔可解释的生产”，Viewer 已有成果卡、反馈、恢复预览和示意稿。本专题补齐它们作为可维护内容的交接：什么事实可以写成什么话、哪些内容能复用、编辑源在哪里、如何检查后交给实际入口。
+首局以[最小可独立游玩](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#minimum-independent-play)为学习目标，一笔可解释的生产是其中的体验载体。Viewer 已有成果卡、反馈、恢复预览和示意稿。本专题补齐它们作为可维护内容的交接：什么事实可以写成什么话、哪些内容能复用、编辑源在哪里、如何检查后交给实际入口。
 
 玩家应能从同一对象的内容读出当前目标、本次投入、已确认结果、主要阻塞与下一步，并分清首笔铁锭、持续生产能力、Assembler 候选及交付。本设计拥有内容单元、表达与制作规格；产品选择沿[首局配对设计](../../product/world-rules-core-gameplay/first-session-and-continuation.design.md#des-first-concrete-sample)，页面布局沿[首局交互](viewer-gameplay-release-experience-overhaul.design.md#starter-plan-interaction)，不复制数值、权限、状态机或进度权威。
 
@@ -58,10 +58,12 @@
 
 下列 C01～C09 仅为本专题编辑单元，不是新要求 ID。引号内是可供实施采用的**中文设计目标文案**；标为“源码已有”的句子直接复用原文。花括号表示必须取自同一合法来源的值，不是新增 DTO。未发布的值写明未知或未发布，不填零，也不从叙事推算。
 
+C01～C03 在当前目标旁说明本次分工：玩家选择目标、约束及主要承诺，Agent 仅代办当前已接入且有有效授权的步骤；仍需玩家直接提交的步骤明确标出。主要投入及适用的期限、风险在确认前可读，原请求标识、账本和规则证据按需展开；涉及新增承诺、超出现有授权或实质改道的方案变化交回玩家决定。没有实际委托接点时保留这一能力缺口，不能用“Agent 会处理”补足流程。高层指导的既有解释复用 [H02](viewer-localization-and-context-help.design.md#help-command)。
+
 | 单元与触发事实 | 玩家首读与反馈内容 | 表达依据与实际入口 | 未证或不可替代范围 |
 | --- | --- | --- | --- |
-| C01：同一 fresh feasibility 给出当前可用首局候选 | “生产第一笔铁锭，为评估 Assembler 建设准备材料。”同时说明当前对象、主要投入/缺口与可选的暂缓路径；无安全链时改为“当前无法确认安全的首产物方案：{原因}。” | [首局样本](../../product/world-rules-core-gameplay/first-session-and-continuation.design.md#des-first-concrete-sample)；原 Next Move | 采用目标不扣料；候选不是已建成或已具备全部投入。 |
-| C02：尚无合法可用 Smelter，或建厂结果已确认 | 准备时显示“先核对 Smelter 的建造条件”；接受时显示“建厂请求已接受，等待建设结果”；只有真实建成后转为工厂就绪。已有合法工厂直接核对当前状态。 | [首产物因果链](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-002)；原建设动作与行动回执 | 选中模型、建造预览或接受均不是建成；不承诺 Agent 已支持代建。 |
+| C01：同一 fresh feasibility 给出当前可用首局候选 | “生产第一笔铁锭，再评估后继生产能力。”同时说明当前对象、主要投入/缺口与可选的暂缓路径；无安全链时改为“当前无法确认安全的首产物方案：{原因}。” | [首局样本](../../product/world-rules-core-gameplay/first-session-and-continuation.design.md#des-first-concrete-sample)；原 Next Move | 采用目标不扣料；开放 Assembler 候选不表示铁锭已转入其建设消费账本，材料可用性仍按实际取得/转移事实核对。 |
+| C02：尚无合法可用 Smelter，或建厂结果已确认 | 准备时先表达可用地点、建设资格和可支配建材的当前缺口、取得路径及主要承诺；接受时显示“建厂请求已接受，等待建设结果”；只有真实建成后转为工厂就绪。已有合法工厂直接核对当前状态。 | [普通账号首厂路径](../../product/world-rules-core-gameplay/ordinary-account-first-factory-bootstrap.design.md)、[首产物因果链](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#req-first-industrial-002)；原合法取得/建设动作与行动回执 | 缺少实际取得入口时说明 blocker 和真实替代/暂缓路径，不以预置资产代替；选中、预览或接受均不是建成，不承诺 Agent 已支持代建。 |
 | C03：取得与正式动作同源的固定方案/报价 | “核对本次方案：{工厂} · {配方} · {批次}。”呈现实际材料、能源、消费账本、预计产出与副产物等已发布决策信息；独立可编辑查询标“仅查询，尚未配置提交方案”。 | [M4 同方案绑定](../m4/industrial-resource-flow-contract.design.md#starter-quote-submit-binding)；现有 Gameplay Details/Quote | 报价不预留资源；未发布单位不自造 kWh 等单位；未知副产物不按“没有副产物”展示。 |
 | C04：当前权威主 blocker 或明确拒绝 | “当前受阻：{主要原因}。”随后列当前已保留/已消费值、真实可用动作及复查条件；材料不足指向当前消费账本，电力不足指向当前有效约束。无可执行恢复只交还下一决策。 | [恢复查询](viewer-gameplay-release-experience-overhaul.design.md#subject-capability-recovery-query)、[失败说明](../../product/agents-world-simulation/player-readable-surface-continuity.prd.md#req-agent-surface-004)；原 blocker/fallback 区 | 等待、补足、减量、改道只在当前动作真实支持时出现；现有 fallback 比较卡本身没有执行按钮。 |
 | C05：当前适用权威状态明确确认尚未结算，并能区分已接受未开始与正在执行 | 已接受未开始：“生产请求已接受，尚未开始生产。”正在执行：“正在生产，尚未结算。”同时保留当前主要阻塞与下一复查条件；只展示权威已确认的阶段。 | [五阶段结算](../../game/gameplay/gameplay-industrial-starter-completion-contract.prd.md#3-五阶段结算表)、[状态置信度](../../product/agents-world-simulation/player-readable-surface-continuity.prd.md#41-重叠状态的主语义与真值优先级)；原行动回执 | 旧 accepted 或缺 receipt 不能证明当前尚未生效；无法确认当前结果转 C06。排队、扣减和世界动态不使用成果完成表达。 |
@@ -96,7 +98,7 @@
 <a id="native-three-batch-fixture"></a>
 ### 3.6 原生三批方案的具体交接
 
-[可操作首局原型](assets/ui-ux/interactive/index.html#industry)、[方案稿](assets/ui-ux/full-function/gameplay/frames/industrial-native-plan.svg)和[结果稿](assets/ui-ux/full-function/gameplay/frames/industrial-native-result.svg)使用下列固定**设计 fixture**，承接 C03～C09。它们没有连接 Runtime；切换示例条件和推进状态只改变演示，不能登记为真实生产、网络恢复或真人验证。旧 `industrial-settled.svg` 的 36/48/24 是原字段排版示例，不能作为这套完整 native 方案的数值来源。
+[可操作首局原型](assets/ui-ux/interactive/index.html)的“03 首局生产”入口、[方案稿](assets/ui-ux/full-function/gameplay/frames/industrial-native-plan.svg)和[结果稿](assets/ui-ux/full-function/gameplay/frames/industrial-native-result.svg)使用下列固定**设计 fixture**，承接 C03～C09。它们没有连接 Runtime；切换示例条件和推进状态只改变演示，不能登记为真实生产、网络恢复或真人验证。旧 `industrial-settled.svg` 的 36/48/24 是原字段排版示例，不能作为这套完整 native 方案的数值来源。
 
 | 项目 | 固定设计输入与表达 | 原依据及实施时的绑定 |
 | --- | --- | --- |
@@ -117,7 +119,7 @@
 <a id="native-first-session-journey"></a>
 ### 3.7 从方案到回访的操作顺序
 
-统一入口保持 World / Targets / Command，不增加第二个执行面。原型从已有工厂的固定方案开始；未建厂的 C02 继续使用原建设合同。表内状态是互斥场景，静态方案稿仅画“可行报价”，结果稿仅画“已结算摘要 / 副产物未发布”。其余场景在原型逐步查看，不把一句说明计作额外状态截图。
+统一入口保持 World / Targets / Command，不增加第二个执行面。原型仍只覆盖从已有工厂固定方案开始的生产片段；普通账号先沿 C02 核对合法地点、建设资格与建材，明确可用路径或主要阻塞，再进入该片段。完整入口在采用目标和确认方案时承接 C01～C03 的实际分工与主要承诺，不把原型已画范围当成普通账号全流程已交付。表内状态是互斥场景，静态方案稿仅画“可行报价”，结果稿仅画“已结算摘要 / 副产物未发布”。其余场景在原型逐步查看，不把一句说明计作额外状态截图。
 
 | 阶段与触发 | 主读面和允许操作 | 状态交接与验收要点 |
 | --- | --- | --- |
@@ -127,6 +129,8 @@
 | 原结果未知 | “原操作结果尚未确认”；提供当前确实支持的“核对原请求结果”及返回 | 只读查询携带原身份；不生成新身份重试生产。查询不可用、限流、断连或无历史仍保留未知，并说明可用的下一复查条件；查询失败不改写原操作为拒绝。 |
 | 匹配结算 | Action Receipt 显示实际投入、铁锭 `9`、配方用电 `24`、owner、job/tick；副产物按 §3.6 的实际投影分支显示 | 有限确认 `production_only`；不自动弹奖励、不夺焦点，不把首笔生产升级为稳定、交付或额外奖励。 |
 | 后继 / 回访 | 可查看 Assembler 候选的当前条件，或自然返回 World；重入显示“上次已结算”与原 job | `9/10` 标明仅本笔产出比较。重入不再次庆祝、产生收益或自动建设；新对象选择不把 Agent A 的原件归给其他主体。权限改变时不恢复旧私有缓存。 |
+
+完整旅程的后继承接应让玩家依据当前结果和条件选择继续、恢复、改道或停止。渐进帮助可以解释当前原因和操作位置；在下一次未被逐步指定答案的决定中观察是否能够自主判断，保留正常状态与帮助入口。学习结果按[主责目标](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#minimum-independent-play)及[真人观察](first-session-content-delivery.manual.md#fs-content-player)单独核验，不从生产成功、界面进度或点完推荐路径推导。
 
 窄屏沿相同 DOM 阅读顺序将方案/原件作为单一上下文面展开，返回入口始终可达。焦点回到打开它的控件；未知到已结算的更新使用状态说明而不跳焦点。具体桌面与窄屏、键盘、长文和 reduced motion 组合按[设计原型走查](first-session-content-delivery.manual.md#fs-content-prototype)记录；这些设计操作不能代替正式入口及真人验收。
 
@@ -143,7 +147,7 @@
 | 首产物双语卡；Viewer | [成果卡](../../../crates/oasis7_viewer/software_safe_src/industrial_starter_outcome_card.jsx)、[归一化](../../../crates/oasis7_viewer/software_safe_src/industrial_starter_outcome.js)，由既有 Viewer 构建消费 | 源码可读；实际值依赖 `starter_industrial_feasibility`。本次没有目标环境加载结果 | Git 可定位源代码；本次未逐项核验全部内容作者/来源或商业素材权利。 |
 | 首产物示意稿；视觉交互设计 | [industrial-settled.svg](assets/ui-ux/full-function/gameplay/frames/industrial-settled.svg)，可编辑 SVG，1440×1000；引用 `Noto Sans CJK SC`；原 [R-GAME-18](viewer-gameplay-details-uiux.design.md#r-game-18) 为字段说明 | 文档参考，不是 runtime 资源。36/48/24 等均为示例；不覆盖当前完整 native 配方、字体实装和运行画面 | Git 版本与字体名称可核；文件未附逐项作者/授权凭证。本次未核字体文件、取得来源、再分发许可与署名要求。 |
 | 原生三批方案稿；视觉交互设计 | [industrial-native-plan.svg](assets/ui-ux/full-function/gameplay/frames/industrial-native-plan.svg)，可编辑 SVG，1440×900；`Noto Sans CJK SC` | 设计目标：完整三批方案、工厂输入账本、预计副产物与唯一显式提交；共享俯视像素场景是非权威示意，消费数值沿 [§3.6](#native-three-batch-fixture) | 本次仓库原生像素几何与文字；复用深绿／金色关系，不打包字体或外部图像，字体许可仍按实际消费核验。 |
-| 原生三批结果稿；视觉交互设计 | [industrial-native-result.svg](assets/ui-ux/full-function/gameplay/frames/industrial-native-result.svg)，可编辑 SVG，1440×900；同上字体；[可操作旅程](assets/ui-ux/interactive/index.html#industry)承接其余状态 | 设计目标：已结算摘要、副产物未发布、有限完成与后继比较；可操作原型使用 fixture，不能作为生产实现、运行复验或真人理解通过 | 同上原生向量来源；完整结算原件的副产物消费是明确待接入边界，静态图与浏览器演示不授予读取或执行能力。 |
+| 原生三批结果稿；视觉交互设计 | [industrial-native-result.svg](assets/ui-ux/full-function/gameplay/frames/industrial-native-result.svg)，可编辑 SVG，1440×900；同上字体；[可操作旅程](assets/ui-ux/interactive/index.html)中的“03 首局生产”承接其余状态 | 设计目标：已结算摘要、副产物未发布、有限完成与后继比较；可操作原型使用 fixture，不能作为生产实现、运行复验或真人理解通过 | 同上原生向量来源；完整结算原件的副产物消费是明确待接入边界，静态图与浏览器演示不授予读取或执行能力。 |
 | 共享像素世界；视觉交互设计 | [atlas.svg](assets/ui-ux/pixel-world/atlas.svg)、[scene.svg](assets/ui-ux/pixel-world/scene.svg) 与 [build.py](assets/ui-ux/pixel-world/build.py)；场景 320×180、tile／Agent 16×16、Smelter 48×48；尺寸、锚点、导出和消费者沿[像素素材合同](viewer-world-visual-content-delivery.design.md#pixel-world-design-assets) | 方案／结果与图 16／17 内嵌同源几何，原型加载派生 PNG；HUD 不栅格化。均为设计消费，尚未成为 Bevy 的贴图包或真实工厂布局 | 本次代码原生像素素材，无外部图片／模型输入。图形色彩、矿点和建筑外观不声明实际库存、可建造性或运行状态。 |
 | 阻塞、无安全方案与世界构图参考；视觉交互设计 | [goal-execution-blocked.svg](assets/ui-ux/full-function/gameplay/frames/goal-execution-blocked.svg)、[fallback-choices.svg](assets/ui-ux/full-function/gameplay/frames/fallback-choices.svg)、[fallback-no-safe.svg](assets/ui-ux/full-function/gameplay/frames/fallback-no-safe.svg)、[W01](assets/ui-ux/full-function/world-diagnostics/W01-world-targets.svg)、[W09](assets/ui-ux/full-function/world-diagnostics/W09-narrow-world.svg)；字段关系沿 [R-GAME-11](viewer-gameplay-details-uiux.design.md#r-game-11)/[R-GAME-15](viewer-gameplay-details-uiux.design.md#r-game-15) | 可编辑参考；只承接各自画出的状态，不提供未画出的所有首局帧，也不作为生产世界渲染实现 | 可核仓库文件及固定版本；外部依赖与逐项权利未完整审定，不能把仓库 LICENSE 当成所有素材自动授权。 |
 

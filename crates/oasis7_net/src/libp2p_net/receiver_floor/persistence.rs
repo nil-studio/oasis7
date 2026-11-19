@@ -65,6 +65,8 @@ pub(super) fn initialize(
         binding: binding.clone(),
         mode,
         floors: Default::default(),
+        pruned_trusted_time_watermark_ms: None,
+        pre_migration_v1_expiries: Default::default(),
     };
     let empty_state_bytes = durable_files::canonical_cbor(&empty_state)?;
 
@@ -207,11 +209,13 @@ pub(super) fn open(
         ));
     }
     super::validate_loaded_ledger(&ledger)?;
+    let last_trusted_now_ms = ledger.pruned_trusted_time_watermark_ms;
     Ok(DurableReceiver {
         directory: directory.to_path_buf(),
         _lock: lock,
         ledger,
         poisoned: false,
+        last_trusted_now_ms,
     })
 }
 
@@ -439,6 +443,8 @@ mod tests {
             binding: binding.clone(),
             mode,
             floors: Default::default(),
+            pruned_trusted_time_watermark_ms: None,
+            pre_migration_v1_expiries: Default::default(),
         })
         .expect("encode empty receiver state");
 

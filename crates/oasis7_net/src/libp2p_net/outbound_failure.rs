@@ -34,6 +34,13 @@ pub(super) fn request_failure_world_error(
 ) -> WorldError {
     let cause = match &error {
         request_response::OutboundFailure::Timeout => FailureCause::Timeout,
+        request_response::OutboundFailure::Io(error)
+            if error.get_ref().is_some_and(|cause| {
+                cause.is::<super::request_deadline::RequestDeadlineElapsed>()
+            }) =>
+        {
+            FailureCause::Timeout
+        }
         request_response::OutboundFailure::ConnectionClosed
         | request_response::OutboundFailure::DialFailure => FailureCause::ConnectionGap,
         request_response::OutboundFailure::Io(error)

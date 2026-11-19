@@ -125,7 +125,7 @@ Trace refs: O7-REQ-e20ed8c7-6f8d-400a-a883-57b2e772acff；[REQ-ENTRY-CLAIM-001](
   - `doc/p2p/blockchain/formal-network-tiers-testnet-mechanism.runbook.md`
   - `testing-manual.md`
   - `scripts/release-candidate-bundle.sh`
-  - `scripts/shared-network-track-gate.sh`
+  - `scripts/network-rehearsal-track-gate.sh`
 - Edge Cases & Error Handling:
   - 若一个环境只有 shared operator access、没有 public RPC/explorer/faucet，则最多仍是 `shared_devnet`，不能叫 `public_testnet`。
   - 若 `public_testnet` 没有 reset policy 或默认宣称“永不重置”，则必须判定 schema 语义冲突，避免与 mainnet 边界重叠。

@@ -211,6 +211,55 @@ pub(super) fn initialize_default_peer_record_receiver(options: &CliOptions) -> R
     }
 }
 
+pub(super) fn prune_default_peer_record_receiver(options: &CliOptions) -> Result<(), String> {
+    if !options.prune_peer_record_receiver {
+        return Err("prune requested without --prune-peer-record-receiver".into());
+    }
+    if options.formal_live_config.is_some() || options.guarded_initial_config.is_some() {
+        return Err(
+            "--prune-peer-record-receiver applies only to the development host runtime".into(),
+        );
+    }
+    let trusted_now_ms = options
+        .peer_record_trusted_time_unix_ms
+        .filter(|t| *t > 0)
+        .ok_or_else(|| {
+            "--prune-peer-record-receiver requires a valid positive --peer-record-trusted-time-unix-ms"
+                .to_string()
+        })?;
+    #[cfg(not(unix))]
+    {
+        let _ = (options, trusted_now_ms);
+        return Err("durable peer-record reception requires Unix filesystem guarantees".into());
+    }
+    #[cfg(unix)]
+    {
+        let config_path = Path::new(options.config_path.as_str());
+        let config_path = if config_path.is_absolute() {
+            config_path.to_path_buf()
+        } else {
+            std::env::current_dir()
+                .map_err(|error| error.to_string())?
+                .join(config_path)
+        };
+        let root_keypair = node_keypair_config::read_existing_legacy_keypair(&config_path)?;
+        let paths = super::resolve_runtime_paths(options);
+        let mut network_config =
+            build_default_peer_record_network_config(options, &root_keypair, &paths)?;
+        network_config.peer_record_publication_directory = None;
+        let retained_peers: std::collections::BTreeSet<String> =
+            options.peer_record_retained_peers.iter().cloned().collect();
+        let pruned = Libp2pReplicationNetwork::prune_peer_record_receiver(
+            &network_config,
+            trusted_now_ms,
+            &retained_peers,
+        )
+        .map_err(|err| format!("failed to prune durable peer-record receiver: {err:?}"))?;
+        tracing::info!(pruned = pruned, "pruned expired receiver floors");
+        Ok(())
+    }
+}
+
 pub(super) fn initialize_default_peer_record_publication(
     options: &CliOptions,
 ) -> Result<(), String> {

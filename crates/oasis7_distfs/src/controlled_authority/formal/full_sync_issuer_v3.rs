@@ -251,8 +251,17 @@ impl DurableFullSyncIssuerV3 {
         request: SignedFullSyncProviderLeaseRequestV3,
         witness: &mut dyn FullSyncIssuerWitnessV3,
     ) -> Result<FullSyncIssuerCommittedEntryV3, FormalError> {
-        self.ensure_healthy()?;
-        let state = self.synchronize_v3(witness)?;
+        self.issue_lease_at(request, None, witness)
+    }
+
+    fn issue_lease_at(
+        &mut self,
+        request: SignedFullSyncProviderLeaseRequestV3,
+        requested_minimum: Option<&FullSyncIssuerAnchorV3>,
+        witness: &mut dyn FullSyncIssuerWitnessV3,
+    ) -> Result<FullSyncIssuerCommittedEntryV3, FormalError> {
+        let minimum = requested_minimum.unwrap_or(&self.minimum_anchor).clone();
+        let (state, _) = self.synchronize_v3_at(witness, minimum, random_nonce()?)?;
         let pending = match read_pending_any(&self.directory)? {
             Some(ReadPendingFile::V3(pending)) => Some(*pending),
             Some(ReadPendingFile::V2(_)) => {
@@ -327,14 +336,67 @@ impl DurableFullSyncIssuerV3 {
         Ok(decision.entry().clone())
     }
 
+    /// Handle evidence after the trusted service independently authenticates
+    /// the provider and authorizes disclosure of complete issuer history.
+    /// A read without the separate signed lease request cannot sign a lease.
+    pub fn read_evidence_for_provider(
+        &mut self,
+        access: &FullSyncIssuerHistoryAccessV3<'_>,
+        request: FullSyncReadEvidenceQueryV3,
+        witness: &mut dyn FullSyncIssuerWitnessV3,
+    ) -> Result<FullSyncIssuerReadEvidenceV3, FormalError> {
+        let nonce = request.verify_provider(access, &self.policy)?;
+        if let Some(lease) = request.provider_lease_request {
+            self.issue_lease_at(lease, Some(&request.minimum_anchor), witness)?;
+        }
+        self.read_evidence(request.minimum_anchor, nonce, witness)
+    }
+
+    /// Produce nonce-bound raw evidence for an already authorized service
+    /// caller. This neither issues a provider lease nor grants access to issuer
+    /// history; the service must authenticate its caller independently.
+    pub fn read_evidence(
+        &mut self,
+        minimum_anchor: FullSyncIssuerAnchorV3,
+        observation_nonce: [u8; 32],
+        witness: &mut dyn FullSyncIssuerWitnessV3,
+    ) -> Result<FullSyncIssuerReadEvidenceV3, FormalError> {
+        let (state, observation) =
+            self.synchronize_v3_at(witness, minimum_anchor, observation_nonce)?;
+        Ok(FullSyncIssuerReadEvidenceV3 {
+            query: observation.body.query.clone(),
+            observation,
+            history: FullSyncIssuerHistoryV3 {
+                v2_entries: state.v2_prefix().to_vec(),
+                v3_entries: state.entries().to_vec(),
+            },
+        })
+    }
+
     fn synchronize_v3(
         &mut self,
         witness: &mut dyn FullSyncIssuerWitnessV3,
     ) -> Result<VerifiedFullSyncIssuerStateV3, FormalError> {
+        self.synchronize_v3_at(witness, self.minimum_anchor.clone(), random_nonce()?)
+            .map(|(state, _)| state)
+    }
+
+    fn synchronize_v3_at(
+        &mut self,
+        witness: &mut dyn FullSyncIssuerWitnessV3,
+        minimum: FullSyncIssuerAnchorV3,
+        nonce: [u8; 32],
+    ) -> Result<
+        (
+            VerifiedFullSyncIssuerStateV3,
+            SignedFullSyncIssuerObservationV3,
+        ),
+        FormalError,
+    > {
         self.ensure_healthy()?;
         let local = read_local_ledger(&self.directory)?;
         let pending = read_pending_any(&self.directory)?;
-        let observation = self.observe_v3_for_minimum(witness)?;
+        let observation = self.observe_v3(witness, minimum, nonce)?;
         let history = witness.history_v3(&observation)?;
         enforce_remote_bounds(&history)?;
         let remote = VerifiedFullSyncIssuerStateV3::from_witness_observation(
@@ -344,6 +406,10 @@ impl DurableFullSyncIssuerV3 {
             &observation,
         )?;
         verify_minimum_prefix(&remote, &self.minimum_anchor)?;
+        let requested_minimum = &observation.body.query.body.minimum_anchor;
+        if requested_minimum != &self.minimum_anchor {
+            verify_minimum_prefix(&remote, requested_minimum)?;
+        }
         verify_local_prefix(local.as_ref(), &remote)?;
         self.reconcile_pending_v3(pending.as_ref(), &remote)?;
         let repair = local
@@ -355,7 +421,7 @@ impl DurableFullSyncIssuerV3 {
         if pending_needs_clear(pending.as_ref(), &remote)? {
             clear_pending_v3(&self.directory)?;
         }
-        Ok(remote)
+        Ok((remote, observation))
     }
 
     fn reconcile_pending_v3(
@@ -550,16 +616,19 @@ impl DurableFullSyncIssuerV3 {
         Ok(())
     }
 
-    fn observe_v3_for_minimum(
+    fn observe_v3(
         &self,
         witness: &mut dyn FullSyncIssuerWitnessV3,
+        minimum: FullSyncIssuerAnchorV3,
+        nonce: [u8; 32],
     ) -> Result<SignedFullSyncIssuerObservationV3, FormalError> {
-        let query = SignedFullSyncIssuerQueryV3::sign(
-            &self.policy,
-            self.minimum_anchor.clone(),
-            random_nonce()?,
-            &self.lease_signer,
-        )?;
+        if minimum.policy_digest != self.policy.policy_digest()
+            || minimum.signer_generation != self.policy.body().signer_generation
+        {
+            return Err(invalid("V3 read evidence minimum policy binding"));
+        }
+        let query =
+            SignedFullSyncIssuerQueryV3::sign(&self.policy, minimum, nonce, &self.lease_signer)?;
         let observation = witness.observe_v3(&query)?;
         if observation.body.query != query {
             return Err(invalid("V3 witness response does not bind fresh query"));

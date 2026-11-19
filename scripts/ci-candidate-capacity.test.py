@@ -42,4 +42,29 @@ class Tests(unittest.TestCase):
    with patch.object(m.subprocess,"run",side_effect=AssertionError("du should not run by default")):
     m.reclaim([sdk],True)
    self.assertFalse(sdk.exists())
+ def test_async_worker_and_wait_roundtrip(self):
+  with tempfile.TemporaryDirectory() as t:
+   r=pathlib.Path(t).resolve();sdk=r/"sdk";sdk.mkdir();(sdk/"x").write_text("unused")
+   state=r/"sdk-reclaim.json"
+   with patch.object(m.subprocess,"Popen") as popen:
+    popen.return_value.pid=12345
+    info=m.start_reclaim(state,[sdk],True,min_bytes=1,min_inodes=1)
+    self.assertEqual(info["pid"],12345)
+    self.assertTrue(popen.called)
+   m.run_worker(state,[sdk],True,min_bytes=1,min_inodes=1)
+   self.assertFalse(sdk.exists())
+   with patch.object(m,"_pid_alive",return_value=False):
+    m.wait_reclaim(state,[sdk],timeout_seconds=5)
+ def test_wait_propagates_worker_failure_and_missing_status(self):
+  with tempfile.TemporaryDirectory() as t:
+   r=pathlib.Path(t).resolve();state=r/"sdk-reclaim.json"
+   status=state.with_suffix(".status.json");log=state.with_suffix(".log")
+   log.write_text("log\n")
+   state.write_text('{"pid":999999,"log_path":"%s","status_path":"%s","min_free_bytes":1,"min_free_inodes":1}'%(log,status))
+   with patch.object(m,"_pid_alive",return_value=False):
+    with self.assertRaisesRegex(RuntimeError,"exited without status"):
+     m.wait_reclaim(state,[],timeout_seconds=1)
+   status.write_text('{"done":true,"ok":false,"error":"PermissionError: denied"}')
+   with self.assertRaisesRegex(RuntimeError,"PermissionError: denied"):
+    m.wait_reclaim(state,[],timeout_seconds=1)
 if __name__=="__main__":unittest.main()

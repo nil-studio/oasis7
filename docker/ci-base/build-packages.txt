@@ -1,0 +1,12 @@
+build-essential
+libasound2-dev
+libudev-dev
+libwayland-dev
+libx11-dev
+libxcursor-dev
+libxi-dev
+libxinerama-dev
+libxkbcommon-dev
+libxrandr-dev
+pkg-config
+wayland-protocols

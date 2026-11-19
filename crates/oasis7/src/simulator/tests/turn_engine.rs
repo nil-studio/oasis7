@@ -1,7 +1,7 @@
 use crate::simulator::{
-    AgentBehavior, AgentDecision, AgentDecisionTrace, AsyncAgentTurnOutcome, AsyncTurnFeedback,
-    AsyncTurnId, AsyncTurnLifecycle, AsyncWorldEffect, FeedbackEnvelopeV1, MemoryWriteStore,
-    TurnEngine, TurnEngineError, TurnEnginePhase, TurnRequest,
+    AgentBehavior, AgentDecision, AsyncAgentTurnOutcome, AsyncTurnFeedback, AsyncTurnId,
+    AsyncTurnLifecycle, AsyncWorldEffect, FeedbackEnvelopeV1, MemoryWriteStore, TurnEngine,
+    TurnEngineError, TurnEnginePhase, TurnRequest,
 };
 
 use super::agent_cognition_identity::{
@@ -296,9 +296,4 @@ fn native_turn_engine_rejects_runtime_lease_before_compatibility_dispatch() {
     assert!(matches!(error, TurnEngineError::Runner(_)));
     assert_eq!(engine.active_turn_count(), 0);
     assert!(captured.lock().expect("capture lock").observation.is_none());
-}
-
-#[allow(dead_code)]
-fn _outcome_shape_is_stable(outcome: AsyncAgentTurnOutcome) -> Option<AgentDecisionTrace> {
-    outcome.decision_trace
 }

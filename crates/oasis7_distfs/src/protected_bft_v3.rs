@@ -6,6 +6,8 @@ mod binding;
 mod bootstrap_rotation;
 mod client;
 mod crypto;
+mod first_reservation;
+mod fresh_coverage;
 mod install;
 #[cfg(feature = "protected-bft-luna-key")]
 mod luna_key;
@@ -29,8 +31,8 @@ pub use successor_source::{
 };
 
 pub use backend::{
-    BFT_SIGNER_BACKEND_NAMESPACE_V3, BftSignerAcquireOutcomeV3, BftSignerBackendSnapshotV3,
-    BftSignerBackendV3,
+    BFT_SIGNER_BACKEND_NAMESPACE_V3, BftFreshCoverageSnapshotV1, BftSignerAcquireOutcomeV3,
+    BftSignerBackendSnapshotV3, BftSignerBackendV3,
 };
 pub use binding::{
     BftSignerBindingV3, BftSignerErrorV3, BftSignerKeyIdentityV3, BftSignerTrustV3,
@@ -39,7 +41,10 @@ pub use binding::{
 pub use client::{
     BftSignerLeaseV3, BftSignerProviderV3, RemoteBftSignerLeaseV3, RemoteBftSignerProviderV3,
 };
-pub use service::{BftCandidateReadPolicyV3, BftSignerServiceV3};
+pub use service::{
+    BftCandidateReadPolicyV3, BftFirstReserveSourceV1, BftFreshCoverageSupportV1,
+    BftFreshSourceVerifierV1, BftSignerServiceV3,
+};
 pub use state::{
     BftDriverAppliedReceiptV3, BftDriverApplyIntentV3, BftSignerCandidateV3, BftSignerCheckpointV3,
     BftSignerStateV3,
@@ -76,4 +81,15 @@ pub use private_retention_input::{
     BftPrivateRetentionAdmissionInputRefV1, BftPrivateRetentionAdmissionInputV1,
     BftPrivateRetentionInputObjectKindV1, BftPrivateRetentionInputObjectV1,
     BftPrivateRetentionKeyV1, BftPrivateRetentionSourceV1,
+};
+
+pub use fresh_coverage::{
+    BftPrivateRetentionActivationV1, BftPrivateRetentionAttestorV1,
+    BftPrivateRetentionCreationMarkerV1, BftPrivateRetentionEmptyMapV1, BftPrivateRetentionHeadV1,
+    BftPrivateRetentionReceiptBodyV1, BftPrivateRetentionReceiptV1,
+};
+
+pub use first_reservation::{
+    BftAuthorizedOriginalReserveInputV1, BftFirstReservationPriceV1, BftFirstReserveSnapshotV1,
+    BftFirstReservedOriginalV1, BftPrivateRetentionLedgerV1, BftPrivateRetentionMapV1,
 };

@@ -902,6 +902,8 @@ required after the corresponding implementation slice.
 
 ### Phase 10：新手流程闭环与认知减负
 
+本节保留历史界面引导的实现与验收记录。下述 `4/4` 只表示当时已披露的操作步骤进度，不代表[首局独立游玩目标](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#minimum-independent-play)已经达成。当前入口不得据此显示或暗示玩家已掌握首局：按钮操作、新事件或世界活动不能代替本人原请求的权威结果，更不能代替无逐步提示的下一决定；当前因果反馈沿 §1.1 的 Action Receipt 合同。历史截图和测试结果仍只证明当时覆盖的界面范围。
+
 #### 1. Executive Summary
 - 修复新手流程中的“进度跳步”问题，确保教程按真实行为推进，不再出现 2/4 直接到 4/4。
 - 把第 4 步操作提示从抽象描述改成可执行动作提示，让玩家明确“下一步点哪里”。

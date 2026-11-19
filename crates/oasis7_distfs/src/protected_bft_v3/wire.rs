@@ -50,6 +50,15 @@ pub(crate) enum BftSignerCommandV3 {
         acknowledgement: Box<super::install::BftSignedTransitionInstallAckV3>,
     },
     Checkpoint,
+    ProvisionPrivateRetention {
+        expected_revision: u64,
+        expected_state_digest: String,
+    },
+    ReservePrivateRetentionInput {
+        expected_revision: u64,
+        expected_state_digest: String,
+        reference: Box<super::BftPrivateRetentionAdmissionInputRefV1>,
+    },
     ProtectedTime,
     StartHeightTimer {
         expected_revision: u64,
@@ -149,6 +158,13 @@ impl SignedBftSignerRequestV3 {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum BftRetentionReplyLedgerV1 {
+    Activation(super::BftPrivateRetentionActivationV1),
+    FirstReserve(super::BftPrivateRetentionLedgerV1),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "body", deny_unknown_fields)]
 pub(crate) enum BftSignerReplyKindV3 {
     Prepared {
@@ -161,6 +177,12 @@ pub(crate) enum BftSignerReplyKindV3 {
     },
     Acquired,
     Checkpoint,
+    PrivateRetention {
+        ledger: Box<BftRetentionReplyLedgerV1>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        latest_seal: Option<()>,
+        reserved_response_bytes: u64,
+    },
     ProtectedTime {
         time_ms: i64,
     },
