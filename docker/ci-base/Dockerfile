@@ -1,5 +1,7 @@
 ARG UBUNTU_BASE
 ARG NODE_BASE=node:24-bookworm-slim
+ARG RUST_BASE=rust:1.96.0-bookworm
+FROM ${RUST_BASE} AS rust-tools
 FROM ${NODE_BASE} AS node-tools
 
 FROM ${UBUNTU_BASE} AS runtime
@@ -24,3 +26,21 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && npm ci --prefix /opt/oasis7-browser --ignore-scripts \
     && node "$OASIS7_PLAYWRIGHT_MODULE/cli.js" install chromium --with-deps --only-shell \
     && rm -rf /var/lib/apt/lists/* /root/.npm
+
+FROM build AS rust-build
+ARG RUST_TOOLCHAIN
+ARG WASM_TOOLCHAIN
+ARG WASM_TARGET
+COPY --from=rust-tools /usr/local/cargo/bin/ /opt/oasis7-rust/bin/
+COPY --from=rust-tools /usr/local/rustup/ /opt/oasis7-rust/rustup/
+ENV RUSTUP_HOME=/opt/oasis7-rust/rustup
+ENV PATH=/opt/oasis7-rust/bin:$PATH
+ENV RUST_TOOLCHAIN=${RUST_TOOLCHAIN}
+ENV OASIS7_WASM_TOOLCHAIN=${WASM_TOOLCHAIN}
+ENV OASIS7_WASM_TARGET=${WASM_TARGET}
+RUN rustup set auto-self-update disable \
+    && rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy \
+    && rustup default "$RUST_TOOLCHAIN" \
+    && rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src \
+    && rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN" \
+    && rustup target add wasm32-unknown-unknown --toolchain "$RUST_TOOLCHAIN"
