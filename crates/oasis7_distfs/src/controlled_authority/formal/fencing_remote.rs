@@ -336,43 +336,6 @@ impl MonotonicEndpointGuard for RemoteGuard {
     }
 }
 
-#[cfg(test)]
-mod transport_tests {
-    use super::*;
-    use std::net::TcpListener;
-
-    #[test]
-    fn persistent_oracle_frames_keep_original_timeouts_without_nagle() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let timeout = Duration::from_secs(3);
-        let mut client = connect_oracle(&listener.local_addr().unwrap(), timeout).unwrap();
-        let (mut peer, _) = listener.accept().unwrap();
-        peer.set_nodelay(true).unwrap();
-        peer.set_read_timeout(Some(timeout)).unwrap();
-        peer.set_write_timeout(Some(timeout)).unwrap();
-        assert!(client.nodelay().unwrap());
-        assert_eq!(client.read_timeout().unwrap(), Some(timeout));
-        assert_eq!(client.write_timeout().unwrap(), Some(timeout));
-        for body in [b"first request".as_slice(), b"same leased connection"] {
-            let header = (body.len() as u32).to_be_bytes();
-            client.write_all(&header).unwrap();
-            client.write_all(body).unwrap();
-            let mut actual_header = [0; 4];
-            peer.read_exact(&mut actual_header).unwrap();
-            assert_eq!(actual_header, header);
-            let mut actual_body = vec![0; body.len()];
-            peer.read_exact(&mut actual_body).unwrap();
-            assert_eq!(actual_body, body);
-            peer.write_all(&header).unwrap();
-            peer.write_all(&actual_body).unwrap();
-            client.read_exact(&mut actual_header).unwrap();
-            client.read_exact(&mut actual_body).unwrap();
-            assert_eq!(actual_header, header);
-            assert_eq!(actual_body, body);
-        }
-    }
-}
-
 impl RemoteGuard {
     fn begin_live(&mut self, intent: CheckpointIntentV1) -> Result<(), FencingError> {
         if self
@@ -437,5 +400,42 @@ impl RemoteGuard {
         }
         self.state = state;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod transport_tests {
+    use super::*;
+    use std::net::TcpListener;
+
+    #[test]
+    fn persistent_oracle_frames_keep_original_timeouts_without_nagle() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let timeout = Duration::from_secs(3);
+        let mut client = connect_oracle(&listener.local_addr().unwrap(), timeout).unwrap();
+        let (mut peer, _) = listener.accept().unwrap();
+        peer.set_nodelay(true).unwrap();
+        peer.set_read_timeout(Some(timeout)).unwrap();
+        peer.set_write_timeout(Some(timeout)).unwrap();
+        assert!(client.nodelay().unwrap());
+        assert_eq!(client.read_timeout().unwrap(), Some(timeout));
+        assert_eq!(client.write_timeout().unwrap(), Some(timeout));
+        for body in [b"first request".as_slice(), b"same leased connection"] {
+            let header = (body.len() as u32).to_be_bytes();
+            client.write_all(&header).unwrap();
+            client.write_all(body).unwrap();
+            let mut actual_header = [0; 4];
+            peer.read_exact(&mut actual_header).unwrap();
+            assert_eq!(actual_header, header);
+            let mut actual_body = vec![0; body.len()];
+            peer.read_exact(&mut actual_body).unwrap();
+            assert_eq!(actual_body, body);
+            peer.write_all(&header).unwrap();
+            peer.write_all(&actual_body).unwrap();
+            client.read_exact(&mut actual_header).unwrap();
+            client.read_exact(&mut actual_body).unwrap();
+            assert_eq!(actual_header, header);
+            assert_eq!(actual_body, body);
+        }
     }
 }
