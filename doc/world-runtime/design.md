@@ -922,38 +922,51 @@ design.
 
 ```mermaid
 flowchart TB
-    subgraph INPUT["权威提交与规则策略输入"]
-        CONS["oasis7_node / oasis7_consensus"] -->|"AuthorityCommitVerifier (单权威 / BFT H->H+1)"| GATE["确定性执行与恢复闸门"]
-        SIM["oasis7_simulator"] -->|"RuleSettlementPolicy::AdvisoryOnly"| POL["共享 L0 chain_resource 规则投影"]
-        RT_IN["oasis7_runtime 权威动作"] -->|"RuleSettlementPolicy::AuthoritativeDebit"| POL
+    %% 实线箭头表示运行期数据流/控制流，虚线箭头表示对 L0 纯类型与规范函数的只读依赖。
+    subgraph L0_SHARED["L0 共享纯类型与规范函数 (oasis7_domain_types / *_api)"]
+        L0_CR["纯资源 DTO / 规范排序 / hash / RuleSettlementPolicy 类型"]
     end
 
-    subgraph DOMAINS["oasis7_runtime 五大限界上下文子模块"]
-        D_IND["domains::industrial (工厂 / 配方 / 物流 / SLA)"]
-        D_MON["domains::monetary (代币 / 锁仓 / 积分 / 国库 / Claim)"]
-        D_INS["domains::institutions (治理提案 / 联盟战争 / 契约 / 制动罚没)"]
-        D_AUT["domains::capability_authz (AUTHZ-01..18 / Nonce / Effect Links)"]
-        D_MOD["domains::module_lifecycle (WASM 工件 / 市场 / 实例 / J2 唤醒)"]
+    subgraph SIM_PATH["oasis7_simulator 独立估算路径 (与 Runtime 并列执行)"]
+        SIM["oasis7_simulator (WorldKernel)"] -->|"RuleSettlementPolicy::AdvisoryOnly"| SIM_EST["规则成本估算与违规诊断 (不修改权威账本)"]
     end
 
-    subgraph TX["StagedTransition 两阶段无克隆演进 (承接 §6.2)"]
-        PREP["Stage 1: prepare(&BorrowedWorldView) → PreparedCommit(Delta)"]
-        FP["Post-Prepare Failpoint & 共识候选根校验"]
-        APPLY["Stage 2: apply_infallible(&mut WorldState)"]
-        PREP --> FP --> APPLY
+    subgraph RT_PATH["oasis7_runtime 权威执行与提交事务路径 (承接 §6.2 / §6.2.3)"]
+        CONS["oasis7_node / oasis7_consensus"] -->|"AuthorityCommitVerifier"| GATE["已验证提交与恢复闸门"]
+        RT_IN["权威动作与账本适配"] -->|"RuleSettlementPolicy::AuthoritativeDebit"| DOMAINS
+
+        subgraph DOMAINS["oasis7_runtime 五大限界上下文子模块"]
+            D_IND["domains::industrial"]
+            D_MON["domains::monetary"]
+            D_INS["domains::institutions"]
+            D_AUT["domains::capability_authz"]
+            D_MOD["domains::module_lifecycle"]
+        end
+
+        subgraph STAGE1["Stage 1 · Prepare & Candidate Commitment (不修改 canonical 内存)"]
+            PREP["根 TransitionBuffer: prepare(&BorrowedWorldView) → PreparedCommit(Delta)"]
+            ENV["计算候选状态根与 WorldCommitmentEnvelope v2 (business / authz / sidecar / J1-J2)"]
+            PREP --> ENV
+        end
+
+        subgraph STAGE2["Stage 2 · Gate & Durable Commit Confirmation"]
+            FP["Post-Prepare Failpoint / 适用候选验证 / 持久提交确认"]
+            UNK["StatusUnknown → Fenced / Reconcile (拒绝直接安装)"]
+            FP -->|"StatusUnknown"| UNK
+        end
+
+        subgraph STAGE3["Stage 3 · Confirmed Canonical Install"]
+            APPLY["根 PreparedCommit 统一不可失败安装 (WorldState + 侧车 + Journal + 分配器 + 调度表)"]
+        end
+
+        GATE --> DOMAINS
+        DOMAINS --> PREP
+        ENV --> FP
+        FP -->|"Confirmed Commit"| APPLY
     end
 
-    subgraph ENV["WorldCommitmentEnvelope v2 (承接 §6.2.3)"]
-        R1["business_state_root + authorization_root (v1 兼容)"]
-        R2["governance_sidecar_root (提案 / 制动 / 罚没)"]
-        R3["control_continuation_root (J1 游标 / J2 唤醒表)"]
-    end
-
-    GATE --> DOMAINS
-    POL --> DOMAINS
-    DOMAINS --> PREP
-    APPLY --> ENV
-    ENV --> OUT["快照落盘 / C->T 事件后缀恢复 / BFT 重执行校验"]
+    SIM -. "依赖纯 DTO/hash" .-> L0_CR
+    RT_IN -. "依赖纯 DTO/hash" .-> L0_CR
 ```
 
 #### 6.5.1 `oasis7_runtime` 五大业务限界上下文子模块拆分
@@ -971,33 +984,71 @@ flowchart TB
 #### 6.5.2 四大核心抽象契约（Long-Term Architectural Contracts）
 
 1. **`StagedTransition` 两阶段无克隆原子演进契约（承接 `§6.2` `ExecutionTransaction`）**
-   - 直接承接并统一 `§6.2.1` 已在模块状态更新、计费与治理生命周期上落地的 `CommandStateOverlay` 与 `Prepared*` 边界，将五大限界上下文的转移路径统一收敛至 `StagedTransition` / `SubsystemDelta` 契约：
-   - 第一阶段 `prepare(&BorrowedWorldView<'_>, &TransitionContext) -> Result<PreparedCommit<Self::Delta>, TransitionReject>` 在只读借用视图与根 `TransitionBuffer` 上完成全部可失败的权限、余额、容量、签名、共识候选根与持久化预检，不克隆 `World` 或 `WorldState`。
-   - 第二阶段 `SubsystemDelta::apply_infallible(self, &mut WorldState)` 在跨过逻辑故障注入点（post-prepare failpoint）后执行确定性、不可失败的内存写入。
-   - 仅当全部公共入口均完成 `StagedTransition` 接入并通过故障注入与回放回归后，外层 `step()` / `step_with_modules()` 才移除粗粒度整树 `World::clone()` 回滚边界。
+   - 直接承接并统一 `§6.2.1` 已在模块状态更新、计费与治理生命周期上落地的 `CommandStateOverlay`、`TransitionBuffer` 与 `Prepared*` 边界，不另造第二套事务体系：
+   - **Stage 1（Prepare & Candidate Commitment）**：`prepare(&BorrowedWorldView<'_>, &TransitionContext) -> Result<PreparedCommit<Self::Delta>, TransitionReject>` 在只读借用视图与根 `TransitionBuffer` 上完成全部可失败的权限、余额、容量、签名、候选承诺/信封计算与持久化准备，不克隆 `World` 或 `WorldState`，发布前读者仅可见旧 generation。
+   - **Stage 2（Gate & Durable Commit Confirmation）**：跨过 post-prepare failpoint 并完成适用共识验证与持久提交确认；若持久提交状态不明（`StatusUnknown`），必须按 `§6.2.3` 进入 fenced/reconcile 流程，严禁提前修改 canonical 内存状态。
+   - **Stage 3（Confirmed Canonical Install）**：仅在 confirmed commit 后，由根 `PreparedCommit` 经受限根安装上下文（`RootInstallContext`）统一执行不可失败安装——`SubsystemDelta::apply_infallible(self, &mut RootInstallContext<'_>)` 写入业务状态切片的同时，由根事务一并安装治理/授权侧车、journal、allocator、队列与调度表。
+   - 仅当全部公共入口完成 `StagedTransition` 接入并通过故障注入与回放回归后，外层 `step()` / `step_with_modules()` 才移除粗粒度整树 `World::clone()` 回滚边界。
+
 2. **`WorldCommitmentEnvelope` 完整状态承诺信封契约（承接 `§6.2.3` 恢复缺口）**
    - 针对 `§5` 与 `§6.2.3` 指出的“治理侧车（`proposal`、`emergency_brake`、`identity_penalty`、`finality_epoch_snapshot`）与控制延续状态（`J1` 动作序列/纪元分配器、`J2` 模块唤醒调度表）游离于 `WorldState` 主根之外”的设计缺口，目标架构引入版本化的 `WorldCommitmentEnvelope`：
-   - 在保持 v1 `business_state_root` 与 `authorization_root` 字段顺序与哈希域完全兼容的前提下，v2 承诺信封显式绑定 `governance_sidecar_root` 与 `control_continuation_root`（覆盖 `J1` 预分配游标边界与 `J2` 实例级绝对唤醒 tick）。
-   - 快照落盘、`C -> T` 事件后缀恢复（`§6.2.3`）以及 BFT 验证者重执行投票统一校验完整信封摘要，杜绝“业务状态根一致但调度游标或制动侧车漂移”的静默分叉。
+   - **明确阶段范围（遵循 `§6.2.3` 不改动现行共识根 schema 约束）**：本阶段 `WorldCommitmentEnvelope v2` **仅用于本地快照落盘与 `C -> T` 事件后缀恢复的完整性绑定**，不替换现有 `TickBlockHeader.state_root` / `TickExecutionDigest.state_projection_hash` 字段，也不触发共识协议迁移；未来如需将 v2 信封升级纳入 BFT 验证者投票承诺，须由 P2P 协议 owner 在独立设计中定义共识承诺字段与显式高度激活边界。
+
+| 合同维度 | `WorldCommitmentEnvelope` 窄合同约定（Target） |
+| --- | --- |
+| Schema 与 Hash Domain | `WorldCommitmentEnvelope { schema_version: u16, business_state_root: Digest32, authorization_root: Digest32, governance_sidecar_root: Option<Digest32>, control_continuation_root: Option<Digest32> }`；独立 domain 标签 `oasis7.world_commitment_envelope.v2`（v1 仅保留前两字段与原哈希域完全兼容）。 |
+| 实际绑定位置与 Owner | 本阶段由 `oasis7_world_state` 拥有编解码与摘要计算，`oasis7_runtime` 在快照元数据与 `C -> T` 恢复校验点绑定并校验；现行 `TickBlockHeader.state_root` / `TickExecutionDigest.state_projection_hash` 保持原规范投影（state + manifest_hash + policy_hash）不变。 |
+| 历史兼容与未知版本拒绝 | 读取旧快照（无 v2 扩展字段）沿用 `§6.2.3` 既有事件后缀恢复与兼容性校验；遇到未知 `schema_version` 或缺失必需侧车根的 v2 声明必须显式拒绝恢复，不得静默降级为 v1。 |
+| 未来升级至 BFT 承诺的前置 | 若后续纳入 BFT 投票承诺，须另行冻结：共识 header/digest 绑定字段、显式高度激活边界（`H / H+1`）、历史高度证明与 signed rollback 的 v1 验证保留，以及“同高度混用 v1/v2 解释必须拒绝”的负例回归。 |
+
 3. **`RuleSettlementPolicy` 仿真与运行时规则结算策略契约**
-   - 针对 [`doc/world-simulator/prd.md`](../world-simulator/prd.md#kernel-rule-cost-contract) 中 `WorldKernel` 仅在 `KernelRuleDecision.cost` 保留规则成本而不自动扣账、以及 `runtime::chain_resource` 与 `simulator::chain_resource` 分别维护状态派生的现状，目标架构引入 `RuleSettlementPolicy` 策略契约：
-   - `AdvisoryOnly` 模式供轻量级 `oasis7_simulator` 场景预演与离线推演使用，仅累计规则成本估算与违规诊断，不执行账本扣减（保持现行 `WorldKernel` 语义不变）。
-   - `AuthoritativeDebit` 模式供 `oasis7_runtime` 权威执行使用，在同一 `StagedTransition` 中强制执行余额充足性校验、算力/电力/材料原子扣减与回执生成。
-   - 基于 `L0` 共享领域原语收敛重复的 `chain_resource` 派生逻辑；在 `RuleSettlementPolicy` 落地并完成等价验证前，维持本文顶部声明的“Runtime 与 Simulator 并列执行”边界不变，不预设提前合并两套执行器。
+   - 针对 [`doc/world-simulator/prd.md`](../world-simulator/prd.md#kernel-rule-cost-contract) 中 `WorldKernel` 仅在 `KernelRuleDecision.cost` 保留规则成本而不自动扣账、以及 `runtime::chain_resource` 与 `simulator::chain_resource` 分别维护状态派生的现状，目标架构定义 `RuleSettlementPolicy` 策略端口，并**显式继承 `§6.2.2` 既有费用边界**（被拒绝移动无距离费，一般尝试费、模块调用计量与独立采能分别遵循各自规则，不得被简化的二元模式压平）：
+   - **最小接口签名草案（Target）**：
+     ```rust
+     pub enum RuleSettlementMode { AdvisoryOnly, AuthoritativeDebit }
+
+     pub trait RuleSettlementPolicy {
+         type SettlementOutput;
+         fn mode(&self) -> RuleSettlementMode;
+         fn evaluate_rule_cost(
+             &self,
+             ctx: &RuleSettlementInput<'_>, // payer, fee_kind, action_disposition, resource_snapshot, rule_cost
+         ) -> Result<Self::SettlementOutput, RuleSettlementError>;
+     }
+     ```
+   - `oasis7_simulator`（`AdvisoryOnly`）与 `oasis7_runtime`（`AuthoritativeDebit`）分别消费 `L0` 纯资源 DTO 与规范排序/哈希函数，在各自执行路径内调用该策略；落地并完成等价验证前，维持本文顶部声明的“Runtime 与 Simulator 并列执行”边界不变。
+
 4. **`AuthorityCommitVerifier` 多共识权威提交验证端口**
-   - 对接 [`doc/p2p/prd.md`](../p2p/prd.md) 的双权威演进路线，在 `oasis7_node` 与 `oasis7_consensus` 之间定义统一的 `AuthorityCommitVerifier` 端口契约：
-   - 屏蔽 `controlled_single_authority`（校验单权威签名、Writer Epoch 与 P/R 双故障域持久决定）与 `bft`（校验 Tendermint/CometBFT 风格高度/轮次证书、`floor(2W/3)+1` 预提交权重及 `H / H+1` 激活边界切换）的底层证明差异，确保 `oasis7_runtime` 的确定性执行与恢复闸门无需随共识 Profile 切换而派生第二套状态机。
+   - 对接 [`doc/p2p/prd.md`](../p2p/prd.md) 的双权威演进路线，在 `oasis7_node` / `oasis7_consensus` 与 `oasis7_runtime` 之间定义统一的 `AuthorityCommitVerifier` 端口，将**纯证明校验**（签名、法定权重、高度/轮次、Writer Epoch）与**本地持久条件检查**（P/R 双故障域持久决定或本地落盘闸门）分层解耦，确保 `oasis7_runtime` 不随共识 Profile 切换而派生第二套状态机：
+   - **最小接口签名草案（Target）**：
+     ```rust
+     pub trait AuthorityCommitVerifier {
+         fn verify_authority_commit(
+             &self,
+             trusted_head: &TrustedCommitAnchor,
+             candidate: &CommitCandidateRef<'_>,
+             proof: &AuthorityCommitProof,
+         ) -> Result<VerifiedAuthorityCommit, AuthorityCommitReject>;
+     }
+     ```
+
+| 端口 | Owner | 核心输入与输出 | 调用点与错误/兼容边界 |
+| --- | --- | --- | --- |
+| `RuleSettlementPolicy` | 策略契约与纯输入类型归 `L0`（`oasis7_domain_types` / `oasis7_agent_api`）；`AdvisoryOnly` 实现归 `oasis7_simulator`；`AuthoritativeDebit` 实现归 `oasis7_runtime` | 输入：付款主体、费用类别（移动距离/一般尝试/模块计量/采能）、动作裁决结果（Accepted/Rejected）、只读资源视图与规则成本；输出：Simulator 返回只读成本估算/诊断，Runtime 返回可合入根 `TransitionBuffer` 的费用 `SubsystemDelta` | 分别在 Simulator 决策合并路径与 Runtime `StagedTransition::prepare` 调用；严格继承 `§6.2.2`（被拒绝移动零距离费、负费率/缺付款人拒绝优先），不改变现行 `WorldKernel` 不自动扣账行为。 |
+| `AuthorityCommitVerifier` | Trait 端口与结果类型归 `oasis7_consensus`（`L1`）；单权威与 BFT 验证实现归 `oasis7_consensus` / `oasis7_node`；`oasis7_runtime` 仅消费 `VerifiedAuthorityCommit` | 输入：可信历史锚点（高度/epoch/激活清单）、候选提交引用、权威证明（单权威签名+Writer Epoch 或 BFT 高度/轮次+`floor(2W/3)+1` 预提交证书）；输出：包含已核验高度、激活边界（`H / H+1`）与证明摘要的 `VerifiedAuthorityCommit` | 在节点提交接入与恢复闸门（`Stage 2`）调用；纯证明验证失败返回确定性 `AuthorityCommitReject`；本地持久性不确定（`StatusUnknown`）由外层持久闸门独立处理，不得由纯验签器绕过。 |
 
 <a id="crates-oasis7-retirement-matrix"></a>
 #### 6.5.3 `crates/oasis7` 兼容伞包退役与测试归位矩阵
 
-配合 [`testing-manual.md`](../../testing-manual.md) 的测试分层与 `scripts/plan-rust-required-scope.py` 的变更影响面收敛，`crates/oasis7` 当前真实残留源码与测试按以下矩阵逐步移交至对应 owner crate，期间禁止向 `crates/oasis7` 新增业务实现或跨组件集成测试：
+配合 [`testing-manual.md`](../../testing-manual.md) 的测试分层、`scripts/cargo-dev-architecture.py` 的依赖隔离门禁与 `scripts/plan-rust-required-scope.py` 的变更影响面收敛，`crates/oasis7` 当前真实残留源码与测试按以下职责矩阵逐步移交至合法 owner crate，期间禁止向 `crates/oasis7` 新增业务实现或跨组件集成测试：
 
-| 现存真实路径（`crates/oasis7`） | 迁移目标宿主 Crate / Tool | 目标层级 | 验收回归门禁 |
+| 现存真实路径与职责切片（`crates/oasis7`） | 迁移目标宿主 Crate / Tool | 目标层级 | 验收回归门禁 |
 | --- | --- | --- | --- |
-| `crates/oasis7/src/simulator/`（`async_agent_runner*`、`decision_provider*`、`runner.rs`、`persist.rs`、`llm_agent/` 等） | `oasis7_agent_harness`（Agent 驱动与 provider 适配）及 `oasis7_simulator`（纯内核仿真辅助） | `L3` / `L2` | `cargo test -p oasis7_agent_harness -p oasis7_simulator` 及 `scripts/check-rust-file-size.sh` |
+| `crates/oasis7/src/simulator/` 中不感知 World/Kernel 的 actor、continuation、provider 泛型原语 | `oasis7_agent_harness`（严守 `DES-AGC-001`，不引入 Runtime/Simulator/Service 依赖） | `L3` | `cargo test -p oasis7_agent_harness`、`scripts/cargo-dev-architecture.py` 及 `scripts/check-rust-file-size.sh` |
+| `crates/oasis7/src/simulator/` 中仅依赖 Simulator 自身状态的确定性内核辅助 | `oasis7_simulator`（不含 host archives、agent runners 与模型 I/O） | `L2` | `cargo test -p oasis7_simulator`、`scripts/cargo-dev-architecture.py` 及 `scripts/check-rust-file-size.sh` |
+| `crates/oasis7/src/simulator/` 中涉及 Runtime/`WorldKernel` 接线、lease/receipt 适配与混合 snapshot/archive（如 `async_agent_runner.rs` 接线部分、`persist.rs`） | `oasis7_world_service`、`oasis7_chain_runtime` 或组合宿主层（实施前按真实消费者确定唯一 owner） | `L3` / `L4` | 对应 owner crate 定向回归及 `scripts/cargo-dev-architecture.py` 边界检查 |
 | `crates/oasis7/src/consensus_action_payload.rs`、`runtime_host*`、`world_service*`、`module_source_compiler.rs` | `oasis7_world_service`、`oasis7_chain_runtime`、`oasis7_runtime`（按各自所有权分流，保留必要薄重导出直至消费者迁完） | `L3` / `L2` | 对应 owner crate 定向回归及 `scripts/cargo-dev-architecture.py` 边界检查 |
-| `crates/oasis7/tests/incremental_*.rs`、`chain_pos_defaults_tests.rs` 及 `crates/oasis7/src/simulator/tests/` | 对应 owner crate 集成测试目录（`oasis7_world_state`、`oasis7_runtime`、`oasis7_world_service`）或 `tools/scenario_test_runner` | `L2` / `L3` / `L4` | `scripts/plan-rust-required-scope.py` 验证单包修改不再经由 `oasis7` 伞包放大触发全仓重编 |
+| `crates/oasis7/tests/incremental_*.rs`、`chain_pos_defaults_tests.rs` 及 `crates/oasis7/src/simulator/tests/` | 对应 owner crate 集成测试目录（`oasis7_world_state`、`oasis7_runtime`、`oasis7_world_service`）或 `tools/scenario_test_runner` | `L2` / `L3` / `L4` | `scripts/plan-rust-required-scope.py` 验证单包修改不再经由 `oasis7` 伞包放大触发全仓重编，及 `scripts/cargo-dev-architecture.py` |
 
 ## 7. 集成点
 - `doc/p2p/prd.md`
