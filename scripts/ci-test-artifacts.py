@@ -2374,6 +2374,9 @@ def cache_record(state, message, *, ordinary_baseline=False):
                 # output on filesystems that cannot link it directly.
                 public = target_root / filenames[0]
                 profile = Path(filenames[0]).parent
+                executable = message.get('executable')
+                is_public_bin = (message['target']['kind'] == ['bin'] and executable
+                                 and _cache_relative(state, executable) == filenames[0])
                 copies = []
                 for candidate in (target_root / profile / 'deps').glob(target_name + '-*'):
                     match = pattern.fullmatch(candidate.name)
@@ -2383,8 +2386,7 @@ def cache_record(state, message, *, ordinary_baseline=False):
                     if os.path.samefile(public, candidate):
                         hashed.append(unit)
                     elif (candidate.name == target_name + '-' + unit[1]
-                          and message['target']['kind'] == ['bin']
-                          and message.get('executable') == str(public)
+                          and is_public_bin
                           and candidate.stat().st_size == public.stat().st_size):
                         fingerprint = (profile / '.fingerprint' / (package + '-' + unit[1])
                                        / ('bin-' + target_name)).as_posix()

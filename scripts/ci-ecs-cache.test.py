@@ -504,7 +504,7 @@ class CargoPublicOutputTests(unittest.TestCase):
 class RealCargoArchiveTests(unittest.TestCase):
     def test_archive_roundtrip_is_fresh_and_leaf_edit_rebuilds_only_its_dependency_cone(self):
         with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
+            base = Path(directory).resolve()
             checkout, target, cache = base / 'checkout', base / 'checkout/target', base / 'cache'
             sources = {
                 'Cargo.toml': '[workspace]\nmembers=["base", "leaf"]\nresolver="2"\n'
