@@ -336,28 +336,56 @@ fn reader_keeps_current_claim_sequence_without_disclosing_terminal_tombstones() 
 #[test]
 fn capability_projection_matches_public_owner_delegate_golden_bytes() {
     let world = populated_world();
-    for (name, scope, reader) in [
-        ("public", None, "".to_string()),
-        ("owner", Some("7"), public(7)),
-        ("delegate", Some("7"), public(8)),
+    for (name, scope, reader, json, cbor, signing) in [
+        (
+            "public",
+            None,
+            "".to_string(),
+            include_bytes!("../../../oasis7_world_projection/fixtures/capability-public.json")
+                .as_slice(),
+            include_bytes!("../../../oasis7_world_projection/fixtures/capability-public.cbor")
+                .as_slice(),
+            include_bytes!("../../../oasis7_world_projection/fixtures/capability-public.signing")
+                .as_slice(),
+        ),
+        (
+            "owner",
+            Some("7"),
+            public(7),
+            include_bytes!("../../../oasis7_world_projection/fixtures/capability-owner.json")
+                .as_slice(),
+            include_bytes!("../../../oasis7_world_projection/fixtures/capability-owner.cbor")
+                .as_slice(),
+            include_bytes!("../../../oasis7_world_projection/fixtures/capability-owner.signing")
+                .as_slice(),
+        ),
+        (
+            "delegate",
+            Some("7"),
+            public(8),
+            include_bytes!("../../../oasis7_world_projection/fixtures/capability-delegate.json")
+                .as_slice(),
+            include_bytes!("../../../oasis7_world_projection/fixtures/capability-delegate.cbor")
+                .as_slice(),
+            include_bytes!("../../../oasis7_world_projection/fixtures/capability-delegate.signing")
+                .as_slice(),
+        ),
     ] {
         let projection =
             crate::projection::from_formal_committed_world(&world, scope, &reader).unwrap();
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../oasis7_world_projection/fixtures");
         assert_eq!(
             oasis7_world_projection::codec::projection_to_json(&projection).unwrap(),
-            std::fs::read(root.join(format!("capability-{name}.json"))).unwrap(),
+            json,
             "{name} JSON"
         );
         assert_eq!(
             oasis7_world_projection::codec::projection_to_cbor(&projection).unwrap(),
-            std::fs::read(root.join(format!("capability-{name}.cbor"))).unwrap(),
+            cbor,
             "{name} CBOR"
         );
         assert_eq!(
             authority::signing_bytes("view", &projection).unwrap(),
-            std::fs::read(root.join(format!("capability-{name}.signing"))).unwrap(),
+            signing,
             "{name} signing"
         );
     }

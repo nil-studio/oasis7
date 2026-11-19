@@ -131,8 +131,6 @@ fn service_assertion(
 
 #[test]
 fn capability_response_matches_formal_response_golden_bytes() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../oasis7_world_projection/fixtures");
     let (world, _, anchor, _) = actual_world_initial_fixture();
     let (_, response) = response(
         &world,
@@ -144,14 +142,17 @@ fn capability_response_matches_formal_response_golden_bytes() {
     );
     assert_eq!(
         oasis7_world_projection::codec::response_to_json(&response).unwrap(),
-        std::fs::read(root.join("capability-response.json")).unwrap()
+        include_bytes!("../../oasis7_world_projection/fixtures/capability-response.json")
+            .as_slice()
     );
     assert_eq!(
         oasis7_world_projection::codec::response_to_cbor(&response).unwrap(),
-        std::fs::read(root.join("capability-response.cbor")).unwrap()
+        include_bytes!("../../oasis7_world_projection/fixtures/capability-response.cbor")
+            .as_slice()
     );
     assert_eq!(
         authority::signing_bytes("view", &response).unwrap(),
-        std::fs::read(root.join("capability-response.signing")).unwrap()
+        include_bytes!("../../oasis7_world_projection/fixtures/capability-response.signing")
+            .as_slice()
     );
 }
