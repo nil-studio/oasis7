@@ -11,9 +11,7 @@ use cli_contract::parse_required_value;
 mod provider_validation;
 use provider_validation::validate_local_test_provider_options;
 
-use std::collections::BTreeMap;
-use std::fmt;
-use std::fs;
+use std::{collections::BTreeMap, fmt, fs};
 use std::io::{self, BufReader, Read};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -21,7 +19,7 @@ use std::str::FromStr;
 
 use oasis7::chain_pos_defaults;
 use oasis7::development_node_config::{
-    DevelopmentPeerRecordPublicationModeV1, DevelopmentPeerRecordReceptionModeV1,
+    DevelopmentPeerRecordPublicationModeV1, DevelopmentPeerRecordReceptionModeV1, P2pResourceBudget,
 };
 use oasis7::network_tier_manifest::LoadedNetworkTierManifest;
 use oasis7_node::{
@@ -109,6 +107,7 @@ pub(super) struct CliOptions {
     pub p2p_user_mode: NodeUserMode,
     pub p2p_peer_record_publication: DevelopmentPeerRecordPublicationModeV1,
     pub p2p_peer_record_reception: DevelopmentPeerRecordReceptionModeV1,
+    pub p2p_resource_budget: P2pResourceBudget,
     /// One-time V2 publisher bootstrap action; deliberately not part of the persisted runtime config.
     pub initialize_peer_record_publication: bool,
     /// One-time receiver floor bootstrap action; deliberately not persisted in runtime config.
@@ -694,6 +693,7 @@ pub(super) fn validate_effective_options(options: &CliOptions) -> Result<(), Str
         return Err("--config requires a non-empty value".to_string());
     }
     super::peer_record_cli::validate_options(options)?;
+    super::development_runtime::validate_p2p_resource_budget(options)?;
     if options.reward_points_per_credit == 0 {
         return Err("--reward-points-per-credit requires a positive integer".to_string());
     }

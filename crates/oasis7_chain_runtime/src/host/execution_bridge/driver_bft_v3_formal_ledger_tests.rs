@@ -472,3 +472,332 @@ fn wire3_formal_read_durable_process_child() {
         panic!("wire3 child reached a cut instead of its durable seam");
     }).unwrap().join().unwrap();
 }
+
+#[test]
+fn wire3_committed_archive_replays_original_world_without_live_ledger() {
+    run(committed_archive);
+}
+
+fn committed_archive() {
+    use oasis7_distfs::protected_bft_v3::{
+        BftSuccessorWindowSourceV1, LocalBftSuccessorArchiveStoreV1,
+    };
+    use oasis7_formal_protocol::bft::verify_formal_bft_handoff_v2;
+
+    let h = qualified_handoff_v3();
+    let handoff = verify_formal_bft_handoff_v2(&h.anchor, h.target.clone()).unwrap();
+    let source = BftSuccessorWindowSourceV1 {
+        scope: handoff.target().scope.clone(),
+        binding_digest: "12".repeat(32),
+        handoff_position: handoff.handoff_position(),
+        handoff_record_id: handoff.handoff_head().record_id.clone(),
+        handoff_snapshot_root: handoff.raw_snapshot_root().into(),
+        target_digest: handoff.target_digest().into(),
+        activation_digest: handoff.activation_digest().into(),
+        material_identity: "34".repeat(32),
+    };
+    let input = fixture(&h);
+    let (later_height, later_id) = target(&input);
+    let original_cut = &input.entries()[input.entries().len() - 2].certificate;
+    let height = original_cut.execution_commitment.height;
+    let id = original_cut.header.block_id().unwrap();
+    assert_eq!(height + 1, later_height);
+
+    let root = Scratch::new();
+    let store = cas(root.path());
+    open(&h, root.path(), &store, true)
+        .unwrap()
+        .install_prefix(&input, later_height, &later_id)
+        .unwrap();
+    // The complete live ledger contains a later certified record. The
+    // archive and publication plan use only records through the chosen cut.
+    let durable = open(&h, root.path(), &store, false)
+        .unwrap()
+        .verified_cut(height, &id)
+        .unwrap();
+    let destination = Scratch::new();
+    let archive = LocalBftSuccessorArchiveStoreV1::new(cas(destination.path())).unwrap();
+    let mut original_ledger = open(&h, root.path(), &store, false).unwrap();
+    let (reference, original) = original_ledger
+        .export_committed_prefix(&archive, &source, height, &id)
+        .unwrap();
+    let (candidate, expected_header, expected_root) = original_ledger.fixture_archived_candidate(
+        &archive,
+        &source,
+        EMPTY_ACTIONS_CBOR.to_vec(),
+        None,
+    );
+    let (missing, _, _) = original_ledger.fixture_archived_candidate(
+        &archive,
+        &source,
+        EMPTY_ACTIONS_CBOR.to_vec(),
+        Some("missing"),
+    );
+    let (extra, _, _) = original_ledger.fixture_archived_candidate(
+        &archive,
+        &source,
+        EMPTY_ACTIONS_CBOR.to_vec(),
+        Some("extra"),
+    );
+    let altered_metadata = ["snapshot", "journal", "derived", "publication"].map(|kind| {
+        let (candidate, _, _) = original_ledger.fixture_archived_candidate(
+            &archive,
+            &source,
+            EMPTY_ACTIONS_CBOR.to_vec(),
+            Some(kind),
+        );
+        (kind, candidate)
+    });
+    drop(original_ledger);
+    assert_eq!(
+        original.durable_record_digest,
+        durable.durable_record_digest()
+    );
+    assert_eq!(original.world_tick, durable.world().state().time);
+
+    drop(archive);
+    drop(store);
+    drop(root);
+    let reopened =
+        LocalBftSuccessorArchiveStoreV1::new(LocalCasStore::new(destination.path().join("cas")))
+            .unwrap();
+    let replay = |reference, source, id| {
+        FormalBftHeaderLedgerExecutionV3::replay_committed_prefix(
+            &reopened,
+            reference,
+            source,
+            h.anchor.clone(),
+            h.target.clone(),
+            height,
+            id,
+        )
+    };
+    assert_eq!(replay(&reference, &source, &id).unwrap(), original);
+    let mut wrong_source = source.clone();
+    wrong_source.material_identity = "56".repeat(32);
+    assert!(replay(&reference, &wrong_source, &id).is_err());
+    let wrong_id = "78".repeat(32);
+    assert!(replay(&reference, &source, &wrong_id).is_err());
+    let mut wrong_root = reference.clone();
+    wrong_root.root = wrong_root.manifest.digest.clone();
+    assert!(replay(&wrong_root, &source, &id).is_err());
+
+    use super::super::super::formal_dependencies::{
+        BUSINESS_INDEX_MAX_NODE_BYTES, MAX_RETAINED_INDEX_TOTAL_BYTES,
+    };
+    use oasis7_distfs::protected_bft_v3::{
+        BftSuccessorWindowArchiveEntryV1, BftSuccessorWindowArchiveRefV1,
+    };
+    let mut excessive = reopened
+        .load_manifest(&reference.manifest, &reference.root)
+        .unwrap();
+    let oversized_count = MAX_RETAINED_INDEX_TOTAL_BYTES / BUSINESS_INDEX_MAX_NODE_BYTES + 1;
+    for item in 0..oversized_count {
+        let digest = blake3_hex(format!("committed-archive-capacity-fixture-{item}").as_bytes());
+        excessive.entries.push(BftSuccessorWindowArchiveEntryV1 {
+            identity_digest: digest.clone(),
+            object: BftSuccessorWindowArchiveRefV1 {
+                digest,
+                bytes: BUSINESS_INDEX_MAX_NODE_BYTES as u64,
+            },
+        });
+    }
+    excessive
+        .entries
+        .sort_by(|a, b| a.identity_digest.cmp(&b.identity_digest));
+    excessive.usage.objects += oversized_count as u64;
+    excessive.usage.total_bytes += (oversized_count * BUSINESS_INDEX_MAX_NODE_BYTES) as u64;
+    let mut excessive_reference = reference.clone();
+    excessive_reference.manifest = reopened.persist_manifest(&excessive).unwrap();
+    excessive_reference.root = excessive.digest().unwrap();
+    assert!(
+        replay(&excessive_reference, &source, &id)
+            .unwrap_err()
+            .contains("retained-index byte capacity")
+    );
+
+    let write_config = |name: &str, value: serde_json::Value| {
+        let path = destination.path().join(name);
+        fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        path
+    };
+    let trust = write_config("trust.json", serde_json::to_value(&h.trust).unwrap());
+    let ledger_config = write_config(
+        "ledger.json",
+        serde_json::json!({
+            "schema_version": 1, "trust_config_path": trust, "target": h.target,
+            "handoff_material_path": destination.path().join("absent-handoff"),
+            "cas_directory": destination.path().join("absent-live-cas"),
+            "ledger_directory": destination.path().join("absent-live-ledger"),
+            "exact_height": height, "exact_header_id": id,
+        }),
+    );
+    let candidate_pin: super::super::super::formal_header::OriginalCandidateArchivePinV1 =
+        serde_json::from_value(candidate.clone()).unwrap();
+    let (_, result) = candidate_pin
+        .replay(
+            &reopened,
+            &reference,
+            &source,
+            h.anchor.clone(),
+            h.target.clone(),
+            (height, &id),
+        )
+        .unwrap();
+    let result = serde_json::to_value(result).unwrap();
+    assert_eq!(result["header_id"], expected_header);
+    assert_eq!(result["semantic_state_root"], expected_root);
+    assert!(result["publication_bytes"].as_u64().unwrap() > 0);
+
+    let run_cli = |archive_config: &Path| {
+        crate::identity_receipt::dispatch(
+            [
+                "bft-header",
+                "archive-prefix",
+                "--config",
+                ledger_config.to_str().unwrap(),
+                "--archive",
+                archive_config.to_str().unwrap(),
+            ]
+            .into_iter(),
+        )
+        .unwrap()
+    };
+    let mut archive_options = serde_json::json!({
+        "schema_version": 1,
+        "archive_directory": destination.path().join("cas"),
+        "source": source,
+        "reference": reference,
+    });
+    run_cli(&write_config(
+        "ordinary-archive.json",
+        archive_options.clone(),
+    ))
+    .unwrap();
+    archive_options["candidate"] = candidate;
+    run_cli(&write_config(
+        "candidate-archive.json",
+        archive_options.clone(),
+    ))
+    .unwrap();
+    archive_options["candidate"] = missing;
+    assert!(
+        run_cli(&write_config(
+            "missing-candidate.json",
+            archive_options.clone()
+        ))
+        .is_err()
+    );
+    archive_options["candidate"] = extra;
+    let error = run_cli(&write_config(
+        "extra-candidate.json",
+        archive_options.clone(),
+    ))
+    .unwrap_err();
+    assert!(
+        error.contains("closed candidate archive contains unobserved dependencies"),
+        "{error}"
+    );
+    for (kind, candidate) in altered_metadata {
+        archive_options["candidate"] = candidate;
+        let invalid = write_config("altered-metadata.json", archive_options.clone());
+        let error = run_cli(&invalid).unwrap_err();
+        assert!(
+            error.contains(if kind == "publication" {
+                "original publication bound differs from actual preparation"
+            } else {
+                "original publication metadata differs from actual execution"
+            }),
+            "{kind}: {error}"
+        );
+    }
+}
+
+#[test]
+fn wire3_first_reserve_cli_reprices_exact_local_and_received_candidates_from_original_h() {
+    run(first_reserve_price_case);
+}
+
+fn first_reserve_price_case() {
+    use oasis7_distfs::protected_bft_v3::LocalBftSuccessorArchiveStoreV1;
+
+    let h = qualified_handoff_v3();
+    let root = Scratch::new();
+    let store = cas(root.path());
+    for (digest, bytes) in &h.reader.0 {
+        assert_eq!(store.put_bytes(bytes).unwrap(), *digest);
+    }
+    let ledger = open(&h, root.path(), &store, true).unwrap();
+    let (source, marker) = ledger.fixture_first_price_source();
+    let marker_digest = marker.digest().unwrap();
+    let destination = Scratch::new();
+    let archive = LocalBftSuccessorArchiveStoreV1::new(cas(destination.path())).unwrap();
+    let [local, received, repriced] =
+        ["first-local", "first-received", "first-repriced"].map(|kind| {
+            ledger.fixture_archived_candidate(&archive, &source, private_actions(), Some(kind))
+        });
+    let ledger_directory = root.path().join("ledger");
+    drop(ledger);
+    drop(archive);
+
+    let write_owned = |name: &str, bytes: &[u8]| {
+        let path = root.path().join(name);
+        fs::write(&path, bytes).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        path
+    };
+    let trust = write_owned("trust.json", &serde_json::to_vec(&h.trust).unwrap());
+    let material = write_owned(
+        "H.cbor",
+        &oasis7_wasm_abi::encode_canonical_cbor(&h.material).unwrap(),
+    );
+    let config = write_owned(
+        "ledger.json",
+        &serde_json::to_vec(&serde_json::json!({
+            "schema_version": 1,
+            "trust_config_path": trust,
+            "target": h.target,
+            "handoff_material_path": material,
+            "ledger_directory": ledger_directory,
+            "cas_directory": store.root(),
+            "exact_height": marker.initial_height,
+            "exact_header_id": local.1,
+        }))
+        .unwrap(),
+    );
+    let run_cli = |candidate, expected_creation_marker_digest: &str| {
+        let options = write_owned(
+            "archive.json",
+            &serde_json::to_vec(&serde_json::json!({
+                "schema_version": 1,
+                "archive_directory": destination.path().join("cas"),
+                "source": source,
+                "creation_marker": marker,
+                "expected_creation_marker_digest": expected_creation_marker_digest,
+                "candidate": candidate,
+            }))
+            .unwrap(),
+        );
+        crate::identity_receipt::dispatch(
+            [
+                "bft-header",
+                "verify-first-reserve",
+                "--config",
+                config.to_str().unwrap(),
+                "--archive",
+                options.to_str().unwrap(),
+            ]
+            .into_iter(),
+        )
+        .unwrap()
+    };
+
+    assert_eq!(local.1, received.1);
+    run_cli(local.0.clone(), &marker_digest).unwrap();
+    run_cli(received.0, &marker_digest).unwrap();
+    let wrong_marker_error = run_cli(local.0, &"83".repeat(32)).unwrap_err();
+    assert!(wrong_marker_error.contains("pinned original H source"));
+    let price_error = run_cli(repriced.0, &marker_digest).unwrap_err();
+    assert!(price_error.contains("price differs from original authenticated inventory"));
+}

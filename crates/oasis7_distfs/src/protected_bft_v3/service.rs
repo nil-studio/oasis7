@@ -23,9 +23,10 @@ use super::state::{
     validate_candidate_transition, validate_signing_install_gate, validate_state,
 };
 use super::wire::{
-    BFT_SIGNER_LEASE_DOMAIN_V3, BFT_SIGNER_MAX_WIRE_FRAME_BYTES_V3, BftSignerCommandV3,
-    BftSignerLeaseCredentialV3, BftSignerReplyBodyV3, BftSignerReplyKindV3, SignedBftSignerReplyV3,
-    SignedBftSignerRequestV3, encode_frame, request_digest, validate_request,
+    BFT_SIGNER_LEASE_DOMAIN_V3, BFT_SIGNER_MAX_WIRE_FRAME_BYTES_V3, BftRetentionReplyLedgerV1,
+    BftSignerCommandV3, BftSignerLeaseCredentialV3, BftSignerReplyBodyV3, BftSignerReplyKindV3,
+    SignedBftSignerReplyV3, SignedBftSignerRequestV3, encode_frame, request_digest,
+    validate_request,
 };
 
 mod bootstrap_rotation;
@@ -43,6 +44,8 @@ const MAX_SESSION_OPERATIONS_V3: u64 = 65_536;
 /// Backends must supply atomic generation fencing and durable monotonic time;
 /// this service makes no hardware or nonrollback claim about an implementation.
 pub struct BftSignerServiceV3 {
+    fresh_coverage: Option<BftFreshCoverageSupportV1>,
+    first_reserve: Option<(Box<dyn BftFirstReserveSourceV1>, std::time::Duration)>,
     candidate_read_policy: Option<BftCandidateReadPolicyV3>,
     pub(super) binding: BftSignerBindingV3,
     pub(super) provider_key: Box<dyn BftSigningKeyHandleV3>,
@@ -89,12 +92,64 @@ pub(super) struct ReplyDataV3 {
     pub(super) state_digest: String,
 }
 
+#[path = "service/first_reservation.rs"]
+mod first_reservation;
+#[path = "service/fresh_coverage.rs"]
+mod fresh_coverage;
+pub use first_reservation::BftFirstReserveSourceV1;
+pub use fresh_coverage::{BftFreshCoverageSupportV1, BftFreshSourceVerifierV1};
+
 impl BftSignerServiceV3 {
     pub fn open(
         binding: BftSignerBindingV3,
         provider_key: Box<dyn BftSigningKeyHandleV3>,
         validator_keys: Vec<Box<dyn BftSigningKeyHandleV3>>,
+        backend: Box<dyn BftSignerBackendV3>,
+    ) -> Result<Self, BftSignerErrorV3> {
+        Self::open_inner(binding, provider_key, validator_keys, backend, None)
+    }
+
+    pub fn open_with_fresh_coverage(
+        binding: BftSignerBindingV3,
+        provider_key: Box<dyn BftSigningKeyHandleV3>,
+        validator_keys: Vec<Box<dyn BftSigningKeyHandleV3>>,
+        backend: Box<dyn BftSignerBackendV3>,
+        support: BftFreshCoverageSupportV1,
+    ) -> Result<Self, BftSignerErrorV3> {
+        Self::open_inner(
+            binding,
+            provider_key,
+            validator_keys,
+            backend,
+            Some(support),
+        )
+    }
+
+    /// Enable the first pending Reserve on the explicitly configured source.
+    /// The ordinary provider constructors retain their fail-closed defaults.
+    pub fn with_first_reservation(
+        mut self,
+        support: Box<dyn BftFirstReserveSourceV1>,
+        operation_timeout: std::time::Duration,
+    ) -> Result<Self, BftSignerErrorV3> {
+        if self.fresh_coverage.is_none() {
+            return Err(invalid(
+                "first Reserve requires original Fresh configuration",
+            ));
+        }
+        if operation_timeout.is_zero() {
+            return Err(invalid("first Reserve requires a finite positive duration"));
+        }
+        self.first_reserve = Some((support, operation_timeout));
+        Ok(self)
+    }
+
+    fn open_inner(
+        binding: BftSignerBindingV3,
+        provider_key: Box<dyn BftSigningKeyHandleV3>,
+        validator_keys: Vec<Box<dyn BftSigningKeyHandleV3>>,
         mut backend: Box<dyn BftSignerBackendV3>,
+        fresh_coverage: Option<BftFreshCoverageSupportV1>,
     ) -> Result<Self, BftSignerErrorV3> {
         binding.validate()?;
         let provider_public_key = provider_key.public_key_hex();
@@ -133,6 +188,13 @@ impl BftSignerServiceV3 {
         let binding_digest = binding.digest()?;
         let snapshot = backend.load_provisioned(&binding_digest)?;
         validate_snapshot_shape(&snapshot, None, None)?;
+        if let Some(support) = &fresh_coverage {
+            support.validate_config(&binding, &provider_public_key, &snapshot.state)?;
+        } else if snapshot.state.private_retention.is_some() {
+            return Err(invalid(
+                "covered BFT V3 source requires original Fresh configuration",
+            ));
+        }
         let verified = validate_state(&binding, Some(&provider_public_key), &snapshot.state)?;
         if verified.schedule.height() < binding.initial_schedule().height()
             || snapshot.lease_generation == 0
@@ -141,6 +203,8 @@ impl BftSignerServiceV3 {
             return Err(invalid("BFT V3 provisioned backend snapshot is invalid"));
         }
         Ok(Self {
+            fresh_coverage,
+            first_reserve: None,
             candidate_read_policy: None,
             binding,
             provider_key,
@@ -589,6 +653,18 @@ impl BftSignerServiceV3 {
             .map(|verified| verified.schedule.clone())
             .ok_or_else(|| invalid("BFT V3 verified state cache is unavailable"))?;
         let state = &snapshot.state;
+        if (self.fresh_coverage.is_some() || state.private_retention.is_some())
+            && !matches!(
+                command,
+                BftSignerCommandV3::Checkpoint
+                    | BftSignerCommandV3::ProvisionPrivateRetention { .. }
+                    | BftSignerCommandV3::ReservePrivateRetentionInput { .. }
+            )
+        {
+            return Err(invalid(
+                "Fresh BFT V3 source has no Ready candidate authority",
+            ));
+        }
         if state.pending_driver_apply.is_some()
             && !matches!(
                 command,
@@ -626,6 +702,12 @@ impl BftSignerServiceV3 {
             ));
         }
         match command {
+            BftSignerCommandV3::ReservePrivateRetentionInput { .. } => {
+                self.reserve_first_original(runtime, snapshot, request, request_digest)
+            }
+            BftSignerCommandV3::ProvisionPrivateRetention { .. } => {
+                self.provision_fresh_coverage(runtime, snapshot, request, request_digest)
+            }
             BftSignerCommandV3::SignFinalityRotationProof { .. } => self
                 .sign_finality_rotation_proof(
                     runtime,

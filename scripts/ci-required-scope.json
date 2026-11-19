@@ -1982,6 +1982,11 @@
       "reason": "quic_patch_consumers"
     },
     {
+      "match": ["vendor-libp2p-swarm-0.48.0/src/**"],
+      "groups": ["rust_baseline", "net", "node"],
+      "reason": "swarm_patch_consumers"
+    },
+    {
       "match": ["vendor-if-watch-3.2.2/**"],
       "groups": ["rust_baseline", "net", "node"],
       "reason": "if_watch_patch_consumers"
@@ -2002,6 +2007,11 @@
       "match": ["scripts/libp2p-security-source.test.py"],
       "groups": ["net"],
       "reason": "libp2p_source_contract"
+    },
+    {
+      "match": [".github/workflows/ci-base-images.yml", "docker/ci-base/**"],
+      "groups": ["workflow_governance", "packaging_contracts"],
+      "reason": "ci_base_image_producer"
     },
     {
       "match": [".dockerignore", "docker/wasm-builder/Dockerfile"],

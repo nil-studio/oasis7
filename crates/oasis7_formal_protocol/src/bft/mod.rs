@@ -4,6 +4,7 @@
 //! persist consensus state, or depend on local storage services.
 
 mod certificate;
+pub mod checkpoint_trust_policy;
 mod formal_handoff;
 mod header_certificate;
 mod header_handoff;
@@ -45,3 +46,6 @@ pub use header_prefix::{
     BFT_FORMAL_HEADER_PREFIX_MAX_BYTES_V3, BFT_FORMAL_HEADER_PREFIX_MAX_HEIGHTS_V3,
     FormalBftCertifiedHeaderPrefixV3, VerifiedFormalBftHeaderPrefixV3,
 };
+
+mod successor_source;
+pub use successor_source::{BFT_SUCCESSOR_WINDOW_ORIGIN_DOMAIN_V1, BftSuccessorWindowSourceV1};

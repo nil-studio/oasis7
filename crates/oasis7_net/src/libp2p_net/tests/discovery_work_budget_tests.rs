@@ -357,3 +357,174 @@ fn traffic_snapshot_without_discovery_field_uses_default_budget_policy() {
     );
     assert_eq!(restored, snapshot);
 }
+
+#[test]
+fn byte_headroom_refuses_actual_dht_rr_and_rendezvous_entries_before_work_admission() {
+    use super::super::{
+        discovery::{
+            maybe_discover_rendezvous_namespace, maybe_register_rendezvous_namespace,
+            maybe_request_connected_peer_record, start_peer_discovery_query,
+        },
+        wire_byte_window::{BudgetWait, Direction, WireByteLimits, WireByteWindow},
+        wire_bytes::Libp2pWireByteCounters,
+    };
+    use std::{
+        sync::Arc,
+        task::{Context, Poll, Waker},
+        time::Duration,
+    };
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let _guard = runtime.enter();
+    for (inbound, outbound, total, direction) in [
+        (1, 2, 2, Direction::Read),
+        (2, 1, 2, Direction::Write),
+        (2, 2, 1, Direction::Write),
+    ] {
+        let window = Arc::new(
+            WireByteWindow::new(WireByteLimits {
+                inbound,
+                outbound,
+                total,
+            })
+            .unwrap(),
+        );
+        let keypair = Keypair::generate_ed25519();
+        let local = keypair.public().to_peer_id();
+        let peer = PeerId::random();
+        let mut swarm = super::super::swarm_behaviour::build_swarm(
+            &keypair,
+            true,
+            false,
+            Duration::from_secs(30),
+            Libp2pWireByteCounters::with_window(Arc::clone(&window)),
+        );
+        swarm.add_external_address("/ip4/127.0.0.1/tcp/1".parse().unwrap());
+        let template = super::signed_discovery_peer_record(
+            &keypair,
+            vec![crate::dht::PeerDiscoverySource::Rendezvous],
+            super::super::now_ms(),
+        )
+        .record;
+        let mut dht = HashMap::new();
+        let mut last_dht = None;
+        let mut rr = HashMap::new();
+        let mut rr_peers = HashSet::new();
+        let mut cooldowns = HashMap::new();
+        let mut rendezvous_registers = HashSet::new();
+        let mut rendezvous_discovers = HashSet::new();
+        let traffic = super::super::traffic_metrics::init_shared_traffic_metrics();
+        {
+            let mut start = || {
+                [
+                    start_peer_discovery_query(
+                        &mut swarm,
+                        &mut dht,
+                        &template,
+                        &mut last_dht,
+                        100,
+                        50,
+                    ),
+                    maybe_request_connected_peer_record(
+                        &mut swarm,
+                        &mut rr,
+                        &mut rr_peers,
+                        &mut cooldowns,
+                        &traffic,
+                        peer,
+                        local,
+                        false,
+                    ),
+                    maybe_register_rendezvous_namespace(
+                        &mut swarm,
+                        &mut rendezvous_registers,
+                        &HashSet::new(),
+                        peer,
+                        local,
+                        &template,
+                    )
+                    .unwrap(),
+                    maybe_discover_rendezvous_namespace(
+                        &mut swarm,
+                        &mut rendezvous_discovers,
+                        &HashMap::new(),
+                        peer,
+                        local,
+                        &template,
+                    )
+                    .unwrap(),
+                ]
+            };
+            let mut cx = Context::from_waker(Waker::noop());
+            // All byte limits are positive. While lower I/O holds this reservation,
+            // exactly one of receive/send/total headroom reaches zero.
+            let result =
+                BudgetWait::default().poll(&window, &mut cx, direction, 1, |allowed, _| {
+                    assert_eq!(allowed, 1);
+                    assert_eq!(start(), [false; 4]);
+                    Poll::Pending
+                });
+            assert!(result.is_pending());
+        }
+        assert!(dht.is_empty() && last_dht.is_none());
+        assert!(rr.is_empty() && rr_peers.is_empty() && cooldowns.is_empty());
+        assert!(rendezvous_registers.is_empty() && rendezvous_discovers.is_empty());
+        assert_eq!(traffic.lock().unwrap().request.outbound.messages, 0);
+        let snapshot = swarm.behaviour().discovery_budget.snapshot();
+        assert_eq!(
+            (snapshot.window_starts, snapshot.inflight, snapshot.admitted),
+            (0, 0, 0)
+        );
+
+        // Pending I/O returns its unused reservation. Now all four entries may
+        // start while still using their original work-budget accounting.
+        assert!(start_peer_discovery_query(
+            &mut swarm,
+            &mut dht,
+            &template,
+            &mut last_dht,
+            100,
+            50
+        ));
+        assert!(maybe_request_connected_peer_record(
+            &mut swarm,
+            &mut rr,
+            &mut rr_peers,
+            &mut cooldowns,
+            &traffic,
+            peer,
+            local,
+            false
+        ));
+        assert!(
+            maybe_register_rendezvous_namespace(
+                &mut swarm,
+                &mut rendezvous_registers,
+                &HashSet::new(),
+                peer,
+                local,
+                &template
+            )
+            .unwrap()
+        );
+        assert!(
+            maybe_discover_rendezvous_namespace(
+                &mut swarm,
+                &mut rendezvous_discovers,
+                &HashMap::new(),
+                peer,
+                local,
+                &template
+            )
+            .unwrap()
+        );
+        let snapshot = swarm.behaviour().discovery_budget.snapshot();
+        assert_eq!(
+            (snapshot.window_starts, snapshot.inflight, snapshot.admitted),
+            (4, 4, 4)
+        );
+    }
+}

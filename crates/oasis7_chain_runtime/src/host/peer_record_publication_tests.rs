@@ -267,7 +267,7 @@ fn durable_peer_record_publication_is_opt_in_and_bound_to_runtime_root() {
 }
 
 #[cfg(unix)]
-fn wait_for_publisher_release(
+pub(super) fn wait_for_publisher_release(
     directory: &Path,
     budget: Duration,
 ) -> std::io::Result<std::fs::File> {

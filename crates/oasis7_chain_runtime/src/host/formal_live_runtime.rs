@@ -54,6 +54,11 @@ pub(crate) const BUSINESS_NODE_CACHE_ENTRIES: usize = 16_384;
 #[path = "formal_live_runtime_owner.rs"]
 mod owner;
 #[cfg(unix)]
+#[path = "formal_live_runtime_observation.rs"]
+pub(super) mod observation;
+#[cfg(unix)]
+pub(crate) use owner::observe_operation_owner;
+#[cfg(unix)]
 pub(crate) use owner::{
     DurableSetControlRequestV1, control_durable_set_transition,
     control_prepare_durable_set_transition,

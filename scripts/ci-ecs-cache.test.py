@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+import tomllib
 from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
@@ -462,11 +463,48 @@ class EcsArchiveTests(unittest.TestCase):
                 self.assertFalse((checkout / 'target').exists())
 
 
+class CargoPublicOutputTests(unittest.TestCase):
+    def test_copied_executable_requires_one_exact_fingerprinted_unit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            checkout = Path(directory).resolve()
+            manifest = checkout / 'Cargo.toml'
+            manifest.write_text('[package]\nname="fixture"\nversion="0.1.0"\n')
+            target = checkout / 'target'
+            profile = target / 'ecs'
+            deps = profile / 'deps'
+            deps.mkdir(parents=True)
+            public = profile / 'fixture'
+            public.write_bytes(b'executable')
+            message = dict(reason='compiler-artifact', manifest_path=str(manifest),
+                           package_id='fixture', target=dict(name='fixture', kind=['bin']),
+                           filenames=[str(public)], executable=str(public))
+
+            def write_unit(unit_hash, contents):
+                candidate = deps / ('fixture-' + unit_hash)
+                candidate.write_bytes(contents)
+                marker = profile / '.fingerprint' / ('fixture-' + unit_hash) / 'bin-fixture'
+                marker.parent.mkdir(parents=True, exist_ok=True)
+                marker.touch()
+                return candidate
+
+            matched = write_unit('a' * 16, public.read_bytes())
+            write_unit('b' * 16, b'different!')
+            (deps / ('fixture-' + 'c' * 16)).write_bytes(public.read_bytes())
+            self.assertFalse(os.path.samefile(public, matched))
+            state = ecs.units.cache_begin(checkout)
+            ecs.units.cache_record(state, message)
+            self.assertIn(matched.relative_to(target).as_posix(), state['files'])
+
+            write_unit('d' * 16, public.read_bytes())
+            with self.assertRaisesRegex(ValueError, 'cannot identify a unique'):
+                ecs.units.cache_record(ecs.units.cache_begin(checkout), message)
+
+
 @unittest.skipUnless(shutil.which('cargo') and shutil.which('rustc'), 'real Cargo cache smoke requires cargo and rustc')
 class RealCargoArchiveTests(unittest.TestCase):
     def test_archive_roundtrip_is_fresh_and_leaf_edit_rebuilds_only_its_dependency_cone(self):
         with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
+            base = Path(directory).resolve()
             checkout, target, cache = base / 'checkout', base / 'checkout/target', base / 'cache'
             sources = {
                 'Cargo.toml': '[workspace]\nmembers=["base", "leaf"]\nresolver="2"\n'
@@ -483,7 +521,12 @@ class RealCargoArchiveTests(unittest.TestCase):
                 path = checkout / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(content)
-            env = dict(os.environ, CARGO_INCREMENTAL='0')
+            toolchain_file = Path(__file__).resolve().parents[1] / 'rust-toolchain.toml'
+            toolchain = tomllib.loads(toolchain_file.read_text())['toolchain']['channel']
+            env = dict(os.environ, CARGO_INCREMENTAL='0', RUSTUP_TOOLCHAIN=toolchain)
+            cargo_version = subprocess.check_output(['cargo', '--version'],
+                                                    cwd=checkout, env=env, text=True).strip()
+            self.assertEqual(cargo_version.split()[1], toolchain, cargo_version)
             for name in ('CARGO_TARGET_DIR', 'RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER'):
                 env.pop(name, None)
             subprocess.run(['cargo', 'generate-lockfile', '--offline'], cwd=checkout,
@@ -500,7 +543,7 @@ class RealCargoArchiveTests(unittest.TestCase):
                     staged = {'save': False}
                     ecs.stage_cache(SimpleNamespace(cache=cache, state=state, preview=True),
                                     10_000_000_000, staged)
-                self.assertTrue(staged['would_save'], staged)
+                self.assertIs(staged.get('would_save'), True, staged)
                 self.assertFalse(staged['save'])
                 self.assertTrue((cache / ecs.ARCHIVE_NAME).is_file())
                 for changed in (False, True):
@@ -533,7 +576,7 @@ class RealCargoArchiveTests(unittest.TestCase):
                                 restaged = {'save': False}
                                 ecs.stage_cache(SimpleNamespace(cache=base / 'consumer-cache',
                                     state=consumer_state, preview=True), 10_000_000_000, restaged)
-                            self.assertTrue(restaged['would_save'], restaged)
+                            self.assertIs(restaged.get('would_save'), True, restaged)
 
 
 if __name__ == '__main__':

@@ -12,6 +12,7 @@ pub mod distributed_pos;
 pub mod distributed_state_receipt;
 pub mod distributed_storage;
 pub mod gameplay_submission_origin;
+pub mod p2p_resource_budget;
 pub mod storage_cold_index;
 pub mod storage_profile;
 pub mod viewer;

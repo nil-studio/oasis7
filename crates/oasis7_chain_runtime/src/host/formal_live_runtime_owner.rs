@@ -4,7 +4,7 @@
 //! restore both authenticated formal endpoints before it can claim an active
 //! authority or qualified head.
 use super::super::formal_live_config::FormalLiveConfigV1;
-use super::FormalLiveRuntime;
+use super::{FormalLiveRuntime, observation::ProtectedPairObservation};
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -124,6 +124,8 @@ struct ControlReply {
         Option<super::super::execution_bridge::formal_durable_set_arm::DurableSetArmStatusV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     control_error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    protected_observation: Option<ProtectedPairObservation>,
 }
 
 #[path = "formal_live_owner_diagnostics.rs"]
@@ -411,6 +413,19 @@ pub(crate) fn current_operation(
         "query",
         Duration::from_secs(2),
     )
+}
+
+pub(crate) fn observe_operation_owner(config_path: &Path) -> Result<ProtectedPairObservation, String> {
+    let current = current_operation(config_path)?;
+    if current.state != "ready" {
+        return Err("protected observation requires a ready owner process".into());
+    }
+    let instance = &current.instance;
+    let (_, state, socket) = paths(config_path, &instance.operation_id)?;
+    let deadline = Instant::now() + Duration::from_secs(4);
+    let stream = UnixStream::connect(socket).map_err(|_| "formal runtime owner control unavailable")?;
+    let reply = control::send_control_reply(&state, instance, "observe_protected", deadline, stream)?;
+    reply.protected_observation.ok_or_else(|| "protected observation unavailable".into())
 }
 
 pub(crate) fn stop_operation(
@@ -966,8 +981,14 @@ fn run_owner_with_fixed_trust(
                     validate_control(&request, &instance)?;
                     let mut durable_set_status = None;
                     let mut prepared_transition = None;
+                    let mut protected_observation = None;
                     match request.action.as_str() {
                         "query" => {}
+                        "observe_protected" => {
+                            protected_observation = runtime
+                                .observe_protected_pair(Duration::from_millis(request.timeout_ms))
+                                .ok();
+                        }
                         "stop" => {
                             stop_started = true;
                             // Publishing stopping consumes the same work budget;
@@ -1032,6 +1053,7 @@ fn run_owner_with_fixed_trust(
                             durable_set_status,
                             prepared_transition,
                             control_error: None,
+                            protected_observation,
                         },
                     )?;
                     stream
@@ -1058,6 +1080,7 @@ fn run_owner_with_fixed_trust(
                                     durable_set_status: None,
                                     prepared_transition: None,
                                     control_error: Some(bounded_reason(&error)),
+                                    protected_observation: None,
                                 },
                             );
                             let _ = stream.shutdown(Shutdown::Both);
@@ -1076,6 +1099,7 @@ fn run_owner_with_fixed_trust(
                                 durable_set_status: None,
                                 prepared_transition: None,
                                 control_error: Some(bounded_reason(&error)),
+                                    protected_observation: None,
                             },
                         );
                         if snapshot.state == "stopped" {

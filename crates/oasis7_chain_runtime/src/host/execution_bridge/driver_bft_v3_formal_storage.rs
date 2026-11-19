@@ -11,7 +11,7 @@ pub(super) const NODE_PRIVATE_DIRECTORY: &str = "node-private-v1";
 pub(super) const MARKER: &str = common_storage::FORMAL_HEADER_PREFIX_MARKER;
 pub(super) const DOWNGRADE_FENCE: &[u8] = common_storage::FORMAL_HEADER_PREFIX_DOWNGRADE_FENCE;
 const ORIGIN_DOMAIN: &str = "oasis7.formal.bft.header_prefix.origin.v1";
-const RECORD_DOMAIN: &str = "oasis7.formal.bft.header_prefix.record.v1";
+pub(super) const RECORD_DOMAIN: &str = "oasis7.formal.bft.header_prefix.record.v1";
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

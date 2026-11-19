@@ -1,8 +1,11 @@
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use libp2p::{Multiaddr, PeerId, kad, request_response};
 use serde::{Deserialize, Serialize};
+
+use super::wire_byte_window::WireByteWindow;
 
 pub(super) const MAX_DISCOVERY_IDS: usize = 128;
 pub(super) const MAX_DISCOVERY_LIST_BYTES: usize = 16 * 1024;
@@ -63,6 +66,7 @@ impl Default for DiscoveryWorkMetricsSnapshot {
 
 #[derive(Default)]
 pub(super) struct DiscoveryWorkBudget {
+    wire_window: Option<Arc<WireByteWindow>>,
     starts: VecDeque<Instant>,
     dht: HashSet<kad::QueryId>,
     requests: HashSet<request_response::OutboundRequestId>,
@@ -73,9 +77,20 @@ pub(super) struct DiscoveryWorkBudget {
     metrics: DiscoveryWorkMetricsSnapshot,
 }
 impl DiscoveryWorkBudget {
-    pub(super) fn admit(&mut self) -> bool {
-        self.admit_at(Instant::now())
+    pub(super) fn with_wire_window(wire_window: Option<Arc<WireByteWindow>>) -> Self {
+        Self {
+            wire_window,
+            ..Self::default()
+        }
     }
+
+    pub(super) fn admit(&mut self) -> bool {
+        let Some(window) = self.wire_window.clone() else {
+            return self.admit_at(Instant::now());
+        };
+        window.admit_work_with_headroom(|| self.admit_at(Instant::now()))
+    }
+
     fn admit_at(&mut self, now: Instant) -> bool {
         while self
             .starts

@@ -64,7 +64,7 @@ const MAX_NODE_ERROR_CHARS: usize = 384;
 const HTTP_CONNECTION_TIMEOUT: Duration = Duration::from_secs(2);
 const FORMAL_HTTP_THREAD_STACK_BYTES: usize = 8 * 1024 * 1024;
 const SERVICE_READINESS_PATH: &str = "/healthz";
-const CHAIN_STATUS_PATH: &str = "/v1/chain/status";
+pub(super) const CHAIN_STATUS_PATH: &str = "/v1/chain/status";
 
 #[derive(Clone)]
 pub(crate) struct PublishedReadCut {
@@ -492,6 +492,7 @@ impl FormalLiveService {
         match (method, path) {
             ("GET", SERVICE_READINESS_PATH) => self.handle_health(),
             ("GET", CHAIN_STATUS_PATH) => self.handle_status(),
+            ("POST", CHAIN_STATUS_PATH) => http::handle_status_observation(self, body),
             ("POST", VIEW_PATH) => self.handle_view(body),
             ("POST", SUBMIT_PATH) => self.handle_submit(body),
             ("POST", LOOKUP_PATH) => self.handle_lookup(body),
@@ -546,7 +547,7 @@ impl FormalLiveService {
         } else {
             match self.runtime.lock() {
                 Ok(runtime) => (Some(runtime.snapshot()), None),
-                Err(_) => (None, Some("formal Node runtime lock poisoned".to_owned())),
+                Err(_) => (None, Some("formal Node runtime lock poisoned")),
             }
         };
         if let Some(snapshot) = &snapshot {
@@ -566,11 +567,11 @@ impl FormalLiveService {
                 ))
             })
             .ok();
-        // An interrupted error update is unknown, not evidence of health.
-        // Keep status, health and submit on the same fail-closed predicate.
+        // Keep the shared fail-closed predicate and expose only fixed labels
+        // on the signed status route. Stored operational errors stay private.
         let state_error = match self.state.last_error.lock() {
-            Ok(value) => value.clone(),
-            Err(_) => Some("formal error state lock poisoned".into()),
+            Ok(value) => value.as_ref().map(|_| "formal runtime error"),
+            Err(_) => Some("formal error state lock poisoned"),
         };
         let node_running = snapshot.as_ref().map_or_else(
             || self.state.node_running.load(Ordering::Acquire),
@@ -578,15 +579,15 @@ impl FormalLiveService {
         );
         let node_error = snapshot
             .as_ref()
-            .and_then(|snapshot| snapshot.last_error.clone())
-            .map(|error| error.chars().take(MAX_NODE_ERROR_CHARS).collect());
+            .and_then(|snapshot| snapshot.last_error.as_ref())
+            .map(|_| "formal Node runtime error");
         // submit holds this same gate while calling runtime_status, so never
         // acquire it here. Poison is a permanent negative fact until explicit
         // repair; its absence is not a lease or proof of future admission.
         let admission_error = self
             .admission_gate
             .is_poisoned()
-            .then(|| "Node admission gate poisoned".to_owned());
+            .then_some("Node admission gate poisoned");
         let last_error = state_error
             .or(node_error)
             .or(runtime_error)
@@ -623,13 +624,19 @@ impl FormalLiveService {
             ),
             committed_position: position,
             committed_record_id: record,
-            last_error,
-            effect_delivery: self
-                .state
-                .effect_delivery
-                .lock()
-                .ok()
-                .and_then(|state| state.clone()),
+            last_error: last_error.map(str::to_owned),
+            effect_delivery: self.state.effect_delivery.lock().ok().and_then(|state| {
+                let status = state.as_ref()?;
+                Some(
+                    super::formal_live_effect_delivery::FormalEffectDeliveryStatusV1 {
+                        last_error: status
+                            .last_error
+                            .as_ref()
+                            .map(|_| "formal effect delivery error".into()),
+                        ..*status
+                    },
+                )
+            }),
         }
     }
 

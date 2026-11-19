@@ -74,8 +74,7 @@ impl FormalBftHeaderNodeDriverV3 {
             material,
             retained_source,
             true,
-        )
-        .map_err(|error| recovery_stage("ledger", error))?;
+        )?;
         let initial_schedule = execution.origin.schedule.clone();
         if (!peer_network && initial_schedule.active_set().validators().len() != 1)
             || initial_schedule.pending_transition().is_some()
@@ -86,15 +85,11 @@ impl FormalBftHeaderNodeDriverV3 {
         }
         let cursor_height = execution.origin.handoff.handoff_position();
         let ledger_origin = execution.ledger.origin_digest()?;
-        let material_identity = blake3_hex(
-            &serde_cbor::to_vec(&(
-                "oasis7.formal.bft.node_material.v3",
-                &ledger_origin,
-                private.instance_id(),
-                execution.ledger.material_pin_digest()?,
-            ))
-            .map_err(|_| "encode original Node material identity")?,
-        );
+        let material_identity = node_material_identity(
+            &ledger_origin,
+            private.instance_id(),
+            execution.ledger.material_pin_digest()?,
+        )?;
         capture_h_index(&execution.origin).map_err(|error| recovery_stage("h_index", error))?;
         let nodes = execution.origin.retained_nodes.accessed_nodes()?;
         private
@@ -701,9 +696,25 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
     }
 }
 
+pub(super) fn node_material_identity(
+    ledger_origin: &str,
+    instance_id: &str,
+    material_pin: &str,
+) -> Result<String, String> {
+    Ok(blake3_hex(
+        &serde_cbor::to_vec(&(
+            "oasis7.formal.bft.node_material.v3",
+            ledger_origin,
+            instance_id,
+            material_pin,
+        ))
+        .map_err(|_| "encode original Node material identity")?,
+    ))
+}
+
 /// Retain the bounded complete H index before the first signing lease: future
 /// actions can touch branches no earlier proposal happened to observe.
-fn capture_h_index(origin: &FormalBftHeaderExecutionV3) -> Result<(), String> {
+pub(super) fn capture_h_index(origin: &FormalBftHeaderExecutionV3) -> Result<(), String> {
     use oasis7_distfs::controlled_authority::formal::business_index::{
         BUSINESS_INDEX_DEPTH, BusinessIndexNodeKindV1, BusinessIndexNodeV1, empty_subtree_hashes,
     };
@@ -741,9 +752,4 @@ fn capture_h_index(origin: &FormalBftHeaderExecutionV3) -> Result<(), String> {
         }
     }
     Ok(())
-}
-
-// Keep internal detail available to callers; the CLI exposes only allowlisted stages.
-fn recovery_stage(stage: &str, error: String) -> String {
-    format!("node_recovery_stage={stage}: {error}")
 }

@@ -33,6 +33,8 @@ pub struct BftDriverAppliedReceiptV3 {
 #[serde(deny_unknown_fields)]
 pub struct BftSignerStateV3 {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub private_retention: Option<super::BftPrivateRetentionHeadV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bootstrap_finality_rotation_proofs:
         Option<super::bootstrap_rotation::BftBootstrapFinalityRotationProofArchiveV3>,
 
@@ -100,6 +102,7 @@ impl BftSignerStateV3 {
         candidate: BftSignerCandidateV3,
     ) -> Result<Self, BftSignerErrorV3> {
         let mut state = Self {
+            private_retention: None,
             bootstrap_finality_rotation_proofs: candidate.bootstrap_finality_rotation_proofs,
             finality_rotation_proofs: candidate.finality_rotation_proofs,
             membership_install: candidate.membership_install,
@@ -117,6 +120,26 @@ impl BftSignerStateV3 {
         validate_state(binding, None, &state)?;
         Ok(state)
     }
+    pub(super) fn with_original_coverage_head(
+        &self,
+        head: super::BftPrivateRetentionHeadV1,
+    ) -> Result<Self, BftSignerErrorV3> {
+        head.validate_supported_head(&self.binding_digest)?;
+        if !matches!(
+            (&self.private_retention, self.revision, head.sequence),
+            (None, 0, 1) | (Some(_), 1, 2)
+        ) {
+            return Err(invalid(
+                "private retention transition requires its original predecessor",
+            ));
+        }
+        let mut state = self.clone();
+        state.revision = head.sequence;
+        state.private_retention = Some(head);
+        state.state_digest = digest_hex(STATE_DOMAIN_V3, &StateDigestInput::from(&state))?;
+        Ok(state)
+    }
+
     pub fn candidate(&self) -> BftSignerCandidateV3 {
         BftSignerCandidateV3 {
             bootstrap_finality_rotation_proofs: self.bootstrap_finality_rotation_proofs.clone(),
@@ -200,6 +223,8 @@ pub(crate) struct CheckpointProofInputV3<'a> {
 #[derive(Serialize)]
 struct StateDigestInput<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
+    private_retention: &'a Option<super::BftPrivateRetentionHeadV1>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     bootstrap_finality_rotation_proofs:
         &'a Option<super::bootstrap_rotation::BftBootstrapFinalityRotationProofArchiveV3>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -218,6 +243,7 @@ struct StateDigestInput<'a> {
 impl<'a> From<&'a BftSignerStateV3> for StateDigestInput<'a> {
     fn from(s: &'a BftSignerStateV3) -> Self {
         Self {
+            private_retention: &s.private_retention,
             bootstrap_finality_rotation_proofs: &s.bootstrap_finality_rotation_proofs,
             finality_rotation_proofs: &s.finality_rotation_proofs,
             membership_install: &s.membership_install,
@@ -240,6 +266,18 @@ pub(crate) fn validate_state(
     binding.validate()?;
     if state.schema_version != 3 || state.binding_digest != binding.digest()? {
         return Err(invalid("BFT V3 state schema or H binding mismatch"));
+    }
+    if let Some(head) = &state.private_retention {
+        head.validate_supported_head(&state.binding_digest)?;
+        let mut original = BftSignerStateV3::from_handoff(binding)?;
+        original.revision = head.sequence;
+        original.private_retention = Some(head.clone());
+        original.state_digest = digest_hex(STATE_DOMAIN_V3, &StateDigestInput::from(&original))?;
+        if original != *state {
+            return Err(invalid(
+                "private retention state is not exact original H plus retention",
+            ));
+        }
     }
     if state.history.len() > BFT_SIGNER_MAX_HISTORY_HEIGHTS_V3 {
         return Err(invalid("BFT V3 history height capacity"));

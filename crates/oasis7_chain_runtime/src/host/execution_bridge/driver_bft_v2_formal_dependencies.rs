@@ -111,6 +111,15 @@ impl RecordingBusinessIndexReaderV1 {
             .collect())
     }
 
+    /// The read/write observation set contains only recorded nodes.
+    pub(super) fn all_recorded_nodes_accessed(&self) -> Result<bool, String> {
+        let recorded = self
+            .recorded
+            .lock()
+            .map_err(|_| "formal BFT dependency recorder lock poisoned".to_owned())?;
+        Ok(recorded.accessed.len() == recorded.nodes.len())
+    }
+
     fn local_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
         let mut recorded = self
             .recorded
