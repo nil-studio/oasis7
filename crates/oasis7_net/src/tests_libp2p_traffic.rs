@@ -6,7 +6,9 @@ use oasis7_proto::distributed_dht::{
 };
 use oasis7_proto::distributed_net::DistributedNetwork as _;
 
-use super::{Libp2pNetwork, Libp2pNetworkConfig, PeerManagerPolicy, WorldError};
+use super::{
+    Libp2pNetwork, Libp2pNetworkConfig, PeerManagerPolicy, ResourceBudgetRejection, WorldError,
+};
 
 fn wait_until(what: &str, deadline: Instant, mut condition: impl FnMut() -> bool) {
     while Instant::now() < deadline {
@@ -146,22 +148,33 @@ fn libp2p_traffic_metrics_track_requests_and_gossip_payloads() {
 #[test]
 fn typed_net_budget_caps_real_business_substream_before_remote_decode() {
     for address in ["/ip4/127.0.0.1/tcp/0", "/ip4/127.0.0.1/udp/0/quic-v1"] {
-        exercise_active_business_substream(address);
+        exercise_active_business_substream(address, ResourceBudgetRejection::BytesTotal);
     }
 }
 
-fn exercise_active_business_substream(address: &str) {
+#[test]
+fn active_bootstrap_respects_the_real_outbound_byte_limit() {
+    exercise_active_business_substream("/ip4/127.0.0.1/tcp/0", ResourceBudgetRejection::BytesOut);
+}
+
+fn exercise_active_business_substream(address: &str, reason: ResourceBudgetRejection) {
     use std::sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     };
 
-    let profile = serde_json::from_str(
-        r#"{"profile":"v1-discovery-resource-budget-1",
-        "connections_total":3,"pending_connections_total":2,"pending_inbound_unknown":1,
-        "pending_outbound":2,"connections_per_peer":1,"handshake_timeout_ms":3000,
-        "bytes_in_per_window":16384,"bytes_out_per_window":16384,"bytes_total_per_window":16384}"#,
-    )
+    let outbound_limit: u64 = if reason == ResourceBudgetRejection::BytesOut {
+        8192
+    } else {
+        16384
+    };
+    let profile = serde_json::from_value(serde_json::json!({
+        "profile": "v1-discovery-resource-budget-1",
+        "connections_total": 3, "pending_connections_total": 2, "pending_inbound_unknown": 1,
+        "pending_outbound": 2, "connections_per_peer": 1, "handshake_timeout_ms": 3000,
+        "bytes_in_per_window": 16384, "bytes_out_per_window": outbound_limit,
+        "bytes_total_per_window": 16384
+    }))
     .unwrap();
     let server = Libp2pNetwork::try_new(Libp2pNetworkConfig {
         listen_addrs: vec![address.parse().unwrap()],
@@ -187,19 +200,18 @@ fn exercise_active_business_substream(address: &str) {
         || !server.listening_addrs().is_empty(),
     );
 
+    let peer = server.peer_id();
+    let bootstrap = server.listening_addrs()[0].clone().with_p2p(peer).unwrap();
     let client = Libp2pNetwork::try_new(Libp2pNetworkConfig {
         p2p_resource_budget: profile,
+        bootstrap_peers: vec![bootstrap],
         enable_autonat: false,
         request_response_timeout: Duration::from_millis(800),
         ..Libp2pNetworkConfig::default()
     })
     .unwrap();
-    let peer = server.peer_id();
-    client
-        .dial(server.listening_addrs()[0].clone().with_p2p(peer).unwrap())
-        .unwrap();
     wait_until(
-        "authenticated peer",
+        "authenticated bootstrap peer",
         Instant::now() + Duration::from_secs(5),
         || client.connected_peers().contains(&peer),
     );
@@ -237,13 +249,16 @@ fn exercise_active_business_substream(address: &str) {
         (1, 0, 1)
     );
     let bytes = status.bytes.unwrap();
-    assert_eq!(bytes.charged_bytes.total, 16384);
+    if reason == ResourceBudgetRejection::BytesOut {
+        assert_eq!(bytes.actual_bytes.outbound, outbound_limit);
+        assert_eq!(bytes.charged_bytes.outbound, outbound_limit);
+        assert!(bytes.charged_bytes.total < 16384);
+    } else {
+        assert_eq!(bytes.charged_bytes.total, 16384);
+    }
     assert!(bytes.actual_bytes.inbound > 0 && bytes.actual_bytes.outbound > 0);
     assert_eq!(bytes.reserved_bytes.total, 0);
-    assert_eq!(
-        status.last_rejection,
-        Some(crate::ResourceBudgetRejection::BytesTotal)
-    );
+    assert_eq!(status.last_rejection, Some(reason));
     let retry_ms = status.next_attempt_delay_ms.unwrap();
     assert!(retry_ms > 0 && retry_ms <= 61_000);
 }
