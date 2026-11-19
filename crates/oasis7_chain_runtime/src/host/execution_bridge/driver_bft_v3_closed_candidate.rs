@@ -129,15 +129,15 @@ impl OriginalCandidateArchivePinV1 {
             false,
         )?;
         super::super::node_execution::capture_h_index(&execution)?;
-        let candidate = self.replay_candidate(input, source, &execution, &ledger_origin, &[])?;
-        if !matches!(candidate.data_schema, 9 | 10) {
-            return Err("first price requires original source Local or Received Data".into());
-        }
         let retained_h_dependencies = execution
             .retained_nodes
             .accessed_nodes()?
             .into_keys()
             .collect();
+        let candidate = self.replay_candidate(input, source, &execution, &ledger_origin, &[])?;
+        if !matches!(candidate.data_schema, 9 | 10) {
+            return Err("first price requires original source Local or Received Data".into());
+        }
         let price =
             first_price_bounds(input, candidate.publication_bytes, retained_h_dependencies)?;
         price.verify_input(input).map_err(error)?;
