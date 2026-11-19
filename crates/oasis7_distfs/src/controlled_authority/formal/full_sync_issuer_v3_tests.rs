@@ -927,10 +927,54 @@ fn adapter_migration_lost_reply_and_lease_restart_recover_exact_history() {
         &key(8),
     )
     .unwrap();
+    let provider_key = public(8);
+    let provider_request = FullSyncReadEvidenceQueryV3 {
+        schema_version: 3,
+        observation_nonce: hash(94),
+        minimum_anchor: pinned_v3_minimum.clone(),
+        provider_public_key: provider_key.clone(),
+        provider_incarnation: second_request.body.provider_incarnation.clone(),
+        target: second_request.body.target.clone(),
+        target_generation: second_request.body.target_generation,
+        provider_lease_request: Some(second_request.clone()),
+    };
+    let witness_queries = witness.v3_observations.len();
+    let event_commits = witness.event_commits;
+    assert!(
+        reopened
+            .read_evidence_for_provider(&public(9), provider_request.clone(), &mut witness)
+            .is_err()
+    );
+    let mut wrong_incarnation = provider_request.clone();
+    wrong_incarnation.provider_incarnation = hash(95);
+    assert!(
+        reopened
+            .read_evidence_for_provider(&provider_key, wrong_incarnation, &mut witness)
+            .is_err()
+    );
+    let mut zero_nonce = provider_request.clone();
+    zero_nonce.observation_nonce = hash(0);
+    assert!(
+        reopened
+            .read_evidence_for_provider(&provider_key, zero_nonce, &mut witness)
+            .is_err()
+    );
+    assert_eq!(witness.v3_observations.len(), witness_queries);
+    assert_eq!(witness.event_commits, event_commits);
+
+    let mut forked_minimum = provider_request.clone();
+    forked_minimum.minimum_anchor.state_digest = hash(96);
+    assert!(matches!(
+        reopened.read_evidence_for_provider(&provider_key, forked_minimum, &mut witness),
+        Err(FormalError::Rollback(_))
+    ));
+    assert_eq!(witness.event_commits, event_commits);
+    assert!(!temp.path().join(PENDING_FILE).exists());
+
     witness.lose_next_event_reply = true;
     assert!(
         reopened
-            .issue_lease(second_request.clone(), &mut witness)
+            .read_evidence_for_provider(&provider_key, provider_request.clone(), &mut witness)
             .is_err()
     );
     assert!(temp.path().join(PENDING_FILE).exists());
@@ -950,6 +994,19 @@ fn adapter_migration_lost_reply_and_lease_restart_recover_exact_history() {
     assert!(!temp.path().join(PENDING_FILE).exists());
     let exact_retry = recovered.issue_lease(second_request, &mut witness).unwrap();
     assert_eq!(exact_retry, lost_reply_entry);
+    let evidence = recovered
+        .read_evidence_for_provider(&provider_key, provider_request.clone(), &mut witness)
+        .unwrap();
+    assert_eq!(evidence.query.body.observation_nonce, hash(94));
+    assert_eq!(evidence.history.v3_entries.last(), Some(&lost_reply_entry));
+    let mut observation_only = provider_request;
+    observation_only.observation_nonce = hash(97);
+    observation_only.provider_lease_request = None;
+    let evidence = recovered
+        .read_evidence_for_provider(&provider_key, observation_only, &mut witness)
+        .unwrap();
+    assert_eq!(evidence.query.body.observation_nonce, hash(97));
+    assert_eq!(evidence.history.v3_entries.last(), Some(&lost_reply_entry));
     assert_eq!(witness.event_commits, commit_count);
 
     let latest = lost_reply_entry.record.next_anchor.clone();
