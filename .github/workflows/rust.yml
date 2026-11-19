@@ -2295,11 +2295,11 @@ jobs:
     permissions:
       contents: read
       packages: read
-    container: &rust-build-container
+    container:
       image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f
       credentials:
-        username: ${ github.actor }
-        password: ${ github.token }
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
     defaults:
       run:
         shell: bash
@@ -2352,7 +2352,11 @@ jobs:
     permissions:
       contents: read
       packages: read
-    container: *rust-build-container
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
     defaults:
       run:
         shell: bash
@@ -2427,7 +2431,11 @@ jobs:
     permissions:
       contents: read
       packages: read
-    container: *rust-build-container
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
     defaults:
       run:
         shell: bash
