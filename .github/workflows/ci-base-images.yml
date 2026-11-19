@@ -24,7 +24,7 @@ jobs:
       contents: read
     strategy:
       matrix:
-        target: [runtime, build, browser, rust-build]
+        target: [runtime, build, browser, rust-build, rust-wasm-build]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -100,6 +100,14 @@ jobs:
             --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace" --workdir /workspace \
             oasis7-ci-rust-build:candidate \
             bash ./scripts/ci-tests.sh required --group node --repo-root /workspace
+      - name: Run the existing net group in rust-wasm-build
+        if: github.event_name == 'pull_request' && matrix.target == 'rust-wasm-build'
+        timeout-minutes: 35
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --env CI_VERBOSE=1 \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace" --workdir /workspace \
+            oasis7-ci-rust-wasm-build:candidate \
+            bash ./scripts/ci-tests.sh required --group net --repo-root /workspace
       - name: Scan OS vulnerabilities
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
         with:
@@ -133,7 +141,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        target: [runtime, build, browser, rust-build]
+        target: [runtime, build, browser, rust-build, rust-wasm-build]
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
