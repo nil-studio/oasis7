@@ -49,6 +49,10 @@ pub(crate) mod test_control;
 #[path = "formal_live_service_tests.rs"]
 mod tests;
 
+#[path = "formal_live_payload_authority.rs"]
+mod payload_authority;
+use payload_authority::validate_payload;
+
 #[path = "formal_live_business_service.rs"]
 mod business_service;
 #[path = "formal_live_changes_service.rs"]
@@ -1011,13 +1015,7 @@ impl FormalLiveService {
                 return Err("lookup key does not match the signed payload".into());
             }
             let current = self.published.current()?;
-            if let WorldServicePayloadV1::GameNativeDelegation(signed) = &request.original {
-                oasis7_runtime::service_admission::native_delegation::validate_receipt_owner(
-                    &current.world, signed,
-                )?;
-            } else {
-                validate_payload(&current.world, &request.original)?;
-            }
+            payload_authority::validate_lookup_payload(&current.world, &request.original)?;
             Ok::<_, String>(())
         })();
         if let Err(error) = validation {
@@ -1084,69 +1082,6 @@ impl FormalLiveService {
             "changes require qualified formal business-result proofs",
             &self.signer,
         )
-    }
-}
-
-fn validate_payload(world: &World, payload: &WorldServicePayloadV1) -> Result<(), String> {
-    match payload {
-        WorldServicePayloadV1::GameStarterClaim(signed) => {
-            let binding = world
-                .current_cognition_runtime_binding()
-                .map_err(|e| format!("{e:?}"))?;
-            oasis7_runtime::service_admission::starter::validate_owner(
-                world,
-                signed,
-                &binding.branch_id,
-                binding.reorg_epoch,
-            )
-        }
-        WorldServicePayloadV1::GameParticipantRegister { owner, admission } => {
-            let binding = world
-                .current_cognition_runtime_binding()
-                .map_err(|e| format!("{e:?}"))?;
-            oasis7_runtime::service_admission::participant::validate_admission(
-                world,
-                owner,
-                admission,
-                &binding.branch_id,
-                binding.reorg_epoch,
-            )
-        }
-        WorldServicePayloadV1::GameTaskCreate(signed) => game_task::validate_owner(world, signed),
-        WorldServicePayloadV1::GameGoalPublish(signed) => {
-            game_task::validate_publish_owner(world, signed)
-        }
-        WorldServicePayloadV1::GameExecutorControl(signed) => {
-            game_task::validate_executor_owner(world, signed)
-        }
-        WorldServicePayloadV1::GameNativeDelegation(signed) => {
-            oasis7_runtime::service_admission::native_delegation::validate_owner(world, signed)
-        }
-        WorldServicePayloadV1::GameplayJson(bytes) => {
-            gameplay::authenticated_action(world, bytes).map(|_| ())
-        }
-        WorldServicePayloadV1::SafeAlternative(signed) => {
-            oasis7_runtime::service_admission::safe_alternative::validate_owner(world, signed)
-        }
-        WorldServicePayloadV1::AgentChat(request) => agent_chat::validate_owner(world, request),
-        WorldServicePayloadV1::Cognition(signed) => {
-            agent_authority::validate_cognition(world, signed)
-        }
-        WorldServicePayloadV1::FeedbackAck(signed) => {
-            agent_authority::validate_feedback_ack(world, signed)
-        }
-        WorldServicePayloadV1::Delegation(signed) => {
-            agent_authority::validate_delegation(world, signed)
-        }
-        WorldServicePayloadV1::Scheduler(signed) => {
-            authority::verify_read_request("scheduler", signed)?;
-            agent_authority::validate_agent_signer(
-                world,
-                &signed.request.agent_id,
-                &signed.subject_public_key,
-                signed.request.delegation_generation,
-            )
-        }
     }
 }
 
