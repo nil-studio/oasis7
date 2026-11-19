@@ -194,7 +194,7 @@ fn validate(kind: &str, request: &str, payload: &str) -> Result<String, &'static
         "native_delegation" => {
             parse::<oasis7_agent_api::game::GameNativeDelegationControlV1>(payload)?
                 .validate()
-                .map_err(|_| "contract_mismatch")?
+                .map_err(|_| "contract_mismatch")?;
         }
         _ => return Err("unsupported_contract"),
     }
