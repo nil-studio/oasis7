@@ -763,7 +763,16 @@ where
             },
         )?;
         output.serialize_field("location_anchors", &state.location_anchors)?;
-        output.serialize_field("factory_site_authorities", &state.factory_site_authorities)?;
+        output.serialize_field(
+            "factory_site_authorities",
+            &crate::world::economy_data_publication::SparseMapProjection {
+                base: &state.factory_site_authorities,
+                updates: &world_rule_overlay
+                    .map(|overlay| overlay.sites.clone())
+                    .unwrap_or_default(),
+                deletion: None,
+            },
+        )?;
         output.serialize_field(
             "factory_construction_power_profiles",
             &state.factory_construction_power_profiles,

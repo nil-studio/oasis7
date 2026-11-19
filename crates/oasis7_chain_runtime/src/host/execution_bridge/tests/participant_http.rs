@@ -13,6 +13,12 @@ use std::{
     },
     time::{Duration, Instant},
 };
+#[cfg(unix)]
+#[path = "participant_ordinary_starter.rs"]
+mod ordinary_starter;
+#[cfg(unix)]
+#[path = "participant_native_delegation.rs"]
+mod native_delegation;
 #[path = "participant_http_fixture.rs"]
 mod custody_fixture;
 #[path = "participant_governance.rs"]
@@ -25,6 +31,12 @@ mod resource_view;
 mod starter;
 #[path = "participant_transport.rs"]
 mod transport;
+
+#[cfg(unix)]
+pub(super) fn run_ordinary_starter_prepared_world_service(ready: &Path) {
+    ordinary_starter::run_prepared_world_service(ready);
+}
+
 fn namespace() -> GameIdentityNamespaceV1 {
     GameIdentityNamespaceV1 {
         service_id: "private-fixture-identity".into(),

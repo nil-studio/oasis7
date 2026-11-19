@@ -27,6 +27,7 @@ pub(super) fn owners(
         agent_orders: _,
         industrial_work: _,
         substitution: _,
+        ordinary_starter: _,
     } = source;
     (organization_cases, organization_estate)
 }

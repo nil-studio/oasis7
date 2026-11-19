@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { createBrowserGameRecovery } from "./browser_game_recovery.js";
+import { boundedFirstProductionSelection, directActionSelection } from "./browser_game_permit.js";
 
 const scope = { worldId: "world", genesisDigest: "genesis", accountId: "owner", agentId: "agent",
   taskId: "task", fence: { owner_generation: "1", executor_epoch: "1" } };
@@ -18,6 +19,54 @@ function setup() {
   return { storage, records, create };
 }
 describe("browser original-operation recovery", () => {
+  const selection = boundedFirstProductionSelection({ factory: "factory", recipe: "recipe.smelter.iron_ingot", batches: 1,
+    maxElectricity: 8, maxConsume: [{ kind: "iron_ore", amount: 4 }, { kind: "carbon_fuel", amount: 1 }, { kind: "maintenance_part", amount: 1 }] }, "agent");
+  it.each(["unknown", "pending", "rejected", "committed"])("consumes one Agent action permit durably for %s and never refunds it on Start", async (state) => {
+    const { create } = setup(); const recovery = create({ now: () => 1000 });
+    await recovery.initializeRun("run", { fence: scope.fence });
+    await recovery.initializeActionPermit("permit", { fence: scope.fence, selection, mode: "agent", runId: "run" });
+    await recovery.reserveModelCall("run", 100, 512);
+    const action = { ...original(), context: { fence: scope.fence }, runBudget: { runId: "run", permitId: "permit", modelInvoked: true } };
+    await recovery.remember(action);
+    await recovery.settle(action.operationId, { state, receipt: state === "committed" ? { done: true } : null });
+    const reloaded = create({ now: () => 1000 });
+    expect(await reloaded.initializeActionPermit("permit", { fence: scope.fence, selection, mode: "agent", runId: "run" }))
+      .toMatchObject({ originalOperationId: action.operationId });
+    expect((await reloaded.initializeRun("run", { fence: scope.fence })).callsReserved).toBe(1);
+    await expect(reloaded.remember({ ...action, operationId: "different-original" })).rejects.toMatchObject({ code: "action_permit_consumed" });
+    await expect(reloaded.initializeActionPermit("different-permit", { fence: scope.fence, selection, mode: "agent", runId: "run" }))
+      .rejects.toMatchObject({ code: "action_permit_identity_conflict" });
+    expect(await reloaded.remember(action)).toEqual(action);
+    expect((await reloaded.load()).operations).toHaveLength(1);
+  });
+  it("requires an actual reserved model call, exact fence and immutable confirmed selection", async () => {
+    const { create } = setup(); const recovery = create({ now: () => 1000 });
+    await recovery.initializeRun("run", { fence: scope.fence });
+    await recovery.initializeActionPermit("permit", { fence: scope.fence, selection, mode: "agent", runId: "run" });
+    const action = { ...original(), context: { fence: scope.fence }, runBudget: { runId: "run", permitId: "permit", modelInvoked: true } };
+    await expect(recovery.remember(action)).rejects.toMatchObject({ code: "action_permit_model_required" });
+    await recovery.reserveModelCall("run", 100, 512);
+    await expect(recovery.remember({ ...action, context: { fence: { ...scope.fence, goal_revision: "2" } } }))
+      .rejects.toMatchObject({ code: "action_permit_fence_conflict" });
+    await expect(recovery.initializeActionPermit("permit", { fence: scope.fence, selection: { ...selection, factory: "other" }, mode: "agent", runId: "run" }))
+      .rejects.toMatchObject({ code: "action_permit_scope_mismatch" });
+    const changed = create({ scope: { ...scope, fence: { ...scope.fence, executor_epoch: "2" } } });
+    await expect(changed.getActionPermit("permit")).rejects.toMatchObject({ code: "action_permit_fence_conflict" });
+    expect((await recovery.getActionPermit("permit")).originalOperationId).toBeNull();
+  });
+  it("keeps a direct player permit independent of model budgets and fails closed on a write error", async () => {
+    const { create, storage } = setup(); const recovery = create();
+    const selected = directActionSelection({ type: "WorldRule", data: { actor_id: "agent", request_id: "claim", command: { kind: "fixture" } } }, "agent");
+    await recovery.initializeActionPermit("direct", { fence: scope.fence, selection: selected, mode: "direct" });
+    const action = { ...original(), context: { fence: scope.fence }, runBudget: { permitId: "direct" } };
+    const update = storage.update; storage.update = async () => { throw new Error("disk full"); };
+    await expect(recovery.remember(action)).rejects.toMatchObject({ code: "recovery_storage_failed" });
+    storage.update = update;
+    expect((await recovery.getActionPermit("direct")).originalOperationId).toBeNull();
+    await recovery.remember(action);
+    expect((await recovery.load()).runBudgets).toEqual([]);
+    expect((await recovery.getActionPermit("direct")).originalOperationId).toBe("action:1");
+  });
   it("commits original materials before allowing submit and preserves immutable nonce on reload", async () => {
     const { create } = setup(); const first = create(); const request = original();
     const saved = await first.remember(request);

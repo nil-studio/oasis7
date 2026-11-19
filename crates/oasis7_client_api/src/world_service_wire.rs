@@ -48,6 +48,7 @@ pub enum WorldServicePayloadV1<C = UnsupportedWireVariant, S = TaskSchedulerInte
     GameTaskCreate(SignedReadRequest<oasis7_agent_api::game::GameTaskCreateV1>),
     GameGoalPublish(SignedReadRequest<oasis7_agent_api::game::GameGoalPublishV1>),
     GameExecutorControl(SignedReadRequest<oasis7_agent_api::game::GameExecutorControlV1>),
+    GameNativeDelegation(SignedReadRequest<oasis7_agent_api::game::GameNativeDelegationControlV1>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

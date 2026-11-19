@@ -38,6 +38,9 @@ impl PreparedStarterOcClaimed {
         else {
             return Err(invalid("starter OC preparation requires StarterOcClaimed"));
         };
+        if state.is_ordinary_starter_supplier(agent_id) {
+            return Err(invalid("ordinary_starter_supplier_reserved"));
+        }
         let mut agent =
             state
                 .agents

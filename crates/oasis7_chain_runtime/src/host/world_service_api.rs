@@ -140,6 +140,11 @@ impl Service<'_> {
                 }
                 Ok(())
             }
+            WorldServicePayloadV1::GameNativeDelegation(signed) => {
+                oasis7_runtime::service_admission::native_delegation::validate_receipt_owner(
+                    &pinned.world, signed,
+                )
+            }
             _ => self.check_payload(pinned, payload),
         }
     }
@@ -172,6 +177,11 @@ impl Service<'_> {
             }
             WorldServicePayloadV1::GameExecutorControl(signed) => {
                 game_task::validate_executor_owner(&pinned.world, signed)?;
+            }
+            WorldServicePayloadV1::GameNativeDelegation(signed) => {
+                oasis7_runtime::service_admission::native_delegation::validate_owner(
+                    &pinned.world, signed,
+                )?;
             }
             WorldServicePayloadV1::GameGoalPublish(signed) => {
                 game_task::validate_publish_owner(&pinned.world, signed)?;
