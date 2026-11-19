@@ -1,12 +1,12 @@
 //! First-attempt startup for the original operation and actual native owner.
-use super::super::{
+use super::super::super::{
+    FormalFullSyncSession, FormalFullSyncStatusV1, operation_ledger, shared_exchange,
+    validate_grant_for_node,
+};
+use crate::host::node_lifecycle::{
     LocalInstance, local_io,
     model::{CONFIG_FILE, NodeConfig},
     process::ProcessOwnership,
-};
-use super::{
-    FormalFullSyncSession, FormalFullSyncStatusV1, operation_ledger, shared_exchange,
-    validate_grant_for_node,
 };
 use std::{fs, io, sync::Arc};
 
@@ -44,11 +44,11 @@ impl InitialBudgetedSession {
             .as_ref()
             .ok_or("initial budgeted operation requires an independent issuer grant")?;
         let (keypair, _) =
-            super::super::super::node_keypair_config::read_existing_node_keypair_in_secure_config_dir(
+            crate::host::node_keypair_config::read_existing_node_keypair_in_secure_config_dir(
                 &directory.join("keys"),
             )?;
         let read = original.read_material_config();
-        let now = super::now_unix_ms().ok_or("system clock before Unix epoch")?;
+        let now = super::super::super::now_unix_ms().ok_or("system clock before Unix epoch")?;
         validate_grant_for_node(&read, grant, &keypair.public_key_hex, now)?;
         let native_owner_binding = owner.binding_digest()?;
         let state = directory.join("state");

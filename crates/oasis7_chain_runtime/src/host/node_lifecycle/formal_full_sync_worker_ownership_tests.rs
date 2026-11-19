@@ -127,3 +127,17 @@ fn full_sync_owner_rejects_replaced_directory() {
     drop(lock(&moved).unwrap());
     fs::remove_dir_all(moved).unwrap();
 }
+
+impl ProcessOwnership {
+    pub(in super::super::super) fn binding_digest(&self) -> Result<String, String> {
+        self.require_directory(&self.directory)?;
+        let held = self.file.metadata().map_err(|error| error.to_string())?;
+        io::digest(&(
+            "oasis7.native-owner-binding/v1",
+            &self.directory,
+            self.directory_identity,
+            held.dev(),
+            held.ino(),
+        ))
+    }
+}

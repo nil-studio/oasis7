@@ -73,9 +73,10 @@ mod metered_io;
 mod native_environment;
 #[path = "formal_full_sync_operation_config.rs"]
 mod operation_config;
-#[cfg(all(test, unix))]
-#[path = "formal_full_sync_operation_worker.rs"]
-mod operation_worker;
+#[path = "formal_full_sync_operation_snapshot.rs"]
+mod operation_snapshot;
+#[path = "formal_full_sync_operation_status.rs"]
+mod operation_status;
 #[cfg(all(test, unix))]
 #[path = "formal_full_sync_operation_ledger.rs"]
 mod operation_ledger;
@@ -102,6 +103,7 @@ use attempt::{
 use cas_lifecycle::CasBudget;
 pub(super) use compatibility::probe_runtime_compatibility;
 pub(super) use operation_config::FormalFullSyncConfigV2;
+pub(super) use operation_status::observe as observe_operation_status;
 pub(crate) use providers::{FormalFullSyncConfigV1, FormalFullSyncEndpointV1};
 #[cfg(test)]
 use providers::MAX_SYNC_PROVIDERS;

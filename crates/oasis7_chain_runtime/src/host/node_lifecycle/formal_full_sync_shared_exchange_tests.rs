@@ -8,6 +8,9 @@ use super::super::{
 use super::failover_tests::{config, local_instance};
 use super::*;
 
+#[path = "formal_full_sync_operation_worker.rs"]
+mod operation_worker;
+
 #[test]
 fn shared_operation_binds_real_formal_read_and_material_routes() {
     exercise_shared_operation(false);
@@ -269,8 +272,8 @@ fn original_request_cannot_be_attached_to_another_transport_policy() {
 
 #[test]
 fn v4_config_and_issuer_grant_bind_the_real_owned_worker_to_one_budget() {
-    use super::super::operation_worker::InitialBudgetedSession;
     use super::super::super::{model, process};
+    use operation_worker::InitialBudgetedSession;
 
     let (world, trust, anchor, material, proof) = full_sync_fixture();
     let (mut server, endpoint, key, runtime, _, _) =
@@ -297,16 +300,30 @@ fn v4_config_and_issuer_grant_bind_the_real_owned_worker_to_one_budget() {
     });
     let directory = TestPrivateDir::new();
     let anchor = model::ChainConfig::load_bytes(
-        &directory.0.join("chain.json"), &serde_json::to_vec(&chain).unwrap(),
-    ).unwrap();
+        &directory.0.join("chain.json"),
+        &serde_json::to_vec(&chain).unwrap(),
+    )
+    .unwrap();
     let data = directory.0.join("node");
     let node = model::initialize(anchor, &data, None, "127.0.0.1:43170").unwrap();
-    let instance_for = |node: &model::NodeConfig| {
-        LocalInstance { config_digest: local_io::digest(node).unwrap(), ..local_instance("v4-owned") }
+    let instance_for = |node: &model::NodeConfig| LocalInstance {
+        config_digest: local_io::digest(node).unwrap(),
+        ..local_instance("v4-owned")
     };
+    let initial = process::status(&data).unwrap();
+    let initial = &initial["formal_full_state_sync"];
+    assert_eq!(initial["api_version"], "oasis7.formal-full-sync-status/v2");
+    assert_eq!(initial["blocker"], "operation_worker_inactive");
+    assert!(initial["operation"].is_null());
+
     let owner = Arc::new(process::lock(&data).unwrap());
     let denied = InitialBudgetedSession::prepare(&node, &instance_for(&node), Arc::clone(&owner));
-    assert!(denied.err().unwrap().contains("requires an independent issuer grant"));
+    assert!(
+        denied
+            .err()
+            .unwrap()
+            .contains("requires an independent issuer grant")
+    );
     assert!(!data.join("state/full-sync").exists());
     drop(owner);
 
@@ -314,7 +331,10 @@ fn v4_config_and_issuer_grant_bind_the_real_owned_worker_to_one_budget() {
         super::super::super::super::node_keypair_config::read_existing_node_keypair_in_secure_config_dir(
             &data.join("keys"),
         ).unwrap();
-    let private: [u8; 32] = hex::decode(keypair.private_key_hex).unwrap().try_into().unwrap();
+    let private: [u8; 32] = hex::decode(keypair.private_key_hex)
+        .unwrap()
+        .try_into()
+        .unwrap();
     let grant = signed_grant(&SigningKey::from_bytes(&private), now_unix_ms().unwrap(), 1);
     let grant_path = directory.0.join("grant.json");
     local_io::write(&grant_path, &grant).unwrap();
@@ -326,7 +346,9 @@ fn v4_config_and_issuer_grant_bind_the_real_owned_worker_to_one_budget() {
     let worker = InitialBudgetedSession::prepare(&node, &instance, Arc::clone(&owner)).unwrap();
     assert!(process::lock(&data).is_err());
 
-    let thread = process::spawn_formal_full_sync_owned_worker(owner, move || worker.run_once()).unwrap();
+    let thread =
+        process::formal_full_sync_runtime::spawn_owned_worker(owner, move || worker.run_once())
+            .unwrap();
     let (status, snapshot) = thread.join().unwrap().unwrap();
     assert!(status.loaded_cut.is_some());
     assert!(!status.ready);
@@ -337,11 +359,34 @@ fn v4_config_and_issuer_grant_bind_the_real_owned_worker_to_one_budget() {
     assert!(snapshot.active_attempt_nonce.is_none());
     assert!(snapshot.reservation.is_none());
 
+    let status = process::status(&data).unwrap();
+    let projected = &status["formal_full_state_sync"];
+    assert_eq!(projected["blocker"], "operation_worker_inactive");
+    assert_eq!(projected["ready"], false);
+    let operation = &projected["operation"];
+    assert_eq!(operation["operation_id"], snapshot.identity.operation_id);
+    assert_eq!(operation["revision"], snapshot.revision);
+    assert_eq!(
+        operation["encoded_io"]["tx_actual_known"],
+        snapshot.encoded_tx_actual
+    );
+    assert_eq!(
+        operation["encoded_io"]["rx_actual_known"],
+        snapshot.encoded_rx_actual
+    );
+    assert_eq!(operation["encoded_io"]["unresolved_reserved"], 0);
+    assert!(operation["remaining_ms"].is_null());
+
     let owner = Arc::new(process::lock(&data).unwrap());
     let ledger_path = data.join("state/full-sync/operation.json");
     let before = std::fs::read(&ledger_path).unwrap();
     let resumed = InitialBudgetedSession::prepare(&node, &instance, owner);
-    assert!(resumed.err().unwrap().contains("original full-sync state exists"));
+    assert!(
+        resumed
+            .err()
+            .unwrap()
+            .contains("original full-sync state exists")
+    );
     assert_eq!(std::fs::read(&ledger_path).unwrap(), before);
     server.stop().unwrap();
     runtime.lock().unwrap().stop().unwrap();

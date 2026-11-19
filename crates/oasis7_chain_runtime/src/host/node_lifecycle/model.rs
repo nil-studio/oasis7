@@ -661,6 +661,13 @@ impl NodeConfig {
         }
         Ok(config)
     }
+    pub(super) fn require_active_worker_profile(&self) -> Result<(), String> {
+        if self.identity.chain.budgeted_formal_full_sync().is_some() {
+            return Err("operation-budgeted full sync has no active worker consumer".into());
+        }
+        Ok(())
+    }
+
     pub(super) fn verify_identity(&self) -> Result<(), String> {
         let (keypair, _) =
             super::super::node_keypair_config::read_existing_node_keypair_in_secure_config_dir(
