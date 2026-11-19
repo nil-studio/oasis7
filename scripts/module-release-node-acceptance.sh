@@ -107,8 +107,8 @@ for step in "${all_steps[@]}"; do
 done
 
 run_step() {
-  local step_name=$1
-  shift
+  local step_name=$1 match_mode=$2 selector=$3
+  shift 3
   local -a cmd=("$@")
   local step_log_path="${step_log[$step_name]}"
   local cmd_rendered=""
@@ -131,13 +131,20 @@ run_step() {
     return 0
   fi
 
-  set +e
-  {
-    echo "+ $cmd_rendered"
-    "${cmd[@]}"
-  } > >(tee -a "$step_log_path") 2>&1
-  code=$?
-  set -e
+  if { echo "+ $cmd_rendered"; "${cmd[@]}"; } 2>&1 | tee -a "$step_log_path"; then
+    if [[ -n "$match_mode" ]]; then
+      # Verify only after tee has finished writing this selector's own receipt.
+      if python3 "$repo_root/scripts/ci-local-check-command.py" --verify-libtest \
+          "$match_mode" "$selector" "$step_log_path" >>"$step_log_path" 2>&1; then
+        :
+      else
+        code=$?
+        echo "error: $step_name lacks verified passing test results; see $step_log_path" >&2
+      fi
+    fi
+  else
+    code=$?
+  fi
 
   if [[ "$code" -eq 0 ]]; then
     step_status["$step_name"]="passed"
@@ -154,6 +161,8 @@ run_step() {
 }
 
 for step in "${selected_steps[@]}"; do
+  match_mode=""
+  selector=""
   case "$step" in
     required_attestation_flow)
       cmd=(
@@ -242,51 +251,40 @@ jq -e '.proof_cid | startswith(\"sha256:\")' \"\$run_dir/proof/proof_payload.jso
       )
       ;;
     required_submit_api)
-      cmd=(
-        env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime
-        module_release_attestation_submit
-        --bin oasis7_chain_runtime
-        -- --nocapture
-      )
+      match_mode=contains
+      selector="module_release_attestation_submit_api::tests::"
+      cmd=(env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib
+        "$selector" -- --format pretty --color never)
       ;;
     required_attestation)
-      cmd=(
-        env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime
-        module_release_submit_attestation_
-        --features test_tier_required
-        -- --nocapture
-      )
+      match_mode=contains
+      selector="tests::module_action_loop::module_release_submit_attestation_"
+      cmd=(env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib --features test_tier_required
+        "$selector" -- --format pretty --color never)
       ;;
     required_threshold)
-      cmd=(
-        env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime
-        module_release_apply_rejects_when_attestation_threshold_not_met
-        --features test_tier_required
-        -- --nocapture
-      )
+      match_mode=exact
+      selector="tests::module_action_loop::module_release_apply_rejects_when_attestation_threshold_not_met"
+      cmd=(env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib --features test_tier_required
+        "$selector" -- --exact --format pretty --color never)
       ;;
     required_receipt_evidence)
-      cmd=(
-        env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime
-        module_release_apply_rejects_when_attestation_receipt_evidence_mismatches
-        --features test_tier_required
-        -- --nocapture
-      )
+      match_mode=exact
+      selector="tests::module_action_loop::module_release_apply_rejects_when_attestation_receipt_evidence_mismatches"
+      cmd=(env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib --features test_tier_required
+        "$selector" -- --exact --format pretty --color never)
       ;;
     required_release_policy)
-      cmd=(
-        env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime
-        production_release_policy_
-        -- --nocapture
-      )
+      match_mode=contains
+      selector="production_release_policy_"
+      cmd=(env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --lib
+        "$selector" -- --format pretty --color never)
       ;;
     full_manifest_faults)
-      cmd=(
-        env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime
-        power_bootstrap_release_manifest_full
-        --features test_tier_full
-        -- --nocapture
-      )
+      match_mode=contains
+      selector="tests::power_bootstrap_release_manifest_full::"
+      cmd=(env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib --features test_tier_full,wasmtime
+        "$selector" -- --format pretty --color never)
       ;;
     triage_signals)
       cmd=(
@@ -300,7 +298,7 @@ jq -e '.proof_cid | startswith(\"sha256:\")' \"\$run_dir/proof/proof_payload.jso
       ;;
   esac
 
-  if ! run_step "$step" "${cmd[@]}"; then
+  if ! run_step "$step" "$match_mode" "$selector" "${cmd[@]}"; then
     break
   fi
 done
