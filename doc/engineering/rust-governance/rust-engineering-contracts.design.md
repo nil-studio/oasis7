@@ -122,6 +122,72 @@ Service → Runtime/Projection/Game Client/Client Storage 是合法组合；主 
 
 为给全仓 55 个唯一 workspace 成员提供清晰的宏观依赖视图与长期净室规则，本节补充 L0–L4 五层单向依赖参考拓扑（`L4 -> L3 -> L2 -> L1 -> L0`）。该表用于架构导航与增量收敛，**不替代**上文 `§4.2`–`§4.3` 的 `package × kind × target/features` 方向矩阵与 `scripts/cargo-dev-architecture.json` 可执行规则；同层内部的禁止关系（如 `oasis7_runtime` 不得依赖 `oasis7_simulator`、`oasis7_world_projection`、`oasis7_node`、`oasis7_distfs`，以及 `oasis7_game_client` 不得依赖 `oasis7_world_state`/`oasis7_runtime`）继续由方向矩阵与原专业合同裁定。
 
+```mermaid
+flowchart TB
+    subgraph L4["L4 · Surface Apps, Viewers, Launchers & Tooling"]
+        L4_VIEW["oasis7_viewer_runtime / oasis7_viewer_codec"]
+        L4_LNCH["oasis7_client_launcher / oasis7_launcher_backend"]
+        L4_CLI["oasis7_client_cli / oasis7_ops_tools / oasis7_protocol_tools / oasis7_provider_tools"]
+        L4_TOOL["tools/scenario_test_runner / wasm_build_suite / wasm_module_observe"]
+    end
+
+    subgraph L3["L3 · Service Facades, Bridges, Workers & Agent Harness"]
+        L3_SVC["oasis7_world_service / oasis7_chain_runtime"]
+        L3_AGENT["oasis7_agent_harness / oasis7_model_provider / provider_local_bridge / newapi_bridge"]
+        L3_WORK["oasis7_custody_worker / oasis7_dev_test_worker"]
+        L3_UMB["oasis7 (兼容伞包 · 退役中)"]
+    end
+
+    subgraph L2["L2 · Authoritative State, Execution, Simulation & P2P Node"]
+        L2_EXEC["oasis7_runtime / oasis7_world_state / oasis7_world_projection"]
+        L2_SIM["oasis7_simulator"]
+        L2_P2P["oasis7_node -> oasis7_net -> oasis7_distfs"]
+    end
+
+    subgraph L1["L1 · Substrate, Storage, Crypto, WASM & Client Core"]
+        L1_STORE["oasis7_cas / oasis7_context / oasis7_local_signer / oasis7_client_storage / oasis7_custody_core"]
+        L1_WASM["oasis7_wasm_executor / oasis7_wasm_router / oasis7_wasm_store / oasis7_wasm_materializer"]
+        L1_CONS["oasis7_consensus"]
+        L1_CLI["oasis7_game_client / oasis7_browser_game_client / oasis7_launcher_config"]
+    end
+
+    subgraph L0["L0 · Domain Primitives & Pure Wire Contracts"]
+        L0_API["oasis7_agent_api / oasis7_client_api / oasis7_formal_protocol"]
+        L0_BASE["oasis7_proto / oasis7_wasm_abi / oasis7_wasm_sdk / oasis7_wasm_build / secure_envelope / observability / ..."]
+        L0_DOM["oasis7_domain_types (Target · 零 I/O 核心值子集)"]
+    end
+
+    L4_VIEW --> L3_SVC
+    L4_VIEW --> L3_UMB
+    L4_LNCH --> L3_AGENT
+    L4_LNCH --> L1_CLI
+    L4_CLI --> L3_UMB
+    L4_TOOL --> L2_SIM
+
+    L3_SVC --> L2_EXEC
+    L3_SVC --> L2_P2P
+    L3_SVC --> L1_CLI
+    L3_AGENT --> L1_CLI
+    L3_AGENT --> L2_SIM
+    L3_WORK --> L1_STORE
+    L3_UMB -. "逐步迁空退役" .-> L3_SVC
+
+    L2_EXEC --> L1_STORE
+    L2_EXEC --> L1_WASM
+    L2_EXEC --> L1_CONS
+    L2_EXEC --> L1_CLI
+    L2_P2P --> L1_CONS
+    L2_P2P --> L1_STORE
+    L2_SIM --> L0_API
+
+    L1_STORE --> L0_API
+    L1_WASM --> L0_BASE
+    L1_CONS --> L0_API
+    L1_CLI --> L0_API
+    L0_API --> L0_BASE
+    L0_API -. "pub use 兼容重导出" .-> L0_DOM
+```
+
 | 架构层级 | 层级定位 | 归属 Crate / Tool 清单（全量 55 个现存成员 + 1 个目标 L0） | 依赖边界与演进说明 |
 | --- | --- | --- | --- |
 | **L0** | **Domain Primitives & Pure Wire Contracts（领域原语与纯协议合同层）** | `oasis7_domain_types`（目标新增，承接从 `*_api` 抽出的零 I/O 核心值对象子集）、`oasis7_proto`、`oasis7_wasm_abi`、`oasis7_wasm_sdk`、`oasis7_wasm_build`、`oasis7_secure_envelope`、`oasis7_signer_protocol`、`oasis7_observability`、`oasis7_executable_image`、`oasis7_hosted_access`、`oasis7_letai_credit_adapter`、`oasis7_launcher_ui`、`pixel_world_bridge`、`oasis7_agent_api`、`oasis7_client_api`、`oasis7_formal_protocol` | 仅含纯值对象、规范编码、wire/ABI 合同与无内部依赖的基础库；严禁反向依赖存储/网络/执行器状态机。`oasis7_agent_api` 与 `oasis7_client_api` 本身即纯协议合同层，后续按收益将纯领域值（如 `world_resource`、`world_entity`、`world_geometry`、`formal_projection`）渐进下沉至 `oasis7_domain_types` 并保留 `pub use` 兼容路径。 |

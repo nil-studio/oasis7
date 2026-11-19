@@ -920,6 +920,42 @@ design.
 
 承接 [Workspace 五层依赖拓扑](../engineering/rust-governance/rust-engineering-contracts.design.md#workspace-layering-topology)、上文 `§6.2` `ExecutionTransaction` / `CommandStateOverlay` 与 `§6.4` 渐进子系统封装，本节固化四项长期演进契约与 `crates/oasis7` 伞包退役矩阵（均属目标设计，当前未落地，由 `#6025` 及其后续实现子任务分阶段推进）。
 
+```mermaid
+flowchart TB
+    subgraph INPUT["权威提交与规则策略输入"]
+        CONS["oasis7_node / oasis7_consensus"] -->|"AuthorityCommitVerifier (单权威 / BFT H->H+1)"| GATE["确定性执行与恢复闸门"]
+        SIM["oasis7_simulator"] -->|"RuleSettlementPolicy::AdvisoryOnly"| POL["共享 L0 chain_resource 规则投影"]
+        RT_IN["oasis7_runtime 权威动作"] -->|"RuleSettlementPolicy::AuthoritativeDebit"| POL
+    end
+
+    subgraph DOMAINS["oasis7_runtime 五大限界上下文子模块"]
+        D_IND["domains::industrial (工厂 / 配方 / 物流 / SLA)"]
+        D_MON["domains::monetary (代币 / 锁仓 / 积分 / 国库 / Claim)"]
+        D_INS["domains::institutions (治理提案 / 联盟战争 / 契约 / 制动罚没)"]
+        D_AUT["domains::capability_authz (AUTHZ-01..18 / Nonce / Effect Links)"]
+        D_MOD["domains::module_lifecycle (WASM 工件 / 市场 / 实例 / J2 唤醒)"]
+    end
+
+    subgraph TX["StagedTransition 两阶段无克隆演进 (承接 §6.2)"]
+        PREP["Stage 1: prepare(&BorrowedWorldView) → PreparedCommit(Delta)"]
+        FP["Post-Prepare Failpoint & 共识候选根校验"]
+        APPLY["Stage 2: apply_infallible(&mut WorldState)"]
+        PREP --> FP --> APPLY
+    end
+
+    subgraph ENV["WorldCommitmentEnvelope v2 (承接 §6.2.3)"]
+        R1["business_state_root + authorization_root (v1 兼容)"]
+        R2["governance_sidecar_root (提案 / 制动 / 罚没)"]
+        R3["control_continuation_root (J1 游标 / J2 唤醒表)"]
+    end
+
+    GATE --> DOMAINS
+    POL --> DOMAINS
+    DOMAINS --> PREP
+    APPLY --> ENV
+    ENV --> OUT["快照落盘 / C->T 事件后缀恢复 / BFT 重执行校验"]
+```
+
 #### 6.5.1 `oasis7_runtime` 五大业务限界上下文子模块拆分
 
 对齐 `doc/engineering/rust-governance/*` 与 `scripts/check-rust-file-size.sh`，`oasis7_runtime` 将现有散落在顶层与大文件中的 `Prepared*` 转移路径按业务限界上下文（Bounded Context）渐进收敛为 5 个高内聚子模块，替代机械式 `*_part2.rs` / `include!` 切分，同时保持既有公开路径、事件顺序与快照兼容：
