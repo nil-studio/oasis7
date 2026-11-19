@@ -75,10 +75,12 @@ fn physical_allowance() -> PageIoBudget {
     }
 }
 fn logical_allowance() -> ValueIoBudget {
+    // Range reads charge in-memory output to the logical write lane. Split
+    // the original 64 MiB allowance; physical writes remain forbidden.
     ValueIoBudget {
         nodes_remaining: 65_536,
-        read_bytes_remaining: 64 << 20,
-        write_bytes_remaining: 0,
+        read_bytes_remaining: 32 << 20,
+        write_bytes_remaining: 32 << 20,
     }
 }
 impl HostObservationWorkV1 {
