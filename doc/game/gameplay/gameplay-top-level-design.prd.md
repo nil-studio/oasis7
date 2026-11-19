@@ -402,6 +402,8 @@
 
 #### 0~30 分钟 beat 合同
 
+下表是按实际事件选择的观察片段，不是每名玩家必须在一场会话按分钟走完的任务表。首局学习采用[最小独立游玩目标](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#minimum-independent-play)；首厂前受阻、自然离场和之后继续分别保留实际结果。生产、恢复、持续能力与分支只在对应条件成立时观察，缺样本记录未覆盖，不按时制造事故或以表内阶段替代独立 gate。
+
 | 时间 | 玩家问题与动词 | 必须形成的反馈/收益 | 失败签名与恢复 |
 | --- | --- | --- | --- |
 | `0~1m` | 我是谁、现在做什么；进入/读取 | 主目标包含动作、完成条件、阶段预期与下一步 | raw operator/debug 噪音抢焦点或 empty world 无可执行入口 |
@@ -694,6 +696,8 @@ early-retention 产品承诺见 `doc/product/world-rules-core-gameplay/first-ses
 
 # 第五部分：前 30 天新手体验流程
 
+以下是长期内容编排示例，不规定玩家按日历完成或把这些知识全部纳入首局。当前工业样本先有合法 Smelter 才能生产铁锭；首厂、首产物与首次持续能力按真实条件及各自合同判定，不等待示例中的指定天数。学习顺序与自然停点沿[首局分册](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#minimum-independent-play)，组织、治理和更高承诺的协作仍由玩家自愿进入。
+
 ## 第 1~3 天：生存学习
 
 - 学习能源循环
@@ -717,7 +721,7 @@ early-retention 产品承诺见 `doc/product/world-rules-core-gameplay/first-ses
 
 ### 首次社交接触预览合同
 
-第 4~7 天的首次社交入口必须在玩家确认前提供 `first_contact_preview` / `social_contact_quote`，将“接触其他玩家”呈现为可理解、可延后的下一步，而不是默认加入组织、承担治理义务或开启宏观外交。每个候选接触必须展示：
+首次社交入口必须在玩家确认前提供 `first_contact_preview` / `social_contact_quote`，将“接触其他玩家”呈现为可理解、可延后的下一步，而不是默认加入组织、承担治理义务或开启宏观外交。第 4~7 天只表示本节的编排示例。每个候选接触必须展示：
 
 - `contact_purpose`：本次要解决的当前本地问题，例如出售少量产出、请求一次运输协助或交换路线/价格信息。
 - `expected_mutual_value`：玩家与对方各自立即可见的收益，不得只写“建立关系”。
@@ -732,7 +736,7 @@ early-retention 产品承诺见 `doc/product/world-rules-core-gameplay/first-ses
 - `mutual_aid`：围绕当前 blocker 的可回收互助，不建立持续成员关系。
 - `information_exchange`：交换路线、价格、风险或机会信息，不承诺资源、票权或组织身份。
 - `defer_contact`：当前独立路线更优或风险不可接受时，保留延后理由与回访条件。
-- `organization_escalation`：明确加入组织、承担长期供给、治理或排他承诺；此类动作不是第 4~7 天首次接触的默认结果，必须作为第 8~14 天或之后的独立确认步骤展示。
+- `organization_escalation`：明确加入组织、承担长期供给、治理或排他承诺；只在玩家主动选择更高承诺且当前资格与能力支持时，以独立预览和明确确认进入，不由首次低承诺接触自动升级，也不按固定天数开放。
 
 如果首次社交入口没有 `first_contact_preview`，或把 `trade_or_service`、`mutual_aid`、`information_exchange` 默认升级为 `organization_escalation`，标记 `first_contact_preview_missing`。该合同只定义当前 limited playable technical preview 中的玩家理解与选择边界，不新增组织、治理、外交、社交图谱或 runtime/viewer 实现范围。
 
