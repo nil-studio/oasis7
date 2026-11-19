@@ -12,7 +12,7 @@
 - 技术债管理：债务识别、影响面分级、owner 建议、偿还顺序、临时豁免条件和回收触发器
 - 仓库 Codex 配置、专业 role adapter 投影与 validation contract 的一致性/可加载性/职责边界审计
 - 相关文档：`doc/engineering/*`、`.agents/roles/*`、`.agents/skills/*`、`skills/*`、Git/PR/实际 CI 与评审记录、可选 Issue 与历史 `.pm/github-project-sync/*` 中与工程治理、健康度、债务和对齐有关的证据
-- Viewer 前端结构治理对齐：`doc/world-simulator/viewer/viewer-frontend-structure-standard-2026-07-06.prd.md` 与相关 `viewer-web-single-source-build-truth` / role-card / verification evidence
+- Viewer 前端结构治理对齐：`doc/world-simulator/viewer/viewer-frontend-structure-standard.prd.md` 与相关 `viewer-web-single-source-build-truth` / role-card / verification evidence
 
 ## 返回结果
 
