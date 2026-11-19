@@ -420,6 +420,8 @@ async fn exercise_relay_circuit() {
         relay_io::swarm_with_byte_window(&Keypair::generate_ed25519(), source_budget.clone());
     let (mut destination, destination_bytes) =
         relay_io::swarm_with_byte_window(&Keypair::generate_ed25519(), destination_budget.clone());
+    relay_io::seed_direct_candidate(&mut source).await;
+    relay_io::seed_direct_candidate(&mut destination).await;
     let source_peer = *source.local_peer_id();
     let destination_peer = *destination.local_peer_id();
     let listener = destination
@@ -477,6 +479,13 @@ async fn exercise_relay_circuit() {
         &source_budget,
         &destination_budget,
         circuit_address.clone(),
+    )
+    .await;
+    relay_io::observe_dcutr_budget_refusal(
+        &mut source,
+        &mut destination,
+        &source_budget,
+        &destination_budget,
     )
     .await;
     relay_io::verify_nested_request(

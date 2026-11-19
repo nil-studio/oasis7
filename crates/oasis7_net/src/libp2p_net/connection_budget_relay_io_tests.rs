@@ -117,3 +117,44 @@ pub(super) async fn verify_nested_request(
         assert!(after.outbound - before.outbound >= nested_payload_bytes);
     }
 }
+
+pub(super) async fn seed_direct_candidate(swarm: &mut Swarm<Behaviour>) {
+    use libp2p::swarm::{FromSwarm, NetworkBehaviour, NewExternalAddrCandidate};
+
+    let address = listen(swarm, "/ip4/127.0.0.1/tcp/0").await;
+    // Fixture substitutes a deterministic observation for public NAT discovery.
+    // The DCUtR protocol negotiation and resulting dial run on the real Swarm.
+    swarm
+        .behaviour_mut()
+        .on_swarm_event(FromSwarm::NewExternalAddrCandidate(
+            NewExternalAddrCandidate { addr: &address },
+        ));
+}
+
+pub(super) async fn observe_dcutr_budget_refusal(
+    source: &mut Swarm<Behaviour>,
+    destination: &mut Swarm<Behaviour>,
+    source_budget: &ConnectionBudget,
+    destination_budget: &ConnectionBudget,
+) {
+    let source_peer = *source.local_peer_id();
+    let destination_peer = *destination.local_peer_id();
+    loop {
+        let (event, expected, budget) =
+            match select(source.select_next_some(), destination.select_next_some()).await {
+                Either::Left((event, _)) => (event, destination_peer, source_budget),
+                Either::Right((event, _)) => (event, source_peer, destination_budget),
+            };
+        if let SwarmEvent::Behaviour(BehaviourEvent::Dcutr(event)) = event
+            && event.remote_peer_id == expected
+        {
+            assert!(event.result.is_err());
+            assert_eq!(
+                budget.0.diagnostics.latest().0,
+                Some(ResourceBudgetRejection::PerPeer)
+            );
+            assert_eq!(occupancy(budget, expected), (2, [0, 0], 1));
+            return;
+        }
+    }
+}

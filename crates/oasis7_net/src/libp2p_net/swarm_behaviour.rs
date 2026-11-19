@@ -636,3 +636,7 @@ mod dial_gate_tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "swarm_protocol_budget_tests.rs"]
+mod protocol_budget_tests;
