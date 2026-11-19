@@ -130,17 +130,6 @@ def is_system_design_path(path: str) -> bool:
     )
 
 
-def is_traceability_authority_path(path: str) -> bool:
-    """Changed documentation may host a feature, Trace ID or professional clause.
-
-    Reverse selection still follows exact links from structured consumers and
-    only new relation breakage is blocking; an unrelated Markdown edit does not
-    bring historical prose into the strict gate.
-    """
-    normalized = Path(path).as_posix()
-    return normalized.startswith("doc/") and normalized.endswith(".md")
-
-
 def parse_name_status(output: str) -> dict[str, str]:
     changed: dict[str, str] = {}
     for line in output.splitlines():
@@ -319,11 +308,6 @@ def worktree_text_reader(root: Path, checkout_head: str) -> Callable[[str], str 
         return target.read_text(encoding="utf-8") if target.is_file() else None
 
     return read
-
-
-def worktree_file_text(root: Path, checkout_head: str, path: str) -> str | None:
-    """Read one target with fresh state for callers outside a shared check."""
-    return worktree_text_reader(root, checkout_head)(path)
 
 
 def worktree_overlay(root: Path, checkout_head: str) -> dict[str, str]:
@@ -654,37 +638,6 @@ def traceability_tables(text: str) -> tuple[Table, Table, bool]:
         Table(validation_line, validation_line, ("upstream", "design", "obligation", "validation", "evidence", "excluded"), tuple(validations)),
         legacy_dual,
     )
-
-
-def table_after_heading(text: str, matcher: re.Pattern[str]) -> Table | None:
-    lines = visible_lines(text)
-    heading_line = None
-    start_index = None
-    for index, (number, line) in enumerate(lines):
-        if matcher.fullmatch(line):
-            heading_line = number
-            start_index = index + 1
-            break
-    if start_index is None or heading_line is None:
-        return None
-    for index in range(start_index, len(lines) - 1):
-        number, line = lines[index]
-        if HEADING_RE.match(line):
-            break
-        headers = table_cells(line)
-        if not headers or not is_separator(lines[index + 1][1]):
-            continue
-        rows: list[tuple[int, tuple[str, ...]]] = []
-        row_index = index + 2
-        while row_index < len(lines):
-            row_number, row_line = lines[row_index]
-            cells = table_cells(row_line)
-            if not cells:
-                break
-            rows.append((row_number, cells))
-            row_index += 1
-        return Table(heading_line, number, headers, tuple(rows))
-    return None
 
 
 def split_link_target(raw: str) -> tuple[str, str | None]:
