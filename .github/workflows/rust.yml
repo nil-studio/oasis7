@@ -2257,7 +2257,7 @@ jobs:
             --mount "type=bind,source=$RUNNER_TEMP/ci-authority/ci-formal-process-suites.json,target=$RUNNER_TEMP/ci-authority/ci-formal-process-suites.json,readonly" \
             --mount "type=bind,source=$RUNNER_TEMP/native-tests,target=$RUNNER_TEMP/native-tests,readonly" \
             --workdir "$GITHUB_WORKSPACE" --env HOME=/tmp \
-            --env SOURCE_SHA --env GITHUB_RUN_ID --env GITHUB_RUN_ATTEMPT \
+            --env SOURCE_SHA --env GITHUB_RUN_ID --env GITHUB_RUN_ATTEMPT --env RUST_TOOLCHAIN --env ImageOS \
             "$STORAGE_RECOVERY_IMAGE" "${command[@]}"
       - name: Upload safe process diagnostics
         if: always()

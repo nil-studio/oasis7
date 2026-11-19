@@ -171,7 +171,8 @@ jobs:
           docker run --rm --pull never --user "$(id -u):$(id -g)" \
             --mount "type=bind,source=$GITHUB_WORKSPACE,target=$GITHUB_WORKSPACE" \
             --mount "type=bind,source=$RUNNER_TEMP/storage-tests,target=$RUNNER_TEMP/storage-tests,readonly" \
-            --workdir "$GITHUB_WORKSPACE" --env HOME=/tmp --env SOURCE_SHA \
+            --workdir "$GITHUB_WORKSPACE" --env HOME=/tmp --env SOURCE_SHA --env GITHUB_RUN_ID --env GITHUB_RUN_ATTEMPT \
+            --env RUST_TOOLCHAIN --env ImageOS --env ImageVersion \
             "$STORAGE_RECOVERY_IMAGE" "${command[@]}"
       - name: Check actual fault traffic
         if: always() && matrix.network != 'none'
