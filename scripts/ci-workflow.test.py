@@ -368,7 +368,19 @@ def without_optional_dependency_cache_install(workflow, config=None):
     return workflow
 
 
+def validate_custody_tools(node):
+    if re.search(r'^    container:', node, re.M):
+        if (not re.search(r'^    container:\n      image: ghcr\.io/nil-studio/oasis7/ci-build@sha256:[0-9a-f]{64}$',
+                          node, re.M)
+                or 'gdb --version && gcc --version && pkg-config --version' not in node
+                or 'scripts/ci-apt-install.py' in node or 'apt-get ' in node):
+            raise ValueError('custody image requires a pinned digest and preinstalled GDB tools')
+    elif '-- gdb gcc pkg-config' not in node:
+        raise ValueError('custody host runner requires GDB tools')
+
+
 def validate_workerd_capture(node, summary):
+    validate_custody_tools(node)
     run = next((line for line in node.splitlines() if 'ci-custody-platform.py run ' in line), '')
     validate = next((line for line in summary.splitlines() if 'ci-custody-platform.py validate ' in line), '')
     if '--capture-workerd-faults' not in run or '--capture-workerd-faults' not in validate:
@@ -378,7 +390,7 @@ def validate_workerd_capture(node, summary):
     if (len(contracts) != 1 or 'if: matrix.shard == 0' not in contracts[0]
             or "OASIS7_REQUIRE_GDB_TESTS: '1'" not in contracts[0]
             or '--failfast GdbContracts' not in contracts[0]
-            or 'continue-on-error' in contracts[0] or '-- gdb gcc pkg-config' not in node):
+            or 'continue-on-error' in contracts[0]):
         raise ValueError('standard GDB process contracts must actually run on the hosted consumer')
     uploads = [step for step in steps if 'name: custody-workerd-fault-' in step]
     if (len(uploads) != 1 or 'if: always()' not in uploads[0]
@@ -4788,7 +4800,11 @@ class AptWorkflow(unittest.TestCase):
     def test_all_rust_apt_consumers_keep_packages_and_bounded_failure(self):
         expected = {('rust', name, 'Install native libraries'): self.NATIVE
                     for name in self.NATIVE_JOBS}
-        expected['rust', 'custody-node', 'Install native libraries'] = ['gdb', 'gcc', *self.NATIVE]
+        custody = ('rust', 'custody-node', 'Install native libraries')
+        if re.search(r'^    container:', JOBS['custody-node'], re.M):
+            del expected[custody]
+        else:
+            expected[custody] = ['gdb', 'gcc', *self.NATIVE]
         expected.update({('rust', name, 'Install WASM C compiler'): ['clang', 'llvm']
                          for name in ('pr-fast-preview', 'net')})
         expected.update({('rust', name, 'Install system deps'): ['clang', 'llvm', *self.NATIVE]
@@ -5081,6 +5097,15 @@ class OrdinaryDeliveryWorkflow(unittest.TestCase):
 
 
 class WorkerdFaultCapture(unittest.TestCase):
+    def test_prebuilt_custody_tools_require_pinning_and_preflight(self):
+        node = (f"    container:\n      image: ghcr.io/nil-studio/oasis7/ci-build@sha256:{'a' * 64}\n"
+                "      - run: gdb --version && gcc --version && pkg-config --version\n")
+        validate_custody_tools(node)
+        for bad in (node.replace('@sha256:', ':'), node.replace('gdb --version', 'true'),
+                    node + '      - run: sudo apt-get update\n'):
+            with self.assertRaises(ValueError):
+                validate_custody_tools(bad)
+
     def test_evidence_upload_is_bounded_without_masking_failure(self):
         node, summary = JOBS['custody-node'], JOBS['workspace-support']
         marker = '      - name: Preserve workerd evidence for this attempt\n'
@@ -5108,7 +5133,8 @@ class WorkerdFaultCapture(unittest.TestCase):
                 (' --capture-workerd-faults', ''),
                 ("OASIS7_REQUIRE_GDB_TESTS: '1'", "OASIS7_REQUIRE_GDB_TESTS: '0'"),
                 ('--failfast GdbContracts', 'Receipts'),
-                ('-- gdb gcc pkg-config', '-- pkg-config'),
+                (('gdb --version && gcc --version && pkg-config --version'
+                  if re.search(r'^    container:', node, re.M) else '-- gdb gcc pkg-config'), '-- pkg-config'),
                 ('custody-workerd-fault-${{ github.run_id }}-${{ github.run_attempt }}-',
                  'custody-workerd-fault-${{ github.run_id }}-'),
                 ('name: custody-workerd-fault-', 'overwrite: true\n          name: custody-workerd-fault-')):
