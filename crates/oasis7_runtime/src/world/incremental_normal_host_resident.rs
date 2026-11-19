@@ -478,6 +478,18 @@ impl NormalHostResidentSourcesV1 {
         }
         Ok(())
     }
+    /// Inspect the actual installed storage only after checking its accepted
+    /// parent and original Common. Cold-built residents still need Cognition
+    /// admission; ordinary promoted residents retain their warm sources.
+    pub fn requires_cognition_startup_bounded_v1(
+        &self,
+        record: [u8; 32],
+        fence: &ExecutionFence,
+        common: &mut FormalBoundedContextV1<'_>,
+    ) -> Result<bool, BodyMutationError> {
+        self.validate_live_binding_v1(record, fence, common)?;
+        Ok(matches!(&self.storage, ResidentStorage::Built { .. }))
+    }
     pub(in crate::world) fn begin_authorization<'a, M: MerkleNodeReader>(
         &'a self,
         parent: &BoundNormalTickParentV1<'_>,

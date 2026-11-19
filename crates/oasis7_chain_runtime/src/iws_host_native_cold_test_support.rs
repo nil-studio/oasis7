@@ -284,20 +284,5 @@ pub(crate) fn selected_fact_hints_bounded(
     archive: &FormalArchiveReadWorkV1,
     cancelled: &AtomicBool,
 ) -> Result<IwsColdParentHintsV1, IwsHostRuntimeErrorV1> {
-    let current = host
-        .current
-        .current()
-        .ok_or_else(|| FormalError::Invalid("cold hint actual Host missing".into()))?;
-    current.source.with_parent_read_view_bounded(
-        memory,
-        archive,
-        &mut || cancelled.load(Ordering::Acquire),
-        |parent| {
-            archive.charge(2, 96, &mut || cancelled.load(Ordering::Acquire))?;
-            Ok(IwsColdParentHintsV1 {
-                runtime: parent.runtime().occurrence().location(),
-                cognition: parent.cognition().selected().occurrence().location(),
-            })
-        },
-    )
+    super::cold_recovery::selected_fact_hints_bounded_v1(host, memory, archive, cancelled)
 }

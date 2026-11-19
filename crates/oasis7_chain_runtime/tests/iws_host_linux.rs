@@ -342,7 +342,7 @@ fn real_linux_accepted_genesis_installs_native_host() {
     prepare_bundle(&directory.0);
     accepted_host(&directory.0);
 }
-fn run_nonempty_node_cold_fixture(mode: &str) -> serde_json::Value {
+fn run_actual_node_fixture(mode: &str) -> serde_json::Value {
     use std::os::unix::fs::PermissionsExt;
     let directory = Directory::new();
     let stable = directory.0.join("native-normal-cold-fixture");
@@ -373,6 +373,11 @@ fn run_nonempty_node_cold_fixture(mode: &str) -> serde_json::Value {
     );
     let receipt: serde_json::Value =
         serde_json::from_slice(&result.stdout).expect("actual closure receipt");
+    eprintln!("{}", String::from_utf8_lossy(&result.stderr));
+    receipt
+}
+fn run_nonempty_node_cold_fixture(mode: &str) -> serde_json::Value {
+    let receipt = run_actual_node_fixture(mode);
     assert_eq!(
         receipt["schema"],
         "oasis7.iws.nonempty_normal_cold.fixture.v1"
@@ -397,9 +402,45 @@ fn run_nonempty_node_cold_fixture(mode: &str) -> serde_json::Value {
     );
     assert_eq!(receipt["second"]["fifo_transfers"], serde_json::json!([1]));
     assert_eq!(receipt["third"]["fifo_transfers"], serde_json::json!([1]));
-    eprintln!("{}", String::from_utf8_lossy(&result.stderr));
     eprintln!("{}", serde_json::to_string_pretty(&receipt).unwrap());
     receipt
+}
+fn assert_continuous_live_node(mode: &str, cold_recovery: bool) {
+    let receipt = run_actual_node_fixture(mode);
+    assert_eq!(receipt["schema"], "oasis7.iws.live_node.fixture.v1");
+    assert_eq!(receipt["node_instances"], 1);
+    assert_eq!(receipt["node_starts"], 3);
+    assert_eq!(receipt["fresh"], 3);
+    assert_eq!(receipt["restored"], 1);
+    assert_eq!(receipt["completed"], 3);
+    assert_eq!(receipt["cancelled_completions"], 1);
+    assert_eq!(
+        receipt["aborted_service_rejects_restart_and_submission"],
+        true
+    );
+    assert_eq!(receipt["pool_used_after_drop"], 0);
+    assert_eq!(receipt["final_sender_electricity"], 1);
+    assert_eq!(receipt["cold_recovery"], cold_recovery);
+    assert_eq!(receipt["ticks"][0]["actual_cold_resident"], cold_recovery);
+    assert_eq!(receipt["ticks"][1]["actual_cold_resident"], false);
+    assert_eq!(receipt["ticks"][2]["actual_cold_resident"], false);
+    for (tick, expected) in receipt["ticks"].as_array().unwrap().iter().zip([
+        serde_json::json!([3, 2]),
+        serde_json::json!([1]),
+        serde_json::json!([1]),
+    ]) {
+        assert_eq!(tick["fifo_transfers"], expected);
+        assert_eq!(tick["vm_charges"], expected.as_array().unwrap().len());
+    }
+    eprintln!("{}", serde_json::to_string_pretty(&receipt).unwrap());
+}
+#[test]
+fn real_linux_one_live_node_retains_originals_across_pending_and_completed_restarts() {
+    assert_continuous_live_node("--iws-live-node-v1", false);
+}
+#[test]
+fn real_linux_live_node_cold_output_recovery_keeps_original_work_for_successors() {
+    assert_continuous_live_node("--iws-live-node-cold-v1", true);
 }
 #[test]
 fn real_linux_nonempty_node_commit_reopens_cold_and_commits_again() {

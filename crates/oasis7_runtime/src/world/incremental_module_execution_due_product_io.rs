@@ -234,13 +234,13 @@ fn visit_lanes<M, R, E, C, W, F, O>(
     // The root invocation path has no separate invocation-enumeration counter;
     // selection scans and closures are represented by the lanes above.
 
-    visit_io(&mut root.ctx.values.io, visit);
+    visit_io(root.ctx.values.io, visit);
     visit(LaneMut::Bytes(&mut root.ctx.key_work.bytes_remaining));
-    visit_io(&mut root.members.io, visit);
+    visit_io(root.members.io, visit);
     visit(LaneMut::Bytes(&mut root.members.key_work.bytes_remaining));
-    visit_io(&mut root.fees.values.io, visit);
+    visit_io(root.fees.values.io, visit);
     visit(LaneMut::Bytes(&mut root.fees.key_work.bytes_remaining));
-    visit_io(&mut root.events.mutation.io, visit);
+    visit_io(root.events.mutation.io, visit);
     visit(LaneMut::Steps(
         &mut root.events.original_work.visits_remaining,
     ));
@@ -666,12 +666,12 @@ where
             persist_original(original)
         };
 
-    let mut overlay_cancelled_ref: StopFn<'_> = &mut overlay_cancelled;
-    let mut member_cancelled_ref: StopFn<'_> = &mut member_cancelled;
-    let mut fee_cancelled_ref: StopFn<'_> = &mut fee_cancelled;
-    let mut event_cancelled_ref: StopFn<'_> = &mut event_cancelled;
-    let mut take_error_ref: StateErrorFn<'_> = &mut take_error;
-    let mut persist_ref: PersistOriginalFn<'_> = &mut persist;
+    let overlay_cancelled_ref: StopFn<'_> = &mut overlay_cancelled;
+    let member_cancelled_ref: StopFn<'_> = &mut member_cancelled;
+    let fee_cancelled_ref: StopFn<'_> = &mut fee_cancelled;
+    let event_cancelled_ref: StopFn<'_> = &mut event_cancelled;
+    let take_error_ref: StateErrorFn<'_> = &mut take_error;
+    let persist_ref: PersistOriginalFn<'_> = &mut persist;
 
     let mut overlay = WorldFieldOverlayContextV1 {
         transaction: &mut **transaction,
@@ -681,7 +681,7 @@ where
             class: values.class,
             io: &mut *values.io,
         },
-        key_work: &mut **key_work,
+        key_work,
         semantic_bytes: *semantic_bytes,
         record_bytes: *record_bytes,
         take_state_error: take_error_ref,
@@ -689,20 +689,20 @@ where
     };
     let mut member = MemberRecordWriteContext {
         sink: &mut **member_sink,
-        memory: *member_memory,
-        io: &mut **member_io,
-        key_work: &mut **member_key_work,
+        memory: member_memory,
+        io: member_io,
+        key_work: member_key_work,
         limits: *member_limits,
         cancelled: member_cancelled_ref,
     };
     let mut fee = RootModuleFeeWriteContextV1 {
         values: ValueMutationContextV1 {
             sink: &mut **fee_sink,
-            memory: *fee_memory,
-            io: &mut **fee_io,
+            memory: fee_memory,
+            io: fee_io,
             cancelled: fee_cancelled_ref,
         },
-        key_work: &mut **fee_key_work,
+        key_work: fee_key_work,
         member_limits: *fee_member_limits,
     };
     let placeholder = CanonicalCborWorkV1 {
@@ -714,11 +714,11 @@ where
     };
     let mut event = ModuleOutputEventContextV1 {
         values: *event_values,
-        world_events: *world_events,
+        world_events,
         mutation: BodyMutationContext {
             sink: &mut **event_sink,
-            memory: *event_memory,
-            io: &mut **event_io,
+            memory: event_memory,
+            io: event_io,
             cancelled: event_cancelled_ref,
         },
         persist_original: persist_ref,
@@ -762,9 +762,9 @@ where
             events: &mut event,
             originals: &mut borrowed_originals,
             worker: &mut backend,
-            manifest_cache: *manifest_cache,
-            manifest_work: &mut **manifest_work,
-            work: &mut **work,
+            manifest_cache,
+            manifest_work,
+            work,
             #[cfg(any(test, feature = "test-support"))]
             input_observation: input_observation.as_deref_mut(),
         };
@@ -1070,11 +1070,10 @@ where
                 Ok(Ok((value, cancelled))) => {
                     let debit = reconcile_lanes(
                         root,
-                        history_index.as_deref_mut(),
-                        enumeration.as_deref_mut(),
-                        tail.as_deref_mut(),
+                        history_index,
+                        enumeration,
+                        tail,
                         external
-                            .as_deref_mut()
                             .map(|v| v as &mut dyn FactoryPhaseMeterLanesV1),
                         frame,
                         step_quota,
@@ -1138,11 +1137,11 @@ pub(in crate::world) fn paid_inner<'a, 't, 's, 'v, M, R, E, C, W, F, O, T, Run>(
     root: &mut RootModuleExecutionContextV1<'a, 't, 's, 'v, M, R, E, C, W, F, O>,
     common: &mut FormalBoundedContextV1<'_>,
     live_owner: &mut dyn FnMut() -> ExecutionFence,
-    mut history_index: Option<
+    history_index: Option<
         &mut oasis7_world_state::incremental_runtime_history_index::RuntimeHistoryIndexWorkV1,
     >,
-    mut enumeration: Option<&mut CurrentInvocationEnumerationWorkV1>,
-    mut tail: Option<&mut crate::world::incremental_world_event_tail::CurrentWorldEventTailWorkV1>,
+    enumeration: Option<&mut CurrentInvocationEnumerationWorkV1>,
+    tail: Option<&mut crate::world::incremental_world_event_tail::CurrentWorldEventTailWorkV1>,
     run: Run,
 ) -> Result<T, RootModuleExecutionErrorV1<O::Error>>
 where

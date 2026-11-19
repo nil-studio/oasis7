@@ -171,7 +171,7 @@ fn admit<T: serde::Serialize + ?Sized>(
     };
     let mut c = common.borrow_mut();
     let mut k = canonical.borrow_mut();
-    let mut ops = CurrentEconomyWorkV1::new(&mut **c, &mut **k)?;
+    let mut ops = CurrentEconomyWorkV1::new(&mut c, &mut k)?;
     let admitted = ops.before_value(value);
     let settled = ops.finish();
     let _fees = settled?;
@@ -350,7 +350,7 @@ pub(super) fn prepare_current_bootstrap_catalogue_v1<
         let mut io = io.borrow_mut();
         let (ctx, parent, factory, module) = &mut *io;
         let mut c = common.borrow_mut();
-        with_module_lifecycle_read_io_v1(sources.families.roots,*ctx,*parent,*factory,&mut**c,*module,|ctx,parent,factory,_|{
+        with_module_lifecycle_read_io_v1(sources.families.roots,*ctx,*parent,factory,&mut c,module,|ctx,parent,factory,_|{
             let guard=ctx.transaction.guard();Ok(oasis7_world_state::incremental_agent_subtree::read_current_agent_presence_v1(id,sources.factory.lifecycle.agents,sources.families.roots,ctx,parent,&mut factory.lifecycle.pending_entries_remaining,&guard,live).map_err(overlay_error)?==oasis7_world_state::incremental_agent_subtree::CurrentAgentPresenceV1::Existing)
         }).map_err(factory_error)
     };
@@ -359,7 +359,7 @@ pub(super) fn prepare_current_bootstrap_catalogue_v1<
             let mut io = io.borrow_mut();
             let (ctx, parent, factory, module) = &mut *io;
             let mut c = common.borrow_mut();
-            with_module_lifecycle_read_io_v1(sources.families.roots,*ctx,*parent,*factory,&mut**c,*module,|ctx,parent,_,module|{let guard=ctx.transaction.guard();oasis7_world_state::incremental_runtime_revocation::read_current_revocation_agent_identity_v1(id,sources.capability.typed.revocation(),ctx,parent,&mut module.capability_authorization.scan,&mut module.capability_authorization.typed,&guard,live).map_err(overlay_error).map_err(Into::into)}).map_err(factory_error)?
+            with_module_lifecycle_read_io_v1(sources.families.roots,*ctx,*parent,factory,&mut c,module,|ctx,parent,_,module|{let guard=ctx.transaction.guard();oasis7_world_state::incremental_runtime_revocation::read_current_revocation_agent_identity_v1(id,sources.capability.typed.revocation(),ctx,parent,&mut module.capability_authorization.scan,&mut module.capability_authorization.typed,&guard,live).map_err(overlay_error).map_err(Into::into)}).map_err(factory_error)?
         };
         match value.identity() {
             None => Ok(None),
@@ -392,7 +392,7 @@ pub(super) fn prepare_current_bootstrap_catalogue_v1<
                             reason: "capability module-instance target id is required".into(),
                         }
                     })?;
-                    let valid=with_module_lifecycle_read_io_v1(sources.families.roots,*ctx,*parent,*factory,&mut**c,*module,|ctx,_,_,module|{
+                    let valid=with_module_lifecycle_read_io_v1(sources.families.roots,*ctx,*parent,factory,&mut c,module,|ctx,_,_,module|{
                         use oasis7_world_state::incremental_module_instance_fields::{ModuleInstanceFieldV1 as F,ModuleInstanceScalarRefV1 as S};
                         let mut read=crate::world::incremental_module_read::ModuleReadContext{qualification:sources.families.instances,values:ctx.values.source,memory:ctx.values.memory,io:&mut*ctx.values.io,max_value_bytes:module.max_selected_heap as u64,cancelled:&mut ctx.cancelled};read.check(ctx.transaction)?;
                         let Some(row)=read.read_instance(id,ctx.transaction)?else{return Ok(false)};
@@ -420,7 +420,7 @@ pub(super) fn prepare_current_bootstrap_catalogue_v1<
                     *ctx,
                     *parent,
                     module.capability_authorization,
-                    &mut **c,
+                    &mut c,
                     live,
                 )
                 .map_err(source_error)?;
@@ -471,9 +471,9 @@ pub(super) fn prepare_current_bootstrap_catalogue_v1<
             // The verified Formal parent is mandatory. Its authority epoch is
             // deliberately not substituted for the Node chain epoch below.
             normal_parent
-                .validate_context(&mut **c)
+                .validate_context(&mut c)
                 .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
-            return finality.validate_audience_v1(normal_parent,audience.finality_epoch,&mut**c,live).map_err(|e|match e{crate::world::incremental_normal_bootstrap_finality::CurrentBootstrapFinalityErrorV1::Source(e)=>CatalogErrorV1::Body(e),crate::world::incremental_normal_bootstrap_finality::CurrentBootstrapFinalityErrorV1::World(e)=>CatalogErrorV1::PaidWorld(e)});
+            return finality.validate_audience_v1(normal_parent,audience.finality_epoch,&mut c,live).map_err(|e|match e{crate::world::incremental_normal_bootstrap_finality::CurrentBootstrapFinalityErrorV1::Source(e)=>CatalogErrorV1::Body(e),crate::world::incremental_normal_bootstrap_finality::CurrentBootstrapFinalityErrorV1::World(e)=>CatalogErrorV1::PaidWorld(e)});
         }
         let check = match query {
             Query::Issuer(g) => BootstrapCapabilityCheckV1::CatalogueIssuer(g),
@@ -489,10 +489,10 @@ pub(super) fn prepare_current_bootstrap_catalogue_v1<
             sources,
             *ctx,
             *parent,
-            *factory,
-            *module,
-            &mut **c,
-            &mut **canonical.borrow_mut(),
+            factory,
+            module,
+            &mut c,
+            &mut canonical.borrow_mut(),
             live,
         )?;
         let (result, proof) = checked.into_parts();
@@ -513,7 +513,7 @@ pub(super) fn prepare_current_bootstrap_catalogue_v1<
                 *ctx,
                 *parent,
                 module.capability_authorization,
-                &mut **c,
+                &mut c,
                 live,
             )
             .map_err(source_error)?;
@@ -708,7 +708,7 @@ pub(super) fn prepare_current_bootstrap_catalogue_v1<
                         *ctx,
                         *parent,
                         module.capability_authorization,
-                        &mut **c,
+                        &mut c,
                         live,
                     )
                     .map_err(source_error)??;
@@ -751,7 +751,7 @@ pub(super) fn prepare_current_bootstrap_catalogue_v1<
                                 *ctx,
                                 *parent,
                                 module.capability_authorization,
-                                &mut **c,
+                                &mut c,
                                 live,
                             )
                             .map_err(source_error)?;
@@ -767,7 +767,7 @@ pub(super) fn prepare_current_bootstrap_catalogue_v1<
                                 *ctx,
                                 *parent,
                                 module.capability_authorization,
-                                &mut **c,
+                                &mut c,
                                 live,
                             )
                             .map_err(source_error)?;
@@ -822,9 +822,9 @@ pub(super) fn prepare_current_bootstrap_catalogue_v1<
     let (ctx, _, _, module) = &mut *io;
     let mut c = common.borrow_mut();
     inventory
-        .validate_read_stability_v1(ctx.transaction, module.pending_entries, &mut **c, live)
+        .validate_read_stability_v1(ctx.transaction, module.pending_entries, &mut c, live)
         .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
-    registry.validate_current(ctx.transaction, module.pending_entries, &mut **c, live)?;
+    registry.validate_current(ctx.transaction, module.pending_entries, &mut c, live)?;
     Ok(CurrentBootstrapCatalogueV1 {
         result,
         existing,

@@ -28,6 +28,8 @@ use std::{path::Path, sync::Arc};
 
 #[path = "../tests/support/genesis_endpoint_work.rs"]
 mod endpoint_work;
+#[path = "iws_host_native_live_test_support.rs"]
+pub(crate) mod live_node;
 #[path = "iws_host_native_suffix_refusal_test_support.rs"]
 mod suffix_refusals;
 
@@ -43,12 +45,12 @@ fn normal_work(
     cold: super::normal_commit::NormalColdRecoveryWorkV1,
 ) -> NormalCommitWorkV1 {
     let [primary, replica] = io;
-    NormalCommitWorkV1 {
-        canonical: primary.process_canonical,
-        input_material: endpoint_work::source_work().frozen_material,
-        primary_source: Some(endpoint_work::source_work()),
-        replica_source: Some(endpoint_work::source_work()),
-        physical: super::normal::HostNormalIoWorkV1 {
+    NormalCommitWorkV1::new(
+        primary.process_canonical,
+        endpoint_work::source_work().frozen_material,
+        endpoint_work::source_work(),
+        endpoint_work::source_work(),
+        super::normal::HostNormalIoWorkV1 {
             state_pages: primary.state,
             value_pages: primary.values,
             original_pages: primary.originals,
@@ -59,8 +61,7 @@ fn normal_work(
         },
         runtime,
         cold,
-        fault: None,
-    }
+    )
 }
 fn settings(
     world_id: &str,

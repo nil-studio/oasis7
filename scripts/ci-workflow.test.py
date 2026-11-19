@@ -3475,7 +3475,7 @@ run_group iws_host_native
         finally:
             fixture.tearDown()
 
-    def test_iws_host_native_inventory_requires_seven_active_cases_and_runs_whole_target(self):
+    def test_iws_host_native_inventory_requires_nine_active_cases_and_runs_whole_target(self):
         required = {
             'real_linux_accepted_genesis_installs_native_host',
             'real_linux_nonempty_node_commit_reopens_cold_and_commits_again',
@@ -3484,6 +3484,8 @@ run_group iws_host_native
             'real_linux_checkpoint_and_original_suffix_restore_actual_nonempty_head',
             'real_linux_accepted_sources_return_original_work_after_cancelled_handoff',
             'real_linux_partial_source_failure_returns_only_observable_original_work',
+            'real_linux_one_live_node_retains_originals_across_pending_and_completed_restarts',
+            'real_linux_live_node_cold_output_recovery_keeps_original_work_for_successors',
         }
         cases = re.findall(r'#\[test\]\s*fn (\w+)\(',
             (ROOT / 'crates/oasis7_chain_runtime/tests/iws_host_linux.rs').read_text())
@@ -3546,7 +3548,7 @@ run_oasis7_iws_host_native_target
             inventory = directory / 'inventory'
             cases = re.findall(r'#\[test\]\s*fn (\w+)\(',
                 (ROOT / 'crates/oasis7_chain_runtime/tests/iws_host_linux.rs').read_text())
-            self.assertGreaterEqual(len(cases), 7)
+            self.assertGreaterEqual(len(cases), 9)
             inventory.write_text(''.join(name + ': test\n' for name in cases))
             trace = directory / 'cargo-trace'
             cargo = directory / 'cargo'

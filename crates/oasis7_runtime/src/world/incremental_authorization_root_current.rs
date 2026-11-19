@@ -246,6 +246,16 @@ impl ProvisionalAuthorizationProjectionV1 {
         }
         Ok(())
     }
+    /// Stream provisional cold-start DATA using the original paid codec.
+    /// The stored bytes carry no accepted-source or Current qualification;
+    /// a cold consumer must authenticate every source against its real head.
+    pub fn write_hint_data_bounded_v1(
+        &self,
+        out: &mut impl Write,
+        common: &mut FormalBoundedContextV1<'_>,
+    ) -> Result<u64, AuthorizationRootCacheErrorV1> {
+        self.write_hint(out, common)
+    }
     pub(in crate::world) fn write_hint(
         &self,
         out: &mut impl Write,

@@ -13,6 +13,6 @@ impl ProvisionalAuthorizationProjectionV1 {
         out: &mut impl std::io::Write,
         common: &mut FormalBoundedContextV1<'_>,
     ) -> Result<u64, AuthorizationRootCacheErrorV1> {
-        self.write_hint(out, common)
+        self.write_hint_data_bounded_v1(out, common)
     }
 }

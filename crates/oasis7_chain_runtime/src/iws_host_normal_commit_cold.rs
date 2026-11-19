@@ -109,14 +109,14 @@ struct ColdRecoveryStateV1 {
     bindings: Option<ColdReadyBindingsV1>,
     core: WorkIdentityV1,
 }
-pub(crate) struct NormalColdRecoveryWorkV1 {
+pub struct NormalColdRecoveryWorkV1 {
     // The real box drops before the fee for that box. Nested source owners
     // retain their own original fees and work identities independently.
     state: Box<ColdRecoveryStateV1>,
     fee: MemoryReservation,
 }
 impl NormalColdRecoveryWorkV1 {
-    pub(crate) fn new_bounded(
+    pub fn new_bounded(
         endpoints: [HostColdRecoveryWorkV1; 2],
         common: &mut FormalBoundedContextV1<'_>,
     ) -> Result<Self, IwsHostRuntimeErrorV1> {

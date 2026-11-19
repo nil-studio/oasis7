@@ -22,7 +22,8 @@ impl std::io::Write for Measure<'_,'_,'_>{
 }
 fn command_fits(command:&WorldRuleCommandV1,tail:&mut NormalTailWorkV1<'_,'_>,enforce_limit:bool)->Result<bool,BodyMutationError>{
  let mut sink=Measure{tail,bytes:0,too_large:false,enforce_limit,error:None};let encoded=serde_json::to_writer(&mut sink,command);
- if let Some(error)=sink.error{return Err(error)}if sink.too_large{return Ok(false)}encoded.map_err(infra)?;Ok(true)
+ if let Some(error)=sink.error{return Err(error)}
+ if sink.too_large{return Ok(false)}encoded.map_err(infra)?;Ok(true)
 }
 #[allow(clippy::too_many_arguments)]
 pub(super) fn prepare_system_header_v1<M,P,R,E,C,PE,PC>(actor:&str,request_id:&str,command:&WorldRuleCommandV1,binding:Option<&str>,

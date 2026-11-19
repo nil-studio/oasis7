@@ -80,6 +80,11 @@ pub(crate) struct PaidVerifiedNormalTickInputV1<'a> {
     _outer: ReservedValue<()>,
 }
 impl PaidNormalTickSourcesV1 {
+    /// Borrow the retained real dual-Frozen owner after its Host slots moved.
+    /// This does not reconstruct a parent from Node DATA or release its leases.
+    pub(crate) fn frozen_sources(&self) -> &PaidNormalFrozenPairV1 {
+        &self.frozen
+    }
     /// Chain's fixed publication phase keeps the original Node provenance and
     /// its paid shell beside the consumed dual-Frozen/Ready recovery owner.
     pub(crate) fn into_publication_parts(

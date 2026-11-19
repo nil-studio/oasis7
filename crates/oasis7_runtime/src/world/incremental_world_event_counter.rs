@@ -238,9 +238,9 @@ impl WorldEventCounterV1 {
                 .inner
                 .memory
                 .reserve(
-                    (std::mem::size_of::<CountedNote>()
+                    std::mem::size_of::<CountedNote>()
                         + 2 * std::mem::size_of::<usize>()
-                        + std::mem::align_of::<CountedNote>()),
+                        + std::mem::align_of::<CountedNote>(),
                     MemoryClass::Ordinary,
                 )
                 .map_err(ExecutionError::Memory)?;

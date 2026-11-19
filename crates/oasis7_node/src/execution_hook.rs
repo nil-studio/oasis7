@@ -178,6 +178,15 @@ impl NodeExecutionGenesisBootstrap {
     }
 }
 
+/// The current local boundary read from the same guarded execution owner on
+/// each Node start. Genesis retains its qualified InitialActivation capability;
+/// a completed successor uses the ordinary positive-height boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NodeLocalExecutionBootstrapV1 {
+    Genesis(NodeExecutionGenesisBootstrap),
+    Normal(NodeExecutionBootstrap),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeExecutionCheckpointBlob {
     pub content_hash: String,
@@ -273,6 +282,17 @@ pub trait NodeExecutionHook: Send {
     /// before candidate execution begins. Ordinary/network hooks do not opt in.
     fn guarded_local_execution(&self) -> bool {
         false
+    }
+
+    /// Refresh the accepted boundary before each guarded local start. `Some`
+    /// takes precedence over the initial static bootstrap configuration;
+    /// `None` preserves the existing configured-bootstrap behavior. The owner
+    /// must verify its actual accepted source before returning this boundary.
+    /// Pending work returns its retained predecessor, not its uncompleted child.
+    fn current_guarded_local_execution_bootstrap(
+        &mut self,
+    ) -> Result<Option<NodeLocalExecutionBootstrapV1>, String> {
+        Ok(None)
     }
 
     /// Return a genesis capability only while this hook can re-verify the same

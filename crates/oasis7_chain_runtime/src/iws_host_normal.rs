@@ -91,7 +91,7 @@ impl IwsHostRuntimeV1 {
 
 #[path = "iws_host_normal_io.rs"]
 pub(in crate::iws_host_runtime) mod io;
-pub(super) use io::HostNormalIoWorkV1;
+pub use io::HostNormalIoWorkV1;
 
 #[path = "iws_host_normal_originals.rs"]
 pub(in crate::iws_host_runtime) mod originals;

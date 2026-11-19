@@ -383,7 +383,7 @@ fn paid<
                 work.order_read.json.json_nodes_remaining
             )
         };
-    };
+    }
     macro_rules! bytes {
         ($m:ident) => {
             apply!($m;
@@ -403,8 +403,8 @@ fn paid<
                 work.orders.merge_comparison_bytes_remaining
             )
         };
-    };
-    macro_rules! snapshot{($($v:expr),*)=>{[$($v),*]}};
+    }
+    macro_rules! snapshot{($($v:expr),*)=>{[$($v),*]}}
     let original_steps = steps!(snapshot);
     let original_bytes = bytes!(snapshot);
     let original_pending = [
@@ -419,8 +419,8 @@ fn paid<
         .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
     let step_cap = child.remaining_steps() / 24;
     let byte_cap = child.remaining_read_bytes() / 14;
-    macro_rules! clamp_steps{($($v:expr),*)=>{$(($v)=($v).min(step_cap);)*}};
-    macro_rules! clamp_bytes{($($v:expr),*)=>{$(($v)=($v).min(byte_cap);)*}};
+    macro_rules! clamp_steps{($($v:expr),*)=>{$(($v)=($v).min(step_cap);)*}}
+    macro_rules! clamp_bytes{($($v:expr),*)=>{$(($v)=($v).min(byte_cap);)*}}
     steps!(clamp_steps);
     bytes!(clamp_bytes);
     let pending_cap = usize::try_from(step_cap).unwrap_or(usize::MAX);
@@ -489,11 +489,11 @@ fn paid<
     if accounted.is_ok() {
         child.finish();
         let mut at = 0usize;
-        macro_rules! restore_steps{($($v:expr),*)=>{$(($v)=original_steps[at].saturating_sub(before_steps[at].saturating_sub(after_steps[at]));at+=1;)*}};
+        macro_rules! restore_steps{($($v:expr),*)=>{$(($v)=original_steps[at].saturating_sub(before_steps[at].saturating_sub(after_steps[at]));at+=1;)*}}
         steps!(restore_steps);
         let _ = at;
         let mut at = 0usize;
-        macro_rules! restore_bytes{($($v:expr),*)=>{$(($v)=original_bytes[at].saturating_sub(before_bytes[at].saturating_sub(after_bytes[at]));at+=1;)*}};
+        macro_rules! restore_bytes{($($v:expr),*)=>{$(($v)=original_bytes[at].saturating_sub(before_bytes[at].saturating_sub(after_bytes[at]));at+=1;)*}}
         bytes!(restore_bytes);
         let _ = at;
         work.identity.pending_entries_remaining =

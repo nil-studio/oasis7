@@ -16,7 +16,7 @@ use oasis7_runtime::{NormalHostWorkV1, PreparedNormalHostResidentV1, PreparedNor
 /// Original allowances move with the consuming phase across callbacks. A retry
 /// cannot replace physical, logical or candidate-source work. Core is only
 /// borrowed during a call; keeping work does not require sharing a !Sync Core.
-pub(crate) struct NormalCommitWorkV1 {
+pub struct NormalCommitWorkV1 {
     pub canonical: oasis7_wasm_abi::CanonicalCborWorkV1,
     pub input_material:
         oasis7_formal_protocol::controlled_authority::formal::IncrementalFrozenMaterialWorkV1,
@@ -26,7 +26,33 @@ pub(crate) struct NormalCommitWorkV1 {
     pub runtime: NormalHostWorkV1,
     pub cold: cold_recovery::NormalColdRecoveryWorkV1,
     #[cfg(any(test, feature = "iws-host-native-test-support"))]
-    pub fault: Option<NormalCommitFaultV1>,
+    pub(crate) fault: Option<NormalCommitFaultV1>,
+}
+impl NormalCommitWorkV1 {
+    /// Move the caller's explicit finite accounts into one service request.
+    /// This creates no execution permission; admission still verifies the real
+    /// dual accepted Hosts and the Runtime/Cold accounts' original pool/Core.
+    pub fn new(
+        canonical: oasis7_wasm_abi::CanonicalCborWorkV1,
+        input_material: oasis7_formal_protocol::controlled_authority::formal::IncrementalFrozenMaterialWorkV1,
+        primary_source: IwsCandidateSourceWorkV1,
+        replica_source: IwsCandidateSourceWorkV1,
+        physical: HostNormalIoWorkV1,
+        runtime: NormalHostWorkV1,
+        cold: cold_recovery::NormalColdRecoveryWorkV1,
+    ) -> Self {
+        Self {
+            canonical,
+            input_material,
+            primary_source: Some(primary_source),
+            replica_source: Some(replica_source),
+            physical,
+            runtime,
+            cold,
+            #[cfg(any(test, feature = "iws-host-native-test-support"))]
+            fault: None,
+        }
+    }
 }
 #[cfg(any(test, feature = "iws-host-native-test-support"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -572,4 +598,5 @@ pub(crate) use package_tail::{
 
 #[path = "iws_host_normal_commit_cold.rs"]
 mod cold_recovery;
-pub(crate) use cold_recovery::{NormalColdRecoveryInputsV1, NormalColdRecoveryWorkV1};
+pub(crate) use cold_recovery::NormalColdRecoveryInputsV1;
+pub use cold_recovery::NormalColdRecoveryWorkV1;

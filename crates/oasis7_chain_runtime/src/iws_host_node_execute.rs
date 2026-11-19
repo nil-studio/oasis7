@@ -14,7 +14,9 @@ use oasis7_node::{
 };
 use oasis7_proto::memory_budget::{MemoryReservation, ReservedValue};
 use oasis7_runtime::{
-    NormalCommitHeaderLimitsV1, NormalHostCognitionParentSourcesV1, RuntimeSourceCompiler,
+    NormalCommitHeaderLimitsV1, NormalHostCognitionParentSourcesV1,
+    PaidNormalHostCognitionParentSourcesV1, RuntimeSourceCompiler,
+    incremental_normal_sources::{NormalTickParentRefsV1, bind_normal_tick_parent_v1},
 };
 
 /// Configuration and original borrowed resources, not a replacement work bank.
@@ -69,6 +71,15 @@ pub(crate) struct NodeNormalStartFailureV1 {
     pub work: NormalCommitWorkV1,
 }
 
+/// Only the pre-Runtime phases may borrow the current Cognition parent. A
+/// retained output already owns its Runtime result, including on cold retry.
+#[cfg(any(test, feature = "iws-host-native-test-support"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NodeNormalRuntimeInputV1 {
+    Required,
+    NotRequired,
+}
+
 fn invalid() -> FormalError {
     FormalError::Invalid("normal Node attempt original context/Core/pool changed".into())
 }
@@ -103,12 +114,29 @@ fn same_context(
 }
 
 impl NodeNormalExecutionAttemptV1 {
+    /// Runtime preparation has already consumed its one attempt. The original
+    /// failure remains owned with its sources/work and cannot become a retry.
+    pub(crate) fn terminal_failure(&self) -> Option<&IwsHostRuntimeErrorV1> {
+        match self.phase.as_ref() {
+            Some(Phase::FailedPreparation { cause, .. }) => Some(cause),
+            _ => None,
+        }
+    }
+
     #[cfg(any(test, feature = "iws-host-native-test-support"))]
-    pub(crate) fn requires_preparation_fixture_v1(&self) -> bool {
-        matches!(
+    pub(crate) fn runtime_input(&self) -> NodeNormalRuntimeInputV1 {
+        if matches!(
             self.phase,
             Some(Phase::Freeze { .. } | Phase::Execute { .. })
-        )
+        ) {
+            NodeNormalRuntimeInputV1::Required
+        } else {
+            NodeNormalRuntimeInputV1::NotRequired
+        }
+    }
+    #[cfg(any(test, feature = "iws-host-native-test-support"))]
+    pub(crate) fn requires_preparation_fixture_v1(&self) -> bool {
+        self.runtime_input() == NodeNormalRuntimeInputV1::Required
     }
     #[cfg(any(test, feature = "iws-host-native-test-support"))]
     pub(crate) fn cold_disposition_fixture_v1(&self) -> Option<NormalCommitRecoveryDispositionV1> {
@@ -237,13 +265,79 @@ impl NodeNormalExecutionAttemptV1 {
         same_context(&self.original, context, self.core, common)
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn advance_bounded(
-        mut self,
+        self,
         primary: &mut IwsHostRuntimeV1,
         replica: &mut IwsHostRuntimeV1,
         context: &NodeExecutionCommitContext,
         cognition: NormalHostCognitionParentSourcesV1<'_>,
+        environment: &NodeNormalExecutionEnvironmentV1<'_>,
+    ) -> Result<PaidNodeAppliedNormalV1, Self> {
+        self.advance_with_input_bounded(primary, replica, context, |_| Ok(cognition), environment)
+    }
+
+    /// Bind the startup evidence only after both Frozen endpoints are retained.
+    /// A partial Freeze retry may have consumed the mutable Host slots already;
+    /// its genuine Frozen parent, rather than a reconstructed Host, is the
+    /// source for this borrow. Output recovery never evaluates this resolver.
+    pub(crate) fn advance_with_startup_bounded(
+        self,
+        primary: &mut IwsHostRuntimeV1,
+        replica: &mut IwsHostRuntimeV1,
+        context: &NodeExecutionCommitContext,
+        startup: Option<&PaidNormalHostCognitionParentSourcesV1>,
+        environment: &NodeNormalExecutionEnvironmentV1<'_>,
+    ) -> Result<PaidNodeAppliedNormalV1, Self> {
+        let e = environment;
+        self.advance_with_input_bounded(
+            primary,
+            replica,
+            context,
+            |sources| {
+                let Some(evidence) = startup else {
+                    return Ok(NormalHostCognitionParentSourcesV1::Resident);
+                };
+                sources
+                    .frozen_sources()
+                    .with_primary_parent_read_view_bounded(
+                        e.memory,
+                        e.archive,
+                        &mut || e.cancelled.load(Ordering::Acquire),
+                        |parent| {
+                            let mut stop = || e.cancelled.load(Ordering::Acquire);
+                            let mut common = e.archive.bounded_context(e.memory, &mut stop);
+                            let parent = bind_normal_tick_parent_v1(
+                                NormalTickParentRefsV1 {
+                                    core: parent.core(),
+                                    storage: parent.storage(),
+                                    roots: parent.roots(),
+                                    runtime: parent.runtime(),
+                                    cognition: parent.cognition(),
+                                    retention: parent.retention_ledger(),
+                                    head: parent.head(),
+                                    authority: parent.authority(),
+                                },
+                                &mut common,
+                            )?;
+                            evidence
+                                .as_sources_bounded(&parent, &mut common)
+                                .map_err(IwsHostRuntimeErrorV1::NormalSource)
+                        },
+                    )
+            },
+            environment,
+        )
+    }
+
+    fn advance_with_input_bounded<'c>(
+        mut self,
+        primary: &mut IwsHostRuntimeV1,
+        replica: &mut IwsHostRuntimeV1,
+        context: &NodeExecutionCommitContext,
+        cognition: impl FnOnce(
+            &PaidNormalTickSourcesV1,
+        )
+            -> Result<NormalHostCognitionParentSourcesV1<'c>, IwsHostRuntimeErrorV1>,
         environment: &NodeNormalExecutionEnvironmentV1<'_>,
     ) -> Result<PaidNodeAppliedNormalV1, Self> {
         let e = environment;
@@ -288,6 +382,18 @@ impl NodeNormalExecutionAttemptV1 {
                     }
                 }
                 Phase::Execute { sources, work } => {
+                    let cognition = match cognition
+                        .take()
+                        .expect("one Runtime input binding per retained attempt")(
+                        &sources
+                    ) {
+                        Ok(cognition) => cognition,
+                        Err(cause) => {
+                            self.phase = Some(Phase::Execute { sources, work });
+                            self.cause = Some(cause);
+                            return Err(self);
+                        }
+                    };
                     let result = execute_and_commit_frozen_normal_bounded_v1(
                         primary,
                         replica,
@@ -296,9 +402,7 @@ impl NodeNormalExecutionAttemptV1 {
                         e.writer,
                         e.input_limits,
                         e.action_limits,
-                        cognition
-                            .take()
-                            .expect("one Runtime dispatch per retained attempt"),
+                        cognition,
                         e.compiler,
                         NormalCommitHeaderLimitsV1 {
                             transaction: e.policy.transaction,
@@ -419,6 +523,16 @@ pub(crate) struct PaidNodeAppliedNormalV1 {
     fee: MemoryReservation,
 }
 impl PaidNodeAppliedNormalV1 {
+    pub(crate) fn validate_callback_bounded(
+        &self,
+        context: &NodeExecutionCommitContext,
+        common: &mut FormalBoundedContextV1<'_>,
+    ) -> Result<(), IwsHostRuntimeErrorV1> {
+        if !self.fee.uses_budget(common.memory()) {
+            return Err(invalid().into());
+        }
+        same_context(&self.original, context, self.core, common)
+    }
     pub(crate) fn copy_result_bounded(
         &mut self,
         common: &mut FormalBoundedContextV1<'_>,
@@ -445,13 +559,57 @@ impl PaidNodeAppliedNormalV1 {
         })
     }
 
+    /// A genuine child reopened by the fixed cold recovery path has a Built
+    /// resident. Its next tick requires a new Cold Cognition admission, using
+    /// the caller's original source/IO accounts and this same remaining Runtime
+    /// work. This never dispatches the accepted tick's actions again.
+    pub(crate) fn prepare_cold_cognition_bounded(
+        &mut self,
+        primary: &IwsHostRuntimeV1,
+        context: &NodeExecutionCommitContext,
+        io: &mut HostColdIoWorkV1,
+        source_work: &mut HostCognitionStartupWorkV1,
+        environment: &NodeNormalExecutionEnvironmentV1<'_>,
+    ) -> Result<PaidNormalHostCognitionParentSourcesV1, HostCognitionStartupErrorV1> {
+        let e = environment;
+        self.validate_callback_bounded(
+            context,
+            &mut e
+                .archive
+                .bounded_context(e.memory, &mut || e.cancelled.load(Ordering::Acquire)),
+        )?;
+        primary.prepare_cognition_startup_bounded(
+            io,
+            source_work,
+            &mut self.work.runtime,
+            e.policy.transaction,
+            e.memory,
+            e.archive,
+            e.cancelled,
+        )
+    }
+
     pub(crate) fn complete_bounded(
         self,
         context: &NodeExecutionCommitContext,
         common: &mut FormalBoundedContextV1<'_>,
     ) -> Result<NormalCommitWorkV1, (IwsHostRuntimeErrorV1, Self)> {
+        self.complete_with_boundary_bounded(context, common)
+            .map(|(work, _boundary)| work)
+    }
+
+    /// Continuous Node ownership moves the actual accepted boundary together
+    /// with the original remaining work. It does not reread or mint a successor.
+    pub(crate) fn complete_with_boundary_bounded(
+        self,
+        context: &NodeExecutionCommitContext,
+        common: &mut FormalBoundedContextV1<'_>,
+    ) -> Result<
+        (NormalCommitWorkV1, node_boundary::PaidIwsNodeBoundaryV1),
+        (IwsHostRuntimeErrorV1, Self),
+    > {
         match same_context(&self.original, context, self.core, common) {
-            Ok(()) => Ok(self.work),
+            Ok(()) => Ok((self.work, self.boundary)),
             Err(cause) => Err((cause, self)),
         }
     }

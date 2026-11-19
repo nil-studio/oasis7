@@ -121,6 +121,7 @@ use consensus_support::{
 };
 pub use error::NodeError;
 pub use execution_hook::NodeBftPrivateCandidatePackageV3;
+pub use execution_hook::NodeLocalExecutionBootstrapV1;
 use gossip_udp::{
     GossipAttestationMessage, GossipCommitMessage, GossipEndpoint, GossipMessage,
     GossipProposalMessage,

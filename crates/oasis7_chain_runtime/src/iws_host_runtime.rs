@@ -338,9 +338,10 @@ pub(crate) use normal_package::{
 
 #[path = "iws_host_normal_commit.rs"]
 mod normal_commit;
+pub use normal_commit::{NormalColdRecoveryWorkV1, NormalCommitWorkV1};
 pub(crate) use normal_commit::{
     NormalCommitFailureV1, NormalCommitRecoveryDispositionV1, NormalCommitStartCauseV1,
-    NormalCommitStartFailureV1, NormalCommitWorkV1, NormalOutputCommitFailureV1,
+    NormalCommitStartFailureV1, NormalOutputCommitFailureV1,
     commit_prepared_normal_output_bounded_v1, publish_prepared_normal_runtime_bounded,
 };
 
@@ -365,7 +366,20 @@ pub(crate) use node_execute::{
     PaidNodeAppliedNormalV1,
 };
 
-pub use normal::NormalCommitPersistErrorV1;
+#[path = "iws_host_node_live.rs"]
+pub(crate) mod node_live;
+
+#[path = "iws_host_node_hints.rs"]
+pub(crate) mod node_hints;
+
+#[path = "iws_host_node_service.rs"]
+mod node_service;
+pub use node_live::{
+    IwsLiveNodeCognitionV1, IwsLiveNodeColdSettingsV1, IwsLiveNodeOwnersV1, IwsLiveNodeSettingsV1,
+};
+pub use node_service::{IwsLiveNodeServiceStartFailureV1, IwsLiveNodeServiceV1};
+
+pub use normal::{HostNormalIoWorkV1, NormalCommitPersistErrorV1};
 
 #[path = "iws_host_cold.rs"]
 mod cold;
@@ -373,6 +387,7 @@ pub use cold::{HostColdIoWorkV1, HostColdStartupErrorV1};
 
 #[path = "iws_host_cold_recovery.rs"]
 mod cold_recovery;
+pub use cold_recovery::{HostColdRecoveryPartsV1, HostColdRecoveryWorkV1};
 
 #[path = "iws_host_genesis_resident.rs"]
 mod genesis_resident;

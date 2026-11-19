@@ -3,6 +3,19 @@ fn main() -> std::process::ExitCode {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
     let result = match args.first().and_then(|argument| argument.to_str()) {
         #[cfg(all(unix, feature = "iws-host-native-test-support"))]
+        Some(mode @ ("--iws-live-node-v1" | "--iws-live-node-cold-v1")) if args.len() == 2 => {
+            oasis7_chain_runtime::native_worker_fixture_iws_live_node_v1(
+                std::path::Path::new(&args[1]),
+                mode == "--iws-live-node-cold-v1",
+            )
+            .and_then(|bytes| {
+                use std::io::Write;
+                std::io::stdout()
+                    .write_all(&bytes)
+                    .map_err(|error| error.to_string())
+            })
+        }
+        #[cfg(all(unix, feature = "iws-host-native-test-support"))]
         Some(mode @ ("--iws-normal-return-work-v1" | "--iws-normal-partial-source-v1"))
             if args.len() == 2 =>
         {

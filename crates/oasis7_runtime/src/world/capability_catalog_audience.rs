@@ -37,6 +37,7 @@ impl SourcesV1 for Legacy<'_>{
  fn chain_world<T>(&self,visit:impl FnOnce(&str)->Result<T,WorldError>)->Result<T,WorldError>{visit(&self.0.chain_resource_manifest.world_id)}
  fn binding<T>(&self,visit:impl FnOnce(Option<&Value>)->Result<T,WorldError>)->Result<T,WorldError>{visit(self.0.cognition.get("runtime_binding"))}
  fn work(&self,_:u64,_:usize)->Result<(),WorldError>{Ok(())}
- fn finality(&self,epoch:u64)->Result<(),WorldError>{if let Some(record)=self.0.tick_consensus_records.last(){let hash=record.block.block_hash();if record.certificate.block_hash!=hash||record.certificate.threshold==0{return Err(denied("capability live finality record is invalid"))}if let Some(chain_epoch)=record.block.header.chain_epoch&&chain_epoch<epoch{return Err(denied("capability finality epoch is ahead of live chain"))}}Ok(())}
+ fn finality(&self,epoch:u64)->Result<(),WorldError>{if let Some(record)=self.0.tick_consensus_records.last(){let hash=record.block.block_hash();if record.certificate.block_hash!=hash||record.certificate.threshold==0{return Err(denied("capability live finality record is invalid"))}
+   if let Some(chain_epoch)=record.block.header.chain_epoch&&chain_epoch<epoch{return Err(denied("capability finality epoch is ahead of live chain"))}}Ok(())}
 }
 pub(super)fn legacy(world:&World,grant:&CapabilityGrantV2)->Result<(),WorldError>{validate_from_sources_v1(&Legacy(world),grant)}

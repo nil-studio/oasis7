@@ -55,11 +55,38 @@ pub(crate) struct HostColdRecoveryContextV1<'a> {
     pub compiler: &'a RuntimeSourceCompiler,
 }
 
-pub(crate) struct HostColdRecoveryPartsV1 {
+pub struct HostColdRecoveryPartsV1 {
     pub cold: IwsColdParentWorkV1,
     pub source: IwsCandidateSourceWorkV1,
     pub physical: HostColdIoWorkV1,
     pub runtime: NormalHostWorkV1,
+}
+
+/// Export only occurrence-location DATA from the actual accepted source.
+/// A subsequent cold read must independently authenticate these positions;
+/// retaining a hint neither retains nor recreates a live Host qualification.
+pub(crate) fn selected_fact_hints_bounded_v1(
+    host: &IwsHostRuntimeV1,
+    memory: &MemoryBudget,
+    archive: &FormalArchiveReadWorkV1,
+    cancelled: &AtomicBool,
+) -> Result<IwsColdParentHintsV1, IwsHostRuntimeErrorV1> {
+    let current = host
+        .current
+        .current()
+        .ok_or_else(|| FormalError::Invalid("cold hint actual Host missing".into()))?;
+    current.source.with_parent_read_view_bounded(
+        memory,
+        archive,
+        &mut || cancelled.load(Ordering::Acquire),
+        |parent| {
+            archive.charge(2, 96, &mut || cancelled.load(Ordering::Acquire))?;
+            Ok(IwsColdParentHintsV1 {
+                runtime: parent.runtime().occurrence().location(),
+                cognition: parent.cognition().selected().occurrence().location(),
+            })
+        },
+    )
 }
 
 pub(super) fn read_projection_hint_bounded_v1(
@@ -228,7 +255,7 @@ pub(crate) fn reopen_host_bounded_v1(
 
 /// Created once at admission, before the Node request starts. It is moved
 /// with that request, and every recovery attempt borrows its actual balances.
-pub(crate) struct HostColdRecoveryWorkV1 {
+pub struct HostColdRecoveryWorkV1 {
     pub cold: IwsColdParentWorkV1,
     pub source: IwsCandidateSourceWorkV1,
     pub physical: HostColdIoWorkV1,
@@ -237,7 +264,7 @@ pub(crate) struct HostColdRecoveryWorkV1 {
     fee: MemoryReservation,
 }
 impl HostColdRecoveryWorkV1 {
-    pub(crate) fn from_parts_bounded(
+    pub fn from_parts_bounded(
         parts: HostColdRecoveryPartsV1,
         common: &mut FormalBoundedContextV1<'_>,
     ) -> Result<Self, IwsHostRuntimeErrorV1> {

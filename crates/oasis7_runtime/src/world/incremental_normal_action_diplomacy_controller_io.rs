@@ -16,14 +16,14 @@ pub(super) fn paid<M:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueT
      (restore_steps; $($args:tt)*) => { restore_steps!($($args)*) };
      (snapshot; $($args:tt)*) => { snapshot!($($args)*) };
  }
- macro_rules! steps{($m:ident)=>{apply!($m;ctx.values.io.nodes_remaining,work.read.cells_remaining,work.scan.nodes_remaining,work.scan.leaves_remaining,work.typed.json.cells_remaining,work.typed.json.json_nodes_remaining,work.revocation.json.cells_remaining,work.revocation.json.json_nodes_remaining)}};
- macro_rules! bytes{($m:ident)=>{apply!($m;ctx.values.io.read_bytes_remaining,ctx.values.io.write_bytes_remaining,ctx.key_work.bytes_remaining,work.read.comparison_bytes_remaining,work.scan.read_bytes_remaining,orders.ids.comparison_bytes_remaining,orders.merge_comparison_bytes_remaining)}};
- macro_rules! snapshot{($($v:expr),*)=>{[$($v),*]}};
+ macro_rules! steps{($m:ident)=>{apply!($m;ctx.values.io.nodes_remaining,work.read.cells_remaining,work.scan.nodes_remaining,work.scan.leaves_remaining,work.typed.json.cells_remaining,work.typed.json.json_nodes_remaining,work.revocation.json.cells_remaining,work.revocation.json.json_nodes_remaining)}}
+ macro_rules! bytes{($m:ident)=>{apply!($m;ctx.values.io.read_bytes_remaining,ctx.values.io.write_bytes_remaining,ctx.key_work.bytes_remaining,work.read.comparison_bytes_remaining,work.scan.read_bytes_remaining,orders.ids.comparison_bytes_remaining,orders.merge_comparison_bytes_remaining)}}
+ macro_rules! snapshot{($($v:expr),*)=>{[$($v),*]}}
  let original_steps=steps!(snapshot);let original_bytes=bytes!(snapshot);let original_pending=[work.pending_entries_remaining,orders.pending_entries_remaining];
  let(_,meter,stop)=common.parts();let child=meter.begin_child().map_err(|e|BodyMutationError::Original(Box::new(e)))?;
  let step_cap=child.remaining_steps()/10;let byte_cap=child.remaining_read_bytes()/7;
- macro_rules! clamp_steps{($($v:expr),*)=>{$(($v)=($v).min(step_cap);)*}};
- macro_rules! clamp_bytes{($($v:expr),*)=>{$(($v)=($v).min(byte_cap);)*}};
+ macro_rules! clamp_steps{($($v:expr),*)=>{$(($v)=($v).min(step_cap);)*}}
+ macro_rules! clamp_bytes{($($v:expr),*)=>{$(($v)=($v).min(byte_cap);)*}}
  steps!(clamp_steps);bytes!(clamp_bytes);let pending_cap=usize::try_from(step_cap).unwrap_or(usize::MAX);work.pending_entries_remaining=work.pending_entries_remaining.min(pending_cap);orders.pending_entries_remaining=orders.pending_entries_remaining.min(pending_cap);
  let before_steps=steps!(snapshot);let before_bytes=bytes!(snapshot);let before_pending=[work.pending_entries_remaining,orders.pending_entries_remaining];
  let result=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||{
@@ -41,8 +41,8 @@ pub(super) fn paid<M:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueT
  })();
  if accounted.is_ok(){
    child.finish();
-   let mut at=0usize;macro_rules! restore_steps{($($v:expr),*)=>{$(($v)=original_steps[at].saturating_sub(before_steps[at].saturating_sub(after_steps[at]));at+=1;)*}};steps!(restore_steps);let _=at;
-   let mut at=0usize;macro_rules! restore_bytes{($($v:expr),*)=>{$(($v)=original_bytes[at].saturating_sub(before_bytes[at].saturating_sub(after_bytes[at]));at+=1;)*}};bytes!(restore_bytes);let _=at;
+   let mut at=0usize;macro_rules! restore_steps{($($v:expr),*)=>{$(($v)=original_steps[at].saturating_sub(before_steps[at].saturating_sub(after_steps[at]));at+=1;)*}} steps!(restore_steps);let _=at;
+   let mut at=0usize;macro_rules! restore_bytes{($($v:expr),*)=>{$(($v)=original_bytes[at].saturating_sub(before_bytes[at].saturating_sub(after_bytes[at]));at+=1;)*}} bytes!(restore_bytes);let _=at;
    work.pending_entries_remaining=original_pending[0].saturating_sub(before_pending[0].saturating_sub(after_pending[0]));orders.pending_entries_remaining=original_pending[1].saturating_sub(before_pending[1].saturating_sub(after_pending[1]));
  }else{drop(child)}
  let value=match result{Err(payload)=>{let _:Result<(),ExecutionError>=ctx.transaction.contribute(|_|Err(ExecutionError::Aborted));std::panic::resume_unwind(payload)},Ok(Err(source))=>Err(error(source)),Ok(Ok(value))=>accounted.and_then(|_|common.consume_steps(0).map_err(|e|BodyMutationError::Original(Box::new(e)))).map(|_|value)};

@@ -385,7 +385,7 @@ verify_oasis7_iws_host_native_inventory() {
   local command=(test --locked -p oasis7_chain_runtime --test iws_host_linux --no-default-features
     --features iws-host-native-test-support)
   inventory_dir="$(mktemp -d)" || return
-  # Inspect this exact built harness, including its ignored cases. These seven
+  # Inspect this exact built harness, including its ignored cases. These nine
   # are a minimum contract; the complete target below also runs future cases.
   if run_cargo "${command[@]}" -- --list --format terse > "$inventory_dir/all" \
     && run_cargo "${command[@]}" -- --list --format terse --ignored > "$inventory_dir/ignored" \
@@ -401,6 +401,8 @@ expected = {
     'real_linux_checkpoint_and_original_suffix_restore_actual_nonempty_head',
     'real_linux_accepted_sources_return_original_work_after_cancelled_handoff',
     'real_linux_partial_source_failure_returns_only_observable_original_work',
+    'real_linux_one_live_node_retains_originals_across_pending_and_completed_restarts',
+    'real_linux_live_node_cold_output_recovery_keeps_original_work_for_successors',
 }
 
 
