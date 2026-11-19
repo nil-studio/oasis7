@@ -720,8 +720,8 @@ Use the [design evidence join](continuous-agent-harness.design.md#harness-infras
 | docs current | `./scripts/doc-governance-check.sh` | PRD/design 配对、入口与文档治理通过 |
 | P0.1 focused target | `env -u RUSTC_WRAPPER cargo test -p oasis7_provider_local_bridge --bin oasis7_provider_local_bridge -- decision_identity` | golden digest、same retry/new request、collision 与 feedback partition fixtures 通过 |
 | P0.1 provider target | `env -u RUSTC_WRAPPER cargo test -p oasis7 --lib provider_loopback_adapter` | outer context、legacy adapter、identity round-trip 与 failure mapping 通过 |
-| P0.2 paired runtime target | `env -u RUSTC_WRAPPER cargo test -p oasis7 --lib agent_cognition_mvcc` | async actor handoff、stale/expired/precondition、capability/idempotency rejection 无 world effect |
-| P0.3 paired runtime target | `env -u RUSTC_WRAPPER cargo test -p oasis7 --lib agent_cognition_recovery` | journal edge crash/retry/restore 后不重调已记录 provider、不重复 receipt/effect |
+| P0.2 paired runtime target | `env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib agent_cognition_mvcc` | async actor handoff、stale/expired/precondition、capability/idempotency rejection 无 world effect |
+| P0.3 paired runtime target | `env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib agent_cognition_recovery` | journal edge crash/retry/restore 后不重调已记录 provider、不重复 receipt/effect |
 | required implementation gate | `./scripts/ci-tests.sh required` | required-tier Harness/provider/runtime contract 回归通过 |
 | full proof gate | `./scripts/ci-tests.sh full` | multi-Agent、disconnect/retry/restore、provider parity 与长时稳定性通过 |
 
