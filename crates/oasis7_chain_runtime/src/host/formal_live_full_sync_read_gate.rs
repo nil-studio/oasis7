@@ -9,10 +9,6 @@ use oasis7_client_api::world_service_full_sync::{
 };
 use oasis7_distfs::controlled_authority::formal::InitialActivationTrustV1;
 pub(crate) use oasis7_distfs::controlled_authority::formal::full_sync_issuer::FullSyncIssuerReadEvidenceV3;
-#[cfg(test)]
-use oasis7_distfs::controlled_authority::formal::full_sync_issuer::{
-    FullSyncIssuerHistoryV3, SignedFullSyncIssuerQueryV3,
-};
 use oasis7_distfs::controlled_authority::formal::full_sync_issuer::{
     FullSyncIssuerAnchorV3, FullSyncIssuerTargetV2,
     FullSyncProviderLeaseStateV3, FullSyncReadRoleV2, SignedFullSyncIssuerObservationV3,
