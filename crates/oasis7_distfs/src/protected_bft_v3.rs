@@ -6,6 +6,7 @@ mod binding;
 mod bootstrap_rotation;
 mod client;
 mod crypto;
+mod first_reservation;
 mod fresh_coverage;
 mod install;
 #[cfg(feature = "protected-bft-luna-key")]
@@ -41,8 +42,8 @@ pub use client::{
     BftSignerLeaseV3, BftSignerProviderV3, RemoteBftSignerLeaseV3, RemoteBftSignerProviderV3,
 };
 pub use service::{
-    BftCandidateReadPolicyV3, BftFreshCoverageSupportV1, BftFreshSourceVerifierV1,
-    BftSignerServiceV3,
+    BftCandidateReadPolicyV3, BftFirstReserveSourceV1, BftFreshCoverageSupportV1,
+    BftFreshSourceVerifierV1, BftSignerServiceV3,
 };
 pub use state::{
     BftDriverAppliedReceiptV3, BftDriverApplyIntentV3, BftSignerCandidateV3, BftSignerCheckpointV3,
@@ -86,4 +87,9 @@ pub use fresh_coverage::{
     BftPrivateRetentionActivationV1, BftPrivateRetentionAttestorV1,
     BftPrivateRetentionCreationMarkerV1, BftPrivateRetentionEmptyMapV1, BftPrivateRetentionHeadV1,
     BftPrivateRetentionReceiptBodyV1, BftPrivateRetentionReceiptV1,
+};
+
+pub use first_reservation::{
+    BftAuthorizedOriginalReserveInputV1, BftFirstReservationPriceV1, BftFirstReserveSnapshotV1,
+    BftFirstReservedOriginalV1, BftPrivateRetentionLedgerV1, BftPrivateRetentionMapV1,
 };

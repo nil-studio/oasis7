@@ -99,6 +99,26 @@ pub trait BftSignerBackendV3: Send + Sync {
         Err(invalid("atomic Fresh private retention is unsupported"))
     }
 
+    /// Atomic read of the original Fresh receipt and the first Reserve tuple
+    /// under the exact current signer lease and protection floor.
+    fn read_first_reserve_for_lease(
+        &mut self,
+        _generation: u64,
+        _token_digest: &str,
+    ) -> Result<super::BftFirstReserveSnapshotV1, BftSignerErrorV3> {
+        Err(invalid("atomic first original Reserve is unsupported"))
+    }
+
+    /// Compare all original inventory and lease/floor/spend axes. Atomically
+    /// store the signed map, input bytes, signer State and transfer spend.
+    fn compare_and_commit_first_reserve(
+        &mut self,
+        _expected: &super::BftFirstReserveSnapshotV1,
+        _next: &super::BftFirstReserveSnapshotV1,
+    ) -> Result<(), BftSignerErrorV3> {
+        Err(invalid("atomic first original Reserve is unsupported"))
+    }
+
     /// Persists one fully validated state transition under the exact lease,
     /// revision, digest and protected-time floor.
     fn compare_and_swap(

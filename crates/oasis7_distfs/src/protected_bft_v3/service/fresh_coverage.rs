@@ -113,34 +113,15 @@ impl BftSignerServiceV3 {
 
         // Charge a widest fixed encoding before disclosure, even on replay.
         // Neither preflight construction nor a backend return is readback.
-        let checkpoint = self.make_checkpoint(
-            next.signer.state.clone(),
-            generation,
-            request.body.challenge.clone(),
-            request_digest.into(),
+        let amount = self.bounded_retention_reply_bytes(
+            &next.signer,
+            &BftRetentionReplyLedgerV1::Activation(activation.clone()),
+            request,
+            request_digest,
         )?;
-        let upper = SignedBftSignerReplyV3 {
-            body: BftSignerReplyBodyV3 {
-                schema_version: 3,
-                binding_digest: initial.binding_digest,
-                request_digest: request_digest.into(),
-                challenge: request.body.challenge.clone(),
-                lease_generation: generation,
-                lease_token: None,
-                state_revision: next.signer.state.revision,
-                state_digest: next.signer.state.state_digest.clone(),
-                checkpoint: Some(Box::new(checkpoint)),
-                result: BftSignerReplyKindV3::PrivateRetention {
-                    ledger: Box::new(activation.clone()),
-                    latest_seal: None,
-                    reserved_response_bytes: u64::MAX,
-                },
-            },
-            provider_signature_hex: "0".repeat(128),
-        };
         next.reserved_response_bytes = observed
             .reserved_response_bytes
-            .checked_add(encode_frame(&upper)?.len() as u64)
+            .checked_add(amount)
             .ok_or_else(|| invalid("private retention transfer reservation overflow"))?;
         check_namespace_budget(&activation.receipt.body, next.reserved_response_bytes)?;
 
@@ -172,10 +153,44 @@ impl BftSignerServiceV3 {
             request,
             request_digest,
             BftSignerReplyKindV3::PrivateRetention {
-                ledger: Box::new(activation),
+                ledger: Box::new(BftRetentionReplyLedgerV1::Activation(activation)),
                 latest_seal: None,
                 reserved_response_bytes: next.reserved_response_bytes,
             },
         )
+    }
+    pub(super) fn bounded_retention_reply_bytes(
+        &self,
+        signer: &BftSignerBackendSnapshotV3,
+        ledger: &BftRetentionReplyLedgerV1,
+        request: &SignedBftSignerRequestV3,
+        request_digest: &str,
+    ) -> Result<u64, BftSignerErrorV3> {
+        let checkpoint = self.make_checkpoint(
+            signer.state.clone(),
+            signer.lease_generation,
+            request.body.challenge.clone(),
+            request_digest.into(),
+        )?;
+        let upper = SignedBftSignerReplyV3 {
+            body: BftSignerReplyBodyV3 {
+                schema_version: 3,
+                binding_digest: self.binding.digest()?,
+                request_digest: request_digest.into(),
+                challenge: request.body.challenge.clone(),
+                lease_generation: signer.lease_generation,
+                lease_token: None,
+                state_revision: signer.state.revision,
+                state_digest: signer.state.state_digest.clone(),
+                checkpoint: Some(Box::new(checkpoint)),
+                result: BftSignerReplyKindV3::PrivateRetention {
+                    ledger: Box::new(ledger.clone()),
+                    latest_seal: None,
+                    reserved_response_bytes: u64::MAX,
+                },
+            },
+            provider_signature_hex: "0".repeat(128),
+        };
+        Ok(encode_frame(&upper)?.len() as u64)
     }
 }
