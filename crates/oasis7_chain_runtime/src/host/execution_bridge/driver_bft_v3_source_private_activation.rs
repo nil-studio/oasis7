@@ -137,7 +137,7 @@ pub(in super::super) struct CoveredSourcePublication<'a> {
 impl CoveredSourcePublication<'_> {
     pub(in super::super) fn publish(self, ledger: &mut storage::Ledger) -> Result<String, String> {
         let dir = ledger.directory().join(storage::NODE_PRIVATE_DIRECTORY);
-        let live = || {
+        let live = || -> Result<(), String> {
             if Instant::now() >= self.deadline {
                 return Err("original source activation expired".into());
             }
@@ -153,7 +153,7 @@ impl CoveredSourcePublication<'_> {
         let existing = preflight(&dir, self.store, marker)?;
         ensure_private_directory(&dir)?;
         let directory = DirectoryIdentity::open(&dir)?;
-        let guarded = || {
+        let guarded = || -> Result<(), String> {
             live()?;
             if DirectoryIdentity::open(&dir)? != directory {
                 return Err("covered original private directory changed".into());
@@ -196,7 +196,7 @@ impl CoveredSourcePublication<'_> {
         }
         ledger.verify_carriers()?;
         ledger.reserve_external_material(usage)?;
-        let guarded = || {
+        let guarded = || -> Result<(), String> {
             guarded()?;
             ledger.verify_carriers()?;
             #[cfg(test)]
