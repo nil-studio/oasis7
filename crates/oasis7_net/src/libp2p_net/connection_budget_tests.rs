@@ -365,7 +365,9 @@ fn pending_tcp_handshake_expires_and_releases_its_socket_and_budget() {
                 let other_address: Multiaddr = format!(
                     "/ip4/127.0.0.1/tcp/{}",
                     other_listener.local_addr().unwrap().port()
-                ).parse().unwrap();
+                )
+                .parse()
+                .unwrap();
                 assert!(matches!(
                     budgeted.dial(dial_for(other_peer, other_address)),
                     Err(DialError::Denied { .. })
