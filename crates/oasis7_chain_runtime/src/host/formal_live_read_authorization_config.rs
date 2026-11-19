@@ -46,8 +46,8 @@ impl FormalLiveReadEvidenceMtlsV1 {
             if !path.is_absolute() {
                 return Err("issuer mTLS credentials must use absolute paths".into());
             }
-            super::super::controlled_live_config::require_private_owned(path, false)?;
-            super::super::controlled_history_cli::read_bounded(path, MAX_PEM_BYTES)
+            super::super::world_initialization::read_private_owned_bounded(path, MAX_PEM_BYTES)
+                .map_err(|_| "issuer mTLS requires a stable private owned PEM file within its size bound".into())
         };
         let ca = read_private(&self.server_ca_file)?;
         let identity = Zeroizing::new(read_private(&self.client_identity_file)?);

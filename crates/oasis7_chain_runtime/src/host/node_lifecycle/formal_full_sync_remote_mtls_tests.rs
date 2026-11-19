@@ -10,7 +10,7 @@ use rustls::{
 };
 use std::io::{self, Write};
 use std::net::TcpListener;
-use std::os::unix::fs::OpenOptionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt, symlink};
 use std::path::Path;
 
 fn private_pem(path: &Path, pem: &str) {
@@ -84,6 +84,12 @@ fn configured_evidence_mtls_requires_server_pin_hostname_and_client_certificate(
         &(wrong_client_cert.pem() + &wrong_client_key.serialize_pem()),
     );
 
+    let loose_identity_file = files.path().join("nonprivate-provider.pem");
+    std::fs::copy(&client_identity_file, &loose_identity_file).unwrap();
+    std::fs::set_permissions(&loose_identity_file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let symlink_identity_file = files.path().join("symlink-provider.pem");
+    symlink(&client_identity_file, &symlink_identity_file).unwrap();
+
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let mut clients = RootCertStore::empty();
     clients.add(authority.0.der().clone()).unwrap();
@@ -130,6 +136,21 @@ fn configured_evidence_mtls_requires_server_pin_hostname_and_client_certificate(
         let mut plaintext = config.clone();
         plaintext.evidence_endpoint = format!("http://127.0.0.1:{port}/read");
         assert!(plaintext.build(&fixture.trust, &key(PROVIDER_KEY)).is_err());
+        if success {
+            for invalid in [&loose_identity_file, &symlink_identity_file] {
+                let mut invalid_config = config.clone();
+                invalid_config
+                    .evidence_mtls
+                    .as_mut()
+                    .unwrap()
+                    .client_identity_file = invalid.clone();
+                assert!(
+                    invalid_config
+                        .build(&fixture.trust, &key(PROVIDER_KEY))
+                        .is_err()
+                );
+            }
+        }
         let source = config
             .build(&fixture.trust, &key(PROVIDER_KEY))
             .unwrap()
