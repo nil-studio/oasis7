@@ -26,6 +26,7 @@ impl World {
         {
             return Ok(());
         }
+        self.validate_ordinary_starter_event(event)?;
         if *action_id != 0
             && self.state.is_manufactured_agent(actor_id)
             && self.current_agent_owner(actor_id).is_none()

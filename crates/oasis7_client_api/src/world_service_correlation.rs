@@ -156,6 +156,34 @@ pub fn derive_correlation_with_legacy<
         correlation.validate().map_err(|e| e.to_string())?;
         return Ok(correlation);
     }
+    if let WorldServicePayloadV1::GameNativeDelegation(signed) = payload {
+        signed.request.validate()?;
+        if signed.subject_public_key != signed.request.fence.owner_public_key {
+            return Err("native delegation control requires owner signature".into());
+        }
+        verify_owner_signature_strict(
+            oasis7_agent_api::game::GAME_NATIVE_DELEGATION_DOMAIN,
+            &signed.request,
+            &signed.subject_public_key,
+            &signed.signature_hex,
+        )?;
+        let f = &signed.request.fence;
+        if f.world_id != world.world_id || f.genesis_digest != world.genesis_digest {
+            return Err("native delegation world identity mismatch".into());
+        }
+        let correlation = RequestCorrelation {
+            key: RequestKey {
+                world,
+                verified_subject: signed.subject_public_key.clone(),
+                operation_domain: oasis7_agent_api::game::GAME_NATIVE_DELEGATION_DOMAIN.into(),
+                nonce_scope: format!("task:{}", f.task_id),
+                request_id_or_nonce: signed.request.client_operation_id.clone(),
+            },
+            payload_digest: request_digest("intent", payload)?,
+        };
+        correlation.validate().map_err(|e| e.to_string())?;
+        return Ok(correlation);
+    }
     if let WorldServicePayloadV1::GameGoalPublish(signed) = payload {
         signed.request.validate()?;
         if signed.subject_public_key != signed.request.owner_public_key {
@@ -212,7 +240,8 @@ pub fn derive_correlation_with_legacy<
         | WorldServicePayloadV1::SafeAlternative(_)
         | WorldServicePayloadV1::GameTaskCreate(_)
         | WorldServicePayloadV1::GameGoalPublish(_)
-        | WorldServicePayloadV1::GameExecutorControl(_) => {
+        | WorldServicePayloadV1::GameExecutorControl(_)
+        | WorldServicePayloadV1::GameNativeDelegation(_) => {
             unreachable!("handled above")
         }
         WorldServicePayloadV1::GameplayJson(_) | WorldServicePayloadV1::AgentChat(_) => {

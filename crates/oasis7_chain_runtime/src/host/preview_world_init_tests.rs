@@ -32,6 +32,7 @@ impl Directory {
             genesis_nonce: "aa".repeat(32),
             status_bind: "127.0.0.1:5121".parse().unwrap(),
             provider: None,
+            ordinary_starter: false,
         }
     }
 }
@@ -51,6 +52,105 @@ fn canonical_artifacts_ignore_object_insertion_order_but_bind_scope() {
         blake3_hex(&encode(json!({"world":"one"})).unwrap()),
         blake3_hex(&encode(json!({"world":"two"})).unwrap())
     );
+}
+
+#[test]
+fn ordinary_starter_preview_publishes_finite_bound_pool_and_never_replenishes() {
+    let root = Directory::new();
+    let mut options = root.options();
+    options.ordinary_starter = true;
+    let receipt = initialize(&options).unwrap();
+    let pool = receipt.ordinary_starter.as_ref().unwrap();
+    assert_eq!(pool.slots.len(), ordinary_starter::SLOT_COUNT);
+    let pinned = bridge::world_service_read::pin(
+        &options.root.join("records"),
+        &options.root.join("store"),
+        &receipt.world,
+        None,
+    )
+    .unwrap();
+    let status = pinned.world.ordinary_starter_status(None);
+    assert_eq!(
+        pinned.world.world_rule_status(None).unwrap()["ordinary_starter"],
+        serde_json::to_value(&status).unwrap()
+    );
+    assert!(status.owner_binding.is_none());
+    let offered = &status.offers["ordinary-industrial-starter-v1"];
+    assert_eq!(offered.available_slots.len(), 8, "{status:?}");
+    assert_eq!(
+        Some(&offered.offer.world_binding),
+        status.world_binding.as_ref()
+    );
+    assert_eq!(offered.supplier_materials, pool.supplier_materials);
+    assert_eq!(offered.supplier_electricity, pool.supplier_electricity);
+    assert_eq!(
+        pool.supplier_electricity,
+        8 * (10 + offered.offer.recipe_electricity)
+    );
+    assert!(!status.eligible);
+    assert!(status.claim.is_none());
+    assert!(
+        pinned
+            .world
+            .capability_revocation_state()
+            .participants
+            .bindings
+            .is_empty()
+    );
+    assert!(pinned.world.state().factories.is_empty());
+    let original = fs::read(options.root.join("initialization-receipt.json")).unwrap();
+    // Publish a real successor after ordinary driver restart. The pool remains
+    // available before participant authority or personal assets are enabled.
+    let bootstrap = bridge::derive_service_execution_bootstrap(
+        &options.root.join("world"),
+        &options.root.join("records"),
+        &options.root.join("store"),
+        &options.world_id,
+    )
+    .unwrap();
+    let initial = bootstrap.height;
+    let driver = bridge::NodeRuntimeExecutionDriver::new_with_local_bootstrap(
+        options.root.join("state.json"),
+        options.root.join("world"),
+        options.root.join("records"),
+        options.root.join("store"),
+        &StorageProfileConfig::default(),
+        bootstrap.clone(),
+    )
+    .unwrap();
+    let config = NodeConfig::new(&options.node_id, &options.world_id, NodeRole::Sequencer)
+        .unwrap()
+        .with_tick_interval(Duration::from_millis(50))
+        .unwrap();
+    let mut node = NodeRuntime::new(config)
+        .with_execution_hook(driver)
+        .with_local_execution_bootstrap(bootstrap);
+    node.start().unwrap();
+    let until = Instant::now() + Duration::from_secs(5);
+    while node.snapshot().consensus.committed_height <= initial && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    node.stop().unwrap();
+    assert!(node.snapshot().consensus.committed_height > initial);
+    let restored = bridge::world_service_read::pin(
+        &options.root.join("records"),
+        &options.root.join("store"),
+        &receipt.world,
+        None,
+    )
+    .unwrap();
+    let restored_status = restored.world.ordinary_starter_status(None);
+    assert_eq!(restored_status.world_binding, status.world_binding);
+    assert_eq!(restored_status.offers, status.offers);
+    let again = initialize(&options).unwrap();
+    assert_eq!(again.world, receipt.world);
+    assert_eq!(again.ordinary_starter, receipt.ordinary_starter);
+    assert_eq!(
+        original,
+        fs::read(options.root.join("initialization-receipt.json")).unwrap()
+    );
+    options.ordinary_starter = false;
+    assert!(initialize(&options).is_err());
 }
 #[test]
 fn arguments_require_explicit_exact_private_preview_inputs() {

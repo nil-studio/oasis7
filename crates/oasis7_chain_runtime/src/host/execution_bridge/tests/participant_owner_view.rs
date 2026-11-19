@@ -8,6 +8,8 @@ use oasis7_client_api::world_service::{
     ReadWorldViewRequest, ReadWorldViewResponse, SignedServiceResponse, VIEW_JSON_PATH,
 };
 use serde_json::Value;
+#[path = "participant_owner_profile_compat.rs"]
+mod profile_compat;
 pub(super) fn exercise(
     endpoint: &str,
     root: &Path,
@@ -111,6 +113,12 @@ pub(super) fn exercise(
     )
     .unwrap();
     compact.payload.validate(&compact_request).unwrap();
+    profile_compat::exercise(
+        endpoint,
+        &compact_request,
+        &compact_bytes,
+        &signer.public_key_hex,
+    );
     assert_eq!(
         compact.payload.view.canonical_agent_owner.agent_id,
         receipt.agent_id

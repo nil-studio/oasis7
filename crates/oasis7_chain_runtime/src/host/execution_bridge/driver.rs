@@ -253,6 +253,31 @@ impl NodeRuntimeExecutionDriver {
                 )?;
             }
         }
+        // Keep a published pool's identity through commits and restarts, even
+        // before participant administration is enabled. Restoring committed
+        // identity here grants no participant rights or additional inventory.
+        let starter = driver.execution_world.ordinary_starter_status(None);
+        if !starter.offers.is_empty() {
+            let binding = starter
+                .world_binding
+                .as_deref()
+                .ok_or("ordinary starter startup requires its existing genesis binding")?;
+            if starter
+                .offers
+                .values()
+                .any(|offered| offered.offer.world_binding != binding)
+            {
+                return Err("ordinary starter startup world binding mismatch".into());
+            }
+            let manifest = driver.execution_world.chain_resource_manifest();
+            driver.resource_identity = Some(ExecutionResourceIdentity {
+                chain_id: manifest.chain_id.clone(),
+                genesis_ref: manifest
+                    .genesis_ref
+                    .clone()
+                    .ok_or("ordinary starter startup genesis unavailable")?,
+            });
+        }
         driver.pin_devlocal_participant_resource_identity()?;
         driver.validate_devlocal_participant_startup()?;
         Ok(driver)

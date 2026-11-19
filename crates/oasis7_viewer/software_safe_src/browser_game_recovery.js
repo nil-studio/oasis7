@@ -1,4 +1,5 @@
 import { browserIdentityScope, createBrowserGameDatabase, gameStorageFail } from "./browser_game_identity.js";
+import { validateBrowserActionSelection } from "./browser_game_permit.js";
 
 // Sorting is for local immutable-record comparison only, never wire signatures.
 function stable(value) {
@@ -37,7 +38,7 @@ export function createBrowserGameRecovery({ scope, indexedDB, storage,
   const fenceKey = encode(capturedScope);
   const key = `recovery:${scopeKey}`;
   const database = storage ?? createBrowserGameDatabase(indexedDB);
-  const initial = () => ({ schema: 1, scopeKey, operations: [], runBudgets: [] });
+  const initial = () => ({ schema: 1, scopeKey, operations: [], runBudgets: [], actionPermits: [] });
   function validate(record) {
     if (record === undefined) return initial();
     if (record?.schema !== 1 || record.scopeKey !== scopeKey || !Array.isArray(record.operations)
@@ -73,6 +74,30 @@ export function createBrowserGameRecovery({ scope, indexedDB, storage,
       }
       runs.add(budget.runId); fences.add(budget.fenceKey);
     }
+    if (record.actionPermits === undefined) record.actionPermits = [];
+    if (!Array.isArray(record.actionPermits) || record.actionPermits.length > 256) gameStorageFail("action_permit_corrupt");
+    const permits = new Set(), delegatedRuns = new Set();
+    for (const permit of record.actionPermits) {
+      operationId(permit.permitId);
+      try { validateBrowserActionSelection(permit.selection); } catch { gameStorageFail("action_permit_corrupt"); }
+      if (permits.has(permit.permitId) || typeof permit.fenceKey !== "string"
+        || !["agent", "direct"].includes(permit.mode) || permit.selection.agentId !== scope.agentId
+        || (permit.mode === "agent" && (permit.selection.kind !== "first_production"
+          || typeof permit.runId !== "string" || delegatedRuns.has(permit.runId)
+          || !record.runBudgets.some((budget) => budget.runId === permit.runId && budget.fenceKey === permit.fenceKey)))
+        || (permit.mode === "direct" && permit.runId !== null)
+        || (permit.originalOperationId !== null && !record.operations.some((entry) =>
+          entry.original.operationId === permit.originalOperationId && entry.original.kind === "action"
+          && entry.original.runBudget.permitId === permit.permitId && encode(entry.scope) === permit.fenceKey))) {
+        gameStorageFail("action_permit_corrupt");
+      }
+      permits.add(permit.permitId); if (permit.mode === "agent") delegatedRuns.add(permit.runId);
+    }
+    for (const entry of record.operations) {
+      if (entry.original.kind === "action" && entry.original.runBudget.permitId
+        && !record.actionPermits.some((permit) => permit.permitId === entry.original.runBudget.permitId
+          && permit.originalOperationId === entry.original.operationId)) gameStorageFail("action_permit_corrupt");
+    }
     // Detect non-JSON values and forbidden credential fields on reads too.
     encode(record);
     return record;
@@ -105,6 +130,13 @@ export function createBrowserGameRecovery({ scope, indexedDB, storage,
     if (requireFence && budget.fenceKey !== fenceKey) gameStorageFail("run_fence_conflict");
     return budget;
   }
+  function actionPermit(record, id) {
+    operationId(id);
+    const permit = record.actionPermits.find((item) => item.permitId === id);
+    if (!permit) gameStorageFail("action_permit_missing");
+    if (permit.fenceKey !== fenceKey) gameStorageFail("action_permit_fence_conflict");
+    return permit;
+  }
   const api = {
     async load() { return copy(validate(await database.get(key))); },
     async initializeRun(runId, { fence } = {}) {
@@ -125,6 +157,31 @@ export function createBrowserGameRecovery({ scope, indexedDB, storage,
       return copy(run(record, runId));
     },
     async getRunBudget(runId) { return copy(run(validate(await database.get(key)), runId)); },
+    async initializeActionPermit(permitId, { fence, selection, mode, runId = null } = {}) {
+      operationId(permitId);
+      if (encode(fence) !== encode(capturedScope.fence)) gameStorageFail("action_permit_fence_conflict");
+      const checkedSelection = validateBrowserActionSelection(selection);
+      if (checkedSelection.agentId !== scope.agentId || !["agent", "direct"].includes(mode)
+        || (mode === "agent" && (checkedSelection.kind !== "first_production" || typeof runId !== "string"))
+        || (mode === "direct" && runId !== null)) gameStorageFail("action_permit_invalid");
+      const wanted = { permitId, fenceKey, selection: checkedSelection, mode, runId };
+      const record = await mutate((stored) => {
+        const existing = stored.actionPermits.find((item) => item.permitId === permitId);
+        if (existing) {
+          const { originalOperationId: _original, ...bound } = actionPermit(stored, permitId);
+          if (encode(bound) !== encode(wanted)) gameStorageFail("action_permit_scope_mismatch");
+          return stored;
+        }
+        if (mode === "agent") {
+          run(stored, runId);
+          if (stored.actionPermits.some((item) => item.mode === "agent" && item.runId === runId)) gameStorageFail("action_permit_identity_conflict");
+        }
+        if (stored.actionPermits.length >= 256) gameStorageFail("action_permit_capacity_exhausted");
+        stored.actionPermits.push({ ...wanted, originalOperationId: null }); return stored;
+      });
+      return copy(actionPermit(record, permitId));
+    },
+    async getActionPermit(permitId) { return copy(actionPermit(validate(await database.get(key)), permitId)); },
     async reserveModelCall(runId, inputBytes, maxOutputTokens = 512) {
       if (!integer(inputBytes) || inputBytes === 0 || !integer(maxOutputTokens) || maxOutputTokens === 0
         || maxOutputTokens > BROWSER_GAME_RUN_LIMITS.maxOutputTokens
@@ -170,6 +227,16 @@ export function createBrowserGameRecovery({ scope, indexedDB, storage,
           return stored;
         }
         if (stored.operations.length >= 256) gameStorageFail("recovery_capacity_exhausted");
+        if (captured.kind === "action" && captured.runBudget.permitId) {
+          const permit = actionPermit(stored, captured.runBudget.permitId);
+          if (permit.originalOperationId !== null) gameStorageFail("action_permit_consumed");
+          if (permit.mode === "agent" && (captured.runBudget.runId !== permit.runId
+            || captured.runBudget.modelInvoked !== true || run(stored, permit.runId).callsReserved < 1)) gameStorageFail("action_permit_model_required");
+          if (!captured.context?.fence || encode(captured.context.fence) !== encode(capturedScope.fence)) gameStorageFail("action_permit_fence_conflict");
+          // The first original consumes this permission in the same durable
+          // transaction, before send. Rejection/Unknown never refunds it.
+          permit.originalOperationId = captured.operationId;
+        }
         stored.operations.push({ original: captured, scope: capturedScope, state: "unknown", receipt: null });
         return stored;
       });

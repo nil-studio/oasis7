@@ -11,6 +11,9 @@ vi.mock("./viewer_runtime_config_module.js", async (original) => {
 vi.mock("./browser_game_protocol.js", () => ({ loadBrowserGameProtocol: async () => ({}) }));
 vi.mock("./browser_owner_entry.js", () => ({ createBrowserOwnerEntry: () => ({ inspect: entryFixture.inspect, prepare: entryFixture.prepare }) }));
 vi.mock("./browser_game_session.js", () => ({ createBrowserGameSession: entryFixture.session }));
+vi.mock("./browser_game_identity.js", async (original) => ({ ...await original(), createBrowserOwnerIdentity: () => ({
+  getOrCreate: async () => ({ publicKeyHex: "native-owner-fixture", sign: async () => new Uint8Array(64) }),
+}) }));
 vi.mock("./browser_model_provider.js", async (original) => ({ ...await original(), probeBrowserModel: entryFixture.model, callBrowserModel: entryFixture.model }));
 function viewerUrl() { return "/software_safe.html?test_api=1&connect=0&hosted_bootstrap=0&locale=en"; }
 let activeCleanup = null;
@@ -160,14 +163,18 @@ afterEach(() => {
 
 describe("CommandSurface browser owner entry", () => {
   afterEach(() => { entryFixture.config = undefined; });
-  async function mountEntry(enabled = true, selected = false, projection = null) {
-    entryFixture.config = enabled ? { servicePublicKey: "test-service" } : undefined;
+  async function mountEntry(enabled = true, selected = false, projection = null, freshAccount = false) {
+    entryFixture.config = enabled ? { servicePublicKey: "test-service", world: { world_id: "world", genesis_digest: "genesis" } } : undefined;
+    globalThis.fetch.mockImplementation(async (url) => String(url).endsWith("/hosted-account/v2/session")
+      ? { ok: true, status: 200, json: async () => ({ api_version: 2, ok: true, authentication: { state: "authenticated" }, account: { account_id: "first-entry-account" } }) }
+      : { ok: false, status: 404, json: async () => ({ ok: false, error_code: "not_found" }) });
     entryFixture.inspect.mockReset().mockResolvedValue({ state: "needs_participant" });
     entryFixture.prepare.mockReset(); entryFixture.session.mockReset(); entryFixture.model.mockReset();
     return renderViewerApp({ autoBindSnapshotAgent: false,
       snapshot: selected ? sampleSnapshot() : { ...sampleSnapshot(), model: { ...sampleSnapshot().model, agents: {}, agent_player_bindings: {} } },
       selection: selected ? { kind: "agent", id: "agent-0" } : null,
       setupCore(core) {
+        if (freshAccount) return;
         if (selected) bindLocalTestAgent(core); else bindUnboundLocalPlayerForTest(core);
         core.state.auth.hostedAccountId = "first-entry-account";
         core.state.auth.registrationStatus = selected ? "registered" : "registered_unbound";
@@ -181,6 +188,14 @@ describe("CommandSurface browser owner entry", () => {
       },
     });
   }
+  it("opens the ordinary account entry before any legacy world join or owner projection exists", async () => {
+    const { core } = await mountEntry(true, false, null, true);
+    expect(core.state.auth.available).toBe(false);
+    expect((await import("./viewer_auth_session_module.js")).authSigningIdentity(core.state.auth)).toBeNull();
+    expect(await screen.findByRole("button", { name: "Prepare player, Agent and Task" })).toBeVisible();
+    expect(entryFixture.inspect).toHaveBeenCalledTimes(1); expect(entryFixture.prepare).not.toHaveBeenCalled();
+    expect(globalThis.fetch.mock.calls.some(([url]) => String(url).includes("/world/join"))).toBe(false);
+  }, 60000);
   it("exposes Prepare to an installed owner without a selected or controllable Agent", async () => {
     const { core } = await mountEntry();
     expect(core.state.auth.boundAgentId).toBeNull();

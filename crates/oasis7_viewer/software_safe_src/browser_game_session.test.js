@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createBrowserGameSession } from "./browser_game_session.js";
 import { createBrowserParticipantGateway } from "./browser_participant_entry.js";
+import { directActionSelection } from "./browser_game_permit.js";
 
 const sessions = [];
 afterEach(() => { for (const session of sessions.splice(0)) session.dispose(); });
@@ -29,8 +30,13 @@ function setup({ bound = false, unknown = false, operations = [] } = {}) {
   const participantFactory = vi.fn((options) => ({ prepare: vi.fn(async () => { await hooks.participant?.(options); }),
     getParticipantProofs: async () => ({ owner: {}, admission: {} }), gatewayCall: async () => "{}" }));
   const recoveries = [];
+  const actionPermits = [];
   const recoveryFactory = vi.fn(({ scope }) => {
-    const recovery = { scope: clone(scope), load: vi.fn(async () => ({ operations })), hasUnresolved: vi.fn(async () => unknown),
+    const recovery = { scope: clone(scope), load: vi.fn(async () => ({ operations, actionPermits })), hasUnresolved: vi.fn(async () => unknown),
+      initializeActionPermit: vi.fn(async (permitId, value) => {
+        const previous = actionPermits.find((item) => item.permitId === permitId); if (previous) return previous;
+        const permit = { permitId, ...value, originalOperationId: null }; actionPermits.push(permit); return permit;
+      }), getActionPermit: vi.fn(async (id) => actionPermits.find((item) => item.permitId === id)),
       initializeRun: vi.fn(async (_runId, { fence: expected }) => {
         if (JSON.stringify(scope.fence) !== JSON.stringify(expected)) throw failure("run_fence_conflict");
       }), reserveModelCall: vi.fn(async () => ({ id: 1, runId: "run" })), settleModelCall: vi.fn(async () => {}) };
@@ -38,14 +44,51 @@ function setup({ bound = false, unknown = false, operations = [] } = {}) {
   });
   const clients = [];
   const clientFactory = vi.fn((options) => {
-    const client = { options, executorPublicKey: executor,
+    const client = { options, executorPublicKey: executor, agentId: "agent",
       readTask: vi.fn(async () => { await hooks.readTask?.(options); return { fence: clone(fence) }; }),
-      recover: vi.fn(async () => { await hooks.recover?.(options); }), hasUnresolved: vi.fn(async () => unknown || operations.some((entry) => entry.original.kind === "prefix")),
+      recover: vi.fn(async () => { await hooks.recover?.(options); }), hasUnresolved: vi.fn(async () => unknown || operations.some((entry) => entry.original.kind === "prefix"
+        && !operations.some((other) => ["action", "outcome"].includes(other.original.kind) && ["committed", "rejected", "expired"].includes(other.state)
+          && other.original.operationId.replace(/:(action|outcome)$/, "") === entry.original.operationId.replace(/:prefix$/, "")))),
       freshFence: vi.fn(async () => { await hooks.freshFence?.(options); return { fence: clone(fence) }; }),
       bindFence: vi.fn(async () => {}), snapshot: vi.fn(async () => ({ active_goal: { owner_proof: { request: { content: "Build safely" } } } })),
       registerExecutor: vi.fn(async () => { await options.beforeEffect(); await hooks.registration?.(options); effectCount += 1;
         fence = { ...fence, executor_epoch: "1", executor_binding: { executor_public_key: executor } }; }),
       effect: vi.fn(async () => { await options.beforeEffect(); effectCount += 1; }),
+      context: vi.fn(async (operationId, runBudget) => {
+        await hooks.context?.(options);
+        if (!operations.some((entry) => entry.original.operationId === `${operationId}:prefix`)) {
+          await options.beforeEffect({ operationId: `${operationId}:prefix`, kind: "prefix", runBudget });
+          effectCount += 1;
+          operations.push({ original: { operationId: `${operationId}:prepare`, kind: "prepare", runBudget }, state: "committed" });
+          operations.push({ original: { operationId: `${operationId}:prefix`, kind: "prefix", runBudget, context: { fence: clone(fence), valid_until_tick: "10" } }, state: "committed" });
+        }
+        return { prepared: { identity: { fence: clone(fence) }, valid_until_tick: "10" }, current_public_context: {} };
+      }),
+      quote: vi.fn(async (operationId, captured, kind, selection) => {
+        await hooks.quote?.(options);
+        return { captured, quoted: { quote: { rejection: null, action: { type: "ScheduleRecipe", data: {
+          requester_agent_id: "agent", factory_id: selection.factory, recipe_id: selection.recipe,
+          plan: { accepted_batches: 1, consume: [{ kind: "iron_ore", amount: 4 }, { kind: "carbon_fuel", amount: 1 }], power_required: 8 },
+          logistics_route_ids: [], logistics_path_ids: [] } }, preview: { power_required: 8,
+          consume: [{ kind: "iron_ore", amount: 4 }, { kind: "carbon_fuel", amount: 1 }, { kind: "maintenance_part", amount: 1 }] } } } };
+      }),
+      action: vi.fn(async (operationId, captured, action, runBudget) => {
+        await options.beforeEffect({ operationId: `${operationId}:action`, kind: "action", runBudget }); effectCount += 1;
+        actionPermits.find((item) => item.permitId === runBudget.permitId).originalOperationId = `${operationId}:action`;
+        operations.push({ original: { operationId: `${operationId}:action`, kind: "action", runBudget }, state: "committed" });
+        return { outcome: { status: "committed" } };
+      }),
+      outcome: vi.fn(async (operationId, captured, reason, runBudget) => {
+        await options.beforeEffect({ operationId: `${operationId}:outcome`, kind: "outcome", runBudget }); effectCount += 1;
+        operations.push({ original: { operationId: `${operationId}:outcome`, kind: "outcome", runBudget }, state: "committed" });
+        return { outcome: { status: "committed" } };
+      }),
+      retireExpiredContexts: vi.fn(async ({ operationId }) => {
+        const original = operations.find((entry) => entry.original.operationId === `${operationId}:prefix`).original;
+        await options.beforeEffect({ operationId: `${operationId}:outcome`, kind: "outcome", runBudget: original.runBudget }); effectCount += 1;
+        operations.push({ original: { operationId: `${operationId}:outcome`, kind: "outcome", runBudget: original.runBudget }, state: "committed" });
+        return { retired: 1 };
+      }),
     };
     clients.push(client); return client;
   });
@@ -81,6 +124,86 @@ async function ready(env) {
 }
 
 describe("browser game session authorization", () => {
+  const claimSelection = () => directActionSelection({ type: "WorldRule", data: { actor_id: "agent", request_id: "claim-request",
+    command: { type: "ClaimOrdinaryIndustrialStarter", data: { offer_id: "fixture-offer" } } } }, "agent");
+  it("executes one explicit player action without a model Key and labels it as player work", async () => {
+    const env = setup({ bound: true }); env.modelState.hasKey = false; env.modelState.checked = false;
+    const session = await ready(env), confirmedFence = session.snapshot().fence;
+    const result = await session.directAction({ confirmedFence, permitId: "claim", selection: claimSelection() });
+    expect(result).toMatchObject({ phase: "settled", submissionState: "committed", agentDelegated: false });
+    expect(env.clients.at(-1).action).toHaveBeenCalledTimes(1);
+    expect(env.modelSession.beginExecution).not.toHaveBeenCalled(); expect(env.modelSession.reserveExecution).not.toHaveBeenCalled();
+    expect(env.runners.at(-1).start).not.toHaveBeenCalled();
+    await session.directAction({ confirmedFence, permitId: "claim", selection: claimSelection() });
+    expect(env.clients.at(-1).action).toHaveBeenCalledTimes(1);
+    await expect(env.clients.at(-1).effect()).rejects.toMatchObject({ code: "run_confirmation_required" });
+  });
+  it("makes player direct work mutually exclusive with Start and never widens the runtime permit", async () => {
+    const env = setup({ bound: true }); const session = await ready(env), pending = deferred();
+    env.hooks.context = async (options) => {
+      await expect(options.beforeEffect({ operationId: "unrelated:action", kind: "action", runBudget: { permitId: "claim" } }))
+        .rejects.toMatchObject({ code: "action_permit_scope_mismatch" });
+      await pending.promise;
+    };
+    const direct = session.directAction({ confirmedFence: session.snapshot().fence, permitId: "claim", selection: claimSelection() });
+    await flush();
+    await expect(session.start()).rejects.toMatchObject({ code: "already_running" });
+    await expect(session.prepare({ inspectOnly: true })).rejects.toMatchObject({ code: "already_running" });
+    pending.resolve(); await direct;
+    expect(env.modelSession.beginExecution).not.toHaveBeenCalled();
+  });
+  it("previews a real native quote under an explicit prefix-only player permit without submitting an action", async () => {
+    const env = setup({ bound: true }); env.modelState.hasKey = false;
+    const session = await ready(env), confirmedFence = session.snapshot().fence;
+    env.hooks.quote = async (options) => {
+      await expect(options.beforeEffect({ operationId: "preview:first:action", kind: "action", runBudget: { previewPermitId: "first" } }))
+        .rejects.toMatchObject({ code: "action_permit_scope_mismatch" });
+    };
+    const preview = await session.preview({ confirmedFence, permitId: "first", kind: "schedule",
+      selection: { factory: "factory", recipe: "recipe.smelter.iron_ingot", batches: 1 } });
+    expect(preview).toMatchObject({ contextOperationId: "preview:first", selection: { kind: "first_production", maxElectricity: 8 } });
+    expect(preview.selection.maxConsume).toContainEqual({ kind: "maintenance_part", amount: 1 });
+    expect(env.clients.at(-1).action).not.toHaveBeenCalled(); expect(env.modelSession.beginExecution).not.toHaveBeenCalled();
+    expect(session.snapshot()).toMatchObject({ phase: "preview_ready", agentDelegated: false });
+  });
+  it("discards a late player quote after Stop before any action can be submitted", async () => {
+    const env = setup({ bound: true }); const session = await ready(env), pending = deferred();
+    env.hooks.quote = () => pending.promise;
+    const preview = expect(session.preview({ confirmedFence: session.snapshot().fence, permitId: "first", kind: "schedule",
+      selection: { factory: "factory", recipe: "recipe.smelter.iron_ingot", batches: 1 } })).rejects.toMatchObject({ code: "stopped" });
+    await flush(); session.stop(); pending.resolve(); await preview;
+    expect(env.clients.at(-1).action).not.toHaveBeenCalled(); expect(env.modelSession.beginExecution).not.toHaveBeenCalled();
+    expect(session.snapshot().phase).toBe("stopped");
+  });
+  it("explicitly ends a rejected preview without a Key, then permits a new player operation without resetting a model run", async () => {
+    const env = setup({ bound: true }); env.modelState.hasKey = false; env.modelState.checked = false;
+    const session = await ready(env), confirmedFence = session.snapshot().fence;
+    env.hooks.quote = async () => { throw failure("quote_rejected"); };
+    await expect(session.preview({ confirmedFence, permitId: "one", kind: "schedule", selection: { factory: "factory", recipe: "recipe.smelter.iron_ingot", batches: 1 } }))
+      .rejects.toMatchObject({ code: "quote_rejected" });
+    expect(env.clients.at(-1).outcome).not.toHaveBeenCalled();
+    await session.endPreview({ confirmedFence, permitId: "one", contextOperationId: "preview:one" });
+    expect(env.clients.at(-1).outcome).toHaveBeenCalledWith("preview:one", expect.any(Object), "executor_aborted", expect.objectContaining({ previewPermitId: "one" }));
+    await session.directAction({ confirmedFence, permitId: "new-player-choice", selection: claimSelection() });
+    expect(env.clients.at(-1).action).toHaveBeenCalledTimes(1);
+    expect(env.modelSession.beginExecution).not.toHaveBeenCalled(); expect(env.recoveries.at(-1).initializeRun).not.toHaveBeenCalled();
+  });
+  it("explicitly retires only an expired preview without a Key, and a new click uses a later journal identity", async () => {
+    const env = setup({ bound: true }); env.modelState.hasKey = false;
+    const seen = [];
+    const session = env.create({ protocolLoader: async () => ({ requestDigest: (domain, value) => { seen.push(JSON.parse(value)); return `${domain}:${JSON.parse(value).sequence ?? 0}`; } }) });
+    const inspected = await session.prepare({ inspectOnly: true }); await session.prepare({ confirmedFence: inspected.fence });
+    const confirmedFence = session.snapshot().fence;
+    const firstId = await session.nextPreviewPermitId({ factory: "factory" });
+    await session.preview({ confirmedFence, permitId: firstId, kind: "schedule", selection: { factory: "factory", recipe: "recipe.smelter.iron_ingot", batches: 1 } });
+    const client = env.clients.at(-1); client.freshFence.mockResolvedValue({ fence: confirmedFence, logicalTick: "11" });
+    await session.endPreview({ confirmedFence, permitId: firstId, contextOperationId: `preview:${firstId}` });
+    expect(client.retireExpiredContexts).toHaveBeenCalledWith({ operationId: `preview:${firstId}` });
+    expect(client.outcome).not.toHaveBeenCalled();
+    const nextId = await session.nextPreviewPermitId({ factory: "factory" }); expect(nextId).not.toBe(firstId);
+    expect(seen.filter((item) => Object.hasOwn(item, "sequence")).map((item) => item.sequence)).toEqual([0, 1]);
+    expect(env.modelSession.beginExecution).not.toHaveBeenCalled(); expect(env.recoveries.at(-1).initializeRun).not.toHaveBeenCalled();
+  });
   it("inspects without registration, then requires the exact displayed Task fence", async () => {
     const env = setup(); const session = env.create();
     await expect(session.prepare()).rejects.toMatchObject({ code: "run_confirmation_required" });
