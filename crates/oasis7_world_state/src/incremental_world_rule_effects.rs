@@ -33,6 +33,7 @@ fn effects(source: &WorldRulesStateV1) -> &BTreeMap<String, String> {
         agent_orders: _,
         industrial_work: _,
         substitution: _,
+        ordinary_starter: _,
     } = source;
     governance_effects
 }

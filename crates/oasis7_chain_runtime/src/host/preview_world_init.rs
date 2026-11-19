@@ -5,6 +5,7 @@ use super::execution_bridge as bridge;
 use super::execution_bridge_real_tests::real_execution_bridge as bridge;
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use oasis7::runtime_host::bootstrap::bootstrap_formal_release_runtime_world as viewer_bootstrap_formal_release_runtime_world;
+use oasis7::runtime_host::ordinary_starter::{self, OrdinaryStarterPoolV1};
 use oasis7::world_service::WorldIdentity;
 use oasis7_node::{NodeConfig, NodeRole, NodeRuntime};
 use oasis7_proto::storage_profile::StorageProfileConfig;
@@ -32,6 +33,8 @@ const CLAIM: &str =
     "fresh_devlocal_technical_preview_not_governed_activation_or_formal_network_finality";
 const LEGACY_RECEIPT_SCHEMA: &str = "v1:world_id,node_id,genesis_nonce,genesis_digest,service_public_key,reader_public_key,status_bind,initial_height,commit,artifact_hashes,relative_paths,source_hash,claim,node_scoped_signature";
 const PROVIDER_RECEIPT_SCHEMA: &str = "v1:preview-receipt-with-explicit-devlocal-provider-profile";
+const ORDINARY_STARTER_RECEIPT_SCHEMA: &str =
+    "v1:preview-receipt-with-finite-public-ordinary-starter";
 const RECEIPT_SCHEMA: &str = "v1:world_id,node_id,genesis_nonce,genesis_digest,service_public_key,reader_public_key,status_bind,initial_height,commit,artifact_hashes,initial_publication_proof_hash,relative_paths,source_hash,claim,node_scoped_signature";
 const SIGNATURE_DOMAIN: &[u8] = b"oasis7.devlocal.preview-init-receipt/v1\0";
 fn source_hash() -> String {
@@ -42,6 +45,7 @@ fn source_hash() -> String {
             include_bytes!("preview_world_init_archive.rs").as_slice(),
             include_bytes!("preview_world_init_origin.rs").as_slice(),
             include_bytes!("preview_world_init_provider.rs").as_slice(),
+            ordinary_starter::initializer_source_bytes(),
             include_bytes!("local_provider_setup.rs").as_slice(),
             include_bytes!("execution_bridge/world_service_read.rs").as_slice(),
         ]
@@ -58,10 +62,13 @@ struct Options {
     genesis_nonce: String,
     status_bind: SocketAddr,
     provider: Option<provider::Inputs>,
+    ordinary_starter: bool,
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Receipt {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ordinary_starter: Option<OrdinaryStarterPoolV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     provider: Option<provider::Commitment>,
     schema: String,
@@ -85,7 +92,10 @@ struct Receipt {
     node_scoped_signature: String,
 }
 fn receipt_schema_matches(receipt: &Receipt) -> bool {
-    if receipt.provider.is_some() {
+    if receipt.ordinary_starter.is_some() {
+        receipt.provider.is_none()
+            && receipt.receipt_schema_hash == blake3_hex(ORDINARY_STARTER_RECEIPT_SCHEMA.as_bytes())
+    } else if receipt.provider.is_some() {
         receipt.receipt_schema_hash == blake3_hex(PROVIDER_RECEIPT_SCHEMA.as_bytes())
     } else {
         receipt.receipt_schema_hash == blake3_hex(RECEIPT_SCHEMA.as_bytes())
@@ -128,6 +138,7 @@ fn parse<'a>(args: impl Iterator<Item = &'a str>) -> Result<Options, String> {
             "--genesis-nonce",
             "--status-bind",
             "--profile",
+            "--ordinary-starter",
             "--provider-wasm",
             "--provider-metadata",
             "--provider-agent-id",
@@ -160,10 +171,21 @@ fn parse<'a>(args: impl Iterator<Item = &'a str>) -> Result<Options, String> {
         node_id: required("--node-id")?.into(),
         genesis_nonce: required("--genesis-nonce")?.into(),
         provider: provider::parse(&values)?,
+        ordinary_starter: match values.get("--ordinary-starter").copied() {
+            None => false,
+            Some("ordinary-industrial-starter-v1") => true,
+            Some(_) => return Err("unsupported ordinary starter profile".into()),
+        },
         status_bind: required("--status-bind")?
             .parse()
             .map_err(|_| "invalid preview status bind")?,
     };
+    if options.ordinary_starter && options.provider.is_some() {
+        return Err(
+            "ordinary starter and preassigned provider profiles are separate initializations"
+                .into(),
+        );
+    }
     for id in [&options.world_id, &options.node_id] {
         if id.is_empty()
             || id.len() > 128
@@ -192,7 +214,7 @@ fn parse<'a>(args: impl Iterator<Item = &'a str>) -> Result<Options, String> {
     Ok(options)
 }
 fn help() -> &'static str {
-    "Usage: oasis7_chain_runtime initialize-preview-world --root <fresh-absolute-private-root> --world-id <exact-id> --node-id <exact-id> --key-dir <existing-0700-node-config> --genesis-nonce <64-lowercase-hex> --status-bind <loopback-ip:port>\nUses only genuine Runtime and NodeRuntime local commits; no formal activation/finality. Default profile is public-read only; explicit --profile devlocal-provider-v1 requires --provider-wasm, --provider-metadata, --provider-agent-id, --provider-owner-binding, --provider-finality-block-hash and --provider-allowance (1..128). Existing complete matching roots are verified read-only; partial or conflicting roots are rejected."
+    "Usage: oasis7_chain_runtime initialize-preview-world --root <fresh-absolute-private-root> --world-id <exact-id> --node-id <exact-id> --key-dir <existing-0700-node-config> --genesis-nonce <64-lowercase-hex> --status-bind <loopback-ip:port>\nUses only genuine Runtime and NodeRuntime local commits; no formal activation/finality. Default profile is public-read only; explicit --profile devlocal-provider-v1 requires --provider-wasm, --provider-metadata, --provider-agent-id, --provider-owner-binding, --provider-finality-block-hash and --provider-allowance (1..128). Optional --ordinary-starter ordinary-industrial-starter-v1 publishes eight finite public factory slots with canonical materials and power; participant admission must still be configured through its existing authority path. It cannot be combined with the preassigned provider profile. Existing complete matching roots are verified read-only; partial or conflicting roots are rejected."
 }
 fn canonical(value: Value) -> Value {
     match value {
@@ -365,6 +387,11 @@ fn initialize(options: &Options) -> Result<Receipt, String> {
         files::private_dir(&stage.path.join(name))?;
     }
     let (mut world, config) = viewer_bootstrap_formal_release_runtime_world()?;
+    let starter_pool = if options.ordinary_starter {
+        Some(ordinary_starter::initialize(&mut world)?)
+    } else {
+        None
+    };
     if options.provider.is_some() {
         // This explicit fresh profile selects the same DevLocal policy as
         // canonical W3 creation, before ordinary Runtime module admission.
@@ -384,14 +411,16 @@ fn initialize(options: &Options) -> Result<Receipt, String> {
     if let Some(prepared) = &prepared_provider {
         artifact_value["provider"] = json!(prepared.commitment);
     }
+    if let Some(pool) = &starter_pool {
+        artifact_value["ordinary_starter"] = json!(pool);
+    }
     let artifact = encode(artifact_value)?;
     let artifact_hash = blake3_hex(&artifact);
     let identity = WorldIdentity {
         world_id: options.world_id.clone(),
         genesis_digest: format!("blake3:{artifact_hash}"),
     };
-    let initial_height = world.state().time;
-    if initial_height == 0 {
+    if world.state().time == 0 {
         return Err("canonical preview preset must have a real initial Runtime boundary".into());
     }
     if prepared_provider.is_none() {
@@ -399,6 +428,33 @@ fn initialize(options: &Options) -> Result<Receipt, String> {
             .bind_cognition_runtime(&options.world_id, "main", 0, None, "pending", 0)
             .map_err(|_| "preview Runtime binding failed")?;
     }
+    if let Some(pool) = &starter_pool {
+        let height = world.state().time;
+        let hash = world
+            .current_manifest_hash()
+            .map_err(|_| "preview manifest unavailable")?;
+        let snapshot = world.snapshot_with_chain_resource_context(
+            ChainResourceDerivationContext {
+                world_id: &options.world_id,
+                chain_id: &options.world_id,
+                genesis_ref: Some(&identity.genesis_digest),
+                created_at_height: height,
+                manifest_height: height,
+                commit_block_hash: None,
+                tick: height,
+            },
+            hash,
+            "devlocal-preview-initialization-v1",
+        );
+        world = oasis7::runtime_host::world::from_snapshot_with_release_security_policy(
+            snapshot,
+            world.journal().clone(),
+            ReleaseSecurityPolicy::production_hardened(),
+        )
+        .map_err(|error| format!("ordinary starter bound genesis restore: {error:?}"))?;
+        ordinary_starter::publish(&mut world, pool)?;
+    }
+    let initial_height = world.state().time;
     let manifest_hash = world
         .current_manifest_hash()
         .map_err(|_| "preview manifest unavailable")?;
@@ -511,6 +567,7 @@ fn initialize(options: &Options) -> Result<Receipt, String> {
     files::write_new(&stage.path.join("private/viewer.env"), env.as_bytes())?;
     files::write_new(&stage.path.join("viewer.public.json"), &public_config)?;
     let mut receipt = Receipt {
+        ordinary_starter: starter_pool,
         provider: prepared_provider.map(|prepared| prepared.commitment),
         schema: SCHEMA.into(),
         claim: CLAIM.into(),
@@ -528,7 +585,9 @@ fn initialize(options: &Options) -> Result<Receipt, String> {
         consumer_public_config_hash: blake3_hex(&public_config),
         initializer_source_hash: source_hash(),
         receipt_schema_hash: blake3_hex(
-            if options.provider.is_some() {
+            if options.ordinary_starter {
+                ORDINARY_STARTER_RECEIPT_SCHEMA
+            } else if options.provider.is_some() {
                 PROVIDER_RECEIPT_SCHEMA
             } else {
                 RECEIPT_SCHEMA
@@ -580,6 +639,7 @@ fn verify_at(
         || receipt.status_bind != options.status_bind
         || receipt.service_public_key != service_public
         || !provider::matches_inputs(options.provider.as_ref(), receipt.provider.as_ref())?
+        || options.ordinary_starter != receipt.ordinary_starter.is_some()
         || (!receipt_schema_matches(&receipt))
     {
         return Err(

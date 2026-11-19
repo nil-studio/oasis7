@@ -49,6 +49,13 @@ impl PreparedAgentClaimEconomic {
         now: WorldTime,
         manufactured: Option<(String, AgentCell)>,
     ) -> Result<Self, WorldError> {
+        if let DomainEvent::AgentClaimed {
+            target_agent_id, ..
+        } = event
+            && state.is_ordinary_starter_supplier(target_agent_id)
+        {
+            return Err(invalid("ordinary_starter_supplier_reserved"));
+        }
         let actor = match event {
             DomainEvent::AgentClaimed {
                 claimer_agent_id, ..

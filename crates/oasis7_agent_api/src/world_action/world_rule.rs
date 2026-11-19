@@ -116,6 +116,10 @@ pub enum WorldRuleCommandV1 {
     DeliverAgentOrder {
         order_id: String,
     },
+    // Append new variants to preserve historical packed-CBOR discriminants.
+    OrdinaryStarter {
+        command: Box<super::OrdinaryStarterCommandV1>,
+    },
 }
 
 /// Governance proposals bind the entire intent, excluding their own reference.
@@ -170,6 +174,7 @@ impl WorldRuleCommandV1 {
     /// Exact object used by existing native delegation grants; no wildcard scope.
     pub fn authority_scope(&self) -> String {
         match self {
+            Self::OrdinaryStarter { command } => command.authority_scope(),
             Self::IndustrialWork { command } => command.authority_scope(),
             Self::RecipeSubstitution { command } => command.authority_scope(),
             Self::EmergencySupply { command } => command.authority_scope(),

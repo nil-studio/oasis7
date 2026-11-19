@@ -684,6 +684,33 @@ class Selection(unittest.TestCase):
                 self.assertTrue(groups.issubset(plan['groups']))
                 self.base = self.git('rev-parse', 'HEAD')
 
+    def test_main_token_acceptance_exact_existing_input_requires_trusted_registration(self):
+        path = 'scripts/main-token-regression.sh'
+        reason = 'main_token_runtime_acceptance'
+        trusted = json.loads((HERE / 'ci-required-scope.json').read_text())
+        old = dict(trusted, rules=[rule for rule in trusted['rules'] if rule['reason'] != reason])
+        self.write(path, '#!/bin/bash\n# existing acceptance script\n')
+        self.write('scripts/ci-required-scope.json', json.dumps(old))
+        self.base = self.commit()
+        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
+            self.write(path, '#!/bin/bash\n# corrected assertion target\n')
+            head = self.commit()
+            plan = selector.select(trusted, self.base, head)
+            self.assertEqual(plan['scope'], 'targeted')
+            self.assertEqual(set(plan['groups']), {'baseline', 'oasis7_required', 'workflow_governance'})
+
+            self.write('scripts/ci-required-scope.json', json.dumps(trusted))
+            with self.assertRaises(selector.UnknownInputsError) as inactive:
+                selector.select(old, self.base, self.commit(), additions=('workflow_governance',))
+            self.assertIn(path, str(inactive.exception))
+
+            self.base = self.git('rev-parse', 'HEAD')
+            unknown = 'scripts/main-token-regression-extra.sh'
+            self.write(unknown, '# unrelated script\n')
+            with self.assertRaises(selector.UnknownInputsError) as neighbor:
+                selector.select(trusted, self.base, self.commit())
+            self.assertIn(unknown, str(neighbor.exception))
+
     def test_hosted_passkey_browser_smoke_has_launcher_and_viewer_owners(self):
         self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
         self.write('scripts/hosted-passkey-virtual-authenticator-smoke.mjs', '// changed browser smoke')

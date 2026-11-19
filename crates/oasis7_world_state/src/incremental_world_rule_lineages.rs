@@ -55,6 +55,7 @@ fn lineages(source: &WorldRulesStateV1) -> &std::collections::BTreeMap<String, S
         agent_orders: _,
         industrial_work: _,
         substitution: _,
+        ordinary_starter: _,
     } = source;
     supply_lineages
 }

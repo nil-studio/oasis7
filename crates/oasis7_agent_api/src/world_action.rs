@@ -6,6 +6,8 @@ mod geometry;
 mod governance_authorization;
 mod ledger;
 mod main_token;
+mod ordinary_starter;
+pub use ordinary_starter::*;
 mod support;
 pub use action::*;
 pub use bootstrap_finality_key_rotation::*;

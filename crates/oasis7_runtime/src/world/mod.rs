@@ -31,6 +31,7 @@ pub use builtin_factory_quote::{BuiltinFactoryStartPreview, NativeBuiltinFactory
 mod builtin_recipe_quote;
 pub use builtin_recipe_quote::{BuiltinRecipeStartPreview, NativeBuiltinRecipeQuote};
 mod native_resource_basis;
+mod ordinary_starter;
 pub use native_resource_basis::*;
 mod capability_authorization;
 mod capability_authorization_admin;

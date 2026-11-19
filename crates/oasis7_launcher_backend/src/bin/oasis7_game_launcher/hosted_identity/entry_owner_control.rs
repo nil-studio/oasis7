@@ -243,7 +243,10 @@ fn owner_observation(
                 control.version.commit,
             ))
         }
-        Some(ParticipantOwnerViewProfileV1::OwnerControlV1) => {
+        Some(
+            ParticipantOwnerViewProfileV1::OwnerControlV1
+            | ParticipantOwnerViewProfileV1::OwnerIndustryV1,
+        ) => {
             let response: SignedServiceResponse<ParticipantOwnerControlResponseV1> =
                 serde_json::from_value(reply["world_response"].clone())
                     .map_err(|_| reject("owner_control_unavailable"))?;
@@ -326,6 +329,14 @@ fn validate_payload(
                 s.request.fence.owner_generation.0,
             )
         }
+        WorldServicePayloadV1::GameNativeDelegation(s) => (
+            s.request.fence.agent_id.as_str(),
+            s.subject_public_key.as_str(),
+            s.request.fence.world_id.as_str(),
+            Some(s.request.fence.genesis_digest.as_str()),
+            s.request.fence.branch_id.as_str(),
+            s.request.fence.owner_generation.0,
+        ),
         WorldServicePayloadV1::Delegation(s) => {
             if s.request.delegate_public_key == owner.public_key {
                 return Err(reject("owner_key_cannot_be_delegate"));

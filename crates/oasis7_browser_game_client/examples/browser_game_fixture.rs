@@ -9,7 +9,7 @@ use oasis7_client_api::world_service::{
     self as ws,
     participant_discovery::{
         PARTICIPANT_OWNER_VIEW_PATH, ParticipantOwnerControlResponseV1,
-        ParticipantOwnerViewRequestV1,
+        ParticipantOwnerViewProfileV1, ParticipantOwnerViewRequestV1,
     },
     task_context::{
         CapturedTaskContextV1, GoalExecutionSnapshotV1, PreparedTaskContextV1,
@@ -140,7 +140,23 @@ fn owner_response(body: &Value, snapshot: &GoalExecutionSnapshotV1, empty_task: 
     } else {
         serde_json::to_value(f).unwrap()
     };
-    let owner_view = json!({"canonical_agent_owner":{"agent_id":f.agent_id,"player_id":f.owner_binding,"public_key":f.owner_public_key,"world_id":f.world_id,"reorg_epoch":f.reorg_epoch.0,"canonical_authority":{"branch_id":f.branch_id,"agent_identity_generation":f.owner_generation.0},"current_intent_id":null},"game_task_control":task});
+    let mut owner_view = json!({"canonical_agent_owner":{"agent_id":f.agent_id,"player_id":f.owner_binding,"public_key":f.owner_public_key,"world_id":f.world_id,"reorg_epoch":f.reorg_epoch.0,"canonical_authority":{"branch_id":f.branch_id,"agent_identity_generation":f.owner_generation.0},"current_intent_id":null},"game_task_control":task});
+    if original.response_profile == Some(ParticipantOwnerViewProfileV1::OwnerIndustryV1) {
+        owner_view["native_delegation_source_id"] = json!("browser-game-fixture-owner-source");
+        owner_view["native_delegation_authorizations"] = json!(
+            snapshot
+                .native_authority
+                .as_ref()
+                .map(|authority| authority.native_delegation_authorizations.clone())
+                .unwrap_or_default()
+        );
+        owner_view["ordinary_starter"] =
+            json!(oasis7_agent_api::world_action::OrdinaryStarterStatusV1 {
+                owner_binding: Some(f.owner_binding.clone()),
+                owner_generation: Some(f.owner_generation.0),
+                ..Default::default()
+            });
+    }
     let version = snapshot.read_commit.clone();
     let response: ParticipantOwnerControlResponseV1 = serde_json::from_value(json!({"schema_revision":1,"world":world,"version":{"commit":version,"visibility_scope":original.read.request.scope_id,"projection_revision":ws::request_digest("projection",&owner_view).unwrap()},"logical_tick":snapshot.captured_base_binding.base_tick,"view":owner_view})).unwrap();
     response.validate(&original).unwrap();

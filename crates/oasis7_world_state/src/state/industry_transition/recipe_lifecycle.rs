@@ -597,6 +597,7 @@ impl PreparedRecipeLifecycle {
                 settled_at: now,
             });
         }
+        let prepared_rules = crate::world_rules::ordinary_starter_completion(state, &pending, now);
         let factory_update = factory.map(|value| (factory_id.clone(), value));
         refresh_progress(state, factory_update.as_ref(), &mut progress, now);
         let no_active = factory_update
@@ -614,7 +615,7 @@ impl PreparedRecipeLifecycle {
                 (requester_agent_id.clone(), cell)
             });
         Ok(Self {
-            world_rules: None,
+            world_rules: prepared_rules,
             event: event.clone(),
             pending: Some((*job_id, None)),
             settled_id: Some(*job_id),

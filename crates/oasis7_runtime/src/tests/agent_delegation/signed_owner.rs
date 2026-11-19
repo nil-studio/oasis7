@@ -539,8 +539,8 @@ fn delegation_readonly_replay_reauthenticates_and_preserves_action_order_and_sou
 }
 
 #[test]
-fn delegation_signed_runtime_profile_does_not_inherit_storage_actions() {
-    for (kind, allowed) in [("WorldRule", true), ("BuildFactory", false)] {
+fn delegation_signed_runtime_profile_accepts_formal_build_and_rejects_unknown_actions() {
+    for (kind, allowed) in [("WorldRule", true), ("BuildFactory", true), ("MintResource", false)] {
         let mut world = fixture();
         let mut command = install();
         if let AgencyControlOperation::InstallDelegation { action_kinds, .. } = &mut command {

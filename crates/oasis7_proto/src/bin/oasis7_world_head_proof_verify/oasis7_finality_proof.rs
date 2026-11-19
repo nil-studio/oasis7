@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use ed25519_dalek::{Signer, SigningKey};
 use oasis7_proto::distributed::{
@@ -574,9 +574,6 @@ fn sample_world_head_proof_at(height: u64, prev_block_hash: &str) -> WorldHeadPr
         claim_boundary: WORLD_HEAD_PROOF_CLAIM_BOUNDARY_V1.to_string(),
     }
 }
-
-#[allow(dead_code)]
-fn _assert_path_buf_send_sync(_: PathBuf) {}
 
 #[cfg(test)]
 mod tests {
