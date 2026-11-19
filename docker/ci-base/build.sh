@@ -4,8 +4,8 @@ cd "$(dirname "$0")"
 
 target=${1:-}
 case "$target" in
-  runtime|build|browser|rust-build) ;;
-  *) echo "usage: $0 runtime|build|browser|rust-build" >&2; exit 2 ;;
+  runtime|build|browser|rust-build|rust-wasm-build) ;;
+  *) echo "usage: $0 runtime|build|browser|rust-build|rust-wasm-build" >&2; exit 2 ;;
 esac
 
 base=ubuntu:24.04
@@ -21,7 +21,7 @@ if [[ "$target" == browser ]]; then
             --build-context browser-tools=../../scripts/ci-browser-tools
             --label "org.oasis7.ci.node-base.digest=$node_digest")
 fi
-if [[ "$target" == rust-build ]]; then
+if [[ "$target" == rust-build || "$target" == rust-wasm-build ]]; then
   workflow=../../.github/workflows/rust.yml
   stable=$(sed -n 's/^  RUST_TOOLCHAIN: //p' "$workflow")
   nightly=$(sed -n 's/^  OASIS7_WASM_TOOLCHAIN: //p' "$workflow")
@@ -74,7 +74,7 @@ if [[ "$target" == browser ]]; then
     '
 fi
 
-if [[ "$target" == rust-build ]]; then
+if [[ "$target" == rust-build || "$target" == rust-wasm-build ]]; then
   docker run --rm --platform linux/amd64 --network none --user 65534:65534 \
     --env HOME=/tmp "$image" bash -ec '
       rustc +"$RUST_TOOLCHAIN" -vV
@@ -86,5 +86,16 @@ if [[ "$target" == rust-build ]]; then
       for toolchain in "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"; do
         rustc +"$toolchain" --target wasm32-unknown-unknown --crate-type lib /tmp/smoke.rs -o /tmp/smoke.rlib
       done
+    '
+fi
+
+if [[ "$target" == rust-wasm-build ]]; then
+  docker run --rm --platform linux/amd64 --network none --user 65534:65534 \
+    --env HOME=/tmp "$image" bash -ec '
+      clang --print-targets | grep -w wasm32
+      printf "int smoke(void) { return 42; }\n" >/tmp/wasm-smoke.c
+      clang --target=wasm32-unknown-unknown -c /tmp/wasm-smoke.c -o /tmp/wasm-smoke.o
+      llvm-ar rcs /tmp/wasm-smoke.a /tmp/wasm-smoke.o
+      test "$(llvm-ar t /tmp/wasm-smoke.a)" = wasm-smoke.o
     '
 fi
