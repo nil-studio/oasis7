@@ -6,16 +6,18 @@
 - 上位产品 PRD：[`prd.md`](prd.md)
 - 生命周期：`active`
 - Owner role：`producer_system_designer`
-- Last reviewed：2026-10-15
+- Last reviewed：2026-11-19
 - 专业域权威：[`gameplay 工业 walkthrough 合同`](../../game/gameplay/gameplay-industrial-representative-execution-walkthrough.prd.md#3-五阶段玩家-walkthrough)、[`gameplay 首产物结算合同`](../../game/gameplay/gameplay-industrial-starter-completion-contract.prd.md#3-五阶段结算表)、[`M4 工业资源流转合同`](../../world-simulator/m4/industrial-resource-flow-contract.prd.md#4-technical-specifications)、[`world-runtime 专业 PRD`](../../world-runtime/prd.md#consumer-compatibility-industrial-profile-and-stage-execution)、[`testing 专业 PRD`](../../testing/prd.md#6-validation-decision-record)
 
 本文说明玩家怎样理解并继续一条首局工业因果链。配对 PRD 拥有产品要求和验收；专业 authority 拥有玩法顺序、结算、状态、receipt、接口和测试实现。本设计不把目标态写成当前实现或发行承诺。
 
 ## 1. 设计命题
 
-当前首轮路线复用 `starter-industrial-smelter-to-assembler-v1` / `production_only`：合法 Smelter 按所选配方与合法输入/电力完成真实 cycle，第一笔匹配的 owner-bound 正量 `iron_ingot` 结算与持久首产物里程碑一致，仅打开 Assembler 候选。首产物不要求建成 Assembler；持续能力和交付保留独立条件。再次进入先读取同一世界与归属下的成果、有效目标、未完成事项和原请求身份；pending 按恢复时授权、资源与 manifest 重新裁决。过期/撤销授权只提供重新授权、缩小范围或安全停止等真实选项，不自动继承旧条件。玩法阻塞恢复、节点灾备与回访接续各自取证，技术故障注入不要求真人强制经历事故。
+本设计以 [PRD 的最小独立游玩目标](first-session-and-continuation.prd.md#minimum-independent-play)组织经历：玩家决定目标与主要承诺，理解实际代办范围和世界反馈，并逐步能够自行作出下一决定。知识预算、学习与首厂/首产物/持续能力/动机的分判统一引用该条款。
 
-目标体验是让首次进入世界的玩家从一个可解释的工业目标走到当前 `starter_completion_profile` 声明的真实完成边界，并在阻塞、重连或完成后仍保有下一次选择。`production_only` 在匹配 production receipt 后完成首产物并进入 `produced/undelivered`；`terminal-admission` 才继续到匹配 delivery/terminal settlement。玩家需要知道目标、当前权威状态、已保留或消耗的价值、主要 blocker、完成边界和下一步。
+当前首轮路线复用 `starter-industrial-smelter-to-assembler-v1` / `production_only`：合法 Smelter 按所选配方与合法输入/电力完成真实 cycle，第一笔匹配的 owner-bound 正量 `iron_ingot` 结算与持久首产物里程碑一致，仅打开 Assembler 候选。首产物不要求建成 Assembler；持续能力和交付保留独立条件。再次进入先读取同一世界与归属下的成果、有效目标、未完成事项和原请求身份；尚未固定执行决定的范围按恢复时条件重审，已固定的原决定按[专业恢复边界](../player-entry-distribution/prd.md#player-session-authorization-continuity)续接，结果未知先查询原请求。失效授权不复活，也不据此重新决定已有结果；新动作按当前权限提供重新授权、缩小范围或安全停止等真实选项。玩法阻塞恢复、节点灾备与回访接续各自取证，技术故障注入不要求真人强制经历事故。
+
+代表性工业旅程帮助玩家理解一个目标、当前权威状态、已保留或消耗的价值、主要 blocker、完成边界和下一步。世界成果仍严格按 profile 判断：`production_only` 在匹配 production receipt 后完成首产物并进入 `produced/undelivered`；`terminal-admission` 才继续到匹配 delivery/terminal settlement。首厂前受阻可继续观察自主理解与真实恢复，不能将学习判断写成工业成果已完成。
 
 核心决策是：在 feasibility card 与当前事实支持的范围内，选择等待、补足、改源、改配方、改道、延期或继续推进哪一条路径。选择必须有可读的机会成本；预览和推荐只提供比较信息，不产生世界效果。
 
@@ -26,7 +28,7 @@
 
 本样本承接 [PRD 具体样本与决策边界](first-session-and-continuation.prd.md#first-session-concrete-sample)，是当前 canonical 链的首读路径；后文通用节点只按 profile 的真实依赖展开，不反过来增加当前门槛。
 
-**处境与用途。** 玩家进入可控制世界后，先确认自己实际可用的地点、控制/授权、材料与电力。目标是用合法 Smelter 生产第一笔铁锭，为评估 Assembler 建设准备材料。缺少合法输入或控制权时从真实 blocker 开始，不假定拥有免费启动资源，不替换成 debug 世界。已有合法 Smelter 可直接核对，不要求重复建厂。
+**处境与用途。** 玩家进入可控制世界后，先确认自己实际可用的地点、控制/授权、材料与电力。目标是用合法 Smelter 生产第一笔铁锭，再评估后继生产能力。打开 Assembler 候选与取得其建设材料分开：新产铁锭保留在实际输出账本，只有合法转移与适用证据成立后才能算下一动作的可用材料。缺少合法地点、建材或控制权时，从[普通账号起步路径](ordinary-account-first-factory-bootstrap.design.md)的真实 blocker 和准备动作开始；已有合法 Smelter 可直接核对，不要求重复建厂。
 
 | 片段 | 玩家真正决定什么 | 执行与默认反馈 | 完成后发生什么 |
 | --- | --- | --- | --- |
@@ -38,6 +40,8 @@
 | 下一次选择 | 继续补齐 Assembler 的真实建设条件、选择其他当前支持的用途，或暂缓 | 展示已满足条件、逐项真实缺口和可执行的补足动作；只能查看候选时使用查看/比较入口，不提供虚假的建设提交 | 离场保留成果摘要、待决请求和有效委托的事实；回来先核对当前条件，再执行合法下一步 |
 
 这里选择**固定方案、准确预览、明确提交**作为操作基线。固定参数取自同一规范动作来源，不在产品层另抄一组常量；独立可编辑查询必须标为查询，不能被误认成已配置正式动作。只有预览、提交、结算和后继预算已共同验证时才开放可编辑批量。
+
+**学习交接。** 采用目标时先说明本次由玩家决定的投入/约束、实际执行者和重新请示边界；执行中观察承诺是否兑现，结果后让玩家依据当前状态选择下一步。首次操作可以有步骤提示，之后逐步收起已学步骤，保留成本、原因、结果和帮助。若下一步答案仍由引导直接给出，只记该辅助条件下完成；需要一个没有被逐步指定的真实决定来观察理解。没有实际 Agent 代办接线时，相关操作只证明直接操作范围；分工认知据玩家对当前能力与限制的实际理解判断，Agent 执行与主体感证据保持未覆盖。
 
 经营分支与 Agent 主体感分别验证。小批/大批必须证明所保留资源的实际替代用途、另一方案不可被等成本续批替代的优势，以及后续两次决策的价值差异；成本线性且可以等成本续批时，只算参数选择，不命名为“效率路线”。当前无可证明分支时如实保留固定基线，不凭新增奖励、时限或强制事故制造取舍。等成本比较同时核对实际时长、占槽和时机，不能只凭材料/电力线性判定拆批等价。Agent 主体感则要求玩家能指出哪个目标/约束改变了后续行为；更多解释、确认次数或单次生产成功均不能替代它。
 
@@ -277,7 +281,8 @@ Viewer 与 pure API 共享权威事实和玩家语义；每个入口分别证明
 | 独立问题 | 上游条款 | 验证与接收方 | 不可替代的边界 |
 | --- | --- | --- | --- |
 | 操作是否正确 | [AC-FIRST-INDUSTRIAL-001](first-session-and-continuation.prd.md#ac-first-industrial-001)、[003](first-session-and-continuation.prd.md#ac-first-industrial-003) | Runtime/M4/Viewer：同参数 quote→submit→实际 ledger/receipt；输入变化、旧响应迟到、在途失效、权限变化、重试与部分结算对照 | 静态合同、mock 与固定操作脚本不证明真实入口已经通过 |
-| 玩家是否理解 | FS-16 / [单约束迁移](first-session-and-continuation.prd.md#first-decision-transfer) | gameplay/QA：完成基线后只改变一个受支持约束；记录玩家能否解释目标、实际所得、成本与下一条件 | 给目标和必要情境，不给按钮名称或点击路径；提示前后分开，不将代操作计作自主发现 |
+| 玩家是否形成最小独立理解 | [学习目标](first-session-and-continuation.prd.md#minimum-independent-play)、FS-1/2/8/9/12 | gameplay/QA：从普通账号真实初态核对目标、分工、主要承诺、结果/阻塞及一个自主下一决定；首厂前受阻也可观察 | 没有主持协助不等于没有逐步答案；正常帮助保留，产品提示与代操作的影响分别记录；不代签首厂或首产物 |
+| 成功后的理解是否迁移 | FS-16 / [单约束迁移](first-session-and-continuation.prd.md#first-decision-transfer) | gameplay/QA：完成基线后只改变一个受支持约束；记录玩家能否解释实际所得、保留价值与下一条件 | 缺匹配完成基线或无法隔离变化时，此场景未覆盖；不以首厂前的正确恢复替代 |
 | 经营选择是否有价值 | FS-10 / [首次分支](first-session-and-continuation.prd.md#31-首次分支承诺) | gameplay/Runtime：同初始状态分叉，核对资源替代用途、两步后果与机会成本；再取得适用入口观察 | 只有一条合法路径就记录未形成该分支；参数或按钮数量不是经营分支证据 |
 | Agent 是否带来控制感 | FS-12 / [间接控制设计](../../world-runtime/runtime/indirect-control-agency-execution-and-continuation.design.md#des-wr-ia-007) | Agent/Runtime/QA：明确玩家决定、支持的代办步骤，以及约束/纠正与后续结果的精确关联 | 生产完成、Agent 活动量或解释篇幅不证明主体感；未接入授权的动作不冒称可代办 |
 | 是否愿意继续或回来 | [AC-FIRST-INDUSTRIAL-004](first-session-and-continuation.prd.md#ac-first-industrial-004)、FS-8 | gameplay/Viewer/QA：无额外催促的后继选择与理由；自然离场、重入后第一动作和提示介入分别记录 | 内容量、理解、继续点击、Agent 自报不代签真人续玩意愿或真实留存 |
