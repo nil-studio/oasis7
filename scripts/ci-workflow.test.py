@@ -378,8 +378,13 @@ def validate_workerd_capture(node, summary):
     if (len(contracts) != 1 or 'if: matrix.shard == 0' not in contracts[0]
             or "OASIS7_REQUIRE_GDB_TESTS: '1'" not in contracts[0]
             or '--failfast GdbContracts' not in contracts[0]
-            or 'continue-on-error' in contracts[0] or '-- gdb gcc pkg-config' not in node):
+            or 'continue-on-error' in contracts[0]
+            or 'gdb --version && gcc --version && pkg-config --version' not in node):
         raise ValueError('standard GDB process contracts must actually run on the hosted consumer')
+    if (not re.search(r'^    container:\n      image: ghcr\.io/nil-studio/oasis7/ci-build@sha256:[0-9a-f]{64}$',
+                      node, re.M)
+            or 'scripts/ci-apt-install.py' in node or 'apt-get ' in node):
+        raise ValueError('custody-node must use the pinned prebuilt image without host package installation')
     uploads = [step for step in steps if 'name: custody-workerd-fault-' in step]
     if (len(uploads) != 1 or 'if: always()' not in uploads[0]
             or not re.search(r'^        timeout-minutes: 5$', uploads[0], re.M)
@@ -4770,7 +4775,7 @@ class AptWorkflow(unittest.TestCase):
                    'formal-test-build-trusted', 'oasis7-required', 'formal-process-tests',
                    'viewer-js-required', 'viewer-performance-report', 'pixel-world-bridge',
                    'launcher-web', 'workspace-support-legacy', 'workspace-support-other', 'custody-native',
-                   'custody-wasm-production', 'custody-wasm-approval', 'custody-node', 'scenario-regression'}
+                   'custody-wasm-production', 'custody-wasm-approval', 'scenario-regression'}
 
     def apt_steps(self):
         workflows = {'rust': WORKFLOW,
@@ -4788,7 +4793,6 @@ class AptWorkflow(unittest.TestCase):
     def test_all_rust_apt_consumers_keep_packages_and_bounded_failure(self):
         expected = {('rust', name, 'Install native libraries'): self.NATIVE
                     for name in self.NATIVE_JOBS}
-        expected['rust', 'custody-node', 'Install native libraries'] = ['gdb', 'gcc', *self.NATIVE]
         expected.update({('rust', name, 'Install WASM C compiler'): ['clang', 'llvm']
                          for name in ('pr-fast-preview', 'net')})
         expected.update({('rust', name, 'Install system deps'): ['clang', 'llvm', *self.NATIVE]
@@ -5108,7 +5112,8 @@ class WorkerdFaultCapture(unittest.TestCase):
                 (' --capture-workerd-faults', ''),
                 ("OASIS7_REQUIRE_GDB_TESTS: '1'", "OASIS7_REQUIRE_GDB_TESTS: '0'"),
                 ('--failfast GdbContracts', 'Receipts'),
-                ('-- gdb gcc pkg-config', '-- pkg-config'),
+                ('gdb --version && gcc --version && pkg-config --version', 'pkg-config --version'),
+                ('ci-build@sha256:', 'ci-build:'),
                 ('custody-workerd-fault-${{ github.run_id }}-${{ github.run_attempt }}-',
                  'custody-workerd-fault-${{ github.run_id }}-'),
                 ('name: custody-workerd-fault-', 'overwrite: true\n          name: custody-workerd-fault-')):
