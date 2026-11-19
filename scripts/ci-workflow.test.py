@@ -4529,8 +4529,12 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
         self.assertIn("format('pr-{0}', github.event.pull_request.number)", WORKFLOW)
         self.assertIn("format('push-{0}', github.ref)", WORKFLOW)
         self.assertIn("format('run-{0}', github.run_id)", WORKFLOW)
-        self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}", WORKFLOW)
         concurrency = WORKFLOW.split('concurrency:', 1)[1].split('permissions:', 1)[0]
+        push_group = "github.event_name == 'push' && format('push-{0}', github.ref)"
+        cancellation = "github.event_name == 'pull_request'"
+        if push_group in concurrency:
+            cancellation += " || github.event_name == 'push'"
+        self.assertIn("cancel-in-progress: ${{ " + cancellation + " }}", concurrency)
         self.assertIn("format('periodic-observe-{0}', github.run_id)", concurrency)
         self.assertIn('group: rust-periodic-admission-main', JOBS['periodic-admission'])
         self.assertIn('cancel-in-progress: false', JOBS['periodic-admission'])
