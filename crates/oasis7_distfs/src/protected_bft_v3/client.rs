@@ -111,6 +111,15 @@ pub trait BftSignerLeaseV3: Send {
             "candidate read key proofs are unsupported by this lease",
         ))
     }
+    /// Return the exact original Fresh activation under independently pinned
+    /// source authority. Retries use the same original checkpoint identity.
+    fn provision_private_retention(
+        &mut self,
+        _attestor: &super::BftPrivateRetentionAttestorV1,
+        _marker: &super::BftPrivateRetentionCreationMarkerV1,
+    ) -> Result<super::BftPrivateRetentionActivationV1, BftSignerErrorV3> {
+        Err(invalid("private retention capability unsupported"))
+    }
     fn checkpoint(&mut self) -> Result<BftSignerCheckpointV3, BftSignerErrorV3>;
     fn protected_time_ms(&mut self) -> Result<i64, BftSignerErrorV3>;
     fn start_height_timer(
@@ -683,6 +692,45 @@ impl BftSignerLeaseV3 for RemoteBftSignerLeaseV3 {
             .verify_for(body, &body.validator_public_key_hex)
             .map_err(invalid)?;
         Ok(proof.as_ref().clone())
+    }
+
+    fn provision_private_retention(
+        &mut self,
+        attestor: &super::BftPrivateRetentionAttestorV1,
+        marker: &super::BftPrivateRetentionCreationMarkerV1,
+    ) -> Result<super::BftPrivateRetentionActivationV1, BftSignerErrorV3> {
+        if attestor.provider_public_key != self.trust.provider_public_key {
+            return Err(invalid(
+                "private retention attestor differs from pinned provider",
+            ));
+        }
+        let initial = attestor.verify_marker(&self.binding, marker)?;
+        let (request, reply) = self.command(BftSignerCommandV3::ProvisionPrivateRetention {
+            expected_revision: initial.revision,
+            expected_state_digest: initial.state_digest,
+        })?;
+        let BftSignerReplyKindV3::PrivateRetention {
+            ledger,
+            latest_seal: None,
+            reserved_response_bytes,
+        } = RemoteBftSignerProviderV3::checked_result(&reply)?
+        else {
+            return Err(invalid("private retention activation reply has wrong kind"));
+        };
+        let checkpoint = self.verified_checkpoint(&request, &reply, self.credential.generation)?;
+        ledger.verify(
+            &self.binding,
+            attestor,
+            marker,
+            &checkpoint.state,
+            checkpoint.lease_generation,
+        )?;
+        super::fresh_coverage::check_namespace_budget(
+            &ledger.receipt.body,
+            *reserved_response_bytes,
+        )?;
+        self.checkpoint = checkpoint;
+        Ok(ledger.as_ref().clone())
     }
 
     fn checkpoint(&mut self) -> Result<BftSignerCheckpointV3, BftSignerErrorV3> {

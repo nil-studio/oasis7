@@ -1,5 +1,5 @@
 pub const BFT_SIGNER_BACKEND_NAMESPACE_V3: &str = "oasis7.bft.protected-signer.v3.backend";
-use super::binding::BftSignerErrorV3;
+use super::binding::{BftSignerErrorV3, invalid};
 use super::state::BftSignerStateV3;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -8,6 +8,17 @@ pub struct BftSignerBackendSnapshotV3 {
     pub lease_generation: u64,
     pub lease_token_digest: String,
     pub protected_time_floor_ms: i64,
+}
+
+/// Initial retention state, marker, original receipt and transfer spend sampled
+/// together under the same fenced lease. A pre-existing uncovered snapshot
+/// cannot supply a Fresh creation marker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BftFreshCoverageSnapshotV1 {
+    pub signer: BftSignerBackendSnapshotV3,
+    pub marker: super::BftPrivateRetentionCreationMarkerV1,
+    pub original: Option<super::BftPrivateRetentionActivationV1>,
+    pub reserved_response_bytes: u64,
 }
 
 /// A proved acquire conflict never installs the attempted lease token. It
@@ -64,6 +75,29 @@ pub trait BftSignerBackendV3: Send + Sync {
         lease_generation: u64,
         lease_token_digest: &str,
     ) -> Result<i64, BftSignerErrorV3>;
+
+    /// Opens an independently pre-provisioned Fresh source under the exact
+    /// lease. An implementation must refuse a namespace recovered as uncovered.
+    fn read_fresh_coverage_for_lease(
+        &mut self,
+        _lease_generation: u64,
+        _lease_token_digest: &str,
+    ) -> Result<BftFreshCoverageSnapshotV1, BftSignerErrorV3> {
+        Err(invalid("atomic Fresh private retention is unsupported"))
+    }
+
+    /// Compare the entire expected snapshot (including fence, floor, original
+    /// coverage and transfer spend) and atomically publish the next snapshot.
+    /// After activation, retries may increase spend but must retain the exact
+    /// original receipt and signer state. Never delegate to generic State CAS.
+    /// The caller separately rereads this exact committed tuple before release.
+    fn compare_and_commit_fresh_coverage(
+        &mut self,
+        _expected: &BftFreshCoverageSnapshotV1,
+        _next: &BftFreshCoverageSnapshotV1,
+    ) -> Result<(), BftSignerErrorV3> {
+        Err(invalid("atomic Fresh private retention is unsupported"))
+    }
 
     /// Persists one fully validated state transition under the exact lease,
     /// revision, digest and protected-time floor.
