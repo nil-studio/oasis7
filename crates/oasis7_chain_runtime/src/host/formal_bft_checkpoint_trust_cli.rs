@@ -1,6 +1,7 @@
 //! Explicit configuration preparation against the original local Node binding.
 //! Like node --print-binding this may initialize its private qualified-H origin.
 //! It never contacts a provider, renews a checkpoint or starts signing/serving.
+use oasis7_formal_protocol::bft::checkpoint_issuer_status::AuthenticatedBftCheckpointIssuerStatusV1;
 use oasis7_game_client::checkpoint_trust::{
     BftCheckpointAnchorRefV1, load_checkpoint_trust_preparation,
 };
@@ -12,6 +13,7 @@ pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
     let mut policy_pin = None;
     let mut consumer_binding = None;
     let mut original_c0_pin = None;
+    let mut issuer_status = None;
     while let Some(option) = args.next() {
         let slot = match option {
             "--config" => &mut config,
@@ -19,6 +21,7 @@ pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
             "--policy-pin" => &mut policy_pin,
             "--consumer-binding" => &mut consumer_binding,
             "--original-c0-pin" => &mut original_c0_pin,
+            "--issuer-status" => &mut issuer_status,
             _ => return Err("unsupported checkpoint preparation option".into()),
         };
         if slot.is_some() {
@@ -42,6 +45,19 @@ pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
     let c0 = original_c0_pin
         .ok_or("checkpoint preparation requires independently retained --original-c0-pin")?;
     let prepared = load_checkpoint_trust_preparation(&config, &pin, &consumer, &c0)?;
+    let authenticated_status = issuer_status
+        .map(|path| -> Result<_, String> {
+            let path = PathBuf::from(path);
+            if !path.is_absolute() {
+                return Err("checkpoint issuer status path must be absolute".into());
+            }
+            super::super::controlled_live_config::require_private_owned(&path, false)?;
+            let policy = &prepared.config().policy;
+            let bytes =
+                super::controlled_history_cli::read_bounded(&path, policy.max_status_bytes)?;
+            AuthenticatedBftCheckpointIssuerStatusV1::decode(&bytes, policy, &pin)
+        })
+        .transpose()?;
     // This path restores actual H material and reconstructs the binding from
     // the original ledger/namespace, rather than trusting source DTO fields.
     let report = super::prepare_node_binding_report(&node_config)?;
@@ -59,9 +75,21 @@ pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
         &report.binding.material_identity,
         &report.binding.initial_schedule().digest()?,
     )?;
-    println!(
-        "{{\"schema_version\":\"oasis7.bft.checkpoint-trust-preparation.v1\",\"qualified_handoff_checked\":true,\"current_ready\":false,\"renewal_ready\":false,\"blocker\":\"C0-to-H lineage, current status, protected time and installation are not established by preparation\"}}"
-    );
+    let mut report = serde_json::json!({
+        "schema_version": "oasis7.bft.checkpoint-trust-preparation.v1",
+        "qualified_handoff_checked": true,
+        "current_ready": false,
+        "renewal_ready": false,
+        "blocker": "C0-to-H lineage, current status, protected time and installation are not established by preparation",
+    });
+    if let Some(status) = authenticated_status {
+        report["authenticated_issuer_status"] = serde_json::json!({
+            "digest": status.digest(),
+            "sequence": status.body().status_sequence,
+            "policy_revoked": status.body().policy_revoked,
+        });
+    }
+    println!("{report}");
     Ok(())
 }
 
