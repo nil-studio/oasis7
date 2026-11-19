@@ -151,7 +151,7 @@ def validate_mold_checkout_reuse(tools, setup, source):
 
 
 def rust_image_cache_namespace(name, job):
-    if name not in ('node', 'consensus', 'distfs') or '    container:' not in job:
+    if name not in ('node', 'consensus', 'distfs', 'rust-baseline', 'pixel-world-bridge') or '    container:' not in job:
         return None
     image = re.search(r'^    container:\n      image: ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:([0-9a-f]{64})$', job, re.M)
     assert image, 'Rust cache readers require the pinned rust-build image'
@@ -4881,6 +4881,11 @@ class AptWorkflow(unittest.TestCase):
     def test_all_rust_apt_consumers_keep_packages_and_bounded_failure(self):
         expected = {('rust', name, 'Install native libraries'): self.NATIVE
                     for name in self.NATIVE_JOBS}
+        for name in ('rust-baseline', 'pixel-world-bridge'):
+            if rust_image_cache_namespace(name, JOBS[name]):
+                del expected['rust', name, 'Install native libraries']
+                packages = (ROOT / 'docker/ci-base/build-packages.txt').read_text().splitlines()
+                self.assertLessEqual(set(self.NATIVE), set(packages))
         custody = ('rust', 'custody-node', 'Install native libraries')
         if re.search(r'^    container:', JOBS['custody-node'], re.M):
             del expected[custody]
