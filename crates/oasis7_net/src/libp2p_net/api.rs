@@ -3,7 +3,7 @@ use oasis7_proto::network_failure::{FailureCause, FailureOrigin, NetworkFailure}
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use libp2p::{Multiaddr, PeerId};
 use oasis7_proto::distributed_dht::DistributedDht as ProtoDistributedDht;
@@ -115,17 +115,56 @@ impl Libp2pNetwork {
         peer: PeerId,
         timeout: Duration,
     ) -> Result<Vec<u8>, WorldError> {
+        let deadline = self
+            .resource_budget
+            .as_ref()
+            .map(|_| super::request_deadline::deadline_in(timeout));
+        self.request_to_peer_bounded(protocol, payload, peer, timeout, deadline)
+    }
+
+    /// Apply an absolute bound to caller wait and command dispatch.
+    /// The shared-resource profile carries the same bound through payload I/O.
+    pub fn request_to_peer_before(
+        &self,
+        protocol: &str,
+        payload: &[u8],
+        peer: PeerId,
+        deadline: Instant,
+    ) -> Result<Vec<u8>, WorldError> {
+        self.request_to_peer_bounded(
+            protocol,
+            payload,
+            peer,
+            deadline.saturating_duration_since(Instant::now()),
+            Some(tokio::time::Instant::from_std(deadline)),
+        )
+    }
+
+    fn request_to_peer_bounded(
+        &self,
+        protocol: &str,
+        payload: &[u8],
+        peer: PeerId,
+        timeout: Duration,
+        deadline: Option<tokio::time::Instant>,
+    ) -> Result<Vec<u8>, WorldError> {
+        let contextualize =
+            |error| command_failure_context(error, FailureOrigin::LocalTransport, Some(protocol));
+        super::request_deadline::check_dispatch_deadline(deadline).map_err(contextualize)?;
         let (sender, receiver) = mpsc::channel();
         self.enqueue_command(Command::RequestToPeer {
             protocol: protocol.to_string(),
             payload: payload.to_vec(),
             peer,
+            deadline,
             response: sender,
         })?;
         let operation = format!("request_to_peer protocol={protocol} peer={peer}");
-        block_on_command_response_with_timeout(receiver, operation.as_str(), timeout).map_err(
-            |err| command_failure_context(err, FailureOrigin::LocalTransport, Some(protocol)),
-        )
+        let remaining = deadline.map_or(timeout, |deadline| {
+            deadline.saturating_duration_since(tokio::time::Instant::now())
+        });
+        block_on_command_response_with_timeout(receiver, operation.as_str(), remaining)
+            .map_err(contextualize)
     }
 
     pub fn debug_peer_healths(&self) -> Vec<PeerManagerPeerHealth> {
@@ -343,10 +382,15 @@ impl ProtoDistributedNetwork<WorldError> for Libp2pNetwork {
         providers: &[String],
     ) -> Result<Vec<u8>, WorldError> {
         let (sender, receiver) = mpsc::channel();
+        let deadline = self
+            .resource_budget
+            .as_ref()
+            .map(|_| super::request_deadline::deadline_in(LIBP2P_COMMAND_RESPONSE_TIMEOUT));
         self.enqueue_command(Command::Request {
             protocol: protocol.to_string(),
             payload: payload.to_vec(),
             providers: providers.to_vec(),
+            deadline,
             response: sender,
         })?;
         let operation = if providers.is_empty() {
@@ -357,9 +401,12 @@ impl ProtoDistributedNetwork<WorldError> for Libp2pNetwork {
                 providers.join(",")
             )
         };
-        block_on_command_response(receiver, operation.as_str()).map_err(|err| {
-            command_failure_context(err, FailureOrigin::ProviderRouting, Some(protocol))
-        })
+        let remaining = deadline.map_or(LIBP2P_COMMAND_RESPONSE_TIMEOUT, |deadline| {
+            deadline.saturating_duration_since(tokio::time::Instant::now())
+        });
+        block_on_command_response_with_timeout(receiver, operation.as_str(), remaining).map_err(
+            |err| command_failure_context(err, FailureOrigin::ProviderRouting, Some(protocol)),
+        )
     }
 
     fn register_handler(

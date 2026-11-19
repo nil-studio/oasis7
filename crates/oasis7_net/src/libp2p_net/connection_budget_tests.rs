@@ -279,6 +279,60 @@ fn exercise_direct_transport(bind: &str) {
 }
 
 #[test]
+fn real_multiaddress_quic_dial_shares_one_peer_admission_slot() {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            tokio::time::timeout(Duration::from_secs(8), async {
+                let budget = ConnectionBudget::new(limits()).unwrap();
+                let mut source = swarm(&Keypair::generate_ed25519(), Some(budget.clone()));
+                let mut remote = swarm(&Keypair::generate_ed25519(), None);
+                let peer = *remote.local_peer_id();
+                let bind = "/ip4/127.0.0.1/udp/0/quic-v1";
+                let first = listen(&mut remote, bind).await.with_p2p(peer).unwrap();
+                let second = listen(&mut remote, bind).await.with_p2p(peer).unwrap();
+                assert_ne!(first, second);
+                assert_eq!(budget.0.diagnostics.latest().0, None);
+                let opts = DialOpts::peer_id(peer)
+                    .addresses(vec![first.clone(), second])
+                    .build();
+                let expected = opts.connection_id();
+                source.dial(opts).unwrap();
+                assert_eq!(occupancy(&budget, peer), (1, [0, 1], 1));
+                assert_eq!(
+                    budget.0.diagnostics.latest().0,
+                    Some(ResourceBudgetRejection::PerPeer)
+                );
+                loop {
+                    match budgeted_event(&mut source, &mut remote).await {
+                        SwarmEvent::ConnectionEstablished {
+                            connection_id,
+                            endpoint,
+                            ..
+                        } if connection_id == expected => {
+                            assert_eq!(endpoint.get_remote_address(), &first);
+                            assert_eq!(occupancy(&budget, peer), (1, [0, 0], 1));
+                            break;
+                        }
+                        SwarmEvent::OutgoingConnectionError {
+                            connection_id,
+                            error,
+                            ..
+                        } if connection_id == expected => {
+                            panic!("first admissible QUIC address failed: {error}");
+                        }
+                        _ => {}
+                    }
+                }
+            })
+            .await
+            .expect("real QUIC multi-address dial did not establish");
+        });
+}
+
+#[test]
 fn pending_tcp_handshake_expires_and_releases_its_socket_and_budget() {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -380,6 +434,9 @@ fn expired_pending_permit_rejects_authentication_before_peer_accounting() {
     assert_eq!(occupancy(&budget, peer), (0, [0, 0], 0));
 }
 
+#[path = "connection_budget_relay_io_tests.rs"]
+mod relay_io;
+
 #[test]
 fn assembled_relay_circuit_uses_shared_connection_budget_and_recovers_after_close() {
     tokio::runtime::Builder::new_current_thread()
@@ -413,11 +470,12 @@ async fn exercise_relay_circuit() {
 
     let source_budget = ConnectionBudget::new(limits()).unwrap();
     let destination_budget = ConnectionBudget::new(limits()).unwrap();
-    let mut source = swarm(&Keypair::generate_ed25519(), Some(source_budget.clone()));
-    let mut destination = swarm(
-        &Keypair::generate_ed25519(),
-        Some(destination_budget.clone()),
-    );
+    let (mut source, source_bytes) =
+        relay_io::swarm_with_byte_window(&Keypair::generate_ed25519(), source_budget.clone());
+    let (mut destination, destination_bytes) =
+        relay_io::swarm_with_byte_window(&Keypair::generate_ed25519(), destination_budget.clone());
+    relay_io::seed_direct_candidate(&mut source).await;
+    relay_io::seed_direct_candidate(&mut destination).await;
     let source_peer = *source.local_peer_id();
     let destination_peer = *destination.local_peer_id();
     let listener = destination
@@ -475,6 +533,20 @@ async fn exercise_relay_circuit() {
         &source_budget,
         &destination_budget,
         circuit_address.clone(),
+    )
+    .await;
+    relay_io::observe_dcutr_budget_refusal(
+        &mut source,
+        &mut destination,
+        &source_budget,
+        &destination_budget,
+    )
+    .await;
+    relay_io::verify_nested_request(
+        &mut source,
+        &mut destination,
+        &source_bytes,
+        &destination_bytes,
     )
     .await;
     assert!(matches!(
@@ -735,7 +807,7 @@ fn real_request_deadline_survives_natural_byte_window_recovery() {
                     protocol: "/test/window-deadline".into(),
                     payload: payload.to_vec(),
                 };
-                let expired = client.behaviour_mut().request_response.send_request(&peer, request(b"expired"));
+                let expired = client.behaviour_mut().request_response.send_request(&peer, super::super::request_deadline::LocalRequest { message: request(b"expired"), deadline: None });
                 loop {
                     match select(client.select_next_some(), server.select_next_some()).await {
                         Either::Left((SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
@@ -757,13 +829,13 @@ fn real_request_deadline_survives_natural_byte_window_recovery() {
                 // The seeded full charge must be gone even if control I/O ran.
                 assert!(window.snapshot().unwrap().charged_bytes.total < 16_384);
 
-                let fresh = client.behaviour_mut().request_response.send_request(&peer, request(b"fresh"));
+                let fresh = client.behaviour_mut().request_response.send_request(&peer, super::super::request_deadline::LocalRequest { message: request(b"fresh"), deadline: None });
                 loop {
                     match select(client.select_next_some(), server.select_next_some()).await {
                         Either::Right((SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
                             Event::Message { message: Message::Request { request, channel, .. }, .. },
                         )), _)) => {
-                            assert_eq!(request.payload, b"fresh", "expired request was revived");
+                            assert_eq!(request.message.payload, b"fresh", "expired request was revived");
                             server.behaviour_mut().request_response
                                 .send_response(channel, NetworkResponse { payload: b"ack".to_vec() })
                                 .unwrap();
@@ -938,4 +1010,159 @@ fn stale_and_mixed_dial_errors_are_scoped_to_the_exact_retry_path() {
         Some(path)
     );
     assert!(pending.is_empty());
+}
+
+#[test]
+fn elapsed_caller_deadline_blocks_late_payload_after_real_refill() {
+    use crate::libp2p_net::{Libp2pNetwork, Libp2pNetworkConfig};
+    use oasis7_proto::{distributed_net::DistributedNetwork as _, network_failure::FailureCause};
+    use std::sync::mpsc;
+
+    fn wait_until(message: &str, mut done: impl FnMut() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !done() {
+            assert!(Instant::now() < deadline, "{message}");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    let profile = serde_json::from_str(
+        r#"{"profile":"v1-discovery-resource-budget-1",
+        "connections_total":3,"pending_connections_total":2,"pending_inbound_unknown":1,
+        "pending_outbound":2,"connections_per_peer":1,"handshake_timeout_ms":3000,
+        "bytes_in_per_window":16384,"bytes_out_per_window":16384,"bytes_total_per_window":16384}"#,
+    )
+    .unwrap();
+    let server = Libp2pNetwork::try_new(Libp2pNetworkConfig {
+        listen_addrs: vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()],
+        enable_autonat: false,
+        ..Libp2pNetworkConfig::default()
+    })
+    .unwrap();
+    let protocol = "/test/caller-window-deadline";
+    let (received_tx, received) = mpsc::channel();
+    server
+        .register_handler(
+            protocol,
+            Box::new(move |payload| {
+                received_tx.send(payload.to_vec()).unwrap();
+                Ok(b"ack".to_vec())
+            }),
+        )
+        .unwrap();
+    wait_until("server listener unavailable", || {
+        !server.listening_addrs().is_empty()
+    });
+
+    let client = Libp2pNetwork::try_new(Libp2pNetworkConfig {
+        p2p_resource_budget: profile,
+        enable_autonat: false,
+        request_response_timeout: Duration::from_secs(8),
+        ..Libp2pNetworkConfig::default()
+    })
+    .unwrap();
+    let window = client.wire_byte_counters.window().unwrap();
+    let expiry = window
+        .seed_aged_first_read(Duration::from_secs(58))
+        .into_std();
+    let peer = server.peer_id();
+    client
+        .dial(server.listening_addrs()[0].clone().with_p2p(peer).unwrap())
+        .unwrap();
+    wait_until("authenticated TCP connection unavailable", || {
+        client.connected_peers().contains(&peer)
+    });
+
+    let original_retry_deadline = Instant::now() + Duration::from_millis(350);
+    let error = client
+        .request_to_peer_with_timeout(protocol, b"expired", peer, Duration::from_millis(350))
+        .unwrap_err();
+    assert_eq!(
+        error.network_failure(Some(protocol)).cause,
+        FailureCause::Timeout
+    );
+    assert!(
+        Instant::now() < expiry,
+        "caller deadline did not precede byte recovery"
+    );
+    assert!(
+        received.try_recv().is_err(),
+        "request arrived while caller was expired"
+    );
+    std::thread::sleep(
+        expiry.saturating_duration_since(Instant::now()) + Duration::from_millis(10),
+    );
+
+    wait_until("expired request did not reach actual terminal", || {
+        client
+            .debug_errors()
+            .iter()
+            .any(|error| error.contains("RequestDeadlineElapsed"))
+    });
+    let retry = client
+        .request_to_peer_before(protocol, b"late retry", peer, original_retry_deadline)
+        .unwrap_err();
+    assert_eq!(
+        retry.network_failure(Some(protocol)).cause,
+        FailureCause::Timeout
+    );
+    assert_eq!(
+        client
+            .request_to_peer_with_timeout(protocol, b"fresh", peer, Duration::from_secs(3))
+            .unwrap(),
+        b"ack",
+    );
+    assert_eq!(
+        received.recv_timeout(Duration::from_secs(1)).unwrap(),
+        b"fresh"
+    );
+    assert!(received.try_recv().is_err());
+    assert_eq!(
+        client
+            .traffic_metrics_snapshot()
+            .resource_budget
+            .connections
+            .unwrap()
+            .established,
+        1
+    );
+
+    let legacy = Libp2pNetwork::try_new(Libp2pNetworkConfig {
+        enable_autonat: false,
+        ..Libp2pNetworkConfig::default()
+    })
+    .unwrap();
+    assert_eq!(
+        legacy.traffic_metrics_snapshot().resource_budget.profile,
+        "legacy"
+    );
+    legacy
+        .dial(server.listening_addrs()[0].clone().with_p2p(peer).unwrap())
+        .unwrap();
+    wait_until("legacy authenticated TCP connection unavailable", || {
+        legacy.connected_peers().contains(&peer)
+    });
+    let expired = legacy
+        .request_to_peer_before(protocol, b"legacy stale", peer, original_retry_deadline)
+        .unwrap_err();
+    assert_eq!(
+        expired.network_failure(Some(protocol)).cause,
+        FailureCause::Timeout
+    );
+    assert_eq!(
+        legacy
+            .request_to_peer_before(
+                protocol,
+                b"legacy live",
+                peer,
+                Instant::now() + Duration::from_secs(3)
+            )
+            .unwrap(),
+        b"ack",
+    );
+    assert_eq!(
+        received.recv_timeout(Duration::from_secs(1)).unwrap(),
+        b"legacy live"
+    );
+    assert!(received.try_recv().is_err());
 }

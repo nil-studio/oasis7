@@ -342,12 +342,13 @@ pub(super) fn maybe_request_connected_peer_record(
         return false;
     }
     record_request_outbound(traffic_metrics, RR_GET_LOCAL_PEER_RECORD, 0);
-    let request_id = swarm.behaviour_mut().request_response.send_request(
+    let request_id = swarm.behaviour_mut().send_rr_request(
         &peer_id,
         NetworkRequest {
             protocol: RR_GET_LOCAL_PEER_RECORD.to_string(),
             payload: Vec::new(),
         },
+        None,
     );
     pending_connected_peer_records.insert(peer_id);
     note_peer_record_request_cooldown(connected_peer_record_cooldowns, peer_id, now_ms);
@@ -443,12 +444,13 @@ fn request_cached_peer_record_via_with_triggers(
         RR_GET_CACHED_PEER_RECORD,
         peer_id.to_string().len(),
     );
-    let request_id = swarm.behaviour_mut().request_response.send_request(
+    let request_id = swarm.behaviour_mut().send_rr_request(
         &ask_peer,
         NetworkRequest {
             protocol: RR_GET_CACHED_PEER_RECORD.to_string(),
             payload: peer_id.to_string().into_bytes(),
         },
+        None,
     );
     pending_cached_peer_records.insert(peer_id);
     note_peer_record_request_cooldown(cached_peer_record_cooldowns, peer_id, super::now_ms());
@@ -546,12 +548,13 @@ pub(super) fn maybe_request_cached_discovery_peers(
         return false;
     }
     record_request_outbound(traffic_metrics, RR_GET_CACHED_DISCOVERY_PEERS, 0);
-    let request_id = swarm.behaviour_mut().request_response.send_request(
+    let request_id = swarm.behaviour_mut().send_rr_request(
         &peer_id,
         NetworkRequest {
             protocol: RR_GET_CACHED_DISCOVERY_PEERS.to_string(),
             payload: Vec::new(),
         },
+        None,
     );
     pending_cached_discovery_peers.insert(peer_id);
     note_peer_record_request_cooldown(cached_discovery_peer_cooldowns, peer_id, now_ms);

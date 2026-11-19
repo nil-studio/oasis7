@@ -54,7 +54,7 @@ fn exercise_tcp_refresh(deny_cooldown: bool) {
                     SwarmEvent::Behaviour(super::super::swarm_behaviour::BehaviourEvent::RequestResponse(
                         request_response::Event::Message { message: request_response::Message::Request { request, channel, .. }, .. }
                     )) => {
-                        let payload = super::super::discovery::handle_request_response_request(&request,
+                        let payload = super::super::discovery::handle_request_response_request(&request.message,
                             &HashMap::new(), Some(&template), &b_key, &listening, &reachability, true,
                             &PeerRecordCache::default()).unwrap();
                         b.behaviour_mut().request_response.send_response(channel,

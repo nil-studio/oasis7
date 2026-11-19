@@ -48,6 +48,7 @@ mod response_budget;
 mod response_workers;
 mod runtime_loop;
 use outbound_failure::fail_pending_request;
+mod request_deadline;
 mod resource_budget;
 mod runtime_support;
 mod swarm_behaviour;
