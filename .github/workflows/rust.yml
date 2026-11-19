@@ -2187,6 +2187,8 @@ jobs:
       matrix:
         shard: ${{ fromJSON(needs.select.outputs.formal_shards) }}
     runs-on: ubuntu-24.04
+    env:
+      STORAGE_RECOVERY_IMAGE: ${{ vars.OASIS7_STORAGE_RECOVERY_IMAGE }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -2205,6 +2207,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install native libraries
+        if: matrix.shard != 'storage-recovery' || vars.OASIS7_STORAGE_RECOVERY_IMAGE == ''
         shell: bash
         timeout-minutes: 11
         run: |
@@ -2223,7 +2226,24 @@ jobs:
         env:
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
           SHARD: ${{ matrix.shard }}
-        run: python3 scripts/ci-test-artifacts.py run --plan "$RUNNER_TEMP/selection.json" --formal-config "$RUNNER_TEMP/ci-authority/ci-formal-process-suites.json" --bundle "$RUNNER_TEMP/native-tests" --shard "$SHARD" --results output/formal-process/results.jsonl
+        shell: bash
+        run: |
+          set -euo pipefail
+          command=(python3 scripts/ci-test-artifacts.py run --plan "$RUNNER_TEMP/selection.json" --formal-config "$RUNNER_TEMP/ci-authority/ci-formal-process-suites.json" --bundle "$RUNNER_TEMP/native-tests" --shard "$SHARD" --results output/formal-process/results.jsonl)
+          if [[ "$SHARD" != storage-recovery || -z "$STORAGE_RECOVERY_IMAGE" ]]; then
+            exec "${command[@]}"
+          fi
+          if [[ ! "$STORAGE_RECOVERY_IMAGE" =~ ^ghcr\.io/nil-studio/oasis7/ci-build@sha256:[0-9a-f]{64}$ ]]; then
+            echo "Storage recovery image must be an immutable oasis7 ci-build digest" >&2
+            exit 1
+          fi
+          docker pull "$STORAGE_RECOVERY_IMAGE"
+          exec docker run --rm --pull never --user "$(id -u):$(id -g)" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=$GITHUB_WORKSPACE" \
+            --mount "type=bind,source=$RUNNER_TEMP,target=$RUNNER_TEMP,readonly" \
+            --workdir "$GITHUB_WORKSPACE" --env HOME=/tmp \
+            --env SOURCE_SHA --env GITHUB_RUN_ID --env GITHUB_RUN_ATTEMPT \
+            "$STORAGE_RECOVERY_IMAGE" "${command[@]}"
       - name: Upload safe process diagnostics
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
