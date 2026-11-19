@@ -3255,10 +3255,11 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
         if (entry.get('binary'), name) in resources:
             job['cpu_weight'] = resources[(entry['binary'], name)]
         jobs.append(job)
-    if formal or inline or artifact_partition:
+    native_artifact_partition = artifact_partition and plan.get('ordinary_artifact_partition_version') == 2
+    if formal or inline or native_artifact_partition:
         execute_inline_jobs(jobs, results, formal=formal, shard=shard,
                             ordinary_partition=manifest.get('ordinary_partition'),
-                            artifact_partition=artifact_partition)
+                            artifact_partition=native_artifact_partition)
         return
     failed = False
     for job in jobs:
