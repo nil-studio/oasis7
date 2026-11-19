@@ -89,6 +89,8 @@
 
 当前 canonical profile 为 `starter-industrial-smelter-to-assembler-v1`，revision 来源为 [starter_industrial.rs](../../../crates/oasis7_world_state/src/state/starter_industrial.rs)，完成边界为 `production_only`。它核对固定 Smelter 实例和 `recipe.smelter.iron_ingot` 的匹配结算、owner-bound 正量产出及持久 milestone，开放的是 Assembler 候选。其他 Smelter 实例即使 kind 相同，也不能由目录推定符合该里程碑。
 
+[普通账号首版合同](../../product/world-rules-core-gameplay/ordinary-account-first-factory-bootstrap.design.md#ordinary-starter-v1-contract)新增显式实例绑定的实施分支：正式方案记录须绑定 owner、实际 factory 实例、配方和 profile/revision，由同版本 Runtime 的领取、可行性读取与生产完成事务承接个人首产事实。它沿用正量铁锭结算和 `production_only` 的完成边界，不要求建成 Assembler；实例绑定尚未接通时不能仅凭 kind 或旧全局 milestone 宣称普通账号完成。既有固定实例及其历史 profile/revision 继续保留原适用范围，新分支不重写历史结果。
+
 | 配置或来源 | 已核实的作用 | 内容交接时必须保留的差异 |
 | --- | --- | --- |
 | [minimal.json](../../../crates/oasis7_simulator/scenarios/minimal.json) / [resource_bootstrap.json](../../../crates/oasis7_simulator/scenarios/resource_bootstrap.json) | named Simulator 场景输入；后者显式配置 Agent 的 data/electricity 与 origin 的 data | JSON 未列出的值仍受有效默认配置和具体初始化消费者影响；场景名不证明完整工业投入。 |
