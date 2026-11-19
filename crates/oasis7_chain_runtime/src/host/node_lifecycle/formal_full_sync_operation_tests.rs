@@ -460,12 +460,17 @@ fn fenced_pre_target_reopen_preserves_the_original_pending_reservation() {
 
     let owner = process::lock(data).unwrap();
     let mut reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
     let mut wrong = request.clone();
     wrong["original"] = serde_json::json!("different");
-    assert!(reopened.resume_before_target(&owner, data, &wrong).is_err());
+    assert!(
+        reopened
+            .resume_before_target(&owner, data, &wrong, deadline)
+            .is_err()
+    );
     assert_eq!(reopened.snapshot(), &before);
     let next = reopened
-        .resume_before_target(&owner, data, &request)
+        .resume_before_target(&owner, data, &request, deadline)
         .unwrap();
     let retained = reopened.snapshot();
     assert_eq!(retained.attempts_used, 2);
@@ -486,7 +491,7 @@ fn fenced_pre_target_reopen_preserves_the_original_pending_reservation() {
     let mut reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
     assert!(
         reopened
-            .resume_before_target(&owner, data, &request)
+            .resume_before_target(&owner, data, &request, deadline)
             .is_err()
     );
     assert_eq!(reopened.snapshot(), &closed);

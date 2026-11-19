@@ -345,13 +345,30 @@ fn v4_config_and_issuer_grant_bind_the_real_owned_worker_to_one_budget() {
     let owner_digest = owner.binding_digest().unwrap();
     let worker = InitialBudgetedSession::prepare(&node, &instance, Arc::clone(&owner)).unwrap();
     assert!(process::lock(&data).is_err());
+    let ledger_path = data.join("state/full-sync/operation.json");
+    let original = super::super::operation_snapshot::read_snapshot(&ledger_path).unwrap();
+    assert_eq!(original.attempts_used, 1);
+    assert!(original.verified_target_json.is_none());
+    assert!(original.active_attempt_nonce.is_some());
+    drop(worker);
+    drop(owner);
 
+    let new_instance = LocalInstance {
+        generation: 2,
+        ..instance_for(&node)
+    };
+    let owner = Arc::new(process::lock(&data).unwrap());
+    let worker =
+        InitialBudgetedSession::resume_pre_target(&node, &new_instance, Arc::clone(&owner))
+            .unwrap();
     let thread = owner.spawn_bound_worker(move || worker.run_once()).unwrap();
     let (status, snapshot) = thread.join().unwrap().unwrap();
     assert!(status.loaded_cut.is_some());
     assert!(!status.ready);
     assert_eq!(snapshot.identity.binding_digest, owner_digest);
-    assert_eq!(snapshot.attempts_used, 1);
+    assert_eq!(snapshot.attempts_used, 2);
+    assert_eq!(snapshot.identity, original.identity);
+    assert_eq!(snapshot.interrupted_attempts.len(), 1);
     assert!(snapshot.publication.as_ref().unwrap().completed);
     assert!(snapshot.encoded_rx_actual > 0 && snapshot.encoded_tx_actual > 0);
     assert!(snapshot.material_bytes > 0 && snapshot.proof_pages > 0);
@@ -378,8 +395,15 @@ fn v4_config_and_issuer_grant_bind_the_real_owned_worker_to_one_budget() {
     assert!(operation["remaining_ms"].is_null());
 
     let owner = Arc::new(process::lock(&data).unwrap());
-    let ledger_path = data.join("state/full-sync/operation.json");
     let before = std::fs::read(&ledger_path).unwrap();
+    let selected =
+        InitialBudgetedSession::resume_pre_target(&node, &new_instance, Arc::clone(&owner));
+    assert!(
+        selected
+            .err()
+            .unwrap()
+            .contains("pre-target continuity is unavailable")
+    );
     let resumed = InitialBudgetedSession::prepare(&node, &instance, owner);
     assert!(
         resumed

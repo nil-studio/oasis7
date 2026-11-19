@@ -223,8 +223,12 @@ impl Ledger {
         owner: &super::super::process::ProcessOwnership,
         data: &Path,
         request: &serde_json::Value,
+        deadline_cap: Instant,
     ) -> Result<AttemptPermit, String> {
-        let deadline = self.reopen_deadline.ok_or("not a reopened operation")?;
+        let deadline = self
+            .reopen_deadline
+            .ok_or("not a reopened operation")?
+            .min(deadline_cap);
         if !self.recovered
             || self.poisoned
             || Instant::now() >= deadline
