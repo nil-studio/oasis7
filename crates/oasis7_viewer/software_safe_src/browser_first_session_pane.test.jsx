@@ -8,7 +8,7 @@ afterEach(cleanup);
 const fence = { agent_id: "agent", task_id: "task", task_revision: "1", active_goal_reference: { goal_ref: "goal" } };
 const selection = boundedFirstProductionSelection({ factory: "factory", recipe: "recipe.smelter.iron_ingot", batches: 1, maxElectricity: 8,
  maxConsume: [{ kind: "iron_ore", amount: 4 }, { kind: "carbon_fuel", amount: 1 }, { kind: "maintenance_part", amount: 1 }] }, "agent");
-function fixture({ claimed = true, built = true, settled = false } = {}) {
+function fixture({ claimed = true, built = true, settled = false, locale = "en" } = {}) {
  const claim = { agent_id: "agent", owner_binding: "owner", offer_id: "offer", slot_id: "slot", site_id: "site", factory_id: "factory",
   location_id: "location", profile_id: "ordinary-industrial-starter-v1", profile_revision: 1, recipe_id: "recipe.smelter.iron_ingot", materials: { iron_ore: 8, carbon_fuel: 2, maintenance_part: 2 } };
  const first = { ...claim, job_id: 42, consume: selection.maxConsume, produce: [{ kind: "iron_ingot", amount: 3 }], byproducts: [{ kind: "slag", amount: 1 }], power_required: 8 };
@@ -32,10 +32,41 @@ function fixture({ claimed = true, built = true, settled = false } = {}) {
   modelSession: { snapshot: () => ({ checked: true, hasKey: true }) },
   start: vi.fn(async () => { setState((old) => ({ ...old, phase: "settled", submissionState: "committed", agentDelegated: true, originalOperationId: "original-action" })); }),
  };
- render(() => <BrowserFirstSessionPane locale="en" driver={() => driver} state={state} />);
+ render(() => <BrowserFirstSessionPane locale={locale} driver={() => driver} state={state} />);
  return { driver, observation, first, setState, preview };
 }
 describe("ordinary first-session native consumer", () => {
+ it.each(["zh-CN", "en"])("explains finite supply exhaustion and distinguishes an unpublished offer in %s", async (locale) => {
+  const f = fixture({ claimed: false, built: false, locale }), zh = locale === "zh-CN";
+  await screen.findByRole("button", { name: zh ? "准备领取权限" : "Review claim authority" });
+  const status = f.observation.owner.view.ordinary_starter;
+  status.eligible = false; status.blocker = "ordinary_starter_supply_unavailable";
+  status.offers.offer.blocker = "ordinary_starter_supply_unavailable"; status.offers.offer.available_slots = [];
+  fireEvent.click(screen.getByRole("button", { name: zh ? "读取当前资源与作业" : "Read current resources and jobs" }));
+  expect(await screen.findByText(zh ? /有限材料、电力或可用场地不足/ : /Finite materials, electricity or available sites are insufficient/)).toBeVisible();
+  expect(screen.getByRole("status")).toHaveTextContent(zh ? "不保证后续补充供给" : "later replenishment is not guaranteed");
+  expect(screen.getByRole("status")).not.toHaveTextContent("ordinary_starter_supply_unavailable");
+  expect(screen.getByText(/"starter_blocker": "ordinary_starter_supply_unavailable"/).closest("details")).not.toBeNull();
+  expect(screen.getByRole("button", { name: zh ? "准备领取权限" : "Review claim authority" })).toBeDisabled();
+  status.offers = {};
+  fireEvent.click(screen.getByRole("button", { name: zh ? "读取当前资源与作业" : "Read current resources and jobs" }));
+  expect(await screen.findByText(zh ? /尚未公布可领取的公共起步方案/ : /has not published a public starter offer/)).toBeVisible();
+  expect(screen.queryByText(zh ? /有限材料、电力或可用场地不足/ : /Finite materials, electricity or available sites are insufficient/)).toBeNull();
+  expect(f.driver.start).not.toHaveBeenCalled(); expect(f.driver.directAction).not.toHaveBeenCalled(); expect(f.driver.nativeGrant).not.toHaveBeenCalled();
+ });
+ it.each(["zh-CN", "en"])("explains unknown originals with read-only recovery guidance in %s", async (locale) => {
+  const f = fixture({ locale }), zh = locale === "zh-CN";
+  f.driver.preview.mockRejectedValue(Object.assign(new Error("operation_unknown"), { code: "operation_unknown" }));
+  fireEvent.click(await screen.findByRole("button", { name: zh ? "核对单批权限与完整报价" : "Review one-batch authority and full quote" }));
+  const alert = await screen.findByRole("alert");
+  expect(alert).toHaveTextContent(zh ? "请保留原件" : "Retain the original");
+  expect(alert).toHaveTextContent(zh ? "只读核对原件" : "Look up original operations");
+  expect(alert).toHaveTextContent(zh ? "结果未知时不要再次提交" : "do not submit again while the result is unknown");
+  expect(alert).not.toHaveTextContent("operation_unknown");
+  expect(screen.getByText(/"error": "operation_unknown"/).closest("details")).not.toBeNull();
+  expect(f.driver.preview).toHaveBeenCalledTimes(1);
+  expect(f.driver.start).not.toHaveBeenCalled(); expect(f.driver.directAction).not.toHaveBeenCalled(); expect(f.driver.nativeGrant).not.toHaveBeenCalled();
+ });
  it("waits for explicit exact grant confirmation and never starts a model for the claim", async () => {
   const f = fixture({ claimed: false, built: false });
   const button = await screen.findByRole("button", { name: "Review claim authority" });

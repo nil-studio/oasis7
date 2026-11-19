@@ -31,6 +31,12 @@ mod resource_view;
 mod starter;
 #[path = "participant_transport.rs"]
 mod transport;
+
+#[cfg(unix)]
+pub(super) fn run_ordinary_starter_prepared_world_service(ready: &Path) {
+    ordinary_starter::run_prepared_world_service(ready);
+}
+
 fn namespace() -> GameIdentityNamespaceV1 {
     GameIdentityNamespaceV1 {
         service_id: "private-fixture-identity".into(),

@@ -19,6 +19,12 @@ pub const LOCATION_ID: &str = "ordinary-starter-yard-v1";
 pub const SLOT_COUNT: usize = 8;
 const CONSTRUCTION_POWER: i64 = 10;
 
+/// The initializer commits to this implementation through its owning crate,
+/// without reading another package's source tree directly.
+pub fn initializer_source_bytes() -> &'static [u8] {
+    include_bytes!("ordinary_starter.rs")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OrdinaryStarterPoolV1 {

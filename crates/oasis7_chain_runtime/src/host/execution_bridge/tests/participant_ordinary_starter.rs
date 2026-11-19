@@ -422,13 +422,8 @@ fn ordinary_participant_real_http_claim_factory_transfer_first_production_and_re
     run_ordinary_first_session(None);
 }
 
-#[test]
-#[ignore = "explicit independent native client playtest fixture; no automatic agent actions"]
-fn serve_ordinary_first_session_native_playtest_fixture() {
-    let ready = std::path::PathBuf::from(
-        std::env::var_os("OASIS7_ORDINARY_STARTER_PLAYTEST_READY").expect("isolated ready path"),
-    );
-    run_ordinary_first_session(Some(&ready));
+pub(super) fn run_prepared_world_service(ready: &Path) {
+    run_ordinary_first_session(Some(ready));
 }
 
 fn run_ordinary_first_session(handoff_ready: Option<&Path>) {

@@ -45,7 +45,7 @@ fn source_hash() -> String {
             include_bytes!("preview_world_init_archive.rs").as_slice(),
             include_bytes!("preview_world_init_origin.rs").as_slice(),
             include_bytes!("preview_world_init_provider.rs").as_slice(),
-            include_bytes!("../../../oasis7/src/runtime_host/ordinary_starter.rs").as_slice(),
+            ordinary_starter::initializer_source_bytes(),
             include_bytes!("local_provider_setup.rs").as_slice(),
             include_bytes!("execution_bridge/world_service_read.rs").as_slice(),
         ]

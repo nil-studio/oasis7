@@ -71,7 +71,8 @@ pub(super) fn wait(
         "endpoint": input.endpoint, "config": config, "agent_id": input.participant.agent_id,
         "world": input.identity, "stop_file": stop, "result_file": result,
         "goal": "In your own legally authorized factory, complete exactly one batch of iron ingots and verify its actual outputs.",
-        "scenario_profile": "prepared_world", "cold_entry_model_validated": false,
+        "scenario_profile": "prepared_world", "preparation_profile": "ordinary_first_session",
+        "cold_entry_model_validated": false,
         "timeout_seconds": 600, "max_tool_calls": 40,
         "preparation": "real participant registration, public starter claim, owner grants, factory build and input transport",
     });

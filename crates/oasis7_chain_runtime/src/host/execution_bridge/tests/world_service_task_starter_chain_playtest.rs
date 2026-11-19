@@ -8,6 +8,8 @@ use oasis7_runtime::*;
 mod expiry_recovery;
 #[path = "world_service_task_starter_chain_factory_quote_retry.rs"]
 mod factory_quote_retry;
+#[path = "world_service_task_starter_chain_live_service.rs"]
+mod live_service;
 const SITE: &str = "starter-site";
 const FACTORY: &str = STARTER_SMELTER_FACTORY_ID;
 
@@ -161,16 +163,7 @@ fn private_task_starter_chain_prepared_world_live_service() {
         std::env::var_os("OASIS7_TASK_STARTER_CHAIN_PLAYTEST_READY")
             .expect("explicit starter-chain ready path required"),
     );
-    super::run_prepared_world_service_kind(
-        ready,
-        Duration::from_secs(5),
-        false,
-        None,
-        false,
-        Duration::from_secs(30),
-        super::PreparedWorldKind::StarterChain,
-        Duration::ZERO,
-    );
+    live_service::run(ready);
 }
 
 #[test]
