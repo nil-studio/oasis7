@@ -525,10 +525,12 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
-          sparse-checkout: .github/actions/setup-linux-mold
+          fetch-depth: ${{ needs.select.outputs.tested_sha != '' && github.workflow_sha == needs.select.outputs.tested_sha && '0' || '1' }}
+          sparse-checkout: ${{ (needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha) && '.github/actions/setup-linux-mold' || '' }}
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -813,6 +815,7 @@ jobs:
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -929,6 +932,7 @@ jobs:
         name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -1168,9 +1172,17 @@ jobs:
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
     steps:
-      - *linux-mold-tools-checkout
+      - &linux-mold-event-tools-checkout
+        name: Check out workflow linker setup
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          fetch-depth: ${{ github.sha != '' && github.workflow_sha == github.sha && '0' || '1' }}
+          sparse-checkout: ${{ (github.sha == '' || github.workflow_sha != github.sha) && '.github/actions/setup-linux-mold' || '' }}
       - *ordinary-configure-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ github.sha == '' || github.workflow_sha != github.sha }}
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -1253,6 +1265,7 @@ jobs:
         name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -1470,9 +1483,10 @@ jobs:
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
     steps:
-      - *linux-mold-tools-checkout
+      - *linux-mold-event-tools-checkout
       - *formal-debug-configure-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ github.sha == '' || github.workflow_sha != github.sha }}
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -1532,6 +1546,7 @@ jobs:
         name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -1749,9 +1764,10 @@ jobs:
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
     steps:
-      - *linux-mold-tools-checkout
+      - *linux-mold-event-tools-checkout
       - *formal-endpoint-configure-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ github.sha == '' || github.workflow_sha != github.sha }}
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -1806,6 +1822,7 @@ jobs:
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -2017,6 +2034,7 @@ jobs:
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -2310,6 +2328,7 @@ jobs:
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -2355,6 +2374,7 @@ jobs:
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -2422,6 +2442,7 @@ jobs:
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -2467,6 +2488,7 @@ jobs:
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -2519,6 +2541,7 @@ jobs:
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -2624,6 +2647,7 @@ jobs:
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -2722,6 +2746,7 @@ jobs:
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -2772,6 +2797,7 @@ jobs:
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -2850,6 +2876,7 @@ jobs:
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -2935,6 +2962,7 @@ jobs:
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -3010,10 +3038,18 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - *linux-mold-tools-checkout
+      - &linux-mold-shallow-tools-checkout
+        name: Check out workflow linker setup
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          fetch-depth: 1
+          sparse-checkout: ${{ (needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha) && '.github/actions/setup-linux-mold' || '' }}
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           persist-credentials: false
@@ -3046,6 +3082,7 @@ jobs:
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -3210,6 +3247,7 @@ jobs:
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -3282,10 +3320,11 @@ jobs:
     steps:
       - name: Verify preinstalled custody tools
         run: gdb --version && gcc --version && pkg-config --version
-      - *linux-mold-tools-checkout
+      - *linux-mold-shallow-tools-checkout
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           persist-credentials: false
@@ -3417,6 +3456,7 @@ jobs:
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -3493,6 +3533,7 @@ jobs:
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -3531,6 +3572,7 @@ jobs:
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -3663,6 +3705,7 @@ jobs:
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -3760,6 +3803,7 @@ jobs:
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -3854,11 +3898,13 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
-          sparse-checkout: .github/actions/setup-linux-mold
+          fetch-depth: ${{ needs.select.outputs.tested_sha != '' && github.workflow_sha == needs.select.outputs.tested_sha && '0' || '1' }}
+          sparse-checkout: ${{ (needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha) && '.github/actions/setup-linux-mold' || '' }}
       - name: Configure mold for Linux host linking
         if: runner.os == 'Linux'
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ runner.os != 'Linux' || needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -4016,10 +4062,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 210
     steps:
-      - *linux-mold-tools-checkout
+      - *linux-mold-event-tools-checkout
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ github.sha == '' || github.workflow_sha != github.sha }}
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
@@ -4178,6 +4225,7 @@ jobs:
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
