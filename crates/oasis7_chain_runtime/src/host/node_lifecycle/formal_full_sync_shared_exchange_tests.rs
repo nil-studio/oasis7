@@ -352,6 +352,7 @@ fn v4_config_and_issuer_grant_bind_the_real_owned_worker_to_one_budget() {
     assert!(!status.ready);
     assert_eq!(snapshot.identity.binding_digest, owner_digest);
     assert_eq!(snapshot.attempts_used, 1);
+    assert!(snapshot.publication.as_ref().unwrap().completed);
     assert!(snapshot.encoded_rx_actual > 0 && snapshot.encoded_tx_actual > 0);
     assert!(snapshot.material_bytes > 0 && snapshot.proof_pages > 0);
     assert!(snapshot.active_attempt_nonce.is_none());
@@ -364,6 +365,7 @@ fn v4_config_and_issuer_grant_bind_the_real_owned_worker_to_one_budget() {
     let operation = &projected["operation"];
     assert_eq!(operation["operation_id"], snapshot.identity.operation_id);
     assert_eq!(operation["revision"], snapshot.revision);
+    assert_eq!(operation["publication"], "pins_acknowledged");
     assert_eq!(
         operation["encoded_io"]["tx_actual_known"],
         snapshot.encoded_tx_actual

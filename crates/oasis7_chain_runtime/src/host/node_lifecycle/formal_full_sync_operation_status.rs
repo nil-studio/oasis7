@@ -107,6 +107,12 @@ fn project_operation(snapshot: &Snapshot) -> Result<Value, String> {
         "policy_digest": &snapshot.identity.policy_digest,
         "owner_binding_digest": &snapshot.identity.binding_digest,
         "target": target,
+        "publication": match (&snapshot.publication, snapshot.publication_journal_version) {
+            (Some(publication), Some(1)) if publication.completed => "pins_acknowledged",
+            (Some(_), Some(1)) => "pending",
+            (None, Some(1)) => "not_started",
+            _ => "unknown",
+        },
         "revision": snapshot.revision,
         "attempt_state": if snapshot.active_attempt_nonce.is_some() { "interrupted" } else { "inactive" },
         "limits": limits,

@@ -47,6 +47,15 @@ pub(super) struct Reservation {
     pub bytes: u64,
 }
 
+/// Durable local CAS publication intent, not World installation or readiness.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Publication {
+    pub intent_digest: String,
+    pub attempt_no: u64,
+    pub completed: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Snapshot {
@@ -60,6 +69,10 @@ pub(super) struct Snapshot {
     pub exchanges_started: u64,
     pub original_request_json: Option<Vec<u8>>,
     pub verified_target_json: Option<Vec<u8>>,
+    #[serde(default)]
+    pub publication: Option<Publication>,
+    #[serde(default)]
+    pub publication_journal_version: Option<u32>,
     pub proof_pages: u64,
     pub proof_bytes: u64,
     pub material_limit: u64,
@@ -94,6 +107,25 @@ impl Snapshot {
 
     pub(super) fn validate(&self) -> Result<(), String> {
         self.policy.validate()?;
+        if self
+            .publication_journal_version
+            .is_some_and(|version| version != 1)
+        {
+            return Err("unsupported publication journal version".into());
+        }
+        if let Some(publication) = &self.publication
+            && (self.publication_journal_version != Some(1)
+                || self.verified_target_json.is_none()
+                || publication.attempt_no == 0
+                || publication.attempt_no > self.attempts_used
+                || publication.intent_digest.len() != 64
+                || !publication
+                    .intent_digest
+                    .bytes()
+                    .all(|c| c.is_ascii_hexdigit()))
+        {
+            return Err("invalid operation publication identity".into());
+        }
         if let Some(bytes) = &self.original_request_json
             && (bytes.is_empty()
                 || bytes.len() > 64 * 1024

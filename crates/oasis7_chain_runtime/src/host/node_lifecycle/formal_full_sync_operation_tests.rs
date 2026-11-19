@@ -353,3 +353,73 @@ fn original_request_cannot_be_backfilled_after_attempt_start() {
     assert!(ledger.bind_original_request(&request).is_err());
     assert_eq!(ledger.snapshot(), &before);
 }
+
+#[test]
+fn publication_intent_is_exact_and_unknown_reopen_cannot_replay() {
+    let temp = TestDir::new();
+    let path = temp.path().join("operation.json");
+    let policy = policy();
+    let identity = identity(&policy);
+    let mut ledger = Ledger::create(&path, identity.clone(), policy.clone()).unwrap();
+    let attempt = ledger.begin_attempt().unwrap();
+    let cut = serde_json::json!({"record_id": "original"});
+    let target =
+        serde_json::to_vec(&(cut.clone(), serde_json::json!({"original_record": true}))).unwrap();
+    let roots = "ab".repeat(32);
+    assert!(ledger.begin_publication(&attempt, &cut, &roots).is_err());
+    ledger.bind_verified_target(&attempt, &target).unwrap();
+    let selected = ledger.snapshot().clone();
+    assert!(
+        ledger
+            .begin_publication(
+                &attempt,
+                &serde_json::json!({"record_id":"replacement"}),
+                &roots
+            )
+            .is_err()
+    );
+    assert_eq!(ledger.snapshot(), &selected);
+    ledger.begin_publication(&attempt, &cut, &roots).unwrap();
+    let pending = ledger.snapshot().clone();
+    assert!(!pending.publication.as_ref().unwrap().completed);
+    assert!(ledger.finish_attempt(&attempt).is_err());
+    assert!(ledger.begin_publication(&attempt, &cut, &roots).is_err());
+    assert!(
+        ledger
+            .complete_publication(&attempt, &cut, &"cd".repeat(32))
+            .is_err()
+    );
+    assert_eq!(ledger.snapshot(), &pending);
+    drop(ledger);
+    let mut ledger = Ledger::open(&path, &identity, &policy, 0).unwrap();
+    assert_eq!(ledger.snapshot(), &pending);
+    assert!(ledger.complete_publication(&attempt, &cut, &roots).is_err());
+    assert!(ledger.begin_attempt().is_err());
+    assert_eq!(ledger.snapshot(), &pending);
+}
+
+#[test]
+fn publication_acknowledgement_is_durable_but_not_install_authority() {
+    let temp = TestDir::new();
+    let path = temp.path().join("operation.json");
+    let policy = policy();
+    let identity = identity(&policy);
+    let mut ledger = Ledger::create(&path, identity.clone(), policy.clone()).unwrap();
+    let attempt = ledger.begin_attempt().unwrap();
+    let cut = serde_json::json!({"record_id":"original"});
+    let target =
+        serde_json::to_vec(&(cut.clone(), serde_json::json!({"original_record":true}))).unwrap();
+    let roots = "ab".repeat(32);
+    ledger.bind_verified_target(&attempt, &target).unwrap();
+    ledger.begin_publication(&attempt, &cut, &roots).unwrap();
+    ledger.complete_publication(&attempt, &cut, &roots).unwrap();
+    assert!(ledger.snapshot().publication.as_ref().unwrap().completed);
+    assert!(ledger.complete_publication(&attempt, &cut, &roots).is_err());
+    ledger.finish_attempt(&attempt).unwrap();
+    let completed = ledger.snapshot().clone();
+    assert!(ledger.begin_attempt().is_err());
+    drop(ledger);
+    let mut ledger = Ledger::open(&path, &identity, &policy, 0).unwrap();
+    assert_eq!(ledger.snapshot(), &completed);
+    assert!(ledger.begin_attempt().is_err());
+}

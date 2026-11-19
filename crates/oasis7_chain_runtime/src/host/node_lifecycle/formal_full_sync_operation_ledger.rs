@@ -4,8 +4,11 @@
 //! delivery to the peer. A pending reservation survives restart unchanged.
 use super::super::local_io;
 pub(super) use super::operation_config::FormalFullSyncTransferPolicyV1 as Policy;
+use super::operation_snapshot::Publication;
+use super::operation_snapshot::{
+    API, MAX_LEDGER_JSON, MAX_REQUEST_BODY, MAX_WINDOW, read_snapshot,
+};
 pub(super) use super::operation_snapshot::{Direction, Identity, Reservation, Snapshot};
-use super::operation_snapshot::{API, MAX_LEDGER_JSON, MAX_REQUEST_BODY, MAX_WINDOW, read_snapshot};
 use serde::Serialize;
 use sha2::Digest;
 use std::path::{Path, PathBuf};
@@ -70,6 +73,8 @@ impl Ledger {
             exchanges_started: 0,
             original_request_json: None,
             verified_target_json: None,
+            publication: None,
+            publication_journal_version: Some(1),
             proof_pages: 0,
             proof_bytes: 0,
             material_limit,
@@ -205,6 +210,9 @@ impl Ledger {
 
     pub fn begin_attempt(&mut self) -> Result<AttemptPermit, String> {
         if self.recovered
+            || self.state.publication_journal_version != Some(1)
+            || self.state.publication.is_some()
+            || self.state.verified_target_json.is_some()
             || self.state.active_attempt_nonce.is_some()
             || self.state.active_request.is_some()
         {
@@ -256,6 +264,11 @@ impl Ledger {
             || self.state.active_attempt_nonce.as_ref() != Some(&permit.nonce)
             || self.state.active_request.is_some()
             || self.state.reservation.is_some()
+            || self
+                .state
+                .publication
+                .as_ref()
+                .is_some_and(|publication| !publication.completed)
         {
             return Err("operation_recovery_required: attempt cannot terminate".into());
         }
@@ -283,6 +296,70 @@ impl Ledger {
         }
         let mut next = self.state.clone();
         next.verified_target_json = Some(target_json.to_vec());
+        self.save(next)
+    }
+
+    /// Persist before changing loaded-world pins. Even an identical existing
+    /// intent is not replay permission: its external effect may already exist.
+    pub fn begin_publication(
+        &mut self,
+        permit: &AttemptPermit,
+        cut: &serde_json::Value,
+        roots_digest: &str,
+    ) -> Result<(), String> {
+        self.check_attempt(permit)?;
+        if self.state.publication_journal_version != Some(1)
+            || self.state.publication.is_some()
+            || self.state.active_request.is_some()
+            || self.state.reservation.is_some()
+            || roots_digest.len() != 64
+            || !roots_digest.bytes().all(|c| c.is_ascii_hexdigit())
+        {
+            return Err("operation_recovery_required: publication unavailable".into());
+        }
+        let target: serde_json::Value = serde_json::from_slice(
+            self.state
+                .verified_target_json
+                .as_ref()
+                .ok_or("publication has no selected target")?,
+        )
+        .map_err(|e| e.to_string())?;
+        if target
+            .as_array()
+            .is_none_or(|parts| parts.len() != 2 || parts.first() != Some(cut))
+        {
+            return Err("publication differs from the original selected cut".into());
+        }
+        let mut next = self.state.clone();
+        next.publication = Some(Publication {
+            intent_digest: local_io::digest(&(cut, roots_digest))?,
+            attempt_no: permit.number,
+            completed: false,
+        });
+        self.save(next)
+    }
+
+    /// Only the same live attempt may record a positively acknowledged pin
+    /// publication. Reopen never turns an unknown publication into success.
+    pub fn complete_publication(
+        &mut self,
+        permit: &AttemptPermit,
+        cut: &serde_json::Value,
+        roots_digest: &str,
+    ) -> Result<(), String> {
+        self.check_attempt(permit)?;
+        let mut next = self.state.clone();
+        let publication = next
+            .publication
+            .as_mut()
+            .ok_or("missing publication intent")?;
+        if publication.completed
+            || publication.attempt_no != permit.number
+            || publication.intent_digest != local_io::digest(&(cut, roots_digest))?
+        {
+            return Err("publication completion differs from original intent".into());
+        }
+        publication.completed = true;
         self.save(next)
     }
 

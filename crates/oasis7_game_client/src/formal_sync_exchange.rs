@@ -28,6 +28,18 @@ pub trait FullSyncExchange: Send + Sync {
     /// Persist the complete locally verified cut and original record before
     /// material I/O. This is identity retention, not independent verification.
     fn bind_verified_target(&self, target_json: &[u8]) -> Result<(), WorldServiceClientError>;
+    /// Journal exact local CAS publication before changing roots. Completion
+    /// means only roots were acknowledged, never World installation/readiness.
+    fn begin_publication(
+        &self,
+        cut: &serde_json::Value,
+        roots_digest: &str,
+    ) -> Result<(), WorldServiceClientError>;
+    fn complete_publication(
+        &self,
+        cut: &serde_json::Value,
+        roots_digest: &str,
+    ) -> Result<(), WorldServiceClientError>;
     fn check_active(&self) -> Result<(), WorldServiceClientError>;
     fn finish_attempt(&self) -> Result<(), WorldServiceClientError>;
     fn charge_proof(&self, encoded_proof_bytes: u64) -> Result<(), WorldServiceClientError>;

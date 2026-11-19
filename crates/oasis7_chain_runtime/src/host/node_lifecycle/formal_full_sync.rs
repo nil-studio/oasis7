@@ -423,6 +423,18 @@ impl FormalFullSyncSession {
                     return Err(error.into());
                 }
                 self.check_operation_active()?;
+                let publication = if let Some(exchange) = &self.shared_exchange {
+                    let cut = serde_json::to_value(&restored.cut).map_err(|e| e.to_string())?;
+                    let roots = super::local_io::digest(&restored.retained_cas_hashes)?;
+                    exchange
+                        .begin_publication(&cut, &roots)
+                        .map_err(|e| e.to_string())?;
+                    Some((cut, roots))
+                } else {
+                    None
+                };
+                // Intent persistence may have exhausted the attempt deadline.
+                self.check_operation_active()?;
                 if let Err(error) = cas_lifecycle::replace_loaded_world_pins(
                     &self.cas,
                     &restored.retained_cas_hashes,
@@ -442,6 +454,16 @@ impl FormalFullSyncSession {
                             "{error}; full-sync orphan cleanup also failed: {cleanup_error}"
                         ),
                     });
+                }
+                if let (Some(exchange), Some((cut, roots))) = (&self.shared_exchange, publication)
+                    && let Err(error) = exchange.complete_publication(&cut, &roots)
+                {
+                    // Pins may already be durable; do not clean them up or
+                    // retry installation after an uncertain journal write.
+                    self.cas_publication_poisoned = true;
+                    let error = error.to_string();
+                    self.fail(&error);
+                    return Err(error);
                 }
                 self.check_operation_active()?;
                 let lag = latest.position.saturating_sub(restored.cut.position);
