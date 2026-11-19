@@ -29,6 +29,10 @@ def render_job(group: str) -> str:
             "      - name: Configure mold for Linux host linking\n"
             "        uses: ./.github/actions/setup-linux-mold\n"
         )
+    rust_setup = (
+        '      - name: Install Rust for packaging contract fixtures\n'
+        '        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy\n'
+    ) if group == "packaging_contracts" else ""
     return (
         f"  {job_id}:\n"
         f"    needs: select\n"
@@ -47,6 +51,7 @@ def render_job(group: str) -> str:
         f"      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7\n"
         f"        with:\n"
         f"          python-version: '3.12'\n"
+        f"{rust_setup}"
         f"      - name: Execute selected group\n"
         f"        shell: bash\n"
         f"        env:\n"
