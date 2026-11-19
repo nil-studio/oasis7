@@ -1,26 +1,13 @@
 //! Bounded relay for raw issuer/witness evidence. The relay is not an authority:
 //! the caller independently verifies every signature, nonce, floor and lease.
 use super::*;
+pub(crate) use oasis7_distfs::controlled_authority::formal::full_sync_issuer::FullSyncReadEvidenceQueryV3;
 use std::io::Read;
 
 #[path = "formal_full_sync_remote_lease.rs"]
 mod lease;
 
 const MAX_RESPONSE_BYTES: u64 = 68 * 1024 * 1024;
-
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct FullSyncReadEvidenceQueryV3 {
-    pub schema_version: u32,
-    pub observation_nonce: String,
-    pub minimum_anchor: FullSyncIssuerAnchorV3,
-    pub provider_public_key: String,
-    pub provider_incarnation: String,
-    pub target: FullSyncIssuerTargetV2,
-    pub target_generation: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_lease_request: Option<oasis7_distfs::controlled_authority::formal::full_sync_issuer::SignedFullSyncProviderLeaseRequestV3>,
-}
 
 pub(crate) struct RemoteFullSyncReadEvidenceSourceV3 {
     endpoint: reqwest::Url,
