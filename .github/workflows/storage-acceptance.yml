@@ -117,6 +117,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install consumer libraries
+        if: matrix.group != 'storage-recovery' || vars.OASIS7_STORAGE_RECOVERY_IMAGE == ''
         run: |
           sudo apt-get update
           sudo apt-get install -y iproute2 libwayland-client0 libxkbcommon0 libxi6 libxcursor1 libxrandr2 libxinerama1 libasound2t64 libudev1
@@ -142,6 +143,7 @@ jobs:
           findmnt --json --target "$RUNNER_TEMP/storage-enospc" > output/disk/mount.json
       - name: Run acceptance with exact inventory and process cleanup
         env:
+          STORAGE_RECOVERY_IMAGE: ${{ vars.OASIS7_STORAGE_RECOVERY_IMAGE }}
           GROUP: ${{ matrix.group }}
           LABEL: ${{ matrix.label }}
           NETWORK: ${{ matrix.network }}
@@ -152,7 +154,20 @@ jobs:
         run: |
           repeats=1
           if [[ "$NETWORK" != none ]]; then repeats="$FAULT_REPEATS"; fi
-          python3 scripts/ci-storage-acceptance.py run --bundle "$RUNNER_TEMP/storage-tests" --group "$GROUP" --label "$LABEL" --results-dir output/storage --capacity-scale "$SCALE" --repeat-faults "$repeats"
+          command=(python3 scripts/ci-storage-acceptance.py run --bundle "$RUNNER_TEMP/storage-tests" --group "$GROUP" --label "$LABEL" --results-dir output/storage --capacity-scale "$SCALE" --repeat-faults "$repeats")
+          if [[ "$GROUP" != storage-recovery || -z "$STORAGE_RECOVERY_IMAGE" ]]; then
+            exec "${command[@]}"
+          fi
+          if [[ ! "$STORAGE_RECOVERY_IMAGE" =~ ^ghcr\.io/nil-studio/oasis7/ci-build@sha256:[0-9a-f]{64}$ ]]; then
+            echo "Storage recovery image must be an immutable oasis7 ci-build digest" >&2
+            exit 1
+          fi
+          docker pull "$STORAGE_RECOVERY_IMAGE"
+          exec docker run --rm --pull never --user "$(id -u):$(id -g)" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=$GITHUB_WORKSPACE" \
+            --mount "type=bind,source=$RUNNER_TEMP/storage-tests,target=$RUNNER_TEMP/storage-tests,readonly" \
+            --workdir "$GITHUB_WORKSPACE" --env HOME=/tmp --env SOURCE_SHA \
+            "$STORAGE_RECOVERY_IMAGE" "${command[@]}"
       - name: Check actual fault traffic
         if: always() && matrix.network != 'none'
         env:
