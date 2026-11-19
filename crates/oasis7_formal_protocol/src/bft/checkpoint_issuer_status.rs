@@ -1,7 +1,7 @@
 //! Authentication of a complete renewal issuer status snapshot.
 //!
 //! Current use additionally requires a protected status floor and trusted time.
-use super::checkpoint_trust_policy::BftCheckpointTrustPolicyV1;
+use super::checkpoint_trust_policy::{BftCheckpointTrustPolicyV1, issuer_status_bounds};
 use super::formal_handoff::{canonical_bytes, decode_canonical, domain_digest};
 use ed25519_dalek::{Signature, VerifyingKey};
 use serde::{Deserialize, Serialize};
@@ -59,6 +59,7 @@ impl AuthenticatedBftCheckpointIssuerStatusV1 {
         }
         let max_bytes = usize::try_from(policy.max_status_bytes)
             .map_err(|_| "checkpoint issuer status byte bound is unsupported")?;
+        issuer_status_bounds(bytes, max_bytes, policy.issuer_keys.len())?;
         let BftCheckpointIssuerStatusV1 {
             body,
             signature_hex,

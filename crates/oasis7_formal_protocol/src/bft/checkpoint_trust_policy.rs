@@ -7,6 +7,7 @@
 mod bounds;
 use super::formal_handoff::{canonical_bytes, decode_canonical, domain_digest, validate_hash};
 use crate::controlled_authority::formal::{FormalHeadRefV1, FormalWorldIdentityV1};
+pub(super) use bounds::issuer_status_bounds;
 pub use bounds::preflight as preflight_checkpoint_config;
 use oasis7_proto::distributed_bft::v2::BftScopeV2;
 use serde::{
