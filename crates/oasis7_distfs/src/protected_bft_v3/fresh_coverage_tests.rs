@@ -191,6 +191,16 @@ fn native_fresh_retention_activates_atomically_and_cold_retry_returns_original()
     let (provider, server) = native_service(&binding, writer);
     let mut lease = provider.acquire(&binding).unwrap();
     let original = lease.provision_private_retention(&role, &marker).unwrap();
+    let reply = serde_json::to_value(
+        crate::protected_bft_v3::wire::BftSignerReplyKindV3::PrivateRetention {
+            ledger: Box::new(original.clone()),
+            latest_seal: None,
+            reserved_response_bytes: slot.lock().unwrap().reserved_response_bytes,
+        },
+    )
+    .unwrap();
+    assert!(reply["body"].get("latest_seal").is_none());
+    assert!(reply["body"]["ledger"].get("selection_index").is_none());
     let activated = lease.checkpoint().unwrap();
     assert_eq!(activated.state.revision, 1);
     assert_eq!(

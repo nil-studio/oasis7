@@ -167,6 +167,7 @@ pub(crate) enum BftSignerReplyKindV3 {
     Checkpoint,
     PrivateRetention {
         ledger: Box<super::BftPrivateRetentionActivationV1>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         latest_seal: Option<()>,
         reserved_response_bytes: u64,
     },
