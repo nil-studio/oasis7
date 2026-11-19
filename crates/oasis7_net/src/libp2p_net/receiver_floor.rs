@@ -16,18 +16,21 @@ use super::config::{PeerRecordReceiverConfig, PeerRecordReceiverMode};
 use super::peer_record::{encode_peer_record_signing_payload_v2, verify_signed_peer_record};
 
 mod persistence;
+mod pruning;
 
 pub(super) const MAX_RECEIVER_FLOORS: usize = 1024;
 pub(super) const MAX_RECEIVER_RECORD_BYTES: usize =
     super::peer_record::MAX_SIGNED_PEER_RECORD_BYTES;
 const RECEIVER_SCHEMA_VERSION: u16 = 2;
 const RECEIVER_STATE_MAX_BYTES: usize = 64 * 1024 * 1024;
+pub(super) const MAX_RECORD_TTL_MS: i64 = 3_600_000;
+pub(super) const MAX_FUTURE_SKEW_MS: i64 = 30_000;
 
 pub(super) type SharedPeerRecordReceiver = Arc<PeerRecordReceiver>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ReceiverBindingV2 {
+pub(super) struct ReceiverBindingV2 {
     schema_version: u16,
     local_peer_id: String,
     world_id: String,
@@ -37,29 +40,37 @@ struct ReceiverBindingV2 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ReceiverLedgerV2 {
+pub(super) struct ReceiverLedgerV2 {
     schema_version: u16,
     binding: ReceiverBindingV2,
     mode: PeerRecordReceiverMode,
-    floors: BTreeMap<String, PeerFloorV2>,
+    pub(super) floors: BTreeMap<String, PeerFloorV2>,
+    pub(super) pruned_trusted_time_watermark_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(super) pre_migration_v1_expiries: BTreeMap<String, i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PeerFloorV2 {
-    sequence: u64,
+pub(super) struct PeerFloorV2 {
+    pub(super) sequence: u64,
     signing_payload_digest_hex: String,
-    primary_signed_record_cbor: Vec<u8>,
-    conflict_signed_record_cbor: Option<Vec<u8>>,
-    isolated: bool,
+    pub(super) primary_signed_record_cbor: Vec<u8>,
+    pub(super) conflict_signed_record_cbor: Option<Vec<u8>>,
+    pub(super) isolated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) max_expiry_ms: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) admitted_at_ms: Option<i64>,
 }
 
 #[derive(Debug)]
-struct DurableReceiver {
-    directory: std::path::PathBuf,
+pub(super) struct DurableReceiver {
+    pub(super) directory: std::path::PathBuf,
     _lock: File,
-    ledger: ReceiverLedgerV2,
-    poisoned: bool,
+    pub(super) ledger: ReceiverLedgerV2,
+    pub(super) poisoned: bool,
+    pub(super) last_trusted_now_ms: Option<i64>,
 }
 
 #[derive(Debug)]
@@ -245,11 +256,34 @@ impl PeerRecordReceiver {
                     "legacy peer record rejected after V2 floor migration".into(),
                 ))
             }
+            (PeerRecordReceiverMode::DurableCompatible, None) => {
+                if let Some(watermark) = durable.ledger.pruned_trusted_time_watermark_ms {
+                    let expiry = record.record.expires_at_ms().map_err(|reason| {
+                        protocol_error(format!("invalid record expiry: {reason}"))
+                    })?;
+                    if expiry <= watermark {
+                        return Err(protocol_error(
+                            "legacy peer record expired before receiver pruning watermark".into(),
+                        ));
+                    }
+                }
+                Ok(())
+            }
             (_, Some(publication)) => {
                 validate_record_paths(record)?;
                 publication
                     .validate()
                     .map_err(|reason| protocol_error(reason.into()))?;
+                if let Some(watermark) = durable.ledger.pruned_trusted_time_watermark_ms {
+                    let expiry = record.record.expires_at_ms().map_err(|reason| {
+                        protocol_error(format!("invalid record expiry: {reason}"))
+                    })?;
+                    if expiry <= watermark {
+                        return Err(protocol_error(
+                            "peer record expired before receiver pruning watermark".into(),
+                        ));
+                    }
+                }
                 if let Some(current) = durable.ledger.floors.get(&record.record.peer_id) {
                     if current.isolated {
                         return Err(protocol_error(
@@ -295,12 +329,42 @@ impl PeerRecordReceiver {
                 "V2-only receiver rejects legacy peer records".into(),
             )),
             PeerRecordReceiverMode::DurableCompatible => {
-                let durable = self.durable_lock_required()?;
+                let mut durable = self.durable_lock_required()?;
                 ensure_durable_usable(&durable)?;
                 if durable.ledger.floors.contains_key(&record.record.peer_id) {
                     return Err(protocol_error(
                         "legacy peer record rejected after V2 floor migration".into(),
                     ));
+                }
+                let expiry = record
+                    .record
+                    .expires_at_ms()
+                    .map_err(|reason| protocol_error(format!("invalid record expiry: {reason}")))?;
+                if let Some(watermark) = durable.ledger.pruned_trusted_time_watermark_ms
+                    && expiry <= watermark
+                {
+                    return Err(protocol_error(
+                        "legacy peer record expired before receiver pruning watermark".into(),
+                    ));
+                }
+                let peer_id = record.record.peer_id.clone();
+                let existing_v1 = durable
+                    .ledger
+                    .pre_migration_v1_expiries
+                    .get(&peer_id)
+                    .copied();
+                if existing_v1.is_none()
+                    && durable.ledger.floors.len() + durable.ledger.pre_migration_v1_expiries.len()
+                        >= MAX_RECEIVER_FLOORS
+                {
+                    return Err(protocol_error(
+                        "peer-record receiver floor capacity exhausted".into(),
+                    ));
+                }
+                if existing_v1.is_none_or(|current| expiry > current) {
+                    let mut next = durable.ledger.clone();
+                    next.pre_migration_v1_expiries.insert(peer_id, expiry);
+                    persist_next(&mut durable, next)?;
                 }
                 Ok(ReceiverAdmission::LegacyV1)
             }
@@ -327,10 +391,26 @@ impl PeerRecordReceiver {
         let current = durable.ledger.floors.get(&peer_id);
         let outcome = match current {
             None => {
-                if durable.ledger.floors.len() >= MAX_RECEIVER_FLOORS {
+                let combined_len =
+                    durable.ledger.floors.len() + durable.ledger.pre_migration_v1_expiries.len();
+                let is_tracked_v1 = durable
+                    .ledger
+                    .pre_migration_v1_expiries
+                    .contains_key(&peer_id);
+                if !is_tracked_v1 && combined_len >= MAX_RECEIVER_FLOORS {
                     return Err(protocol_error(
                         "peer-record receiver floor capacity exhausted".into(),
                     ));
+                }
+                if let Some(watermark) = durable.ledger.pruned_trusted_time_watermark_ms {
+                    let expiry = record.record.expires_at_ms().map_err(|reason| {
+                        protocol_error(format!("invalid record expiry: {reason}"))
+                    })?;
+                    if expiry <= watermark {
+                        return Err(protocol_error(
+                            "peer record expired before receiver pruning watermark".into(),
+                        ));
+                    }
                 }
                 ReceiverAdmission::Accepted
             }
@@ -356,17 +436,84 @@ impl PeerRecordReceiver {
             Some(_) => ReceiverAdmission::Accepted,
         };
 
+        let admission_time = match durable.last_trusted_now_ms {
+            Some(trusted) if trusted < record.record.published_at_ms => {
+                // Trusted time observation is stale relative to the published record.
+                // Do not manufacture a prematurely expiring admission bound.
+                None
+            }
+            Some(trusted) => Some(trusted.max(record.record.published_at_ms)),
+            None => {
+                let wall = crate::util::unix_now_ms_i64();
+                if (wall - record.record.published_at_ms).abs() < 86_400_000 {
+                    Some(wall.max(record.record.published_at_ms))
+                } else {
+                    Some(record.record.published_at_ms)
+                }
+            }
+        };
+
         let mut next = durable.ledger.clone();
         match outcome {
             ReceiverAdmission::Conflict => {
+                let new_expiry = record
+                    .record
+                    .expires_at_ms()
+                    .map_err(|reason| protocol_error(format!("invalid record expiry: {reason}")))?;
+                let pre_v1_expiry = next.pre_migration_v1_expiries.remove(&peer_id);
                 let current = next
                     .floors
                     .get_mut(&peer_id)
                     .expect("same-sequence conflict requires an existing floor");
                 current.conflict_signed_record_cbor = Some(signed_bytes);
                 current.isolated = true;
+                let existing_max = current.max_expiry_ms.unwrap_or_else(|| {
+                    decode_stored_record(&current.primary_signed_record_cbor)
+                        .and_then(|r| {
+                            r.record.expires_at_ms().map_err(|reason| {
+                                protocol_error(format!("invalid expiry: {reason}"))
+                            })
+                        })
+                        .unwrap_or(0)
+                });
+                current.max_expiry_ms =
+                    Some(existing_max.max(new_expiry).max(pre_v1_expiry.unwrap_or(0)));
+                if let Some(time) = admission_time {
+                    let existing_admitted = current.admitted_at_ms.unwrap_or(0);
+                    current.admitted_at_ms = Some(existing_admitted.max(time));
+                }
             }
             ReceiverAdmission::Accepted => {
+                let new_expiry = record
+                    .record
+                    .expires_at_ms()
+                    .map_err(|reason| protocol_error(format!("invalid record expiry: {reason}")))?;
+                let pre_v1_expiry = next.pre_migration_v1_expiries.remove(&peer_id);
+                let max_expiry_ms = match current {
+                    Some(existing) => {
+                        let existing_max = existing.max_expiry_ms.unwrap_or_else(|| {
+                            decode_stored_record(&existing.primary_signed_record_cbor)
+                                .and_then(|r| {
+                                    r.record.expires_at_ms().map_err(|reason| {
+                                        protocol_error(format!("invalid expiry: {reason}"))
+                                    })
+                                })
+                                .unwrap_or(0)
+                        });
+                        Some(existing_max.max(new_expiry).max(pre_v1_expiry.unwrap_or(0)))
+                    }
+                    None => {
+                        let base = pre_v1_expiry.unwrap_or(0);
+                        Some(base.max(new_expiry))
+                    }
+                };
+                let admitted_at_ms = match (current.and_then(|e| e.admitted_at_ms), admission_time)
+                {
+                    (Some(prev), Some(fresh)) => Some(prev.max(fresh)),
+                    (Some(prev), None) => Some(prev),
+                    (None, Some(fresh)) => Some(fresh),
+                    (None, None) => None,
+                };
                 next.floors.insert(
                     peer_id,
                     PeerFloorV2 {
@@ -375,6 +522,8 @@ impl PeerRecordReceiver {
                         primary_signed_record_cbor: signed_bytes,
                         conflict_signed_record_cbor: None,
                         isolated: false,
+                        max_expiry_ms,
+                        admitted_at_ms,
                     },
                 );
             }
@@ -401,6 +550,17 @@ impl PeerRecordReceiver {
                 let durable = self.durable_lock()?;
                 if let Some(durable) = durable.as_ref() {
                     ensure_durable_usable(durable)?;
+                    if let Some(watermark) = durable.ledger.pruned_trusted_time_watermark_ms {
+                        let expiry = record.record.expires_at_ms().map_err(|reason| {
+                            protocol_error(format!("invalid record expiry: {reason}"))
+                        })?;
+                        if expiry <= watermark {
+                            return Err(protocol_error(
+                                "legacy peer record expired before receiver pruning watermark"
+                                    .into(),
+                            ));
+                        }
+                    }
                     if durable.ledger.floors.contains_key(&peer_id) {
                         return Err(protocol_error(
                             "legacy peer record rejected after V2 floor migration".into(),
@@ -419,6 +579,16 @@ impl PeerRecordReceiver {
                 if let Some(durable) = durable.as_ref() {
                     ensure_durable_usable(durable)?;
                     ensure_record_matches_binding(record, &durable.ledger.binding)?;
+                    if let Some(watermark) = durable.ledger.pruned_trusted_time_watermark_ms {
+                        let expiry = record.record.expires_at_ms().map_err(|reason| {
+                            protocol_error(format!("invalid record expiry: {reason}"))
+                        })?;
+                        if expiry <= watermark {
+                            return Err(protocol_error(
+                                "peer record expired before receiver pruning watermark".into(),
+                            ));
+                        }
+                    }
                     let floor = durable.ledger.floors.get(&peer_id).ok_or_else(|| {
                         protocol_error("V2 record has no committed receiver floor".into())
                     })?;
@@ -475,7 +645,9 @@ impl PeerRecordReceiver {
         Ok(Some(signed))
     }
 
-    fn durable_lock(&self) -> Result<Option<MutexGuard<'_, DurableReceiver>>, WorldError> {
+    pub(super) fn durable_lock(
+        &self,
+    ) -> Result<Option<MutexGuard<'_, DurableReceiver>>, WorldError> {
         let Some(durable) = self.state.durable.as_ref() else {
             return Ok(None);
         };
@@ -485,7 +657,9 @@ impl PeerRecordReceiver {
             .map_err(|_| protocol_error("peer-record receiver state lock is poisoned".into()))
     }
 
-    fn durable_lock_required(&self) -> Result<MutexGuard<'_, DurableReceiver>, WorldError> {
+    pub(super) fn durable_lock_required(
+        &self,
+    ) -> Result<MutexGuard<'_, DurableReceiver>, WorldError> {
         self.durable_lock()?
             .ok_or_else(|| protocol_error("durable receiver state is unavailable".into()))
     }
@@ -703,10 +877,10 @@ fn ensure_record_matches_binding(
     Ok(())
 }
 
+use pruning::validate_ledger_structure;
+
 fn validate_loaded_ledger(ledger: &ReceiverLedgerV2) -> Result<(), WorldError> {
-    if ledger.floors.len() > MAX_RECEIVER_FLOORS {
-        return Err(protocol_error("receiver floor capacity exceeded".into()));
-    }
+    validate_ledger_structure(ledger)?;
     for (peer_id, floor) in &ledger.floors {
         let primary = decode_stored_record(&floor.primary_signed_record_cbor)?;
         validate_record_paths(&primary)?;
@@ -714,6 +888,24 @@ fn validate_loaded_ledger(ledger: &ReceiverLedgerV2) -> Result<(), WorldError> {
             return Err(protocol_error("receiver primary peer key mismatch".into()));
         }
         ensure_record_matches_binding(&primary, &ledger.binding)?;
+        let primary_expiry = primary
+            .record
+            .expires_at_ms()
+            .map_err(|reason| protocol_error(format!("invalid stored record expiry: {reason}")))?;
+        if let Some(max_expiry) = floor.max_expiry_ms
+            && max_expiry < primary_expiry
+        {
+            return Err(protocol_error(
+                "receiver floor max expiry precedes primary expiry".into(),
+            ));
+        }
+        if let Some(admitted_at) = floor.admitted_at_ms
+            && admitted_at <= 0
+        {
+            return Err(protocol_error(
+                "receiver floor admission timestamp must be positive".into(),
+            ));
+        }
         let publication = primary.publication.as_ref().ok_or_else(|| {
             protocol_error("receiver floor primary is not a V2 signed record".into())
         })?;
@@ -756,7 +948,7 @@ fn validate_loaded_ledger(ledger: &ReceiverLedgerV2) -> Result<(), WorldError> {
     Ok(())
 }
 
-fn decode_stored_record(bytes: &[u8]) -> Result<SignedPeerRecord, WorldError> {
+pub(super) fn decode_stored_record(bytes: &[u8]) -> Result<SignedPeerRecord, WorldError> {
     if bytes.len() > MAX_RECEIVER_RECORD_BYTES {
         return Err(protocol_error("stored peer record exceeds capacity".into()));
     }
@@ -813,7 +1005,7 @@ fn receiver_directory(config: &PeerRecordReceiverConfig) -> Result<&Path, WorldE
         .ok_or_else(|| protocol_error("durable receiver requires a configured directory".into()))
 }
 
-fn ensure_durable_usable(durable: &DurableReceiver) -> Result<(), WorldError> {
+pub(super) fn ensure_durable_usable(durable: &DurableReceiver) -> Result<(), WorldError> {
     if durable.poisoned {
         return Err(protocol_error(
             "peer-record receiver is fail-closed after a persistence error".into(),
@@ -822,7 +1014,11 @@ fn ensure_durable_usable(durable: &DurableReceiver) -> Result<(), WorldError> {
     Ok(())
 }
 
-fn persist_next(durable: &mut DurableReceiver, next: ReceiverLedgerV2) -> Result<(), WorldError> {
+pub(super) fn persist_next(
+    durable: &mut DurableReceiver,
+    next: ReceiverLedgerV2,
+) -> Result<(), WorldError> {
+    validate_ledger_structure(&next)?;
     let bytes = super::durable_peer_record_publisher::canonical_cbor(&next)?;
     if bytes.len() > RECEIVER_STATE_MAX_BYTES {
         return Err(protocol_error(
@@ -837,9 +1033,11 @@ fn persist_next(durable: &mut DurableReceiver, next: ReceiverLedgerV2) -> Result
     Ok(())
 }
 
-fn protocol_error(message: String) -> WorldError {
+pub(super) fn protocol_error(message: String) -> WorldError {
     WorldError::NetworkProtocolUnavailable { protocol: message }
 }
 
+#[cfg(all(test, unix))]
+mod pruning_tests;
 #[cfg(all(test, unix))]
 mod tests;

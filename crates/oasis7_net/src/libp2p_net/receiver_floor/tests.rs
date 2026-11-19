@@ -18,15 +18,15 @@ use super::super::config::{PeerRecordReceiverConfig, PeerRecordReceiverMode};
 const STATE_FILE: &str = "peer-record-receiver-v2.state.cbor";
 const STATE_TEMP_FILE: &str = "peer-record-receiver-v2.state.cbor.tmp";
 
-struct Fixture {
-    _root: tempfile::TempDir,
-    directory: PathBuf,
-    config: PeerRecordReceiverConfig,
-    local_key: Keypair,
-    template: PeerRecord,
+pub(super) struct Fixture {
+    pub(super) _root: tempfile::TempDir,
+    pub(super) directory: PathBuf,
+    pub(super) config: PeerRecordReceiverConfig,
+    pub(super) local_key: Keypair,
+    pub(super) template: PeerRecord,
 }
 
-fn fixture() -> Fixture {
+pub(super) fn fixture() -> Fixture {
     use std::os::unix::fs::PermissionsExt;
 
     let root = tempfile::tempdir_in(
@@ -56,7 +56,7 @@ fn fixture() -> Fixture {
     }
 }
 
-fn record_body(key: &Keypair, node_id: &str) -> PeerRecord {
+pub(super) fn record_body(key: &Keypair, node_id: &str) -> PeerRecord {
     PeerRecord {
         peer_id: PeerId::from(key.public()).to_string(),
         node_id: node_id.into(),
@@ -77,7 +77,7 @@ fn record_body(key: &Keypair, node_id: &str) -> PeerRecord {
     }
 }
 
-fn signed(key: &Keypair, sequence: u64, node_id: &str) -> SignedPeerRecord {
+pub(super) fn signed(key: &Keypair, sequence: u64, node_id: &str) -> SignedPeerRecord {
     let record = record_body(key, node_id);
     super::super::peer_record::sign_peer_record_v2(
         &record,
@@ -91,7 +91,7 @@ fn signed(key: &Keypair, sequence: u64, node_id: &str) -> SignedPeerRecord {
     .expect("sign V2 peer record")
 }
 
-fn open(fixture: &Fixture) -> SharedPeerRecordReceiver {
+pub(super) fn open(fixture: &Fixture) -> SharedPeerRecordReceiver {
     PeerRecordReceiver::open(&fixture.config, &fixture.local_key, Some(&fixture.template))
         .expect("open receiver floor")
 }
@@ -100,7 +100,7 @@ fn state_path(fixture: &Fixture) -> PathBuf {
     fixture.directory.join(STATE_FILE)
 }
 
-fn write_state(fixture: &Fixture, bytes: &[u8]) {
+pub(super) fn write_state(fixture: &Fixture, bytes: &[u8]) {
     fs::write(state_path(fixture), bytes).expect("write receiver state fixture");
     File::open(state_path(fixture))
         .and_then(|file| file.sync_all())
@@ -113,10 +113,12 @@ fn empty_ledger(fixture: &Fixture, mode: PeerRecordReceiverMode) -> ReceiverLedg
         binding: receiver_binding(&fixture.template, &fixture.local_key).expect("binding"),
         mode,
         floors: BTreeMap::new(),
+        pruned_trusted_time_watermark_ms: None,
+        pre_migration_v1_expiries: BTreeMap::new(),
     }
 }
 
-fn state_bytes(ledger: &ReceiverLedgerV2) -> Vec<u8> {
+pub(super) fn state_bytes(ledger: &ReceiverLedgerV2) -> Vec<u8> {
     super::super::durable_peer_record_publisher::canonical_cbor(ledger)
         .expect("canonical receiver ledger")
 }
@@ -289,6 +291,8 @@ fn full_receiver_floor_rejects_new_peers_but_allows_existing_peer_updates() {
                     .expect("canonical signed record"),
                 conflict_signed_record_cbor: None,
                 isolated: false,
+                max_expiry_ms: None,
+                admitted_at_ms: None,
             },
         );
         if index == 0 {
@@ -301,6 +305,8 @@ fn full_receiver_floor_rejects_new_peers_but_allows_existing_peer_updates() {
         binding: receiver_binding(&fixture.template, &fixture.local_key).expect("binding"),
         mode: fixture.config.mode,
         floors,
+        pruned_trusted_time_watermark_ms: None,
+        pre_migration_v1_expiries: BTreeMap::new(),
     };
     write_state(&fixture, &state_bytes(&ledger));
     let receiver = open(&fixture);
