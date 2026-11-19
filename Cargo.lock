@@ -6773,13 +6773,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "oasis7_runtime_iws_tests"
-version = "0.1.0"
-dependencies = [
- "oasis7_runtime",
-]
-
-[[package]]
 name = "oasis7_secure_envelope"
 version = "0.1.0"
 dependencies = [

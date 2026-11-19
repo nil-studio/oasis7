@@ -42,7 +42,7 @@ oasis7_wasm_router = { path = "../oasis7_wasm_router" }
 oasis7_wasm_store = { path = "../oasis7_wasm_store" }
 hex = "0.4"
 sha2 = "0.11"
-serde_json.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
 serde_cbor = { package = "serde_cbor_2", version = "0.13" }
 blake3 = "1"
 unicode-normalization = "0.1"

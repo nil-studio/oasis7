@@ -3609,11 +3609,14 @@ run_oasis7_iws_host_native_target
         self.assertIn('test-support', runtime['features']['test_tier_full'])
         declaration = next(target for target in runtime['test'] if target['name'] == 'iws_rule_core')
         self.assertEqual(declaration['required-features'], ['test_tier_full', 'wasmtime'])
-        retained = tomllib.loads((ROOT / 'crates/oasis7_runtime_iws_tests/Cargo.toml').read_text())
-        self.assertFalse(retained['lib']['test'])
-        self.assertFalse(retained['lib']['doctest'])
-        self.assertNotIn('test', retained)
-        self.assertFalse((ROOT / 'crates/oasis7_runtime_iws_tests/tests/iws_rule_core.rs').exists())
+        retired = 'oasis7_runtime_iws_tests'
+        workspace = tomllib.loads((ROOT / 'Cargo.toml').read_text())['workspace']
+        locked = tomllib.loads((ROOT / 'Cargo.lock').read_text())['package']
+        self.assertNotIn('crates/' + retired, workspace['members'])
+        self.assertNotIn(retired, {package['name'] for package in locked})
+        self.assertNotIn(retired, config['package_groups'])
+        self.assertFalse((ROOT / 'crates' / retired / 'Cargo.toml').exists())
+        self.assertFalse(list((ROOT / 'crates' / retired).rglob('*.rs')))
         expected = dict(package='oasis7_runtime', target_kind='test', target_name='iws_rule_core',
                         default_features=True, features=['test_tier_full'], cases=cases)
         self.assertIn(expected, config['ordinary_scale_contract']['targets'])
@@ -3644,9 +3647,6 @@ run_oasis7_iws_host_native_target
             for package in config['oasis7_required_packages']:
                 write(f'crates/{package}/Cargo.toml', f'[package]\nname="{package}"\nversion="0.1.0"\nedition="2021"\n[features]\ndefault=["wasmtime"]\ntest_tier_required=[]\ntest_tier_full=["test_tier_required","test-support"]\nwasmtime=[]\ntest-support=[]\n')
                 write(f'crates/{package}/src/lib.rs', '')
-            for name in ('Cargo.toml', 'src/lib.rs'):
-                write('crates/oasis7_runtime_iws_tests/' + name,
-                      (ROOT / 'crates/oasis7_runtime_iws_tests' / name).read_text())
             manifest = root / 'crates/oasis7_runtime/Cargo.toml'
             manifest.write_text(manifest.read_text() + '\n[[test]]\nname="iws_rule_core"\npath="tests/iws_rule_core.rs"\nrequired-features=["test_tier_full","wasmtime"]\n')
             write(path, source)
