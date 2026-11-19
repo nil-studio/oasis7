@@ -176,13 +176,15 @@ impl InitialBudgetedSession {
             binding_digest: inputs.owner_binding.clone(),
         };
         owner.require_directory(&directory)?;
-        let mut ledger = operation_ledger::Ledger::create_with_material_limit(
+        let mut ledger = operation_ledger::Ledger::create_bound(
             &sync_root.join("operation.json"),
             identity,
             policy.clone(),
             inputs.configured.max_total_sync_bytes,
+            &request,
+            &owner,
+            &directory,
         )?;
-        ledger.bind_original_request(&request)?;
         let attempt = ledger.begin_attempt()?;
         Self::attach(
             owner,
