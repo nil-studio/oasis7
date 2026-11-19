@@ -53,13 +53,13 @@ fn original_configs(
     fixture: &Fixture,
     po: &Oracle,
     ro: &Oracle,
+    authfile: &Path,
 ) -> (
     SignedInitialActivationV1,
     InitialActivationTrustV1,
     Vec<PathBuf>,
 ) {
-    let authfile = fixture.path.join("oracle-auth");
-    credential(&authfile);
+    credential(authfile);
     let body = fixture.authority.initial_body().cloned().unwrap();
     let initial = SignedInitialActivationV1 {
         signature_hex: signed(initial_activation_signing_bytes(&body).unwrap(), 9),
@@ -101,7 +101,8 @@ fn assert_cold_committed_handoff_stays_closed_before_bft_commit() {
     let (fixture, initial_envelope) = super::super::business_tests::fixture();
     let primary_oracle = Oracle::start(&fixture, EndpointRole::Primary);
     let replica_oracle = Oracle::start(&fixture, EndpointRole::Replica);
-    let (_, _, configs) = original_configs(&fixture, &primary_oracle, &replica_oracle);
+    let authfile = fixture.path.join("oracle-auth");
+    let (_, _, configs) = original_configs(&fixture, &primary_oracle, &replica_oracle, &authfile);
     let (mut primary, primary_address) = start(&binary, &configs[0]);
     let (mut replica, replica_address) = start(&binary, &configs[1]);
     let genesis = fixture.authority.definition().world.genesis_head().unwrap();
@@ -233,7 +234,8 @@ fn run_recovery(consecutive: bool) {
     let fixture = Fixture::new();
     let po = Oracle::start(&fixture, EndpointRole::Primary);
     let ro = Oracle::start(&fixture, EndpointRole::Replica);
-    let (initial, trust, old_configs) = original_configs(&fixture, &po, &ro);
+    let authfile = fixture.path.join("oracle-auth");
+    let (initial, trust, old_configs) = original_configs(&fixture, &po, &ro, &authfile);
     let (mut pchild, paddr) = start(&binary, &old_configs[0]);
     let (mut rchild, raddr) = start(&binary, &old_configs[1]);
     let genesis = fixture.authority.definition().world.genesis_head().unwrap();
