@@ -4,10 +4,15 @@ inputs:
   browser:
     description: agent for Viewer Chrome, playwright for the existing Deck headless shell
     required: true
+  prebuilt:
+    description: Verify and activate Playwright already provided by the job image
+    default: "false"
+    required: false
 runs:
   using: composite
   steps:
     - name: Identify exact browser download caches
+      if: inputs.prebuilt != 'true'
       id: downloads
       shell: bash
       env:
@@ -20,6 +25,7 @@ runs:
         path: ${{ steps.downloads.outputs.fonts_noto_cjk_root }}
         key: ${{ steps.downloads.outputs.fonts_noto_cjk_key }}
     - name: Restore fixed Freefont archive
+      if: inputs.prebuilt != 'true'
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ steps.downloads.outputs.fonts_freefont_ttf_root }}
@@ -31,14 +37,17 @@ runs:
         path: ${{ steps.downloads.outputs.chrome_root }}
         key: ${{ steps.downloads.outputs.chrome_key }}
     - name: Install locked browser tools without lifecycle scripts
+      if: inputs.prebuilt != 'true'
       shell: bash
       run: python3 scripts/ci-browser-deps.py tools
     - name: Verify browser downloads and inspect complete dependencies
+      if: inputs.prebuilt != 'true'
       shell: bash
       env:
         BROWSER_KIND: ${{ inputs.browser }}
       run: python3 scripts/ci-browser-deps.py prepare --browser "$BROWSER_KIND" --work-dir "$RUNNER_TEMP/oasis7-ci-browser-$BROWSER_KIND"
     - name: Install missing browser system dependencies
+      if: inputs.prebuilt != 'true'
       shell: bash
       env:
         BROWSER_KIND: ${{ inputs.browser }}
@@ -48,6 +57,7 @@ runs:
           sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 300 --no-remove "${browser_packages[@]}"
         fi
     - name: Verify and launch the actual pinned browser
+      if: inputs.prebuilt != 'true'
       shell: bash
       env:
         BROWSER_KIND: ${{ inputs.browser }}
@@ -56,3 +66,9 @@ runs:
       if: failure() && inputs.browser == 'agent'
       shell: bash
       run: python3 scripts/security/viewer-browser-install-diagnostic.py output/viewer-browser-install/diagnostic.json || echo 'Browser install diagnostic unavailable'
+    - name: Verify and launch the prebuilt Playwright browser
+      if: inputs.prebuilt == 'true'
+      shell: bash
+      env:
+        BROWSER_KIND: ${{ inputs.browser }}
+      run: python3 scripts/ci-browser-deps.py activate --prebuilt --browser "$BROWSER_KIND" --work-dir "$RUNNER_TEMP/oasis7-ci-browser-$BROWSER_KIND" --github-env "$GITHUB_ENV"
