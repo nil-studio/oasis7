@@ -1,6 +1,6 @@
 #![cfg(all(test, unix))]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use libp2p::{PeerId, identity::Keypair};
 use oasis7_proto::distributed_dht::{PeerRecordPublicationStateV2, PeerRecordPublicationV2};
