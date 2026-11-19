@@ -38,7 +38,8 @@ ENV PATH=/opt/oasis7-rust/bin:$PATH
 ENV RUST_TOOLCHAIN=${RUST_TOOLCHAIN}
 ENV OASIS7_WASM_TOOLCHAIN=${WASM_TOOLCHAIN}
 ENV OASIS7_WASM_TARGET=${WASM_TARGET}
-RUN rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy \
+RUN rustup set auto-self-update disable \
+    && rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy \
     && rustup default "$RUST_TOOLCHAIN" \
     && rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src \
     && rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN" \
