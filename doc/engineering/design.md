@@ -91,6 +91,32 @@ SC-24D 由可选的 `scripts/pr-review-threads.py` 承接线程查询与显式 r
 
 专业规范定义规则，模块入口与专题文档承接规则，检查脚本读取受影响文件并输出检查结果。Git、PR、实际 CI 和评审记录承载修改与验证事实，按需 Issue/Project 展示跟踪状态；历史 Git snapshot 只保存当时记录，不代表当前已验证。检查结果不替代专业语义评审，适用门禁与合入条件仍由[开发流程规范](workflow/source-of-truth.md)规定。
 
+### 3.5 仓库五层依赖拓扑与全量 Crate 归属规范
+
+为消除执行层与外部契约层之间的循环/反向依赖，全仓库实施严格的单向五层依赖拓扑（DAG）：**`L4 -> L3 -> L2 -> L1 -> L0`**。任何上层可单向消费下层，严禁下层反向依赖上层、严禁同层无序耦合，尤其**禁止 `L2`（如 `oasis7_runtime`、`oasis7_simulator`、`oasis7_world_projection`）反向依赖 `L3` `*_api` 契约包（如 `oasis7_agent_api`、`oasis7_client_api`）**。
+
+| 层级 | 层级定位与约束 | 归属 Crate / Workspace 成员 |
+| --- | --- | --- |
+| **L0** | 纯领域原语与共享值对象（零 I/O、零运行时与网络依赖） | `oasis7_domain_types`（目标新增，承接原 `oasis7_agent_api` 的 `world_resource`/`world_entity`/`world_geometry` 与 `oasis7_client_api` 的 `formal_projection`） |
+| **L1** | 基础设施、世界状态存储、密码学、WASM ABI/Store 与 P2P 传输 | `oasis7_proto`、`oasis7_world_state`、`oasis7_formal_protocol`、`oasis7_secure_envelope`、`oasis7_signer_protocol`、`oasis7_local_signer`、`oasis7_cas`、`oasis7_distfs`、`oasis7_net`、`oasis7_context`、`oasis7_observability`、`oasis7_executable_image`、`oasis7_wasm_abi`、`oasis7_wasm_build`、`oasis7_wasm_store`、`oasis7_wasm_materializer`、`oasis7_client_storage`、`oasis7_launcher_config` |
+| **L2** | 权威执行引擎、规则仿真、共识与链上宿主运行时 | `oasis7_runtime`、`oasis7_simulator`、`oasis7_world_projection`、`oasis7_consensus`、`oasis7_chain_runtime`、`oasis7_node`、`oasis7_wasm_executor`、`oasis7_wasm_router`、`oasis7_wasm_sdk`、`oasis7_custody_core`、`oasis7_viewer_codec` |
+| **L3** | 对外服务门面、协议桥接、模型提供方与 API/SDK 契约 | `oasis7_agent_api`、`oasis7_client_api`、`oasis7_world_service`、`oasis7_model_provider`、`oasis7_letai_credit_adapter`、`oasis7_newapi_bridge_service`、`oasis7_provider_local_bridge`、`oasis7_provider_tools`、`oasis7_custody_worker`、`oasis7_hosted_access`、`oasis7_launcher_backend`、`oasis7_viewer_runtime`、`pixel_world_bridge`、`oasis7_agent_harness` |
+| **L4** | 终端客户端、Viewer、Launcher、运维 CLI 与测试运行器 | `oasis7_game_client`、`oasis7_browser_game_client`、`oasis7_client_launcher`、`oasis7_launcher_ui`、`oasis7_client_cli`、`oasis7_protocol_tools`、`oasis7_ops_tools`、`oasis7_dev_test_worker`、`tools/scenario_test_runner`、`tools/wasm_build_suite`、`tools/wasm_module_observe` |
+| **退役中** | 历史兼容伞包（禁止新增代码，测试归位后移除） | `crates/oasis7` |
+
+### 3.6 长期架构守卫、模块拆分与工作区净室门禁
+
+1. **根 `Cargo.toml` 工作区净室规范**：
+   - 清理 `[workspace].members` 中重复声明的 `crates/oasis7_model_provider` 成员项，保持工作区成员声明唯一。
+   - 将仓库根目录散落的 `vendor-*` 补丁目录（`vendor-if-watch-3.2.2`、`vendor-libp2p-quic-0.14.0`、`vendor-libp2p-rendezvous-0.18.1`、`vendor-libp2p-swarm-0.48.0`）统一收拢至 `third_party/vendor/`，并同步收敛 `[patch.crates-io]` 路径引用。
+   - 收敛 Model Provider 相关桥接适配器（`oasis7_model_provider`、`oasis7_newapi_bridge_service`、`oasis7_provider_local_bridge`、`oasis7_letai_credit_adapter`、`oasis7_provider_tools`）至 `L3` 统一边界，禁止向 `L2` 渗透。
+2. **禁止机械切片与前端/内核模块拆分规范**：
+   - 严禁使用机械式 `*_part2.rs` / `*_partN.rs` 或 `include!(...)` 拼接方式规避文件规模限制；所有 Rust 模块拆分必须基于业务限界上下文与职责内聚，并持续满足 `./scripts/check-rust-file-size.sh` 门禁。
+   - `crates/oasis7_viewer/software_safe_src/main.jsx` 按视图职责拆分为 `next_move_hud`、`targets_panel`、`command_console` 与 `diagnostics_drawer` 四个内聚模块。
+3. **`crates/oasis7` 伞包退役与 CI 守卫门禁**：
+   - `crates/oasis7` 历史兼容伞包进入只出不进的退役阶段：残留 `scenario.rs`、`simulator/llm_agent/tests_part2.rs` 及 `crates/oasis7/tests/*.rs` 须按归属迁移至 `oasis7_simulator`、`oasis7_agent_harness` 与 `tools/scenario_test_runner`，迁移完成后彻底移除 `crates/oasis7`。
+   - 长期门禁须校验 `L4 -> L3 -> L2 -> L1 -> L0` 单向依赖无越层边、根 `Cargo.toml` 无重复 member、根目录无游离 `vendor-*` 目录且无新增机械 `*_part*.rs`/`include!` 切片。
+     
 ## 4. 集成点
 - `AGENTS.md`
 - `.agents/roles/*.md`
