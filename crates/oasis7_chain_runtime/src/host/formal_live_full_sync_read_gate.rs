@@ -8,10 +8,15 @@ use oasis7_client_api::world_service_full_sync::{
     FormalFullSyncCutV1, FormalNodeReadGrantV1, FormalNodeReadRoleV1,
 };
 use oasis7_distfs::controlled_authority::formal::InitialActivationTrustV1;
+pub(crate) use oasis7_distfs::controlled_authority::formal::full_sync_issuer::FullSyncIssuerReadEvidenceV3;
+#[cfg(test)]
 use oasis7_distfs::controlled_authority::formal::full_sync_issuer::{
-    FullSyncIssuerAnchorV3, FullSyncIssuerHistoryV3, FullSyncIssuerTargetV2,
+    FullSyncIssuerHistoryV3, SignedFullSyncIssuerQueryV3,
+};
+use oasis7_distfs::controlled_authority::formal::full_sync_issuer::{
+    FullSyncIssuerAnchorV3, FullSyncIssuerTargetV2,
     FullSyncProviderLeaseStateV3, FullSyncReadRoleV2, SignedFullSyncIssuerObservationV3,
-    SignedFullSyncIssuerPolicyV2, SignedFullSyncIssuerPolicyV3, SignedFullSyncIssuerQueryV3,
+    SignedFullSyncIssuerPolicyV2, SignedFullSyncIssuerPolicyV3,
     VerifiedFullSyncIssuerPolicyV2, VerifiedFullSyncIssuerPolicyV3, VerifiedFullSyncIssuerStateV3,
     full_sync_activation_trust_digest_v3,
 };
@@ -57,16 +62,6 @@ pub(crate) struct FullSyncIssuerReadEvidenceRequestV3 {
     pub target_generation: u64,
     pub started_at: Instant,
     pub deadline: Instant,
-}
-
-/// Raw query, observation, and complete history. Every member is verified by
-/// the provider before it can affect the installed state or authorize a reply.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct FullSyncIssuerReadEvidenceV3 {
-    pub query: SignedFullSyncIssuerQueryV3,
-    pub observation: SignedFullSyncIssuerObservationV3,
-    pub history: FullSyncIssuerHistoryV3,
 }
 
 pub(crate) trait FullSyncIssuerReadEvidenceSource: Send + Sync {
