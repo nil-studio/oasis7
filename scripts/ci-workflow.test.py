@@ -4903,7 +4903,16 @@ class AptWorkflow(unittest.TestCase):
             expected['rust', 'net', 'Install WASM C compiler'] = ['clang', 'llvm']
         expected.update({('rust', name, 'Install system deps'): ['clang', 'llvm', *self.NATIVE]
                          for name in ('full-regression', 'candidate-full-regression')})
-        expected['rust', 'newapi-bridge-package', 'Install system deps'] = self.NATIVE
+        newapi = JOBS['newapi-bridge-package']
+        if '    container:' in newapi:
+            image = re.search(r'^    container:\n      image: ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:([0-9a-f]{64})$',
+                              newapi, re.M)
+            self.assertIsNotNone(image)
+            self.assertIn('shared-key: newapi-bridge-service-linux-x86-64-ci-rust-build-' + image.group(1), newapi)
+            packages = (ROOT / 'docker/ci-base/build-packages.txt').read_text().splitlines()
+            self.assertLessEqual(set(self.NATIVE), set(packages))
+        else:
+            expected['rust', 'newapi-bridge-package', 'Install system deps'] = self.NATIVE
         expected['rust', 'fleet-health', 'Ensure Linux process inspection dependency'] = ['lsof']
         expected['cache', 'shared-native-cache', 'Install system deps'] = ['clang', 'llvm', *self.NATIVE]
         actual = self.apt_steps()
