@@ -185,10 +185,6 @@ fn manifest_hash<C: FnMut() -> bool>(
 /// The original instance -> inactive-count suppression -> active-registry
 /// fallback, using only this transaction's authenticated reads. All errors
 /// poison the same outer transaction, including source/encoding final errors.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "Independent state, value, schema and original contexts retain their continuous admission budgets."
-)]
 /// Actual Current manifest selection without touching artifact/WASM originals.
 /// This is source DATA and grants no execution, authorization or tick permission.
 pub(in crate::world) struct CurrentModuleManifestSelectionV1 {
@@ -719,7 +715,9 @@ pub(in crate::world) use enumerate::{
     freeze_current_invocation_directory_v1,
 };
 
-pub(in crate::world) use target::{CompletedNonmovementActionV1, NonmovementSelectedWorkV1};
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+pub(in crate::world) use target::CompletedNonmovementActionV1;
+pub(in crate::world) use target::NonmovementSelectedWorkV1;
 
 pub(in crate::world) use target::NonmovementSelectedErrorV1;
 
@@ -727,11 +725,12 @@ pub(in crate::world) use target::SelectedAcceptedDispositionV1;
 
 pub(in crate::world) use target::EffectiveActionWorkBankV1;
 
-pub(in crate::world) use target::{
-    CompletedNormalExtensionV1, NormalCoreExtensionWorkV1, NormalCoreExtensionWorkViewV1,
-};
+pub(in crate::world) use target::NormalCoreExtensionWorkV1;
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+pub(in crate::world) use target::{CompletedNormalExtensionV1, NormalCoreExtensionWorkViewV1};
 
 // Private result handoff for the fixed normal publisher and genuine fixtures.
+#[cfg(test)]
 pub(in crate::world) use target::MatchingBeforePublicationV1;
 
 pub(in crate::world) use target::{PaidDueProductVmFailureV1, PaidFactoryModuleExecutionV1};

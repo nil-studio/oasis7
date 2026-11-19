@@ -45,13 +45,13 @@ where
         common.work().identity(),
         live,
     )?;
-    let (crate::DomainEvent::WorldRuleCommitted {
+    let crate::DomainEvent::WorldRuleCommitted {
         actor_id,
         request_id,
         command: WorldRuleCommandV1::SettleSupply { job_id },
         world_binding,
         ..
-    }) = header.event()
+    } = header.event()
     else {
         return Err(BodyMutationError::Invalid("lifecycle settlement header kind").into());
     };

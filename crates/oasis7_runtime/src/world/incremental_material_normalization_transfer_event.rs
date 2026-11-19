@@ -23,10 +23,6 @@ use oasis7_world_state::{
     },
 };
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "The prepared transfer, Current agent proof, event counter, work and original sink stay explicit."
-)]
 pub(super) fn sink_prepared_material_transfer_v1<M, V, W, D, F>(
     step: &mut IwsStepContext<'_, '_, '_, '_, M, V, W, D>,
     prepared: &PreparedMaterialTransferEventV1,

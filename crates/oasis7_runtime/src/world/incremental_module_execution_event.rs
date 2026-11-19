@@ -807,6 +807,7 @@ pub(in crate::world) use material_transit_event::contribute_normal_material_tran
 
 #[path = "incremental_safe_alternative_outcome_event.rs"]
 mod safe_alternative_outcome;
+#[cfg(test)]
 pub(in crate::world) use safe_alternative_outcome::publish_safe_alternative_outcome_event_v1;
 
 #[path = "incremental_normal_due_product_event.rs"]

@@ -578,9 +578,9 @@ mod selected_rule;
 #[path = "incremental_module_execution_nonmovement_driver.rs"]
 mod nonmovement_driver;
 pub(in crate::world) use nonmovement_driver::NonmovementSelectedErrorV1;
-pub(in crate::world) use nonmovement_driver::{
-    CompletedNonmovementActionV1, NonmovementSelectedWorkV1,
-};
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+pub(in crate::world) use nonmovement_driver::CompletedNonmovementActionV1;
+pub(in crate::world) use nonmovement_driver::NonmovementSelectedWorkV1;
 
 #[path = "incremental_module_execution_data_access_driver.rs"]
 mod data_access_driver;
@@ -609,8 +609,10 @@ pub(in crate::world) use core_driver::CoreDriverErrorV1;
 
 pub(in crate::world) use nonmovement_driver::EffectiveActionWorkBankV1;
 
+pub(in crate::world) use normal_extension_driver::NormalCoreExtensionWorkV1;
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
 pub(in crate::world) use normal_extension_driver::{
-    CompletedNormalExtensionV1, NormalCoreExtensionWorkV1, NormalCoreExtensionWorkViewV1,
+    CompletedNormalExtensionV1, NormalCoreExtensionWorkViewV1,
 };
 
 #[path = "incremental_module_execution_logistics_registration_driver.rs"]
@@ -623,6 +625,7 @@ mod alliance_driver;
 mod matching_driver;
 
 // Private result handoff for the fixed normal publisher and genuine fixtures.
+#[cfg(test)]
 pub(in crate::world) use matching_driver::MatchingBeforePublicationV1;
 
 #[path = "incremental_module_execution_contract_lifecycle_driver.rs"]

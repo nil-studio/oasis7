@@ -40,6 +40,7 @@ use directories::CandidateBoundRuntimeDirectoriesV1;
 pub use directories::{
     AcceptedRuntimeDirectoryCacheV1, PreparedRuntimeDirectoryCacheV1, RuntimeDirectoryCacheErrorV1,
 };
+#[cfg(test)]
 pub(in crate::world) use directories::{
     prepare_iws_runtime_commit_with_directories_v1,
     prepare_iws_runtime_commit_with_results_and_directories_v1,

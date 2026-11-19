@@ -26,7 +26,7 @@ pub(in crate::world) enum ModuleReleaseBusinessDecisionV1{Rejected(RejectReason)
 const MODULE_RELEASE_ATTESTATION_LIMIT:usize=128;
 pub(in crate::world) fn prepare_module_release_submit_v1<S:ModuleReleaseBusinessFactsV1>(
         source:&mut S,
-        action_id: ActionId,
+        _action_id: ActionId,
         requester_agent_id: &str,
         manifest: &oasis7_wasm_abi::ModuleManifest,
         activate: bool,
@@ -92,7 +92,7 @@ pub(in crate::world) fn prepare_module_release_submit_v1<S:ModuleReleaseBusiness
 
 pub(in crate::world) fn prepare_module_release_shadow_v1<S:ModuleReleaseBusinessFactsV1>(
         source:&mut S,
-        action_id: ActionId,
+        _action_id: ActionId,
         operator_agent_id: &str,
         request_id: u64,
     ) -> Result<ModuleReleaseBusinessDecisionV1,S::Error> {
@@ -150,7 +150,7 @@ pub(in crate::world) fn prepare_module_release_shadow_v1<S:ModuleReleaseBusiness
 
 pub(in crate::world) fn prepare_module_release_submit_attestation_v1<S:ModuleReleaseBusinessFactsV1>(
         source:&mut S,
-        action_id: ActionId,
+        _action_id: ActionId,
         operator_agent_id: &str,
         request_id: u64,
         signer_node_id: &str,
@@ -344,7 +344,7 @@ pub(in crate::world) fn prepare_module_release_submit_attestation_v1<S:ModuleRel
 
 pub(in crate::world) fn prepare_module_release_approve_role_v1<S:ModuleReleaseBusinessFactsV1>(
         source:&mut S,
-        action_id: ActionId,
+        _action_id: ActionId,
         approver_agent_id: &str,
         request_id: u64,
         role: &str,
@@ -427,7 +427,7 @@ pub(in crate::world) fn prepare_module_release_approve_role_v1<S:ModuleReleaseBu
 
 pub(in crate::world) fn prepare_module_release_bind_roles_v1<S:ModuleReleaseBusinessFactsV1>(
         source:&mut S,
-        action_id: ActionId,
+        _action_id: ActionId,
         operator_agent_id: &str,
         target_agent_id: &str,
         roles: &[String],
@@ -455,7 +455,7 @@ pub(in crate::world) fn prepare_module_release_bind_roles_v1<S:ModuleReleaseBusi
 
 pub(in crate::world) fn prepare_module_release_reject_v1<S:ModuleReleaseBusinessFactsV1>(
         source:&mut S,
-        action_id: ActionId,
+        _action_id: ActionId,
         rejector_agent_id: &str,
         request_id: u64,
         reason: &str,

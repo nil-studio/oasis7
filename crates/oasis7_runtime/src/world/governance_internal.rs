@@ -136,7 +136,7 @@ impl World {
     }
     pub(crate) fn validate_governance_finality_signer_registry(
         &self,
-        mut registry: GovernanceFinalitySignerRegistry,
+        registry: GovernanceFinalitySignerRegistry,
     ) -> Result<GovernanceFinalitySignerRegistry, WorldError> {
         super::module_admission_finality::ModuleFinalityRecordsV1::from_world(self).validate_governance_finality_signer_registry(registry)
     }

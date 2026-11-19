@@ -508,7 +508,7 @@ where
         read: &mut WorldFieldReadContextV1<'_, P, R, ER, CR>,
         parent_read: &mut WorldFieldReadContextV1<'_, P, R, PE, PC>,
         common: &mut FormalBoundedContextV1<'_>,
-        mut accepted_entries: Option<&mut usize>,
+        accepted_entries: Option<&mut usize>,
         audit_work: &mut WorldEventDecodeWorkV1,
         directory: &ReservedValue<AcceptedInvocationDirectoryV1>,
         enumeration: &mut CurrentInvocationEnumerationWorkV1,

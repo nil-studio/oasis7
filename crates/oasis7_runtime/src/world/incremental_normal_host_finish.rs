@@ -410,7 +410,7 @@ where
         material_parent: &ReservedValue<ParentInventoryMaterialScopeV1>,
         factory: &mut FactoryTransitionReadContextV1<'_, FR, FC>,
         recipe: &mut IndustryTransitionReadContextV1<'_, RR, RC>,
-        mut work: NormalHostDirectoryWorkLoanV1<'_>,
+        work: NormalHostDirectoryWorkLoanV1<'_>,
         max_grant_payload: u64,
         common: &mut FormalBoundedContextV1<'_>,
         live_owner: &mut dyn FnMut() -> ExecutionFence,

@@ -718,7 +718,7 @@ pub(super) fn read_current_transit_v1<
             return Err(BodyMutationError::Invalid("transit Current read binding"));
         }
         roots.validate().map_err(|_| invalid())?;
-        let _root_digest_fee = charge_reserve(normal, &memory, 4096, "transit root digest")?;
+        let _root_digest_fee = charge_reserve(normal, memory, 4096, "transit root digest")?;
         if roots.digest().map_err(|_| invalid())? != step.transaction.parent_fence().parent_roots {
             return Err(BodyMutationError::Invalid("transit Current read binding"));
         }

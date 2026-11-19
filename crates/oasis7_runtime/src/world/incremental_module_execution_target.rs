@@ -806,7 +806,9 @@ mod rule_capture;
 
 pub(in crate::world) use entry::PreparedRuleOverrideEventV1;
 
-pub(in crate::world) use entry::{CompletedNonmovementActionV1, NonmovementSelectedWorkV1};
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+pub(in crate::world) use entry::CompletedNonmovementActionV1;
+pub(in crate::world) use entry::NonmovementSelectedWorkV1;
 
 pub(in crate::world) use entry::NonmovementSelectedErrorV1;
 
@@ -814,11 +816,12 @@ pub(in crate::world) use entry::SelectedAcceptedDispositionV1;
 
 pub(in crate::world) use entry::EffectiveActionWorkBankV1;
 
-pub(in crate::world) use entry::{
-    CompletedNormalExtensionV1, NormalCoreExtensionWorkV1, NormalCoreExtensionWorkViewV1,
-};
+pub(in crate::world) use entry::NormalCoreExtensionWorkV1;
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+pub(in crate::world) use entry::{CompletedNormalExtensionV1, NormalCoreExtensionWorkViewV1};
 
 // Private result handoff for the fixed normal publisher and genuine fixtures.
+#[cfg(test)]
 pub(in crate::world) use entry::MatchingBeforePublicationV1;
 
 pub(in crate::world) use entry::{PaidDueProductVmFailureV1, PaidFactoryModuleExecutionV1};

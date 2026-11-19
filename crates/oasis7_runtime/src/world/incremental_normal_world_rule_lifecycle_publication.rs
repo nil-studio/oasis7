@@ -54,7 +54,6 @@ fn bytes(event: &crate::DomainEvent) -> Result<usize, BodyMutationError> {
 
 /// The original allocator reader, clamped and reconciled against one child of
 /// the existing Common. This is a preview only; counted append advances it.
-
 #[allow(clippy::too_many_arguments)]
 pub(super) fn prepare_fresh_lifecycle_publication_v1<M, P, V, R, W, E, C, PE, PC, CW, ME>(
     written: written::FreshWrittenLifecycleCommandV1,

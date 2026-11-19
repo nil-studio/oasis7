@@ -96,7 +96,7 @@ where
     PE: FnMut() -> Option<ValueTreeError>,
     PC: FnMut() -> bool,
 {
-    let result = (|| {
+    (|| {
         if now == 0 || !now.is_multiple_of(60) {
             return Err(crate::world_rules::invalid("missing_authority").into());
         }
@@ -159,10 +159,10 @@ where
             let registration = &contract.registration;
             tail.charge(registration.region_id.len().min(region.len()))?;
             if registration.region_id != region
-                || !registration
+                || registration
                     .registered_at
                     .checked_add(600)
-                    .is_some_and(|n| n <= window)
+                    .is_none_or(|n| n > window)
             {
                 continue;
             }
@@ -334,8 +334,7 @@ where
             _fees: fees,
             _fee_slots: fee_slots,
         })
-    })();
-    result
+    })()
 }
 
 #[path = "incremental_normal_world_rule_observe_publish.rs"]

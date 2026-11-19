@@ -271,7 +271,7 @@ fn read_accepted_ledger_fields<
     if stop() {
         return Err(ValueTreeError::Cancelled.into());
     }
-    let mut lease = meter.begin_child().map_err(formal)?;
+    let lease = meter.begin_child().map_err(formal)?;
     fn lanes<
         M: MerkleNodeReader,
         R: ValueNodeReader,

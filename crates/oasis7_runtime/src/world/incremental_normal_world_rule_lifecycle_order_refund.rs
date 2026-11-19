@@ -6,7 +6,7 @@ use oasis7_world_state::incremental_value_mutation::ValueMutationContextV1;
 struct MaterialRefundPointV1{kind:String,before:LedgerQuantityV1,after:i64}
 pub(in crate::world) enum CurrentOrderRefundOutcomeV1{Ready(ReadyOrderAdvanceV1),Rejected(ReservedValue<crate::WorldError>)}
 #[allow(clippy::too_many_arguments)]
-pub(in crate::world) fn refund_current_order_advance_v1<M,P,V,R,W,E,C,PE,PC,CW,ME>(source:RefundOrderAdvanceV1,sources:&IndustrialDeliverySourcesV1<'_,'_>,state:&M,ctx:&mut WorldFieldOverlayContextV1<'_,'_,'_,M,R,E,C>,parent:&mut WorldFieldReadContextV1<'_,P,V,PE,PC>,write:&mut MemberRecordWriteContext<'_,W,CW>,materials:&mut CorePolicyMaterialContextV1<'_,M,ME>,work:&mut IndustrialDeliveryWorkV1,common:&mut FormalBoundedContextV1<'_>,now:u64,live:&ExecutionFence)->Result<CurrentOrderRefundOutcomeV1,IndustrialDeliveryErrorV1>
+pub(in crate::world) fn refund_current_order_advance_v1<M,P,V,R,W,E,C,PE,PC,CW,ME>(source:RefundOrderAdvanceV1,sources:&IndustrialDeliverySourcesV1<'_,'_>,_state:&M,ctx:&mut WorldFieldOverlayContextV1<'_,'_,'_,M,R,E,C>,parent:&mut WorldFieldReadContextV1<'_,P,V,PE,PC>,write:&mut MemberRecordWriteContext<'_,W,CW>,materials:&mut CorePolicyMaterialContextV1<'_,M,ME>,work:&mut IndustrialDeliveryWorkV1,common:&mut FormalBoundedContextV1<'_>,now:u64,live:&ExecutionFence)->Result<CurrentOrderRefundOutcomeV1,IndustrialDeliveryErrorV1>
 where M:MerkleNodeReader,P:MerkleNodeReader,V:ValueNodeReader,R:ValueNodeReader,W:ValueNodeReader+ValueNodeWriter+StatePageWriter,E:FnMut()->Option<ValueTreeError>,C:FnMut()->bool,PE:FnMut()->Option<ValueTreeError>,PC:FnMut()->bool,CW:FnMut()->bool,ME:FnMut()->Option<ValueTreeError>{
  let mut source=source.0;
  delivery::paid_io::run(ctx,parent,write,materials,work,common,|ctx,parent,write,_materials,work,tail|{
@@ -19,7 +19,7 @@ where M:MerkleNodeReader,P:MerkleNodeReader,V:ValueNodeReader,R:ValueNodeReader,
   let cancelled=source.after.phase==AgentIndustrialPhaseV1::Cancelled;
   let count=if cancelled{source.after.inputs.len()}else{0};
   let mut bytes=count.checked_mul(size_of::<MaterialRefundPointV1>()).ok_or_else(bad)?;
-  if cancelled{for(kind,_)in &source.after.inputs{bytes=bytes.checked_add(kind.len()).ok_or_else(bad)?;}}
+  if cancelled{for kind in source.after.inputs.keys(){bytes=bytes.checked_add(kind.len()).ok_or_else(bad)?;}}
   tail.charge(bytes)?;let _points_fee=tail.memory().reserve(bytes,MemoryClass::Ordinary).map_err(ValueTreeError::Memory)?;
   let mut points=Vec::with_capacity(count);if points.capacity()!=count{return Err(bad().into());}
   if cancelled{for(kind,amount)in &source.after.inputs{

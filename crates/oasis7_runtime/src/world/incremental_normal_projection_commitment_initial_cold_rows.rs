@@ -17,7 +17,8 @@ impl NormalProjectionColumnInitializerV1<'_, '_>{
   grow(&mut target.rows,&mut target._row_slots,self.common)?;target.rows.push(ProjectionOriginalColumnRowV1{semantic,key_json,json,value,agent_electricity:None,agent_intent:None,_fee:fee});Ok(())
  }
  pub(super) fn row_from_qualified_json_v1(&mut self,field:FieldDescriptor,semantic:&[u8],key:&[u8],json:&[u8])->Result<(),BodyMutationError>{
-  self.common.consume_steps(1).map_err(paid)?;if !self.active.contains(&(field.owner,field.name)){return Err(invalid("qualified column field framing"))}if !Self::needed(field){return Ok(())}
+  self.common.consume_steps(1).map_err(paid)?;if !self.active.contains(&(field.owner,field.name)){return Err(invalid("qualified column field framing"))}
+  if !Self::needed(field){return Ok(())}
   let copy=|input:&[u8],common:&mut FormalBoundedContextV1<'_>|capture(common,|out|std::io::Write::write_all(out,input).map_err(paid));
   let semantic=copy(semantic,self.common)?;let key=copy(key,self.common)?;let json=copy(json,self.common)?;
   self.append_original_encoded_row_v1(field,semantic,key,json)

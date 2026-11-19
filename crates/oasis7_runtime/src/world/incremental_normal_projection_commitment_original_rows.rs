@@ -123,7 +123,8 @@ impl serde::Serialize for OriginalProjectionSetSerializeV1<'_,'_,'_>{fn serializ
  use serde::ser::{SerializeSeq,Error as _};
  if self.first.borrow().is_some(){return Err(S::Error::custom("original set meter stopped"))}
  if let Err(error)=self.rows.validate(&mut self.common.borrow_mut()){*self.first.borrow_mut()=Some(error);return Err(S::Error::custom("original set source context"))}
- fn walk<S:SerializeSeq>(tree:&Tree,seq:&mut S,view:&OriginalProjectionSetSerializeV1<'_,'_,'_>)->Result<(),S::Error>{let Some(node)=tree else{return Ok(())};if view.first.borrow().is_some(){return Err(S::Error::custom("original set meter stopped"))}if let Err(error)=view.common.borrow_mut().consume_steps(1){*view.first.borrow_mut()=Some(paid(error));return Err(S::Error::custom("original set meter stopped"))}walk(&node.left,seq,view)?;seq.serialize_element(node.row.original_key_value())?;walk(&node.right,seq,view)}
+ fn walk<S:SerializeSeq>(tree:&Tree,seq:&mut S,view:&OriginalProjectionSetSerializeV1<'_,'_,'_>)->Result<(),S::Error>{let Some(node)=tree else{return Ok(())};if view.first.borrow().is_some(){return Err(S::Error::custom("original set meter stopped"))}
+ if let Err(error)=view.common.borrow_mut().consume_steps(1){*view.first.borrow_mut()=Some(paid(error));return Err(S::Error::custom("original set meter stopped"))}walk(&node.left,seq,view)?;seq.serialize_element(node.row.original_key_value())?;walk(&node.right,seq,view)}
  let mut seq=serializer.serialize_seq(Some(self.rows.len()))?;walk(&self.rows.root,&mut seq,self)?;seq.end()
 }}
 
