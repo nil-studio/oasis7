@@ -265,9 +265,15 @@ fn activation_case() {
         write("node.json", &serde_json::to_vec(node_value).unwrap());
         let result = run("--activate-private-source");
         join.join().unwrap().unwrap();
-        result.unwrap();
+        result
     };
-    activate(&mut node_value);
+    FormalBftHeaderLedgerExecutionV3::inject_covered_source_reservation_cut();
+    let interrupted = activate(&mut node_value).unwrap_err();
+    assert!(interrupted.contains("injected cut after covered original reservation"));
+    assert!(dir.join("origin.reservation.cbor").is_file());
+    assert!(!dir.join("origin.cbor").exists());
+    assert_eq!(snapshot.lock().unwrap().state.revision, 1);
+    activate(&mut node_value).unwrap();
     let bytes = fs::read(dir.join("origin.cbor")).unwrap();
     assert_eq!(
         store
@@ -287,7 +293,7 @@ fn activation_case() {
         "oasis7.formal.bft.private-source.activation.v1"
     );
     assert_eq!(snapshot.lock().unwrap().state.revision, 1);
-    activate(&mut node_value);
+    activate(&mut node_value).unwrap();
     assert_eq!(fs::read(dir.join("origin.cbor")).unwrap(), bytes);
     assert_eq!(snapshot.lock().unwrap().state.revision, 1);
     let ordinary = crate::identity_receipt::dispatch(

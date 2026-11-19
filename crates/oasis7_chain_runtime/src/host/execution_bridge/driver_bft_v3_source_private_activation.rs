@@ -151,7 +151,7 @@ impl CoveredSourcePublication<'_> {
         }
         let path = dir.join("origin.cbor");
         let existing = preflight(&dir, self.store, marker)?;
-        super::super::super::super::super::super::super::super::super::controlled_live::private_directory(&dir)?;
+        ensure_private_directory(&dir)?;
         let directory = DirectoryIdentity::open(&dir)?;
         let guarded = || {
             live()?;
@@ -198,7 +198,14 @@ impl CoveredSourcePublication<'_> {
         ledger.reserve_external_material(usage)?;
         let guarded = || {
             guarded()?;
-            ledger.verify_carriers()
+            ledger.verify_carriers()?;
+            #[cfg(test)]
+            if path.with_extension("reservation.cbor").is_file()
+                && ABORT_AFTER_RESERVATION.with(|abort| abort.replace(false))
+            {
+                return Err("injected cut after covered original reservation".into());
+            }
+            Ok(())
         };
         guarded()?;
         let complete = existing.as_ref().is_some_and(|slot| slot.complete);
@@ -316,4 +323,14 @@ fn check_original_files(dir: &Path, has_origin: bool) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+thread_local! {
+    static ABORT_AFTER_RESERVATION: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+pub(in super::super) fn inject_reservation_cut() {
+    ABORT_AFTER_RESERVATION.with(|abort| abort.set(true));
 }

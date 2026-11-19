@@ -11,6 +11,11 @@ use oasis7_distfs::protected_bft_v3::{
 use std::time::Instant;
 
 impl FormalBftHeaderLedgerExecutionV3 {
+    #[cfg(test)]
+    pub(crate) fn inject_covered_source_reservation_cut() {
+        super::private_store::source_activation::inject_reservation_cut();
+    }
+
     pub(crate) fn covered_source_binding_parts(
         &self,
         creation_identity: &str,

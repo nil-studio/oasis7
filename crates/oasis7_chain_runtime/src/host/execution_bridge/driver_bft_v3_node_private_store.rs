@@ -331,9 +331,7 @@ impl NodePrivateStore {
                 );
             }
         }
-        super::super::super::super::super::super::super::super::controlled_live::private_directory(
-            &self.dir,
-        )?;
+        ensure_private_directory(&self.dir)?;
         self.origin.get_or_insert(Slot {
             data: data.clone(),
             complete: false,
@@ -662,6 +660,10 @@ impl NodePrivateStore {
     fn candidate_path(&self, height: u64) -> PathBuf {
         self.dir.join(format!("candidate-{height:020}.cbor"))
     }
+}
+
+fn ensure_private_directory(path: &Path) -> Result<(), String> {
+    super::super::super::super::super::super::super::super::controlled_live::private_directory(path)
 }
 
 fn read_slot(path: &Path) -> Result<Option<Slot>, String> {
