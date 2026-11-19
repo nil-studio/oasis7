@@ -1,0 +1,48 @@
+name: NewAPI release archive smoke probe
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/newapi-archive-smoke-probe.yml']
+permissions:
+  actions: read
+  contents: read
+jobs:
+  launch:
+    if: github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - run: '44625182206'
+            digest: 8442a90e704de511ee1f650a3c1c021bef625e04df969c9856d51c749d988d50
+          - run: '44625183260'
+            digest: 75026413f9c2f3f3d6fb5d61ae64c15aabe0e7980a4f0a70fb9bdd6becedd401
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          run-id: ${{ matrix.run }}
+          github-token: ${{ github.token }}
+          name: newapi-bridge-service-linux-x86_64-780656edbf3a1705975639d345ba61e45b849e28
+          path: ${{ runner.temp }}/package
+      - name: Launch the verified archive and check its health endpoint
+        env:
+          ARCHIVE_DIGEST: ${{ matrix.digest }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/package"
+          printf '%s  %s\n' "$ARCHIVE_DIGEST" newapi-bridge-service-linux-x86_64.tar.gz | sha256sum --check
+          tar -xzf newapi-bridge-service-linux-x86_64.tar.gz
+          cd newapi-bridge-service
+          sha256sum --check SHA256SUMS
+          grep -Fx 'git_sha=780656edbf3a1705975639d345ba61e45b849e28' BUILDINFO
+          export OASIS7_NEWAPI_BRIDGE_ROOT="$PWD"
+          export OASIS7_NEWAPI_BRIDGE_STATE_PATH="$RUNNER_TEMP/bridge-state.json"
+          export OASIS7_NEWAPI_BRIDGE_LETAI_BASE_URL=http://127.0.0.1:1
+          export OASIS7_NEWAPI_BRIDGE_LETAI_PLATFORM_KEY=local-smoke-only
+          bash scripts/newapi-bridge-service/start-newapi-bridge-service.sh >"$RUNNER_TEMP/bridge.log" 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; cat "$RUNNER_TEMP/bridge.log"' EXIT
+          curl --fail --silent --show-error --retry 15 --retry-connrefused --retry-delay 1 --max-time 2 http://127.0.0.1:5852/health |
+            python3 -c 'import json, sys; response = json.load(sys.stdin); assert response["ok"] is True and response["service"] == "oasis7_newapi_bridge_service"; print(response["service"], "healthy")'
