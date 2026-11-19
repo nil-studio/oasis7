@@ -940,10 +940,10 @@ fn adapter_migration_lost_reply_and_lease_restart_recover_exact_history() {
 
     let mut recovered = DurableFullSyncIssuerV3::open_v3(
         temp.path(),
-        old,
-        new,
+        old.clone(),
+        new.clone(),
         key(7),
-        pinned_v3_minimum,
+        pinned_v3_minimum.clone(),
         &mut witness,
     )
     .unwrap();
@@ -951,14 +951,43 @@ fn adapter_migration_lost_reply_and_lease_restart_recover_exact_history() {
     let exact_retry = recovered.issue_lease(second_request, &mut witness).unwrap();
     assert_eq!(exact_retry, lost_reply_entry);
     assert_eq!(witness.event_commits, commit_count);
-    assert_eq!(
+
+    let latest = lost_reply_entry.record.next_anchor.clone();
+    let on_disk = fs::read(temp.path().join(LEDGER_FILE)).unwrap();
+    let evidence = recovered
+        .read_evidence(latest.clone(), [92; 32], &mut witness)
+        .unwrap();
+    assert_eq!(evidence.query.body.observation_nonce, hash(92));
+    assert_eq!(evidence.query.body.minimum_anchor, latest);
+    assert_eq!(evidence.observation.body.query, evidence.query);
+    assert_eq!(evidence.history.v2_entries, v2_prefix);
+    assert_eq!(evidence.history.v3_entries.last(), Some(&lost_reply_entry));
+    let independently_verified = VerifiedFullSyncIssuerStateV3::from_witness_observation(
+        old,
+        new,
+        evidence.history,
+        &evidence.observation,
+    )
+    .unwrap();
+    assert_eq!(independently_verified.anchor(), &latest);
+    assert_eq!(independently_verified.leases().len(), 2);
+
+    let observation_count = witness.v3_observations.len();
+    assert!(
         recovered
-            .synchronize_v3(&mut witness)
-            .unwrap()
-            .leases()
-            .len(),
-        2
+            .read_evidence(latest, [0; 32], &mut witness)
+            .is_err()
     );
+    assert_eq!(witness.v3_observations.len(), observation_count);
+
+    let mut forked_prefix = pinned_v3_minimum;
+    forked_prefix.state_digest = hash(99);
+    assert!(matches!(
+        recovered.read_evidence(forked_prefix, [93; 32], &mut witness),
+        Err(FormalError::Rollback(_))
+    ));
+    assert_eq!(witness.event_commits, commit_count);
+    assert_eq!(fs::read(temp.path().join(LEDGER_FILE)).unwrap(), on_disk);
 }
 
 #[test]
