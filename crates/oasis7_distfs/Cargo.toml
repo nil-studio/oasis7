@@ -23,6 +23,7 @@ sha2 = "0.11"
 hex = "0.4"
 zstd = { version = "0.14.3", default-features = false }
 ed25519-dalek = "3"
+cryptoki = { version = "0.12.1", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
@@ -35,9 +36,15 @@ polling = "3.11.0"
 oasis7_formal_protocol = { path = "../oasis7_formal_protocol", features = ["test-support"] }
 
 [features]
+protected-bft-luna-key = ["dep:cryptoki"]
 sync-builtin-wasm-identity = ["dep:oasis7_wasm_build"]
 
 [[bin]]
 name = "sync_builtin_wasm_identity"
 path = "src/bin/sync_builtin_wasm_identity.rs"
 required-features = ["sync-builtin-wasm-identity"]
+
+[[example]]
+name = "qualify_luna_bft_key"
+required-features = ["protected-bft-luna-key"]
+test = false

@@ -345,6 +345,16 @@ pub struct FullSyncIssuerHistoryV3 {
     pub v3_entries: Vec<FullSyncIssuerCommittedEntryV3>,
 }
 
+/// Raw issuer query, witness observation and complete signed history. The
+/// receiver independently verifies every member before authorizing any read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FullSyncIssuerReadEvidenceV3 {
+    pub query: SignedFullSyncIssuerQueryV3,
+    pub observation: SignedFullSyncIssuerObservationV3,
+    pub history: FullSyncIssuerHistoryV3,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FullSyncIssuerMigrationResumeBundleV3 {

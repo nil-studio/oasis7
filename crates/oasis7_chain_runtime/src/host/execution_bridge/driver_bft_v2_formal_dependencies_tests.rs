@@ -206,4 +206,7 @@ fn replay_accesses_exclude_unvisited_preloaded_suffix_nodes() {
         BTreeMap::from([first, generated])
     );
     assert!(reader.recorded_refs().unwrap().contains(&future.0));
+    assert!(!reader.all_recorded_nodes_accessed().unwrap());
+    assert_eq!(reader.read_node(&future.0).unwrap(), Some(future.1));
+    assert!(reader.all_recorded_nodes_accessed().unwrap());
 }

@@ -18,6 +18,7 @@ use libp2p::{Multiaddr, PeerId, StreamProtocol, Transport as _};
 use oasis7_proto::distributed::RR_PROTOCOL_PREFIX;
 use oasis7_proto::distributed_net::{NetworkRequest, NetworkResponse};
 
+use super::connection_budget::ConnectionBudget;
 use super::peer_record_admission::{PeerRecordAdmissionBudget, SharedPeerRecordAdmissionBudget};
 use super::peer_record_dial_gate::DiscoveryDialPolicy;
 use super::peer_record_protocol_dial::{ProtocolDialBehaviour, ProtocolDialOrigins};
@@ -46,6 +47,7 @@ pub(super) struct InnerBehaviour {
 /// cache addresses internally, but those caches cannot extend signed leases.
 pub(super) struct Behaviour {
     inner: InnerBehaviour,
+    connection_budget: Option<ConnectionBudget>,
     pub(super) discovery_budget: super::discovery_budget::DiscoveryWorkBudget,
     peer_record_admission_budget: SharedPeerRecordAdmissionBudget,
     dial_policy: DiscoveryDialPolicy,
@@ -58,14 +60,23 @@ impl Behaviour {
         inner: InnerBehaviour,
         protocol_dials: ProtocolDialOrigins,
         peer_record_admission_budget: SharedPeerRecordAdmissionBudget,
+        connection_budget: Option<ConnectionBudget>,
+        discovery_budget: super::discovery_budget::DiscoveryWorkBudget,
     ) -> Self {
         Self {
             inner,
-            discovery_budget: Default::default(),
+            connection_budget,
+            discovery_budget,
             peer_record_admission_budget,
             dial_policy: DiscoveryDialPolicy::default(),
             protocol_dials,
             automatic_dials: Default::default(),
+        }
+    }
+
+    pub(super) fn note_handshake_deadline(&self) {
+        if let Some(budget) = &self.connection_budget {
+            budget.note_handshake_deadline();
         }
     }
 
@@ -110,8 +121,18 @@ impl NetworkBehaviour for Behaviour {
         local: &Multiaddr,
         remote: &Multiaddr,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        self.inner
-            .handle_established_inbound_connection(id, peer, local, remote)
+        let admission = self
+            .connection_budget
+            .as_ref()
+            .map(|budget| budget.authorize_inbound(id, peer))
+            .transpose()?;
+        let handler = self
+            .inner
+            .handle_established_inbound_connection(id, peer, local, remote)?;
+        if let Some(admission) = admission {
+            admission.establish()?;
+        }
+        Ok(handler)
     }
     fn handle_pending_outbound_connection(
         &mut self,
@@ -149,8 +170,18 @@ impl NetworkBehaviour for Behaviour {
         role: libp2p::core::Endpoint,
         port: libp2p::core::transport::PortUse,
     ) -> Result<libp2p::swarm::THandler<Self>, libp2p::swarm::ConnectionDenied> {
-        self.inner
-            .handle_established_outbound_connection(id, peer, address, role, port)
+        let admission = self
+            .connection_budget
+            .as_ref()
+            .map(|budget| budget.authorize_outbound(id, address, peer))
+            .transpose()?;
+        let handler = self
+            .inner
+            .handle_established_outbound_connection(id, peer, address, role, port)?;
+        if let Some(admission) = admission {
+            admission.establish()?;
+        }
+        Ok(handler)
     }
     fn on_swarm_event(&mut self, event: libp2p::swarm::FromSwarm<'_>) {
         if let libp2p::swarm::FromSwarm::DialFailure(failure) = event {
@@ -255,6 +286,7 @@ pub(super) fn build_swarm(
         request_response_timeout,
         wire_byte_counters,
         super::receiver_floor::PeerRecordReceiver::legacy(),
+        None,
     )
 }
 
@@ -265,9 +297,14 @@ pub(super) fn build_swarm_with_receiver(
     request_response_timeout: std::time::Duration,
     wire_byte_counters: SharedLibp2pWireByteCounters,
     peer_record_receiver: super::receiver_floor::SharedPeerRecordReceiver,
+    connection_budget: Option<ConnectionBudget>,
 ) -> Swarm<Behaviour> {
     let swarm_config = libp2p::swarm::Config::with_tokio_executor()
         .with_idle_connection_timeout(std::time::Duration::from_secs(30));
+    let swarm_config = match &connection_budget {
+        Some(budget) => budget.configure_swarm(swarm_config),
+        None => swarm_config,
+    };
 
     let peer_id = PeerId::from(keypair.public());
     let gossipsub = gossipsub::Behaviour::new(
@@ -321,7 +358,13 @@ pub(super) fn build_swarm_with_receiver(
         ),
     };
 
-    let behaviour = Behaviour::new(inner, protocol_dials, peer_record_admission_budget);
+    let behaviour = Behaviour::new(
+        inner,
+        protocol_dials,
+        peer_record_admission_budget,
+        connection_budget,
+        super::discovery_budget::DiscoveryWorkBudget::with_wire_window(wire_byte_counters.window()),
+    );
 
     let quic_transport = libp2p::quic::tokio::Transport::new(libp2p::quic::Config::new(keypair));
     let tcp_transport = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default())
@@ -356,31 +399,40 @@ pub(super) fn build_swarm_with_receiver(
     Swarm::new(transport, behaviour, peer_id, swarm_config)
 }
 
+/// Targeted discovery reuses an established connection under the shared
+/// profile. A stale peer-list entry must not turn work admission into a dial.
+pub(super) fn may_reuse_discovery_connection(swarm: &Swarm<Behaviour>, peer: PeerId) -> bool {
+    swarm.behaviour().connection_budget.is_none() || swarm.is_connected(&peer)
+}
+
 pub(super) fn dial_addr_with_optional_peer_id(
     swarm: &mut Swarm<Behaviour>,
     addr: Multiaddr,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<libp2p::swarm::ConnectionId, Box<dyn std::error::Error + Send + Sync>> {
     let (peer_id, dial_addr) = split_peer_id(addr);
-    if let Some(peer_id) = peer_id {
+    let opts = if let Some(peer_id) = peer_id {
         swarm
             .behaviour_mut()
             .kademlia
             .add_address(&peer_id, dial_addr.clone());
-        let opts = libp2p::swarm::dial_opts::DialOpts::peer_id(peer_id)
+        libp2p::swarm::dial_opts::DialOpts::peer_id(peer_id)
             .addresses(vec![dial_addr])
-            .build();
-        swarm.dial(opts)?;
+            .build()
     } else {
-        swarm.dial(dial_addr)?;
-    }
-    Ok(())
+        libp2p::swarm::dial_opts::DialOpts::unknown_peer_id()
+            .address(dial_addr)
+            .build()
+    };
+    let connection_id = opts.connection_id();
+    swarm.dial(opts)?;
+    Ok(connection_id)
 }
 
 /// Dial an already accepted record endpoint without persisting it in routing caches.
 pub(super) fn dial_record_addr(
     swarm: &mut Swarm<Behaviour>,
     addr: Multiaddr,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<libp2p::swarm::ConnectionId, Box<dyn std::error::Error + Send + Sync>> {
     let (peer, addr) = split_peer_id(addr);
     let opts = if let Some(peer) = peer {
         libp2p::swarm::dial_opts::DialOpts::peer_id(peer)
@@ -393,12 +445,10 @@ pub(super) fn dial_record_addr(
     };
     // Record-driven application dials receive the same final freshness check as
     // child protocol dials; only explicit local caller actions bypass it.
-    swarm
-        .behaviour_mut()
-        .automatic_dials
-        .insert(opts.connection_id());
+    let connection_id = opts.connection_id();
+    swarm.behaviour_mut().automatic_dials.insert(connection_id);
     swarm.dial(opts)?;
-    Ok(())
+    Ok(connection_id)
 }
 
 pub(super) fn split_peer_id(mut addr: Multiaddr) -> (Option<PeerId>, Multiaddr) {

@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Actual HTTP child/outer/merger boundary; host/traffic remain isolated doubles."""
+import hashlib
 import importlib.util
 import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
+import sys
 import threading
 import time
 import unittest
@@ -174,6 +177,126 @@ class ProfileHttpTests(unittest.TestCase):
         self.assertEqual(report["nodes"]["local_node"]["profile_readiness"]["reason"],
                          "bft_observation_unavailable")
         self.assertIn('"bft_observation_unavailable"', markdown)
+
+    def controlled_inventory_fixture(self):
+        runtime = self.fixture.root / "fixture-status-verifier"
+        runtime.write_text('''#!/usr/bin/env python3
+import json, sys
+assert sys.argv[1:5] == ["op", "formal-status-observe", "--request", "-"]
+assert len(sys.argv) in (5, 7)
+pins = json.load(sys.stdin)
+assert pins["service_public_key"] == "e" * 64
+assert "owner_config" not in pins
+result = dict(api_version="oasis7.formal-live-status-observation/v1",
+    observation_scope="authenticated_host_diagnostics_only", authority_qualification="unknown",
+    node_id=pins["expected_node_id"], world=pins["expected_world"], host_state="ready",
+    host_reports_ready=True, node_running=True, runtime_error_present=False,
+    committed_position=8, committed_record_id="f" * 64, raw_error="DO_NOT_COPY")
+if len(sys.argv) == 7:
+    assert sys.argv[5] == "--owner-config"
+    with open(sys.argv[6]) as config:
+        result["protected_pair"] = json.load(config)
+print(json.dumps(result))
+''')
+        runtime.chmod(0o700)
+        pins = dict(status_url=self.url.replace("/status", "/v1/chain/status"),
+                    service_public_key="e" * 64, expected_node_id="primary-host",
+                    expected_world=dict(world_id="controlled-world", genesis_digest="a" * 64))
+        inventory = self.fixture.root / "controlled-inventory.json"
+        inventory.write_text(json.dumps(dict(api_version="oasis7.controlled-status-inventory/v1",
+                                              runtime_bin=str(runtime), slots=dict(local_node=pins))))
+        return inventory
+
+    def test_controlled_inventory_projects_only_verified_host_scope(self):
+        inventory = self.controlled_inventory_fixture()
+        process = self.fixture.start(self.env, [
+            "--controlled-status-inventory", str(inventory), "--storage-profile-status-url", self.url
+        ])
+        out, err = process.communicate(timeout=20)
+        self.assertEqual(process.returncode, 0, (out.decode(), err.decode()))
+        report = json.loads((self.fixture.out / "latest_summary.json").read_text())
+        host = report["nodes"]["local_node"]
+        profile = host["profile_readiness"]
+        self.assertEqual(profile["source"], "verified_controlled_status")
+        self.assertEqual(profile["committed_position"], 8)
+        self.assertEqual(profile["status"], "unknown")
+        self.assertIs(profile["host_reports_ready"], True)
+        self.assertIs(profile["can_propose"], False)
+        self.assertEqual(profile["authority_qualification"], "unknown")
+        pins = json.loads(inventory.read_text())["slots"]["local_node"]
+        self.assertEqual(host["profile_collection"]["endpoint_scope_digest"],
+                         hashlib.sha256(json.dumps(pins, sort_keys=True, separators=(",", ":")).encode()).hexdigest())
+        self.assertEqual(report["nodes"]["storage_ecs"]["profile_readiness"]["status"], "ready")
+        markdown = (self.fixture.out / "latest_summary.md").read_text()
+        self.assertIn("local_authenticated_receipt", markdown)
+        self.assertNotIn("DO_NOT_COPY", json.dumps(report) + markdown)
+        self.assertNotIn(self.url, json.dumps(report) + markdown)
+        self.assertNotIn("e" * 64, json.dumps(report) + markdown)
+        child = load("controlled_http_reader", "p2p-triad-http-profile.py")
+        as_of = profile["observed_at_unix_ms"] + child.adapter.MAX_AGE_MS + 1
+        stale = child.refresh_report(report, as_of)["nodes"]["local_node"]["profile_readiness"]
+        self.assertEqual(stale["reason"], "controlled_host_observation_expired")
+        self.assertEqual(stale["source_freshness"], "stale")
+        self.assertEqual(stale["observed_at_unix_ms"], profile["observed_at_unix_ms"])
+
+    def test_controlled_owner_observation_keeps_its_original_sample_time(self):
+        inventory = self.controlled_inventory_fixture()
+        config = self.fixture.root / "owner-private-config"
+        pins = json.loads(inventory.read_text())
+        pins["slots"]["local_node"]["owner_config"] = str(config)
+        inventory.write_text(json.dumps(pins))
+        endpoint = dict(status="authenticated", head=dict(position=8, record_id="f" * 64),
+                        instance_digest="b" * 64, checkpoint_revision=3, epoch_floor=2,
+                        sealed=False, native_request_pending=True, private_path="DO_NOT_COPY")
+        started_at = time.time_ns() // 1_000_000
+        pair = dict(status="observed", sample_started_at_unix_ms=started_at,
+                    finalizing_authority_id="a" * 64, both_heads_match_unchanged_cut=True,
+                    primary=endpoint, replica=endpoint)
+        for expected in ("observed", "invalid_observation"):
+            config.write_text(json.dumps(pair))
+            process = self.fixture.start(self.env, ["--controlled-status-inventory", str(inventory)])
+            out, err = process.communicate(timeout=20)
+            self.assertEqual(process.returncode, 0, (out.decode(), err.decode()))
+            report = json.loads((self.fixture.out / "latest_summary.json").read_text())
+            markdown = (self.fixture.out / "latest_summary.md").read_text()
+            profile = report["nodes"]["local_node"]["profile_readiness"]
+            self.assertEqual(profile["authority_qualification"], "unknown")
+            self.assertFalse(profile["can_propose"])
+            self.assertEqual(profile["protected_pair"]["status"], expected)
+            self.assertNotIn(str(config), json.dumps(report) + markdown)
+            self.assertNotIn("DO_NOT_COPY", json.dumps(report) + markdown)
+            if expected == "observed":
+                self.assertEqual(profile["protected_pair"]["primary"]["checkpoint_revision"], 3)
+                child = load("controlled_owner_reader", "p2p-triad-http-profile.py")
+                expired = child.refresh_report(report, started_at + 60_001)
+                protected = expired["nodes"]["local_node"]["profile_readiness"]["protected_pair"]
+                self.assertEqual(protected["freshness"], "stale")
+                self.assertEqual(protected["sample_started_at_unix_ms"], started_at)
+                pair["replica"] = dict(endpoint, head=dict(position=9, record_id="d" * 64))
+            else:
+                self.assertEqual(profile["protected_pair"], {"status": "invalid_observation"})
+
+    def test_controlled_inventory_rejects_conflict_and_mutation(self):
+        inventory = self.controlled_inventory_fixture()
+        options = ["--controlled-status-inventory", str(inventory)]
+        process = self.fixture.start(self.env, options + ["--local-profile-status-url", self.url])
+        process.communicate(timeout=10)
+        self.assertEqual(process.returncode, 2)
+        self.assertFalse(self.fixture.out.exists())
+
+        actual = hashlib.sha256(inventory.read_bytes()).hexdigest()
+        inventory.write_text(inventory.read_text() + "\n")
+        summary = self.fixture.root / "mutated-inventory-summary.json"
+        process = subprocess.run([
+            sys.executable, str(SCRIPTS / "p2p-triad-http-profile.py"),
+            "--controlled-inventory", str(inventory), "--expected-controlled-inventory-digest", actual,
+            "--summary-json", str(summary),
+        ], capture_output=True, timeout=10, check=False)
+        self.assertEqual(process.returncode, 1)
+        report = json.loads(summary.read_text())
+        host = report["nodes"]["local_node"]["profile_readiness"]
+        self.assertEqual(host["reason"], "controlled_inventory_unavailable")
+        self.assertNotIn("host_reports_ready", host)
 
     def test_latest_http_failure_does_not_borrow_old_ready_and_recovers(self):
         self.run_outer()

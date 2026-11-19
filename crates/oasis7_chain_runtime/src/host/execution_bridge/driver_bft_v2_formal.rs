@@ -125,8 +125,9 @@ mod formal_storage;
 #[path = "driver_bft_v3_formal.rs"]
 mod formal_header;
 pub(crate) use formal_header::{
-    FormalBftHeaderExecutionV3, FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3,
-    PRIVATE_HEADER_PREFIX_MAX_BYTES_V3, PrivateHeaderPrefixV3,
+    CommittedPrefixArchiveRefV1, FormalBftHeaderExecutionV3, FormalBftHeaderLedgerExecutionV3,
+    FormalBftHeaderNodeDriverV3, OriginalCandidateArchivePinV1, PRIVATE_HEADER_PREFIX_MAX_BYTES_V3,
+    PrivateHeaderPrefixV3, ReplayedCommittedPrefixV1, ReplayedOriginalCandidateV1,
 };
 
 #[path = "driver_bft_formal_ledger.rs"]

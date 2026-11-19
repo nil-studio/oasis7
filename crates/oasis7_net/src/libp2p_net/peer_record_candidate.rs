@@ -54,7 +54,7 @@ pub(super) fn install_admitted_peer_record(
     discovered_peer_records: &mut PeerRecordCache,
     discovery_observations: &mut DiscoveryObservations,
     known_transport_paths: &mut HashMap<PeerId, Vec<TransportPath>>,
-    last_dialed_transport_paths: &mut HashMap<PeerId, TransportPath>,
+    last_dialed_transport_paths: &mut HashMap<PeerId, super::transport_paths::DialedTransportPath>,
     active_transport_paths: &HashMap<PeerId, TransportPath>,
     failed_transport_path_labels: &mut HashSet<String>,
     template: Option<&PeerRecord>,
@@ -93,7 +93,7 @@ pub(super) fn install_admitted_peer_record_with_rendezvous_triggers(
     discovered_peer_records: &mut PeerRecordCache,
     discovery_observations: &mut DiscoveryObservations,
     known_transport_paths: &mut HashMap<PeerId, Vec<TransportPath>>,
-    last_dialed_transport_paths: &mut HashMap<PeerId, TransportPath>,
+    last_dialed_transport_paths: &mut HashMap<PeerId, super::transport_paths::DialedTransportPath>,
     active_transport_paths: &HashMap<PeerId, TransportPath>,
     failed_transport_path_labels: &mut HashSet<String>,
     template: Option<&PeerRecord>,
@@ -149,7 +149,7 @@ pub(super) fn install_dht_discovered_peer_record(
     discovered_peer_records: &mut PeerRecordCache,
     discovery_observations: &mut DiscoveryObservations,
     known_transport_paths: &mut HashMap<PeerId, Vec<TransportPath>>,
-    last_dialed_transport_paths: &mut HashMap<PeerId, TransportPath>,
+    last_dialed_transport_paths: &mut HashMap<PeerId, super::transport_paths::DialedTransportPath>,
     active_transport_paths: &HashMap<PeerId, TransportPath>,
     failed_transport_path_labels: &mut HashSet<String>,
     template: Option<&PeerRecord>,
@@ -207,7 +207,7 @@ pub(super) fn process_signed_peer_record(
     discovered_peer_records: &mut PeerRecordCache,
     discovery_observations: &mut DiscoveryObservations,
     known_transport_paths: &mut HashMap<PeerId, Vec<TransportPath>>,
-    last_dialed_transport_paths: &mut HashMap<PeerId, TransportPath>,
+    last_dialed_transport_paths: &mut HashMap<PeerId, super::transport_paths::DialedTransportPath>,
     active_transport_paths: &HashMap<PeerId, TransportPath>,
     failed_transport_path_labels: &mut HashSet<String>,
     template: Option<&PeerRecord>,
@@ -242,7 +242,7 @@ fn process_signed_peer_record_with_rendezvous_triggers(
     discovered_peer_records: &mut PeerRecordCache,
     discovery_observations: &mut DiscoveryObservations,
     known_transport_paths: &mut HashMap<PeerId, Vec<TransportPath>>,
-    last_dialed_transport_paths: &mut HashMap<PeerId, TransportPath>,
+    last_dialed_transport_paths: &mut HashMap<PeerId, super::transport_paths::DialedTransportPath>,
     active_transport_paths: &HashMap<PeerId, TransportPath>,
     failed_transport_path_labels: &mut HashSet<String>,
     template: Option<&PeerRecord>,
@@ -373,7 +373,7 @@ fn process_signed_peer_record_with_rendezvous_triggers(
     {
         let already_dialing_preferred = last_dialed_transport_paths
             .get(&peer_id)
-            .map(|path| path.label() == preferred_path.label())
+            .map(|dialed| dialed.path.label() == preferred_path.label())
             .unwrap_or(false);
         let should_dial = (!matches!(peer_status, PeerManagerHealthStatus::Blocked)
             && !matches!(peer_status, PeerManagerHealthStatus::Suspect))
@@ -396,7 +396,7 @@ fn revoke_candidate_projection(
     discovered_peer_records: &mut PeerRecordCache,
     discovery_observations: &mut DiscoveryObservations,
     known_transport_paths: &mut HashMap<PeerId, Vec<TransportPath>>,
-    last_dialed_transport_paths: &mut HashMap<PeerId, TransportPath>,
+    last_dialed_transport_paths: &mut HashMap<PeerId, super::transport_paths::DialedTransportPath>,
     failed_transport_path_labels: &mut HashSet<String>,
 ) {
     discovered_peer_records.invalidate_candidate(peer_id);

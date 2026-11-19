@@ -40,7 +40,7 @@ class NetworkSourceContract(unittest.TestCase):
         docker = (ROOT / "docker/wasm-builder/Dockerfile").read_text().splitlines()
         context_policy = (ROOT / ".dockerignore").read_text().splitlines()
         paths = [root["patch"][URL][name]["path"]
-                 for name in ("libp2p-swarm", "libp2p-rendezvous")]
+                 for name in ("libp2p-swarm", "libp2p-rendezvous", "libp2p-quic")]
         paths.append(root["patch"]["crates-io"]["if-watch"]["path"])
         for patch in paths:
             self.assertIn(f"COPY --chmod=0755 {patch} /opt/oasis7/{patch}", docker)
@@ -113,9 +113,13 @@ class NetworkSourceContract(unittest.TestCase):
         self.assertEqual(manifest["patch"][URL]["libp2p-swarm"]["path"],
                          "../vendor-libp2p-swarm-0.48.0")
 
-    def test_swarm_snapshot_has_no_source_changes(self):
+    def test_swarm_snapshot_matches_transport_admission_patch(self):
         vendor = ROOT / "vendor-libp2p-swarm-0.48.0"
         hashes = json.loads((vendor / "upstream-source-sha256.json").read_text())
+        hashes.update({
+            "src/lib.rs": "c7eff68dae28f3f2ecf25afbfccb66a620c9867a5d2b51e523e3a6f3b234f9b8",
+            "src/transport_attempt.rs": "dc9d12894502d57485e50a4ce91c131c45879879cc4a7c7f761a9014fbfd9e9d",
+        })
         actual = {str(p.relative_to(vendor)): hashlib.sha256(p.read_bytes()).hexdigest()
                   for p in (vendor / "src").rglob("*.rs")}
         self.assertEqual(actual, hashes)

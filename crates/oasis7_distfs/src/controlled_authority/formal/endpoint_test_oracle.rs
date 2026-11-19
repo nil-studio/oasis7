@@ -29,6 +29,7 @@ pub(super) trait DurableSetOracleHook: Send {
 pub(super) struct Oracle {
     pub(super) address: std::net::SocketAddr,
     stop: Arc<AtomicBool>,
+    stale_checkpoint_opens: Arc<std::sync::atomic::AtomicUsize>,
     join: Option<std::thread::JoinHandle<()>>,
 }
 impl Drop for Oracle {
@@ -92,6 +93,8 @@ impl Oracle {
         let address = listener.local_addr().unwrap();
         let stop = Arc::new(AtomicBool::new(false));
         let stopping = stop.clone();
+        let stale_checkpoint_opens = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let rejected_opens = Arc::clone(&stale_checkpoint_opens);
         let mut authority = authority;
         let mut instance = match role {
             EndpointRole::Primary => authority.definition().primary.instance.clone(),
@@ -232,18 +235,21 @@ impl Oracle {
                                     });
                                 }
                                 let state = ledger.as_ref().unwrap();
-                                if reg.existing_checkpoint.as_ref().is_some_and(|bytes| {
-                                    Store::verify_public(bytes, &instance.endpoint_public_key)
-                                        .map(|body| {
-                                            let binding = Store::binding(&body, bytes);
-                                            binding != state.checkpoint
-                                                && !state.pending.as_ref().is_some_and(|p| {
-                                                    binding == p.previous || binding == p.next
-                                                })
+                                if let Some(bytes) = &reg.existing_checkpoint {
+                                    let Ok(body) =
+                                        Store::verify_public(bytes, &instance.endpoint_public_key)
+                                    else {
+                                        break;
+                                    };
+                                    let binding = Store::binding(&body, bytes);
+                                    if binding != state.checkpoint
+                                        && !state.pending.as_ref().is_some_and(|p| {
+                                            binding == p.previous || binding == p.next
                                         })
-                                        .unwrap_or(true)
-                                }) {
-                                    break;
+                                    {
+                                        rejected_opens.fetch_add(1, Ordering::Relaxed);
+                                        break;
+                                    }
                                 }
                             }
                             MonotonicOracleCommandV1::Acquire(checkpoint) => {
@@ -395,8 +401,16 @@ impl Oracle {
         Self {
             address,
             stop,
+            stale_checkpoint_opens,
             join: Some(join),
         }
+    }
+    #[allow(
+        dead_code,
+        reason = "only the DistFS endpoint-process harness inspects rejected checkpoint registrations"
+    )]
+    pub(super) fn stale_checkpoint_opens(&self) -> usize {
+        self.stale_checkpoint_opens.load(Ordering::Relaxed)
     }
     pub(super) fn provider(&self, fixture: &Fixture) -> Arc<dyn MonotonicEndpointProvider> {
         Arc::new(

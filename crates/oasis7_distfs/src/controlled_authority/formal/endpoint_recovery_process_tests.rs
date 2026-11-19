@@ -107,6 +107,8 @@ fn run_recovery(consecutive: bool) {
     let first = coordinator.submit(fixture.initial.clone()).unwrap();
     let cut = verify_formal_qualified(&first, &fixture.authority, None, None).unwrap();
     let anchor = VerifiedFormalReadAnchorV1::from_initial(&initial, &trust, &first).unwrap();
+    let primary_checkpoint = fixture.pdir.join("formal-checkpoint-v1.cbor");
+    let original_checkpoint = fs::read(&primary_checkpoint).unwrap();
     let (input, material) = fixture.frozen(&cut, 44);
     let executable = coordinator.freeze(input, material).unwrap();
     let mut candidate = fixture.candidate(&executable);
@@ -441,6 +443,50 @@ fn run_recovery(consecutive: bool) {
     assert!(!String::from_utf8_lossy(&failed.stdout).contains("formal_endpoint_listening="));
     pchild.kill().unwrap();
     pchild.wait().unwrap();
+    // Restore the earlier signed checkpoint in the original directory, preserving
+    // its storage identity and oracle authentication. Startup must reach the same
+    // oracle, and the oracle must reject the superseded checkpoint.
+    let sealed_checkpoint = fs::read(&primary_checkpoint).unwrap();
+    assert_ne!(sealed_checkpoint, original_checkpoint);
+    let before = po.stale_checkpoint_opens();
+    assert_eq!(before, 0);
+    fs::write(&primary_checkpoint, &original_checkpoint).unwrap();
+    let mut rolled_back = EndpointChild(
+        Command::new(&binary)
+            .arg("--config")
+            .arg(&old_configs[0])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap(),
+    );
+    let error = read_endpoint_ready_address(&mut rolled_back).unwrap_err();
+    assert!(
+        error.starts_with("endpoint child closed stdout before readiness"),
+        "{error}"
+    );
+    assert!(!rolled_back.wait().unwrap().success());
+    assert_eq!(po.stale_checkpoint_opens(), before + 1);
+    assert_eq!(fs::read(&primary_checkpoint).unwrap(), original_checkpoint);
+
+    // The rejected attempt leaves the provider usable for the current sealed
+    // snapshot, with the original head and mutation gate still intact.
+    fs::write(&primary_checkpoint, &sealed_checkpoint).unwrap();
+    let (mut sealed, address) = start(&binary, &old_configs[0]);
+    let mut old = remote(
+        address,
+        &fixture.authority,
+        EndpointRole::Primary,
+        4,
+        cut.head(),
+    );
+    assert_eq!(old.head().unwrap(), cut.head());
+    let (fresh_input, fresh_material) = fixture.frozen(&cut, 45);
+    let error = old.freeze(fresh_input, fresh_material).unwrap_err();
+    assert!(error.to_string().contains("formal epoch sealed"), "{error}");
+    assert_eq!(fs::read(&primary_checkpoint).unwrap(), sealed_checkpoint);
+    sealed.kill().unwrap();
+    sealed.wait().unwrap();
     rchild.kill().unwrap();
     rchild.wait().unwrap();
     drop(p2o);
