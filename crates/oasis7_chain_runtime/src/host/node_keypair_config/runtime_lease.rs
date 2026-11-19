@@ -142,7 +142,9 @@ pub(crate) fn acquire_runtime_identity_lease(
 
 #[cfg(unix)]
 fn validate_paths(key_path: &Path, binding: &RuntimeIdentityBindingV1) -> Result<(), String> {
-    if binding.version != 1 || binding.profile != "controlled-v2" {
+    if binding.version != 1
+        || !matches!(binding.profile.as_str(), "controlled-v2" | "iws-clean-local-v1")
+    {
         return Err("unsupported runtime identity binding version or profile".into());
     }
     for value in [

@@ -139,6 +139,26 @@ pub(in crate::world) struct CurrentAuthorizationProjectionV1<'a> {
     fee: ReservedValue<()>,
 }
 impl AcceptedAuthorizationProjectionV1 {
+    /// Export only the retained canonical DATA for this exact accepted parent.
+    /// The consumer must independently repeat the cold Current joins.
+    pub(in crate::world) fn write_accepted_hint_data_bounded_v1(
+        &self,
+        head: &VerifiedFormalCommitV1,
+        fence: &ExecutionFence,
+        out: &mut impl Write,
+        common: &mut FormalBoundedContextV1<'_>,
+    ) -> Result<u64, AuthorizationRootCacheErrorV1> {
+        common.charge(1, 96)?;
+        if self.head != head.verified_record_id()
+            || self.body != fence.parent_commit
+            || self.roots != fence.parent_roots
+            || !self.fee.uses_budget(common.memory())
+        {
+            return Err(invalid("authorization checkpoint accepted parent binding"));
+        }
+        self.data.write_hint_data_bounded_v1(out, common)
+    }
+
     pub(in crate::world) fn begin_current<'a, M: MerkleNodeReader>(
         &'a self,
         head: &VerifiedFormalCommitV1,

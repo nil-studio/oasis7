@@ -27,6 +27,17 @@ mod iws_normal_input_origin;
 
 mod committed_input_metadata;
 
+/// The fixture image delegates directly to the shipping configuration and
+/// JSONL consumer; it does not substitute a test Cold constructor or owner.
+#[cfg(all(unix, feature = "iws-host-native-test-support"))]
+pub fn native_worker_fixture_iws_formal_live_cli_v1(path: &std::path::Path) -> Result<(), String> {
+    if iws_live::try_run(path)? {
+        Ok(())
+    } else {
+        Err("native clean fixture requires the IWS production CLI schema".into())
+    }
+}
+
 /// Executes the real native fixture within its own captured worker ELF.
 #[cfg(all(unix, feature = "iws-host-native-test-support"))]
 pub fn native_worker_fixture_iws_live_node_v1(

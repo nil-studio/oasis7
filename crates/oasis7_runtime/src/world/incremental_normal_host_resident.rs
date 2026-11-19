@@ -445,6 +445,21 @@ where
     }
 }
 impl NormalHostResidentSourcesV1 {
+    /// Stream cold-start DATA from the genuine retained accepted projection.
+    /// No owner, qualification, or execution work is serialized or recreated.
+    pub fn write_accepted_authorization_hint_bounded_v1(
+        &self,
+        head: &oasis7_formal_protocol::controlled_authority::formal::VerifiedFormalCommitV1,
+        fence: &ExecutionFence,
+        out: &mut impl std::io::Write,
+        common: &mut FormalBoundedContextV1<'_>,
+    ) -> Result<u64, BodyMutationError> {
+        self.validate_live_binding_v1(head.verified_record_id(), fence, common)?;
+        self.authorization
+            .write_accepted_hint_data_bounded_v1(head, fence, out, common)
+            .map_err(original)
+    }
+
     pub fn process_source_v1(
         &self,
     ) -> &ReservedValue<super::incremental_normal_process_source::NormalProcessSourceV1> {

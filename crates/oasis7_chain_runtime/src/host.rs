@@ -118,6 +118,21 @@ mod formal_live_recovery_test_support;
 #[path = "host/formal_live_runtime.rs"]
 mod formal_live_runtime;
 #[cfg(unix)]
+#[path = "host/iws_live.rs"]
+mod iws_live;
+#[cfg(unix)]
+#[path = "host/iws_live_config.rs"]
+mod iws_live_config;
+#[cfg(unix)]
+#[path = "host/iws_live_limits.rs"]
+mod iws_live_limits;
+#[cfg(unix)]
+#[path = "host/iws_live_work.rs"]
+mod iws_live_work;
+#[cfg(unix)]
+#[path = "host/iws_live_io.rs"]
+mod iws_live_io;
+#[cfg(unix)]
 #[path = "host/formal_live_service.rs"]
 mod formal_live_service;
 #[cfg(unix)]

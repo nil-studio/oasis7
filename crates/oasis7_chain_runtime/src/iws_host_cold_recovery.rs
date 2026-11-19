@@ -97,7 +97,15 @@ pub(super) fn read_projection_hint_bounded_v1(
     let io = |error| IwsHostRuntimeErrorV1::Physical(PageStoreError::Io(error));
     let invalid = |message: &'static str| FormalError::Invalid(message.into());
     common.charge(2, path.as_os_str().as_encoded_bytes().len() as u64)?;
-    let mut file = std::fs::File::open(path).map_err(io)?;
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // Inspect the opened FD without following links or blocking on FIFO.
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let mut file = options.open(path).map_err(io)?;
     let metadata = file.metadata().map_err(io)?;
     let length = usize::try_from(metadata.len())
         .ok()

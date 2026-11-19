@@ -164,6 +164,31 @@ impl IwsLiveNodeServiceV1 {
         self.node.stop()
     }
 
+    /// Join the only Node worker, reject queued input or retained execution and
+    /// persist clean recovery DATA for that actual completed cut. Missing
+    /// checkpoint DATA after a crash never licenses a rollback to an older cut.
+    pub(crate) fn stop_and_checkpoint_bounded(
+        &mut self,
+        root: &std::path::Path,
+        limits: super::node_checkpoint::IwsNodeCheckpointLimitsV1,
+    ) -> Result<[u8; 32], String> {
+        if self.aborted {
+            return Err("an aborted service cannot publish a clean checkpoint".into());
+        }
+        match self.node.stop() {
+            Ok(()) | Err(NodeError::NotRunning { .. }) => {}
+            Err(error) => return Err(error.to_string()),
+        }
+        let snapshot = self.node.snapshot();
+        let pending = &snapshot.consensus.pending_consensus_actions;
+        if snapshot.running || pending.queued_action_count != 0
+            || pending.submit_buffer_action_count != 0 || pending.reserved_requeue_action_count != 0
+        {
+            return Err("clean checkpoint would leave queued Node input; resume the same service first".into());
+        }
+        self.owner.publish_clean_checkpoint_bounded(root, limits)
+    }
+
     /// Explicitly cancel current work, then join without holding the owner
     /// lock. Cancellation can retain a terminal Runtime failure. This service
     /// will not clear the flag, restart, or accept another business submission.

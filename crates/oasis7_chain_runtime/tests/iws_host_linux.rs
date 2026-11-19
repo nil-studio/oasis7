@@ -420,6 +420,29 @@ fn assert_continuous_live_node(mode: &str, cold_recovery: bool) {
     );
     assert_eq!(receipt["pool_used_after_drop"], 0);
     assert_eq!(receipt["final_sender_electricity"], 1);
+    let clean = &receipt["clean_process"];
+    assert_eq!(clean["schema"], "oasis7.iws.clean_process.fixture.v1");
+    assert_eq!(clean["same_fixture_elf"], true);
+    assert_eq!(clean["production_config_loader"], true);
+    assert_eq!(clean["start_automatically"], false);
+    assert_eq!(clean["height"], 3);
+    assert_eq!(clean["balances"][0], receipt["final_sender_electricity"]);
+    assert_eq!(
+        clean["exact_head"],
+        receipt["clean_checkpoint_roundtrip"]["record"]
+    );
+    assert_eq!(clean["ordered_event_originals_match"], true);
+    assert_eq!(clean["independent_pin_mismatch_refused"], true);
+    assert_eq!(
+        clean["provider_evidence"],
+        "fixed-key TCP protocol fixture; not physical custody"
+    );
+    let parent_pid = clean["parent_pid"].as_u64().unwrap();
+    let child_pid = clean["child_pid"].as_u64().unwrap();
+    let refused_pid = clean["refused_child_pid"].as_u64().unwrap();
+    assert!(parent_pid > 0 && child_pid > 0 && refused_pid > 0);
+    assert_ne!(parent_pid, child_pid);
+    assert_ne!(parent_pid, refused_pid);
     assert_eq!(receipt["cold_recovery"], cold_recovery);
     assert_eq!(receipt["ticks"][0]["actual_cold_resident"], cold_recovery);
     assert_eq!(receipt["ticks"][1]["actual_cold_resident"], false);

@@ -1654,6 +1654,16 @@ ordinary 接受后的 Node 高度为同一 CommitBody height，正式 position �
 
 新的 Frozen 生产器同时核对 Node 原 continuation 的共识前驱、执行前驱、执行根、两项 predecessor height 与上述真实接受边界，并保留原 Node fresh/restored 来源。单独相同的状态根不足以接受另一个前驱。跨 callback 的固定 consumer 保留精确原 context 编码和同一份剩余 work；一旦 Runtime 已产生 preparation，后续只能恢复原 output、Ready、publication 或实际 cold 阶段。准备失败保留首个错误、原 sources 与 work，不在普通 callback 中重新运行该 tick。双端 durable 接受和 Host 安装均成功后才读取并返回 Node applied result；结果读取失败停留在该读取阶段，不能重新执行或重新发布。Node completion 还须匹配原 context 才能释放本次 carrier，并返还同一剩余 work。
 
+#### profile3 本地 CLI 的接线范围
+
+此切片仍处于实现接线中，组合验证尚未闭合。生产 CLI 沿现有 `--formal-live-config` 入口，以独立 schema 的 `runtime_mode=iws_clean_local_v1` 接入 `IwsLiveNodeServiceV1`。启动限于 profile3 的 initial authority：必须有独立信任来源 pin 住精确 current record、已配置的双 endpoint 与 provider，以及预先 provision 的 Node identity 和原 writer；实际双端认证读取仍决定接受资格。原 profile2 配置检查及新格式的两处 incomplete guards 保持有效。
+
+stdin 使用有界 JSONL，`command` 支持 `submit(action_id, payload_hex)`、`status`、`observe(sender, receiver)`、`start` 和 `stop`。必填 `start_automatically` 决定完成 Cold 后是否立即运行 Node；为 false 时先保持已认证但停止的服务，可在显式 `start` 前读取精确启动 head，不以时间竞态判断来源。`submit` 成功只确认 action 进入队列，正式接受与业务结果由后续 accepted 读取确认。`observe` 从同一真实 accepted 边界返回双方余额、按序 Event 原件及 qualified head proof DATA；这些输出不代替对外 Agent Merkle 证明或完整 WorldReady 资格。
+
+正常 `stop` 等待 Node 退出后，按实际 accepted record ID 写出生产 checkpoint。下一进程必须使用同一 current head 的独立 pin、真实双端和对应 checkpoint 完成 authenticated Cold；旧 checkpoint 或 GEN 不能作为缺源、head 不同或恢复失败时的回退。含 durable pending 的进程崩溃恢复窗口、authority/durable-set 迁移、网络/BFT 驱动及 genesis provision 均不在本切片范围；原有拒绝边界继续生效。
+
+配置、解析、启动、normal、Cognition、恢复和观察所用 work 均须显式且有限。启动只构造一次原预算账户并移入持续 owner，后继与重试沿用剩余值，失败不补款。源码 compiler 不可用时明确拒绝，当前接线不代表源码模块安装已形成完整闭环；CLI、持续业务和下一进程 Cold 的组合验收仍须由真实运行证明。
+
 #### 正式业务输出原件的定位
 
 沿用同一正式输出承诺要求，schema7/8 的九个 artifact roles 和原业务结果根算法保持不变。当前 CommitBody 对象的 ClosedRecord 直接 references 必须包含唯一 `oasis7.iws.business-output.v1` 定位原件；定位原件声明实际 CommitBody ID，以及原 FormalBusinessResultTree descriptor 和 BusinessIndexDelta 的内容 ID、实际字节数。定位原件的 references 覆盖这两项，delta 原件的 references 覆盖实际新节点。这里只增加对象图中的明确类型定位，不重新定义业务 descriptor、delta 或结果根编码。

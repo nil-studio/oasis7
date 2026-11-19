@@ -953,6 +953,9 @@ fn prewarm_from_matching_native_heads(
 /// resolution is built from that same operator configuration by the native
 /// storage adapter, with no unavailable or synthetic fallback.
 pub(crate) fn run(config_path: &Path) -> Result<(), String> {
+    if super::iws_live::try_run(config_path)? {
+        return Ok(());
+    }
     owner::run_standalone(config_path)
 }
 

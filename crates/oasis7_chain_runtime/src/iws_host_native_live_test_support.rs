@@ -6,6 +6,10 @@ use crate::iws_host_runtime::node_live::{
     IwsLiveNodeCancellationV1, IwsLiveNodeCognitionV1, IwsLiveNodeColdSettingsV1,
     IwsLiveNodeHookV1, IwsLiveNodeOwnersV1, IwsLiveNodeSettingsV1,
 };
+use crate::iws_host_runtime::node_checkpoint::{
+    IwsNodeCheckpointLimitsV1, load_node_checkpoint_bounded_v1,
+};
+use oasis7_formal_protocol::controlled_authority::formal::VerifiedFormalReadAnchorV1;
 use oasis7_node::{
     NodeConfig, NodeExecutionCommitContext, NodeExecutionCommitOutcome, NodeExecutionCommitResult,
     NodeExecutionGenesisBootstrap, NodeExecutionHook, NodeLocalExecutionBootstrapV1,
@@ -14,6 +18,21 @@ use oasis7_node::{
 };
 use std::sync::{Mutex, atomic::AtomicU64, mpsc};
 use std::time::Duration;
+use sha2::{Digest, Sha256};
+
+#[path = "iws_host_native_clean_process_test_support.rs"]
+mod clean_process;
+
+struct ProjectionDigest(Sha256);
+impl std::io::Write for ProjectionDigest {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.update(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
 
 enum Notice {
     Pending,
@@ -236,6 +255,12 @@ pub(crate) fn run(root: &Path, cold_recovery: bool) -> Result<Vec<u8>, String> {
         if genesis.record != genesis_record || genesis.body != genesis_body || genesis.height != 0 {
             return Err("live fixture genuine genesis mismatch".into());
         }
+        let initial_anchor = VerifiedFormalReadAnchorV1::from_initial(
+            &certificate,
+            &trust,
+            genesis.qualified_proof(),
+        )
+        .map_err(diagnostic)?;
         let mut before = balances(&genesis)?;
         let mut hints = BTreeMap::new();
         for event in genesis.events.iter() {
@@ -399,6 +424,7 @@ pub(crate) fn run(root: &Path, cold_recovery: bool) -> Result<Vec<u8>, String> {
         submit(&node, 3, &[1])?;
         resume.send(()).map_err(diagnostic)?;
         let mut receipts = Vec::new();
+        let mut final_expected = None;
         for (height, amounts) in [(1, &[3, 2][..]), (2, &[1][..]), (3, &[1][..])] {
             let notice = receive
                 .recv_timeout(Duration::from_secs(120))
@@ -464,6 +490,12 @@ pub(crate) fn run(root: &Path, cold_recovery: bool) -> Result<Vec<u8>, String> {
                     );
                 }
                 before = balances(&first)?;
+                if height == 3 {
+                    let mut expected = summary(&first)?;
+                    expected["qualified_head_proof"] = serde_json::to_value(first.qualified_proof())
+                        .map_err(diagnostic)?;
+                    final_expected = Some(expected);
+                }
                 Ok(())
             })?;
             resume.send(()).map_err(diagnostic)?;
@@ -484,13 +516,65 @@ pub(crate) fn run(root: &Path, cold_recovery: bool) -> Result<Vec<u8>, String> {
                 }
             }
         }
+        // Real clean-stop publication and a new disk read of its DATA. This
+        // roundtrip deliberately does not claim a new-process Cold admission.
+        let checkpoint_root = root.join("live-clean-checkpoints");
+        let checkpoint_limits = IwsNodeCheckpointLimitsV1 {
+            max_projection_bytes: projection_limits.max_wire_bytes as u64,
+            max_mailbox_entries: expected_hints.len() as u64,
+            max_path_bytes: checkpoint_root.as_os_str().as_encoded_bytes().len()
+                .checked_add(256).ok_or("live checkpoint path bound")?,
+        };
+        let checkpoint_record = node.stop_and_checkpoint_bounded(
+            &checkpoint_root, checkpoint_limits,
+        )?;
         let hints = node.selected_fact_hints_bounded()?;
         node.with_current_bounded(|primary, replica, memory, archive, cancelled| {
-            for (host, selected) in [primary, replica].into_iter().zip(hints.iter()) {
+            let pool_before = memory.used();
+            let loaded = load_node_checkpoint_bounded_v1(
+                &checkpoint_root, checkpoint_record, checkpoint_limits,
+                &mut archive.bounded_context(memory, &mut || cancelled.load(Ordering::Acquire)),
+            ).map_err(diagnostic)?;
+            let data = loaded.data();
+            if loaded.mailbox_hints() != &expected_hints
+                || data.record != checkpoint_record
+                || data.height != 3
+                || data.authorization_hint_paths[0] == data.authorization_hint_paths[1]
+            {
+                return Err("live checkpoint DATA lost actual head, paths or historical locators".into());
+            }
+            for (index, (host, selected)) in [primary, replica].into_iter().zip(hints.iter()).enumerate() {
                 let current = host.current.current().ok_or("accepted service locator source")?;
                 current.source.with_parent_read_view_bounded(
                     memory, archive, &mut || cancelled.load(Ordering::Acquire),
                     |parent| -> Result<(), IwsHostRuntimeErrorV1> {
+                        if data.record != parent.head().verified_record_id()
+                            || data.fence != parent.fence()
+                            || data.height != parent.core().body().height
+                            || data.facts[index].runtime != selected.runtime
+                            || data.facts[index].cognition != selected.cognition
+                        {
+                            return Err(FormalError::Invalid("clean checkpoint differs from actual accepted source".into()).into());
+                        }
+                        let mut stop = || cancelled.load(Ordering::Acquire);
+                        let mut common = archive.bounded_context(memory, &mut stop);
+                        let projection = super::super::cold_recovery::read_projection_hint_bounded_v1(
+                            &data.authorization_hint_paths[index], projection_limits, &mut common,
+                        )?;
+                        let mut disk = ProjectionDigest(Sha256::new());
+                        let disk_bytes = projection.write_hint_data_bounded_v1(&mut disk, &mut common)
+                            .map_err(IwsHostRuntimeErrorV1::ColdProjection)?;
+                        let mut actual = ProjectionDigest(Sha256::new());
+                        let actual_bytes = current.resident.as_ref()
+                            .ok_or_else(|| FormalError::Invalid("live checkpoint accepted resident".into()))?
+                            .write_accepted_authorization_hint_bounded_v1(
+                                parent.head(), &parent.fence(), &mut actual, &mut common,
+                            ).map_err(IwsHostRuntimeErrorV1::NormalSource)?;
+                        if disk_bytes == 0 || disk_bytes != actual_bytes
+                            || disk.0.finalize() != actual.0.finalize()
+                        {
+                            return Err(FormalError::Invalid("clean checkpoint projection differs from actual resident".into()).into());
+                        }
                         for location in [selected.runtime, selected.cognition] {
                             archive.charge(1, 96, &mut || cancelled.load(Ordering::Acquire))?;
                             let ordinal = usize::try_from(location.ordinal).map_err(|_| FormalError::Invalid("service locator ordinal".into()))?;
@@ -504,6 +588,10 @@ pub(crate) fn run(root: &Path, cold_recovery: bool) -> Result<Vec<u8>, String> {
                         Ok(())
                     },
                 ).map_err(diagnostic)?;
+            }
+            drop(loaded);
+            if memory.used() != pool_before {
+                return Err("live checkpoint DATA or projection retained an unreturned fee".into());
             }
             Ok(())
         })?;
@@ -580,6 +668,33 @@ pub(crate) fn run(root: &Path, cold_recovery: bool) -> Result<Vec<u8>, String> {
         {
             return Err("continuous Common did not consume its original account".into());
         }
+        let final_expected = final_expected.ok_or("clean process accepted observation missing")?;
+        let prepared_clean = owners
+            .primary
+            .current
+            .current()
+            .ok_or("clean process actual parent missing")?
+            .source
+            .with_parent_read_view_bounded(
+                &owners.memory,
+                &owners.archive,
+                &mut || false,
+                |parent| -> Result<_, FormalError> {
+                    clean_process::prepare(clean_process::CleanProcessInputV1 {
+                        root,
+                        settings: parts.settings(),
+                        checkpoint_root: &checkpoint_root,
+                        checkpoint_limits,
+                        initial_anchor: &initial_anchor,
+                        trust: &trust,
+                        actual_authority: parent.authority(),
+                        actual_head: parent.head(),
+                        expected: final_expected,
+                    })
+                    .map_err(FormalError::Invalid)
+                },
+            )
+            .map_err(diagnostic)?;
         let counts = counts.lock().map_err(diagnostic)?;
         if counts.fresh != 3
             || counts.restored != 1
@@ -591,6 +706,8 @@ pub(crate) fn run(root: &Path, cold_recovery: bool) -> Result<Vec<u8>, String> {
         let mut receipt = serde_json::json!({"schema":"oasis7.iws.live_node.fixture.v1",
             "node_instances":1,"node_starts":3,"fresh":counts.fresh,"restored":counts.restored,
             "aborted_service_rejects_restart_and_submission":true,
+            "clean_checkpoint_roundtrip":{"record":hex::encode(checkpoint_record),"height":3,
+                "mailbox_entries":expected_hints.len(),"both_actual_projections_match":true},
             "fresh_callbacks":counts.fresh_callbacks,
             "completed":counts.completed,"cancelled_completions":counts.cancelled_completions,
             "ticks":receipts,"source_work_before":source_before,"source_work_after":source_after,
@@ -604,6 +721,7 @@ pub(crate) fn run(root: &Path, cold_recovery: bool) -> Result<Vec<u8>, String> {
         drop(producer);
         drop(certificate);
         drop(trust);
+        drop(initial_anchor);
         drop(seed_receipt);
         let retained = pool.used();
         if retained != 0 {
@@ -612,6 +730,9 @@ pub(crate) fn run(root: &Path, cold_recovery: bool) -> Result<Vec<u8>, String> {
             ));
         }
         receipt["pool_used_after_drop"] = retained.into();
+        // The actual provider servers still live in the enclosing GEN fixture
+        // callback. The new process receives only private files and raw DATA.
+        receipt["clean_process"] = prepared_clean.run()?;
         serde_json::to_vec(&receipt).map_err(diagnostic)
     })
 }

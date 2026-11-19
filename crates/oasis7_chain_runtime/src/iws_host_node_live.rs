@@ -340,6 +340,30 @@ impl IwsLiveNodeOwnerV1 {
         self.0.cancelled.clone()
     }
 
+    pub(crate) fn publish_clean_checkpoint_bounded(
+        &self,
+        root: &std::path::Path,
+        limits: super::node_checkpoint::IwsNodeCheckpointLimitsV1,
+    ) -> Result<[u8; 32], String> {
+        let state = self.0.state.lock().map_err(|_| invalid("live Node owner poisoned"))?;
+        if !matches!(state.phase, Some(Phase::Idle(_))) || state.original.is_some() {
+            return Err(invalid("clean checkpoint requires a completed original Node decision"));
+        }
+        let mut stop = || self.0.cancelled.flag().load(Ordering::Acquire);
+        let mut common = state.archive.bounded_context(&state.memory, &mut stop);
+        validate_pair(&state.primary, &state.replica, &mut common)?;
+        state.boundary.validate_current_bounded(&state.primary, &mut common)
+            .map_err(|e|e.to_string())?;
+        drop(common);
+        super::node_checkpoint::publish_clean_node_checkpoint_bounded_v1(
+            super::node_checkpoint::IwsNodeCheckpointPublishInputV1 {
+                root, primary: &state.primary, replica: &state.replica,
+                mailbox_hints: &state.settings.cold.mailbox_hints,
+                retained_hints_fee: &state.retained_hints_fee, limits,
+            }, &state.memory, &state.archive, self.0.cancelled.flag(),
+        ).map_err(|e|e.to_string())
+    }
+
     /// The consumer sees only a completed cut under the same owner lock, pool,
     /// Common and cancellation flag. It cannot take or replace either Host.
     pub(crate) fn with_current_bounded(

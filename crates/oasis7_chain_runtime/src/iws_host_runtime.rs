@@ -379,6 +379,12 @@ pub use node_live::{
 };
 pub use node_service::{IwsLiveNodeServiceStartFailureV1, IwsLiveNodeServiceV1};
 
+#[path = "iws_host_node_checkpoint.rs"]
+pub(crate) mod node_checkpoint;
+
+#[path = "iws_host_node_start.rs"]
+pub(crate) mod node_start;
+
 pub use normal::{HostNormalIoWorkV1, NormalCommitPersistErrorV1};
 
 #[path = "iws_host_cold.rs"]
@@ -396,6 +402,13 @@ pub use genesis_resident::HostGenesisIoWorkV1;
 #[path = "iws_host_cognition_startup.rs"]
 mod cognition_startup;
 pub use cognition_startup::{HostCognitionStartupErrorV1, HostCognitionStartupWorkV1};
+
+#[path = "iws_host_read.rs"]
+mod read;
+pub use read::{
+    HostObservationPartsV1, HostObservationV1, HostObservationWorkV1,
+    ObservedAgentResourcesV1, ObservedEventOriginalV1, observe_current_bounded,
+};
 
 #[cfg(any(test, feature = "iws-host-native-test-support"))]
 #[path = "iws_host_native_node_test_support.rs"]

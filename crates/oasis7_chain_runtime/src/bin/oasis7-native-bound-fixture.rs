@@ -3,6 +3,12 @@ fn main() -> std::process::ExitCode {
     let args = std::env::args_os().skip(1).collect::<Vec<_>>();
     let result = match args.first().and_then(|argument| argument.to_str()) {
         #[cfg(all(unix, feature = "iws-host-native-test-support"))]
+        Some("--formal-live-config") if args.len() == 2 => {
+            oasis7_chain_runtime::native_worker_fixture_iws_formal_live_cli_v1(
+                std::path::Path::new(&args[1]),
+            )
+        }
+        #[cfg(all(unix, feature = "iws-host-native-test-support"))]
         Some(mode @ ("--iws-live-node-v1" | "--iws-live-node-cold-v1")) if args.len() == 2 => {
             oasis7_chain_runtime::native_worker_fixture_iws_live_node_v1(
                 std::path::Path::new(&args[1]),

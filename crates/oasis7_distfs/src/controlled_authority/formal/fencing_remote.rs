@@ -124,6 +124,13 @@ pub struct RemoteMonotonicEndpointProvider {
     policy: TrustedFencingPolicyV1,
 }
 impl RemoteMonotonicEndpointProvider {
+    /// Original connection DATA for a fresh-process protocol fixture. This
+    /// neither exports a live lease nor asserts physical provider custody.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn connection_data_for_fixture_v1(&self) -> (SocketAddr, Duration, [u8; 32]) {
+        (self.address, self.timeout, self.key.to_bytes())
+    }
+
     pub fn new(
         address: SocketAddr,
         timeout: Duration,
