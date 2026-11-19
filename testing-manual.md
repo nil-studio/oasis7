@@ -175,7 +175,7 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 - 主要测试分布：
   - 运行时：`crates/oasis7_runtime/src/tests/*.rs`；状态/快照纯值与稀疏投影归 `crates/oasis7_world_state`，服务 DTO/具体 codec/证明适配归 `crates/oasis7_world_projection`。required Rust 测试必须实际执行两个新包的 lib harness，Runtime 的恢复、rollback、retention 与 Service 的 public/owner/delegate/撤权回归继续保留。
   - 模拟器：`crates/oasis7/src/simulator/tests/*.rs`
-  - LLM 行为：`crates/oasis7/src/simulator/llm_agent/tests_part2.rs`
+  - LLM 行为：`crates/oasis7/src/simulator/llm_agent/tests_followups_actions.rs`
   - Viewer live 服务：`crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs`（内置 `#[cfg(test)]`）
   - 端到端集成：`crates/oasis7/tests/*.rs`
 
@@ -201,7 +201,7 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 - 这些子系统有独立测试集，但当前 `scripts/ci-tests.sh` 只覆盖了其中一部分（见下文“CI 现状与缺口”）。
 
 ### 场景系统
-- 场景定义：`crates/oasis7/src/simulator/scenario.rs`
+- 场景定义：`crates/oasis7_simulator/src/scenario.rs`
 - 场景矩阵设计：`doc/world-simulator/scenario/scenario-files.prd.md`
 - 场景是 UI 闭环、协议闭环、压力回归的统一输入源。
 
@@ -1226,8 +1226,8 @@ node crates/oasis7_viewer/scripts/browser-functional-regression.mjs --skip-build
 
 ### S7：场景矩阵回归套件（L1 + L4）
 ```bash
-env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required scenario_specs_match_ids -- --nocapture
-env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required scenarios_are_stable -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --features test_tier_required scenario_specs_match_ids -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --features test_tier_required scenarios_are_stable -- --nocapture
 env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --features test_tier_full oasis7_init_demo_runs_ -- --nocapture
 ```
 - 配套文档：`doc/world-simulator/scenario/scenario-files.prd.md` 的“场景测试覆盖矩阵”。

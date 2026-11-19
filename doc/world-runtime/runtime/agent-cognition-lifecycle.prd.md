@@ -653,13 +653,13 @@ active turn，迟到 response 只能得到 `late_response_after_cancel`，不得
 | --- | --- | --- |
 | docs current | `./scripts/doc-governance-check.sh` | paired authority、索引与状态词治理通过 |
 | P0.1 digest target | `env -u RUSTC_WRAPPER cargo test -p oasis7 --lib agent_cognition_identity` | shared request/envelope golden bytes、digest registry、wire mapping 与 collision fixtures 通过 |
-| P0.2 MVCC target | `env -u RUSTC_WRAPPER cargo test -p oasis7 --lib agent_cognition_mvcc` | stale/expired/precondition/capability/idempotency rejection 均无 world effect |
-| P0.3 recovery target | `env -u RUSTC_WRAPPER cargo test -p oasis7 --lib agent_cognition_recovery` | journal-edge crash 后不重调 completed provider、不重复 receipt/effect，state root 一致 |
-| scheduler backpressure target | `env -u RUSTC_WRAPPER cargo test -p oasis7 --lib agent_cognition_scheduler_backpressure` | bounded queue-full 时 world 不阻塞、不调 provider、无 receipt/effect；容量恢复后单次 wake 收口 |
-| scheduler fairness target | `env -u RUSTC_WRAPPER cargo test -p oasis7 --lib agent_cognition_scheduler_fairness` | 多 agent deterministic order、service budget、round-robin/aging 与 no-starvation 通过 |
-| wake condition target | `env -u RUSTC_WRAPPER cargo test -p oasis7 --lib agent_cognition_wake_conditions` | WakeConditionV1 canonical evaluation、expiry、missing reference 与 replay 通过 |
-| commit interleaving target | `env -u RUSTC_WRAPPER cargo test -p oasis7 --lib agent_cognition_commit_interleavings` | prepare/commit/receipt/key/journal crash prefix 全部 recovery_pending-safe 且无重复 effect |
-| retention/GC target | `env -u RUSTC_WRAPPER cargo test -p oasis7 --lib agent_cognition_retention_gc` | checkpoint pin、terminal tombstone、artifact horizon 与过期重复请求 fail closed |
+| P0.2 MVCC target | `env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib agent_cognition_mvcc` | stale/expired/precondition/capability/idempotency rejection 均无 world effect |
+| P0.3 recovery target | `env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib agent_cognition_recovery` | journal-edge crash 后不重调 completed provider、不重复 receipt/effect，state root 一致 |
+| scheduler backpressure target | `env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib agent_cognition_scheduler_backpressure` | bounded queue-full 时 world 不阻塞、不调 provider、无 receipt/effect；容量恢复后单次 wake 收口 |
+| scheduler fairness target | `env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib agent_cognition_scheduler_fairness` | 多 agent deterministic order、service budget、round-robin/aging 与 no-starvation 通过 |
+| wake condition target | `env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib agent_cognition_wake_conditions` | WakeConditionV1 canonical evaluation、expiry、missing reference 与 replay 通过 |
+| commit interleaving target | `env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib agent_cognition_commit_interleavings` | prepare/commit/receipt/key/journal crash prefix 全部 recovery_pending-safe 且无重复 effect |
+| retention/GC target | `env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib agent_cognition_retention_gc` | checkpoint pin、terminal tombstone、artifact horizon 与过期重复请求 fail closed |
 | required implementation gate | `./scripts/ci-tests.sh required` | required-tier runtime/provider regression 通过 |
 | full proof gate | `./scripts/ci-tests.sh full` | multi-Agent、long-run、restore/replay、backend parity 通过 |
 

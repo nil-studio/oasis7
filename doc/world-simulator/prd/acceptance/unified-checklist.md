@@ -26,7 +26,7 @@
 
 | Gate-ID | 模块 | 通过标准 | 适用时的命令 / 手册入口（示例） | 证据要求 |
 | --- | --- | --- | --- | --- |
-| G1 | 场景系统 | 场景 ID 与模板稳定，核心场景可回放 | `env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required scenario_specs_match_ids -- --nocapture`<br>`env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required scenarios_are_stable -- --nocapture` | 终端日志（通过/失败） |
+| G1 | 场景系统 | 场景 ID 与模板稳定，核心场景可回放 | `env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --features test_tier_required scenario_specs_match_ids -- --nocapture`<br>`env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --features test_tier_required scenarios_are_stable -- --nocapture` | 终端日志（通过/失败） |
 | G2 | Viewer Web 闭环 | 满足所选 S6 层级的真实交互、环境与断言；页面/截图/console 仅为 surface observation；`viewer` 与 `software_safe` alias 状态分别记录 | 按[总手册 S6](../../../../testing-manual.md#testing-s6-qa-receiver)及其 browser manual/runner 执行本次适用场景 | 同构建/会话的截图、console、前后状态/操作结果；声明世界效果时另附权威 oracle |
 | G3 | 启动器统一入口 | launcher 参数解析与 URL 组装路径通过 | `env -u RUSTC_WRAPPER cargo test -p oasis7_launcher_backend --bin oasis7_game_launcher` | 终端日志（通过/失败） |
 | G4 | 启动器客户端 | 配置校验、链路提交流程可执行 | `env -u RUSTC_WRAPPER cargo test -p oasis7_client_launcher` | 终端日志（通过/失败） |
