@@ -1079,7 +1079,7 @@ mod provider_budget_tests;
 
 #[test]
 fn operation_budget_is_bound_to_v4_chain_and_local_identity() {
-    use super::super::{local_io, model, process};
+    use super::super::{local_io, model, run};
 
     let (_, trust, _, _, _) = full_sync_fixture();
     let mut config = serde_json::json!({
@@ -1112,7 +1112,10 @@ fn operation_budget_is_bound_to_v4_chain_and_local_identity() {
         }
     });
     let load = |config: &serde_json::Value| {
-        model::ChainConfig::load_bytes(Path::new("chain.json"), &serde_json::to_vec(config).unwrap())
+        model::ChainConfig::load_bytes(
+            Path::new("chain.json"),
+            &serde_json::to_vec(config).unwrap(),
+        )
     };
     let anchor = load(&config).unwrap();
     let temp = TestPrivateDir::new();
@@ -1122,10 +1125,24 @@ fn operation_budget_is_bound_to_v4_chain_and_local_identity() {
     assert_eq!(node.identity.api_version, "oasis7.local-node/v4");
     let node_path = data.join(model::CONFIG_FILE);
     assert_eq!(model::NodeConfig::load(&node_path).unwrap(), node);
-    assert!(process::start(&node_path).unwrap_err().contains("no active worker consumer"));
-    assert!(process::supervise(&node_path, "not-an-admitted-incarnation")
+    let path = node_path.to_str().unwrap();
+    assert!(
+        run(["start", "--config", path].into_iter())
+            .unwrap_err()
+            .contains("no active worker consumer")
+    );
+    assert!(
+        run([
+            "_run",
+            "--config",
+            path,
+            "--incarnation",
+            "not-an-admitted-incarnation"
+        ]
+        .into_iter())
         .unwrap_err()
-        .contains("no active worker consumer"));
+        .contains("no active worker consumer")
+    );
     assert!(!data.join("state/full-sync").exists());
 
     let mut changed_node = serde_json::to_value(&node).unwrap();
@@ -1144,7 +1161,10 @@ fn operation_budget_is_bound_to_v4_chain_and_local_identity() {
     config["formal_full_sync"]["transfer_policy"]["max_inflight_requests"] = serde_json::json!(2);
     assert!(load(&config).is_err());
     config["formal_full_sync"]["transfer_policy"]["max_inflight_requests"] = serde_json::json!(1);
-    config["formal_full_sync"]["transfer_policy"].as_object_mut().unwrap().remove("reopen_timeout_ms");
+    config["formal_full_sync"]["transfer_policy"]
+        .as_object_mut()
+        .unwrap()
+        .remove("reopen_timeout_ms");
     assert!(load(&config).is_err());
 }
 #[cfg(unix)]

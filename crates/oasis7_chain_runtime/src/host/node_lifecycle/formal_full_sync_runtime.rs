@@ -15,7 +15,7 @@ mod worker_ownership_tests;
 /// The last live worker, not merely the control socket, owns the lifetime fence.
 /// Stop may detach a bounded network poll; it must not permit a new incarnation
 /// to enter while the old poll can still access the same persistent state.
-pub(in super::super) fn spawn_owned_worker<T, F>(
+fn spawn_owned_worker<T, F>(
     ownership: Arc<ProcessOwnership>,
     work: F,
 ) -> std::io::Result<std::thread::JoinHandle<T>>

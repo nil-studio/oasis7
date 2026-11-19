@@ -78,7 +78,11 @@ pub(super) fn run<'a>(args: impl Iterator<Item = &'a str>) -> Result<(), String>
                 arguments.path("--data-dir")?,
                 arguments.path("--grant")?,
             )?,
-            "start" => process::start(arguments.path("--config")?)?,
+            "start" => {
+                let path = arguments.path("--config")?;
+                model::NodeConfig::load(path)?.require_active_worker_profile()?;
+                process::start(path)?
+            }
             "config-check" => check_config(arguments.path("--config")?)?,
             "runtime-compatibility" => runtime_compatibility::describe_with_minimum(
                 arguments.path("--config")?,
@@ -92,11 +96,13 @@ pub(super) fn run<'a>(args: impl Iterator<Item = &'a str>) -> Result<(), String>
                     .get("--minimum-full-sync-cut-sha256")
                     .map(String::as_str),
             )?,
-            "status" => process::status(arguments.path("--data-dir")?)?,
+            "status" => actions::status(arguments.path("--data-dir")?)?,
             "stop" => process::stop(arguments.path("--data-dir")?, arguments.timeout_ms()?)?,
             "_run" => {
+                let path = arguments.path("--config")?;
+                model::NodeConfig::load(path)?.require_active_worker_profile()?;
                 process::supervise(
-                    arguments.path("--config")?,
+                    path,
                     arguments
                         .values
                         .get("--incarnation")

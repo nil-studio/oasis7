@@ -23,7 +23,7 @@ use std::sync::{
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[path = "formal_full_sync_runtime.rs"]
-pub(super) mod formal_full_sync_runtime;
+mod formal_full_sync_runtime;
 #[cfg(test)]
 #[path = "package_failed_start_tests.rs"]
 mod package_failed_start_tests;
@@ -322,13 +322,6 @@ fn status_value(
         }
         status
     });
-    let full_sync_status = match super::formal_full_sync::observe_operation_status(config) {
-        Some(operation) => Some(operation),
-        None => full_sync_status
-            .map(serde_json::to_value)
-            .transpose()
-            .map_err(|error| error.to_string())?,
-    };
     let configured_role = config.identity.chain.local_role();
     Ok(
         serde_json::json!({"api_version":"oasis7.local-node-status/v1","node_id":config.identity.node_id,"peer_id":config.identity.peer_id,"chain":config.identity.chain,
@@ -384,7 +377,6 @@ pub(super) fn start_with_action_using_runtime(
     runtime_artifact: Option<&super::LocalRuntimeArtifactV1>,
 ) -> Result<serde_json::Value, String> {
     let config = NodeConfig::load(path)?;
-    config.require_active_worker_profile()?;
     let data = &config.identity.data_dir;
     let digest = io::digest(&config)?;
     let admission = admission_lock(data)?;
@@ -841,7 +833,6 @@ fn finish_formal_observer_stop(
 }
 pub(super) fn supervise(path: &Path, incarnation: &str) -> Result<(), String> {
     let config = NodeConfig::load(path)?;
-    config.require_active_worker_profile()?;
     let data = &config.identity.data_dir;
     let mut intent: ActionRecord = io::read(&data.join(START_INTENT))?;
     if intent.target.incarnation != incarnation

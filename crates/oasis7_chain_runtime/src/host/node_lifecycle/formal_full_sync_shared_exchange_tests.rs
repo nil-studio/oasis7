@@ -272,7 +272,7 @@ fn original_request_cannot_be_attached_to_another_transport_policy() {
 
 #[test]
 fn v4_config_and_issuer_grant_bind_the_real_owned_worker_to_one_budget() {
-    use super::super::super::{model, process};
+    use super::super::super::{actions, model, process};
     use operation_worker::InitialBudgetedSession;
 
     let (world, trust, anchor, material, proof) = full_sync_fixture();
@@ -310,7 +310,7 @@ fn v4_config_and_issuer_grant_bind_the_real_owned_worker_to_one_budget() {
         config_digest: local_io::digest(node).unwrap(),
         ..local_instance("v4-owned")
     };
-    let initial = process::status(&data).unwrap();
+    let initial = actions::status(&data).unwrap();
     let initial = &initial["formal_full_state_sync"];
     assert_eq!(initial["api_version"], "oasis7.formal-full-sync-status/v2");
     assert_eq!(initial["blocker"], "operation_worker_inactive");
@@ -346,9 +346,7 @@ fn v4_config_and_issuer_grant_bind_the_real_owned_worker_to_one_budget() {
     let worker = InitialBudgetedSession::prepare(&node, &instance, Arc::clone(&owner)).unwrap();
     assert!(process::lock(&data).is_err());
 
-    let thread =
-        process::formal_full_sync_runtime::spawn_owned_worker(owner, move || worker.run_once())
-            .unwrap();
+    let thread = owner.spawn_bound_worker(move || worker.run_once()).unwrap();
     let (status, snapshot) = thread.join().unwrap().unwrap();
     assert!(status.loaded_cut.is_some());
     assert!(!status.ready);
@@ -359,7 +357,7 @@ fn v4_config_and_issuer_grant_bind_the_real_owned_worker_to_one_budget() {
     assert!(snapshot.active_attempt_nonce.is_none());
     assert!(snapshot.reservation.is_none());
 
-    let status = process::status(&data).unwrap();
+    let status = actions::status(&data).unwrap();
     let projected = &status["formal_full_state_sync"];
     assert_eq!(projected["blocker"], "operation_worker_inactive");
     assert_eq!(projected["ready"], false);
