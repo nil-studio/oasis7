@@ -154,6 +154,19 @@ pub struct RemoteWorldServiceReader<P: FormalReadProjection> {
     pub(super) transport: crate::WorldServiceTransport,
 }
 impl<P: FormalReadProjection> RemoteWorldServiceReader<P> {
+    pub fn with_full_sync_exchange(
+        mut self,
+        exchange: std::sync::Arc<dyn crate::formal_sync_exchange::FullSyncExchange>,
+    ) -> Result<Self, WorldServiceClientError> {
+        if self.formal_read.is_none() {
+            return Err(WorldServiceClientError::Configuration(
+                "full-sync exchange requires formal trust".into(),
+            ));
+        }
+        self.transport = self.transport.with_full_sync_exchange(exchange)?;
+        Ok(self)
+    }
+
     /// Reuse the authenticated connection while isolating mutable proof progress.
     /// This copies only already verified local state; it cannot install a pin
     /// or trust evidence supplied by a remote response.

@@ -149,6 +149,7 @@ fn start_with_runtime_artifact(
     runtime_artifact: Option<&LocalRuntimeArtifactV1>,
 ) -> Result<LocalActionRecord, String> {
     let config = NodeConfig::load(config_path)?;
+    config.require_active_worker_profile()?;
     if let Some(original) = query(&config.identity.data_dir, action_id)? {
         if original.kind != "start"
             || original.expected_generation != expected_generation
@@ -291,7 +292,18 @@ pub(crate) fn inspect(data: &Path) -> Result<serde_json::Value, String> {
     process::status(data)
 }
 pub(crate) fn status(data: &Path) -> Result<serde_json::Value, String> {
-    process::status(data)
+    let mut status = process::status(data)?;
+    if status["chain"]["formal_full_sync"]["api_version"]
+        == super::formal_full_sync::FULL_SYNC_CONFIG_V2
+    {
+        let config = NodeConfig::load(&data.join(CONFIG_FILE))?;
+        if status["config_digest"] != io::digest(&config)? {
+            return Err("node configuration changed between status observations".into());
+        }
+        status["formal_full_state_sync"] = super::formal_full_sync::observe_operation_status(&config)
+            .ok_or("operation status requires its exact V4/V2 node binding")?;
+    }
+    Ok(status)
 }
 #[cfg(test)]
 pub(crate) fn config_digest(config_path: &Path) -> Result<String, String> {

@@ -175,7 +175,7 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 - 主要测试分布：
   - 运行时：`crates/oasis7_runtime/src/tests/*.rs`；状态/快照纯值与稀疏投影归 `crates/oasis7_world_state`，服务 DTO/具体 codec/证明适配归 `crates/oasis7_world_projection`。required Rust 测试必须实际执行两个新包的 lib harness，Runtime 的恢复、rollback、retention 与 Service 的 public/owner/delegate/撤权回归继续保留。
   - 模拟器：`crates/oasis7/src/simulator/tests/*.rs`
-  - LLM 行为：`crates/oasis7/src/simulator/llm_agent/tests_part2.rs`
+  - LLM 行为：`crates/oasis7/src/simulator/llm_agent/tests_followups_actions.rs`
   - Viewer live 服务：`crates/oasis7_viewer_runtime/src/bin/oasis7_viewer_live.rs`（内置 `#[cfg(test)]`）
   - 端到端集成：`crates/oasis7/tests/*.rs`
 
@@ -201,13 +201,13 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 - 这些子系统有独立测试集，但当前 `scripts/ci-tests.sh` 只覆盖了其中一部分（见下文“CI 现状与缺口”）。
 
 ### 场景系统
-- 场景定义：`crates/oasis7/src/simulator/scenario.rs`
+- 场景定义：`crates/oasis7_simulator/src/scenario.rs`
 - 场景矩阵设计：`doc/world-simulator/scenario/scenario-files.prd.md`
 - 场景是 UI 闭环、协议闭环、压力回归的统一输入源。
 
 ## CI 现状与缺口（事实口径）
 
-要求见 [PR 快速反馈与四小时完整回归](doc/testing/ci/ci-tiered-execution.prd.md#ci-fast-pr-periodic-full)。当前候选已接入快速 profile、完整库存、四小时到期调度和发布结果消费；生效范围由实际合入版本、可信 BASE 与保护设置决定。hosted 完整覆盖、普通成功十分钟/P95 和四小时容量仍待实测，以下命令或本地 fixture 通过不代签这些结论。
+要求见 [PR 快速反馈与四小时完整回归](doc/testing/ci/ci-tiered-execution.prd.md#ci-fast-pr-periodic-full)。源码已接入快速 profile、完整库存、周期准入和发布结果消费；Rust workflow 每小时第 17/37/57 分钟检查是否到期，四小时是完整回归的启动目标；生效范围由实际合入版本、可信 BASE 与保护设置决定。hosted 完整覆盖、普通成功十分钟/P95 和四小时容量仍待实测，以下命令或本地 fixture 通过不代签这些结论。
 
 <a id="ci-fast-pr-periodic-full-validation"></a>
 ### 快速 PR 与周期完整回归的实施验收
@@ -227,7 +227,7 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 | 关键边界与共享输入 | 身份/持久化/共识等命中必要定向加测；依赖/工具链或影响不确定时保守扩大并显示原因；未知路径仍失败 |
 | 完整覆盖 | 对同源适用清单核对快速集合与迁出项均在 full 执行；保留原断言、场景长度和平台，包含 Clippy、独立浏览器安全 smoke、Command Center 及真实平台矩阵；故意漏项被识别 |
 | 失败与产物 | 选中检查失败、取消、超时、缺产物、错 features/target、零匹配、意外 skipped 均使最终汇总失败；未选中与未执行严格区分 |
-| 周期与并发 | 检查四小时 cron、固定 SHA、完整回归独立并发、旧 PR 取消、漏跑/超时可见；main push 不重复触发全部重型回归 |
+| 周期与并发 | 核对 schedule 的实际触发、准入判定、相邻完整回归的实际启动间隔、固定 SHA、完整回归独立并发、旧 PR 取消、漏跑/超时可见；main push 不重复触发全部重型回归 |
 | 发布与恢复 | 同源 receipt 对应实际当前 run/attempt、成功完整 gate 和相同检查定义；错误 SHA、bootstrap、过期/歧义产物、失败重跑和 API 缺页阻止发布。Testnet 固定候选只可从可信 main 入口验证，原包 smoke 与授权回滚保留 |
 | 反馈与容量 | 按 PRD 口径报告窗口与样本数、普通成功 P95、失败/超时/取消和例外、排队/编译/执行及冷暖缓存；完整回归能在周期内完成并保留 PR 容量 |
 
@@ -724,16 +724,17 @@ env -u RUSTC_WRAPPER cargo fmt --all -- --check
 
 ### S3：应用主链定向套件（L1 + L2）
 ```bash
-env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required runtime::tests:: -- --nocapture
-env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required simulator::tests:: -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib --features test_tier_required tests:: -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --lib --features test_tier_required tests:: -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7 --lib --features test_tier_required simulator::tests:: -- --nocapture
 env -u RUSTC_WRAPPER cargo test -p oasis7_viewer_runtime --features test_tier_required viewer::live::tests:: -- --nocapture
 env -u RUSTC_WRAPPER cargo test -p oasis7_viewer_runtime --features test_tier_required web_bridge::tests:: -- --nocapture
 ```
 - 电价/市场机制定向回归（required/full）：
 ```bash
-env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required simulator::tests::power::power_buy_zero_price_ -- --nocapture
-env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required simulator::tests::power::power_order_ -- --nocapture
-env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_full simulator::tests::power:: -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --lib --features test_tier_required tests::power::power_buy_zero_price_ -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --lib --features test_tier_required tests::power::power_order_ -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --lib --features test_tier_full tests::power:: -- --nocapture
 ```
 - 主链 Token / NodePoints 桥接定向回归（required/full）：
 ```bash
@@ -742,7 +743,7 @@ env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_full simulator::t
 ```
 - 当前运行与审计权威：`doc/p2p/token/mainchain-token-allocation-mechanism.prd.md`。
 - 用途：
-  - 快速定位 `oasis7` 内部模块回归，不必每次跑全套 full。
+  - 按实际测试归属快速定位 Runtime、Simulator 或 Viewer 回归；`oasis7` 命令保留应用层 Simulator 适配测试，不能代替 `oasis7_simulator` 的内核用例。不必每次跑全套 full。定向验收应核对选中的用例及实际执行数；零匹配不算通过。
 
 ### S4：分布式子系统套件（L3）
 ```bash
@@ -1242,8 +1243,8 @@ node crates/oasis7_viewer/scripts/browser-functional-regression.mjs --skip-build
 
 ### S7：场景矩阵回归套件（L1 + L4）
 ```bash
-env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required scenario_specs_match_ids -- --nocapture
-env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required scenarios_are_stable -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --features test_tier_required scenario_specs_match_ids -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --features test_tier_required scenarios_are_stable -- --nocapture
 env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --features test_tier_full oasis7_init_demo_runs_ -- --nocapture
 ```
 - 配套文档：`doc/world-simulator/scenario/scenario-files.prd.md` 的“场景测试覆盖矩阵”。
@@ -1360,8 +1361,8 @@ npm --prefix crates/oasis7_viewer run build:viewer:visual-test
 - 当前实现差距：两脚本的 mint 非空采样取 balances 的 `reward_mint_record_count` 与原生累计计数的最大值；节点累计聚合使用缺项默认 0，全局 available-sample 计数不能证明每个节点均有数据。S9 在存在 available samples 时把零 DistFS checks 记为 `distfs_checks_zero` warning，其他条件满足可得 `pass`；S10 则将零 checks 记为 data warning / `insufficient_data`。两者 status HTTP 失败后仍以默认字段继续采样，未立即终止；S9 的 HTTP/running 失败在 chaos 下可降为 warning，S10 HTTP 失败通常为 warning（全部 status 缺失或 running=false 等另可失败）。timeline 的 `invariant_ok` 来自 running/last_error，并非原生资产不变量；原生字段读取中的 jq `// true` 会把显式 false 也变成 true。因此脚本绿灯不能代签上述原生来源、逐节点完整性与独立失败分类合同。应核对原始 status、balances、缺失节点及失败样本，未证明项保持未满足；本说明不降低目标、不修改阈值，也不表示本次已执行或修复脚本。
 - 漂移定位/回滚演练门禁（TASK-GAME-014）：
 ```bash
-env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required runtime::tests::persistence::rollback_with_reconciliation_recovers_from_detected_tick_consensus_drift -- --nocapture
-env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required runtime_authoritative_recovery_rollback -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib --features test_tier_required tests::persistence::recovery_tests::rollback_with_reconciliation_recovers_from_detected_tick_consensus_drift -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_viewer_runtime --lib --features test_tier_required runtime_authoritative_recovery_rollback -- --nocapture
 ```
 - 演练通过标准：
   - 能定位 `mismatch_tick`；
@@ -1683,8 +1684,8 @@ env -u RUSTC_WRAPPER cargo check -p oasis7_client_launcher --target wasm32-unkno
   - 若当轮仍无法提供 dedicated NAT/public-entry lab，则必须在 evidence 中明确哪些结果来自 proxy/network-rehearsal drill，不能冒充真实公网探测实验。
 - 反作弊/反女巫证据链门禁（TASK-GAME-015）：
 ```bash
-env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required runtime::tests::governance::governance_identity_penalty_ -- --nocapture
-env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required governance_identity_penalty_and_appeal_drive_vote_rights -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib --features test_tier_required tests::governance::governance_identity_penalty_ -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib --features test_tier_required governance_identity_penalty_and_appeal_drive_vote_rights -- --nocapture
 ```
 - 通过标准：
   - 同目标主体 + 同证据哈希的惩罚重放被拒绝（incident 指纹不重复通过）。
@@ -1692,9 +1693,9 @@ env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required governan
   - `governance_identity_penalty_monitor_stats` 输出误伤率与高风险未闭环数量。
 - 经济源汇审计与阈值门禁（TASK-GAME-016）：
 ```bash
-env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required main_token_economy_ -- --nocapture
-env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required main_token_treasury_distribution_applies_closed_loop_and_records_audit -- --nocapture
-env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required main_token_fee_settlement_burns_supply_and_tracks_treasury_buckets -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib --features test_tier_required main_token_economy_ -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib --features test_tier_required main_token_treasury_distribution_applies_closed_loop_and_records_audit -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib --features test_tier_required main_token_fee_settlement_burns_supply_and_tracks_treasury_buckets -- --nocapture
 ```
 - 通过标准：
   - 审计报表输出 `mint_total/burn_total/net_flow` 与当期 `issued/distributed` 指标。
@@ -1702,7 +1703,7 @@ env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required main_tok
   - 报表中 `exploit_signature` 可用于治理升级与 runbook 分诊。
 - 可运维发布阻断门禁（TASK-GAME-017）：
 ```bash
-env -u RUSTC_WRAPPER cargo test -p oasis7 --features test_tier_required longrun_operability_release_gate_ -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib --features test_tier_required longrun_operability_release_gate_ -- --nocapture
 ```
 - 通过标准：
   - `evaluate_longrun_operability_release_gate` 产出统一报告，覆盖 `SLO + 告警 + 灾备演练 + 灰度阶段 + 经济告警`。
@@ -1856,10 +1857,10 @@ QA 只形成原声明范围的证据结论，producer 负责原阶段/claim 决�
   - WASM release evidence 最小归档：`summary.md`、`summary.json`、`module_sets.tsv`、各 module set verify log 与 per-runner summary json
 - 等价拆分命令（便于定向排障）：
 ```bash
-env -u RUSTC_WRAPPER cargo test -p oasis7 module_release_submit_attestation_ --features test_tier_required -- --nocapture
-env -u RUSTC_WRAPPER cargo test -p oasis7 module_release_apply_rejects_when_attestation_threshold_not_met --features test_tier_required -- --nocapture
-env -u RUSTC_WRAPPER cargo test -p oasis7 module_release_apply_rejects_when_attestation_receipt_evidence_mismatches --features test_tier_required -- --nocapture
-env -u RUSTC_WRAPPER cargo test -p oasis7 power_bootstrap_release_manifest_full --features test_tier_full -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib module_release_submit_attestation_ --features test_tier_required -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib module_release_apply_rejects_when_attestation_threshold_not_met --features test_tier_required -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib module_release_apply_rejects_when_attestation_receipt_evidence_mismatches --features test_tier_required -- --nocapture
+env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib power_bootstrap_release_manifest_full --features test_tier_full,wasmtime -- --nocapture
 ./scripts/module-release-node-attestation-flow.sh --help
 ./scripts/package-module-release-attestation-proof.sh --help
 ./scripts/submit-module-release-attestation.sh --help

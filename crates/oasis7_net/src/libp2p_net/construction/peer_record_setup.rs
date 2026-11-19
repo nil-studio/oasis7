@@ -74,4 +74,33 @@ impl Libp2pNetwork {
                 })?;
         PeerRecordReceiver::upgrade_to_v2_only(&config.peer_record_receiver, keypair, template)
     }
+
+    /// Prune expired floors from the durable receiver ledger without starting networking.
+    pub fn prune_peer_record_receiver(
+        config: &Libp2pNetworkConfig,
+        trusted_now_ms: i64,
+        retained_peers: &std::collections::BTreeSet<String>,
+    ) -> Result<usize, WorldError> {
+        let keypair =
+            config
+                .keypair
+                .as_ref()
+                .ok_or_else(|| WorldError::NetworkProtocolUnavailable {
+                    protocol: "receiver pruning requires a stable configured keypair".into(),
+                })?;
+        let template =
+            config
+                .peer_record
+                .as_ref()
+                .ok_or_else(|| WorldError::NetworkProtocolUnavailable {
+                    protocol: "receiver pruning requires a configured peer-record template".into(),
+                })?;
+        PeerRecordReceiver::prune_offline(
+            &config.peer_record_receiver,
+            keypair,
+            template,
+            trusted_now_ms,
+            retained_peers,
+        )
+    }
 }

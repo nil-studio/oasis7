@@ -311,16 +311,6 @@ capture_state() {
   printf '%s\n' "$path"
 }
 
-click_testids() {
-  local csv=$1
-  local IFS=,
-  local testid
-  for testid in $csv; do
-    [[ -n "$testid" ]] || continue
-    find_testid_click "$testid"
-  done
-}
-
 click_targets() {
   local csv=$1
   local IFS=,

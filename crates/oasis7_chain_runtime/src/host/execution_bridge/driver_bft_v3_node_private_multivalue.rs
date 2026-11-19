@@ -281,6 +281,7 @@ impl NodePrivateStore {
             value: Some(candidate.public_value.clone()),
             actions_cbor: candidate.actions_cbor.clone(),
             references: nodes.keys().cloned().collect(),
+            source_activation: None,
         };
         if let Some((old, path)) = self.exact_slot(&candidate.public_value)? {
             // Legacy originals keep their original schema, bytes and receipt digest.
@@ -363,6 +364,7 @@ impl NodePrivateStore {
             value: Some(candidate.public_value.clone()),
             actions_cbor: Vec::new(),
             references: vec![digest.clone()],
+            source_activation: None,
         };
         if self
             .selections

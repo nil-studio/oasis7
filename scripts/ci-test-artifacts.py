@@ -3227,11 +3227,11 @@ def formal_parallel_cases(config):
     return result
 
 
-def execute_inline_jobs(jobs, results, *, formal=False, shard=None, ordinary_partition=None):
+def execute_inline_jobs(jobs, results, *, formal=False, shard=None, ordinary_partition=None, artifact_partition=False):
     """Run complete validated jobs, with one receipt and owner per child."""
     from ci_process_runner import run
     cpus = native_cpu_budget()
-    workers = min(4 if formal else 1 if ordinary_partition not in (None, 'all') else 2, cpus, len(jobs))
+    workers = min(4 if formal else 2 if (ordinary_partition in (None, 'all') or artifact_partition) else 1, cpus, len(jobs))
     threads = 1 if formal else max(1, cpus // workers)
     # An existing lower limit remains useful; never multiply libtest's normal
     # CPU-sized pool by the number of concurrently running harnesses.
@@ -3670,9 +3670,11 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
         if (entry.get('binary'), name) in resources:
             job['cpu_weight'] = resources[(entry['binary'], name)]
         jobs.append(job)
-    if formal or inline:
+    native_artifact_partition = artifact_partition and plan.get('ordinary_artifact_partition_version') == 2
+    if formal or inline or native_artifact_partition:
         execute_inline_jobs(jobs, results, formal=formal, shard=shard,
-                            ordinary_partition=manifest.get('ordinary_partition'))
+                            ordinary_partition=manifest.get('ordinary_partition'),
+                            artifact_partition=native_artifact_partition)
         return
     failed = False
     for job in jobs:

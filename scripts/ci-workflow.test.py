@@ -122,6 +122,34 @@ TRUSTED_SOURCE_WRITERS = (
 )
 
 
+def validate_mold_checkout_reuse(tools, setup, source):
+    def inputs(step):
+        fields = re.findall(r'^          ([a-z][a-z-]*): (.*)$', step, re.M)
+        assert len(fields) == len(dict(fields)), 'duplicate checkout input'
+        return dict(fields)
+
+    def guards(step):
+        return re.findall(r'^        if: (.+)$', step, re.M)
+
+    first, selected = inputs(tools), inputs(source)
+    assert set(selected) <= {'ref', 'fetch-depth', 'persist-credentials'}
+    assert selected.get('persist-credentials') == 'false'
+    ref = selected['ref'].removeprefix('${{').removesuffix('}}').strip()
+    assert ref in ('needs.select.outputs.tested_sha', 'github.sha')
+    depth = selected.get('fetch-depth', '1')
+    assert depth in ('0', '1')
+    different = f"{ref} == '' || github.workflow_sha != {ref}"
+    sparse = "${{ (" + different + ") && '.github/actions/setup-linux-mold' || '' }}"
+    first_depth = (depth if depth == '1' else "${{ " +
+                   f"{ref} != '' && github.workflow_sha == {ref} && '0' || '1'" + " }}")
+    assert first == {'ref': '${{ github.workflow_sha }}', 'persist-credentials': 'false',
+                     'fetch-depth': first_depth, 'sparse-checkout': sparse}
+    platform = guards(tools)
+    assert platform == guards(setup) and platform in ([], ["runner.os == 'Linux'"])
+    fallback = ("runner.os != 'Linux' || " if platform else '') + different
+    assert guards(source) == ["${{ " + fallback + " }}"], 'only the identical nonempty source may skip checkout'
+
+
 def selected_source_steps(name):
     """Normalize only the equivalent first checkout of admitted main writers."""
     steps = JOBS[name].split('    steps:\n', 1)[1]
@@ -130,7 +158,13 @@ def selected_source_steps(name):
     if 'uses: ./.github/actions/setup-linux-mold' in steps:
         assert len(checkouts) == 2, 'workflow tools and one selected checkout are required'
         assert '          ref: ${{ github.workflow_sha }}\n' in checkouts[0], 'linker tools must use the workflow revision'
-        assert '          sparse-checkout: .github/actions/setup-linux-mold\n' in checkouts[0], 'only linker tools may precede source'
+        if '          sparse-checkout: .github/actions/setup-linux-mold\n' not in checkouts[0]:
+            setup = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', steps, re.M | re.S)
+                         if 'uses: ./.github/actions/setup-linux-mold' in step)
+            validate_mold_checkout_reuse(checkouts[0], setup, checkouts[-1])
+        else:
+            assert not re.findall(r'^        if: .*workflow_sha', checkouts[-1], re.M), (
+                'sparse mold checkout cannot replace the selected source')
     else:
         assert len(checkouts) == 1, 'one selected checkout is required'
     if name in TRUSTED_SOURCE_WRITERS:
@@ -141,7 +175,10 @@ def selected_source_steps(name):
     allowed = (tested, '${{ github.sha }}') if name in TRUSTED_SOURCE_WRITERS else (tested,)
     assert len(refs) == 1 and refs[0] in allowed, 'checkout must use the selected or proven identical source'
     # Do not normalize any other checkout setting, later step, or candidate ref.
-    return steps.replace('          ref: ' + refs[0] + '\n', '          ref: ' + tested + '\n', 1)
+    if refs[0] == '${{ github.sha }}':
+        for step in checkouts:
+            steps = steps.replace(step, step.replace('github.sha', 'needs.select.outputs.tested_sha'), 1)
+    return steps
 
 
 def effective_job_condition(condition, values, ancestor_results, *, cancelled=False):
@@ -368,7 +405,19 @@ def without_optional_dependency_cache_install(workflow, config=None):
     return workflow
 
 
+def validate_custody_tools(node):
+    if re.search(r'^    container:', node, re.M):
+        if (not re.search(r'^    container:\n      image: ghcr\.io/nil-studio/oasis7/ci-build@sha256:[0-9a-f]{64}$',
+                          node, re.M)
+                or 'gdb --version && gcc --version && pkg-config --version' not in node
+                or 'scripts/ci-apt-install.py' in node or 'apt-get ' in node):
+            raise ValueError('custody image requires a pinned digest and preinstalled GDB tools')
+    elif '-- gdb gcc pkg-config' not in node:
+        raise ValueError('custody host runner requires GDB tools')
+
+
 def validate_workerd_capture(node, summary):
+    validate_custody_tools(node)
     run = next((line for line in node.splitlines() if 'ci-custody-platform.py run ' in line), '')
     validate = next((line for line in summary.splitlines() if 'ci-custody-platform.py validate ' in line), '')
     if '--capture-workerd-faults' not in run or '--capture-workerd-faults' not in validate:
@@ -378,7 +427,7 @@ def validate_workerd_capture(node, summary):
     if (len(contracts) != 1 or 'if: matrix.shard == 0' not in contracts[0]
             or "OASIS7_REQUIRE_GDB_TESTS: '1'" not in contracts[0]
             or '--failfast GdbContracts' not in contracts[0]
-            or 'continue-on-error' in contracts[0] or '-- gdb gcc pkg-config' not in node):
+            or 'continue-on-error' in contracts[0]):
         raise ValueError('standard GDB process contracts must actually run on the hosted consumer')
     uploads = [step for step in steps if 'name: custody-workerd-fault-' in step]
     if (len(uploads) != 1 or 'if: always()' not in uploads[0]
@@ -546,6 +595,20 @@ class Workflow(unittest.TestCase):
                     for boundary in boundaries:
                         self.assertLess(steps.index(action), boundary.start())
 
+    def test_mold_checkout_reuse_rejects_skipping_a_different_source(self):
+        ref = 'needs.select.outputs.tested_sha'
+        tools = ("          ref: ${{ github.workflow_sha }}\n"
+                 "          persist-credentials: false\n"
+                 "          fetch-depth: 1\n"
+                 "          sparse-checkout: ${{ (" + ref + " == '' || github.workflow_sha != " + ref
+                 + ") && '.github/actions/setup-linux-mold' || '' }}\n")
+        source = ("        if: ${{ " + ref + " == '' || github.workflow_sha != " + ref + " }}\n"
+                  "          ref: ${{ " + ref + " }}\n"
+                  "          persist-credentials: false\n")
+        validate_mold_checkout_reuse(tools, '', source)
+        with self.assertRaises(AssertionError):
+            validate_mold_checkout_reuse(tools, '', source.replace('workflow_sha !=', 'workflow_sha =='))
+
     def test_historical_source_builds_load_mold_from_the_workflow_revision(self):
         # A historical product checkout may predate the local action entirely.
         for filename in ('rust.yml', 'mainnet-packages.yml', 'release-packages.yml', 'testnet-packages.yml'):
@@ -561,7 +624,11 @@ class Workflow(unittest.TestCase):
                                  if 'uses: ./.github/actions/setup-linux-mold' in step)
                     self.assertIn('uses: actions/checkout@', steps[setup - 1])
                     self.assertIn('ref: ${{ github.workflow_sha }}', steps[setup - 1])
-                    self.assertIn('sparse-checkout: .github/actions/setup-linux-mold\n', steps[setup - 1])
+                    if (filename == 'rust.yml'
+                            and 'sparse-checkout: .github/actions/setup-linux-mold\n' not in steps[setup - 1]):
+                        validate_mold_checkout_reuse(*steps[setup - 1:setup + 2])
+                    else:
+                        self.assertIn('sparse-checkout: .github/actions/setup-linux-mold\n', steps[setup - 1])
                     self.assertNotIn('sparse-checkout-cone-mode: false', steps[setup - 1])
                     self.assertIn('uses: actions/checkout@', steps[setup + 1])
                     self.assertNotIn('sparse-checkout:', steps[setup + 1])
@@ -573,6 +640,10 @@ class Workflow(unittest.TestCase):
         tools = re.search(r'^      - name: Check out workflow linker setup\n.*?(?=^      - |\Z)',
                           JOBS['pr-governance-preview'], re.M | re.S).group()
         pattern = re.search(r'^          sparse-checkout: (.+)$', tools, re.M)[1]
+        # The historical-source branch still checks out only the action directory.
+        if pattern.startswith('${{'):
+            self.assertIn("&& '.github/actions/setup-linux-mold' || ''", pattern)
+            pattern = '.github/actions/setup-linux-mold'
         cone = 'sparse-checkout-cone-mode: false' not in tools
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -675,7 +746,11 @@ class Workflow(unittest.TestCase):
                         direct.replace('          fetch-depth: 0', '          repository: another/repo', 1),
                         direct.replace('run: python3 scripts/ci-workspace-cache.py identity', 'run: false #', 1)):
             with patch.dict(JOBS, {writer: changed}):
-                self.assertNotEqual(selected_source_steps(writer).strip(), selected_source_steps(reader).strip())
+                if 'sparse-checkout: ${{' in direct and 'run: false #' not in changed:
+                    with self.assertRaises(AssertionError):
+                        selected_source_steps(writer)
+                else:
+                    self.assertNotEqual(selected_source_steps(writer).strip(), selected_source_steps(reader).strip())
 
     def test_writer_identity_is_bound_by_the_real_selector_and_job_conditions(self):
         selection = re.search(r'^          trusted_source=false\n.*?^          fi\n',
@@ -5331,7 +5406,11 @@ class AptWorkflow(unittest.TestCase):
     def test_all_rust_apt_consumers_keep_packages_and_bounded_failure(self):
         expected = {('rust', name, 'Install native libraries'): self.NATIVE
                     for name in self.NATIVE_JOBS}
-        expected['rust', 'custody-node', 'Install native libraries'] = ['gdb', 'gcc', *self.NATIVE]
+        custody = ('rust', 'custody-node', 'Install native libraries')
+        if re.search(r'^    container:', JOBS['custody-node'], re.M):
+            del expected[custody]
+        else:
+            expected[custody] = ['gdb', 'gcc', *self.NATIVE]
         expected.update({('rust', name, 'Install WASM C compiler'): ['clang', 'llvm']
                          for name in ('pr-fast-preview', 'net')})
         expected.update({('rust', name, 'Install system deps'): ['clang', 'llvm', *self.NATIVE]
@@ -5624,6 +5703,15 @@ class OrdinaryDeliveryWorkflow(unittest.TestCase):
 
 
 class WorkerdFaultCapture(unittest.TestCase):
+    def test_prebuilt_custody_tools_require_pinning_and_preflight(self):
+        node = (f"    container:\n      image: ghcr.io/nil-studio/oasis7/ci-build@sha256:{'a' * 64}\n"
+                "      - run: gdb --version && gcc --version && pkg-config --version\n")
+        validate_custody_tools(node)
+        for bad in (node.replace('@sha256:', ':'), node.replace('gdb --version', 'true'),
+                    node + '      - run: sudo apt-get update\n'):
+            with self.assertRaises(ValueError):
+                validate_custody_tools(bad)
+
     def test_evidence_upload_is_bounded_without_masking_failure(self):
         node, summary = JOBS['custody-node'], JOBS['workspace-support']
         marker = '      - name: Preserve workerd evidence for this attempt\n'
@@ -5651,7 +5739,8 @@ class WorkerdFaultCapture(unittest.TestCase):
                 (' --capture-workerd-faults', ''),
                 ("OASIS7_REQUIRE_GDB_TESTS: '1'", "OASIS7_REQUIRE_GDB_TESTS: '0'"),
                 ('--failfast GdbContracts', 'Receipts'),
-                ('-- gdb gcc pkg-config', '-- pkg-config'),
+                (('gdb --version && gcc --version && pkg-config --version'
+                  if re.search(r'^    container:', node, re.M) else '-- gdb gcc pkg-config'), '-- pkg-config'),
                 ('custody-workerd-fault-${{ github.run_id }}-${{ github.run_attempt }}-',
                  'custody-workerd-fault-${{ github.run_id }}-'),
                 ('name: custody-workerd-fault-', 'overwrite: true\n          name: custody-workerd-fault-')):

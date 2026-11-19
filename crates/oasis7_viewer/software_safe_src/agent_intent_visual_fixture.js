@@ -16,12 +16,6 @@ export const AGENT_INTENT_CONTROL_STATES = ["controllable", "control_lost", "rea
 export const AGENT_INTENT_RECEIPT_STATES = ["valid", "missing"];
 export const AGENT_INTENT_VARIANTS = ["normal", "duplicate", "replacement"];
 
-function queryValue(name, fallback) {
-  return String(new URLSearchParams(window.location.search || "").get(name) || fallback)
-    .trim()
-    .toLowerCase();
-}
-
 function oneOf(value, choices, fallback) {
   return choices.includes(value) ? value : fallback;
 }

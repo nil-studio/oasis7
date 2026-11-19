@@ -3479,6 +3479,38 @@ pub fn mark(name: &str) {
                                       ordinary_partition='native-0')
                 self.assertFalse((root / 'never-created').exists())
 
+    def test_native_artifact_partition_runs_complete_harnesses_with_bounded_concurrency(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with self.context(root):
+                entered = threading.Barrier(2)
+                lock = threading.Lock()
+                calls, active = [], [0, 0]
+
+                def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+                    with lock:
+                        active[0] += 1
+                        active[1] = max(active)
+                        calls.append((name, env.get('RUST_TEST_THREADS')))
+                    try:
+                        if active[1] <= 2 and len(calls) <= 2:
+                            entered.wait(timeout=2)
+                        return ParallelNativeExecution.receipt(suite, name, results, expected_count)
+                    finally:
+                        with lock:
+                            active[0] -= 1
+
+                receipts = root / 'results.jsonl'
+                with patch.object(artifacts, 'native_cpu_budget', return_value=4), \
+                        patch('ci_process_runner.run', side_effect=invoke):
+                    artifacts.execute(self.consumer, 'ordinary', receipts, plan=self.selected,
+                                      ordinary_partition='native-0')
+                records = [json.loads(line) for line in receipts.read_text().splitlines()]
+                self.assertEqual(active[1], 2)
+                self.assertTrue(all(threads == '2' for _, threads in calls))
+                self.assertEqual(len(records), len(calls))
+                self.assertTrue(all(record['passed'] for record in records))
+
 
 class NativePackagePartitions(unittest.TestCase):
     def selection(self):

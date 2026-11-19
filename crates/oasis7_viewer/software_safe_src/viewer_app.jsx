@@ -3925,12 +3925,3 @@ export function mountViewerApp(root = document.getElementById("app")) {
     root.textContent = "";
   };
 }
-
-function shouldBypassAutoMountForTestApi() {
-  const params = new URLSearchParams(window.location.search || "");
-  const value = String(params.get("test_api") || "").trim().toLowerCase();
-  const autoMount = String(params.get("auto_mount") || "").trim().toLowerCase();
-  const testApi = value === "1" || value === "true" || value === "yes" || value === "on";
-  const headedFixture = autoMount === "1" || autoMount === "true" || autoMount === "yes" || autoMount === "on";
-  return testApi && !headedFixture;
-}

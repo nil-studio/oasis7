@@ -17,7 +17,7 @@ use super::agent::AgentBehavior;
 use super::async_agent_runner::RuntimeReceiptReadbackVerifier;
 use super::async_agent_runner::{
     AsyncAgentRunner, AsyncAgentRunnerError, AsyncAgentTurnOutcome, AsyncTurnFeedback, AsyncTurnId,
-    AsyncTurnLifecycle, AsyncWorldEffect,
+    AsyncTurnLifecycle,
 };
 use super::cognition_policy::MemoryWriteStore;
 use super::continuous_agent_harness::{
@@ -396,9 +396,4 @@ fn phase_for_outcome(outcome: &AsyncAgentTurnOutcome) -> TurnEnginePhase {
         }
         AsyncTurnFeedback::Wait | AsyncTurnFeedback::WaitTicks(_) => TurnEnginePhase::Pending,
     }
-}
-
-#[allow(dead_code)]
-fn _effect_is_candidate_only(effect: AsyncWorldEffect) -> bool {
-    !matches!(effect, AsyncWorldEffect::NoEffect)
 }

@@ -1076,3 +1076,97 @@ mod grant_reconcile_tests;
 
 #[path = "formal_full_sync_provider_budget_tests.rs"]
 mod provider_budget_tests;
+
+#[test]
+fn operation_budget_is_bound_to_v4_chain_and_local_identity() {
+    use super::super::{local_io, model, run};
+
+    let (_, trust, _, _, _) = full_sync_fixture();
+    let mut config = serde_json::json!({
+        "api_version": "oasis7.chain-config/v4",
+        "runtime_profile": PROFILE,
+        "formal_full_sync": {
+            "api_version": "oasis7.formal-full-state-sync/v2",
+            "endpoint": "http://127.0.0.1:1",
+            "trusted_service_public_key": hex::encode(test_key(92).verifying_key().to_bytes()),
+            "world_id": trust.initial_trust.world.world_id,
+            "chain_id": trust.initial_trust.world.chain_id,
+            "genesis_digest": trust.initial_trust.world.genesis_digest,
+            "formal_read_trust": trust,
+            "grant": null,
+            "expected_role": FormalNodeReadRoleV1::StateSync,
+            "poll_interval_ms": 100,
+            "request_timeout_ms": 2000,
+            "max_total_sync_bytes": 1048576,
+            "transfer_policy": {
+                "api_version": "oasis7.formal-full-sync-transfer-policy/v1",
+                "attempt_timeout_ms": 5000,
+                "max_attempts": 2,
+                "max_encoded_io_bytes": 16777216,
+                "max_exchanges": 24,
+                "max_proof_pages": 4,
+                "max_proof_bytes": 1048576,
+                "max_inflight_requests": 1,
+                "reopen_timeout_ms": 2000
+            }
+        }
+    });
+    let load = |config: &serde_json::Value| {
+        model::ChainConfig::load_bytes(
+            Path::new("chain.json"),
+            &serde_json::to_vec(config).unwrap(),
+        )
+    };
+    let anchor = load(&config).unwrap();
+    let temp = TestPrivateDir::new();
+    let data = temp.0.join("budgeted-node");
+    let node = model::initialize(anchor, &data, None, "127.0.0.1:43170").unwrap();
+    assert_eq!(node.api_version, "oasis7.local-node/v4");
+    assert_eq!(node.identity.api_version, "oasis7.local-node/v4");
+    let node_path = data.join(model::CONFIG_FILE);
+    assert_eq!(model::NodeConfig::load(&node_path).unwrap(), node);
+    let path = node_path.to_str().unwrap();
+    assert!(
+        run(["start", "--config", path].into_iter())
+            .unwrap_err()
+            .contains("no active worker consumer")
+    );
+    assert!(
+        run([
+            "_run",
+            "--config",
+            path,
+            "--incarnation",
+            "not-an-admitted-incarnation"
+        ]
+        .into_iter())
+        .unwrap_err()
+        .contains("no active worker consumer")
+    );
+    assert!(!data.join("state/full-sync").exists());
+
+    let mut changed_node = serde_json::to_value(&node).unwrap();
+    changed_node["identity"]["chain"]["formal_full_sync"]["transfer_policy"]["max_attempts"] =
+        serde_json::json!(3);
+    local_io::write(&node_path, &changed_node).unwrap();
+    assert!(model::NodeConfig::load(&node_path).is_err());
+    changed_node = serde_json::to_value(&node).unwrap();
+    changed_node["api_version"] = serde_json::json!("oasis7.local-node/v3");
+    local_io::write(&node_path, &changed_node).unwrap();
+    assert!(model::NodeConfig::load(&node_path).is_err());
+
+    config["api_version"] = serde_json::json!("oasis7.chain-config/v3");
+    assert!(load(&config).is_err());
+    config["api_version"] = serde_json::json!("oasis7.chain-config/v4");
+    config["formal_full_sync"]["transfer_policy"]["max_inflight_requests"] = serde_json::json!(2);
+    assert!(load(&config).is_err());
+    config["formal_full_sync"]["transfer_policy"]["max_inflight_requests"] = serde_json::json!(1);
+    config["formal_full_sync"]["transfer_policy"]
+        .as_object_mut()
+        .unwrap()
+        .remove("reopen_timeout_ms");
+    assert!(load(&config).is_err());
+}
+#[cfg(unix)]
+#[path = "formal_full_sync_shared_exchange_tests.rs"]
+mod shared_exchange_tests;

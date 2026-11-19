@@ -584,6 +584,10 @@ impl<F: Format> GenericLedger<F> {
             .collect())
     }
 
+    pub(super) fn directory(&self) -> &Path {
+        &self.dir
+    }
+
     pub(super) fn origin(&self) -> Result<&F::Origin, String> {
         self.pin
             .as_ref()

@@ -74,24 +74,31 @@ pub(crate) fn private_file(path: &Path) -> Result<File, String> {
     Ok(file)
 }
 pub(crate) fn read<T: DeserializeOwned>(path: &Path) -> Result<T, String> {
+    read_bounded_json(path, MAX_JSON)
+}
+pub(super) fn read_bounded_json<T: DeserializeOwned>(path: &Path, limit: u64) -> Result<T, String> {
+    let limit_plus_probe = limit.checked_add(1).ok_or("invalid node metadata size limit")?;
     let path = regular(path)?;
     let file = File::open(path).map_err(|e| e.to_string())?;
-    if file.metadata().map_err(|e| e.to_string())?.len() > MAX_JSON {
+    if file.metadata().map_err(|e| e.to_string())?.len() > limit {
         return Err("node metadata size limit".into());
     }
     let mut bytes = Vec::new();
-    file.take(MAX_JSON + 1)
+    file.take(limit_plus_probe)
         .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
-    if bytes.len() as u64 > MAX_JSON {
+    if bytes.len() as u64 > limit {
         return Err("node metadata size limit".into());
     }
     serde_json::from_slice(&bytes).map_err(|e| e.to_string())
 }
 pub(crate) fn write<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
+    write_bounded_json(path, value, MAX_JSON)
+}
+pub(super) fn write_bounded_json<T: Serialize>(path: &Path, value: &T, limit: u64) -> Result<(), String> {
     reject_symlinks(path)?;
     let bytes = serde_json::to_vec_pretty(value).map_err(|e| e.to_string())?;
-    if bytes.len() as u64 > MAX_JSON {
+    if bytes.len() as u64 > limit {
         return Err("node metadata size limit".into());
     }
     let parent = path.parent().ok_or("node metadata parent missing")?;

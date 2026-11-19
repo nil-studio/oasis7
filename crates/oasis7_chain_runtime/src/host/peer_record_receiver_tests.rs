@@ -469,3 +469,110 @@ fn host_explicit_receiver_upgrade_preserves_state_and_is_not_runtime_config() {
     );
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn prune_receiver_cli_validates_required_reception_mode_and_trusted_time() {
+    // Missing reception mode (defaults to legacy)
+    let err_no_mode = parse_options(["--prune-peer-record-receiver"].into_iter()).unwrap_err();
+    assert!(
+        err_no_mode.contains("--prune-peer-record-receiver requires --p2p-peer-record-reception")
+    );
+
+    // Missing trusted time
+    let err_no_time = parse_options(
+        [
+            "--prune-peer-record-receiver",
+            "--p2p-peer-record-reception",
+            "v2_durable_compatible",
+        ]
+        .into_iter(),
+    )
+    .unwrap_err();
+    assert!(
+        err_no_time.contains("--peer-record-trusted-time-unix-ms with a positive timestamp")
+    );
+
+    // Zero trusted time
+    let err_zero_time = parse_options(
+        [
+            "--prune-peer-record-receiver",
+            "--p2p-peer-record-reception",
+            "v2_durable_compatible",
+            "--peer-record-trusted-time-unix-ms",
+            "0",
+        ]
+        .into_iter(),
+    )
+    .unwrap_err();
+    assert!(
+        err_zero_time.contains("--peer-record-trusted-time-unix-ms with a positive timestamp")
+    );
+
+    // Conflicting actions
+    let err_conflict = parse_options(
+        [
+            "--prune-peer-record-receiver",
+            "--p2p-peer-record-reception",
+            "v2_durable_compatible",
+            "--peer-record-trusted-time-unix-ms",
+            "1000",
+            "--initialize-peer-record-receiver",
+        ]
+        .into_iter(),
+    )
+    .unwrap_err();
+    assert!(
+        err_conflict.contains("--prune-peer-record-receiver cannot be combined with other peer-record actions")
+    );
+
+    // Formal live config rejection via parse_options
+    let err_formal = parse_options(
+        [
+            "--prune-peer-record-receiver",
+            "--p2p-peer-record-reception",
+            "v2_durable_compatible",
+            "--peer-record-trusted-time-unix-ms",
+            "1000",
+            "--formal-live-config",
+            "formal.json",
+        ]
+        .into_iter(),
+    )
+    .unwrap_err();
+    assert!(
+        err_formal.contains("cannot be combined with --formal-live-config")
+    );
+
+    // Direct effective validation checks applies only to development host runtime
+    let formal_opt = CliOptions {
+        formal_live_config: Some(std::path::PathBuf::from("formal.json")),
+        prune_peer_record_receiver: true,
+        p2p_peer_record_reception: DevelopmentPeerRecordReceptionModeV1::V2DurableCompatible,
+        peer_record_trusted_time_unix_ms: Some(1000),
+        ..CliOptions::default()
+    };
+    let err_formal_direct = super::cli::validate_effective_options(&formal_opt).unwrap_err();
+    assert!(
+        err_formal_direct.contains("--prune-peer-record-receiver applies only to the development host runtime")
+    );
+
+    // Valid options parse successfully
+    let valid = parse_options(
+        [
+            "--prune-peer-record-receiver",
+            "--p2p-peer-record-reception",
+            "v2_durable_compatible",
+            "--peer-record-trusted-time-unix-ms",
+            "5000000",
+            "--peer-record-retained-peer",
+            "peer-1",
+            "--peer-record-retained-peer",
+            "peer-2",
+        ]
+        .into_iter(),
+    )
+    .unwrap();
+    assert!(valid.prune_peer_record_receiver);
+    assert_eq!(valid.peer_record_trusted_time_unix_ms, Some(5000000));
+    assert_eq!(valid.peer_record_retained_peers, vec!["peer-1", "peer-2"]);
+}

@@ -1,6 +1,6 @@
 //! Witness-facing V3 observations, time assertions, and mode-fenced history.
 use super::super::{
-    FormalError, FullSyncIssuerAnchorV2, FullSyncIssuerCommittedEntryV2,
+    FormalError, FullSyncIssuerAnchorV2, FullSyncIssuerCommittedEntryV2, FullSyncIssuerTargetV2,
     SignedFullSyncIssuerObservationV2, SignedFullSyncIssuerQueryV2, VerifiedFullSyncIssuerPolicyV2,
     canonical, encode, invalid, verify,
 };
@@ -9,6 +9,7 @@ use super::types::{
     FullSyncIssuerAnchorV3, FullSyncIssuerCommittedEntryV3, FullSyncIssuerProtectedTimeIntervalV3,
     FullSyncIssuerRecordV3, MAX_ENTRY_BYTES_V3, OBSERVATION_DOMAIN_V3, QUERY_DOMAIN_V3,
     SignedFullSyncIssuerMigrationV3, SignedFullSyncIssuerReceiptV3,
+    SignedFullSyncProviderLeaseRequestV3,
 };
 use ed25519_dalek::{Signer, SigningKey};
 use serde::{Deserialize, Serialize};
@@ -343,6 +344,80 @@ pub struct FullSyncIssuerHistoryV3 {
     pub v2_entries: Vec<FullSyncIssuerCommittedEntryV2>,
     /// Includes the unique migration event as its first V3 entry.
     pub v3_entries: Vec<FullSyncIssuerCommittedEntryV3>,
+}
+
+/// Transport request for the scoped V3 evidence service. Its lease, when
+/// present, has a separate provider signature and CAS identity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FullSyncReadEvidenceQueryV3 {
+    pub schema_version: u32,
+    pub observation_nonce: String,
+    pub minimum_anchor: FullSyncIssuerAnchorV3,
+    pub provider_public_key: String,
+    pub provider_incarnation: String,
+    pub target: FullSyncIssuerTargetV2,
+    pub target_generation: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_lease_request: Option<SignedFullSyncProviderLeaseRequestV3>,
+}
+
+/// The trusted service boundary must authenticate the provider and authorize
+/// disclosure of complete history for this exact policy and target. The
+/// provider allowlist alone does not supply this authorization.
+pub struct FullSyncIssuerHistoryAccessV3<'a> {
+    pub provider_public_key: &'a str,
+    pub policy_digest: &'a str,
+    pub target: &'a FullSyncIssuerTargetV2,
+    pub target_generation: u64,
+}
+
+impl FullSyncReadEvidenceQueryV3 {
+    /// The trusted service supplies authorization obtained independently of
+    /// the request body, including permission to disclose complete history.
+    pub fn verify_provider(
+        &self,
+        access: &FullSyncIssuerHistoryAccessV3<'_>,
+        policy: &VerifiedFullSyncIssuerPolicyV3,
+    ) -> Result<[u8; 32], FormalError> {
+        let reject = || invalid("full-sync V3 evidence request rejected");
+        if self.schema_version != 3
+            || self.provider_public_key != access.provider_public_key
+            || access.policy_digest != policy.policy_digest()
+            || &self.target != access.target
+            || self.target_generation != access.target_generation
+            || !policy
+                .body()
+                .provider_public_keys
+                .contains(&self.provider_public_key)
+            || !policy.body().allowed_roles.contains(&self.target.role)
+            || self.target_generation == 0
+            || self.minimum_anchor.policy_digest != policy.policy_digest()
+            || self.minimum_anchor.scope_digest != policy.scope_digest()
+            || self.minimum_anchor.signer_generation != policy.body().signer_generation
+        {
+            return Err(reject());
+        }
+        self.minimum_anchor.validate().map_err(|_| reject())?;
+        self.target.validate().map_err(|_| reject())?;
+        canonical::<32>(&self.provider_incarnation).map_err(|_| reject())?;
+        let nonce = canonical::<32>(&self.observation_nonce).map_err(|_| reject())?;
+        if nonce == [0; 32] {
+            return Err(reject());
+        }
+        if let Some(lease) = &self.provider_lease_request {
+            lease.verify(policy).map_err(|_| reject())?;
+            let body = &lease.body;
+            if body.provider_public_key != self.provider_public_key
+                || body.provider_incarnation != self.provider_incarnation
+                || body.target != self.target
+                || body.target_generation != self.target_generation
+            {
+                return Err(reject());
+            }
+        }
+        Ok(nonce)
+    }
 }
 
 /// Raw issuer query, witness observation and complete signed history. The

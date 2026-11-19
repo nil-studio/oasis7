@@ -944,13 +944,13 @@ The implementation review must record immutable fixture input, schema/version, r
 
 Executable targets are fixed as follows: docs use `./scripts/doc-governance-check.sh`; P0.1 uses
 `env -u RUSTC_WRAPPER cargo test -p oasis7 --lib agent_cognition_identity`; P0.2 uses
-`env -u RUSTC_WRAPPER cargo test -p oasis7 --lib agent_cognition_mvcc`; P0.3 uses
-`env -u RUSTC_WRAPPER cargo test -p oasis7 --lib agent_cognition_recovery`; integration uses
-`env -u RUSTC_WRAPPER cargo test -p oasis7 --lib agent_cognition_scheduler_backpressure` for the
-bounded queue-full fixture, `env -u RUSTC_WRAPPER cargo test -p oasis7 --lib agent_cognition_scheduler_fairness`
-for service budgets/starvation, `env -u RUSTC_WRAPPER cargo test -p oasis7 --lib agent_cognition_wake_conditions`
-for condition evaluation, `env -u RUSTC_WRAPPER cargo test -p oasis7 --lib agent_cognition_commit_interleavings`
-for atomic crash recovery, and `env -u RUSTC_WRAPPER cargo test -p oasis7 --lib agent_cognition_retention_gc`
+`env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib agent_cognition_mvcc`; P0.3 uses
+`env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib agent_cognition_recovery`; integration uses
+`env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib agent_cognition_scheduler_backpressure` for the
+bounded queue-full fixture, `env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib agent_cognition_scheduler_fairness`
+for service budgets/starvation, `env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib agent_cognition_wake_conditions`
+for condition evaluation, `env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib agent_cognition_commit_interleavings`
+for atomic crash recovery, and `env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib agent_cognition_retention_gc`
 for checkpoint/GC safety. Integration also uses
 `./scripts/ci-tests.sh required`; multi-Agent/long-run/restore/parity proof uses
 `./scripts/ci-tests.sh full`. These focused filters are required implementation deliverables. Until
