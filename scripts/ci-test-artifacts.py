@@ -286,6 +286,37 @@ class BuiltinTestArtifact(ProviderArtifact):
                    for name, binary in manifest.get('binaries', {}).items())
 
     @staticmethod
+    def planned(variants):
+        # Only explicit requests move preparation earlier. Cargo's actual
+        # feature inventory remains authoritative, including unification that
+        # cannot be inferred from these root-package command arguments.
+        for _, args, features in variants:
+            packages = {value for flag, value in zip(args, args[1:]) if flag in ('-p', '--package')}
+            requested = {feature.removeprefix('oasis7_runtime/') for feature in features
+                         if '/' not in feature or feature.startswith('oasis7_runtime/')}
+            if (args[:1] == ['test'] and 'oasis7_runtime' in packages
+                    and {'wasmtime', 'test_tier_full'} <= requested):
+                return True
+        return False
+
+    @staticmethod
+    def check_runtime_hash(root, module, wasm):
+        manifest = root / 'crates/oasis7_runtime/src/world/artifacts/m1_builtin_modules.sha256'
+        entries = [fields[1:] for line in manifest.read_text().splitlines()
+                   if (fields := line.split()) and fields[0] == module]
+        if len(entries) != 1 or not entries[0]:
+            raise ValueError('builtin Runtime release hash inventory mismatch: ' + module)
+        expected = [token.rsplit('=', 1)[-1] for token in entries[0]]
+        if any(re.fullmatch(r'[0-9a-f]{64}', value) is None for value in expected):
+            raise ValueError('invalid builtin Runtime release hash: ' + module)
+        actual = ProviderArtifact.digest(wasm)
+        if actual not in expected:
+            raise ValueError('builtin artifact differs from frozen Runtime release: '
+                f'module_id={module} selected_purpose=candidate-build selected_profile=release '
+                f'actual_sha256={actual} expected_sha256=[{",".join(expected)}]; '
+                'candidate baselines do not select Runtime release identities')
+
+    @staticmethod
     def build(root, bundle, expected):
         directory = bundle / BuiltinTestArtifact.DIRECTORY
         directory.mkdir(parents=True, exist_ok=False)
@@ -293,10 +324,6 @@ class BuiltinTestArtifact(ProviderArtifact):
         if any(before[key] != expected[key] for key in ('tested_sha', 'source_sha')):
             raise ValueError('builtin producer source differs from native identity')
         records = {}
-        # ProviderArtifact builds/copies the receipt checker and its dynamic libraries.
-        checker_files, libraries = ProviderArtifact.build_checker(root, bundle, BuiltinTestArtifact.DIRECTORY)
-        checker = dict(files={key: {'path': name, 'sha256': ProviderArtifact.digest(ProviderArtifact.checked(bundle, name))}
-                                   for key, name in checker_files.items()}, libraries=libraries)
         (root / 'target').mkdir(exist_ok=True)
         for module, crate in BuiltinTestArtifact.MODULES.items():
             with tempfile.TemporaryDirectory(prefix='ci-builtin-resources-', dir=root / 'target') as temporary:
@@ -304,12 +331,20 @@ class BuiltinTestArtifact(ProviderArtifact):
                                 '--manifest-path', f'crates/oasis7_builtin_wasm_modules/{crate}/Cargo.toml',
                                 '--out-dir', temporary, '--module-id', module, '--profile', 'release'],
                                cwd=root, check=True)
+                # Reject incompatible actual bytes before the next module or
+                # native checker build. This does not replace receipt validation.
+                BuiltinTestArtifact.check_runtime_hash(root, module,
+                    ProviderArtifact.checked(Path(temporary), module + '.wasm'))
                 for suffix in ('.wasm', '.metadata.json', '.build-receipt.json'):
                     shutil.copy2(Path(temporary) / (module + suffix), directory / (module + suffix))
             records[module] = {kind: {'path': f'{BuiltinTestArtifact.DIRECTORY}/{module}{suffix}',
                                      'sha256': ProviderArtifact.digest(directory / (module + suffix))}
                                for kind, suffix in (('wasm', '.wasm'), ('metadata', '.metadata.json'),
                                                     ('receipt', '.build-receipt.json'))}
+        # ProviderArtifact builds/copies the receipt checker and its dynamic libraries.
+        checker_files, libraries = ProviderArtifact.build_checker(root, bundle, BuiltinTestArtifact.DIRECTORY)
+        checker = dict(files={key: {'path': name, 'sha256': ProviderArtifact.digest(ProviderArtifact.checked(bundle, name))}
+                                   for key, name in checker_files.items()}, libraries=libraries)
         if ProviderArtifact.identity(root) != before:
             raise ValueError('builtin source changed during canonical build')
         record = dict(before, modules=records, checker=checker)
@@ -1564,6 +1599,9 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
     worker_companion = None
     variants = (build_variants(scope, plan, ordinary_partition=ordinary_partition) if ordinary_partition is not None
                 else build_variants(scope, plan) if plan is not None else build_variants(scope))
+    builtin_test_resources = None
+    if BuiltinTestArtifact.planned(variants):
+        builtin_test_resources = BuiltinTestArtifact.build(ROOT, bundle, ProviderArtifact.identity(ROOT))
     target_specs = {}
     if scope in ('ordinary', 'all'):
         for prefix, targets in (('required-fast-', ordinary_fast_targets(plan)),
@@ -1749,7 +1787,15 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
     if scope in ('ordinary', 'all') and preview_provider_required(dict(manifest, selection={'suite': 'ordinary'})):
         manifest['preview_provider'] = provider_artifact.build(ROOT, bundle, manifest)
     if BuiltinTestArtifact.required(manifest):
-        manifest['builtin_test_resources'] = BuiltinTestArtifact.build(ROOT, bundle, manifest)
+        if builtin_test_resources is None:
+            builtin_test_resources = BuiltinTestArtifact.build(ROOT, bundle, manifest)
+        else:
+            # Preparation before native compilation cannot stand in for the
+            # final source/tree and actual-consumer validation.
+            BuiltinTestArtifact.validate(ROOT, bundle, builtin_test_resources, manifest)
+        manifest['builtin_test_resources'] = builtin_test_resources
+    elif builtin_test_resources is not None:
+        shutil.rmtree(bundle / BuiltinTestArtifact.DIRECTORY)
     validate_ordinary_selection(manifest)
     (bundle / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     if cache_state is not None:
