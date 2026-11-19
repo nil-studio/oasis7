@@ -298,7 +298,7 @@ oasis7_wasm_router        |
 <a id="obs-executor"></a>
 ### 5.4 Executor Instrumentation Points
 `oasis7_wasm_executor` 的关键埋点：
-- `compile_module_cached()`
+- `compile_module_cached_with_metrics()`
   - memory cache lookup
   - disk cache load
   - deserialize compiled artifact

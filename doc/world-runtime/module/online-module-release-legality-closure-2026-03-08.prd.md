@@ -90,8 +90,8 @@
 - Integration Points:
   - `crates/oasis7_runtime/src/world/governance.rs`
   - `crates/oasis7_runtime/src/world/base_layer.rs`
-  - `crates/oasis7_runtime/src/world/module_actions_impl_part1.rs`
-  - `crates/oasis7_runtime/src/world/module_actions_impl_part2.rs`
+  - 发布动作分发：`crates/oasis7_runtime/src/world/module_actions/release_support.rs`
+  - 请求、证明提交与审批：`crates/oasis7_runtime/src/world/module_actions/release_request_support.rs`
   - `crates/oasis7_runtime/src/events.rs`
   - `crates/oasis7_runtime/src/state.rs`
   - `crates/oasis7_runtime/src/world/release_manifest.rs`
