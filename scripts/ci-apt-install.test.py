@@ -40,7 +40,7 @@ root = Path(os.environ['FIXTURE'])
 mode = os.environ['MODE']
 child = '--child' in sys.argv
 stage = 'child' if child else ('update' if 'update' in sys.argv else 'install')
-if child or mode in ('ignore', 'escape', 'leader_exit', 'install_hang'):
+if child or mode in ('ignore', 'escape', 'leader_exit', 'install_hang', 'local_hang'):
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
     signal.signal(signal.SIGINT, signal.SIG_IGN)
 signal.alarm(15)  # bounded fixture fallback even when an assertion fails
@@ -66,6 +66,12 @@ if mode in ('zombie_success', 'zombie_error', 'zombie_transient'):
 if stage == 'install' and mode == 'install_error':
     print(os.environ['TRANSIENT'], flush=True)
     sys.exit(100)
+if stage == 'install' and '--no-download' in sys.argv and mode == 'local_font_failure':
+    print('E: Unable to fetch some archives', flush=True)
+    sys.exit(100)
+if stage == 'update' and mode == 'local_repo_failure':
+    print('E: The repository does not have a Release file.', flush=True)
+    sys.exit(100)
 if stage == 'update':
     attempts = len([x for x in (root / 'events').read_text().splitlines() if json.loads(x)['stage'] == 'update'])
     if mode == 'permanent':
@@ -89,18 +95,27 @@ if stage == 'update':
         if mode == 'leader_exit': sys.exit(0)
     if mode in ('hang', 'ignore', 'escape'):
         while True: time.sleep(.05)
-if stage == 'install' and mode == 'install_hang':
+if stage == 'install' and mode in ('install_hang', 'local_hang'):
     while True: time.sleep(.05)
 sys.exit(0)
 '''
 RUNNER = r'''
 import importlib.util, os, sys
+from pathlib import Path
 s = importlib.util.spec_from_file_location('ci_apt_fixture', sys.argv[1])
 m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
 i = m.Installer(float(sys.argv[3]), command=(sys.executable, sys.argv[2]), backoff=float(sys.argv[4]))
 if os.environ['MODE'] == 'backpressure':
     for _ in range(1000): i.log('x' * 8192)
-sys.exit(i.install(['pkg-config', 'libudev-dev']))
+mode = os.environ['MODE']
+if mode.startswith('local_'):
+    archive = Path(os.environ['FIXTURE']) / 'archives'
+    archive.mkdir()
+    deb = archive / 'fixture_1%3a1.0_all.deb'
+    deb.write_bytes(b'fixture archive; the fake APT never installs it')
+    packages = ['libnss3'] if mode in ('local_mixed', 'local_repo_failure') else []
+    sys.exit(i.install(packages, no_remove=True, local_archive_dir=archive, local_debs=[str(deb)]))
+sys.exit(i.install(['pkg-config', 'libudev-dev'], no_remove=mode == 'no_remove'))
 '''
 
 
@@ -249,6 +264,17 @@ class ErrorClassification(unittest.TestCase):
             with self.subTest(reason=reason):
                 self.assertTrue(apt.transient_update('E: Failed to fetch http://mirror/index ' + reason))
 
+    def test_repository_http_rate_limit_retries_only_without_permanent_errors(self):
+        failure = (
+            'E: Failed to fetch https://packages.microsoft.com/ubuntu/24.04/prod/dists/noble/InRelease'
+            '  429  Too Many Requests [IP: 13.107.246.41 443]\n'
+            'E: Some index files failed to download. They have been ignored, or old ones used instead.'
+        )
+        self.assertTrue(apt.transient_update(failure))
+        self.assertFalse(apt.transient_update(failure + '\nW: The repository is not signed.'))
+        self.assertFalse(apt.transient_update(failure.replace('429  Too Many Requests', '404  Not Found')))
+        self.assertFalse(apt.transient_update(failure.replace('  429  Too Many Requests', '/429')))
+
     def test_unknown_permanent_and_mixed_errors_do_not_retry(self):
         for line in ('E: Unable to locate package x', 'E: Invalid operation',
                      'E: Permission denied', 'E: Could not get lock /var/lib/dpkg/lock',
@@ -333,6 +359,46 @@ class Lifecycle(unittest.TestCase):
                            'APT::Update::Error-Mode=any'):
                 self.assertIn(option, event['args'])
             self.assertEqual((event['lc'], event['frontend']), ('C', 'noninteractive'))
+
+    def test_browser_dependencies_refuse_removing_installed_packages(self):
+        output = self.run_mode('no_remove', expect=0)
+        self.assertIn('dependencies_ready=true', output)
+        self.assertEqual(self.events()[-1]['args'][-6:],
+                         ['install', '-y', '--no-remove', '--', 'pkg-config', 'libudev-dev'])
+
+    def test_local_archives_never_update_or_download(self):
+        output = self.run_mode('local_success', expect=0)
+        self.assertIn('local_archives_only=true count=1', output)
+        self.assertIn('dependencies_ready=true', output)
+        self.assertEqual([e['stage'] for e in self.events()], ['install'])
+        self.assertEqual(self.events()[0]['args'][-8:], ['install', '-y', '--no-download',
+            '--no-remove', '-o', f'Dir::Cache::archives={self.root / "archives"}', '--',
+            str(self.root / 'archives/fixture_1%3a1.0_all.deb')])
+
+    def test_repository_and_offline_install_share_one_supervisor(self):
+        output = self.run_mode('local_mixed', expect=0)
+        self.assertIn('dependencies_ready=true', output)
+        events = self.events()
+        self.assertEqual([e['stage'] for e in events], ['update', 'install', 'install'])
+        self.assertEqual(events[1]['args'][-5:], ['install', '-y', '--no-remove', '--', 'libnss3'])
+        self.assertNotIn('--no-download', events[1]['args'])
+        self.assertIn('--no-download', events[2]['args'])
+
+    def test_offline_install_failure_never_retries_or_falls_back_online(self):
+        output = self.run_mode('local_font_failure')
+        self.assertIn('dependencies_ready=false', output)
+        self.assertEqual([e['stage'] for e in self.events()], ['install'])
+        self.assertIn('--no-download', self.events()[0]['args'])
+
+    def test_repository_failure_blocks_local_install(self):
+        self.run_mode('local_repo_failure')
+        self.assertEqual([e['stage'] for e in self.events()], ['update'])
+
+    def test_offline_install_timeout_keeps_root_cleanup_budget(self):
+        output = self.run_mode('local_hang')
+        self.assertIn('reason=timeout', output)
+        self.assertIn('cleanup=complete', output)
+        self.assertEqual([e['stage'] for e in self.events()], ['install'])
 
     def test_transient_update_recovers_with_bounded_retry(self):
         output = self.run_mode('transient', expect=0)

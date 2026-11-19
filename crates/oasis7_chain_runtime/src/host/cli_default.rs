@@ -18,6 +18,7 @@ impl Default for CliOptions {
             node_role: NodeRole::Sequencer,
             p2p_user_mode: NodeUserMode::AutoJoin,
             p2p_peer_record_publication: DevelopmentPeerRecordPublicationModeV1::V1Legacy,
+            p2p_resource_budget: Default::default(),
             p2p_peer_record_reception:
                 oasis7::development_node_config::DevelopmentPeerRecordReceptionModeV1::LegacyCompatible,
             initialize_peer_record_publication: false,

@@ -83,7 +83,12 @@ def transient_update(output):
         if line.startswith(('E:', 'W:', 'Err:')):
             if line.startswith('Err:'):
                 continue  # apt 在下一行输出具体原因，最终 E: 必须再次给出原因。
-            if re.search(transient, line) and 'Failed to fetch' in line:
+            rate_limited = re.fullmatch(
+                r'[EW]: Failed to fetch https?://\S+ +429 +Too Many Requests'
+                r'(?: \[IP: [0-9a-fA-F:.]+ [0-9]+\])? *',
+                line,
+            )
+            if rate_limited or (re.search(transient, line) and 'Failed to fetch' in line):
                 found = True
             elif line not in (
                     'E: Some index files failed to download. They have been ignored, or old ones used instead.',
@@ -280,31 +285,63 @@ class Installer:
         valid = clean and reason == 'exit' and not overflow and time.monotonic() < self.end
         return status, text, valid
 
-    def install(self, packages):
+    def install_repository_packages(self, packages, no_remove):
+        if not self.prepare_sources():
+            return False
+        if self.dns.enabled:
+            eligible = self.dns.eligible()
+            self.log(f'dns_recovery_opt_in=true eligible={eligible} reason={self.dns.reason}')
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            status, output, valid = self.run('update', ['update'], attempt=attempt)
+            if status == 0 and valid:
+                break
+            if not (valid and status == 100 and transient_update(output) and attempt < MAX_ATTEMPTS):
+                return False
+            self.dns.try_enable(output)
+            delay = self.backoff * attempt
+            self.log(f'stage=update retry={attempt} backoff={delay:.3f}s')
+            until = time.monotonic() + delay
+            while time.monotonic() < until:
+                if self.cancelled or time.monotonic() >= self.work_end:
+                    return False
+                time.sleep(min(0.02, max(0, until - time.monotonic())))
+        safety = ['--no-remove'] if no_remove else []
+        status, _, valid = self.run('install', ['install', '-y', *safety, '--', *packages])
+        return status == 0 and valid and not self.cancelled
+
+    def install(self, packages, *, no_remove=False, local_archive_dir=None, local_debs=()):
         establish_owner()
         previous = {s: signal.signal(s, self.cancel) for s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)}
         try:
-            if not self.prepare_sources():
-                return 128 + self.cancelled if self.cancelled else 1
-            if self.dns.enabled:
-                eligible = self.dns.eligible()
-                self.log(f'dns_recovery_opt_in=true eligible={eligible} reason={self.dns.reason}')
-            for attempt in range(1, MAX_ATTEMPTS + 1):
-                status, output, valid = self.run('update', ['update'], attempt=attempt)
-                if status == 0 and valid:
-                    break
-                if not (valid and status == 100 and transient_update(output) and attempt < MAX_ATTEMPTS):
-                    return 128 + self.cancelled if self.cancelled else 1
-                self.dns.try_enable(output)
-                delay = self.backoff * attempt
-                self.log(f'stage=update retry={attempt} backoff={delay:.3f}s')
-                until = time.monotonic() + delay
-                while time.monotonic() < until:
-                    if self.cancelled or time.monotonic() >= self.work_end:
-                        return 128 + self.cancelled if self.cancelled else 1
-                    time.sleep(min(0.02, max(0, until - time.monotonic())))
-            status, _, valid = self.run('install', ['install', '-y', '--', *packages])
-            success = status == 0 and valid and not self.cancelled
+            local_options = []
+            if local_debs or local_archive_dir is not None:
+                root = Path(local_archive_dir or '')
+                paths = [Path(value) for value in local_debs]
+                if (not root.is_absolute() or '..' in root.parts or not root.is_dir()
+                        or any(ord(char) < 32 for char in str(root))
+                        or any(parent.is_symlink() for parent in (root, *root.parents))
+                        or not paths or len(paths) > 16 or len(set(paths)) != len(paths)):
+                    raise RuntimeError('offline APT requires an exact private archive directory')
+                entries = set()
+                for entry in root.iterdir():
+                    entries.add(entry)
+                    if len(entries) > len(paths):
+                        raise RuntimeError('offline APT archive directory has unexpected entries')
+                if entries != set(paths):
+                    raise RuntimeError('offline APT archive directory does not match its package list')
+                for path in paths:
+                    value = path.lstat()
+                    if (path.parent != root or path.suffix != '.deb'
+                            or any(ord(char) < 32 for char in str(path))
+                            or not stat.S_ISREG(value.st_mode) or value.st_nlink != 1):
+                        raise RuntimeError('offline APT requires regular local deb archives')
+                local_options = ['--no-download', '--no-remove', '-o', f'Dir::Cache::archives={root}']
+            success = self.install_repository_packages(packages, no_remove) if packages else bool(local_debs)
+            if success and local_debs:
+                self.log(f'local_archives_only=true count={len(local_debs)}')
+                status, _, valid = self.run('install-local',
+                    ['install', '-y', *local_options, '--', *map(str, paths)])
+                success = status == 0 and valid and not self.cancelled
             self.log(f'dependencies_ready={str(success).lower()} elapsed={time.monotonic() - self.started:.3f}s')
             return 0 if success else (128 + self.cancelled if self.cancelled else 1)
         finally:
@@ -320,6 +357,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--budget-seconds', type=float, required=True)
     parser.add_argument('--prepare-sources-only', action='store_true')
+    parser.add_argument('--no-remove', action='store_true',
+                         help='reject dependency resolution that would remove installed packages')
+    parser.add_argument('--local-archive-dir', type=Path,
+                         help='private cache containing exactly the verified local deb archives')
+    parser.add_argument('--local-deb', action='append', default=[],
+                         help='install this prepared archive with --no-download after missing repository packages')
     parser.add_argument('--hosted-dns-recovery', action='store_true',
                          help='opt in only for verified disposable GitHub-hosted Ubuntu runners')
     parser.add_argument('packages', nargs='*')
@@ -328,7 +371,9 @@ def main():
         parser.error('budget must be finite and positive')
     if os.geteuid() != 0:
         parser.error('run with sudo -n /usr/bin/python3 on a disposable Linux CI runner')
-    if args.prepare_sources_only == bool(args.packages):
+    if bool(args.local_archive_dir) != bool(args.local_deb):
+        parser.error('--local-archive-dir and --local-deb must be supplied together')
+    if args.prepare_sources_only == bool(args.packages or args.local_deb):
         parser.error('provide packages or --prepare-sources-only, exclusively')
     installer = Installer(args.budget_seconds, mirror_list=MIRROR_LIST,
                           hosted_dns_recovery=args.hosted_dns_recovery)
@@ -337,6 +382,11 @@ def main():
             result = installer.prepare_sources()
             installer.log.flush(min(installer.end, time.monotonic() + 0.1))
             return 0 if result else 1
+        if args.local_deb:
+            return installer.install(args.packages, no_remove=args.no_remove,
+                                     local_archive_dir=args.local_archive_dir, local_debs=args.local_deb)
+        if args.no_remove:
+            return installer.install(args.packages, no_remove=True)
         return installer.install(args.packages)
     except (OSError, RuntimeError) as error:
         installer.log(f'failure={type(error).__name__}: {error}')

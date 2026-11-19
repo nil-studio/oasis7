@@ -69,6 +69,7 @@ pub(super) fn build_default_replication_network_config(
     paths: &RuntimePaths,
 ) -> Result<Libp2pReplicationNetworkConfig, String> {
     let mut config = build_default_peer_record_network_config(options, root_keypair, paths)?;
+    config.p2p_resource_budget = options.p2p_resource_budget;
     if options.replication_network_listen_addrs.is_empty() {
         config
             .listen_addrs

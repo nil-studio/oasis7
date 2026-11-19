@@ -181,6 +181,15 @@ fn deserialize_entries<'de, D: Deserializer<'de>>(
     bounded_sequence(d, MAX_HEIGHTS)
 }
 
+pub(super) fn deserialize_candidate_dependencies<'de, D: Deserializer<'de>>(
+    d: D,
+) -> Result<Vec<String>, D::Error> {
+    bounded_sequence(
+        d,
+        super::super::formal_dependencies::MAX_RETAINED_INDEX_NODES,
+    )
+}
+
 pub(super) fn deserialize_actions<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
     bounded_sequence(d, MAX_ACTION_BYTES)
 }

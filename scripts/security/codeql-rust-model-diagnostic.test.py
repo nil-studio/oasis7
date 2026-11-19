@@ -629,6 +629,34 @@ class Workflow(unittest.TestCase):
         for forbidden in ('security-events','GH_TOKEN','GITHUB_TOKEN','upload-sarif','codeql/analyze','--admin','continue-on-error'):
             self.assertNotIn(forbidden,job)
 
+    def test_native_extraction_uses_mold_within_the_fixed_preparation_budget(self):
+        text=(P.resolve().parents[2]/'.github/workflows/rust.yml').read_text()
+        job=workflow_job(text, 'codeql-rust-model-diagnostic')
+        steps=re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+        setups=[i for i, step in enumerate(steps)
+                if 'uses: ./.github/actions/setup-linux-mold' in step]
+        self.assertEqual(len(setups), 1)
+        setup=setups[0]
+        # Rust extraction can compile build.rs and procedural macros even with
+        # build-mode=none; the QL-only plan must retain its no-Rust preparation.
+        self.assertIn("if: inputs.model_probe != 'trait-scope-plan'\n", steps[setup])
+        self.assertIn('MODEL_DEADLINE=', steps[0])
+        self.assertLess(0, setup)
+        self.assertIn('ref: ${{ github.workflow_sha }}', steps[setup-1])
+        self.assertIn('sparse-checkout: .github/actions/setup-linux-mold\n', steps[setup-1])
+        self.assertNotIn('path:', steps[setup-1])
+        self.assertIn('ref: ${{ github.workflow_sha }}', steps[setup+1])
+        self.assertNotIn('sparse-checkout:', steps[setup+1])
+        self.assertNotIn('path:', steps[setup+1])
+        self.assertIn('ref: 49b25e1ab631ffb433bce88709fa5601720cfc17\n', steps[setup+2])
+        self.assertIn('path: model-source\n', steps[setup+2])
+        for checkout in (steps[setup-1], steps[setup+1], steps[setup+2]):
+            self.assertIn('uses: actions/checkout@', checkout)
+            self.assertIn('persist-credentials: false\n', checkout)
+        for boundary in ('Set up selected immutable Rust CodeQL bundle',
+                         'Diagnose selected public-model partition'):
+            self.assertLess(setup, next(i for i, step in enumerate(steps) if boundary in step))
+
     def test_literal_manual_has_no_scan_or_required_override(self):
         root=P.resolve().parents[2];text=(root/'.github/workflows/rust.yml').read_text()
         job=workflow_job(text, 'codeql-rust-model-diagnostic')

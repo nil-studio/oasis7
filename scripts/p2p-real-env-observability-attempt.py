@@ -359,7 +359,7 @@ def triad_profile_report():
 
 def scope_fingerprint(args, collector='observability'):
     sources = [str(Path(__file__).resolve()), str(Path(__file__).with_name('p2p-real-env-observability-monitor.sh').resolve())]
-    if collector == 'observability' and any(arg in ('--local-profile-status-url', '--sequencer-profile-status-url', '--storage-profile-status-url') for arg in args):
+    if collector == 'observability' and any(arg in ('--local-profile-status-url', '--sequencer-profile-status-url', '--storage-profile-status-url', '--controlled-status-inventory') for arg in args):
         sources += [str(Path(__file__).with_name(name).resolve()) for name in
                     ('p2p-triad-http-profile.py', 'p2p-profile-readiness.py', 'p2p-real-env-observability-summary.py')]
     if collector == 'host':

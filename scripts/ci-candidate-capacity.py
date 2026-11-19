@@ -11,12 +11,12 @@ def validate(paths,mountpoints):
             if component.is_symlink(): raise RuntimeError("symlink in SDK path")
         if path.exists() and not path.is_dir(): raise RuntimeError("SDK path is not directory")
         if any(m==path or path in m.parents for m in mountpoints): raise RuntimeError("mount in SDK tree")
-def snapshot(paths):
+def snapshot(paths,measure_sizes=False):
     v=os.statvfs("/")
     items=[]
     for p in paths:
         row={"path":str(p),"exists":p.exists()}
-        if p.exists() and not p.is_symlink():
+        if measure_sizes and p.exists() and not p.is_symlink():
             r=subprocess.run(["du","-sk",str(p)],text=True,capture_output=True)
             row["du_exit"]=r.returncode
             row["kib"]=int(r.stdout.split()[0]) if r.returncode==0 else None
@@ -24,11 +24,11 @@ def snapshot(paths):
     return {"free_bytes":v.f_bavail*v.f_frsize,"free_inodes":v.f_favail,"items":items}
 def enough(after,min_bytes,min_inodes):
     if after["free_bytes"]<min_bytes or after["free_inodes"]<min_inodes: raise RuntimeError("candidate capacity below configured measurement threshold")
-def reclaim(paths,apply=False,min_bytes=0,min_inodes=0,mountpoints=()):
+def reclaim(paths,apply=False,min_bytes=0,min_inodes=0,mountpoints=(),measure_sizes=False):
     error=None
     try:
         validate(paths,mountpoints) # complete validation before any mutation
-        print(json.dumps({"phase":"before","capacity":snapshot(paths)}),flush=True)
+        print(json.dumps({"phase":"before","capacity":snapshot(paths,measure_sizes=measure_sizes)}),flush=True)
         for p in paths:
             present=p.exists()
             if present and apply: shutil.rmtree(p)
@@ -37,7 +37,7 @@ def reclaim(paths,apply=False,min_bytes=0,min_inodes=0,mountpoints=()):
         error=e
     finally:
         try:
-            after=snapshot(paths)
+            after=snapshot(paths,measure_sizes=measure_sizes)
             print(json.dumps({"phase":"after","capacity":after,"prior_error":error is not None}),flush=True)
             if error is None: enough(after,min_bytes,min_inodes)
         except BaseException:
@@ -58,10 +58,10 @@ def capacity_domains(env):
     print(json.dumps({"phase":"capacity_domains","domains":domains}),flush=True)
     if len({v["device"] for v in domains})!=1: raise RuntimeError("SDK cleanup cannot serve a different build filesystem")
 def main():
-    a=argparse.ArgumentParser();a.add_argument("--apply",action="store_true");a.add_argument("--min-free-bytes",type=int,required=True);a.add_argument("--min-free-inodes",type=int,required=True);v=a.parse_args()
+    a=argparse.ArgumentParser();a.add_argument("--apply",action="store_true");a.add_argument("--measure-sizes",action="store_true");a.add_argument("--min-free-bytes",type=int,required=True);a.add_argument("--min-free-inodes",type=int,required=True);v=a.parse_args()
     if v.min_free_bytes<=0 or v.min_free_inodes<=0: raise RuntimeError("positive explicit measurement thresholds required")
     release=dict(line.split("=",1) for line in pathlib.Path("/etc/os-release").read_text().splitlines() if "=" in line);release={k:x.strip(chr(34)) for k,x in release.items()}
     check_environment(os.environ,release,os.geteuid())
     capacity_domains(os.environ)
-    reclaim([pathlib.Path(p) for p in ALLOWLIST],v.apply,v.min_free_bytes,v.min_free_inodes,mounts(pathlib.Path("/proc/self/mountinfo").read_text()))
+    reclaim([pathlib.Path(p) for p in ALLOWLIST],v.apply,v.min_free_bytes,v.min_free_inodes,mounts(pathlib.Path("/proc/self/mountinfo").read_text()),measure_sizes=v.measure_sizes)
 if __name__=="__main__":main()

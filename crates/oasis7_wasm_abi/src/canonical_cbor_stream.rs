@@ -55,6 +55,11 @@ type Error = CanonicalCborStreamError;
 /// drops. The ABI deliberately has no dependency on a native/proto allocator.
 pub trait CanonicalCborAllocator {
     type Charge;
+    /// Optional continuing caller meter. Implementations debit before returning;
+    /// the codec never refunds these debits or treats them as authority.
+    fn charge_work(&self, _steps: u64, _bytes: u64) -> Result<(), CanonicalCborStreamError> {
+        Ok(())
+    }
     fn reserve(&self, bytes: usize) -> Result<Self::Charge, CanonicalCborStreamError>;
 }
 /// Work includes key discovery/replay and every output attempt, including
@@ -214,6 +219,7 @@ impl<A: CanonicalCborAllocator, C: FnMut() -> bool> Engine<'_, A, C> {
         if (self.cancelled)() {
             return Err(Error::Cancelled);
         }
+        self.allocator.charge_work(1, 0)?;
         self.work.visits_remaining = self
             .work
             .visits_remaining
@@ -223,6 +229,7 @@ impl<A: CanonicalCborAllocator, C: FnMut() -> bool> Engine<'_, A, C> {
     }
     fn emit(&mut self, out: &mut dyn Write, bytes: &[u8]) -> Result<(), Error> {
         self.step()?;
+        self.allocator.charge_work(0, bytes.len() as u64)?;
         self.work.bytes_remaining = self
             .work
             .bytes_remaining

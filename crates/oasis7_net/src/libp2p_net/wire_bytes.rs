@@ -11,10 +11,20 @@ use futures::io::{AsyncRead, AsyncWrite, IoSlice, IoSliceMut};
 use futures::ready;
 use libp2p::core::muxing::{StreamMuxer, StreamMuxerEvent};
 
+use super::wire_byte_window::{BudgetWait, Direction, WireByteWindow};
+
+#[cfg(test)]
+#[path = "wire_bytes_tests.rs"]
+mod tests;
+
+const MAX_VECTORS_PER_POLL: usize = 16;
+
 #[derive(Debug, Default)]
 pub(crate) struct Libp2pWireByteCounters {
     inbound: AtomicU64,
     outbound: AtomicU64,
+    // Legacy configurations leave the shared byte window unset.
+    window: Option<Arc<WireByteWindow>>,
 }
 
 pub(crate) type SharedLibp2pWireByteCounters = Arc<Libp2pWireByteCounters>;
@@ -27,6 +37,19 @@ pub(crate) struct Libp2pWireByteSnapshot {
 
 pub(crate) fn init_shared_wire_byte_counters() -> SharedLibp2pWireByteCounters {
     Arc::new(Libp2pWireByteCounters::default())
+}
+
+impl Libp2pWireByteCounters {
+    pub(super) fn with_window(window: Arc<WireByteWindow>) -> SharedLibp2pWireByteCounters {
+        Arc::new(Self {
+            window: Some(window),
+            ..Self::default()
+        })
+    }
+
+    pub(super) fn window(&self) -> Option<Arc<WireByteWindow>> {
+        self.window.clone()
+    }
 }
 
 pub(crate) fn snapshot_wire_byte_counters(
@@ -104,6 +127,8 @@ where
         Poll::Ready(Ok(InstrumentedSubstream {
             inner,
             counters: this.counters.clone(),
+            read_wait: BudgetWait::default(),
+            write_wait: BudgetWait::default(),
         }))
     }
 
@@ -116,6 +141,8 @@ where
         Poll::Ready(Ok(InstrumentedSubstream {
             inner,
             counters: this.counters.clone(),
+            read_wait: BudgetWait::default(),
+            write_wait: BudgetWait::default(),
         }))
     }
 
@@ -130,6 +157,22 @@ pub(crate) struct InstrumentedSubstream<SMInner> {
     #[pin]
     inner: SMInner,
     counters: SharedLibp2pWireByteCounters,
+    read_wait: BudgetWait,
+    write_wait: BudgetWait,
+}
+
+fn offered_vectored_bytes(lengths: impl Iterator<Item = usize>) -> io::Result<usize> {
+    lengths
+        .filter(|len| *len != 0)
+        .take(MAX_VECTORS_PER_POLL)
+        .try_fold(0usize, |total, len| {
+            total.checked_add(len).ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "substream iovec length overflow",
+                )
+            })
+        })
 }
 
 impl<SMInner: AsyncRead> AsyncRead for InstrumentedSubstream<SMInner> {
@@ -139,7 +182,16 @@ impl<SMInner: AsyncRead> AsyncRead for InstrumentedSubstream<SMInner> {
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
         let this = self.project();
-        let num_bytes = ready!(this.inner.poll_read(cx, buf))?;
+        let result = match &this.counters.window {
+            Some(window) => {
+                this.read_wait
+                    .poll(window, cx, Direction::Read, buf.len(), |len, cx| {
+                        this.inner.poll_read(cx, &mut buf[..len])
+                    })
+            }
+            None => this.inner.poll_read(cx, buf),
+        };
+        let num_bytes = ready!(result)?;
         record_inbound_wire_bytes(this.counters, num_bytes);
         Poll::Ready(Ok(num_bytes))
     }
@@ -150,7 +202,30 @@ impl<SMInner: AsyncRead> AsyncRead for InstrumentedSubstream<SMInner> {
         bufs: &mut [IoSliceMut<'_>],
     ) -> Poll<io::Result<usize>> {
         let this = self.project();
-        let num_bytes = ready!(this.inner.poll_read_vectored(cx, bufs))?;
+        let result = match &this.counters.window {
+            Some(window) => {
+                let requested = offered_vectored_bytes(bufs.iter().map(|buf| buf.len()))?;
+                this.read_wait
+                    .poll(window, cx, Direction::Read, requested, |mut len, cx| {
+                        let mut limited = Vec::with_capacity(bufs.len().min(MAX_VECTORS_PER_POLL));
+                        for buf in bufs
+                            .iter_mut()
+                            .filter(|buf| !buf.is_empty())
+                            .take(MAX_VECTORS_PER_POLL)
+                        {
+                            let count = len.min(buf.len());
+                            if count == 0 {
+                                break;
+                            }
+                            limited.push(IoSliceMut::new(&mut buf[..count]));
+                            len -= count;
+                        }
+                        this.inner.poll_read_vectored(cx, &mut limited)
+                    })
+            }
+            None => this.inner.poll_read_vectored(cx, bufs),
+        };
+        let num_bytes = ready!(result)?;
         record_inbound_wire_bytes(this.counters, num_bytes);
         Poll::Ready(Ok(num_bytes))
     }
@@ -163,7 +238,16 @@ impl<SMInner: AsyncWrite> AsyncWrite for InstrumentedSubstream<SMInner> {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         let this = self.project();
-        let num_bytes = ready!(this.inner.poll_write(cx, buf))?;
+        let result = match &this.counters.window {
+            Some(window) => {
+                this.write_wait
+                    .poll(window, cx, Direction::Write, buf.len(), |len, cx| {
+                        this.inner.poll_write(cx, &buf[..len])
+                    })
+            }
+            None => this.inner.poll_write(cx, buf),
+        };
+        let num_bytes = ready!(result)?;
         record_outbound_wire_bytes(this.counters, num_bytes);
         Poll::Ready(Ok(num_bytes))
     }
@@ -174,7 +258,30 @@ impl<SMInner: AsyncWrite> AsyncWrite for InstrumentedSubstream<SMInner> {
         bufs: &[IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
         let this = self.project();
-        let num_bytes = ready!(this.inner.poll_write_vectored(cx, bufs))?;
+        let result = match &this.counters.window {
+            Some(window) => {
+                let requested = offered_vectored_bytes(bufs.iter().map(|buf| buf.len()))?;
+                this.write_wait
+                    .poll(window, cx, Direction::Write, requested, |mut len, cx| {
+                        let mut limited = Vec::with_capacity(bufs.len().min(MAX_VECTORS_PER_POLL));
+                        for buf in bufs
+                            .iter()
+                            .filter(|buf| !buf.is_empty())
+                            .take(MAX_VECTORS_PER_POLL)
+                        {
+                            let count = len.min(buf.len());
+                            if count == 0 {
+                                break;
+                            }
+                            limited.push(IoSlice::new(&buf[..count]));
+                            len -= count;
+                        }
+                        this.inner.poll_write_vectored(cx, &limited)
+                    })
+            }
+            None => this.inner.poll_write_vectored(cx, bufs),
+        };
+        let num_bytes = ready!(result)?;
         record_outbound_wire_bytes(this.counters, num_bytes);
         Poll::Ready(Ok(num_bytes))
     }

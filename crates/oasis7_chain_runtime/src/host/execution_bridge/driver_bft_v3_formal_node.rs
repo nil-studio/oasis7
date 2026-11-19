@@ -62,9 +62,10 @@ impl FormalBftHeaderNodeDriverV3 {
         source: Arc<dyn BusinessIndexNodeReader + Send + Sync>,
         peer_network: bool,
     ) -> Result<Self, String> {
-        validate_storage_paths(records, store.root())?;
-        let (mut private, retained_source) =
-            NodePrivateStore::open(records, store.clone(), source)?;
+        validate_storage_paths(records, store.root())
+            .map_err(|error| recovery_stage("storage_paths", error))?;
+        let (mut private, retained_source) = NodePrivateStore::open(records, store.clone(), source)
+            .map_err(|error| recovery_stage("private_store", error))?;
         let mut execution = FormalBftHeaderLedgerExecutionV3::open_for_node(
             records,
             store,
@@ -93,15 +94,17 @@ impl FormalBftHeaderNodeDriverV3 {
             ))
             .map_err(|_| "encode original Node material identity")?,
         );
-        capture_h_index(&execution.origin)?;
+        capture_h_index(&execution.origin).map_err(|error| recovery_stage("h_index", error))?;
         let nodes = execution.origin.retained_nodes.accessed_nodes()?;
-        private.bind_origin(
-            &ledger_origin,
-            &material_identity,
-            cursor_height,
-            &nodes,
-            &mut |bytes| execution.ledger.reserve_external_material(bytes),
-        )?;
+        private
+            .bind_origin(
+                &ledger_origin,
+                &material_identity,
+                cursor_height,
+                &nodes,
+                &mut |bytes| execution.ledger.reserve_external_material(bytes),
+            )
+            .map_err(|error| recovery_stage("bind_origin", error))?;
         execution
             .ledger
             .reserve_external_material(private.usage()?)?;

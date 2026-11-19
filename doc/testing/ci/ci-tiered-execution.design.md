@@ -11,6 +11,7 @@ Testnet 在同一个不可变 source plan 后并行启动 Web 构建与原生编
 - 通用规则：[开发流程规范](../../engineering/workflow/source-of-truth.md)
 - 上游要求：[CI 分级执行 PRD](ci-tiered-execution.prd.md)
 - 可执行测试命令和平台限制：[testing-manual.md](../../../testing-manual.md)
+- 提案：[CI 基础镜像](ci-base-images.design.md)
 
 **实施边界**：[快速反馈与周期回归设计](#ci-fast-pr-periodic-full-design)已在当前候选接线。以下接口描述同一变更内的选择器、driver、workflow 和发布消费者；生效范围仍由可信 BASE、部署的 workflow 与实际保护决定。hosted 完整覆盖、十分钟/P95 和四小时容量分别待实测，不能由本地 fixture 或文档状态代签。
 
@@ -624,7 +625,7 @@ v4 另外从可信 checkout 的完整 fast target 清单补齐精确 `default_fe
 
 生产者与消费者在缓存步骤前对齐实际已安装的 Rust/WASM 工具链、Cargo 配置及参与 key 的环境值；`shared-key` 相同本身不足以消除工具链或环境 hash 的差异。共享 native 族固定 stable 与 builtin nightly，保留显式 `CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM` 指纹。准备 helper 只在 GitHub-hosted 临时 Linux runner 上工作，验证所需的精确工具链与当前 active 工具链后，移除无关预装工具链；缺失、非固定版本或卸载失败均失败，不关闭环境 hash。
 
-Linux CI 的 Rust native 构建及 WASM 构建所需的 host 程序统一使用 `setup-linux-mold` 维护的固定版本、固定摘要 mold 3.0.0。普通任务通过该 action 只为当前 Linux 架构导出 `CARGO_TARGET_<HOST>_LINKER`，指向稳定的 `3.0.0-v1/bin/oasis7-mold-gcc` 路径；wrapper 经 GCC 调用该版本的 mold，不替换系统 `ld`，不设置全局 `RUSTFLAGS`。WASM target 继续使用自身链接器；canonical Docker 的构建镜像、环境与确定性合同保持。macOS、Windows 维持原链接路径。
+Linux CI 的 Rust native 构建及 WASM 构建所需的 host 程序统一使用 `setup-linux-mold` 维护的固定版本、固定摘要 mold 3.0.0。普通任务通过该 action 只为当前 Linux 架构导出 `CARGO_TARGET_<HOST>_LINKER`，指向稳定的 `3.0.0-v1/bin/oasis7-mold-gcc` 路径；wrapper 经 GCC 调用该版本的 mold，不替换系统 `ld`，不设置全局 `RUSTFLAGS`。canonical Docker 镜像复用同一 installer，在容器内配置 Linux host linker，并把 installer 纳入 producer recipe；安装时验证 producer 的真实 ELF 使用 mold。WASM target 继续使用自身链接器，镜像身份与候选基线按 [WASM 构建合同](../../world-runtime/wasm/wasm-deterministic-build-pipeline.design.md#build-wrapper-contract)核对。macOS、Windows 维持原生链接路径。
 
 安装和配置必须在依赖缓存恢复及 workspace identity 计算前完成，并覆盖共享 writer、真实 reader 及 Formal merge。target linker 环境与带版本的 wrapper 路径进入既有 `CARGO_*` 环境指纹和 Formal component identity；改变 mold 版本或 wrapper 的链接语义时更新路径版本，避免新旧链接配置串用。只读 WASM metadata 诊断不安装或继承 linker。无 checkout 的 CodeQL WASM context 将同一 installer 纳入固定 tool SHA 的 verified helper closure，在绑定原 job clock 后、既有 prepare deadline 内受控安装到私有目录；只将本机 Linux native linker 传给编译环境，保留其他 target 和 flags 的隔离。installer 摘要、wrapper 与 mold 字节、`ld.mold` 别名进入证据，结束前再次核对身份，失败或变化不能报告完整语义观测。
 
@@ -811,7 +812,7 @@ Release 在可信 main manual dispatch 且计划 source 等于 event/workflow SH
 
 只接受完整原 runner 列表或本 helper 既有的 Canonical HTTPS 优先列表；未知或自定义内容原样保留。缺失文件保留原安装路径，symlink、非普通文件及写入错误失败。原子替换保留文件权限和所有者，当前目标列表重复准备不再写入。准备计入当前调用预算，未完成或预算耗尽不得开始 update；配置完成不代表依赖安装成功。镜像可用性及包的真实验签/安装必须由 hosted 运行确认，不能用外部目录浏览或诊断探测代替。
 
-native 安装在同一 helper 内复用上述准备；Viewer 安全浏览器和 Deck 安全浏览器在原固定版本 `--with-deps` 命令之前调用同一 helper 的 `--prepare-sources-only` 入口。该入口只准备来源，不调用 apt/dpkg，也不宣称浏览器或其依赖就绪；准备失败阻断后续命令。浏览器原有依赖安装与退出码仍完整保留，Viewer 安装 step 设 11 分钟上限，Deck 保留既有 10 分钟上限；实际网络恢复须由新的 hosted 运行确认，不把来源排序或本地 fixture 当作恢复证据。
+native 安装在同一 helper 内复用上述准备。浏览器系统依赖采用下述固定清单和下载归档，交由同一有界 helper 安装；不再让第三方浏览器安装器另起一轮不受该预算控制的 APT。`--prepare-sources-only` 仅保留来源准备职责，不代表依赖就绪。实际网络恢复须由 hosted 运行确认，不把来源排序或本地 fixture 当作恢复证据。
 
 helper 以具备清理权限的独立进程管理受控子进程，超时和取消先终止、必要时强制终止并等待回收。父进程先退出、忽略终止信号或脱离原进程组都不能被当作清理完成；不得删除锁文件、终止无关进程或恢复不明的 dpkg 状态。清理无法完成时明确失败，交由临时 runner 销毁，不报告安装成功。
 
@@ -1216,4 +1217,17 @@ Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；沿用快速准入、�
 
 Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7；沿用共享产物合同。本能力不登记新的 ignored 测试，也不改变可信 BASE 的选择权限。ordinary expanded／full producer 在实际 native 库存包含启用 `test_tier_full` 的 `oasis7_chain_runtime` 测试消费者时准备材料；不为仅含其他包的隔离编排夹具启动模块构建。准备仍使用官方 `scripts/build-wasm-module.sh --candidate-build`，按同 checkout 构建 `module.runtime.local-test-provider`；原 WASM、官方 metadata 与 native bundle 的 tested/source SHA、两个文件及官方 build receipt、同 candidate 只读 checker 的 hash 一并绑定。checker 复用既有 `sync_builtin_wasm_identity --verify-provider-artifact` 入口，使用官方 SourceRule2 完整闭包、builder recipe／execution 和 receipt 验证 API；不修改 producer recipe，不同步身份或生成发布材料。允许现 API 的 locked Cargo metadata 解析，不启动编译或模块执行。pack／load 验证完整材料、当前 source-input v2 和身份后，才向实际测试进程显式注入 `OASIS7_PREVIEW_TEST_PROVIDER_WASM` 与 `OASIS7_PREVIEW_TEST_PROVIDER_METADATA`。缺失、损坏、跨 source 或路径越界均失败，不回退 placeholder、其他 checkout 或本机缓存材料。`ci-tests.sh full-extended` 使用同一官方准备及验证入口；不新增 secret 或外部写权限。纯 Python 合同不代签真实 WASM 构建或 consumer 执行；后续实际 full-tier consumer 必须在材料缺失时失败而非 skip。
 
-Viewer performance 固定浏览器安装仍保留 `agent-browser@0.37.1 install --with-deps` 的完整依赖。该第三方入口自行执行 APT update，不能继承 helper 的命令预算；在临时 runner 中为 APT HTTP/HTTPS 传输设置 15 秒超时、禁止内层重试，并用 15 分钟步骤期限约束整个安装。来源、签名和摘要校验保持原约定，安装失败不得开始测试。
+<a id="ci-browser-deps-cache-design"></a>
+## 浏览器版本与下载缓存
+
+Trace refs: O7-REQ-d6c7a0eb-77f3-48b8-943e-9312fd0218ea；落实[浏览器依赖准备要求](ci-tiered-execution.prd.md#ci-install-cache-evidence)。
+
+Viewer JS、安全 smoke 和性能采集共用 agent-browser 0.37.1 与 Chrome for Testing 158.0.8127.36 Linux x64；后者固定到已验证的官方归档 URL、字节长度及 SHA-256，安装时不查询浮动 Stable。解包到本轮私有目录，验证实际版本后通过 `AGENT_BROWSER_EXECUTABLE_PATH` 绑定消费路径，避免系统 Chrome 或旧目录改变受测对象。npm 工具使用独立 lockfile 与 Node 24，满足 CLI 的运行要求。Deck 保持 Playwright 1.62.1 的 Chromium headless-shell，仍由其固定 revision 安装器准备 headless-shell 及配套 ffmpeg，不替换为 Viewer 的完整 Chrome。
+
+Ubuntu 24.04 x64 的系统清单逐项对应固定 agent-browser 的全部依赖及 Playwright 的 tools/chromium 依赖。两个 Viewer 保留 emoji、CJK 和 Freefont；Deck 保留原字体及 Xvfb 等依赖。容易重复下载的大字体包固定为 Noble 的 `fonts-noto-cjk=1:20230817+repack1-3` 与 `fonts-freefont-ttf=20211204+svn4273-2`，以 Ubuntu 官方包元数据的长度和 SHA-256 验证 `.deb`。缺失字体复制到本轮私有 APT 归档目录并再次校验，文件名包含 APT 编码后的完整 epoch/version；字体单独以 `--no-download --no-remove` 和该归档目录进入正常 APT 安装，保留依赖解析、正常配置与 fontconfig 触发器。只传本地 `.deb` 路径不能阻止 APT 选择同版本远端来源，禁止下载选项和精确归档文件名必须同时保留。系统共享库继续由正常 Ubuntu 源维护。平台不符、包状态异常或固定字体版本冲突均明确失败。
+
+包状态检查覆盖完整适用清单，只为缺失项调用已有 `ci-apt-install.py`；不为已满足的浏览器依赖触发整组库升级。缺失普通包仍按原 update/install 流程安装；随后字体使用已验证的私有归档离线安装，两阶段及有限重试、root 后代清理共用一次 helper 预算。只缺少这两个自包含字体时不执行 update，字体材料缺失或不满足依赖时明确失败，不回退远端下载或忽略包状态。缓存命中不代表依赖完整。安装完成后再次核对完整包状态，浏览器版本及真实启动探针成功后才输出供原测试使用的环境变量；任何必要步骤失败沿原 required 汇总传播。
+
+缓存只保存下载归档，字体与 Chrome 分别使用精确 key，包含 Linux/X64、Ubuntu 版本、固定定义及 schema 身份；没有宽泛 restore 前缀，不缓存展开的系统/浏览器目录。每次恢复均校验精确文件集合、普通文件、长度及 SHA-256，拒绝 symlink、hardlink、部分文件和损坏缓存。冷下载只使用固定 HTTPS 来源，在有界下载成功且摘要相符后原子提交文件；解包限制路径、文件类型、数量及展开长度。Chrome 的摘要来自固定官方 HTTPS 归档的审读，不宣称是上游发布签名。
+
+普通三个浏览器消费者保持只读缓存。`rust-cache.yml / browser-archive-cache` 是独立的 main schedule/manual-full writer，只准备和验证下载物，不代替产品测试。保存绑定 event/workflow/实际 checkout/REST run 身份，复用小工具缓存的实际归档测量、完整 all-ref 容量检查、20 GB 仓库预算和 2.5 GiB 依赖轮换保留；身份或容量未知只跳过可选保存。归档单份有界，版本升级才改变 key，不按 PR、source 或 run 保存相同下载物。候选首次安装、合入后 seed 和真实 reader 命中分别记录；缓存不承诺消除必要 APT 索引访问，也不承诺固定加速比例。

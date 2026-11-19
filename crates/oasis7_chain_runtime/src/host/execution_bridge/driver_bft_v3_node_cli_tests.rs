@@ -2,6 +2,8 @@
 //! The backend remains the explicit in-memory test double from the parent.
 use super::*;
 use std::os::unix::fs::PermissionsExt;
+#[path = "driver_bft_checkpoint_trust_cli_tests.rs"]
+mod checkpoint_trust_tests;
 
 #[test]
 fn wire3_formal_read_shipping_node_cli_commits_private_input_via_native_provider() {
@@ -18,7 +20,21 @@ pub(crate) fn wire3_shipping_node_process_output_failure(deadline: Instant) {
         Instant::now() < deadline,
         "shipping recovery budget exhausted"
     );
-    cli_case(true, Some(deadline));
+    let shipping_binary = std::env::var_os("OASIS7_CHAIN_RUNTIME_BIN")
+        .expect("real process test requires OASIS7_CHAIN_RUNTIME_BIN");
+    let (_, shipping_digest, _) = formal_initial::test_execution_policy_material(
+        Path::new(&shipping_binary),
+        &ReleaseSecurityPolicy::default(),
+    )
+    .expect("pin the actual shipping image before signing H");
+    assert_ne!(
+        shipping_digest,
+        oasis7_executable_image::executable_digest().unwrap(),
+        "shipping CLI and fixture harness must be different executable images"
+    );
+    crate::controlled_execution_policy::tests::with_fixture_image_digest(shipping_digest, || {
+        cli_case(true, Some(deadline));
+    });
     assert!(
         Instant::now() < deadline,
         "shipping recovery exceeded original scenario budget"
@@ -136,6 +152,7 @@ fn cli_case(process_output_failure: bool, deadline: Option<Instant>) {
     }
     let second_report = crate::formal_bft_header_cli::prepare_node_binding_report(&config).unwrap();
     assert_eq!(second_report.binding_digest, report.binding_digest);
+    checkpoint_trust_tests::check_preparation(&h, root.path(), &config, &report.binding);
     // Independently restore actual H rather than deserializing the descriptor
     // into a trust capability. Its retained H closure needs no fixture reader.
     let original = driver_with_source(&h, root.path(), &store, Arc::new(EmptyIndexReader));

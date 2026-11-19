@@ -216,6 +216,10 @@ def plan(args):
             all_units('scan configuration: ' + path)
         elif name == '.gitattributes':
             all_units('Git checkout attributes: ' + path)
+        elif path in ('vendor-libp2p-quic-0.14.0/.gitignore', 'vendor-libp2p-quic-0.14.0/LICENSE'):
+            # Metadata travels with this fixed Rust dependency; do not treat
+            # neighboring unclassified files as registered or excluded.
+            add('rust-repo', path)
         elif suffix == '.rs' or name in ('Cargo.toml', 'Cargo.lock', 'rust-toolchain', 'rust-toolchain.toml') or path.startswith('.cargo/'):
             add('rust-repo', path)
         elif suffix in ('.py', '.pyi') or name in ('pyproject.toml', 'requirements.txt', 'Pipfile', 'Pipfile.lock', 'poetry.lock', 'uv.lock', 'setup.cfg', 'setup.py'):
@@ -244,6 +248,9 @@ def plan(args):
             add('actions-repo', path)
             add('python-repo', path)
             add('rust-repo', path)
+        elif path in ('docker/ci-base/Dockerfile', 'docker/ci-base/build.sh',
+                      'docker/ci-base/runtime-packages.txt', 'docker/ci-base/build-packages.txt'):
+            add('actions-repo', path)
         elif path in ISSUE_METADATA_INPUTS:
             # GitHub renders these as form data, not executable Actions YAML.
             pass

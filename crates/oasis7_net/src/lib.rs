@@ -118,15 +118,16 @@ pub use libp2p_net::error_mapping::{
 pub use libp2p_net::{
     AUTHENTICATED_REQUEST_MAX_BYTES, AUTHENTICATED_RESPONSE_MAX_BYTES,
     AuthenticatedHandlerRegistration, AuthenticatedPeerAdmission, AuthenticatedPeerHandler,
-    AuthenticatedPeerRequestContext, DiscoveryWorkMetricsSnapshot,
+    AuthenticatedPeerRequestContext, ConnectionBudgetSnapshot, DiscoveryWorkMetricsSnapshot,
     Libp2pControlPlaneMetricsSnapshot, Libp2pNetwork, Libp2pNetworkConfig,
     Libp2pReachabilitySnapshot, Libp2pTrafficMetricsSnapshot, LiveAutoNatStatus,
     LiveHolePunchState, LivePublicPortReachability, LiveTransportKind, LiveTransportTransition,
     LiveTransportTransitionCounters, PeerManagerBlockArtifact, PeerManagerHealthIssue,
     PeerManagerHealthStatus, PeerManagerPeerHealth, PeerManagerPolicy,
     PeerRecordPublicationTransition, PeerRecordReceiverConfig, PeerRecordReceiverMode,
-    TrafficDirectionMetricsSnapshot, TrafficLaneMetricsSnapshot, WireByteDirectionMetricsSnapshot,
-    WireByteLaneMetricsSnapshot,
+    ResourceBudgetRejection, ResourceBudgetSnapshot, ResourceByteBudgetSnapshot,
+    ResourceByteCounts, TrafficDirectionMetricsSnapshot, TrafficLaneMetricsSnapshot,
+    WireByteDirectionMetricsSnapshot, WireByteLaneMetricsSnapshot,
 };
 
 #[cfg(test)]

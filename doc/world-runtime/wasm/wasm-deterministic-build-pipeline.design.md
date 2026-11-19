@@ -72,7 +72,7 @@
 
 ## 4. 边界与结构
 
-源码与锁文件进入 build suite；wrapper 选择执行镜像；packager 产生 wasm bytes/hash；sync/identity 将这些材料关联至发布清单；runtime/materializer 获取字节，release/trust 决定可否接收。DistFS/CAS 只提供 hash-bound 材料，不能取得最终写入权或世界可服务状态；此边界沿用 [DCS 不变量](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#2-边界与不变量)。版本选择、activation、历史 replay 由 [builtin identity 接收器](../../p2p/consensus/builtin-wasm-identity-consensus.design.md#builtin-artifact-version-binding)、[interface 生命周期](wasm-interface.md#5-安装升级禁用和迁移)及 runtime authority 承担。
+源码与锁文件进入 build suite；wrapper 选择执行镜像；packager 产生 wasm bytes/hash；sync/identity 将这些材料关联至发布清单；runtime/materializer 获取字节，release/trust 决定可否接收。DistFS/CAS 只提供 hash-bound 材料，不能取得最终写入权或世界可服务状态；此边界沿用 [DCS 不变量](../../product/world-infrastructure/distributed-consensus-and-state-availability.prd.md#2-边界与不变量)。版本选择、activation、历史 replay 由 [builtin identity 接收器](../../p2p/consensus/builtin-wasm-identity-consensus.design.md#builtin-artifact-version-binding)、[模块生命周期](../module/module-lifecycle.md#sr2-activation-contract)及 runtime authority 承担。
 
 ## 5. 关键运行流程
 
@@ -103,6 +103,10 @@
 具体流程、字段和原约束见 [原详细设计](#build-wrapper-detail)。wrapper 编排与固定平台本身不独立新增玩家要求；工件可验证性另由工件关系承接。
 
 固定 `linux/amd64` 容器与 `linux-x86_64` canonical token；路径映射、只读源码/可写输出、locked toolchain 与无 native fallback 仍按原 §5.1/5.2；实际 local image ID 与 recipe digest 按 §6.1 分离。
+
+容器内的 native producer、build script 与过程宏使用仓库共享 installer 固定的 mold 3.0.0。镜像在安装 producer 前验证 mold archive 摘要和可执行 C smoke，安装后检查 `wasm_build_suite` 的 ELF linker 标记；只设置 `CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=/opt/oasis7-mold/3.0.0-v1/bin/oasis7-mold-gcc`，WASM target 不配置 mold，也不从宿主转发 linker 路径。候选执行要求该精确 host linker，并拒绝 WASM linker override；没有 candidate evidence 的历史入口沿用各自原合同。
+
+共享 installer 的完整 bytes 进入 producer recipe，并在镜像内同路径保留供源码身份核验。Dockerfile 的安装步骤、顺序和环境必须与该固定配置相符，批量复用镜像时继续核对完整环境。installer、Docker context 或批量构建入口变更选中 m1/m4/m5 全部 WASM gate；producer recipe 变化须用新配方真实重建全部 37 个模块，再按[工程候选基线约定](#build-source-input-rule)刷新候选文件，不能给旧产物重写 receipt。历史 release 文件及其原始生成身份保持。
 
 <a id="build-receipt-contract"></a>
 ### Receipt、源码闭包与工件摘要

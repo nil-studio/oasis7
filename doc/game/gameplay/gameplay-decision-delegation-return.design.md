@@ -257,9 +257,13 @@ first_delivery_preview 的兼容字段名不授予交付语义。当前先沿原
 <a id="playtest-observation-design"></a>
 ### 11.2 体验假设的观察设计
 
-承接[产品体验假设](../../product/world-rules-core-gameplay/first-session-and-continuation.design.md#experience-hypotheses-and-pacing)与[试玩判断](../../product/world-rules-core-gameplay/first-session-and-continuation.design.md#playtest-hypothesis-review)。这些方法细化既有 AC/FS，不新增评分模型、问卷、通关数量或 CI gate。
+承接[最小独立游玩目标](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#minimum-independent-play)、[产品体验假设](../../product/world-rules-core-gameplay/first-session-and-continuation.design.md#experience-hypotheses-and-pacing)与[试玩判断](../../product/world-rules-core-gameplay/first-session-and-continuation.design.md#playtest-hypothesis-review)。这些方法细化既有 AC/FS，不新增评分模型、问卷、通关数量或 CI gate。
 
-先做规则回归与入口检查，再使用目标/情境而非按钮路径观察玩家。分别记录实际动作/receipt、参与者原话、测试员提示、等待原因和下一选择；材料去标识化，不把私有目标或完整模型上下文贴入公共 PR。记录中区分“能做”“理解”“自主选择”“表示愿意继续”“实际自发回来”，不得合并成一个通过分数。
+先做规则回归与入口检查，再使用目标/情境而非按钮路径观察玩家。分别记录实际动作/receipt、参与者原话、测试员与产品提示、等待原因和下一选择；材料去标识化，不把私有目标或完整模型上下文贴入公共 PR。记录中区分“能做”“理解”“自主选择”“表示愿意继续”“实际自发回来”，不得合并成一个通过分数。
+
+沿[真人一般自主观察](../../testing/manual/first-session-human-playtest.manual.md#human-study-independent-play)，从普通账号的真实初态核对目标、玩家/Agent 分工、主要承诺、结果或阻塞与下一决定。首厂前缺地点、资格或材料时仍可观察玩家是否读懂事实并自主恢复、改道、等待或停止；学习成立不完成首厂或首产物，也不补签 Agent 实际代办。准备态成果不能代签普通账号路径。生产完成后再按[FS-16 单约束迁移](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#first-decision-transfer)取得匹配完成 receipt、唯一变化与其余可比条件，缺前置就保留未覆盖，不用一般自主观察替代这项严格样例。
+
+无主持协助与不依赖逐步答案分别记录。正常状态、成本、帮助和恢复建议保持可用；若产品或主持已经指定本次答案/步骤，只能证明相应辅助条件下完成。随后一个未被指定答案的真实决定可以提供新的自主判断证据，H0 标签、流畅复述和成功点击本身不能代签。具体提示来源、时点与前后表现沿[真人提示记录](../../testing/manual/first-session-human-playtest.manual.md#human-study-prompts)保存。
 
 对照规则时固定合法初始世界和目标；比较人类体验时记录既有经验、呈现顺序、版本与辅助程度，必要时换序或使用新参与者，避免学习效应。比较 Agent 行为时记录真实模型与配置、可见事实和干预，只改变支持的一项条件；随机响应需重复观察或说明不可复现限制。精确因果链验证与人类归因感仍分开。
 

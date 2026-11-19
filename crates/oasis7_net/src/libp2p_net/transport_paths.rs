@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use libp2p::multiaddr::Protocol;
-use libp2p::swarm::{ConnectionId, Swarm};
+use libp2p::swarm::{ConnectionId, DialError, Swarm};
 use libp2p::{Multiaddr, PeerId};
 
 use crate::error::WorldError;
@@ -69,6 +69,12 @@ pub(super) struct TransportPath {
     pub(super) flavor: TransportSessionFlavor,
     pub(super) security: TransportSecurity,
     pub(super) muxer: TransportMuxer,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct DialedTransportPath {
+    pub(super) connection_id: ConnectionId,
+    pub(super) path: TransportPath,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -329,7 +335,7 @@ fn transport_endpoint_family(addr: Multiaddr) -> Vec<String> {
 pub(super) fn note_established_transport_path(
     known_transport_paths: &HashMap<PeerId, Vec<TransportPath>>,
     active_transport_paths: &mut HashMap<PeerId, TransportPath>,
-    last_dialed_transport_paths: &mut HashMap<PeerId, TransportPath>,
+    last_dialed_transport_paths: &mut HashMap<PeerId, DialedTransportPath>,
     failed_transport_path_labels: &mut HashSet<String>,
     peer_id: PeerId,
     endpoint_addr: &Multiaddr,
@@ -369,7 +375,7 @@ pub(super) fn recompute_active_transport_path_for_peer(
 
 pub(super) fn dial_transport_path(
     swarm: &mut Swarm<Behaviour>,
-    last_dialed_transport_paths: &mut HashMap<PeerId, TransportPath>,
+    last_dialed_transport_paths: &mut HashMap<PeerId, DialedTransportPath>,
     path: TransportPath,
 ) -> Result<(), WorldError> {
     if let Some(lease) = &path.record_lease {
@@ -380,10 +386,16 @@ pub(super) fn dial_transport_path(
     } else {
         dial_addr_with_optional_peer_id(swarm, path.addr.clone())
     };
-    result.map_err(|err| WorldError::NetworkProtocolUnavailable {
+    let connection_id = result.map_err(|err| WorldError::NetworkProtocolUnavailable {
         protocol: format!("transport dial failed: {err}"),
     })?;
-    last_dialed_transport_paths.insert(path.peer_id, path);
+    last_dialed_transport_paths.insert(
+        path.peer_id,
+        DialedTransportPath {
+            connection_id,
+            path,
+        },
+    );
     Ok(())
 }
 
@@ -391,7 +403,7 @@ pub(super) fn failover_transport_path_after_close(
     swarm: &mut Swarm<Behaviour>,
     known_transport_paths: &HashMap<PeerId, Vec<TransportPath>>,
     active_transport_paths: &mut HashMap<PeerId, TransportPath>,
-    last_dialed_transport_paths: &mut HashMap<PeerId, TransportPath>,
+    last_dialed_transport_paths: &mut HashMap<PeerId, DialedTransportPath>,
     failed_transport_path_labels: &mut HashSet<String>,
     peer_id: PeerId,
     disconnected_path: Option<TransportPath>,
@@ -428,16 +440,30 @@ pub(super) fn select_reconnect_transport_path_after_close(
     Some((previous_path, next_path))
 }
 
+pub(super) fn take_retryable_transport_path(
+    last_dialed_transport_paths: &mut HashMap<PeerId, DialedTransportPath>,
+    peer: PeerId,
+    connection: ConnectionId,
+    error: &DialError,
+) -> Option<TransportPath> {
+    let tracked = last_dialed_transport_paths.get(&peer)?;
+    if tracked.connection_id != connection {
+        return None;
+    }
+    let deadline_elapsed =
+        super::resource_budget::dial_path_hit_handshake_deadline(error, &tracked.path.addr);
+    let completed = last_dialed_transport_paths.remove(&peer)?;
+    (!deadline_elapsed).then_some(completed.path)
+}
+
 pub(super) fn retry_transport_path_after_error(
     swarm: &mut Swarm<Behaviour>,
     known_transport_paths: &HashMap<PeerId, Vec<TransportPath>>,
-    last_dialed_transport_paths: &mut HashMap<PeerId, TransportPath>,
+    last_dialed_transport_paths: &mut HashMap<PeerId, DialedTransportPath>,
     failed_transport_path_labels: &mut HashSet<String>,
-    peer_id: PeerId,
+    last_path: TransportPath,
 ) -> Result<Option<(TransportPath, TransportPath)>, WorldError> {
-    let Some(last_path) = last_dialed_transport_paths.remove(&peer_id) else {
-        return Ok(None);
-    };
+    let peer_id = last_path.peer_id;
     failed_transport_path_labels.insert(last_path.label());
     let Some(next_path) = known_transport_paths.get(&peer_id).and_then(|paths| {
         select_preferred_transport_path(paths.as_slice(), failed_transport_path_labels)

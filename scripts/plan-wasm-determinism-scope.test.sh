@@ -54,6 +54,37 @@ assert_key_equals "$sdk_output" scope all
 assert_key_equals "$sdk_output" run_all true
 assert_reason_contains "$sdk_output" "shared_wasm_pipeline:crates/oasis7_wasm_sdk/src/lib.rs"
 
+# Producer setup and batch execution affect all three canonical module sets.
+for path in \
+  .github/actions/setup-linux-mold/setup.py \
+  .dockerignore \
+  scripts/build-builtin-wasm-candidate-batch-lib.sh \
+  docker/wasm-builder/Dockerfile \
+  crates/oasis7_wasm_build/src/producer_recipe.rs \
+  tools/wasm_build_suite/src/lib.rs; do
+  output="$(plan_for_path "$path")"
+  assert_key_equals "$output" scope all
+  assert_key_equals "$output" run_all true
+  for module in m1 m4 m5; do
+    assert_key_equals "$output" "run_$module" true
+  done
+  assert_key_equals "$output" selected_module_sets m1,m4,m5
+  assert_key_equals "$output" selected_module_sets_json '["m1","m4","m5"]'
+  assert_reason_contains "$output" "shared_wasm_pipeline:$path"
+done
+
+# Nearby files do not become producer inputs just by sharing a path prefix.
+for path in .github/actions/setup-linux-mold/README.md .dockerignore.local scripts/build-builtin-wasm-candidate-batch-lib.sh.bak; do
+  output="$(plan_for_path "$path")"
+  assert_key_equals "$output" scope skip
+  assert_key_equals "$output" run_all false
+  for module in m1 m4 m5; do
+    assert_key_equals "$output" "run_$module" false
+  done
+  assert_key_equals "$output" selected_module_sets_json '[]'
+  assert_reason_contains "$output" no_builtin_wasm_inputs_changed
+done
+
 # Artifact ownership moved with Runtime; each module set keeps its exact scope.
 for module in m1 m4 m5; do
   for artifact in "${module}_builtin_module_ids.txt" "${module}_builtin_modules.sha256" "${module}_builtin_modules.identity.json"; do

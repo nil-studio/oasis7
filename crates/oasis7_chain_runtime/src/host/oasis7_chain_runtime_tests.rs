@@ -1159,3 +1159,6 @@ fn engineering_parser_rejects_deployment_authority_and_malformed_signer_keys() {
     .unwrap_err();
     assert!(error.contains("engineering validator signer identity is invalid or rebound"));
 }
+
+#[path = "resource_budget_tests.rs"]
+mod resource_budget_tests;
