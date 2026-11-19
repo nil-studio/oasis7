@@ -220,25 +220,6 @@ const warDeclarationQuote = createWarDeclarationQuoteIntegration({ buildAuthEnve
 const marketQuoteDecision = createMarketQuoteDecisionIntegration({ buildAuthEnvelope, clone, ensureHostedPlayerAuthAvailable, ensureRegisteredPlayerSession, getSocket: () => socket, nextAuthNonce, sendJson, signAuthPayload, state });
 const { injectMarketQuoteDecisionForTest, requestMarketQuoteDecision } = marketQuoteDecision;
 const quoteProtocolFacade = createViewerQuoteProtocolFacade({ fragmentRefillPreview, governanceVoteQuote, handleRefineQuoteError, handleRefineQuotePreflight, marketQuoteDecision, powerSaleQuote, powerSurvivalQuote, productValidationQuote, scheduleRecipeQuote, state, transferMaterialQuote, warDeclarationQuote });
-function normalizeU64Display(value) {
-  if (value == null) {
-    return null;
-  }
-  if (typeof value === "bigint") {
-    return value >= 0n ? value.toString() : `invalid_u64(${value.toString()})`;
-  }
-  if (typeof value === "number") {
-    if (Number.isSafeInteger(value) && value >= 0) {
-      return String(value);
-    }
-    return `unsafe_u64(${String(value)})`;
-  }
-  const text = String(value).trim();
-  if (!text) {
-    return null;
-  }
-  return /^\d+$/.test(text) ? text : `invalid_u64(${text})`;
-}
 function normalizeFiniteNumber(value) {
   if (value == null) {
     return null;
@@ -454,7 +435,6 @@ const viewerAgentChatAuthModule = createViewerAgentChatAuthModule({ buildAuthEnv
 
 function resetViewerProtocolForConnection() { canonicalOwnerRead.reset(); viewerPromptControlModule?.resetForConnection(); liveControlState.reset(); }
 function promptControlCapabilitySelected() { return viewerPromptControlModule?.capabilitySelected() === true; }
-function promptControlResultSelected() { return viewerPromptControlModule?.resultSelected() === true; }
 function promptControlReadinessError(agentId) { return viewerPromptControlModule?.readinessError(agentId) || null; }
 function attachPromptControlIdentity(request) { return viewerPromptControlModule?.attachIdentity(request) || request; }
 
