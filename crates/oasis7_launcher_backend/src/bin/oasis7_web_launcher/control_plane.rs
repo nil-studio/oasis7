@@ -447,11 +447,6 @@ fn format_host_port(host: &str, port: u16) -> String {
     }
 }
 
-#[allow(dead_code)]
-fn probe_chain_status_endpoint(bind: &str) -> Result<(), String> {
-    query_chain_status_endpoint(bind).map(|_| ())
-}
-
 pub(super) fn start_process(
     state: &mut ServiceState,
     config: LauncherConfig,

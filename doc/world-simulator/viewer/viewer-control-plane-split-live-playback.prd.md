@@ -253,4 +253,4 @@ operation_digest = h_v1(
 
 ## 追溯
 
-当前实现入口包括 `crates/oasis7_proto/src/viewer.rs`、`crates/oasis7/src/viewer/{protocol.rs,server.rs,live_controls.rs,runtime_live.rs}`，以及 `crates/oasis7_viewer/software_safe_src/{legacy_core.js,legacy_core_control_gate.test.js}`；生成的浏览器入口为 `crates/oasis7_viewer/viewer.js`。操作入口见 `viewer-manual.manual.md`。
+当前实现入口包括 `crates/oasis7_proto/src/viewer.rs`、`crates/oasis7_viewer_runtime/src/server.rs`、`crates/oasis7_viewer_runtime/src/viewer/{protocol.rs,live_controls.rs,runtime_live.rs}`，以及 `crates/oasis7_viewer/software_safe_src/{legacy_core.js,legacy_core_control_gate.test.js}`；生成的浏览器入口为 `crates/oasis7_viewer/viewer.js`。操作入口见 `viewer-manual.manual.md`。
