@@ -41,12 +41,12 @@ const WASM: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/tests/fixtures/iws_rule_transfer_candidate/m1.rule.transfer.wasm"
 ));
-const WASM_SHA256: &str = "4db769768e3bde644cc2e34d65ae61c8ab2776b678541cfe5ddd15b467e6a504";
+const WASM_SHA256: &str = "2d3a20151d9b8f7766ecc89a8353d0de10bb65c877e10bb898fbbec616cda316";
 const SECOND_WASM: &[u8] = b"\0asm\x01\0\0\0";
 const SECOND_WASM_SHA256: &str = "93a44bbb96c751218e4c00d479e4c14358122a389acca16205b1e4d0dc5f9476";
 
 fn artifact_source(cfg: &GenesisConfigV1, include_second: bool) -> World {
-    assert_eq!(WASM.len(), 407277);
+    assert_eq!(WASM.len(), 349764);
     assert_eq!(&WASM[..8], b"\0asm\x01\0\0\0");
     let mut original = World::new_with_state(WorldState::default());
     // This real public API checks SHA-256 and installs these very module bytes.
@@ -672,8 +672,8 @@ fn raw_artifact_child_preserves_real_prefix_first_error_cancellation_and_unwind(
         }));
         raw_phase.set(false);
         assert!(prehash_error.borrow().is_none());
-        assert_eq!(hook_calls.get(), 9);
-        assert_eq!(hook_bytes.get(), 415509);
+        assert_eq!(hook_calls.get(), 8);
+        assert_eq!(hook_bytes.get(), 357996);
         assert_eq!(p_calls.get(), 1);
         assert_eq!(
             before_source.0 - original_work.typed.artifact_originals.objects_remaining,

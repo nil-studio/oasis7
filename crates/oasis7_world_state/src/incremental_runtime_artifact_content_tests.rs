@@ -352,15 +352,15 @@ fn actual_artifact_hash_case(
 
 #[test]
 fn actual_borrowed_artifact_hash_pays_chunks_and_preserves_no_hook_path() {
-    assert_eq!(ACTUAL_WASM.len(), 407277);
+    assert_eq!(ACTUAL_WASM.len(), 349764);
     assert_eq!(&ACTUAL_WASM[..8], b"\0asm\x01\0\0\0");
     let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
     let baseline = memory.used();
     let calls = Cell::new(0usize);
-    let seen = std::cell::RefCell::new([(0u64, 0u64); 9]);
+    let seen = std::cell::RefCell::new([(0u64, 0u64); 8]);
     let hook = |steps, bytes| {
         let index = calls.get();
-        assert!(index < 9);
+        assert!(index < 8);
         seen.borrow_mut()[index] = (steps, bytes);
         calls.set(index + 1);
         Ok(())
@@ -376,13 +376,13 @@ fn actual_borrowed_artifact_hash_pays_chunks_and_preserves_no_hook_path() {
             persisted += 1;
             assert_eq!(bytes, ACTUAL_WASM);
             assert_eq!(reference.id, *blake3::hash(ACTUAL_WASM).as_bytes());
-            assert_eq!(reference.byte_len, 407277);
+            assert_eq!(reference.byte_len, 349764);
             actual = Some(reference);
             Ok(())
         },
     )
     .unwrap();
-    assert_eq!(calls.get(), 9);
+    assert_eq!(calls.get(), 8);
     assert_eq!(
         *seen.borrow(),
         [
@@ -392,15 +392,14 @@ fn actual_borrowed_artifact_hash_pays_chunks_and_preserves_no_hook_path() {
             (1, 65536),
             (1, 65536),
             (1, 65536),
-            (1, 65536),
-            (1, 14061),
+            (1, 22084),
             (1, 40)
         ]
     );
-    assert_eq!(seen.borrow().iter().map(|v| v.1).sum::<u64>(), 415509);
+    assert_eq!(seen.borrow().iter().map(|v| v.1).sum::<u64>(), 357996);
     assert_eq!(persisted, 1);
     assert_eq!(metered.objects_remaining, 0);
-    assert_eq!(metered.bytes_remaining, (1 << 20) - 407277);
+    assert_eq!(metered.bytes_remaining, (1 << 20) - 349764);
     assert_eq!(memory.used(), baseline);
     let mut original = work();
     let legacy =
@@ -417,7 +416,7 @@ fn borrowed_artifact_hash_refusal_and_chunk_cancel_preserve_original_accounts() 
     let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
     // Refuse the first admission, an actual second chunk, or finalization.
     // No callback can receive a purported ref from any incomplete hash.
-    for refusal in [0, 2, 8] {
+    for refusal in [0, 2, 7] {
         let baseline = memory.used();
         let mut original = work();
         let calls = Cell::new(0usize);
@@ -453,7 +452,7 @@ fn borrowed_artifact_hash_refusal_and_chunk_cancel_preserve_original_accounts() 
                 Err(MemberRecordError::Value(ValueTreeError::Cancelled))
             ));
             assert_eq!(original.objects_remaining, 0);
-            assert_eq!(original.bytes_remaining, (1 << 20) - 407277);
+            assert_eq!(original.bytes_remaining, (1 << 20) - 349764);
         }
         assert_eq!(calls.get(), refusal + 1);
         assert!(!persisted.get());

@@ -29,7 +29,7 @@ const METADATA: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/tests/fixtures/iws_rule_transfer_candidate/m1.rule.transfer.metadata.json"
 ));
-const SHA256: &str = "4db769768e3bde644cc2e34d65ae61c8ab2776b678541cfe5ddd15b467e6a504";
+const SHA256: &str = "2d3a20151d9b8f7766ecc89a8353d0de10bb65c877e10bb898fbbec616cda316";
 
 pub(crate) struct RuleGenesisSeedV1 {
     pub world: World,
@@ -39,7 +39,7 @@ pub(crate) struct RuleGenesisSeedV1 {
 }
 
 fn manifest(key: &SigningKey) -> ModuleManifest {
-    assert_eq!(WASM.len(), 407277);
+    assert_eq!(WASM.len(), 349764);
     assert_eq!(hex::encode(Sha256::digest(WASM)), SHA256);
     let metadata: serde_json::Value = serde_json::from_str(METADATA).unwrap();
     assert_eq!(metadata["module_id"], MODULE_ID);
