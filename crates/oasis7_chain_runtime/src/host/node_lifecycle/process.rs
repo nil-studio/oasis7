@@ -377,6 +377,9 @@ pub(super) fn start_with_action_using_runtime(
     runtime_artifact: Option<&super::LocalRuntimeArtifactV1>,
 ) -> Result<serde_json::Value, String> {
     let config = NodeConfig::load(path)?;
+    if config.identity.chain.budgeted_formal_full_sync().is_some() {
+        return Err("operation-budgeted full sync has no active worker consumer".into());
+    }
     let data = &config.identity.data_dir;
     let digest = io::digest(&config)?;
     let admission = admission_lock(data)?;

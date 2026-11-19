@@ -3,6 +3,7 @@
 //! This is local controlled-v2 accounting, not protected storage or a claim of
 //! delivery to the peer. A pending reservation survives restart unchanged.
 use super::super::local_io;
+pub(super) use super::operation_config::FormalFullSyncTransferPolicyV1 as Policy;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -18,41 +19,6 @@ pub(super) struct Identity {
     pub request_digest: String,
     pub policy_digest: String,
     pub binding_digest: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct Policy {
-    pub api_version: String,
-    pub attempt_timeout_ms: u64,
-    pub max_attempts: u64,
-    pub max_encoded_io_bytes: u64,
-    pub max_exchanges: u64,
-    pub max_proof_pages: u64,
-    pub max_proof_bytes: u64,
-    pub max_inflight_requests: u64,
-    pub reopen_timeout_ms: u64,
-}
-impl Policy {
-    pub fn validate(&self) -> Result<(), String> {
-        if self.api_version != "oasis7.formal-full-sync-transfer-policy/v1"
-            || !(100..=600_000).contains(&self.attempt_timeout_ms)
-            || !(1..=4).contains(&self.max_attempts)
-            || !(1..=8 * 1024 * 1024 * 1024).contains(&self.max_encoded_io_bytes)
-            || !(1..=262_660).contains(&self.max_exchanges)
-            || !(1..=512).contains(&self.max_proof_pages)
-            || !(1..=2 * 1024 * 1024 * 1024).contains(&self.max_proof_bytes)
-            || self.max_inflight_requests != 1
-            || !(100..=600_000).contains(&self.reopen_timeout_ms)
-            || self
-                .max_attempts
-                .checked_mul(self.attempt_timeout_ms)
-                .is_none()
-        {
-            return Err("invalid full-sync transfer policy".into());
-        }
-        Ok(())
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

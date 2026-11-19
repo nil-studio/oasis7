@@ -68,6 +68,8 @@ pub(super) mod history_chain;
 mod metered_io;
 #[path = "formal_full_sync_native.rs"]
 mod native_environment;
+#[path = "formal_full_sync_operation_config.rs"]
+mod operation_config;
 #[cfg(all(test, unix))]
 #[path = "formal_full_sync_operation_ledger.rs"]
 mod operation_ledger;
@@ -85,9 +87,8 @@ use attempt::{
 };
 use cas_lifecycle::CasBudget;
 pub(super) use compatibility::probe_runtime_compatibility;
-pub(crate) use providers::FormalFullSyncConfigV1;
-#[cfg(test)]
-pub(crate) use providers::FormalFullSyncEndpointV1;
+pub(super) use operation_config::FormalFullSyncConfigV2;
+pub(crate) use providers::{FormalFullSyncConfigV1, FormalFullSyncEndpointV1};
 #[cfg(test)]
 use providers::MAX_SYNC_PROVIDERS;
 
@@ -143,11 +144,9 @@ pub(super) fn install_grant(
     grant_reconcile::require_completed_start(&instance_data, current.as_ref())?;
     let mut node = super::model::NodeConfig::load(&config_path)?;
     node.verify_identity()?;
-    let previous_config = node
-        .identity
-        .chain
-        .formal_full_sync()
-        .cloned()
+    let previous_config = node.identity.chain.formal_full_sync().cloned()
+        .or_else(|| node.identity.chain.budgeted_formal_full_sync()
+            .map(FormalFullSyncConfigV2::read_material_config))
         .ok_or("full-sync grant can only be installed for a formal full-state sync node")?;
     let grant: FormalNodeReadGrantV1 = super::local_io::read(grant_path)?;
     let (keypair, _) =
@@ -176,11 +175,8 @@ pub(super) fn install_grant(
             }));
         }
     }
-    node.identity
-        .chain
-        .formal_full_sync_mut()
-        .ok_or("full-sync profile disappeared during grant install")?
-        .grant = Some(grant.clone());
+    *node.identity.chain.formal_full_sync_grant_mut()
+        .ok_or("full-sync profile disappeared during grant install")? = Some(grant.clone());
     super::local_io::write(&instance_data.join(super::model::CONFIG_FILE), &node)?;
     Ok(serde_json::json!({
         "installed": true,
