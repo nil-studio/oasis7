@@ -112,6 +112,44 @@ fn service(
     )
 }
 
+fn verify_uncovered_checkpoint_legacy_encoding(checkpoint: &BftSignerCheckpointV3) {
+    let state = &checkpoint.state;
+    let old_input = serde_json::json!({
+        "schema_version": state.schema_version,
+        "binding_digest": state.binding_digest,
+        "revision": state.revision,
+        "history": state.history,
+        "journal": state.journal,
+        "completed_journals": state.completed_journals,
+        "pending_driver_apply": state.pending_driver_apply,
+        "applied_installs": state.applied_installs,
+    });
+    use crate::protected_bft_v3::crypto::{digest_hex, verify_signature};
+    assert_eq!(
+        digest_hex("oasis7.bft.protected-signer.v3.state", &old_input).unwrap(),
+        state.state_digest
+    );
+    let mut old_state = old_input;
+    old_state["state_digest"] = serde_json::json!(state.state_digest);
+    assert_eq!(
+        oasis7_cas::to_canonical_cbor(state).unwrap(),
+        oasis7_cas::to_canonical_cbor(&old_state).unwrap()
+    );
+    let old_body = serde_json::json!({
+        "state": old_state,
+        "lease_generation": checkpoint.lease_generation,
+        "challenge": checkpoint.challenge,
+        "request_digest": checkpoint.request_digest,
+    });
+    verify_signature(
+        "oasis7.bft.protected-signer.v3.checkpoint",
+        &old_body,
+        &checkpoint.provider_signature_hex,
+        &public(33),
+    )
+    .unwrap();
+}
+
 #[test]
 fn native_fresh_retention_activates_atomically_and_cold_retry_returns_original() {
     let binding = binding();
@@ -127,13 +165,16 @@ fn native_fresh_retention_activates_atomically_and_cold_retry_returns_original()
         original: None,
         reserved_response_bytes: 0,
         mismatched_readback: false,
+        lose_commit_acknowledgement: false,
         activation_signs: Arc::new(AtomicUsize::new(0)),
     }));
 
     let (provider, server) = native(&binding, &snapshot, None);
     let mut lease = provider.acquire(&binding).unwrap();
     assert!(lease.provision_private_retention(&role, &marker).is_err());
-    assert_eq!(lease.checkpoint().unwrap().state.revision, 0);
+    let uncovered = lease.checkpoint().unwrap();
+    assert_eq!(uncovered.state.revision, 0);
+    verify_uncovered_checkpoint_legacy_encoding(&uncovered);
     drop(lease);
     server.join().unwrap();
 
@@ -212,6 +253,7 @@ fn native_fresh_retention_mismatched_atomic_readback_never_releases_receipt() {
         original: None,
         reserved_response_bytes: 0,
         mismatched_readback: true,
+        lose_commit_acknowledgement: false,
         activation_signs: Arc::new(AtomicUsize::new(0)),
     }));
     let writer = service(&binding, &snapshot, &slot, &marker, &role, true).unwrap();
@@ -234,4 +276,73 @@ fn native_fresh_retention_mismatched_atomic_readback_never_releases_receipt() {
     );
     assert!(!after.lease_token_digest.is_empty());
     assert!(persisted.reserved_response_bytes > 0);
+}
+
+#[test]
+fn native_fresh_retention_lost_commit_acknowledgement_recovers_only_after_fence() {
+    let binding = binding();
+    let (marker, role) = configured_source(&binding);
+    let snapshot = Arc::new(Mutex::new(BftSignerBackendSnapshotV3 {
+        state: BftSignerStateV3::from_handoff(&binding).unwrap(),
+        lease_generation: 1,
+        lease_token_digest: String::new(),
+        protected_time_floor_ms: 100,
+    }));
+    let slot = Arc::new(Mutex::new(FreshSlot {
+        marker: marker.clone(),
+        original: None,
+        reserved_response_bytes: 0,
+        mismatched_readback: false,
+        lose_commit_acknowledgement: true,
+        activation_signs: Arc::new(AtomicUsize::new(0)),
+    }));
+    let writer = service(&binding, &snapshot, &slot, &marker, &role, true).unwrap();
+    let (provider, server) = native_service_expected(&binding, writer, true);
+    let mut lease = provider.acquire(&binding).unwrap();
+    let floor = lease.protected_time_ms().unwrap();
+    assert_eq!(floor, 101);
+    assert!(lease.provision_private_retention(&role, &marker).is_err());
+    drop(lease);
+    server.join().unwrap();
+
+    let fenced = snapshot.lock().unwrap().clone();
+    assert_eq!(fenced.protected_time_floor_ms, floor);
+    assert!(!fenced.lease_token_digest.is_empty());
+    let original = slot.lock().unwrap().original.clone().unwrap();
+
+    let reader = service(&binding, &snapshot, &slot, &marker, &role, false).unwrap();
+    let (provider, server) = native_service(&binding, reader);
+    assert!(provider.acquire(&binding).is_err());
+    server.join().unwrap();
+    assert_eq!(*snapshot.lock().unwrap(), fenced);
+
+    // The lost writer has returned. The software adapter positively fences
+    // that exact old owner before the new service can recover its receipt.
+    let released = Backend {
+        binding: binding.digest().unwrap(),
+        snapshot: snapshot.clone(),
+        fresh: Some(slot.clone()),
+    }
+    .release_lease(fenced.lease_generation, &fenced.lease_token_digest)
+    .unwrap();
+    assert_eq!(released.lease_generation, fenced.lease_generation + 1);
+    assert!(released.lease_token_digest.is_empty());
+
+    let reader = service(&binding, &snapshot, &slot, &marker, &role, false).unwrap();
+    let (provider, server) = native_service(&binding, reader);
+    let mut lease = provider.acquire(&binding).unwrap();
+    assert_eq!(
+        lease.provision_private_retention(&role, &marker).unwrap(),
+        original
+    );
+    let checkpoint = lease.checkpoint().unwrap();
+    assert!(checkpoint.lease_generation > original.receipt.body.original_lease_generation);
+    assert_eq!(checkpoint.state, fenced.state);
+    assert_eq!(snapshot.lock().unwrap().protected_time_floor_ms, floor);
+    assert_eq!(
+        slot.lock().unwrap().activation_signs.load(Ordering::SeqCst),
+        1
+    );
+    drop(lease);
+    server.join().unwrap();
 }

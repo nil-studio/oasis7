@@ -172,6 +172,7 @@ struct FreshSlot {
     original: Option<BftPrivateRetentionActivationV1>,
     reserved_response_bytes: u64,
     mismatched_readback: bool,
+    lose_commit_acknowledgement: bool,
     activation_signs: Arc<AtomicUsize>,
 }
 impl FreshSlot {
@@ -300,6 +301,11 @@ impl BftSignerBackendV3 for Backend {
         *signer = next.signer.clone();
         slot.original = next.original.clone();
         slot.reserved_response_bytes = next.reserved_response_bytes;
+        if std::mem::take(&mut slot.lose_commit_acknowledgement) {
+            return Err(invalid(
+                "test Fresh commit acknowledgement lost after durable write",
+            ));
+        }
         Ok(())
     }
 
