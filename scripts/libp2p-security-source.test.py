@@ -117,8 +117,8 @@ class NetworkSourceContract(unittest.TestCase):
         vendor = ROOT / "vendor-libp2p-swarm-0.48.0"
         hashes = json.loads((vendor / "upstream-source-sha256.json").read_text())
         hashes.update({
-            "src/lib.rs": "3b73c50b07332ab2939c2f50f689c47f0c2ea3c6d657333d007901046ff8d7a5",
-            "src/transport_attempt.rs": "0b3495957be3cc42906a8c55ef80c6345db2c77e25e74ab66713a56fabccb571",
+            "src/lib.rs": "c7eff68dae28f3f2ecf25afbfccb66a620c9867a5d2b51e523e3a6f3b234f9b8",
+            "src/transport_attempt.rs": "dc9d12894502d57485e50a4ce91c131c45879879cc4a7c7f761a9014fbfd9e9d",
         })
         actual = {str(p.relative_to(vendor)): hashlib.sha256(p.read_bytes()).hexdigest()
                   for p in (vendor / "src").rglob("*.rs")}

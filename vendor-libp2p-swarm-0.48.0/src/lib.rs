@@ -114,7 +114,9 @@ use connection::{
     pool::{EstablishedConnection, Pool, PoolConfig, PoolEvent, concurrent_dial::PendingDial},
 };
 use dial_opts::{DialOpts, PeerCondition};
-pub use transport_attempt::{OutboundAttemptPermit, TransportAttemptPermit};
+pub use transport_attempt::{
+    OutboundAttemptPermit, TransportAdmission, TransportAttemptPermit, TransportHandshakeDeadlineElapsed,
+};
 use transport_attempt::{
     InboundAttemptAdmission, OutboundAttemptAdmission, hold_attempt_permit, hold_listener_permit,
 };
@@ -531,7 +533,10 @@ where
                         let permit = self
                             .outbound_attempt_admission
                             .as_mut()
-                            .map(|admit| admit(connection_id, peer_id, &address))
+                            .map(|admit| {
+                                admit(connection_id, peer_id, &address)
+                                    .and_then(TransportAdmission::check)
+                            })
                             .transpose();
                         let permit = match permit {
                             Ok(permit) => permit,
@@ -551,12 +556,15 @@ where
                         span.follows_from(tracing::Span::current());
                         match transport_dial {
                             Ok(fut) => {
+                                let deadline_address = permit.as_ref().map(|_| address.clone());
                                 let future = fut
                                     .map(|r| (address, r.map_err(TransportError::Other)))
                                     .instrument(span)
                                     .boxed();
-                                match permit {
-                                    Some(permit) => hold_attempt_permit(future, permit),
+                                match permit.zip(deadline_address) {
+                                    Some((permit, address)) => {
+                                        hold_attempt_permit(future, permit, address)
+                                    }
                                     None => future,
                                 }
                             }
@@ -1456,12 +1464,28 @@ impl Config {
     /// until the first upgrade poll. A successful upgrade retains the permit in
     /// the connection muxer until termination.
     pub fn with_inbound_transport_admission(
+        self,
+        mut admit: impl FnMut(
+            ConnectionId,
+            &Multiaddr,
+            &Multiaddr,
+        ) -> Result<TransportAttemptPermit, ConnectionDenied>
+        + Send
+        + 'static,
+    ) -> Self {
+        self.with_timed_inbound_transport_admission(move |connection, local, remote| {
+            admit(connection, local, remote).map(TransportAdmission::unbounded)
+        })
+    }
+
+    /// Check inbound admission and apply its optional absolute handshake deadline.
+    pub fn with_timed_inbound_transport_admission(
         mut self,
         admit: impl FnMut(
             ConnectionId,
             &Multiaddr,
             &Multiaddr,
-        ) -> Result<TransportAttemptPermit, ConnectionDenied>
+        ) -> Result<TransportAdmission, ConnectionDenied>
         + Send
         + 'static,
     ) -> Self {
@@ -1478,12 +1502,28 @@ impl Config {
     /// polled. Its permit is retained through pending work and, on a successful
     /// dial, through the lifetime of its connection muxer.
     pub fn with_outbound_transport_admission(
+        self,
+        mut admit: impl FnMut(
+            ConnectionId,
+            Option<PeerId>,
+            &Multiaddr,
+        ) -> Result<OutboundAttemptPermit, ConnectionDenied>
+        + Send
+        + 'static,
+    ) -> Self {
+        self.with_timed_outbound_transport_admission(move |connection, peer, address| {
+            admit(connection, peer, address).map(TransportAdmission::unbounded)
+        })
+    }
+
+    /// Check outbound admission and apply its optional absolute handshake deadline.
+    pub fn with_timed_outbound_transport_admission(
         mut self,
         admit: impl FnMut(
             ConnectionId,
             Option<PeerId>,
             &Multiaddr,
-        ) -> Result<OutboundAttemptPermit, ConnectionDenied>
+        ) -> Result<TransportAdmission, ConnectionDenied>
         + Send
         + 'static,
     ) -> Self {

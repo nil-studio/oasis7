@@ -27,6 +27,7 @@ CAP = 4 * 1024 * 1024
 TIMEOUT = 5
 CONTROLLED_CAP = 16 * 1024
 CONTROLLED_TIMEOUT = 6
+CONTROLLED_OWNER_TIMEOUT = 12
 START = "<!-- triad-profile-start -->"
 END = "<!-- triad-profile-end -->"
 
@@ -69,9 +70,13 @@ def hex_digest(value):
 
 
 def valid_pins(pins):
-    if not isinstance(pins, dict) or set(pins) != {
-            "status_url", "service_public_key", "expected_world", "expected_node_id"}:
+    required = {"status_url", "service_public_key", "expected_world", "expected_node_id"}
+    if not isinstance(pins, dict) or set(pins) - {"owner_config"} != required:
         return False
+    if "owner_config" in pins:
+        owner = pins["owner_config"]
+        if not isinstance(owner, str) or not Path(owner).is_absolute():
+            return False
     if not isinstance(pins["status_url"], str):
         return False
     world = pins["expected_world"]
@@ -107,13 +112,58 @@ def controlled_inventory(path):
     return runtime, slots, hashlib.sha256(data).hexdigest()
 
 
+def project_owner_pair(value, position, record, received):
+    if not isinstance(value, dict):
+        return {"status": "unavailable"}
+    state = value.get("status")
+    if state in ("unavailable", "identity_mismatch", "cut_mismatch"):
+        return {"status": state}
+    started = adapter.uint(value.get("sample_started_at_unix_ms"))
+    matches = value.get("both_heads_match_unchanged_cut")
+    finalizer = value.get("finalizing_authority_id")
+    if (state != "observed" or started is None or started > received
+            or position is None or not hex_digest(finalizer) or type(matches) is not bool):
+        return {"status": "invalid_observation"}
+    result = dict(status="observed", sample_started_at_unix_ms=started,
+                  finalizing_authority_id=finalizer, both_heads_match_unchanged_cut=matches)
+    for role in ("primary", "replica"):
+        endpoint = value.get(role)
+        if not isinstance(endpoint, dict):
+            return {"status": "invalid_observation"}
+        if endpoint.get("status") == "unavailable" and not matches:
+            result[role] = {"status": "unavailable"}
+            continue
+        head = endpoint.get("head")
+        if (endpoint.get("status") != "authenticated" or not isinstance(head, dict)
+                or adapter.uint(head.get("position")) is None or not hex_digest(head.get("record_id"))
+                or not hex_digest(endpoint.get("instance_digest"))
+                or any(adapter.uint(endpoint.get(key)) is None for key in ("checkpoint_revision", "epoch_floor"))
+                or any(type(endpoint.get(key)) is not bool for key in ("sealed", "native_request_pending"))
+                or (matches and (head["position"] != position or head["record_id"] != record))):
+            return {"status": "invalid_observation"}
+        result[role] = dict(
+            status="authenticated", head={"position": head["position"], "record_id": head["record_id"]},
+            **{key: endpoint[key] for key in (
+                "instance_digest", "checkpoint_revision", "epoch_floor", "sealed", "native_request_pending"
+            )}
+        )
+    return result
+
+
 def observe_controlled(runtime, pins):
     try:
         # The selected verifier is the operator's trusted shipping binary. Pins
         # go through stdin and raw stdout/error are never published.
-        result = subprocess.run([str(runtime), "op", "formal-status-observe", "--request", "-"],
-                                input=json.dumps(pins).encode("utf-8"), stdout=subprocess.PIPE,
-                                stderr=subprocess.DEVNULL, timeout=CONTROLLED_TIMEOUT, check=False)
+        args = [str(runtime), "op", "formal-status-observe", "--request", "-"]
+        owner = pins.get("owner_config")
+        if owner is not None:
+            args += ["--owner-config", owner]
+        status_pins = {key: value for key, value in pins.items() if key != "owner_config"}
+        result = subprocess.run(
+            args, input=json.dumps(status_pins).encode("utf-8"), stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, check=False,
+            timeout=CONTROLLED_OWNER_TIMEOUT if owner is not None else CONTROLLED_TIMEOUT,
+        )
         if result.returncode != 0:
             return None, "controlled_observation_failed"
         if len(result.stdout) > 64 * 1024:
@@ -139,16 +189,21 @@ def observe_controlled(runtime, pins):
             or (position is not None and (adapter.uint(position) is None or not hex_digest(record)))
             or (status["host_reports_ready"] and position is None)):
         return None, "invalid_status"
+    received = now()
     profile = unknown("controlled_authority_qualification_unobserved")
     profile.update(source="verified_controlled_status", runtime_profile="formal_live_v1",
                    observation_scope="authenticated_host_diagnostics_only",
                    authority_qualification="unknown", protected_services_readiness="unknown",
-                   sample_time_basis="local_authenticated_receipt", observed_at_unix_ms=now(),
+                   sample_time_basis="local_authenticated_receipt", observed_at_unix_ms=received,
                    world_id=pins["expected_world"]["world_id"], genesis_digest=pins["expected_world"]["genesis_digest"],
                    node_id=pins["expected_node_id"],
                    committed_position=position, committed_record_id=record,
                    **{key: status[key] for key in
                       ("host_state", "node_running", "host_reports_ready", "runtime_error_present")})
+    if owner is not None:
+        profile["protected_pair"] = project_owner_pair(
+            status.get("protected_pair"), position, record, received,
+        )
     return profile, "success"
 
 
@@ -238,6 +293,14 @@ def refresh_node(node, as_of):
     collection_age = as_of - finished if valid else None
     collection["age_ms"] = collection_age
     collection["freshness"] = "fresh" if valid and collection_age <= adapter.MAX_AGE_MS else "stale" if valid else "unknown"
+    pair = profile.get("protected_pair")
+    if isinstance(pair, dict) and pair.get("status") == "observed":
+        started = adapter.uint(pair.get("sample_started_at_unix_ms"))
+        age = as_of - started if started is not None and started <= as_of else None
+        profile["protected_pair"] = dict(
+            pair, age_ms=age,
+            freshness="unknown" if age is None else "fresh" if age <= adapter.MAX_AGE_MS else "stale",
+        )
     observed = profile.get("observed_at_unix_ms")
     valid_observed = type(observed) is int and 0 <= observed <= as_of
     profile.update(as_of_unix_ms=as_of, age_ms=as_of - observed if valid_observed else None)

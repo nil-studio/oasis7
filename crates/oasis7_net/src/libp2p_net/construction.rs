@@ -1,4 +1,8 @@
 use super::receiver_floor::PeerRecordReceiver;
+use super::resource_budget::{
+    dial_hit_handshake_deadline, has_handshake_deadline_error, listener_hit_handshake_deadline,
+    setup_resource_budgets,
+};
 use super::*;
 
 #[path = "construction/peer_record_setup.rs"]
@@ -11,6 +15,8 @@ impl Libp2pNetwork {
     }
 
     pub fn try_new(config: Libp2pNetworkConfig) -> Result<Self, WorldError> {
+        let (resource_budget, wire_byte_counters) =
+            setup_resource_budgets(config.p2p_resource_budget)?;
         if config.peer_record_publication_transition.is_some()
             && (config.peer_record_publication_directory.is_none()
                 || config.peer_record_receiver.mode == PeerRecordReceiverMode::Legacy)
@@ -86,7 +92,6 @@ impl Libp2pNetwork {
         ));
         let reachability = Arc::new(Mutex::new(Libp2pReachabilitySnapshot::default()));
         let traffic_metrics = init_shared_traffic_metrics();
-        let wire_byte_counters = init_shared_wire_byte_counters();
         let command_buffer_capacity = config.command_buffer_capacity.max(1);
         let (command_tx, command_rx) = mpsc::channel(command_buffer_capacity);
         let max_published_messages = config.max_published_messages.max(1);
@@ -104,6 +109,9 @@ impl Libp2pNetwork {
         let event_peer_record_receiver = Arc::clone(&peer_record_receiver);
         let event_traffic_metrics = Arc::clone(&traffic_metrics);
         let event_wire_byte_counters = Arc::clone(&wire_byte_counters);
+        let connection_budget = resource_budget
+            .as_ref()
+            .map(|budget| budget.connections.clone());
         let config_clone = config.clone();
         let keypair_clone = keypair.clone();
         let local_peer_id = peer_id;
@@ -124,6 +132,7 @@ impl Libp2pNetwork {
                 config_clone.request_response_timeout,
                 Arc::clone(&event_wire_byte_counters),
                 Arc::clone(&event_peer_record_receiver),
+                connection_budget,
             );
             let mut subscriptions = HashSet::new();
             let mut topic_map: HashMap<TopicHash, String> = HashMap::new();
@@ -153,7 +162,7 @@ impl Libp2pNetwork {
                 bootstrap_transport_path_state(&config_clone.bootstrap_peers);
             let mut discovery_observations = peer_discovery_observations::DiscoveryObservations::default();
             discovery_observations.set_static_bootstrap_peers(static_bootstrap_peer_ids.clone());
-            let mut last_dialed_transport_paths: HashMap<PeerId, TransportPath> = HashMap::new();
+            let mut last_dialed_transport_paths = HashMap::new();
             let mut active_transport_paths: HashMap<PeerId, TransportPath> = HashMap::new();
             let mut established_transport_paths_by_connection: HashMap<
                 libp2p::swarm::ConnectionId,
@@ -811,8 +820,11 @@ impl Libp2pNetwork {
                                     peer_id,
                                     connection_id,
                                     endpoint,
-                                    ..
+                                    concurrent_dial_errors, ..
                                 } => {
+                                    if concurrent_dial_errors.as_deref().is_some_and(has_handshake_deadline_error) {
+                                        swarm.behaviour().note_handshake_deadline();
+                                    }
                                     if !peers.contains(&peer_id) {
                                         peers.push(peer_id);
                                     }
@@ -1074,7 +1086,10 @@ impl Libp2pNetwork {
                                         &event_reachability,
                                     );
                                 }
-                                SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
+                                SwarmEvent::OutgoingConnectionError { peer_id, connection_id, error } => {
+                                    if dial_hit_handshake_deadline(&error) {
+                                        swarm.behaviour().note_handshake_deadline();
+                                    }
                                     if let Some(peer_id) = peer_id {
                                         if quarantined_active_peers.contains(&peer_id)
                                             || pending_quarantine_disconnects.contains(&peer_id)
@@ -1088,13 +1103,15 @@ impl Libp2pNetwork {
                                                 max_error_messages,
                                                 "lock errors",
                                             );
-                                        } else {
+                                        } else if let Some(last_path) = transport_paths::take_retryable_transport_path(
+                                            &mut last_dialed_transport_paths, peer_id, connection_id, &error,
+                                        ) {
                                             match retry_transport_path_after_error(
                                                 &mut swarm,
                                                 &known_transport_paths,
                                                 &mut last_dialed_transport_paths,
                                                 &mut failed_transport_path_labels,
-                                                peer_id,
+                                                last_path,
                                             ) {
                                                 Ok(Some((last_path, next_path))) => {
                                                     push_bounded_clone(
@@ -1126,6 +1143,9 @@ impl Libp2pNetwork {
                                         format!("libp2p outgoing connection error peer={peer_id:?}: {error:?}"));
                                 }
                                 SwarmEvent::IncomingConnectionError { error, .. } => {
+                                    if listener_hit_handshake_deadline(&error) {
+                                        swarm.behaviour().note_handshake_deadline();
+                                    }
                                     runtime_support::log_connection_error(&event_errors, max_error_messages,
                                         format!("libp2p incoming connection error: {error:?}"));
                                 }
@@ -1151,6 +1171,7 @@ impl Libp2pNetwork {
             reachability,
             traffic_metrics,
             wire_byte_counters,
+            resource_budget,
             _shutdown_guard: Arc::new(drop_support::ShutdownGuard::new(command_tx)),
         })
     }

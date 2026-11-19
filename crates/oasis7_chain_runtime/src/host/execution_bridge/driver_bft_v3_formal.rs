@@ -105,6 +105,47 @@ impl FormalBftHeaderExecutionV3 {
         Ok(self.execute(private_actions)?.candidate)
     }
 
+    /// Replay one original candidate independently of the prefix recorder.
+    /// Both authenticated read views use the candidate's strictly closed byte set.
+    fn execute_closed_candidate(
+        &self,
+        private_actions: &[u8],
+        seed: Vec<(String, Vec<u8>)>,
+    ) -> Result<ExecutedFormalHeaderV3, String> {
+        let reader = formal_dependencies::RecordingBusinessIndexReaderV1::new_strict(
+            self.retained_nodes.clone(),
+            seed,
+        )?;
+        let candidate = self.with_candidate_reader(reader.clone())?;
+        let executed = candidate.execute(private_actions)?;
+        if reader
+            .accessed_nodes()?
+            .keys()
+            .ne(reader.recorded_refs()?.iter())
+        {
+            return Err("closed candidate archive contains unobserved dependencies".into());
+        }
+        Ok(executed)
+    }
+
+    fn with_candidate_reader(
+        &self,
+        reader: Arc<formal_dependencies::RecordingBusinessIndexReaderV1>,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            handoff: self.handoff.clone(),
+            schedule: self.schedule.clone(),
+            parent_record: self.parent_record.clone(),
+            parent_world: self
+                .parent_world
+                .clone_with_independent_formal_history_reader(reader.clone())?,
+            parent_result_tree: self.parent_result_tree.clone(),
+            business_reader: formal_business_package::SharedBusinessReader(reader.clone()),
+            retained_nodes: reader,
+            tip: self.tip.clone(),
+        })
+    }
+
     pub(crate) fn verify_and_execute(
         &self,
         entry: &FormalBftCertifiedHeaderV3,
@@ -323,4 +364,7 @@ mod prefix;
 #[cfg(test)]
 #[path = "driver_bft_v3_formal_prefix.rs"]
 pub(crate) mod prefix;
-pub(crate) use prefix::{CommittedPrefixArchiveRefV1, FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3, ReplayedCommittedPrefixV1};
+pub(crate) use prefix::{
+    CommittedPrefixArchiveRefV1, FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3,
+    OriginalCandidateArchivePinV1, ReplayedCommittedPrefixV1, ReplayedOriginalCandidateV1,
+};

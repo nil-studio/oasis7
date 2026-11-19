@@ -445,4 +445,4 @@ fn cas_error(error: oasis7_proto::world_error::WorldError) -> BftSignerErrorV3 {
 
 #[cfg(test)]
 #[path = "successor_archive_store_tests.rs"]
-mod tests;
+pub(super) mod tests;

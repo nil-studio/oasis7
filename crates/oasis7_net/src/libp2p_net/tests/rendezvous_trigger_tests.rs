@@ -893,6 +893,7 @@ fn exact_duplicate_remote_record_merges_trigger_without_refreshing_candidate() {
         Duration::from_secs(3),
         super::super::wire_bytes::init_shared_wire_byte_counters(),
         receiver.clone(),
+        None,
     );
     let mut cache = PeerRecordCache::with_dial_policy_and_receiver(
         super::super::peer_record_time::DiscoveryClock::default(),
@@ -1140,6 +1141,7 @@ fn successful_tombstone_consumes_trigger_before_a_later_live_record() {
         Duration::from_secs(3),
         super::super::wire_bytes::init_shared_wire_byte_counters(),
         receiver.clone(),
+        None,
     );
     let mut cache = PeerRecordCache::with_dial_policy_and_receiver(
         super::super::peer_record_time::DiscoveryClock::default(),

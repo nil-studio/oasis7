@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-struct Scratch(PathBuf);
+pub(in super::super) struct Scratch(PathBuf);
 impl Scratch {
-    fn new() -> Self {
+    pub(in super::super) fn new() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -24,10 +24,10 @@ impl Scratch {
     fn path(&self) -> &Path {
         &self.0
     }
-    fn store(&self) -> LocalBftSuccessorArchiveStoreV1 {
+    pub(in super::super) fn store(&self) -> LocalBftSuccessorArchiveStoreV1 {
         LocalBftSuccessorArchiveStoreV1::new(LocalCasStore::new(self.path().join("cas"))).unwrap()
     }
-    fn blob(&self, reference: &BftSuccessorWindowArchiveRefV1) -> PathBuf {
+    pub(in super::super) fn blob(&self, reference: &BftSuccessorWindowArchiveRefV1) -> PathBuf {
         LocalCasStore::new(self.path().join("cas"))
             .blobs_dir()
             .join(format!("{}.blob", reference.digest))

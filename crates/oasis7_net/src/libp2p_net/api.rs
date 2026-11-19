@@ -26,6 +26,7 @@ use super::{
     snapshot_traffic_metrics,
 };
 
+use super::resource_budget::ActiveResourceBudget;
 use super::traffic_metrics::SharedLibp2pTrafficMetrics;
 use super::wire_bytes::SharedLibp2pWireByteCounters;
 
@@ -44,6 +45,7 @@ pub struct Libp2pNetwork {
     pub(super) reachability: Arc<Mutex<Libp2pReachabilitySnapshot>>,
     pub(super) traffic_metrics: SharedLibp2pTrafficMetrics,
     pub(super) wire_byte_counters: SharedLibp2pWireByteCounters,
+    pub(super) resource_budget: Option<ActiveResourceBudget>,
     pub(super) _shutdown_guard: Arc<super::drop_support::ShutdownGuard>,
 }
 const LIBP2P_COMMAND_RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -149,7 +151,12 @@ impl Libp2pNetwork {
     }
 
     pub fn traffic_metrics_snapshot(&self) -> Libp2pTrafficMetricsSnapshot {
-        snapshot_traffic_metrics(&self.traffic_metrics, &self.wire_byte_counters)
+        let mut snapshot =
+            snapshot_traffic_metrics(&self.traffic_metrics, &self.wire_byte_counters);
+        if let Some(budget) = &self.resource_budget {
+            snapshot.resource_budget = budget.snapshot(&self.wire_byte_counters);
+        }
+        snapshot
     }
 
     pub(super) fn enqueue_command(&self, command: Command) -> Result<(), WorldError> {

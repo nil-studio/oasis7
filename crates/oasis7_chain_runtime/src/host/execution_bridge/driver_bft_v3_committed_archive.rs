@@ -10,6 +10,10 @@ use oasis7_distfs::protected_bft_v3::{
     BftSuccessorWindowArchiveUsageV1, BftSuccessorWindowSourceV1, LocalBftSuccessorArchiveStoreV1,
 };
 
+#[path = "driver_bft_v3_closed_candidate.rs"]
+mod closed_candidate;
+pub(crate) use closed_candidate::{OriginalCandidateArchivePinV1, ReplayedOriginalCandidateV1};
+
 const MAX_ORIGIN_BYTES: usize = 1024 * 1024;
 const MAX_COMMITTED_ARCHIVE_BYTES: u64 = 512 * 1024 * 1024;
 const H_MATERIAL: &[u8] = b"oasis7.formal.bft.committed-prefix-archive.v1.h-material";
@@ -31,6 +35,12 @@ pub(crate) struct ReplayedCommittedPrefixV1 {
     pub(crate) world_tick: u64,
     pub(crate) semantic_state_root: String,
     pub(crate) result_root: String,
+}
+
+struct ClosedCandidateParent {
+    execution: FormalBftHeaderExecutionV3,
+    ledger_origin: String,
+    certified: FormalBftCertifiedHeaderPrefixV3,
 }
 
 struct ArchiveOnlyReader;
@@ -73,7 +83,9 @@ fn encode_origin(origin: &storage::Origin) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-fn charge(entries: &[BftSuccessorWindowArchiveEntryV1]) -> Result<BftSuccessorWindowArchiveUsageV1, String> {
+fn charge(
+    entries: &[BftSuccessorWindowArchiveEntryV1],
+) -> Result<BftSuccessorWindowArchiveUsageV1, String> {
     let mut unique = std::collections::BTreeMap::new();
     let mut total_bytes = 0u64;
     for entry in entries {
@@ -96,7 +108,8 @@ fn charge(entries: &[BftSuccessorWindowArchiveEntryV1]) -> Result<BftSuccessorWi
 }
 
 fn check_archive_capacity(object_bytes: u64, manifest_bytes: u64) -> Result<(), String> {
-    if object_bytes.checked_add(manifest_bytes)
+    if object_bytes
+        .checked_add(manifest_bytes)
         .is_none_or(|total| total > MAX_COMMITTED_ARCHIVE_BYTES)
     {
         return Err("committed archive capacity including manifest".into());
@@ -127,11 +140,22 @@ impl FormalBftHeaderLedgerExecutionV3 {
         drop(cut);
         let prior = self.ledger.origin()?;
         let prefix = PrivateHeaderPrefixV3::from_entries(
-            self.ledger.records_through(height)?.map(storage::Record::input).collect(),
+            self.ledger
+                .records_through(height)?
+                .map(storage::Record::input)
+                .collect(),
         )?;
         let mut objects = vec![
-            (blake3_hex(H_MATERIAL), encoded_h_material(&self.inputs.material)?, MAX_H_BYTES),
-            (blake3_hex(LEDGER_ORIGIN), encode_origin(prior)?, MAX_ORIGIN_BYTES),
+            (
+                blake3_hex(H_MATERIAL),
+                encoded_h_material(&self.inputs.material)?,
+                MAX_H_BYTES,
+            ),
+            (
+                blake3_hex(LEDGER_ORIGIN),
+                encode_origin(prior)?,
+                MAX_ORIGIN_BYTES,
+            ),
             (
                 blake3_hex(PRIVATE_PREFIX),
                 prefix.canonical_private_bytes()?,
@@ -151,18 +175,21 @@ impl FormalBftHeaderLedgerExecutionV3 {
             objects.push((digest, bytes, BUSINESS_INDEX_MAX_NODE_BYTES));
         }
         objects.sort_by(|left, right| left.0.cmp(&right.0));
-        let entries = objects.iter().map(|(identity_digest, bytes, maximum)| {
-            if bytes.is_empty() || bytes.len() > *maximum {
-                return Err("committed archive object length outside its role bound".into());
-            }
-            Ok(BftSuccessorWindowArchiveEntryV1 {
-                identity_digest: identity_digest.clone(),
-                object: BftSuccessorWindowArchiveRefV1 {
-                    digest: blake3_hex(bytes),
-                    bytes: bytes.len() as u64,
-                },
+        let entries = objects
+            .iter()
+            .map(|(identity_digest, bytes, maximum)| {
+                if bytes.is_empty() || bytes.len() > *maximum {
+                    return Err("committed archive object length outside its role bound".into());
+                }
+                Ok(BftSuccessorWindowArchiveEntryV1 {
+                    identity_digest: identity_digest.clone(),
+                    object: BftSuccessorWindowArchiveRefV1 {
+                        digest: blake3_hex(bytes),
+                        bytes: bytes.len() as u64,
+                    },
+                })
             })
-        }).collect::<Result<Vec<_>, String>>()?;
+            .collect::<Result<Vec<_>, String>>()?;
         let manifest = BftSuccessorWindowArchiveManifestV1 {
             public_index: None,
             schema_version: 1,
@@ -200,6 +227,21 @@ impl FormalBftHeaderLedgerExecutionV3 {
         height: u64,
         header_id: &str,
     ) -> Result<ReplayedCommittedPrefixV1, String> {
+        Self::replay_closed_prefix(
+            archive, reference, source, anchor, target, height, header_id,
+        )
+        .map(|(cut, _)| cut)
+    }
+
+    fn replay_closed_prefix(
+        archive: &LocalBftSuccessorArchiveStoreV1,
+        reference: &CommittedPrefixArchiveRefV1,
+        source: &BftSuccessorWindowSourceV1,
+        anchor: VerifiedFormalReadAnchorV1,
+        target: BftProfileTargetV2,
+        height: u64,
+        header_id: &str,
+    ) -> Result<(ReplayedCommittedPrefixV1, ClosedCandidateParent), String> {
         let handoff = verify_formal_bft_handoff_v2(&anchor, target.clone())?;
         source_at_h(source, &handoff)?;
         let manifest = archive
@@ -221,7 +263,9 @@ impl FormalBftHeaderLedgerExecutionV3 {
             .map(|entry| (entry.identity_digest, entry.object))
             .collect::<std::collections::BTreeMap<_, _>>();
         let mut take_role = |domain: &[u8]| {
-            entries.remove(&blake3_hex(domain)).ok_or("committed archive role absent")
+            entries
+                .remove(&blake3_hex(domain))
+                .ok_or("committed archive role absent")
         };
         let material_ref = take_role(H_MATERIAL)?;
         let origin_ref = take_role(LEDGER_ORIGIN)?;
@@ -239,20 +283,28 @@ impl FormalBftHeaderLedgerExecutionV3 {
                 .filter(|total| *total <= MAX_RETAINED_INDEX_TOTAL_BYTES as u64)
                 .ok_or("committed archive retained-index byte capacity")?;
         }
-        let material_bytes = archive.load_object(&material_ref, MAX_H_BYTES).map_err(error)?;
+        let material_bytes = archive
+            .load_object(&material_ref, MAX_H_BYTES)
+            .map_err(error)?;
         let material: ClosedRecord = serde_cbor::from_slice(&material_bytes).map_err(error)?;
         if encoded_h_material(&material)? != material_bytes {
             return Err("committed archive original H material is not canonical".into());
         }
-        let origin_bytes = archive.load_object(&origin_ref, MAX_ORIGIN_BYTES).map_err(error)?;
+        let origin_bytes = archive
+            .load_object(&origin_ref, MAX_ORIGIN_BYTES)
+            .map_err(error)?;
         let origin: storage::Origin = serde_cbor::from_slice(&origin_bytes).map_err(error)?;
         origin.validate()?;
-        if encode_origin(&origin)? != origin_bytes || origin.first_height() != manifest.first_height {
+        if encode_origin(&origin)? != origin_bytes || origin.first_height() != manifest.first_height
+        {
             return Err("committed archive original ledger origin differs".into());
         }
-        let prefix_bytes = archive.load_object(&prefix_ref, PRIVATE_HEADER_PREFIX_MAX_BYTES_V3).map_err(error)?;
+        let prefix_bytes = archive
+            .load_object(&prefix_ref, PRIVATE_HEADER_PREFIX_MAX_BYTES_V3)
+            .map_err(error)?;
         let prefix = PrivateHeaderPrefixV3::decode_private_canonical(&prefix_bytes)?;
-        let proof = prefix.public_prefix()?.verify(&handoff)?;
+        let certified = prefix.public_prefix()?;
+        let proof = certified.verify(&handoff)?;
         check_target(&proof, height, header_id)?;
         let seeds = entries
             .iter()
@@ -274,7 +326,8 @@ impl FormalBftHeaderLedgerExecutionV3 {
         if material_pin_digest(&execution, &material)? != origin.material_pin_digest() {
             return Err("committed archive H material differs from the original ledger pin".into());
         }
-        let mut previous = origin.digest()?;
+        let ledger_origin = origin.digest()?;
+        let mut previous = ledger_origin.clone();
         for entry in prefix.entries() {
             let executed = execution.replay_next(&entry.certificate, &entry.actions_cbor)?;
             let dependencies = execution.retained_nodes.accessed_nodes()?;
@@ -295,13 +348,21 @@ impl FormalBftHeaderLedgerExecutionV3 {
         {
             return Err("committed archive contains missing or unobserved dependencies".into());
         }
-        Ok(ReplayedCommittedPrefixV1 {
+        let cut = ReplayedCommittedPrefixV1 {
             header_id: header_id.into(),
             height,
             durable_record_digest: previous,
             world_tick: execution.parent_world.state().time,
             semantic_state_root: proof.commitment().state_root.clone(),
             result_root: execution.parent_result_tree.root()?,
-        })
+        };
+        Ok((
+            cut,
+            ClosedCandidateParent {
+                execution,
+                ledger_origin,
+                certified,
+            },
+        ))
     }
 }

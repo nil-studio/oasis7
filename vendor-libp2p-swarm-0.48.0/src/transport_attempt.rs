@@ -5,11 +5,14 @@ use std::{
     task::{Context, Poll, ready},
 };
 
+use futures::{FutureExt, future::poll_fn};
 use libp2p_core::{
     Multiaddr, Transport,
     muxing::{StreamMuxer, StreamMuxerBox, StreamMuxerEvent, SubstreamBox},
+    transport::TransportError,
 };
 use libp2p_identity::PeerId;
+use web_time::Instant;
 
 use crate::{ConnectionDenied, ConnectionId, connection::pool::concurrent_dial::DialFuture};
 
@@ -19,44 +22,128 @@ pub type TransportAttemptPermit = Box<dyn Send>;
 /// The token returned by outbound admission.
 pub type OutboundAttemptPermit = TransportAttemptPermit;
 
+/// Resources and an optional absolute deadline for a transport handshake.
+pub struct TransportAdmission {
+    permit: TransportAttemptPermit,
+    deadline: Option<Instant>,
+}
+
+impl TransportAdmission {
+    /// Retain the permit while the attempt runs and terminate at the given instant.
+    pub fn until(permit: TransportAttemptPermit, deadline: Instant) -> Self {
+        Self {
+            permit,
+            deadline: Some(deadline),
+        }
+    }
+
+    pub(crate) fn unbounded(permit: TransportAttemptPermit) -> Self {
+        Self {
+            permit,
+            deadline: None,
+        }
+    }
+
+    pub(crate) fn check(self) -> Result<Self, ConnectionDenied> {
+        if self
+            .deadline
+            .is_some_and(|deadline| Instant::now() >= deadline)
+        {
+            return Err(ConnectionDenied::new(TransportHandshakeDeadlineElapsed));
+        }
+        Ok(self)
+    }
+}
+
 pub(crate) type OutboundAttemptAdmission = Box<
     dyn FnMut(
             ConnectionId,
             Option<PeerId>,
             &Multiaddr,
-        ) -> Result<OutboundAttemptPermit, ConnectionDenied>
+        ) -> Result<TransportAdmission, ConnectionDenied>
         + Send,
 >;
 
 pub(crate) type InboundAttemptAdmission = Box<
-    dyn FnMut(
-            ConnectionId,
-            &Multiaddr,
-            &Multiaddr,
-        ) -> Result<TransportAttemptPermit, ConnectionDenied>
+    dyn FnMut(ConnectionId, &Multiaddr, &Multiaddr) -> Result<TransportAdmission, ConnectionDenied>
         + Send,
 >;
 
 type ListenerUpgrade =
     <libp2p_core::transport::Boxed<(PeerId, StreamMuxerBox)> as Transport>::ListenerUpgrade;
 
-pub(crate) fn hold_attempt_permit(future: DialFuture, permit: OutboundAttemptPermit) -> DialFuture {
+pub(crate) fn hold_attempt_permit(
+    future: DialFuture,
+    admission: TransportAdmission,
+    address: Multiaddr,
+) -> DialFuture {
+    let future = if let Some(deadline) = admission.deadline {
+        async move {
+            until(future, deadline)
+                .await
+                .unwrap_or_else(|error| (address, Err(TransportError::Other(error))))
+        }
+        .boxed()
+    } else {
+        future
+    };
     Box::pin(PermittedAttempt {
         future,
-        permit: Some(permit),
+        permit: Some(admission.permit),
         on_ready: |(address, result), permit| (address, retain_connected(result, permit)),
     })
 }
 
 pub(crate) fn hold_listener_permit(
     future: ListenerUpgrade,
-    permit: TransportAttemptPermit,
+    admission: TransportAdmission,
 ) -> ListenerUpgrade {
+    let future = if let Some(deadline) = admission.deadline {
+        async move { until(future, deadline).await? }.boxed()
+    } else {
+        future
+    };
     Box::pin(PermittedAttempt {
         future,
-        permit: Some(permit),
+        permit: Some(admission.permit),
         on_ready: retain_connected,
     })
+}
+
+/// The caller's absolute handshake deadline elapsed before admission.
+#[derive(Debug)]
+pub struct TransportHandshakeDeadlineElapsed;
+
+impl std::fmt::Display for TransportHandshakeDeadlineElapsed {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("transport handshake deadline expired")
+    }
+}
+
+impl std::error::Error for TransportHandshakeDeadlineElapsed {}
+
+fn timed_out() -> io::Error {
+    io::Error::new(io::ErrorKind::TimedOut, TransportHandshakeDeadlineElapsed)
+}
+
+async fn until<F: Future + Unpin>(mut future: F, deadline: Instant) -> io::Result<F::Output> {
+    let mut timer = futures_timer::Delay::new(deadline.saturating_duration_since(Instant::now()));
+    poll_fn(|cx| {
+        if Instant::now() >= deadline {
+            return Poll::Ready(Err(timed_out()));
+        }
+        if Pin::new(&mut timer).poll(cx).is_ready() {
+            // Re-arm if timer granularity wakes the task before the absolute deadline.
+            timer.reset(deadline.saturating_duration_since(Instant::now()));
+            cx.waker().wake_by_ref();
+        }
+        let result = ready!(Pin::new(&mut future).poll(cx));
+        if Instant::now() >= deadline {
+            return Poll::Ready(Err(timed_out()));
+        }
+        Poll::Ready(Ok(result))
+    })
+    .await
 }
 
 type AttemptResult<E> = Result<(PeerId, StreamMuxerBox), E>;

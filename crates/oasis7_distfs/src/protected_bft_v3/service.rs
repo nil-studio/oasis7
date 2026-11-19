@@ -43,6 +43,7 @@ const MAX_SESSION_OPERATIONS_V3: u64 = 65_536;
 /// Backends must supply atomic generation fencing and durable monotonic time;
 /// this service makes no hardware or nonrollback claim about an implementation.
 pub struct BftSignerServiceV3 {
+    fresh_coverage: Option<BftFreshCoverageSupportV1>,
     candidate_read_policy: Option<BftCandidateReadPolicyV3>,
     pub(super) binding: BftSignerBindingV3,
     pub(super) provider_key: Box<dyn BftSigningKeyHandleV3>,
@@ -89,12 +90,42 @@ pub(super) struct ReplyDataV3 {
     pub(super) state_digest: String,
 }
 
+#[path = "service/fresh_coverage.rs"]
+mod fresh_coverage;
+pub use fresh_coverage::{BftFreshCoverageSupportV1, BftFreshSourceVerifierV1};
+
 impl BftSignerServiceV3 {
     pub fn open(
         binding: BftSignerBindingV3,
         provider_key: Box<dyn BftSigningKeyHandleV3>,
         validator_keys: Vec<Box<dyn BftSigningKeyHandleV3>>,
+        backend: Box<dyn BftSignerBackendV3>,
+    ) -> Result<Self, BftSignerErrorV3> {
+        Self::open_inner(binding, provider_key, validator_keys, backend, None)
+    }
+
+    pub fn open_with_fresh_coverage(
+        binding: BftSignerBindingV3,
+        provider_key: Box<dyn BftSigningKeyHandleV3>,
+        validator_keys: Vec<Box<dyn BftSigningKeyHandleV3>>,
+        backend: Box<dyn BftSignerBackendV3>,
+        support: BftFreshCoverageSupportV1,
+    ) -> Result<Self, BftSignerErrorV3> {
+        Self::open_inner(
+            binding,
+            provider_key,
+            validator_keys,
+            backend,
+            Some(support),
+        )
+    }
+
+    fn open_inner(
+        binding: BftSignerBindingV3,
+        provider_key: Box<dyn BftSigningKeyHandleV3>,
+        validator_keys: Vec<Box<dyn BftSigningKeyHandleV3>>,
         mut backend: Box<dyn BftSignerBackendV3>,
+        fresh_coverage: Option<BftFreshCoverageSupportV1>,
     ) -> Result<Self, BftSignerErrorV3> {
         binding.validate()?;
         let provider_public_key = provider_key.public_key_hex();
@@ -133,6 +164,13 @@ impl BftSignerServiceV3 {
         let binding_digest = binding.digest()?;
         let snapshot = backend.load_provisioned(&binding_digest)?;
         validate_snapshot_shape(&snapshot, None, None)?;
+        if let Some(support) = &fresh_coverage {
+            support.validate_config(&binding, &provider_public_key, &snapshot.state)?;
+        } else if snapshot.state.private_retention.is_some() {
+            return Err(invalid(
+                "covered BFT V3 source requires original Fresh configuration",
+            ));
+        }
         let verified = validate_state(&binding, Some(&provider_public_key), &snapshot.state)?;
         if verified.schedule.height() < binding.initial_schedule().height()
             || snapshot.lease_generation == 0
@@ -141,6 +179,7 @@ impl BftSignerServiceV3 {
             return Err(invalid("BFT V3 provisioned backend snapshot is invalid"));
         }
         Ok(Self {
+            fresh_coverage,
             candidate_read_policy: None,
             binding,
             provider_key,
@@ -589,6 +628,17 @@ impl BftSignerServiceV3 {
             .map(|verified| verified.schedule.clone())
             .ok_or_else(|| invalid("BFT V3 verified state cache is unavailable"))?;
         let state = &snapshot.state;
+        if (self.fresh_coverage.is_some() || state.private_retention.is_some())
+            && !matches!(
+                command,
+                BftSignerCommandV3::Checkpoint
+                    | BftSignerCommandV3::ProvisionPrivateRetention { .. }
+            )
+        {
+            return Err(invalid(
+                "Fresh BFT V3 source has no Ready candidate authority",
+            ));
+        }
         if state.pending_driver_apply.is_some()
             && !matches!(
                 command,
@@ -626,6 +676,9 @@ impl BftSignerServiceV3 {
             ));
         }
         match command {
+            BftSignerCommandV3::ProvisionPrivateRetention { .. } => {
+                self.provision_fresh_coverage(runtime, snapshot, request, request_digest)
+            }
             BftSignerCommandV3::SignFinalityRotationProof { .. } => self
                 .sign_finality_rotation_proof(
                     runtime,

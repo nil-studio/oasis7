@@ -23,7 +23,7 @@ const MAX_VECTORS_PER_POLL: usize = 16;
 pub(crate) struct Libp2pWireByteCounters {
     inbound: AtomicU64,
     outbound: AtomicU64,
-    // Standard hosts leave this unset until connection admission is available.
+    // Legacy configurations leave the shared byte window unset.
     window: Option<Arc<WireByteWindow>>,
 }
 
@@ -37,6 +37,19 @@ pub(crate) struct Libp2pWireByteSnapshot {
 
 pub(crate) fn init_shared_wire_byte_counters() -> SharedLibp2pWireByteCounters {
     Arc::new(Libp2pWireByteCounters::default())
+}
+
+impl Libp2pWireByteCounters {
+    pub(super) fn with_window(window: Arc<WireByteWindow>) -> SharedLibp2pWireByteCounters {
+        Arc::new(Self {
+            window: Some(window),
+            ..Self::default()
+        })
+    }
+
+    pub(super) fn window(&self) -> Option<Arc<WireByteWindow>> {
+        self.window.clone()
+    }
 }
 
 pub(crate) fn snapshot_wire_byte_counters(
