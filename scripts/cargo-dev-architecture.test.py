@@ -59,6 +59,13 @@ class RepositoryUpstreams(unittest.TestCase):
                     anchors.add(re.sub(r'[^\w\- ]', '', heading.strip()).lower().replace(' ', '-'))
                 self.assertIn(anchor, anchors, 'upstream must name a defined anchor, not a historical link')
 
+    def test_root_workspace_members_have_no_duplicates(self):
+        import tomllib
+        manifest = tomllib.loads((HERE.parent / 'Cargo.toml').read_text(encoding='utf-8'))
+        members = manifest['workspace']['members']
+        duplicates = sorted({m for m in members if members.count(m) > 1})
+        self.assertEqual(duplicates, [], f'root Cargo.toml workspace.members has duplicate entries: {duplicates}')
+
 
 class CargoBoundaries(unittest.TestCase):
     def setUp(self):
