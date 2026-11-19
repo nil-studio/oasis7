@@ -928,6 +928,13 @@ fn adapter_migration_lost_reply_and_lease_restart_recover_exact_history() {
     )
     .unwrap();
     let provider_key = public(8);
+    let permitted_target = target(11);
+    let authorized_access = FullSyncIssuerHistoryAccessV3 {
+        provider_public_key: &provider_key,
+        policy_digest: new.policy_digest(),
+        target: &permitted_target,
+        target_generation: 1,
+    };
     let provider_request = FullSyncReadEvidenceQueryV3 {
         schema_version: 3,
         observation_nonce: hash(94),
@@ -940,23 +947,38 @@ fn adapter_migration_lost_reply_and_lease_restart_recover_exact_history() {
     };
     let witness_queries = witness.v3_observations.len();
     let event_commits = witness.event_commits;
-    assert!(
-        reopened
-            .read_evidence_for_provider(&public(9), provider_request.clone(), &mut witness)
-            .is_err()
-    );
+    let different_provider = public(9);
+    let foreign_target = target(10);
+    for access in [
+        FullSyncIssuerHistoryAccessV3 {
+            provider_public_key: &different_provider,
+            ..authorized_access
+        },
+        FullSyncIssuerHistoryAccessV3 {
+            target: &foreign_target,
+            ..authorized_access
+        },
+    ] {
+        let mut observation_only = provider_request.clone();
+        observation_only.provider_lease_request = None;
+        assert!(
+            reopened
+                .read_evidence_for_provider(&access, observation_only, &mut witness)
+                .is_err()
+        );
+    }
     let mut wrong_incarnation = provider_request.clone();
     wrong_incarnation.provider_incarnation = hash(95);
     assert!(
         reopened
-            .read_evidence_for_provider(&provider_key, wrong_incarnation, &mut witness)
+            .read_evidence_for_provider(&authorized_access, wrong_incarnation, &mut witness)
             .is_err()
     );
     let mut zero_nonce = provider_request.clone();
     zero_nonce.observation_nonce = hash(0);
     assert!(
         reopened
-            .read_evidence_for_provider(&provider_key, zero_nonce, &mut witness)
+            .read_evidence_for_provider(&authorized_access, zero_nonce, &mut witness)
             .is_err()
     );
     assert_eq!(witness.v3_observations.len(), witness_queries);
@@ -965,7 +987,7 @@ fn adapter_migration_lost_reply_and_lease_restart_recover_exact_history() {
     let mut forked_minimum = provider_request.clone();
     forked_minimum.minimum_anchor.state_digest = hash(96);
     assert!(matches!(
-        reopened.read_evidence_for_provider(&provider_key, forked_minimum, &mut witness),
+        reopened.read_evidence_for_provider(&authorized_access, forked_minimum, &mut witness),
         Err(FormalError::Rollback(_))
     ));
     assert_eq!(witness.event_commits, event_commits);
@@ -974,7 +996,7 @@ fn adapter_migration_lost_reply_and_lease_restart_recover_exact_history() {
     witness.lose_next_event_reply = true;
     assert!(
         reopened
-            .read_evidence_for_provider(&provider_key, provider_request.clone(), &mut witness)
+            .read_evidence_for_provider(&authorized_access, provider_request.clone(), &mut witness)
             .is_err()
     );
     assert!(temp.path().join(PENDING_FILE).exists());
@@ -995,7 +1017,7 @@ fn adapter_migration_lost_reply_and_lease_restart_recover_exact_history() {
     let exact_retry = recovered.issue_lease(second_request, &mut witness).unwrap();
     assert_eq!(exact_retry, lost_reply_entry);
     let evidence = recovered
-        .read_evidence_for_provider(&provider_key, provider_request.clone(), &mut witness)
+        .read_evidence_for_provider(&authorized_access, provider_request.clone(), &mut witness)
         .unwrap();
     assert_eq!(evidence.query.body.observation_nonce, hash(94));
     assert_eq!(evidence.history.v3_entries.last(), Some(&lost_reply_entry));
@@ -1003,7 +1025,7 @@ fn adapter_migration_lost_reply_and_lease_restart_recover_exact_history() {
     observation_only.observation_nonce = hash(97);
     observation_only.provider_lease_request = None;
     let evidence = recovered
-        .read_evidence_for_provider(&provider_key, observation_only, &mut witness)
+        .read_evidence_for_provider(&authorized_access, observation_only, &mut witness)
         .unwrap();
     assert_eq!(evidence.query.body.observation_nonce, hash(97));
     assert_eq!(evidence.history.v3_entries.last(), Some(&lost_reply_entry));

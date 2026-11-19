@@ -362,17 +362,30 @@ pub struct FullSyncReadEvidenceQueryV3 {
     pub provider_lease_request: Option<SignedFullSyncProviderLeaseRequestV3>,
 }
 
+/// The trusted service boundary must authenticate the provider and authorize
+/// disclosure of complete history for this exact policy and target. The
+/// provider allowlist alone does not supply this authorization.
+pub struct FullSyncIssuerHistoryAccessV3<'a> {
+    pub provider_public_key: &'a str,
+    pub policy_digest: &'a str,
+    pub target: &'a FullSyncIssuerTargetV2,
+    pub target_generation: u64,
+}
+
 impl FullSyncReadEvidenceQueryV3 {
-    /// The serving transport supplies the authenticated provider key. The
-    /// claimed JSON identity alone never authenticates a history request.
+    /// The trusted service supplies authorization obtained independently of
+    /// the request body, including permission to disclose complete history.
     pub fn verify_provider(
         &self,
-        authenticated_provider_key: &str,
+        access: &FullSyncIssuerHistoryAccessV3<'_>,
         policy: &VerifiedFullSyncIssuerPolicyV3,
     ) -> Result<[u8; 32], FormalError> {
         let reject = || invalid("full-sync V3 evidence request rejected");
         if self.schema_version != 3
-            || self.provider_public_key != authenticated_provider_key
+            || self.provider_public_key != access.provider_public_key
+            || access.policy_digest != policy.policy_digest()
+            || &self.target != access.target
+            || self.target_generation != access.target_generation
             || !policy
                 .body()
                 .provider_public_keys

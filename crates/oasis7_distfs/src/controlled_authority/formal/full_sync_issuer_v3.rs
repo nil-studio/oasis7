@@ -336,16 +336,16 @@ impl DurableFullSyncIssuerV3 {
         Ok(decision.entry().clone())
     }
 
-    /// Handle the typed evidence request after independently authenticating the
-    /// provider transport. Access is to the policy's complete issuer history.
+    /// Handle evidence after the trusted service independently authenticates
+    /// the provider and authorizes disclosure of complete issuer history.
     /// A read without the separate signed lease request cannot sign a lease.
     pub fn read_evidence_for_provider(
         &mut self,
-        authenticated_provider_key: &str,
+        access: &FullSyncIssuerHistoryAccessV3<'_>,
         request: FullSyncReadEvidenceQueryV3,
         witness: &mut dyn FullSyncIssuerWitnessV3,
     ) -> Result<FullSyncIssuerReadEvidenceV3, FormalError> {
-        let nonce = request.verify_provider(authenticated_provider_key, &self.policy)?;
+        let nonce = request.verify_provider(access, &self.policy)?;
         if let Some(lease) = request.provider_lease_request {
             self.issue_lease_at(lease, Some(&request.minimum_anchor), witness)?;
         }
