@@ -68,6 +68,8 @@ Trace ID: O7-REQ-b47433b0-57bd-4b7c-8f31-dc61bd93f8b4
 
 资源清单 DTO、规范 hash 和纯上下文由 API 拥有；`runtime::chain_resource` 从权威状态派生，`simulator::chain_resource` 从内核状态派生。派生是两侧的 free function，不在共享 DTO 上挂接执行层固有方法。资源 commit 引用仍是既有资源关联合同，不扩大为共识最终性证明。
 
+**目标 L0 领域原语下沉（Target，Refs #6025）**：`oasis7_agent_api` 与 `oasis7_client_api` 在 [Workspace 五层依赖拓扑](../engineering/rust-governance/rust-engineering-contracts.design.md#workspace-layering-topology) 中同属 `L0` 纯协议合同层。为进一步沉淀零 I/O 的共享领域值核心，`world_resource`、`world_entity`、`world_geometry` 与 `formal_projection` 等纯值对象、规范哈希与投影证明算法可作为首批子集下沉至新建的 `L0: oasis7_domain_types` crate；迁移期间 `oasis7_agent_api` 与 `oasis7_client_api` 通过 `pub use` 保留原公开路径并维持 wire/serde 字节 100% 兼容。由于 `oasis7_runtime` 与 `oasis7_world_state` 仍合法消费 `world_action`、`game`、`world_service`、`h_v1` 等 `L0` 协议模块，首批下沉旨在收敛纯值核心与消除重复派生，不把“一步切断对 `*_api` 的全部依赖”设为前置门禁。
+
 `runtime::service_admission` 拥有 owner/delegation、task fence、nonce、canonical result 和 hot/cold history 的校验。在线执行、snapshot restore、journal replay、retention staging 使用同一实现；Service 旧路径只重导出并调用 Runtime。`ValidatedStaleCognitionRejection` 由 Runtime 拥有，其构造和拆解限制在 Runtime 内，Service 不能从诊断文本构造凭据。
 
 `World::canonical_agent_service_context` 从同一个 World 及其当前 binding 生成只读 provider context；Service 的 committed projection 和 task context 不再借 Viewer 构建。该接口不返回签名密钥、sidecar 缓存或提交凭据，准入后执行时的授权与幂等重检保持原合同。
@@ -912,6 +914,54 @@ This gradual path preserves fixed execution order and snapshot compatibility.
 ECS, sharding, and dynamic database work may be future implementation options,
 but are deliberately deferred and are not runtime promises in the current
 design.
+
+<a id="module-layering-and-core-contracts"></a>
+### 6.5 Module Layering, Bounded-Context Submodules, and Core Abstraction Contracts (Target)
+
+承接 [Workspace 五层依赖拓扑](../engineering/rust-governance/rust-engineering-contracts.design.md#workspace-layering-topology)、上文 `§6.2` `ExecutionTransaction` / `CommandStateOverlay` 与 `§6.4` 渐进子系统封装，本节固化四项长期演进契约与 `crates/oasis7` 伞包退役矩阵（均属目标设计，当前未落地，由 `#6025` 及其后续实现子任务分阶段推进）。
+
+#### 6.5.1 `oasis7_runtime` 五大业务限界上下文子模块拆分
+
+对齐 `doc/engineering/rust-governance/*` 与 `scripts/check-rust-file-size.sh`，`oasis7_runtime` 将现有散落在顶层与大文件中的 `Prepared*` 转移路径按业务限界上下文（Bounded Context）渐进收敛为 5 个高内聚子模块，替代机械式 `*_part2.rs` / `include!` 切分，同时保持既有公开路径、事件顺序与快照兼容：
+
+| 限界上下文子模块 | 独占状态切片（Owned State Slice） | 归口事件与 Prepared 转移投影器 | 核心领域不变式 |
+| --- | --- | --- | --- |
+| `domains::industrial` | 工厂实体、待决/已结算配方作业、物流拓扑路径预留、材料与电力分类账、在途 SLA 计数器 | 工厂建造/折旧/维护/回收、配方启动与完成、直接转移、材料在途完成（§5 / §9） | 建造优先于配方阶段边界；先验校验在途路径容量与不可逆 sink 前的 `committed_recipe_origin` 因果链。 |
+| `domains::monetary` | 主代币账户与锁仓桶、总供应量、节点积分账本、国库分配表、受限孵化池与 Agent Claim 周期游标 | 创世/转账/归属解锁、纪元增发、手续费结算、算力兑付、节点积分结算、孵化配额发放/到期与 Claim 续费/回收 | 负费率/缺失付款人拒绝优先；同一借用投影合并付款人扣减与国库增加，零克隆完成状态根重算。 |
+| `domains::institutions` | 治理提案与影子报告侧车、联盟与战争状态表、经济契约账本、紧急制动（Emergency Brake）与身份罚没（Identity Penalty） | 提案创建/影子评估/批准入队/否决/终局应用、联盟/战争结算、契约开启/履约/到期、紧急制动启停、罚没申诉与裁决 | 契约到期先于提案终局、提案终局先于危机生成、战争按字典序逐笔重读结算（§5 Gameplay-cycle 顺序）。 |
+| `domains::capability_authz` | `AUTHZ-01..18` 授权图谱、撤销链、调用上下文、预算账户、Nonce 表、授权回执与外部效果链接（Effect Links） | 系统/Agent 身份安装、调用上下文与预算账户注册、Grant 注册、带证明权威安装/撤销/轮换、`CommandCommitted` 与 `EffectReceiptCommitted` | 严禁越权回退至同 `module_id` 其他实例；失效、过期或类型不匹配在 Preflight 阶段零分配拒绝。 |
+| `domains::module_lifecycle` | 模块注册表、WASM 工件集合与字节存储、市场挂单/竞价簿、实例状态表及 `J2` 模块唤醒调度表 | 工件部署与销毁退市、市场挂单/竞价/撮合撤单、`ModuleInstalled` / `ModuleUpgraded` / `ModuleRelease*` 生命周期及 `apply_module_changes` | 严格绑定 `(world_id, module_id, instance_id)` 三元组与高度激活清单（§6.3）；销毁操作原子清理工件字节与沙箱缓存。 |
+
+#### 6.5.2 四大核心抽象契约（Long-Term Architectural Contracts）
+
+1. **`StagedTransition` 两阶段无克隆原子演进契约（承接 `§6.2` `ExecutionTransaction`）**
+   - 直接承接并统一 `§6.2.1` 已在模块状态更新、计费与治理生命周期上落地的 `CommandStateOverlay` 与 `Prepared*` 边界，将五大限界上下文的转移路径统一收敛至 `StagedTransition` / `SubsystemDelta` 契约：
+   - 第一阶段 `prepare(&BorrowedWorldView<'_>, &TransitionContext) -> Result<PreparedCommit<Self::Delta>, TransitionReject>` 在只读借用视图与根 `TransitionBuffer` 上完成全部可失败的权限、余额、容量、签名、共识候选根与持久化预检，不克隆 `World` 或 `WorldState`。
+   - 第二阶段 `SubsystemDelta::apply_infallible(self, &mut WorldState)` 在跨过逻辑故障注入点（post-prepare failpoint）后执行确定性、不可失败的内存写入。
+   - 仅当全部公共入口均完成 `StagedTransition` 接入并通过故障注入与回放回归后，外层 `step()` / `step_with_modules()` 才移除粗粒度整树 `World::clone()` 回滚边界。
+2. **`WorldCommitmentEnvelope` 完整状态承诺信封契约（承接 `§6.2.3` 恢复缺口）**
+   - 针对 `§5` 与 `§6.2.3` 指出的“治理侧车（`proposal`、`emergency_brake`、`identity_penalty`、`finality_epoch_snapshot`）与控制延续状态（`J1` 动作序列/纪元分配器、`J2` 模块唤醒调度表）游离于 `WorldState` 主根之外”的设计缺口，目标架构引入版本化的 `WorldCommitmentEnvelope`：
+   - 在保持 v1 `business_state_root` 与 `authorization_root` 字段顺序与哈希域完全兼容的前提下，v2 承诺信封显式绑定 `governance_sidecar_root` 与 `control_continuation_root`（覆盖 `J1` 预分配游标边界与 `J2` 实例级绝对唤醒 tick）。
+   - 快照落盘、`C -> T` 事件后缀恢复（`§6.2.3`）以及 BFT 验证者重执行投票统一校验完整信封摘要，杜绝“业务状态根一致但调度游标或制动侧车漂移”的静默分叉。
+3. **`RuleSettlementPolicy` 仿真与运行时规则结算策略契约**
+   - 针对 [`doc/world-simulator/prd.md`](../world-simulator/prd.md#kernel-rule-cost-contract) 中 `WorldKernel` 仅在 `KernelRuleDecision.cost` 保留规则成本而不自动扣账、以及 `runtime::chain_resource` 与 `simulator::chain_resource` 分别维护状态派生的现状，目标架构引入 `RuleSettlementPolicy` 策略契约：
+   - `AdvisoryOnly` 模式供轻量级 `oasis7_simulator` 场景预演与离线推演使用，仅累计规则成本估算与违规诊断，不执行账本扣减（保持现行 `WorldKernel` 语义不变）。
+   - `AuthoritativeDebit` 模式供 `oasis7_runtime` 权威执行使用，在同一 `StagedTransition` 中强制执行余额充足性校验、算力/电力/材料原子扣减与回执生成。
+   - 基于 `L0` 共享领域原语收敛重复的 `chain_resource` 派生逻辑；在 `RuleSettlementPolicy` 落地并完成等价验证前，维持本文顶部声明的“Runtime 与 Simulator 并列执行”边界不变，不预设提前合并两套执行器。
+4. **`AuthorityCommitVerifier` 多共识权威提交验证端口**
+   - 对接 [`doc/p2p/prd.md`](../p2p/prd.md) 的双权威演进路线，在 `oasis7_node` 与 `oasis7_consensus` 之间定义统一的 `AuthorityCommitVerifier` 端口契约：
+   - 屏蔽 `controlled_single_authority`（校验单权威签名、Writer Epoch 与 P/R 双故障域持久决定）与 `bft`（校验 Tendermint/CometBFT 风格高度/轮次证书、`floor(2W/3)+1` 预提交权重及 `H / H+1` 激活边界切换）的底层证明差异，确保 `oasis7_runtime` 的确定性执行与恢复闸门无需随共识 Profile 切换而派生第二套状态机。
+
+<a id="crates-oasis7-retirement-matrix"></a>
+#### 6.5.3 `crates/oasis7` 兼容伞包退役与测试归位矩阵
+
+配合 [`testing-manual.md`](../../testing-manual.md) 的测试分层与 `scripts/plan-rust-required-scope.py` 的变更影响面收敛，`crates/oasis7` 当前真实残留源码与测试按以下矩阵逐步移交至对应 owner crate，期间禁止向 `crates/oasis7` 新增业务实现或跨组件集成测试：
+
+| 现存真实路径（`crates/oasis7`） | 迁移目标宿主 Crate / Tool | 目标层级 | 验收回归门禁 |
+| --- | --- | --- | --- |
+| `crates/oasis7/src/simulator/`（`async_agent_runner*`、`decision_provider*`、`runner.rs`、`persist.rs`、`llm_agent/` 等） | `oasis7_agent_harness`（Agent 驱动与 provider 适配）及 `oasis7_simulator`（纯内核仿真辅助） | `L3` / `L2` | `cargo test -p oasis7_agent_harness -p oasis7_simulator` 及 `scripts/check-rust-file-size.sh` |
+| `crates/oasis7/src/consensus_action_payload.rs`、`runtime_host*`、`world_service*`、`module_source_compiler.rs` | `oasis7_world_service`、`oasis7_chain_runtime`、`oasis7_runtime`（按各自所有权分流，保留必要薄重导出直至消费者迁完） | `L3` / `L2` | 对应 owner crate 定向回归及 `scripts/cargo-dev-architecture.py` 边界检查 |
+| `crates/oasis7/tests/incremental_*.rs`、`chain_pos_defaults_tests.rs` 及 `crates/oasis7/src/simulator/tests/` | 对应 owner crate 集成测试目录（`oasis7_world_state`、`oasis7_runtime`、`oasis7_world_service`）或 `tools/scenario_test_runner` | `L2` / `L3` / `L4` | `scripts/plan-rust-required-scope.py` 验证单包修改不再经由 `oasis7` 伞包放大触发全仓重编 |
 
 ## 7. 集成点
 - `doc/p2p/prd.md`
