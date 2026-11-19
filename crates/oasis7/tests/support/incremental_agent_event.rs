@@ -41,6 +41,41 @@ pub fn state_physical() -> PageIoBudget {
         ..physical()
     }
 }
+/// Only the GEN/cold fixture readers that discover materials need this phase.
+/// Complete inventory qualification scans all six roots once; material scope
+/// then scans Business once more. A nonempty depth-256 tree has at most
+/// 1 + 256 * leaf_count pages, while empty sentinels do not cause page reads.
+/// Each State page is <=1200 bytes, so the 4KiB-minimum gear codec uses one
+/// frame. Packed recipe/frame lookup costs at most 10 reads each (prefix,
+/// header, <=7 index reads with the four-row tail, payload), plus one format
+/// read. These are finite discovery reads, not a new production allowance.
+/// Keep the original 128Ki stage/seal reads and every byte/write limit intact.
+pub fn state_physical_with_inventory_discovery(
+    roots: &RootSetV1,
+) -> Result<PageIoBudget, PageStoreError> {
+    let limited = || PageStoreError::ResourceLimited("inventory fixture discovery read bound");
+    let pages = roots
+        .state
+        .iter()
+        .chain(std::iter::once(roots.state_root(Ns::Business)))
+        .try_fold(0u64, |total, root| {
+            let pages = if root.leaf_count == 0 {
+                0
+            } else {
+                root.leaf_count
+                    .checked_mul(256)
+                    .and_then(|n| n.checked_add(1))
+                    .ok_or_else(limited)?
+            };
+            total.checked_add(pages).ok_or_else(limited)
+        })?;
+    let mut allowance = state_physical();
+    allowance.reads_remaining = pages
+        .checked_mul(21)
+        .and_then(|reads| allowance.reads_remaining.checked_add(reads))
+        .ok_or_else(limited)?;
+    Ok(allowance)
+}
 pub fn logical() -> ValueIoBudget {
     ValueIoBudget {
         nodes_remaining: 100_000,
@@ -376,7 +411,10 @@ pub fn contribute(
     memory: &MemoryBudget,
 ) -> ReservedValue<PreparedTransition> {
     let source = store
-        .state_session(state_physical(), MemoryClass::Ordinary)
+        .state_session(
+            state_physical_with_inventory_discovery(&parent.roots).unwrap(),
+            MemoryClass::Ordinary,
+        )
         .unwrap();
     let mut sink = store.value_session(physical());
     let values = store.value_session(physical());
@@ -395,6 +433,8 @@ pub fn contribute(
         || source.take_read_error().map(state_error),
         || false,
     );
+    let stage_reads = source.remaining_io().unwrap().reads_remaining;
+    assert!(stage_reads >= state_physical().reads_remaining);
     let mut material_context = material_backing.context(&roots, &source, || {
         source.take_read_error().map(state_error)
     });
@@ -447,6 +487,13 @@ pub fn contribute(
     let after_contribute = source.remaining_io().unwrap();
     let guard = txn.guard();
     let sealed = txn.seal(&guard, &live, 0);
+    let stage_used = stage_reads
+        .checked_sub(source.remaining_io().unwrap().reads_remaining)
+        .unwrap();
+    assert!(
+        stage_used <= state_physical().reads_remaining,
+        "Agent stage/seal used {stage_used} reads, beyond its original 128Ki scope"
+    );
     eprintln!(
         "Agent candidate State probe event={} before={before_contribute:?} afterContribute={after_contribute:?} afterSeal={:?}",
         event.id,

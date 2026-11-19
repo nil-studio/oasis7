@@ -29,7 +29,8 @@ pub(in crate::world) fn evaluate_market_action_v1<S:ModuleMarketFactsV1>(source:
  source.reserve(action)?;
  Ok(match action{
   Action::ListModuleArtifactForSale{seller_agent_id,wasm_hash,price_kind,price_amount}=>{
-   if !source.agent_exists(seller_agent_id)?{return Ok(missing(seller_agent_id))}if *price_amount<=0{return Ok(ModuleMarketDecisionV1::Rejected(RejectReason::InvalidAmount{amount:*price_amount}))}
+   if !source.agent_exists(seller_agent_id)?{return Ok(missing(seller_agent_id))}
+   if *price_amount<=0{return Ok(ModuleMarketDecisionV1::Rejected(RejectReason::InvalidAmount{amount:*price_amount}))}
    if !source.artifact_exists(wasm_hash)?{return Ok(denied(format!("list module artifact rejected: missing artifact {}",wasm_hash)))}
    let Some(owner)=source.owner(wasm_hash)?else{return Ok(denied(format!("list module artifact rejected: owner missing for {}",wasm_hash)))};
    if owner!=*seller_agent_id{return Ok(denied(format!("list module artifact rejected: seller {} does not own {} (owner {})",seller_agent_id,wasm_hash,owner)))}
@@ -54,7 +55,8 @@ pub(in crate::world) fn evaluate_market_action_v1<S:ModuleMarketFactsV1>(source:
    ModuleMarketDecisionV1::Event(DomainEvent::ModuleArtifactDelisted{seller_agent_id:seller_agent_id.clone(),wasm_hash:wasm_hash.clone(),order_id:(listing.order_id>0).then_some(listing.order_id),fee_kind:ResourceKind::Data,fee_amount:MODULE_DELIST_FEE_AMOUNT})
   }
   Action::PlaceModuleArtifactBid{bidder_agent_id,wasm_hash,price_kind,price_amount}=>{
-   if !source.agent_exists(bidder_agent_id)?{return Ok(missing(bidder_agent_id))}if *price_amount<=0{return Ok(ModuleMarketDecisionV1::Rejected(RejectReason::InvalidAmount{amount:*price_amount}))}
+   if !source.agent_exists(bidder_agent_id)?{return Ok(missing(bidder_agent_id))}
+   if *price_amount<=0{return Ok(ModuleMarketDecisionV1::Rejected(RejectReason::InvalidAmount{amount:*price_amount}))}
    if !source.artifact_exists(wasm_hash)?{return Ok(denied(format!("place module artifact bid rejected: missing artifact {}",wasm_hash)))}
    let Some(owner)=source.owner(wasm_hash)?else{return Ok(denied(format!("place module artifact bid rejected: owner missing for {}",wasm_hash)))};
    if owner==*bidder_agent_id{return Ok(denied(format!("place module artifact bid rejected: bidder {} already owns {}",bidder_agent_id,wasm_hash)))}
@@ -67,7 +69,8 @@ pub(in crate::world) fn evaluate_market_action_v1<S:ModuleMarketFactsV1>(source:
    ModuleMarketDecisionV1::Event(DomainEvent::ModuleArtifactBidCancelled{bidder_agent_id:bidder_agent_id.clone(),wasm_hash:wasm_hash.clone(),order_id:*bid_order_id,reason:"cancelled_by_bidder".into()})
   }
   Action::DestroyModuleArtifact{owner_agent_id,wasm_hash,reason}=>{
-   if !source.agent_exists(owner_agent_id)?{return Ok(missing(owner_agent_id))}if reason.trim().is_empty(){return Ok(denied("destroy module artifact rejected: reason is empty".into()))}
+   if !source.agent_exists(owner_agent_id)?{return Ok(missing(owner_agent_id))}
+   if reason.trim().is_empty(){return Ok(denied("destroy module artifact rejected: reason is empty".into()))}
    if !source.artifact_exists(wasm_hash)?{return Ok(denied(format!("destroy module artifact rejected: missing artifact {}",wasm_hash)))}
    let Some(owner)=source.owner(wasm_hash)?else{return Ok(denied(format!("destroy module artifact rejected: owner missing for {}",wasm_hash)))};
    if owner!=*owner_agent_id{return Ok(denied(format!("destroy module artifact rejected: owner {} does not own {} (owner {})",owner_agent_id,wasm_hash,owner)))}

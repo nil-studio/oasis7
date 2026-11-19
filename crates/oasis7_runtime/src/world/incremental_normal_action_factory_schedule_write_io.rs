@@ -481,7 +481,7 @@ where
                 match (steps,bytes){(Some(s),Some(b))=>Some((s,b)),_=>return result.and(Err(invalid()))}
             },(None,None)=>None,_=>return result.and(Err(invalid())),
         };
-        if let (Some(original),Some(before),Some(a))=(original_audit,before_audit,audit.as_deref_mut()) {
+        if let (Some(original),Some(before),Some(a))=(original_audit,before_audit,audit) {
             a.structure.values_remaining=original[0].saturating_sub(before[0].saturating_sub(a.structure.values_remaining));
             a.canonical.visits_remaining=original[1].saturating_sub(before[1].saturating_sub(a.canonical.visits_remaining));
             a.structure.bytes_remaining=original[2].saturating_sub(before[2].saturating_sub(a.structure.bytes_remaining));
@@ -489,7 +489,7 @@ where
             work.pending_entries_remaining=original[4].saturating_sub(before[4].saturating_sub(work.pending_entries_remaining as u64)) as usize;
         }
         let module_after=module.as_deref().map(|m|m.io_snapshot_v1());
-        if let (Some(original),Some(before),Some(after),Some(module))=(module_original,module_before,module_after,module.as_deref_mut()) {
+        if let (Some(original),Some(before),Some(after),Some(module))=(module_original,module_before,module_after,module) {
             module.restore_io_v1(original,before,after)?;
         }
         let module_delta=match (module_before,module_after) {

@@ -413,7 +413,7 @@ where
         let fee = memory
             .reserve(size(work, false)?, MemoryClass::Ordinary)
             .map_err(ValueTreeError::Memory)?;
-        let _accepted = WorldEventCounterV1::validate_parent_source(parent, head, tx, memory)?;
+        WorldEventCounterV1::validate_parent_source(parent, head, tx, memory)?;
         if roots
             .digest()
             .map_err(|_| ValueTreeError::Invalid("directory root set"))?
@@ -853,7 +853,7 @@ impl AcceptedFactoryRecipeDirectoryV1 {
     /// Pure exact-parent borrowing check for the fixed normal tail assembler.
     pub(in crate::world) fn validate_tail_source_v1(&self,fence:&oasis7_formal_protocol::incremental_execution::ExecutionFence,memory:&MemoryBudget)->Result<(),ValueTreeError>{
         if self.commit!=fence.parent_commit||self.roots!=fence.parent_roots{return Err(ValueTreeError::Invalid("normal tail accepted recipe parent"))}
-        if let AcceptedRecipeEntriesV1::Sealed(owner)=&self.entries{if !owner.uses_budget(memory){return Err(ValueTreeError::Invalid("normal tail recipe graph pool"))}}
+        if let AcceptedRecipeEntriesV1::Sealed(owner)=&self.entries&& !owner.uses_budget(memory){return Err(ValueTreeError::Invalid("normal tail recipe graph pool"))}
         Ok(())
     }
 }

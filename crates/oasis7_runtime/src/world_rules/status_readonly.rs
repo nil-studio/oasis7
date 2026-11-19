@@ -160,20 +160,19 @@ pub(crate) fn status_from_sources_v1<S: SourcesV1>(
             Value::Object(Map::new())
         }
     };
-    if let Some(actor) = reader {
-        if let Some(owner) = oasis7_world_state::world_rules::resolve_industrial_owner_readonly_v1(
+    if let Some(actor) = reader
+        && let Some(owner) = oasis7_world_state::world_rules::resolve_industrial_owner_readonly_v1(
             s.state_facts(),
             actor,
-        )? {
-            if identity_conflicts_v1(s, actor, &owner.player_id)? {
-                field(
-                    s,
-                    &mut status,
-                    "manufacturing_quotes",
-                    &serde_json::json!({}),
-                )?;
-            }
-        }
+        )?
+        && identity_conflicts_v1(s, actor, &owner.player_id)?
+    {
+        field(
+            s,
+            &mut status,
+            "manufacturing_quotes",
+            &serde_json::json!({}),
+        )?;
     }
     let mut visited = 0usize;
     s.state_facts().status_visit_orders(|id, order| {

@@ -281,7 +281,7 @@ fn prepare_commit<'a, R: MerkleNodeReader, E: From<ExecutionError>, A>(
         E,
     >,
 ) -> Result<ReservedValue<PreparedRuntimeCommit>, E> {
-    let mut workspace = memory
+    let workspace = memory
         .reserve(64 * 1024, MemoryClass::Ordinary)
         .map_err(ExecutionError::Memory)?;
     if source
@@ -330,13 +330,13 @@ fn assemble_prepared_commit_v1<R: MerkleNodeReader, E: From<ExecutionError>>(
     request: &CommitPreparationRequest<'_>,
     source: &R,
     memory: &MemoryBudget,
-    mut live_fence: impl FnMut() -> Result<ExecutionFence, E>,
+    live_fence: impl FnMut() -> Result<ExecutionFence, E>,
     transition: ReservedValue<PreparedTransition>,
     sealed_directories: Option<
         ReservedValue<crate::world::incremental_directory_bundle::SealedRuntimeDirectoryBundleV1>,
     >,
     fence: ExecutionFence,
-    mut workspace: oasis7_proto::memory_budget::MemoryReservation,
+    workspace: oasis7_proto::memory_budget::MemoryReservation,
     prepare_history: impl FnOnce(HeaderPreparation<'_>) -> Result<ReservedValue<PreparedHistoryV1>, E>,
     extend_catalog: impl FnOnce(
         &CatalogRootV1,

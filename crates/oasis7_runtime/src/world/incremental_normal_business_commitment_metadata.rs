@@ -789,7 +789,7 @@ where
         &mut io::sink(),
     )?;
     let Some(RuntimeArtifactValueV1::Text { utf8_bytes }) = first else {
-        return Err(bad().into());
+        return Err(bad());
     };
     let n = usize::try_from(utf8_bytes).map_err(|_| bad())?;
     let fee = read
@@ -803,7 +803,7 @@ where
     let mut raw = Vec::new();
     raw.try_reserve_exact(n).map_err(|_| bad())?;
     if raw.capacity() > n {
-        return Err(bad().into());
+        return Err(bad());
     }
     let second = read_runtime_artifact_member_v1(
         RuntimeArtifactRecordV1::ChainResourceManifest,
@@ -817,7 +817,7 @@ where
     if !matches!(second,Some(RuntimeArtifactValueV1::Text{utf8_bytes:m})if m==utf8_bytes)
         || raw.len() != n
     {
-        return Err(bad().into());
+        return Err(bad());
     }
     Ok((String::from_utf8(raw).map_err(original)?, fee))
 }

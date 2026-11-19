@@ -74,13 +74,16 @@ pub(super) struct BranchSerialize<'a,'b,'c>{data:&'a OriginalWorldRuleRowsDataV1
 impl Serialize for BranchSerialize<'_,'_,'_>{fn serialize<S:Serializer>(&self,s:S)->Result<S::Ok,S::Error>{
  let mut count=0;for entry in &self.data.columns{if let Err(error)=self.common.borrow_mut().consume_steps(1){*self.first.borrow_mut()=Some(paid(error));return Err(S::Error::custom("WorldRules branch count work"))}let path=entry.column.path();if path[1]==self.top.name(){count+=1}}
  let mut output=s.serialize_struct("WorldRulesBranch",count)?;
- for entry in &self.data.columns{let path=entry.column.path();if let Err(error)=self.common.borrow_mut().consume_steps(1){*self.first.borrow_mut()=Some(paid(error));return Err(S::Error::custom("WorldRules branch work"))}if path[1]!=self.top.name(){continue}let name=*path.get(2).ok_or_else(||S::Error::custom("WorldRules branch field"))?;output.serialize_field(name,&ColumnSerialize{entry,common:self.common,first:self.first})?}output.end()
+ for entry in &self.data.columns{let path=entry.column.path();if let Err(error)=self.common.borrow_mut().consume_steps(1){*self.first.borrow_mut()=Some(paid(error));return Err(S::Error::custom("WorldRules branch work"))}
+ if path[1]!=self.top.name(){continue}let name=*path.get(2).ok_or_else(||S::Error::custom("WorldRules branch field"))?;output.serialize_field(name,&ColumnSerialize{entry,common:self.common,first:self.first})?}output.end()
 }}
 impl Serialize for RulesSerialize<'_,'_,'_>{fn serialize<S:Serializer>(&self,s:S)->Result<S::Ok,S::Error>{
  if let Err(error)=self.data.validate(&mut self.common.borrow_mut()){*self.first.borrow_mut()=Some(error);return Err(S::Error::custom("WorldRules source pool"))}
- let mut count=0;for top in &self.data.tops{if let Err(error)=self.common.borrow_mut().consume_steps(1){*self.first.borrow_mut()=Some(paid(error));return Err(S::Error::custom("WorldRules count work"))}if top.emitted{count+=1}}
+ let mut count=0;for top in &self.data.tops{if let Err(error)=self.common.borrow_mut().consume_steps(1){*self.first.borrow_mut()=Some(paid(error));return Err(S::Error::custom("WorldRules count work"))}
+ if top.emitted{count+=1}}
  let mut output=s.serialize_struct("WorldRulesStateV1",count)?;
- for top in &self.data.tops{if let Err(error)=self.common.borrow_mut().consume_steps(1){*self.first.borrow_mut()=Some(paid(error));return Err(S::Error::custom("WorldRules top work"))}if !top.emitted{continue}let mut direct=None;for entry in &self.data.columns{if let Err(error)=self.common.borrow_mut().consume_steps(1){*self.first.borrow_mut()=Some(paid(error));return Err(S::Error::custom("WorldRules top column work"))}let path=entry.column.path();if path.len()==2&&path[1]==top.slot.name(){direct=Some(entry);break}}
+ for top in &self.data.tops{if let Err(error)=self.common.borrow_mut().consume_steps(1){*self.first.borrow_mut()=Some(paid(error));return Err(S::Error::custom("WorldRules top work"))}
+ if !top.emitted{continue}let mut direct=None;for entry in &self.data.columns{if let Err(error)=self.common.borrow_mut().consume_steps(1){*self.first.borrow_mut()=Some(paid(error));return Err(S::Error::custom("WorldRules top column work"))}let path=entry.column.path();if path.len()==2&&path[1]==top.slot.name(){direct=Some(entry);break}}
  if let Some(entry)=direct{output.serialize_field(top.slot.name(),&ColumnSerialize{entry,common:self.common,first:self.first})?}else{output.serialize_field(top.slot.name(),&BranchSerialize{data:self.data,top:top.slot,common:self.common,first:self.first})?}
  }output.end()
 }}

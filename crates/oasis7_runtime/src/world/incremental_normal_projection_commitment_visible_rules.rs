@@ -333,7 +333,7 @@ impl View<'_, '_, '_> {
         }
         let mut bindings = self.empty(true)?;
         let memory = self.facts.common.borrow().memory().clone();
-        self.member(&actual,"bindings")?.array_elements_data_v1(&memory,&mut|s,b|self.facts.work(s,b as usize),&mut|_,node,_|{
+        let _ = self.member(&actual,"bindings")?.array_elements_data_v1(&memory,&mut|s,b|self.facts.work(s,b as usize),&mut|_,node,_|{
    // The source is the actual original nominal row; decode only this binding.
    let raw=super::super::shared_json::capture_shared_v1(&node,&self.facts.common,&RefCell::new(None),usize::MAX).map_err(ProjectionColumnErrorV1::Work)?;
    let visible=fact_decode::with_industrial_binding_data_v1(&raw,&self.facts.common,|plan|{Ok(oasis7_world_state::world_rules::industrial_binding_reader_with_work_v1(plan,&mut|s,b|self.facts.work(s,b),&mut|reference|self.root_ref(reference,&roots),&mut|reference|self.lot_ref(reference,&lots))?&&self.root_ref(&plan.root_ref,&bound_roots)?)}).map_err(ProjectionColumnErrorV1::Work)?;
@@ -404,7 +404,7 @@ impl View<'_, '_, '_> {
         }
         let memory = self.facts.common.borrow().memory().clone();
         let mut filtered = self.empty(true)?;
-        self.member(&actual, "conversion_domains")?
+        let _ = self.member(&actual, "conversion_domains")?
             .array_elements_data_v1(
                 &memory,
                 &mut |s, b| self.facts.work(s, b as usize),
@@ -589,7 +589,7 @@ impl View<'_, '_, '_> {
     ) -> Result<ProjectionColumnDataV1, BodyMutationError> {
         let memory = self.facts.common.borrow().memory().clone();
         let mut out = self.empty(true)?;
-        node.array_elements_data_v1(
+        let _ = node.array_elements_data_v1(
             &memory,
             &mut |s, b| self.facts.work(s, b as usize),
             &mut |_, value, _| {
@@ -624,7 +624,7 @@ impl View<'_, '_, '_> {
     ) -> Result<ProjectionColumnDataV1, BodyMutationError> {
         let memory = self.facts.common.borrow().memory().clone();
         let mut out = self.empty(true)?;
-        node.array_elements_data_v1(
+        let _ = node.array_elements_data_v1(
             &memory,
             &mut |s, b| self.facts.work(s, b as usize),
             &mut |_, value, _| {

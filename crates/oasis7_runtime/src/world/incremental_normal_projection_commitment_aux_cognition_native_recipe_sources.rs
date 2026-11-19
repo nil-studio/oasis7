@@ -356,7 +356,7 @@ impl product::ProductStackLimitFactsV1 for RecipeFacts<'_, '_, '_, '_> {
             crate::world::World::builtin_product_module_for_kind(kind),
             &mut |id| Ok(self.0.member_like_json_get(&active, id)?.is_some()),
             &mut |emit| {
-                active
+                let _ = active
                     .object_members_control_data_v1(
                         &memory,
                         &mut |s, b| {

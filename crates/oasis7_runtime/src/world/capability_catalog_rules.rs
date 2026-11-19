@@ -181,10 +181,10 @@ where
                     break;
                 }
             }
-            if eligible {
-                if let Some(value) = grant.scope.max_payload_bytes {
-                    minimum = Some(minimum.map_or(value, |old: u64| old.min(value)));
-                }
+            if eligible
+                && let Some(value) = grant.scope.max_payload_bytes
+            {
+                minimum = Some(minimum.map_or(value, |old: u64| old.min(value)));
             }
         }
         let max_payload_bytes = minimum

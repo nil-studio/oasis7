@@ -31,7 +31,10 @@ fn prepare(
     memory: &MemoryBudget,
 ) -> ReservedValue<PreparedRuntimeCommit> {
     let pages = store
-        .state_session(agent_fixture::state_physical(), MemoryClass::Ordinary)
+        .state_session(
+            agent_fixture::state_physical_with_inventory_discovery(request.parent.roots).unwrap(),
+            MemoryClass::Ordinary,
+        )
         .unwrap();
     let values = store.value_session(physical_io());
     let mut sink = store.value_session(physical_io());
@@ -57,10 +60,12 @@ fn prepare(
         || pages.take_read_error().map(agent_fixture::state_error),
         || false,
     );
+    let stage_reads = pages.remaining_io().unwrap().reads_remaining;
+    assert!(stage_reads >= agent_fixture::state_physical().reads_remaining);
     let mut materials = material_backing.context(request.parent.roots, &pages, || {
         pages.take_read_error().map(agent_fixture::state_error)
     });
-    world
+    let prepared = world
         .prepare_iws_commit(
             request,
             &pages,
@@ -98,7 +103,15 @@ fn prepare(
                 )
             },
         )
-        .unwrap()
+        .unwrap();
+    let stage_used = stage_reads
+        .checked_sub(pages.remaining_io().unwrap().reads_remaining)
+        .unwrap();
+    assert!(
+        stage_used <= agent_fixture::state_physical().reads_remaining,
+        "Runtime stage/seal used {stage_used} reads, beyond its original 128Ki scope"
+    );
+    prepared
 }
 
 #[test]

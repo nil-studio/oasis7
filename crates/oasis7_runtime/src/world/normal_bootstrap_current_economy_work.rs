@@ -238,8 +238,8 @@ impl CognitionEconomyWorkOpsV1 for CurrentEconomyWorkV1<'_, '_> {
             crate::world::incremental_normal_cognition_expiry::values::digest(
                 domain,
                 value,
-                &mut **canonical,
-                &mut **common,
+                &mut canonical,
+                &mut common,
             )
         };
         let owner = result.map_err(|e| self.fail(e))?;

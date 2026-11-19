@@ -141,14 +141,13 @@ impl CompletedFactoryModuleRejectionV1 {
         {
             return Err(bad());
         }
-        if let Some(f) = &self.module_failure {
-            if !f.uses_budget(memory)
+        if let Some(f) = &self.module_failure
+            && (!f.uses_budget(memory)
                 || f.time != now
                 || f.caused_by.is_some()
-                || !matches!(&f.body, crate::WorldEventBody::ModuleCallFailed(_))
-            {
-                return Err(bad());
-            }
+                || !matches!(&f.body, crate::WorldEventBody::ModuleCallFailed(_)))
+        {
+            return Err(bad());
         }
         if let Some(f) = &self.followup {
             f.validate_identity(tx, memory, now, identity)?;
@@ -624,7 +623,7 @@ where
                     },
                 )
             }));
-            if let Some(entries) = accepted_entries.as_deref_mut() {
+            if let Some(entries) = accepted_entries {
                 *entries = work.pending_entries_remaining;
                 work.pending_entries_remaining = parked_pending;
             }

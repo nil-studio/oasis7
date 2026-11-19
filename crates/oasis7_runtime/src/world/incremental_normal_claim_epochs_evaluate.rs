@@ -56,7 +56,7 @@ pub(in crate::world) fn prepare_epoch_v1(current_epoch:u64,latest_claim:&AgentCl
                     refunded_bond_amount,
                     refunded_bond_restricted_amount: refunded_bond_split.restricted_amount,
                     refunded_bond_liquid_amount: refunded_bond_split.liquid_amount,
-                    refunded_bond_restricted_sink: refund_sink.sink.clone(),
+                    refunded_bond_restricted_sink: refund_sink.sink,
                     refunded_bond_restricted_sink_bucket_id: refund_sink
                         .treasury_bucket_id.clone()
                         .unwrap_or_default(),
@@ -94,7 +94,7 @@ pub(in crate::world) fn prepare_release_or_idle_v1(current_epoch:u64,claim:&Agen
                 refunded_bond_amount: claim.locked_bond_amount,
                 refunded_bond_restricted_amount: refunded_bond_split.restricted_amount,
                 refunded_bond_liquid_amount: refunded_bond_split.liquid_amount,
-                refunded_bond_restricted_sink: refund_sink.sink.clone(),
+                refunded_bond_restricted_sink: refund_sink.sink,
                 refunded_bond_restricted_sink_bucket_id: refund_sink
                     .treasury_bucket_id.clone()
                     .unwrap_or_default(),
@@ -125,7 +125,7 @@ pub(in crate::world) fn prepare_release_or_idle_v1(current_epoch:u64,claim:&Agen
                 refunded_bond_amount,
                 refunded_bond_restricted_amount: refunded_bond_split.restricted_amount,
                 refunded_bond_liquid_amount: refunded_bond_split.liquid_amount,
-                refunded_bond_restricted_sink: refund_sink.sink.clone(),
+                refunded_bond_restricted_sink: refund_sink.sink,
                 refunded_bond_restricted_sink_bucket_id: refund_sink
                     .treasury_bucket_id.clone()
                     .unwrap_or_default(),

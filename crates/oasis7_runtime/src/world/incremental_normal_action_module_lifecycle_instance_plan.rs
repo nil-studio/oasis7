@@ -80,15 +80,14 @@ impl CurrentInstallTailSeedV1 {
         | InstanceTailOperationV1::Rollback {
             instance, snapshot, ..
         } = &self.operation
+            && (!instance.uses_budget(common.memory()) || !snapshot.uses_budget(common.memory()))
         {
-            if !instance.uses_budget(common.memory()) || !snapshot.uses_budget(common.memory()) {
-                return Err(invalid());
-            }
+            return Err(invalid());
         }
-        if let InstanceTailOperationV1::Rollback { target_source, .. } = &self.operation {
-            if !target_source.uses_budget(common.memory()) {
-                return Err(invalid());
-            }
+        if let InstanceTailOperationV1::Rollback { target_source, .. } = &self.operation
+            && !target_source.uses_budget(common.memory())
+        {
+            return Err(invalid());
         }
         if self.selected != selected as *const _ as usize
             || self.outcome != outcome as *const _ as usize

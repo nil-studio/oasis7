@@ -107,13 +107,12 @@ impl<'c> WorldEventCounterStageV1<'c> {
             .appended
             .checked_sub(old.appended)
             .ok_or_else(invalid)?;
-        let depth = u64::try_from(
+        let depth = u64::from(
             tx.ordered_fact_count()
                 .checked_add(1)
                 .ok_or_else(invalid)?
                 .ilog2(),
         )
-        .map_err(|_| invalid())?
         .checked_add(1)
         .ok_or_else(invalid)?;
         common
@@ -137,10 +136,10 @@ impl<'c> WorldEventCounterStageV1<'c> {
             if note.ordinal < old.last_world_fact_end {
                 return Err(invalid());
             }
-            if let Some(previous) = note.previous.as_ref() {
-                if previous.ordinal >= note.ordinal {
-                    return Err(invalid());
-                }
+            if let Some(previous) = note.previous.as_ref()
+                && previous.ordinal >= note.ordinal
+            {
+                return Err(invalid());
             }
             cursor = note.previous.as_ref();
             seen += 1;
@@ -221,15 +220,15 @@ impl Drop for WorldEventCounterStageV1<'_> {
             if self.counter.inner.staged.load(Ordering::Acquire) != self.depth {
                 return;
             }
-            if let Ok(mut counts) = self.counter.inner.counts.lock() {
-                if let Some(old) = self.counts.take() {
-                    *counts = old
-                }
+            if let Ok(mut counts) = self.counter.inner.counts.lock()
+                && let Some(old) = self.counts.take()
+            {
+                *counts = old
             }
-            if let Ok(mut guard) = self.counter.inner.guard.lock() {
-                if let Some(old) = self.guard.take() {
-                    *guard = old
-                }
+            if let Ok(mut guard) = self.counter.inner.guard.lock()
+                && let Some(old) = self.guard.take()
+            {
+                *guard = old
             }
             if let Ok(mut retention) = self.counter.inner.journal_retention.lock() {
                 *retention = self.retention

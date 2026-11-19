@@ -147,7 +147,7 @@ where
                             class: values.class,
                             io: &mut *values.io,
                         },
-                        key_work: &mut **key_work,
+                        key_work,
                         semantic_bytes: *semantic_bytes,
                         record_bytes: *record_bytes,
                         take_state_error: *take_state_error,
@@ -181,9 +181,9 @@ where
                         events: &mut event,
                         originals: &mut **originals,
                         worker: &mut backend,
-                        manifest_cache: *manifest_cache,
-                        manifest_work: &mut **manifest_work,
-                        work: &mut **work,
+                        manifest_cache,
+                        manifest_work,
+                        work,
                         #[cfg(any(test, feature = "test-support"))]
                         input_observation: None,
                     };
@@ -222,7 +222,7 @@ where
                         };
                         let finality=root.prepare_current_bootstrap_finality_v1(parent,&mut driver.bootstrap.finality,common,live_owner).map_err(NormalHostRuntimeErrorV1::Root)?;
                         let bootstrap_sources=crate::world::normal_bootstrap_current::CurrentBootstrapSourcesV1 {
-                            finality:&finality,artifacts:runtime.resources(),accepted_orders:tail.economic.orders,lifecycle:&template,cognition:parent.refs().storage.current().cognition(),ledger:ledger.ledger,process:&**sources.process,
+                            finality:&finality,artifacts:runtime.resources(),accepted_orders:tail.economic.orders,lifecycle:&template,cognition:parent.refs().storage.current().cognition(),ledger:ledger.ledger,process:sources.process,
                         };
                         Some(root.execute_current_provider_bootstrap_v1(input_owner,parent,&bootstrap_sources,authorization,revocation,&mut driver.bootstrap_loan(input_limits),parent_read,materials,common,live_owner).map_err(NormalHostRuntimeErrorV1::Root)?)
                     } else { None };
@@ -247,7 +247,7 @@ where
                         sources.business,
                         sources.projection_cache,
                         sources.compiler,
-                        &**sources.process,
+                        sources.process,
                         tail,
                         delivery,
                         industry,

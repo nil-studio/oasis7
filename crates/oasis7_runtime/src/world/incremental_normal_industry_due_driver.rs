@@ -133,7 +133,7 @@ where
                 self.now,
                 &live_owner()
             ));
-            let _ = self.execute_due_builds_v1(
+            self.execute_due_builds_v1(
                 &mut deferred,
                 materials,
                 current,
@@ -229,7 +229,7 @@ where
                             terminal::check_current_terminal_v1(
                                 &pending,
                                 sources.rules,
-                                &owners,
+                                owners,
                                 &records,
                                 sources.factory,
                                 ctx,

@@ -134,7 +134,7 @@ pub(in crate::world) fn authorizations_v1<W: Work>(
         }
         let value = authorization_v1(ledger, grant, work)?;
         if out.len() == out.capacity() {
-            let capacity = out.capacity().checked_mul(2).unwrap_or(usize::MAX).max(4);
+            let capacity = out.capacity().saturating_mul(2).max(4);
             let bytes = capacity
                 .checked_mul(size_of::<AgentDelegationAuthorizationV1>())
                 .ok_or_else(|| denied("authorization_layout"))?;

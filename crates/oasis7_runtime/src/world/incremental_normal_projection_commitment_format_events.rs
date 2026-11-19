@@ -11,7 +11,7 @@ pub(super) fn events_data_v1(aux:&ProjectionColumnDataV1,metadata:&crate::world:
  if u64::try_from(count).map_err(|_|invalid("projection journal count"))?!=metadata.journal_retained_event_count_v1(){return Err(invalid("projection journal actual count differs from metadata"))}
  let start=metadata.journal_current_era_start_v1();let capacity=count.checked_sub(start).ok_or_else(||invalid("projection journal current era starts outside retained source"))?;let n=size_of::<Vec<oasis7_world_state::WorldEvent>>().checked_add(size_of::<Vec<MemoryReservation>>()).and_then(|n|n.checked_add(capacity.checked_mul(size_of::<oasis7_world_state::WorldEvent>()+size_of::<MemoryReservation>())?)).ok_or_else(||invalid("projection event suffix layout"))?;
  common.charge(1,n as u64).map_err(paid)?;let slots=memory.reserve(n,MemoryClass::Ordinary).map_err(ValueTreeError::Memory)?;let mut events=Vec::with_capacity(capacity);let mut fees=Vec::with_capacity(capacity);if events.capacity()!=capacity||fees.capacity()!=capacity{return Err(invalid("projection event suffix capacity"))}
- let shared=RefCell::new(common);journal.root_data().array_elements_data_v1(&memory,&mut|s,b|shared.borrow_mut().charge(s,b).map_err(paid),&mut|index,node,_|{
+ let shared=RefCell::new(common);let _ = journal.root_data().array_elements_data_v1(&memory,&mut|s,b|shared.borrow_mut().charge(s,b).map_err(paid),&mut|index,node,_|{
   if index<start{return Ok(ControlFlow::Continue(()))}
   let raw=super::shared_json::capture_shared_v1(&node,&shared,&RefCell::new(None),usize::MAX).map_err(ProjectionColumnErrorV1::Work)?;
   let(event,fee)=super::fact_decode::recover_world_event_parts_data_v1(&raw,&shared).map_err(ProjectionColumnErrorV1::Work)?;

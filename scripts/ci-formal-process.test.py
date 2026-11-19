@@ -5,6 +5,7 @@ from contextlib import ExitStack, redirect_stdout
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import importlib.util
+import inspect
 import itertools
 import io
 import json
@@ -1805,6 +1806,7 @@ class InlineRuntimeLiveDiagnostics(unittest.TestCase):
         return selected, manifest
 
     def test_only_exact_partitioned_runtime_inline_batch_changes_capture(self):
+        partition_flag = 'artifact_partition' in inspect.signature(artifacts.execute_inline_jobs).parameters
         for change in ('none', 'parent-order', 'unpartitioned', 'all', 'fast', 'other-partition',
                        'alias', 'variant', 'parent-variant', 'package', 'target', 'kind', 'filter'):
             partition = (None if change in ('unpartitioned', 'fast') else 'all' if change == 'all'
@@ -1844,8 +1846,10 @@ class InlineRuntimeLiveDiagnostics(unittest.TestCase):
                 else:
                     runner.assert_not_called()
                     inline.assert_called_once()
-                    self.assertEqual(inline.call_args.kwargs,
-                                     dict(formal=False, shard=None, ordinary_partition=partition))
+                    expected = dict(formal=False, shard=None, ordinary_partition=partition)
+                    if partition_flag:
+                        expected['artifact_partition'] = False
+                    self.assertEqual(inline.call_args.kwargs, expected)
                     jobs = inline.call_args.args[0]
                 self.assertTrue(jobs)
                 for job in jobs:
@@ -2668,14 +2672,50 @@ class BoundedOrdinaryRuntimeExecution(unittest.TestCase):
             fixture = TargetedArtifactPartitions()
             manifest = fixture.manifest()
             selected = manifest['execution_plan']
-            with self.subTest(version=version), tempfile.TemporaryDirectory() as temporary, \
-                 patch.object(artifacts, 'snapshot_regressions', return_value=()), \
-                 patch.object(artifacts, 'load', return_value=(manifest, {})), \
-                 patch.object(artifacts, 'bounded_ordinary_runtime_batches', side_effect=AssertionError('v1 only')), \
-                 patch('ci_process_runner.run', return_value=dict(passed=True, cleanup_result='clean')):
-                root = Path(temporary)
-                artifacts.execute(root, 'ordinary', root / 'results', plan=selected,
-                                  ordinary_partition='native-0' if version == 2 else None)
+            observed = []
+            partitions = [None] if version is None else selected['ordinary_partitions'][1:]
+            for partition in partitions:
+                calls = []
+                def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+                    binary_name, binary = next((key, value) for key, value in manifest['binaries'].items()
+                                              if command[0] == str(root / value['path']))
+                    self.assertEqual(suite, 'ordinary')
+                    self.assertNotIn('--ignored', command)
+                    cases = set(binary['tests']) - set(binary['ignored_tests'])
+                    if '--skip' in command:
+                        self.assertIn('--exact', command)
+                        excluded = {command[index + 1] for index, arg in enumerate(command) if arg == '--skip'}
+                        self.assertLessEqual(excluded, set(binary['tests']))
+                        cases -= excluded
+                    else:
+                        selectors = [arg for arg in command[1:] if not arg.startswith('--')]
+                        if selectors:
+                            self.assertIn('--exact', command)
+                            self.assertEqual(selectors, [name])
+                            self.assertIn(name, cases)
+                            cases = {name}
+                    self.assertEqual(expected_count, len(cases))
+                    self.assertGreater(expected_count, 0)
+                    calls.append((name, expected_count))
+                    observed.extend((binary_name, case) for case in cases)
+                    return ParallelNativeExecution.receipt(suite, name, results, expected_count)
+                with self.subTest(version=version, partition=partition), tempfile.TemporaryDirectory() as temporary, \
+                     patch.object(artifacts, 'snapshot_regressions', return_value=()), \
+                     patch.object(artifacts, 'load', return_value=(manifest, {})), \
+                     patch.object(artifacts, 'bounded_ordinary_runtime_batches', side_effect=AssertionError('v1 only')), \
+                     patch('ci_process_runner.run', side_effect=invoke):
+                    root = Path(temporary)
+                    artifacts.execute(root, 'ordinary', root / 'results', plan=selected,
+                                      ordinary_partition=partition)
+                    records = [json.loads(line) for line in (root / 'results').read_text().splitlines()]
+                    self.assertTrue(calls)
+                    self.assertEqual(len(calls), len({name for name, _ in calls}))
+                    self.assertCountEqual(calls, [(record['test_name'], record['expected_count']) for record in records])
+                    self.assertTrue(all(record['passed'] for record in records))
+            expected = [(name, case) for name, binary in manifest['binaries'].items()
+                        for case in set(binary['tests']) - set(binary['ignored_tests'])]
+            self.assertCountEqual(observed, expected)
+            self.assertEqual(len(observed), len(set(observed)))
 
     def test_real_libtest_batches_execute_each_case_once_keep_ignored_and_propagate_failure(self):
         with tempfile.TemporaryDirectory() as temporary:

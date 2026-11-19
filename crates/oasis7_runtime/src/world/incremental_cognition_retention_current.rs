@@ -785,7 +785,7 @@ where
                 path,
                 tx,
                 &mut **read.borrow_mut(),
-                &mut **work.borrow_mut(),
+                &mut work.borrow_mut(),
                 &mut common.borrow_mut(),
                 live,
             )
@@ -911,7 +911,7 @@ where
                 path,
                 tx,
                 &mut **read.borrow_mut(),
-                &mut **work.borrow_mut(),
+                &mut work.borrow_mut(),
                 &mut common.borrow_mut(),
                 live,
             )

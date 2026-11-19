@@ -53,7 +53,8 @@ pub(super) fn visit_task_results_data_v1<R:PaidProjectionRetainedOriginalReaderV
  let key=decode::key("game-task-control-chain-v1",&*lookup,common,canonical)?;
  let Some(head)=decode::read_leaf(root,&key,reader,common,canonical)?else{return Ok(())};
  let RetainedHistoryLeafV1::GameTaskControlChainIndex(entry)=head.leaf()else{return Err(decode::invalid("retained task chain head type mismatch",common))};
- common.consume_steps(1).map_err(original)?;if entry.count==0{return Err(decode::invalid("retained task chain is empty",common))}if entry.count>4096{return Err(decode::unavailable("retained task chain exceeds query budget",common))}
+ common.consume_steps(1).map_err(original)?;if entry.count==0{return Err(decode::invalid("retained task chain is empty",common))}
+ if entry.count>4096{return Err(decode::unavailable("retained task chain exceeds query budget",common))}
  let count=entry.count as usize;let n=size_of::<Vec<ReservedValue<String>>>().checked_add(count.checked_mul(size_of::<ReservedValue<String>>()).ok_or(BodyMutationError::Invalid("retained task seen layout"))?).ok_or(BodyMutationError::Invalid("retained task seen layout"))?;
  let _seen_fee=reserve(n,common)?;let mut seen:Vec<ReservedValue<String>>=Vec::with_capacity(count);if seen.capacity()!=count{return Err(BodyMutationError::Invalid("retained task seen capacity"))}
  let mut cursor=Some(text(&entry.head,common)?);let mut actual=0;
@@ -94,7 +95,7 @@ pub(in crate::world) fn read_task_results_data_v1<R:PaidProjectionRetainedOrigin
  let mut output=PaidRetainedTaskResultsDataV1{values:Vec::new(),slots,_fee:fee};
  visit_task_results_data_v1(root,lookup,reader,common,canonical,|value,common,_|{
   common.consume_steps(1).map_err(original)?;
-  if output.values.len()==output.values.capacity(){let capacity=output.values.capacity().checked_mul(2).unwrap_or(usize::MAX).max(4);let n=capacity.checked_mul(size_of::<PaidDecodedRetainedServiceDataV1>()).ok_or(BodyMutationError::Invalid("retained task result slots layout"))?;let fee=reserve(n,common)?;common.charge(1,(output.values.len()*size_of::<PaidDecodedRetainedServiceDataV1>())as u64).map_err(original)?;output.values.try_reserve_exact(capacity-output.values.len()).map_err(|_|BodyMutationError::Invalid("retained task result slots allocation"))?;if output.values.capacity()!=capacity{return Err(BodyMutationError::Invalid("retained task result slots capacity"))}output.slots=fee;}
+  if output.values.len()==output.values.capacity(){let capacity=output.values.capacity().saturating_mul(2).max(4);let n=capacity.checked_mul(size_of::<PaidDecodedRetainedServiceDataV1>()).ok_or(BodyMutationError::Invalid("retained task result slots layout"))?;let fee=reserve(n,common)?;common.charge(1,(output.values.len()*size_of::<PaidDecodedRetainedServiceDataV1>())as u64).map_err(original)?;output.values.try_reserve_exact(capacity-output.values.len()).map_err(|_|BodyMutationError::Invalid("retained task result slots allocation"))?;if output.values.capacity()!=capacity{return Err(BodyMutationError::Invalid("retained task result slots capacity"))}output.slots=fee;}
   output.values.push(value);Ok(())
  })?;Ok(output)
 }

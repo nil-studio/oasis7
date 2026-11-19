@@ -70,7 +70,7 @@ fn capture_inner<M:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<ValueTre
  let mut windows=std::array::from_fn(|i|Window{field:CognitionHistoryFieldV1::ALL[i],before:0,after:0,present:false});let mut count=0usize;
  for(i,field)in CognitionHistoryFieldV1::ALL.iter().copied().enumerate(){common.consume_steps(1).map_err(formal)?;let selected=&current[i];let base=if matches!(&scope,CaptureScope::Qualified){0}else{old[i].records};
   if (!selected.present&&selected.records!=0)||selected.root.namespace!=old[i].root.namespace{return Err(bad().into())}
-  if let CaptureScope::Current(_)=&scope{if old[i].present&&!selected.present||selected.records<old[i].records||old[i].present&&selected.present&&old[i].records==selected.records&&old[i].root!=selected.root{return Err(BodyMutationError::Invalid("Cognition History requires actual append/prefix-trim source").into())}}
+  if let CaptureScope::Current(_)=&scope&& (old[i].present&&!selected.present||selected.records<old[i].records||old[i].present&&old[i].records==selected.records&&old[i].root!=selected.root){return Err(BodyMutationError::Invalid("Cognition History requires actual append/prefix-trim source").into())}
   let n=selected.records.checked_sub(base).ok_or_else(bad)?;count=count.checked_add(usize::try_from(n).map_err(|_|bad())?).ok_or_else(bad)?;windows[i]=Window{field,before:base,after:selected.records,present:selected.present};
  }
  let bytes=count.checked_mul(std::mem::size_of::<Record>()).ok_or_else(bad)?;common.charge(1,bytes as u64).map_err(formal)?;let slots=common.memory().reserve(bytes,MemoryClass::Ordinary).map_err(ValueTreeError::Memory)?;

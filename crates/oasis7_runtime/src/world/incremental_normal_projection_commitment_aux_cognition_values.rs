@@ -219,10 +219,10 @@ impl<'f, 'a, 'c> View<'f, 'a, 'c> {
             Ok(fee) => fee,
             Err(error) => return ValueTreeError::Memory(error).into(),
         };
-        if let Some(mut graph) = fee {
-            if let Err(error) = outer.merge(&mut graph) {
-                return invalid(error);
-            }
+        if let Some(mut graph) = fee
+            && let Err(error) = outer.merge(&mut graph)
+        {
+            return invalid(error);
         }
         paid(Note {
             message,
@@ -236,7 +236,7 @@ pub(super) fn push<T>(
     value: T,
 ) -> Result<(), BodyMutationError> {
     if out.len() == out.capacity() {
-        let cap = out.capacity().checked_mul(2).unwrap_or(usize::MAX).max(4);
+        let cap = out.capacity().saturating_mul(2).max(4);
         let bytes = cap
             .checked_mul(size_of::<T>())
             .ok_or_else(|| invalid("Cognition observation Vec layout"))?;

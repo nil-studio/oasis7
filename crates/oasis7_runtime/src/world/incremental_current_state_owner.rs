@@ -72,6 +72,6 @@ where
         guard,
         live,
     );
-    poison_on_error(&mut overlay.transaction, result.is_err());
-    result.map_err(Into::into)
+    poison_on_error(overlay.transaction, result.is_err());
+    result
 }

@@ -22,9 +22,11 @@ fn reserve(common:&mut FormalBoundedContextV1<'_>,bytes:usize)->Result<MemoryRes
 /// Source graph fees stay with its caller throughout both original passes.
 pub(super) fn prepare_original_json_fragment_data_v1<T:serde::Serialize+?Sized>(value:&T,max_output_bytes:usize,common:&mut FormalBoundedContextV1<'_>)->Result<Arc<PaidOriginalJsonFragmentDataV1>,BodyMutationError>{
  let error_bound=max_output_bytes.checked_mul(2).and_then(|n|n.checked_add(32768+size_of::<PaidCodecError>())).ok_or_else(||invalid("original JSON refusal layout"))?;let error_fee=reserve(common,error_bound)?;
- let mut count=Output{common,bytes:None,length:0,limit:max_output_bytes,first:None};let result=serde_json::to_writer(&mut count,value);if let Some(error)=count.first{return Err(error)}if let Err(error)=result{return Err(paid(PaidCodecError{error,_fee:error_fee}))}count.common.consume_steps(0).map_err(paid)?;let length=count.length;
+ let mut count=Output{common,bytes:None,length:0,limit:max_output_bytes,first:None};let result=serde_json::to_writer(&mut count,value);if let Some(error)=count.first{return Err(error)}
+ if let Err(error)=result{return Err(paid(PaidCodecError{error,_fee:error_fee}))}count.common.consume_steps(0).map_err(paid)?;let length=count.length;
  let fee=reserve(count.common,length.checked_add(size_of::<PaidOriginalJsonFragmentDataV1>()+2*size_of::<usize>()).ok_or_else(||invalid("original JSON fragment layout"))?)?;let bytes=Vec::with_capacity(length);if bytes.capacity()!=length{return Err(invalid("original JSON fragment capacity"))}
- let mut output=Output{common:count.common,bytes:Some(bytes),length:0,limit:length,first:None};let result=serde_json::to_writer(&mut output,value);if let Some(error)=output.first{return Err(error)}if let Err(error)=result{return Err(paid(PaidCodecError{error,_fee:error_fee}))}output.common.consume_steps(0).map_err(paid)?;if output.length!=length{return Err(invalid("original JSON fragment changed between passes"))}
+ let mut output=Output{common:count.common,bytes:Some(bytes),length:0,limit:length,first:None};let result=serde_json::to_writer(&mut output,value);if let Some(error)=output.first{return Err(error)}
+ if let Err(error)=result{return Err(paid(PaidCodecError{error,_fee:error_fee}))}output.common.consume_steps(0).map_err(paid)?;if output.length!=length{return Err(invalid("original JSON fragment changed between passes"))}
  let bytes=output.bytes.ok_or_else(||invalid("original JSON fragment output"))?;
  // The original serializer guarantees UTF8. Charge the actual validation and
  // RawValue parser input before the consuming zero-graph codec conversion.

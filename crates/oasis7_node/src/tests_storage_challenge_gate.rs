@@ -551,7 +551,9 @@ fn runtime_replication_storage_challenge_gate_allows_when_network_matches_reach_
     });
     assert!(
         advanced,
-        "runtime did not continue committing under threshold-based gate"
+        "runtime did not continue committing under threshold-based gate: snapshot={:?}; matched_hashes={:?}",
+        runtime.snapshot(),
+        matched_hashes.lock().expect("lock matched hashes")
     );
 
     let snapshot = runtime.snapshot();

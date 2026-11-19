@@ -78,7 +78,7 @@ pub(in crate::world) fn prepare_module_release_submit_v1<S:ModuleReleaseBusiness
 
         let request_id = source.next_request_id()?;
         let normalized_roles = crate::world::World::normalize_module_release_required_roles(required_roles);
-        return Ok(ModuleReleaseBusinessDecisionV1::Emit(DomainEvent::ModuleReleaseRequested {
+        Ok(ModuleReleaseBusinessDecisionV1::Emit(DomainEvent::ModuleReleaseRequested {
                 request_id,
                 requester_agent_id: requester_agent_id.to_string(),
                 manifest: manifest.clone(),
@@ -86,7 +86,7 @@ pub(in crate::world) fn prepare_module_release_submit_v1<S:ModuleReleaseBusiness
                 install_target: install_target.clone(),
                 required_roles: normalized_roles,
                 profile_changes: profile_changes.clone(),
-            }));
+            }))
 
     }
 
@@ -140,11 +140,11 @@ pub(in crate::world) fn prepare_module_release_shadow_v1<S:ModuleReleaseBusiness
 
             }
         };
-        return Ok(ModuleReleaseBusinessDecisionV1::Emit(DomainEvent::ModuleReleaseShadowed {
+        Ok(ModuleReleaseBusinessDecisionV1::Emit(DomainEvent::ModuleReleaseShadowed {
                 request_id,
                 operator_agent_id: operator_agent_id.to_string(),
                 manifest_hash: shadow_manifest_hash,
-            }));
+            }))
 
     }
 
@@ -326,7 +326,7 @@ pub(in crate::world) fn prepare_module_release_submit_attestation_v1<S:ModuleRel
                     }));
 
         }
-        return Ok(ModuleReleaseBusinessDecisionV1::Emit(DomainEvent::ModuleReleaseAttested {
+        Ok(ModuleReleaseBusinessDecisionV1::Emit(DomainEvent::ModuleReleaseAttested {
                 request_id,
                 operator_agent_id: operator_agent_id.to_string(),
                 signer_node_id: normalized_signer_node_id,
@@ -338,7 +338,7 @@ pub(in crate::world) fn prepare_module_release_submit_attestation_v1<S:ModuleRel
                 builder_image_digest: normalized_builder_image_digest,
                 container_platform: normalized_container_platform,
                 canonicalizer_version: normalized_canonicalizer_version,
-            }));
+            }))
 
     }
 
@@ -417,11 +417,11 @@ pub(in crate::world) fn prepare_module_release_approve_role_v1<S:ModuleReleaseBu
                     }));
 
         }
-        return Ok(ModuleReleaseBusinessDecisionV1::Emit(DomainEvent::ModuleReleaseRoleApproved {
+        Ok(ModuleReleaseBusinessDecisionV1::Emit(DomainEvent::ModuleReleaseRoleApproved {
                 request_id,
                 approver_agent_id: approver_agent_id.to_string(),
                 role: normalized_role,
-            }));
+            }))
 
     }
 
@@ -445,11 +445,11 @@ pub(in crate::world) fn prepare_module_release_bind_roles_v1<S:ModuleReleaseBusi
 
         }
         let normalized_roles = crate::world::World::normalize_module_release_role_set(roles);
-        return Ok(ModuleReleaseBusinessDecisionV1::Emit(DomainEvent::ModuleReleaseRolesBound {
+        Ok(ModuleReleaseBusinessDecisionV1::Emit(DomainEvent::ModuleReleaseRolesBound {
                 operator_agent_id: operator_agent_id.to_string(),
                 target_agent_id: target_agent_id.to_string(),
                 roles: normalized_roles,
-            }));
+            }))
 
     }
 
@@ -492,10 +492,10 @@ pub(in crate::world) fn prepare_module_release_reject_v1<S:ModuleReleaseBusiness
                     }));
 
         }
-        return Ok(ModuleReleaseBusinessDecisionV1::Emit(DomainEvent::ModuleReleaseRejected {
+        Ok(ModuleReleaseBusinessDecisionV1::Emit(DomainEvent::ModuleReleaseRejected {
                 request_id,
                 rejector_agent_id: rejector_agent_id.to_string(),
                 reason: reason.trim().to_string(),
-            }));
+            }))
 
     }

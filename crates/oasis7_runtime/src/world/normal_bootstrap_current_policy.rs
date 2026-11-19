@@ -80,10 +80,10 @@ where
                 let body=open_module_authorization_body_overlay_v1(ModuleAuthorizationRecordKeyV1::Policy(index),capability.legacy,ctx)
                     .map_err(SourceError::Overlay)?.ok_or_else(||SourceError::from(ValueTreeError::Invalid("bootstrap Current policy row missing")))?;
                 let guard=ctx.transaction.guard();
-                Ok(read_module_authorization_overlay_v1(ModuleAuthorizationCellRequestV1{
+                read_module_authorization_overlay_v1(ModuleAuthorizationCellRequestV1{
                     key:ModuleAuthorizationRecordKeyV1::Policy(index),address:ModuleAuthorizationAddressV1{column,index:None},
                     family:capability.legacy,body:&body,max_payload_bytes:work.module_authorization.max_payload_bytes,
-                },ctx,&mut work.module_authorization,&guard,live,output).map_err(SourceError::Overlay)?)
+                },ctx,&mut work.module_authorization,&guard,live,output).map_err(SourceError::Overlay)
             }).map_err(|error|Error::Body(source(error)))
     }
     fn policy_text(&mut self, index: u64, column: &'static str) -> Result<Option<String>, Error> {
@@ -125,7 +125,7 @@ where
         let capability = self.sources.capability;
         let count=crate::world::incremental_authorization_root_current::with_authorization_source_read_work_v1(
             capability.roots,self.ctx,self.parent,self.module.capability_authorization,self.common,
-            |ctx,_,_|Ok(read_module_policy_length_overlay_v1(capability.legacy,ctx).map_err(SourceError::Overlay)?)
+            |ctx,_,_|read_module_policy_length_overlay_v1(capability.legacy,ctx).map_err(SourceError::Overlay)
         ).map_err(|error|Error::Body(source(error)))?;
         let n = usize::try_from(count).map_err(|_| bad())?;
         let size = n

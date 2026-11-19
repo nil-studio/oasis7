@@ -286,13 +286,13 @@ where
                 common: &mut FormalBoundedContextV1<'_>| {
         let mut io = final_io.borrow_mut();
         let (originals, work) = &mut *io;
-        captured.produce_pair(after, *originals, *work, common)
+        captured.produce_pair(after, *originals, work, common)
     };
     let triple = |after: &oasis7_formal_protocol::incremental_execution::RootSetV1,
                   common: &mut FormalBoundedContextV1<'_>| {
         let mut io = final_io.borrow_mut();
         let (originals, work) = &mut *io;
-        captured.produce_three(after, *originals, *work, common)
+        captured.produce_three(after, *originals, work, common)
     };
     let result_producer = if captured.has_ledger() {
         super::incremental_commit::NormalFinalResultProducerV1::ProofLedger(triple)

@@ -128,7 +128,7 @@ impl RuntimeOwnerReadonlyFactsV1 for CurrentProjectionAuxFactsV1<'_, '_, '_> {
             .optional_member(&participants, "bindings")?
             .ok_or_else(|| invalid("Current participant bindings missing"))?;
         let memory = self.base.common.borrow().memory().clone();
-        rows.object_members_control_data_v1(
+        let _ = rows.object_members_control_data_v1(
             &memory,
             &mut |s, b| self.base.common.borrow_mut().charge(s, b).map_err(paid),
             &mut |_, row, _| {
@@ -298,7 +298,7 @@ impl CurrentProjectionAuxFactsV1<'_, '_, '_> {
             return Ok(());
         };
         let memory = self.base.common.borrow().memory().clone();
-        rows.object_members_control_data_v1(&memory,&mut|s,b|self.base.common.borrow_mut().charge(s,b).map_err(paid),&mut|key,row,_|{
+        let _ = rows.object_members_control_data_v1(&memory,&mut|s,b|self.base.common.borrow_mut().charge(s,b).map_err(paid),&mut|key,row,_|{
    let raw=self.raw(&row).map_err(ProjectionColumnErrorV1::Work)?;
    let value={let mut common=self.base.common.borrow_mut();crate::world::incremental_normal_projection_retained_reader::decode_hot_service_result_json_data_v1(key,&raw,&mut common,canonical).map_err(ProjectionColumnErrorV1::Work)?};
    // Release the Common RefMut before callbacks can read more raw facts.

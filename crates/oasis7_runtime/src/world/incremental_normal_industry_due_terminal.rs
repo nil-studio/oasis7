@@ -264,13 +264,13 @@ where
         }
     }
     if let Some(ledger) = &*ledger {
-        for (kind, _) in ledger {
+        for kind in ledger.keys() {
             for _ in 0..repetitions {
                 charge(common, kind.len())?;
             }
         }
     }
-    for (kind, _) in &root.terminal_capacities {
+    for kind in root.terminal_capacities.keys() {
         charge(common, kind.len())?;
     }
     let mut output_fee = None;

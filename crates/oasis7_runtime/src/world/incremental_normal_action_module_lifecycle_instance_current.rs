@@ -416,8 +416,8 @@ where M:MerkleNodeReader,P:MerkleNodeReader,R:ValueNodeReader,E:FnMut()->Option<
      impl From<ValueTreeError> for Scan{fn from(e:ValueTreeError)->Self{Self::Value(e)}}
      let mut found=None;
      let mut compare=|a:&str,b:&str|->Result<bool,Scan>{
-       let bytes=a.len().checked_add(b.len()).and_then(|n|u64::try_from(n).ok()).ok_or_else(||Scan::Value(ValueTreeError::Invalid("release comparison size")))?;
-       ctx.key_work.bytes_remaining=ctx.key_work.bytes_remaining.checked_sub(bytes).ok_or_else(||Scan::Value(ValueTreeError::ResourceLimited("release comparison bytes")))?;Ok(a==b)
+       let bytes=a.len().checked_add(b.len()).and_then(|n|u64::try_from(n).ok()).ok_or(Scan::Value(ValueTreeError::Invalid("release comparison size")))?;
+       ctx.key_work.bytes_remaining=ctx.key_work.bytes_remaining.checked_sub(bytes).ok_or(Scan::Value(ValueTreeError::ResourceLimited("release comparison bytes")))?;Ok(a==b)
      };
      let result=directory.visit(module.instance_cells,&mut ctx.cancelled,&mut|_,row,_|{
        if row.status==oasis7_world_state::state::ModuleReleaseRequestStatus::Applied&&compare(&row.manifest.module_id,module_id)?&&compare(&row.manifest.version,version)?&&compare(&row.manifest.wasm_hash,hash)? {

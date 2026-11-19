@@ -448,8 +448,8 @@ where
         }
         Ok(_output.retain(Some(binding)))
     })();
-    poison_on_error(&mut overlay.transaction, result.is_err());
-    result.map_err(Into::into)
+    poison_on_error(overlay.transaction, result.is_err());
+    result
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -706,8 +706,8 @@ where
             work,
         )
     })();
-    poison_on_error(&mut overlay.transaction, result.is_err());
-    result.map_err(Into::into)
+    poison_on_error(overlay.transaction, result.is_err());
+    result
 }
 
 fn retain_owner_binding(
@@ -774,8 +774,8 @@ where
         guard,
         live,
     );
-    poison_on_error(&mut overlay.transaction, result.is_err());
-    result.map_err(Into::into)
+    poison_on_error(overlay.transaction, result.is_err());
+    result
 }
 
 #[allow(clippy::too_many_arguments)]

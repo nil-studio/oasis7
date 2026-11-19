@@ -148,19 +148,19 @@ where
     );
     io_lanes(
         &mut total,
-        &mut industry_read.values.io,
+        industry_read.values.io,
         step_ceiling,
         byte_ceiling,
     );
     total.byte(&mut industry_read.key_work.bytes_remaining, byte_ceiling);
     io_lanes(
         &mut total,
-        &mut current_read.values.io,
+        current_read.values.io,
         step_ceiling,
         byte_ceiling,
     );
     total.byte(&mut current_read.key_work.bytes_remaining, byte_ceiling);
-    io_lanes(&mut total, &mut mutation.io, step_ceiling, byte_ceiling);
+    io_lanes(&mut total, mutation.io, step_ceiling, byte_ceiling);
     Ok(total)
 }
 
@@ -236,14 +236,14 @@ where
 
     io_lanes(
         &mut total,
-        &mut current_read.values.io,
+        current_read.values.io,
         step_ceiling,
         byte_ceiling,
     );
     total.byte(&mut current_read.key_work.bytes_remaining, byte_ceiling);
     io_lanes(
         &mut total,
-        &mut agent_read.values.io,
+        agent_read.values.io,
         step_ceiling,
         byte_ceiling,
     );
@@ -271,7 +271,7 @@ where
         materials.normalization_comparison_bytes_remaining,
         byte_ceiling,
     );
-    io_lanes(&mut total, &mut mutation.io, step_ceiling, byte_ceiling);
+    io_lanes(&mut total, mutation.io, step_ceiling, byte_ceiling);
     Ok(total)
 }
 
@@ -385,7 +385,7 @@ where
 
     io_lanes(
         &mut total,
-        &mut root.ctx.values.io,
+        root.ctx.values.io,
         step_ceiling,
         byte_ceiling,
     );
@@ -396,7 +396,7 @@ where
     total.byte(&mut root.fees.key_work.bytes_remaining, byte_ceiling);
     io_lanes(
         &mut total,
-        &mut root.events.mutation.io,
+        root.events.mutation.io,
         step_ceiling,
         byte_ceiling,
     );

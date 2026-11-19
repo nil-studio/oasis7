@@ -24,7 +24,7 @@ where M:MerkleNodeReader,P:MerkleNodeReader,V:ValueNodeReader,R:ValueNodeReader,
  }
  let original_count=selected.len();let first=e.observations.first().map(|w|w.window_start);
  for i in 0..original_count {let service=selected[i].value().ok_or_else(limited)?;tail.charge_record()?;
-  if !first.is_some_and(|first|service.registered_at.checked_add(600).is_some_and(|t|t<=first)){continue;}
+  if first.is_none_or(|first|service.registered_at.checked_add(600).is_none_or(|t|t>first)){continue;}
   let id=&service.obligation_id;let mut present=false;for record in &selected {tail.charge(id.len().min(record.outer_id().len()))?;if record.outer_id()==id{present=true;break;}}
   if present{continue;}let guard=ctx.transaction.guard();let record=read_current_emergency_service_v1(source,sources.rules.emergency(),sources.delivery.eligibility.roots,state,id,ctx,&mut work.eligibility.scan,&mut work.composite_read,&guard,live)?;
   if record.value().is_none(){return Err(ValueTreeError::Invalid("original eligible service alias absent").into());}selected.push(record);
@@ -55,7 +55,7 @@ where M:MerkleNodeReader,P:MerkleNodeReader,V:ValueNodeReader,R:ValueNodeReader,
  for row in directory.active_inputs().evidence(){tail.charge(row.region_id.len().min(e.region_id.len()).checked_add(row.region_budget_lineage.len().min(e.region_budget_lineage.len())).ok_or_else(limited)?)?;
   if row.region_id!=e.region_id||row.region_budget_lineage!=e.region_budget_lineage||row.end<oasis7_world_state::world_rules::evidence_end(e){continue;}
   let guard=ctx.transaction.guard();let candidate=read_current_emergency_evidence_v1(source,sources.rules.emergency(),sources.delivery.eligibility.roots,state,&row.outer_id,ctx,&mut work.eligibility.scan,&mut work.composite_read,&guard,live)?;
-  let candidate=candidate.value().ok_or_else(||ValueTreeError::Invalid("Current directory evidence absent"))?;
+  let candidate=candidate.value().ok_or(ValueTreeError::Invalid("Current directory evidence absent"))?;
   if matches!(evaluate::<M,P,V,R,E,C,PE,PC>(candidate,directory,source,sources,state,ctx,work,tail,now,live)?,Ok(true)){return Ok(Err(crate::world_rules::invalid("authorization_inactive")));}
  }
  if let Some(last)=e.observations.last(){for id in &last.obligation_ids {tail.charge(id.len())?;let guard=ctx.transaction.guard();let service=read_current_emergency_service_v1(source,sources.rules.emergency(),sources.delivery.eligibility.roots,state,id,ctx,&mut work.eligibility.scan,&mut work.composite_read,&guard,live)?;

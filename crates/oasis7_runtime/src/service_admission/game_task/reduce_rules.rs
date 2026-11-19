@@ -16,12 +16,13 @@ pub(crate) trait TaskReductionOpsV1 {
 }
 fn tree_work<V,O:TaskReductionOpsV1>(tree:&BTreeMap<String,V>,key:&str,ops:&O)->Result<(),O::Error>{if !ops.is_metered(){return Ok(())}for existing in tree.keys(){ops.work(1,existing.len()+key.len())?;}Ok(())}
 fn insert_slots<K,V,O:TaskReductionOpsV1>(len:usize,ops:&O)->Result<(),O::Error>{if !ops.is_metered(){return Ok(())}let levels=(usize::BITS-len.leading_zeros())as usize+2;let n=std::mem::size_of::<(K,V)>().checked_mul(32).and_then(|n|n.checked_add(1024)).and_then(|n|n.checked_mul(levels)).unwrap_or(usize::MAX);ops.before_owned(n)}
-fn publication_slot<V,O:TaskReductionOpsV1>(values:&Vec<V>,ops:&O)->Result<(),O::Error>{if values.len()==values.capacity(){let n=values.capacity().checked_mul(2).unwrap_or(usize::MAX).max(4).checked_mul(std::mem::size_of::<V>()).unwrap_or(usize::MAX);ops.before_owned(n)?;ops.work(1,values.len().saturating_mul(std::mem::size_of::<V>()))?;}Ok(())}
+fn publication_slot<V,O:TaskReductionOpsV1>(values:&Vec<V>,ops:&O)->Result<(),O::Error>{if values.len()==values.capacity(){let n=values.capacity().saturating_mul(2).max(4).saturating_mul(std::mem::size_of::<V>());ops.before_owned(n)?;ops.work(1,values.len().saturating_mul(std::mem::size_of::<V>()))?;}Ok(())}
 struct SortStopped;
 fn sort_publications<V,O:TaskReductionOpsV1>(values:&mut[(String,u64,V)],ops:&O)->Result<(),O::Error>{
  ops.before_owned(values.len().saturating_mul(std::mem::size_of::<(String,u64,V)>()))?;
  let mut first=None;let outcome=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||values.sort_by(|a,b|{if let Err(error)=ops.work(1,a.0.len()+b.0.len()){first=Some(error);std::panic::panic_any(SortStopped)}(&a.0,a.1).cmp(&(&b.0,b.1))})));
- if let Some(error)=first{return Err(error)}if let Err(panic)=outcome{std::panic::resume_unwind(panic)}Ok(())
+ if let Some(error)=first{return Err(error)}
+ if let Err(panic)=outcome{std::panic::resume_unwind(panic)}Ok(())
 }
 pub(crate) fn reduce_with_work_v1<V: std::borrow::Borrow<CanonicalIntentResultV1>, O:TaskReductionOpsV1>(results:Vec<V>,ops:&O)->Result<BTreeMap<String,ReducedTask<V>>,O::Error>{
     ops.before_owned(std::mem::size_of::<BTreeMap<String,ReducedTask<V>>>()+std::mem::size_of::<BTreeMap<String,String>>()+std::mem::size_of::<Vec<(String,u64,V)>>())?;

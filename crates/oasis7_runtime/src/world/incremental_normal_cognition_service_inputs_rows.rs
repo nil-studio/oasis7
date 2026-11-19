@@ -452,21 +452,19 @@ where
             let mut events = Vec::new();
             let mut receipts = Vec::new();
             for condition in &conditions {
-                if let Some(digest) = condition.event_digest() {
-                    if evidence
+                if let Some(digest) = condition.event_digest()
+                    && evidence
                         .contains_event(digest, self.ctx.transaction, common, &live_owner())
                         .map_err(RootModuleExecutionErrorV1::Body)?
-                    {
-                        events.push(digest.to_owned())
-                    }
+                {
+                    events.push(digest.to_owned())
                 }
-                if let Some(id) = condition.receipt_id() {
-                    if evidence
+                if let Some(id) = condition.receipt_id()
+                    && evidence
                         .contains_receipt(id, self.ctx.transaction, common, &live_owner())
                         .map_err(RootModuleExecutionErrorV1::Body)?
-                    {
-                        receipts.push(id.to_owned())
-                    }
+                {
+                    receipts.push(id.to_owned())
                 }
             }
 
