@@ -9,7 +9,8 @@ on:
   schedule:
     - cron: "17 3 * * 1"
 
-permissions: {}
+permissions:
+  contents: read
 
 jobs:
   build:
