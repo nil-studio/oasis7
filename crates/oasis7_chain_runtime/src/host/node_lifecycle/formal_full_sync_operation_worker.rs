@@ -1,14 +1,14 @@
 //! Initial operation admission and fenced pre-target restart.
+use super::super::super::super::{
+    LocalInstance, local_io,
+    model::{CONFIG_FILE, NodeConfig},
+    process::ProcessOwnership,
+};
 use super::super::super::{
     FormalFullSyncConfigV1, FormalFullSyncConfigV2, FormalFullSyncCutV1, FormalFullSyncSession,
     FormalFullSyncStatusV1, LocalCasStore, cut_from_anchor, history_chain, now_unix_ms,
     operation_ledger, operation_snapshot::read_snapshot, providers, shared_exchange,
     validate_grant_for_node,
-};
-use crate::host::node_lifecycle::{
-    LocalInstance, local_io,
-    model::{CONFIG_FILE, NodeConfig},
-    process::ProcessOwnership,
 };
 use serde_json::Value;
 use std::{
@@ -60,7 +60,7 @@ impl<'a> OperationInputs<'a> {
             .as_ref()
             .ok_or("initial budgeted operation requires an independent issuer grant")?;
         let (keypair, _) =
-            crate::host::node_keypair_config::read_existing_node_keypair_in_secure_config_dir(
+            super::super::super::super::super::node_keypair_config::read_existing_node_keypair_in_secure_config_dir(
                 &data.join("keys"),
             )?;
         let read = configured.read_material_config();
