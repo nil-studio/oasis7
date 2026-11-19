@@ -151,12 +151,14 @@ def validate_mold_checkout_reuse(tools, setup, source):
 
 
 def rust_image_cache_namespace(name, job):
-    if name not in ('node', 'consensus', 'distfs', 'rust-baseline', 'pixel-world-bridge') or '    container:' not in job:
+    if name not in ('node', 'consensus', 'distfs', 'rust-baseline', 'pixel-world-bridge', 'net') or '    container:' not in job:
         return None
-    image = re.search(r'^    container:\n      image: ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:([0-9a-f]{64})$', job, re.M)
-    assert image, 'Rust cache readers require the pinned rust-build image'
+    target = 'rust-wasm-build' if name == 'net' else 'rust-build'
+    image = re.search(r'^    container:\n      image: ghcr\.io/nil-studio/oasis7/ci-' + target
+                      + r'@sha256:([0-9a-f]{64})$', job, re.M)
+    assert image, f'Rust cache readers require the pinned {target} image'
     assert '          save-if: false\n' in job, 'Rust image consumers may only read cache'
-    return 'ci-rust-build-' + image.group(1)
+    return f'ci-{target}-{image.group(1)}'
 
 
 def selected_source_steps(name):
@@ -2362,7 +2364,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         for command in ('sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- clang llvm',
                         'clang --print-targets | grep -w wasm32', 'llvm-ar --version'):
             self.assertIn(command, compiler)
-            self.assertIn(command, JOBS['net'])
+            if not rust_image_cache_namespace('net', JOBS['net']) or not command.startswith('sudo '):
+                self.assertIn(command, JOBS['net'])
         self.assertIn('scripts/ci-tests.sh required --group "$PREVIEW_GROUP" "${plan_args[@]}"', preview)
         self.assertIn('--requirement scripts/doc-governance-requirements.txt', preview)
         self.assertIn('OASIS7_CI_PROFILE: pr-fast', preview)
@@ -2818,7 +2821,9 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                                ('viewer-performance-report', 'Build performance test artifact')]:
             self.assertNotIn(forbidden, JOBS[job])
         net = JOBS['net']
-        self.assertLess(net.index('Install WASM C compiler'), net.index('Execute selected group'))
+        compiler_step = ('Verify the preinstalled WASM C compiler' if rust_image_cache_namespace('net', net)
+                         else 'Install WASM C compiler')
+        self.assertLess(net.index(compiler_step), net.index('Execute selected group'))
         for check in ('scripts/libp2p-security-source.test.py', 'scripts/libp2p-compat.test.py',
                       'CC_wasm32_unknown_unknown=clang', 'AR_wasm32_unknown_unknown=llvm-ar',
                       'cargo check -p oasis7_net --no-default-features --target wasm32-unknown-unknown --locked',
@@ -3553,7 +3558,9 @@ run_cargo() {
 
     def test_network_wasm_tools_precede_group_execution(self):
         net = JOBS['net']
-        self.assertLess(net.index('Install WASM C compiler'), net.index('Execute selected group'))
+        compiler_step = ('Verify the preinstalled WASM C compiler' if rust_image_cache_namespace('net', net)
+                         else 'Install WASM C compiler')
+        self.assertLess(net.index(compiler_step), net.index('Execute selected group'))
         self.assertLess(net.index('llvm-ar --version'), net.index('Execute selected group'))
         writer = JOBS['full-regression']
         self.assertIn('            clang \\', writer)
@@ -4891,8 +4898,9 @@ class AptWorkflow(unittest.TestCase):
             del expected[custody]
         else:
             expected[custody] = ['gdb', 'gcc', *self.NATIVE]
-        expected.update({('rust', name, 'Install WASM C compiler'): ['clang', 'llvm']
-                         for name in ('pr-fast-preview', 'net')})
+        expected['rust', 'pr-fast-preview', 'Install WASM C compiler'] = ['clang', 'llvm']
+        if not rust_image_cache_namespace('net', JOBS['net']):
+            expected['rust', 'net', 'Install WASM C compiler'] = ['clang', 'llvm']
         expected.update({('rust', name, 'Install system deps'): ['clang', 'llvm', *self.NATIVE]
                          for name in ('full-regression', 'candidate-full-regression')})
         expected['rust', 'newapi-bridge-package', 'Install system deps'] = self.NATIVE
