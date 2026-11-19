@@ -10,7 +10,7 @@
 - 玩法闭环测试、世界健康度回归、长时运行验证
 - 失败签名归档、阻断建议、回归范围说明
 - 相关文档：`doc/testing/*`、`doc/playability_test_result/*`、`testing-manual.md`
-- Viewer 前端结构验证矩阵参考：`doc/world-simulator/viewer/viewer-frontend-structure-standard-2026-07-06.prd.md`
+- Viewer 前端结构验证矩阵参考：`doc/world-simulator/viewer/viewer-frontend-structure-standard.prd.md`
 
 ## 接收与推进测试任务
 

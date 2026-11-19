@@ -24,7 +24,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        cache_dir="${{ runner.temp }}/oasis7-mold-cache"
+        cache_dir="$RUNNER_TEMP/oasis7-mold-cache"
         mkdir -p "$cache_dir"
         archive="$cache_dir/release.tar.gz"
         arch="${{ runner.arch }}"
@@ -64,4 +64,4 @@ runs:
       id: mold
       if: runner.os == 'Linux'
       shell: bash
-      run: python3 "${{ github.action_path }}/setup.py" --archive "${{ runner.temp }}/oasis7-mold-cache/release.tar.gz"
+      run: python3 "$GITHUB_WORKSPACE/.github/actions/setup-linux-mold/setup.py" --archive "$RUNNER_TEMP/oasis7-mold-cache/release.tar.gz"

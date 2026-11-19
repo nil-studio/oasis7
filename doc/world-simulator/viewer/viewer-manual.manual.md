@@ -182,14 +182,21 @@ env -u NO_COLOR ./scripts/run-viewer-web.sh --address 127.0.0.1 --port 4173
 - 启用条件同时满足：launcher 使用 `hosted_public_join`；Viewer 静态 HTTP 只绑定 loopback（`127.0.0.1`、`::1` 或 `localhost`）；并显式设置 `OASIS7_HOSTED_TEST_LOGIN_ENABLED=1`。未满足任一条件时，test-login route 返回 `404`。
 - 页面还必须在 URL 中显式加入 `hosted_test_login=1`；浏览器随后生成正常的临时 Ed25519 device key，只提交 public key，并消费后端实际签发的 player/session/release/registration grant。浏览器不生成 player id、release token、grant 或签名。
 - 若验证 W3 的 hosted `prompt_control` strong-auth，启动前只检查以下三个变量均已存在且非空：`OASIS7_HOSTED_STRONG_AUTH_PUBLIC_KEY`、`OASIS7_HOSTED_STRONG_AUTH_PRIVATE_KEY`、`OASIS7_HOSTED_STRONG_AUTH_APPROVAL_CODE`。检查只输出 presence，不输出任何值；缺少任一项时保持 blocked，不能用占位值或伪造批准继续。
-- 本地 QA 启动 recipe（沿用现有 launcher/provider 前置条件）：
+- 本地 QA 启动（沿用现有 launcher/provider 前置条件）：先用本地授权配置设置 `OASIS7_HOSTED_REGISTRATION_ISSUER_PRIVATE_KEY`，不要将密钥写入下面的命令、日志或验证报告。若变量未设置或为空，示例会停止，不启动 launcher。
 
 ```bash
-OASIS7_HOSTED_TEST_LOGIN_ENABLED=1 \
-OASIS7_HOSTED_REGISTRATION_ISSUER_PRIVATE_KEY=<issuer-private-key> \
-./scripts/run-launcher-stack.sh \
-  --deployment-mode hosted_public_join \
-  --viewer-host 127.0.0.1
+(
+  set +x
+  if [[ -z "${OASIS7_HOSTED_REGISTRATION_ISSUER_PRIVATE_KEY:-}" ]]; then
+    printf '%s\n' 'Missing local QA issuer key configuration.' >&2
+    exit 1
+  fi
+  export OASIS7_HOSTED_REGISTRATION_ISSUER_PRIVATE_KEY
+  OASIS7_HOSTED_TEST_LOGIN_ENABLED=1 \
+    ./scripts/run-launcher-stack.sh \
+      --deployment-mode hosted_public_join \
+      --viewer-host 127.0.0.1
+)
 ```
 
 打开 launcher 输出的 `GAME_URL`，或直接访问 `http://127.0.0.1:<viewer-port>/software_safe.html?hosted_test_login=1`，再选择 `Email-free Test Login`。不要用 `--viewer-host 0.0.0.0`、`::` 或其它非 loopback 地址启用该入口。
@@ -202,7 +209,7 @@ OASIS7_HOSTED_REGISTRATION_ISSUER_PRIVATE_KEY=<issuer-private-key> \
 - 终端 shell 的 Player/Director、`World / Targets / Command`、Search/Quote、
   Action Receipt 与 World Feed v1 产品契约，以
   `viewer-gameplay-release-experience-overhaul.prd.md` 为准。
-- 当前任务分支的 Player 操作路线已经是 stage-first：Targets 继续使用
+- 本文描述的 Player 操作路线以世界舞台为先（stage-first），实际发布版本以对应构建为准：Targets 继续使用
   `#entity-search` 过滤/导航，Targets 与 Command/Chat 通过按需 drawer 进入，
   Diagnostics 保持次级，Recent Events/Feedback 仍按现名显示。Focus hooks 只服务
   Player 沉浸呈现，不是第二产品模式。World Feed v1 已有 runtime transport、状态机

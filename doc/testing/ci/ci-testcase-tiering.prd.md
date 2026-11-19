@@ -30,7 +30,7 @@
   - 日常本地提交：不执行验证；`commit` baseline 仅可显式调用。
   - PR 门禁：每次执行 required 门禁。
   - 分支合并前回归：关键改动执行受影响的必要定向验证，无法可靠限定范围时保守扩大至完整必要集合；不按风险标签一律追加全仓 full。
-  - 周期回归：workflow 已配置每四小时对固定 main SHA 展开完整集合，保留固定候选的手动验证；实际调度、完整覆盖与容量按上述主责文档验收。
+  - 周期回归：workflow 每 20 分钟配置一次观察触发，准入判定到期后才对固定 main SHA 展开完整集合；完整回归的启动间隔目标是四小时。保留固定候选的手动验证；实际调度、完整覆盖与容量按上述主责文档验收。
   - 策略维护：测试新增/迁移时同步更新标签与脚本。
 - User Stories:
   - PRD-TESTING-CI-TIER-001: As a CI 维护者, I want case-level tier tagging, so that required/full boundaries are explicit.

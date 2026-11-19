@@ -4,8 +4,8 @@ cd "$(dirname "$0")"
 
 target=${1:-}
 case "$target" in
-  runtime|build|browser) ;;
-  *) echo "usage: $0 runtime|build|browser" >&2; exit 2 ;;
+  runtime|build|browser|rust-build) ;;
+  *) echo "usage: $0 runtime|build|browser|rust-build" >&2; exit 2 ;;
 esac
 
 base=ubuntu:24.04
@@ -20,6 +20,22 @@ if [[ "$target" == browser ]]; then
   options+=(--build-arg "NODE_BASE=${node_base}@${node_digest}"
             --build-context browser-tools=../../scripts/ci-browser-tools
             --label "org.oasis7.ci.node-base.digest=$node_digest")
+fi
+if [[ "$target" == rust-build ]]; then
+  workflow=../../.github/workflows/rust.yml
+  stable=$(sed -n 's/^  RUST_TOOLCHAIN: //p' "$workflow")
+  nightly=$(sed -n 's/^  OASIS7_WASM_TOOLCHAIN: //p' "$workflow")
+  wasm_target=$(sed -n 's/^  OASIS7_WASM_TARGET: //p' "$workflow")
+  [[ "$stable" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+  [[ "$nightly" =~ ^nightly-[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]
+  [[ "$wasm_target" == wasm32-unknown-unknown ]]
+  rust_base="rust:${stable}-bookworm"
+  rust_digest=$(docker buildx imagetools inspect "$rust_base" --format "{{json .Manifest}}" | jq -er .digest)
+  [[ "$rust_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+  options+=(--build-arg "RUST_BASE=${rust_base}@${rust_digest}"
+            --build-arg "RUST_TOOLCHAIN=$stable" --build-arg "WASM_TOOLCHAIN=$nightly"
+            --build-arg "WASM_TARGET=$wasm_target"
+            --label "org.oasis7.ci.rust-base.digest=$rust_digest")
 fi
 docker build "${options[@]}" --platform linux/amd64 --target "$target" \
   --build-arg "UBUNTU_BASE=${base}@${digest}" \
@@ -55,5 +71,20 @@ if [[ "$target" == browser ]]; then
           await browser.close();
         }
       })().catch(error => { console.error(error); process.exitCode = 1; });
+    '
+fi
+
+if [[ "$target" == rust-build ]]; then
+  docker run --rm --platform linux/amd64 --network none --user 65534:65534 \
+    --env HOME=/tmp "$image" bash -ec '
+      rustc +"$RUST_TOOLCHAIN" -vV
+      rustc +"$OASIS7_WASM_TOOLCHAIN" -vV
+      cargo +"$RUST_TOOLCHAIN" clippy --version
+      rustfmt +"$RUST_TOOLCHAIN" --version
+      rustup component list --installed --toolchain "$OASIS7_WASM_TOOLCHAIN" | grep -Fx rust-src
+      printf "pub fn smoke() {}\n" >/tmp/smoke.rs
+      for toolchain in "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"; do
+        rustc +"$toolchain" --target wasm32-unknown-unknown --crate-type lib /tmp/smoke.rs -o /tmp/smoke.rlib
+      done
     '
 fi

@@ -876,8 +876,8 @@ C0 counters 只表示 native Harness protocol admission；opaque ProviderBacked 
 可执行入口固定为：文档阶段运行 `./scripts/doc-governance-check.sh`；P0.1 实现阶段运行
 `env -u RUSTC_WRAPPER cargo test -p oasis7_provider_local_bridge --bin oasis7_provider_local_bridge -- decision_identity`
 与 `env -u RUSTC_WRAPPER cargo test -p oasis7 --lib provider_loopback_adapter`；集成阶段运行
-`env -u RUSTC_WRAPPER cargo test -p oasis7 --lib agent_cognition_mvcc`（P0.2 paired runtime）与
-`env -u RUSTC_WRAPPER cargo test -p oasis7 --lib agent_cognition_recovery`（P0.3 paired runtime）；
+`env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib agent_cognition_mvcc`（P0.2 paired runtime）与
+`env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib agent_cognition_recovery`（P0.3 paired runtime）；
 `./scripts/ci-tests.sh required`，完整多 Agent/retry/restore/parity 证明运行
 `./scripts/ci-tests.sh full`。focused filter 必须由实现切片建立并输出 immutable golden
 fixture、canonical bytes/digest/key、provider invocation count 与 feedback partition；命令
