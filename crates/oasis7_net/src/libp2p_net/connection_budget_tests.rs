@@ -350,6 +350,7 @@ fn pending_tcp_handshake_expires_and_releases_its_socket_and_budget() {
                 let target = Keypair::generate_ed25519().public().to_peer_id();
                 let budget = ConnectionBudget::new(ConnectionLimits {
                     handshake_timeout: Duration::from_secs(1),
+                    outbound: 1,
                     ..limits()
                 })
                 .unwrap();
@@ -358,6 +359,22 @@ fn pending_tcp_handshake_expires_and_releases_its_socket_and_budget() {
                 let connection = opts.connection_id();
                 budgeted.dial(opts).unwrap();
                 assert_eq!(occupancy(&budget, target), (1, [0, 1], 1));
+
+                let other_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let other_peer = Keypair::generate_ed25519().public().to_peer_id();
+                let other_address: Multiaddr = format!(
+                    "/ip4/127.0.0.1/tcp/{}",
+                    other_listener.local_addr().unwrap().port()
+                ).parse().unwrap();
+                assert!(matches!(
+                    budgeted.dial(dial_for(other_peer, other_address)),
+                    Err(DialError::Denied { .. })
+                ));
+                assert_eq!(
+                    budget.0.diagnostics.latest().0,
+                    Some(ResourceBudgetRejection::PendingOutbound)
+                );
+                assert_eq!(occupancy(&budget, other_peer), (1, [0, 1], 0));
 
                 let mut completion = Box::pin(async {
                     loop {
@@ -393,6 +410,11 @@ fn pending_tcp_handshake_expires_and_releases_its_socket_and_budget() {
                 assert_eq!(error.kind(), io::ErrorKind::TimedOut);
                 assert_eq!(error.to_string(), "transport handshake deadline expired");
                 assert_eq!(occupancy(&budget, target), (0, [0, 0], 0));
+                assert!(
+                    tokio::time::timeout(Duration::from_millis(100), other_listener.accept())
+                        .await
+                        .is_err()
+                );
 
                 // Drain any handshake bytes and verify that timing out shut down the real socket.
                 let mut bytes = [0; 512];
