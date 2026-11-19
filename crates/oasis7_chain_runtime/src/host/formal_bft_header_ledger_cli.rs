@@ -14,7 +14,8 @@ use crate::execution_bridge_real_tests::real_execution_bridge::{
 };
 
 use oasis7_distfs::protected_bft_v3::{
-    BftSuccessorWindowSourceV1, LocalBftSuccessorArchiveStoreV1,
+    BftPrivateRetentionCreationMarkerV1, BftSuccessorWindowSourceV1,
+    LocalBftSuccessorArchiveStoreV1,
 };
 
 #[derive(Deserialize)]
@@ -57,7 +58,9 @@ pub(super) fn run<'a>(
         let slot = match option {
             "--config" => &mut config,
             "--history" if action == "install" => &mut history,
-            "--archive" if action == "archive-prefix" => &mut archive,
+            "--archive" if matches!(action, "archive-prefix" | "verify-first-reserve") => {
+                &mut archive
+            }
             _ => return Err("unsupported private header ledger option".into()),
         };
         if slot.is_some() {
@@ -78,6 +81,16 @@ pub(super) fn run<'a>(
     }
     if action == "serve" {
         return serve::run(&config, shutdown);
+    }
+    if action == "verify-first-reserve" {
+        let archive = archive.ok_or("bft-header verify-first-reserve requires --archive")?;
+        let report = verify_first_reserve_from_paths(&config, &archive)?;
+        println!(
+            "{}",
+            serde_json::to_string(&report)
+                .map_err(|_| "encode local first Reserve verification")?
+        );
+        return Ok(());
     }
     if action == "archive-prefix" {
         let archive = archive.ok_or("bft-header archive-prefix requires --archive")?;
@@ -250,6 +263,98 @@ fn archive_from_paths(config_path: &Path, archive_path: &Path) -> Result<Archive
         reference,
         replayed,
         candidate,
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FirstReserveConfig {
+    schema_version: u32,
+    archive_directory: PathBuf,
+    source: BftSuccessorWindowSourceV1,
+    creation_marker: BftPrivateRetentionCreationMarkerV1,
+    expected_creation_marker_digest: String,
+    candidate: OriginalCandidateArchivePinV1,
+}
+
+#[derive(Serialize)]
+struct FirstReserveReport {
+    schema_version: &'static str,
+    candidate: ReplayedOriginalCandidateV1,
+    first_reservation_bytes: u64,
+    private_pin_bytes: u64,
+    original_selection_bytes: u64,
+    retained_h_dependency_count: usize,
+}
+
+/// Operator verification of preserved material. The protected signer obtains
+/// its own authenticated source and does not consume the local report.
+fn verify_first_reserve_from_paths(
+    config_path: &Path,
+    archive_path: &Path,
+) -> Result<FirstReserveReport, String> {
+    let config = load_config(config_path)?;
+    let options: FirstReserveConfig =
+        serde_json::from_slice(&read_private(archive_path, 64 * 1024)?)
+            .map_err(|_| "invalid first Reserve verification config")?;
+    if options.schema_version != 1 {
+        return Err("unsupported first Reserve verification config schema".into());
+    }
+    let archive_root = require_existing_directory(
+        &options.archive_directory,
+        "private original input archive CAS",
+    )?;
+    crate::controlled_live_config::require_private_owned(&archive_root, true)?;
+    let archive = LocalBftSuccessorArchiveStoreV1::new(LocalCasStore::new(&archive_root))
+        .map_err(|_| "first Reserve archive CAS path rejected")?;
+    let LoadedH {
+        anchor,
+        material,
+        store,
+    } = load_h(&config)?;
+    let ledger_root =
+        require_existing_directory(&config.ledger_directory, "private header ledger")?;
+    if [store.root(), ledger_root.as_path()]
+        .into_iter()
+        .any(|live| super::super::formal_bft_read_cli::paths_overlap(&archive_root, live))
+    {
+        return Err("original input archive and original ledger/CAS must be disjoint".into());
+    }
+    let source = Arc::new(CasBusinessIndexReader {
+        store: store.clone(),
+    });
+    let ledger = FormalBftHeaderLedgerExecutionV3::open_from_handoff(
+        &ledger_root,
+        store,
+        anchor,
+        config.target,
+        material,
+        source,
+        false,
+    )?;
+    let reference = &options.candidate.reference;
+    if reference.key.height != config.exact_height
+        || reference.key.header_id != config.exact_header_id
+    {
+        return Err("first Reserve candidate differs from exact operator target".into());
+    }
+    let input = archive
+        .load_original_admission_input(reference)
+        .map_err(|error| error.to_string())?;
+    let (candidate, price) = options.candidate.verify_first_price(
+        &ledger,
+        &input,
+        &options.source,
+        &options.creation_marker,
+        &options.expected_creation_marker_digest,
+    )?;
+    Ok(FirstReserveReport {
+        schema_version: "oasis7.formal_bft_local_first_reserve_verification.v1",
+        candidate,
+        first_reservation_bytes: input.publication_reservation_bytes,
+        private_pin_bytes: price.private_pin_bytes,
+        original_selection_bytes: price.original_selection_bytes,
+        retained_h_dependency_count: price.retained_h_dependencies.len(),
     })
 }
 

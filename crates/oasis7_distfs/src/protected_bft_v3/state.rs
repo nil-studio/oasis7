@@ -124,14 +124,17 @@ impl BftSignerStateV3 {
         &self,
         head: super::BftPrivateRetentionHeadV1,
     ) -> Result<Self, BftSignerErrorV3> {
-        head.validate_initial(&self.binding_digest)?;
-        if self.private_retention.is_some() || self.revision != 0 {
+        head.validate_supported_head(&self.binding_digest)?;
+        if !matches!(
+            (&self.private_retention, self.revision, head.sequence),
+            (None, 0, 1) | (Some(_), 1, 2)
+        ) {
             return Err(invalid(
-                "private retention activation requires a Fresh signer state",
+                "private retention transition requires its original predecessor",
             ));
         }
         let mut state = self.clone();
-        state.revision = 1;
+        state.revision = head.sequence;
         state.private_retention = Some(head);
         state.state_digest = digest_hex(STATE_DOMAIN_V3, &StateDigestInput::from(&state))?;
         Ok(state)
@@ -265,11 +268,14 @@ pub(crate) fn validate_state(
         return Err(invalid("BFT V3 state schema or H binding mismatch"));
     }
     if let Some(head) = &state.private_retention {
-        head.validate_initial(&state.binding_digest)?;
-        let initial = BftSignerStateV3::from_handoff(binding)?;
-        if initial.with_original_coverage_head(head.clone())? != *state {
+        head.validate_supported_head(&state.binding_digest)?;
+        let mut original = BftSignerStateV3::from_handoff(binding)?;
+        original.revision = head.sequence;
+        original.private_retention = Some(head.clone());
+        original.state_digest = digest_hex(STATE_DOMAIN_V3, &StateDigestInput::from(&original))?;
+        if original != *state {
             return Err(invalid(
-                "private retention first state is not exact original H",
+                "private retention state is not exact original H plus retention",
             ));
         }
     }

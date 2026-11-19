@@ -947,6 +947,13 @@ jobs:
         env:
           CACHE_INVENTORY_TOKEN: ${{ github.token }}
         run: python3 scripts/ci-workspace-cache.py preflight --scope ordinary --report "$RUNNER_TEMP/ordinary-cache-preflight.json"
+      - &ordinary-reclaim-unused-candidate-sdk-capacity
+        name: Reclaim unused candidate SDK capacity
+        if: github.job == 'oasis7-test-build-candidate'
+        env:
+          OASIS7_CAPACITY_PURPOSE: ordinary-native-candidate-v1
+        run: |
+          sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_JOB,GITHUB_WORKFLOW_REF,GITHUB_WORKSPACE,RUNNER_TEMP,OASIS7_CAPACITY_PURPOSE python3 scripts/ci-candidate-capacity.py --start "$RUNNER_TEMP/sdk-reclaim.json" --apply --min-free-bytes 1073741824 --min-free-inodes 10000
       - &ordinary-install-pinned-rust-toolchains
         name: Install pinned Rust toolchains
         shell: bash
@@ -960,13 +967,6 @@ jobs:
         name: Stabilize Rust cache toolchains
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
-      - &ordinary-reclaim-unused-candidate-sdk-capacity
-        name: Reclaim unused candidate SDK capacity
-        if: github.job == 'oasis7-test-build-candidate'
-        env:
-          OASIS7_CAPACITY_PURPOSE: ordinary-native-candidate-v1
-        run: |
-          sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_JOB,GITHUB_WORKFLOW_REF,GITHUB_WORKSPACE,RUNNER_TEMP,OASIS7_CAPACITY_PURPOSE python3 scripts/ci-candidate-capacity.py --apply --min-free-bytes 1073741824 --min-free-inodes 10000
       - &ordinary-shared-rust-cache
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
@@ -1004,6 +1004,13 @@ jobs:
         timeout-minutes: 11
         run: |
           sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
+      - &ordinary-wait-candidate-sdk-capacity
+        name: Wait for candidate SDK reclamation
+        if: github.job == 'oasis7-test-build-candidate'
+        env:
+          OASIS7_CAPACITY_PURPOSE: ordinary-native-candidate-v1
+        run: |
+          sudo --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,GITHUB_JOB,GITHUB_WORKFLOW_REF,GITHUB_WORKSPACE,RUNNER_TEMP,OASIS7_CAPACITY_PURPOSE python3 scripts/ci-candidate-capacity.py --wait "$RUNNER_TEMP/sdk-reclaim.json"
       - &ordinary-build-ordinary-test-artifacts
         name: Build ordinary test artifacts
         env:
@@ -1171,14 +1178,15 @@ jobs:
       - *ordinary-download-selection-artifact
       - *ordinary-actions-setup-python
       - *ordinary-report-ordinary-workspace-cache-capacity
+      - *ordinary-reclaim-unused-candidate-sdk-capacity
       - *ordinary-install-pinned-rust-toolchains
       - *ordinary-stabilize-rust-cache-toolchains
-      - *ordinary-reclaim-unused-candidate-sdk-capacity
       - *ordinary-shared-rust-cache
       - *ordinary-ordinary-cache-identity
       - *ordinary-ordinary-workspace-cache
       - *ordinary-validate-and-restore-ordinary-workspace-units
       - *ordinary-install-native-libraries
+      - *ordinary-wait-candidate-sdk-capacity
       - *ordinary-build-ordinary-test-artifacts
       - *ordinary-actions-upload-artifact
       - *ordinary-upload-common-artifact

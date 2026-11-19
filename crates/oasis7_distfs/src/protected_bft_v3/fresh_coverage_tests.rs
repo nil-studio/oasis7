@@ -1,7 +1,7 @@
 //! Real authenticated TCP against a software transaction adapter.
 use super::*;
 
-fn configured_source(
+pub(super) fn configured_source(
     binding: &BftSignerBindingV3,
 ) -> (
     BftPrivateRetentionCreationMarkerV1,
@@ -64,17 +64,14 @@ impl BftSigningKeyHandleV3 for FreshProviderKey {
         if bytes
             .windows(activation_domain.len())
             .any(|part| part == activation_domain)
-            && self.0.fetch_add(1, Ordering::SeqCst) != 0
         {
-            return Err(invalid(
-                "test provider cannot re-sign the original activation",
-            ));
+            self.0.fetch_add(1, Ordering::SeqCst);
         }
         Ok(key(33).sign(bytes).to_bytes())
     }
 }
 
-fn service(
+pub(super) fn service(
     binding: &BftSignerBindingV3,
     snapshot: &Arc<Mutex<BftSignerBackendSnapshotV3>>,
     slot: &Arc<Mutex<FreshSlot>>,
@@ -163,6 +160,8 @@ fn native_fresh_retention_activates_atomically_and_cold_retry_returns_original()
     let slot = Arc::new(Mutex::new(FreshSlot {
         marker: marker.clone(),
         original: None,
+        reservation: None,
+        reservation_hold: None,
         reserved_response_bytes: 0,
         mismatched_readback: false,
         lose_commit_acknowledgement: false,
@@ -193,7 +192,11 @@ fn native_fresh_retention_activates_atomically_and_cold_retry_returns_original()
     let original = lease.provision_private_retention(&role, &marker).unwrap();
     let reply = serde_json::to_value(
         crate::protected_bft_v3::wire::BftSignerReplyKindV3::PrivateRetention {
-            ledger: Box::new(original.clone()),
+            ledger: Box::new(
+                crate::protected_bft_v3::wire::BftRetentionReplyLedgerV1::Activation(
+                    original.clone(),
+                ),
+            ),
             latest_seal: None,
             reserved_response_bytes: slot.lock().unwrap().reserved_response_bytes,
         },
@@ -261,6 +264,8 @@ fn native_fresh_retention_mismatched_atomic_readback_never_releases_receipt() {
     let slot = Arc::new(Mutex::new(FreshSlot {
         marker: marker.clone(),
         original: None,
+        reservation: None,
+        reservation_hold: None,
         reserved_response_bytes: 0,
         mismatched_readback: true,
         lose_commit_acknowledgement: false,
@@ -301,6 +306,8 @@ fn native_fresh_retention_lost_commit_acknowledgement_recovers_only_after_fence(
     let slot = Arc::new(Mutex::new(FreshSlot {
         marker: marker.clone(),
         original: None,
+        reservation: None,
+        reservation_hold: None,
         reserved_response_bytes: 0,
         mismatched_readback: false,
         lose_commit_acknowledgement: true,
@@ -356,3 +363,6 @@ fn native_fresh_retention_lost_commit_acknowledgement_recovers_only_after_fence(
     drop(lease);
     server.join().unwrap();
 }
+
+#[path = "first_reservation_tests.rs"]
+mod first_reservation_tests;

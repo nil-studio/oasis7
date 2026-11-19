@@ -170,6 +170,8 @@ struct Backend {
 struct FreshSlot {
     marker: BftPrivateRetentionCreationMarkerV1,
     original: Option<BftPrivateRetentionActivationV1>,
+    reservation: Option<BftFirstReservedOriginalV1>,
+    reservation_hold: Option<Arc<AtomicUsize>>,
     reserved_response_bytes: u64,
     mismatched_readback: bool,
     lose_commit_acknowledgement: bool,
@@ -306,6 +308,68 @@ impl BftSignerBackendV3 for Backend {
                 "test Fresh commit acknowledgement lost after durable write",
             ));
         }
+        Ok(())
+    }
+
+    fn read_first_reserve_for_lease(
+        &mut self,
+        generation: u64,
+        token: &str,
+    ) -> Result<BftFirstReserveSnapshotV1, BftSignerErrorV3> {
+        let signer = self.snapshot.lock().unwrap();
+        Self::check(&signer, generation, token)?;
+        let slot = self
+            .fresh
+            .as_ref()
+            .ok_or_else(|| invalid("test original reserve namespace absent"))?
+            .lock()
+            .unwrap();
+        Ok(BftFirstReserveSnapshotV1 {
+            current: slot.with_signer(&signer),
+            reservation: slot.reservation.clone(),
+        })
+    }
+
+    fn compare_and_commit_first_reserve(
+        &mut self,
+        expected: &BftFirstReserveSnapshotV1,
+        next: &BftFirstReserveSnapshotV1,
+    ) -> Result<(), BftSignerErrorV3> {
+        let mut signer = self.snapshot.lock().unwrap();
+        let mut slot = self
+            .fresh
+            .as_ref()
+            .ok_or_else(|| invalid("test original reserve namespace absent"))?
+            .lock()
+            .unwrap();
+        if slot.with_signer(&signer) != expected.current
+            || slot.reservation != expected.reservation
+            || next.current.marker != slot.marker
+            || next.current.original != slot.original
+            || next.current.signer.lease_generation != signer.lease_generation
+            || next.current.signer.lease_token_digest != signer.lease_token_digest
+            || next.current.signer.protected_time_floor_ms != signer.protected_time_floor_ms
+            || next.current.reserved_response_bytes <= slot.reserved_response_bytes
+            || next.reservation.is_none()
+            || slot.reservation.as_ref().is_some_and(|original| {
+                next.reservation.as_ref() != Some(original)
+                    || next.current.signer.state != signer.state
+            })
+        {
+            return Err(invalid("test first Reserve atomic transaction differs"));
+        }
+        if slot.reservation.is_none() {
+            assert_eq!(
+                slot.reservation_hold
+                    .as_ref()
+                    .unwrap()
+                    .load(Ordering::SeqCst),
+                1
+            );
+        }
+        *signer = next.current.signer.clone();
+        slot.reservation = next.reservation.clone();
+        slot.reserved_response_bytes = next.current.reserved_response_bytes;
         Ok(())
     }
 

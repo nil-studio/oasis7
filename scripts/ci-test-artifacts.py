@@ -2726,14 +2726,31 @@ def cache_record(state, message, *, ordinary_baseline=False):
                 if path.parent.name == 'deps' and match:
                     hashed.append((path.parent.parent, match.group(1)))
             if not hashed:
-                # Cargo reports only the public path for a normal binary. Its
-                # concrete deps output is a hard link, not a guessed crate hash.
+                # Cargo reports the public executable and can copy its deps
+                # output on filesystems that cannot link it directly.
                 public = target_root / filenames[0]
                 profile = Path(filenames[0]).parent
+                executable = message.get('executable')
+                is_public_bin = (message['target']['kind'] == ['bin'] and executable
+                                 and _cache_relative(state, executable) == filenames[0])
+                copies = []
                 for candidate in (target_root / profile / 'deps').glob(target_name + '-*'):
                     match = pattern.fullmatch(candidate.name)
-                    if match and candidate.is_file() and os.path.samefile(public, candidate):
-                        hashed.append((profile, match.group(1)))
+                    if not match or candidate.is_symlink() or not candidate.is_file():
+                        continue
+                    unit = (profile, match.group(1))
+                    if os.path.samefile(public, candidate):
+                        hashed.append(unit)
+                    elif (candidate.name == target_name + '-' + unit[1]
+                          and is_public_bin
+                          and candidate.stat().st_size == public.stat().st_size):
+                        fingerprint = (profile / '.fingerprint' / (package + '-' + unit[1])
+                                       / ('bin-' + target_name)).as_posix()
+                        if _cache_path(target_root, fingerprint).is_file():
+                            copies.append((unit, candidate))
+                if not hashed and copies:
+                    public_digest = digest(public)
+                    hashed = [unit for unit, candidate in copies if digest(candidate) == public_digest]
             if not hashed and _cache_defer_unhashed_library(state, message, package, filenames):
                 return
             if len(set(hashed)) != 1:

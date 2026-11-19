@@ -713,3 +713,91 @@ fn committed_archive() {
         );
     }
 }
+
+#[test]
+fn wire3_first_reserve_cli_reprices_exact_local_and_received_candidates_from_original_h() {
+    run(first_reserve_price_case);
+}
+
+fn first_reserve_price_case() {
+    use oasis7_distfs::protected_bft_v3::LocalBftSuccessorArchiveStoreV1;
+
+    let h = qualified_handoff_v3();
+    let root = Scratch::new();
+    let store = cas(root.path());
+    for (digest, bytes) in &h.reader.0 {
+        assert_eq!(store.put_bytes(bytes).unwrap(), *digest);
+    }
+    let ledger = open(&h, root.path(), &store, true).unwrap();
+    let (source, marker) = ledger.fixture_first_price_source();
+    let marker_digest = marker.digest().unwrap();
+    let destination = Scratch::new();
+    let archive = LocalBftSuccessorArchiveStoreV1::new(cas(destination.path())).unwrap();
+    let [local, received, repriced] =
+        ["first-local", "first-received", "first-repriced"].map(|kind| {
+            ledger.fixture_archived_candidate(&archive, &source, private_actions(), Some(kind))
+        });
+    let ledger_directory = root.path().join("ledger");
+    drop(ledger);
+    drop(archive);
+
+    let write_owned = |name: &str, bytes: &[u8]| {
+        let path = root.path().join(name);
+        fs::write(&path, bytes).unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        path
+    };
+    let trust = write_owned("trust.json", &serde_json::to_vec(&h.trust).unwrap());
+    let material = write_owned(
+        "H.cbor",
+        &oasis7_wasm_abi::encode_canonical_cbor(&h.material).unwrap(),
+    );
+    let config = write_owned(
+        "ledger.json",
+        &serde_json::to_vec(&serde_json::json!({
+            "schema_version": 1,
+            "trust_config_path": trust,
+            "target": h.target,
+            "handoff_material_path": material,
+            "ledger_directory": ledger_directory,
+            "cas_directory": store.root(),
+            "exact_height": marker.initial_height,
+            "exact_header_id": local.1,
+        }))
+        .unwrap(),
+    );
+    let run_cli = |candidate, expected_creation_marker_digest: &str| {
+        let options = write_owned(
+            "archive.json",
+            &serde_json::to_vec(&serde_json::json!({
+                "schema_version": 1,
+                "archive_directory": destination.path().join("cas"),
+                "source": source,
+                "creation_marker": marker,
+                "expected_creation_marker_digest": expected_creation_marker_digest,
+                "candidate": candidate,
+            }))
+            .unwrap(),
+        );
+        crate::identity_receipt::dispatch(
+            [
+                "bft-header",
+                "verify-first-reserve",
+                "--config",
+                config.to_str().unwrap(),
+                "--archive",
+                options.to_str().unwrap(),
+            ]
+            .into_iter(),
+        )
+        .unwrap()
+    };
+
+    assert_eq!(local.1, received.1);
+    run_cli(local.0.clone(), &marker_digest).unwrap();
+    run_cli(received.0, &marker_digest).unwrap();
+    let wrong_marker_error = run_cli(local.0, &"83".repeat(32)).unwrap_err();
+    assert!(wrong_marker_error.contains("pinned original H source"));
+    let price_error = run_cli(repriced.0, &marker_digest).unwrap_err();
+    assert!(price_error.contains("price differs from original authenticated inventory"));
+}

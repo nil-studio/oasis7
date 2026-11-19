@@ -120,6 +120,16 @@ pub trait BftSignerLeaseV3: Send {
     ) -> Result<super::BftPrivateRetentionActivationV1, BftSignerErrorV3> {
         Err(invalid("private retention capability unsupported"))
     }
+    fn reserve_first_private_retention(
+        &mut self,
+        _attestor: &super::BftPrivateRetentionAttestorV1,
+        _marker: &super::BftPrivateRetentionCreationMarkerV1,
+        _activation: &super::BftPrivateRetentionActivationV1,
+        _input: &std::sync::Arc<super::BftPrivateRetentionAdmissionInputV1>,
+    ) -> Result<super::BftPrivateRetentionLedgerV1, BftSignerErrorV3> {
+        Err(invalid("first original Reserve is unsupported"))
+    }
+
     fn checkpoint(&mut self) -> Result<BftSignerCheckpointV3, BftSignerErrorV3>;
     fn protected_time_ms(&mut self) -> Result<i64, BftSignerErrorV3>;
     fn start_height_timer(
@@ -717,6 +727,11 @@ impl BftSignerLeaseV3 for RemoteBftSignerLeaseV3 {
         else {
             return Err(invalid("private retention activation reply has wrong kind"));
         };
+        let super::wire::BftRetentionReplyLedgerV1::Activation(ledger) = ledger.as_ref() else {
+            return Err(invalid(
+                "first activation reply must contain original empty map",
+            ));
+        };
         let checkpoint = self.verified_checkpoint(&request, &reply, self.credential.generation)?;
         ledger.verify(
             &self.binding,
@@ -730,7 +745,72 @@ impl BftSignerLeaseV3 for RemoteBftSignerLeaseV3 {
             *reserved_response_bytes,
         )?;
         self.checkpoint = checkpoint;
-        Ok(ledger.as_ref().clone())
+        Ok(ledger.clone())
+    }
+
+    fn reserve_first_private_retention(
+        &mut self,
+        attestor: &super::BftPrivateRetentionAttestorV1,
+        marker: &super::BftPrivateRetentionCreationMarkerV1,
+        activation: &super::BftPrivateRetentionActivationV1,
+        input: &std::sync::Arc<super::BftPrivateRetentionAdmissionInputV1>,
+    ) -> Result<super::BftPrivateRetentionLedgerV1, BftSignerErrorV3> {
+        use super::first_reservation::{original_activation_state, verify_first_reservation};
+        if attestor.provider_public_key != self.trust.provider_public_key {
+            return Err(invalid(
+                "first Reserve attestor differs from pinned provider",
+            ));
+        }
+        let before = original_activation_state(
+            &self.binding,
+            attestor,
+            marker,
+            activation,
+            self.credential.generation,
+        )?;
+        let reference = input.descriptor()?;
+        if reference.key.ledger_origin_digest != marker.ledger_origin_digest {
+            return Err(invalid(
+                "first Reserve original input differs from pinned Origin",
+            ));
+        }
+        let (request, reply) = self.command(BftSignerCommandV3::ReservePrivateRetentionInput {
+            expected_revision: before.revision,
+            expected_state_digest: before.state_digest.clone(),
+            reference: Box::new(reference.clone()),
+        })?;
+        let BftSignerReplyKindV3::PrivateRetention {
+            ledger,
+            latest_seal: None,
+            reserved_response_bytes,
+        } = RemoteBftSignerProviderV3::checked_result(&reply)?
+        else {
+            return Err(invalid("first Reserve reply has wrong kind"));
+        };
+        let super::wire::BftRetentionReplyLedgerV1::FirstReserve(ledger) = ledger.as_ref() else {
+            return Err(invalid(
+                "first Reserve reply must contain original pending map",
+            ));
+        };
+        let checkpoint = self.verified_checkpoint(&request, &reply, self.credential.generation)?;
+        let retained = super::BftFirstReservedOriginalV1 {
+            ledger: ledger.clone(),
+            input: input.clone(),
+        };
+        verify_first_reservation(
+            &before,
+            activation,
+            &reference,
+            &retained,
+            (&checkpoint.state, checkpoint.lease_generation),
+            attestor,
+        )?;
+        super::fresh_coverage::check_namespace_budget(
+            &retained.ledger.receipt.body,
+            *reserved_response_bytes,
+        )?;
+        self.checkpoint = checkpoint;
+        Ok(retained.ledger)
     }
 
     fn checkpoint(&mut self) -> Result<BftSignerCheckpointV3, BftSignerErrorV3> {
