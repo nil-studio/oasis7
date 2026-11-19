@@ -432,9 +432,11 @@ fn package_failed_candidate_start_rolls_back_and_restarts_exact_prior_image() {
         .stderr(Stdio::from(manager_log));
     manager.process_group(0);
     let mut manager = manager.spawn().expect("spawn prior-image manager child");
+    // Hosted runs can reach the persisted rollback state just before 90 seconds.
+    // Reserve time for the final action queries and child result serialization.
     let manager_status = wait_child(
         &mut manager,
-        Duration::from_secs(90),
+        Duration::from_secs(120),
         &manager_log_path,
         &manager_progress_path,
     );
