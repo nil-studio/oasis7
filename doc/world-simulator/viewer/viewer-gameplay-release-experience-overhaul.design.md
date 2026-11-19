@@ -407,7 +407,9 @@ goal、action discovery、branch、lane 与 fallback 消费同一查询事实。
 
 ### 8.1 从 Next Move 完成这一次决定
 
-默认阅读顺序是：**当前对象与目标 → 本次实际方案 → 主要成本/阻塞 → 明确下一动作 → 可展开依据与诊断**。对象、方案、提交范围及返回路径在进入详情后仍可辨认；原始 JSON、内部 ID 和次要诊断默认收起。影响损失、权限或不可逆承诺的信息不能折叠到玩家无法发现的位置。
+默认阅读顺序是：**当前对象与目标 → 需要玩家决定什么及实际分工 → 本次方案与主要成本/阻塞 → 明确下一动作 → 可展开依据与诊断**。对象、方案、提交范围及返回路径在进入详情后仍可辨认；原始 JSON、内部 ID 和次要诊断默认收起。影响损失、权限或不可逆承诺的信息不能折叠到玩家无法发现的位置。
+
+按[首局学习目标](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#minimum-independent-play)在同一上下文表达玩家选择目标、约束和主要承诺，Agent 代办当前已有授权与能力覆盖的步骤；尚由玩家直接提交的操作明确区分，不能因采用一段高层文案而声称已支持委托。涉及新增承诺、超出现有授权或实质改道的方案变化重新交回玩家决定。普通账号的建厂前置承接[首局内容 C02](first-session-content-delivery.design.md#content-units)，已有工厂可以复用，未提供取得入口的条件保留真实阻塞。
 
 查看对象只导航，请求预览只读取，提交才进入执行链；动作名称与 pending 反馈必须表达这一区别。固定方案的 factory/recipe/batches 与实际提交同源；可编辑但未接入提交的查询明确标为独立查询，不能让玩家以为编辑了 Next Move。保留现行 direct 动作白名单的合法行为，不把非 direct 入口仅靠文案变成提交；同一动作不保留两份竞争的 submit 控件，也不用 CSS 视觉移位造成与 DOM/键盘不同的顺序。完整成本从 [M4 同方案报价](../m4/industrial-resource-flow-contract.design.md#starter-quote-submit-binding)读取；缺失字段保留未确认，不由前端常量或另一账本补齐。
 
@@ -433,6 +435,8 @@ goal、action discovery、branch、lane 与 fallback 消费同一查询事实。
 先显示已被领域结果证明的实际投入/所得，再在原意图—action/job—settlement 精确关联成立时解释本次玩家贡献，最后说明当前真实用途与剩余条件。只有同 owner、最近结果或同名材料时可显示归属成果，但不称为当前决定的功劳；预览不是实际结果，Agent 解释不是归因证据。
 
 成果摘要引用同一 Action Receipt，不建立第二份回执或重复浮层。Assembler 候选可被查看、比较并显示已满足条件与缺口，即使当前不能建设；只有实际可执行动作使用提交型 CTA。候选未知时诚实解释，不把不可用候选包装成正式可行推荐。首产物、持续能力、建成 Assembler 和交付保持独立，首产物后可自然离场。
+
+后继信息支持玩家依据结果选择下一目标、恢复、改道或停止；操作提示帮助找到当前入口，不能据点击、事件计数或推荐路径完成推导玩家已独立掌握。独立游玩与界面操作进度、首产物和持续能力按[上游完成边界](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#minimum-independent-play)分别核验，不增设强制答题或继续建设的门槛。
 
 ### 8.4 该操作链的入口验收
 

@@ -17,7 +17,7 @@
 
 ### 活跃产品专题
 
-- [`首局与持续游玩`](first-session-and-continuation.prd.md)：首局微循环、后引导承接、首次持续能力、中循环展开与失败恢复。
+- [`首局与持续游玩`](first-session-and-continuation.prd.md)：最小独立游玩学习目标、普通账号工业起步、首局微循环、后引导承接、首次持续能力与失败恢复。
 - [`间接控制下的玩家能动性与续接`](indirect-control-agency-and-continuation.prd.md)：玩家通过 Agent 推动世界时的意图可读、因果可解释、干预重排、记忆纠正与回流续接。
 - [`Agent 所有权与持续经营`](agent-ownership-and-stewardship.prd.md)：玩家以明确承诺取得、维持或结束自己的 Agent 控制权，并读懂成本、风险和恢复选择。
 - [`成熟世界成长与区域参与`](mature-world-progression.prd.md)：首次持续能力之后的独立成长、区域专业化、有限影响、anti-grind / 恢复，以及有界认可与通用机会申领边界。
@@ -115,6 +115,8 @@ Trace refs: O7-REQ-5f3a2585-c3f2-4bce-9da6-08ac6638cf4f；声明：[REQ-WR-NARRA
 ## 2. 范围与玩家边界
 
 覆盖首局目标、micro-loop、后引导承接、间接控制、资源压力与长期参与。玩家可以观察、决策、行动并处理反馈；不能越过资源、时间、权限、治理或反滥用边界直接改写世界。
+
+首局的[学习目标与知识预算](first-session-and-continuation.prd.md#minimum-independent-play)由首局分册统一维护；界面教程进度、最小独立理解、首厂、首产物、持续能力和继续意愿分别判定。普通账号无预置工业资产时沿[实际起步条件](first-session-and-continuation.prd.md#ordinary-account-start)取得前置或恢复决策，不由入场成功推断已有工业能力。
 
 ### 物理尺度、间接控制与未来候选
 
