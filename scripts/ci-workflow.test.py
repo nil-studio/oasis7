@@ -150,6 +150,15 @@ def validate_mold_checkout_reuse(tools, setup, source):
     assert guards(source) == ["${{ " + fallback + " }}"], 'only the identical nonempty source may skip checkout'
 
 
+def rust_image_cache_namespace(name, job):
+    if name not in ('node', 'consensus', 'distfs') or '    container:' not in job:
+        return None
+    image = re.search(r'^    container:\n      image: ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:([0-9a-f]{64})$', job, re.M)
+    assert image, 'Rust cache readers require the pinned rust-build image'
+    assert '          save-if: false\n' in job, 'Rust image consumers may only read cache'
+    return 'ci-rust-build-' + image.group(1)
+
+
 def selected_source_steps(name):
     """Normalize only the equivalent first checkout of admitted main writers."""
     steps = JOBS[name].split('    steps:\n', 1)[1]
@@ -3662,7 +3671,7 @@ run_cargo() {
                     continue
                 component = re.fullmatch(r'formal-(debug|endpoint)-build(?:-trusted)?', name)
                 namespace = f'ci-formal-{component[1]}-deps-trusted-v1' if component else 'ci-shared-native-trusted-v4'
-                self.assertIn('shared-key: ' + namespace, job, name)
+                self.assertIn('shared-key: ' + (rust_image_cache_namespace(name, job) or namespace) + '\n', job, name)
                 self.assertIn('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM', job, name)
         self.assertNotIn('ordinary-required-v2', WORKFLOW)
 
@@ -3808,10 +3817,13 @@ run_cargo() {
                 if name in ('viewer-js-required', 'viewer-performance-report'):
                     viewer_cache_kind(job)
                 else:
-                    self.assertIn('shared-key: ci-shared-native-trusted-v4',job)
+                    namespace = rust_image_cache_namespace(name, job) or 'ci-shared-native-trusted-v4'
+                    self.assertIn('shared-key: ' + namespace + '\n', job)
                     self.assertIn('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM',job)
                 self.assertIn('add-rust-environment-hash-key: true',job)
-                self.assertLess(job.index('rustup default'),job.index('uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2'))
+                preparation = ('name: Verify the preinstalled Rust toolchains'
+                               if rust_image_cache_namespace(name, job) else 'rustup default')
+                self.assertLess(job.index(preparation), job.index('uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2'))
         for name in ('launcher-web','full-regression'):
             job=JOBS[name]
             self.assertIn('uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9',job)
