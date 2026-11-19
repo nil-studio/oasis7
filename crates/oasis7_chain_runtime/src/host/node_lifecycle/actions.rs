@@ -293,9 +293,15 @@ pub(crate) fn inspect(data: &Path) -> Result<serde_json::Value, String> {
 }
 pub(crate) fn status(data: &Path) -> Result<serde_json::Value, String> {
     let mut status = process::status(data)?;
-    let config = NodeConfig::load(&data.join(CONFIG_FILE))?;
-    if let Some(operation) = super::formal_full_sync::observe_operation_status(&config) {
-        status["formal_full_state_sync"] = operation;
+    if status["chain"]["formal_full_sync"]["api_version"]
+        == super::formal_full_sync::FULL_SYNC_CONFIG_V2
+    {
+        let config = NodeConfig::load(&data.join(CONFIG_FILE))?;
+        if status["config_digest"] != io::digest(&config)? {
+            return Err("node configuration changed between status observations".into());
+        }
+        status["formal_full_state_sync"] = super::formal_full_sync::observe_operation_status(&config)
+            .ok_or("operation status requires its exact V4/V2 node binding")?;
     }
     Ok(status)
 }

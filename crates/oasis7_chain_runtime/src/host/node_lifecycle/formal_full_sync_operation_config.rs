@@ -41,7 +41,7 @@ impl FormalFullSyncTransferPolicyV1 {
     }
 }
 
-const FULL_SYNC_CONFIG_V2: &str = "oasis7.formal-full-state-sync/v2";
+pub(crate) const FULL_SYNC_CONFIG_V2: &str = "oasis7.formal-full-state-sync/v2";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

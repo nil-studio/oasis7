@@ -102,7 +102,7 @@ use attempt::{
 };
 use cas_lifecycle::CasBudget;
 pub(super) use compatibility::probe_runtime_compatibility;
-pub(super) use operation_config::FormalFullSyncConfigV2;
+pub(super) use operation_config::{FULL_SYNC_CONFIG_V2, FormalFullSyncConfigV2};
 pub(super) use operation_status::observe as observe_operation_status;
 pub(crate) use providers::{FormalFullSyncConfigV1, FormalFullSyncEndpointV1};
 #[cfg(test)]
