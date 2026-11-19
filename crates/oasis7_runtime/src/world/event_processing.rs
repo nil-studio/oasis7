@@ -39,6 +39,10 @@ const WAR_DECLARE_ELECTRICITY_COST_PER_INTENSITY: i64 = 4;
 const WAR_DECLARE_BASE_DATA_COST: i64 = 8;
 const WAR_DECLARE_DATA_COST_PER_INTENSITY: i64 = 3;
 const CRISIS_BASE_IMPACT_PER_SEVERITY: i64 = 10;
+
+pub(in crate::world) fn crisis_base_impact_per_severity_v1() -> i64 {
+    CRISIS_BASE_IMPACT_PER_SEVERITY
+}
 const GAMEPLAY_POLICY_MAX_TAX_BPS: u16 = 10_000;
 const GAMEPLAY_POLICY_MIN_CONTRACT_QUOTA: u16 = 1;
 const GAMEPLAY_POLICY_MAX_CONTRACT_QUOTA: u16 = 64;
@@ -55,8 +59,10 @@ const STARTER_OC_CLAIM_AMOUNT: u64 = 100_000_000;
 mod action_to_event_core;
 pub(super) mod action_to_event_economy;
 mod action_to_event_gameplay;
+pub(in crate::world) use action_to_event_gameplay::{alliance_fixed, war_fixed};
 mod action_to_event_gameplay_meta;
 mod action_to_event_policy_contract;
+pub(in crate::world) use action_to_event_policy_contract::fixed_contract as contract_fixed;
 mod action_to_event_policy_contract_rejection;
 mod core_policy_root;
 mod main_token;
@@ -67,7 +73,6 @@ use publication::PreparedEventStateDelta;
 
 impl World {
     // ---------------------------------------------------------------------
-    // Internal helpers
     // ---------------------------------------------------------------------
 
     fn agent_alliance_id(&self, agent_id: &str) -> Option<&str> {
@@ -362,28 +367,13 @@ impl World {
         Ok(())
     }
 
-    pub(super) fn action_to_event(
+    pub(super) fn action_to_event_with_native_recipe_preview_v1(
         &self,
         envelope: &ActionEnvelope,
+        native_preview:Option<&super::agent_delegation::readonly::NativeRecipePreviewBindingV1<'_>>,
     ) -> Result<WorldEventBody, WorldError> {
-        self.validate_governance_action_authorization(envelope)?;
-        let action_id = envelope.id;
-        if let Err(reason) = self.safe_alternative_action_guard(envelope) {
-            return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
-                action_id,
-                reason: RejectReason::RuleDenied {
-                    notes: vec![reason],
-                },
-            }));
-        }
-        if let Err(error) = self.delegation_action_admission(&envelope.action) {
-            return Ok(WorldEventBody::Domain(DomainEvent::ActionRejected {
-                action_id,
-                reason: RejectReason::RuleDenied {
-                    notes: vec![format!("{error:?}")],
-                },
-            }));
-        }
+        if let Some(body)=self.action_to_event_readonly_prefix_v1(envelope,native_preview)?{return Ok(body)}
+        let action_id=envelope.id;
         if let Action::DeclareWar {
             aggressor_alliance_id,
             defender_alliance_id,
@@ -696,12 +686,10 @@ impl World {
             | Action::GovernRecipeProfile { .. }
             | Action::GovernFactoryProfile { .. } => {
                 let mut body = self.action_to_event_economy(action_id, &envelope.action)?;
-                if let WorldEventBody::Domain(DomainEvent::RecipeStarted {
-                    committed_recipe_origin,
-                    ..
-                }) = &mut body
-                {
-                    *committed_recipe_origin = envelope.committed_recipe_origin.clone();
+                let result:Result<(),std::convert::Infallible>=crate::world::incremental_normal_action_factory_schedule::attach_recipe_origin_with_work_v1(&mut body,envelope.committed_recipe_origin.as_ref(),&mut |_|Ok(()));
+                match result {
+                    Ok(()) => {}
+                    Err(never) => match never {},
                 }
                 Ok(body)
             }
@@ -1190,3 +1178,8 @@ impl World {
         Ok(Some(receipt_event_id))
     }
 }
+
+pub(in crate::world) use super::product_stack_admission as factory_schedule_product_fixed;
+pub(in crate::world) use action_to_event_economy::{
+    factory_schedule_fixed, factory_schedule_market_fixed,
+};

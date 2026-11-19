@@ -2,6 +2,7 @@
 use super::World;
 use crate::{DomainEvent, WorldError, WorldEvent, WorldEventBody};
 use oasis7_agent_api::world_action::WorldRuleCommandV1 as Command;
+use super::incremental_normal_world_rule_lifecycle::work::{legacy_lifecycle_work_v1,LifecycleRequestV1,OrderLifecycleChoiceV1};
 
 impl World {
     pub(crate) fn validate_world_rule_current_actor(
@@ -60,13 +61,7 @@ impl World {
         if let Some(rules) = &self.state.world_rules {
             for auth in rules.supply_authorizations.values() {
                 if auth.active && !auth.is_valid(&self.state, now) {
-                    work.push((
-                        auth.provider_id.clone(),
-                        format!("close:{}", crate::util::hash_json(&auth.id)?),
-                        Command::CloseSupply {
-                            authorization_id: auth.id.clone(),
-                        },
-                    ));
+                    work.push(legacy_lifecycle_work_v1(&auth.provider_id,LifecycleRequestV1::SupplyClose(&auth.id))?);
                 }
             }
             for (id, shipment) in &rules.supply_shipments {
@@ -74,11 +69,7 @@ impl World {
                     let actor = rules.supply_authorizations[&shipment.authorization_id]
                         .provider_id
                         .clone();
-                    work.push((
-                        actor,
-                        format!("settle:{id}"),
-                        Command::SettleSupply { job_id: *id },
-                    ));
+                    work.push(legacy_lifecycle_work_v1(&actor,LifecycleRequestV1::SupplySettle(*id))?);
                 }
             }
             for region in rules.emergency_supply.due_observation_regions(now) {
@@ -88,16 +79,7 @@ impl World {
                     .values()
                     .find(|s| s.registration.region_id == region)
                 {
-                    work.push((
-                        source.operator_agent_id.clone(),
-                        format!("observe:{}:{now}", crate::util::hash_json(&region)?),
-                        Command::EmergencySupply {
-                            command:
-                                oasis7_agent_api::world_action::EmergencySupplyCommandV1::Observe {
-                                    region_id: region.clone(),
-                                },
-                        },
-                    ));
+                    work.push(legacy_lifecycle_work_v1(&source.operator_agent_id,LifecycleRequestV1::Observe{region:&region,now})?);
                 }
             }
             for order in rules
@@ -105,26 +87,12 @@ impl World {
                 .values()
                 .filter(|o| !o.is_terminal() || o.refund_pending)
             {
-                let command = match order.phase {
+                let choice = match order.phase {
                     crate::world_rules::AgentIndustrialPhaseV1::AwaitingDelivery
-                        if self.industrial_order_blocker(order, now).is_none() =>
-                    {
-                        Command::DeliverAgentOrder {
-                            order_id: order.order_id.clone(),
-                        }
-                    }
-                    _ => Command::AdvanceAgentOrder {
-                        order_id: order.order_id.clone(),
-                    },
+                        if self.industrial_order_blocker(order, now).is_none() => OrderLifecycleChoiceV1::Deliver,
+                    _ => OrderLifecycleChoiceV1::Advance,
                 };
-                work.push((
-                    order.owner_id.clone(),
-                    format!(
-                        "progress:{}:{now}",
-                        crate::util::hash_json(&order.order_id)?
-                    ),
-                    command,
-                ));
+                work.push(legacy_lifecycle_work_v1(&order.owner_id,LifecycleRequestV1::Order{order:&order.order_id,now,command:choice})?);
             }
             for auth in rules.emergency_supply.authorizations.values() {
                 if auth.active
@@ -135,16 +103,7 @@ impl World {
                         now,
                     )
                 {
-                    work.push((
-                        auth.provider_id.clone(),
-                        format!("es-close:{}", crate::util::hash_json(&auth.id)?),
-                        Command::EmergencySupply {
-                            command:
-                                oasis7_agent_api::world_action::EmergencySupplyCommandV1::Close {
-                                    authorization_id: auth.id.clone(),
-                                },
-                        },
-                    ));
+                    work.push(legacy_lifecycle_work_v1(&auth.provider_id,LifecycleRequestV1::EmergencyClose(&auth.id))?);
                 }
             }
         }

@@ -86,7 +86,7 @@ impl ContinuationTransition {
         Ok(())
     }
 
-    pub fn apply_at_tick(
+    pub(crate) fn apply_at_tick_state_v1(
         continuation: &mut AgentContinuation,
         to: ContinuationStatusV1,
         logical_tick: u64,
@@ -113,6 +113,15 @@ impl ContinuationTransition {
                 .to_string(),
             );
         }
+        Ok(())
+    }
+
+    pub fn apply_at_tick(
+        continuation: &mut AgentContinuation,
+        to: ContinuationStatusV1,
+        logical_tick: u64,
+    ) -> Result<(), WakeConditionError> {
+        Self::apply_at_tick_state_v1(continuation, to, logical_tick)?;
         continuation.refresh_status_digest();
         Ok(())
     }

@@ -13,8 +13,8 @@ use super::capability_grant_v2::{
     fixture_world_with_revocations_and_budget_and_effect_grant, grant_json,
     install_invocation_context, prepared_invocation, signed_effect_grant, signed_grant,
 };
-use oasis7_agent_api::{ContinuousAgentTurnContextV1, GoalSnapshotV1, MemoryContextSnapshotV1};
 use oasis7_agent_api::Digest32;
+use oasis7_agent_api::{ContinuousAgentTurnContextV1, GoalSnapshotV1, MemoryContextSnapshotV1};
 use oasis7_wasm_abi::{
     AgentCommandResponse, CapabilityCatalogSnapshot, CapabilityGrantV2, ModuleEffectIntent,
     ModuleOutput, ModuleSandbox,

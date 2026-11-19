@@ -3,7 +3,6 @@ use super::{PreparedWorldRule, industrial_work as work, invalid, verify_world_ru
 use crate::{MaterialLedgerId, WorldError, WorldState, WorldTime};
 use oasis7_agent_api::world_action::*;
 pub use oasis7_agent_api::world_action::{SubstitutionPreviewV1, SubstitutionStateV1};
-use oasis7_wasm_abi::SubstitutionConversionV1;
 use std::collections::BTreeMap;
 
 #[derive(Clone, Copy)]
@@ -12,7 +11,7 @@ pub struct SubstitutionContext<'a> {
     world: &'a str,
     now: u64,
 }
-fn qualified(r: &IndustrialRefV1, world: &str) -> Result<(), WorldError> {
+pub(super) fn qualified(r: &IndustrialRefV1, world: &str) -> Result<(), WorldError> {
     if !r.is_qualified() || r.world_binding != world {
         return Err(invalid("substitution_reference_invalid"));
     }
@@ -51,115 +50,19 @@ fn preview_with_rules(
     world: &str,
     now: u64,
 ) -> Result<SubstitutionPreviewV1, WorldError> {
-    qualified(&request.root_ref, world)?;
-    let root = industrial
-        .roots
-        .get(&request.root_ref.id)
-        .filter(|r| r.root_ref == request.root_ref && r.owner_id == actor)
-        .ok_or_else(|| invalid("substitution_root_missing_or_unauthorized"))?;
-    if root.owner_binding_digest
-        != super::industrial_work_admission::industrial_owner_binding(state, actor)?
-    {
-        return Err(invalid("substitution_root_owner_stale"));
-    }
-    if !root.slots.contains_key(&request.slot_id) {
-        return Err(invalid("substitution_slot_missing"));
-    }
-    let expected = rules
-        .authorities
-        .values()
-        .filter(|a| {
-            a.root_ref == request.root_ref && a.slot_id == request.slot_id && a.owner_id == actor
-        })
-        .map(|a| a.authority_ref.clone())
-        .collect::<std::collections::BTreeSet<_>>();
-    let supplied = request
-        .authority_refs
-        .iter()
-        .cloned()
-        .collect::<std::collections::BTreeSet<_>>();
-    if expected.len() > 32
-        || (!supplied.is_empty()
-            && (supplied != expected || supplied.len() != request.authority_refs.len()))
-    {
-        return Err(invalid("substitution_incomplete_authority_set"));
-    }
-    let mut candidates = Vec::new();
-    let mut blocker = None;
-    for reference in &expected {
-        match candidate(
-            state,
-            rules,
-            industrial,
-            request,
-            reference,
-            SubstitutionContext { actor, world, now },
-        ) {
-            Ok(c) => candidates.push(c),
-            Err(e) => {
-                blocker = Some(format!("{e:?}"));
-            }
-        }
-    }
-    if expected.is_empty() {
-        blocker = Some("missing_authority".into());
-    }
-    let no_rules = state
-        .recipe_profiles
-        .get(&root.pinned_recipe_id)
-        .is_some_and(|p| {
-            p.substitution_rules.is_empty()
-                && crate::util::hash_json(p).ok().as_ref() == Some(&root.pinned_profile_digest)
-        });
-    let status = if !candidates.is_empty() {
-        SubstitutionPreviewStatusV1::Available
-    } else {
-        let possible_source = industrial.lots.values().any(|lot| {
-            lot.owner_id == actor
-                && lot.remaining > 0
-                && root
-                    .slots
-                    .get(&request.slot_id)
-                    .is_some_and(|slot| slot.material == lot.material)
-        });
-        let possible_recipe = industrial.roots.values().any(|other| {
-            other.root_ref != root.root_ref
-                && other.owner_id == actor
-                && other.factory_id == root.factory_id
-                && other.work == 0
-                && !other.first_sink
-        });
-        if no_rules && expected.is_empty() && !possible_source && !possible_recipe {
-            blocker = None;
-            SubstitutionPreviewStatusV1::NoLegalSubstitute
-        } else {
-            SubstitutionPreviewStatusV1::Unknown
-        }
+    let source = super::readonly_start_industrial_overlay::IndustrialInputOverlayFactsV1 {
+        source: state,
+        industrial,
+        substitution: rules,
     };
-    let mut preview = SubstitutionPreviewV1 {
-        preview_digest: String::new(),
-        status,
-        blocker,
-        next_action: if candidates.is_empty() {
-            "resolve_blocker".into()
-        } else {
-            "explicit_confirmation".into()
-        },
-        next_recheck: candidates
-            .iter()
-            .map(|c| c.authority.next_recheck)
-            .min()
-            .unwrap_or(now),
-        request: request.clone(),
-        candidates,
-        evaluated_at: now,
-    };
-    preview.preview_digest = crate::util::hash_json(&preview)?;
-    if serde_json::to_vec(&preview)?.len() > 48 * 1024 {
-        return Err(invalid("substitution_preview_capacity_exceeded"));
+    match super::readonly_substitution::preview_substitution_readonly_v1(
+        &source, actor, request, world, now,
+    ) {
+        Ok(value) => value,
+        Err(never) => match never {},
     }
-    Ok(preview)
 }
+
 impl PreparedWorldRule {
     pub fn recipe_substitution(
         &mut self,

@@ -100,7 +100,11 @@ impl PosNodeEngine {
                 total_stake: decision.total_stake,
             };
             execution_hook
-                .prepare_local_continuation(&continuation)
+                .prepare_verified_local_continuation(
+                    &crate::execution_hook::VerifiedNodeLocalContinuationV1::from_engine(
+                        &continuation,
+                    ),
+                )
                 .map_err(|reason| NodeError::Execution { reason })?;
         }
         let result = match execution_hook.on_commit_outcome_with_expected(

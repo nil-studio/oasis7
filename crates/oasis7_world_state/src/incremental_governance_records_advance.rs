@@ -152,13 +152,43 @@ pub(super) fn child<R: ValueNodeReader, C: FnMut() -> bool>(
     cells: &mut u64,
     max: u64,
 ) -> Result<(), ValueTreeError> {
+    child_with_work_and_observer(
+        kind,
+        before,
+        after,
+        records,
+        cells,
+        max,
+        |_, _, _, _| Ok(()),
+        &mut |_| Ok(()),
+    )
+}
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
+pub(super) fn child_with_work_and_observer<R: ValueNodeReader, C: FnMut() -> bool>(
+    kind: GovernanceRecordKindV1,
+    before: &StateRootV1,
+    after: &StateRootV1,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    cells: &mut u64,
+    max: u64,
+    mut observe: impl FnMut(
+        GovernanceCellV1<'_>,
+        Option<&StateEntryV1>,
+        Option<&StateEntryV1>,
+        &mut InventoryValueReader<'_, '_, R, C>,
+    ) -> Result<(), ValueTreeError>,
+    work: &mut dyn FnMut(usize) -> Result<(), ValueTreeError>,
+) -> Result<(), ValueTreeError> {
     if before.namespace != kind.namespace() || after.namespace != kind.namespace() {
         return Err(invalid());
     }
     let mut changes = [Changes::default(); 4];
     let meta = WorldFieldKeyV1::new(kind.descriptor()?, WorldFieldRecordKindV1::Metadata, None)
         .map_err(ValueTreeError::Invalid)?;
-    incremental_record_diff::visit(
+    incremental_record_diff::visit_with_work(
         before,
         after,
         records,
@@ -222,11 +252,13 @@ pub(super) fn child<R: ValueNodeReader, C: FnMut() -> bool>(
                         changes[3].observe(old.is_some(), new.is_some(), None)?
                     }
                 }
-                Ok(())
+                observe(cell, old, new, records)
             })
         },
+        work,
     )?;
     for group in GovernanceCollectionV1::ALL {
+        work(1)?;
         let delta = changes[index(group)];
         if delta.touched {
             delta.check(

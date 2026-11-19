@@ -19,10 +19,39 @@ fn child<R: ValueNodeReader, C: FnMut() -> bool>(
     cells: &mut u64,
     max: u64,
 ) -> Result<(), ValueTreeError> {
+    child_with_work_and_observer(
+        kind,
+        before,
+        after,
+        records,
+        cells,
+        max,
+        |_, _, _| Ok(()),
+        &mut |_| Ok(()),
+    )
+}
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
+pub(super) fn child_with_work_and_observer<R: ValueNodeReader, C: FnMut() -> bool>(
+    kind: RewardRecordKindV1,
+    before: &StateRootV1,
+    after: &StateRootV1,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    cells: &mut u64,
+    max: u64,
+    mut observe: impl FnMut(
+        Option<&StateEntryV1>,
+        Option<&StateEntryV1>,
+        &mut InventoryValueReader<'_, '_, R, C>,
+    ) -> Result<(), ValueTreeError>,
+    work: &mut dyn FnMut(usize) -> Result<(), ValueTreeError>,
+) -> Result<(), ValueTreeError> {
     if before.namespace != kind.namespace() || after.namespace != kind.namespace() {
         return Err(read::invalid());
     }
-    incremental_record_diff::visit(
+    incremental_record_diff::visit_with_work(
         before,
         after,
         records,
@@ -70,8 +99,9 @@ fn child<R: ValueNodeReader, C: FnMut() -> bool>(
                     }
                 }
             }
-            Ok(())
+            observe(old, new, records)
         },
+        work,
     )?;
     if (records.cancelled)() {
         return Err(ValueTreeError::Cancelled);
@@ -79,7 +109,7 @@ fn child<R: ValueNodeReader, C: FnMut() -> bool>(
     Ok(())
 }
 #[derive(Default)]
-struct OrderChanges {
+pub(super) struct OrderChanges {
     added: u64,
     removed: u64,
     old_max: Option<u64>,
@@ -88,7 +118,12 @@ struct OrderChanges {
     removed_min: Option<u64>,
 }
 impl OrderChanges {
-    fn observe(&mut self, index: u64, old: bool, new: bool) -> Result<(), ValueTreeError> {
+    pub(super) fn observe(
+        &mut self,
+        index: u64,
+        old: bool,
+        new: bool,
+    ) -> Result<(), ValueTreeError> {
         if old {
             self.old_max = Some(self.old_max.map_or(index, |n| n.max(index)));
         }
@@ -105,7 +140,7 @@ impl OrderChanges {
         }
         Ok(())
     }
-    fn check(&self, old: u64, new: u64) -> Result<(), ValueTreeError> {
+    pub(super) fn check(&self, old: u64, new: u64) -> Result<(), ValueTreeError> {
         if self.old_max.is_some_and(|i| i >= old)
             || self.new_max.is_some_and(|i| i >= new)
             || self.added_min.is_some_and(|i| i < old)
@@ -138,20 +173,68 @@ pub fn accept_reward_transition_v1<
     max: u64,
 ) -> Result<ReservedValue<RewardFamilyQualificationV1>, WorldFieldOverlayErrorV1> {
     ctx.check()?;
-    if !parent.uses_budget(ctx.values.memory)
-        || !verifier.memory.same_pool(ctx.values.memory)
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary
         || verifier.class != ctx.values.class
+        || !verifier.memory.same_pool(ctx.values.memory)
+        || !record.after.state.iter().any(|r| r == ctx.root)
     {
         return Err(read::invalid().into());
     }
-    parent.validate_binding(&record.before.digest().map_err(|_| read::invalid())?)?;
-    let verified = verifier.verify(record);
-    let error = (ctx.take_state_error)();
-    ctx.check()?;
-    if let Some(error) = error {
-        return Err(error.into());
+    {
+        let _phase = crate::incremental_record_qualification_phase::bind_phase_v1(
+            parent,
+            crate::incremental_record_qualification_phase::FamilyBindingV1::Roots(&record.before),
+            ctx.values.memory,
+            ctx.values.class,
+            &mut ctx.cancelled,
+        )?;
     }
-    let verified = verified?;
+    let witness = crate::incremental_verified_world_transition::verify_world_transition_v1(
+        verifier, record, ctx,
+    )?;
+    accept_reward_verified_v1(parent, &witness, ctx, inner_scan, cells, max)
+}
+
+pub(crate) fn accept_reward_verified_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<RewardFamilyQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    inner_scan: &mut StateScanBudget,
+    cells: &mut u64,
+    max: u64,
+) -> Result<ReservedValue<RewardFamilyQualificationV1>, WorldFieldOverlayErrorV1> {
+    ctx.check()?;
+    witness.check_context(ctx.values.memory, ctx.values.class, ctx.root)?;
+    let record = witness.record();
+
+    ctx.check()?;
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary {
+        return Err(ValueTreeError::Invalid("ordinary receiver class").into());
+    }
+
+    if !parent.uses_budget(ctx.values.memory)
+        || crate::incremental_record_qualification_phase::check_class_v1(
+            parent,
+            ctx.values.memory,
+            ctx.values.class,
+        )
+        .is_err()
+    {
+        return Err(read::invalid().into());
+    }
+    let _phase = crate::incremental_record_qualification_phase::bind_phase_v1(
+        parent,
+        crate::incremental_record_qualification_phase::FamilyBindingV1::Roots(&record.before),
+        ctx.values.memory,
+        ctx.values.class,
+        &mut ctx.cancelled,
+    )?;
+    let verified = witness.prepared();
     if !verified
         .record
         .after

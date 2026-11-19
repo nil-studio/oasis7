@@ -1,0 +1,77 @@
+//! The original fixed five-field wire order, usable with borrowed text DATA.
+use super::*;
+use serde::ser::SerializeStruct;
+pub struct ModuleArtifactListingProjectionFieldsV1<'a, T: Serialize + ?Sized> {
+    pub order_id: u64,
+    pub seller_agent_id: &'a T,
+    pub price_kind: ResourceKind,
+    pub price_amount: i64,
+    pub listed_at: WorldTime,
+}
+pub struct ModuleArtifactBidProjectionFieldsV1<'a, T: Serialize + ?Sized> {
+    pub order_id: u64,
+    pub bidder_agent_id: &'a T,
+    pub price_kind: ResourceKind,
+    pub price_amount: i64,
+    pub bid_at: WorldTime,
+}
+impl<T: Serialize + ?Sized> Serialize for ModuleArtifactListingProjectionFieldsV1<'_, T> {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let mut s = s.serialize_struct("ModuleArtifactListingState", 5)?;
+        s.serialize_field("order_id", &self.order_id)?;
+        s.serialize_field("seller_agent_id", self.seller_agent_id)?;
+        s.serialize_field("price_kind", &self.price_kind)?;
+        s.serialize_field("price_amount", &self.price_amount)?;
+        s.serialize_field("listed_at", &self.listed_at)?;
+        s.end()
+    }
+}
+impl<T: Serialize + ?Sized> Serialize for ModuleArtifactBidProjectionFieldsV1<'_, T> {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let mut s = s.serialize_struct("ModuleArtifactBidState", 5)?;
+        s.serialize_field("order_id", &self.order_id)?;
+        s.serialize_field("bidder_agent_id", self.bidder_agent_id)?;
+        s.serialize_field("price_kind", &self.price_kind)?;
+        s.serialize_field("price_amount", &self.price_amount)?;
+        s.serialize_field("bid_at", &self.bid_at)?;
+        s.end()
+    }
+}
+impl Serialize for ModuleArtifactListingState {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let Self {
+            order_id,
+            seller_agent_id,
+            price_kind,
+            price_amount,
+            listed_at,
+        } = self;
+        ModuleArtifactListingProjectionFieldsV1 {
+            order_id: *order_id,
+            seller_agent_id,
+            price_kind: *price_kind,
+            price_amount: *price_amount,
+            listed_at: *listed_at,
+        }
+        .serialize(s)
+    }
+}
+impl Serialize for ModuleArtifactBidState {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let Self {
+            order_id,
+            bidder_agent_id,
+            price_kind,
+            price_amount,
+            bid_at,
+        } = self;
+        ModuleArtifactBidProjectionFieldsV1 {
+            order_id: *order_id,
+            bidder_agent_id,
+            price_kind: *price_kind,
+            price_amount: *price_amount,
+            bid_at: *bid_at,
+        }
+        .serialize(s)
+    }
+}

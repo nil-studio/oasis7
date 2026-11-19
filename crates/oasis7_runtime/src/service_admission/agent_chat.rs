@@ -1,6 +1,6 @@
 //! Canonical owner chat. Economic grants and provider delegation do not grant control.
 use crate::{AgentIntentAuthorityContext, World};
-use oasis7_proto::{player_auth::verify_agent_chat_auth_proof, viewer::AgentChatRequest};
+use oasis7_proto::viewer::AgentChatRequest;
 
 pub fn authority(request: &AgentChatRequest) -> AgentIntentAuthorityContext {
     AgentIntentAuthorityContext {
@@ -15,35 +15,7 @@ pub fn authority(request: &AgentChatRequest) -> AgentIntentAuthorityContext {
 /// Authentication/identity admission only: durable correlation replay is checked
 /// before mutable replacement/nonce fences, but never bypasses current ownership.
 pub fn validate_owner(world: &World, request: &AgentChatRequest) -> Result<(), String> {
-    let proof = request
-        .auth
-        .as_ref()
-        .ok_or("canonical chat proof required")?;
-    let verified = verify_agent_chat_auth_proof(request, proof)?;
-    let identity = world
-        .current_agent_identity(&request.agent_id)
-        .ok_or("canonical Agent identity unavailable")?;
-    let extension = request
-        .canonical_authority
-        .as_ref()
-        .ok_or("canonical chat authority required")?;
-    let binding = world
-        .current_cognition_runtime_binding()
-        .map_err(|e| format!("{e:?}"))?;
-    if verified.player_id != identity.owner_binding
-        || verified.public_key
-            != super::agent_authority::owner_public_key(world, &request.agent_id)?
-        || extension.agent_identity_generation != identity.generation
-        || extension.branch_id != binding.branch_id
-        || request.world_id.as_deref() != Some(binding.world_id.as_str())
-        || request.reorg_epoch != Some(binding.reorg_epoch)
-        || request.authority_scope.as_deref() != Some("player_agent_chat")
-        || request.intent_seq.is_none_or(|seq| seq == 0)
-        || request.intent_tick.is_none()
-    {
-        return Err("canonical chat owner, world, branch or identity fence mismatch".into());
-    }
-    Ok(())
+    readonly_rules::flatten_legacy(readonly_rules::validate_owner_with_facts_v1(&readonly_rules::Legacy(world),request))
 }
 
 pub fn validate_fresh(world: &World, request: &AgentChatRequest) -> Result<(), String> {
@@ -143,78 +115,10 @@ pub fn owner_view(
     world: &World,
     agent: &str,
 ) -> Result<Option<oasis7_proto::viewer::CanonicalAgentChatViewV1>, String> {
-    use oasis7_proto::viewer::*;
-    let Some(identity) = world.current_agent_identity(agent) else {
-        return Ok(None);
-    };
-    let Ok(public_key) = super::agent_authority::owner_public_key(world, agent) else {
-        return Ok(None);
-    };
-    let binding = world
-        .current_cognition_runtime_binding()
-        .map_err(|e| format!("{e:?}"))?;
-    let current = world
-        .state()
-        .agents
-        .get(agent)
-        .and_then(|cell| cell.intent.as_ref());
-    let current_intent_id = current
-        .filter(|intent| {
-            !matches!(
-                intent.status.as_str(),
-                "completed" | "rejected" | "expired" | "cancelled" | "superseded"
-            )
-        })
-        .map(|intent| intent.intent_id.clone());
-    let mut goal = None;
-    if let Some(intent) = current {
-        for result in
-            super::retained_queries::agent_chat_goal_results(world, agent, &intent.intent_id)?
-                .into_values()
-        {
-            if result.rejected.is_some()
-                || result
-                    .receipt
-                    .get("intent_id")
-                    .and_then(serde_json::Value::as_str)
-                    != Some(intent.intent_id.as_str())
-            {
-                continue;
-            }
-            let super::WorldServicePayloadV1::AgentChat(request) = result.request.signed_payload
-            else {
-                continue;
-            };
-            if request.agent_id != agent || validate_owner(world, &request).is_err() {
-                continue;
-            }
-            if goal.is_some() {
-                return Err("ambiguous canonical Agent goal result".into());
-            }
-            goal = Some(CanonicalAgentGoalV1 {
-                intent_id: intent.intent_id.clone(),
-                message: request.message,
-                status: intent.status.clone(),
-                event_seq: intent.event_seq,
-                logical_time: intent.logical_time,
-            });
-        }
-    }
-    Ok(Some(CanonicalAgentChatViewV1 {
-        agent_id: agent.into(),
-        player_id: identity.owner_binding.clone(),
-        public_key,
-        world_id: binding.world_id,
-        reorg_epoch: binding.reorg_epoch,
-        authority_scope: "player_agent_chat".into(),
-        canonical_authority: CanonicalAgentChatAuthorityV1 {
-            branch_id: binding.branch_id,
-            agent_identity_generation: identity.generation,
-        },
-        current_intent_id,
-        goal,
-    }))
+    readonly_rules::flatten_legacy(readonly_rules::owner_view_with_facts_v1(&readonly_rules::Legacy(world),agent))
 }
+#[path="agent_chat_readonly.rs"]
+pub(crate) mod readonly_rules;
 
 #[cfg(test)]
 #[path = "agent_chat_tests.rs"]

@@ -29,6 +29,16 @@ pub struct TransitionVerifier<'a, R> {
 
 impl TransitionRecordV1 {
     pub fn validate(&self) -> Result<(), ExecutionError> {
+        self.validate_with_work(&mut |_, _| Ok(()))
+    }
+    pub fn validate_with_work(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<(), ExecutionError> {
+        work(
+            14,
+            (self.before.world_id.len() + self.after.world_id.len() + 12 * 64) as u64,
+        )?;
         self.before.validate()?;
         self.after.validate()?;
         if self.before.world_id != self.after.world_id
@@ -46,6 +56,7 @@ impl TransitionRecordV1 {
         }
         let mut previous = None;
         for read in &self.reads {
+            work(1, read.key.len() as u64)?;
             validate_key(&read.key)?;
             let key = (read.namespace, read.key.as_slice());
             if previous.is_some_and(|old| old >= key) {
@@ -55,6 +66,7 @@ impl TransitionRecordV1 {
         }
         let mut previous = None;
         for write in &self.writes {
+            work(1, write.mutation.key.len() as u64)?;
             validate_key(&write.mutation.key)?;
             let key = (write.namespace, write.mutation.key.as_slice());
             if previous.is_some_and(|old| old >= key)
@@ -63,10 +75,22 @@ impl TransitionRecordV1 {
                 return Err(ExecutionError::Invalid("final write-set ordering/no-op"));
             }
             previous = Some(key);
-            let position = self
-                .reads
-                .binary_search_by(|read| (read.namespace, read.key.as_slice()).cmp(&key))
-                .map_err(|_| ExecutionError::Invalid("write without parent read"))?;
+            let mut work_error = None;
+            let position = self.reads.binary_search_by(|read| {
+                if work_error.is_some() {
+                    return std::cmp::Ordering::Equal;
+                }
+                if let Err(error) = work(1, read.key.len().min(write.mutation.key.len()) as u64) {
+                    work_error = Some(error);
+                    return std::cmp::Ordering::Equal;
+                }
+                (read.namespace, read.key.as_slice()).cmp(&key)
+            });
+            if let Some(error) = work_error {
+                return Err(error);
+            }
+            let position =
+                position.map_err(|_| ExecutionError::Invalid("write without parent read"))?;
             if self.reads[position].before != write.mutation.before {
                 return Err(ExecutionError::Invalid("read/write precondition mismatch"));
             }
@@ -75,31 +99,51 @@ impl TransitionRecordV1 {
     }
 
     pub(super) fn heap_bytes(&self) -> usize {
-        self.before.heap_bytes()
+        self.heap_bytes_with_work(&mut |_, _| Ok(()))
+            .expect("infallible work")
+    }
+    pub(super) fn heap_bytes_with_work(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<usize, ExecutionError> {
+        work(14, 0)?;
+        let reads = self.reads.iter().try_fold(
+            self.reads.capacity() * std::mem::size_of::<ExecutionReadV1>(),
+            |n, read| {
+                work(1, 0)?;
+                Ok::<_, ExecutionError>(n + read.key.capacity())
+            },
+        )?;
+        let writes = self.writes.iter().try_fold(
+            self.writes.capacity() * std::mem::size_of::<ExecutionWriteV1>(),
+            |n, write| {
+                work(1, 0)?;
+                Ok::<_, ExecutionError>(n + write.mutation.key.capacity())
+            },
+        )?;
+        Ok(self.before.heap_bytes()
             + self.after.heap_bytes()
-            + self.reads.capacity() * std::mem::size_of::<ExecutionReadV1>()
-            + self
-                .reads
-                .iter()
-                .map(|read| read.key.capacity())
-                .sum::<usize>()
-            + self.writes.capacity() * std::mem::size_of::<ExecutionWriteV1>()
-            + self
-                .writes
-                .iter()
-                .map(|write| write.mutation.key.capacity())
-                .sum::<usize>()
-            + self.facts.capacity() * std::mem::size_of::<ExecutionFactRefV1>()
+            + reads
+            + writes
+            + self.facts.capacity() * std::mem::size_of::<ExecutionFactRefV1>())
     }
 }
 
 impl PreparedTransition {
     pub(super) fn heap_bytes(&self) -> Result<usize, ExecutionError> {
+        self.heap_bytes_with_work(&mut |_, _| Ok(()))
+    }
+    pub(super) fn heap_bytes_with_work(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<usize, ExecutionError> {
+        work(1, 0)?;
         let mut bytes = std::mem::size_of::<Self>()
             + 64
-            + self.record.heap_bytes()
+            + self.record.heap_bytes_with_work(work)?
             + self.new_nodes.capacity() * std::mem::size_of::<StateNodeWriteV1>();
         for node in &self.new_nodes {
+            work(1, 0)?;
             bytes = bytes
                 .checked_add(node.digest.capacity())
                 .and_then(|bytes| bytes.checked_add(node.bytes.capacity()))

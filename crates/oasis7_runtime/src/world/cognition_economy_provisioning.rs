@@ -54,6 +54,20 @@ type CognitionProvisioningDigestPayload<'a> = (
     &'a str,
 );
 
+/// Paid DATA only; never installation or authorization evidence.
+pub(in crate::world) struct CurrentProvisioningRequestDataV1<C>{
+    request:CognitionProvisioningRequestV1,
+    _charge:C,
+}
+impl<C> CurrentProvisioningRequestDataV1<C>{
+    pub(in crate::world) fn value(&self)->&CognitionProvisioningRequestV1{&self.request}
+    pub(in crate::world) fn provision_into_v1<O:CognitionEconomyWorkOpsV1>(self,state:&mut CognitionEconomyStateV1,tick:u64,ops:&mut O)->Result<CurrentEconomyProvisionDataV1<O::Charge>,CognitionEconomyError>{
+        let Self{request,_charge}=self;
+        let output=state.provision_current_with_work_v1(request,tick,ops);
+        drop(_charge);output
+    }
+}
+
 impl CognitionProvisioningRequestV1 {
     #[expect(
         clippy::too_many_arguments,
@@ -72,23 +86,44 @@ impl CognitionProvisioningRequestV1 {
     ) -> Self {
         let mut request = Self {
             schema_version: COGNITION_PROVISIONING_SCHEMA_VERSION.to_string(),
-            provision_id: provision_id.into(),
-            account_id: account_id.into(),
-            owner_binding: owner_binding.into(),
-            owner_generation,
-            world_id: world_id.into(),
-            branch_id: branch_id.into(),
-            reorg_epoch,
+            provision_id: provision_id.into(), account_id: account_id.into(),
+            owner_binding: owner_binding.into(), owner_generation,
+            world_id: world_id.into(), branch_id: branch_id.into(), reorg_epoch,
             resource: "cognition_units".to_string(),
             resource_version: COGNITION_RESOURCE_VERSION_V1.to_string(),
             policy_revision: COGNITION_FIXED_UNIT_EXPERIMENTAL_POLICY_REVISION.to_string(),
-            allowance,
-            authority_context: authority_context.into(),
-            authority_digest: String::new(),
-            provisioning_digest: String::new(),
+            allowance, authority_context: authority_context.into(),
+            authority_digest: String::new(), provisioning_digest: String::new(),
         };
         request.refresh_digests();
         request
+    }
+
+    /// Construct the same request from actual source fields. The returned
+    /// charge covers all owned field copies until the request is consumed.
+    #[allow(clippy::too_many_arguments)]
+    pub(in crate::world) fn new_with_work_v1<O:CognitionEconomyWorkOpsV1>(
+        provision_id:&str, account_id:&str, owner_binding:&str, owner_generation:u64,
+        world_id:&str, branch_id:&str, reorg_epoch:u64, allowance:u64,
+        authority_context:&str, ops:&mut O,
+    )->Result<CurrentProvisioningRequestDataV1<O::Charge>,CognitionEconomyError>{
+        let charge=ops.before_value(&(
+            provision_id,account_id,owner_binding,world_id,branch_id,authority_context,
+            COGNITION_PROVISIONING_SCHEMA_VERSION,"cognition_units",COGNITION_RESOURCE_VERSION_V1,
+            COGNITION_FIXED_UNIT_EXPERIMENTAL_POLICY_REVISION,
+        ))?;
+        let mut request=Self {
+            schema_version:COGNITION_PROVISIONING_SCHEMA_VERSION.to_owned(),
+            provision_id:provision_id.to_owned(),account_id:account_id.to_owned(),
+            owner_binding:owner_binding.to_owned(),owner_generation,world_id:world_id.to_owned(),
+            branch_id:branch_id.to_owned(),reorg_epoch,resource:"cognition_units".to_owned(),
+            resource_version:COGNITION_RESOURCE_VERSION_V1.to_owned(),
+            policy_revision:COGNITION_FIXED_UNIT_EXPERIMENTAL_POLICY_REVISION.to_owned(),
+            allowance,authority_context:authority_context.to_owned(),
+            authority_digest:String::new(),provisioning_digest:String::new(),
+        };
+        request.refresh_digests_with_work_v1(ops)?;
+        Ok(CurrentProvisioningRequestDataV1{request,_charge:charge})
     }
 
     fn authority_digest_payload(&self) -> CognitionAuthorityDigestPayload<'_> {
@@ -124,26 +159,35 @@ impl CognitionProvisioningRequestV1 {
         )
     }
 
-    pub fn recompute_authority_digest(&self) -> String {
-        economy_digest(
+    pub fn recompute_authority_digest(&self) -> String { self.recompute_authority_digest_with_work_v1(&mut LegacyEconomyWorkV1).expect("cognition payload must be canonically encodable") }
+    pub(super) fn recompute_authority_digest_with_work_v1<O:CognitionEconomyWorkOpsV1>(&self,ops:&mut O)->Result<String,CognitionEconomyError> {
+        ops.digest(
             COGNITION_PROVISIONING_AUTHORITY_DOMAIN,
             &self.authority_digest_payload(),
         )
     }
 
-    pub fn recompute_provisioning_digest(&self) -> String {
-        economy_digest(
+    pub fn recompute_provisioning_digest(&self) -> String { self.recompute_provisioning_digest_with_work_v1(&mut LegacyEconomyWorkV1).expect("cognition payload must be canonically encodable") }
+    pub(super) fn recompute_provisioning_digest_with_work_v1<O:CognitionEconomyWorkOpsV1>(&self,ops:&mut O)->Result<String,CognitionEconomyError> {
+        ops.digest(
             COGNITION_PROVISIONING_DIGEST_DOMAIN,
             &self.provisioning_digest_payload(),
         )
     }
 
     pub fn refresh_digests(&mut self) {
-        self.authority_digest = self.recompute_authority_digest();
-        self.provisioning_digest = self.recompute_provisioning_digest();
+        self.refresh_digests_with_work_v1(&mut LegacyEconomyWorkV1)
+            .expect("cognition payload must be canonically encodable");
+    }
+    pub(in crate::world) fn refresh_digests_with_work_v1<O:CognitionEconomyWorkOpsV1>(&mut self,ops:&mut O)->Result<(),CognitionEconomyError>{
+        self.authority_digest=self.recompute_authority_digest_with_work_v1(ops)?;
+        self.provisioning_digest=self.recompute_provisioning_digest_with_work_v1(ops)?;
+        Ok(())
     }
 
-    pub fn validate(&self) -> Result<(), CognitionEconomyError> {
+    pub fn validate(&self) -> Result<(), CognitionEconomyError> { self.validate_with_work_v1(&mut LegacyEconomyWorkV1) }
+    pub(in crate::world) fn validate_with_work_v1<O:CognitionEconomyWorkOpsV1>(&self,ops:&mut O)->Result<(),CognitionEconomyError> {
+        ops.work(1,0)?;
         if self.schema_version != COGNITION_PROVISIONING_SCHEMA_VERSION
             || !bounded_identity(&self.provision_id)
             || !bounded_identity(&self.account_id)
@@ -158,9 +202,9 @@ impl CognitionProvisioningRequestV1 {
             || self.allowance == 0
             || !bounded_identity(&self.authority_context)
             || !valid_digest(&self.authority_digest)
-            || self.authority_digest != self.recompute_authority_digest()
+            || self.authority_digest != self.recompute_authority_digest_with_work_v1(ops)?
             || !valid_digest(&self.provisioning_digest)
-            || self.provisioning_digest != self.recompute_provisioning_digest()
+            || self.provisioning_digest != self.recompute_provisioning_digest_with_work_v1(ops)?
         {
             return Err(CognitionEconomyError::InvalidInput(
                 "cognition_provisioning_request_invalid",
@@ -169,8 +213,9 @@ impl CognitionProvisioningRequestV1 {
         Ok(())
     }
 
-    pub(crate) fn binding_key(&self) -> String {
-        economy_digest(
+    pub(crate) fn binding_key(&self) -> String { self.binding_key_with_work_v1(&mut LegacyEconomyWorkV1).expect("cognition payload must be canonically encodable") }
+    pub(super) fn binding_key_with_work_v1<O:CognitionEconomyWorkOpsV1>(&self,ops:&mut O)->Result<String,CognitionEconomyError> {
+        ops.digest(
             COGNITION_PROVISIONING_DIGEST_DOMAIN,
             &(
                 &self.account_id,
@@ -195,15 +240,17 @@ pub struct CognitionProvisioningRecordV1 {
 }
 
 impl CognitionProvisioningRecordV1 {
-    pub(super) fn validate(&self) -> Result<(), CognitionEconomyError> {
-        self.request.validate()?;
-        let expected_receipt_id = economy_digest(
+    pub(super) fn validate(&self) -> Result<(), CognitionEconomyError> { self.validate_with_work_v1(&mut LegacyEconomyWorkV1) }
+    pub(super) fn validate_with_work_v1<O:CognitionEconomyWorkOpsV1>(&self,ops:&mut O)->Result<(),CognitionEconomyError> {
+        ops.work(1,0)?;
+        self.request.validate_with_work_v1(ops)?;
+        let expected_receipt_id = ops.digest(
             COGNITION_PROVISIONING_RECEIPT_ID_DOMAIN,
             &(
                 &self.request.provision_id,
                 &self.request.provisioning_digest,
             ),
-        );
+        )?;
         if !valid_digest(&self.receipt_id) || self.receipt_id != expected_receipt_id {
             return Err(CognitionEconomyError::InvalidState(
                 "cognition_provisioning_receipt_id_invalid",
@@ -224,8 +271,9 @@ pub struct CognitionProvisioningReceiptV1 {
 }
 
 impl CognitionProvisioningReceiptV1 {
-    fn recompute_receipt_id(&self) -> String {
-        economy_digest(
+    fn recompute_receipt_id(&self) -> String { self.recompute_receipt_id_with_work_v1(&mut LegacyEconomyWorkV1).expect("cognition payload must be canonically encodable") }
+    pub(super) fn recompute_receipt_id_with_work_v1<O:CognitionEconomyWorkOpsV1>(&self,ops:&mut O)->Result<String,CognitionEconomyError> {
+        ops.digest(
             COGNITION_PROVISIONING_RECEIPT_ID_DOMAIN,
             &(
                 &self.request.provision_id,
@@ -234,27 +282,31 @@ impl CognitionProvisioningReceiptV1 {
         )
     }
 
-    pub fn recompute_digest(&self) -> String {
+    pub fn recompute_digest(&self) -> String { self.recompute_digest_with_work_v1(&mut LegacyEconomyWorkV1).expect("cognition payload must be canonically encodable") }
+    pub(super) fn recompute_digest_with_work_v1<O:CognitionEconomyWorkOpsV1>(&self,ops:&mut O)->Result<String,CognitionEconomyError> {
+        let _phase=ops.before_value(self)?;
         let mut value = serde_json::to_value(self).expect("provisioning receipt is serializable");
         value
             .as_object_mut()
             .expect("provisioning receipt is an object")
             .remove("receipt_digest");
-        economy_digest(COGNITION_PROVISIONING_RECEIPT_DOMAIN, &value)
+        ops.digest(COGNITION_PROVISIONING_RECEIPT_DOMAIN, &value)
     }
 
-    pub(super) fn validate(&self) -> Result<(), CognitionEconomyError> {
+    pub(super) fn validate(&self) -> Result<(), CognitionEconomyError> { self.validate_with_work_v1(&mut LegacyEconomyWorkV1) }
+    pub(super) fn validate_with_work_v1<O:CognitionEconomyWorkOpsV1>(&self,ops:&mut O)->Result<(),CognitionEconomyError> {
+        ops.work(1,0)?;
         if self.schema_version != COGNITION_PROVISIONING_RECEIPT_SCHEMA_VERSION
             || !valid_digest(&self.receipt_id)
             || !valid_digest(&self.receipt_digest)
-            || self.receipt_id != self.recompute_receipt_id()
-            || self.receipt_digest != self.recompute_digest()
+            || self.receipt_id != self.recompute_receipt_id_with_work_v1(ops)?
+            || self.receipt_digest != self.recompute_digest_with_work_v1(ops)?
         {
             return Err(CognitionEconomyError::InvalidState(
                 "cognition_provisioning_receipt_invalid",
             ));
         }
-        self.request.validate()
+        self.request.validate_with_work_v1(ops)
     }
 }
 
@@ -271,36 +323,40 @@ pub struct CognitionProvisioningEventV1 {
 }
 
 impl CognitionProvisioningEventV1 {
-    fn recompute_digest(&self) -> String {
+    fn recompute_digest(&self) -> String { self.recompute_digest_with_work_v1(&mut LegacyEconomyWorkV1).expect("cognition payload must be canonically encodable") }
+    pub(super) fn recompute_digest_with_work_v1<O:CognitionEconomyWorkOpsV1>(&self,ops:&mut O)->Result<String,CognitionEconomyError> {
+        let _phase=ops.before_value(self)?;
         let mut value = serde_json::to_value(self).expect("provisioning event is serializable");
         value
             .as_object_mut()
             .expect("provisioning event is an object")
             .remove("event_digest");
-        economy_digest(COGNITION_PROVISIONING_EVENT_DOMAIN, &value)
+        ops.digest(COGNITION_PROVISIONING_EVENT_DOMAIN, &value)
     }
 
-    pub(super) fn validate(&self) -> Result<(), CognitionEconomyError> {
+    pub(super) fn validate(&self) -> Result<(), CognitionEconomyError> { self.validate_with_work_v1(&mut LegacyEconomyWorkV1) }
+    pub(super) fn validate_with_work_v1<O:CognitionEconomyWorkOpsV1>(&self,ops:&mut O)->Result<(),CognitionEconomyError> {
+        ops.work(1,0)?;
         if self.schema_version != COGNITION_PROVISIONING_EVENT_SCHEMA_VERSION
             || self.journal_seq == 0
             || (self.journal_seq > 1 && !valid_digest(&self.parent_event_digest))
             || self.event_kind != "provision"
             || self.receipt_id
-                != economy_digest(
+                != ops.digest(
                     COGNITION_PROVISIONING_RECEIPT_ID_DOMAIN,
                     &(
                         &self.request.provision_id,
                         &self.request.provisioning_digest,
                     ),
-                )
+                )?
             || !valid_digest(&self.event_digest)
-            || self.event_digest != self.recompute_digest()
+            || self.event_digest != self.recompute_digest_with_work_v1(ops)?
         {
             return Err(CognitionEconomyError::InvalidState(
                 "cognition_provisioning_event_invalid",
             ));
         }
-        self.request.validate()
+        self.request.validate_with_work_v1(ops)
     }
 }
 
@@ -321,35 +377,35 @@ impl CognitionEconomyStateV1 {
         Ok(receipt)
     }
 
-    fn provision_inner(
-        &mut self,
-        request: CognitionProvisioningRequestV1,
-        tick: u64,
-    ) -> Result<CognitionProvisioningReceiptV1, CognitionEconomyError> {
+    fn provision_inner(&mut self,request:CognitionProvisioningRequestV1,tick:u64)->Result<CognitionProvisioningReceiptV1,CognitionEconomyError>{
+        Ok(self.provision_inner_with_work_v1(request,tick,&mut LegacyEconomyWorkV1)?.receipt)
+    }
+    fn provision_inner_with_work_v1<O:CognitionEconomyWorkOpsV1>(&mut self,request:CognitionProvisioningRequestV1,tick:u64,ops:&mut O)->Result<CurrentEconomyProvisionDataV1<O::Charge>,CognitionEconomyError>{
+        ops.work(1,request.provision_id.len())?;
         if let Some(existing) = self.provisions.get(&request.provision_id) {
             if existing.request != request {
                 return Err(CognitionEconomyError::Conflict(
                     "cognition_provisioning_idempotency_conflict",
                 ));
             }
-            return self
-                .provision_receipts
-                .get(existing.receipt_id.as_str())
-                .cloned()
-                .ok_or(CognitionEconomyError::InvalidState(
-                    "cognition_provisioning_receipt_missing",
-                ));
+            let original=self.provision_receipts.get(existing.receipt_id.as_str())
+                .ok_or(CognitionEconomyError::InvalidState("cognition_provisioning_receipt_missing"))?;
+            let output_charge=ops.before_value(original)?;
+            let receipt=original.clone();
+            return Ok(CurrentEconomyProvisionDataV1{receipt,output_charge});
         }
 
+        let output_charge=ops.before_value(&request)?;
         // A capability owner receives one allowance for one world identity.
         // This also makes two agents sharing an owner account converge on the
         // same provision instead of silently refilling the account.
-        let binding_key = request.binding_key();
-        if self
-            .provisions
-            .values()
-            .any(|existing| existing.request.binding_key() == binding_key)
-        {
+        let binding_key = request.binding_key_with_work_v1(ops)?;
+        let mut existing_binding=false;
+        for existing in self.provisions.values(){
+            ops.work(1,0)?;
+            if existing.request.binding_key_with_work_v1(ops)?==binding_key{existing_binding=true;break}
+        }
+        if existing_binding {
             return Err(CognitionEconomyError::Conflict(
                 "cognition_provisioning_binding_conflict",
             ));
@@ -366,14 +422,13 @@ impl CognitionEconomyStateV1 {
             // to its immutable historical binding before installing the new
             // generation/reorg binding. Existing leases are moved with it so
             // terminal transitions still settle against their original fund.
-            let legacy_binding = self
-                .provisions
-                .values()
-                .find(|existing| {
-                    existing.request.account_id == request.account_id
-                        && existing.request.resource == request.resource
-                })
-                .map(|existing| existing.request.binding_key());
+            let mut legacy_binding=None;
+            for existing in self.provisions.values(){
+                ops.work(1,existing.request.account_id.len()+existing.request.resource.len())?;
+                if existing.request.account_id==request.account_id && existing.request.resource==request.resource {
+                    legacy_binding=Some(existing.request.binding_key_with_work_v1(ops)?);break;
+                }
+            }
             let Some(legacy_binding) = legacy_binding else {
                 return Err(CognitionEconomyError::Conflict(
                     "cognition_provisioning_balance_already_initialized",
@@ -396,6 +451,7 @@ impl CognitionEconomyStateV1 {
                 .or_default()
                 .insert(request.resource.clone(), legacy_balance);
             for lease in self.leases.values() {
+                ops.work(1,lease.account_id.len()+lease.quote.resource.len()+lease.lease_id.len())?;
                 if lease.account_id == request.account_id
                     && lease.quote.resource == request.resource
                     && !self.lease_binding_keys.contains_key(&lease.lease_id)
@@ -416,10 +472,10 @@ impl CognitionEconomyStateV1 {
                     reserved: 0,
                 },
             );
-        let receipt_id = economy_digest(
+        let receipt_id = ops.digest(
             COGNITION_PROVISIONING_RECEIPT_ID_DOMAIN,
             &(&request.provision_id, &request.provisioning_digest),
-        );
+        )?;
         let mut receipt = CognitionProvisioningReceiptV1 {
             schema_version: COGNITION_PROVISIONING_RECEIPT_SCHEMA_VERSION.to_string(),
             receipt_id: receipt_id.clone(),
@@ -427,8 +483,8 @@ impl CognitionEconomyStateV1 {
             request: request.clone(),
             issued_at_tick: tick,
         };
-        receipt.receipt_digest = receipt.recompute_digest();
-        receipt.validate()?;
+        receipt.receipt_digest = receipt.recompute_digest_with_work_v1(ops)?;
+        receipt.validate_with_work_v1(ops)?;
         self.provisions.insert(
             request.provision_id.clone(),
             CognitionProvisioningRecordV1 {
@@ -460,14 +516,34 @@ impl CognitionEconomyStateV1 {
             receipt_id,
             event_digest: String::new(),
         };
-        event.event_digest = event.recompute_digest();
-        event.validate()?;
+        event.event_digest = event.recompute_digest_with_work_v1(ops)?;
+        event.validate_with_work_v1(ops)?;
         self.provision_head_seq = journal_seq;
         self.provision_journal.push(event);
-        self.provision_head_digest = economy_digest(
+        self.provision_head_digest = ops.digest(
             COGNITION_PROVISIONING_JOURNAL_DOMAIN,
             &(self.provision_head_seq, &self.provision_journal),
-        );
-        Ok(receipt)
+        )?;
+        Ok(CurrentEconomyProvisionDataV1{receipt,output_charge})
+    }
+}
+
+/// Local derived economy DATA plus the actual admitted mutation/output graph.
+/// It carries neither Current-source qualification nor an installation permit.
+pub(in crate::world) struct CurrentEconomyProvisionDataV1<C>{
+    pub(in crate::world) receipt:CognitionProvisioningReceiptV1,
+    pub(in crate::world) output_charge:C,
+}
+impl CognitionEconomyStateV1{
+    /// Caller supplies an already paid local economy copy. This routine uses
+    /// the unique original transition and the complete original invariants;
+    /// the fixed Current writer independently authenticates all before rows.
+    pub(in crate::world) fn provision_current_with_work_v1<O:CognitionEconomyWorkOpsV1>(
+        &mut self,request:CognitionProvisioningRequestV1,tick:u64,ops:&mut O,
+    )->Result<CurrentEconomyProvisionDataV1<O::Charge>,CognitionEconomyError>{
+        request.validate_with_work_v1(ops)?;
+        let output=self.provision_inner_with_work_v1(request,tick,ops)?;
+        self.validate_with_work_v1(ops)?;
+        Ok(output)
     }
 }

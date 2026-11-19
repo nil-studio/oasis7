@@ -1,5 +1,7 @@
 use super::*;
+#[cfg(test)]
 use oasis7_wasm_abi::ModuleTickLifecycleDirective as D;
+#[cfg(test)]
 use oasis7_world_state::incremental_scheduler_fields::{
     MODULE_WAKE_INDEX_KEY_V1, ModuleWakeKeyV1, ModuleWakeV1,
 };
@@ -47,6 +49,7 @@ pub(super) fn seed_schedules(
         state.0.insert(node.digest, node.bytes);
     }
 }
+#[cfg(test)]
 fn decoded(id: [u8; 32], values: &Values, memory: &MemoryBudget) -> u64 {
     let mut quota = io();
     let mut reader = ValueReadContext {
@@ -62,6 +65,7 @@ fn decoded(id: [u8; 32], values: &Values, memory: &MemoryBudget) -> u64 {
         .unwrap();
     ModuleWakeV1::from_canonical_bytes(&bytes).unwrap().0
 }
+#[cfg(test)]
 fn decoded_index(
     id: [u8; 32],
     values: &Values,
@@ -412,8 +416,10 @@ fn scheduler_failures_poison_preceding_work_and_leave_cached_schedules_unchanged
     }
 }
 
+#[cfg(test)]
 #[path = "incremental_scheduler_due_tests.rs"]
 mod due_order;
 
+#[cfg(test)]
 #[path = "incremental_scheduler_consistency_tests.rs"]
 mod consistency;

@@ -69,63 +69,16 @@ pub struct AgentIndustrialOrderV1 {
 }
 impl AgentIndustrialOrderV1 {
     pub fn validate(&self) -> Result<(), WorldError> {
-        use AgentIndustrialPhaseV1 as P;
-        let mut quote = self.quote.clone();
-        let digest = std::mem::take(&mut quote.quote_digest);
-        if self.policy_version != 1
-            || quote.policy_version != 1
-            || self.owner_id != quote.owner_id
-            || self.factory_id != quote.factory_id
-            || self.inputs != quote.inputs
-            || quote.electricity != AGENT_MANUFACTURING_POWER
-            || quote.claim_cost.slot_index < 2
-            || quote.recipe_id != "recipe.assembler.agent_mk1"
-            || crate::util::hash_json(&quote)? != digest
-            || self.target_agent_id
-                != format!("industrial:{}", crate::util::hash_json(&self.order_id)?)
-        {
-            return Err(invalid("manufacturing_recovery_incomplete"));
+        match self.validate_with_work_v1(&mut |_, _, _| Ok::<_, std::convert::Infallible>(())) {
+            Ok(result) => result,
+            Err(never) => match never {},
         }
-        let phase_valid = match self.phase {
-            P::Reserved => {
-                self.started_at.is_none()
-                    && self.completed_work_ticks == 0
-                    && self.produced_at.is_none()
-                    && self.delivered_at.is_none()
-            }
-            P::Producing | P::ProductionBlocked => {
-                self.started_at.is_some()
-                    && self.completed_work_ticks < 12
-                    && self.produced_at.is_none()
-                    && self.delivered_at.is_none()
-            }
-            P::AwaitingDelivery => {
-                self.started_at.is_some()
-                    && self.completed_work_ticks == 12
-                    && self.produced_at.is_some()
-                    && self.delivered_at.is_none()
-            }
-            P::Delivered => {
-                self.started_at.is_some()
-                    && self.completed_work_ticks == 12
-                    && self.produced_at.is_some()
-                    && self.delivered_at.is_some()
-            }
-            P::Cancelled => self.started_at.is_none() && self.completed_work_ticks == 0,
-            P::Disposed => self.started_at.is_some(),
-        };
-        let refundable_terminal = matches!(self.phase, P::Cancelled | P::Disposed);
-        if self.refund_pending && (!refundable_terminal || self.refunded_at.is_some())
-            || self
-                .refunded_at
-                .is_some_and(|at| !refundable_terminal || at < self.confirmed_at)
-        {
-            return Err(invalid("manufacturing_refund_recovery_incomplete"));
-        }
-        if !phase_valid {
-            return Err(invalid("manufacturing_recovery_incomplete"));
-        }
-        Ok(())
+    }
+    pub fn validate_with_work_v1<E>(
+        &self,
+        work: &mut impl FnMut(u64, usize, usize) -> Result<(), E>,
+    ) -> Result<Result<(), WorldError>, E> {
+        super::readonly_order_validation::validate(self, work)
     }
     pub fn is_terminal(&self) -> bool {
         matches!(
@@ -141,45 +94,40 @@ impl AgentIndustrialOrderV1 {
                 .min(self.blocked_at.map_or(u64::MAX, |b| b.saturating_add(24)))
         })
     }
+    /// Fixed original pre-production decision. Validation/source facts are
+    /// DATA; only actual Current source owners may use this in a commit path.
+    /// Callers preserve the lazy refund-source read after successful validate.
+    pub fn delivery_prefix_after_validation_v1(
+        &self,
+        now: WorldTime,
+        validation: Result<(), WorldError>,
+        refund_source_current: Option<bool>,
+    ) -> Option<String> {
+        match self.delivery_prefix_after_validation_with_work_v1(
+            now,
+            validation,
+            refund_source_current,
+            &mut |_, _, _| Ok::<_, std::convert::Infallible>(()),
+        ) {
+            Ok(value) => value,
+            Err(never) => match never {},
+        }
+    }
+    pub fn delivery_prefix_after_validation_with_work_v1<E>(
+        &self,
+        now: WorldTime,
+        validation: Result<(), WorldError>,
+        refund_source_current: Option<bool>,
+        work: &mut impl FnMut(u64, usize, usize) -> Result<(), E>,
+    ) -> Result<Option<String>, E> {
+        super::readonly_order_validation::prefix(self, now, validation, refund_source_current, work)
+    }
     pub fn blocker(&self, state: &WorldState, now: WorldTime) -> Option<String> {
-        if let Err(error) = self.validate() {
-            return Some(format!("{error:?}"));
-        }
-        if self.refund_pending {
-            return Some(
-                if refund_source_is_current(state, self) {
-                    "refund_pending_authoritative_release"
-                } else {
-                    "restore_original_owner_source_for_frozen_refund"
-                }
-                .into(),
-            );
-        }
-        if self.is_terminal() {
-            return Some(format!("order_terminal:{:?}", self.phase));
-        }
-        if self.phase != AgentIndustrialPhaseV1::AwaitingDelivery {
-            return Some(format!("production_phase:{:?}", self.phase));
-        }
-        let Some(produced_at) = self.produced_at else {
-            return Some("manufacturing_state_inconsistent".into());
-        };
-        if self.completed_work_ticks != AGENT_MANUFACTURING_WORK_TICKS || self.started_at.is_none()
+        match super::readonly_manufacturing::industrial_order_blocker_readonly_v1(state, self, now)
         {
-            return Some("manufacturing_state_inconsistent".into());
+            Ok(value) => value,
+            Err(never) => match never {},
         }
-        if now >= produced_at.saturating_add(24) {
-            return Some("delivery_expired".into());
-        }
-        if let Err(error) = order_production_eligibility(state, self) {
-            return Some(format!("restore_production_authority:{error:?}"));
-        }
-        if let Err(error) =
-            manufacturing_capacity_guard(state, &self.owner_id, Some(&self.target_agent_id), false)
-        {
-            return Some(format!("restore_acquisition_capacity:{error:?}"));
-        }
-        None
     }
 }
 pub fn manufacturing_reserved_targets(state: &WorldState, owner: &str) -> BTreeSet<String> {
@@ -192,32 +140,101 @@ pub fn manufacturing_reserved_targets(state: &WorldState, owner: &str) -> BTreeS
         .map(|o| o.target_agent_id.clone())
         .collect()
 }
+/// Original primary/claim projection. This is business DATA, not a capability;
+/// the Current consumer obtains the entire iterator from its private directory.
+pub fn manufacturing_existing_targets_from_facts_v1<'a>(
+    owner: &str,
+    primary: super::industrial_eligibility_kernel::PrimaryProductionFactsV1<'_>,
+    targets: impl IntoIterator<Item = &'a str>,
+) -> Result<BTreeSet<String>, WorldError> {
+    super::industrial_eligibility_kernel::validate_primary_production_facts_v1(primary, owner)?;
+    let mut targets_out = BTreeSet::from([owner.to_string()]);
+    targets_out.extend(targets.into_iter().map(str::to_owned));
+    Ok(targets_out)
+}
 pub fn manufacturing_existing_targets(
     state: &WorldState,
     owner: &str,
 ) -> Result<BTreeSet<String>, WorldError> {
-    if !state.agents.contains_key(owner) {
-        return Err(invalid("primary_bound_agent_missing"));
-    }
-    let root = state
-        .starter_oc_claims
-        .get(owner)
-        .ok_or_else(|| invalid("primary_bound_agent_required"))?;
-    if root.agent_id != owner
-        || root.player_id.is_empty()
-        || root.public_key.as_ref().is_none_or(|key| key.is_empty())
-    {
-        return Err(invalid("primary_owner_source_unavailable"));
-    }
-    let mut targets = BTreeSet::from([owner.to_string()]);
-    targets.extend(
+    manufacturing_existing_targets_from_facts_v1(
+        owner,
+        super::industrial_eligibility_kernel::PrimaryProductionFactsV1 {
+            agent_exists: state.agents.contains_key(owner),
+            starter_claim: state.starter_oc_claims.get(owner),
+        },
         state
             .agent_claims
             .values()
             .filter(|c| c.claim_owner_id == owner)
-            .map(|c| c.target_agent_id.clone()),
-    );
-    Ok(targets)
+            .map(|c| c.target_agent_id.as_str()),
+    )
+}
+/// Fixed original union/creates-new order. In particular a reserved target must
+/// not make creates_new_identity false before the existing set is inspected.
+pub fn manufacturing_capacity_from_targets_v1<'a>(
+    set: BTreeSet<String>,
+    reserved: impl IntoIterator<Item = &'a str>,
+    target: Option<&str>,
+    new_order: bool,
+    reputation_score: i64,
+) -> Result<(), WorldError> {
+    match manufacturing_capacity_from_targets_with_work_v1(
+        set,
+        reserved,
+        target,
+        new_order,
+        reputation_score,
+        &mut |_| Ok::<_, std::convert::Infallible>(()),
+    ) {
+        Ok(result) => result,
+        Err(never) => match never {},
+    }
+}
+pub fn manufacturing_capacity_from_targets_with_work_v1<'a, E>(
+    mut set: BTreeSet<String>,
+    reserved: impl IntoIterator<Item = &'a str>,
+    target: Option<&str>,
+    new_order: bool,
+    reputation_score: i64,
+    work: &mut impl FnMut(usize) -> Result<(), E>,
+) -> Result<Result<(), WorldError>, E> {
+    if let Some(target) = target {
+        work(
+            target
+                .len()
+                .saturating_add(1)
+                .saturating_mul((set.len() + 1).ilog2() as usize + 2),
+        )?;
+    }
+    let creates_new_identity = new_order || target.is_some_and(|id| !set.contains(id));
+    for key in reserved {
+        let levels = (set.len() + 1).ilog2() as usize + 2;
+        work(
+            512usize
+                .saturating_mul(levels)
+                .saturating_add(key.len().saturating_add(1).saturating_mul(levels * 2 + 4)),
+        )?;
+        set.insert(key.to_owned());
+    }
+    if let Some(target) = target {
+        let levels = (set.len() + 1).ilog2() as usize + 2;
+        work(
+            512usize.saturating_mul(levels).saturating_add(
+                target
+                    .len()
+                    .saturating_add(1)
+                    .saturating_mul(levels * 2 + 4),
+            ),
+        )?;
+        set.insert(target.into());
+    }
+    work(0)?;
+    let count = set.len() + usize::from(new_order);
+    let tier = crate::agent_claim_reputation_tier(reputation_score);
+    if creates_new_identity && count > usize::from(crate::agent_claim_cap_for_tier(tier)) {
+        return Ok(Err(invalid("manufacturing_acquisition_cap")));
+    }
+    Ok(Ok(()))
 }
 pub fn manufacturing_capacity_guard(
     state: &WorldState,
@@ -225,128 +242,123 @@ pub fn manufacturing_capacity_guard(
     target: Option<&str>,
     new_order: bool,
 ) -> Result<(), WorldError> {
-    let mut set = manufacturing_existing_targets(state, owner)?;
-    let creates_new_identity = new_order || target.is_some_and(|id| !set.contains(id));
-    set.extend(manufacturing_reserved_targets(state, owner));
-    if let Some(target) = target {
-        set.insert(target.into());
-    }
-    let count = set.len() + usize::from(new_order);
-    let tier = crate::agent_claim_reputation_tier(
+    let set = manufacturing_existing_targets(state, owner)?;
+    let reserved = manufacturing_reserved_targets(state, owner);
+    manufacturing_capacity_from_targets_v1(
+        set,
+        reserved.iter().map(String::as_str),
+        target,
+        new_order,
         state.reputation_scores.get(owner).copied().unwrap_or(0),
-    );
-    if creates_new_identity && count > usize::from(crate::agent_claim_cap_for_tier(tier)) {
-        return Err(invalid("manufacturing_acquisition_cap"));
-    }
-    Ok(())
+    )
 }
+
 pub fn manufacturing_reserved_slots(state: &WorldState, factory: &str) -> u32 {
     state
         .world_rules
         .as_ref()
         .into_iter()
         .flat_map(|r| r.agent_orders.values())
-        .filter(|o| {
-            o.factory_id == factory
-                && matches!(
-                    o.phase,
-                    AgentIndustrialPhaseV1::Reserved
-                        | AgentIndustrialPhaseV1::Producing
-                        | AgentIndustrialPhaseV1::ProductionBlocked
-                )
-        })
+        .filter(|o| manufacturing_order_reserves_slot_v1(o, factory))
         .count() as u32
 }
-fn production_eligibility(
-    state: &WorldState,
+fn legacy_production_facts<'a>(
+    state: &'a WorldState,
     owner: &str,
     factory_id: &str,
     location: &str,
-) -> Result<(), WorldError> {
-    manufacturing_existing_targets(state, owner)?;
-    if state.retired_factory_ids.contains(factory_id) {
-        return Err(invalid("factory_retired"));
-    }
-    if state
+) -> super::industrial_eligibility_kernel::ProductionEligibilityFactsV1<'a> {
+    use super::industrial_eligibility_kernel::*;
+    let retired = state.retired_factory_ids.contains(factory_id);
+    let blocked = state
         .gameplay_policy
         .blocked_agents
         .iter()
-        .any(|id| id == owner)
-    {
-        return Err(invalid("production_authority_blocked"));
+        .any(|id| id == owner);
+    let factory = if retired || blocked {
+        None
+    } else {
+        state.factories.get(factory_id)
+    };
+    let canonical =
+        factory.and_then(|_| crate::builtin_factory_spec("factory.assembler.mk1", factory_id));
+    let site = factory.and_then(|factory| state.factory_site_authorities.get(&factory.site_id));
+    ProductionEligibilityFactsV1 {
+        primary: PrimaryProductionFactsV1 {
+            agent_exists: state.agents.contains_key(owner),
+            starter_claim: state.starter_oc_claims.get(owner),
+        },
+        retired,
+        blocked,
+        factory: factory.map(|factory| FactoryProductionFactsV1 {
+            builder_agent_id: &factory.builder_agent_id,
+            builtin_spec_available: canonical.is_some(),
+            spec_matches_builtin: canonical.as_ref().is_some_and(|spec| &factory.spec == spec),
+            recipe_slots: u32::from(factory.spec.recipe_slots),
+            durability_ppm: factory.durability_ppm,
+            input_ledger: &factory.input_ledger,
+            site_location_id: factory.site_location_id.as_deref(),
+        }),
+        site: site.map(|site| FactorySiteProductionFactsV1 {
+            active: site.active,
+            chunk_ready: site.chunk_ready,
+            location_id: &site.location_id,
+            owner_agent_id: &site.owner_agent_id,
+            owner_authorized: site.authorized_agent_ids.iter().any(|id| id == owner),
+        }),
+        anchor_active: state
+            .location_anchors
+            .get(location)
+            .map(|anchor| anchor.active),
+        resolved_owner: None,
     }
-    let f = state
-        .factories
-        .get(factory_id)
-        .ok_or_else(|| invalid("factory_missing"))?;
-    let canonical = crate::builtin_factory_spec("factory.assembler.mk1", factory_id)
-        .ok_or_else(|| invalid("assembler_policy_unavailable"))?;
-    if f.builder_agent_id != owner
-        || f.spec != canonical
-        || f.spec.recipe_slots < 2
-        || f.durability_ppm <= 0
-    {
-        return Err(invalid("owned_working_assembler_required"));
-    }
-    let site = state
-        .factory_site_authorities
-        .get(&f.site_id)
-        .ok_or_else(|| invalid("factory_site_authority_unavailable"))?;
-    let anchor = state
-        .location_anchors
-        .get(location)
-        .ok_or_else(|| invalid("factory_location_unavailable"))?;
-    if !site.active
-        || !site.chunk_ready
-        || site.location_id != location
-        || !anchor.active
-        || f.site_location_id.as_deref() != Some(location)
-        || !(site.owner_agent_id == owner || site.authorized_agent_ids.iter().any(|id| id == owner))
-    {
-        return Err(invalid("factory_authority_changed"));
-    }
-    Ok(())
 }
 fn refund_source_is_current(state: &WorldState, order: &AgentIndustrialOrderV1) -> bool {
-    !state
-        .gameplay_policy
-        .blocked_agents
-        .iter()
-        .any(|id| id == &order.owner_id)
-        && state
-            .resolved_agent_owner(&order.owner_id)
-            .is_some_and(|owner| {
-                owner.player_id == order.quote.owner_player_id
-                    && owner.source_id == order.quote.owner_source_id
-                    && owner.public_key.as_ref().is_some_and(|key| !key.is_empty())
-            })
+    match super::readonly_manufacturing::refund_source_is_current_readonly_v1(state, order) {
+        Ok(value) => value,
+        Err(never) => match never {},
+    }
 }
 
 pub fn order_production_eligibility(
     state: &WorldState,
     order: &AgentIndustrialOrderV1,
 ) -> Result<(), WorldError> {
-    production_eligibility(
+    use super::industrial_eligibility_kernel::*;
+    validate_primary_production_facts_v1(
+        PrimaryProductionFactsV1 {
+            agent_exists: state.agents.contains_key(&order.owner_id),
+            starter_claim: state.starter_oc_claims.get(&order.owner_id),
+        },
+        &order.owner_id,
+    )?;
+    let mut facts = legacy_production_facts(
         state,
         &order.owner_id,
         &order.factory_id,
         &order.quote.delivery_location_id,
+    );
+    production_eligibility_from_facts_v1(
+        facts,
+        &order.owner_id,
+        &order.factory_id,
+        &order.quote.delivery_location_id,
     )?;
-    if state.factories[&order.factory_id].input_ledger != order.quote.input_ledger {
-        return Err(invalid("manufacturing_input_source_changed"));
-    }
-    if !state
-        .resolved_agent_owner(&order.owner_id)
-        .is_some_and(|owner| {
-            owner.player_id == order.quote.owner_player_id
-                && owner.source_id == order.quote.owner_source_id
-                && owner.public_key.as_ref().is_some_and(|key| !key.is_empty())
-        })
-    {
-        return Err(invalid("manufacturing_root_owner_changed"));
-    }
-    Ok(())
+    // Preserve the original lazy owner resolution after the input-source check.
+    let resolved = facts
+        .factory
+        .filter(|factory| factory.input_ledger == &order.quote.input_ledger)
+        .and_then(|_| state.resolved_agent_owner(&order.owner_id));
+    facts.resolved_owner = resolved
+        .as_ref()
+        .map(|owner| ResolvedProductionOwnerFactsV1 {
+            player_id: &owner.player_id,
+            source_id: &owner.source_id,
+            public_key: owner.public_key.as_deref(),
+        });
+    order_production_eligibility_from_facts_v1(facts, order)
 }
+
 impl WorldState {
     /// Private order bodies belong to the frozen principal, not merely a
     /// reusable Agent registry key. Source revocation leaves public status only.
@@ -356,15 +368,8 @@ impl WorldState {
         reader: Option<&str>,
         world_binding: Option<&str>,
     ) -> bool {
-        reader == Some(order.owner_id.as_str())
-            && order.quote.world_binding.as_deref() == world_binding
-            && self
-                .resolved_agent_owner(&order.owner_id)
-                .is_some_and(|owner| {
-                    owner.player_id == order.quote.owner_player_id
-                        && owner.source_id == order.quote.owner_source_id
-                        && owner.public_key.as_ref().is_some_and(|key| !key.is_empty())
-                })
+        let owner = self.resolved_agent_owner(&order.owner_id);
+        can_read_agent_industrial_order_from_owner_v1(order, reader, world_binding, owner.as_ref())
     }
     pub fn agent_manufacturing_quote(
         &self,
@@ -381,145 +386,16 @@ impl WorldState {
         quoted_at: WorldTime,
         world_binding: Option<&str>,
     ) -> Result<AgentManufacturingQuoteV1, WorldError> {
-        let f = self
-            .factories
-            .get(factory_id)
-            .ok_or_else(|| invalid("factory_not_found"))?;
-        let location = f
-            .site_location_id
-            .clone()
-            .ok_or_else(|| invalid("factory_location_unavailable"))?;
-        production_eligibility(self, owner, factory_id, &location)?;
-        manufacturing_capacity_guard(self, owner, None, true)?;
-        let pending: Vec<_> = self
-            .world_rules
-            .as_ref()
-            .into_iter()
-            .flat_map(|r| r.agent_orders.values())
-            .filter(|o| o.owner_id == owner && !o.is_terminal())
-            .collect();
-        if pending.len() >= 2
-            || self.world_rules.as_ref().is_some_and(|r| {
-                r.agent_orders
-                    .values()
-                    .any(|o| o.factory_id == factory_id && !o.is_terminal())
-            })
-        {
-            return Err(invalid("manufacturing_order_capacity"));
-        }
-        let jobs = self
-            .pending_recipe_jobs
-            .values()
-            .filter(|j| j.factory_id == factory_id)
-            .count()
-            .max(f.production.active_jobs as usize);
-        if jobs + 1 > usize::from(f.spec.recipe_slots) {
-            return Err(invalid("factory_capacity_reserved"));
-        }
-        let inputs = BTreeMap::from([
-            ("alloy_plate".into(), 8),
-            ("motor_mk1".into(), 4),
-            ("control_chip".into(), 4),
-            ("sensor_pack".into(), 2),
-            ("module_rack".into(), 1),
-        ]);
-        if f.input_ledger != MaterialLedgerId::agent(owner) {
-            return Err(invalid("unsupported_input_authority_scope"));
-        }
-        let ledger = self
-            .material_ledgers
-            .get(&f.input_ledger)
-            .ok_or_else(|| invalid("input_ledger_missing"))?;
-        for (kind, amount) in &inputs {
-            if ledger.get(kind).copied().unwrap_or(0) < *amount {
-                return Err(invalid(format!("insufficient_material:{kind}")));
-            }
-        }
-        let electricity = self.agents[owner]
-            .state
-            .resources
-            .get(ResourceKind::Electricity);
-        if electricity < AGENT_MANUFACTURING_POWER {
-            return Err(invalid("insufficient_manufacturing_electricity"));
-        }
-        let scale = manufacturing_existing_targets(self, owner)?.len() + pending.len();
-        let cost = crate::agent_claim_quote(
-            self.reputation_scores.get(owner).copied().unwrap_or(0),
-            scale,
-        )
-        .map_err(invalid)?;
-        if cost.slot_index < 2 {
-            return Err(invalid("additional_slot_required"));
-        }
-        let upfront = cost.activation_fee_amount + cost.claim_bond_amount + cost.upkeep_per_epoch;
-        let account = self
-            .main_token_balances
-            .get(owner)
-            .cloned()
-            .unwrap_or_default();
-        let liquid_after = account
-            .liquid_balance
-            .checked_sub(upfront)
-            .ok_or_else(|| invalid("insufficient_liquid_claim_reservation"))?;
-        // Tick depreciation and production audit timestamps do not change a
-        // still-eligible quote. Eligibility and occupied capacity are checked
-        // again above; freeze the factory's actual authority/specification.
-        let factory_dependencies = (
-            &f.factory_id,
-            &f.site_id,
-            &f.builder_agent_id,
-            &f.spec,
-            &f.input_ledger,
-            &f.output_ledger,
-            f.site_authority_revision,
-            &f.site_location_id,
-            f.location_anchor_revision,
-            &f.construction_power_profile_key,
-            f.construction_power_profile_revision,
-            f.built_at,
-            jobs,
-        );
-        let dependency_digest = crate::util::hash_json(&(
-            factory_dependencies,
-            &self.factory_site_authorities[&f.site_id],
-            &self.location_anchors[&location],
-            ledger,
-            electricity,
-            &account,
-            &self.starter_oc_claims[owner],
-            self.reputation_scores.get(owner),
-            manufacturing_existing_targets(self, owner)?,
-            manufacturing_reserved_targets(self, owner),
-        ))?;
-        let mut q = AgentManufacturingQuoteV1 {
-            policy_version: 1,
-            world_binding: world_binding.map(str::to_owned),
-            recipe_id: "recipe.assembler.agent_mk1".into(),
-            owner_id: owner.into(),
-            owner_player_id: self.starter_oc_claims[owner].player_id.clone(),
-            owner_source_id: self
-                .resolved_agent_owner(owner)
-                .ok_or_else(|| invalid("manufacturing_root_owner_unavailable"))?
-                .source_id,
-            factory_id: factory_id.into(),
+        match super::readonly_manufacturing::agent_manufacturing_quote_readonly_v1(
+            self,
+            owner,
+            factory_id,
             quoted_at,
-            expires_at: quoted_at
-                .checked_add(5)
-                .ok_or_else(|| invalid("time_overflow"))?,
-            quote_digest: String::new(),
-            dependency_digest,
-            delivery_location_id: location,
-            inputs,
-            input_ledger: f.input_ledger.clone(),
-            electricity: AGENT_MANUFACTURING_POWER,
-            claim_cost: cost,
-            upfront_liquid: upfront,
-            liquid_after_reservation: liquid_after,
-            electricity_after_reservation: electricity - AGENT_MANUFACTURING_POWER,
-            maintenance_per_tick: f.spec.maintenance_per_tick,
-        };
-        q.quote_digest = crate::util::hash_json(&q)?;
-        Ok(q)
+            world_binding,
+        ) {
+            Ok(result) => result,
+            Err(never) => match never {},
+        }
     }
 }
 impl PreparedWorldRule {
@@ -673,45 +549,14 @@ impl PreparedWorldRule {
                         self.terminate_industrial(state, &mut order, "owner_disposed", now)?;
                     }
                     _ => {
-                        if order.phase == P::Reserved {
-                            if now >= order.confirmed_at.saturating_add(10) {
-                                self.terminate_industrial(state, &mut order, "start_expired", now)?;
-                            } else {
-                                order_production_eligibility(state, &order)?;
-                                order.phase = P::Producing;
-                                order.started_at = Some(now);
-                                order.ready_at = now.saturating_add(12);
-                                order.last_progress_tick = Some(now);
-                            }
-                        } else if order.phase == P::AwaitingDelivery {
-                            if now < order.produced_at.expect("produced").saturating_add(24) {
-                                return Err(invalid("delivery_pending"));
-                            }
-                            self.terminate_industrial(state, &mut order, "delivery_expired", now)?;
-                        } else if now >= order.production_deadline().expect("started") {
-                            self.terminate_industrial(
-                                state,
-                                &mut order,
-                                "production_expired",
-                                now,
-                            )?;
-                        } else if let Err(error) = order_production_eligibility(state, &order) {
-                            order.phase = P::ProductionBlocked;
-                            order.blocked_at.get_or_insert(now);
-                            order.terminal_reason = Some(format!("production_blocked:{error:?}"));
-                        } else {
-                            if order.last_progress_tick.is_some_and(|tick| tick >= now) {
-                                return Err(invalid("production_tick_already_counted"));
-                            }
-                            order.completed_work_ticks += 1;
-                            order.last_progress_tick = Some(now);
-                            order.ready_at =
-                                now.saturating_add(u64::from(12 - order.completed_work_ticks));
-                            order.phase = P::Producing;
-                            order.terminal_reason = None;
-                            if order.completed_work_ticks == 12 {
-                                order.phase = P::AwaitingDelivery;
-                                order.produced_at = Some(now);
+                        match advance_industrial_order_from_source_v1(
+                            &mut order,
+                            now,
+                            IndustrialAdvanceEligibilityV1::LegacyWorld(state),
+                        )? {
+                            IndustrialAdvanceOutcomeV1::Updated => {}
+                            IndustrialAdvanceOutcomeV1::Terminate(reason) => {
+                                self.terminate_industrial(state, &mut order, reason, now)?
                             }
                         }
                     }
@@ -729,13 +574,7 @@ impl PreparedWorldRule {
         reason: &str,
         now: WorldTime,
     ) -> Result<(), WorldError> {
-        order.phase = if order.phase == AgentIndustrialPhaseV1::Reserved {
-            AgentIndustrialPhaseV1::Cancelled
-        } else {
-            AgentIndustrialPhaseV1::Disposed
-        };
-        order.terminal_reason = Some(reason.into());
-        order.refund_pending = true;
+        mark_industrial_order_terminated_v1(order, reason);
         if refund_source_is_current(state, order) {
             self.release_industrial_refund(state, order, now)?;
         }
@@ -747,15 +586,7 @@ impl PreparedWorldRule {
         order: &mut AgentIndustrialOrderV1,
         now: WorldTime,
     ) -> Result<(), WorldError> {
-        if !order.refund_pending
-            || !matches!(
-                order.phase,
-                AgentIndustrialPhaseV1::Cancelled | AgentIndustrialPhaseV1::Disposed
-            )
-            || order.refunded_at.is_some()
-        {
-            return Err(invalid("manufacturing_refund_already_released_or_invalid"));
-        }
+        validate_industrial_refund_phase_v1(order)?;
         if !refund_source_is_current(state, order) {
             return Err(invalid("refund_original_source_recovery_required"));
         }
@@ -766,33 +597,26 @@ impl PreparedWorldRule {
                 .get(ledger)
                 .cloned()
                 .unwrap_or_default();
-            for (kind, amount) in &order.inputs {
-                let value = refunded.entry(kind.clone()).or_default();
-                *value = value
-                    .checked_add(*amount)
-                    .ok_or_else(|| invalid("refund_overflow"))?;
-            }
+            add_industrial_refund_materials_v1(order, &mut refunded)?;
             self.ledgers.insert(ledger.clone(), refunded);
-            self.agents
-                .get_mut(&order.owner_id)
-                .ok_or_else(|| invalid("owner_missing"))?
-                .state
-                .resources
-                .add(ResourceKind::Electricity, order.quote.electricity)
-                .map_err(|error| invalid(format!("electricity_refund:{error:?}")))?;
+            add_industrial_refund_electricity_v1(
+                order,
+                &mut self
+                    .agents
+                    .get_mut(&order.owner_id)
+                    .ok_or_else(|| invalid("owner_missing"))?
+                    .state
+                    .resources,
+            )?;
         }
         let mut account = state
             .main_token_balances
             .get(&order.owner_id)
             .cloned()
             .unwrap_or_default();
-        account.liquid_balance = account
-            .liquid_balance
-            .checked_add(order.quote.upfront_liquid)
-            .ok_or_else(|| invalid("refund_overflow"))?;
+        add_industrial_refund_account_v1(order, &mut account)?;
         self.token_accounts.insert(order.owner_id.clone(), account);
-        order.refund_pending = false;
-        order.refunded_at = Some(now);
+        finish_industrial_refund_v1(order, now);
         Ok(())
     }
     fn deliver_industrial(
@@ -888,4 +712,47 @@ impl PreparedWorldRule {
         delivered.delivered_at = Some(now);
         Ok(order.target_agent_id)
     }
+}
+
+#[path = "industrial_advance.rs"]
+mod advance;
+pub use advance::{
+    IndustrialAdvanceEligibilityV1, IndustrialAdvanceOutcomeV1, IndustrialAdvancePhaseV1,
+    advance_industrial_order_from_source_v1, industrial_advance_phase_v1,
+};
+
+#[path = "industrial_refund.rs"]
+mod refund;
+pub use refund::{
+    add_industrial_refund_account_v1, add_industrial_refund_electricity_v1,
+    add_industrial_refund_materials_v1, finish_industrial_refund_v1,
+    mark_industrial_order_terminated_v1, validate_industrial_refund_phase_v1,
+};
+
+/// Visibility only, shared by the original State wrapper and immutable Current
+/// projection facts. It cannot create an order, grant a lease or apply an action.
+pub fn can_read_agent_industrial_order_from_owner_v1(
+    order: &AgentIndustrialOrderV1,
+    reader: Option<&str>,
+    world_binding: Option<&str>,
+    owner: Option<&crate::ResolvedAgentOwnerV1>,
+) -> bool {
+    reader == Some(order.owner_id.as_str())
+        && order.quote.world_binding.as_deref() == world_binding
+        && owner.is_some_and(|owner| {
+            owner.player_id == order.quote.owner_player_id
+                && owner.source_id == order.quote.owner_source_id
+                && owner.public_key.as_ref().is_some_and(|key| !key.is_empty())
+        })
+}
+
+/// Original slot-reservation predicate, shared by mutation and readonly facts.
+pub fn manufacturing_order_reserves_slot_v1(order: &AgentIndustrialOrderV1, factory: &str) -> bool {
+    order.factory_id == factory
+        && matches!(
+            order.phase,
+            AgentIndustrialPhaseV1::Reserved
+                | AgentIndustrialPhaseV1::Producing
+                | AgentIndustrialPhaseV1::ProductionBlocked
+        )
 }

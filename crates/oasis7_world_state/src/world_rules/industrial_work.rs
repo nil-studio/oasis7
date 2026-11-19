@@ -14,32 +14,93 @@ pub fn industrial_ref<T: Serialize>(
     revision: u64,
     payload: &T,
 ) -> Result<IndustrialRefV1, WorldError> {
-    let digest = crate::util::hash_json(&(world, domain, schema, id, revision, payload))?;
+    match industrial_ref_with_work_v1(
+        world,
+        domain,
+        schema,
+        id,
+        revision,
+        payload,
+        &mut |_, _, _| Ok::<(), std::convert::Infallible>(()),
+    ) {
+        Ok(result) => result,
+        Err(never) => match never {},
+    }
+}
+/// Same original JSON hash, owned field copies and qualified-ref gate. Work
+/// callbacks only admit processing/allocation and cannot choose identity bytes.
+pub fn industrial_ref_with_work_v1<T: Serialize, E>(
+    world: &str,
+    domain: &str,
+    schema: &str,
+    id: &str,
+    revision: u64,
+    payload: &T,
+    work: &mut impl FnMut(u64, usize, usize) -> Result<(), E>,
+) -> Result<Result<IndustrialRefV1, WorldError>, E> {
+    work(1, 0, std::mem::size_of::<String>() + 64)?;
+    let digest = match crate::util::hash_json_with_work_v1(
+        &(world, domain, schema, id, revision, payload),
+        &mut |steps, bytes| work(steps, bytes as usize, 0),
+    ) {
+        Ok(value) => value,
+        Err(crate::util::JsonHashWorkErrorV1::Work(error)) => return Err(error),
+        Err(crate::util::JsonHashWorkErrorV1::Codec(error)) => {
+            let note = super::format_readonly_projection_data_v1(format_args!("{}", error), work)?;
+            return Ok(Err(WorldError::Serde(note)));
+        }
+    };
+    fn copy<E>(
+        value: &str,
+        work: &mut impl FnMut(u64, usize, usize) -> Result<(), E>,
+    ) -> Result<String, E> {
+        work(1, 0, std::mem::size_of::<String>() + value.len())?;
+        let mut bytes = Vec::with_capacity(value.len());
+        assert_eq!(
+            bytes.capacity(),
+            value.len(),
+            "industrial ref text exact capacity"
+        );
+        for part in value.as_bytes().chunks(8192) {
+            work(1, part.len(), 0)?;
+            bytes.extend_from_slice(part)
+        }
+        Ok(String::from_utf8(bytes).expect("copied original UTF-8"))
+    }
+    work(1, 0, std::mem::size_of::<IndustrialRefV1>())?;
     let value = IndustrialRefV1 {
-        world_binding: world.into(),
-        domain: domain.into(),
-        schema: schema.into(),
-        id: id.into(),
+        world_binding: copy(world, work)?,
+        domain: copy(domain, work)?,
+        schema: copy(schema, work)?,
+        id: copy(id, work)?,
         revision,
         digest,
     };
-    validate_ref(&value, world)?;
-    Ok(value)
+    work(
+        1,
+        world.len() + domain.len() + schema.len() + id.len() + 64,
+        std::mem::size_of::<WorldError>() + "industrial_reference_invalid".len(),
+    )?;
+    match validate_ref(&value, world) {
+        Ok(()) => Ok(Ok(value)),
+        Err(error) => Ok(Err(error)),
+    }
 }
+
 fn canonical_digest(digest: &str) -> bool {
     digest.len() == 64
         && digest
             .bytes()
             .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
-fn same_identity(a: &IndustrialRefV1, b: &IndustrialRefV1) -> bool {
+pub(super) fn same_identity(a: &IndustrialRefV1, b: &IndustrialRefV1) -> bool {
     a.world_binding == b.world_binding
         && a.domain == b.domain
         && a.schema == b.schema
         && a.id == b.id
         && a.revision == b.revision
 }
-fn validate_ref(value: &IndustrialRefV1, world: &str) -> Result<(), WorldError> {
+pub(super) fn validate_ref(value: &IndustrialRefV1, world: &str) -> Result<(), WorldError> {
     if !value.is_qualified() || value.world_binding != world {
         return Err(invalid("industrial_reference_invalid"));
     }
@@ -163,61 +224,17 @@ fn validate_parents(
     parents: &[IndustrialParentV1],
     world: &str,
 ) -> Result<(), WorldError> {
-    if parents.len() > 128 {
-        return Err(invalid("industrial_capacity_exceeded"));
+    match super::readonly_parent_consumption::validate_parents(
+        &super::readonly_parent_consumption::LegacyParentWorkV1,
+        state,
+        root,
+        slot,
+        parents,
+        world,
+    ) {
+        Ok(result) => result,
+        Err(error) => match error {},
     }
-    if slot.quantity == 0
-        || slot.material.is_empty()
-        || slot.unit.is_empty()
-        || slot.spec.is_empty()
-        || slot.quality.is_empty()
-        || slot.custody.is_empty()
-    {
-        return Err(invalid("industrial_slot_evidence_incomplete"));
-    }
-    let mut seen = BTreeSet::new();
-    let mut total = 0u64;
-    for parent in parents {
-        validate_ref(&parent.lot_ref, world)?;
-        validate_ref(&parent.settlement_ref, world)?;
-        if parent.quantity == 0 || !seen.insert(&parent.lot_ref) {
-            return Err(invalid("industrial_parent_duplicate_or_empty"));
-        }
-        let lot = state
-            .lots
-            .get(&parent.lot_ref.id)
-            .filter(|l| l.lot_ref == parent.lot_ref)
-            .ok_or_else(|| invalid("industrial_parent_missing"))?;
-        if lot.owner_id != root.owner_id
-            || lot.material != slot.material
-            || lot.unit != slot.unit
-            || lot.spec != slot.spec
-            || lot.quality != slot.quality
-            || lot.custody != slot.custody
-            || lot.remaining < parent.quantity
-        {
-            return Err(invalid("industrial_parent_not_applicable"));
-        }
-        let imported = parent.settlement_ref == lot.provenance_ref;
-        let converted = state
-            .receipts
-            .get(&parent.settlement_ref.id)
-            .is_some_and(|r| {
-                r.receipt_ref == parent.settlement_ref
-                    && r.effect_role == "conversion_settlement"
-                    && r.output.contains(&parent.lot_ref)
-            });
-        if !imported && !converted {
-            return Err(invalid("industrial_parent_not_settled"));
-        }
-        total = total
-            .checked_add(parent.quantity)
-            .ok_or_else(|| invalid("industrial_quantity_overflow"))?;
-    }
-    if total != slot.quantity {
-        return Err(invalid("industrial_parent_quantity_mismatch"));
-    }
-    Ok(())
 }
 /// Caller must first resolve the exact persisted substitution decision and scope.
 pub fn apply_parent_binding(
@@ -268,42 +285,16 @@ pub fn consume_bound_slot(
     slot_id: &str,
     world: &str,
 ) -> Result<Vec<IndustrialParentV1>, WorldError> {
-    let root = state
-        .roots
-        .get(&root_ref.id)
-        .filter(|r| &r.root_ref == root_ref)
-        .ok_or_else(|| invalid("industrial_root_missing"))?;
-    if state.dispositions.contains_key(&root_ref.id) {
-        return Err(invalid("industrial_root_disposed"));
+    match super::readonly_parent_consumption::consume_bound_slot(
+        &super::readonly_parent_consumption::LegacyParentWorkV1,
+        state,
+        root_ref,
+        slot_id,
+        world,
+    ) {
+        Ok(result) => result,
+        Err(error) => match error {},
     }
-    let slot = root
-        .slots
-        .get(slot_id)
-        .ok_or_else(|| invalid("industrial_slot_missing"))?;
-    let key = crate::util::hash_json(&(root_ref, slot_id, "parent_sink"))?;
-    if slot.consumed || state.sink_keys.contains(&key) {
-        return Err(invalid("industrial_slot_already_consumed"));
-    }
-    validate_parents(state, root, slot, &slot.parents, world)?;
-    let parents = slot.parents.clone();
-    for parent in &parents {
-        let lot = state
-            .lots
-            .get_mut(&parent.lot_ref.id)
-            .expect("validated lot");
-        lot.remaining = lot
-            .remaining
-            .checked_sub(parent.quantity)
-            .ok_or_else(|| invalid("industrial_quantity_underflow"))?;
-    }
-    let root = state.roots.get_mut(&root_ref.id).expect("validated root");
-    root.first_sink = true;
-    root.slots
-        .get_mut(slot_id)
-        .expect("validated slot")
-        .consumed = true;
-    state.sink_keys.insert(key);
-    Ok(parents)
 }
 pub fn apply_disposition(
     state: &mut IndustrialWorkStateV1,
@@ -335,38 +326,16 @@ pub fn record_receipt(
     receipt: IndustrialReceiptV1,
     world: &str,
 ) -> Result<bool, WorldError> {
-    validate_ref(&receipt.receipt_ref, world)?;
-    if state.receipts.len() >= 65536 && !state.receipts.contains_key(&receipt.receipt_ref.id) {
-        return Err(invalid("industrial_capacity_exceeded"));
-    }
-    validate_ref(&receipt.child_ref, world)?;
-    if state
-        .roots
-        .get(&receipt.root_ref.id)
-        .is_none_or(|r| r.root_ref != receipt.root_ref)
-        || receipt.effect_role.is_empty()
-        || receipt.payload_digest.len() != 64
-    {
-        return Err(invalid("industrial_receipt_invalid"));
-    }
-    if let Some(old) = state.receipts.get(&receipt.receipt_ref.id) {
-        if old == &receipt {
-            return Ok(false);
-        }
-        return Err(invalid("industrial_receipt_identity_conflict"));
-    }
-    if state.receipts.values().any(|old| {
-        same_identity(&old.child_ref, &receipt.child_ref)
-            && old.child_ref.digest != receipt.child_ref.digest
-    }) {
-        return Err(invalid("industrial_child_identity_conflict"));
-    }
-    if state.receipts.values().any(|old| {
-        old.root_ref == receipt.root_ref
-            && old.child_ref == receipt.child_ref
-            && old.effect_role == receipt.effect_role
-    }) {
-        return Err(invalid("industrial_effect_already_committed"));
+    match super::readonly_industrial_receipt::validate(
+        &super::readonly_industrial_receipt::Resident(state),
+        &receipt,
+        world,
+    ) {
+        Ok(result) => match result? {
+            super::readonly_industrial_receipt::ReceiptInsertDataV1::Existing => return Ok(false),
+            super::readonly_industrial_receipt::ReceiptInsertDataV1::Fresh => {}
+        },
+        Err(never) => match never {},
     }
     state
         .receipts
@@ -437,15 +406,18 @@ pub fn consume_lots(
 pub fn for_reader(state: &IndustrialWorkStateV1, owner: &str) -> IndustrialWorkStateV1 {
     let mut view = state.clone();
     view.roots.retain(|_, root| {
-        root.owner_id == owner
-            && root.slots.values().all(|slot| {
-                slot.parents.iter().all(|parent| {
-                    state
-                        .lots
-                        .get(&parent.lot_ref.id)
-                        .is_some_and(|lot| lot.owner_id == owner && lot.lot_ref == parent.lot_ref)
-                })
-            })
+        super::industrial_work_visibility::industrial_root_reader_with_work_v1(
+            root,
+            owner,
+            &mut |_, _| Ok::<(), std::convert::Infallible>(()),
+            &mut |reference, owner| {
+                Ok(state
+                    .lots
+                    .get(&reference.id)
+                    .is_some_and(|lot| lot.owner_id == owner && lot.lot_ref == *reference))
+            },
+        )
+        .unwrap()
     });
     view.lots.retain(|_, lot| lot.owner_id == owner);
     view.imported_lot_authorities
@@ -461,15 +433,22 @@ pub fn for_reader(state: &IndustrialWorkStateV1, owner: &str) -> IndustrialWorkS
             .is_some_and(|lot| &lot.lot_ref == reference)
     };
     view.receipts.retain(|_, receipt| {
-        root_visible(&receipt.root_ref)
-            && receipt.input.iter().all(|p| lot_visible(&p.lot_ref))
-            && receipt
-                .output
-                .iter()
-                .all(|reference| lot_visible(reference) || root_visible(reference))
+        super::industrial_work_visibility::industrial_receipt_reader_with_work_v1(
+            receipt,
+            &mut |_, _| Ok::<(), std::convert::Infallible>(()),
+            &mut |reference| Ok(root_visible(reference)),
+            &mut |reference| Ok(lot_visible(reference)),
+        )
+        .unwrap()
     });
     view.bindings.retain(|binding| {
-        root_visible(&binding.root_ref) && binding.parents.iter().all(|p| lot_visible(&p.lot_ref))
+        super::industrial_work_visibility::industrial_binding_reader_with_work_v1(
+            binding,
+            &mut |_, _| Ok::<(), std::convert::Infallible>(()),
+            &mut |reference| Ok(root_visible(reference)),
+            &mut |reference| Ok(lot_visible(reference)),
+        )
+        .unwrap()
     });
     view.dispositions
         .retain(|_, plan| root_visible(&plan.root_ref));

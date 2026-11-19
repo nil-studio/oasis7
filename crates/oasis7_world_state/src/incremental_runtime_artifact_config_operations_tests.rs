@@ -499,3 +499,72 @@ fn ordinary_same_transaction_creates_changes_reads_and_independently_receives() 
     );
     assert_eq!(actual.root(), &expected);
 }
+
+#[test]
+fn bootstrap_registry_guard_rejects_genuine_nonempty_parent() {
+    let memory = MemoryBudget::new(192 << 20, 0).unwrap();
+    let _index = memory.reserve(32 << 20, MemoryClass::Ordinary).unwrap();
+    let _bookkeeping = memory.reserve(16 << 10, MemoryClass::Ordinary).unwrap();
+    let mut pages = Pages {
+        nodes: Rc::new(RefCell::new(BTreeMap::new())),
+    };
+    let (roots, _) = seed(&memory, &mut pages);
+    let (family, _initial) =
+        family_in_pool(&roots, &pages, &memory, MemoryClass::Ordinary).unwrap();
+    let parent = ExecutionParent {
+        commit: [7; 32],
+        roots,
+        authority: AuthorityBinding {
+            token: [9; 32],
+            epoch: 3,
+        },
+    };
+    let source = pages.clone();
+    let mut state_io = io();
+    let state_io = RefCell::new(&mut state_io);
+    let mut state_cancel = || false;
+    let state_cancel = RefCell::new(&mut state_cancel);
+    let state_error = RefCell::new(None);
+    let state = tree::Source {
+        source: &source,
+        memory: &memory,
+        class: MemoryClass::Ordinary,
+        io: &state_io,
+        cancelled: &state_cancel,
+        error: &state_error,
+        labels: genesis::LABELS,
+    };
+    let mut tx = ExecutionTransaction::begin(
+        parent.clone(),
+        [4; 32],
+        &state,
+        &memory,
+        TransactionLimits {
+            max_reads: 4096,
+            max_writes: 64,
+            max_facts: 16,
+            max_pending_node_bytes: 8 << 20,
+        },
+    )
+    .unwrap();
+    let mut value_io = io();
+    let mut read_keys = SemanticKeyBudget {
+        bytes_remaining: 8 << 20,
+    };
+    let mut overlay = WorldFieldOverlayContextV1 {
+        transaction: &mut tx,
+        values: ValueReadContext {
+            source: &source,
+            memory: &memory,
+            class: MemoryClass::Ordinary,
+            io: &mut value_io,
+        },
+        key_work: &mut read_keys,
+        semantic_bytes: 1 << 20,
+        record_bytes: 2 << 20,
+        take_state_error: || state_error.borrow_mut().take(),
+        cancelled: || false,
+    };
+    assert_eq!(family.registry_records(), 1);
+    assert!(require_empty_artifact_registry_overlay_v1(&family, &mut overlay, &mut 4096,).is_err());
+}

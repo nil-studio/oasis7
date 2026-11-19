@@ -11,6 +11,7 @@ mod types;
 pub use super::fencing;
 pub mod coordinator;
 pub mod endpoint;
+pub(in crate::controlled_authority) use endpoint::store::bounded_native_draft::PaidNativeCheckpointDraftV1;
 pub mod full_sync_issuer;
 pub mod issuer;
 pub mod transport;
@@ -63,6 +64,15 @@ pub use native_environment::{
 
 pub use oasis7_formal_protocol::native_environment as native_environment_protocol;
 
+#[cfg(test)]
+pub(in crate::controlled_authority) use endpoint::store::verify_native_draft_signature_for_test;
+
+#[cfg(test)]
+pub(in crate::controlled_authority) use endpoint::with_signed_checkpoint_fixture;
+
+pub(in crate::controlled_authority) use endpoint::store::bounded_signed_checkpoint::PaidSignedNativeCheckpointV1;
+#[cfg(test)]
+pub(in crate::controlled_authority) use endpoint::store::bounded_signed_checkpoint::prepare_signed_native_checkpoint_bounded_v1;
 // Bounded physical bytes only; this grants no execution or publication authority.
 #[cfg(unix)]
 pub use physical::{PhysicalReadWorkV1, read_unknown_length_durable_v1};

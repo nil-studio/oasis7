@@ -11,6 +11,10 @@ use super::super::{
 use super::economy_data_publication::SparseMapProjection;
 use crate::state::LastProductValidationState;
 
+#[path = "../incremental_meta_progress_kernel.rs"]
+mod meta_progress_kernel;
+pub use meta_progress_kernel::apply_meta_progress_delta_v1;
+
 #[derive(Debug)]
 pub enum PreparedGovernanceMetaEvent {
     Proposal(PreparedProposal),
@@ -368,10 +372,10 @@ impl PreparedProposal {
             }
             DomainEvent::GovernanceProposalFinalized {
                 proposal_key,
-                winning_option,
-                winning_weight,
-                total_weight,
-                passed,
+                winning_option: _,
+                winning_weight: _,
+                total_weight: _,
+                passed: _,
             } => {
                 let mut proposal = state
                     .governance_proposals
@@ -380,18 +384,15 @@ impl PreparedProposal {
                     .ok_or_else(|| {
                         invalid(format!("governance proposal missing: {proposal_key}"))
                     })?;
-                proposal.status = if *passed {
-                    GovernanceProposalStatus::Passed
-                } else {
-                    GovernanceProposalStatus::Rejected
-                };
-                proposal.finalized_at = Some(now);
-                proposal.winning_option = winning_option.clone();
-                proposal.winning_weight = *winning_weight;
-                proposal.total_weight_at_finalize = *total_weight;
+                let projected=crate::incremental_normal_gameplay_cycles_selected::selected_governance_finalization_projection_v1(event,now);
+                proposal.status = projected.status;
+                proposal.finalized_at = projected.finalized_at;
+                proposal.winning_option = projected.winning_option.map(str::to_owned);
+                proposal.winning_weight = projected.winning_weight;
+                proposal.total_weight_at_finalize = projected.total_weight_at_finalize;
                 proposals.insert(proposal_key.clone(), proposal);
                 if let Some(mut vote) = state.governance_votes.get(proposal_key).cloned() {
-                    vote.last_updated_at = now;
+                    vote.last_updated_at = projected.vote_last_updated_at;
                     votes.insert(proposal_key.clone(), vote);
                 }
             }
@@ -417,25 +418,15 @@ impl PreparedCrisis {
         match event {
             DomainEvent::CrisisSpawned {
                 crisis_id,
-                kind,
-                severity,
-                expires_at,
+                kind: _,
+                severity: _,
+                expires_at: _,
             } => {
                 crises.insert(
                     crisis_id.clone(),
-                    CrisisState {
-                        crisis_id: crisis_id.clone(),
-                        kind: kind.clone(),
-                        severity: *severity,
-                        status: CrisisStatus::Active,
-                        opened_at: now,
-                        expires_at: *expires_at,
-                        resolver_agent_id: None,
-                        strategy: None,
-                        success: None,
-                        impact: 0,
-                        resolved_at: None,
-                    },
+                    crate::incremental_normal_gameplay_cycles_selected::selected_crisis_spawn_v1(
+                        event, now,
+                    ),
                 );
             }
             DomainEvent::CrisisResolved {
@@ -477,10 +468,11 @@ impl PreparedCrisis {
                     state.crises.get(crisis_id).cloned().ok_or_else(|| {
                         invalid(format!("crisis not found for timeout: {crisis_id}"))
                     })?;
-                crisis.status = CrisisStatus::TimedOut;
-                crisis.success = Some(false);
-                crisis.impact = *penalty_impact;
-                crisis.resolved_at = Some(now);
+                let projected=crate::incremental_normal_gameplay_cycles_selected::selected_crisis_timeout_projection_v1(*penalty_impact,now);
+                crisis.status = projected.status;
+                crisis.success = projected.success;
+                crisis.impact = projected.impact;
+                crisis.resolved_at = projected.resolved_at;
                 crises.insert(crisis_id.clone(), crisis);
             }
             _ => unreachable!(),
@@ -524,22 +516,15 @@ impl PreparedMetaProgress {
                     unlocked_tiers: BTreeMap::new(),
                     last_granted_at: now,
                 });
-        let next = progress
-            .track_points
-            .get(track)
-            .copied()
-            .unwrap_or(0)
-            .saturating_add(*points);
-        progress.track_points.insert(track.clone(), next);
-        progress.total_points = progress.total_points.saturating_add(*points);
-        progress.last_granted_at = now;
-        if let Some(id) = achievement_id
-            && !progress.achievements.contains(id)
-        {
-            progress.achievements.push(id.clone());
-            progress.achievements.sort();
-        }
-        unlock_tiers(track, next, &mut progress);
+        apply_meta_progress_delta_v1(
+            &mut progress,
+            track,
+            *points,
+            achievement_id.as_deref(),
+            now,
+            |_| Ok::<(), std::convert::Infallible>(()),
+        )
+        .unwrap_or_else(|never| match never {});
         let mut agents = BTreeMap::new();
         touch(state, &mut agents, operator_agent_id, now);
         touch(state, &mut agents, target_agent_id, now);
@@ -595,24 +580,4 @@ fn invalid(reason: impl Into<String>) -> WorldError {
     WorldError::ResourceBalanceInvalid {
         reason: reason.into(),
     }
-}
-fn unlock_tiers(track: &str, points: i64, progress: &mut MetaProgressState) {
-    for (tier, threshold) in [("bronze", 20), ("silver", 50), ("gold", 100)] {
-        if points >= threshold {
-            let tiers = progress.unlocked_tiers.entry(track.into()).or_default();
-            if !tiers.iter().any(|v| v == tier) {
-                tiers.push(tier.into());
-            }
-            let id = format!("tier.{track}.{tier}");
-            if !progress.achievements.contains(&id) {
-                progress.achievements.push(id);
-            }
-        }
-    }
-    if let Some(tiers) = progress.unlocked_tiers.get_mut(track) {
-        tiers.sort();
-        tiers.dedup();
-    }
-    progress.achievements.sort();
-    progress.achievements.dedup();
 }

@@ -16,6 +16,9 @@ use super::super::capability_authorization::{
 };
 use super::World;
 use super::capability_authorization::deny;
+use super::incremental_authorization_root_projection::{
+    AuthorityRevocationViewV1, AuthorizationRootProjectionV1 as CapabilityAuthorizationRootBody,
+};
 
 impl World {
     pub(super) fn refresh_capability_authorization_root(&mut self) -> Result<(), WorldError> {
@@ -96,8 +99,7 @@ impl World {
         // but are not permissions. Their bytes remain committed by the full
         // execution snapshot and journal; recording an outcome must not revoke
         // an otherwise unchanged provider capability context.
-        let mut authority = capability_revocation_state.clone();
-        authority.world_service_results.clear();
+        let authority = AuthorityRevocationViewV1(capability_revocation_state);
         canonical_hash(&CapabilityAuthorizationRootBody {
             grants: capability_grants_v2,
             revocation: &authority,
@@ -133,17 +135,6 @@ impl World {
         })
         .map_err(|error| deny(format!("authorization root: {error}")))
     }
-}
-
-#[derive(Serialize)]
-struct CapabilityAuthorizationRootBody<'a> {
-    grants: &'a std::collections::BTreeMap<String, serde_json::Value>,
-    revocation: &'a CapabilityRevocationState,
-    invocation_contexts: &'a std::collections::BTreeMap<String, CapabilityInvocationContext>,
-    budget_accounts: &'a std::collections::BTreeMap<String, CapabilityBudgetAccount>,
-    nonce_records: &'a std::collections::BTreeMap<String, CapabilityAuthorizationNonceRecord>,
-    receipts: &'a std::collections::BTreeMap<String, CapabilityAuthorizationAuditReceipt>,
-    effect_receipt_links: &'a std::collections::BTreeMap<String, CapabilityEffectReceiptLink>,
 }
 
 #[derive(Serialize)]

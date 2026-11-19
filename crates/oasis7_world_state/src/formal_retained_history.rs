@@ -90,6 +90,7 @@ pub use tick_archive::retained_tick_consensus_leaves;
 mod task_control;
 pub use task_control::{
     GameTaskControlLookupV1, game_task_result_lookup, game_task_result_matches,
+    game_task_result_scope_data_v1,
 };
 
 /// Read-only view of a retained index root. A view can be built from a
@@ -698,7 +699,7 @@ pub struct AgentChatIntentLookupV1 {
 }
 
 impl AgentChatIntentLookupV1 {
-    fn canonicalized(&self) -> Result<Self, RetainedHistoryReadError> {
+    pub fn canonicalized(&self) -> Result<Self, RetainedHistoryReadError> {
         if [
             &self.agent_id,
             &self.intent_id,
@@ -1007,7 +1008,7 @@ pub fn retained_leaf(
     })
 }
 
-fn retained_leaf_kind(value: &RetainedHistoryLeafV1) -> BusinessIndexLeafKindV1 {
+pub fn retained_leaf_kind(value: &RetainedHistoryLeafV1) -> BusinessIndexLeafKindV1 {
     match value {
         RetainedHistoryLeafV1::WorldServiceResult(_)
         | RetainedHistoryLeafV1::JournalEvent(_)
@@ -1082,41 +1083,11 @@ pub fn is_correlation_key_digest(value: &str) -> bool {
     })
 }
 
-pub fn chat_result_matches(
-    result: &CanonicalIntentResultV1,
-    lookup: &AgentChatIntentLookupV1,
-) -> Result<bool, RetainedHistoryReadError> {
-    if result.rejected.is_some()
-        || result
-            .receipt
-            .get("intent_id")
-            .and_then(serde_json::Value::as_str)
-            != Some(lookup.intent_id.as_str())
-    {
-        return Ok(false);
-    }
-    let crate::service_admission::WorldServicePayloadV1::AgentChat(request) =
-        &result.request.signed_payload
-    else {
-        return Ok(false);
-    };
-    let Some(auth) = request.auth.as_ref() else {
-        return Ok(false);
-    };
-    let Some(authority) = request.canonical_authority.as_ref() else {
-        return Ok(false);
-    };
-    let public_key_digest = digest_text("owner-public-key", &auth.public_key)
-        .map_err(RetainedHistoryReadError::Invalid)?;
-    Ok(request.agent_id == lookup.agent_id
-        && public_key_digest == lookup.owner_public_key_digest
-        && auth.player_id == lookup.player_id
-        && request.world_id.as_deref() == Some(lookup.world_id.as_str())
-        && request.reorg_epoch == Some(lookup.reorg_epoch)
-        && request.authority_scope.as_deref() == Some(lookup.authority_scope.as_str())
-        && authority.branch_id == lookup.branch_id
-        && authority.agent_identity_generation == lookup.identity_generation)
-}
+#[path = "formal_retained_history_chat.rs"]
+mod chat_scope;
+pub use chat_scope::{
+    RetainedChatScopeDataV1, chat_result_matches, retained_chat_scope_data_with_work_v1,
+};
 
 pub fn feedback_result_matches(
     result: &CanonicalIntentResultV1,
@@ -1190,3 +1161,7 @@ where
 #[cfg(test)]
 #[path = "formal_retained_history_tests.rs"]
 mod tests;
+
+#[path = "formal_retained_history_layout.rs"]
+mod owned_layout;
+pub use owned_layout::retained_history_leaf_owned_layout_v1;

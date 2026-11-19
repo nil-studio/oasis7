@@ -1,10 +1,14 @@
 use super::*;
+#[cfg(test)]
+use oasis7_formal_protocol::incremental_execution::TransitionVerifier;
 use oasis7_formal_protocol::incremental_execution::{
-    AuthorityBinding, ExecutionParent, RootSetV1, TransactionLimits, TransitionVerifier,
+    AuthorityBinding, ExecutionParent, RootSetV1, TransactionLimits,
 };
 use oasis7_formal_protocol::incremental_state::{StateDeltaV1, StateWriteV1};
 use oasis7_formal_protocol::incremental_value::ValueIoBudget;
-use oasis7_proto::memory_budget::{MemoryBudget, ReservedValue};
+use oasis7_proto::memory_budget::MemoryBudget;
+#[cfg(test)]
+use oasis7_proto::memory_budget::ReservedValue;
 use oasis7_world_state::{AgentCell, AgentState};
 use std::collections::BTreeMap;
 
@@ -20,10 +24,12 @@ impl MerkleNodeReader for Pages {
         Ok(Some(page.clone()))
     }
 }
+#[cfg(test)]
 struct Sink {
     fail: bool,
     writes: usize,
 }
+#[cfg(test)]
 impl ValueNodeWriter for Sink {
     fn put_node(&mut self, _: [u8; 32], _: ReservedValue<Vec<u8>>) -> Result<(), ValueTreeError> {
         self.writes += 1;

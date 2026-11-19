@@ -52,7 +52,25 @@ fn accept_current<
     work: &mut JsonScalarChangeWorkV1,
     structural: bool,
 ) -> Result<ReservedValue<CognitionCurrentStateQualificationV1>, WorldFieldOverlayErrorV1> {
-    let verified = verify_parent(parent, verifier, record, context)?;
+    let witness = verify_parent(parent, verifier, record, context)?;
+    accept_cognition_current_verified_v1(parent, &witness, context, work, structural)
+}
+
+pub(crate) fn accept_cognition_current_verified_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<CognitionCurrentStateQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    work: &mut JsonScalarChangeWorkV1,
+    structural: bool,
+) -> Result<ReservedValue<CognitionCurrentStateQualificationV1>, WorldFieldOverlayErrorV1> {
+    checked_parent_v1(parent, witness, context)?;
+    let record = witness.record();
+    let verified = witness.prepared();
     // Arc cloning shares admitted immutable proofs; this charge covers the new
     // token's metadata and all replacement Arc allocations until its last use.
     let retained = context
@@ -209,7 +227,7 @@ pub(super) fn verify_parent<
     record: &TransitionRecordV1,
     context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
 ) -> Result<
-    ReservedValue<oasis7_formal_protocol::incremental_execution::PreparedTransition>,
+    crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
     WorldFieldOverlayErrorV1,
 > {
     context.check()?;
@@ -224,11 +242,48 @@ pub(super) fn verify_parent<
         return Err(invalid().into());
     }
     parent.validate_binding(&record.before.digest().map_err(|_| invalid())?)?;
-    let verified = verifier.verify(record);
-    let error = (context.take_state_error)();
+    let after_root = record.after.state_root(context.root.namespace);
+    let mut verify =
+        crate::incremental_verified_world_transition::WorldTransitionVerificationContextV1 {
+            after_root,
+            memory: context.values.memory,
+            class: context.values.class,
+            take_state_error: &mut context.take_state_error,
+            cancelled: &mut context.cancelled,
+        };
+    Ok(
+        crate::incremental_verified_world_transition::verify_world_transition_in_v1(
+            verifier,
+            record,
+            &mut verify,
+        )?,
+    )
+}
+
+pub(super) fn checked_parent_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<CognitionCurrentStateQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+) -> Result<(), WorldFieldOverlayErrorV1> {
     context.check()?;
-    if let Some(error) = error {
-        return Err(error.into());
+    witness.check_pool_class(context.values.memory, context.values.class)?;
+    if context.values.class != MemoryClass::Ordinary
+        || parent.class() != MemoryClass::Ordinary
+        || !parent.uses_budget(context.values.memory)
+        || !witness
+            .record()
+            .before
+            .state
+            .iter()
+            .any(|r| r == context.root)
+    {
+        return Err(invalid().into());
     }
-    Ok(verified?)
+    parent.validate_binding(witness.before_digest())?;
+    Ok(())
 }

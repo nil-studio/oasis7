@@ -125,11 +125,12 @@ fn canonical_goal_full_observer_public_snapshot_omits_raw_signed_input() {
         ViewerRuntimeLiveServer::new(ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal))
             .unwrap();
     server.world = observer;
-    let owner_before =
-        projection::from_authenticated_world(&server.world, Some("owner-agent"), &public)
-            .unwrap()
-            .canonical_agent_chat
-            .unwrap();
+    let owner_before_projection =
+        projection::from_authenticated_world(&server.world, Some("owner-agent"), &public).unwrap();
+    let owner_before = owner_before_projection
+        .canonical_agent_chat
+        .as_ref()
+        .unwrap();
     let snapshot = server.compat_snapshot(None);
     assert!(
         !serde_json::to_string(&snapshot)
@@ -177,14 +178,15 @@ fn canonical_goal_full_observer_public_snapshot_omits_raw_signed_input() {
         serde_json::to_value(server.world.journal()).unwrap(),
         original_journal
     );
-    let owner_after =
-        projection::from_authenticated_world(&server.world, Some("owner-agent"), &public)
-            .unwrap()
-            .canonical_agent_chat
-            .unwrap();
+    let owner_after_projection =
+        projection::from_authenticated_world(&server.world, Some("owner-agent"), &public).unwrap();
+    let owner_after = owner_after_projection
+        .canonical_agent_chat
+        .as_ref()
+        .unwrap();
     assert_eq!(owner_before, owner_after);
     assert_eq!(
-        owner_after.goal.unwrap().message,
+        owner_after.goal.as_ref().unwrap().message,
         "PRIVATE_CANONICAL_OWNER_GOAL"
     );
     fs::remove_dir_all(dir).unwrap();

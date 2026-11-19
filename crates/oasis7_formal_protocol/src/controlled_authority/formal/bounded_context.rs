@@ -24,6 +24,35 @@ fn next_identity(counter: &AtomicU64) -> Result<WorkIdentityV1, FormalError> {
         .map(WorkIdentityV1)
         .map_err(|_| invalid("bounded archive meter identity exhausted"))
 }
+/// Fixed-size debit failures can remain inside a prepaid recovery carrier.
+/// The compatibility conversion preserves the existing FormalError messages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormalBoundedChargeErrorV1 {
+    ChildReadActive,
+    Cancelled,
+    StepLimit,
+    ByteLimit,
+}
+impl FormalBoundedChargeErrorV1 {
+    fn message(self) -> &'static str {
+        match self {
+            Self::ChildReadActive => "bounded archive child read active",
+            Self::Cancelled => "bounded archive read cancelled",
+            Self::StepLimit => "bounded archive read steps",
+            Self::ByteLimit => "bounded archive read bytes",
+        }
+    }
+}
+impl std::fmt::Display for FormalBoundedChargeErrorV1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message())
+    }
+}
+impl From<FormalBoundedChargeErrorV1> for FormalError {
+    fn from(error: FormalBoundedChargeErrorV1) -> Self {
+        invalid(error.message())
+    }
+}
 /// No Clone, setter, addition or alternate counter store. Cell makes this !Sync.
 pub struct FormalBoundedWorkV1 {
     remaining_steps: Cell<u64>,
@@ -60,16 +89,25 @@ impl FormalBoundedWorkV1 {
         bytes: u64,
         stop: &mut dyn FnMut() -> bool,
     ) -> Result<(), FormalError> {
+        self.charge_typed(steps, bytes, stop)
+            .map_err(FormalError::from)
+    }
+    fn charge_typed(
+        &self,
+        steps: u64,
+        bytes: u64,
+        stop: &mut dyn FnMut() -> bool,
+    ) -> Result<(), FormalBoundedChargeErrorV1> {
         if self.is_child_active() {
-            return Err(invalid("bounded archive child read active"));
+            return Err(FormalBoundedChargeErrorV1::ChildReadActive);
         }
         if stop() {
-            return Err(invalid("bounded archive read cancelled"));
+            return Err(FormalBoundedChargeErrorV1::Cancelled);
         }
         if self.is_child_active() {
-            return Err(invalid("bounded archive child read active"));
+            return Err(FormalBoundedChargeErrorV1::ChildReadActive);
         }
-        self.deduct(steps, bytes)
+        self.deduct_typed(steps, bytes)
     }
     pub fn consume_steps(&self, n: u64, stop: &mut dyn FnMut() -> bool) -> Result<(), FormalError> {
         self.charge(n, 0, stop)
@@ -81,7 +119,7 @@ impl FormalBoundedWorkV1 {
     ) -> Result<(), FormalError> {
         self.charge(1, n, stop)
     }
-    fn deduct(&self, steps: u64, bytes: u64) -> Result<(), FormalError> {
+    fn deduct_typed(&self, steps: u64, bytes: u64) -> Result<(), FormalBoundedChargeErrorV1> {
         let previous_steps = self.remaining_steps.get();
         let previous_bytes = self.remaining_read_bytes.get();
         self.remaining_steps
@@ -89,10 +127,10 @@ impl FormalBoundedWorkV1 {
         self.remaining_read_bytes
             .set(previous_bytes.saturating_sub(bytes));
         if previous_steps < steps {
-            return Err(invalid("bounded archive read steps"));
+            return Err(FormalBoundedChargeErrorV1::StepLimit);
         }
         if previous_bytes < bytes {
-            return Err(invalid("bounded archive read bytes"));
+            return Err(FormalBoundedChargeErrorV1::ByteLimit);
         }
         Ok(())
     }
@@ -129,7 +167,9 @@ impl ChildLeaseV1<'_> {
     /// No callback here: reconciliation preserves an existing child first error.
     /// A failing debit still saturates BOTH balances, with steps error first.
     pub fn consume(&self, steps: u64, bytes: u64) -> Result<(), FormalError> {
-        self.work.deduct(steps, bytes)
+        self.work
+            .deduct_typed(steps, bytes)
+            .map_err(FormalError::from)
     }
     /// Unlock without refunding. Call even after a normally returned child error
     /// once its attempted work has been debited; abandonment/panic must not finish.
@@ -165,7 +205,9 @@ impl<'a> FormalBoundedContextV1<'a> {
     pub fn memory(&self) -> &MemoryBudget {
         self.memory
     }
-    pub fn work(&self) -> &FormalBoundedWorkV1 {
+    /// Returns the original Core loan, independent of a short context borrow.
+    /// A consumer may retain it while this context debits that same meter.
+    pub fn work(&self) -> &'a FormalBoundedWorkV1 {
         self.work
     }
     pub fn charge(&mut self, steps: u64, bytes: u64) -> Result<(), FormalError> {
@@ -173,6 +215,11 @@ impl<'a> FormalBoundedContextV1<'a> {
     }
     pub fn consume_steps(&mut self, n: u64) -> Result<(), FormalError> {
         self.work.consume_steps(n, self.stop)
+    }
+    /// Same original debit and cancellation path, without allocating an error
+    /// string when a caller must retain the cause in a prepaid bounded owner.
+    pub fn consume_steps_typed(&mut self, n: u64) -> Result<(), FormalBoundedChargeErrorV1> {
+        self.work.charge_typed(n, 0, self.stop)
     }
     pub fn consume_read_bytes(&mut self, n: u64) -> Result<(), FormalError> {
         self.work.consume_read_bytes(n, self.stop)

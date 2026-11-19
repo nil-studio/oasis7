@@ -5,6 +5,7 @@ from contextlib import ExitStack, redirect_stdout
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import importlib.util
+import inspect
 import itertools
 import io
 import json
@@ -652,6 +653,72 @@ class RiskTargetInventory(unittest.TestCase):
         with self.assertRaises(ValueError):
             artifacts.validate_ordinary_selection(expanded)
 
+    # Keep the historical test identity stable as the registered cases expand.
+    def test_iws_rule_full_supplement_keeps_four_cases_and_one_worker_owner(self):
+        self.assert_iws_component_owner('iws_rule_core', artifacts.IWS_RULE_CORE_TESTS)
+
+    def test_iws_action_body_full_supplement_keeps_six_cases_and_one_worker_owner(self):
+        self.assert_iws_component_owner('iws_action_body', artifacts.IWS_ACTION_BODY_TESTS)
+
+    def assert_iws_component_owner(self, target_name, expected_cases):
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        target = next(item for item in config['ordinary_scale_contract']['targets']
+                      if item['package'] == 'oasis7_runtime' and item['target_name'] == target_name)
+        self.assertEqual(set(target['cases']), expected_cases)
+        fixture = TargetedArtifactPartitions()
+        selected = fixture.selection() | dict(
+            oasis7_required_packages=['oasis7_chain_runtime', 'oasis7_runtime'],
+            risk_test_inventory_version=1, ordinary_risk_targets=[target])
+        manifest = fixture.manifest(selected)
+        full = FastTargetInventory().binary(target, 'required-risk-0')
+        manifest['binaries'][target_name] = full | dict(path=target_name, cwd='.')
+        manifest['binaries']['runtime-required'] = full | dict(
+            path='runtime-required', cwd='.', target='oasis7_runtime', target_kind=['lib'],
+            variant='required', tests=['ordinary_runtime_case'], features=['test_tier_required'],
+            requested_features=['oasis7_runtime/test_tier_required'])
+        artifacts.validate_ordinary_selection(manifest)
+        commands = artifacts.required_native_commands(selected)
+        self.assertEqual([args for args in commands if target_name in args],
+                         [['-p', 'oasis7_runtime', '--test', target_name, '--features', 'test_tier_full']])
+        owners, covered = [], []
+        with patch.object(artifacts.sys, 'platform', 'linux'):
+            for owner in selected['ordinary_partitions'][1:]:
+                with redirect_stdout(io.StringIO()):
+                    entries = artifacts.ordinary_artifact_entries(manifest, selected, owner)
+                binaries = {entry['binary'] for entry in entries}
+                self.assertEqual(artifacts.runtime_worker_test_selected(manifest, binaries),
+                                 target_name in binaries)
+                if target_name in binaries:
+                    owners.append(owner)
+                covered.extend(case for binary, case in fixture.coverage(manifest, entries)
+                               if binary == target_name)
+        self.assertEqual(len(owners), 1)
+        # The generic fixture also has an unlisted active regression: the
+        # minimum registered-case contract must not trim the actual whole harness.
+        self.assertCountEqual(covered, full['tests'])
+        self.assertTrue(set(target['cases']) <= set(covered))
+        for damage in ('missing', 'empty', 'ignored'):
+            broken = copy.deepcopy(manifest)
+            if damage == 'missing':
+                del broken['binaries'][target_name]
+            elif damage == 'empty':
+                broken['binaries'][target_name]['tests'] = []
+            else:
+                broken['binaries'][target_name]['ignored_tests'] = target['cases'][:1]
+            with self.subTest(damage=damage), self.assertRaises(ValueError):
+                artifacts.validate_ordinary_selection(broken)
+
+        for case in target['cases']:
+            for damage in ('omitted', 'ignored'):
+                broken = copy.deepcopy(manifest)
+                binary = broken['binaries'][target_name]
+                if damage == 'omitted':
+                    binary['tests'].remove(case)
+                else:
+                    binary['ignored_tests'] = [case]
+                with self.subTest(case=case, damage=damage), self.assertRaises(ValueError):
+                    artifacts.validate_ordinary_selection(broken)
+
     def test_all_scope_cannot_silently_drop_risk_contracts(self):
         for expanded in (False, True):
             selected = self.selection() | {'test_policy_changed': expanded}
@@ -737,9 +804,6 @@ class FastTargetInventory(unittest.TestCase):
         ])
         variants = artifacts.build_variants('ordinary', selected)
         expected = [['test', *args, '--no-run'] for args in commands]
-        if sys.platform == 'linux' and hasattr(artifacts, 'RUNTIME_WORKER_VARIANT'):
-            expected.append(['build', '-p', 'oasis7_wasm_executor', '--no-default-features',
-                             '--features', 'wasmtime', '--bin', 'oasis7-wasm-worker'])
         self.assertEqual([command for _, command, _ in variants], expected)
         self.assertEqual(artifacts.snapshot_regressions(dict(execution_plan=selected)), ())
         viewer = self.selection([self.target(package='oasis7_viewer_runtime')])
@@ -747,6 +811,25 @@ class FastTargetInventory(unittest.TestCase):
         self.assertEqual(len(artifacts.build_variants('ordinary', viewer)), 1)
         manifest = dict(execution_plan=viewer, binaries={'selected': self.binary(viewer['ordinary_fast_targets'][0])})
         self.assertEqual(artifacts.dependency_closure(manifest, {}, suite='ordinary'), {'selected'})
+
+    def test_runtime_worker_build_tracks_selected_runtime_lib_harness(self):
+        target = self.target(package='oasis7_runtime', target_kind='lib',
+                             target_name='oasis7_runtime')
+        for platform in ('linux', 'darwin'):
+            for cases in ([artifacts.RUNTIME_WORKER_TEST], ['unrelated_case']):
+                selected = self.selection([target | {'cases': cases}])
+                with self.subTest(platform=platform, cases=cases), \
+                     patch.object(artifacts.sys, 'platform', platform):
+                    self.assertEqual(artifacts.build_variants('ordinary', selected), [
+                        ('required-fast-0', ['test', '-p', 'oasis7_runtime', '--lib',
+                         '--no-default-features', '--features', 'test_tier_required', '--no-run'],
+                         ['test_tier_required'])])
+                    manifest = {'binaries': {'runtime': self.binary(target) | {'tests': cases}}}
+                    self.assertEqual(artifacts.runtime_worker_test_selected(manifest),
+                                     platform == 'linux' and cases == [artifacts.RUNTIME_WORKER_TEST])
+        for scope in ('ordinary', 'all'):
+            self.assertNotIn(artifacts.RUNTIME_WORKER_BUILD,
+                             [name for name, _, _ in artifacts.build_variants(scope)])
 
     def test_native_commands_cli_emits_json_for_both_fast_profiles(self):
         sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=artifacts.ROOT, text=True).strip()
@@ -830,13 +913,6 @@ class FastTargetInventory(unittest.TestCase):
         for scope in ('ordinary', 'all'):
             full_variants = artifacts.build_variants(scope, selected)
             original = artifacts.build_variants(scope, legacy)
-            if sys.platform == 'linux' and hasattr(artifacts, 'RUNTIME_WORKER_VARIANT'):
-                worker = (artifacts.RUNTIME_WORKER_VARIANT,
-                          ['build', '-p', 'oasis7_wasm_executor', '--no-default-features',
-                           '--features', 'wasmtime', '--bin', 'oasis7-wasm-worker'], ['wasmtime'])
-                self.assertEqual(full_variants[-1], worker)
-                self.assertEqual(original[-1], worker)
-                full_variants, original = full_variants[:-1], original[:-1]
             self.assertEqual(full_variants[:-1], original)
             self.assertEqual(full_variants[-1][1], ['test', '-p', 'oasis7_viewer_codec', '--test', 'pr_fast',
                                                    '--no-default-features', '--features', 'test_tier_required', '--no-run'])
@@ -1570,6 +1646,298 @@ class CompleteArtifactPartitions(unittest.TestCase):
         self.assertEqual(len({(entry.get('binary'), entry.get('name'), entry.get('script')) for entry in combined}), len(combined))
 
 
+class RuntimeLiveDiagnostics(unittest.TestCase):
+    RUNTIME = 'required-test-oasis7_runtime-lib-oasis7_runtime'
+
+    def fixture(self):
+        selected = CompleteArtifactPartitions().selection()
+        manifest = CompleteArtifactPartitions().manifest(selected)
+        runtime = manifest['binaries'].pop('component')
+        runtime.update(path=self.RUNTIME, tests=['first_failure', 'still_running', 'ignored_case'],
+                       ignored_tests=['ignored_case'])
+        manifest['binaries'][self.RUNTIME] = runtime
+        return selected, manifest
+
+    def test_only_complete_component_runtime_batch_changes_capture(self):
+        for change in ('none', 'unpartitioned', 'fast', 'alias', 'variant', 'package', 'target', 'kind', 'filter'):
+            selected, manifest = self.fixture()
+            runtime = manifest['binaries'][self.RUNTIME]
+            partition = 'component-libs'
+            if change == 'unpartitioned':
+                partition = None
+            elif change == 'fast':
+                selected = InlineExecutionSelection().selection()
+                manifest['execution_plan'] = selected
+                partition = None
+            elif change == 'alias':
+                manifest['binaries']['other-runtime-alias'] = manifest['binaries'].pop(self.RUNTIME)
+            elif change in ('variant', 'package', 'target'):
+                runtime[change] = 'other'
+            elif change == 'kind':
+                runtime['target_kind'] = ['test']
+            environment = {'RUST_TEST_THREADS': '3', 'RUST_TEST_NOCAPTURE': '0', 'UNCHANGED': 'value'}
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+                root = Path(temporary)
+                stack.enter_context(patch.object(artifacts, 'ROOT', root))
+                stack.enter_context(patch.object(artifacts, 'load', return_value=(manifest, dict(environment))))
+                runner = stack.enter_context(patch('ci_process_runner.run', return_value=dict(passed=True, cleanup_result='clean')))
+                inline = stack.enter_context(patch.object(artifacts, 'execute_inline_jobs'))
+                if change == 'filter':
+                    stack.enter_context(patch.object(artifacts, 'ordinary_artifact_entries',
+                        return_value=[dict(binary=self.RUNTIME, filter='first_failure', count=1)]))
+                artifacts.execute(root, 'ordinary', root / 'results', plan=selected, ordinary_partition=partition)
+                if change == 'fast':
+                    jobs = inline.call_args.args[0]
+                else:
+                    inline.assert_not_called()
+                    jobs = [dict(command=call.args[0], env=call.args[2], name=call.args[4],
+                                 count=call.kwargs['expected_count']) for call in runner.call_args_list]
+                    self.assertTrue(all(set(call.kwargs) == {'expected_count'} for call in runner.call_args_list))
+                self.assertTrue(jobs)
+                for job in jobs:
+                    expected = change == 'none' and job['name'] == self.RUNTIME
+                    self.assertEqual('--nocapture' in job['command'], expected)
+                    self.assertFalse(any(arg.startswith('--test-threads') for arg in job['command']))
+                    self.assertEqual(job['env'], dict(environment, CARGO_MANIFEST_DIR=str(root)))
+                    if job['name'] == self.RUNTIME:
+                        self.assertEqual(job['command'], [str(root / self.RUNTIME)] + (['--nocapture'] if expected else []))
+                        self.assertEqual(job['count'], 2)
+                    elif change == 'filter':
+                        self.assertEqual(job['command'], [str(root / self.RUNTIME), 'first_failure'])
+                        self.assertEqual(job['count'], 1)
+                    else:
+                        snapshots = dict((pattern, owner) for owner, pattern in artifacts.DEFAULT_SNAPSHOT_REGRESSIONS)
+                        owner = snapshots.get(job['name'], job['name'])
+                        expected_command = [str(root / manifest['binaries'][owner]['path'])]
+                        if job['name'] in snapshots:
+                            expected_command.append(job['name'])
+                        self.assertEqual(job['command'], expected_command)
+
+    def test_panic_is_emitted_before_harness_finishes_and_failure_stays_failed(self):
+        from contextlib import redirect_stdout
+        selected, manifest = self.fixture()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            # A controlled libtest-like process captures its panic until exit
+            # unless the real execute() command opts this exact batch out.
+            for name, binary in manifest['binaries'].items():
+                harness = root / binary['path']
+                harness.write_text('#!' + sys.executable + '\n'
+                    'import json,os,sys,time\nfrom pathlib import Path\n'
+                    'root=Path(__file__).parent\n'
+                    '(root/(Path(__file__).name+".invocation")).write_text(json.dumps(dict(args=sys.argv[1:],'
+                    'threads=os.environ.get("RUST_TEST_THREADS"),capture=os.environ.get("RUST_TEST_NOCAPTURE"))))\n'
+                    f'if Path(__file__).name == {self.RUNTIME!r}:\n'
+                    ' print("test first_failure ... FAILED",flush=True)\n'
+                    ' if "--nocapture" in sys.argv: print("panic: diagnostic-fixture-first-cause",flush=True)\n'
+                    ' (root/"started").touch()\n'
+                    ' while not (root/"release").exists(): time.sleep(0.01)\n'
+                    ' if "--nocapture" not in sys.argv: print("panic: diagnostic-fixture-first-cause",flush=True)\n'
+                    ' print("test result: FAILED. 1 passed; 1 failed; 1 ignored;",flush=True)\n'
+                    ' sys.exit(101)\n'
+                    'print("test result: ok. 1 passed; 0 failed; 0 ignored;",flush=True)\n')
+                harness.chmod(0o755)
+            environment = dict(os.environ)
+            for key in ('RUST_TEST_THREADS', 'RUST_TEST_NOCAPTURE'):
+                environment.pop(key, None)
+            results, output = root / 'results', root / 'output'
+            with patch.object(artifacts, 'ROOT', root), \
+                 patch.object(artifacts, 'load', return_value=(manifest, environment)), \
+                 output.open('w') as stream, redirect_stdout(stream), \
+                 patch('ci_process_runner.run', wraps=run) as runner, ThreadPoolExecutor(max_workers=1) as pool:
+                execution = pool.submit(artifacts.execute, root, 'ordinary', results,
+                                        plan=selected, ordinary_partition='component-libs')
+                try:
+                    deadline = time.monotonic() + 5
+                    while 'panic: diagnostic-fixture-first-cause' not in output.read_text() and time.monotonic() < deadline:
+                        time.sleep(0.01)
+                    self.assertTrue((root / 'started').exists())
+                    self.assertFalse(execution.done())
+                    self.assertNotIn('test result: FAILED', output.read_text())
+                    self.assertIn('panic: diagnostic-fixture-first-cause', output.read_text())
+                finally:
+                    (root / 'release').touch()
+                with self.assertRaises(RuntimeError):
+                    execution.result(timeout=5)
+                calls = runner.call_args_list
+            self.assertEqual(len(calls), 3)
+            self.assertTrue(all(set(call.kwargs) == {'expected_count'} for call in calls))
+            self.assertEqual(run.__defaults__[1], 2400)
+            records = [json.loads(line) for line in results.read_text().splitlines()]
+            runtime_result = next(record for record in records if record['test_name'] == self.RUNTIME)
+            self.assertEqual(runtime_result['expected_count'], 2)
+            self.assertEqual(runtime_result['exit_code'], 101)
+            self.assertFalse(runtime_result['passed'] or runtime_result['timeout'] or runtime_result['cancelled'])
+            self.assertEqual(runtime_result['cleanup_result'], 'clean')
+            self.assertTrue(all(record['passed'] for record in records if record is not runtime_result))
+            for name in (self.RUNTIME, 'oasis7-lib-tests', 'supplement'):
+                invocation = json.loads((root / (name + '.invocation')).read_text())
+                self.assertEqual(invocation, dict(args=['--nocapture'] if name == self.RUNTIME else [],
+                                                  threads=None, capture=None))
+class InlineRuntimeLiveDiagnostics(unittest.TestCase):
+    RUNTIME = RuntimeLiveDiagnostics.RUNTIME
+
+    def fixture(self, partition='oasis7_runtime', reordered=False):
+        selected = NativePackagePartitions().selection()
+        targets = selected['ordinary_fast_targets']
+        targets[0]['cases'] = ['first_failure', 'still_running']
+        if reordered:
+            targets.append(targets.pop(0))
+        if partition == 'all':
+            selected['ordinary_fast_targets'] = [target for target in targets
+                                                if target['package'] == 'oasis7_runtime']
+            selected['ordinary_partitions'] = ['all']
+            selected['oasis7_required_packages'] = ['oasis7_runtime']
+        manifest = ParallelNativeExecution().manifest(selected)
+        binaries = {}
+        for binary in manifest['binaries'].values():
+            logical = artifacts.artifact_logical_name(binary['variant'], binary['package'],
+                dict(name=binary['target'], kind=binary['target_kind']), True)
+            binary['path'] = logical
+            if logical == self.RUNTIME:
+                binary.update(tests=['first_failure', 'still_running', 'ignored_case'],
+                              ignored_tests=['ignored_case'])
+            if partition in (None, 'all', binary['package']):
+                binaries[logical] = binary
+        manifest['binaries'] = binaries
+        if partition is not None:
+            manifest['ordinary_partition'] = partition
+        artifacts.validate_ordinary_selection(manifest)
+        return selected, manifest
+
+    def test_only_exact_partitioned_runtime_inline_batch_changes_capture(self):
+        partition_flag = 'artifact_partition' in inspect.signature(artifacts.execute_inline_jobs).parameters
+        for change in ('none', 'parent-order', 'unpartitioned', 'all', 'fast', 'other-partition',
+                       'alias', 'variant', 'parent-variant', 'package', 'target', 'kind', 'filter'):
+            partition = (None if change in ('unpartitioned', 'fast') else 'all' if change == 'all'
+                         else 'oasis7_world_state' if change == 'other-partition' else 'oasis7_runtime')
+            selected, manifest = self.fixture(partition, reordered=change == 'parent-order')
+            runtime = manifest['binaries'].get(self.RUNTIME)
+            if change == 'fast':
+                for key in ('fast_execution_version', 'ordinary_execution',
+                            'ordinary_partition_version', 'ordinary_partitions'):
+                    selected.pop(key)
+            elif change == 'alias':
+                manifest['binaries']['other-runtime-alias'] = manifest['binaries'].pop(self.RUNTIME)
+            elif change == 'variant':
+                runtime['variant'] = 'required'
+            elif change == 'parent-variant':
+                runtime['variant'] = 'required-fast-1'
+            elif change in ('package', 'target'):
+                runtime[change] = 'other'
+            elif change == 'kind':
+                runtime['target_kind'] = ['test']
+            environment = {'RUST_TEST_THREADS': '3', 'RUST_TEST_NOCAPTURE': '0', 'UNCHANGED': 'value'}
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+                root = Path(temporary)
+                stack.enter_context(patch.object(artifacts, 'ROOT', root))
+                stack.enter_context(patch.object(artifacts, 'load', return_value=(manifest, dict(environment))))
+                inline = stack.enter_context(patch.object(artifacts, 'execute_inline_jobs'))
+                runner = stack.enter_context(patch('ci_process_runner.run',
+                                                  return_value=dict(passed=True, cleanup_result='clean')))
+                if change == 'filter':
+                    stack.enter_context(patch.object(artifacts, 'ordinary_entries',
+                        return_value=[dict(binary=self.RUNTIME, filter='first_failure', count=1)]))
+                artifacts.execute(root, 'ordinary', root / 'results', plan=selected, ordinary_partition=partition)
+                if change == 'fast':
+                    inline.assert_not_called()
+                    jobs = [dict(command=call.args[0], env=call.args[2], name=call.args[4],
+                                 count=call.kwargs['expected_count']) for call in runner.call_args_list]
+                else:
+                    runner.assert_not_called()
+                    inline.assert_called_once()
+                    expected = dict(formal=False, shard=None, ordinary_partition=partition)
+                    if partition_flag:
+                        expected['artifact_partition'] = False
+                    self.assertEqual(inline.call_args.kwargs, expected)
+                    jobs = inline.call_args.args[0]
+                self.assertTrue(jobs)
+                for job in jobs:
+                    expected = change in ('none', 'parent-order') and job['name'] == self.RUNTIME
+                    self.assertEqual('--nocapture' in job['command'], expected)
+                    self.assertFalse(any(arg.startswith('--test-threads') for arg in job['command']))
+                    self.assertEqual(job['env'], dict(environment, CARGO_MANIFEST_DIR=str(root)))
+                    if change == 'filter':
+                        self.assertEqual(job['command'], [str(root / self.RUNTIME), 'first_failure'])
+                        self.assertEqual(job['count'], 1)
+                    else:
+                        binary = manifest['binaries'][job['name']]
+                        self.assertEqual(job['command'], [str(root / binary['path'])]
+                                         + (['--nocapture'] if expected else []))
+                        self.assertEqual(job['count'], 2)
+
+    def test_inline_first_panic_is_live_before_exit_and_failed_receipt_is_preserved(self):
+        selected, manifest = self.fixture()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            # This process models libtest capture only. The real execute(),
+            # inline supervisor and process runner own commands and results.
+            for name, binary in manifest['binaries'].items():
+                harness = root / binary['path']
+                harness.write_text('#!' + sys.executable + '\n'
+                    'import json,os,sys,time\nfrom pathlib import Path\n'
+                    'root=Path(__file__).parent\n'
+                    '(root/(Path(__file__).name+".invocation")).write_text(json.dumps(dict(args=sys.argv[1:],'
+                    'threads=os.environ.get("RUST_TEST_THREADS"),capture=os.environ.get("RUST_TEST_NOCAPTURE"))))\n'
+                    f'if Path(__file__).name == {self.RUNTIME!r}:\n'
+                    ' print("test first_failure ... FAILED",flush=True)\n'
+                    ' if "--nocapture" in sys.argv: print("panic: inline-diagnostic-first-cause",flush=True)\n'
+                    ' (root/"started").touch()\n'
+                    ' while not (root/"release").exists(): time.sleep(0.01)\n'
+                    ' if "--nocapture" not in sys.argv: print("panic: inline-diagnostic-first-cause",flush=True)\n'
+                    ' print("test result: FAILED. 1 passed; 1 failed; 1 ignored;",flush=True)\n'
+                    ' sys.exit(101)\n'
+                    'print("test result: ok. 2 passed; 0 failed; 0 ignored;",flush=True)\n')
+                harness.chmod(0o755)
+            environment = dict(os.environ)
+            for key in ('RUST_TEST_THREADS', 'RUST_TEST_NOCAPTURE'):
+                environment.pop(key, None)
+            results, output = root / 'results', root / 'output'
+            with patch.object(artifacts, 'ROOT', root), \
+                 patch.object(artifacts, 'load', return_value=(manifest, environment)), \
+                 patch.object(artifacts, 'native_cpu_budget', return_value=4), \
+                 patch.object(artifacts, 'execute_inline_jobs', wraps=artifacts.execute_inline_jobs) as inline, \
+                 output.open('w') as stream, redirect_stdout(stream), \
+                 patch('ci_process_runner.run', wraps=run) as runner, ThreadPoolExecutor(max_workers=1) as pool:
+                execution = pool.submit(artifacts.execute, root, 'ordinary', results,
+                                        plan=selected, ordinary_partition='oasis7_runtime')
+                try:
+                    deadline = time.monotonic() + 5
+                    while (not (root / 'started').exists()
+                           or 'panic: inline-diagnostic-first-cause' not in output.read_text()) \
+                            and time.monotonic() < deadline:
+                        time.sleep(0.01)
+                    self.assertTrue((root / 'started').exists())
+                    self.assertFalse(execution.done())
+                    self.assertNotIn('test result: FAILED', output.read_text())
+                    self.assertIn('panic: inline-diagnostic-first-cause', output.read_text())
+                finally:
+                    (root / 'release').touch()
+                with self.assertRaises(RuntimeError):
+                    execution.result(timeout=5)
+            inline.assert_called_once()
+            runner.assert_called_once()
+            self.assertEqual(set(runner.call_args.kwargs), {'expected_count', 'cancellation_event'})
+            self.assertEqual(run.__defaults__[1], 2400)
+            records = [json.loads(line) for line in results.read_text().splitlines()]
+            self.assertEqual(len(records), 1)
+            result = records[0]
+            self.assertEqual((result['test_name'], result['expected_count'], result['exit_code']),
+                             (self.RUNTIME, 2, 101))
+            self.assertFalse(result['passed'] or result['timeout'] or result['cancelled'] or result['count_ok'])
+            self.assertEqual(result['cleanup_result'], 'clean')
+            invocation = json.loads((root / (self.RUNTIME + '.invocation')).read_text())
+            self.assertEqual(invocation, dict(args=['--nocapture'], threads='4', capture=None))
+            self.assertTrue(all(not (root / (name + '.invocation')).exists()
+                                for name in manifest['binaries'] if name != self.RUNTIME))
+            summaries = [json.loads(line.removeprefix('native_execution='))
+                         for line in output.read_text().splitlines() if line.startswith('native_execution=')]
+            self.assertEqual(summaries[0], dict(mode='inline', partition='oasis7_runtime', workers=1,
+                             cpu_budget=4, test_threads=4, selected=2, weights=[4, 4]))
+            self.assertEqual(summaries[-1], dict(mode='inline', partition='oasis7_runtime', selected=2,
+                             started=1, recorded=1, failures=[self.RUNTIME], interrupted=[], complete=False))
+
+
 class OrdinaryArtifactDelivery(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
@@ -1652,6 +2020,145 @@ class OrdinaryArtifactDelivery(unittest.TestCase):
                     member.size = len(raw)
                 archive.addfile(member, io.BytesIO(raw) if raw is not None else None)
         return destination
+
+    def install_worker_companion(self, selected=True):
+        component = self.manifest['binaries']['component']
+        case = ('world::incremental_genesis::tests::module_execution::action_body::'
+                'actual_queued_body_actions_match_world_and_read_prior_current_write')
+        component['tests'] = [case] if selected else ['actual_behavior']
+        text = ('#!' + sys.executable + '\nimport sys\n'
+                'names = ' + repr(component['tests']) + '\n'
+                'if "--ignored" not in sys.argv:\n'
+                '    for name in names: print(name + ": test")\n')
+        self.file(component['path'], text.encode(), executable=True)
+        component['sha256'] = artifacts.digest(self.bundle / component['path'])
+        # Real temporary files exercise the original resource validator and
+        # transport. They do not stand in for a compiled Rust worker behavior.
+        worker = self.file(artifacts.RUNTIME_WORKER_PATH, b'worker transport fixture', True)
+        library = self.file('lib/worker.so', b'worker-only dynamic dependency', True)
+        self.manifest['worker_companion'] = dict(worker, package='oasis7_wasm_executor',
+            target='oasis7-wasm-worker', target_kind=['bin'], test=False,
+            profile=dict(opt_level='0', debuginfo=0, debug_assertions=True,
+                         overflow_checks=True, test=False),
+            features=['wasmtime'], requested_features=['wasmtime'],
+            original_executable=str(self.root / 'target/debug/oasis7-wasm-worker'),
+            libraries=[library['path']])
+        self.manifest['libraries'][library['path']] = library['sha256']
+        self.write_parent()
+        return worker, library
+
+    @unittest.skipUnless(sys.platform == 'linux', 'Runtime worker companion requires Linux')
+    def test_shared_worker_preserves_parent_files_and_selected_consumer_environment(self):
+        worker, library = self.install_worker_companion()
+        whole = self.root / 'ordinary-worker.tar.gz'
+        artifacts.pack(self.bundle, whole, suite='ordinary', plan=self.plan)
+        with tarfile.open(whole) as archive:
+            parent = archive.extractfile('manifest.json').read()
+            expected = {member.name: hashlib.sha256(archive.extractfile(member).read()).hexdigest()
+                        for member in archive if member.name != 'manifest.json'}
+        report = self.pack()
+        self.assertEqual(report['parent_manifest_sha256'], hashlib.sha256(parent).hexdigest())
+        actual, selected_owners = {}, []
+        for owner in ('common', *self.plan['ordinary_partitions'][1:]):
+            with tarfile.open(self.archives / (owner + '.tar.gz')) as archive:
+                if owner == 'common':
+                    self.assertEqual(archive.extractfile('manifest.json').read(), parent)
+                payload = {member.name: hashlib.sha256(archive.extractfile(member).read()).hexdigest()
+                           for member in archive
+                           if member.name not in ('manifest.json', *artifacts.ORDINARY_DELIVERY_RECEIPTS)}
+            self.assertFalse(set(actual) & set(payload))
+            actual.update(payload)
+            for resource in (worker, library):
+                self.assertEqual(resource['path'] in payload, owner == 'common')
+            if owner == 'common':
+                continue
+            destination, receipt = self.unpack(owner)
+            with patch.dict(os.environ, {artifacts.RUNTIME_WORKER_VARIABLE: 'untrusted-inherited-path'}):
+                loaded, env = artifacts.load(destination, 'ordinary', plan=self.plan,
+                                             ordinary_artifact_partition=owner)
+            self.assertEqual((destination / 'manifest.json').read_bytes(), parent)
+            self.assertEqual(loaded['worker_companion'], self.manifest['worker_companion'])
+            for resource in (worker, library):
+                self.assertEqual(artifacts.digest(destination / resource['path']), resource['sha256'])
+            if 'component' in receipt['included_binaries']:
+                selected_owners.append(owner)
+                self.assertEqual(env[artifacts.RUNTIME_WORKER_VARIABLE],
+                                 str((destination / worker['path']).resolve()))
+            else:
+                self.assertNotIn(artifacts.RUNTIME_WORKER_VARIABLE, env)
+        self.assertEqual(actual, expected)
+        self.assertEqual(len(selected_owners), 1)
+
+    @unittest.skipUnless(sys.platform == 'linux', 'Runtime worker companion requires Linux')
+    def test_shared_worker_keeps_missing_corrupt_and_overlapping_resource_rejection(self):
+        worker, library = self.install_worker_companion()
+        self.pack()
+        owner = next(owner for owner in self.plan['ordinary_partitions'][1:]
+                     if any(entry['binary'] == 'component'
+                            for entry in artifacts.ordinary_artifact_entries(self.manifest, self.plan, owner)))
+        destination, _ = self.unpack(owner)
+        for resource in (worker, library):
+            for damaged_root in (self.bundle, destination):
+                path = damaged_root / resource['path']
+                original = path.read_bytes()
+                for damage in ('missing', 'corrupt'):
+                    if damage == 'missing':
+                        path.unlink()
+                    else:
+                        path.write_bytes(b'corrupt resource bytes')
+                    error, message = ValueError, 'missing, invalid or corrupt executable/library'
+                    if damaged_root == destination and resource == library:
+                        error, message = ((FileNotFoundError, re.escape(str(path))) if damage == 'missing'
+                                          else (ValueError, 'invalid dynamic library'))
+                    with self.subTest(resource=resource['path'], root=damaged_root.name, damage=damage), \
+                         self.assertRaisesRegex(error, message):
+                        if damaged_root == self.bundle:
+                            self.pack()
+                        else:
+                            artifacts.load(destination, 'ordinary', plan=self.plan,
+                                           ordinary_artifact_partition=owner)
+                    path.write_bytes(original)
+                    path.chmod(0o755)
+        shutil.rmtree(destination)
+        for resource in (worker, library):
+            def append(members):
+                member = tarfile.TarInfo(resource['path'])
+                member.mode = 0o755
+                members.append((member, (self.bundle / resource['path']).read_bytes()))
+            damaged = self.mutate_archive(self.archives / (owner + '.tar.gz'), append)
+            with self.subTest(payload_resource=resource['path']), self.assertRaisesRegex(
+                    ValueError, 'unexpected or duplicate ordinary delivery file'):
+                self.unpack(owner, payload=damaged)
+        helper = self.manifest['binaries']['required-executable-helper']
+        helper.update(path=worker['path'], sha256=worker['sha256'])
+        with self.assertRaisesRegex(ValueError, 'ordinary delivery resource path overlaps another role'):
+            self.pack()
+        helper['sha256'] = '0' * 64
+        with self.assertRaisesRegex(ValueError, 'conflicting artifact file identities'):
+            self.pack()
+
+    @unittest.skipUnless(sys.platform == 'linux', 'Runtime worker companion requires Linux')
+    def test_unselected_worker_is_omitted_from_original_and_split_closures(self):
+        worker, library = self.install_worker_companion(selected=False)
+        self.pack()
+        with tarfile.open(self.archives / 'common.tar.gz') as archive:
+            parent = json.loads(archive.extractfile('manifest.json').read())
+            self.assertNotIn('worker_companion', parent)
+            self.assertNotIn(library['path'], parent['libraries'])
+            for resource in (worker, library):
+                self.assertNotIn(resource['path'], archive.getnames())
+        owner = next(owner for owner in self.plan['ordinary_partitions'][1:]
+                     if any(entry['binary'] == 'component'
+                            for entry in artifacts.ordinary_artifact_entries(self.manifest, self.plan, owner)))
+        destination, _ = self.unpack(owner)
+        with patch.dict(os.environ, {artifacts.RUNTIME_WORKER_VARIABLE: 'untrusted-inherited-path'}):
+            _, env = artifacts.load(destination, 'ordinary', plan=self.plan,
+                                    ordinary_artifact_partition=owner)
+        self.assertNotIn(artifacts.RUNTIME_WORKER_VARIABLE, env)
+        self.assertTrue((destination / 'lib/runtime.so').is_file())
+        for resource in (worker, library):
+            self.assertFalse((destination / resource['path']).exists())
+
 
     def test_transport_preserves_parent_union_snapshots_helpers_libraries_and_prior_attempt(self):
         report = self.pack()
@@ -2049,7 +2556,228 @@ class OrdinaryExclusiveExecution(unittest.TestCase):
             self.assertTrue(all(record['passed'] and record['count_ok'] for record in records))
 
 
+class BoundedOrdinaryRuntimeExecution(unittest.TestCase):
+    OWNERS = {'oasis7_chain_runtime': 'runtime', 'oasis7_runtime': 'component-libs'}
+
+    def fixture(self, package):
+        selected = CompleteArtifactPartitions().selection()
+        name = ('runtime-tests' if package == 'oasis7_chain_runtime'
+                else RuntimeLiveDiagnostics.RUNTIME)
+        binary = dict(package=package, target=package, target_kind=['lib'], variant='required',
+                      ordinary=True, path='fixture', cwd='.',
+                      tests=[f'case_{index}' for index in range(17)] + ['case_1_suffix', 'ignored'],
+                      ignored_tests=['ignored'])
+        return name, dict(scope='ordinary', execution_plan=selected, binaries={name: binary})
+
+    def test_exact_batches_cover_both_libraries_without_changing_deferred_or_exclusive_cases(self):
+        for package in self.OWNERS:
+            name, manifest = self.fixture(package)
+            binary = manifest['binaries'][name]
+            binary['tests'] += sorted(artifacts.ORDINARY_EXCLUSIVE_RUNTIME_CASES)
+            original = [dict(binary=name, batch=True, skip=['case_1'])]
+            original = artifacts.expand_ordinary_batches(original, manifest['binaries'])
+            before = copy.deepcopy((original, manifest))
+            entries = artifacts.bounded_ordinary_runtime_batches(original, manifest['binaries'])
+            batches = [entry for entry in entries if entry.get('batch')]
+            seen = []
+            for entry in entries:
+                cases = (set(binary['tests']) - set(binary['ignored_tests'])
+                         - set(entry.get('skip', ())) - set(entry.get('skip_exact', ()))
+                         if entry.get('batch') else {entry['name']})
+                seen.extend(cases)
+                if entry.get('batch'):
+                    self.assertEqual(entry['count'], len(cases))
+                    self.assertEqual(entry['skip'], ['case_1'])
+            with self.subTest(package=package):
+                self.assertEqual(len(batches), 4)
+                self.assertEqual(len({entry['name'] for entry in batches}), 4)
+                self.assertCountEqual(seen, set(binary['tests']) - {'case_1', 'ignored'})
+                self.assertEqual(len(seen), len(set(seen)))
+                self.assertIn('case_1_suffix', seen)
+                self.assertEqual([entry for entry in entries if not entry.get('batch')],
+                                 [entry for entry in original if not entry.get('batch')])
+                self.assertEqual((original, manifest), before)
+                binary['tests'].reverse()
+                self.assertEqual(artifacts.bounded_ordinary_runtime_batches(original, manifest['binaries']), entries)
+
+    def test_only_complete_required_libraries_change_and_invalid_inventory_fails_closed(self):
+        for package in self.OWNERS:
+            for change in ('small', 'package', 'target', 'target_kind', 'variant', 'singleton'):
+                name, manifest = self.fixture(package)
+                binary = manifest['binaries'][name]
+                entry = dict(binary=name, batch=True)
+                if change == 'small':
+                    binary.update(tests=['one', 'two', 'three', 'four'], ignored_tests=[])
+                elif change == 'singleton':
+                    entry = dict(binary=name, name='case_1', ignored=False)
+                else:
+                    binary[change] = ['test'] if change == 'target_kind' else 'other'
+                with self.subTest(package=package, unchanged=change):
+                    self.assertEqual(artifacts.bounded_ordinary_runtime_batches([entry], manifest['binaries']), [entry])
+            for change in ('duplicate', 'unknown-ignored', 'unknown-skip', 'unknown-exact', 'empty'):
+                name, manifest = self.fixture(package)
+                binary = manifest['binaries'][name]
+                entry = dict(binary=name, batch=True)
+                if change == 'duplicate':
+                    binary['tests'].append(binary['tests'][0])
+                elif change == 'unknown-ignored':
+                    binary['ignored_tests'].append('missing')
+                elif change in ('unknown-skip', 'unknown-exact'):
+                    entry['skip' if change == 'unknown-skip' else 'skip_exact'] = ['missing']
+                else:
+                    binary['ignored_tests'] = list(binary['tests'])
+                with self.subTest(package=package, invalid=change), self.assertRaises(ValueError):
+                    artifacts.bounded_ordinary_runtime_batches([entry], manifest['binaries'])
+
+    def test_v1_owner_commands_preserve_runner_budget_and_failure_cleanup(self):
+        for package, owner in self.OWNERS.items():
+            for outcome in ('pass', 'failure', 'timeout', 'cleanup'):
+                name, manifest = self.fixture(package)
+                calls = []
+                def invoke(command, cwd, env, suite, test_name, results, **kwargs):
+                    self.assertEqual(set(kwargs), {'expected_count'})
+                    self.assertEqual(suite, 'ordinary')
+                    self.assertNotIn('OASIS7_FORMAL_TEST', env)
+                    self.assertEqual(env['RUST_TEST_THREADS'], '3')
+                    self.assertIn('--exact', command)
+                    self.assertEqual('--nocapture' in command, package == 'oasis7_runtime')
+                    excluded = {command[index + 1] for index, arg in enumerate(command) if arg == '--skip'}
+                    cases = set(manifest['binaries'][name]['tests']) - {'ignored'} - excluded
+                    self.assertEqual(kwargs['expected_count'], len(cases))
+                    calls.append((test_name, cases))
+                    failed = len(calls) == 2 and outcome != 'pass'
+                    return dict(passed=not failed, timeout=failed and outcome == 'timeout',
+                                cleanup_result='unresolved' if failed and outcome == 'cleanup' else 'clean')
+                with self.subTest(package=package, outcome=outcome), tempfile.TemporaryDirectory() as temporary, \
+                     patch.object(artifacts, 'snapshot_regressions', return_value=()), \
+                     patch.object(artifacts, 'load', return_value=(manifest, {
+                         'OASIS7_FORMAL_TEST': 'remove', 'RUST_TEST_THREADS': '3'})), \
+                     patch('ci_process_runner.run', side_effect=invoke):
+                    root = Path(temporary)
+                    if outcome == 'pass':
+                        artifacts.execute(root, 'ordinary', root / 'results',
+                                          plan=manifest['execution_plan'], ordinary_partition=owner)
+                    else:
+                        with self.assertRaises(RuntimeError):
+                            artifacts.execute(root, 'ordinary', root / 'results',
+                                              plan=manifest['execution_plan'], ordinary_partition=owner)
+                self.assertEqual(len(calls), 2 if outcome == 'cleanup' else 4)
+                self.assertEqual(len({test_name for test_name, _ in calls}), len(calls))
+                if outcome != 'cleanup':
+                    self.assertCountEqual([case for _, cases in calls for case in cases],
+                                          set(manifest['binaries'][name]['tests']) - {'ignored'})
+
+    def test_unpartitioned_and_v2_execution_do_not_use_v1_batches(self):
+        for version in (None, 2):
+            fixture = TargetedArtifactPartitions()
+            manifest = fixture.manifest()
+            selected = manifest['execution_plan']
+            observed = []
+            partitions = [None] if version is None else selected['ordinary_partitions'][1:]
+            for partition in partitions:
+                calls = []
+                def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+                    binary_name, binary = next((key, value) for key, value in manifest['binaries'].items()
+                                              if command[0] == str(root / value['path']))
+                    self.assertEqual(suite, 'ordinary')
+                    self.assertNotIn('--ignored', command)
+                    cases = set(binary['tests']) - set(binary['ignored_tests'])
+                    if '--skip' in command:
+                        self.assertIn('--exact', command)
+                        excluded = {command[index + 1] for index, arg in enumerate(command) if arg == '--skip'}
+                        self.assertLessEqual(excluded, set(binary['tests']))
+                        cases -= excluded
+                    else:
+                        selectors = [arg for arg in command[1:] if not arg.startswith('--')]
+                        if selectors:
+                            self.assertIn('--exact', command)
+                            self.assertEqual(selectors, [name])
+                            self.assertIn(name, cases)
+                            cases = {name}
+                    self.assertEqual(expected_count, len(cases))
+                    self.assertGreater(expected_count, 0)
+                    calls.append((name, expected_count))
+                    observed.extend((binary_name, case) for case in cases)
+                    return ParallelNativeExecution.receipt(suite, name, results, expected_count)
+                with self.subTest(version=version, partition=partition), tempfile.TemporaryDirectory() as temporary, \
+                     patch.object(artifacts, 'snapshot_regressions', return_value=()), \
+                     patch.object(artifacts, 'load', return_value=(manifest, {})), \
+                     patch.object(artifacts, 'bounded_ordinary_runtime_batches', side_effect=AssertionError('v1 only')), \
+                     patch('ci_process_runner.run', side_effect=invoke):
+                    root = Path(temporary)
+                    artifacts.execute(root, 'ordinary', root / 'results', plan=selected,
+                                      ordinary_partition=partition)
+                    records = [json.loads(line) for line in (root / 'results').read_text().splitlines()]
+                    self.assertTrue(calls)
+                    self.assertEqual(len(calls), len({name for name, _ in calls}))
+                    self.assertCountEqual(calls, [(record['test_name'], record['expected_count']) for record in records])
+                    self.assertTrue(all(record['passed'] for record in records))
+            expected = [(name, case) for name, binary in manifest['binaries'].items()
+                        for case in set(binary['tests']) - set(binary['ignored_tests'])]
+            self.assertCountEqual(observed, expected)
+            self.assertEqual(len(observed), len(set(observed)))
+
+    def test_real_libtest_batches_execute_each_case_once_keep_ignored_and_propagate_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source, executable = root / 'fixture.rs', root / 'fixture'
+            names = ['heavy', 'other', 'case_1', 'case_1_suffix', 'prefix_case_1']
+            names += [f'case_{index}' for index in range(2, 11)]
+            source.write_text('''
+fn record(name: &str) {
+    let path = std::path::PathBuf::from(std::env::var_os("CASE_OUTPUT").unwrap()).join(name);
+    std::fs::OpenOptions::new().write(true).create_new(true).open(path).unwrap();
+    assert_ne!(std::env::var("FAIL_CASE").ok().as_deref(), Some(name));
+}
+#[test] #[ignore] fn ignored() { panic!("must remain ignored"); }
+''' + '\n'.join(f'#[test] fn {name}() {{ record("{name}"); }}' for name in names))
+            compile_rust_fixture(source, executable, test=True)
+            tests, ignored = artifacts.inventory(executable), artifacts.inventory(executable, True)
+            for package, owner in self.OWNERS.items():
+                for fail in (False, True):
+                    name, manifest = self.fixture(package)
+                    manifest['binaries'][name].update(tests=tests, ignored_tests=ignored)
+                    output = root / f'{package}-{fail}'
+                    output.mkdir()
+                    results = output / 'results.jsonl'
+                    environment = dict(os.environ, CASE_OUTPUT=str(output), FAIL_CASE='case_1' if fail else '')
+                    with self.subTest(package=package, fail=fail), (root / 'runner.log').open('w') as log, \
+                         redirect_stdout(log), \
+                         patch.object(artifacts, 'ROOT', root), \
+                         patch.object(artifacts, 'ORDINARY_EXCLUSIVE_RUNTIME_CASES', frozenset(('heavy', 'other'))), \
+                         patch.object(artifacts, 'snapshot_regressions', return_value=()), \
+                         patch.object(artifacts, 'load', return_value=(manifest, environment)):
+                        if fail:
+                            with self.assertRaises(RuntimeError):
+                                artifacts.execute(root, 'ordinary', results,
+                                    plan=manifest['execution_plan'], ordinary_partition=owner)
+                        else:
+                            artifacts.execute(root, 'ordinary', results,
+                                plan=manifest['execution_plan'], ordinary_partition=owner)
+                    records = [json.loads(line) for line in results.read_text().splitlines()]
+                    self.assertEqual(len(records), 6 if package == 'oasis7_chain_runtime' else 4)
+                    self.assertEqual(sum(record['expected_count'] for record in records), len(names))
+                    self.assertTrue(all(not record['timeout'] and record['cleanup_result'] == 'clean'
+                                        for record in records))
+                    self.assertEqual(sum(not record['count_ok'] for record in records), int(fail))
+                    self.assertEqual(sum(not record['passed'] for record in records), int(fail))
+                    self.assertEqual({path.name for path in output.iterdir()} - {'results.jsonl'}, set(names))
+                    self.assertIn('test ignored ... ignored', (root / 'runner.log').read_text())
+
+
 class CasePartitionArtifactDelivery(unittest.TestCase):
+    install_worker_companion = OrdinaryArtifactDelivery.install_worker_companion
+
+    def test_shared_worker_preserves_parent_files_and_selected_consumer_environment(self):
+        OrdinaryArtifactDelivery.test_shared_worker_preserves_parent_files_and_selected_consumer_environment(self)
+
+    def test_shared_worker_keeps_missing_corrupt_and_overlapping_resource_rejection(self):
+        OrdinaryArtifactDelivery.test_shared_worker_keeps_missing_corrupt_and_overlapping_resource_rejection(self)
+
+    def test_unselected_worker_is_omitted_from_original_and_split_closures(self):
+        OrdinaryArtifactDelivery.test_unselected_worker_is_omitted_from_original_and_split_closures(self)
+
+
     file = OrdinaryArtifactDelivery.file
     write_parent = OrdinaryArtifactDelivery.write_parent
     pack = OrdinaryArtifactDelivery.pack
@@ -2824,6 +3552,22 @@ class NativePackagePartitions(unittest.TestCase):
         self.assertEqual(len(artifacts.required_native_commands(plan)), 4)
         self.assertEqual(json.dumps(plan, sort_keys=True), original)
 
+    def test_worker_companion_is_built_only_for_its_linux_runtime_partition(self):
+        plan = self.selection()
+        for platform in ('linux', 'darwin', 'win32'):
+            for partition in ('oasis7_runtime', 'oasis7_world_state'):
+                with self.subTest(platform=platform, partition=partition), \
+                     patch.object(artifacts.sys, 'platform', platform):
+                    commands = artifacts.build_variants('ordinary', plan, ordinary_partition=partition)
+                    self.assertEqual(len(commands), 1)
+                    self.assertNotIn(artifacts.RUNTIME_WORKER_BUILD, [command[0] for command in commands])
+                    manifest = self.manifest(plan, partition)
+                    for binary in manifest['binaries'].values():
+                        binary['tests'] = [artifacts.RUNTIME_WORKER_TEST]
+                        binary['ignored_tests'] = []
+                    self.assertEqual(artifacts.runtime_worker_test_selected(manifest),
+                                     platform == 'linux' and partition == 'oasis7_runtime')
+
     def test_partition_contract_rejects_missing_duplicate_unknown_and_incompatible_owners(self):
         invalid = [('ordinary_partition_version', True), ('ordinary_partition_version', 2),
                    ('ordinary_partitions', []), ('ordinary_partitions', ['all']),
@@ -3471,27 +4215,41 @@ with open(os.environ['CALL_LOG'], 'a') as stream:
     stream.write(json.dumps({'args': sys.argv[1:], 'bundle': str(bundle)}) + '\\n')
 if action == 'build':
     bundle.mkdir(parents=True)
+    if '--build-diagnostics' in sys.argv:
+        diagnostics = pathlib.Path(sys.argv[sys.argv.index('--build-diagnostics') + 1])
+        diagnostics.mkdir(parents=True, exist_ok=True)
+        (diagnostics / 'resources-fixture.json').write_text('{}')
 if os.environ['FAILED'] == action:
     sys.exit(19)
 ''')
-            for partition, failed in ((partition, failed) for partition in ('', 'all', 'oasis7_runtime')
-                                      for failed in ('', 'build', 'run')):
+            for partition, failed, diagnostics_enabled in itertools.product(
+                    ('', 'all', 'oasis7_runtime', 'oasis7_world_state'), ('', 'build', 'run'), (False, True)):
                 log = root / 'calls.jsonl'
                 log.unlink(missing_ok=True)
+                diagnostics = root / 'diagnostics outside bundle'
+                report = diagnostics / 'resources-fixture.json'
+                report.unlink(missing_ok=True)
                 script = 'set -euo pipefail\nci_python="$1"; driver_dir="$2"; repo_root="$2"; required_plan=fixture; ordinary_partition="$3"\n'
                 script += 'run() { "$@"; }\nrun_cargo() { echo unexpected-Cargo; return 83; }\n'
                 script += 'run_oasis7_required_tier_tests() {\n' + body + '}\nrun_oasis7_required_tier_tests\n'
                 result = subprocess.run(['bash', '-c', script, 'fixture', sys.executable, str(root), partition],
                                         text=True, capture_output=True,
-                                        env=dict(os.environ, FAILED=failed, CALL_LOG=str(log), OASIS7_CI_TEST_BUNDLE=''))
+                                        env=dict(os.environ, FAILED=failed, CALL_LOG=str(log), OASIS7_CI_TEST_BUNDLE='',
+                                                 OASIS7_CI_BUILD_DIAGNOSTICS=str(diagnostics) if diagnostics_enabled else ''))
                 calls = [json.loads(line) for line in log.read_text().splitlines()]
-                with self.subTest(partition=partition, failed=failed):
+                with self.subTest(partition=partition, failed=failed, diagnostics=diagnostics_enabled):
                     self.assertEqual(result.returncode, 19 if failed else 0, result.stderr)
                     self.assertEqual([call['args'][0] for call in calls], ['build'] if failed == 'build' else ['build', 'run'])
                     self.assertEqual(calls[0]['args'][calls[0]['args'].index('--scope') + 1], 'ordinary')
                     self.assertEqual(len({call['bundle'] for call in calls}), 1)
                     self.assertFalse(Path(calls[0]['bundle']).exists())
+                    self.assertEqual(report.exists(), diagnostics_enabled)
                     for call in calls:
+                        if diagnostics_enabled and call['args'][0] == 'build':
+                            self.assertEqual(call['args'][call['args'].index('--build-diagnostics') + 1], str(diagnostics))
+                            self.assertFalse(diagnostics.is_relative_to(Path(call['bundle']).parent))
+                        else:
+                            self.assertNotIn('--build-diagnostics', call['args'])
                         if partition and partition != 'all':
                             self.assertEqual(call['args'][call['args'].index('--ordinary-partition') + 1], partition)
                         else:
@@ -4498,13 +5256,22 @@ class BuildAndBundles(unittest.TestCase):
                     else:
                         self.assertNotIn('ordinary_baseline_units', state)
 
+    def test_dependency_cache_warmup_omits_unselected_worker_executable(self):
+        for scope in ('ordinary', 'all'):
+            with self.subTest(scope=scope), \
+                 patch.object(artifacts, 'build_environment', return_value={}), \
+                 patch.object(artifacts.subprocess, 'run') as cargo:
+                expected = artifacts.build_variants(scope)
+                artifacts.build_cache_dependencies(scope)
+            self.assertEqual([call.args[0] for call in cargo.call_args_list],
+                             [['cargo', *args, '--locked'] for _, args, _ in expected])
+            self.assertFalse(any('oasis7-wasm-worker' in call.args[0] for call in cargo.call_args_list))
+
     def test_formal_builder_does_not_wait_for_ordinary_targets(self):
         formal = artifacts.build_variants('formal')
         ordinary = artifacts.build_variants('ordinary')
         self.assertEqual({v[0] for v in formal}, {'formal-required', 'runtime', 'endpoint', 'distfs-tests'})
         expected_ordinary = {'viewer', 'required', 'snapshot-tests', 'viewer-snapshot-tests'}
-        if sys.platform == 'linux' and hasattr(artifacts, 'RUNTIME_WORKER_VARIANT'):
-            expected_ordinary.add(artifacts.RUNTIME_WORKER_VARIANT)
         self.assertEqual({v[0] for v in ordinary}, expected_ordinary)
         args = next(args for name, args, _ in formal if name == 'formal-required')
         self.assertIn('--bins', args)
@@ -4680,6 +5447,761 @@ class BuildAndBundles(unittest.TestCase):
             (target / 'artifact').write_bytes(b'x' * 101)
             self.assertFalse(artifacts.cache_budget(target, 100)['save'])
             self.assertTrue(artifacts.cache_budget(target, 101)['save'])
+
+
+class RuntimeWorkerCompanionContracts(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name).resolve()
+        self.bundle = self.root / 'bundle'
+        (self.bundle / 'bin').mkdir(parents=True)
+        (self.bundle / 'lib').mkdir()
+        self.config = self.root / 'suites.json'
+        self.config.write_text('{}')
+        self.worker = self.bundle / artifacts.RUNTIME_WORKER_PATH
+        self.worker.write_bytes(b'wasm executor test companion')
+        self.worker.chmod(0o755)
+        self.library = self.bundle / 'lib/libexecutor_fixture.so'
+        self.library.write_bytes(b'worker dynamic dependency')
+        self.library.chmod(0o755)
+
+    def manifest(self, include_test=True, include_companion=True):
+        binaries = {}
+        for logical in ('viewer', 'snapshot-tests', 'viewer-snapshot-tests'):
+            path = self.bundle / 'bin' / logical
+            path.write_bytes(logical.encode())
+            path.chmod(0o755)
+            binaries[logical] = dict(path=f'bin/{logical}', sha256=artifacts.digest(path),
+                original_executable=str(path), test=False, ordinary=False, tests=[], ignored_tests=[], libraries=[])
+        tests = (["world::incremental_module_execution_tests::" + artifacts.RUNTIME_WORKER_TEST]
+                 if include_test else ['another_runtime_case'])
+        runtime_path = self.bundle / 'bin/runtime-module-tests'
+        runtime_path.write_bytes(b'runtime test harness')
+        runtime_path.chmod(0o755)
+        binaries['runtime-module-tests'] = dict(path='bin/runtime-module-tests',
+            sha256=artifacts.digest(runtime_path), original_executable=str(runtime_path), test=True,
+            ordinary=True, package=artifacts.RUNTIME_WORKER_PACKAGE, target=artifacts.RUNTIME_WORKER_TARGET,
+            target_kind=['lib'], tests=tests, ignored_tests=[], libraries=[])
+        manifest = dict(schema_version=2, scope='ordinary', tested_sha='tested', source_sha='source',
+            producer_run_id='run', checkout=str(self.root), config_sha256=artifacts.digest(self.config),
+            rust_toolchain=os.environ.get('RUST_TOOLCHAIN', 'local'), runner_image='fixture',
+            execution_plan=None, formal_authority_sha256=None, selection=None, binaries=binaries,
+            included_binaries=sorted(binaries), libraries={})
+        if include_companion:
+            manifest['worker_companion'] = dict(path=artifacts.RUNTIME_WORKER_PATH,
+                sha256=artifacts.digest(self.worker), package='oasis7_wasm_executor',
+                target='oasis7-wasm-worker', target_kind=['bin'], test=False,
+                profile=dict(test=False), features=['wasmtime'], requested_features=['wasmtime'],
+                original_executable=str(self.root / 'target/debug/oasis7-wasm-worker'),
+                libraries=['lib/libexecutor_fixture.so'])
+            manifest['libraries'] = {'lib/libexecutor_fixture.so': artifacts.digest(self.library)}
+        return manifest
+
+    def publish_and_load(self, manifest, plan=None):
+        (self.bundle / 'manifest.json').write_text(json.dumps(manifest))
+        archive = self.root / 'ordinary.tar.gz'
+        with patch.object(artifacts, 'ROOT', self.root), patch.object(artifacts, 'CONFIG', self.config), \
+             patch.object(artifacts, 'FORMAL_AUTHORITY', None), \
+             patch.object(artifacts, 'validate_ordinary_selection'), \
+             patch.object(artifacts, 'snapshot_regressions', return_value=()), \
+             patch.object(artifacts, 'output', return_value='tested'), \
+             patch.object(artifacts, 'inventory', side_effect=lambda path, ignored=False, env=None:
+                          (manifest['binaries']['runtime-module-tests']['tests']
+                           if path.name == 'runtime-module-tests' and not ignored else
+                           manifest['binaries']['runtime-module-tests']['ignored_tests']
+                           if path.name == 'runtime-module-tests' else [])), \
+             patch.object(artifacts.sys, 'platform', 'linux'), \
+             patch.dict(os.environ, SOURCE_SHA='source', GITHUB_RUN_ID='run', ImageOS='fixture',
+                        OASIS7_WASM_WORKER_TEST_EXE='inherited-untrusted-path'):
+            artifacts.pack(self.bundle, archive, suite='ordinary', plan=plan)
+            selected = artifacts.runtime_worker_case_selected(
+                manifest['binaries']['runtime-module-tests']['tests'])
+            consumer = self.root / ('consumer-selected' if selected else 'consumer-legacy')
+            consumer.mkdir()
+            with tarfile.open(archive) as packed:
+                packed.extractall(consumer, filter='data')
+            _, environment = artifacts.load(consumer, suite='ordinary', plan=plan)
+        return archive, consumer, environment
+
+    def build_fixture(self, *, cases=None, ignored=(), package='oasis7_runtime',
+                      platform='linux', minimum=None, worker_error=None,
+                      target_name=None, target_kind='lib', features=None):
+        # Synthetic compiler output isolates orchestration; no fake executable is
+        # used as proof of real Cargo or product behavior. The real Process
+        # fixtures independently keep feature and full-harness verification.
+        root = Path(tempfile.mkdtemp(dir=self.root))
+        target_dir = root / 'target/debug'
+        target_dir.mkdir(parents=True)
+        harness_name = target_name or package
+        consumer_features = features if features is not None else ['test_tier_required']
+        consumer_args = ['test', '-p', package, '--lib', '--no-run']
+        if target_kind == 'test':
+            consumer_args = ['test', '-p', package, '--test', harness_name,
+                             '--no-default-features', '--features', ','.join(consumer_features), '--no-run']
+        messages = []
+        for name, target, kind, test, features in (
+                (package, harness_name, target_kind, True, consumer_features),
+                ('oasis7_wasm_executor', 'oasis7-wasm-worker', 'bin', False, ['wasmtime'])):
+            member = root / 'crates' / name
+            member.mkdir(parents=True, exist_ok=True)
+            manifest = member / 'Cargo.toml'
+            manifest.write_text('[package]\nname="' + name + '"\n')
+            executable = target_dir / target
+            executable.write_bytes(target.encode())
+            executable.chmod(0o755)
+            messages.append(dict(reason='compiler-artifact', fresh=False,
+                manifest_path=str(manifest), target=dict(name=target, kind=[kind]),
+                profile=dict(test=test), features=features, executable=str(executable)))
+        library = target_dir / 'libexecutor_fixture.so'
+        library.write_bytes(b'actual linked fixture dependency')
+        cases = sorted(cases if cases is not None else ['unrelated_case', artifacts.RUNTIME_WORKER_TEST])
+        target = FastTargetInventory().target(package=package, target_kind=target_kind, target_name=harness_name,
+                                             features=consumer_features, cases=minimum or ['unrelated_case'])
+        plan = FastTargetInventory().selection([target]) if minimum is not None else None
+        variant = 'required-fast-0' if plan is not None else 'required'
+        commands, observed, recorded = [], [], []
+        worker_message = messages[1]
+        if worker_error == 'identity':
+            worker_message['target']['name'] = 'untrusted-worker'
+        elif worker_error == 'features':
+            worker_message['features'] = ['wasmtime', 'extra']
+        elif worker_error == 'test':
+            worker_message['profile']['test'] = True
+
+        class CargoOutput:
+            def __init__(self, items, code=0):
+                self.stdout = iter(json.dumps(item) + '\n' for item in items)
+                self.returncode = code
+            def __enter__(self):
+                return self
+            def __exit__(self, *args):
+                return None
+            def wait(self):
+                return self.returncode
+
+        original_popen = artifacts.subprocess.Popen
+
+        def cargo(command, **kwargs):
+            if command[0] != 'cargo':
+                return original_popen(command, **kwargs)
+            commands.append(command)
+            if command[1] == 'rustc':
+                items = [] if worker_error == 'missing' else [worker_message]
+                if worker_error == 'duplicate':
+                    items *= 2
+                return CargoOutput(items, int(worker_error == 'exit'))
+            return CargoOutput([messages[0]])
+
+        def observation(*args):
+            observed.append(args[0])
+            return original_observation(*args)
+
+        original_observation = artifacts.BuildObservation
+        original_variants = artifacts.build_variants
+        bundle = root / 'producer'
+        self.last_build_bundle = bundle
+        with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', self.config), \
+             patch.object(artifacts, 'validate_plan_identity'), \
+             patch.object(artifacts, 'build_variants', side_effect=lambda scope, selected=None:
+                          original_variants(scope) if plan is not None and selected is None else [
+                              (variant, consumer_args, consumer_features)]), \
+             patch.object(artifacts.subprocess, 'Popen', side_effect=cargo), \
+             patch.object(artifacts.subprocess, 'run', side_effect=lambda command, **kwargs:
+                          subprocess.CompletedProcess(command, 0, stdout=
+                              'libexecutor_fixture.so => ' + str(library) + ' (0x1)\n'
+                              if Path(command[1]).name == 'oasis7-wasm-worker' else '')), \
+             patch.object(artifacts, 'output', return_value='host: fixture'), \
+             patch.object(artifacts, 'inventory', side_effect=lambda path, ignored=False, env=None:
+                          sorted(ignored_cases) if ignored else cases), \
+             patch.object(artifacts, 'cache_begin', return_value={}), \
+             patch.object(artifacts, 'cache_record', side_effect=lambda state, item, *, ordinary_baseline=False: recorded.append(item)), \
+             patch.object(artifacts, 'cache_finish'), \
+             patch.object(artifacts, 'BuildObservation', side_effect=observation), \
+             patch.object(artifacts.sys, 'platform', platform), patch.dict(os.environ, SOURCE_SHA='source'):
+            ignored_cases = ignored
+            artifacts.build(bundle, 'ordinary', root / 'cache-state.json', plan=plan)
+        return json.loads((bundle / 'manifest.json').read_text()), bundle, commands, observed, recorded
+
+    def readelf_fixture(self, body):
+        directory = self.root / 'readelf-bin'
+        directory.mkdir(exist_ok=True)
+        executable = directory / 'readelf'
+        executable.write_text('#!' + sys.executable + '\n'
+                              'import hashlib, json, os, sys, time\n'
+                              'from pathlib import Path\n' + body)
+        executable.chmod(0o755)
+        return directory
+
+    def test_builder_observes_elf_only_after_validation_and_identity_on_the_same_path(self):
+        marker = self.root / 'readelf-called.json'
+        tool = self.readelf_fixture(
+            'path = Path(sys.argv[-1])\n'
+            'result = dict(path=str(path), sha256=hashlib.sha256(path.read_bytes()).hexdigest(), '
+            'args=sys.argv[1:])\n'
+            f'Path({str(marker)!r}).write_text(json.dumps(result))\n'
+            'print(json.dumps(result))\n')
+        captured = io.StringIO()
+        validated = []
+        original = artifacts.validate_runtime_worker_companion
+
+        def validate(bundle, manifest):
+            self.assertFalse(marker.exists())
+            self.assertNotIn('runtime_worker_elf_observation=', captured.getvalue())
+            path = original(bundle, manifest)
+            validated.append(path)
+            return path
+
+        with patch.object(artifacts, 'validate_runtime_worker_companion', side_effect=validate), \
+             patch.dict(os.environ, PATH=str(tool)), redirect_stdout(captured):
+            manifest, bundle, commands, _, _ = self.build_fixture()
+        lines = captured.getvalue().splitlines()
+        records = [json.loads(line.split('=', 1)[1]) for line in lines
+                   if line.startswith('runtime_worker_elf_observation=')]
+        self.assertEqual(len(records), 1)
+        record = records[0]
+        worker = bundle / artifacts.RUNTIME_WORKER_PATH
+        self.assertEqual(validated, [worker])
+        self.assertEqual(record['path'], str(worker))
+        self.assertEqual(record['sha256'], manifest['worker_companion']['sha256'])
+        self.assertEqual(record['source_sha'], 'source')
+        self.assertEqual(record['tested_sha'], 'host: fixture')
+        self.assertEqual(record['status'], 'success')
+        self.assertEqual(record['exit_code'], 0)
+        self.assertFalse(record['truncated'])
+        actual = json.loads(marker.read_text())
+        self.assertEqual(actual, json.loads(record['output']))
+        self.assertEqual(actual['path'], str(worker))
+        self.assertEqual(actual['sha256'], record['sha256'])
+        self.assertEqual(actual['args'], ['--wide', '--section-headers', '--program-headers',
+                                         '--string-dump=.comment', str(worker)])
+        identity_index = next(i for i, line in enumerate(lines)
+                              if line.startswith('runtime_worker_companion_observation='))
+        elf_index = next(i for i, line in enumerate(lines)
+                         if line.startswith('runtime_worker_elf_observation='))
+        self.assertLess(identity_index, elf_index)
+        self.assertEqual(len(commands), 2)
+        self.assertNotIn('runtime_worker_elf_observation', manifest)
+
+    def test_elf_observer_is_not_started_for_rejected_or_unselected_workers(self):
+        marker = self.root / 'unexpected-readelf'
+        tool = self.readelf_fixture(f'Path({str(marker)!r}).write_text("called")\n')
+        original = artifacts.validate_runtime_worker_companion
+        for fault, error in (('hash', 'corrupt executable/library'),
+                             ('bytes', 'corrupt executable/library'),
+                             ('library', 'corrupt executable/library'),
+                             ('mode', 'not executable')):
+            with self.subTest(fault=fault):
+                captured = io.StringIO()
+
+                def validate(bundle, manifest):
+                    worker = manifest['worker_companion']
+                    path = bundle / worker['path']
+                    if fault == 'hash':
+                        worker['sha256'] = '0' * 64
+                    elif fault == 'bytes':
+                        path.write_bytes(b'changed worker bytes')
+                    elif fault == 'library':
+                        (bundle / worker['libraries'][0]).write_bytes(b'changed library bytes')
+                    else:
+                        path.chmod(0o644)
+                    return original(bundle, manifest)
+
+                with patch.object(artifacts, 'validate_runtime_worker_companion', side_effect=validate), \
+                     patch.dict(os.environ, PATH=str(tool)), redirect_stdout(captured), \
+                     self.assertRaisesRegex(ValueError, error):
+                    self.build_fixture()
+                self.assertFalse(marker.exists())
+                self.assertNotIn('runtime_worker_elf_observation=', captured.getvalue())
+                self.assertFalse((self.last_build_bundle / 'manifest.json').exists())
+        captured = io.StringIO()
+        with patch.dict(os.environ, PATH=str(tool)), redirect_stdout(captured):
+            manifest, _, _, _, _ = self.build_fixture(cases=['unrelated_case'])
+        self.assertFalse(marker.exists())
+        self.assertNotIn('worker_companion', manifest)
+        self.assertNotIn('runtime_worker_elf_observation=', captured.getvalue())
+
+    def test_elf_tool_failure_timeout_and_output_limit_preserve_the_original_build(self):
+        limit = artifacts.RUNTIME_WORKER_ELF_OUTPUT_LIMIT
+        marker = self.root / 'readelf-pid'
+        cases = (
+            ('nonzero', 'failed', 'print("partial ELF headers", flush=True)\nsys.exit(7)\n'),
+            ('timeout', 'timeout', 'print("partial ELF headers", flush=True)\ntime.sleep(60)\n'),
+            ('limit', 'truncated', f'sys.stdout.buffer.write(b"x" * {limit + 4096})\n'
+                                   'sys.stdout.buffer.flush()\ntime.sleep(60)\n'),
+            ('exact', 'success', f'sys.stdout.buffer.write(b"x" * {limit})\n'),
+            ('missing', 'failed', None),
+        )
+        for name, status, body in cases:
+            with self.subTest(case=name):
+                marker.unlink(missing_ok=True)
+                tool = self.readelf_fixture(
+                    f'Path({str(marker)!r}).write_text(str(os.getpid()))\n' + (body or ''))
+                if body is None:
+                    (tool / 'readelf').unlink()
+                captured = io.StringIO()
+                with patch.dict(os.environ, PATH=str(tool)), redirect_stdout(captured), \
+                     patch.object(artifacts, 'RUNTIME_WORKER_ELF_TIMEOUT', 0.5):
+                    manifest, bundle, commands, _, _ = self.build_fixture()
+                records = [json.loads(line.split('=', 1)[1]) for line in captured.getvalue().splitlines()
+                           if line.startswith('runtime_worker_elf_observation=')]
+                self.assertEqual(len(records), 1)
+                record = records[0]
+                worker = bundle / artifacts.RUNTIME_WORKER_PATH
+                self.assertEqual(record['status'], status)
+                self.assertEqual(record['path'], str(worker))
+                self.assertEqual(record['sha256'], artifacts.digest(worker))
+                self.assertEqual(record['sha256'], manifest['worker_companion']['sha256'])
+                self.assertEqual(worker.read_bytes(), b'oasis7-wasm-worker')
+                self.assertTrue((bundle / 'manifest.json').is_file())
+                self.assertNotIn('runtime_worker_elf_observation', manifest)
+                self.assertEqual(len(commands), 2)
+                self.assertEqual(record['output_limit_bytes'], limit)
+                self.assertLessEqual(record['retained_output_bytes'], limit)
+                self.assertEqual(record['retained_output_bytes'], len(record['output'].encode()))
+                self.assertEqual(record['truncated'], name == 'limit')
+                self.assertNotIn('cleanup_error', record)
+                if name in ('exact', 'limit'):
+                    self.assertEqual(record['output'], 'x' * limit)
+                elif name in ('nonzero', 'timeout'):
+                    self.assertEqual(record['output'], 'partial ELF headers\n')
+                else:
+                    self.assertEqual(record['error_type'], 'FileNotFoundError')
+                if name == 'nonzero':
+                    self.assertEqual(record['exit_code'], 7)
+                if marker.exists():
+                    with self.assertRaises(ProcessLookupError):
+                        os.kill(int(marker.read_text()), 0)
+
+    def test_builder_observes_only_the_validated_worker_bytes_and_identity(self):
+        captured = io.StringIO()
+        validated = []
+        original = artifacts.validate_runtime_worker_companion
+
+        def validate(bundle, manifest):
+            path = original(bundle, manifest)
+            validated.append((path, copy.deepcopy(manifest['worker_companion'])))
+            self.assertNotIn('runtime_worker_companion_observation=', captured.getvalue())
+            return path
+
+        with patch.object(artifacts, 'validate_runtime_worker_companion', side_effect=validate), \
+             redirect_stdout(captured):
+            manifest, bundle, _, _, _ = self.build_fixture()
+        observations = [json.loads(line.split('=', 1)[1]) for line in captured.getvalue().splitlines()
+                        if line.startswith('runtime_worker_companion_observation=')]
+        worker_path = bundle / artifacts.RUNTIME_WORKER_PATH
+        self.assertEqual(validated, [(worker_path, manifest['worker_companion'])])
+        worker_bytes = worker_path.read_bytes()
+        self.assertEqual(worker_bytes, b'oasis7-wasm-worker')
+        self.assertEqual(observations, [dict(
+            path=str(worker_path), bytes=len(worker_bytes),
+            sha256=hashlib.sha256(worker_bytes).hexdigest(),
+            profile=manifest['worker_companion']['profile'],
+            features=['wasmtime'], source_sha='source', tested_sha='host: fixture')])
+        self.assertEqual(observations[0]['sha256'], manifest['worker_companion']['sha256'])
+        self.assertNotIn('runtime_worker_companion_observation', manifest)
+
+        unselected = io.StringIO()
+        with redirect_stdout(unselected):
+            manifest, _, _, _, _ = self.build_fixture(cases=['unrelated_case'])
+        self.assertNotIn('worker_companion', manifest)
+        self.assertNotIn('runtime_worker_companion_observation=', unselected.getvalue())
+
+    def test_builder_emits_no_worker_observation_when_original_validation_rejects(self):
+        original = artifacts.validate_runtime_worker_companion
+        for fault, error in (('hash', 'corrupt executable/library'),
+                             ('bytes', 'corrupt executable/library'),
+                             ('library', 'corrupt executable/library'),
+                             ('mode', 'not executable')):
+            with self.subTest(fault=fault):
+                captured = io.StringIO()
+                attempted = []
+
+                def validate(bundle, manifest):
+                    attempted.append(bundle)
+                    worker = manifest['worker_companion']
+                    path = bundle / worker['path']
+                    if fault == 'hash':
+                        worker['sha256'] = '0' * 64
+                    elif fault == 'bytes':
+                        path.write_bytes(b'changed worker bytes')
+                    elif fault == 'library':
+                        (bundle / worker['libraries'][0]).write_bytes(b'changed library bytes')
+                    else:
+                        path.chmod(0o644)
+                    return original(bundle, manifest)
+
+                with patch.object(artifacts, 'validate_runtime_worker_companion', side_effect=validate), \
+                     redirect_stdout(captured), self.assertRaisesRegex(ValueError, error):
+                    self.build_fixture()
+                self.assertEqual(attempted, [self.last_build_bundle])
+                self.assertNotIn('runtime_worker_companion_observation=', captured.getvalue())
+                self.assertFalse((self.last_build_bundle / 'manifest.json').exists())
+
+    def test_builder_records_worker_as_a_separate_hashed_executable(self):
+        manifest, bundle, commands, observed, recorded = self.build_fixture()
+        self.assertEqual(len(manifest['binaries']), 1)
+        self.assertEqual(len(manifest['included_binaries']), 1)
+        worker = manifest['worker_companion']
+        self.assertEqual(worker['path'], artifacts.RUNTIME_WORKER_PATH)
+        self.assertEqual(worker['package'], 'oasis7_wasm_executor')
+        self.assertEqual(worker['requested_features'], ['wasmtime'])
+        self.assertEqual(worker['sha256'], artifacts.digest(bundle / artifacts.RUNTIME_WORKER_PATH))
+        self.assertEqual(worker['libraries'], ['lib/libexecutor_fixture.so'])
+        self.assertEqual(manifest['libraries']['lib/libexecutor_fixture.so'],
+                         artifacts.digest(bundle / 'lib/libexecutor_fixture.so'))
+        self.assertEqual(commands[1], ['cargo', 'rustc', '-p', 'oasis7_wasm_executor',
+            '--no-default-features', '--features', 'wasmtime', '--bin', 'oasis7-wasm-worker',
+            '--locked', '--message-format=json-render-diagnostics', '--', '-C', 'strip=symbols'])
+        self.assertEqual(observed, ['required', artifacts.RUNTIME_WORKER_BUILD])
+        self.assertEqual([entry['variant'] for entry in manifest['build_timings']], observed)
+        self.assertEqual([item['target']['name'] for item in recorded],
+                         ['oasis7_runtime', 'oasis7-wasm-worker'])
+
+    def test_builder_uses_actual_active_inventory_not_minimum_plan_cases(self):
+        for minimum in (['unrelated_case'], [artifacts.RUNTIME_WORKER_TEST]):
+            with self.subTest(minimum=minimum):
+                manifest, _, commands, _, _ = self.build_fixture(minimum=minimum)
+                self.assertIn('worker_companion', manifest)
+                self.assertEqual(len(commands), 2)
+        for changes in (dict(cases=['unrelated_case']),
+                        dict(ignored=[artifacts.RUNTIME_WORKER_TEST]),
+                        dict(platform='darwin'), dict(package='oasis7_world_state')):
+            with self.subTest(changes=changes):
+                manifest, _, commands, observed, _ = self.build_fixture(**changes)
+                self.assertNotIn('worker_companion', manifest)
+                self.assertEqual(len(commands), 1)
+                self.assertEqual(observed, ['required'])
+
+    def test_builder_rejects_missing_failed_or_invalid_worker_artifacts(self):
+        for failure in ('missing', 'exit', 'identity', 'features', 'test', 'duplicate'):
+            with self.subTest(failure=failure), self.assertRaises((ValueError, RuntimeError)):
+                self.build_fixture(worker_error=failure)
+            self.assertFalse((self.last_build_bundle / 'manifest.json').exists())
+
+    def test_worker_and_libraries_follow_actual_harness_inventory(self):
+        selected = FastTargetInventory().selection([
+            FastTargetInventory().target(package=artifacts.RUNTIME_WORKER_PACKAGE,
+                target_kind='lib', target_name=artifacts.RUNTIME_WORKER_TARGET,
+                cases=['unrelated_case'])])
+        with patch.object(artifacts.sys, 'platform', 'linux'):
+            self.assertNotIn(artifacts.RUNTIME_WORKER_BUILD,
+                             [name for name, _, _ in artifacts.build_variants('ordinary', selected)])
+        selected_manifest = self.manifest()
+        selected_manifest['execution_plan'] = selected
+        archive, consumer, environment = self.publish_and_load(selected_manifest, plan=selected)
+        with tarfile.open(archive) as packed:
+            names = set(packed.getnames())
+            packaged = json.load(packed.extractfile('manifest.json'))
+        self.assertIn(artifacts.RUNTIME_WORKER_PATH, names)
+        self.assertIn('lib/libexecutor_fixture.so', names)
+        self.assertEqual(packaged['worker_companion']['libraries'], ['lib/libexecutor_fixture.so'])
+        self.assertEqual(environment[artifacts.RUNTIME_WORKER_VARIABLE],
+                         str((consumer / artifacts.RUNTIME_WORKER_PATH).resolve()))
+        self.assertIn('runtime-module-tests', packaged['included_binaries'])
+
+        older = self.manifest(include_test=False, include_companion=False)
+        archive, consumer, environment = self.publish_and_load(older)
+        with tarfile.open(archive) as packed:
+            names = set(packed.getnames())
+            packaged = json.load(packed.extractfile('manifest.json'))
+        self.assertNotIn(artifacts.RUNTIME_WORKER_PATH, names)
+        self.assertNotIn('worker_companion', packaged)
+        self.assertNotIn('lib/libexecutor_fixture.so', names)
+        self.assertNotIn(artifacts.RUNTIME_WORKER_VARIABLE, environment)
+
+    def test_selected_test_rejects_missing_or_corrupt_worker_and_library(self):
+        missing = self.manifest(include_companion=False)
+        (self.bundle / 'manifest.json').write_text(json.dumps(missing))
+        with patch.object(artifacts, 'ROOT', self.root), patch.object(artifacts, 'CONFIG', self.config), \
+             patch.object(artifacts, 'FORMAL_AUTHORITY', None), patch.object(artifacts, 'validate_ordinary_selection'), \
+             patch.object(artifacts, 'snapshot_regressions', return_value=()), \
+             patch.object(artifacts.sys, 'platform', 'linux'):
+            with self.assertRaisesRegex(ValueError, 'missing Runtime worker companion'):
+                artifacts.pack(self.bundle, self.root / 'missing.tar.gz', suite='ordinary')
+
+        bad_worker = self.manifest()
+        bad_worker['worker_companion']['sha256'] = '0' * 64
+        with self.assertRaisesRegex(ValueError, 'corrupt executable'):
+            artifacts.validate_runtime_worker_companion(self.bundle, bad_worker)
+
+        bad_library = self.manifest()
+        self.library.write_bytes(b'tampered dependency')
+        with self.assertRaisesRegex(ValueError, 'corrupt executable/library'):
+            artifacts.validate_runtime_worker_companion(self.bundle, bad_library)
+
+    def test_iws_action_body_worker_requires_exact_target_and_active_case_inventory(self):
+        source = (HERE.parent / 'crates/oasis7_runtime/tests/iws_action_body.rs').read_text()
+        cases = re.findall(r'#\[test\]\s*fn (\w+)\(', source)
+        self.assertEqual(len(cases), 6)
+        self.assertEqual(set(cases), artifacts.IWS_ACTION_BODY_TESTS)
+        for case in cases:
+            manifest = self.manifest()
+            binary = manifest['binaries']['runtime-module-tests']
+            binary.update(target='iws_action_body', target_kind=['test'], tests=[case])
+            with patch.object(artifacts.sys, 'platform', 'linux'):
+                self.assertTrue(artifacts.runtime_worker_test_selected(manifest))
+                self.assertFalse(artifacts.runtime_worker_test_selected(manifest, ['viewer']))
+                for field, value in (('package', 'another_package'), ('target', 'another_target'),
+                                     ('target_kind', ['lib']), ('ordinary', False), ('test', False),
+                                     ('tests', []), ('tests', ['unrelated_case']), ('tests', [None]),
+                                     ('tests', [case + '_suffix']), ('tests', ['prefix::' + case]),
+                                     ('ignored_tests', [case]), ('ignored_tests', [None])):
+                    broken = copy.deepcopy(manifest)
+                    broken['binaries']['runtime-module-tests'][field] = value
+                    with self.subTest(field=field, value=value):
+                        self.assertFalse(artifacts.runtime_worker_test_selected(broken))
+            with patch.object(artifacts.sys, 'platform', 'darwin'):
+                self.assertFalse(artifacts.runtime_worker_test_selected(manifest))
+
+    def test_iws_action_body_builder_keeps_required_consumer_and_separate_worker_features(self):
+        case = 'actual_queued_body_actions_match_world_and_read_prior_current_write'
+        options = dict(target_name='iws_action_body', target_kind='test',
+                       features=['test_tier_required', 'test-support'])
+        manifest, bundle, commands, observed, _ = self.build_fixture(cases=[case], **options)
+        self.assertIn('worker_companion', manifest)
+        binary, = manifest['binaries'].values()
+        self.assertFalse(binary['default_features'])
+        self.assertEqual(binary['features'], options['features'])
+        self.assertEqual(binary['requested_features'], options['features'])
+        self.assertEqual(binary['target'], 'iws_action_body')
+        self.assertEqual(binary['target_kind'], ['test'])
+        self.assertEqual(binary['tests'], [case])
+        self.assertEqual(commands[0], ['cargo', 'test', '-p', 'oasis7_runtime', '--test',
+            'iws_action_body', '--no-default-features', '--features', 'test_tier_required,test-support',
+            '--no-run', '--locked', '--message-format=json-render-diagnostics'])
+        self.assertEqual(commands[1], ['cargo', 'rustc', '-p', 'oasis7_wasm_executor',
+            '--no-default-features', '--features', 'wasmtime', '--bin', 'oasis7-wasm-worker',
+            '--locked', '--message-format=json-render-diagnostics', '--', '-C', 'strip=symbols'])
+        worker = manifest['worker_companion']
+        self.assertEqual(worker['features'], ['wasmtime'])
+        self.assertEqual(worker['requested_features'], ['wasmtime'])
+        self.assertEqual(worker['sha256'], artifacts.digest(bundle / artifacts.RUNTIME_WORKER_PATH))
+        self.assertEqual(worker['libraries'], ['lib/libexecutor_fixture.so'])
+        self.assertEqual(observed, ['required', artifacts.RUNTIME_WORKER_BUILD])
+        for changes in (dict(cases=['unrelated_case']), dict(ignored=[case]),
+                        dict(target_name='another_target'), dict(target_kind='lib')):
+            with self.subTest(changes=changes):
+                kwargs = dict(cases=[case], **options) | changes
+                rejected, _, commands, observed, _ = self.build_fixture(**kwargs)
+                self.assertNotIn('worker_companion', rejected)
+                self.assertEqual(len(commands), 1)
+                self.assertEqual(observed, ['required'])
+
+    def test_iws_action_body_worker_is_packed_loaded_and_rejects_missing_or_corrupt_bytes(self):
+        case = 'actual_queued_body_actions_match_world_and_read_prior_current_write'
+        manifest = self.manifest()
+        manifest['binaries']['runtime-module-tests'].update(
+            target='iws_action_body', target_kind=['test'], tests=[case], default_features=False,
+            features=['test_tier_required', 'test-support'], requested_features=['test_tier_required', 'test-support'])
+        archive, consumer, environment = self.publish_and_load(manifest)
+        with tarfile.open(archive) as packed:
+            self.assertIn(artifacts.RUNTIME_WORKER_PATH, packed.getnames())
+            self.assertIn('lib/libexecutor_fixture.so', packed.getnames())
+        self.assertEqual(environment[artifacts.RUNTIME_WORKER_VARIABLE],
+                         str((consumer / artifacts.RUNTIME_WORKER_PATH).resolve()))
+        with patch.object(artifacts, 'CONFIG', self.config), \
+             patch.object(artifacts.sys, 'platform', 'linux'):
+            missing = copy.deepcopy(manifest)
+            del missing['worker_companion']
+            (self.bundle / 'manifest.json').write_text(json.dumps(missing))
+            with self.assertRaisesRegex(ValueError, 'missing Runtime worker companion'):
+                artifacts.pack(self.bundle, self.root / 'missing-action-worker.tar.gz', suite='ordinary')
+            (self.bundle / 'manifest.json').write_text(json.dumps(manifest))
+            self.worker.write_bytes(b'corrupt worker')
+            with self.assertRaisesRegex(ValueError, 'corrupt executable'):
+                artifacts.pack(self.bundle, self.root / 'corrupt-action-worker.tar.gz', suite='ordinary')
+
+    def test_iws_rule_worker_requires_exact_target_and_active_case_inventory(self):
+        manifest = self.manifest()
+        binary = manifest['binaries']['runtime-module-tests']
+        binary.update(target=artifacts.IWS_RULE_CORE_TARGET, target_kind=['test'],
+                      tests=sorted(artifacts.IWS_RULE_CORE_TESTS))
+        with patch.object(artifacts.sys, 'platform', 'linux'):
+            self.assertTrue(artifacts.runtime_worker_test_selected(manifest))
+            self.assertFalse(artifacts.runtime_worker_test_selected(manifest, ['viewer']))
+            for case in sorted(artifacts.IWS_RULE_CORE_TESTS):
+                selected = copy.deepcopy(manifest)
+                selected['binaries']['runtime-module-tests'].update(tests=[case], ignored_tests=[])
+                with self.subTest(case=case):
+                    self.assertTrue(artifacts.runtime_worker_test_selected(selected))
+                    selected['binaries']['runtime-module-tests']['ignored_tests'] = [case]
+                    self.assertFalse(artifacts.runtime_worker_test_selected(selected))
+            for field, value in (('package', 'oasis7_runtime_iws_tests'), ('target', 'different_target'),
+                                 ('target_kind', ['lib']), ('ordinary', False), ('test', False),
+                                 ('tests', []), ('tests', ['unrelated_case']),
+                                 ('ignored_tests', sorted(artifacts.IWS_RULE_CORE_TESTS))):
+                broken = copy.deepcopy(manifest)
+                broken['binaries']['runtime-module-tests'][field] = value
+                with self.subTest(field=field, value=value):
+                    self.assertFalse(artifacts.runtime_worker_test_selected(broken))
+        with patch.object(artifacts.sys, 'platform', 'darwin'):
+            self.assertFalse(artifacts.runtime_worker_test_selected(manifest))
+
+    def test_iws_rule_worker_is_packed_loaded_and_rejects_missing_or_corrupt_bytes(self):
+        manifest = self.manifest()
+        manifest['binaries']['runtime-module-tests'].update(
+            target=artifacts.IWS_RULE_CORE_TARGET, target_kind=['test'],
+            tests=sorted(artifacts.IWS_RULE_CORE_TESTS))
+        archive, consumer, environment = self.publish_and_load(manifest)
+        with tarfile.open(archive) as packed:
+            self.assertIn(artifacts.RUNTIME_WORKER_PATH, packed.getnames())
+            self.assertIn('lib/libexecutor_fixture.so', packed.getnames())
+        self.assertEqual(environment[artifacts.RUNTIME_WORKER_VARIABLE],
+                         str((consumer / artifacts.RUNTIME_WORKER_PATH).resolve()))
+        with patch.object(artifacts, 'CONFIG', self.config), \
+             patch.object(artifacts.sys, 'platform', 'linux'):
+            missing = copy.deepcopy(manifest)
+            del missing['worker_companion']
+            (self.bundle / 'manifest.json').write_text(json.dumps(missing))
+            with self.assertRaisesRegex(ValueError, 'missing Runtime worker companion'):
+                artifacts.pack(self.bundle, self.root / 'missing-rule-worker.tar.gz', suite='ordinary')
+            (self.bundle / 'manifest.json').write_text(json.dumps(manifest))
+            self.worker.write_bytes(b'corrupt worker')
+            with self.assertRaisesRegex(ValueError, 'corrupt executable'):
+                artifacts.pack(self.bundle, self.root / 'corrupt-rule-worker.tar.gz', suite='ordinary')
+
+
+
+    def test_main_token_cases_have_only_the_component_worker_owner(self):
+        source = (HERE.parent / 'crates/oasis7_runtime/tests/iws_action_body.rs').read_text()
+        cases = [case for case in re.findall(r'#\[test\]\s*fn (\w+)\(', source)
+                 if 'main_token' in case]
+        self.assertEqual(len(cases), 4)
+        manifest = self.manifest(include_companion=False)
+        binary = manifest['binaries']['runtime-module-tests']
+        with patch.object(artifacts.sys, 'platform', 'linux'):
+            for case in cases:
+                binary.update(target='iws_action_body', target_kind=['test'],
+                              tests=[case], ignored_tests=[])
+                with self.subTest(case=case):
+                    self.assertTrue(artifacts.runtime_worker_test_selected(manifest))
+                    self.assertFalse(artifacts.runtime_worker_test_selected(manifest, ['viewer']))
+                    binary['ignored_tests'] = [case]
+                    self.assertFalse(artifacts.runtime_worker_test_selected(manifest))
+                    for prefix in (
+                            'world::incremental_genesis::tests::module_execution::action_body::rules::main_token_transfer::',
+                            'world::incremental_genesis::execution_test_support::rules::main_token_transfer::',
+                            'world::incremental_genesis::execution_test_support::main_token_case::',
+                            '', 'other::'):
+                        name = prefix + case
+                        binary.update(target=artifacts.RUNTIME_WORKER_TARGET, target_kind=['lib'],
+                                      tests=[name], ignored_tests=[])
+                        self.assertFalse(artifacts.runtime_worker_test_selected(manifest))
+                        self.assertFalse(artifacts.runtime_worker_case_selected([name]))
+
+    def test_exact_worker_consumers_require_active_runtime_library_inventory(self):
+        prefix = 'world::incremental_genesis::tests::module_execution::'
+        # Independent source cases exercise every Image/helper family, including
+        # required/no-default cases without the legacy wasmtime-gated marker.
+        consumers = (
+            'action_body::actual_queued_body_actions_match_world_and_read_prior_current_write',
+            'action_body::material_transfer::selected_direct_material_transfer_matches_world_and_current_owner_sinks',
+            'action_body::collect_data::selected_non_auth_collect_data_matches_world_and_current_resources',
+            'action_body::transfer_resource::root_empty_fifo_cancellation_is_not_normal_exhaustion',
+            'action_body::transfer_resource::factory_lifecycle_actions::failure::fifo_factory_cancel_before_selection_has_no_input_or_event_and_aborts',
+            'action_execution_tests::selected_core_uses_real_rules_and_preserves_counted_result_owner',
+            'factory_depreciation_reduce::prepared_factory_reducer_matches_original_world_material_maps_and_missing_factory',
+            'factory_phase::real_factory_phase_uses_accepted_caches_current_deltas_and_original_world_oracle',
+            'factory_phase::completed_factory_prologue_gates_fifo_and_preserves_current_and_legacy_originals',
+            'directory_bundle::actual_final_directory_bundle_seal_binding_and_foreign_revision_transaction_pool_rejection',
+            'commit_directories::real_commit_apply_seal_history_candidate_directory_binding_and_failure_boundaries',
+            'signed_safe_alternative::real_signed_matching_genesis_scope_core_rejection_and_exact_retry',
+            'signed_safe_alternative::normal_transits_due::signed_normal_parent_executes_actual_due_material_transit_against_world_oracle',
+            'pre_action::actual_pre_action_selected_invocation_uses_sealed_vm_after_world_drop',
+            'rule_phase::actual_rule_phase_matches_legacy_after_world_drop',
+            'override_audit::actual_rule_modify_publishes_original_override_after_world_drop',
+        )
+        manifest = self.manifest(include_companion=False)
+        binary = manifest['binaries']['runtime-module-tests']
+        with patch.object(artifacts.sys, 'platform', 'linux'):
+            for relative in consumers:
+                case = prefix + relative
+                binary.update(tests=[case], ignored_tests=[])
+                with self.subTest(case=case):
+                    self.assertTrue(artifacts.runtime_worker_test_selected(manifest))
+                    self.assertFalse(artifacts.runtime_worker_test_selected(manifest, ['viewer']))
+                    binary['ignored_tests'] = [case]
+                    self.assertFalse(artifacts.runtime_worker_test_selected(manifest))
+                    self.assertFalse(artifacts.runtime_worker_case_selected([relative]))
+                    self.assertFalse(artifacts.runtime_worker_case_selected(['other::' + relative]))
+            # These neighbors use pure data/index/arithmetic or with_rules=false.
+            for relative in (
+                    'action_body::transfer_resource::data_access_current::current_data_access_group_size_tracks_typed_membership_deltas',
+                    'action_body::transfer_resource::starter_binding_integration::starter_binding_whole_genesis_and_current_preserve_duplicate_and_revision_semantics',
+                    'action_body::transfer_resource::diplomacy_integration::diplomacy_whole_genesis_observes_multiple_memberships_and_only_active_wars',
+                    'action_body::transfer_resource::factory_lifecycle_actions::lifecycle_scalar_arithmetic_has_independent_integer_oracles',
+                    'action_execution_tests::safe_alternative_action_index_comes_from_genesis_and_current_records',
+                    'action_execution_tests::real_queued_register_then_move_consumes_originals_and_updates_current_position',
+                    'action_body::unregistered_case'):
+                binary.update(tests=[prefix + relative], ignored_tests=[])
+                with self.subTest(nonconsumer=relative):
+                    self.assertFalse(artifacts.runtime_worker_test_selected(manifest))
+            binary.update(tests=[prefix + consumers[0]], ignored_tests=[])
+            for field, value in (('package', 'oasis7_world_state'), ('target', 'pr_fast_incremental'),
+                                 ('target_kind', ['test']), ('ordinary', False), ('test', False)):
+                rejected = copy.deepcopy(manifest)
+                rejected['binaries']['runtime-module-tests'][field] = value
+                with self.subTest(field=field, value=value):
+                    self.assertFalse(artifacts.runtime_worker_test_selected(rejected))
+            self.assertFalse(artifacts.runtime_worker_case_selected([None, {}, 1]))
+        for platform in ('darwin', 'win32'):
+            with self.subTest(platform=platform), patch.object(artifacts.sys, 'platform', platform):
+                self.assertFalse(artifacts.runtime_worker_test_selected(manifest))
+
+    def test_required_consumer_builds_hashed_worker_without_legacy_marker_or_plan_case(self):
+        case = ('world::incremental_genesis::tests::module_execution::action_body::'
+                'actual_queued_body_actions_match_world_and_read_prior_current_write')
+        manifest, bundle, commands, observed, _ = self.build_fixture(
+            cases=[case, 'unrelated_case'], minimum=['unrelated_case'])
+        self.assertIn('worker_companion', manifest)
+        harness = next(iter(manifest['binaries'].values()))
+        self.assertEqual(harness['features'], ['test_tier_required'])
+        self.assertNotIn(artifacts.RUNTIME_WORKER_TEST, harness['tests'])
+        self.assertEqual(commands[1], ['cargo', 'rustc', '-p', 'oasis7_wasm_executor',
+            '--no-default-features', '--features', 'wasmtime', '--bin', 'oasis7-wasm-worker',
+            '--locked', '--message-format=json-render-diagnostics', '--', '-C', 'strip=symbols'])
+        worker = manifest['worker_companion']
+        self.assertEqual(worker['sha256'], artifacts.digest(bundle / artifacts.RUNTIME_WORKER_PATH))
+        self.assertEqual(worker['features'], ['wasmtime'])
+        self.assertEqual(worker['requested_features'], ['wasmtime'])
+        self.assertEqual(worker['libraries'], ['lib/libexecutor_fixture.so'])
+        self.assertEqual(manifest['libraries']['lib/libexecutor_fixture.so'],
+                         artifacts.digest(bundle / 'lib/libexecutor_fixture.so'))
+        self.assertEqual(observed, ['required-fast-0', artifacts.RUNTIME_WORKER_BUILD])
+        for changes in (dict(ignored=[case]), dict(platform='darwin'), dict(package='oasis7_world_state')):
+            with self.subTest(changes=changes):
+                rejected, _, rejected_commands, _, _ = self.build_fixture(cases=[case], **changes)
+                self.assertNotIn('worker_companion', rejected)
+                self.assertEqual(len(rejected_commands), 1)
+
+    def test_required_consumer_pack_load_preserves_worker_and_library_validation(self):
+        case = ('world::incremental_genesis::tests::module_execution::action_body::'
+                'actual_queued_body_actions_match_world_and_read_prior_current_write')
+        manifest = self.manifest()
+        manifest['binaries']['runtime-module-tests']['tests'] = [case]
+        archive, consumer, environment = self.publish_and_load(manifest)
+        with tarfile.open(archive) as packed:
+            self.assertIn(artifacts.RUNTIME_WORKER_PATH, packed.getnames())
+            self.assertIn('lib/libexecutor_fixture.so', packed.getnames())
+        self.assertEqual(environment[artifacts.RUNTIME_WORKER_VARIABLE],
+                         str((consumer / artifacts.RUNTIME_WORKER_PATH).resolve()))
+        with patch.object(artifacts, 'CONFIG', self.config), \
+             patch.object(artifacts.sys, 'platform', 'linux'):
+            missing = copy.deepcopy(manifest)
+            del missing['worker_companion']
+            (self.bundle / 'manifest.json').write_text(json.dumps(missing))
+            with self.assertRaisesRegex(ValueError, 'missing Runtime worker companion'):
+                artifacts.pack(self.bundle, self.root / 'missing-required-worker.tar.gz', suite='ordinary')
+            (self.bundle / 'manifest.json').write_text(json.dumps(manifest))
+            original_worker = self.worker.read_bytes()
+            self.worker.write_bytes(b'corrupt worker')
+            with self.assertRaisesRegex(ValueError, 'corrupt executable'):
+                artifacts.pack(self.bundle, self.root / 'corrupt-required-worker.tar.gz', suite='ordinary')
+            self.worker.write_bytes(original_worker)
+            self.library.write_bytes(b'corrupt worker library')
+            with self.assertRaisesRegex(ValueError, 'corrupt executable/library'):
+                artifacts.pack(self.bundle, self.root / 'corrupt-required-library.tar.gz', suite='ordinary')
 
 
 class WorkspaceCacheSelection(unittest.TestCase):
@@ -5975,16 +7497,16 @@ class Process(unittest.TestCase):
             (root / 'codec/tests').mkdir()
             (root / 'codec/tests/pr_fast.rs').write_text(integration)
             (root / 'codec/tests/heavy.rs').write_text('compile_error!("unselected integration was compiled");')
-        if worker and sys.platform == 'linux' and hasattr(artifacts, 'RUNTIME_WORKER_VARIANT'):
-            # Full Linux bundles must deliver a genuine Cargo-built companion,
-            # even though this fixture's executed harnesses belong to codec.
+        if worker and sys.platform == 'linux':
+            # Keep a genuine available worker in this workspace. Availability
+            # alone must not make unrelated codec harnesses build or ship it.
             manifest = root / 'Cargo.toml'
             manifest.write_text(manifest.read_text().replace('"unrelated"]', '"unrelated","worker"]'))
             (root / 'worker/src').mkdir(parents=True)
             (root / 'worker/Cargo.toml').write_text(
                 '[package]\nname="oasis7_wasm_executor"\nversion="0.1.0"\nedition="2021"\n'
                 '[features]\nwasmtime=[]\n[[bin]]\nname="oasis7-wasm-worker"\npath="src/main.rs"\n')
-            (root / 'worker/src/main.rs').write_text('fn main() {}\n')
+            (root / 'worker/src/main.rs').write_text('fn main() { assert!(cfg!(debug_assertions)); }\n')
         config = root / 'scripts/ci-formal-process-suites.json'
         config.parent.mkdir()
         config.write_text('{}')
@@ -5997,6 +7519,47 @@ class Process(unittest.TestCase):
         sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
         return config, sha
 
+    def test_real_runtime_inventory_builds_and_runs_its_worker_resource(self):
+        source = ('#[test] fn unrelated_case() {}\n'
+                  '#[cfg(target_os="linux")] #[test] fn ' + artifacts.RUNTIME_WORKER_TEST + '() {\n'
+                  'let worker = std::env::var("OASIS7_WASM_WORKER_TEST_EXE").unwrap();\n'
+                  'assert!(std::process::Command::new(worker).status().unwrap().success());\n}\n')
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            config, sha = self.prepare_target_workspace(root,
+                'compile_error!("unselected codec was compiled");', unrelated_source=source, worker=True)
+            target = FastTargetInventory().target(package='oasis7_runtime', target_kind='lib',
+                target_name='oasis7_runtime', cases=['unrelated_case'])
+            selected = FastTargetInventory().selection([target])
+            selected['architecture'] = dict(source=sha, tested=sha)
+            with patch.object(artifacts, 'ROOT', root), patch.object(artifacts, 'CONFIG', config), \
+                 patch.dict(os.environ, SOURCE_SHA=sha):
+                bundle, consumer = root / 'producer', root / 'consumer'
+                # Exercise Cargo's options before the rustc separator as well as
+                # the actual linked image, including the diagnostics-only flag.
+                artifacts.build(bundle, 'ordinary', plan=selected,
+                                diagnostics_dir=root / 'build-diagnostics')
+                manifest = json.loads((bundle / 'manifest.json').read_text())
+                self.assertEqual(len(manifest['binaries']), 1)
+                self.assertEqual('worker_companion' in manifest, sys.platform == 'linux')
+                self.assertEqual(len(manifest['build_timings']), 2 if sys.platform == 'linux' else 1)
+                if sys.platform == 'linux':
+                    worker = bundle / artifacts.RUNTIME_WORKER_PATH
+                    sections = subprocess.check_output(
+                        ['readelf', '--wide', '--section-headers', str(worker)], text=True)
+                    self.assertRegex(sections, r'\s\.text\s')
+                    self.assertNotRegex(sections, r'\s\.(?:symtab|strtab)\s')
+                    self.assertEqual(manifest['worker_companion']['sha256'], artifacts.digest(worker))
+                archive_path = root / 'ordinary.tar.gz'
+                artifacts.pack(bundle, archive_path, suite='ordinary', plan=selected)
+                with tarfile.open(archive_path) as archive:
+                    archive.extractall(consumer, filter='data')
+                results = root / 'results.jsonl'
+                artifacts.execute(consumer, 'ordinary', results, plan=selected)
+                records = [json.loads(line) for line in results.read_text().splitlines()]
+                self.assertEqual(len(records), 1)
+                self.assertTrue(records[0]['passed'])
+                self.assertEqual(records[0]['expected_count'], 2 if sys.platform == 'linux' else 1)
     def test_real_scale_risk_build_executes_full_once_and_propagates_failure(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
@@ -6283,12 +7846,7 @@ compile_error!("full scale target must not be compiled by the required tuple");
                 bundle, consumer = root / 'producer', root / 'consumer'
                 artifacts.build(bundle, 'ordinary', plan=selected)
                 manifest = json.loads((bundle / 'manifest.json').read_text())
-                if sys.platform == 'linux' and hasattr(artifacts, 'RUNTIME_WORKER_VARIANT'):
-                    companion = manifest['worker_companion']
-                    self.assertEqual(companion['package'], 'oasis7_wasm_executor')
-                    self.assertEqual(companion['target'], 'oasis7-wasm-worker')
-                    self.assertEqual(companion['requested_features'], ['wasmtime'])
-                    self.assertTrue((bundle / companion['path']).is_file())
+                self.assertNotIn('worker_companion', manifest)
                 self.assertEqual(len(manifest['binaries']), 2)
                 self.assertEqual({entry['target'] for entry in manifest['binaries'].values()}, {'oasis7_viewer_codec'})
                 self.assertEqual(sorted('default' in entry['features'] for entry in manifest['binaries'].values()), [False, True])

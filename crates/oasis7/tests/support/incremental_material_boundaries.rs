@@ -891,7 +891,20 @@ fn material_tier_delta_cost_does_not_scan_growing_unchanged_category() {
             let proof = open_qualified_material_record_v1(key, &roots, &family, &mut ctx)
                 .unwrap()
                 .unwrap();
-            (family, proof)
+            // Recovery qualifications must be explicitly charged and bound again
+            // before the ordinary sender and receiver use them.
+            let ordinary_family =
+                readmit_material_family_ordinary_v1(&family, &roots, &memory, || false).unwrap();
+            let ordinary_proof = readmit_material_record_ordinary_v1(
+                &proof,
+                key.kind(),
+                &semantic(key),
+                proof.root(),
+                &memory,
+                || false,
+            )
+            .unwrap();
+            (ordinary_family, ordinary_proof)
         };
         let parent = parent(roots);
         let live = parent.fence().unwrap();

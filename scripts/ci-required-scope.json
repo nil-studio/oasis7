@@ -25,6 +25,41 @@
           "unchanged_params_do_not_enter_handoff_sender_or_complete_typed_receiver",
           "cognition_fixed_delta_receiver_does_not_visit_unchanged_large_json"
         ]
+      },
+      {
+        "package": "oasis7_runtime",
+        "target_kind": "test",
+        "target_name": "iws_rule_core",
+        "default_features": true,
+        "features": [
+          "test_tier_full"
+        ],
+        "cases": [
+          "selected_core_consumes_actual_nonempty_rule_modify_and_pricing",
+          "selected_core_rejected_move_settles_general_cost_without_pricing_cost",
+          "selected_core_insufficient_rule_cost_preserves_position_and_balance",
+          "selected_core_genuine_rule_denial_preserves_balance_and_position",
+          "selected_rule_modify_form_alliance_to_material_transfer_keeps_guard_and_current_effects",
+          "selected_rule_modify_form_alliance_to_resource_transfer_keeps_guard_and_current_effects",
+          "selected_rule_modify_form_alliance_to_main_token_transfer_keeps_fees_and_nonce"
+        ]
+      },
+      {
+        "package": "oasis7_runtime",
+        "target_kind": "test",
+        "target_name": "iws_action_body",
+        "default_features": true,
+        "features": [
+          "test_tier_full"
+        ],
+        "cases": [
+          "actual_queued_body_actions_match_world_and_read_prior_current_write",
+          "queued_alliance_lifecycle_preserves_outer_risk_war_rejections_and_exact_world_originals",
+          "actual_main_token_fifo_matches_world_balances_nonces_events_and_mailboxes",
+          "main_token_original_failure_keeps_charge_and_aborts_transaction",
+          "main_token_work_exhaustion_keeps_original_common_debit",
+          "main_token_work_rejects_equal_numeric_foreign_common"
+        ]
       }
     ],
     "isolated_sources": {

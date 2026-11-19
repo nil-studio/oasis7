@@ -1,6 +1,8 @@
 pub(crate) use super::execution_bridge_real_tests::real_execution_bridge::controlled_live;
 pub(crate) use super::execution_bridge_real_tests::real_execution_bridge::formal_package;
 pub(crate) use super::execution_bridge_real_tests::real_execution_bridge::world_service_read;
+#[cfg(feature = "iws-host-native-test-support")]
+pub(crate) use super::execution_bridge_real_tests::real_execution_bridge::formal_iws_genesis_integration_support;
 #[cfg(unix)]
 pub(crate) use super::execution_bridge_real_tests::real_execution_bridge::{
     formal_durable_set_arm, formal_node_hook, formal_writer,

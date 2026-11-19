@@ -177,6 +177,83 @@ pub(crate) fn with_selected_path_bounded_v1<T, C: FnMut() -> bool>(
     work.step(cancelled)?;
     Ok(result)
 }
+/// Same uncached identity predicates as generation_identity's legacy route,
+/// using the original paid reader and original current/Manifest codecs. The
+/// complete fixed closed Manifest phase outlives every decoded local value.
+pub(crate) fn current_generation_digest_bounded_v1<C: FnMut() -> bool>(
+    root: &Path,
+    memory: &MemoryBudget,
+    work: &mut GenerationSelectedReadWorkV1,
+    cancelled: &mut C,
+) -> Result<Option<[u8; 32]>, FormalError> {
+    work.step(cancelled)?;
+    // Same admitted complete metadata graph as the original uncached native
+    // identity path. Manifest contains only version/nonce/optional NodeRef;
+    // its original preflight/codec validates all fields before a fixed digest
+    // can leave this phase. No arbitrary T decoder is introduced.
+    let _phase = memory
+        .reserve(128 * 1024 * 1024, MemoryClass::Ordinary)
+        .map_err(|_| invalid("generation identity metadata admission"))?;
+    let shared = RefCell::new((work, cancelled));
+    let mut before = || {
+        let mut state = shared.borrow_mut();
+        let (work, stop) = &mut *state;
+        work.step(*stop)
+    };
+    let mut control = |path: &Path, limit: usize| {
+        let mut state = shared.borrow_mut();
+        let (work, stop) = &mut *state;
+        let bytes = read_metadata(path, limit, memory, work, *stop)?;
+        work.read(bytes.as_ref().len(), *stop)?;
+        Ok(bytes.as_ref().to_vec())
+    };
+    if !super::super::enabled_with_callbacks(root, &mut before, &mut control)? {
+        return Err(invalid("generation identity unknown physical capability"));
+    }
+    {
+        let mut state = shared.borrow_mut();
+        let (work, stop) = &mut *state;
+        // Original pin rechecks the already validated <=64-byte capability.
+        work.read(64, *stop)?;
+    }
+    let _pin = pin(root, false)?
+        .ok_or_else(|| invalid("generation identity requires actual physical pin"))?;
+    let mut reader = |path: &Path, limit: usize| {
+        let mut state = shared.borrow_mut();
+        let (work, stop) = &mut *state;
+        let bytes = read_metadata(path, limit, memory, work, *stop)?;
+        // Pay the subsequent checksum, original CBOR preflight/typed decoder,
+        // comparisons and owned-string copies, before any one runs.
+        let visits = u64::try_from(bytes.as_ref().len())
+            .ok()
+            .and_then(|n| n.checked_mul(16))
+            .and_then(|n| n.checked_add(1))
+            .ok_or_else(|| invalid("generation identity visits"))?;
+        if (*stop)() {
+            return Err(invalid("bounded generation selection cancelled"));
+        }
+        if work.remaining_steps < visits {
+            work.remaining_steps = 0;
+            return Err(invalid("bounded generation selection steps"));
+        }
+        work.remaining_steps -= visits;
+        Ok(bytes)
+    };
+    let selected = super::current_with_reader(root, &mut reader)?;
+    let digest = match selected {
+        None => None,
+        Some(id) => {
+            let _manifest = super::manifest_with_reader(root, &id, &mut reader)?;
+            let mut digest = [0; 32];
+            hex::decode_to_slice(&id, &mut digest)
+                .map_err(|_| invalid("generation identity digest"))?;
+            Some(digest)
+        }
+    };
+    let (work, stop) = shared.into_inner();
+    work.step(stop)?;
+    Ok(digest)
+}
 #[cfg(all(test, unix))]
 #[path = "physical_generation_selected_read_tests.rs"]
 mod tests;

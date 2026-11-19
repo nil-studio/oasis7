@@ -7,9 +7,7 @@
 use super::super::*;
 use serde_json::{Value, json};
 
-use crate::{
-    AgentCognitionMailbox, AgentDecisionEnvelopeV1, MvccValidator, PreconditionV1,
-};
+use crate::{AgentCognitionMailbox, AgentDecisionEnvelopeV1, MvccValidator, PreconditionV1};
 
 const WORLD_ID: &str = "world-1";
 const AGENT_ID: &str = "agent-1";

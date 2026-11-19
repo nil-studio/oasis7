@@ -10,11 +10,16 @@ pub use authority::verify_world_rule_authority;
 
 pub mod industrial;
 mod industrial_completion;
+pub mod industrial_eligibility_kernel;
 pub mod industrial_work;
 pub mod industrial_work_admission;
 pub mod industrial_work_start;
 mod industrial_work_terminate;
-pub use industrial_completion::validate_industrial_completion;
+pub use industrial_completion::{
+    validate_industrial_completion, validate_industrial_completion_destination_v1,
+    validate_industrial_completion_selected_fields_v1,
+};
+pub use industrial_work_admission::industrial_ledger_access_from_records_v1;
 pub mod recipe_substitution;
 pub mod substitution_read;
 use oasis7_agent_api::world_action::IndustrialWorkStateV1;
@@ -28,7 +33,7 @@ pub use industrial::*;
 pub use organization::*;
 pub use supply::*;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Default)]
 pub struct WorldRulesStateV1 {
     pub requests: BTreeMap<String, WorldRuleReceiptV1>,
     pub governance_effects: BTreeMap<String, String>,
@@ -61,33 +66,8 @@ pub struct WorldRulesContinuityProjection<'a> {
     pub organization_continuity: &'a OrganizationContinuityStateV1,
 }
 
-impl Serialize for WorldRulesContinuityProjection<'_> {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut output = serializer.serialize_struct(
-            "WorldRulesStateV1",
-            11 + usize::from(!industrial_work_is_empty(&self.base.industrial_work))
-                + usize::from(!substitution_is_empty(&self.base.substitution)),
-        )?;
-        output.serialize_field("requests", &self.base.requests)?;
-        output.serialize_field("governance_effects", &self.base.governance_effects)?;
-        output.serialize_field("organization_cases", &self.base.organization_cases)?;
-        output.serialize_field("organization_estate", &self.base.organization_estate)?;
-        output.serialize_field("supply_authorizations", &self.base.supply_authorizations)?;
-        output.serialize_field("supply_batches", &self.base.supply_batches)?;
-        output.serialize_field("supply_lineages", &self.base.supply_lineages)?;
-        output.serialize_field("supply_shipments", &self.base.supply_shipments)?;
-        output.serialize_field("organization_continuity", self.organization_continuity)?;
-        output.serialize_field("emergency_supply", &self.base.emergency_supply)?;
-        output.serialize_field("agent_orders", &self.base.agent_orders)?;
-        if !industrial_work_is_empty(&self.base.industrial_work) {
-            output.serialize_field("industrial_work", &self.base.industrial_work)?;
-        }
-        if !substitution_is_empty(&self.base.substitution) {
-            output.serialize_field("substitution", &self.base.substitution)?;
-        }
-        output.end()
-    }
-}
+#[path = "world_rules/projection_fields.rs"]
+mod projection_fields;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorldRuleReceiptV1 {
     pub request_id: String,
@@ -143,36 +123,56 @@ impl PreparedWorldRule {
             industry: None,
             claim: None,
         };
-        if let Some(receipt) = next.rules.requests.get(&key) {
-            if receipt.actor_id != *actor_id || receipt.command != *command {
-                return Err(invalid("request_content_conflict"));
+        let start_root = matches!(command,WorldRuleCommandV1::IndustrialWork{command}if matches!(&**command,oasis7_agent_api::world_action::IndustrialWorkCommandV1::StartRoot{..}));
+        if start_root {
+            match readonly_start_envelope::envelope(
+                state,
+                actor_id,
+                request_id,
+                command,
+                world_binding.as_deref(),
+            ) {
+                Ok(result) => {
+                    if matches!(
+                        result?,
+                        readonly_start_envelope::StartEnvelopeDataV1::Replay
+                    ) {
+                        return Ok(next);
+                    }
+                }
+                Err(never) => match never {},
             }
-            return Ok(next);
-        }
-        validate_manufactured_world_scope(state, actor_id, world_binding.as_deref())?;
-        if serde_json::to_vec(command)?.len() > 65_536 {
-            return Err(invalid("world_rule_command_too_large"));
-        }
-        if matches!(
-            command,
-            WorldRuleCommandV1::OpenOrganizationProtection { .. }
-                | WorldRuleCommandV1::BeginOrganizationDissolution { .. }
-                | WorldRuleCommandV1::AdvanceOrganization { .. }
-                | WorldRuleCommandV1::GrantOrganizationScope { .. }
-                | WorldRuleCommandV1::RevokeOrganizationScope { .. }
-                | WorldRuleCommandV1::RequestOrganizationRecovery { .. }
-                | WorldRuleCommandV1::ResolveOrganizationRecovery { .. }
-                | WorldRuleCommandV1::DisposeOrganizationEstate { .. }
-        ) {
-            return Err(invalid("organization_continuity_upgrade_required"));
-        }
-        if command
-            .governance_proposal()
-            .is_some_and(|id| next.rules.governance_effects.contains_key(id))
-        {
-            return Err(invalid("governance_proposal_already_consumed"));
-        }
-        if state
+        } else {
+            if let Some(receipt) = next.rules.requests.get(&key) {
+                if receipt.actor_id != *actor_id || receipt.command != *command {
+                    return Err(invalid("request_content_conflict"));
+                }
+                return Ok(next);
+            }
+            validate_manufactured_world_scope(state, actor_id, world_binding.as_deref())?;
+            if serde_json::to_vec(command)?.len() > 65_536 {
+                return Err(invalid("world_rule_command_too_large"));
+            }
+            if matches!(
+                command,
+                WorldRuleCommandV1::OpenOrganizationProtection { .. }
+                    | WorldRuleCommandV1::BeginOrganizationDissolution { .. }
+                    | WorldRuleCommandV1::AdvanceOrganization { .. }
+                    | WorldRuleCommandV1::GrantOrganizationScope { .. }
+                    | WorldRuleCommandV1::RevokeOrganizationScope { .. }
+                    | WorldRuleCommandV1::RequestOrganizationRecovery { .. }
+                    | WorldRuleCommandV1::ResolveOrganizationRecovery { .. }
+                    | WorldRuleCommandV1::DisposeOrganizationEstate { .. }
+            ) {
+                return Err(invalid("organization_continuity_upgrade_required"));
+            }
+            if command
+                .governance_proposal()
+                .is_some_and(|id| next.rules.governance_effects.contains_key(id))
+            {
+                return Err(invalid("governance_proposal_already_consumed"));
+            }
+            if state
             .gameplay_policy
             .blocked_agents
             .iter()
@@ -196,6 +196,7 @@ impl PreparedWorldRule {
             && !matches!(event,DomainEvent::WorldRuleCommitted{action_id:0,command:WorldRuleCommandV1::AdvanceOrganization{case_id,..},..} if next.rules.organization_cases.get(case_id).is_some_and(|c|c.phase==OrganizationProtectionPhaseV1::Notice || c.phase==OrganizationProtectionPhaseV1::Limited && c.grants.values().all(|g|g.expires_at<=now||g.scopes.is_empty())))
         {
             return Err(invalid("actor_blocked"));
+        }
         }
         if matches!(event,DomainEvent::WorldRuleCommitted {action_id,..} if *action_id>0) {
             next.agents
@@ -359,7 +360,7 @@ pub fn invalid(reason: impl Into<String>) -> WorldError {
         reason: reason.into(),
     }
 }
-fn validate_id(id: &str) -> Result<(), WorldError> {
+pub fn validate_id(id: &str) -> Result<(), WorldError> {
     if id.is_empty() || id.len() > 128 || id.trim() != id {
         Err(invalid("invalid_identity"))
     } else {
@@ -525,27 +526,10 @@ impl WorldState {
         reader: Option<&str>,
         world_binding: Option<&str>,
     ) -> Option<serde_json::Value> {
-        let empty = WorldRulesStateV1::default();
-        let rules = self.world_rules.as_ref().unwrap_or(&empty);
-        let orders=rules.agent_orders.iter().take(128).map(|(id,order)| {
-            let owner=self.can_read_agent_industrial_order(order,reader,world_binding);
-            let blocker=owner.then(||order.blocker(self,self.time)).flatten();
-            let next_step=if order.refund_pending {if blocker.as_deref()==Some("refund_pending_authoritative_release"){"await_authoritative_refund_release"}else{"restore_original_owner_source_for_frozen_refund"}}else if order.is_terminal(){"query_original_receipt"}else if order.phase==AgentIndustrialPhaseV1::AwaitingDelivery {"deliver_or_resolve_blocker_before_deadline"}else{"await_legal_production_or_cancel_before_start"};
-            (id.clone(),serde_json::json!({"phase":order.phase,"refund_pending":order.refund_pending,"refunded_at":order.refunded_at,"completed_work_ticks":order.completed_work_ticks,"ready_at":order.ready_at,"production_deadline":order.production_deadline(),"delivery_deadline":order.produced_at.map(|at|at.saturating_add(24)),"blocker":blocker,"next_step":next_step}))
-        }).collect::<BTreeMap<_,_>>();
-        let quotes=reader.into_iter().flat_map(|actor|self.factories.iter().filter(move|(_,f)|f.builder_agent_id==actor).take(128).map(move|(id,_)| {
-            let quote=self.agent_manufacturing_quote_with_binding(actor,id,self.time,world_binding);
-            (id.clone(),match quote {Ok(q)=>serde_json::json!({"quote":q}),Err(e)=>serde_json::json!({"blocker":format!("{e:?}"),"next_step":"restore_quote_prerequisites"})})
-        })).collect::<BTreeMap<_,_>>();
-        let activity_contract_candidates = rules
-            .organization_continuity
-            .activity_contract_candidates(self, reader, world_binding);
-        if self.world_rules.is_none() && quotes.is_empty() {
-            return None;
+        match world_rule_status_readonly_v1(self, reader, world_binding) {
+            Ok(value) => value,
+            Err(never) => match never {},
         }
-        Some(
-            serde_json::json!({"source_tick":self.time,"recipe_substitution":self.recipe_substitution_status(reader,world_binding),"agent_orders":orders,"manufacturing_quotes":quotes,"agent_order_count":rules.agent_orders.len(),"agent_orders_truncated":rules.agent_orders.len()>128,"organization_activity_contract_candidates":activity_contract_candidates,"supply_next_step":"inspect_verified_source_and_adapter_availability","organization_next_step":"inspect_explicit_continuity_registration_and_case"}),
-        )
     }
 }
 
@@ -585,53 +569,52 @@ impl WorldRulesStateV1 {
         value.substitution = SubstitutionStateV1::default();
         value.emergency_supply = self.emergency_supply.for_reader(reader);
         value.organization_continuity = self.organization_continuity.for_reader(reader);
-        let mut visible_lineages = std::collections::BTreeSet::new();
-        for auth in self.supply_authorizations.values() {
-            for beneficiary in &auth.beneficiaries {
-                if reader == Some(auth.provider_id.as_str()) || reader == Some(beneficiary.as_str())
-                {
-                    visible_lineages.insert(supply::lineage(auth, beneficiary));
-                }
-            }
-        }
+        let visibility_source =
+            readonly_visibility::LegacySupplyVisibilityV1(&self.supply_authorizations);
+        let visibility =
+            readonly_visibility::supply_visibility_plan_v1(&visibility_source, reader).unwrap();
         for auth in value.supply_authorizations.values_mut() {
-            let provider = reader == Some(auth.provider_id.as_str());
-            auth.requests
-                .retain(|id, _| provider || reader == Some(id.as_str()));
+            auth.requests.retain(|id, _| {
+                visibility
+                    .request(&visibility_source, &auth.provider_id, id, reader)
+                    .unwrap()
+            });
         }
         for batch in value.supply_batches.values_mut() {
-            let provider = self
-                .supply_authorizations
-                .get(&batch.authorization_id)
-                .is_some_and(|auth| reader == Some(auth.provider_id.as_str()));
-            batch
-                .demands
-                .retain(|id, _| provider || reader == Some(id.as_str()));
-            batch
-                .allocation
-                .retain(|id, _| provider || reader == Some(id.as_str()));
+            let provider = visibility
+                .provider(&visibility_source, &batch.authorization_id, reader)
+                .unwrap();
+            batch.demands.retain(|id, _| {
+                visibility
+                    .beneficiary_request(&visibility_source, provider, id, reader)
+                    .unwrap()
+            });
+            batch.allocation.retain(|id, _| {
+                visibility
+                    .beneficiary_request(&visibility_source, provider, id, reader)
+                    .unwrap()
+            });
             batch
                 .frozen_lineages
-                .retain(|id, _| visible_lineages.contains(id));
+                .retain(|id, _| visibility.lineage(&visibility_source, id).unwrap());
         }
         value
             .supply_lineages
-            .retain(|id, _| visible_lineages.contains(id));
-        value.supply_shipments.retain(|_, s| {
-            reader == Some(s.beneficiary_id.as_str())
-                || self
-                    .supply_authorizations
-                    .get(&s.authorization_id)
-                    .is_some_and(|auth| reader == Some(auth.provider_id.as_str()))
+            .retain(|id, _| visibility.lineage(&visibility_source, id).unwrap());
+        value.supply_shipments.retain(|_, shipment| {
+            visibility
+                .shipment(&visibility_source, shipment, reader)
+                .unwrap()
         });
         for case in value.organization_cases.values_mut() {
-            let custodian = reader == Some(case.founder_id.as_str())
-                || case
-                    .grants
-                    .values()
-                    .any(|g| reader == Some(g.delegate_id.as_str()));
-            case.requests
-                .retain(|_, r| custodian || reader == Some(r.requester_id.as_str()));
+            let custodian = visibility
+                .case_custodian(&visibility_source, case, reader)
+                .unwrap();
+            case.requests.retain(|_, request| {
+                visibility
+                    .case_request(&visibility_source, custodian, &request.requester_id, reader)
+                    .unwrap()
+            });
         }
         value
     }
@@ -642,14 +625,128 @@ pub fn validate_manufactured_world_scope(
     agent: &str,
     binding: Option<&str>,
 ) -> Result<(), WorldError> {
-    if let Some(order) = state.world_rules.as_ref().and_then(|rules| {
-        rules
-            .agent_orders
-            .values()
-            .find(|order| order.target_agent_id == agent)
-    }) && order.quote.world_binding.as_deref() != binding
+    validate_manufactured_world_scope_from_order_v1(
+        state.world_rules.as_ref().and_then(|rules| {
+            rules
+                .agent_orders
+                .values()
+                .find(|order| order.target_agent_id == agent)
+        }),
+        binding,
+    )
+}
+
+pub fn validate_manufactured_world_scope_from_order_v1(
+    order: Option<&AgentIndustrialOrderV1>,
+    binding: Option<&str>,
+) -> Result<(), WorldError> {
+    if let Some(order) = order
+        && order.quote.world_binding.as_deref() != binding
     {
         return Err(invalid("manufactured_actor_world_binding_mismatch"));
     }
     Ok(())
 }
+
+pub use industrial_work_start::{
+    IndustrialOutputReservationRefV1, industrial_completion_output_map_heap_v1,
+    validate_industrial_output_capacity_from_reservations_with_work_v1,
+};
+mod readonly_owner;
+pub use readonly_owner::{
+    IndustrialOwnerReadonlyFactsV1, is_manufactured_agent_readonly_v1,
+    resolve_industrial_owner_readonly_v1,
+};
+mod readonly_manufacturing;
+pub use readonly_manufacturing::{
+    ManufacturingQuoteReadonlyFactsV1, agent_manufacturing_quote_readonly_v1,
+    industrial_order_blocker_readonly_v1, order_production_eligibility_readonly_v1,
+    refund_source_is_current_readonly_v1,
+};
+mod readonly_organization;
+pub use readonly_organization::{
+    OrganizationActivityReadonlyFactsV1, organization_activity_candidates_readonly_v1,
+};
+mod readonly_format;
+mod readonly_order_validation;
+
+#[path = "world_rules/supply_current_observation.rs"]
+mod supply_current_observation;
+pub use supply_current_observation::{
+    EmergencyCurrentEvidenceV2, EmergencyCurrentObservationV2, current_evidence_source_ref_v2,
+    current_observation_key_v2, validate_current_evidence_policy_v2,
+    validate_current_observation_shape_v2,
+};
+
+mod readonly_industrial_consume;
+mod readonly_industrial_data;
+mod readonly_industrial_scratch;
+mod readonly_parent_consumption;
+mod readonly_recipe_tags;
+mod readonly_start_gates;
+
+pub use readonly_industrial_consume::{
+    IndustrialProductReadonlyFactsV1, industrial_effective_consume_readonly_v1,
+};
+pub use readonly_recipe_tags::compatible as recipe_preferred_tags_with_work_v1;
+
+pub use readonly_industrial_scratch::IndustrialScratchReadonlyFactsV1;
+
+mod readonly_output_capacity;
+
+mod readonly_industrial_start;
+pub use readonly_industrial_start::{
+    IndustrialStartInputPreviewDataV1, IndustrialStartReadonlyFactsV1,
+    preview_industrial_start_inputs_readonly_v1,
+};
+
+pub(crate) use readonly_format::format as format_readonly_data_v1;
+
+pub use readonly_format::format as format_readonly_projection_data_v1;
+
+pub(crate) mod readonly_recipe_started;
+pub use readonly_recipe_started::RecipeStartedReadonlyFactsV1;
+
+mod readonly_start_recipe_overlay;
+pub use readonly_industrial_start::{
+    IndustrialStartRecipePreviewDataV1, preview_industrial_start_recipe_readonly_v1,
+};
+
+pub(crate) use readonly_recipe_started::factory_capacity_reservation_gate_v1 as readonly_recipe_factory_capacity_gate_v1;
+
+mod readonly_start_envelope;
+pub use readonly_start_envelope::{
+    IndustrialStartEnvelopeReadonlyFactsV1, IndustrialStartRehearsalDataV1,
+    preview_new_recipe_start_root_readonly_v1,
+};
+
+mod readonly_industrial_receipt;
+pub use readonly_industrial_receipt::IndustrialReceiptReadonlyFactsV1;
+
+mod readonly_start_industrial_overlay;
+
+mod readonly_substitution;
+mod readonly_substitution_data;
+pub use readonly_substitution::{SubstitutionReadonlyFactsV1, preview_substitution_readonly_v1};
+
+mod industrial_work_visibility;
+pub use industrial_work_visibility::{
+    industrial_binding_reader_with_work_v1, industrial_receipt_reader_with_work_v1,
+    industrial_reference_equal_with_work_v1, industrial_root_reader_with_work_v1,
+};
+
+mod substitution_visibility;
+pub use substitution_visibility::{
+    current_rule_request_visible_with_work_v1, substitution_authority_visible_with_work_v1,
+    substitution_decision_visible_with_work_v1,
+};
+
+mod readonly_status;
+mod readonly_status_legacy;
+mod readonly_status_substitution;
+pub use readonly_status::{WorldRuleStatusReadonlyFactsV1, world_rule_status_readonly_v1};
+
+pub use industrial_work_admission::industrial_owner_binding_with_work_v1;
+
+mod readonly_visibility;
+pub use readonly_visibility::*;

@@ -536,6 +536,8 @@ class RealCargoArchiveTests(unittest.TestCase):
             state = base / 'producer/state.json'
             with patch.object(ecs, 'ROOT', checkout):
                 ecs.build(command, env, state)
+                producer_state = json.loads(state.read_text())
+                self.assertIs(producer_state.get('complete'), True, producer_state)
                 producer = json.loads(state.with_name('ecs-units.json').read_text())
                 self.assertEqual((producer['fresh'], producer['rebuilt']), (0, 3))
                 with patch.object(ecs, 'identity', return_value={'key': KEY}), \
@@ -567,7 +569,8 @@ class RealCargoArchiveTests(unittest.TestCase):
                         fresh = {unit['target']['name']: unit['fresh'] for unit in consumer['units']}
                         self.assertEqual(fresh, {'ecs_cache_base': True, 'ecs_cache_leaf': not changed,
                                                 'ecs_cache_app': not changed})
-                        self.assertTrue(json.loads(consumer_state.read_text())['complete'])
+                        consumer_record = json.loads(consumer_state.read_text())
+                        self.assertIs(consumer_record.get('complete'), True, consumer_record)
                         if not changed:
                             # Cargo recreates the public/deps executable hardlink
                             # on a Fresh build, so the consumer can be a producer.

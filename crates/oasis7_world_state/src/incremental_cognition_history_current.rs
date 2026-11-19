@@ -163,26 +163,48 @@ where
     {
         return Err(ValueTreeError::Invalid("Cognition History current binding"));
     }
+    verify_history_current_fields_v3(view.manifest(), &digest, current, context)?;
+    context.check()?;
+    Ok(charge.retain(CognitionHistoryCurrentBindingV1 {
+        class: context.values.class,
+        roots: digest,
+        head: view.occurrence().head_record_id(),
+        enabled: view.manifest().enabled,
+    }))
+}
+fn verify_history_current_fields_v3<M, R, E, C>(
+    manifest: &CognitionHistoryViewV1,
+    digest: &[u8; 32],
+    current: CognitionHistoryCurrentSourceV1<'_>,
+    context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+) -> Result<(), ValueTreeError>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    let memory = context.values.memory;
     match current {
         CognitionHistoryCurrentSourceV1::Disabled(proof) => {
             if !proof.uses_budget(memory)
                 || proof.class() != context.values.class
-                || view.manifest().enabled
+                || manifest.enabled
             {
                 return Err(ValueTreeError::Invalid("Cognition History disabled source"));
             }
-            proof.validate_binding(&digest)?;
+            proof.validate_binding(digest)?;
         }
         CognitionHistoryCurrentSourceV1::Enabled(proof) => {
             if !proof.uses_budget(memory)
                 || proof.class() != context.values.class
-                || !view.manifest().enabled
+                || !manifest.enabled
             {
                 return Err(ValueTreeError::Invalid("Cognition History enabled source"));
             }
-            proof.validate_binding(&digest)?;
+            proof.validate_binding(digest)?;
             let economy = proof.control_present(Field::EconomySchema);
-            if economy != view.manifest().indexes[2].present {
+            if economy != manifest.indexes[2].present {
                 return Err(ValueTreeError::Invalid("Cognition History economy cohort"));
             }
             for (index, sequence, text) in [
@@ -197,7 +219,7 @@ where
                 if index != 0 && !economy {
                     continue;
                 }
-                let expected = &view.manifest().heads[index];
+                let expected = &manifest.heads[index];
                 if read_cognition_control_v1(sequence, context, &mut io::sink())?
                     != CognitionControlReadV1::Unsigned(expected.sequence)
                 {
@@ -234,13 +256,12 @@ where
         }
     }
     context.check()?;
-    Ok(charge.retain(CognitionHistoryCurrentBindingV1 {
-        class: context.values.class,
-        roots: digest,
-        head: view.occurrence().head_record_id(),
-        enabled: view.manifest().enabled,
-    }))
+    Ok(())
 }
+#[path = "incremental_cognition_history_candidate_current_v3.rs"]
+mod candidate_current_v3;
+pub use candidate_current_v3::*;
+
 struct Compare<'a> {
     expected: &'a [u8],
     at: usize,

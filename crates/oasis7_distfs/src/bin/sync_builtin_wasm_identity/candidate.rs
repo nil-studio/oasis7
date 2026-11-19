@@ -1,8 +1,14 @@
 //! Engineering expectations only. This module never selects a Runtime/release identity.
 use super::*;
 
+#[path = "candidate_iws_fixture.rs"]
+mod iws_fixture;
 #[path = "candidate_partial.rs"]
 mod partial;
+
+pub(super) fn verify_iws_fixture(args: &[String]) -> Result<(), String> {
+    iws_fixture::run(args)
+}
 
 const ARTIFACTS: &str = "crates/oasis7_runtime/src/world/artifacts";
 const DESCRIPTOR: &str = "builtin_wasm_candidate_baseline.v1.json";

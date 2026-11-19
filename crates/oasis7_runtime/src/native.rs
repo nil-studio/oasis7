@@ -44,6 +44,7 @@ pub use oasis7_world_state::main_token;
 mod major_world_event;
 pub use oasis7_world_state::manifest;
 mod module_source_compiler;
+pub use module_source_compiler::RuntimeSourceCompiler;
 mod module_store;
 pub use oasis7_world_state::modules;
 mod node_points;
@@ -147,6 +148,7 @@ pub use oasis7_world_state::{incremental_agent_fields, incremental_event_fields}
 pub use world::incremental_agent_genesis;
 pub use world::incremental_agent_verified_genesis;
 pub use world::incremental_body::{BodyMutationContext, BodyMutationError};
+pub use world::incremental_body_event::materials::CorePolicyMaterialContextV1;
 pub use world::incremental_body_event::{
     AgentEventContext, AgentEventOriginalSinkV1, AgentEventOriginalStreamV1, AgentEventOriginalV1,
 };
@@ -158,6 +160,11 @@ pub use world::incremental_scheduler::{DueModuleBatchLimitsV1, DueModuleBatchV1}
 pub use world::incremental_step::IwsStepContext;
 pub use world::{
     DevLocalParticipantAuthority, FormalTickConsensusArchivePlanV1, FormalWorldRetentionPlanV1,
+};
+pub use world::{
+    incremental_action_original, incremental_genesis, incremental_genesis_projection,
+    incremental_genesis_raw, incremental_genesis_typed, incremental_runtime_history_decode,
+    incremental_runtime_history_original, incremental_runtime_history_source,
 };
 
 // Consensus
@@ -506,7 +513,9 @@ pub use oasis7_world_state::incremental_authenticated_nonces;
 pub use oasis7_world_state::incremental_authorization_mapsets;
 
 pub use world::incremental_commit::{
-    CommitPreparationRequest, ParentCommitView, PreparedRuntimeCommit,
+    AcceptedRuntimeDirectoryCacheV1, CommitPreparationRequest, ParentCommitView,
+    PreparedRuntimeCommit, PreparedRuntimeDirectoryCacheV1, RuntimeDirectoryCacheErrorV1,
+    prepare_iws_runtime_commit_v1, prepare_iws_runtime_commit_with_results_v1,
 };
 
 pub use oasis7_world_state::incremental_factory_authority_records;
@@ -580,3 +589,91 @@ pub use world::incremental_scheduler_recovery::{
 };
 
 pub use oasis7_world_state::incremental_cognition_history;
+
+pub use world::incremental_module_execution_authorization::*;
+pub use world::incremental_module_execution_effects::*;
+pub use world::incremental_module_execution_fee::contribute_root_module_fee_and_event_v1;
+pub use world::incremental_module_execution_manifest_hash::*;
+pub use world::incremental_module_execution_output::*;
+
+pub use world::incremental_cache_move;
+
+pub use world::incremental_world_event_counter::WorldEventCounterV1;
+
+pub use world::{
+    incremental_module_execution_emit, incremental_module_execution_visual_anchor,
+    incremental_module_execution_visual_decode, incremental_module_execution_worker,
+};
+
+#[cfg(all(feature = "test-support", feature = "wasmtime", target_os = "linux"))]
+pub use world::iws_rule_core_test_support::{IwsRuleCoreCaseV1, run_iws_rule_core_case_v1};
+
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+pub use world::incremental_body_event::{IwsModuleStateCaseV1, run_iws_module_state_case_v1};
+
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+pub use world::incremental_genesis::{IwsActionBodyCaseV1, run_iws_action_body_case_v1};
+
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+pub use world::incremental_genesis::{IwsGenesisEventCaseV1, run_iws_genesis_event_case_v1};
+
+pub use world::incremental_normal_sources;
+pub use world::{
+    ObservationJsonOriginalSinkV2, ObservationJsonOriginalStreamV2,
+    ObservationOriginalStreamFailedV2,
+};
+
+pub use world::{
+    AuthorizationRootCacheErrorV1, AuthorizationRootCacheLimitsV1,
+    AuthorizationRootSourceReadWorkV1, NormalCommitHeaderLimitsV1, NormalHostBootstrapWorkV1,
+    NormalHostCognitionParentSourcesV1, NormalHostFixedFailureV1, NormalHostResidentSourcesV1,
+    NormalHostStartupWorkV1, NormalHostWorkV1, NormalTailBootstrapParentsV1,
+    NormalTailDirectoryInputsV1, PreparedNormalHostResidentV1, PreparedNormalHostRuntimeV1,
+    ProvisionalAuthorizationProjectionV1, bootstrap_normal_host_resident_sources_v1,
+    prepare_normal_host_from_resident_v1, prepare_normal_host_resident_promotion_from_io_v1,
+};
+
+pub use world::{
+    NormalGenesisProcessSourceV1, NormalProcessSourceV1, NormalProcessStartupSourceV1,
+    VerifiedNormalColdProcessConfigurationV1,
+};
+
+pub use world::{
+    prepare_verified_normal_cold_devlocal_configuration_v1,
+    prepare_verified_normal_cold_governed_configuration_v1,
+};
+
+pub use world::CurrentBootstrapFinalityWorkV1;
+
+pub use world::prepare_verified_normal_cold_devlocal_pinned_configuration_v1;
+
+pub use world::{
+    NormalHostColdRuntimeConfigurationV1, NormalHostIoWorkV1,
+    bootstrap_authenticated_cold_normal_host_sources_v1,
+    prepare_normal_host_cold_runtime_configuration_v1,
+};
+
+pub use world::{
+    ActualCurrentBusinessDeltaV1, NormalBusinessMetadataParentSourceV1, NormalBusinessReadWorkV1,
+    NormalTerminalMetadataReadWorkV1, NormalTerminalReadMetadataV1,
+    PaidBorrowedNormalBusinessSourceV1, PaidProjectedGenesisBusinessSourceV1,
+    PreparedNormalBusinessMetadataGenesisV1,
+};
+
+pub use world::{AcceptedNormalProjectionCacheV1, NormalProjectionCurrentWorkV1};
+
+pub use world::{NormalProjectionWorkBankV1,NormalFinalSourcesWorkV1,NormalProjectionWorldRulesWorkV1};
+
+pub use world::{bootstrap_authenticated_cold_normal_host_resident_v1,NormalHostColdBootstrapErrorV1,NormalHostBootstrapContextErrorV1};
+
+pub use world::{
+    NormalHostBootstrapTailWorkV1, NormalHostGenesisAuthorityV1, NormalHostGenesisBootstrapErrorV1,
+    NormalHostLaneLimitsV1, NormalHostWorkLimitsV1,
+    NormalHostCognitionBootstrapErrorV1, PaidNormalHostCognitionParentSourcesV1,
+    bootstrap_normal_host_cognition_parent_v1,
+    bootstrap_authenticated_genesis_normal_host_resident_v1,
+    bootstrap_authenticated_genesis_replica_resident_v1,
+};
+pub use world::incremental_world_event_counter::WorldJournalRetentionV1;
+#[cfg(any(test, feature = "test_tier_required"))]
+pub use world::two_agent_host_work_limits_v1;

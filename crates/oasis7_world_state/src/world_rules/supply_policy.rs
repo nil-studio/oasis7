@@ -109,74 +109,7 @@ impl EmergencySupplyStateV1 {
         now: u64,
         require_shortage: bool,
     ) -> Result<bool, WorldError> {
-        require_text(&e.region_id)?;
-        require_text(&e.region_budget_lineage)?;
-        require_text(&e.source_ref)?;
-        if e.observations.len() != 3 || !fresh(e, now) {
-            return Err(invalid("evidence_stale"));
-        }
-        let first = e.observations[0].window_start;
-        let eligible: BTreeSet<_> = self
-            .services
-            .values()
-            .filter(|s| {
-                s.region_id == e.region_id
-                    && s.registered_at.checked_add(600).is_some_and(|t| t <= first)
-            })
-            .map(|s| s.obligation_id.clone())
-            .collect();
-        if eligible.is_empty() || eligible.len() > 4096 {
-            return Err(invalid("invalid_evidence"));
-        }
-        let mut recovered = true;
-        for (i, w) in e.observations.iter().enumerate() {
-            if w.window_start % 60 != 0
-                || w.window_start
-                    != first
-                        .checked_add(i as u64 * 60)
-                        .ok_or_else(|| invalid("numeric_overflow"))?
-                || w.obligation_ids != eligible
-                || w.normal_coverage.keys().cloned().collect::<BTreeSet<_>>() != eligible
-            {
-                return Err(invalid("invalid_evidence"));
-            }
-            require_text(&w.world_root)?;
-            let mut total = 0i128;
-            let mut missing = 0i128;
-            let mut all = BTreeSet::new();
-            let mut affected = BTreeSet::new();
-            let mut places = BTreeSet::new();
-            for id in &eligible {
-                let s = &self.services[id];
-                let normal = w.normal_coverage[id];
-                if normal < 0
-                    || normal
-                        > s.electricity_per_interval
-                            .checked_mul(10)
-                            .ok_or_else(|| invalid("numeric_overflow"))?
-                {
-                    return Err(invalid("invalid_evidence"));
-                }
-                total += i128::from(s.electricity_per_interval) * 10;
-                missing += i128::from(s.electricity_per_interval) * 10 - i128::from(normal);
-                all.insert(&s.controller_id);
-                if i128::from(normal) < i128::from(s.electricity_per_interval) * 10 {
-                    affected.insert(&s.controller_id);
-                    places.insert(&s.location_id);
-                }
-            }
-            recovered &= total > 0 && missing * 100 < total * 10;
-            if total == 0
-                || require_shortage
-                    && (missing * 100 < total * 30
-                        || affected.len() < 3
-                        || places.len() < 2
-                        || affected.len() * 100 < all.len() * 30)
-            {
-                return Err(invalid("invalid_evidence"));
-            }
-        }
-        Ok(recovered)
+        validate_emergency_observations_from_services_v1(&self.services, e, now, require_shortage)
     }
     /// A schedule may consume only registered recipes in this exact interval. This
     /// returns a prepared successor; callers install it with the recipe transition.
@@ -1031,40 +964,21 @@ impl PreparedWorldRule {
                 {
                     return Err(invalid("missing_authority"));
                 }
-                for b in self
-                    .rules
-                    .emergency_supply
-                    .batches
-                    .values_mut()
-                    .filter(|b| b.authorization_id == *authorization_id)
-                {
-                    for (id, q) in &mut b.allocation {
-                        self.rules
-                            .emergency_supply
-                            .needs
-                            .get_mut(id)
-                            .unwrap()
-                            .reserved -= *q;
-                        *q = 0;
-                    }
-                }
+                release_emergency_close_reservations_v1(
+                    &mut self.rules.emergency_supply,
+                    authorization_id,
+                );
                 let agent = self
                     .agents
                     .entry(a.provider_id.clone())
                     .or_insert_with(|| state.agents[&a.provider_id].clone());
-                agent
-                    .state
-                    .resources
-                    .add(ResourceKind::Electricity, a.remaining)
-                    .map_err(|_| invalid("numeric_overflow"))?;
-                let a = self
+                let authorization = self
                     .rules
                     .emergency_supply
                     .authorizations
                     .get_mut(authorization_id)
                     .unwrap();
-                a.active = false;
-                a.remaining = 0;
+                refund_and_finish_emergency_close_v1(authorization, agent)?;
                 Ok(authorization_id.clone())
             }
         }
@@ -1081,27 +995,20 @@ impl PreparedWorldRule {
             .evidence
             .get(&a.evidence_id)
             .ok_or_else(|| invalid("invalid_evidence"))?;
-        if self
-            .rules
-            .emergency_supply
-            .overflowed_windows
-            .contains(&(a.region_id.clone(), a.starts_at))
-        {
-            return Err(invalid("batch_overflow"));
-        }
-        if !a.active || now < a.starts_at || now >= a.expires_at {
-            return Err(invalid("authorization_inactive"));
-        }
+        validate_emergency_active_window_v1(
+            a,
+            self.rules
+                .emergency_supply
+                .overflowed_windows
+                .contains(&(a.region_id.clone(), a.starts_at)),
+            now,
+        )?;
         if self
             .rules
             .emergency_supply
             .evidence
             .values()
-            .filter(|candidate| {
-                candidate.region_id == e.region_id
-                    && candidate.region_budget_lineage == e.region_budget_lineage
-                    && evidence_end(candidate) >= evidence_end(e)
-            })
+            .filter(|candidate| emergency_evidence_supersedes_v1(candidate, e))
             .any(|candidate| {
                 self.rules
                     .emergency_supply
@@ -1114,9 +1021,69 @@ impl PreparedWorldRule {
         self.rules
             .emergency_supply
             .validate_current_sources(state, e, now)?;
-        if !fresh(e, now) {
-            return Err(invalid("evidence_stale"));
-        }
+        validate_emergency_active_freshness_v1(e, now)?;
         Ok(e.clone())
     }
 }
+
+/// Original Close reservation mutation over the selected emergency records.
+/// This data kernel performs no authority checks and grants no publication.
+/// The caller must complete original validation and provider refund atomically.
+pub fn release_emergency_close_reservations_v1(
+    records: &mut EmergencySupplyStateV1,
+    authorization_id: &str,
+) {
+    for batch in records
+        .batches
+        .values_mut()
+        .filter(|batch| batch.authorization_id == authorization_id)
+    {
+        for (need_id, quantity) in &mut batch.allocation {
+            release_emergency_need_reservation_v1(
+                records.needs.get_mut(need_id).unwrap(),
+                quantity,
+            );
+        }
+    }
+}
+
+/// One original allocation mutation over an actually selected need. The
+/// Current caller must prove complete batch selection and atomically persist
+/// both records; this function does not establish that selection or authority.
+pub fn release_emergency_need_reservation_v1(
+    need: &mut EmergencyNeedLedgerV1,
+    allocation: &mut i64,
+) {
+    release_emergency_need_reserved_amount_v1(&mut need.reserved, allocation);
+}
+/// Sole original scalar arithmetic, also used by sparse Current Close.
+pub fn release_emergency_need_reserved_amount_v1(reserved: &mut i64, allocation: &mut i64) {
+    *reserved -= *allocation;
+    *allocation = 0;
+}
+
+/// The original refund precedes closing the authorization. Caller staging must
+/// discard both this mutation and reservation changes on any error.
+pub fn refund_and_finish_emergency_close_v1(
+    authorization: &mut EmergencyAuthorizationV1,
+    provider: &mut AgentCell,
+) -> Result<(), WorldError> {
+    provider
+        .state
+        .resources
+        .add(ResourceKind::Electricity, authorization.remaining)
+        .map_err(|_| invalid("numeric_overflow"))?;
+    authorization.active = false;
+    authorization.remaining = 0;
+    Ok(())
+}
+
+#[path = "supply_policy_observation.rs"]
+mod observation;
+pub use observation::{
+    EmergencyObservationValidationErrorV1, EmergencyObservationWorkV1,
+    emergency_evidence_supersedes_v1, observation_coverage_status_v1,
+    validate_emergency_active_freshness_v1, validate_emergency_active_window_v1,
+    validate_emergency_observation_prefix_v1, validate_emergency_observations_from_services_v1,
+    validate_emergency_observations_with_work_v1,
+};

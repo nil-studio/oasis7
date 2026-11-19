@@ -121,11 +121,25 @@ fn create<
             || !tx.uses_budget(ctx.values.memory)
             || !tx.uses_budget(write.memory)
             || !family.uses_budget(ctx.values.memory)
+            || crate::incremental_record_qualification_phase::check_class_v1(
+                family,
+                ctx.values.memory,
+                ctx.values.class,
+            )
+            .is_err()
             || source.kind() != key.kind
         {
             return Err(read::invalid().into());
         }
-        family.validate_binding(&tx.parent_fence().parent_roots)?;
+        let _qualification_phase = crate::incremental_record_qualification_phase::bind_phase_v1(
+            family,
+            crate::incremental_record_qualification_phase::FamilyBindingV1::Digest(
+                &tx.parent_fence().parent_roots,
+            ),
+            ctx.values.memory,
+            MemoryClass::Ordinary,
+            || cancel() || (write.cancelled)(),
+        )?;
         let _workspace = write
             .memory
             .reserve(32 << 10, MemoryClass::Ordinary)

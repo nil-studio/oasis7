@@ -242,7 +242,7 @@ pub use overlay::{
 mod family;
 pub use family::{
     RuntimeControlsQualificationV1, accept_runtime_controls_transition_v1,
-    qualify_runtime_controls_v1,
+    qualify_runtime_controls_v1, readmit_runtime_controls_ordinary_v1,
 };
 
 #[cfg(test)]
@@ -252,3 +252,5 @@ mod tests;
 #[path = "incremental_runtime_controls_pages.rs"]
 mod pages;
 pub use pages::*;
+
+pub(crate) use family::accept_runtime_controls_verified_v1;

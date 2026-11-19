@@ -71,6 +71,8 @@ mod formal_bft_header_cli;
 #[cfg(unix)]
 #[path = "host/formal_bft_header_http.rs"]
 mod formal_bft_header_http;
+#[path = "host/formal_iws_native_worker.rs"]
+mod formal_iws_native_worker;
 
 #[cfg(unix)]
 #[path = "host/formal_bft_prefix_cli.rs"]
@@ -116,6 +118,21 @@ mod formal_live_recovery_test_support;
 #[path = "host/formal_live_runtime.rs"]
 mod formal_live_runtime;
 #[cfg(unix)]
+#[path = "host/iws_live.rs"]
+mod iws_live;
+#[cfg(unix)]
+#[path = "host/iws_live_config.rs"]
+mod iws_live_config;
+#[cfg(unix)]
+#[path = "host/iws_live_limits.rs"]
+mod iws_live_limits;
+#[cfg(unix)]
+#[path = "host/iws_live_work.rs"]
+mod iws_live_work;
+#[cfg(unix)]
+#[path = "host/iws_live_io.rs"]
+mod iws_live_io;
+#[cfg(unix)]
 #[path = "host/formal_live_service.rs"]
 mod formal_live_service;
 #[cfg(unix)]
@@ -148,6 +165,11 @@ mod membership_cli;
 mod module_release_attestation_submit_api;
 #[path = "host/native_environment_capture.rs"]
 mod native_environment_capture;
+#[path = "host/native_worker_entry.rs"]
+mod native_worker_entry;
+pub use native_worker_entry::native_bound_worker_main_v1;
+#[cfg(feature = "test-support")]
+pub use native_worker_entry::{native_worker_fixture_capture_v1, native_worker_fixture_main_v1};
 #[path = "host/node_keypair_config.rs"]
 mod node_keypair_config;
 #[path = "host/node_lifecycle.rs"]
@@ -213,7 +235,7 @@ mod cognition_authority_diagnostic;
 mod world_service_api;
 #[path = "host/world_writer_lock.rs"]
 mod world_writer_lock;
-#[cfg(test)]
+pub(crate) use self::cli::VerifiedIwsLocalProcessConfigV1;
 use self::cli::{DEFAULT_NODE_ID, DEFAULT_STATUS_BIND, DEFAULT_WORLD_ID, parse_validator_spec};
 use balances_api::build_chain_balances_payload;
 #[cfg(test)]

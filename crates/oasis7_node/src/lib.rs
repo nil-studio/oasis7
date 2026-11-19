@@ -33,6 +33,7 @@ use oasis7_net::{
     ReplicaMaintenancePolicy, ReplicaMaintenancePollingPolicy, ReplicaMaintenancePollingState,
     ReplicaTransferExecutor, ReplicaTransferTask, run_replica_maintenance_poll,
 };
+#[cfg(test)]
 use oasis7_proto::distributed::DistributedErrorCode;
 use oasis7_proto::distributed_dht as proto_dht;
 use oasis7_proto::world_error::WorldError as ProtoWorldError;
@@ -120,6 +121,7 @@ use consensus_support::{
 };
 pub use error::NodeError;
 pub use execution_hook::NodeBftPrivateCandidatePackageV3;
+pub use execution_hook::NodeLocalExecutionBootstrapV1;
 use gossip_udp::{
     GossipAttestationMessage, GossipCommitMessage, GossipEndpoint, GossipMessage,
     GossipProposalMessage,
@@ -1046,35 +1048,11 @@ fn slice_fetch_blob_response(
     (bytes[offset..end].to_vec(), Some(end >= bytes.len()))
 }
 
-fn network_bad_request(message: impl Into<String>) -> ProtoWorldError {
-    ProtoWorldError::NetworkRequestFailed {
-        code: DistributedErrorCode::ErrBadRequest,
-        message: message.into(),
-        retryable: false,
-    }
-}
-
-fn network_internal_error(err: NodeError) -> ProtoWorldError {
-    ProtoWorldError::NetworkRequestFailed {
-        code: DistributedErrorCode::ErrNotAvailable,
-        message: err.to_string(),
-        retryable: true,
-    }
-}
-
-fn network_timeout_error(message: impl Into<String>) -> ProtoWorldError {
-    ProtoWorldError::NetworkRequestFailed {
-        code: DistributedErrorCode::ErrTimeout,
-        message: message.into(),
-        retryable: true,
-    }
-}
-
-fn network_replication_error(err: ProtoWorldError) -> NodeError {
-    NodeError::Replication {
-        reason: format!("replication network error: {err:?}"),
-    }
-}
+#[path = "network_error_adapter.rs"]
+mod network_error_adapter;
+use network_error_adapter::{
+    network_bad_request, network_internal_error, network_replication_error, network_timeout_error,
+};
 
 #[derive(Debug, Clone)]
 struct PosNodeEngine {
@@ -1189,3 +1167,12 @@ include!("tests_modules.rs");
 mod node_bft_protected_test_provider;
 
 mod network_error_legacy;
+
+pub use execution_hook::VerifiedNodeLocalContinuationV1;
+
+pub use execution_hook::VerifiedNodeRestoredContinuationV1;
+
+pub use execution_hook::{
+    ReplicatedExecutionInputValidationOpsV1, decode_replicated_execution_input_action_with,
+    validate_replicated_execution_input_actions_with,
+};

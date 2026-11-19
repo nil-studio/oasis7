@@ -26,7 +26,9 @@ pub struct JsonRecordProfileV1 {
 impl JsonRecordProfileV1 {
     fn namespace(self) -> Result<StateNamespaceV1, ValueTreeError> {
         match self.field.destination {
-            FieldDestination::State(namespace) if self.field.shape == FieldShape::Map => {
+            FieldDestination::State(namespace)
+                if matches!(self.field.shape, FieldShape::Map | FieldShape::Value) =>
+            {
                 Ok(namespace)
             }
             _ => Err(ValueTreeError::Invalid("JSON node profile")),
@@ -186,9 +188,22 @@ pub(crate) use point::{prepare_json_subtree_change_records_v1, qualify_json_path
 pub(crate) use point::check_json_scalar_path_expected_records_v1;
 pub use point::{JsonScalarPathReadWorkV1, check_json_scalar_path_expected_v1};
 
-pub(crate) use change::require_json_container_records_v1;
+pub(crate) use change::{advance_from_qualified_root, require_json_container_records_v1};
 
 pub(crate) use change::{
     JsonImmediateShapeV1, advance_json_scalar_subtree_records_constrained_v1,
     advance_json_subtree_records_v1, require_json_immediate_records_v1,
+};
+
+pub(crate) use change::require_empty_object_records_v1;
+
+#[path = "incremental_cognition_projection_aux_json.rs"]
+mod cognition_projection_aux;
+pub use cognition_projection_aux::{
+    CognitionAuxJsonPatchV1, CognitionAuxJsonPatchValueV1, CognitionAuxPathStepV1,
+};
+pub(crate) use cognition_projection_aux::{JsonAuxBuildV1, project_json_aux_paths_v1};
+
+pub(crate) use point::{
+    qualify_optional_json_object_member_records_v1, qualify_optional_json_path_records_v1,
 };

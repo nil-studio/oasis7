@@ -31,32 +31,55 @@ impl ResourceStock {
     }
 
     pub fn add(&mut self, kind: ResourceKind, amount: i64) -> Result<(), StockError> {
-        if amount < 0 {
-            return Err(StockError::NegativeAmount { amount });
-        }
-        let current = self.get(kind);
-        let next = current.checked_add(amount).ok_or(StockError::Overflow {
-            kind,
-            current,
-            delta: amount,
-        })?;
+        let next = checked_resource_add_v1(kind, self.get(kind), amount)?;
         self.set(kind, next)
     }
 
     pub fn remove(&mut self, kind: ResourceKind, amount: i64) -> Result<(), StockError> {
-        if amount < 0 {
-            return Err(StockError::NegativeAmount { amount });
-        }
-        let current = self.get(kind);
-        if current < amount {
-            return Err(StockError::Insufficient {
-                kind,
-                requested: amount,
-                available: current,
-            });
-        }
-        self.set(kind, current - amount)
+        let next = checked_resource_remove_v1(kind, self.get(kind), amount)?;
+        self.set(kind, next)
     }
+}
+
+/// Original stock addition without allocating a temporary resource map.
+pub fn checked_resource_add_v1(
+    kind: ResourceKind,
+    current: i64,
+    amount: i64,
+) -> Result<i64, StockError> {
+    if amount < 0 {
+        return Err(StockError::NegativeAmount { amount });
+    }
+    let next = current.checked_add(amount).ok_or(StockError::Overflow {
+        kind,
+        current,
+        delta: amount,
+    })?;
+    // Publicly decoded legacy stocks can contain negative balances. Preserve
+    // ResourceStock::set's original final-balance error for those inputs.
+    if next < 0 {
+        return Err(StockError::NegativeAmount { amount: next });
+    }
+    Ok(next)
+}
+
+/// Original stock removal, including its insufficient-balance error order.
+pub fn checked_resource_remove_v1(
+    kind: ResourceKind,
+    current: i64,
+    amount: i64,
+) -> Result<i64, StockError> {
+    if amount < 0 {
+        return Err(StockError::NegativeAmount { amount });
+    }
+    if current < amount {
+        return Err(StockError::Insufficient {
+            kind,
+            requested: amount,
+            available: current,
+        });
+    }
+    Ok(current - amount)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -351,3 +374,52 @@ pub enum ElementBudgetError {
 
 mod manifest;
 pub use manifest::*;
+
+#[cfg(test)]
+mod stock_arithmetic_tests {
+    use super::*;
+
+    #[test]
+    fn stock_scalar_arithmetic_preserves_bounds_and_legacy_error_order() {
+        let kind = ResourceKind::Data;
+        assert_eq!(checked_resource_add_v1(kind, 4, 3), Ok(7));
+        assert_eq!(checked_resource_remove_v1(kind, 7, 7), Ok(0));
+        assert_eq!(
+            checked_resource_add_v1(kind, -4, 3),
+            Err(StockError::NegativeAmount { amount: -1 })
+        );
+        assert_eq!(
+            checked_resource_add_v1(kind, i64::MAX, 1),
+            Err(StockError::Overflow {
+                kind,
+                current: i64::MAX,
+                delta: 1
+            })
+        );
+        assert_eq!(
+            checked_resource_remove_v1(kind, -1, 0),
+            Err(StockError::Insufficient {
+                kind,
+                requested: 0,
+                available: -1
+            })
+        );
+        let mut stock = ResourceStock::new();
+        stock.amounts.insert(kind, i64::MAX);
+        assert_eq!(
+            stock.add(kind, -1),
+            Err(StockError::NegativeAmount { amount: -1 })
+        );
+        assert_eq!(stock.get(kind), i64::MAX);
+        assert!(stock.add(kind, 1).is_err());
+        assert_eq!(stock.get(kind), i64::MAX);
+        stock.remove(kind, i64::MAX).unwrap();
+        assert!(!stock.amounts.contains_key(&kind));
+        stock.amounts.insert(kind, -4);
+        assert_eq!(
+            stock.add(kind, 3),
+            Err(StockError::NegativeAmount { amount: -1 })
+        );
+        assert_eq!(stock.get(kind), -4);
+    }
+}

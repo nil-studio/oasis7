@@ -1,7 +1,7 @@
 //! Real signed profile-2 parent enables formal birth; no synthetic scope token.
 use super::*;
-use crate::{CapabilityGrant, EffectOrigin, ReceiptSigner, RuntimeCommittedTickContext};
 use crate::formal_read_fixtures as fixtures;
+use crate::{CapabilityGrant, EffectOrigin, ReceiptSigner, RuntimeCommittedTickContext};
 use oasis7_formal_protocol::controlled_authority::formal::business_index::BusinessIndexNodeReader;
 use oasis7_formal_protocol::controlled_authority::formal::*;
 use oasis7_formal_protocol::controlled_authority::replicated_protocol::ArtifactRole;
@@ -72,8 +72,7 @@ fn formal_world() -> World {
         .insert(ArtifactRole::Input, record.payload_digest.clone());
     let proof = fixtures::qualified_proof(record, None, &authority, None, None, 4, 5, 6);
     let anchor = VerifiedFormalReadAnchorV1::from_initial(&activation, &trust, &proof).unwrap();
-    let parent =
-        crate::VerifiedFormalRetainedHistoryParentV1::verify(&anchor, &bytes).unwrap();
+    let parent = crate::VerifiedFormalRetainedHistoryParentV1::verify(&anchor, &bytes).unwrap();
     world
         .attach_verified_formal_history(parent, Arc::new(Empty))
         .unwrap();

@@ -1,5 +1,6 @@
 #[path = "cli_participant_authority.rs"]
 mod participant_authority;
+pub(crate) use participant_authority::VerifiedIwsLocalProcessConfigV1;
 pub(super) use participant_authority::{
     devlocal_participant_config, prepare_participant_world,
     validate as validate_local_participant_options,

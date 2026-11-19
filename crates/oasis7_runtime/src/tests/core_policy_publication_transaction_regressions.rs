@@ -1,8 +1,8 @@
 use super::pos;
-use oasis7_agent_api::world_action::BodyKernelView;
 use crate::agent_state::{BodySlotType, CargoEntityEntry, CargoEntityKind};
 use crate::events::Observation;
 use crate::*;
+use oasis7_agent_api::world_action::BodyKernelView;
 
 fn register(world: &mut World, id: &str) {
     world.submit_action(Action::RegisterAgent {
@@ -49,7 +49,7 @@ fn fixtures() -> Vec<(&'static str, World, DomainEvent)> {
             "registered",
             World::new(),
             DomainEvent::AgentRegistered {
-            registration_contract_version: 0,
+                registration_contract_version: 0,
                 agent_id: "new".into(),
                 pos: pos(1, 2),
             },
@@ -356,7 +356,7 @@ fn natural_failures_preserve_priority_and_all_state() {
 fn duplicate_and_missing_route_only_events_preserve_legacy_noop_semantics() {
     let mut duplicate = base();
     let registered = DomainEvent::AgentRegistered {
-            registration_contract_version: 0,
+        registration_contract_version: 0,
         agent_id: "a".into(),
         pos: pos(8, 9),
     };

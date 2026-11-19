@@ -28,13 +28,37 @@ const FRAME: usize = 65536;
 mod bounded_read;
 #[cfg(unix)]
 pub use bounded_read::{PhysicalReadWorkV1, read_unknown_length_durable_v1};
-#[path = "physical_metadata_preflight.rs"]
-mod metadata_preflight;
+#[cfg(unix)]
+impl PhysicalReadWorkV1 {
+    /// One fixed Store read: finite upper allowances derived from the original
+    /// closed recipe/frame grammar. The loader never resets these counters.
+    pub(crate) fn one_closed_object_allowance() -> Result<Self, FormalError> {
+        let frames = u64::try_from(LIMIT / 4096 + 1).map_err(io)?;
+        let frame = u64::try_from(FRAME).map_err(io)?;
+        let metadata = u64::try_from(META_LIMIT).map_err(io)?;
+        let reads_per_frame = 2 * (frame / 8192 + 2);
+        let steps = frames
+            .checked_mul(reads_per_frame + 4)
+            .and_then(|n| n.checked_add(metadata / 8192 + 64))
+            .ok_or_else(|| invalid("physical fixed consumer step allowance"))?;
+        let read_bytes = frames
+            .checked_mul(2 * (frame + 2))
+            .and_then(|n| n.checked_add(metadata + 1))
+            .ok_or_else(|| invalid("physical fixed consumer byte allowance"))?;
+        Ok(Self {
+            remaining_steps: steps,
+            remaining_read_bytes: read_bytes,
+            remaining_metadata_bytes: metadata + 1,
+        })
+    }
+}
 
 const MAX_OBJECTS: usize = 65536;
 #[path = "physical_batch.rs"]
 mod batch;
-pub(crate) use batch::read_durable_batch;
+#[path = "physical_metadata_preflight.rs"]
+mod metadata_preflight;
+pub(crate) use batch::{read_durable_batch, read_durable_batch_uncached};
 struct Span {
     id: String,
     start: u64,
@@ -123,12 +147,20 @@ fn create(path: &Path, bytes: &[u8]) -> Result<(), FormalError> {
     file.sync_all().map_err(io)
 }
 pub(super) fn enabled(directory: &Path) -> Result<bool, FormalError> {
+    enabled_with_callbacks(directory, &mut || Ok(()), &mut read)
+}
+pub(crate) fn enabled_with_callbacks(
+    directory: &Path,
+    step: &mut impl FnMut() -> Result<(), FormalError>,
+    read_control: &mut impl FnMut(&Path, usize) -> Result<Vec<u8>, FormalError>,
+) -> Result<bool, FormalError> {
     let path = directory.join(ENABLED);
+    step()?;
     match fs::symlink_metadata(&path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(e) => Err(io(e)),
         Ok(_) => {
-            if read(&path, 64)? != b"oasis7.formal.physical.v1\n" {
+            if read_control(&path, 64)? != b"oasis7.formal.physical.v1\n" {
                 return Err(invalid("physical writer capability version"));
             }
             Ok(true)
@@ -195,11 +227,20 @@ fn validate_initialized(root: &Path) -> Result<(), FormalError> {
 /// process loses its lease; a surviving reader retains it across writer death.
 /// The durable fixed lock inode must never be renamed or replaced.
 pub(super) fn pin(root: &Path, exclusive: bool) -> Result<Option<File>, FormalError> {
+    pin_with_callbacks(root, exclusive, &mut || Ok(()), &mut read)
+}
+fn pin_with_callbacks(
+    root: &Path,
+    exclusive: bool,
+    step: &mut impl FnMut() -> Result<(), FormalError>,
+    read_control: &mut impl FnMut(&Path, usize) -> Result<Vec<u8>, FormalError>,
+) -> Result<Option<File>, FormalError> {
     let path = root.join(GUARD);
-    paths::parents(&path)?;
+    paths::parents_with_step(&path, step)?;
+    step()?;
     match fs::symlink_metadata(&path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            if enabled(root)? {
+            if enabled_with_callbacks(root, step, read_control)? {
                 return Err(invalid("physical reader lease missing"));
             }
             return Ok(None);
@@ -212,7 +253,9 @@ pub(super) fn pin(root: &Path, exclusive: bool) -> Result<Option<File>, FormalEr
     options.read(true).write(true);
     #[cfg(unix)]
     options.custom_flags(libc::O_NOFOLLOW);
+    step()?;
     let file = options.open(&path).map_err(io)?;
+    step()?;
     let metadata = file.metadata().map_err(io)?;
     paths::metadata(&metadata, false)?;
     // Report the opened guard's identity, not a later path lookup. Keep the
@@ -232,6 +275,7 @@ pub(super) fn pin(root: &Path, exclusive: bool) -> Result<Option<File>, FormalEr
             std::process::id()
         ))
     };
+    step()?;
     if exclusive {
         file.try_lock().map_err(lease_error)?;
     } else {
@@ -247,21 +291,43 @@ pub(crate) struct PublicationGuard {
     _publication: Option<File>,
     _retirement: Option<File>,
 }
+impl PublicationGuard {
+    // This is a borrow of the already-held two real FDs, not a new capability.
+    pub(in crate::controlled_authority::formal) fn initialized_root(
+        &self,
+    ) -> Result<&Path, FormalError> {
+        if self._publication.is_none() || self._retirement.is_none() {
+            return Err(invalid("bounded staging requires both physical guards"));
+        }
+        Ok(&self.root)
+    }
+}
 pub(crate) fn publication_guard(root: &Path) -> Result<PublicationGuard, FormalError> {
-    let retirement = pin(root, false)?;
-    let publication = if enabled(root)? {
+    publication_guard_with_callbacks(root, &mut || Ok(()), &mut read, || Ok(root.to_path_buf()))
+}
+fn publication_guard_with_callbacks(
+    root: &Path,
+    step: &mut impl FnMut() -> Result<(), FormalError>,
+    read_control: &mut impl FnMut(&Path, usize) -> Result<Vec<u8>, FormalError>,
+    own_root: impl FnOnce() -> Result<PathBuf, FormalError>,
+) -> Result<PublicationGuard, FormalError> {
+    let retirement = pin_with_callbacks(root, false, step, read_control)?;
+    let publication = if enabled_with_callbacks(root, step, read_control)? {
         let path = root.join(PUBLICATION_GUARD);
-        paths::parents(&path)?;
+        paths::parents_with_step(&path, step)?;
         let mut options = OpenOptions::new();
         options.read(true).write(true);
         #[cfg(unix)]
         options.custom_flags(libc::O_NOFOLLOW);
+        step()?;
         let file = options.open(&path).map_err(io)?;
+        step()?;
         let metadata = file.metadata().map_err(io)?;
         paths::metadata(&metadata, false)?;
         if metadata.len() != 0 {
             return Err(invalid("physical publication fence payload"));
         }
+        step()?;
         file.try_lock()
             .map_err(|_| FormalError::Conflict("physical publication busy".into()))?;
         Some(file)
@@ -269,12 +335,43 @@ pub(crate) fn publication_guard(root: &Path) -> Result<PublicationGuard, FormalE
         None
     };
     Ok(PublicationGuard {
-        root: root.to_path_buf(),
+        root: own_root()?,
         _retirement: retirement,
         _publication: publication,
     })
 }
 
+pub(crate) fn publication_guard_initialized_with_callbacks(
+    root: &Path,
+    owned_root: PathBuf,
+    step: &mut impl FnMut() -> Result<(), FormalError>,
+    read_control: &mut impl FnMut(&Path, usize) -> Result<Vec<u8>, FormalError>,
+) -> Result<PublicationGuard, FormalError> {
+    if !enabled_with_callbacks(root, step, read_control)? {
+        return Err(invalid(
+            "bounded staging requires initialized physical namespace",
+        ));
+    }
+    if owned_root.as_path() != root {
+        return Err(invalid("bounded guard root identity"));
+    }
+    let guard = publication_guard_with_callbacks(root, step, read_control, || Ok(owned_root))?;
+    if guard._retirement.is_none() || guard._publication.is_none() {
+        return Err(invalid("bounded staging requires both physical guards"));
+    }
+    step()?;
+    match fs::symlink_metadata(root.join(RETIRE)) {
+        Ok(_) => {
+            return Err(invalid(
+                "physical interrupted reclamation requires recovery",
+            ));
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(io(error)),
+    }
+    step()?;
+    Ok(guard)
+}
 fn directory_setup(root: &Path) -> Result<(), FormalError> {
     directory(&root.join(SELECTORS))?;
     directory(&root.join(FRAMES))
@@ -593,7 +690,9 @@ pub(crate) use generation::{
     GenerationBudget, GenerationSession, advance_with_budget, advance_with_session,
 };
 pub(crate) use generation::{GenerationSelectedReadWorkV1, with_selected_path_bounded_v1};
-pub(super) use generation::{ids as logical_ids, selected_path, visit_ids as visit_logical_ids};
+pub(super) use generation::{
+    ids as logical_ids, selected_path, selected_path_uncached, visit_ids as visit_logical_ids,
+};
 
 #[path = "physical_span.rs"]
 mod span;
@@ -618,3 +717,12 @@ pub(super) fn publication_recovery_count_reset() {
 pub(super) fn publication_recovery_count() -> u64 {
     publication::FULL_RECOVERY_PASSES.with(|count| count.get())
 }
+
+#[cfg(test)]
+pub(super) fn admitted_cache_accesses() -> (u64, u64) {
+    (recipe::cache_accesses(), generation::cache_accesses())
+}
+
+pub(crate) use generation::current_generation_digest_uncached;
+
+pub(crate) use generation::current_generation_digest_bounded_v1;

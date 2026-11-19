@@ -112,65 +112,6 @@ impl World {
         visited: &mut BTreeSet<String>,
         tick: u64,
     ) -> Result<(), WorldError> {
-        let Some(parent_id) = &grant.parent_grant_id else {
-            return Ok(());
-        };
-        if !visited.insert(parent_id.clone()) {
-            return Err(deny("delegated grant parent chain contains a cycle"));
-        }
-        let parent = self
-            .capability_grants_v2
-            .get(parent_id)
-            .ok_or_else(|| deny("parent grant is not in the durable registry"))?;
-        let parent: CapabilityGrantV2 = serde_json::from_value(parent.clone())
-            .map_err(|_| deny("parent grant is malformed"))?;
-        parent
-            .validate()
-            .map_err(|error| deny(format!("parent grant validation: {error}")))?;
-        if !parent
-            .body_hash_matches()
-            .map_err(|error| deny(format!("parent grant body hash: {error}")))?
-            || parent
-                .expected_grant_id()
-                .map_err(|error| deny(format!("parent grant id hash: {error}")))?
-                != parent.grant_id
-        {
-            return Err(deny("parent grant canonical body hash or id mismatch"));
-        }
-        if parent.expires_at_tick.is_none()
-            || parent.expires_at_tick.is_some_and(|expiry| tick > expiry)
-            || parent.issued_at_tick > tick
-        {
-            return Err(deny("parent grant lifetime is not currently valid"));
-        }
-        self.verify_issuer(&parent)?;
-        self.verify_live_revocation(&parent)?;
-        if parent.subject != grant.subject
-            || parent.audience != grant.audience
-            || parent.issuer.issuer_id != grant.issuer.issuer_id
-            || parent.issuer.issuer_kind != grant.issuer.issuer_kind
-            || parent.issuer.governance_epoch != grant.issuer.governance_epoch
-            || parent.issuer.finalized_receipt_id != grant.issuer.finalized_receipt_id
-            || parent.issuer.key_id != grant.issuer.key_id
-            || parent.issuer.issuer_key_epoch != grant.issuer.issuer_key_epoch
-            || parent.issuer.authority_rotation_receipt_id
-                != grant.issuer.authority_rotation_receipt_id
-        {
-            return Err(deny(
-                "delegated grant child issuer, subject, or audience is not parent-bound",
-            ));
-        }
-        let expiry_attenuates = match (parent.expires_at_tick, grant.expires_at_tick) {
-            (Some(parent_expiry), Some(child_expiry)) => child_expiry <= parent_expiry,
-            _ => false,
-        };
-        if parent.status != "verified"
-            || parent.delegation_depth <= grant.delegation_depth
-            || !expiry_attenuates
-            || !parent.scope.contains_subset(&grant.scope)
-        {
-            return Err(deny("delegated grant does not attenuate its parent"));
-        }
-        self.verify_parent_chain_inner(&parent, visited, tick)
+        super::incremental_module_capability_admission_rules::parents(&mut super::incremental_module_capability_admission_rules::Legacy(self),grant,tick,visited)
     }
 }

@@ -115,10 +115,10 @@ impl ArtifactCatalogDeltaV1 {
 
 type ArtifactWork<'a> = dyn Fn(u64, u64) -> Result<(), ExecutionError> + 'a;
 
-fn with_artifact_work<T>(
+fn with_artifact_work<T, E: From<ExecutionError>>(
     work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
-    run: impl FnOnce(&ArtifactWork<'_>, &crate::merkle::WorkMeter<'_>) -> Result<T, ExecutionError>,
-) -> Result<T, ExecutionError> {
+    run: impl FnOnce(&ArtifactWork<'_>, &crate::merkle::WorkMeter<'_>) -> Result<T, E>,
+) -> Result<T, E> {
     let work = std::cell::RefCell::new(work);
     let first = std::cell::RefCell::new(None);
     let pay = |steps, bytes| (work.borrow_mut())(steps, bytes);
@@ -136,7 +136,7 @@ fn with_artifact_work<T>(
     };
     let result = run(&pay, &tree);
     if let Some(error) = first.into_inner() {
-        Err(error)
+        Err(error.into())
     } else {
         result
     }
@@ -147,6 +147,19 @@ fn artifact_work(work: Option<&ArtifactWork<'_>>, bytes: usize) -> Result<(), Ex
         work(1, bytes as u64)?;
     }
     Ok(())
+}
+
+#[derive(Debug)]
+pub(crate) enum ArtifactVisitError<E> {
+    Execution(ExecutionError),
+    Tree(String),
+    Visitor(E),
+}
+
+impl<E> From<ExecutionError> for ArtifactVisitError<E> {
+    fn from(error: ExecutionError) -> Self {
+        Self::Execution(error)
+    }
 }
 
 impl ArtifactCatalogV1 {
@@ -451,26 +464,60 @@ impl ArtifactCatalogV1 {
     pub(crate) fn visit<E>(
         &self,
         source: &impl MerkleNodeReader,
-        mut visitor: impl FnMut(&ArtifactEntryV1) -> Result<(), E>,
+        visitor: impl FnMut(&ArtifactEntryV1) -> Result<(), E>,
     ) -> Result<u64, VisitError<E>> {
-        self.validate()
-            .map_err(|e| VisitError::Tree(e.to_string()))?;
-        let mut view =
-            Updater::<ArtifactCodec, _>::new(source, empty().map_err(VisitError::Tree)?, 0);
+        self.visit_inner(source, visitor, None, None)
+            .map_err(|error| match error {
+                ArtifactVisitError::Execution(error) => VisitError::Tree(error.to_string()),
+                ArtifactVisitError::Tree(error) => VisitError::Tree(error),
+                ArtifactVisitError::Visitor(error) => VisitError::Visitor(error),
+            })
+    }
+
+    /// Stream the same authenticated leaves without materializing the catalog.
+    /// The hook pays before source attempts and keeps its original typed error.
+    pub(crate) fn visit_with_work<E>(
+        &self,
+        source: &impl MerkleNodeReader,
+        visitor: impl FnMut(&ArtifactEntryV1) -> Result<(), E>,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<u64, ArtifactVisitError<E>> {
+        with_artifact_work(work, |work, tree| {
+            self.visit_inner(source, visitor, Some(work), Some(tree))
+        })
+    }
+
+    fn visit_inner<E>(
+        &self,
+        source: &impl MerkleNodeReader,
+        mut visitor: impl FnMut(&ArtifactEntryV1) -> Result<(), E>,
+        work: Option<&ArtifactWork<'_>>,
+        tree: Option<&crate::merkle::WorkMeter<'_>>,
+    ) -> Result<u64, ArtifactVisitError<E>> {
+        self.validate_inner(work, tree)?;
+        let mut view = Updater::<ArtifactCodec, _>::new(
+            source,
+            codec::empty_with_meter(tree).map_err(ArtifactVisitError::Tree)?,
+            0,
+        )
+        .with_meter(tree);
         let count = view
             .visit_leaves(&self.node_root, |entry| {
+                artifact_work(work, std::mem::size_of::<ArtifactEntryV1>())?;
                 if entry.kind != self.kind {
-                    return Err(VisitError::Tree("artifact catalog kind".into()));
+                    return Err(ArtifactVisitError::Tree("artifact catalog kind".into()));
                 }
-                visitor(entry).map_err(VisitError::Visitor)
+                visitor(entry).map_err(ArtifactVisitError::Visitor)
             })
             .map_err(|error| match error {
-                VisitError::Tree(error) => VisitError::Tree(error),
+                VisitError::Tree(error) => ArtifactVisitError::Tree(error),
                 VisitError::Visitor(error) => error,
             })?;
+        artifact_work(work, std::mem::size_of::<u64>())?;
         if count != self.count {
-            return Err(VisitError::Tree("artifact catalog count".into()));
+            return Err(ArtifactVisitError::Tree("artifact catalog count".into()));
         }
+        artifact_work(work, 0)?;
         Ok(count)
     }
 }

@@ -104,7 +104,13 @@ fn canonical_owner_goal_survives_journal_restore_and_is_private_to_authorized_vi
     );
     let restored = World::from_snapshot(snapshot, world.journal().clone()).unwrap();
     let owner = projection::from_authenticated_world(&restored, Some("agent"), &public).unwrap();
-    let goal = owner.canonical_agent_chat.unwrap().goal.unwrap();
+    let goal = owner
+        .canonical_agent_chat
+        .as_ref()
+        .unwrap()
+        .goal
+        .as_ref()
+        .unwrap();
     assert_eq!(goal.message, "private engineering goal");
     assert_eq!(goal.intent_id, receipt["intent_id"]);
     let public_view =

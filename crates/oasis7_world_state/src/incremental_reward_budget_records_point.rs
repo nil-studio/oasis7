@@ -118,6 +118,12 @@ pub(super) fn current<
     if records.values.class != MemoryClass::Ordinary
         || !tx.uses_budget(records.values.memory)
         || !proof.uses_budget(records.values.memory)
+        || crate::incremental_record_qualification_phase::check_class_v1(
+            proof,
+            records.values.memory,
+            records.values.class,
+        )
+        .is_err()
     {
         return Err(read::invalid().into());
     }
@@ -218,6 +224,12 @@ pub fn read_qualified_reward_cell_overlay_v1<
         if ctx.values.class != MemoryClass::Ordinary
             || !tx.uses_budget(ctx.values.memory)
             || !request.qualification.uses_budget(ctx.values.memory)
+            || crate::incremental_record_qualification_phase::check_class_v1(
+                request.qualification,
+                ctx.values.memory,
+                ctx.values.class,
+            )
+            .is_err()
         {
             return Err(read::invalid().into());
         }
@@ -280,6 +292,12 @@ pub fn change_qualified_reward_cell_v1<
             || !tx.uses_budget(ctx.values.memory)
             || !tx.uses_budget(write.memory)
             || !change.qualification.uses_budget(ctx.values.memory)
+            || crate::incremental_record_qualification_phase::check_class_v1(
+                change.qualification,
+                ctx.values.memory,
+                ctx.values.class,
+            )
+            .is_err()
         {
             return Err(read::invalid().into());
         }

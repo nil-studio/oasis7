@@ -20,7 +20,7 @@ Legacy Scheduler 的纯合同由 `oasis7_agent_api::{legacy_economy, legacy_sche
 
 `SchedulerWakeV1`、`AgentContinuation` 和 `CognitionLeaseV1` 等持久读取值及其格式/digest 校验可归下层；`CognitionScheduler` 队列选择/容量恢复、`ContinuationTransition` 生命周期策略、`CognitionRecovery` 恢复判定和 cognition 余额/lease 业务引擎留 Runtime，不因纯内存或无活 World 引用而整体下沉。
 
-`oasis7_world_projection` 拥有 `WorldServiceProjection`、continuation context 等服务读取 DTO，以及具体投影/response codec 和证明验证适配，依赖状态库、既有 API/Formal Protocol 和 Game Client 的验证核心。Game Client 保持独立读模型，不反向依赖状态/投影库。Service 依赖 Runtime 和投影库；从活 World 认证读者、按 audience 构造与裁剪投影、生成执行许可和发布正式结果仍由 Service 的自由函数或本地 builder 完成。旧类型路径可再导出同一声明，但关联构造 API 必须迁移到 Service owner。
+`oasis7_world_state::observation_projection` 唯一拥有完整观察 DATA schema、continuation context、带原内存费用的不可变列图、原字段 formatter 和事件时代/可见性纯规则；这些值与方法不读取活 World，不授予 source、audience 或执行资格。Runtime 的增量 commitment 直接消费该下层 DATA，不依赖 Projection 或 Game Client。`oasis7_world_projection` 复用这套声明与实现，保留具体投影/response codec、`FormalReadProjection` 和 `VerifiedWorldView` 验证适配。为满足外部 trait 的本地类型归属，旧 `WorldServiceProjection<S = WorldState>` 路径是围绕同一 DATA 的 `repr(transparent)` / `serde(transparent)` 本地适配；转换只 move，借用直接指向原字段，不增加 clone、容器或费用 owner，不再声明第二套字段。Game Client 保持独立读模型，不反向依赖状态/投影库。Service 依赖 Runtime 和投影库；从活 World 认证读者、按 audience 构造与裁剪投影、生成执行许可和发布正式结果仍由 Service 的自由函数或本地 builder 完成。
 
 状态库集中 Snapshot/Journal 的具体 JSON/CBOR codec 及状态投影 root 编码/哈希；投影库集中完整投影和既有 response envelope 的具体 codec/验证入口，生产消费者调用这些入口。迁移必须保留 compact/pretty JSON、普通/规范 CBOR、字段/tag/default/skip、数字 map key、未知/重复字段处理、错误语义、hash domain 和签名 payload。解码不授予恢复资格，普通视图不替代执行快照；现有 public/owner/delegate/撤销后权限、私有内容白名单及 native/WASM 能力边界保持。
 
@@ -34,9 +34,9 @@ Trace ID: O7-REQ-b47433b0-57bd-4b7c-8f31-dc61bd93f8b4
 
 这是工程接口要求：同一持久值到服务投影的 schema 解释只有一个 owner，迁移不得改变读取范围、失败行为或已提交投影。产品承诺不变，不新增产品要求。`projection/committed.rs` 调用 projection codec 解码 Runtime raw accessor 的返回值；这是一条具体投影 codec 接缝，不是新增 typed Runtime API。
 
-**最小 owner 选择。** `oasis7_world_projection::codec` 拥有这两条投影读取的具体 decoder，直接复用下层 `AgentContinuation` 和本包现有 `WorldServiceContinuationContext`；Service 消费 typed decoder 结果，只负责认证/筛选和组装响应；这些 raw accessor 不授权消费者另写一套投影解码政策。Runtime 仍拥有活 World 的取值、生命周期与恢复；保留 `cognition_continuations()` / `service_continuation_context(id)` 作为持久 JSON 边界。
+**最小 owner 选择。** `oasis7_world_projection::codec` 拥有这两条投影读取的具体 decoder，直接复用下层 `AgentContinuation` 和从同一下层 DATA schema 再导出的 `WorldServiceContinuationContext`；Service 消费 typed decoder 结果，只负责认证/筛选和组装响应；这些 raw accessor 不授权消费者另写一套投影解码政策。Runtime 仍拥有活 World 的取值、生命周期与恢复；保留 `cognition_continuations()` / `service_continuation_context(id)` 作为持久 JSON 边界。
 
-选择在现有 projection owner 封装 decoder，而非新增 Runtime 六字段 context 类型：当前 context 没有同形的下层持久类型，复制 DTO 会形成第二份 schema，Runtime 也不得反向依赖 Projection/Service/Game Client。此选择不要求新 crate、全仓 `Value` 清理或将 Runtime 内部逐字段检查改为完整解码。
+具体 decoder 保留在现有 projection owner；六字段 context 只在共享 observation DATA 中声明，Runtime 直接复用该下层类型。复制 DTO 会形成第二份 schema，Runtime 也不得反向依赖 Projection/Service/Game Client。此选择不要求新 crate、全仓 `Value` 清理或将 Runtime 内部逐字段检查改为完整解码。
 
 建议的进程内接口形状如下（名称为实现落点建议，不是新增 wire）：
 

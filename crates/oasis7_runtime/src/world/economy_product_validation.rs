@@ -15,26 +15,18 @@ impl World {
         module_id: &str,
         stack: &MaterialStack,
     ) -> Result<Option<ProductValidationDecision>, WorldError> {
-        let Some(receipts) = self.state.product_validation_receipts.get(&job_id) else {
-            return Ok(None);
-        };
-        let Some(receipt) = receipts
-            .iter()
-            .find(|receipt| receipt.validation_index == validation_index)
-        else {
-            return Ok(None);
-        };
-        if receipt.requester_agent_id != requester_agent_id
-            || receipt.module_id != module_id
-            || receipt.stack != *stack
-        {
-            return Err(WorldError::ResourceBalanceInvalid {
-                reason: format!(
-                    "product validation retry conflicts with persisted receipt: job_id={job_id} index={validation_index:?}"
-                ),
-            });
-        }
-        Ok(Some(receipt.decision.clone()))
+        Ok(receipt_match::cached_decision_receipt_from_rows_v1(
+            self.state
+                .product_validation_receipts
+                .get(&job_id)
+                .map(Vec::as_slice),
+            job_id,
+            validation_index,
+            requester_agent_id,
+            module_id,
+            stack,
+        )?
+        .map(|receipt| receipt.decision.clone()))
     }
 
     pub(super) fn product_validation_receipt_for_output(
@@ -44,27 +36,17 @@ impl World {
         requester_agent_id: &str,
         stack: &MaterialStack,
     ) -> Result<Option<ProductValidationReceiptV1>, WorldError> {
-        let Some(receipt) = self
-            .state
-            .product_validation_receipts
-            .get(&job_id)
-            .and_then(|receipts| {
-                receipts
-                    .iter()
-                    .find(|receipt| receipt.validation_index == validation_index)
-            })
-            .cloned()
-        else {
-            return Ok(None);
-        };
-        if receipt.requester_agent_id != requester_agent_id || receipt.stack != *stack {
-            return Err(WorldError::ResourceBalanceInvalid {
-                reason: format!(
-                    "product validation receipt conflicts with job: job_id={job_id} index={validation_index:?}"
-                ),
-            });
-        }
-        Ok(Some(receipt))
+        Ok(receipt_match::receipt_for_output_from_rows_v1(
+            self.state
+                .product_validation_receipts
+                .get(&job_id)
+                .map(Vec::as_slice),
+            job_id,
+            validation_index,
+            requester_agent_id,
+            stack,
+        )?
+        .cloned())
     }
 
     pub(super) fn append_missing_product_validation_blocker(
@@ -315,20 +297,41 @@ impl World {
         let Some(last_event) = self.journal.events.last() else {
             return self.next_event_id_era;
         };
-        let mut era = if self.next_event_id == 1 && last_event.id == u64::MAX {
-            self.next_event_id_era.saturating_sub(1)
-        } else {
-            self.next_event_id_era
-        };
+        let mut era = Self::product_validation_tail_event_id_era_v1(
+            self.next_event_id,
+            self.next_event_id_era,
+            Some(last_event.id),
+        );
         for pair in self.journal.events[event_index..].windows(2).rev() {
             if pair[0].id == u64::MAX && pair[1].id == 1 {
-                era = era.saturating_sub(1);
+                era = Self::product_validation_era_before_wraps_v1(era, 1);
             }
         }
         era
     }
 
-    fn is_product_validation_event(event: &WorldEvent) -> bool {
+    pub(in crate::world) fn product_validation_tail_event_id_era_v1(
+        next: u64,
+        era: u64,
+        last: Option<u64>,
+    ) -> u64 {
+        if next == 1 && last == Some(u64::MAX) {
+            era.saturating_sub(1)
+        } else {
+            era
+        }
+    }
+    pub(in crate::world) fn product_validation_era_before_wraps_v1(era: u64, wraps: u64) -> u64 {
+        era.saturating_sub(wraps)
+    }
+    pub(in crate::world) fn product_validation_event_trace_prefix_v1(
+        era: u64,
+        id: WorldEventId,
+    ) -> String {
+        product_validation_event_trace_prefix(era, id)
+    }
+
+    pub(in crate::world) fn is_product_validation_event(event: &WorldEvent) -> bool {
         matches!(
             event.body,
             WorldEventBody::Domain(
@@ -339,7 +342,7 @@ impl World {
         )
     }
 
-    fn product_validation_delivery_matches(
+    pub(in crate::world) fn product_validation_delivery_matches(
         event: &WorldEvent,
         receipt: &ProductValidationReceiptV1,
     ) -> bool {
@@ -381,28 +384,18 @@ impl World {
         stack: &MaterialStack,
         receipt_module_id: Option<&str>,
     ) -> Result<Option<ProductValidationAttemptV1>, WorldError> {
-        let attempt = self
-            .state
-            .product_validation_attempts
-            .get(&job_id)
-            .and_then(|attempts| {
-                attempts
-                    .iter()
-                    .find(|attempt| attempt.validation_index == validation_index)
-            })
-            .cloned();
-        if let Some(attempt) = &attempt
-            && (attempt.requester_agent_id != requester_agent_id
-                || receipt_module_id.is_some_and(|module_id| attempt.module_id != module_id)
-                || attempt.stack != *stack)
-        {
-            return Err(WorldError::ResourceBalanceInvalid {
-                reason: format!(
-                    "product validation attempt conflicts with job or receipt: job_id={job_id} index={validation_index:?}"
-                ),
-            });
-        }
-        Ok(attempt)
+        Ok(receipt_match::attempt_for_output_from_rows_v1(
+            self.state
+                .product_validation_attempts
+                .get(&job_id)
+                .map(Vec::as_slice),
+            job_id,
+            validation_index,
+            requester_agent_id,
+            stack,
+            receipt_module_id,
+        )?
+        .cloned())
     }
 
     #[expect(
@@ -540,3 +533,6 @@ mod tests {
         assert!(!world.product_validation_event_was_routed(&validation, 1));
     }
 }
+
+#[path = "incremental_normal_industry_due_receipt_match.rs"]
+pub(in crate::world) mod receipt_match;

@@ -702,6 +702,7 @@ fn recovery_hot_body(
         pending: None,
         decision_head: None,
         seal: None,
+        data_closure: None,
         durable_set: None,
     })
 }

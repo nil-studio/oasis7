@@ -57,6 +57,28 @@ pub type CognitionLease = CognitionLeaseV1;
 
 impl CognitionLeaseV1 {
     pub fn validate(&self) -> Result<(), CognitionEconomyError> {
+        self.validate_with_work_v1(&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1)
+    }
+    pub fn validate_with_work_v1<A: oasis7_wasm_abi::CapabilityCanonicalWorkV1>(
+        &self,
+        source: &A,
+    ) -> Result<(), CognitionEconomyError> {
+        for text in [
+            &self.schema_version,
+            &self.lease_id,
+            &self.idempotency_key,
+            &self.account_id,
+            &self.agent_id,
+            &self.agent_session_id,
+            &self.agent_turn_id,
+            &self.decision_request_id,
+            &self.request_digest,
+        ] {
+            source.charge_work(1, text.len() as u64).map_err(|_| {
+                CognitionEconomyError::InvalidState("bounded_cognition_economy_work")
+            })?;
+        }
+
         if self.schema_version != COGNITION_LEASE_SCHEMA_VERSION
             || !bounded_identity(&self.lease_id)
             || !bounded_identity(&self.idempotency_key)
@@ -73,8 +95,9 @@ impl CognitionLeaseV1 {
                 "cognition_lease_invalid",
             ));
         }
-        self.quote.validate()?;
-        let request = CognitionLeaseRequestV1::new(
+        self.quote.validate_with_work_v1(source)?;
+        let _phase = oasis7_agent_api::legacy_economy::admit_lease_data_with_work_v1(self, source)?;
+        let request = CognitionLeaseRequestV1::new_with_work_v1(
             self.idempotency_key.clone(),
             self.account_id.clone(),
             self.agent_id.clone(),
@@ -83,8 +106,9 @@ impl CognitionLeaseV1 {
             self.decision_request_id.clone(),
             self.request_digest.clone(),
             self.quote.clone(),
-        );
-        if request.derived_lease_id() != self.lease_id {
+            source,
+        )?;
+        if request.derived_lease_id_with_work_v1(source)?.as_str() != self.lease_id {
             return Err(CognitionEconomyError::InvalidState(
                 "cognition_lease_identity_invalid",
             ));

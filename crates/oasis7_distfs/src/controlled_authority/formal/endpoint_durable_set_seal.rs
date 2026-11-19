@@ -52,8 +52,9 @@ impl FileFormalEndpoint {
             {
                 return Err(invalid("healthy durable set immediate predecessor binding"));
             }
-            let FormalRequestStateV1::Qualified { candidate, proof } =
-                self.store.get(&previous.entry)?
+            let FormalRequestStateV1::Qualified {
+                candidate, proof, ..
+            } = self.store.get(&previous.entry)?
             else {
                 return Err(invalid("healthy durable set predecessor qualification"));
             };

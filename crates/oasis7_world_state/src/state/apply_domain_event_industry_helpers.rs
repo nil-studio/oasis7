@@ -60,27 +60,61 @@ pub fn validate_recipe_material_stacks(
     label: &str,
     stacks: &[MaterialStack],
 ) -> Result<(), String> {
+    match validate_recipe_material_stacks_with_work_v1(label, stacks, &mut |_, _, _| {
+        Ok::<(), std::convert::Infallible>(())
+    }) {
+        Ok(result) => result,
+        Err(error) => match error {},
+    }
+}
+pub fn validate_recipe_material_stacks_with_work_v1<E>(
+    label: &str,
+    stacks: &[MaterialStack],
+    work: &mut impl FnMut(u64, usize, usize) -> Result<(), E>,
+) -> Result<Result<(), String>, E> {
     for stack in stacks {
+        work(1, stack.kind.len(), 0)?;
         if stack.kind.trim().is_empty() || stack.amount <= 0 {
-            return Err(format!(
-                "{label} stack must have a non-empty kind and amount > 0"
-            ));
+            return Ok(Err(crate::world_rules::format_readonly_data_v1(
+                format_args!("{label} stack must have a non-empty kind and amount > 0"),
+                work,
+            )?));
         }
     }
-    Ok(())
+    Ok(Ok(()))
 }
-
 pub fn aggregate_recipe_material_stacks(
     stacks: &[MaterialStack],
 ) -> Result<BTreeMap<String, i64>, String> {
-    let mut totals: BTreeMap<String, i64> = BTreeMap::new();
-    for stack in stacks {
-        let entry = totals.entry(stack.kind.clone()).or_insert(0);
-        *entry = entry
-            .checked_add(stack.amount)
-            .ok_or_else(|| format!("material amount overflow for kind={}", stack.kind))?;
+    match aggregate_recipe_material_stacks_with_work_v1(stacks, &mut |_, _, _| {
+        Ok::<(), std::convert::Infallible>(())
+    }) {
+        Ok(result) => result,
+        Err(error) => match error {},
     }
-    Ok(totals)
+}
+pub fn aggregate_recipe_material_stacks_with_work_v1<E>(
+    stacks: &[MaterialStack],
+    work: &mut impl FnMut(u64, usize, usize) -> Result<(), E>,
+) -> Result<Result<BTreeMap<String, i64>, String>, E> {
+    let mut totals = BTreeMap::<String, i64>::new();
+    for stack in stacks {
+        let levels = (totals.len() + 1).ilog2() as usize + 2;
+        work(
+            1,
+            (stack.kind.len() + 1).saturating_mul(levels * 2 + 4) + 512 * levels,
+            stack.kind.len() + std::mem::size_of::<String>() + 512 * levels,
+        )?;
+        let entry = totals.entry(stack.kind.clone()).or_insert(0);
+        let Some(value) = entry.checked_add(stack.amount) else {
+            return Ok(Err(crate::world_rules::format_readonly_data_v1(
+                format_args!("material amount overflow for kind={}", stack.kind),
+                work,
+            )?));
+        };
+        *entry = value;
+    }
+    Ok(Ok(totals))
 }
 
 pub fn validate_recipe_output_capacity(
@@ -124,21 +158,62 @@ pub fn recipe_consume_with_maintenance(
     consume: &[crate::MaterialStack],
     produce: &[crate::MaterialStack],
 ) -> Vec<crate::MaterialStack> {
+    match recipe_consume_with_maintenance_from_profiles_v1(
+        consume,
+        produce,
+        &mut |kind| Ok::<_, std::convert::Infallible>(state.product_profiles.get(kind)),
+        &mut |_| Ok::<_, std::convert::Infallible>(()),
+    ) {
+        Ok(value) => value,
+        Err(never) => match never {},
+    }
+}
+
+/// The original maintenance aggregation over actual selected profile DATA.
+/// This does not qualify a profile or authorize a recipe. The private Current
+/// owner supplies genuine retained profiles and retains work reservations.
+pub fn recipe_consume_with_maintenance_from_profiles_v1<P, E>(
+    consume: &[crate::MaterialStack],
+    produce: &[crate::MaterialStack],
+    profile: &mut impl FnMut(&str) -> Result<Option<P>, E>,
+    work: &mut impl FnMut(usize) -> Result<(), E>,
+) -> Result<Vec<crate::MaterialStack>, E>
+where
+    P: std::ops::Deref<Target = oasis7_wasm_abi::ProductProfileV1>,
+{
     let mut merged = std::collections::BTreeMap::<String, i64>::new();
+    // One full locked internal-node upper bound before every possible insertion
+    // covers splits without relying on LeafNode's repr(Rust) field order.
+    let alignment = std::mem::align_of::<String>()
+        .max(std::mem::align_of::<i64>())
+        .max(std::mem::align_of::<usize>());
+    let node = 11 * (std::mem::size_of::<String>() + std::mem::size_of::<i64>())
+        + 13 * std::mem::size_of::<usize>()
+        + 2 * std::mem::size_of::<u16>()
+        + 7 * (alignment - 1);
     for stack in consume {
+        work(node)?;
+        work(stack.kind.len())?;
         let entry = merged.entry(stack.kind.clone()).or_default();
         *entry = entry.saturating_add(stack.amount);
     }
     for stack in produce.iter().filter(|s| s.amount > 0) {
-        if let Some(profile) = state.product_profiles.get(&stack.kind) {
+        work(stack.kind.len())?;
+        if let Some(profile) = profile(&stack.kind)? {
             for sink in profile.maintenance_sink.iter().filter(|s| s.amount > 0) {
+                work(node)?;
+                work(sink.kind.len())?;
                 let entry = merged.entry(sink.kind.clone()).or_default();
                 *entry = entry.saturating_add(sink.amount.saturating_mul(stack.amount));
             }
         }
     }
-    merged
+    // Charge each output slot individually, avoiding an unchecked length product.
+    for _ in 0..merged.len() {
+        work(std::mem::size_of::<crate::MaterialStack>())?;
+    }
+    Ok(merged
         .into_iter()
         .map(|(kind, amount)| crate::MaterialStack::new(kind, amount))
-        .collect()
+        .collect())
 }

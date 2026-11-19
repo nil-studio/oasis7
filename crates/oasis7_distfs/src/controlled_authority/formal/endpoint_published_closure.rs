@@ -37,7 +37,12 @@ impl FileFormalEndpoint {
         };
         #[cfg(test)]
         timing("authenticated_query");
-        let FormalRequestStateV1::Qualified { candidate, proof } = *state else {
+        let FormalRequestStateV1::Qualified {
+            candidate,
+            proof,
+            data_closure,
+        } = *state
+        else {
             return Err(invalid("published closure requires exact Qualified state"));
         };
         if candidate.candidate.record.request_digest != request
@@ -97,6 +102,7 @@ impl FileFormalEndpoint {
                 != (FormalRequestStateV1::Qualified {
                     candidate: candidate.clone(),
                     proof: proof.clone(),
+                    data_closure: data_closure.clone(),
                 })
             {
                 return Err(invalid(
@@ -140,7 +146,11 @@ impl FileFormalEndpoint {
                 if self
                     .store
                     .read_registered_local_request_with_sync(request, markers.as_deref())?
-                    != (FormalRequestStateV1::Qualified { candidate, proof })
+                    != (FormalRequestStateV1::Qualified {
+                        candidate,
+                        proof,
+                        data_closure,
+                    })
                 {
                     return Err(invalid("published closure final Qualified binding changed"));
                 }

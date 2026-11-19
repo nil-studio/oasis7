@@ -307,39 +307,41 @@ impl OrganizationContinuityStateV1 {
     pub fn for_reader(&self, reader: Option<&str>) -> Self {
         let reader = reader.unwrap_or("");
         let mut value = self.clone();
-        let authorized_orgs = self
-            .registrations
-            .values()
-            .filter(|registration| {
-                registration.founder_id == reader
-                    || registration.appointment_authorities.contains(reader)
-                    || registration.remedy_adjudicators.contains(reader)
-                    || registration
-                        .designated_successors
-                        .iter()
-                        .any(|id| id == reader)
-                    || registration
-                        .neutral_maintainers
-                        .iter()
-                        .any(|id| id == reader)
-            })
-            .map(|registration| registration.organization_id.clone())
-            .collect::<BTreeSet<_>>();
-        value
-            .membership_history
-            .retain(|organization, _| authorized_orgs.contains(organization));
+        let visibility_source =
+            super::super::super::readonly_visibility::LegacyOrganizationVisibilityV1(self);
+        let visibility = super::super::super::readonly_visibility::organization_visibility_plan_v1(
+            &visibility_source,
+            Some(reader),
+        )
+        .unwrap();
+        value.membership_history.retain(|organization, _| {
+            visibility
+                .organization(&visibility_source, organization)
+                .unwrap()
+        });
         value.activity_receipts.retain(|organization, receipts| {
-            let authorized = authorized_orgs.contains(organization);
+            let authorized = visibility
+                .organization(&visibility_source, organization)
+                .unwrap();
             if !authorized {
                 receipts.clear();
             }
             authorized
         });
         value.assets.retain(|_, asset| {
-            authorized_orgs.contains(&asset.organization_id) || asset.contributor_id == reader
+            visibility
+                .asset(
+                    &visibility_source,
+                    &asset.organization_id,
+                    &asset.contributor_id,
+                    Some(reader),
+                )
+                .unwrap()
         });
         value.registrations.retain(|organization, registration| {
-            let authorized = authorized_orgs.contains(organization);
+            let authorized = visibility
+                .organization(&visibility_source, organization)
+                .unwrap();
             if !authorized {
                 registration.residual_share_bps.clear();
                 registration.controller_bindings.clear();
@@ -353,12 +355,18 @@ impl OrganizationContinuityStateV1 {
             true
         });
         for case in value.cases.values_mut() {
-            let case_participant = case.recipients.contains(reader)
-                || authorized_orgs.contains(&case.organization_id)
-                || case.candidates.contains_key(reader);
+            let case_participant = visibility
+                .case_body(&visibility_source, case, Some(reader))
+                .unwrap();
             for candidate in case.candidates.values_mut() {
-                if candidate.candidate_id != reader
-                    && !authorized_orgs.contains(&case.organization_id)
+                if !visibility
+                    .candidate_body(
+                        &visibility_source,
+                        &case.organization_id,
+                        &candidate.candidate_id,
+                        Some(reader),
+                    )
+                    .unwrap()
                 {
                     candidate.controller_root_id.clear();
                     candidate.controller_player_id.clear();
@@ -372,8 +380,14 @@ impl OrganizationContinuityStateV1 {
                 }
             }
             for remedy in case.remedies.values_mut() {
-                let may_read_body = remedy.requester_id == reader
-                    || authorized_orgs.contains(&case.organization_id);
+                let may_read_body = visibility
+                    .remedy_body(
+                        &visibility_source,
+                        &case.organization_id,
+                        &remedy.requester_id,
+                        Some(reader),
+                    )
+                    .unwrap();
                 if !may_read_body {
                     remedy.fact_ref.clear();
                     remedy.evidence_refs.clear();

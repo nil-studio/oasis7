@@ -129,16 +129,7 @@ impl World {
         action_id: u64,
         decisions: Vec<RuleDecision>,
     ) -> Result<RuleDecision, WorldError> {
-        match merge_rule_decisions(action_id, decisions) {
-            Ok(merged) => Ok(merged),
-            Err(err) => Ok(RuleDecision {
-                action_id,
-                verdict: RuleVerdict::Deny,
-                override_action: None,
-                cost: ResourceDelta::default(),
-                notes: vec![format_rule_merge_error(&err)],
-            }),
-        }
+        Ok(merge_action_rule_decisions_v1(action_id, decisions))
     }
 
     fn extract_rule_decision(
@@ -199,6 +190,22 @@ impl World {
             code: failure.code,
             detail: failure.detail,
         })
+    }
+}
+
+pub(super) fn merge_action_rule_decisions_v1(
+    action_id: u64,
+    decisions: Vec<RuleDecision>,
+) -> RuleDecision {
+    match merge_rule_decisions(action_id, decisions) {
+        Ok(merged) => merged,
+        Err(err) => RuleDecision {
+            action_id,
+            verdict: RuleVerdict::Deny,
+            override_action: None,
+            cost: ResourceDelta::default(),
+            notes: vec![format_rule_merge_error(&err)],
+        },
     }
 }
 

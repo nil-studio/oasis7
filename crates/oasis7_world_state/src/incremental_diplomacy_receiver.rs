@@ -11,7 +11,7 @@ use oasis7_formal_protocol::{
 fn invalid() -> ValueTreeError {
     closure::invalid()
 }
-fn child<
+pub(super) fn child<
     M: MerkleNodeReader,
     R: ValueNodeReader,
     E: FnMut() -> Option<ValueTreeError>,
@@ -24,6 +24,37 @@ fn child<
     cells: &mut u64,
     max: u64,
 ) -> Result<(), ValueTreeError> {
+    child_with_work_and_observer(
+        field,
+        before,
+        after,
+        ctx,
+        cells,
+        max,
+        |_, _| Ok(()),
+        &mut |_| Ok(()),
+    )
+}
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bounded inputs are independently validated"
+)]
+pub(super) fn child_with_work_and_observer<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    field: DiplomacyFieldV1,
+    before: Option<&StateRootV1>,
+    after: &StateRootV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    cells: &mut u64,
+    max: u64,
+    mut observe: impl FnMut(Option<&StateEntryV1>, Option<&StateEntryV1>) -> Result<(), ValueTreeError>,
+    work: &mut dyn FnMut(usize) -> Result<(), ValueTreeError>,
+) -> Result<(), ValueTreeError> {
+    work(24 * 24 * 64)?;
     let empty = StateRootV1::empty(StateNamespaceV1::Business).map_err(|_| invalid())?;
     let old = before.unwrap_or(&empty);
     let mut local = WorldFieldReadContextV1 {
@@ -65,7 +96,7 @@ fn child<
         record_bytes: local.record_bytes,
         cancelled: &mut local.cancelled,
     };
-    incremental_record_diff::visit(
+    incremental_record_diff::visit_with_work(
         old,
         after,
         &mut records,
@@ -132,8 +163,10 @@ fn child<
                     }
                 }
             }
-            view.check()
+            view.check()?;
+            observe(old, new)
         },
+        work,
     )?;
     if i128::from(old_length) + delta != i128::from(new_length) {
         return Err(invalid());
@@ -156,21 +189,58 @@ pub fn accept_diplomacy_transition_v1<
     max: u64,
 ) -> Result<ReservedValue<DiplomacyFamilyQualificationV1>, WorldFieldOverlayErrorV1> {
     ctx.check()?;
-    if !parent.uses_budget(ctx.values.memory)
-        || !parent.permits_class(ctx.values.class)
-        || !verifier.memory.same_pool(ctx.values.memory)
-        || verifier.class != ctx.values.class
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary
+        || !record.after.state.iter().any(|r| r == ctx.root)
     {
         return Err(invalid().into());
     }
-    parent.validate_binding(&record.before.digest().map_err(|_| invalid())?)?;
-    let verified = verifier.verify(record);
-    let source_error = (ctx.take_state_error)();
-    ctx.check()?;
-    if let Some(error) = source_error {
-        return Err(error.into());
+    {
+        ctx.check()?;
+        if !parent.uses_budget(ctx.values.memory)
+            || !parent.permits_class(ctx.values.class)
+            || !verifier.memory.same_pool(ctx.values.memory)
+            || verifier.class != ctx.values.class
+        {
+            return Err(invalid().into());
+        }
+        parent.validate_binding(&record.before.digest().map_err(|_| invalid())?)?;
     }
-    let verified = verified?;
+    let witness = crate::incremental_verified_world_transition::verify_world_transition_v1(
+        verifier, record, ctx,
+    )?;
+    accept_diplomacy_verified_v1(parent, &witness, ctx, cells, max)
+}
+
+pub(crate) fn accept_diplomacy_verified_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<DiplomacyFamilyQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    cells: &mut u64,
+    max: u64,
+) -> Result<ReservedValue<DiplomacyFamilyQualificationV1>, WorldFieldOverlayErrorV1> {
+    ctx.check()?;
+    let _phase = ctx
+        .values
+        .memory
+        .reserve(32 << 10, ctx.values.class)
+        .map_err(ValueTreeError::Memory)?;
+    witness.check_context(ctx.values.memory, ctx.values.class, ctx.root)?;
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary {
+        return Err(invalid().into());
+    }
+    let record = witness.record();
+
+    ctx.check()?;
+    if !parent.uses_budget(ctx.values.memory) || !parent.permits_class(ctx.values.class) {
+        return Err(invalid().into());
+    }
+    parent.validate_binding(&record.before.digest().map_err(|_| invalid())?)?;
+    let verified = witness.prepared();
     let business = verified
         .record
         .after
@@ -234,7 +304,7 @@ pub fn accept_diplomacy_transition_v1<
                 child(owner, Some(&old), &new, ctx, cells, max)?;
             }
             (Some(_), None) => {
-                if matches!(field, DiplomacyFieldV1::Alliances | DiplomacyFieldV1::Wars) {
+                if field == DiplomacyFieldV1::Wars {
                     return Err(invalid().into());
                 }
                 counts[index] = counts[index].checked_sub(1).ok_or_else(invalid)?;
@@ -243,15 +313,43 @@ pub fn accept_diplomacy_transition_v1<
         }
         ctx.check()?;
     }
+    // The parent index contains complete before-child qualifications. Update
+    // only actual verified outer writes and their authenticated inner deltas.
+    let mut index_work =
+        family::DiplomacyIndexWorkV1::from_cells(*cells, max.max(ctx.semantic_bytes))?;
+    let indexed = family::relations::accepted_index(
+        &parent.relations,
+        &verified.record.writes,
+        ctx,
+        &mut index_work,
+        max,
+    );
+    *cells = index_work.cells_remaining;
+    let relations = indexed?;
+    index_work.cells_remaining = *cells;
+    let indexed_contracts = family::relations::contracts::accepted_index(
+        &parent.contracts,
+        &verified.record.writes,
+        ctx,
+        &mut index_work,
+        max,
+    );
+    *cells = index_work.cells_remaining;
+    let contracts = indexed_contracts?;
     let proof = ctx
         .values
         .memory
-        .reserve(512, ctx.values.class)
+        .reserve(
+            std::mem::size_of::<DiplomacyFamilyQualificationV1>() + 512,
+            ctx.values.class,
+        )
         .map_err(ValueTreeError::Memory)?
         .retain(DiplomacyFamilyQualificationV1 {
             roots: verified.record.after.digest().map_err(|_| invalid())?,
             counts,
             class: ctx.values.class,
+            relations,
+            contracts,
         });
     ctx.check()?;
     Ok(proof)

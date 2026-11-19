@@ -195,7 +195,7 @@ fn check_roots(world: &World, baseline: crate::Snapshot) {
 fn market_action(list: bool) -> ActionEnvelope {
     ActionEnvelope {
         governance_authorization: None,
-            committed_recipe_origin: None,
+        committed_recipe_origin: None,
         id: 951,
         action: if list {
             Action::ListModuleArtifactForSale {

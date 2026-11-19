@@ -31,6 +31,15 @@ pub enum AgentVisitError<E> {
     Invalid(&'static str),
     Sink(E),
 }
+macro_rules! scalar_enum {
+    ($ty:ty,$encode:ident,$decode:ident,{$($variant:path=>$tag:literal),+})=>{
+        fn $encode(value:$ty)->u8 {match value {$($variant=>$tag),+}}
+        pub fn $decode(value:u8)->Result<$ty,&'static str>{match value {$($tag=>Ok($variant)),+,_=>Err("agent scalar enum tag")}}
+    };
+}
+scalar_enum!(AgentActivityStatus,activity_tag,decode_agent_activity_status_v1,{AgentActivityStatus::Idle=>0,AgentActivityStatus::Executing=>1,AgentActivityStatus::Blocked=>2,AgentActivityStatus::Waiting=>3,AgentActivityStatus::Unavailable=>4});
+scalar_enum!(BodySlotType,slot_tag,decode_agent_slot_type_v1,{BodySlotType::Power=>0,BodySlotType::Sensor=>1,BodySlotType::Mobility=>2,BodySlotType::Cognitive=>3,BodySlotType::Cargo=>4,BodySlotType::Universal=>5});
+scalar_enum!(CargoEntityKind,cargo_tag,decode_agent_cargo_kind_v1,{CargoEntityKind::Mineral=>0,CargoEntityKind::ModuleItem=>1,CargoEntityKind::InterfaceModuleItem=>2});
 /// Borrowed genesis lowering, never an ordinary mutation exporter. Vec order
 /// is preserved using initial ordinals; duplicate semantic IDs are not merged.
 pub fn visit_agent_cell<S: AgentCellFieldVisitor>(
@@ -154,13 +163,7 @@ pub fn visit_agent_activity_values_v1<'a, E>(
         reason_code,
         reason_summary,
     } = activity;
-    let status = match status {
-        AgentActivityStatus::Idle => 0,
-        AgentActivityStatus::Executing => 1,
-        AgentActivityStatus::Blocked => 2,
-        AgentActivityStatus::Waiting => 3,
-        AgentActivityStatus::Unavailable => 4,
-    };
+    let status = activity_tag(*status);
     emit!(ActivityStatus, V::U8(status));
     emit!(ActivityUpdated, V::U64(*updated_at));
     emit!(
@@ -235,14 +238,7 @@ pub fn visit_agent_slot_values_v1<'a, E>(
         installed_module,
         locked,
     } = slot;
-    let kind = match slot_type {
-        BodySlotType::Power => 0,
-        BodySlotType::Sensor => 1,
-        BodySlotType::Mobility => 2,
-        BodySlotType::Cognitive => 3,
-        BodySlotType::Cargo => 4,
-        BodySlotType::Universal => 5,
-    };
+    let kind = slot_tag(*slot_type);
     for (field, value) in [
         (F::SlotId, V::Text(slot_id)),
         (F::SlotType, V::U8(kind)),
@@ -269,11 +265,7 @@ pub fn visit_agent_cargo_values_v1<'a, E>(
         quantity,
         size_per_unit,
     } = entry;
-    let kind = match entity_kind {
-        CargoEntityKind::Mineral => 0,
-        CargoEntityKind::ModuleItem => 1,
-        CargoEntityKind::InterfaceModuleItem => 2,
-    };
+    let kind = cargo_tag(*entity_kind);
     for (field, value) in [
         (F::CargoId, V::Text(entity_id)),
         (F::CargoKind, V::U8(kind)),

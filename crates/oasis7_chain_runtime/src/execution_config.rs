@@ -20,6 +20,8 @@ pub struct DevLocalParticipantConfig {
     pub authority: Option<oasis7_runtime::DevLocalParticipantAuthority>,
     #[cfg(feature = "node-libp2p")]
     pub(crate) verified_origin: Option<VerifiedDevLocalParticipantOrigin>,
+    #[cfg(feature = "node-libp2p")]
+    pub(crate) verified_iws_local_process: Option<std::sync::Arc<crate::VerifiedIwsLocalProcessConfigV1>>,
     pub startup: Option<oasis7_client_api::world_service::SignedReadRequest<
         oasis7_runtime::service_admission::participant_policy::DevLocalParticipantPolicyAuthorizationV1,
     >>,

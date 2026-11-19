@@ -11,8 +11,12 @@ use oasis7_formal_protocol::{
 use std::cell::RefCell;
 pub struct RuntimeControlsQualificationV1 {
     roots: [u8; 32],
+    class: oasis7_proto::memory_budget::MemoryClass,
 }
 impl RuntimeControlsQualificationV1 {
+    pub fn allocation_class(&self) -> oasis7_proto::memory_budget::MemoryClass {
+        self.class
+    }
     pub fn validate_binding(&self, roots: &RootSetV1) -> Result<(), ValueTreeError> {
         if roots.digest().map_err(|_| invalid())? != self.roots {
             return Err(invalid());
@@ -176,7 +180,10 @@ pub fn qualify_runtime_controls_v1<
     if (cancel.borrow_mut())() {
         return Err(ValueTreeError::Cancelled);
     }
-    Ok(retained.retain(RuntimeControlsQualificationV1 { roots }))
+    Ok(retained.retain(RuntimeControlsQualificationV1 {
+        roots,
+        class: ctx.values.class,
+    }))
 }
 pub fn accept_runtime_controls_transition_v1<
     M: MerkleNodeReader,
@@ -192,27 +199,73 @@ pub fn accept_runtime_controls_transition_v1<
     max_text_bytes: u64,
 ) -> Result<ReservedValue<RuntimeControlsQualificationV1>, WorldFieldOverlayErrorV1> {
     ctx.check()?;
-    if !parent.uses_budget(ctx.values.memory)
-        || parent.reserved_bytes() < std::mem::size_of::<RuntimeControlsQualificationV1>()
-        || !verifier.memory.same_pool(ctx.values.memory)
-        || verifier.class != ctx.values.class
+    if verifier.class != ctx.values.class || !verifier.memory.same_pool(ctx.values.memory) {
+        return Err(invalid().into());
+    }
+    {
+        let _phase = runtime_controls_preflight_v1(parent, record, ctx)?;
+    }
+    let witness = crate::incremental_verified_world_transition::verify_world_transition_v1(
+        verifier, record, ctx,
+    )?;
+    accept_runtime_controls_verified_v1(parent, &witness, ctx, max_text_bytes)
+}
+
+#[path = "incremental_runtime_controls_family_readmission.rs"]
+mod readmission;
+pub use readmission::readmit_runtime_controls_ordinary_v1;
+
+fn runtime_controls_preflight_v1<M, R, E, C>(
+    parent: &ReservedValue<RuntimeControlsQualificationV1>,
+    record: &TransitionRecordV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+) -> Result<oasis7_proto::memory_budget::MemoryReservation, WorldFieldOverlayErrorV1>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    ctx.check()?;
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary
+        || parent.allocation_class() != ctx.values.class
+        || !parent.uses_budget(ctx.values.memory)
+        || parent.reserved_bytes() < 512
+        || !record.after.state.iter().any(|r| r == ctx.root)
     {
         return Err(invalid().into());
     }
+    let phase = ctx
+        .values
+        .memory
+        .reserve(128 << 10, ctx.values.class)
+        .map_err(ValueTreeError::Memory)?;
     parent.validate_binding(&record.before)?;
+    ctx.check()?;
+    Ok(phase)
+}
+pub(crate) fn accept_runtime_controls_verified_v1<M, R, E, C>(
+    parent: &ReservedValue<RuntimeControlsQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    max_text_bytes: u64,
+) -> Result<ReservedValue<RuntimeControlsQualificationV1>, WorldFieldOverlayErrorV1>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    ctx.check()?;
+    witness.check_context(ctx.values.memory, ctx.values.class, ctx.root)?;
+    let record = witness.record();
+    let _phase = runtime_controls_preflight_v1(parent, record, ctx)?;
     let retained = ctx
         .values
         .memory
         .reserve(512, ctx.values.class)
         .map_err(ValueTreeError::Memory)?;
-    let result = verifier.verify(record);
-    let original = (ctx.take_state_error)();
-    ctx.check()?;
-    if let Some(error) = original {
-        return Err(error.into());
-    }
-    let verified = result?;
-    let record = &verified.record;
+
     if !record.after.state.iter().any(|r| r == ctx.root) {
         return Err(invalid().into());
     }
@@ -247,5 +300,8 @@ pub fn accept_runtime_controls_transition_v1<
     }
     let roots = record.after.digest().map_err(|_| invalid())?;
     ctx.check()?;
-    Ok(retained.retain(RuntimeControlsQualificationV1 { roots }))
+    Ok(retained.retain(RuntimeControlsQualificationV1 {
+        roots,
+        class: ctx.values.class,
+    }))
 }

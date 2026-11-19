@@ -1,0 +1,215 @@
+{
+  "recorded_at_unix_ms": 1795053869242,
+  "module_id": "m1.rule.transfer",
+  "target": "wasm32-unknown-unknown",
+  "profile": "release",
+  "wasm_toolchain": "nightly-2025-12-11",
+  "wasm_build_std": "1",
+  "wasm_build_std_components": "std,panic_abort",
+  "wasm_build_std_features": "",
+  "wasm_deterministic_guard": "1",
+  "source_manifest_path": "/workspace/crates/oasis7_builtin_wasm_modules/m1_rule_transfer/Cargo.toml",
+  "source_artifact_path": "/workspace/crates/oasis7_builtin_wasm_modules/m1_rule_transfer/target/wasm32-unknown-unknown/release/oasis7_builtin_wasm_m1_rule_transfer.wasm",
+  "packaged_wasm_path": "/workspace/.tmp/builtin-wasm-sync-modules/m1.rule.transfer.wasm",
+  "build_receipt_path": "/workspace/.tmp/builtin-wasm-sync-modules/m1.rule.transfer.build-receipt.json",
+  "source_input_rule_version": 2,
+  "source_inputs": [
+    {
+      "kind": "source-file",
+      "path": "Cargo.toml",
+      "sha256": "2896c95397441d550aaa440283f3984a60b58854381f8dc345537c5de5a657ab"
+    },
+    {
+      "kind": "source-file",
+      "path": "crates/oasis7_builtin_wasm_modules/m1_rule_transfer/Cargo.lock",
+      "sha256": "4d4d5c59bcb45534aedbee594f801f7756df4f5c393db6c9dcb4acfa2e0741e7"
+    },
+    {
+      "kind": "source-file",
+      "path": "crates/oasis7_builtin_wasm_modules/m1_rule_transfer/Cargo.toml",
+      "sha256": "9d6ed9aff5172c99586619459a9d5da5ae1a9de5f4c1187535b5256179fa46d3"
+    },
+    {
+      "kind": "source-file",
+      "path": "crates/oasis7_builtin_wasm_modules/m1_rule_transfer/src/lib.rs",
+      "sha256": "fc98cc8d418f613996a969913c8b58311e5a977ae1f14a7505ef45a9f085c6ce"
+    },
+    {
+      "kind": "source-file",
+      "path": "crates/oasis7_wasm_sdk/Cargo.toml",
+      "sha256": "2a106a9b8b248e49d9c3b9cada398586c827d9eb2d4962e838b8f8ec5133d4c9"
+    },
+    {
+      "kind": "source-file",
+      "path": "crates/oasis7_wasm_sdk/src/lib.rs",
+      "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
+    }
+  ],
+  "source_hash": "f90337002f387192cbfbaf4faf2c1c485b16645d1b5a9917e0eae87a51b1e9a2",
+  "build_manifest_hash": "e63caf8a05c08c02e2909e7be4fa7d280d20d429afe40a69087e92a96747c2cd",
+  "canonicalizer_version": "strip-custom-sections-v1",
+  "container_platform": "linux-x86_64",
+  "purpose": "candidate-build",
+  "build_manifest_schema_version": 3,
+  "builder_recipe": {
+    "recipe_schema_version": 1,
+    "kind": "producer-content",
+    "producer_recipe_hash": "ac336cac21994d5e56c5c8ff150e8a7b3a1abd62ed7f95a422e7f3a8c658de6a",
+    "arguments": [
+      {
+        "name": "GUEST_CARGO_BUILD_JOBS",
+        "value": "2"
+      },
+      {
+        "name": "WASM_TARGET",
+        "value": "wasm32-unknown-unknown"
+      },
+      {
+        "name": "WASM_TOOLCHAIN",
+        "value": "nightly-2025-12-11"
+      },
+      {
+        "name": "platform",
+        "value": "linux/amd64"
+      },
+      {
+        "name": "purpose",
+        "value": "candidate-build"
+      }
+    ],
+    "inputs": [
+      {
+        "kind": "source-file",
+        "path": ".dockerignore",
+        "sha256": "9f5f14257eb7834b399099dbfac5dd1eea302f4daa58a1944485fcb0b16c7c57"
+      },
+      {
+        "kind": "source-file",
+        "path": ".github/actions/setup-linux-mold/setup.py",
+        "sha256": "faeda82b8ad40217a4a1be9c27aa1d6a67984d959aff8587baa48573298c4a65"
+      },
+      {
+        "kind": "source-file",
+        "path": "Cargo.lock",
+        "sha256": "a2d0af696254b576bebc617e0dd360a258cc8bc769fb316226c6c45ac7f94793"
+      },
+      {
+        "kind": "source-file",
+        "path": "Cargo.toml",
+        "sha256": "2896c95397441d550aaa440283f3984a60b58854381f8dc345537c5de5a657ab"
+      },
+      {
+        "kind": "source-file",
+        "path": "crates/oasis7_wasm_build/Cargo.toml",
+        "sha256": "260b675af12eb421d12ae23f2e53abcf9ee71f57603eac9ff4bdbf3541b70adc"
+      },
+      {
+        "kind": "source-file",
+        "path": "crates/oasis7_wasm_build/src/build_manifest.rs",
+        "sha256": "fbecf858e59c8d2ccfe991e41fcd0d7cd28d24d73dab64b90c51c5efcc47bdd0"
+      },
+      {
+        "kind": "source-file",
+        "path": "crates/oasis7_wasm_build/src/lib.rs",
+        "sha256": "2671101045899d41e46b6b9a0d4e260558ed3a6357c5bbef5def5be98bd5cfd2"
+      },
+      {
+        "kind": "source-file",
+        "path": "crates/oasis7_wasm_build/src/producer_recipe.rs",
+        "sha256": "76118540cf6b805bdbb58bd91b4a0925eed1a42066fd9478b4b90e1bed91ce7d"
+      },
+      {
+        "kind": "source-file",
+        "path": "crates/oasis7_wasm_build/src/producer_recipe_guard.rs",
+        "sha256": "4d1174a0631ca84e3a723709d765cd072d3794536aa64a6adf17b6d3fc11eeeb"
+      },
+      {
+        "kind": "source-file",
+        "path": "crates/oasis7_wasm_build/src/source_input_scan.rs",
+        "sha256": "8793be4e9f75df4e4999fd95146cf93c7e18076826ae7c8839f7ef967d9c721f"
+      },
+      {
+        "kind": "source-file",
+        "path": "crates/oasis7_wasm_build/src/source_inputs.rs",
+        "sha256": "3bf16e0d3d88c6d4c9a61ef4eec2de334a0e4b637699ae07e311d6979fd7dd4c"
+      },
+      {
+        "kind": "source-file",
+        "path": "crates/oasis7_wasm_build/src/source_inputs_tests.rs",
+        "sha256": "f0f44a7be3ec254f0e2824efb33978526ee0d14e72219c2217dc0c1b3c34b392"
+      },
+      {
+        "kind": "source-file",
+        "path": "docker/wasm-builder/Dockerfile",
+        "sha256": "7d945bf0ee437b39a4c592c6d585cc42bfc93c517d3e700441e55d04d76a9ea7"
+      },
+      {
+        "kind": "source-file",
+        "path": "docker/wasm-builder/prepare-workspace.sh",
+        "sha256": "7891f46fd85aca1f566a9cba39d5ac60350b55363bd5551365919b69132f97ac"
+      },
+      {
+        "kind": "source-file",
+        "path": "scripts/build-wasm-module.sh",
+        "sha256": "6ac2b50141023e4d013be1feddea7a7b5b4ac27e6f1a8b7ef2d24c76130358a8"
+      },
+      {
+        "kind": "source-file",
+        "path": "tools/wasm_build_suite/Cargo.toml",
+        "sha256": "7515aa6be7617aaaf80598db4f411bb555aa5f616ffbd5f40f1f670daf850750"
+      },
+      {
+        "kind": "source-file",
+        "path": "tools/wasm_build_suite/src/artifact_pipeline_contract_tests.rs",
+        "sha256": "3bd7962baf5a2f421ddeb1fdf6733b8631274b321bbae9840faee94e9a17abd7"
+      },
+      {
+        "kind": "source-file",
+        "path": "tools/wasm_build_suite/src/build_timing.rs",
+        "sha256": "fdd1ea5259998e2d3dc31aaf32b270367df97fbce06361e36460e255fd45f00c"
+      },
+      {
+        "kind": "source-file",
+        "path": "tools/wasm_build_suite/src/build_util.rs",
+        "sha256": "ba76e631311943a2a18ea09ba4516b3cc97a5a8c6947080c48df39185a03faf9"
+      },
+      {
+        "kind": "source-file",
+        "path": "tools/wasm_build_suite/src/builder_context_tests.rs",
+        "sha256": "57aa49e8b4df6f24347259176ff4843304e60ed4fd4c7e3c305e994c6997ee07"
+      },
+      {
+        "kind": "source-file",
+        "path": "tools/wasm_build_suite/src/env_prefix_tests.rs",
+        "sha256": "0fc1c2f558f4c22915efded4674d061585651ab04a3aa25739b41220d309633f"
+      },
+      {
+        "kind": "source-file",
+        "path": "tools/wasm_build_suite/src/lib.rs",
+        "sha256": "5971d9bf4d32c75d4be7f43f2acfa3b4a8fe0e7185cc9cf1d57a6c2338b61303"
+      },
+      {
+        "kind": "source-file",
+        "path": "tools/wasm_build_suite/src/main.rs",
+        "sha256": "30f10477dae24543c9a78a801dcf07b0ed2340716f0f11e45e16ce8248d5a49d"
+      }
+    ]
+  },
+  "builder_execution": {
+    "execution_schema_version": 1,
+    "kind": "local-docker-build",
+    "image_ref": "oasis7/wasm-builder:candidate-ac336cac21994d5e56c5c8ff150e8a7b3a1abd62ed7f95a422e7f3a8c658de6a",
+    "image_id": "sha256:16954e92bcabfb9020da9d5242332bbc86e958c17f87ae6449fbf9fc982cd8c4",
+    "docker_platform": "linux/amd64"
+  },
+  "build_timing": {
+    "total_build_wall_ms": 23771,
+    "cargo_build_ms": 23304,
+    "canonicalize_ms": 0,
+    "hash_ms": 55,
+    "receipt_write_ms": 0,
+    "metadata_write_ms": 0
+  },
+  "wasm_hash_sha256": "2d3a20151d9b8f7766ecc89a8353d0de10bb65c877e10bb898fbbec616cda316",
+  "wasm_size_bytes": 349764
+}

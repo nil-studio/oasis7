@@ -504,10 +504,11 @@ impl DurableSetCandidateV1 {
             parent: Some(activation.boundary().clone()),
             poisoned: false,
             physical_maintenance: storage_maintenance::MaintenanceState::default(),
+            _bounded_reopen_fee: None,
             native_environment_jobs: std::collections::BTreeMap::new(),
             published_closure_jobs: std::collections::BTreeMap::new(),
             iws_page_store: None,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             controlled: false,
         };
         let _guard = endpoint.guard()?;
@@ -624,10 +625,11 @@ impl FileFormalEndpoint {
             parent: Some(activation.boundary().clone()),
             poisoned: false,
             physical_maintenance: storage_maintenance::MaintenanceState::default(),
+            _bounded_reopen_fee: None,
             native_environment_jobs: std::collections::BTreeMap::new(),
             published_closure_jobs: std::collections::BTreeMap::new(),
             iws_page_store: None,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             controlled: false,
         };
         let _guard = endpoint.guard()?;

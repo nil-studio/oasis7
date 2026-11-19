@@ -1,21 +1,21 @@
 use super::*;
 
 impl World {
-    pub(super) fn module_deploy_fee_amount(bytes_len: usize) -> i64 {
+    pub(in crate::world) fn module_deploy_fee_amount(bytes_len: usize) -> i64 {
         let bytes_len = bytes_len as i64;
         (bytes_len.saturating_add(MODULE_DEPLOY_FEE_BYTES_PER_ELECTRICITY - 1)
             / MODULE_DEPLOY_FEE_BYTES_PER_ELECTRICITY)
             .max(1)
     }
 
-    pub(super) fn module_compile_fee_amount(source_bytes_len: usize, wasm_bytes_len: usize) -> i64 {
+    pub(in crate::world) fn module_compile_fee_amount(source_bytes_len: usize, wasm_bytes_len: usize) -> i64 {
         let total_bytes = source_bytes_len.saturating_add(wasm_bytes_len) as i64;
         (total_bytes.saturating_add(MODULE_COMPILE_FEE_BYTES_PER_ELECTRICITY - 1)
             / MODULE_COMPILE_FEE_BYTES_PER_ELECTRICITY)
             .max(2)
     }
 
-    pub(super) fn module_install_fee_amount(manifest: &oasis7_wasm_abi::ModuleManifest) -> i64 {
+    pub(in crate::world) fn module_install_fee_amount(manifest: &oasis7_wasm_abi::ModuleManifest) -> i64 {
         let export_cost = manifest.exports.len() as i64;
         let subscription_cost = manifest.subscriptions.len() as i64;
         1_i64
@@ -29,109 +29,7 @@ impl World {
         format!("{module_id}#{seq}")
     }
 
-    pub(super) fn validate_upgrade_interface_compatible(
-        current: &oasis7_wasm_abi::ModuleManifest,
-        next: &oasis7_wasm_abi::ModuleManifest,
-    ) -> Result<(), String> {
-        if current.interface_version != next.interface_version {
-            return Err(format!(
-                "upgrade interface_version mismatch: from={} to={}",
-                current.interface_version, next.interface_version
-            ));
-        }
-
-        let missing_exports: Vec<String> = current
-            .exports
-            .iter()
-            .filter(|export_name| !next.exports.contains(*export_name))
-            .cloned()
-            .collect();
-        if !missing_exports.is_empty() {
-            return Err(format!(
-                "upgrade exports incompatible: missing {:?}",
-                missing_exports
-            ));
-        }
-
-        for subscription in &current.subscriptions {
-            if !next.subscriptions.contains(subscription) {
-                return Err(
-                    "upgrade subscriptions incompatible: existing subscription removed or modified"
-                        .to_string(),
-                );
-            }
-        }
-
-        if current.abi_contract.abi_version != next.abi_contract.abi_version {
-            return Err("upgrade abi_version mismatch".to_string());
-        }
-        if current.abi_contract.input_schema != next.abi_contract.input_schema
-            || current.abi_contract.output_schema != next.abi_contract.output_schema
-        {
-            return Err("upgrade abi input/output schema mismatch".to_string());
-        }
-        for (slot, cap_ref) in &current.abi_contract.cap_slots {
-            match next.abi_contract.cap_slots.get(slot) {
-                Some(next_cap_ref) if next_cap_ref == cap_ref => {}
-                _ => {
-                    return Err(format!("upgrade abi cap slot mismatch for slot {}", slot));
-                }
-            }
-        }
-        for hook in &current.abi_contract.policy_hooks {
-            if !next.abi_contract.policy_hooks.contains(hook) {
-                return Err(format!(
-                    "upgrade abi policy_hooks incompatible: missing {}",
-                    hook
-                ));
-            }
-        }
-        for required_cap in &current.required_caps {
-            if !next.required_caps.contains(required_cap) {
-                return Err(format!(
-                    "upgrade required_caps incompatible: missing {}",
-                    required_cap
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    pub(super) fn ensure_module_fee_affordable(
-        &mut self,
-        action_id: u64,
-        agent_id: &str,
-        fee_kind: ResourceKind,
-        fee_amount: i64,
-    ) -> Result<bool, WorldError> {
-        if fee_amount <= 0 {
-            return Ok(true);
-        }
-        let available = self
-            .state
-            .agents
-            .get(agent_id)
-            .map(|cell| cell.state.resources.get(fee_kind))
-            .unwrap_or(0);
-        if available < fee_amount {
-            self.append_event(
-                WorldEventBody::Domain(DomainEvent::ActionRejected {
-                    action_id,
-                    reason: RejectReason::InsufficientResource {
-                        agent_id: agent_id.to_string(),
-                        kind: fee_kind,
-                        requested: fee_amount,
-                        available,
-                    },
-                }),
-                Some(CausedBy::Action(action_id)),
-            )?;
-            return Ok(false);
-        }
-        Ok(true)
-    }
-
-    pub(super) fn has_active_module_using_artifact(&self, wasm_hash: &str) -> bool {
+    pub(in crate::world) fn has_active_module_using_artifact(&self, wasm_hash: &str) -> bool {
         if self
             .state
             .module_instances
@@ -159,18 +57,6 @@ impl World {
                     .map(|record| record.manifest.wasm_hash == wasm_hash)
                     .unwrap_or(false)
             })
-    }
-
-    pub(super) fn peek_next_module_market_order_id(&self) -> u64 {
-        self.state.next_module_market_order_id.max(1)
-    }
-
-    pub(super) fn peek_next_module_market_sale_id(&self) -> u64 {
-        self.state.next_module_market_sale_id.max(1)
-    }
-
-    pub(super) fn peek_next_module_release_request_id(&self) -> u64 {
-        self.state.next_module_release_request_id.max(1)
     }
 
     pub(super) fn prepare_module_governance_proposal(
@@ -235,87 +121,14 @@ impl World {
         finality_certificate: Option<&GovernanceFinalityCertificate>,
         completion: Option<super::super::module_release_publication::ModuleReleaseCompletion>,
     ) -> Result<bool, WorldError> {
-        if self.reject_frozen_module_admission(action_id, manifest)? {
-            return Ok(true);
-        }
-        if !self.state.agents.contains_key(installer_agent_id) {
-            self.append_event(
-                WorldEventBody::Domain(DomainEvent::ActionRejected {
-                    action_id,
-                    reason: RejectReason::AgentNotFound {
-                        agent_id: installer_agent_id.to_string(),
-                    },
-                }),
-                Some(CausedBy::Action(action_id)),
-            )?;
-            return Ok(true);
-        }
-        if let Some(owner_agent_id) = self.state.module_artifact_owners.get(&manifest.wasm_hash)
-            && owner_agent_id != installer_agent_id
-        {
-            self.append_event(
-                WorldEventBody::Domain(DomainEvent::ActionRejected {
-                    action_id,
-                    reason: RejectReason::RuleDenied {
-                        notes: vec![format!(
-                            "install module artifact rejected: installer {} does not own {} (owner {})",
-                            installer_agent_id, manifest.wasm_hash, owner_agent_id
-                        )],
-                    },
-                }),
-                Some(CausedBy::Action(action_id)),
-            )?;
-            return Ok(true);
-        }
-        let fee_kind = ResourceKind::Electricity;
-        let fee_amount = Self::module_install_fee_amount(manifest);
-        if !self.ensure_module_fee_affordable(
-            action_id,
-            installer_agent_id,
-            fee_kind,
-            fee_amount,
-        )? {
-            return Ok(true);
-        }
-
-        let mut changes = ModuleChangeSet::default();
-        let record_key = oasis7_wasm_abi::ModuleRegistry::record_key(
-            manifest.module_id.as_str(),
-            manifest.version.as_str(),
-        );
-        if let Some(record) = self.module_registry.records.get(record_key.as_str()) {
-            if record.manifest != *manifest {
-                self.append_event(
-                    WorldEventBody::Domain(DomainEvent::ActionRejected {
-                        action_id,
-                        reason: RejectReason::RuleDenied {
-                            notes: vec![format!(
-                                "install module rejected: existing manifest mismatch for {}",
-                                record_key
-                            )],
-                        },
-                    }),
-                    Some(CausedBy::Action(action_id)),
-                )?;
+        use crate::world::incremental_normal_action_module_lifecycle::instance_rules::{LegacyModuleInstallFactsV1,ModuleInstallPreludeV1,prepare_module_install_prelude_v1};
+        let (changes,fee_kind,fee_amount)=match prepare_module_install_prelude_v1(&mut LegacyModuleInstallFactsV1::new(self),installer_agent_id,manifest,activate)?{
+            ModuleInstallPreludeV1::Rejected(reason)=>{
+                self.append_event(WorldEventBody::Domain(DomainEvent::ActionRejected{action_id,reason}),Some(CausedBy::Action(action_id)))?;
                 return Ok(true);
-            }
-        } else {
-            changes.register.push(manifest.clone());
-        }
-        if activate {
-            let already_active_same = self
-                .module_registry
-                .active
-                .get(&manifest.module_id)
-                .map(|version| version == &manifest.version)
-                .unwrap_or(false);
-            if !already_active_same {
-                changes.activate.push(ModuleActivation {
-                    module_id: manifest.module_id.clone(),
-                    version: manifest.version.clone(),
-                });
-            }
-        }
+            },
+            ModuleInstallPreludeV1::Plan{changes,fee_kind,fee_amount}=>(changes,fee_kind,fee_amount),
+        };
 
         let has_profile_changes = completion
             .as_ref()
@@ -488,171 +301,19 @@ impl World {
         activate: bool,
         finality_certificate: Option<&GovernanceFinalityCertificate>,
     ) -> Result<bool, WorldError> {
-        if self.reject_frozen_module_admission(action_id, manifest)? {
-            return Ok(true);
-        }
-        if !self.state.agents.contains_key(upgrader_agent_id) {
-            self.append_event(
-                WorldEventBody::Domain(DomainEvent::ActionRejected {
-                    action_id,
-                    reason: RejectReason::AgentNotFound {
-                        agent_id: upgrader_agent_id.to_string(),
-                    },
-                }),
-                Some(CausedBy::Action(action_id)),
-            )?;
-            return Ok(true);
-        }
-
-        let Some(instance) = self.state.module_instances.get(instance_id).cloned() else {
-            self.append_event(
-                WorldEventBody::Domain(DomainEvent::ActionRejected {
-                    action_id,
-                    reason: RejectReason::RuleDenied {
-                        notes: vec![format!(
-                            "upgrade module rejected: instance not found {}",
-                            instance_id
-                        )],
-                    },
-                }),
-                Some(CausedBy::Action(action_id)),
-            )?;
-            return Ok(true);
+        use crate::world::incremental_normal_action_module_lifecycle::{upgrade_legacy::LegacyModuleUpgradeFactsV1,upgrade_rules::{prepare_module_upgrade_prelude_v1,ModuleUpgradePreludeV1,ModuleInstanceRecordV1}};
+        let (instance,changes,fee_kind,fee_amount)=match prepare_module_upgrade_prelude_v1(
+            &mut LegacyModuleUpgradeFactsV1::new(self),upgrader_agent_id,instance_id,from_module_version,manifest,activate,
+        )?{
+            ModuleUpgradePreludeV1::Rejected(reason)=>{
+                self.append_event(WorldEventBody::Domain(DomainEvent::ActionRejected{action_id,reason}),Some(CausedBy::Action(action_id)))?;
+                return Ok(true);
+            },
+            ModuleUpgradePreludeV1::Plan{instance,changes,fee_kind,fee_amount}=>{
+                let instance=match instance{ModuleInstanceRecordV1::Legacy(record)=>record.clone(),ModuleInstanceRecordV1::Current(_)=>unreachable!("fixed legacy upgrade observer")};
+                (instance,changes,fee_kind,fee_amount)
+            },
         };
-        if instance.owner_agent_id != upgrader_agent_id {
-            self.append_event(
-                WorldEventBody::Domain(DomainEvent::ActionRejected {
-                    action_id,
-                    reason: RejectReason::RuleDenied {
-                        notes: vec![format!(
-                            "upgrade module rejected: upgrader {} does not own instance {} (owner {})",
-                            upgrader_agent_id, instance_id, instance.owner_agent_id
-                        )],
-                    },
-                }),
-                Some(CausedBy::Action(action_id)),
-            )?;
-            return Ok(true);
-        }
-        if instance.module_version != from_module_version {
-            self.append_event(
-                WorldEventBody::Domain(DomainEvent::ActionRejected {
-                    action_id,
-                    reason: RejectReason::RuleDenied {
-                        notes: vec![format!(
-                            "upgrade module rejected: from_version mismatch for instance {} expected {} got {}",
-                            instance_id, instance.module_version, from_module_version
-                        )],
-                    },
-                }),
-                Some(CausedBy::Action(action_id)),
-            )?;
-            return Ok(true);
-        }
-        if manifest.module_id != instance.module_id {
-            self.append_event(
-                WorldEventBody::Domain(DomainEvent::ActionRejected {
-                    action_id,
-                    reason: RejectReason::RuleDenied {
-                        notes: vec![format!(
-                            "upgrade module rejected: manifest module_id mismatch for instance {} expected {} got {}",
-                            instance_id, instance.module_id, manifest.module_id
-                        )],
-                    },
-                }),
-                Some(CausedBy::Action(action_id)),
-            )?;
-            return Ok(true);
-        }
-        if manifest.version == instance.module_version {
-            self.append_event(
-                WorldEventBody::Domain(DomainEvent::ActionRejected {
-                    action_id,
-                    reason: RejectReason::RuleDenied {
-                        notes: vec![format!(
-                            "upgrade module rejected: target version equals current version {}",
-                            manifest.version
-                        )],
-                    },
-                }),
-                Some(CausedBy::Action(action_id)),
-            )?;
-            return Ok(true);
-        }
-        if let Some(owner_agent_id) = self.state.module_artifact_owners.get(&manifest.wasm_hash)
-            && owner_agent_id != upgrader_agent_id
-        {
-            self.append_event(
-                WorldEventBody::Domain(DomainEvent::ActionRejected {
-                    action_id,
-                    reason: RejectReason::RuleDenied {
-                        notes: vec![format!(
-                            "upgrade module artifact rejected: upgrader {} does not own {} (owner {})",
-                            upgrader_agent_id, manifest.wasm_hash, owner_agent_id
-                        )],
-                    },
-                }),
-                Some(CausedBy::Action(action_id)),
-            )?;
-            return Ok(true);
-        }
-
-        let current_key = oasis7_wasm_abi::ModuleRegistry::record_key(
-            instance.module_id.as_str(),
-            instance.module_version.as_str(),
-        );
-        let Some(current_record) = self.module_registry.records.get(current_key.as_str()) else {
-            self.append_event(
-                WorldEventBody::Domain(DomainEvent::ActionRejected {
-                    action_id,
-                    reason: RejectReason::RuleDenied {
-                        notes: vec![format!(
-                            "upgrade module rejected: current module record missing {}",
-                            current_key
-                        )],
-                    },
-                }),
-                Some(CausedBy::Action(action_id)),
-            )?;
-            return Ok(true);
-        };
-        if let Err(reason) =
-            Self::validate_upgrade_interface_compatible(&current_record.manifest, manifest)
-        {
-            self.append_event(
-                WorldEventBody::Domain(DomainEvent::ActionRejected {
-                    action_id,
-                    reason: RejectReason::RuleDenied {
-                        notes: vec![format!("upgrade module rejected: {reason}")],
-                    },
-                }),
-                Some(CausedBy::Action(action_id)),
-            )?;
-            return Ok(true);
-        }
-
-        let fee_kind = ResourceKind::Electricity;
-        let fee_amount = Self::module_install_fee_amount(manifest);
-        if !self.ensure_module_fee_affordable(action_id, upgrader_agent_id, fee_kind, fee_amount)? {
-            return Ok(true);
-        }
-
-        let mut changes = ModuleChangeSet {
-            upgrade: vec![ModuleUpgrade {
-                module_id: instance.module_id.clone(),
-                from_version: instance.module_version.clone(),
-                to_version: manifest.version.clone(),
-                wasm_hash: manifest.wasm_hash.clone(),
-                manifest: manifest.clone(),
-            }],
-            ..ModuleChangeSet::default()
-        };
-        if activate {
-            changes.activate.push(ModuleActivation {
-                module_id: manifest.module_id.clone(),
-                version: manifest.version.clone(),
-            });
-        }
 
         let module_changes_value = match serde_json::to_value(&changes) {
             Ok(value) => value,

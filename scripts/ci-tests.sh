@@ -237,7 +237,7 @@ run_oasis7_test_tier_with_viewer() {
     set -- --tests
   fi
   local viewer_binary
-  viewer_binary="$(build_oasis7_viewer_binary "$features")"
+  viewer_binary="$(build_oasis7_viewer_binary "$features")" || return
   PRE2_VIEWER_BINARY="$viewer_binary" run_oasis7_package_tests "$features" "$@"
 }
 
@@ -267,8 +267,12 @@ run_oasis7_required_tier_tests() {
   fi
   if [[ -n "${required_plan:-}" ]]; then
     local temporary status=0
+    local diagnostics_args=()
+    if [[ -n "${OASIS7_CI_BUILD_DIAGNOSTICS:-}" ]]; then
+      diagnostics_args=(--build-diagnostics "$OASIS7_CI_BUILD_DIAGNOSTICS")
+    fi
     temporary=$(mktemp -d)
-    if run python3 "$driver_dir/ci-test-artifacts.py" build --repo-root "$repo_root" --scope ordinary --bundle "$temporary/bundle" "${plan_args[@]}" "${partition_args[@]}"; then
+    if run python3 "$driver_dir/ci-test-artifacts.py" build --repo-root "$repo_root" --scope ordinary --bundle "$temporary/bundle" "${plan_args[@]}" "${partition_args[@]}" "${diagnostics_args[@]}"; then
       run python3 "$driver_dir/ci-test-artifacts.py" run --repo-root "$repo_root" --bundle "$temporary/bundle" --suite ordinary "${plan_args[@]}" "${partition_args[@]}" || status=$?
     else
       status=$?
@@ -331,7 +335,117 @@ run_oasis7_required_clippy_for_group() {
 }
 
 run_oasis7_full_tier_tests() {
+  # The full Runtime --tests inventory includes the actual Rule integration.
+  # Its worker must exist before starting that inventory on a clean checkout.
+  if [[ "$(uname -s)" == Linux ]]; then
+    build_oasis7_iws_rule_worker || return
+  fi
   run_oasis7_test_tier_with_viewer "test_tier_full,wasmtime,viewer_live_integration"
+}
+
+build_oasis7_iws_rule_worker() {
+  case "$(uname -s):$(uname -m)" in
+    Linux:x86_64|Linux:aarch64) ;;
+    *) echo 'IWS Rule/Wasm integration requires Linux x86_64 or aarch64' >&2; return 2 ;;
+  esac
+  # The actual sealed-process Rule path loads the executor's real worker binary.
+  # Build it explicitly on a clean checkout before entering the component cases.
+  # Strip native symbols at link time, before image hashing and admission, so
+  # symbol-table growth does not exhaust the fixture's complete-image budget.
+  # cargo rustc applies this only to the selected binary, preserving dependencies
+  # and the current development profile, including its assertions.
+  run_cargo rustc --locked -p oasis7_wasm_executor --bin oasis7-wasm-worker --no-default-features \
+    --features wasmtime -- -C strip=symbols
+}
+
+run_oasis7_iws_rule_core_tests() {
+  build_oasis7_iws_rule_worker || return
+  # The same full-feature target is executed by expanded ordinary artifacts.
+  run_cargo test --locked -p oasis7_runtime --test iws_rule_core --no-default-features \
+    --features test_tier_full,wasmtime -- --test-threads=1
+}
+
+verify_oasis7_iws_host_native_fixture() {
+  # This target needs real Linux descriptors, sealed FDs and a same-build ELF.
+  # An explicitly requested unsupported target must not report zero-test success.
+  case "$(uname -s):$(uname -m)" in
+    Linux:x86_64|Linux:aarch64) ;;
+    *) echo 'IWS native Host integration requires Linux x86_64 or aarch64' >&2; return 2 ;;
+  esac
+  # Fixed actual candidate test bytes are versioned with this checkout. Verify
+  # their complete source/recipe/receipt and current candidate identity first.
+  # This read-only path neither refreshes release manifests nor falls back to Docker.
+  run_cargo run --locked -p oasis7_distfs --features sync-builtin-wasm-identity \
+    --bin sync_builtin_wasm_identity -- --verify-iws-rule-candidate-fixture "$repo_root" \
+    "$repo_root/crates/oasis7_chain_runtime/tests/fixtures/iws_rule_transfer_candidate"
+}
+
+verify_oasis7_iws_host_native_inventory() {
+  local inventory_dir status
+  local command=(test --locked -p oasis7_chain_runtime --test iws_host_linux --no-default-features
+    --features iws-host-native-test-support)
+  inventory_dir="$(mktemp -d)" || return
+  # Inspect this exact built harness, including its ignored cases. These nine
+  # are a minimum contract; the complete target below also runs future cases.
+  if run_cargo "${command[@]}" -- --list --format terse > "$inventory_dir/all" \
+    && run_cargo "${command[@]}" -- --list --format terse --ignored > "$inventory_dir/ignored" \
+    && "$ci_python" - "$inventory_dir/all" "$inventory_dir/ignored" <<'PY_IWS_HOST_INVENTORY'
+from pathlib import Path
+import sys
+
+expected = {
+    'real_linux_accepted_genesis_installs_native_host',
+    'real_linux_nonempty_node_commit_reopens_cold_and_commits_again',
+    'real_linux_normal_before_publication_recovers_parent_and_same_ready',
+    'real_linux_normal_after_publication_recovers_child_and_node_boundary',
+    'real_linux_checkpoint_and_original_suffix_restore_actual_nonempty_head',
+    'real_linux_accepted_sources_return_original_work_after_cancelled_handoff',
+    'real_linux_partial_source_failure_returns_only_observable_original_work',
+    'real_linux_one_live_node_retains_originals_across_pending_and_completed_restarts',
+    'real_linux_live_node_cold_output_recovery_keeps_original_work_for_successors',
+}
+
+
+def cases(path):
+    names = [line.removesuffix(': test') for line in Path(path).read_text().splitlines()
+             if line.endswith(': test')]
+    if len(names) != len(set(names)):
+        raise SystemExit('IWS native Host inventory contains duplicate cases')
+    return set(names)
+
+
+all_cases, ignored = map(cases, sys.argv[1:])
+missing = expected - all_cases
+inactive = expected & ignored
+if missing or inactive or not ignored <= all_cases:
+    raise SystemExit(f'IWS native Host minimum cases missing={sorted(missing)} ignored={sorted(inactive)}')
+print(f'IWS native Host inventory: {len(all_cases - ignored)} active, {len(expected)} required', file=sys.stderr)
+PY_IWS_HOST_INVENTORY
+  then
+    status=0
+  else
+    status=$?
+  fi
+  rm -rf -- "$inventory_dir"
+  return "$status"
+}
+
+run_oasis7_iws_host_native_target() {
+  verify_oasis7_iws_host_native_inventory || return
+  run_cargo test --locked -p oasis7_chain_runtime --test iws_host_linux --no-default-features \
+    --features iws-host-native-test-support -- --test-threads=1
+}
+
+run_oasis7_iws_host_native_tests() {
+  verify_oasis7_iws_host_native_fixture || return
+  run_oasis7_iws_rule_core_tests || return
+  run_oasis7_iws_host_native_target
+}
+
+run_oasis7_iws_host_native_after_full_tests() {
+  # The successful full Runtime harness already executed all Rule cases.
+  verify_oasis7_iws_host_native_fixture || return
+  run_oasis7_iws_host_native_target
 }
 
 run_oasis7_production_mock_guard() {
@@ -523,7 +637,7 @@ run_oasis7_workspace_support_crate_tests() {
     -p oasis7_wasm_store \
     -p pixel_world_bridge \
     --lib
-  run_cargo test -p oasis7_wasm_executor --features wasmtime --lib
+  run_cargo test -p oasis7_wasm_executor --features wasmtime --lib --test bounded_worker
   run_cargo test -p oasis7_secure_envelope -p oasis7_context --all-targets --locked
   run_cargo test -p oasis7_local_signer --test context_cli --locked
   run_cargo test -p oasis7_client_launcher --bin oasis7_client_launcher
@@ -605,7 +719,7 @@ PY
       oasis7_dev_test_worker) run_dev_test_worker_checks; complete_targets=true ;;
       oasis7_custody_core) run_cargo test -p "$profile" --all-targets --locked; complete_targets=true ;;
       oasis7_custody_worker) run bash crates/oasis7_custody_worker/scripts/verify.sh --platform; run_worker_wasm_compile_profiles ;;
-      oasis7_wasm_executor) run_cargo test -p "$profile" --features wasmtime --lib ;;
+      oasis7_wasm_executor) run_cargo test -p "$profile" --features wasmtime --lib --test bounded_worker ;;
       oasis7_client_storage|oasis7_signer_protocol) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib ;;
       oasis7_secure_envelope|oasis7_context) run_cargo test -p "$profile" --all-targets --locked; complete_targets=true ;;
       oasis7_local_signer) run_cargo test -p "$profile" --lib; run_cargo test -p "$profile" --test context_cli --locked ;;
@@ -1288,7 +1402,10 @@ prepare_full_provider_artifact() {
 }
 
 run_full_extended_tier_tests() {
-  run_oasis7_full_tier_tests
+  run_oasis7_full_tier_tests || return
+  if [[ "$(uname -s)" == Linux ]]; then
+    run_oasis7_iws_host_native_after_full_tests || return
+  fi
   run_workspace_support_full_feature_tests
   run_oasis7_llm_baseline_fixture_smoke
   run_oasis7_production_mock_guard
@@ -1330,6 +1447,7 @@ run_rust_baseline() {
 
 run_group() {
   case "$1" in
+    iws_host_native) run_oasis7_iws_host_native_tests ;;
     baseline) run_required_gate_checks ;;
     rust_baseline) run_rust_baseline ;;
     oasis7_required)

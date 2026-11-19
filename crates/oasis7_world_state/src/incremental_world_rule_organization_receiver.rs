@@ -4,6 +4,11 @@ use crate::incremental_field_overlay::WorldFieldOverlayErrorV1;
 use oasis7_formal_protocol::incremental_execution::{TransitionRecordV1, TransitionVerifier};
 use oasis7_proto::memory_budget::ReservedValue;
 use std::cell::RefCell;
+type OrganizationRootEdgeV1 = (
+    OrganizationRootKeyV1<'static>,
+    ReservedValue<StateRootV1>,
+    ReservedValue<String>,
+);
 fn invalid() -> ValueTreeError {
     ValueTreeError::Invalid("organization transition closure")
 }
@@ -13,7 +18,7 @@ fn index(owner: OrganizationRootKeyV1<'_>) -> usize {
         OrganizationRootKeyV1::Estate(_) => 1,
     }
 }
-fn edge<
+pub(super) fn edge<
     M: MerkleNodeReader,
     R: ValueNodeReader,
     E: FnMut() -> Option<ValueTreeError>,
@@ -22,7 +27,7 @@ fn edge<
     key: &WorldFieldKeyV1,
     value: Option<[u8; 32]>,
     context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
-) -> Result<Option<(OrganizationRootKeyV1<'static>, ReservedValue<StateRootV1>)>, ValueTreeError> {
+) -> Result<Option<OrganizationRootEdgeV1>, ValueTreeError> {
     let Some(value) = value else {
         return Ok(None);
     };
@@ -37,21 +42,7 @@ fn edge<
         },
         &mut context.cancelled,
     )?;
-    let root = context.values.load_root(&value)?;
-    let mut sink = std::io::sink();
-    let mut probe = family::outer_key::OuterProbe::new(&mut sink);
-    let result = context.values.read_range(
-        &root,
-        (FIELD_MEMBER_HEADER_BYTES + key.as_bytes().len()) as u64,
-        info.semantic_bytes,
-        &mut probe,
-        &mut context.cancelled,
-    );
-    if let Some(reason) = probe.bad {
-        return Err(ValueTreeError::Invalid(reason));
-    }
-    result?;
-    let Some(owner) = probe.finish()? else {
+    let Some((owner, outer)) = scope::original_outer(&value, key, context)? else {
         return Ok(None);
     };
     if info.codec != MemberPayloadCodecV1::RecordRoot
@@ -92,9 +83,9 @@ fn edge<
     if (context.cancelled)() {
         return Err(ValueTreeError::Cancelled);
     }
-    Ok(Some((owner, retained.retain(child.clone()))))
+    Ok(Some((owner, retained.retain(child.clone()), outer)))
 }
-fn child<
+pub(super) fn child<
     M: MerkleNodeReader,
     R: ValueNodeReader,
     E: FnMut() -> Option<ValueTreeError>,
@@ -254,6 +245,34 @@ fn child<
 }
 /// Integrity/schema acceptance only. The exact qualified parent supplies all
 /// unchanged owner closure; neither generic verification nor a codec token does.
+fn organization_preflight<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<OrganizationFamilyQualificationV1>,
+    record: &TransitionRecordV1,
+    context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+) -> Result<oasis7_proto::memory_budget::MemoryReservation, WorldFieldOverlayErrorV1> {
+    context.check()?;
+    if context.values.class != MemoryClass::Ordinary
+        || !parent.uses_budget(context.values.memory)
+        || !parent.permits_class(MemoryClass::Ordinary)
+        || parent.reserved_bytes() < std::mem::size_of::<OrganizationFamilyQualificationV1>()
+        || context.root != record.after.state_root(StateNamespaceV1::Authorization)
+    {
+        return Err(invalid().into());
+    }
+    let phase = context
+        .values
+        .memory
+        .reserve(128 << 10, MemoryClass::Ordinary)
+        .map_err(ValueTreeError::Memory)?;
+    parent.validate_binding(&record.before.digest().map_err(|_| invalid())?)?;
+    context.check()?;
+    Ok(phase)
+}
 pub fn accept_organization_transition_v1<
     M: MerkleNodeReader,
     S: MerkleNodeReader,
@@ -270,34 +289,43 @@ pub fn accept_organization_transition_v1<
     max_payload: u64,
 ) -> Result<ReservedValue<OrganizationFamilyQualificationV1>, WorldFieldOverlayErrorV1> {
     context.check()?;
-    if !parent.uses_budget(context.values.memory)
-        || !parent.permits_class(context.values.class)
-        || !verifier.memory.same_pool(context.values.memory)
-        || verifier.class != context.values.class
+    if verifier.class != MemoryClass::Ordinary || !verifier.memory.same_pool(context.values.memory)
     {
-        return Err(ValueTreeError::Invalid("organization receiver pool/class").into());
-    }
-    parent.validate_binding(&record.before.digest().map_err(|_| invalid())?)?;
-    let verified = verifier.verify(record);
-    let original = (context.take_state_error)();
-    if (context.cancelled)() {
-        return Err(ValueTreeError::Cancelled.into());
-    }
-    if let Some(error) = original {
-        return Err(error.into());
-    }
-    let verified = verified?;
-    let auth = verified
-        .record
-        .after
-        .state
-        .iter()
-        .find(|root| root.namespace == StateNamespaceV1::Authorization)
-        .ok_or_else(invalid)?;
-    if context.root != auth {
         return Err(invalid().into());
     }
+    {
+        let _phase = organization_preflight(parent, record, context)?;
+    }
+    let witness = crate::incremental_verified_world_transition::verify_world_transition_v1(
+        verifier, record, context,
+    )?;
+    let result =
+        accept_organization_verified_v1(parent, &witness, context, scan, cells, max_payload);
+    context.check()?;
+    result
+}
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn accept_organization_verified_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<OrganizationFamilyQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    context: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    scan: &mut StateScanBudget,
+    cells: &mut u64,
+    max_payload: u64,
+) -> Result<ReservedValue<OrganizationFamilyQualificationV1>, WorldFieldOverlayErrorV1> {
+    context.check()?;
+    witness.check_context(context.values.memory, context.values.class, context.root)?;
+    let verified = witness.prepared();
+    let _phase = organization_preflight(parent, &verified.record, context)?;
     let mut counts = parent.record_counts();
+    let mut scope: Option<
+        crate::incremental_organization_scope_index::OrganizationScopeIndexBuilderV1,
+    > = None;
     for write in &verified.record.writes {
         *cells = cells.checked_sub(1).ok_or(ValueTreeError::ResourceLimited(
             "organization outer changed cells",
@@ -333,9 +361,16 @@ pub fn accept_organization_transition_v1<
         }
         let old = edge(&key, write.mutation.before, context)?;
         let new = edge(&key, write.mutation.after, context)?;
+        if (old.is_some() || new.is_some()) && scope.is_none() {
+            scope = Some(parent.scope.copy_for_changes(
+                context.values.memory,
+                context.values.class,
+                &mut |s, b| scope::spend(scan, &mut context.cancelled, s, b),
+            )?);
+        }
         match (old, new) {
             (None, None) => {}
-            (Some((owner, _)), None) => {
+            (Some((owner, _, outer)), None) => {
                 if write.mutation.after.is_some() || index(owner) == 0 {
                     return Err(ValueTreeError::Invalid(
                         "organization whole Case deletion lacks relationship proof",
@@ -343,11 +378,12 @@ pub fn accept_organization_transition_v1<
                     .into());
                 }
                 counts[index(owner)] = counts[index(owner)].checked_sub(1).ok_or_else(invalid)?;
+                scope.as_mut().ok_or_else(invalid)?.remove(match owner{OrganizationRootKeyV1::Case(_)=>crate::incremental_organization_scope_index::OrganizationScopeKindV1::Protection,OrganizationRootKeyV1::Estate(_)=>crate::incremental_organization_scope_index::OrganizationScopeKindV1::Estate},&outer,&mut|s,b|scope::spend(scan,&mut context.cancelled,s,b))?;
             }
-            (old, Some((owner, new))) => {
+            (old, Some((owner, new, outer))) => {
                 if old
                     .as_ref()
-                    .is_some_and(|(old_owner, _)| index(*old_owner) != index(owner))
+                    .is_some_and(|(old_owner, _, _)| index(*old_owner) != index(owner))
                     || old.is_none() && write.mutation.before.is_some()
                 {
                     return Err(invalid().into());
@@ -358,12 +394,27 @@ pub fn accept_organization_transition_v1<
                 }
                 child(
                     owner,
-                    old.as_ref().map(|(_, root)| &**root),
+                    old.as_ref().map(|(_, root, _)| &**root),
                     &new,
                     context,
                     scan,
                     cells,
                     max_payload,
+                )?;
+                let digest = WorldFieldKeyV1::from_bytes(key.as_bytes())
+                    .map_err(ValueTreeError::Invalid)?
+                    .semantic_key
+                    .ok_or_else(invalid)?;
+                scope::project(
+                    owner,
+                    &outer,
+                    digest,
+                    &new,
+                    context,
+                    scan,
+                    cells,
+                    max_payload,
+                    scope.as_mut().ok_or_else(invalid)?,
                 )?;
             }
         }
@@ -381,6 +432,12 @@ pub fn accept_organization_transition_v1<
         present,
         context.values.memory,
         context.values.class,
+        match scope {
+            Some(scope) => scope.finish()?,
+            None => parent
+                .scope
+                .share(context.values.memory, context.values.class)?,
+        },
     )?;
     if (context.cancelled)() {
         return Err(ValueTreeError::Cancelled.into());

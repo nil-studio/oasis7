@@ -592,6 +592,37 @@ fn recovery_family_qualification_cannot_be_used_by_an_ordinary_context() {
     );
 
     let ordinary_family = readmit_supply_family_ordinary_v1(&recovery_family, &memory).unwrap();
+    // Class readmission preserves the actual structural proof; it cannot
+    // manufacture the separately admitted lifecycle projection. Both present
+    // and absent records must reject before claiming a retained proof or None.
+    for owner in [
+        SupplyRootKeyV1::Authorization(KEY),
+        SupplyRootKeyV1::Batch(KEY),
+        SupplyRootKeyV1::Authorization("absent-authorization"),
+        SupplyRootKeyV1::Batch("absent-batch"),
+    ] {
+        let result =
+            ordinary_family
+                .retain_ordinary_lifecycle_record_v1(owner, &memory, &mut 4096, || false);
+        assert!(
+            matches!(
+                result,
+                Err(ValueTreeError::Invalid(
+                    "supply lifecycle projection not admitted"
+                ))
+            ),
+            "structural family claimed lifecycle admission: {result:?}"
+        );
+    }
+    assert!(matches!(
+        ordinary_family.retain_ordinary_lifecycle_record_v1(
+            SupplyRootKeyV1::Authorization(KEY),
+            &memory,
+            &mut 0,
+            || true,
+        ),
+        Err(ValueTreeError::Cancelled)
+    ));
     let other_pool = MemoryBudget::new(64 << 20, 4 << 20).unwrap();
     assert!(matches!(
         readmit_supply_family_ordinary_v1(&recovery_family, &other_pool),
@@ -625,6 +656,20 @@ fn recovery_family_qualification_cannot_be_used_by_an_ordinary_context() {
             take_state_error: || ordinary_state.take_read_error().map(state_error),
             cancelled: || false,
         };
+        assert_eq!(
+            read_qualified_supply_scalar_v1(
+                SupplyScalarRequestV1 {
+                    owner: SupplyRootKeyV1::Authorization(KEY),
+                    field: SupplyScalarFieldV1::Authorization(SupplyAuthorizationFieldV1::Active),
+                    qualification: &ordinary_record,
+                },
+                &mut point,
+                1,
+                &mut std::io::sink(),
+            )
+            .unwrap(),
+            Some(SupplyScalarValueV1::Bool(false))
+        );
         read_qualified_supply_member_v1(
             SupplyMemberRequestV1 {
                 owner: SupplyRootKeyV1::Authorization(KEY),

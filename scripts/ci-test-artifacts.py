@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import select
 import shutil
 import signal
 import stat
@@ -21,6 +22,119 @@ import time
 import tomllib
 
 import shlex
+
+RUNTIME_WORKER_TEST = 'actual_scheduled_module_vm_fee_policy_state_effect_visual_lifecycle_and_counter'
+RUNTIME_WORKER_PACKAGE = 'oasis7_runtime'
+RUNTIME_WORKER_TARGET = 'oasis7_runtime'
+# Exact libtest names whose fixtures open the real sealed worker image. The
+# shared Rule fixture is also used without Runtime's wasmtime feature. Match
+# complete cases from the active inventory, never their module prefix or package.
+RUNTIME_WORKER_LIB_TESTS = frozenset(
+    'world::incremental_genesis::tests::module_execution::' + case for case in (
+        'action_body::actual_queued_body_actions_match_world_and_read_prior_current_write',
+        'action_body::collect_data::selected_collect_data_foreign_overflow_sink_cancellation_and_work_fail_closed',
+        'action_body::collect_data::selected_non_auth_collect_data_matches_world_and_current_resources',
+        'action_body::material_transfer::insufficient_transfer_precedes_corrupt_current_profile_priority',
+        'action_body::material_transfer::selected_destination_overflow_matches_world_preflight_and_aborts_seal',
+        'action_body::material_transfer::selected_direct_material_transfer_matches_world_and_current_owner_sinks',
+        'action_body::selected_body_actions_reject_foreign_stale_cross_action_cancel_and_work_exhaustion',
+        'action_body::transfer_resource::alliance_actions::queued_alliance_lifecycle_preserves_outer_risk_war_rejections_and_exact_world_originals',
+        'action_body::transfer_resource::auth_current_tests::selected_authenticated_claim_and_nonce_match_legacy_and_consume_current_replay',
+        'action_body::transfer_resource::auth_signature_tests::selected_auth_signature_preserves_legacy_rejection_without_minting_binding',
+        'action_body::transfer_resource::authenticated_data_tests::overflow::authenticated_data_overflow_preserves_original_stock_error_and_aborts_without_result',
+        'action_body::transfer_resource::authenticated_data_tests::selected_authenticated_collect_data_matches_world_originals_resources_and_nonce',
+        'action_body::transfer_resource::contract_accept_actions::queued_contract_accept_accepted_persist_retains_exact_sentinel_and_has_no_event',
+        'action_body::transfer_resource::contract_accept_actions::queued_contract_accept_cancel_before_selection_has_no_input_or_event_and_aborts',
+        'action_body::transfer_resource::contract_accept_actions::queued_contract_accept_full_oracle_both_empty_creates_world_group',
+        'action_body::transfer_resource::contract_accept_actions::queued_contract_accept_full_oracle_legacy_material_fallback',
+        'action_body::transfer_resource::contract_accept_actions::queued_contract_accept_full_oracle_world_ledger_wins',
+        'action_body::transfer_resource::contract_accept_actions::queued_contract_accept_steps_exhausted_preserves_input_without_accepted_or_result_original',
+        'action_body::transfer_resource::contract_lifecycle::queued_war_contract_lifecycle_preserves_current_finances_limits_cooldown_and_originals',
+        'action_body::transfer_resource::crisis_actions::queued_crisis_accepted_persist_retains_exact_sentinel_and_has_no_event',
+        'action_body::transfer_resource::crisis_actions::queued_crisis_cancel_before_selection_has_no_input_or_event_and_aborts',
+        'action_body::transfer_resource::crisis_actions::queued_crisis_preserves_legacy_accepted_originals_current_state_and_mailboxes',
+        'action_body::transfer_resource::crisis_actions::queued_crisis_steps_exhausted_preserves_input_without_accepted_or_result_original',
+        'action_body::transfer_resource::data_access_actions::queued_data_access_actions_match_world_and_current_permissions',
+        'action_body::transfer_resource::factory_lifecycle_actions::boundary::queued_factory_duplicate_salvage_keeps_stack_order_and_flooring',
+        'action_body::transfer_resource::factory_lifecycle_actions::boundary::queued_factory_matching_retired_receipt_replays_without_touch_or_output_group',
+        'action_body::transfer_resource::factory_lifecycle_actions::boundary::queued_factory_pause_busy_priority_and_nonidle_match_legacy',
+        'action_body::transfer_resource::factory_lifecycle_actions::boundary::queued_factory_pause_resets_actual_snapshot_and_rejects_second_pause',
+        'action_body::transfer_resource::factory_lifecycle_actions::boundary::queued_factory_rejection_priority_and_future_pending_recipe_match_legacy',
+        'action_body::transfer_resource::factory_lifecycle_actions::boundary::queued_factory_requested_fallback_and_actual_consumption_match_legacy',
+        'action_body::transfer_resource::factory_lifecycle_actions::failure::fifo_factory_cancel_before_selection_has_no_input_or_event_and_aborts',
+        'action_body::transfer_resource::factory_lifecycle_actions::failure::fifo_factory_normalized_add_overflow_preserves_later_old_typed_error',
+        'action_body::transfer_resource::factory_lifecycle_actions::failure::fifo_factory_original_persist_retains_exact_sentinel_and_aborts',
+        'action_body::transfer_resource::factory_lifecycle_actions::failure::fifo_factory_raw_preflight_overflow_preserves_old_typed_error',
+        'action_body::transfer_resource::factory_lifecycle_actions::failure::fifo_factory_receipt_conflict_precedes_retired_replay',
+        'action_body::transfer_resource::factory_lifecycle_actions::queued_factory_lifecycle_matches_legacy_originals_and_prior_current_writes',
+        'action_body::transfer_resource::failure_tests::selected_transfer_resource_foreign_overflow_sink_cancellation_and_work_fail_closed',
+        'action_body::transfer_resource::logistics_registration::queued_route_registration_preserves_tuple_order_outer_ids_and_same_tx_duplicates',
+        'action_body::transfer_resource::meta_progress_actions::failure::queued_meta_accepted_persist_retains_exact_sentinel_and_has_no_event',
+        'action_body::transfer_resource::meta_progress_actions::failure::queued_meta_cancel_before_selection_has_no_input_or_event_and_aborts',
+        'action_body::transfer_resource::meta_progress_actions::failure::queued_meta_generated_identifier_cap_rejects_before_any_accepted_or_result_original',
+        'action_body::transfer_resource::meta_progress_actions::queued_meta_progress_preserves_legacy_accepted_originals_current_state_and_mailboxes',
+        'action_body::transfer_resource::normal_extension::queued_normal_extensions_match_original_events_body_rows_and_mailboxes',
+        'action_body::transfer_resource::root_empty_fifo_cancellation_is_not_normal_exhaustion',
+        'action_body::transfer_resource::route_availability::queued_route_availability_matches_legacy_originals_and_prior_current_writes',
+        'action_body::transfer_resource::selected_transfer_resource_matches_world_balances_mailboxes_and_native_rejections',
+        'action_execution_tests::selected_common_admission_revision_change_rejects_prepare_and_aborts',
+        'action_execution_tests::selected_core_settlement_preserves_source_error_and_aborts_prefix',
+        'action_execution_tests::selected_core_success_and_rejections_match_original_world_bytes',
+        'action_execution_tests::selected_core_uses_real_rules_and_preserves_counted_result_owner',
+        'actual_scheduled_module_vm_fee_policy_state_effect_visual_lifecycle_and_counter',
+        'commit_directories::real_commit_apply_seal_history_candidate_directory_binding_and_failure_boundaries',
+        'directory_bundle::actual_final_directory_bundle_seal_binding_and_foreign_revision_transaction_pool_rejection',
+        'factory_depreciation_reduce::prepared_factory_reducer_matches_original_world_material_maps_and_missing_factory',
+        'factory_phase::completed_factory_prologue_gates_fifo_and_preserves_current_and_legacy_originals',
+        'factory_phase::real_factory_phase_uses_accepted_caches_current_deltas_and_original_world_oracle',
+        'override_audit::actual_rule_modify_publishes_original_override_after_world_drop',
+        'pre_action::actual_persisted_event_uses_current_directory_and_preserves_legacy_input',
+        'pre_action::actual_post_action_uses_current_directory_and_preserves_legacy_input',
+        'pre_action::actual_pre_action_regex_uses_same_sealed_worker_and_preserves_legacy_input',
+        'pre_action::actual_pre_action_selected_invocation_uses_sealed_vm_after_world_drop',
+        'rule_phase::actual_rule_invalid_first_of_two_emits_preserves_first_error',
+        'rule_phase::actual_rule_invalid_payload_preserves_json_error_event',
+        'rule_phase::actual_rule_modify_runs_nonempty_pricing_on_derived_input',
+        'rule_phase::actual_rule_multiple_emits_preserves_error_event',
+        'rule_phase::actual_rule_phase_matches_legacy_after_world_drop',
+        'rule_phase::actual_rule_wrong_action_id_preserves_error_event',
+        'rule_phase::actual_rule_wrong_id_first_of_two_emits_preserves_first_error',
+        'rule_phase::selected_core_consumes_actual_nonempty_rule_modify_and_pricing',
+        'rule_phase::selected_core_genuine_rule_denial_preserves_balance_and_position',
+        'rule_phase::selected_core_insufficient_rule_cost_preserves_position_and_balance',
+        'rule_phase::selected_core_rejected_move_settles_general_cost_without_pricing_cost',
+        'signed_safe_alternative::normal_transits_due::signed_normal_parent_executes_actual_due_material_transit_against_world_oracle',
+        'signed_safe_alternative::real_signed_matching_genesis_scope_core_rejection_and_exact_retry',
+    )
+)
+
+IWS_RULE_CORE_TARGET = 'iws_rule_core'
+IWS_RULE_CORE_TESTS = frozenset((
+    'selected_core_consumes_actual_nonempty_rule_modify_and_pricing',
+    'selected_core_rejected_move_settles_general_cost_without_pricing_cost',
+    'selected_core_insufficient_rule_cost_preserves_position_and_balance',
+    'selected_core_genuine_rule_denial_preserves_balance_and_position',
+    'selected_rule_modify_form_alliance_to_material_transfer_keeps_guard_and_current_effects',
+    'selected_rule_modify_form_alliance_to_resource_transfer_keeps_guard_and_current_effects',
+    'selected_rule_modify_form_alliance_to_main_token_transfer_keeps_fees_and_nonce',
+))
+IWS_ACTION_BODY_TARGET = 'iws_action_body'
+IWS_ACTION_BODY_TESTS = frozenset((
+    'actual_queued_body_actions_match_world_and_read_prior_current_write',
+    'queued_alliance_lifecycle_preserves_outer_risk_war_rejections_and_exact_world_originals',
+    'actual_main_token_fifo_matches_world_balances_nonces_events_and_mailboxes',
+    'main_token_original_failure_keeps_charge_and_aborts_transaction',
+    'main_token_work_exhaustion_keeps_original_common_debit',
+    'main_token_work_rejects_equal_numeric_foreign_common',
+))
+# Observation label for an inventory-selected test resource, never a planned
+# test variant or a dependency-cache warming context.
+RUNTIME_WORKER_BUILD = 'runtime-worker-companion'
+RUNTIME_WORKER_PATH = 'bin/oasis7-wasm-worker'
+RUNTIME_WORKER_VARIABLE = 'OASIS7_WASM_WORKER_TEST_EXE'
+RUNTIME_WORKER_FEATURE = 'wasmtime'
+RUNTIME_WORKER_ELF_TIMEOUT = 5
+RUNTIME_WORKER_ELF_OUTPUT_LIMIT = 32 * 1024
 
 class ProviderArtifact:
     subprocess = subprocess
@@ -172,6 +286,37 @@ class BuiltinTestArtifact(ProviderArtifact):
                    for name, binary in manifest.get('binaries', {}).items())
 
     @staticmethod
+    def planned(variants):
+        # Only explicit requests move preparation earlier. Cargo's actual
+        # feature inventory remains authoritative, including unification that
+        # cannot be inferred from these root-package command arguments.
+        for _, args, features in variants:
+            packages = {value for flag, value in zip(args, args[1:]) if flag in ('-p', '--package')}
+            requested = {feature.removeprefix('oasis7_runtime/') for feature in features
+                         if '/' not in feature or feature.startswith('oasis7_runtime/')}
+            if (args[:1] == ['test'] and 'oasis7_runtime' in packages
+                    and {'wasmtime', 'test_tier_full'} <= requested):
+                return True
+        return False
+
+    @staticmethod
+    def check_runtime_hash(root, module, wasm):
+        manifest = root / 'crates/oasis7_runtime/src/world/artifacts/m1_builtin_modules.sha256'
+        entries = [fields[1:] for line in manifest.read_text().splitlines()
+                   if (fields := line.split()) and fields[0] == module]
+        if len(entries) != 1 or not entries[0]:
+            raise ValueError('builtin Runtime release hash inventory mismatch: ' + module)
+        expected = [token.rsplit('=', 1)[-1] for token in entries[0]]
+        if any(re.fullmatch(r'[0-9a-f]{64}', value) is None for value in expected):
+            raise ValueError('invalid builtin Runtime release hash: ' + module)
+        actual = ProviderArtifact.digest(wasm)
+        if actual not in expected:
+            raise ValueError('builtin artifact differs from frozen Runtime release: '
+                f'module_id={module} selected_purpose=candidate-build selected_profile=release '
+                f'actual_sha256={actual} expected_sha256=[{",".join(expected)}]; '
+                'candidate baselines do not select Runtime release identities')
+
+    @staticmethod
     def build(root, bundle, expected):
         directory = bundle / BuiltinTestArtifact.DIRECTORY
         directory.mkdir(parents=True, exist_ok=False)
@@ -179,10 +324,6 @@ class BuiltinTestArtifact(ProviderArtifact):
         if any(before[key] != expected[key] for key in ('tested_sha', 'source_sha')):
             raise ValueError('builtin producer source differs from native identity')
         records = {}
-        # ProviderArtifact builds/copies the receipt checker and its dynamic libraries.
-        checker_files, libraries = ProviderArtifact.build_checker(root, bundle, BuiltinTestArtifact.DIRECTORY)
-        checker = dict(files={key: {'path': name, 'sha256': ProviderArtifact.digest(ProviderArtifact.checked(bundle, name))}
-                                   for key, name in checker_files.items()}, libraries=libraries)
         (root / 'target').mkdir(exist_ok=True)
         for module, crate in BuiltinTestArtifact.MODULES.items():
             with tempfile.TemporaryDirectory(prefix='ci-builtin-resources-', dir=root / 'target') as temporary:
@@ -190,12 +331,20 @@ class BuiltinTestArtifact(ProviderArtifact):
                                 '--manifest-path', f'crates/oasis7_builtin_wasm_modules/{crate}/Cargo.toml',
                                 '--out-dir', temporary, '--module-id', module, '--profile', 'release'],
                                cwd=root, check=True)
+                # Reject incompatible actual bytes before the next module or
+                # native checker build. This does not replace receipt validation.
+                BuiltinTestArtifact.check_runtime_hash(root, module,
+                    ProviderArtifact.checked(Path(temporary), module + '.wasm'))
                 for suffix in ('.wasm', '.metadata.json', '.build-receipt.json'):
                     shutil.copy2(Path(temporary) / (module + suffix), directory / (module + suffix))
             records[module] = {kind: {'path': f'{BuiltinTestArtifact.DIRECTORY}/{module}{suffix}',
                                      'sha256': ProviderArtifact.digest(directory / (module + suffix))}
                                for kind, suffix in (('wasm', '.wasm'), ('metadata', '.metadata.json'),
                                                     ('receipt', '.build-receipt.json'))}
+        # ProviderArtifact builds/copies the receipt checker and its dynamic libraries.
+        checker_files, libraries = ProviderArtifact.build_checker(root, bundle, BuiltinTestArtifact.DIRECTORY)
+        checker = dict(files={key: {'path': name, 'sha256': ProviderArtifact.digest(ProviderArtifact.checked(bundle, name))}
+                                   for key, name in checker_files.items()}, libraries=libraries)
         if ProviderArtifact.identity(root) != before:
             raise ValueError('builtin source changed during canonical build')
         record = dict(before, modules=records, checker=checker)
@@ -1190,6 +1339,13 @@ def build_variants(scope, plan=None, ordinary_partition=None):
     raise ValueError('unknown build scope: ' + scope)
 
 
+def runtime_worker_case_selected(cases):
+    return any(isinstance(case, str) and
+               (case in RUNTIME_WORKER_LIB_TESTS or case == RUNTIME_WORKER_TEST
+                or case.endswith('::' + RUNTIME_WORKER_TEST))
+               for case in cases)
+
+
 def artifact_logical_name(variant, package, target, test):
     """Formal aliases identify package, target kind and name, never name alone."""
     name, kinds = target['name'], tuple(target['kind'])
@@ -1348,6 +1504,62 @@ class BuildObservation:
         return False
 
 
+def observe_runtime_worker_elf(worker_path, manifest):
+    """Read bounded diagnostics from the validated image without changing admission."""
+    command = ['readelf', '--wide', '--section-headers', '--program-headers',
+               '--string-dump=.comment', str(worker_path)]
+    record = dict(path=str(worker_path), sha256=manifest['worker_companion']['sha256'],
+                  source_sha=manifest['source_sha'], tested_sha=manifest['tested_sha'],
+                  timeout_seconds=RUNTIME_WORKER_ELF_TIMEOUT,
+                  output_limit_bytes=RUNTIME_WORKER_ELF_OUTPUT_LIMIT,
+                  status='failed', exit_code=None)
+    process, output = None, bytearray()
+    try:
+        process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                   stderr=subprocess.STDOUT, bufsize=0,
+                                   env=dict(os.environ, LC_ALL='C'))
+        deadline = time.monotonic() + RUNTIME_WORKER_ELF_TIMEOUT
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or not select.select([process.stdout], [], [], remaining)[0]:
+                raise subprocess.TimeoutExpired(command, RUNTIME_WORKER_ELF_TIMEOUT)
+            chunk = os.read(process.stdout.fileno(),
+                            min(4096, RUNTIME_WORKER_ELF_OUTPUT_LIMIT + 1 - len(output)))
+            if not chunk:
+                code = process.wait(timeout=max(0, deadline - time.monotonic()))
+                record['status'] = 'success' if code == 0 else 'failed'
+                break
+            output.extend(chunk)
+            if len(output) > RUNTIME_WORKER_ELF_OUTPUT_LIMIT:
+                record['status'] = 'truncated'
+                break
+    except subprocess.TimeoutExpired:
+        record['status'] = 'timeout'
+    except (OSError, ValueError) as error:
+        record['error_type'] = type(error).__name__
+    finally:
+        if process is not None:
+            try:
+                if process.poll() is None:
+                    process.kill()
+                process.wait(timeout=1)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                record.update(status='failed', cleanup_error=type(error).__name__)
+            finally:
+                record['exit_code'] = process.returncode
+                try:
+                    process.stdout.close()
+                except OSError as error:
+                    record.update(status='failed', cleanup_error=type(error).__name__)
+    record.update(truncated=len(output) > RUNTIME_WORKER_ELF_OUTPUT_LIMIT,
+                  retained_output_bytes=min(len(output), RUNTIME_WORKER_ELF_OUTPUT_LIMIT),
+                  output=output[:RUNTIME_WORKER_ELF_OUTPUT_LIMIT].decode('utf-8', errors='replace'))
+    try:
+        print('runtime_worker_elf_observation=' + json.dumps(record), flush=True)
+    except OSError:
+        pass  # Optional diagnostics must not replace the build/validation result.
+
+
 def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir=None, ordinary_partition=None):
     validate_plan_identity(plan)
     if ordinary_partition is not None:
@@ -1384,15 +1596,20 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
                                target=str((ROOT / 'target').resolve()), selection=selection,
                                complete=False, error=str(error))
     binaries, timings = {}, []
+    worker_companion = None
     variants = (build_variants(scope, plan, ordinary_partition=ordinary_partition) if ordinary_partition is not None
                 else build_variants(scope, plan) if plan is not None else build_variants(scope))
+    builtin_test_resources = None
+    if BuiltinTestArtifact.planned(variants):
+        builtin_test_resources = BuiltinTestArtifact.build(ROOT, bundle, ProviderArtifact.identity(ROOT))
     target_specs = {}
     if scope in ('ordinary', 'all'):
         for prefix, targets in (('required-fast-', ordinary_fast_targets(plan)),
                                 ('required-full-fast-', ordinary_full_fast_targets(plan)),
                                 ('required-risk-', ordinary_risk_supplements(plan))):
             target_specs.update({prefix + str(index): target for index, target in enumerate(targets or [])})
-    for variant, args, features in variants:
+    def build_variant(variant, args, features):
+        nonlocal worker_companion
         members = {variant: target_specs[variant]} if variant in target_specs else {}
         if (members and scope == 'ordinary' and plan is not None
                 and plan.get('fast_execution_version') == 1):
@@ -1404,6 +1621,11 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
         command = ['cargo', *args, '--locked', '--message-format=json-render-diagnostics']
         if diagnostics_dir is not None:
             command.append('--timings')
+        if variant == RUNTIME_WORKER_BUILD:
+            # Only the final worker loses native symbols. Preserve dependency
+            # compilation and the current profile; hash the linked image below.
+            # Cargo options must precede the rustc argument separator.
+            command.extend(['--', '-C', 'strip=symbols'])
         print('+ ' + ' '.join(command), flush=True)
         with BuildObservation(variant, diagnostics_dir, timing_directory) as observation, \
                 subprocess.Popen(command, stdout=subprocess.PIPE, text=True, env=env, cwd=ROOT) as process:
@@ -1438,6 +1660,32 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
                 name = target['name']
                 manifest = Path(artifact['manifest_path'])
                 package = tomllib.loads(manifest.read_text())['package']['name']
+                if variant == RUNTIME_WORKER_BUILD:
+                    if (worker_companion is not None or package != 'oasis7_wasm_executor'
+                            or name != 'oasis7-wasm-worker' or target['kind'] != ['bin'] or test
+                            or artifact['features'] != [RUNTIME_WORKER_FEATURE]
+                            or features != [RUNTIME_WORKER_FEATURE]):
+                        raise ValueError('unexpected Runtime worker companion artifact')
+                    source = Path(executable)
+                    destination = bundle / RUNTIME_WORKER_PATH
+                    shutil.copy2(source, destination)
+                    libraries = []
+                    if sys.platform == 'linux':
+                        linked = subprocess.run(['ldd', str(source)], text=True, capture_output=True)
+                        for line in linked.stdout.splitlines():
+                            fields = line.split()
+                            if '=>' in fields and len(fields) > 2 and fields[2].startswith(str(ROOT / 'target') + '/'):
+                                library = Path(fields[2])
+                                relative = 'lib/' + library.name
+                                shutil.copy2(library, bundle / relative)
+                                libraries.append(relative)
+                    worker_companion = dict(
+                        path=RUNTIME_WORKER_PATH, sha256=digest(destination),
+                        package=package, target=name, target_kind=target['kind'], test=False,
+                        profile=artifact['profile'], features=artifact['features'],
+                        requested_features=features, original_executable=str(source),
+                        libraries=sorted(set(libraries)))
+                    continue
                 artifact_variant = variant
                 if members and test:
                     matching = [name for name, spec in members.items()
@@ -1480,6 +1728,9 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
         if len(members) > 1:
             timings[-1]['target_variants'] = list(members)
         print('native_build=' + json.dumps(timings[-1]), flush=True)
+
+    for variant, args, features in variants:
+        build_variant(variant, args, features)
     manifest = dict(schema_version=2, scope=scope, tested_sha=output(['git', 'rev-parse', 'HEAD']),
         source_sha=os.environ.get('SOURCE_SHA', output(['git', 'rev-parse', 'HEAD'])),
         producer_run_id=os.environ.get('GITHUB_RUN_ID', 'local'),
@@ -1501,6 +1752,17 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
             binary['tests'] = inventory(bundle / binary['path'], env=list_env)
             binary['ignored_tests'] = inventory(bundle / binary['path'], True, list_env)
             binary['test_list_sha256'] = hashlib.sha256(json.dumps(binary['tests']).encode()).hexdigest()
+    # Companion executables are test resources, not additional test variants.
+    # The actual active libtest inventory is authoritative: a minimum case list
+    # or a package name cannot prove that this particular harness needs a worker.
+    if scope in ('ordinary', 'all') and runtime_worker_test_selected(manifest):
+        build_variant(RUNTIME_WORKER_BUILD,
+                      ['rustc', '-p', 'oasis7_wasm_executor', '--no-default-features',
+                       '--features', RUNTIME_WORKER_FEATURE, '--bin', 'oasis7-wasm-worker'],
+                      [RUNTIME_WORKER_FEATURE])
+        if worker_companion is None:
+            raise ValueError('missing Runtime worker companion build artifact')
+        manifest['worker_companion'] = worker_companion
     config = formal_configuration()
     component = scope in FORMAL_COMPONENTS
     manifest['suites'] = resolve_suites(config, binaries) if scope != 'ordinary' and not component else {}
@@ -1512,12 +1774,28 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
     if scope != 'ordinary' and not component:
         resolve_shards(config, manifest['suites'])
     manifest['libraries'] = {str(p.relative_to(bundle)): digest(p) for p in (bundle / 'lib').iterdir()}
+    if worker_companion is not None:
+        worker_path = validate_runtime_worker_companion(bundle, manifest)
+        print('runtime_worker_companion_observation=' + json.dumps(dict(
+            path=str(worker_path), bytes=worker_path.stat().st_size,
+            sha256=worker_companion['sha256'], profile=worker_companion['profile'],
+            features=worker_companion['features'], source_sha=manifest['source_sha'],
+            tested_sha=manifest['tested_sha'])), flush=True)
+        observe_runtime_worker_elf(worker_path, manifest)
     manifest['included_binaries'] = sorted(binaries)
     manifest['selection'] = None
     if scope in ('ordinary', 'all') and preview_provider_required(dict(manifest, selection={'suite': 'ordinary'})):
         manifest['preview_provider'] = provider_artifact.build(ROOT, bundle, manifest)
     if BuiltinTestArtifact.required(manifest):
-        manifest['builtin_test_resources'] = BuiltinTestArtifact.build(ROOT, bundle, manifest)
+        if builtin_test_resources is None:
+            builtin_test_resources = BuiltinTestArtifact.build(ROOT, bundle, manifest)
+        else:
+            # Preparation before native compilation cannot stand in for the
+            # final source/tree and actual-consumer validation.
+            BuiltinTestArtifact.validate(ROOT, bundle, builtin_test_resources, manifest)
+        manifest['builtin_test_resources'] = builtin_test_resources
+    elif builtin_test_resources is not None:
+        shutil.rmtree(bundle / BuiltinTestArtifact.DIRECTORY)
     validate_ordinary_selection(manifest)
     (bundle / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     if cache_state is not None:
@@ -1765,6 +2043,70 @@ def checked_file(bundle, name, sha):
     return path
 
 
+def runtime_worker_test_selected(manifest, included=None):
+    if sys.platform != 'linux':
+        return False
+    binaries = manifest.get('binaries', {})
+    included = set(included if included is not None else manifest.get('included_binaries', binaries))
+    for logical in included:
+        binary = binaries.get(logical, {})
+        if (binary.get('ordinary') is not True or binary.get('test') is not True
+                or binary.get('package') != RUNTIME_WORKER_PACKAGE):
+            continue
+        library = (binary.get('target') == RUNTIME_WORKER_TARGET
+                   and binary.get('target_kind') == ['lib'])
+        rule_core = (binary.get('target') == IWS_RULE_CORE_TARGET
+                     and binary.get('target_kind') == ['test'])
+        action_body = (binary.get('target') == IWS_ACTION_BODY_TARGET
+                       and binary.get('target_kind') == ['test'])
+        if not library and not rule_core and not action_body:
+            continue
+        tests, ignored = binary.get('tests', []), binary.get('ignored_tests', [])
+        if (not isinstance(tests, list) or any(not isinstance(case, str) for case in tests)
+                or not isinstance(ignored, list) or any(not isinstance(case, str) for case in ignored)):
+            continue
+        active = set(tests) - set(ignored)
+        if ((library and runtime_worker_case_selected(active))
+                or (rule_core and active & IWS_RULE_CORE_TESTS)
+                or (action_body and active & IWS_ACTION_BODY_TESTS)):
+            return True
+    return False
+
+
+def validate_runtime_worker_companion(bundle, manifest):
+    entry = manifest.get('worker_companion')
+    if not isinstance(entry, dict):
+        raise ValueError('missing Runtime worker companion')
+    if (entry.get('path') != RUNTIME_WORKER_PATH
+            or entry.get('package') != 'oasis7_wasm_executor'
+            or entry.get('target') != 'oasis7-wasm-worker'
+            or entry.get('target_kind') != ['bin'] or entry.get('test') is not False
+            or entry.get('requested_features') != [RUNTIME_WORKER_FEATURE]
+            or not isinstance(entry.get('features'), list)
+            or entry['features'] != [RUNTIME_WORKER_FEATURE]
+            or not isinstance(entry.get('profile'), dict)
+            or entry['profile'].get('test') is not False):
+        raise ValueError('Runtime worker companion role or feature mismatch')
+    path = checked_file(bundle, entry['path'], entry.get('sha256'))
+    if path.is_symlink() or not os.access(path, os.X_OK):
+        raise ValueError('Runtime worker companion is not executable')
+    libraries = entry.get('libraries')
+    recorded_libraries = manifest.get('libraries')
+    if (not isinstance(libraries, list) or any(not isinstance(name, str) for name in libraries)
+            or len(libraries) != len(set(libraries))
+            or not isinstance(recorded_libraries, dict)):
+        raise ValueError('Runtime worker companion libraries are invalid')
+    for name in libraries:
+        parts = name.split('/')
+        if (len(parts) != 2 or parts[0] != 'lib' or parts[1] in ('', '.', '..') or '\\' in name
+                or name not in recorded_libraries):
+            raise ValueError('Runtime worker companion library identity mismatch')
+        library = checked_file(bundle, name, recorded_libraries[name])
+        if library.is_symlink():
+            raise ValueError('Runtime worker companion library identity mismatch')
+    return path
+
+
 def packed_manifest(bundle, suite=None, shard=None, plan=None):
     """Retain the complete parent inventory while resolving its published closure."""
     manifest = json.loads((bundle / 'manifest.json').read_text())
@@ -1783,9 +2125,20 @@ def packed_manifest(bundle, suite=None, shard=None, plan=None):
     manifest['included_binaries'] = sorted(included)
     manifest['selection'] = {'shard': shard} if shard else {'suite': suite}
     libraries = {name for logical in included for name in manifest['binaries'][logical].get('libraries', [])}
+    worker_selected = runtime_worker_test_selected(manifest, included)
+    if worker_selected:
+        worker = manifest.get('worker_companion')
+        validate_runtime_worker_companion(bundle, manifest)
+        libraries.update(worker['libraries'])
+        worker_file = (worker['path'], worker['sha256'])
+    else:
+        manifest.pop('worker_companion', None)
+        worker_file = None
     manifest['libraries'] = {name: manifest['libraries'][name] for name in sorted(libraries)}
     files = [(manifest['binaries'][name]['path'], manifest['binaries'][name]['sha256']) for name in sorted(included)]
     files += list(manifest['libraries'].items())
+    if worker_file is not None:
+        files.append(worker_file)
     if preview_provider_required(manifest):
         provider_artifact.validate(ROOT, bundle, manifest.get('preview_provider'), manifest)
         files += [(entry['path'], entry['sha256']) for entry in manifest['preview_provider']['files'].values()]
@@ -1938,6 +2291,9 @@ def ordinary_delivery_layout(manifest, plan, diagnostic=False):
             paths.add(path)
             files[owner][path] = binary['sha256']
     resources = list(manifest['libraries'].items())
+    if runtime_worker_test_selected(manifest):
+        worker = manifest['worker_companion']
+        resources.append((worker['path'], worker['sha256']))
     if preview_provider_required(manifest):
         provider = manifest.get('preview_provider')
         if not isinstance(provider, dict):
@@ -2780,8 +3136,12 @@ def load(bundle, suite=None, shard=None, plan=None, ordinary_partition=None,
         if not path.resolve().is_relative_to(bundle.resolve()) or digest(path) != sha:
             raise ValueError('invalid dynamic library')
     env = dict(os.environ)
+    env.pop(RUNTIME_WORKER_VARIABLE, None)
     for variable in provider_artifact.VARIABLES:
         env.pop(variable, None)
+    if runtime_worker_test_selected(manifest, included):
+        worker_path = validate_runtime_worker_companion(bundle, manifest)
+        env[RUNTIME_WORKER_VARIABLE] = str(worker_path.resolve())
     if preview_provider_required(manifest):
         env.update(provider_artifact.validate(ROOT, bundle, manifest.get('preview_provider'), manifest))
     elif 'preview_provider' in manifest:
@@ -3079,6 +3439,40 @@ def expand_ordinary_batches(entries, binaries):
     return expanded
 
 
+def bounded_ordinary_runtime_batches(entries, binaries):
+    """Give complete v1 runtime case batches separate unchanged runner budgets."""
+    expanded = []
+    for entry in entries:
+        binary = binaries[entry['binary']]
+        if not (entry.get('batch') and binary.get('package') == binary.get('target')
+                and binary.get('package') in ('oasis7_chain_runtime', 'oasis7_runtime')
+                and binary.get('target_kind') == ['lib'] and binary.get('variant') == 'required'):
+            expanded.append(entry)
+            continue
+        tests, ignored = set(binary['tests']), set(binary['ignored_tests'])
+        excluded = set(entry.get('skip', ())) | set(entry.get('skip_exact', ()))
+        if (len(tests) != len(binary['tests']) or not ignored <= tests or not excluded <= tests):
+            raise ValueError('invalid bounded runtime case inventory')
+        cases = tests - ignored - excluded
+        if not cases:
+            raise ValueError('empty bounded runtime case inventory')
+        batch_count = 4
+        if len(cases) <= batch_count:
+            expanded.append(entry)
+            continue
+        # Hash ordering disperses expensive modules while retaining all actual
+        # nonignored cases. Existing exact exclusive jobs remain independent.
+        ordered = sorted(cases, key=lambda name: (hashlib.sha256(name.encode()).digest(), name))
+        selected = [set(ordered[index::batch_count]) for index in range(batch_count)]
+        if (set.union(*selected) != cases or sum(map(len, selected)) != len(cases)
+                or any(not names for names in selected)):
+            raise ValueError('incomplete or overlapping bounded runtime batches')
+        for index, names in enumerate(selected):
+            expanded.append(dict(entry, name=f'{entry["binary"]}-batch-{index + 1}-of-{batch_count}',
+                skip_exact=sorted(set(entry.get('skip_exact', ())) | (cases - names)), count=len(names)))
+    return expanded
+
+
 def targeted_ordinary_artifact_entries(manifest, partition):
     """Partition real runtime cases, retaining every other complete harness."""
     owners = TARGETED_ORDINARY_ARTIFACT_PARTITIONS[1:]
@@ -3195,6 +3589,8 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
                    if artifact_partition else ordinary_entries(manifest))
         if not (artifact_partition and plan['ordinary_artifact_partition_version'] == 2):
             entries = expand_ordinary_batches(entries, manifest['binaries'])
+        if artifact_partition and plan['ordinary_artifact_partition_version'] == 1:
+            entries = bounded_ordinary_runtime_batches(entries, manifest['binaries'])
         # Original ordinary environment did not contain formal-process child paths.
         for variable in list(env):
             if variable.startswith('OASIS7_FORMAL_') or variable in ('OASIS7_CHAIN_RUNTIME_BIN', 'OASIS7_NODE_LIFECYCLE_TEST_BIN'):
@@ -3213,6 +3609,14 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
         # so the latter do not delay the longest runners. Keep each target and
         # the original relative order within both kinds.
         entries.sort(key=lambda entry: manifest['binaries'][entry['binary']]['target_kind'] != ['lib'])
+    runtime_live_variant = None
+    if artifact_partition and ordinary_partition == 'component-libs':
+        runtime_live_variant = 'required'
+    elif inline and ordinary_partition == 'oasis7_runtime':
+        runtime_live_variant = next(('required-fast-' + str(index)
+            for index, target in enumerate(ordinary_fast_targets(plan))
+            if (target['package'], target['target_kind'], target['target_name'])
+                == ('oasis7_runtime', 'lib', 'oasis7_runtime')), None)
     jobs = []
     for entry in entries:
         logical_suite = entry.get('suite', suite)
@@ -3244,8 +3648,19 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
                 count = 1
             if logical_suite != 'ordinary':
                 command += ['--test-threads=1', '--nocapture']
-            elif entry.get('exclusive'):
-                command.append('--test-threads=1')
+            else:
+                if entry.get('exclusive'):
+                    command.append('--test-threads=1')
+                if (runtime_live_variant is not None
+                      and entry.get('batch')
+                      and entry['binary'] == 'required-test-oasis7_runtime-lib-oasis7_runtime'
+                      and binary.get('variant') == runtime_live_variant
+                      and binary.get('package') == binary.get('target') == 'oasis7_runtime'
+                      and binary.get('target_kind') == ['lib']):
+                    # These exact Runtime batches must emit their first panic even
+                    # if another test outlives the deadline. Other ordinary paths
+                    # keep capture; inventory, threads and failure handling stay intact.
+                    command.append('--nocapture')
             cwd = ROOT / binary['cwd']
         test_env = dict(env, CARGO_MANIFEST_DIR=str(cwd))
         job = dict(command=command, cwd=cwd, env=test_env, suite=logical_suite,

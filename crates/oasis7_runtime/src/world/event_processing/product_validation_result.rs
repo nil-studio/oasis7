@@ -15,7 +15,29 @@ impl World {
         stack: &MaterialStack,
         decision: &ProductValidationDecision,
     ) -> WorldEventBody {
-        if !self.state.agents.contains_key(requester_agent_id) {
+        Self::product_validation_result_from_presence_v1(
+            self.state.agents.contains_key(requester_agent_id),
+            action_id,
+            requester_agent_id,
+            module_id,
+            stack,
+            decision,
+        )
+    }
+}
+
+/// Original conversion only. A presence observation is data; this function
+/// cannot construct a counted/system publication owner.
+impl World {
+    pub(in crate::world) fn product_validation_result_from_presence_v1(
+        agent_present: bool,
+        action_id: ActionId,
+        requester_agent_id: &str,
+        module_id: &str,
+        stack: &MaterialStack,
+        decision: &ProductValidationDecision,
+    ) -> WorldEventBody {
+        if !agent_present {
             return WorldEventBody::Domain(DomainEvent::ActionRejected {
                 action_id,
                 reason: RejectReason::AgentNotFound {

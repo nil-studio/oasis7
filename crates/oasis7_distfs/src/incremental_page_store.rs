@@ -117,6 +117,15 @@ pub struct IncrementalPageStore {
     _lease: File,
     _charge: MemoryReservation,
 }
+
+// A single actual read retains its winning recipe under the original decode
+// workspace until the caller finishes using its frame descriptors.
+struct PageRead {
+    bytes: Arc<ReservedValue<Vec<u8>>>,
+    frames: Vec<FrameDescriptor>,
+    _workspace: MemoryReservation,
+}
+
 impl IncrementalPageStore {
     /// Only create a fresh dedicated directory; never reinterpret an existing
     /// world or complete a partially initialized directory implicitly.
@@ -154,6 +163,22 @@ impl IncrementalPageStore {
     }
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// Observe this actual opened fixed lease, after checking that its path
+    /// still identifies the same protected inode. This is no closure proof.
+    pub(crate) fn opened_lease_identity(&self) -> Result<(u64, u64)> {
+        files::validate_lease(&self.root, &self._lease)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let metadata = self._lease.metadata()?;
+            Ok((metadata.dev(), metadata.ino()))
+        }
+        #[cfg(not(unix))]
+        {
+            Err(PageStoreError::UnsupportedPlatform)
+        }
     }
 
     /// Exact admission pool shared by this store's state/value sessions.
@@ -238,18 +263,18 @@ impl IncrementalPageStore {
         io: &mut PageIoBudget,
         cancelled: &AtomicBool,
     ) -> Result<()> {
-        let stored = self.read_page(id, VALUE_MAX_NODE_BYTES, class, io, cancelled)?;
-        if stored.as_slice() != bytes {
+        let stored = self.read_page_with_recipe(id, VALUE_MAX_NODE_BYTES, class, io, cancelled)?;
+        if stored.bytes.as_slice() != bytes {
             return Err(PageStoreError::Corrupt("immutable page differs"));
         }
         // An earlier publisher may have died after link() but before its
         // directory/file barriers. Readable bytes alone do not reestablish
         // durability. Sync the actually selected representation's closure,
         // including the winner of a concurrent raw/zstd recipe publication.
+        // The verified recipe and its decode workspace remain live through
+        // every barrier; no second locator read or cross-operation memo is used.
         let recipe_path = self.root.join("recipes").join(hex::encode(id));
-        let encoded = files::read(&recipe_path, recipe::MAX_RECIPE_BYTES, io, cancelled)?;
-        let (_, frames) = recipe::decode(id, &encoded)?;
-        for frame in frames {
+        for frame in &stored.frames {
             check_cancelled(cancelled)?;
             files::sync(&self.root.join("frames").join(hex::encode(frame.stored)))?;
         }
@@ -267,6 +292,18 @@ impl IncrementalPageStore {
         io: &mut PageIoBudget,
         cancelled: &AtomicBool,
     ) -> Result<Arc<ReservedValue<Vec<u8>>>> {
+        let read = self.read_page_with_recipe(id, max_bytes, class, io, cancelled)?;
+        Ok(read.bytes)
+    }
+
+    fn read_page_with_recipe(
+        &self,
+        id: &[u8; 32],
+        max_bytes: usize,
+        class: MemoryClass,
+        io: &mut PageIoBudget,
+        cancelled: &AtomicBool,
+    ) -> Result<PageRead> {
         check_cancelled(cancelled)?;
         let _workspace = self.memory.reserve(DECODE_WORKSPACE, class)?;
         files::validate_store_io(&self.root, io, cancelled)?;
@@ -291,18 +328,18 @@ impl IncrementalPageStore {
         // reuse; no cache or carrier escapes into another operation/class.
         let mut decoded_frames: Vec<(FrameDescriptor, Vec<u8>)> =
             Vec::with_capacity(recipe::MAX_FRAMES);
-        for frame in frames {
+        for frame in &frames {
             check_cancelled(cancelled)?;
-            if let Some((_, decoded)) = decoded_frames.iter().find(|(known, _)| known == &frame) {
+            if let Some((_, decoded)) = decoded_frames.iter().find(|(known, _)| known == frame) {
                 output.extend_from_slice(decoded);
                 continue;
             }
             let path = self.root.join("frames").join(hex::encode(frame.stored));
             let stored = files::read(&path, frame_codec::FRAME_BYTES, io, cancelled)?;
-            let decoded = frame_codec::decode(&frame, &stored)
+            let decoded = frame_codec::decode(frame, &stored)
                 .map_err(|_| PageStoreError::Corrupt("physical frame"))?;
             output.extend_from_slice(&decoded);
-            decoded_frames.push((frame, decoded));
+            decoded_frames.push((*frame, decoded));
         }
         check_cancelled(cancelled)?;
         if output.len() != length
@@ -311,7 +348,11 @@ impl IncrementalPageStore {
         {
             return Err(PageStoreError::Corrupt("reconstructed page"));
         }
-        Ok(Arc::new(charge.retain(output)))
+        Ok(PageRead {
+            bytes: Arc::new(charge.retain(output)),
+            frames,
+            _workspace,
+        })
     }
 
     /// One operation owns its physical allowance and cancellation state. It
@@ -321,6 +362,21 @@ impl IncrementalPageStore {
             store: self,
             io: Mutex::new(io),
             cancelled: AtomicBool::new(false),
+            caller_cancelled: None,
+        }
+    }
+    /// Use one caller-owned flag throughout physical reads and writes. The
+    /// ordinary session's local flag remains an additional boundary stop.
+    pub fn value_session_with_cancelled<'a>(
+        &'a self,
+        io: PageIoBudget,
+        cancelled: &'a AtomicBool,
+    ) -> ValuePageSession<'a> {
+        ValuePageSession {
+            store: self,
+            io: Mutex::new(io),
+            cancelled: AtomicBool::new(false),
+            caller_cancelled: Some(cancelled),
         }
     }
 }
@@ -350,13 +406,47 @@ pub struct ValuePageSession<'a> {
     store: &'a IncrementalPageStore,
     io: Mutex<PageIoBudget>,
     pub cancelled: AtomicBool,
+    caller_cancelled: Option<&'a AtomicBool>,
 }
 impl ValuePageSession<'_> {
+    pub(crate) fn physical_cancelled(&self) -> &AtomicBool {
+        self.caller_cancelled.unwrap_or(&self.cancelled)
+    }
+    pub(crate) fn check_cancelled(&self) -> Result<()> {
+        check_cancelled(&self.cancelled)?;
+        check_cancelled(self.physical_cancelled())
+    }
     pub fn remaining_io(&self) -> Result<PageIoBudget> {
         self.io
             .lock()
             .map(|io| io.clone())
             .map_err(|_| PageStoreError::Corrupt("physical session poisoned"))
+    }
+}
+impl ValuePageSession<'_> {
+    /// Publishes the same paid producer bytes to an independent physical
+    /// namespace without cloning their heap allocation or its reservation.
+    pub fn put_node_borrowed(
+        &mut self,
+        id: [u8; 32],
+        bytes: &ReservedValue<Vec<u8>>,
+    ) -> std::result::Result<(), ValueTreeError> {
+        if self.caller_cancelled.is_some() {
+            self.check_cancelled().map_err(value_error)?;
+        }
+        let cancelled = self.caller_cancelled.unwrap_or(&self.cancelled);
+        let io = self
+            .io
+            .get_mut()
+            .map_err(|_| ValueTreeError::Invalid("physical session poisoned"))?;
+        let result = self
+            .store
+            .put_page(id, bytes, io, cancelled)
+            .map_err(value_error);
+        if self.caller_cancelled.is_some() {
+            self.check_cancelled().map_err(value_error)?;
+        }
+        result
     }
 }
 impl ValueNodeWriter for ValuePageSession<'_> {
@@ -365,13 +455,7 @@ impl ValueNodeWriter for ValuePageSession<'_> {
         id: [u8; 32],
         bytes: ReservedValue<Vec<u8>>,
     ) -> std::result::Result<(), ValueTreeError> {
-        let io = self
-            .io
-            .get_mut()
-            .map_err(|_| ValueTreeError::Invalid("physical session poisoned"))?;
-        self.store
-            .put_page(id, &bytes, io, &self.cancelled)
-            .map_err(value_error)
+        self.put_node_borrowed(id, &bytes)
     }
 }
 impl ValueNodeReader for ValuePageSession<'_> {
@@ -385,13 +469,21 @@ impl ValueNodeReader for ValuePageSession<'_> {
         if !self.store.memory.same_pool(memory) {
             return Err(ValueTreeError::Invalid("physical session memory pool"));
         }
+        if self.caller_cancelled.is_some() {
+            self.check_cancelled().map_err(value_error)?;
+        }
         let mut io = self
             .io
             .lock()
             .map_err(|_| ValueTreeError::Invalid("physical session poisoned"))?;
-        self.store
-            .read_page(id, max_bytes, class, &mut io, &self.cancelled)
-            .map_err(value_error)
+        let result = self
+            .store
+            .read_page(id, max_bytes, class, &mut io, self.physical_cancelled())
+            .map_err(value_error);
+        if self.caller_cancelled.is_some() {
+            self.check_cancelled().map_err(value_error)?;
+        }
+        result
     }
 }
 fn value_error(error: PageStoreError) -> ValueTreeError {
@@ -450,7 +542,14 @@ pub use state_store::{ChargedMerklePage, StatePageSession};
 
 #[path = "incremental_buffered_page_writer.rs"]
 mod buffered_writer;
-pub use buffered_writer::{BUFFERED_PAGE_MAX_BYTES, BufferedPageWriter};
+pub use buffered_writer::{BUFFERED_PAGE_MAX_BYTES, BufferedPageWriteErrorV1, BufferedPageWriter};
 
 #[path = "incremental_object_store.rs"]
 pub mod objects;
+
+#[path = "incremental_genesis_store.rs"]
+pub mod genesis;
+
+#[cfg(all(test, unix))]
+#[path = "incremental_caller_cancel_tests.rs"]
+mod caller_cancel_tests;

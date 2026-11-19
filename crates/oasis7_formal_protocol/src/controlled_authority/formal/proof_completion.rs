@@ -63,21 +63,28 @@ impl VerifiedFormalDecisionV1 {
         &self,
         role: EndpointRole,
     ) -> Result<FormalProofCompleteBodyV1, FormalError> {
+        self.complete_receipt_body_with(role, &mut LegacyQuorumOps)
+    }
+    pub(super) fn complete_receipt_body_with<O: QuorumValidationOps>(
+        &self,
+        role: EndpointRole,
+        ops: &mut O,
+    ) -> Result<FormalProofCompleteBodyV1, FormalError> {
         let binding = match role {
             EndpointRole::Primary => &self.finalizer.definition().primary,
             EndpointRole::Replica => &self.finalizer.definition().replica,
         };
         Ok(FormalProofCompleteBodyV1 {
             schema_version: 1,
-            record_id: self.record.record_id()?,
+            record_id: ops.record_id(&self.record)?,
             position: self.record.position,
-            decision_proof_digest: self.decision_proof_digest.clone(),
-            finalizing_authority_id: self.finalizer.authority_id()?,
+            decision_proof_digest: {
+                ops.before_value(&self.decision_proof_digest)?;
+                self.decision_proof_digest.clone()
+            },
+            finalizing_authority_id: ops.authority_id(self.finalizer.definition())?,
             role,
-            instance_digest: binding
-                .instance
-                .digest()
-                .map_err(|error| invalid(error.to_string()))?,
+            instance_digest: ops.instance_id(&binding.instance)?,
             branch: self.branch,
             recovery_certificate_digest: self.recovery_certificate_digest.clone(),
         })
@@ -89,15 +96,32 @@ pub fn verify_formal_qualified(
     parent: Option<&VerifiedFormalCommitV1>,
     recovery: Option<&VerifiedRecovery>,
 ) -> Result<VerifiedFormalCommitV1, FormalError> {
-    let decision = verify_formal_decision(&proof.decision, authority, parent, recovery)?;
-    verify_formal_qualified_from_decision(proof, &decision)
+    verify_formal_qualified_with(proof, authority, parent, recovery, &mut LegacyQuorumOps)
+}
+pub(super) fn verify_formal_qualified_with<O: QuorumValidationOps>(
+    proof: &FormalQualifiedCommitProofV1,
+    authority: &VerifiedAuthorityV1,
+    parent: Option<&VerifiedFormalCommitV1>,
+    recovery: Option<&VerifiedRecovery>,
+    ops: &mut O,
+) -> Result<VerifiedFormalCommitV1, FormalError> {
+    let decision = verify_formal_decision_with(&proof.decision, authority, parent, recovery, ops)?;
+    verify_formal_qualified_from_decision_with(proof, &decision, ops)
 }
 pub fn verify_formal_qualified_from_decision(
     proof: &FormalQualifiedCommitProofV1,
     decision: &VerifiedFormalDecisionV1,
 ) -> Result<VerifiedFormalCommitV1, FormalError> {
+    verify_formal_qualified_from_decision_with(proof, decision, &mut LegacyQuorumOps)
+}
+fn verify_formal_qualified_from_decision_with<O: QuorumValidationOps>(
+    proof: &FormalQualifiedCommitProofV1,
+    decision: &VerifiedFormalDecisionV1,
+    ops: &mut O,
+) -> Result<VerifiedFormalCommitV1, FormalError> {
     if proof.schema_version != 1
-        || formal_decision_proof_digest(&proof.decision)? != decision.decision_proof_digest
+        || formal_decision_proof_digest_with(&proof.decision, ops)?
+            != decision.decision_proof_digest
     {
         return Err(invalid("qualified proof exact verified decision binding"));
     }
@@ -105,35 +129,38 @@ pub fn verify_formal_qualified_from_decision(
         (&proof.primary_complete, EndpointRole::Primary),
         (&proof.replica_complete, EndpointRole::Replica),
     ] {
-        if receipt.body != decision.complete_receipt_body(role)? {
+        ops.before_value(&receipt.body)?;
+        if receipt.body != decision.complete_receipt_body_with(role, ops)? {
             return Err(invalid("qualified proof complete receipt context"));
         }
         let binding = match role {
             EndpointRole::Primary => &decision.finalizer.definition().primary,
             EndpointRole::Replica => &decision.finalizer.definition().replica,
         };
-        verify(
+        ops.verify(
             PROOF_COMPLETE_SIGN_DOMAIN_V1,
             &receipt.body,
             &receipt.signature_hex,
             &binding.instance.endpoint_public_key,
         )?;
     }
+    ops.before_value(&proof.primary_complete.body.record_id)?;
     let mut verified_record_id = [0u8; 32];
     hex::decode_to_slice(
         &proof.primary_complete.body.record_id,
         &mut verified_record_id,
     )
     .map_err(|_| invalid("verified commit cached record id"))?;
+    ops.before_value(&decision.record)?;
     Ok(VerifiedFormalCommitV1 {
         verified_record_id,
         record: decision.record.clone(),
-        finalizing_authority_id: decision.finalizer.authority_id()?,
+        finalizing_authority_id: ops.authority_id(decision.finalizer.definition())?,
     })
 }
 
 #[path = "proof_genesis_bounded.rs"]
-mod genesis_bounded;
+pub(super) mod genesis_bounded;
 pub use genesis_bounded::{
     PaidVerifiedGenesisCommitV1, PaidVerifiedGenesisDecisionV1, build_genesis_decision_bounded,
     build_genesis_qualified_bounded, genesis_final_receipt_body_bounded,

@@ -18,6 +18,8 @@ MANAGED_GROUPS = ("operational_contracts", "packaging_contracts")
 
 # Linux mold linker setup required for native host Cargo linking in packaging contracts.
 GROUPS_WITH_MOLD = {"packaging_contracts"}
+# The ECS archive contract builds a real, independent temporary Cargo workspace.
+GROUPS_WITH_RUST = {"packaging_contracts"}
 
 
 def render_job(group: str) -> str:
@@ -33,10 +35,17 @@ def render_job(group: str) -> str:
         source_checkout_condition = (
             "        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}\n"
         )
-    rust_setup = (
-        '      - name: Install Rust for packaging contract fixtures\n'
-        '        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy\n'
-    ) if group == "packaging_contracts" else ""
+    rust_setup = ""
+    if group in GROUPS_WITH_RUST:
+        rust_setup = (
+            "      - name: Install pinned Rust toolchain\n"
+            "        shell: bash\n"
+            "        run: |\n"
+            '          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy\n'
+            '          rustup default "$RUST_TOOLCHAIN"\n'
+            "          cargo --version\n"
+            "          rustc --version\n"
+        )
     return (
         f"  {job_id}:\n"
         f"    needs: select\n"

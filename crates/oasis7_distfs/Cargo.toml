@@ -36,6 +36,8 @@ polling = "3.11.0"
 oasis7_formal_protocol = { path = "../oasis7_formal_protocol", features = ["test-support"] }
 
 [features]
+# Fresh IWS-only fixture entry; never enables local production signing.
+test-support = []
 protected-bft-luna-key = ["dep:cryptoki"]
 sync-builtin-wasm-identity = ["dep:oasis7_wasm_build"]
 
@@ -43,6 +45,9 @@ sync-builtin-wasm-identity = ["dep:oasis7_wasm_build"]
 name = "sync_builtin_wasm_identity"
 path = "src/bin/sync_builtin_wasm_identity.rs"
 required-features = ["sync-builtin-wasm-identity"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+oasis7_wasm_abi = { path = "../oasis7_wasm_abi" }
 
 [[example]]
 name = "qualify_luna_bft_key"

@@ -22,8 +22,13 @@ fn invalid() -> ValueTreeError {
 pub struct FactoryAuthorityFamilyQualificationV1 {
     roots: [u8; 32],
     counts: [u64; 2],
+    class: oasis7_proto::memory_budget::MemoryClass,
 }
 impl FactoryAuthorityFamilyQualificationV1 {
+    pub fn allocation_class(&self) -> oasis7_proto::memory_budget::MemoryClass {
+        self.class
+    }
+
     pub fn validate_binding(&self, roots: &[u8; 32]) -> Result<(), ValueTreeError> {
         if &self.roots == roots {
             Ok(())
@@ -60,6 +65,25 @@ pub(super) fn outer<
     entry: &StateEntryV1,
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
 ) -> Result<Option<(FactoryAuthorityRecordKindV1, [u8; 32], StateRootV1)>, ValueTreeError> {
+    let mut records = InventoryValueReader {
+        values: &mut ctx.values,
+        key_work: &mut *ctx.key_work,
+        semantic_bytes: ctx.semantic_bytes,
+        record_bytes: ctx.record_bytes,
+        cancelled: &mut ctx.cancelled,
+    };
+    let value = outer_from_records_v1(entry, &mut records)?;
+    if value.is_some() {
+        ctx.check()?;
+    }
+    Ok(value)
+}
+/// Original outer grammar only; the caller supplies an actually authenticated
+/// entry. No current body closure or execution permission is created here.
+pub(super) fn outer_from_records_v1<R: ValueNodeReader, C: FnMut() -> bool>(
+    entry: &StateEntryV1,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+) -> Result<Option<(FactoryAuthorityRecordKindV1, [u8; 32], StateRootV1)>, ValueTreeError> {
     if !entry.key.starts_with(b"oasis7.iws.world-field-key.v1\0") {
         return Ok(None);
     }
@@ -75,13 +99,6 @@ pub(super) fn outer<
     if key.as_bytes() != entry.key || entry.namespace != kind.namespace() {
         return Err(invalid());
     }
-    let mut records = InventoryValueReader {
-        values: &mut ctx.values,
-        key_work: &mut *ctx.key_work,
-        semantic_bytes: ctx.semantic_bytes,
-        record_bytes: ctx.record_bytes,
-        cancelled: &mut ctx.cancelled,
-    };
     if binding.kind == WorldFieldRecordKindV1::Metadata {
         records.presence(&entry.value, &key, 0)?;
         return Ok(None);
@@ -89,13 +106,13 @@ pub(super) fn outer<
     if binding.kind != WorldFieldRecordKindV1::Entry {
         return Err(invalid());
     }
-    let format = marker(kind, &mut records)?;
+    let format = marker(kind, records)?;
     if key == format.0 {
         read::value(
             FactoryAuthorityCellV1::Record,
             &entry.value,
             &format,
-            &mut records,
+            records,
             0,
             &mut std::io::sink(),
         )?;
@@ -113,14 +130,8 @@ pub(super) fn outer<
         },
         &mut *records.cancelled,
     )?;
-    let child = read::outer(
-        kind,
-        &(key, info.semantic_bytes),
-        &entry.value,
-        &mut records,
-    )?;
+    let child = read::outer(kind, &(key, info.semantic_bytes), &entry.value, records)?;
     let owner = binding.semantic_key.ok_or_else(invalid)?;
-    ctx.check()?;
     Ok(Some((kind, owner, child)))
 }
 /// Raw bootstrap/recovery checks every original key, closed child and required
@@ -140,6 +151,7 @@ pub fn qualify_factory_authority_family_v1<
 ) -> Result<ReservedValue<FactoryAuthorityFamilyQualificationV1>, ValueTreeError> {
     roots.validate().map_err(|_| invalid())?;
     ctx.check()?;
+    let _phase = ctx.values.memory.reserve(128 << 10, ctx.values.class)?;
     if !roots.state.iter().any(|r| r == ctx.root) {
         return Err(invalid());
     }
@@ -252,6 +264,7 @@ pub fn qualify_factory_authority_family_v1<
     Ok(retained.retain(FactoryAuthorityFamilyQualificationV1 {
         roots: roots.digest().map_err(|_| invalid())?,
         counts,
+        class: ctx.values.class,
     }))
 }
 
@@ -264,7 +277,11 @@ pub(super) fn mint(
 ) -> Result<ReservedValue<FactoryAuthorityFamilyQualificationV1>, ValueTreeError> {
     Ok(memory
         .reserve(512, class)?
-        .retain(FactoryAuthorityFamilyQualificationV1 { roots, counts }))
+        .retain(FactoryAuthorityFamilyQualificationV1 {
+            roots,
+            counts,
+            class,
+        }))
 }
 
 /// Open one record under an already-qualified exact family RootSet.
@@ -280,10 +297,23 @@ pub fn open_qualified_factory_authority_record_v1<
     ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
 ) -> Result<Option<ReservedValue<FactoryAuthorityQualificationV1>>, ValueTreeError> {
     ctx.check()?;
-    if !family.uses_budget(ctx.values.memory) {
+    if !family.uses_budget(ctx.values.memory)
+        || crate::incremental_record_qualification_phase::check_class_v1(
+            family,
+            ctx.values.memory,
+            ctx.values.class,
+        )
+        .is_err()
+    {
         return Err(invalid());
     }
-    family.validate_binding(&roots.digest().map_err(|_| invalid())?)?;
+    let _phase = crate::incremental_record_qualification_phase::bind_phase_v1(
+        family,
+        crate::incremental_record_qualification_phase::FamilyBindingV1::Roots(roots),
+        ctx.values.memory,
+        ctx.values.class,
+        &mut ctx.cancelled,
+    )?;
     let top = roots
         .state
         .iter()
@@ -309,4 +339,43 @@ pub fn open_qualified_factory_authority_record_v1<
     )?;
     ctx.check()?;
     Ok(Some(proof))
+}
+
+impl crate::incremental_record_qualification_phase::PhaseQualificationV1
+    for FactoryAuthorityFamilyQualificationV1
+{
+    const RETAINED_BYTES: usize = 512;
+    type Binding<'a> = crate::incremental_record_qualification_phase::FamilyBindingV1<'a>;
+    fn phase_class(&self) -> oasis7_proto::memory_budget::MemoryClass {
+        self.class
+    }
+    fn validate_phase_binding(&self, binding: Self::Binding<'_>) -> Result<(), ValueTreeError> {
+        self.validate_binding(&binding.digest()?)
+    }
+    fn from_readmission(
+        permit: crate::incremental_record_qualification_phase::ReadmissionPermitV1<'_, Self>,
+    ) -> Self {
+        let source = permit.source();
+        Self {
+            roots: source.roots,
+            counts: source.counts,
+            class: permit.class(),
+        }
+    }
+}
+pub fn readmit_factory_authority_family_ordinary_v1(
+    source: &oasis7_proto::memory_budget::ReservedValue<FactoryAuthorityFamilyQualificationV1>,
+    roots: &oasis7_formal_protocol::incremental_execution::RootSetV1,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    cancelled: impl FnMut() -> bool,
+) -> Result<
+    oasis7_proto::memory_budget::ReservedValue<FactoryAuthorityFamilyQualificationV1>,
+    ValueTreeError,
+> {
+    crate::incremental_record_qualification_phase::readmit_ordinary_v1(
+        source,
+        crate::incremental_record_qualification_phase::FamilyBindingV1::Roots(roots),
+        memory,
+        cancelled,
+    )
 }

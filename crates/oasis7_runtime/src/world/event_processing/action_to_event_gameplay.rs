@@ -1,12 +1,14 @@
 use super::*;
 #[path = "action_to_event_gameplay_alliances.rs"]
 mod action_to_event_gameplay_alliances;
+pub(in crate::world) use action_to_event_gameplay_alliances::fixed as alliance_fixed;
 #[path = "action_to_event_gameplay_claims.rs"]
 mod action_to_event_gameplay_claims;
 #[path = "action_to_event_gameplay_governance.rs"]
 mod action_to_event_gameplay_governance;
 #[path = "action_to_event_gameplay_war.rs"]
 mod action_to_event_gameplay_war;
+pub(in crate::world) use action_to_event_gameplay_war::fixed as war_fixed;
 
 impl World {
     pub(super) fn action_to_event_gameplay(

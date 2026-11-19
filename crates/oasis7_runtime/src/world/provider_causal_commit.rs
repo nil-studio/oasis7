@@ -1,6 +1,9 @@
 //! Provider evidence is proposal data; Runtime derives its intent and all grant authority.
 use super::*;
-use crate::{Action, AgentDecisionCausalContextV1, RuntimeCognitionCommitRequestV1, RuntimeCognitionResponseArtifactV1, WorldCommitRecordV1, RuntimeReceiptLineageV1};
+use crate::{
+    Action, AgentDecisionCausalContextV1, RuntimeCognitionCommitRequestV1,
+    RuntimeCognitionResponseArtifactV1, RuntimeReceiptLineageV1, WorldCommitRecordV1,
+};
 #[derive(Debug, Clone, Default)]
 pub struct ProviderDecisionEvidenceV1 {
     pub expected_consequence: JsonValue,
@@ -27,13 +30,31 @@ impl World {
         response_artifact: RuntimeCognitionResponseArtifactV1,
         evidence: ProviderDecisionEvidenceV1,
     ) -> Result<(WorldCommitRecordV1, RuntimeReceiptLineageV1), ProviderCognitionCommitError> {
-        let already_committed = self.cognition().get("commit_records").and_then(serde_json::Value::as_array).into_iter().flatten().any(|marker| {
-            marker.get("status").and_then(serde_json::Value::as_str) == Some("committed")
-                && marker.get("decision_request_id").and_then(serde_json::Value::as_str) == Some(request.decision_request_id.as_str())
-                && marker.get("request_digest").and_then(serde_json::Value::as_str) == Some(request.request_digest.as_str())
-        });
+        let already_committed = self
+            .cognition()
+            .get("commit_records")
+            .and_then(serde_json::Value::as_array)
+            .into_iter()
+            .flatten()
+            .any(|marker| {
+                marker.get("status").and_then(serde_json::Value::as_str) == Some("committed")
+                    && marker
+                        .get("decision_request_id")
+                        .and_then(serde_json::Value::as_str)
+                        == Some(request.decision_request_id.as_str())
+                    && marker
+                        .get("request_digest")
+                        .and_then(serde_json::Value::as_str)
+                        == Some(request.request_digest.as_str())
+            });
         if !already_committed {
-            let intent_id = self.state().agents.get(&request.agent_id).and_then(|cell| cell.intent.as_ref()).filter(|intent| matches!(intent.status.as_str(), "accepted" | "blocked")).map(|intent| intent.intent_id.clone());
+            let intent_id = self
+                .state()
+                .agents
+                .get(&request.agent_id)
+                .and_then(|cell| cell.intent.as_ref())
+                .filter(|intent| matches!(intent.status.as_str(), "accepted" | "blocked"))
+                .map(|intent| intent.intent_id.clone());
             let context = AgentDecisionCausalContextV1 {
                 intent_id,
                 expected_consequence: evidence.expected_consequence,
@@ -45,8 +66,15 @@ impl World {
                 dissent: evidence.dissent,
                 ..Default::default()
             };
-            self.bind_agent_causal_decision(&request.decision_request_id, &request.agent_id, &action, context).map_err(ProviderCognitionCommitError::AgencyBinding)?;
+            self.bind_agent_causal_decision(
+                &request.decision_request_id,
+                &request.agent_id,
+                &action,
+                context,
+            )
+            .map_err(ProviderCognitionCommitError::AgencyBinding)?;
         }
-        self.commit_cognition_action(request, action, response_artifact).map_err(ProviderCognitionCommitError::Commit)
+        self.commit_cognition_action(request, action, response_artifact)
+            .map_err(ProviderCognitionCommitError::Commit)
     }
 }

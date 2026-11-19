@@ -141,6 +141,16 @@ mod key_read;
 mod tree;
 pub use family::{
     IndustryFamilyQualificationV1, IndustryFamilyReadContextV1, qualify_industry_family_v1,
+    readmit_industry_family_ordinary_v1,
+};
+#[path = "incremental_industry_jobs_current_identity.rs"]
+mod current_identity;
+pub use current_identity::{
+    IndustryCurrentOuterChangeV1, IndustryOuterRecordRootV1, IndustryQualifiedOuterIdentityV1,
+    read_current_industry_family_counts_v1, visit_completion_current_outer_changes_v1,
+    visit_qualified_completion_parent_identities_v1, visit_qualified_recipe_parent_identities_v1,
+    visit_qualified_transit_parent_identities_v1, visit_recipe_current_outer_changes_v1,
+    visit_transit_current_outer_changes_v1,
 };
 
 #[path = "incremental_industry_jobs_container.rs"]
@@ -150,7 +160,7 @@ mod overlay;
 pub use overlay::{
     IndustryCellChangeV1, IndustryRecordCreateV1, IndustryValueRefV1,
     change_industry_cell_overlay_v1, create_industry_record_overlay_v1,
-    read_industry_cell_overlay_v1,
+    read_industry_cell_overlay_v1, verify_industry_record_overlay_v1,
 };
 
 pub use overlay::{
@@ -171,3 +181,82 @@ mod pages;
 pub use pages::{
     IndustryFamilyPagesV1, mark_industry_family_pages_v1, transfer_industry_family_pages_v1,
 };
+
+pub(crate) use receiver::accept_industry_verified_v1;
+
+/// Validate only the original typed child closure/delta. This produces no
+/// permission or family qualification; the joint owner authenticates its source.
+pub(crate) fn validate_industry_lifecycle_child_delta_v1<
+    R: oasis7_formal_protocol::incremental_value::ValueNodeReader,
+    C: FnMut() -> bool,
+>(
+    before: Option<&oasis7_formal_protocol::incremental_state::StateRootV1>,
+    after: &oasis7_formal_protocol::incremental_state::StateRootV1,
+    context: &mut IndustryTransitionReadContextV1<'_, R, C>,
+    work: &mut IndustryWorkBudgetV1,
+) -> Result<(), crate::incremental_field_overlay::WorldFieldOverlayErrorV1> {
+    let mut records = crate::incremental_inventory_value_read::InventoryValueReader {
+        values: &mut context.values,
+        key_work: &mut *context.key_work,
+        semantic_bytes: context.semantic_bytes,
+        record_bytes: context.record_bytes,
+        cancelled: &mut context.cancelled,
+    };
+    match before {
+        Some(before) => advance::child(
+            IndustryRecordKindV1::Recipe,
+            before,
+            after,
+            &mut records,
+            work,
+            context.max_payload_bytes,
+        ),
+        None => closure::verify_child(
+            IndustryRecordKindV1::Recipe,
+            after,
+            &mut records,
+            context.max_payload_bytes,
+            work,
+        ),
+    }
+    .map_err(Into::into)
+}
+
+/// A paid decoded outer observation only. The joint lifecycle owner separately
+/// binds its genuine parent/new family qualifications and verified write source.
+pub(crate) fn decode_industry_lifecycle_outer_record_v1<
+    R: oasis7_formal_protocol::incremental_value::ValueNodeReader,
+    C: FnMut() -> bool,
+>(
+    value_root: &[u8; 32],
+    key: &crate::incremental_world_field_key::WorldFieldKeyV1,
+    context: &mut IndustryTransitionReadContextV1<'_, R, C>,
+) -> Result<
+    ReservedValue<IndustryQualifiedOuterIdentityV1>,
+    crate::incremental_field_overlay::WorldFieldOverlayErrorV1,
+> {
+    let fee = context
+        .values
+        .memory
+        .reserve(
+            std::mem::size_of::<IndustryQualifiedOuterIdentityV1>() + 64,
+            context.values.class,
+        )
+        .map_err(ValueTreeError::Memory)?;
+    let mut records = crate::incremental_inventory_value_read::InventoryValueReader {
+        values: &mut context.values,
+        key_work: &mut *context.key_work,
+        semantic_bytes: context.semantic_bytes,
+        record_bytes: context.record_bytes,
+        cancelled: &mut context.cancelled,
+    };
+    let (id, record_root) = current_identity::decode_recipe_root(value_root, key, &mut records)?;
+    Ok(fee.retain(IndustryQualifiedOuterIdentityV1::Record {
+        id,
+        value_root: *value_root,
+        record_root,
+    }))
+}
+
+#[path = "incremental_industry_projection_delta_industry_jobs.rs"]
+pub(crate) mod projection;

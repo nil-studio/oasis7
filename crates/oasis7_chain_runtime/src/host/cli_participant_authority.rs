@@ -105,7 +105,13 @@ pub(crate) fn devlocal_participant_config(
     } else {
         None
     };
+    // Private stamp is minted only after the original option, pin and optional
+    // private-file parsing path has succeeded. It has no public constructor.
+    let mut operator_pin=[0u8;32];
+    hex::decode_to_slice(authority.operator_public_key(),&mut operator_pin).map_err(|_|"validated local operator pin")?;
+    let process=std::sync::Arc::new(VerifiedIwsLocalProcessConfigV1{world:*blake3::hash(o.world_id.as_bytes()).as_bytes(),operator_pin,release:authority.release_security_policy().clone(),startup_declared:o.devlocal_participant_policy_file.is_some(),origin_declared:o.devlocal_participant_origin_root.is_some()});
     Ok(DevLocalParticipantConfig {
+        verified_iws_local_process:Some(process),
         authority: Some(authority),
         startup,
         ..DevLocalParticipantConfig::default()
@@ -233,5 +239,22 @@ mod tests {
                 .authority
                 .is_some()
         );
+    }
+}
+
+/// Actual CLI-success provenance. This fixed record is deliberately not
+/// serializable, publicly constructible or inferred from optional fields.
+pub(crate) struct VerifiedIwsLocalProcessConfigV1 {
+    world:[u8;32], operator_pin:[u8;32], release:oasis7_runtime::ReleaseSecurityPolicy,startup_declared:bool,origin_declared:bool,
+}
+impl VerifiedIwsLocalProcessConfigV1 {
+    pub(crate) fn validate_actual_restore_v1(&self,control:&crate::execution_config::DevLocalParticipantConfig,local:&oasis7_runtime::DevLocalParticipantAuthority,authority:&oasis7_formal_protocol::controlled_authority::formal::VerifiedAuthorityV1,head:&oasis7_formal_protocol::controlled_authority::formal::VerifiedFormalCommitV1,common:&mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>)->Result<(),oasis7_runtime::BodyMutationError>{
+        use oasis7_runtime::BodyMutationError;
+        let a=&authority.definition().world;let h=&head.record().world;
+        let n=[a.world_id.len(),a.genesis_digest.len(),a.chain_id.len(),h.world_id.len(),h.genesis_digest.len(),h.chain_id.len(),local.operator_public_key().len()].into_iter().try_fold(0u64,|n,b|n.checked_add(b as u64)).ok_or(BodyMutationError::Invalid("local process config comparison bound"))?;
+        common.charge(8,n).map_err(|e|BodyMutationError::Original(Box::new(e)))?;
+        let mut pin=[0u8;32];hex::decode_to_slice(local.operator_public_key(),&mut pin).map_err(|_|BodyMutationError::Invalid("local process config pin"))?;
+        if self.startup_declared!=control.startup.is_some()||self.origin_declared!=control.verified_origin.is_some(){return Err(BodyMutationError::Invalid("declared CLI local process evidence missing or replaced"));}
+        if self.operator_pin!=pin||&self.release!=local.release_security_policy()||a!=h||self.world!=*blake3::hash(h.world_id.as_bytes()).as_bytes(){return Err(BodyMutationError::Invalid("actual CLI local process configuration mismatch"));}Ok(())
     }
 }

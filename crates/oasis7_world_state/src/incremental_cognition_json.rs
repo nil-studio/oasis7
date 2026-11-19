@@ -255,6 +255,10 @@ impl CognitionJsonFieldV1 {
             ),
         }
     }
+    pub(crate) fn projection_envelope_path_v1(self) -> (&'static str, Option<&'static str>) {
+        let (_, parent, child, _, _, _, _) = self.spec();
+        (parent.unwrap_or(child), parent.map(|_| child))
+    }
     pub fn name(self) -> &'static str {
         self.spec().0
     }
@@ -350,12 +354,12 @@ pub fn prepare_cognition_json_genesis_v1<
         sink,
     )
 }
-pub(crate) fn prepare_cognition_json_fields_v1<
+pub(crate) fn prepare_cognition_json_fields_from_values_v1<
     W: StatePageWriter + ValueNodeReader,
     C: FnMut() -> bool,
     S: FnMut(ReservedValue<ExecutionWriteV1>) -> Result<(), ValueTreeError>,
 >(
-    source: CognitionEnvelopeRefV1<'_>,
+    source: CognitionValuesSourceV1<'_>,
     fields: impl IntoIterator<Item = CognitionJsonFieldV1>,
     context: &mut MemberRecordWriteContext<'_, W, C>,
     records: &mut u64,
@@ -363,7 +367,7 @@ pub(crate) fn prepare_cognition_json_fields_v1<
     sink: &mut S,
 ) -> Result<(), MemberRecordError> {
     for field in fields {
-        let Some(value) = field.value(source) else {
+        let Some(value) = source.json(field) else {
             if field.optional() {
                 continue;
             } else {
@@ -457,5 +461,62 @@ pub(crate) fn write_root<W: ValueNodeWriter, C: FnMut() -> bool>(
         &(),
         MemberPayloadRefV1::RecordRoot(&reference),
         context,
+    )
+}
+
+/// Fixed data projections only; the Economy alternative never pretends to be
+/// a complete Cognition envelope or supplies any qualification.
+#[derive(Clone, Copy)]
+pub(crate) enum CognitionValuesSourceV1<'a> {
+    Envelope(CognitionEnvelopeRefV1<'a>),
+    Economy(&'a serde_json::Map<String, serde_json::Value>),
+}
+impl<'a> CognitionValuesSourceV1<'a> {
+    pub(crate) fn json(self, field: CognitionJsonFieldV1) -> Option<&'a serde_json::Value> {
+        match self {
+            Self::Envelope(source) => field.value(source),
+            Self::Economy(source) => {
+                let (_, container, key, ..) = field.spec();
+                if container == Some("cognition_economy") {
+                    source.get(key)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+    pub(crate) fn control(
+        self,
+        field: crate::incremental_cognition_fields::CognitionControlFieldV1,
+    ) -> Option<&'a serde_json::Value> {
+        match self {
+            Self::Envelope(source) => field.value(source),
+            Self::Economy(source) => field
+                .descriptor()
+                .name
+                .strip_prefix("economy.")
+                .and_then(|key| source.get(key)),
+        }
+    }
+}
+pub(crate) fn prepare_cognition_json_fields_v1<
+    W: StatePageWriter + ValueNodeReader,
+    C: FnMut() -> bool,
+    S: FnMut(ReservedValue<ExecutionWriteV1>) -> Result<(), ValueTreeError>,
+>(
+    source: CognitionEnvelopeRefV1<'_>,
+    fields: impl IntoIterator<Item = CognitionJsonFieldV1>,
+    context: &mut MemberRecordWriteContext<'_, W, C>,
+    records: &mut u64,
+    work: &mut JsonWriteWorkV1,
+    sink: &mut S,
+) -> Result<(), MemberRecordError> {
+    prepare_cognition_json_fields_from_values_v1(
+        CognitionValuesSourceV1::Envelope(source),
+        fields,
+        context,
+        records,
+        work,
+        sink,
     )
 }

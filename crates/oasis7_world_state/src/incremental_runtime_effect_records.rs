@@ -449,7 +449,7 @@ pub use json_read::{
 mod family;
 pub use family::{
     RuntimeEffectFamilyQualificationV1, RuntimeEffectQueueFrontierV1,
-    qualify_runtime_effect_records_v1,
+    qualify_runtime_effect_records_v1, readmit_runtime_effect_family_ordinary_v1,
 };
 
 #[path = "incremental_runtime_effect_records_overlay.rs"]
@@ -474,3 +474,5 @@ pub use pages::{
     RuntimeEffectFamilyPagesV1, RuntimeEffectPagesWorkV1, mark_runtime_effect_family_pages_v1,
     transfer_runtime_effect_family_pages_v1,
 };
+
+pub(crate) use receiver::accept_runtime_effect_verified_v1;

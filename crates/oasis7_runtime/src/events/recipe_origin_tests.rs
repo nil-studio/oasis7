@@ -51,7 +51,7 @@ fn committed_recipe_origin_pending_snapshot_roundtrip_and_legacy_bytes() {
         id: 1,
         action,
         governance_authorization: None,
-            committed_recipe_origin: None,
+        committed_recipe_origin: None,
     };
     let raw = serde_json::to_value(&legacy).unwrap();
     assert!(raw.get("committed_recipe_origin").is_none());

@@ -10,6 +10,13 @@ use super::super::{
 };
 use super::economy_data_publication::SparseMapProjection;
 
+#[path = "main_token_transfer.rs"]
+mod transfer;
+pub use transfer::{
+    MainTokenTransferDeltaV1, MainTokenTransferErrorV1, MainTokenTransferReadV1,
+    prepare_main_token_transfer_delta_v1,
+};
+
 #[derive(Debug)]
 pub struct PreparedMainTokenMonetaryEvent {
     event: DomainEvent,
@@ -315,74 +322,29 @@ impl PreparedMainTokenMonetaryEvent {
         amount: u64,
         nonce: u64,
     ) -> Result<(), WorldError> {
-        let from = from.trim();
-        let to = to.trim();
-        if from.is_empty() {
-            return Err(invalid(
-                "main token transfer from_account_id cannot be empty",
-            ));
+        struct Read<'a>(&'a WorldState);
+        impl MainTokenTransferReadV1 for Read<'_> {
+            type Error = std::convert::Infallible;
+            fn transfer_nonce(&mut self, account: &str) -> Result<Option<u64>, Self::Error> {
+                Ok(self.0.main_token_transfer_nonces.get(account).copied())
+            }
+            fn balance(
+                &mut self,
+                account: &str,
+            ) -> Result<Option<MainTokenAccountBalance>, Self::Error> {
+                Ok(self.0.main_token_balances.get(account).cloned())
+            }
         }
-        if to.is_empty() {
-            return Err(invalid("main token transfer to_account_id cannot be empty"));
-        }
-        if from == to {
-            return Err(invalid(format!(
-                "main token transfer from_account_id and to_account_id cannot be the same: {from}"
-            )));
-        }
-        if amount == 0 {
-            return Err(invalid("main token transfer amount must be > 0"));
-        }
-        if nonce == 0 {
-            return Err(invalid("main token transfer nonce must be > 0"));
-        }
-        if let Some(last) = state.main_token_transfer_nonces.get(from)
-            && nonce <= *last
-        {
-            return Err(invalid(format!(
-                "main token transfer nonce replay: from_account_id={from} nonce={nonce} last_nonce={last}"
-            )));
-        }
-        let mut source = state
-            .main_token_balances
-            .get(from)
-            .cloned()
-            .ok_or_else(|| {
-                invalid(format!(
-                    "main token transfer source account not found: {from}"
-                ))
-            })?;
-        if source.account_id != from {
-            return Err(invalid(format!(
-                "main token transfer source account key mismatch: key={from} value={}",
-                source.account_id
-            )));
-        }
-        if source.liquid_balance < amount {
-            return Err(invalid(format!(
-                "main token transfer source balance insufficient: from_account_id={from} balance={} amount={amount}",
-                source.liquid_balance
-            )));
-        }
-        let target_before = state.main_token_balances.get(to).cloned();
-        if let Some(target) = &target_before
-            && target.account_id != to
-        {
-            return Err(invalid(format!(
-                "main token transfer target account key mismatch: key={to} value={}",
-                target.account_id
-            )));
-        }
-        let target_liquid = target_before.as_ref().map(|a| a.liquid_balance).unwrap_or(0).checked_add(amount).ok_or_else(|| invalid(format!("main token transfer target balance overflow: to_account_id={to} amount={amount}")))?;
-        source.liquid_balance -= amount;
-        let mut target = target_before.unwrap_or_else(|| MainTokenAccountBalance {
-            account_id: to.to_string(),
-            ..MainTokenAccountBalance::default()
-        });
-        target.liquid_balance = target_liquid;
-        self.balances.insert(from.to_string(), source);
-        self.balances.insert(to.to_string(), target);
-        self.transfer_nonces.insert(from.to_string(), nonce);
+        let delta =
+            match prepare_main_token_transfer_delta_v1(from, to, amount, nonce, &mut Read(state)) {
+                Ok(delta) => delta,
+                Err(MainTokenTransferErrorV1::Business(error)) => return Err(error),
+                Err(MainTokenTransferErrorV1::Read(never)) => match never {},
+            };
+        self.balances.insert(from.trim().to_string(), delta.source);
+        self.balances.insert(to.trim().to_string(), delta.target);
+        self.transfer_nonces
+            .insert(from.trim().to_string(), delta.nonce);
         Ok(())
     }
 

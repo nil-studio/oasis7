@@ -1,6 +1,4 @@
-use super::super::agent_claims::{
-    AgentClaimCostQuote, agent_claim_quote, split_agent_claim_bond_refund, split_agent_claim_spend,
-};
+use super::super::agent_claims::{AgentClaimCostQuote, agent_claim_quote};
 use super::super::{AgentClaimState, DomainEvent, WorldError, WorldEvent, WorldEventBody};
 use super::World;
 
@@ -22,10 +20,16 @@ impl World {
         claimer_agent_id: &str,
     ) -> Result<AgentClaimCostQuote, WorldError> {
         let owned_claim_count = if self.state.starter_oc_claims.contains_key(claimer_agent_id) {
-            let mut targets=crate::world_rules::manufacturing_existing_targets(&self.state,claimer_agent_id)?;
-            targets.extend(crate::world_rules::manufacturing_reserved_targets(&self.state,claimer_agent_id));
+            let mut targets =
+                crate::world_rules::manufacturing_existing_targets(&self.state, claimer_agent_id)?;
+            targets.extend(crate::world_rules::manufacturing_reserved_targets(
+                &self.state,
+                claimer_agent_id,
+            ));
             targets.len()
-        } else {self.claimed_agent_count(claimer_agent_id)};
+        } else {
+            self.claimed_agent_count(claimer_agent_id)
+        };
         let reputation_score = self
             .state
             .reputation_scores
@@ -100,76 +104,12 @@ impl World {
             return Ok(None);
         };
 
-        let Some((charged_epochs, amount_due)) = claim_amount_due(&latest_claim, current_epoch)?
-        else {
-            return self.prepare_agent_claim_release_or_idle_event(current_epoch, &latest_claim);
-        };
-
-        let funding = split_agent_claim_spend(
-            latest_claim.slot_index,
-            self.main_token_liquid_balance(latest_claim.claim_owner_id.as_str()),
-            self.main_token_restricted_starter_claim_balance(latest_claim.claim_owner_id.as_str()),
-            amount_due,
-        );
-        if let Ok(funding) = funding {
-            return Ok(Some(DomainEvent::AgentClaimUpkeepSettled {
-                activity_contract_version: 1,
-                claimer_agent_id: latest_claim.claim_owner_id.clone(),
-                target_agent_id: latest_claim.target_agent_id.clone(),
-                settled_at_epoch: current_epoch,
-                charged_epochs,
-                amount: amount_due,
-                restricted_spent_amount: funding.restricted_amount,
-                liquid_spent_amount: funding.liquid_amount,
-                upkeep_paid_through_epoch: current_epoch,
-            }));
-        }
-
-        if let Some(grace_deadline_epoch) = latest_claim.grace_deadline_epoch {
-            if current_epoch > grace_deadline_epoch {
-                let (collected_upkeep_amount, penalty_amount, refunded_bond_amount) =
-                    reclaim_bond_settlement(
-                        latest_claim.locked_bond_amount,
-                        amount_due,
-                        latest_claim.forced_reclaim_penalty_bps,
-                    );
-                let refund_sink =
-                    self.restricted_starter_claim_refund_sink_for_claim(&latest_claim);
-                let refunded_bond_split = split_agent_claim_bond_refund(
-                    latest_claim.claim_bond_locked_restricted_amount,
-                    latest_claim.claim_bond_locked_liquid_amount,
-                    collected_upkeep_amount.saturating_add(penalty_amount),
-                )
-                .map_err(|reason| WorldError::ResourceBalanceInvalid { reason })?;
-                return Ok(Some(DomainEvent::AgentClaimReclaimed {
-                    claimer_agent_id: latest_claim.claim_owner_id.clone(),
-                    target_agent_id: latest_claim.target_agent_id.clone(),
-                    reclaimed_at_epoch: current_epoch,
-                    reason: "upkeep_delinquent".to_string(),
-                    upkeep_arrears_amount: amount_due,
-                    collected_upkeep_amount,
-                    penalty_amount,
-                    refunded_bond_amount,
-                    refunded_bond_restricted_amount: refunded_bond_split.restricted_amount,
-                    refunded_bond_liquid_amount: refunded_bond_split.liquid_amount,
-                    refunded_bond_restricted_sink: refund_sink.sink,
-                    refunded_bond_restricted_sink_bucket_id: refund_sink
-                        .treasury_bucket_id
-                        .unwrap_or_default(),
-                }));
-            }
-            return Ok(None);
-        }
-
-        let grace_deadline_epoch =
-            current_epoch.saturating_add(latest_claim.grace_epochs.saturating_sub(1));
-        Ok(Some(DomainEvent::AgentClaimEnteredGrace {
-            claimer_agent_id: latest_claim.claim_owner_id.clone(),
-            target_agent_id: latest_claim.target_agent_id.clone(),
-            delinquent_since_epoch: latest_claim.upkeep_paid_through_epoch.saturating_add(1),
-            grace_deadline_epoch,
-            upkeep_arrears_amount: amount_due,
-        }))
+        let refund = self.restricted_starter_claim_refund_sink_for_claim(&latest_claim);
+        super::incremental_normal_claim_epochs::evaluate::prepare_epoch_v1(
+            current_epoch,&latest_claim,
+            self.main_token_liquid_balance(&latest_claim.claim_owner_id),
+            self.main_token_restricted_starter_claim_balance(&latest_claim.claim_owner_id),
+            self.agent_last_control_epoch(&latest_claim.target_agent_id),&refund)
     }
 
     fn prepare_agent_claim_release_or_idle_event(
@@ -177,74 +117,9 @@ impl World {
         current_epoch: u64,
         claim: &AgentClaimState,
     ) -> Result<Option<DomainEvent>, WorldError> {
-        if let Some(ready_at_epoch) = claim.release_ready_at_epoch
-            && current_epoch >= ready_at_epoch
-        {
-            let refund_sink = self.restricted_starter_claim_refund_sink_for_claim(claim);
-            let refunded_bond_split = split_agent_claim_bond_refund(
-                claim.claim_bond_locked_restricted_amount,
-                claim.claim_bond_locked_liquid_amount,
-                0,
-            )
-            .map_err(|reason| WorldError::ResourceBalanceInvalid { reason })?;
-            return Ok(Some(DomainEvent::AgentClaimReleased {
-                claimer_agent_id: claim.claim_owner_id.clone(),
-                target_agent_id: claim.target_agent_id.clone(),
-                released_at_epoch: current_epoch,
-                refunded_bond_amount: claim.locked_bond_amount,
-                refunded_bond_restricted_amount: refunded_bond_split.restricted_amount,
-                refunded_bond_liquid_amount: refunded_bond_split.liquid_amount,
-                refunded_bond_restricted_sink: refund_sink.sink,
-                refunded_bond_restricted_sink_bucket_id: refund_sink
-                    .treasury_bucket_id
-                    .unwrap_or_default(),
-            }));
-        }
-
-        let last_control_epoch = self.agent_last_control_epoch(claim.target_agent_id.as_str());
-        let idle_epochs = current_epoch.saturating_sub(last_control_epoch);
-        if idle_epochs >= claim.forced_idle_reclaim_epochs {
-            let (_, penalty_amount, refunded_bond_amount) = reclaim_bond_settlement(
-                claim.locked_bond_amount,
-                0,
-                claim.forced_reclaim_penalty_bps,
-            );
-            let refund_sink = self.restricted_starter_claim_refund_sink_for_claim(claim);
-            let refunded_bond_split = split_agent_claim_bond_refund(
-                claim.claim_bond_locked_restricted_amount,
-                claim.claim_bond_locked_liquid_amount,
-                penalty_amount,
-            )
-            .map_err(|reason| WorldError::ResourceBalanceInvalid { reason })?;
-            return Ok(Some(DomainEvent::AgentClaimReclaimed {
-                claimer_agent_id: claim.claim_owner_id.clone(),
-                target_agent_id: claim.target_agent_id.clone(),
-                reclaimed_at_epoch: current_epoch,
-                reason: "idle_timeout".to_string(),
-                upkeep_arrears_amount: 0,
-                collected_upkeep_amount: 0,
-                penalty_amount,
-                refunded_bond_amount,
-                refunded_bond_restricted_amount: refunded_bond_split.restricted_amount,
-                refunded_bond_liquid_amount: refunded_bond_split.liquid_amount,
-                refunded_bond_restricted_sink: refund_sink.sink,
-                refunded_bond_restricted_sink_bucket_id: refund_sink
-                    .treasury_bucket_id
-                    .unwrap_or_default(),
-            }));
-        }
-
-        if idle_epochs >= claim.idle_warning_epochs && claim.idle_warning_emitted_at_epoch.is_none()
-        {
-            return Ok(Some(DomainEvent::AgentClaimIdleWarning {
-                claimer_agent_id: claim.claim_owner_id.clone(),
-                target_agent_id: claim.target_agent_id.clone(),
-                warning_emitted_at_epoch: current_epoch,
-                forced_reclaim_at_epoch: last_control_epoch
-                    .saturating_add(claim.forced_idle_reclaim_epochs),
-            }));
-        }
-        Ok(None)
+        let refund = self.restricted_starter_claim_refund_sink_for_claim(claim);
+        super::incremental_normal_claim_epochs::evaluate::prepare_release_or_idle_v1(
+            current_epoch,claim,self.agent_last_control_epoch(&claim.target_agent_id),&refund)
     }
 
     #[cfg(test)]
@@ -289,48 +164,20 @@ impl World {
     }
 }
 
-fn claim_amount_due(
-    claim: &AgentClaimState,
-    current_epoch: u64,
-) -> Result<Option<(u64, u64)>, WorldError> {
-    let charged_epochs = current_epoch.saturating_sub(claim.upkeep_paid_through_epoch);
-    if charged_epochs == 0 {
-        return Ok(None);
-    }
-    let amount = claim
-        .upkeep_per_epoch
-        .checked_mul(charged_epochs)
-        .ok_or_else(|| WorldError::ResourceBalanceInvalid {
-            reason: format!(
-                "agent claim upkeep overflow: target={} upkeep_per_epoch={} charged_epochs={}",
-                claim.target_agent_id, claim.upkeep_per_epoch, charged_epochs
-            ),
-        })?;
-    Ok(Some((charged_epochs, amount)))
-}
-
-fn reclaim_bond_settlement(
-    locked_bond_amount: u64,
-    upkeep_arrears_amount: u64,
-    penalty_bps: u16,
-) -> (u64, u64, u64) {
-    let collected_upkeep_amount = locked_bond_amount.min(upkeep_arrears_amount);
-    let remaining_after_upkeep = locked_bond_amount.saturating_sub(collected_upkeep_amount);
-    let penalty_amount = remaining_after_upkeep.saturating_mul(u64::from(penalty_bps)) / 10_000;
-    let refunded_bond_amount = remaining_after_upkeep.saturating_sub(penalty_amount);
-    (
-        collected_upkeep_amount,
-        penalty_amount,
-        refunded_bond_amount,
-    )
-}
-
 // Historical v0 acquisition fixture: upkeep/replay regressions must continue
 // covering worlds with pre-industrial claims, without reopening the v1 action.
 #[cfg(test)]
 impl World {
     pub(crate) fn append_legacy_claim_fixture(&mut self, owner: &str, target: &str) {
-        let q = agent_claim_quote(self.state.reputation_scores.get(owner).copied().unwrap_or(0),self.claimed_agent_count(owner)).unwrap();
+        let q = agent_claim_quote(
+            self.state
+                .reputation_scores
+                .get(owner)
+                .copied()
+                .unwrap_or(0),
+            self.claimed_agent_count(owner),
+        )
+        .unwrap();
         let mut data = serde_json::to_value(&q)
             .unwrap()
             .as_object()

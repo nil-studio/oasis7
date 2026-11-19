@@ -25,7 +25,52 @@ pub struct CognitionScheduler {
     metrics: SchedulerExecutionMetrics,
 }
 
+#[derive(Debug)]
+pub(crate) enum SchedulerPaidErrorV1<E> {
+    Scheduler(SchedulerError),
+    Work(E),
+}
+impl<E> From<SchedulerError> for SchedulerPaidErrorV1<E> {
+    fn from(e: SchedulerError) -> Self {
+        Self::Scheduler(e)
+    }
+}
+pub(crate) fn scheduler_wake_text_bytes_v1(wake: &SchedulerWakeV1) -> usize {
+    [
+        &wake.schema_version,
+        &wake.wake_id,
+        &wake.continuation_id,
+        &wake.world_id,
+        &wake.branch_id,
+        &wake.finality_status,
+        &wake.runtime_manifest_hash,
+        &wake.agent_id,
+        &wake.agent_session_id,
+        &wake.agent_turn_id,
+        &wake.decision_request_id,
+        &wake.request_digest,
+        &wake.status,
+        &wake.pending_reason,
+    ]
+    .into_iter()
+    .fold(
+        wake.finality_block_hash.as_ref().map_or(0, String::len),
+        |n, s| n.saturating_add(s.len()),
+    )
+}
 impl CognitionScheduler {
+    /// Borrow the original snapshot traversal order without cloning wakes.
+    /// This data iterator grants no scheduler or worker permission.
+    pub(crate) fn snapshot_order_wakes_v2(&self) -> impl Iterator<Item = &SchedulerWakeV1> {
+        self.active
+            .iter()
+            .chain(self.backpressure.values())
+            .chain(self.in_flight.values())
+    }
+    pub(crate) fn active_count_v2(&self) -> usize {
+        self.active.len()
+    }
+
     pub fn try_new(policy: SchedulerPolicyV1, capacity: usize) -> Result<Self, SchedulerError> {
         policy.validate()?;
         if capacity == 0 {
@@ -168,6 +213,35 @@ impl CognitionScheduler {
             self.backpressure_priority.remove(wake_id);
         }
         Ok(removed)
+    }
+
+    /// Paid terminal removal shares the original mutation algorithm. Admission
+    /// precedes mutation, so a cancelled charge leaves all buckets untouched.
+    /// The full key scan bounds BTree comparisons and active-vector movement;
+    /// removed wakes move out rather than cloning an owned wake graph.
+    pub(crate) fn deactivate_wake_paid_v1<E>(
+        &mut self,
+        wake_id: &str,
+        fee: &mut impl FnMut(usize) -> Result<(), E>,
+    ) -> Result<Option<SchedulerWakeV1>, SchedulerPaidErrorV1<E>> {
+        for wake in &self.active {
+            fee(wake_id
+                .len()
+                .saturating_add(wake.wake_id.len())
+                .saturating_add(std::mem::size_of::<SchedulerWakeV1>()))
+            .map_err(SchedulerPaidErrorV1::Work)?;
+        }
+        for key in self
+            .in_flight
+            .keys()
+            .chain(self.backpressure.keys())
+            .chain(self.backpressure_priority.keys())
+        {
+            fee(wake_id.len().saturating_add(key.len())).map_err(SchedulerPaidErrorV1::Work)?;
+        }
+        fee(0).map_err(SchedulerPaidErrorV1::Work)?;
+        self.deactivate_wake(wake_id)
+            .map_err(SchedulerPaidErrorV1::Scheduler)
     }
 
     /// Remove wakes that no longer have an active Runtime continuation. The
@@ -337,6 +411,13 @@ impl CognitionScheduler {
         self.in_flight.values().cloned().collect()
     }
 
+    /// Consume an already fully validated scheduler without cloning the
+    /// selected records. The caller admits the exact output Vec before move.
+    pub(crate) fn into_in_flight_wakes_with_work_v1<E>(self, before: &mut impl FnMut(usize)->Result<(),E>)->Result<Vec<SchedulerWakeV1>,E>{
+        before(self.in_flight.len())?;
+        Ok(self.in_flight.into_values().collect())
+    }
+
     /// Return one exact durable wake identity from any scheduler bucket.
     /// Callers must still validate its World binding before dispatching it.
     pub fn wake_by_id(&self, wake_id: &str) -> Option<SchedulerWakeV1> {
@@ -353,16 +434,113 @@ impl CognitionScheduler {
     }
 
     pub fn from_snapshot_json(value: Value) -> Result<Self, SchedulerError> {
-        let scheduler: Self = serde_json::from_value(value.clone())
-            .map_err(|_| SchedulerError::new("invalid_scheduler_state"))?;
+        match Self::from_snapshot_ref_paid_v1(&value, &mut |_| {
+            Ok::<(), std::convert::Infallible>(())
+        }) {
+            Ok(value) => Ok(value),
+            Err(SchedulerPaidErrorV1::Scheduler(e)) => Err(e),
+            Err(SchedulerPaidErrorV1::Work(never)) => match never {},
+        }
+    }
+    // Exhaustive patterns make expansion of the owned scheduler graph require
+    // revisiting the bounded consumer's allocation inventory in the same build.
+    #[allow(dead_code)]
+    fn closed_owned_inventory_v1(&self) {
+        let Self {
+            policy,
+            capacity: _,
+            active,
+            backpressure,
+            backpressure_priority: _,
+            recovered_wakes: _,
+            in_flight,
+            logical_tick: _,
+            cursor,
+            metrics: _,
+        } = self;
+        let SchedulerPolicyV1 {
+            schema_version: _,
+            max_total_wakes_per_tick: _,
+            max_wakes_per_agent_per_tick: _,
+            aging_after_ticks: _,
+            max_starvation_ticks: _,
+            initial_priority: _,
+            comparator: _,
+            service_order: _,
+        } = policy;
+        let SchedulerCursorV1 {
+            schema_version: _,
+            logical_tick: _,
+            last_served_agent_id: _,
+            cursor_seq: _,
+            policy_config_digest: _,
+        } = cursor;
+        const _: () = assert!(!std::mem::needs_drop::<SchedulerExecutionMetrics>());
+        for wake in active
+            .iter()
+            .chain(backpressure.values())
+            .chain(in_flight.values())
+        {
+            let SchedulerWakeV1 {
+                schema_version: _,
+                wake_id: _,
+                continuation_id: _,
+                world_id: _,
+                branch_id: _,
+                finality_epoch: _,
+                finality_block_hash: _,
+                finality_status: _,
+                reorg_epoch: _,
+                runtime_manifest_hash: _,
+                agent_id: _,
+                agent_session_id: _,
+                agent_turn_id: _,
+                decision_request_id: _,
+                request_digest: _,
+                next_wake_tick: _,
+                eligible_since_tick: _,
+                starvation_deadline_tick: _,
+                initial_priority: _,
+                wake_seq: _,
+                retry_seq: _,
+                status: _,
+                pending_reason: _,
+            } = wake;
+        }
+    }
+    /// Borrow the actual selected Value; the caller admits the target graph
+    /// before deserialization. Fee/cancel hooks cannot replace any predicate.
+    pub(crate) fn from_snapshot_ref_paid_v1<E>(
+        value: &Value,
+        fee: &mut impl FnMut(usize) -> Result<(), E>,
+    ) -> Result<Self, SchedulerPaidErrorV1<E>> {
+        fee(std::mem::size_of::<Self>()).map_err(SchedulerPaidErrorV1::Work)?;
+        let scheduler: Self =
+            Self::deserialize(value).map_err(|_| SchedulerError::new("invalid_scheduler_state"))?;
         if value
             .get("backpressure_count")
             .and_then(Value::as_u64)
             .is_some_and(|count| count != scheduler.backpressure.len() as u64)
         {
-            return Err(SchedulerError::new("scheduler_backpressure_mismatch"));
+            return Err(SchedulerPaidErrorV1::Scheduler(SchedulerError::new(
+                "scheduler_backpressure_mismatch",
+            )));
         }
+        fee(scheduler
+            .policy
+            .schema_version
+            .len()
+            .saturating_add(scheduler.policy.comparator.len())
+            .saturating_add(scheduler.policy.service_order.len()))
+        .map_err(SchedulerPaidErrorV1::Work)?;
         scheduler.policy.validate()?;
+        fee(scheduler
+            .policy
+            .comparator
+            .len()
+            .saturating_add(scheduler.policy.service_order.len())
+            .saturating_add(1024))
+        .map_err(SchedulerPaidErrorV1::Work)?;
         if scheduler.capacity == 0
             || scheduler.in_flight.len() > scheduler.capacity
             || scheduler
@@ -379,7 +557,9 @@ impl CognitionScheduler {
                 .as_deref()
                 .is_some_and(|agent_id| !is_canonical_identifier(agent_id, 128))
         {
-            return Err(SchedulerError::new("scheduler_policy_digest_mismatch"));
+            return Err(SchedulerPaidErrorV1::Scheduler(SchedulerError::new(
+                "scheduler_policy_digest_mismatch",
+            )));
         }
         let mut wake_ids = BTreeSet::new();
         for wake in scheduler
@@ -388,9 +568,12 @@ impl CognitionScheduler {
             .chain(scheduler.backpressure.values())
             .chain(scheduler.in_flight.values())
         {
+            fee(scheduler_wake_text_bytes_v1(wake)).map_err(SchedulerPaidErrorV1::Work)?;
             wake.validate()?;
             if !wake_ids.insert(wake.wake_id.as_str()) {
-                return Err(SchedulerError::new("scheduler_wake_conflict"));
+                return Err(SchedulerPaidErrorV1::Scheduler(SchedulerError::new(
+                    "scheduler_wake_conflict",
+                )));
             }
             if wake.starvation_deadline_tick
                 != wake
@@ -398,29 +581,46 @@ impl CognitionScheduler {
                     .saturating_add(scheduler.policy.max_starvation_ticks)
                 || wake.initial_priority != scheduler.policy.initial_priority
             {
-                return Err(SchedulerError::new("scheduler_wake_binding_mismatch"));
+                return Err(SchedulerPaidErrorV1::Scheduler(SchedulerError::new(
+                    "scheduler_wake_binding_mismatch",
+                )));
             }
         }
         for (wake_id, wake) in &scheduler.in_flight {
+            fee(wake_id.len().min(wake.wake_id.len())).map_err(SchedulerPaidErrorV1::Work)?;
             if wake.wake_id != *wake_id {
-                return Err(SchedulerError::new("scheduler_in_flight_identity_mismatch"));
+                return Err(SchedulerPaidErrorV1::Scheduler(SchedulerError::new(
+                    "scheduler_in_flight_identity_mismatch",
+                )));
             }
         }
         for (wake_id, priority) in &scheduler.backpressure_priority {
+            fee(wake_id.len()).map_err(SchedulerPaidErrorV1::Work)?;
             let Some(wake) = scheduler.backpressure.get(wake_id) else {
-                return Err(SchedulerError::new("scheduler_backpressure_mismatch"));
+                return Err(SchedulerPaidErrorV1::Scheduler(SchedulerError::new(
+                    "scheduler_backpressure_mismatch",
+                )));
             };
             if !(0..=7).contains(priority) || wake.wake_id != *wake_id {
-                return Err(SchedulerError::new("scheduler_backpressure_mismatch"));
+                return Err(SchedulerPaidErrorV1::Scheduler(SchedulerError::new(
+                    "scheduler_backpressure_mismatch",
+                )));
             }
         }
         if scheduler.backpressure_priority.len() != scheduler.backpressure.len() {
-            return Err(SchedulerError::new("scheduler_backpressure_mismatch"));
+            return Err(SchedulerPaidErrorV1::Scheduler(SchedulerError::new(
+                "scheduler_backpressure_mismatch",
+            )));
+        }
+        for wake_id in &scheduler.recovered_wakes {
+            fee(wake_id.len()).map_err(SchedulerPaidErrorV1::Work)?;
         }
         if scheduler.recovered_wakes.iter().any(|wake_id| {
             !is_canonical_identifier(wake_id, 128) || scheduler.backpressure.contains_key(wake_id)
         }) {
-            return Err(SchedulerError::new("scheduler_recovered_wake_mismatch"));
+            return Err(SchedulerPaidErrorV1::Scheduler(SchedulerError::new(
+                "scheduler_recovered_wake_mismatch",
+            )));
         }
         Ok(scheduler)
     }

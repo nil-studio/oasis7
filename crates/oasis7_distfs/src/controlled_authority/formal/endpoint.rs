@@ -7,6 +7,9 @@ use ed25519_dalek::Signer;
 use ed25519_dalek::SigningKey;
 use std::path::Path;
 use std::sync::Arc;
+#[path = "endpoint_publication_refs.rs"]
+mod publication_refs;
+pub use publication_refs::{FormalEndpointPairPublicationRefsV1, FormalEndpointPublicationRefsV1};
 #[path = "endpoint_types.rs"]
 mod types;
 pub use types::*;
@@ -18,7 +21,7 @@ mod published_closure;
 mod storage_maintenance;
 pub use storage_maintenance::{FormalStorageLogicalInventoryPage, FormalStorageLogicalObject};
 #[path = "endpoint_store.rs"]
-mod store;
+pub(super) mod store;
 pub use chunk::{FORMAL_ARCHIVE_CHUNK_LIMIT, FORMAL_ARCHIVE_OBJECT_LIMIT, FormalArchiveChunkV1};
 #[path = "endpoint_native_restore.rs"]
 mod native_restore;
@@ -38,6 +41,11 @@ pub use archive_file::FileFormalArchiveSourceV1;
 mod business;
 #[path = "endpoint_incremental.rs"]
 mod incremental;
+#[cfg(not(target_arch = "wasm32"))]
+pub use incremental::{
+    AuthenticatedColdHostErrorV1, IwsCandidateSourceWorkV1, IwsColdCheckpointSuffixV1,
+    IwsColdParentHintsV1, IwsColdParentWorkV1, IwsCurrentLimitsV1, NativeWorkerLeaseV1,
+};
 pub use incremental::{IwsEndpointVerificationBudgetsV1, IwsPageStoreCapabilityV1};
 #[path = "endpoint_durable_set_install.rs"]
 mod durable_set_install;
@@ -53,6 +61,9 @@ mod durable_set_provider;
 pub use durable_set_provider::{
     VerifiedDurableSetNativeInstallPlanV1, verify_durable_set_native_install_plan,
 };
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "endpoint_bounded_cold_reopen.rs"]
+mod bounded_cold_reopen;
 #[path = "endpoint_recovery.rs"]
 mod native_recovery;
 #[path = "endpoint_rpc.rs"]
@@ -77,13 +88,6 @@ pub(super) fn fencing_error(error: fencing::FencingError) -> FormalError {
         other => FormalError::Rollback(other.to_string()),
     }
 }
-#[derive(Debug, Clone)]
-pub struct FormalEndpointAuthorizationV1 {
-    pub authority: VerifiedAuthorityV1,
-    pub original: VerifiedAuthorityV1,
-    pub recovery: Option<VerifiedRecovery>,
-    pub parent: Option<VerifiedFormalCommitV1>,
-}
 pub struct FileFormalEndpoint {
     store: Store,
     authority: VerifiedAuthorityV1,
@@ -101,8 +105,11 @@ pub struct FileFormalEndpoint {
     published_closure_jobs:
         std::collections::BTreeMap<String, store::published_closure::ClosureJob>,
     iws_page_store: Option<incremental::IwsPageStoreCapabilityV1>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     controlled: bool,
+    // The bounded reopen owns its copied authority graph until every endpoint
+    // field has dropped. Legacy constructors carry no such new allocation.
+    _bounded_reopen_fee: Option<oasis7_proto::memory_budget::MemoryReservation>,
 }
 impl FileFormalEndpoint {
     /// Recovery endpoints receive the verified predecessor as `original` and
@@ -204,13 +211,14 @@ impl FileFormalEndpoint {
             parent,
             poisoned: false,
             physical_maintenance: storage_maintenance::MaintenanceState::default(),
+            _bounded_reopen_fee: None,
             native_environment_jobs: std::collections::BTreeMap::new(),
             published_closure_jobs: std::collections::BTreeMap::new(),
             iws_page_store: None,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             controlled,
         };
-        if controlled && !cfg!(test) {
+        if controlled && !cfg!(any(test, feature = "test-support")) {
             return Err(FormalError::FencingUnproven);
         }
         let _guard = endpoint.guard()?;
@@ -261,7 +269,7 @@ impl FileFormalEndpoint {
                 return Err(FormalError::FencingUnproven);
             }
             let evidence = guard.evidence().map_err(fencing_error)?;
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-support"))]
             if self.controlled
                 && evidence.statement.capability
                     == fencing::ProviderCapabilityV1::ControlledLocalTest
@@ -293,12 +301,16 @@ impl FileFormalEndpoint {
         }
         result
     }
-    fn reload_parent(
+    fn reload_parent_with_predecessor(
         &mut self,
         provider: &fencing::MonotonicProviderEvidenceV1,
-    ) -> Result<(), FormalError> {
+    ) -> Result<Option<VerifiedFormalCommitV1>, FormalError> {
+        // Preserve the original checkpoint verifier's authenticated predecessor.
         if let Some(entry) = self.store.head_entry()? {
-            let FormalRequestStateV1::Qualified { candidate, proof } = entry else {
+            let FormalRequestStateV1::Qualified {
+                candidate, proof, ..
+            } = entry
+            else {
                 return Err(invalid("formal checkpoint qualified entry"));
             };
             verify_record_material(&proof.decision.record, &candidate.material)?;
@@ -380,12 +392,14 @@ impl FileFormalEndpoint {
             let recovery = (verdict.proof().decision.branch != FormalCompletionBranchV1::Normal)
                 .then_some(self.recovery.as_ref())
                 .flatten();
-            self.parent = Some(restore_formal_commit_from_checkpoint(
+            let (head, predecessor) = restore_formal_commit_and_parent_from_checkpoint(
                 verdict.proof(),
                 original,
                 recovery,
                 &verdict,
-            )?);
+            )?;
+            self.parent = Some(head);
+            return Ok(predecessor);
         } else if self
             .parent
             .as_ref()
@@ -395,7 +409,7 @@ impl FileFormalEndpoint {
         {
             return Err(invalid("formal checkpoint initial verified parent"));
         }
-        Ok(())
+        Ok(None)
     }
     fn load(&mut self, request: &str) -> Result<Option<FormalRequestStateV1>, FormalError> {
         let result = (|| {
@@ -433,6 +447,7 @@ impl FileFormalEndpoint {
                 let FormalRequestStateV1::Qualified { proof, .. } = &entry else {
                     return Err(invalid("formal qualified state"));
                 };
+                next.data_closure = entry.local_data_closure_reference().map(str::to_owned);
                 next.head = FormalHeadRefV1 {
                     position: proof.decision.record.position,
                     record_id: proof.decision.record.record_id()?,
@@ -725,7 +740,6 @@ impl FileFormalEndpoint {
     ) -> Result<FormalPrepareReceiptV1, FormalError> {
         self.prepare_with_cancel(candidate, || false)
     }
-
     /// Prepare with an explicit local cancellation source. Existing callers
     /// keep the synchronous compatibility wrapper above; local coordinators
     /// that own a cancellation token must use this method for bounded IWS
@@ -868,7 +882,6 @@ impl FileFormalEndpoint {
     ) -> Result<FormalFinalReceiptV1, FormalError> {
         self.decide_with_cancel(request, primary, replica, || false)
     }
-
     /// Decide with an explicit local cancellation source. A cancellation
     /// before the decision write leaves the durable prepare available for
     /// query and retry under the same request identity.
@@ -1103,28 +1116,83 @@ impl FileFormalEndpoint {
             .then_some(self.recovery.as_ref())
             .flatten();
         let verified = verify_formal_qualified(&proof, original, self.parent.as_ref(), recovery)?;
+        let iws=self.authority.definition().profile_version==oasis7_formal_protocol::controlled_authority::formal::incremental::IWS_AUTHORITY_PROFILE_VERSION;
+        #[cfg(not(target_arch = "wasm32"))]
+        if iws {
+            self.check_iws_qualified_install(&verified)?;
+        }
+        #[cfg(target_arch = "wasm32")]
+        if iws {
+            return Err(invalid("IWS Qualified installation unavailable on wasm"));
+        }
+        // Any allocating Formal compatibility outputs are prepared before
+        // the durable accepted checkpoint; IWS refinement itself only moves.
+        let installed_head = verified.head();
+        #[cfg(not(target_arch = "wasm32"))]
+        let data_closure = if iws {
+            self.iws_local_data_reference(&verified)?
+        } else {
+            None
+        };
+        #[cfg(target_arch = "wasm32")]
+        let data_closure = None;
         self.write(
-            FormalRequestStateV1::Qualified { candidate, proof },
+            FormalRequestStateV1::Qualified {
+                candidate,
+                proof,
+                data_closure,
+            },
             true,
             guard.as_mut(),
         )?;
-        self.parent = Some(verified.clone());
-        Ok(verified.head())
+        #[cfg(not(target_arch = "wasm32"))]
+        if iws {
+            self.finish_iws_qualified_install(&verified)?;
+        }
+        self.parent = Some(verified);
+        Ok(installed_head)
     }
 }
-
 #[path = "endpoint_business_parent.rs"]
 mod business_parent;
 pub use business_parent::VerifiedFormalBusinessParentV1;
-
 #[path = "endpoint_committed_material.rs"]
 mod committed_material;
 pub use committed_material::VerifiedCommittedHistoricalMaterialV1;
 pub(crate) use committed_material::verify_committed_historical_material;
-
-#[path = "endpoint_native_environment.rs"]
-mod native_environment;
-
 #[path = "endpoint_archive_bounded_read.rs"]
 mod archive_bounded_read;
+#[cfg(test)]
+#[path = "endpoint_bounded_request.rs"]
+mod bounded_request;
+#[path = "endpoint_native_environment.rs"]
+mod native_environment;
 pub use archive_bounded_read::{FormalArchiveReadOwnerV1, FormalArchiveReadWorkV1};
+#[cfg(not(target_arch = "wasm32"))]
+pub use incremental::genesis::PaidGenesisAcceptanceV1;
+#[cfg(not(target_arch = "wasm32"))]
+pub(in crate::controlled_authority) use incremental::genesis_receipts::PaidGenesisReceiptSourceV1;
+#[cfg(not(target_arch = "wasm32"))]
+pub(in crate::controlled_authority) use incremental::host_source::PaidNormalFrozenReceiptSourceV1;
+#[cfg(not(target_arch = "wasm32"))]
+pub use incremental::host_source::{
+    HostAcceptedParentReadViewV1, NormalFrozenFailureV1, NormalFrozenPairFailureV1,
+    NormalReadyCandidateReadViewV1, NormalReadyPairFailureV1, NormalReadyPublicationFailureV1,
+    PaidAcceptedGenesisHostSourceV1, PaidHostQualifiedParentProofV1, PaidNormalAcceptedPairV1,
+    PaidNormalFrozenEndpointV1, PaidNormalFrozenPairV1, PaidNormalReadyPairV1,
+    join_normal_frozen_endpoints_bounded,
+};
+pub(in crate::controlled_authority) use store::bounded_reopen::PaidColdRegistrationV1;
+pub(in crate::controlled_authority) use store::bounded_wire::{
+    BoundedWireErrorV1, BoundedWireWorkV1, encode_bounded_wire_v1,
+};
+#[cfg(test)]
+pub(super) use store::with_store_for_bounded_retention_fixture;
+#[cfg(test)]
+pub(in crate::controlled_authority) use tests::{
+    with_bounded_transaction_fixture, with_cold_transaction_fixture,
+    with_finish_loss_transaction_fixture, with_remote_acquire_fixture, with_remote_sign_fixture,
+    with_signed_checkpoint_fixture, with_unaccepted_host_endpoint_fixture,
+};
+#[path = "endpoint_checkpoint_parent.rs"]
+mod checkpoint_parent;

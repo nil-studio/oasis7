@@ -1,4 +1,6 @@
 #![cfg(all(unix, not(target_arch = "wasm32")))]
+#[path = "support/incremental_inventory_packed.rs"]
+mod inventory_packed;
 use oasis7_distfs::incremental_page_store::{IncrementalPageStore, PageCompression, PageIoBudget};
 use oasis7_formal_protocol::{
     incremental_execution::*, incremental_state::*, incremental_value::*,

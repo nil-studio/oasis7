@@ -68,49 +68,10 @@ impl World {
         module_id: &str,
         version: &str,
     ) -> Result<(), WorldError> {
-        if module_id != M1_STORAGE_POWER_MODULE_ID || version != M1_STORAGE_POWER_MODULE_VERSION {
-            return Ok(());
+        use super::incremental_normal_action_module_lifecycle::{m1_rules::{LegacyM1StorageFactsV1,validate_m1_storage_activation_from_source_v1},registry_rules::ModuleRegistryRuleErrorV1};
+        match validate_m1_storage_activation_from_source_v1(&mut LegacyM1StorageFactsV1::new(self),module_id,version){
+            Ok(())=>Ok(()),Err(ModuleRegistryRuleErrorV1::World(e)|ModuleRegistryRuleErrorV1::Source(e))=>Err(e),
         }
-        for (state_key, bytes) in &self.state.module_states {
-            let belongs = state_key == M1_STORAGE_POWER_MODULE_ID
-                || self
-                    .state
-                    .module_instances
-                    .get(state_key)
-                    .is_some_and(|instance| instance.module_id == M1_STORAGE_POWER_MODULE_ID);
-            if !belongs || bytes.is_empty() {
-                continue;
-            }
-            let compatible = serde_cbor::from_slice::<serde_json::Value>(bytes)
-                .ok()
-                .is_some_and(|state| {
-                    let marker = state.get("last_settled_event_id");
-                    marker.is_some_and(|value| value.is_null() || value.as_u64().is_some())
-                        && state
-                            .get("agents")
-                            .and_then(serde_json::Value::as_object)
-                            .is_some_and(|agents| {
-                                agents.iter().all(|(agent_id, battery)| {
-                                    let Some(agent) = self.state.agents.get(agent_id) else {
-                                        return false;
-                                    };
-                                    let position_matches = battery.get("pos")
-                                        == serde_json::to_value(agent.state.pos).ok().as_ref();
-                                    let bounded_level = battery
-                                        .get("level")
-                                        .and_then(serde_json::Value::as_i64)
-                                        .is_some_and(|level| (0..=12).contains(&level));
-                                    position_matches && bounded_level
-                                })
-                            })
-                });
-            if !compatible {
-                return Err(WorldError::ModuleChangeInvalid {
-                    reason: "M1 storage 0.2.0 activation requires explicit migration of historical battery state".into(),
-                });
-            }
-        }
-        Ok(())
     }
 
     pub fn install_m1_power_bootstrap_modules(

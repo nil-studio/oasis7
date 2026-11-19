@@ -241,22 +241,56 @@ pub fn accept_agent_subtree_transition_v1<
     work: &mut AgentSubtreeTransitionWorkV1,
 ) -> Result<ReservedValue<AgentSubtreeStructureQualificationV1>, WorldFieldOverlayErrorV1> {
     ctx.check()?;
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary
+        || !record.after.state.iter().any(|r| r == ctx.root)
+    {
+        return Err(invalid().into());
+    }
+    {
+        ctx.check()?;
+        if !parent.uses_budget(ctx.values.memory)
+            || parent.reserved_bytes() < 512
+            || !parent.permits_class(ctx.values.class)
+            || !verifier.memory.same_pool(ctx.values.memory)
+            || verifier.class != ctx.values.class
+        {
+            return Err(invalid().into());
+        }
+        parent.validate_binding(&record.before)?;
+    }
+    let witness = crate::incremental_verified_world_transition::verify_world_transition_v1(
+        verifier, record, ctx,
+    )?;
+    accept_agent_subtree_verified_v1(parent, &witness, ctx, work)
+}
+
+pub(crate) fn accept_agent_subtree_verified_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<AgentSubtreeStructureQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    work: &mut AgentSubtreeTransitionWorkV1,
+) -> Result<ReservedValue<AgentSubtreeStructureQualificationV1>, WorldFieldOverlayErrorV1> {
+    ctx.check()?;
+    witness.check_context(ctx.values.memory, ctx.values.class, ctx.root)?;
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary {
+        return Err(invalid().into());
+    }
+    let record = witness.record();
+
+    ctx.check()?;
     if !parent.uses_budget(ctx.values.memory)
         || parent.reserved_bytes() < 512
         || !parent.permits_class(ctx.values.class)
-        || !verifier.memory.same_pool(ctx.values.memory)
-        || verifier.class != ctx.values.class
     {
         return Err(invalid().into());
     }
     parent.validate_binding(&record.before)?;
-    let verified = verifier.verify(record);
-    let original = (ctx.take_state_error)();
-    ctx.check()?;
-    if let Some(error) = original {
-        return Err(error.into());
-    }
-    let verified = verified?;
+    let verified = witness.prepared();
     if !verified
         .record
         .after
@@ -438,7 +472,7 @@ pub fn accept_agent_subtree_transition_v1<
                         max_scalar_bytes: work.max_scalar_bytes,
                     };
                     let references =
-                        closure::verify_lifecycle_actor(&verified, agent, *added, ctx, &mut scope)?;
+                        closure::verify_lifecycle_actor(verified, agent, *added, ctx, &mut scope)?;
                     work.cells_remaining = scope.cells_remaining;
                     let direction = if *added { 1i128 } else { -1i128 };
                     agent_delta += direction;

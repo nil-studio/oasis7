@@ -32,10 +32,14 @@ pub struct RuntimeEffectQueueFrontierV1 {
 #[derive(Debug)]
 pub struct RuntimeEffectFamilyQualificationV1 {
     roots: [u8; 32],
+    class: MemoryClass,
     frontier: RuntimeEffectQueueFrontierV1,
     counts: [u64; 2],
 }
 impl RuntimeEffectFamilyQualificationV1 {
+    pub fn allocation_class(&self) -> MemoryClass {
+        self.class
+    }
     pub fn validate_binding(&self, roots: &[u8; 32]) -> Result<(), ValueTreeError> {
         if &self.roots == roots {
             Ok(())
@@ -61,6 +65,7 @@ pub(super) fn mint(
         .reserve(512, class)?
         .retain(RuntimeEffectFamilyQualificationV1 {
             roots,
+            class,
             frontier,
             counts,
         }))
@@ -680,6 +685,7 @@ pub fn qualify_runtime_effect_records_v1<
     }
     Ok(retained.retain(RuntimeEffectFamilyQualificationV1 {
         roots: digest,
+        class: ctx.values.class,
         frontier: RuntimeEffectQueueFrontierV1 {
             head,
             tail,
@@ -689,3 +695,11 @@ pub fn qualify_runtime_effect_records_v1<
         counts: stats.counts,
     }))
 }
+
+#[path = "incremental_runtime_effect_records_family_readmission.rs"]
+mod readmission;
+pub use readmission::readmit_runtime_effect_family_ordinary_v1;
+
+#[cfg(test)]
+#[path = "incremental_runtime_effect_records_readmission_tests.rs"]
+mod readmission_tests;

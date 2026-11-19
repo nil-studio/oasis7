@@ -2,17 +2,17 @@
 use super::*;
 use crate::{incremental_semantic_key::SEMANTIC_KEY_DOMAIN, incremental_utf8_output::Utf8Output};
 use std::io::{self, Write};
-pub(in super::super) struct OuterProbe<'a> {
+pub(in super::super) struct OuterProbe<'a, W: Write> {
     prefix: [u8; 256],
     used: usize,
     owner: Option<OrganizationRootKeyV1<'static>>,
     other: bool,
     remaining: Option<u64>,
-    text: Utf8Output<'a, io::Sink>,
+    text: Utf8Output<'a, W>,
     pub bad: Option<&'static str>,
 }
-impl<'a> OuterProbe<'a> {
-    pub fn new(sink: &'a mut io::Sink) -> Self {
+impl<'a, W: Write> OuterProbe<'a, W> {
+    pub fn new(sink: &'a mut W) -> Self {
         Self {
             prefix: [0; 256],
             used: 0,
@@ -109,7 +109,7 @@ impl<'a> OuterProbe<'a> {
             .ok_or(ValueTreeError::Invalid("organization outer key empty"))
     }
 }
-impl Write for OuterProbe<'_> {
+impl<W: Write> Write for OuterProbe<'_, W> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         if bytes.is_empty() {
             return Ok(0);

@@ -10,15 +10,15 @@ mod cognition_persistence_reports;
 mod cognition_persistence_support;
 #[path = "cognition_persistence_transactions.rs"]
 mod cognition_persistence_transactions;
+#[path = "incremental_normal_cognition_commit_marker.rs"]
+pub(in crate::world) mod marker;
 
 use super::World;
 use super::cognition_persistence_validation::{
     append_cognition_event, cognition_error, cognition_validation, validate_marker_current_world,
     validate_response_lineage_binding,
 };
-use crate::cognition::{
-    AgentDecisionEnvelopeV1, MvccValidator, world_state_binding_digest_v1,
-};
+use crate::cognition::{AgentDecisionEnvelopeV1, MvccValidator, world_state_binding_digest_v1};
 use crate::cognition_recovery::{
     CognitionReceiptViewV1, CognitionResponseRecordV1, RuntimeReceiptLineageV1,
     WorldCommitRecordV1, WorldRootViewV1, cognition_digest_v1,
@@ -26,7 +26,7 @@ use crate::cognition_recovery::{
 };
 use crate::cognition_retention::CognitionRetentionStore;
 use crate::error::WorldError;
-use cognition_persistence_support::{stale_base_error, validate_marker};
+use cognition_persistence_support::stale_base_error;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value as JsonValue, json};
 use std::collections::BTreeMap;
@@ -190,6 +190,22 @@ struct RecoveryProjection {
 
 pub(super) fn canonical_runtime_binding_digest(raw_hash: &str) -> String {
     cognition_digest_v1(RUNTIME_BINDING_DIGEST_DOMAIN, &raw_hash)
+}
+
+pub(super) fn canonical_runtime_binding_digest_with_work_v1<
+    A: oasis7_wasm_abi::CapabilityCanonicalWorkV1,
+>(
+    raw_hash: &str,
+    source: &A,
+) -> Result<
+    oasis7_agent_api::world_cognition::PaidCognitionDigestDataV1<A::Charge>,
+    oasis7_wasm_abi::CanonicalCborStreamError,
+> {
+    oasis7_agent_api::world_cognition::cognition_digest_with_work_v1(
+        RUNTIME_BINDING_DIGEST_DOMAIN,
+        &raw_hash,
+        source,
+    )
 }
 
 pub(super) struct CognitionRuntimeAuthority {
@@ -521,88 +537,18 @@ impl World {
             return Err(cognition_validation("envelope_idempotency_conflict"));
         }
 
-        let action_id = format!("action:{}", self.allocate_next_action_id());
-        let commit_id = cognition_digest_v1(
-            "oasis7.cognition.commit-id.v1",
-            &json!({
-                "envelope_digest": envelope.envelope_digest,
-                "envelope_idempotency_key": envelope.envelope_idempotency_key,
-            }),
-        );
-        let receipt_id = cognition_digest_v1(
-            "oasis7.cognition.receipt-id.v1",
-            &json!({"commit_id": commit_id}),
-        );
-        let receipt_digest = cognition_digest_v1(
-            "oasis7.cognition.receipt.v1",
-            &json!({
-                "receipt_id": receipt_id,
-                "envelope_digest": envelope.envelope_digest,
-                "action_id": action_id,
-                "world_root": world_root,
-            }),
-        );
-        let staged_event_root = cognition_digest_v1(
-            "oasis7.cognition.staged-event-root.v1",
-            &json!({
-                "world_root": world_root,
-                "envelope_digest": envelope.envelope_digest,
-            }),
-        );
-        let finality_block_hash = envelope.finality_block_hash.clone();
-        let marker = WorldCommitRecordV1 {
-            schema_version: WORLD_COMMIT_SCHEMA.to_string(),
-            commit_id,
-            envelope_idempotency_key: envelope.envelope_idempotency_key.clone(),
-            envelope_digest: envelope.envelope_digest.clone(),
-            world_id: envelope.world_id.clone(),
-            branch_id: envelope.branch_id.clone(),
-            finality_epoch: envelope.finality_epoch,
-            finality_block_hash,
-            finality_status: envelope.finality_status.clone(),
-            finality_binding_digest: envelope.derive_finality_binding_digest(),
-            runtime_manifest_hash: manifest_hash,
-            action_id,
-            parent_tick: envelope.base_tick,
-            parent_world_hash: world_root.clone(),
-            staged_event_root,
-            staged_state_root: world_root,
-            receipt_id,
-            receipt_digest,
-            reorg_epoch: envelope.reorg_epoch,
-            cognition_journal_seq: 0,
-            status: "prepared".to_string(),
-            agent_id: envelope.agent_id,
-            agent_session_id: envelope.agent_session_id,
-            agent_turn_id: envelope.agent_turn_id,
-            decision_request_id: envelope.decision_request_id,
-            request_digest: envelope.request_digest,
-            feedback_id: cognition_digest_v1(
-                "oasis7.cognition.feedback-id.v1",
-                &envelope.envelope_digest,
-            ),
-            response_context_discriminator: response_identity
-                .as_ref()
-                .map_or_else(String::new, |identity| {
-                    identity.context_discriminator.clone()
-                }),
-            response_context_version: response_identity
-                .as_ref()
-                .map_or(0, |identity| identity.context_version),
-            response_retry_seq: response_identity
-                .as_ref()
-                .map_or(envelope.retry_seq, |identity| identity.retry_seq),
-            transport_attempt: response_identity
-                .as_ref()
-                .map_or(0, |identity| identity.transport_attempt),
-            response_artifact_digest: response_artifact
-                .as_ref()
-                .map_or_else(String::new, response_artifact_digest),
-            abort_reason: None,
-        };
-        let mut marker = marker;
-        marker.receipt_digest = cognition_persistence_support::receipt_digest_for_marker(&marker);
-        validate_marker(&marker)?;
+        let marker = marker::prepare_cognition_marker_fields_with_work_v1(
+            &envelope,
+            response_identity.as_ref(),
+            response_artifact.as_ref(),
+            &world_root,
+            &manifest_hash,
+            self.allocate_next_action_id(),
+            &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+        )
+        .expect("legacy prepared marker identity is serializable")
+        .map_err(|(error, _)| error)?
+        .into_legacy_record();
         let mut next = projection;
         let object = next
             .as_object_mut()
@@ -1045,3 +991,20 @@ impl World {
         Ok(committed)
     }
 }
+
+pub(in crate::world) use cognition_persistence_support::validate_marker as validate_cognition_commit_marker_v1;
+
+pub(in crate::world) use cognition_persistence_authority::normalize_cognition_continuation_with_work_v1;
+
+/// Fixed original receipt observation DATA kernel; no commit qualification.
+pub(in crate::world) use cognition_persistence_readback::feedback as receipt_observation;
+
+pub(in crate::world) use cognition_persistence_support::{
+    response_artifact_matches_with_work_v1, validate_existing_retry_action_with_work_v1,
+};
+
+pub(in crate::world) use cognition_persistence_support::response_artifact_with_outer_lineage_with_work_v1;
+
+pub(in crate::world) use cognition_persistence_support::receipt_digest_for_marker_with_work_v1;
+
+pub(in crate::world) use cognition_persistence_support::validate_marker_with_work_v1 as validate_cognition_commit_marker_with_work_v1;

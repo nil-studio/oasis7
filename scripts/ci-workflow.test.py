@@ -1998,6 +1998,30 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             with self.subTest(debug=debug, endpoint=endpoint):
                 self.assertEqual(result.returncode == 0, expected, result.stdout + result.stderr)
 
+    def test_ordinary_build_streams_diagnostics_without_changing_required_commands(self):
+        command = ('python3 scripts/ci-test-artifacts.py build --scope ordinary '
+                   '--plan "$RUNNER_TEMP/selection.json" --bundle "$RUNNER_TEMP/native-tests" '
+                   '--cache-state "$RUNNER_TEMP/ordinary-cache-state.json" '
+                   '--build-diagnostics "$RUNNER_TEMP/ordinary-build-diagnostics"')
+        for name in ('oasis7-test-build-candidate', 'oasis7-test-build-trusted'):
+            build = JOBS[name].split('      - name: Build ordinary test artifacts\n', 1)[1].split('      - ', 1)[0]
+            commands = [line.strip() for line in build.split('        run: |\n', 1)[1].splitlines()
+                        if re.match(r'\s*python3 scripts/ci-test-artifacts\.py build\b', line)]
+            self.assertEqual(commands, [command])
+            self.assertNotIn('continue-on-error:', build)
+            self.assertNotIn('if:', build)
+        self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
+
+    def test_ordinary_cargo_concurrency_is_limited_only_at_the_build_step(self):
+        self.assertEqual(WORKFLOW.count('CARGO_BUILD_JOBS:'), 2)
+        for name in ('oasis7-test-build-candidate', 'oasis7-test-build-trusted'):
+            job = JOBS[name]
+            build = job.split('      - name: Build ordinary test artifacts\n', 1)[1].split('      - ', 1)[0]
+            self.assertIn('          CARGO_BUILD_JOBS: "1"\n', build.split('        run: |\n', 1)[0])
+            self.assertNotIn('CARGO_BUILD_JOBS', job.replace(build, '', 1))
+            self.assertNotIn('continue-on-error:', build)
+            self.assertNotIn('if:', build)
+
     def test_formal_build_diagnostics_are_optional_without_hiding_required_failures(self):
         for component, suffix in itertools.product(('debug', 'endpoint'), ('', '-trusted')):
             job = JOBS[f'formal-{component}-build{suffix}']
@@ -2383,7 +2407,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             (root / 'scripts').mkdir()
             (root / 'scripts/ci-tests.sh').write_text(
                 '#!/usr/bin/env bash\nprintf "%s\\0" "$@" > "$ARGV_LOG"\n'
-                + 'cat "$OASIS7_CI_ARCHITECTURE_PLAN_FILE" > "$PLAN_LOG"\nexit "$DRIVER_EXIT"\n')
+                + 'cat "$OASIS7_CI_ARCHITECTURE_PLAN_FILE" > "$PLAN_LOG"\nprintf "%s" "${OASIS7_CI_BUILD_DIAGNOSTICS:-}" > "$DIAGNOSTICS_LOG"\nexit "$DRIVER_EXIT"\n')
             for sample, groups in (
                 ('runtime-world', ('baseline', 'rust_baseline', 'oasis7_required', 'consensus', 'distfs', 'net', 'node')),
                 ('game-client-private-unix', ('baseline', 'rust_baseline', 'oasis7_required')),
@@ -2395,15 +2419,17 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 selection.write_text(json.dumps(data))
                 self.assertGreater(selection.stat().st_size, 128 * 1024)
                 for group in groups:
-                    partitions = ('oasis7_runtime', 'oasis7_world_state') if (
-                        sample == 'runtime-world' and group == 'oasis7_required') else ('all',)
+                    # Include other owners for each axis to reject an overly
+                    # broad diagnostic condition without changing driver argv.
+                    partitions = ('all', 'oasis7_runtime', 'oasis7_world_state')
                     for partition in partitions:
                         for code in (0, 19):
                             result = subprocess.run(['bash', '-c', script], cwd=root, text=True, capture_output=True,
                                 env=dict(os.environ, PREVIEW_GROUP=group, PREVIEW_SAMPLE=sample,
                                          PREVIEW_PARTITION=partition, RUNNER_TEMP=str(root),
                                          GITHUB_WORKSPACE=str(root), ARGV_LOG=str(root / 'args'),
-                                         PLAN_LOG=str(root / 'plan-log'), DRIVER_EXIT=str(code)))
+                                         PLAN_LOG=str(root / 'plan-log'), DRIVER_EXIT=str(code),
+                                         OASIS7_CI_BUILD_DIAGNOSTICS='', DIAGNOSTICS_LOG=str(root / 'diagnostics-log')))
                             args = (root / 'args').read_text().strip('\0').split('\0')
                             expected = ['required', '--group', group]
                             if group in ('rust_baseline', 'oasis7_required', 'distfs'):
@@ -2416,6 +2442,22 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                                 self.assertEqual(json.loads((root / 'plan-log').read_text()), data)
                                 self.assertEqual(result.returncode, code, result.stdout + result.stderr)
                                 self.assertFalse((root / 'transport-must-not-execute').exists())
+                                diagnostics = str(root / 'pr-fast-preview-build-diagnostics') if (
+                                    sample == 'runtime-world' and group == 'oasis7_required'
+                                    and partition == 'oasis7_world_state') else ''
+                                self.assertEqual((root / 'diagnostics-log').read_text(), diagnostics)
+
+    def test_preview_keeps_build_reports_in_its_existing_optional_path_list(self):
+        preview = JOBS['pr-fast-preview']
+        uploads = [step for step in re.findall(r'^      - .*?(?=^      - |\Z)', preview, re.M | re.S)
+                   if 'uses: actions/upload-artifact@' in step]
+        self.assertEqual(len(uploads), 1)
+        self.assertIn('        if: always()\n', uploads[0])
+        self.assertIn('            ${{ runner.temp }}/pr-fast-preview.log\n', uploads[0])
+        self.assertIn('            ${{ runner.temp }}/pr-fast-preview-timing.json\n', uploads[0])
+        self.assertIn('            ${{ runner.temp }}/pr-fast-preview-build-diagnostics\n', uploads[0])
+        self.assertIn('          if-no-files-found: error\n', uploads[0])
+        self.assertNotIn('continue-on-error:', preview)
 
     def test_distfs_workflow_binds_new_handoffs_and_preserves_old_source_ref_cli(self):
         job = JOBS['distfs']
@@ -3177,6 +3219,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             log = Path(temporary) / 'commands.log'
             script = """set -euo pipefail
 ci_python=python3
+# Worker preparation is covered by the full IWS ordering regression.
+build_oasis7_iws_rule_worker() { :; }
 run_cargo() {
   if [[ "$1" == build ]]; then
     printf 'BUILD|%s\\n' "$*" >> "$CI_LOG"
@@ -3362,6 +3406,503 @@ release_web_fixture_start() { record start; }
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(trace.read_text().splitlines(), ['viewer', 'fixture', 'start'])
 
+    def test_iws_host_native_group_uses_explicit_target_and_propagates_failure(self):
+        driver = ROOT / 'scripts/ci-tests.sh'
+        prefix = ('set -euo pipefail\nsource ' + shlex.quote(str(driver))
+                  + '\nrepo_root=' + shlex.quote(str(ROOT)) + '\n')
+        mocks = r'''
+# Actual harness listing and its refusal cases have separate CLI coverage below.
+verify_oasis7_iws_host_native_inventory() { :; }
+uname() {
+  case "$1" in
+    -s) printf '%s\n' "$MOCK_OS" ;;
+    -m) printf '%s\n' "$MOCK_ARCH" ;;
+    *) return 92 ;;
+  esac
+}
+run_cargo() {
+  printf 'CARGO|%s\n' "$*"
+  if [[ -n "$MOCK_FAIL_PACKAGE" && "$*" == *"-p $MOCK_FAIL_PACKAGE "* ]]; then
+    return "$MOCK_CARGO_STATUS"
+  fi
+}
+run_group iws_host_native
+'''
+        expected = [
+            'CARGO|run --locked -p oasis7_distfs --features sync-builtin-wasm-identity '
+            '--bin sync_builtin_wasm_identity -- --verify-iws-rule-candidate-fixture '
+            f'{ROOT} {ROOT}/crates/oasis7_chain_runtime/tests/fixtures/iws_rule_transfer_candidate',
+            'CARGO|rustc --locked -p oasis7_wasm_executor --bin oasis7-wasm-worker '
+            '--no-default-features --features wasmtime -- -C strip=symbols',
+            'CARGO|test --locked -p oasis7_runtime --test iws_rule_core '
+            '--no-default-features --features test_tier_full,wasmtime -- --test-threads=1',
+            'CARGO|test --locked -p oasis7_chain_runtime --test iws_host_linux '
+            '--no-default-features --features iws-host-native-test-support -- --test-threads=1']
+        for system, arch, failed_package, cargo_status, status, count in (
+                ('Linux', 'x86_64', '', 0, 0, 4), ('Linux', 'aarch64', '', 0, 0, 4),
+                ('Linux', 'x86_64', 'oasis7_distfs', 29, 29, 1),
+                ('Linux', 'x86_64', 'oasis7_wasm_executor', 31, 31, 2),
+                ('Linux', 'x86_64', 'oasis7_runtime', 37, 37, 3),
+                ('Linux', 'x86_64', 'oasis7_chain_runtime', 43, 43, 4),
+                ('Darwin', 'arm64', '', 0, 2, 0), ('Linux', 's390x', '', 0, 2, 0)):
+            with self.subTest(system=system, arch=arch, failed_package=failed_package):
+                result = subprocess.run(
+                    ['bash', '-c', prefix + mocks], text=True, capture_output=True,
+                    env=dict(os.environ, MOCK_OS=system, MOCK_ARCH=arch,
+                             MOCK_FAIL_PACKAGE=failed_package, MOCK_CARGO_STATUS=str(cargo_status)))
+                self.assertEqual(result.returncode, status, result.stderr)
+                if status == 2:
+                    self.assertEqual(result.stdout, '')
+                    self.assertIn('requires Linux x86_64 or aarch64', result.stderr)
+                else:
+                    self.assertEqual(result.stdout.splitlines(), expected[:count])
+        extended = re.search(r'^run_full_extended_tier_tests\(\) \{\n.*?^\}',
+                             driver.read_text(), re.M | re.S).group()
+        self.assertRegex(extended, r'if \[\[ "\$\(uname -s\)" == Linux \]\]; then\s+'
+                                  r'run_oasis7_iws_host_native_after_full_tests \|\| return\s+fi')
+
+    def test_required_iws_host_step_uses_one_existing_selected_owner(self):
+        job = JOBS['oasis7-required']
+        steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+        native = [step for step in steps if 'name: Execute complete IWS native Host target' in step]
+        self.assertEqual(len(native), 1)
+        step = native[0]
+        self.assertIn('required --group "iws_host_native" --repo-root "$GITHUB_WORKSPACE"', step)
+        self.assertNotIn('continue-on-error', step)
+        self.assertNotIn('--features', step)
+        self.assertNotIn('OASIS7_CI_TEST_BUNDLE', step)
+        self.assertIn('oasis7-required', JOBS['required-gate'])
+        self.assertIn('runs-on: ubuntu-24.04', job)
+        self.assertLess(job.index(step), job.index('- name: Execute selected group'))
+        condition = re.search(r'^        if: >-\n(.*?)(?=^        \w|\Z)', step, re.M | re.S)[1]
+        partitions = (
+            ['all'],
+            ['controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1'],
+            ['controls', 'native-0', 'native-1', 'native-2', 'native-3'],
+            ['oasis7_runtime', 'oasis7_world_state'],
+        )
+        prepared = [candidate for candidate in steps if any(marker in candidate for marker in (
+            'name: Install pinned Rust toolchains', 'name: Stabilize Rust cache toolchains',
+            'uses: Swatinem/rust-cache@'))]
+        for owners, packages in itertools.product(partitions,
+                ([], ['oasis7_runtime'], ['oasis7_chain_runtime'], ['oasis7_chain_runtime', 'oasis7_runtime'])):
+            active = []
+            for owner in owners:
+                values = {'matrix.partition': owner,
+                          'fromJSON(needs.select.outputs.ordinary_partitions)': owners,
+                          'fromJSON(needs.select.outputs.plan).oasis7_required_packages': packages}
+                with self.subTest(owners=owners, owner=owner, packages=packages):
+                    if effective_job_condition(condition, values, []):
+                        active.append(owner)
+                        inline = owners == ['oasis7_runtime', 'oasis7_world_state']
+                        values.update({
+                            'fromJSON(needs.select.outputs.plan).ordinary_execution': 'inline' if inline else 'artifact',
+                            'fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version': 2 if 'native-0' in owners else 1,
+                            "join(fromJSON(needs.select.outputs.plan).oasis7_required_packages, ',')": ','.join(packages),
+                        })
+                        for prepare in prepared:
+                            prepare_condition = re.search(r'^        if: >-\n(.*?)(?=^        \w|\Z)', prepare, re.M | re.S)[1]
+                            self.assertTrue(effective_job_condition(prepare_condition, values, []))
+                    self.assertFalse(effective_job_condition(condition, values, ['failure']))
+            self.assertEqual(active, owners[:1] if 'oasis7_chain_runtime' in packages else [])
+        self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
+
+    def test_required_iws_host_step_reaches_actual_inline_reverse_consumer_plan(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('iws_native_scope_fixture',
+            ROOT / 'scripts/plan-rust-required-scope.test.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        config = json.loads((ROOT / 'scripts/ci-required-scope.json').read_text())
+        step = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)',
+            JOBS['oasis7-required'], re.M | re.S) if 'name: Execute complete IWS native Host target' in step)
+        condition = re.search(r'^        if: >-\n(.*?)(?=^        \w|\Z)', step, re.M | re.S)[1]
+        fixture = module.Selection()
+        fixture.setUp()
+        try:
+            for package, dependency in (('oasis7_world_state', None),
+                                       ('oasis7_runtime', 'oasis7_world_state'),
+                                       ('oasis7_chain_runtime', 'oasis7_runtime')):
+                manifest = f'[package]\nname="{package}"\nversion="0.1.0"\n'
+                if dependency:
+                    manifest += f'[dependencies]\n{dependency}={{path="../{dependency}"}}\n'
+                manifest += '[features]\ntest_tier_required=[]\ntest_tier_full=["test_tier_required"]\n'
+                fixture.write(f'crates/{package}/Cargo.toml', manifest)
+                fixture.write(f'crates/{package}/src/lib.rs',
+                              '#[cfg(not(target_arch="wasm32"))]\nmod behavior;\n')
+                fixture.write(f'crates/{package}/src/behavior.rs', 'pub fn value()->u8{1}\n')
+            base = fixture.commit()
+            fixture.write('crates/oasis7_world_state/src/behavior.rs', 'pub fn value()->u8{2}\n')
+            head = fixture.commit()
+            for profile in ('pr-fast', 'main-fast'):
+                plan = module.selector.select(config, base, head, profile=profile)
+                with self.subTest(profile=profile):
+                    self.assertEqual(plan['scope'], 'targeted')
+                    self.assertEqual(plan['ordinary_execution'], 'inline')
+                    self.assertEqual(plan['ordinary_partitions'], ['oasis7_runtime', 'oasis7_world_state'])
+                    self.assertIn('oasis7_chain_runtime', plan['oasis7_required_packages'])
+                    active = [owner for owner in plan['ordinary_partitions'] if effective_job_condition(condition, {
+                        'matrix.partition': owner,
+                        'fromJSON(needs.select.outputs.ordinary_partitions)': plan['ordinary_partitions'],
+                        'fromJSON(needs.select.outputs.plan).oasis7_required_packages': plan['oasis7_required_packages'],
+                    }, [])]
+                    self.assertEqual(active, ['oasis7_runtime'])
+        finally:
+            fixture.tearDown()
+
+    def test_iws_host_native_inventory_requires_nine_active_cases_and_runs_whole_target(self):
+        required = {
+            'real_linux_accepted_genesis_installs_native_host',
+            'real_linux_nonempty_node_commit_reopens_cold_and_commits_again',
+            'real_linux_normal_before_publication_recovers_parent_and_same_ready',
+            'real_linux_normal_after_publication_recovers_child_and_node_boundary',
+            'real_linux_checkpoint_and_original_suffix_restore_actual_nonempty_head',
+            'real_linux_accepted_sources_return_original_work_after_cancelled_handoff',
+            'real_linux_partial_source_failure_returns_only_observable_original_work',
+            'real_linux_one_live_node_retains_originals_across_pending_and_completed_restarts',
+            'real_linux_live_node_cold_output_recovery_keeps_original_work_for_successors',
+        }
+        cases = re.findall(r'#\[test\]\s*fn (\w+)\(',
+            (ROOT / 'crates/oasis7_chain_runtime/tests/iws_host_linux.rs').read_text())
+        self.assertTrue(required <= set(cases))
+        script = ('set -euo pipefail\nsource ' + shlex.quote(str(ROOT / 'scripts/ci-tests.sh'))
+                  + '\nci_python=' + shlex.quote(sys.executable) + '\n') + r'''
+run_cargo() {
+  printf '%s\n' "$*" >> "$TRACE_LOG"
+  case "$*" in
+    *' --list --format terse --ignored') cat "$IGNORED_LIST"; return "$IGNORED_STATUS" ;;
+    *' --list --format terse') cat "$CASE_LIST"; return "$LIST_STATUS" ;;
+    *) return "$TEST_STATUS" ;;
+  esac
+}
+run_oasis7_iws_host_native_target
+'''
+        command = ('test --locked -p oasis7_chain_runtime --test iws_host_linux '
+                   '--no-default-features --features iws-host-native-test-support -- ')
+        expected = [command + '--list --format terse', command + '--list --format terse --ignored',
+                    command + '--test-threads=1']
+        required_case = sorted(required)[0]
+        scenarios = [('complete', cases, [], 0, 3),
+                     ('future active case', [*cases, 'future_native_regression'], [], 0, 3),
+                     ('duplicate', [*cases, cases[0]], [], 1, 2),
+                     ('foreign prefix', ['foreign::' + case if case == required_case else case
+                                         for case in cases], [], 1, 2)]
+        scenarios += [('missing ' + name, [case for case in cases if case != name], [], 1, 2)
+                      for name in sorted(required)]
+        scenarios += [('ignored ' + name, cases, [name], 1, 2) for name in sorted(required)]
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            all_list, ignored_list, trace = (directory / name for name in ('all', 'ignored', 'trace'))
+            for name, active, ignored, status, count in scenarios:
+                all_list.write_text(''.join(case + ': test\n' for case in active))
+                ignored_list.write_text(''.join(case + ': test\n' for case in ignored))
+                trace.write_text('')
+                result = subprocess.run(['bash', '-c', script], text=True, capture_output=True,
+                    env=dict(os.environ, TRACE_LOG=str(trace), CASE_LIST=str(all_list),
+                             IGNORED_LIST=str(ignored_list), LIST_STATUS='0', IGNORED_STATUS='0', TEST_STATUS='0'))
+                with self.subTest(name=name):
+                    self.assertEqual(result.returncode, status, result.stderr)
+                    self.assertEqual(trace.read_text().splitlines(), expected[:count])
+            all_list.write_text(''.join(case + ': test\n' for case in cases))
+            ignored_list.write_text('')
+            for field, status, count in (('LIST_STATUS', 41, 1), ('IGNORED_STATUS', 42, 2), ('TEST_STATUS', 43, 3)):
+                trace.write_text('')
+                environment = dict(os.environ, TRACE_LOG=str(trace), CASE_LIST=str(all_list),
+                    IGNORED_LIST=str(ignored_list), LIST_STATUS='0', IGNORED_STATUS='0', TEST_STATUS='0')
+                environment[field] = str(status)
+                result = subprocess.run(['bash', '-c', script], text=True, capture_output=True, env=environment)
+                with self.subTest(failed_phase=field):
+                    self.assertEqual(result.returncode, status, result.stderr)
+                    self.assertEqual(trace.read_text().splitlines(), expected[:count])
+
+    def test_documented_iws_host_group_runs_through_cli(self):
+        self.assertIn('./scripts/ci-tests.sh required --group iws_host_native',
+                      (ROOT / 'testing-manual.md').read_text())
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            inventory = directory / 'inventory'
+            cases = re.findall(r'#\[test\]\s*fn (\w+)\(',
+                (ROOT / 'crates/oasis7_chain_runtime/tests/iws_host_linux.rs').read_text())
+            self.assertGreaterEqual(len(cases), 9)
+            inventory.write_text(''.join(name + ': test\n' for name in cases))
+            trace = directory / 'cargo-trace'
+            cargo = directory / 'cargo'
+            cargo.write_text('#!/usr/bin/env bash\nprintf "IWS_CARGO|%s\\n" "$*" >> "$IWS_CARGO_LOG"\n'
+                             'verbose=0 quiet=0\n'
+                             'for argument in "$@"; do\n'
+                             '  [[ "$argument" != -- ]] || break\n'
+                             '  case "$argument" in --verbose|-v) verbose=1 ;; --quiet|-q) quiet=1 ;; esac\n'
+                             'done\n'
+                             'if [[ "$verbose" == 1 && "$quiet" == 1 ]]; then\n'
+                             '  echo "cannot set both --verbose and --quiet" >&2; exit 101\nfi\n'
+                             'if [[ -n "$MOCK_FAIL_PACKAGE" && "$*" == *"-p $MOCK_FAIL_PACKAGE "* ]]; then\n'
+                             '  exit "$MOCK_CARGO_STATUS"\nfi\n'
+                             'if [[ "$*" == *" --list "* && "$*" != *" --ignored"* ]]; then\n'
+                             '  cat "$IWS_CASE_LIST"\nfi\n')
+            cargo.chmod(0o755)
+            uname = directory / 'uname'
+            uname.write_text('#!/usr/bin/env bash\ncase "$1" in\n'
+                             '-s) echo Linux ;;\n-m) echo x86_64 ;;\n*) exit 92 ;;\nesac\n')
+            uname.chmod(0o755)
+            for verbose, (failed_package, status, count) in itertools.product(('0', '1'), (
+                    ('', 0, 6), ('oasis7_distfs', 39, 1), ('oasis7_wasm_executor', 40, 2),
+                    ('oasis7_runtime', 41, 3),
+                    ('oasis7_chain_runtime', 42, 4))):
+                with self.subTest(verbose=verbose, failed_package=failed_package, status=status):
+                    trace.write_text('')
+                    result = subprocess.run(
+                        ['bash', str(ROOT / 'scripts/ci-tests.sh'), 'required',
+                         '--group', 'iws_host_native'], text=True, capture_output=True,
+                        env=dict(os.environ, PATH=str(directory) + os.pathsep + os.environ['PATH'],
+                                 MOCK_FAIL_PACKAGE=failed_package, MOCK_CARGO_STATUS=str(status),
+                                 IWS_CARGO_LOG=str(trace), IWS_CASE_LIST=str(inventory),
+                                 OASIS7_LOCAL_CHECK='0', CI_VERBOSE=verbose,
+                                 OASIS7_CI_RUN_PROVIDER_LIVE_GATE='false',
+                                 OASIS7_CI_RUN_HOSTED_ACCOUNT_SMOKE='false'))
+                    self.assertEqual(result.returncode, status, result.stderr)
+                    calls = trace.read_text().splitlines()
+                    arguments = [
+                        'run --locked -p oasis7_distfs --features sync-builtin-wasm-identity '
+                        '--bin sync_builtin_wasm_identity -- --verify-iws-rule-candidate-fixture '
+                        f'{ROOT} {ROOT}/crates/oasis7_chain_runtime/tests/fixtures/iws_rule_transfer_candidate',
+                        'rustc --locked -p oasis7_wasm_executor --bin oasis7-wasm-worker '
+                        '--no-default-features --features wasmtime -- -C strip=symbols',
+                        'test --locked -p oasis7_runtime --test iws_rule_core '
+                        '--no-default-features --features test_tier_full,wasmtime -- --test-threads=1',
+                        'test --locked -p oasis7_chain_runtime --test iws_host_linux '
+                        '--no-default-features --features iws-host-native-test-support '
+                        '-- --list --format terse',
+                        'test --locked -p oasis7_chain_runtime --test iws_host_linux '
+                        '--no-default-features --features iws-host-native-test-support '
+                        '-- --list --format terse --ignored',
+                        'test --locked -p oasis7_chain_runtime --test iws_host_linux '
+                        '--no-default-features --features iws-host-native-test-support '
+                        '-- --test-threads=1']
+                    prefix = 'IWS_CARGO|' + ('--verbose ' if verbose == '1' else '')
+                    self.assertEqual(calls, [prefix + argument for argument in arguments[:count]])
+
+    def test_iws_rule_target_uses_expanded_artifacts_without_controls_duplicate(self):
+        import contextlib, importlib.util, tomllib
+        config = json.loads((ROOT / 'scripts/ci-required-scope.json').read_text())
+        spec = importlib.util.spec_from_file_location('selector', ROOT / 'scripts/plan-rust-required-scope.py')
+        selector = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(selector)
+        path = 'crates/oasis7_runtime/tests/iws_rule_core.rs'
+        source = (ROOT / path).read_text()
+        cases = re.findall(r'^fn (\w+)\(', source, re.M)
+        self.assertEqual(len(cases), 7)
+        runtime = tomllib.loads((ROOT / 'crates/oasis7_runtime/Cargo.toml').read_text())
+        self.assertIn('test-support', runtime['features']['test_tier_full'])
+        declaration = next(target for target in runtime['test'] if target['name'] == 'iws_rule_core')
+        self.assertEqual(declaration['required-features'], ['test_tier_full', 'wasmtime'])
+        retired = 'oasis7_runtime_iws_tests'
+        workspace = tomllib.loads((ROOT / 'Cargo.toml').read_text())['workspace']
+        locked = tomllib.loads((ROOT / 'Cargo.lock').read_text())['package']
+        self.assertNotIn('crates/' + retired, workspace['members'])
+        self.assertNotIn(retired, {package['name'] for package in locked})
+        self.assertNotIn(retired, config['package_groups'])
+        self.assertFalse((ROOT / 'crates' / retired / 'Cargo.toml').exists())
+        self.assertFalse(list((ROOT / 'crates' / retired).rglob('*.rs')))
+        expected = dict(package='oasis7_runtime', target_kind='test', target_name='iws_rule_core',
+                        default_features=True, features=['test_tier_full'], cases=cases)
+        self.assertIn(expected, config['ordinary_scale_contract']['targets'])
+        component = next(target for target in config['ordinary_scale_contract']['targets']
+                         if target['target_name'] == 'iws_action_body')
+        self.assertEqual(len(component['cases']), 6)
+
+        def command(*args, cwd, env=None):
+            return subprocess.run(args, cwd=cwd, env=env, text=True, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, check=True).stdout.strip()
+
+        with tempfile.TemporaryDirectory(prefix='iws-runtime-real-selector-') as temporary:
+            root = Path(temporary) / 'repo'
+            root.mkdir()
+
+            def write(name, text):
+                file = root / name
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.write_text(text)
+
+            def git(*args):
+                return command('git', *args, cwd=root)
+
+            git('init', '-q')
+            git('config', 'user.name', 'CI fixture')
+            git('config', 'user.email', 'fixture@example.invalid')
+            write('Cargo.toml', '[workspace]\nmembers=["crates/*"]\nresolver="2"\n')
+            for package in config['oasis7_required_packages']:
+                write(f'crates/{package}/Cargo.toml', f'[package]\nname="{package}"\nversion="0.1.0"\nedition="2021"\n[features]\ndefault=["wasmtime"]\ntest_tier_required=[]\ntest_tier_full=["test_tier_required","test-support"]\nwasmtime=[]\ntest-support=[]\n')
+                write(f'crates/{package}/src/lib.rs', '')
+            manifest = root / 'crates/oasis7_runtime/Cargo.toml'
+            manifest.write_text(manifest.read_text() + '\n[[test]]\nname="iws_rule_core"\npath="tests/iws_rule_core.rs"\nrequired-features=["test_tier_full","wasmtime"]\n')
+            write(path, source)
+            write('crates/oasis7_runtime/src/lib.rs', '#[cfg(not(target_arch="wasm32"))] mod rule_owner_probe;\n')
+            write('crates/oasis7_runtime/src/rule_owner_probe.rs', 'pub fn value() -> u8 { 1 }\n')
+            write('scripts/ci-required-scope.json', json.dumps(config))
+            git('add', '-A')
+            git('commit', '-qm', 'baseline')
+            base = git('rev-parse', 'HEAD')
+            write(path, source.replace('    run_iws_rule_core_case_v1(IwsRuleCoreCaseV1::ModifyWithPricing);',
+                                       '    assert!(false, "test execution sentinel");\n    run_iws_rule_core_case_v1(IwsRuleCoreCaseV1::ModifyWithPricing);'))
+            git('add', '-A')
+            git('commit', '-qm', 'wrapper-body-only')
+            head = git('rev-parse', 'HEAD')
+            with contextlib.chdir(root):
+                body_plan = selector.select(config, base, head, profile='pr-fast')
+            self.assertIs(body_plan['test_policy_changed'], False)
+            self.assertIsNone(body_plan.get('ordinary_fast_targets'))
+            self.assertEqual(body_plan['ordinary_risk_targets'], [expected, component])
+            plan_path = Path(temporary) / 'selection.json'
+            plan_path.write_text(json.dumps(body_plan))
+            env = dict(os.environ, SOURCE_SHA=head, PYTHONDONTWRITEBYTECODE='1', CI_VERBOSE='0',
+                       OASIS7_LOCAL_CHECK='0', OASIS7_CI_RUN_PROVIDER_LIVE_GATE='false',
+                       OASIS7_CI_RUN_HOSTED_ACCOUNT_SMOKE='false')
+            args = json.loads(command(sys.executable, str(ROOT / 'scripts/ci-test-artifacts.py'),
+                'required-args', '--repo-root', str(root), '--plan', str(plan_path),
+                '--phase', 'native-commands', cwd=root, env=env))
+            rule_commands = [args for args in args if '--test' in args and 'iws_rule_core' in args]
+            self.assertEqual(rule_commands, [['-p', 'oasis7_runtime', '--test', 'iws_rule_core',
+                                              '--features', 'test_tier_full']])
+            component_commands = [command for command in args
+                                  if '--test' in command and 'iws_action_body' in command]
+            self.assertEqual(component_commands, [['-p', 'oasis7_runtime', '--test', 'iws_action_body',
+                                                   '--features', 'test_tier_full']])
+            # A complete plan supplies controls and native owners, just as the
+            # current shared-control migration does. No native owner may compile.
+            write('Cargo.toml', (root / 'Cargo.toml').read_text() + '# shared CI input\n')
+            git('add', '-A')
+            git('commit', '-qm', 'complete-package-plan')
+            complete_head = git('rev-parse', 'HEAD')
+            with contextlib.chdir(root):
+                complete = selector.select(config, head, complete_head, profile='pr-fast')
+            self.assertEqual(complete['scope'], 'full')
+            self.assertIn('controls', complete['ordinary_partitions'])
+            plan_path.write_text(json.dumps(complete))
+            shell = r'''set -euo pipefail
+source "$DRAFT_DRIVER"
+ci_python="$PYTHON_EXE"
+driver_dir="$DRAFT_SCRIPTS"
+repo_root="$FIXTURE_ROOT"
+required_plan="$PLAN_PATH"
+tier=required
+ordinary_partition="$CASE_PARTITION"
+OASIS7_CI_TEST_BUNDLE="$FIXTURE_ROOT/bundle"
+run_cargo() {
+  if [[ "$1" == check ]]; then echo 'CHECK'; return 0; fi
+  echo FORBIDDEN_CARGO; return 93
+}
+run_oasis7_required_clippy_for_group() { :; }
+run_oasis7_iws_rule_core_tests() { echo FORBIDDEN_RULE_DUPLICATE; return 94; }
+run() {
+  if [[ "$*" == *"ci-test-artifacts.py run "* ]]; then
+    echo "ARTIFACT|$*"; return "$MOCK_ARTIFACT_STATUS"
+  fi
+  if [[ "$1" == python3 ]]; then shift; "$ci_python" "$@"; else "$@"; fi
+}
+run_group oasis7_required
+'''
+            for partition in ['', *complete['ordinary_partitions']]:
+                for status in (0, 39):
+                    result = subprocess.run(['bash', '-c', shell], text=True, capture_output=True,
+                        env=dict(env, SOURCE_SHA=complete_head, DRAFT_DRIVER=str(ROOT / 'scripts/ci-tests.sh'),
+                                 DRAFT_SCRIPTS=str(ROOT / 'scripts'), PYTHON_EXE=sys.executable,
+                                 FIXTURE_ROOT=str(root), PLAN_PATH=str(plan_path), CASE_PARTITION=partition,
+                                 MOCK_ARTIFACT_STATUS=str(status)))
+                    self.assertEqual(result.returncode, 0 if partition == 'controls' else status,
+                                     (partition, result.stdout, result.stderr))
+                    self.assertNotIn('FORBIDDEN_', result.stdout)
+                    self.assertNotIn('--verify-iws-rule-candidate-fixture', result.stdout)
+                    self.assertEqual(len([line for line in result.stdout.splitlines()
+                                          if line.startswith('ARTIFACT|')]),
+                                     0 if partition == 'controls' else 1)
+            write('crates/oasis7_runtime/src/rule_owner_probe.rs', 'pub fn value() -> u8 { 2 }\n')
+            git('add', '-A')
+            git('commit', '-qm', 'runtime-native-only')
+            fast_head = git('rev-parse', 'HEAD')
+            with contextlib.chdir(root):
+                fast = selector.select(config, complete_head, fast_head, profile='pr-fast')
+            self.assertEqual(fast.get('fast_execution_version'), 1, fast)
+            self.assertNotIn('ordinary_risk_targets', fast)
+            self.assertFalse(any(target['target_name'] == 'iws_rule_core'
+                                 for target in fast['ordinary_fast_targets']))
+
+
+    def test_full_iws_execution_prepares_worker_and_does_not_repeat_rule_target(self):
+        driver = ROOT / 'scripts/ci-tests.sh'
+        script = 'set -euo pipefail\nsource ' + shlex.quote(str(driver)) + '\n' + r'''
+repo_root="$FIXTURE_ROOT"
+verify_oasis7_iws_host_native_inventory() { :; }
+uname() {
+  case "$1" in -s) echo "$MOCK_OS";; -m) echo "$MOCK_ARCH";; *) return 92;; esac
+}
+record() {
+  printf '%s\n' "$1" >> "$TRACE_LOG"
+  [[ "$FAIL_PHASE" != "$1" ]] || return "$FAIL_STATUS"
+}
+build_oasis7_viewer_binary() {
+  if [[ "$1" == test_tier_full,* ]]; then record VIEWER || return
+  else record TAIL_VIEWER || return; fi
+  printf '%s\n' "$VIEWER_BIN"
+}
+run_cargo() {
+  printf '%s\n' "$*" >> "$CARGO_LOG"
+  if [[ "$*" == 'rustc --locked -p oasis7_wasm_executor '* ]]; then
+    record WORKER
+  elif [[ "$*" == 'test --locked -p oasis7_runtime --test iws_rule_core '* ]]; then
+    echo 'full execution duplicated the Rule target' >&2; return 95
+  elif [[ "$*" == 'run --locked -p oasis7_distfs '* ]]; then
+    record CANDIDATE
+  elif [[ "$*" == 'test --locked -p oasis7_chain_runtime --test iws_host_linux '* ]]; then
+    record HOST
+  elif [[ "$*" == 'test -p oasis7 -p oasis7_simulator -p oasis7_runtime '* ]]; then
+    [[ "$PRE2_VIEWER_BINARY" == "$VIEWER_BIN" ]] || return 96
+    if [[ "$*" == *'--features test_tier_full,wasmtime,viewer_live_integration' ]]; then
+      [[ "$*" == *'--tests --features '* ]] || return 97
+      record FULL
+    else record TAIL; fi
+  else echo 'unexpected Cargo command' >&2; return 98; fi
+}
+run_workspace_support_full_feature_tests() { record SUPPORT; }
+run_oasis7_llm_baseline_fixture_smoke() { record SMOKE; }
+run_oasis7_production_mock_guard() { record GUARD; }
+run_full_extended_tier_tests
+'''
+        expected = ['WORKER', 'VIEWER', 'FULL', 'CANDIDATE', 'HOST',
+                    'SUPPORT', 'SMOKE', 'GUARD', 'TAIL_VIEWER', 'TAIL']
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            viewer = root / 'viewer'
+            viewer.write_text('viewer fixture')
+            for failed_phase, status in (('', 0), ('WORKER', 31), ('VIEWER', 32),
+                                         ('FULL', 33), ('CANDIDATE', 34), ('HOST', 35)):
+                trace, cargo = root / (failed_phase + '.trace'), root / (failed_phase + '.cargo')
+                result = subprocess.run(['bash', '-c', script], text=True, capture_output=True,
+                    env=dict(os.environ, FIXTURE_ROOT=str(ROOT), VIEWER_BIN=str(viewer),
+                             TRACE_LOG=str(trace), CARGO_LOG=str(cargo), MOCK_OS='Linux',
+                             MOCK_ARCH='x86_64', FAIL_PHASE=failed_phase, FAIL_STATUS=str(status)))
+                with self.subTest(failed_phase=failed_phase):
+                    self.assertEqual(result.returncode, status, result.stderr)
+                    count = expected.index(failed_phase) + 1 if failed_phase else len(expected)
+                    self.assertEqual(trace.read_text().splitlines(), expected[:count])
+                    calls = cargo.read_text().splitlines()
+                    self.assertEqual(sum('--bin oasis7-wasm-worker ' in call for call in calls), 1)
+                    self.assertFalse(any('--test iws_rule_core ' in call for call in calls))
+                    if not failed_phase:
+                        self.assertEqual(sum('--features test_tier_full,wasmtime,viewer_live_integration' in call
+                                             for call in calls), 1)
+                        self.assertEqual(sum('--verify-iws-rule-candidate-fixture' in call for call in calls), 1)
+                        self.assertEqual(sum('--test iws_host_linux ' in call for call in calls), 1)
+            for system, arch, status, phases in (
+                    ('Linux', 's390x', 2, []),
+                    ('Darwin', 'arm64', 0, ['VIEWER', 'FULL', 'SUPPORT', 'SMOKE', 'GUARD', 'TAIL_VIEWER', 'TAIL'])):
+                trace, cargo = root / (system + '.trace'), root / (system + '.cargo')
+                result = subprocess.run(['bash', '-c', script], text=True, capture_output=True,
+                    env=dict(os.environ, FIXTURE_ROOT=str(ROOT), VIEWER_BIN=str(viewer),
+                             TRACE_LOG=str(trace), CARGO_LOG=str(cargo), MOCK_OS=system,
+                             MOCK_ARCH=arch, FAIL_PHASE='', FAIL_STATUS='0'))
+                self.assertEqual(result.returncode, status, result.stderr)
+                self.assertEqual(trace.read_text().splitlines() if trace.exists() else [], phases)
+
     def test_full_provider_artifact_is_prepared_once_before_each_full_dispatch(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         prelude = re.search(r'^if \[\[ -z "\$group" \]\]; then\n.*?^fi$', driver, re.M | re.S).group()
@@ -3380,6 +3921,7 @@ require_prepared() { [[ "$prepared" == 1 ]]; printf 'CONSUME\\n' >> "$CI_LOG"; }
 run_full_required_superset() { require_prepared; }
 run_rust_baseline() { require_prepared; }
 run_oasis7_full_tier_tests() { require_prepared; }
+run_oasis7_iws_host_native_after_full_tests() { require_prepared; }
 run_workspace_support_full_feature_tests() { require_prepared; }
 run_oasis7_llm_baseline_fixture_smoke() { require_prepared; }
 run_oasis7_production_mock_guard() { require_prepared; }
@@ -3411,6 +3953,7 @@ ci_python=python3
 run_full_required_superset() { :; }
 run_rust_baseline() { :; }
 run_oasis7_full_tier_tests() { :; }
+run_oasis7_iws_host_native_after_full_tests() { :; }
 run_workspace_support_full_feature_tests() { :; }
 run_oasis7_llm_baseline_fixture_smoke() { :; }
 run_group() { [[ "$1" == formal_process ]] || return 50; printf 'FORMAL\\n' >> "$CI_LOG"; }

@@ -16,9 +16,13 @@ use std::io;
 #[derive(Debug)]
 pub struct IndustryFamilyQualificationV1 {
     pub(super) roots: [u8; 32],
+    pub(super) class: MemoryClass,
     pub(super) records: [u64; 5],
 }
 impl IndustryFamilyQualificationV1 {
+    pub fn allocation_class(&self) -> MemoryClass {
+        self.class
+    }
     pub fn validate_binding(&self, roots: &[u8; 32]) -> Result<(), ValueTreeError> {
         if &self.roots != roots {
             return Err(ValueTreeError::Invalid("industry family root binding"));
@@ -180,16 +184,14 @@ pub fn qualify_industry_family_v1<
         return Err(invalid());
     }
     let digest = roots.digest().map_err(|_| invalid())?;
-    let charge = memory.reserve(
-        std::mem::size_of::<IndustryFamilyQualificationV1>(),
-        MemoryClass::Ordinary,
-    )?;
+    let charge = memory.reserve(std::mem::size_of::<IndustryFamilyQualificationV1>(), class)?;
     if (cancelled.borrow_mut())() {
         return Err(ValueTreeError::Cancelled);
     }
     Ok(charge.retain(IndustryFamilyQualificationV1 {
         roots: digest,
         records: counts,
+        class,
     }))
 }
 
@@ -239,4 +241,38 @@ pub(super) fn reference<R: ValueNodeReader, C: FnMut() -> bool>(
         )
         .map_err(|_| invalid())?
         .clone())
+}
+
+/// Resource-only promotion at the exact qualified roots; this grants no
+/// physical availability, history or business authority.
+pub fn readmit_industry_family_ordinary_v1(
+    source: &ReservedValue<IndustryFamilyQualificationV1>,
+    roots: &RootSetV1,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    mut cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<IndustryFamilyQualificationV1>, ValueTreeError> {
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    if source.class != MemoryClass::Recovery
+        || !source.uses_budget(memory)
+        || source.reserved_bytes() < std::mem::size_of::<IndustryFamilyQualificationV1>()
+    {
+        return Err(invalid());
+    }
+    let _metadata = memory.reserve(4096, MemoryClass::Ordinary)?;
+    roots.validate().map_err(|_| invalid())?;
+    source.validate_binding(&roots.digest().map_err(|_| invalid())?)?;
+    let charge = memory.reserve(
+        std::mem::size_of::<IndustryFamilyQualificationV1>(),
+        MemoryClass::Ordinary,
+    )?;
+    if cancelled() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    Ok(charge.retain(IndustryFamilyQualificationV1 {
+        roots: source.roots,
+        records: source.records,
+        class: MemoryClass::Ordinary,
+    }))
 }

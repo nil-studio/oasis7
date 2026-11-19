@@ -371,6 +371,12 @@ pub fn create_logistics_record_overlay_v1<
             || !transaction.uses_budget(context.values.memory)
             || !transaction.uses_budget(write.memory)
             || !qualification.uses_budget(context.values.memory)
+            || crate::incremental_record_qualification_phase::check_class_v1(
+                qualification,
+                context.values.memory,
+                context.values.class,
+            )
+            .is_err()
         {
             return Err(ValueTreeError::Invalid("logistics create pool/class").into());
         }
@@ -498,6 +504,12 @@ pub fn delete_logistics_record_overlay_v1<
             || !transaction.uses_budget(context.values.memory)
             || !transaction.uses_budget(write.memory)
             || !qualification.uses_budget(context.values.memory)
+            || crate::incremental_record_qualification_phase::check_class_v1(
+                qualification,
+                context.values.memory,
+                context.values.class,
+            )
+            .is_err()
         {
             return Err(ValueTreeError::Invalid("logistics delete pool/class").into());
         }

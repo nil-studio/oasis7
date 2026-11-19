@@ -87,11 +87,15 @@ pub fn recover_cognition_head_cache_v1(
 /// Owns the three physical carriers after exact v2 references, current roots
 /// and original flat-head digests have been checked. No lifecycle capability.
 pub struct BoundPersistedCognitionHeadCachesV2 {
+    class: MemoryClass,
     caches: [Option<ReservedValue<PersistedCognitionHeadCacheV1>>; 3],
     head: [u8; 32],
     roots: [u8; 32],
 }
 impl BoundPersistedCognitionHeadCachesV2 {
+    pub(crate) fn class(&self) -> MemoryClass {
+        self.class
+    }
     pub fn cache(&self, index: usize) -> Option<&ReservedValue<PersistedCognitionHeadCacheV1>> {
         self.caches.get(index).and_then(Option::as_ref)
     }
@@ -169,6 +173,7 @@ pub fn bind_persisted_cognition_head_caches_v2(
         return Err(ValueTreeError::Cancelled);
     }
     Ok(charge.retain(BoundPersistedCognitionHeadCachesV2 {
+        class,
         caches,
         head: current.head_record_id(),
         roots: current.roots_id(),

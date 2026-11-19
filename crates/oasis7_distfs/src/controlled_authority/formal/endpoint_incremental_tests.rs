@@ -252,6 +252,14 @@ fn signed_iws_genesis_and_cancelled_prepare_never_write_incomplete_owner_receipt
             )
             .unwrap();
     }
+    drop(
+        crate::incremental_page_store::objects::IncrementalObjectStore::create(
+            &pages,
+            &mut page_io,
+            &no_cancel,
+        )
+        .unwrap(),
+    );
     let budgets = IwsEndpointVerificationBudgetsV1 {
         original_objects: 100,
         original_bytes: 16 << 20,
@@ -271,6 +279,9 @@ fn signed_iws_genesis_and_cancelled_prepare_never_write_incomplete_owner_receipt
         max_pending_node_bytes: 4 << 20,
         state_page_io: io(),
         value_page_io: io(),
+        original_page_io: io(),
+        original_value_nodes: 10000,
+        original_value_read_bytes: 16 << 20,
     };
     for (name, pending, succeeds) in [("zero", 0, false), ("largest", usize::MAX, true)] {
         let boundary_pages = IncrementalPageStore::create(
@@ -291,7 +302,9 @@ fn signed_iws_genesis_and_cancelled_prepare_never_write_incomplete_owner_receipt
         .unwrap();
     let rejected = endpoint.prepare(candidate).unwrap_err();
     assert!(
-        rejected.to_string().contains("IWS typed owner coverage"),
+        rejected
+            .to_string()
+            .contains("IWS complete Current limits required"),
         "{rejected}"
     );
     assert!(matches!(

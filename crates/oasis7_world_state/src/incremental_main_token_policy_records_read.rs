@@ -284,7 +284,15 @@ pub fn read_qualified_main_token_policy_cell_v1<
     output: &mut impl std::io::Write,
 ) -> Result<MainTokenPolicyValueV1, ValueTreeError> {
     let kind = request.key.kind();
-    if !request.cell.belongs(kind) || !request.qualification.uses_budget(ctx.values.memory) {
+    if !request.cell.belongs(kind)
+        || !request.qualification.uses_budget(ctx.values.memory)
+        || crate::incremental_record_qualification_phase::check_class_v1(
+            request.qualification,
+            ctx.values.memory,
+            ctx.values.class,
+        )
+        .is_err()
+    {
         return Err(ValueTreeError::Invalid(
             "main_token_policy qualified read binding",
         ));

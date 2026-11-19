@@ -400,3 +400,9 @@ where
         ctx.values.memory,
     )
 }
+
+#[path = "incremental_runtime_module_authorization_receiver.rs"]
+mod receiver;
+pub use receiver::accept_module_authorization_transition_v1;
+
+pub(crate) use receiver::accept_module_authorization_verified_v1;

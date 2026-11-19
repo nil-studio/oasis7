@@ -13,17 +13,8 @@ pub(super) struct CurrentTaskScope {
 }
 impl CurrentTaskScope {
     pub(super) fn matches(&self, fence: &GameTaskFenceV1) -> bool {
-        fence.agent_id == self.agent
-            && fence.world_id == self.world
-            && self
-                .genesis
-                .as_ref()
-                .is_none_or(|g| g == &fence.genesis_digest)
-            && fence.branch_id == self.branch
-            && fence.reorg_epoch.0 == self.reorg
-            && fence.owner_public_key == self.owner
-            && fence.owner_binding == self.binding
-            && fence.owner_generation.0 == self.generation
+        matches_current_task_scope_data_v1(CurrentTaskScopeBorrowedDataV1{agent:&self.agent,world:&self.world,genesis:self.genesis.as_deref(),branch:&self.branch,reorg:self.reorg,owner:&self.owner,binding:&self.binding,generation:self.generation},fence,&mut|_,_|Ok::<(),std::convert::Infallible>(())).unwrap()
+
     }
 }
 pub(super) fn current_task_scope(world: &World, agent: &str) -> Result<CurrentTaskScope, String> {
@@ -63,4 +54,14 @@ pub(super) fn has_closed_in_current_scope(world: &World, agent: &str) -> Result<
         .records
         .values()
         .any(|r| scope.matches(&r.closed.initial_fence)))
+}
+
+/// Pure original fence comparison DATA. This carries no Current authority.
+pub(crate) struct CurrentTaskScopeBorrowedDataV1<'a>{pub(crate) agent:&'a str,pub(crate) world:&'a str,pub(crate) genesis:Option<&'a str>,pub(crate) branch:&'a str,pub(crate) reorg:u64,pub(crate) owner:&'a str,pub(crate) binding:&'a str,pub(crate) generation:u64}
+pub(crate) fn matches_current_task_scope_data_v1<E>(scope:CurrentTaskScopeBorrowedDataV1<'_>,fence:&GameTaskFenceV1,work:&mut impl FnMut(u64,usize)->Result<(),E>)->Result<bool,E>{
+ work(1,fence.agent_id.len()+scope.agent.len())?;if fence.agent_id!=scope.agent{return Ok(false)}
+ work(1,fence.world_id.len()+scope.world.len())?;if fence.world_id!=scope.world{return Ok(false)}
+ if let Some(genesis)=scope.genesis{work(1,genesis.len()+fence.genesis_digest.len())?;if genesis!=fence.genesis_digest{return Ok(false)}}
+ work(1,fence.branch_id.len()+scope.branch.len())?;if fence.branch_id!=scope.branch{return Ok(false)}work(1,0)?;if fence.reorg_epoch.0!=scope.reorg{return Ok(false)}
+ work(1,fence.owner_public_key.len()+scope.owner.len())?;if fence.owner_public_key!=scope.owner{return Ok(false)}work(1,fence.owner_binding.len()+scope.binding.len())?;if fence.owner_binding!=scope.binding{return Ok(false)}work(1,0)?;Ok(fence.owner_generation.0==scope.generation)
 }

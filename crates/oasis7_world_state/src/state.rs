@@ -54,6 +54,7 @@ mod body_projection;
 mod command_projection;
 pub mod core_policy_transition;
 mod factory_authority;
+pub use factory_authority::require_active_location_anchor_point_v1;
 mod formal_retention_projection;
 mod governance_identity_projection;
 pub mod industry_history_transition;
@@ -62,10 +63,16 @@ pub mod industry_transition;
 mod logistics_path_authority;
 mod module_admission_freeze;
 pub mod module_instance_transition;
+pub mod module_release_records;
 pub use module_admission_freeze::ModuleAdmissionFreeze;
+pub use module_release_records::{
+    ModuleReleaseRecordProjectionV1, prepare_module_release_records_v1,
+};
 pub mod module_marketplace_transition;
 pub mod module_release_transition;
 mod module_visual;
+pub use module_visual::ModuleVisualPointErrorV1;
+pub(crate) use module_visual::check_module_visual_point_v1;
 mod projection;
 mod starter_industrial;
 #[path = "state_defaults.rs"]
@@ -76,17 +83,24 @@ mod world_state_deserialize;
 pub use self::starter_industrial::{
     IndustryProgressState, STARTER_ASSEMBLER_FACTORY_ID, STARTER_INDUSTRIAL_COMPLETION_BOUNDARY,
     STARTER_INDUSTRIAL_PROFILE_ID, STARTER_INDUSTRIAL_PROFILE_REVISION, STARTER_SMELTER_FACTORY_ID,
-    STARTER_SMELTER_RECIPE_ID, StarterIndustrialFeasibilityResult,
+    STARTER_SMELTER_RECIPE_ID, StarterIndustrialFactsV1, StarterIndustrialFeasibilityResult,
     StarterIndustrialFeasibilityStatus, StarterIndustrialMilestoneV1,
-    StarterIndustrialSettlementSummaryV1,
+    StarterIndustrialReceiptFactsV1, StarterIndustrialSettlementSummaryV1,
+    starter_industrial_feasibility_from_facts_v1,
 };
 use self::support::*;
 pub use command_projection::{
     CommandAgentMapProjection, CommandModuleStateMapProjection, CommandResourceMapProjection,
     CommandStateOverlay,
 };
-pub use logistics_path_authority::LogisticsPathAuthorityV1;
-pub use projection::{BodyOverlay, WorldStateProjection};
+pub use logistics_path_authority::{
+    LogisticsPathAuthorityV1, allocate_recipe_path_amounts_from_records_v1,
+};
+pub(crate) use projection::OriginalStateSlotOutputV1;
+pub use projection::{
+    BodyOverlay, OriginalStateFieldEmissionV1, OriginalStateFieldSlotEventV1,
+    OriginalStateFieldSlotV1, WorldStateProjection,
+};
 
 pub use self::industry_state::{
     AgentLocationAuthorityV1, FACTORY_BUILD_STARTED_MODERN_VERSION, FactoryBuildPowerObligationV1,
@@ -300,7 +314,7 @@ pub struct MaterialTransferReceiptV1 {
 }
 
 /// Active market listing for one module artifact.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct ModuleArtifactListingState {
     #[serde(default)]
     pub order_id: u64,
@@ -311,7 +325,7 @@ pub struct ModuleArtifactListingState {
 }
 
 /// Active bid order for one module artifact.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct ModuleArtifactBidState {
     pub order_id: u64,
     pub bidder_agent_id: String,
@@ -1064,3 +1078,14 @@ impl WorldState {
 
 #[path = "state/world_state_debug.rs"]
 mod world_state_debug;
+
+pub use module_marketplace_transition::{
+    select_module_market_bid_v1, settle_module_action_fee_from_records_v1,
+    validate_module_market_event_rows_v1,
+};
+
+#[path = "state_marketplace_projection.rs"]
+mod marketplace_projection;
+pub use marketplace_projection::{
+    ModuleArtifactBidProjectionFieldsV1, ModuleArtifactListingProjectionFieldsV1,
+};

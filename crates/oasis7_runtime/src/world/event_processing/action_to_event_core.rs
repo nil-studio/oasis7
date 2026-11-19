@@ -19,7 +19,6 @@ impl World {
         }
     }
 
-
     fn ensure_restricted_starter_claim_admin(&self, issuer_account_id: &str) -> Result<(), String> {
         let registry = self
             .governance_main_token_controller_registry()

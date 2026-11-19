@@ -1,3 +1,5 @@
+#[path = "incremental_materials.rs"]
+pub mod materials;
 use oasis7::AgentState;
 use oasis7_agent_api::world_action::{BodyKernelView, GeoPos};
 use oasis7_distfs::incremental_page_store::{
@@ -38,6 +40,41 @@ pub fn state_physical() -> PageIoBudget {
         reads_remaining: 128 << 10,
         ..physical()
     }
+}
+/// Only the GEN/cold fixture readers that discover materials need this phase.
+/// Complete inventory qualification scans all six roots once; material scope
+/// then scans Business once more. A nonempty depth-256 tree has at most
+/// 1 + 256 * leaf_count pages, while empty sentinels do not cause page reads.
+/// Each State page is <=1200 bytes, so the 4KiB-minimum gear codec uses one
+/// frame. Packed recipe/frame lookup costs at most 10 reads each (prefix,
+/// header, <=7 index reads with the four-row tail, payload), plus one format
+/// read. These are finite discovery reads, not a new production allowance.
+/// Keep the original 128Ki stage/seal reads and every byte/write limit intact.
+pub fn state_physical_with_inventory_discovery(
+    roots: &RootSetV1,
+) -> Result<PageIoBudget, PageStoreError> {
+    let limited = || PageStoreError::ResourceLimited("inventory fixture discovery read bound");
+    let pages = roots
+        .state
+        .iter()
+        .chain(std::iter::once(roots.state_root(Ns::Business)))
+        .try_fold(0u64, |total, root| {
+            let pages = if root.leaf_count == 0 {
+                0
+            } else {
+                root.leaf_count
+                    .checked_mul(256)
+                    .and_then(|n| n.checked_add(1))
+                    .ok_or_else(limited)?
+            };
+            total.checked_add(pages).ok_or_else(limited)
+        })?;
+    let mut allowance = state_physical();
+    allowance.reads_remaining = pages
+        .checked_mul(21)
+        .and_then(|reads| allowance.reads_remaining.checked_add(reads))
+        .ok_or_else(limited)?;
+    Ok(allowance)
 }
 pub fn logical() -> ValueIoBudget {
     ValueIoBudget {
@@ -108,7 +145,22 @@ impl Drop for Directory {
     }
 }
 
+// Both layouts publish the same paid GEN delta. Individual is used only by
+// the two original-object failure cases; the default fixture remains packed.
+pub(super) enum StatePageLayout {
+    Packed,
+    Individual,
+}
+
 pub fn fixture(store: &IncrementalPageStore, memory: &MemoryBudget) -> (World, ExecutionParent) {
+    fixture_with_page_layout(store, memory, StatePageLayout::Packed)
+}
+
+pub(super) fn fixture_with_page_layout(
+    store: &IncrementalPageStore,
+    memory: &MemoryBudget,
+    layout: StatePageLayout,
+) -> (World, ExecutionParent) {
     let mut state = WorldState {
         time: 11,
         ..WorldState::default()
@@ -192,6 +244,28 @@ pub fn fixture(store: &IncrementalPageStore, memory: &MemoryBudget) -> (World, E
                 after: Some(id),
             });
     }
+    let mut inventory_rows = InventoryRows(Vec::new());
+    oasis7_world_state::incremental_inventory_genesis::prepare_inventory_genesis_v1(
+        world.state(),
+        &mut oasis7_world_state::incremental_inventory_genesis::InventoryGenesisContext {
+            values: &mut sink,
+            writes: &mut inventory_rows,
+            memory,
+            io: &mut logical(),
+            key_work: &mut oasis7_world_state::incremental_semantic_key::SemanticKeyBudget {
+                bytes_remaining: 1 << 20,
+            },
+            semantic_bytes: 4096,
+            record_bytes: 16 << 20,
+            records_remaining: 10_000,
+            cancelled: || false,
+        },
+    )
+    .unwrap();
+    fields
+        .entry(Ns::Business as u8)
+        .or_default()
+        .extend(inventory_rows.0.iter().map(|row| (**row).clone()));
     let mut parent = ExecutionParent {
         commit: [1; 32],
         roots: RootSetV1::empty("agent-event-physical".into(), [2; 32]).unwrap(),
@@ -226,8 +300,32 @@ pub fn fixture(store: &IncrementalPageStore, memory: &MemoryBudget) -> (World, E
         let retained = charge.split(heap).unwrap();
         drop(charge);
         let delta = retained.retain(delta);
-        sink.put_state_pages_cancelled(&delta, memory, &mut || false)
-            .unwrap();
+        match layout {
+            StatePageLayout::Packed => {
+                sink.put_state_pages_cancelled(&delta, memory, &mut || false)
+                    .unwrap();
+            }
+            StatePageLayout::Individual => {
+                assert!(store.memory_budget().same_pool(memory) && delta.uses_budget(memory));
+                {
+                    let _validation = memory.reserve(64 * 1024, MemoryClass::Ordinary).unwrap();
+                    for page in &delta.new_nodes {
+                        page.verified_links().unwrap();
+                    }
+                }
+                // Keep the complete producer delta charged while publishing
+                // each identical page through the original session account.
+                for page in &delta.new_nodes {
+                    let mut id = [0; 32];
+                    hex::decode_to_slice(&page.digest, &mut id).unwrap();
+                    let charge = memory
+                        .reserve(page.bytes.len() + 128, MemoryClass::Ordinary)
+                        .unwrap();
+                    let bytes = charge.retain(page.bytes.clone());
+                    sink.put_node_borrowed(id, &bytes).unwrap();
+                }
+            }
+        }
         parent.roots.state[index] = delta.after.clone();
     }
     drop(IncrementalObjectStore::create(store, &mut physical(), &cancelled).unwrap());
@@ -313,7 +411,10 @@ pub fn contribute(
     memory: &MemoryBudget,
 ) -> ReservedValue<PreparedTransition> {
     let source = store
-        .state_session(state_physical(), MemoryClass::Ordinary)
+        .state_session(
+            state_physical_with_inventory_discovery(&parent.roots).unwrap(),
+            MemoryClass::Ordinary,
+        )
         .unwrap();
     let mut sink = store.value_session(physical());
     let values = store.value_session(physical());
@@ -322,6 +423,21 @@ pub fn contribute(
     let objects =
         IncrementalObjectStore::open(store, MemoryClass::Ordinary, &mut physical_io, &cancelled)
             .unwrap();
+    let roots = parent.roots.clone();
+    let mut material_backing = materials::MaterialFixtureV1::build(
+        &roots,
+        &source,
+        &values,
+        memory,
+        materials::MaterialFixtureLimitsV1::for_state(world.state()),
+        || source.take_read_error().map(state_error),
+        || false,
+    );
+    let stage_reads = source.remaining_io().unwrap().reads_remaining;
+    assert!(stage_reads >= state_physical().reads_remaining);
+    let mut material_context = material_backing.context(&roots, &source, || {
+        source.take_read_error().map(state_error)
+    });
     let live = parent.fence().unwrap();
     let mut txn = ExecutionTransaction::begin(
         parent,
@@ -364,15 +480,52 @@ pub fn contribute(
                 max_event_bytes: 1 << 20,
                 original_work: original_work(),
             },
+            &mut material_context,
+            &live,
         )
         .unwrap();
     let after_contribute = source.remaining_io().unwrap();
     let guard = txn.guard();
     let sealed = txn.seal(&guard, &live, 0);
+    let stage_used = stage_reads
+        .checked_sub(source.remaining_io().unwrap().reads_remaining)
+        .unwrap();
+    assert!(
+        stage_used <= state_physical().reads_remaining,
+        "Agent stage/seal used {stage_used} reads, beyond its original 128Ki scope"
+    );
     eprintln!(
         "Agent candidate State probe event={} before={before_contribute:?} afterContribute={after_contribute:?} afterSeal={:?}",
         event.id,
         source.remaining_io()
     );
     sealed.unwrap()
+}
+
+struct InventoryRows(Vec<ReservedValue<StateWriteV1>>);
+impl oasis7_world_state::incremental_inventory_genesis::InventoryWriteSink for InventoryRows {
+    fn put_write(
+        &mut self,
+        write: ReservedValue<StateWriteV1>,
+    ) -> Result<(), oasis7_formal_protocol::incremental_value::ValueTreeError> {
+        self.0.push(write);
+        Ok(())
+    }
+}
+pub fn state_error(
+    error: PageStoreError,
+) -> oasis7_formal_protocol::incremental_value::ValueTreeError {
+    use oasis7_formal_protocol::incremental_value::ValueTreeError as V;
+    match error {
+        PageStoreError::Memory(e) => V::Memory(e),
+        PageStoreError::ResourceLimited(e) => V::ResourceLimited(e),
+        PageStoreError::Cancelled => V::Cancelled,
+        PageStoreError::Io(e) => V::Io(e),
+        PageStoreError::Missing(_) => V::Io(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "material physical page",
+        )),
+        PageStoreError::Corrupt(e) => V::Invalid(e),
+        PageStoreError::UnsupportedPlatform => V::Invalid("material physical platform"),
+    }
 }

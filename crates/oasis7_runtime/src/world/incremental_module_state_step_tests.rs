@@ -4,6 +4,7 @@ use crate::world::incremental_module_state_recovery::ModuleStateRecoveryContextV
 use oasis7_formal_protocol::incremental_state::StateScanBudget;
 use oasis7_wasm_abi::ModuleStateUpdate;
 use oasis7_world_state::incremental_event_fields::MAILBOX_KEY_DOMAIN_V1;
+#[cfg(test)]
 use std::io::{self, Write};
 
 struct QualifiedPages<'a>(&'a Pages, &'a MemoryBudget);
@@ -17,6 +18,35 @@ impl MerkleNodeReader for QualifiedPages<'_> {
     }
     fn allocation_class(&self) -> Option<MemoryClass> {
         Some(MemoryClass::Ordinary)
+    }
+}
+
+#[path = "incremental_module_state_membership_tests.rs"]
+mod membership;
+
+/// Closed selectors for the original opaque-state and receiver regressions.
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+#[derive(Clone, Copy, Debug)]
+pub enum IwsModuleStateCaseV1 {
+    OpaqueUpdate,
+    MixedMembership,
+    RejectWrongBeforeAndForeignRoots,
+}
+
+/// Run the original assertions with their fixed fixture and budgets.
+/// No state, qualification, budget, or callback crosses this boundary.
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
+pub fn run_iws_module_state_case_v1(case: IwsModuleStateCaseV1) {
+    match case {
+        IwsModuleStateCaseV1::OpaqueUpdate => {
+            case_opaque_update();
+        }
+        IwsModuleStateCaseV1::MixedMembership => {
+            membership::case_mixed_membership();
+        }
+        IwsModuleStateCaseV1::RejectWrongBeforeAndForeignRoots => {
+            membership::case_reject_wrong_before_and_foreign_roots();
+        }
     }
 }
 
@@ -156,6 +186,10 @@ fn module_state_genesis_point_read_and_recovery_preserve_empty_and_absent() {
 
 #[test]
 fn step_dispatch_updates_opaque_state_and_original_without_mailbox() {
+    case_opaque_update();
+}
+
+fn case_opaque_update() {
     let memory = MemoryBudget::new(64 << 20, 1 << 20).unwrap();
     let key = "instance#stable-2\0雪";
     let (_world, parent, pages, mut values) = setup_module_states(&memory, &[(key, &[1, 2, 3])]);
@@ -451,9 +485,11 @@ fn original_skip_late_cancel_and_partial_io_failure_abort_the_whole_step() {
     }
 }
 
+#[cfg(test)]
 struct PrefixThenFail<'a> {
     written: &'a Cell<usize>,
 }
+#[cfg(test)]
 impl Write for PrefixThenFail<'_> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         if self.written.get() != 0 {
@@ -630,7 +666,9 @@ fn generic_valid_misplaced_and_malformed_state_writes_fail_owner_receiver() {
     }
 }
 
+#[cfg(test)]
 struct RecoveryPages<'a>(&'a Pages, &'a MemoryBudget);
+#[cfg(test)]
 impl MerkleNodeReader for RecoveryPages<'_> {
     type Node = Vec<u8>;
     fn read_node(&self, id: &str, max: usize) -> Result<Option<Vec<u8>>, String> {

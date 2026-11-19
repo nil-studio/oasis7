@@ -23,7 +23,7 @@ pub struct AuthenticatedNonceGenesisV1 {
     pub players: u64,
     pub keys: u64,
 }
-fn descriptor() -> Result<FieldDescriptor, ValueTreeError> {
+pub(crate) fn descriptor() -> Result<FieldDescriptor, ValueTreeError> {
     WORLD_STATE_FIELDS
         .iter()
         .copied()

@@ -11,6 +11,12 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueNodeReader, ValueTreeError},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
+#[path = "incremental_cognition_lifecycle_candidate_v3.rs"]
+mod candidate_v3;
+pub use candidate_v3::*;
+#[path = "incremental_cognition_lifecycle_attested_v3.rs"]
+mod attested_v3;
+pub use attested_v3::*;
 pub struct CognitionLifecycleQualificationV2 {
     root: StateRootV1,
     keys: u64,
@@ -21,6 +27,28 @@ pub struct CognitionLifecycleQualificationV2 {
     class: MemoryClass,
 }
 impl CognitionLifecycleQualificationV2 {
+    pub(crate) fn class(&self) -> MemoryClass {
+        self.class
+    }
+    pub(crate) fn validate_accepted_binding(
+        &self,
+        view: &ReservedValue<AcceptedCognitionHistoryViewV1>,
+        current: &ReservedValue<CognitionHistoryCurrentBindingV1>,
+        journal: &ReservedValue<CognitionHistoryIndexQualificationV1>,
+        memory: &MemoryBudget,
+    ) -> Result<(), ValueTreeError> {
+        binding(view, current, journal, memory)?;
+        if self.class != MemoryClass::Ordinary
+            || self.head != view.occurrence().head_record_id()
+            || self.roots != view.manifest().roots
+            || self.root != *declared(view)?
+            || self.journal != *journal.root()
+            || self.records != journal.record_count()
+        {
+            return Err(invalid());
+        }
+        Ok(())
+    }
     pub fn root(&self) -> &StateRootV1 {
         &self.root
     }

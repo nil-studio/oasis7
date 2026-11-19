@@ -6,6 +6,13 @@ macro_rules! fields {
     ($($name:ident => $mode:ident, $shape:ident, $destination:expr;)*) => {
         pub const WORLD_STATE_FIELDS: &[FieldDescriptor] = &[$(FieldDescriptor { owner: FieldOwner::WorldState, name: stringify!($name), destination: $destination, shape: FieldShape::$shape },)*];
         impl WorldState {
+            /// Same exhaustive registry, with compiler-inferred real member
+            /// types. Registration only: no WorldState serde or graph clone.
+            pub fn visit_iws_column_codecs_v1<V:WorldStateColumnCodecVisitorV1>(&self,visitor:&mut V)->Result<(),V::Error>{
+                let WorldState { $($name: _,)* } = self;
+                $(visitor.$mode(FieldDescriptor{owner:FieldOwner::WorldState,name:stringify!($name),destination:$destination,shape:FieldShape::$shape},&self.$name)?;)*
+                Ok(())
+            }
             pub fn visit_iws_genesis_fields<S: GenesisFieldVisitor>(&self, sink: &mut S) -> Result<(), ProjectionError<S::Error>> {
                 // No `..`: a newly added field must be explicitly classified,
                 // including fields omitted by serde skip_serializing_if.
@@ -121,3 +128,7 @@ fields! {
     governance_authorization_nonces => map, Map, FieldDestination::State(Namespace::Authorization);
     reward_signature_governance_policy => value, Value, FieldDestination::State(Namespace::Authorization);
 }
+
+#[path = "incremental_state_projection_codec.rs"]
+mod column_codec;
+pub use column_codec::WorldStateColumnCodecVisitorV1;

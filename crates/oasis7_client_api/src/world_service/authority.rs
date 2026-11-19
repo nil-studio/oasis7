@@ -3,15 +3,25 @@ use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::Serialize;
 
 pub fn signing_bytes<T: Serialize>(domain: &str, value: &T) -> Result<Vec<u8>, String> {
-    oasis7_wasm_abi::encode_canonical_cbor(&("oasis7.world-service.v1", domain, value))
-        .map_err(|error| error.to_string())
+    let result = signing_bytes_with_work_v1(
+        domain,
+        value,
+        &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+    )
+    .map_err(work::legacy_error)?;
+    debug_assert!(result.fee.is_none());
+    Ok(result.bytes)
 }
 
 pub fn request_digest<T: Serialize>(domain: &str, value: &T) -> Result<String, String> {
-    Ok(format!(
-        "blake3:{}",
-        blake3::hash(&signing_bytes(domain, value)?)
-    ))
+    let result = request_digest_with_work_v1(
+        domain,
+        value,
+        &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+    )
+    .map_err(work::legacy_error)?;
+    debug_assert!(result.fee.is_none());
+    Ok(result.text)
 }
 
 fn decode<const N: usize>(value: &str) -> Result<[u8; N], String> {
@@ -39,18 +49,22 @@ pub fn verify_read_request<T: Serialize>(
     domain: &str,
     request: &SignedReadRequest<T>,
 ) -> Result<(), String> {
-    verify(
-        &request.subject_public_key,
-        &request.signature_hex,
-        &signing_bytes(domain, &request.request)?,
+    verify_read_request_with_work_v1(
+        domain,
+        request,
+        &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
     )
+    .map_err(work::legacy_error)
 }
 
 fn verify(key: &str, signature: &str, bytes: &[u8]) -> Result<(), String> {
-    VerifyingKey::from_bytes(&decode(key)?)
-        .map_err(|e| e.to_string())?
-        .verify(bytes, &Signature::from_bytes(&decode(signature)?))
-        .map_err(|e| e.to_string())
+    work::verify_bytes_with_work_v1(
+        key,
+        signature,
+        bytes,
+        &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+    )
+    .map_err(work::legacy_error)
 }
 
 pub fn sign_service_response<T: Serialize>(
@@ -126,3 +140,12 @@ mod tests {
         );
     }
 }
+
+#[path = "authority_work.rs"]
+pub(in crate::world_service) mod work;
+pub use work::{
+    PaidServiceProtocolRefusalV1, PaidServiceRequestDigestV1, PaidServiceSigningBytesV1,
+    ServiceAuthorityWorkErrorV1, request_digest_with_work_v1, signing_bytes_with_work_v1,
+};
+
+pub use work::verify_read_request_with_work_v1;

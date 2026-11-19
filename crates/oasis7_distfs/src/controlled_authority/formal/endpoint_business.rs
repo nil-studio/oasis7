@@ -127,7 +127,9 @@ impl FileFormalEndpoint {
             return Ok(());
         };
         let node: HistoryNode = self.store.get(id)?;
-        let FormalRequestStateV1::Qualified { candidate, proof } = self.store.get(&node.entry)?
+        let FormalRequestStateV1::Qualified {
+            candidate, proof, ..
+        } = self.store.get(&node.entry)?
         else {
             return Err(invalid("profile2 checkpoint head must be Qualified"));
         };

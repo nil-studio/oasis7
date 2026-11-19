@@ -72,7 +72,12 @@ pub(super) fn run_builtin(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn verify(root: &Path, module: &str, manifest: &str, paths: &[String]) -> Result<(), String> {
+pub(super) fn verify(
+    root: &Path,
+    module: &str,
+    manifest: &str,
+    paths: &[String],
+) -> Result<BuildReceipt, String> {
     let wasm = fs::read(&paths[0]).map_err(|e| e.to_string())?;
     let metadata_bytes = fs::read(&paths[1]).map_err(|e| e.to_string())?;
     let receipt_bytes = fs::read(&paths[2]).map_err(|e| e.to_string())?;
@@ -129,5 +134,5 @@ fn verify(root: &Path, module: &str, manifest: &str, paths: &[String]) -> Result
     if receipt.builder_recipe.as_ref() != Some(&recipe) {
         return Err("provider producer recipe differs from tested checkout".into());
     }
-    Ok(())
+    Ok(receipt)
 }

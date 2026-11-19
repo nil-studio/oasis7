@@ -886,8 +886,10 @@ impl World {
     }
 
     pub fn upsert_recipe_profile(&mut self, profile: RecipeProfileV1) -> Result<(), WorldError> {
-        profile.validate_substitution_rules().map_err(|error| WorldError::ResourceBalanceInvalid {
-            reason: format!("invalid recipe substitution profile: {error}"),
+        profile.validate_substitution_rules().map_err(|error| {
+            WorldError::ResourceBalanceInvalid {
+                reason: format!("invalid recipe substitution profile: {error}"),
+            }
         })?;
         if profile.recipe_id.trim().is_empty() {
             return Err(WorldError::ResourceBalanceInvalid {
@@ -1084,13 +1086,7 @@ impl World {
         let mut planned = Vec::with_capacity(delta.entries.len());
         for (kind, amount) in &delta.entries {
             let current = self.resource_balance(*kind);
-            let next = current.checked_add(*amount).ok_or_else(|| {
-                WorldError::ResourceBalanceInvalid {
-                    reason: format!(
-                        "resource balance overflow: kind={kind:?} current={current} delta={amount}"
-                    ),
-                }
-            })?;
+            let next = super::resource_balance_kernel::checked_next(*kind, current, *amount)?;
             planned.push((*kind, next));
         }
 

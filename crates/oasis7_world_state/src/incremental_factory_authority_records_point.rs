@@ -89,6 +89,12 @@ pub(super) fn current<
     if records.values.class != MemoryClass::Ordinary
         || !tx.uses_budget(records.values.memory)
         || !proof.uses_budget(records.values.memory)
+        || crate::incremental_record_qualification_phase::check_class_v1(
+            proof,
+            records.values.memory,
+            records.values.class,
+        )
+        .is_err()
     {
         return Err(invalid().into());
     }
@@ -170,6 +176,12 @@ pub fn change_qualified_factory_authority_cell_v1<
             || context.values.class != MemoryClass::Ordinary
             || !tx.uses_budget(context.values.memory)
             || !change.qualification.uses_budget(context.values.memory)
+            || crate::incremental_record_qualification_phase::check_class_v1(
+                change.qualification,
+                context.values.memory,
+                context.values.class,
+            )
+            .is_err()
         {
             return Err(invalid().into());
         }

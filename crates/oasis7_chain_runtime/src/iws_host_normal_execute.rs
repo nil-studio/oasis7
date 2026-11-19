@@ -1,0 +1,106 @@
+//! Fixed Chain-only normal execution and commit. No caller execution callback,
+//! replacement candidate or detached worker/Root context crosses this boundary.
+use super::*;
+use crate::iws_normal_input::PaidNormalTickSourcesV1;
+use crate::iws_normal_input_decode::NormalInputDecodeLimitsV1;
+use oasis7_formal_protocol::controlled_authority::formal::bounded_cbor_data::CborDataLimitsV1;
+use oasis7_runtime::{
+    NormalCommitHeaderLimitsV1, NormalHostCognitionParentSourcesV1, RuntimeSourceCompiler,
+};
+
+pub(crate) enum NormalExecutionCommitFailureV1 {
+    BeforePreparation {
+        cause: IwsHostRuntimeErrorV1,
+        sources: PaidNormalTickSourcesV1,
+        work: NormalCommitWorkV1,
+    },
+    /// Once prepared, recovery exclusively uses the retained output/publication
+    /// owner. It cannot call the Action dispatcher a second time.
+    AfterPreparation(NormalOutputCommitFailureV1),
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn execute_and_commit_frozen_normal_bounded_v1(
+    primary: &mut IwsHostRuntimeV1,
+    replica: &mut IwsHostRuntimeV1,
+    sources: PaidNormalTickSourcesV1,
+    mut work: NormalCommitWorkV1,
+    writer: &ed25519_dalek::SigningKey,
+    input_limits: &NormalInputDecodeLimitsV1,
+    action_limits: &CborDataLimitsV1,
+    cognition: NormalHostCognitionParentSourcesV1<'_>,
+    compiler: &RuntimeSourceCompiler,
+    policy: NormalCommitHeaderLimitsV1,
+    max_action_bytes: usize,
+    max_grant_payload_bytes: u64,
+    primary_provider: &RemoteMonotonicEndpointProvider,
+    replica_provider: &RemoteMonotonicEndpointProvider,
+    primary_policy: &TrustedFencingPolicyV1,
+    replica_policy: &TrustedFencingPolicyV1,
+    memory: &MemoryBudget,
+    archive: &FormalArchiveReadWorkV1,
+    cancelled: &AtomicBool,
+) -> Result<NormalCommitWorkV1, NormalExecutionCommitFailureV1> {
+    let preparation = (|| {
+        let input = sources.input(memory, archive, &mut work.input_material, &mut || {
+            cancelled.load(Ordering::Acquire)
+        })?;
+        primary.prepare_frozen_normal_runtime_bounded(
+            &input,
+            memory,
+            archive,
+            input_limits,
+            action_limits,
+            &mut work.physical,
+            &mut work.runtime,
+            cognition,
+            compiler,
+            policy,
+            max_action_bytes,
+            max_grant_payload_bytes,
+            cancelled,
+        )
+    })();
+    let prepared = match preparation {
+        Ok(prepared) => prepared,
+        Err(cause) => {
+            return Err(NormalExecutionCommitFailureV1::BeforePreparation {
+                cause,
+                sources,
+                work,
+            });
+        }
+    };
+    commit_prepared_normal_output_bounded_v1(
+        primary,
+        replica,
+        sources,
+        prepared,
+        work,
+        writer,
+        input_limits,
+        primary_provider,
+        replica_provider,
+        primary_policy,
+        replica_policy,
+        memory,
+        archive,
+        cancelled,
+    )
+    .map_err(NormalExecutionCommitFailureV1::AfterPreparation)
+}
+
+#[cfg(test)]
+mod owned_work_tests {
+    use super::*;
+
+    #[test]
+    fn normal_work_and_every_recovery_phase_are_owned_send_values() {
+        fn assert_owned<T: Send + 'static>() {}
+        assert_owned::<NormalCommitWorkV1>();
+        assert_owned::<NormalExecutionCommitFailureV1>();
+        assert_owned::<NormalOutputCommitFailureV1>();
+        assert_owned::<NormalCommitStartFailureV1>();
+        assert_owned::<NormalCommitFailureV1>();
+    }
+}

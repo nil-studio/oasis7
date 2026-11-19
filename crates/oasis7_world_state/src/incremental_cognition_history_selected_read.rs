@@ -68,7 +68,7 @@ where
             .max_fact_bytes
             .min(context.fact_budget.original_bytes_remaining);
         let mut probe = Probe {
-            prefix: [0; COGNITION_HISTORY_VIEW_V2_BYTES],
+            prefix: [0; COGNITION_HISTORY_VIEW_V3_BYTES],
             copied: 0,
             bytes: 0,
             hash: blake3::Hasher::new(),
@@ -91,7 +91,8 @@ where
             return Err(ValueTreeError::Invalid("Cognition selected Result identity").into());
         }
         if !(probe.prefix[..probe.copied].starts_with(COGNITION_HISTORY_VIEW_MAGIC)
-            || probe.prefix[..probe.copied].starts_with(COGNITION_HISTORY_VIEW_V2_MAGIC))
+            || probe.prefix[..probe.copied].starts_with(COGNITION_HISTORY_VIEW_V2_MAGIC)
+            || probe.prefix[..probe.copied].starts_with(COGNITION_HISTORY_VIEW_V3_MAGIC))
         {
             continue;
         }
@@ -100,34 +101,36 @@ where
                 ValueTreeError::Invalid("duplicate Cognition History view manifest").into(),
             );
         }
-        if observed > COGNITION_HISTORY_VIEW_V2_BYTES as u64
+        if observed > COGNITION_HISTORY_VIEW_V3_BYTES as u64
             || ordinal as u64 != request.location.ordinal
             || fact.id != request.location.original
             || observed != occurrence.original_bytes()
         {
             return Err(ValueTreeError::Invalid("Cognition selected manifest location").into());
         }
-        let (manifest, derived) = super::super::manifest_v2::decode_profile(
-            &probe.prefix[..observed as usize],
-            memory,
-            class,
-            &mut context.cancelled,
-        )?;
+        let (manifest, derived, source_v3) =
+            super::super::manifest_v3::decode_profile_with_source_v3(
+                &probe.prefix[..observed as usize],
+                memory,
+                class,
+                &mut context.cancelled,
+            )?;
         if manifest.roots != body.roots {
             return Err(ValueTreeError::Invalid("Cognition selected manifest roots").into());
         }
-        selected = Some((manifest, derived));
+        selected = Some((manifest, derived, source_v3));
     }
     if (context.cancelled)() {
         return Err(ValueTreeError::Cancelled.into());
     }
-    let (manifest, derived) = selected.ok_or(ValueTreeError::Invalid(
+    let (manifest, derived, source_v3) = selected.ok_or(ValueTreeError::Invalid(
         "missing Cognition History view manifest",
     ))?;
     Ok(charge.retain(AcceptedCognitionHistoryViewV1 {
         class,
         manifest,
         derived,
+        source_v3,
         occurrence,
     }))
 }

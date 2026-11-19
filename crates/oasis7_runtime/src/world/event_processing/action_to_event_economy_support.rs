@@ -227,18 +227,14 @@ pub(super) fn merge_recipe_consume_with_maintenance_sink(
     )
 }
 
-fn infer_bottleneck_tags(consume: &[MaterialStack]) -> Vec<String> {
-    let tags: BTreeSet<String> = consume
-        .iter()
-        .filter_map(|stack| {
-            let normalized = stack.kind.to_ascii_lowercase();
-            BOTTLENECK_TAG_KINDS
-                .iter()
-                .find(|kind| normalized == **kind)
-                .map(|kind| (*kind).to_string())
-        })
-        .collect();
-    tags.into_iter().collect()
+fn infer_bottleneck_tags(consume:&[MaterialStack])->Vec<String>{
+ match infer_bottleneck_tags_with_work_v1(consume,&mut|_,_,_|Ok::<_,std::convert::Infallible>(())){Ok(value)=>value,Err(never)=>match never{}}
+}
+fn bottleneck_node_heap_v1()->usize{let a=std::mem::align_of::<String>().max(std::mem::align_of::<usize>());11*std::mem::size_of::<String>()+13*std::mem::size_of::<usize>()+2*std::mem::size_of::<u16>()+7*(a-1)}
+fn before_bottleneck_insert_v1<E>(text:&str,len:usize,work:&mut impl FnMut(u64,usize,usize)->Result<(),E>)->Result<(),E>{let levels=len.saturating_add(1).ilog2() as usize+2;let comparisons=11usize.saturating_mul(levels);work(comparisons as u64,text.len().saturating_mul(comparisons).saturating_mul(2),bottleneck_node_heap_v1().saturating_mul(levels))}
+fn infer_bottleneck_tags_with_work_v1<E>(consume:&[MaterialStack],work:&mut impl FnMut(u64,usize,usize)->Result<(),E>)->Result<Vec<String>,E>{
+ let mut tags=BTreeSet::new();for stack in consume{work(1,stack.kind.len().saturating_mul(3),std::mem::size_of::<String>().saturating_add(stack.kind.len()))?;let normalized=stack.kind.to_ascii_lowercase();let mut selected=None;for kind in BOTTLENECK_TAG_KINDS{work(1,normalized.len().saturating_add(kind.len()),0)?;if normalized==*kind{selected=Some(*kind);break}}if let Some(kind)=selected{work(1,kind.len(),std::mem::size_of::<String>().saturating_add(kind.len()))?;before_bottleneck_insert_v1(kind,tags.len(),work)?;tags.insert(kind.to_string());}}
+ work(1,0,std::mem::size_of::<Vec<String>>().saturating_add(tags.len().saturating_mul(std::mem::size_of::<String>())))?;Ok(tags.into_iter().collect())
 }
 
 pub(super) fn compute_local_scarcity_delay_ticks(
@@ -248,39 +244,16 @@ pub(super) fn compute_local_scarcity_delay_ticks(
     consume: &[MaterialStack],
     bottleneck_tags: &[String],
 ) -> u32 {
-    if *preferred_consume_ledger == MaterialLedgerId::world()
-        || *consume_ledger != MaterialLedgerId::world()
-        || bottleneck_tags.is_empty()
-    {
-        return 0;
+    match scarcity_delay_from_facts_v1(
+        &mut LegacyFactoryMarketFactsV1 { world },
+        preferred_consume_ledger,
+        consume_ledger,
+        consume,
+        bottleneck_tags,
+    ) {
+        Ok(value) => value,
+        Err(never) => match never {},
     }
-
-    let bottleneck_set: BTreeSet<&str> = bottleneck_tags.iter().map(String::as_str).collect();
-    let mut requested_total: i128 = 0;
-    let mut deficit_total: i128 = 0;
-    for stack in consume {
-        if stack.amount <= 0 {
-            continue;
-        }
-        let normalized_kind = stack.kind.to_ascii_lowercase();
-        if !bottleneck_set.contains(normalized_kind.as_str()) {
-            continue;
-        }
-        let requested = stack.amount as i128;
-        let available = world
-            .ledger_material_balance(preferred_consume_ledger, stack.kind.as_str())
-            .max(0) as i128;
-        requested_total = requested_total.saturating_add(requested);
-        deficit_total = deficit_total.saturating_add(requested.saturating_sub(available).max(0));
-    }
-
-    if requested_total <= 0 || deficit_total <= 0 {
-        return 0;
-    }
-    let deficit_ratio_bps = deficit_total
-        .saturating_mul(10_000)
-        .saturating_div(requested_total);
-    if deficit_ratio_bps >= 7_000 { 2 } else { 1 }
 }
 
 fn governance_tax_bps_for_material_quotes(world: &World) -> u16 {
@@ -297,54 +270,14 @@ pub(crate) fn build_material_market_quotes(
     preferred_consume_ledger: &MaterialLedgerId,
     consume: &[MaterialStack],
 ) -> Vec<MaterialMarketQuote> {
-    let mut requested_by_kind: BTreeMap<String, i64> = BTreeMap::new();
-    for stack in consume {
-        if stack.amount <= 0 {
-            continue;
-        }
-        let entry = requested_by_kind.entry(stack.kind.clone()).or_insert(0);
-        *entry = entry.saturating_add(stack.amount);
+    match market_quotes_from_facts_v1(
+        &mut LegacyFactoryMarketFactsV1 { world },
+        preferred_consume_ledger,
+        consume,
+    ) {
+        Ok(value) => value,
+        Err(never) => match never {},
     }
-    if requested_by_kind.is_empty() {
-        return Vec::new();
-    }
-
-    let governance_tax_bps = governance_tax_bps_for_material_quotes(world);
-    let mut quotes = Vec::with_capacity(requested_by_kind.len());
-    for (kind, requested_amount) in requested_by_kind {
-        let transit_loss_bps = material_transit_loss_bps_for_kind(world, kind.as_str());
-        let local_available_amount = world
-            .ledger_material_balance(preferred_consume_ledger, kind.as_str())
-            .max(0);
-        let world_available_amount = world
-            .ledger_material_balance(&MaterialLedgerId::world(), kind.as_str())
-            .max(0);
-        let local_deficit_amount = requested_amount
-            .saturating_sub(local_available_amount)
-            .max(0);
-        let deficit_ratio_bps = if requested_amount > 0 {
-            ((local_deficit_amount as i128)
-                .saturating_mul(10_000)
-                .saturating_div(requested_amount as i128)) as i64
-        } else {
-            0
-        };
-        let effective_cost_index_ppm = 1_000_000_i64
-            .saturating_add(deficit_ratio_bps.saturating_mul(100))
-            .saturating_add(transit_loss_bps.saturating_mul(100))
-            .saturating_add(i64::from(governance_tax_bps).saturating_mul(100));
-        quotes.push(MaterialMarketQuote {
-            kind,
-            requested_amount,
-            local_available_amount,
-            world_available_amount,
-            local_deficit_amount,
-            transit_loss_bps,
-            governance_tax_bps,
-            effective_cost_index_ppm,
-        });
-    }
-    quotes
 }
 
 pub(crate) use oasis7_world_state::world::pure_helpers::recipe_stage_gate_allowed;
@@ -363,8 +296,6 @@ pub(super) fn industry_stage_label(stage: crate::IndustryStage) -> &'static str 
         crate::IndustryStage::Governance => "governance",
     }
 }
-
-pub(crate) use oasis7_world_state::world::pure_helpers::recipe_preferred_tags_compatible;
 
 pub(super) fn normalized_factory_tags(tags: &[String]) -> Vec<String> {
     let normalized: BTreeSet<String> = tags
@@ -408,22 +339,15 @@ pub(super) fn factory_profile_matches_spec(
     Ok(())
 }
 
-pub(super) fn resolve_recipe_bottleneck_tags(
-    recipe_profile: Option<&crate::RecipeProfileV1>,
-    consume: &[MaterialStack],
-) -> Vec<String> {
-    let from_profile: BTreeSet<String> = recipe_profile
-        .map(|profile| {
-            profile
-                .bottleneck_tags
-                .iter()
-                .map(|tag| tag.trim().to_ascii_lowercase())
-                .filter(|tag| !tag.is_empty())
-                .collect()
-        })
-        .unwrap_or_default();
-    if !from_profile.is_empty() {
-        return from_profile.into_iter().collect();
-    }
-    infer_bottleneck_tags(consume)
+pub(in crate::world) fn resolve_recipe_bottleneck_tags(recipe_profile:Option<&crate::RecipeProfileV1>,consume:&[MaterialStack])->Vec<String>{
+ match resolve_recipe_bottleneck_tags_with_work_v1(recipe_profile,consume,&mut|_,_,_|Ok::<_,std::convert::Infallible>(())){Ok(value)=>value,Err(never)=>match never{}}
 }
+pub(in crate::world) fn resolve_recipe_bottleneck_tags_with_work_v1<E>(recipe_profile:Option<&crate::RecipeProfileV1>,consume:&[MaterialStack],work:&mut impl FnMut(u64,usize,usize)->Result<(),E>)->Result<Vec<String>,E>{
+ let mut from_profile=BTreeSet::new();if let Some(profile)=recipe_profile{for tag in &profile.bottleneck_tags{work(1,tag.len().saturating_mul(3),std::mem::size_of::<String>().saturating_add(tag.len()))?;let normalized=tag.trim().to_ascii_lowercase();work(1,0,0)?;if !normalized.is_empty(){before_bottleneck_insert_v1(&normalized,from_profile.len(),work)?;from_profile.insert(normalized);}}}
+ if !from_profile.is_empty(){work(1,0,std::mem::size_of::<Vec<String>>().saturating_add(from_profile.len().saturating_mul(std::mem::size_of::<String>())))?;return Ok(from_profile.into_iter().collect())}
+ infer_bottleneck_tags_with_work_v1(consume,work)
+}
+
+#[path = "../incremental_normal_action_factory_schedule_quotes.rs"]
+pub(in crate::world) mod factory_schedule_quotes;
+pub(in crate::world) use factory_schedule_quotes::*;

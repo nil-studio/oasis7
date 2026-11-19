@@ -1,24 +1,23 @@
 //! Global journal bounds are committed even when an audience sees no events.
 use oasis7_client_api::world_service::FormalProjectionCommitHeaderV1;
-use oasis7_runtime::{World, WorldEvent, WorldEventBody};
+use oasis7_runtime::{World, WorldEvent};
+use oasis7_world_projection::current_commitment_history::{
+    original_journal_bounds_with_work_v1, original_projection_event_visible_v1,
+};
 pub(super) fn committed_header(
     world: &World,
 ) -> Result<(FormalProjectionCommitHeaderV1, usize), String> {
-    let snapshot = world.snapshot();
+    let (last_event_id, event_id_era) = world.formal_projection_journal_counters_v1();
     let journal = &world.journal().events;
-    // Event ids wrap only at an era boundary. Keep the latest era's suffix in
-    // a formal stream so an old retained id cannot masquerade as a new event.
-    let start = journal
-        .windows(2)
-        .rposition(|pair| pair[0].id >= pair[1].id)
-        .map_or(0, |i| i + 1);
-    let high = snapshot.last_event_id;
-    let floor = journal
-        .get(start)
-        .map_or_else(|| high.saturating_add(1), |event| event.id);
-    let era = snapshot
-        .event_id_era
-        .saturating_sub(u64::from(high == u64::MAX));
+    let bounds =
+        original_journal_bounds_with_work_v1(journal, last_event_id, event_id_era, &mut |_, _| {
+            Ok::<(), std::convert::Infallible>(())
+        })
+        .unwrap_or_else(|never| match never {});
+    let start = bounds.start;
+    let high = bounds.high;
+    let floor = bounds.floor;
+    let era = bounds.era;
     let revocations = world.capability_revocation_state();
     Ok((
         FormalProjectionCommitHeaderV1 {
@@ -47,12 +46,7 @@ pub(super) fn current_era_events(
         .events
         .iter()
         .skip(start)
-        .filter(|event| match &event.body {
-            WorldEventBody::Domain(domain) => {
-                agent.is_some_and(|agent| domain.agent_id() == Some(agent))
-            }
-            _ => false,
-        })
+        .filter(|event| original_projection_event_visible_v1(event, agent))
         .cloned()
         .collect()
 }

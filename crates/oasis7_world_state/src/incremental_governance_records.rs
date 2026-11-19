@@ -113,13 +113,16 @@ pub use read::{
 mod closure;
 #[path = "incremental_governance_records_key_read.rs"]
 mod key_read;
-pub use closure::{GovernanceRecordQualificationV1, qualify_governance_body_v1};
+pub use closure::{
+    GovernanceRecordQualificationV1, qualify_governance_body_v1,
+    readmit_governance_record_ordinary_v1,
+};
 
 #[path = "incremental_governance_records_family.rs"]
 mod family;
 pub use family::{
     GovernanceFamilyQualificationV1, open_qualified_governance_record_v1,
-    qualify_governance_family_v1,
+    qualify_governance_family_v1, readmit_governance_family_ordinary_v1,
 };
 
 #[path = "incremental_governance_records_point.rs"]
@@ -157,4 +160,34 @@ mod pages;
 pub use pages::{
     GovernanceFamilyPagesV1, GovernancePagesWorkV1, mark_governance_family_pages_v1,
     transfer_governance_family_pages_v1,
+};
+
+pub(crate) use receiver::accept_governance_verified_v1;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "incremental_normal_gameplay_cycles_directory_governance.rs"]
+mod gameplay_directory;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use gameplay_directory::inspect_gameplay_governance_directory_row_v1;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[path = "incremental_normal_gameplay_cycles_directory_governance_current.rs"]
+mod gameplay_current;
+#[cfg(not(target_arch = "wasm32"))]
+pub use gameplay_current::{
+    CurrentGameplayTalliesV1, CurrentGameplayTallyV1, open_current_gameplay_governance_record_v1,
+    recover_current_gameplay_tallies_v1,
+};
+
+#[path = "incremental_governance_records_projection.rs"]
+mod projection;
+#[path = "incremental_governance_records_projection_cells.rs"]
+mod projection_cells;
+pub use projection::{
+    CurrentGovernanceProjectionDeltaV1, GovernanceProjectionPathRefV1,
+    is_governance_projection_field_v1, read_current_governance_projection_delta_v1,
+};
+
+pub use projection::{
+    QualifiedGovernanceProjectionColumnsV1, read_qualified_governance_projection_columns_v1,
 };

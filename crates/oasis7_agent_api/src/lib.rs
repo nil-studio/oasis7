@@ -75,6 +75,7 @@ pub use cognition::{
     COGNITION_CAPABILITY_CATALOG_DOMAIN, COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN,
 };
 
+pub mod iws_scheduler_v2;
 pub mod legacy_economy;
 pub mod legacy_scheduler;
 

@@ -14,8 +14,60 @@ fn public(n: u8) -> String {
 fn populated_world() -> World {
     populated_world_with_binding("read-world")
 }
+#[cfg(feature = "test_tier_full")]
+#[test]
+fn actual_genesis_projection_matches_original_owner_delegate_commitment() {
+    // Create the rich state before the real action so its snapshot, tick
+    // commitment, and still-present mailbox share the same original Journal.
+    let world_id = "read-world";
+    let world = populated_world_with_source(world_id, World::new(), |state| {
+        let seed = registered_world(World::new_with_state(state));
+        // Restore the same world that the provider authority will bind below.
+        let snapshot = seed.snapshot_with_chain_resource_context(
+            oasis7_runtime::ChainResourceDerivationContext {
+                world_id,
+                chain_id: "read-chain",
+                genesis_ref: None,
+                created_at_height: 0,
+                manifest_height: 0,
+                commit_block_hash: None,
+                tick: seed.state().time,
+            },
+            "config",
+            "generation",
+        );
+        World::from_snapshot(snapshot, seed.journal().clone()).unwrap()
+    });
+    assert_eq!(world.chain_resource_manifest().world_id, world_id);
+    assert!(!world.state().agents["7"].mailbox.is_empty());
+    assert!(world.state().starter_oc_claims.contains_key("7"));
+    assert!(world.state().pending_factory_builds.contains_key(&7));
+    assert!(
+        world
+            .state()
+            .pending_material_transits
+            .contains_key(&u64::MAX)
+    );
+    assert!(world.state().governance_votes.contains_key("7"));
+    let tree = commitments_for_world(&world).unwrap();
+    for audience in [
+        ProjectionAudienceV1::public(),
+        ProjectionAudienceV1::agent("7", public(7)).unwrap(),
+        ProjectionAudienceV1::agent("7", public(8)).unwrap(),
+    ] {
+        tree.inclusion(&audience)
+            .expect("original actual audience must exist");
+    }
+    oasis7_runtime::incremental_genesis_projection::assert_genesis_projection_matches_original_for_test_v1(&world, &tree.root().unwrap());
+}
 pub(super) fn populated_world_with_binding(world_id: &str) -> World {
-    let mut seed = World::new();
+    populated_world_with_source(
+        world_id,
+        registered_world(World::new()),
+        World::new_with_state,
+    )
+}
+fn registered_world(mut seed: World) -> World {
     seed.submit_action(oasis7_runtime::Action::RegisterAgent {
         agent_id: "7".into(),
         pos: oasis7_agent_api::world_action::GeoPos {
@@ -25,6 +77,13 @@ pub(super) fn populated_world_with_binding(world_id: &str) -> World {
         },
     });
     seed.step().unwrap();
+    seed
+}
+fn populated_world_with_source(
+    world_id: &str,
+    seed: World,
+    source: impl FnOnce(oasis7_world_state::WorldState) -> World,
+) -> World {
     let mut state = serde_json::to_value(seed.state()).unwrap();
     state["starter_oc_claims"]["7"] = serde_json::json!({
         "agent_id":"7", "player_id":"owner", "public_key": public(7),
@@ -44,7 +103,7 @@ pub(super) fn populated_world_with_binding(world_id: &str) -> World {
         "proposal_key":"7", "votes_by_agent":{}, "tallies":{"007":1},
         "total_weight":1, "last_updated_at":1
     });
-    let mut world = World::new_with_state(serde_json::from_value(state).unwrap());
+    let mut world = source(serde_json::from_value(state).unwrap());
     world
         .bind_cognition_runtime(world_id, "main", 0, None, "pending", 0)
         .unwrap();
@@ -379,6 +438,7 @@ fn gameplay_query_reaches_real_game_client_industry_over_signed_json_read() {
             crate::projection::from_authenticated_world(&world, Some("7"), &public(reader))
                 .unwrap()
                 .world_rule_status
+                .as_ref()
                 .unwrap()["gameplay_capability"]
                 .clone();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();

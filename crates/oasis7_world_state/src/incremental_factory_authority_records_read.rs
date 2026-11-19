@@ -180,6 +180,12 @@ pub fn read_qualified_factory_authority_cell_v1<
     ctx.check()?;
     if !request.cell.accepts(request.key.kind)
         || !request.qualification.uses_budget(ctx.values.memory)
+        || crate::incremental_record_qualification_phase::check_class_v1(
+            request.qualification,
+            ctx.values.memory,
+            ctx.values.class,
+        )
+        .is_err()
     {
         return Err(invalid());
     }

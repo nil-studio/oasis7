@@ -5,8 +5,8 @@
     dead_code,
     reason = "Shared test fixtures are included by several binaries with different helper needs"
 )]
-use ed25519_dalek::{Signer, SigningKey};
 use crate::{World, blake3_hex};
+use ed25519_dalek::{Signer, SigningKey};
 use oasis7_formal_protocol::controlled_authority::{
     fencing::EndpointInstanceBindingV1,
     formal::*,
@@ -342,8 +342,7 @@ pub(crate) fn actual_world_successor_fixture(
         ArtifactRole::ExecutionManifest,
         record.runtime_manifest_digest.clone(),
     );
-    record.projection_root =
-        blake3_hex(b"runtime-native-fixture-projection-v1");
+    record.projection_root = blake3_hex(b"runtime-native-fixture-projection-v1");
     let proof = qualified_proof(
         record,
         Some(frozen),

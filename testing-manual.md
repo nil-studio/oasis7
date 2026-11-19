@@ -233,6 +233,22 @@ python3 scripts/ci-ecs-build-metrics.py --baseline-ref <baseline-sha> --current-
 
 构造负例时复用现有 selector/result/driver 回归，不以 fake 构建代替真实消费者。实际 hosted 验收至少覆盖上述输入类别和冷缓存；有意注入失败只在隔离候选执行，不修改生产门禁。定时回归持续失败时先定位并验证修复，不能以换频率代替恢复。
 
+### IWS 的真实 Linux Host 集成
+
+`oasis7_chain_runtime` 的 `iws_host_linux` 目标直接链接真实 Chain、Runtime、DistFS 库；通过当前 Cargo 构建的 `oasis7-native-bound-fixture` 及同一包嵌入的构建元数据产生 native descriptor。用例在 Linux 本地 `/tmp` 创建独占新目录，自动准备并重新读取签名 GEN 原件，再完成实际双端接受和 Host admission。无需准备外部 bundle 或寻找旧 OUT_DIR；native 字节上限、签名与逐块 hash 校验保持。
+
+```bash
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime \
+  --test iws_host_linux --no-default-features \
+  --features iws-host-native-test-support -- --test-threads=1
+# 同一正式命令的分组入口：
+./scripts/ci-tests.sh required --group iws_host_native
+```
+
+该目标只支持 Linux x86_64/aarch64，显式分组在其他平台拒绝执行，避免零测试成功；Linux `full-extended` 会运行整目标。它不加入快速 native-worker 测试组合。首次构建和真实 GEN 闭包验证较重，应串行运行；降低构建调试信息时记录实际 profile，不在捕获后 strip 或修改 descriptor。该用例证明 GEN 到实际 native Host admission，完整业务、独立远端存储域、normal/resume、resident 初始化和冷恢复续写仍由相应集成验收承担。
+
+Rule 的 `oasis7-wasm-worker` 由分组入口或 native artifact producer 使用 `cargo rustc --bin oasis7-wasm-worker ... -- -C strip=symbols` 构建，仅在最终二进制链接时去掉本机符号表，保留原 profile、断言、依赖与 Wasm feature。随后按实际完整镜像计算哈希、打包和预留内存；64 MiB 上限仍适用，不在捕获、复制或消费后改写镜像。
+
 ### 当前计划与执行命令
 
 workflow 将可信 BASE 的 planner、scope、结果汇总器和 Formal 库存放在同一 authority 目录。下面的变量代表这次已固定的输入；`CI_AUTHORITY` 不能指向候选自行修改的策略目录。

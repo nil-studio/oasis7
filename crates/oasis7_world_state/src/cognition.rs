@@ -43,7 +43,7 @@ pub fn world_state_binding_digest_v1(
 ) -> String {
     h_v1(
         WORLD_STATE_HASH_DOMAIN_V1,
-        &WorldStateHashInput {
+        &world_state_hash_input_v1(
             world_id,
             branch_id,
             finality_epoch,
@@ -53,6 +53,71 @@ pub fn world_state_binding_digest_v1(
             state_root,
             reorg_epoch,
             runtime_manifest_hash,
-        },
+        ),
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "One unchanged original replay preimage."
+)]
+fn world_state_hash_input_v1<'a>(
+    world_id: &'a str,
+    branch_id: &'a str,
+    finality_epoch: u64,
+    finality_block_hash: Option<&'a str>,
+    finality_status: &'a str,
+    logical_tick: u64,
+    state_root: &'a str,
+    reorg_epoch: u64,
+    runtime_manifest_hash: &'a str,
+) -> WorldStateHashInput<'a> {
+    WorldStateHashInput {
+        world_id,
+        branch_id,
+        finality_epoch,
+        finality_block_hash,
+        finality_status,
+        logical_tick,
+        state_root,
+        reorg_epoch,
+        runtime_manifest_hash,
+    }
+}
+/// Same original domain, payload type and canonical bytes under the caller's
+/// continuous allocator/work loan. The paid digest is DATA only.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Keep the original binding arguments and one caller meter."
+)]
+pub fn world_state_binding_digest_with_work_v1<A: oasis7_wasm_abi::CapabilityCanonicalWorkV1>(
+    world_id: &str,
+    branch_id: &str,
+    finality_epoch: u64,
+    finality_block_hash: Option<&str>,
+    finality_status: &str,
+    logical_tick: u64,
+    state_root: &str,
+    reorg_epoch: u64,
+    runtime_manifest_hash: &str,
+    source: &A,
+) -> Result<
+    oasis7_agent_api::world_cognition::PaidCognitionDigestDataV1<A::Charge>,
+    oasis7_wasm_abi::CanonicalCborStreamError,
+> {
+    oasis7_agent_api::world_cognition::cognition_digest_with_work_v1(
+        WORLD_STATE_HASH_DOMAIN_V1,
+        &world_state_hash_input_v1(
+            world_id,
+            branch_id,
+            finality_epoch,
+            finality_block_hash,
+            finality_status,
+            logical_tick,
+            state_root,
+            reorg_epoch,
+            runtime_manifest_hash,
+        ),
+        source,
     )
 }

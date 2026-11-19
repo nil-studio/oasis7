@@ -1,0 +1,106 @@
+//! Closed Simulator input shape, from the actual exhaustive Action fields.
+//! No simulator executor, authorization or accepted namespace is created here.
+use super::*;
+enum_layout!(oasis7_simulator::Action,units{},tuples{},records{
+RegisterLocation{location_id,name,pos,profile},
+RegisterAgent{agent_id,location_id},
+RegisterPowerPlant{facility_id,location_id,owner,capacity_per_tick,fuel_cost_per_pu,maintenance_cost,efficiency,degradation},
+UpsertModuleVisualEntity{entity},
+RemoveModuleVisualEntity{entity_id},
+MoveAgent{agent_id,to},
+SpeakToNearby{agent_id,message,target_agent_id},
+InspectTarget{agent_id,target_kind,target_id},
+SimpleInteract{agent_id,target_kind,target_id,interaction},
+HarvestRadiation{agent_id,max_amount},
+BuyPower{buyer,seller,amount,price_per_pu},
+SellPower{seller,buyer,amount,price_per_pu},
+PlacePowerOrder{owner,side,amount,limit_price_per_pu},
+CancelPowerOrder{owner,order_id},
+TransferResource{from,to,kind,amount},
+DebugGrantResource{owner,kind,amount},
+MineCompound{owner,location_id,compound_mass_g},
+RefineCompound{owner,compound_mass_g},
+BuildFactory{owner,location_id,factory_id,factory_kind},
+ScheduleRecipe{owner,factory_id,recipe_id,batches},
+CompileModuleArtifactFromSource{publisher_agent_id,module_id,manifest_path,source_files},
+DeployModuleArtifact{publisher_agent_id,wasm_hash,wasm_bytes,module_id_hint},
+InstallModuleFromArtifact{installer_agent_id,module_id,module_version,wasm_hash,activate},
+InstallModuleToTargetFromArtifact{installer_agent_id,module_id,module_version,wasm_hash,activate,install_target},
+InstallMicroDepot{installer_agent_id,facility_id,location_id,owner_claim_id,regional_blocker_receipt_id,module_id,module_version,wasm_hash,entrypoint,service_radius_cm,supported_resource_kinds},
+ServiceMicroDepotRepair{agent_id,facility_id,target_id,base_cost_class,base_risk_class,blocker_type},
+ServiceMicroDepotLogistics{agent_id,facility_id,target_id,base_cost_class,base_risk_class,blocker_type},
+PayMicroDepotUpkeep{agent_id,facility_id},
+SuspendMicroDepot{agent_id,facility_id},
+ReclaimMicroDepot{agent_id,facility_id},
+ListModuleArtifactForSale{seller_agent_id,wasm_hash,price_kind,price_amount},
+BuyModuleArtifact{buyer_agent_id,wasm_hash},
+DelistModuleArtifact{seller_agent_id,wasm_hash},
+DestroyModuleArtifact{owner_agent_id,wasm_hash,reason},
+PlaceModuleArtifactBid{bidder_agent_id,wasm_hash,price_kind,price_amount},
+CancelModuleArtifactBid{bidder_agent_id,wasm_hash,bid_order_id},
+PublishSocialFact{actor,schema_id,subject,object,claim,confidence_ppm,evidence_event_ids,ttl_ticks,stake},
+ChallengeSocialFact{challenger,fact_id,reason,stake},
+AdjudicateSocialFact{adjudicator,fact_id,decision,notes},
+RevokeSocialFact{actor,fact_id,reason},
+DeclareSocialEdge{declarer,schema_id,relation_kind,from,to,weight_bps,backing_fact_ids,ttl_ticks},
+FormAlliance{proposer_agent_id,alliance_id,members,charter},
+JoinAlliance{operator_agent_id,alliance_id,member_agent_id},
+LeaveAlliance{operator_agent_id,alliance_id,member_agent_id},
+DissolveAlliance{operator_agent_id,alliance_id,reason},
+DeclareWar{initiator_agent_id,war_id,aggressor_alliance_id,defender_alliance_id,objective,intensity},
+OpenGovernanceProposal{proposer_agent_id,proposal_key,title,description,options,voting_window_ticks,quorum_weight,pass_threshold_bps},
+CastGovernanceVote{voter_agent_id,proposal_key,option,weight},
+ResolveCrisis{resolver_agent_id,crisis_id,strategy,success},
+GrantMetaProgress{operator_agent_id,target_agent_id,track,points,achievement_id},
+OpenEconomicContract{creator_agent_id,contract_id,counterparty_agent_id,settlement_kind,settlement_amount,reputation_stake,expires_at,description},
+AcceptEconomicContract{accepter_agent_id,contract_id},
+SettleEconomicContract{operator_agent_id,contract_id,success,notes}
+});
+enum_layout!(oasis7_simulator::ActionSubmitter,units{System},tuples{},records{Agent{agent_id},Player{player_id}});
+record_layout!(oasis7_simulator::LocationProfile,{material,radius_cm,radiation_emission_per_tick});
+enum_layout!(
+    oasis7_simulator::MaterialKind,
+    units {
+        Silicate,
+        Metal,
+        Ice,
+        Carbon,
+        Composite
+    },
+    tuples {},
+    records {}
+);
+enum_layout!(oasis7_simulator::ResourceOwner,units{},tuples{},records{Agent{agent_id},Location{location_id}});
+enum_layout!(
+    oasis7_simulator::PowerOrderSide,
+    units { Buy, Sell },
+    tuples {},
+    records {}
+);
+record_layout!(oasis7_simulator::SocialStake,{kind,amount});
+enum_layout!(
+    oasis7_simulator::SocialAdjudicationDecision,
+    units { Confirm, Retract },
+    tuples {},
+    records {}
+);
+enum_layout!(
+    oasis7_simulator::MicroDepotPressureClass,
+    units {
+        None,
+        Low,
+        Medium,
+        High,
+        Critical
+    },
+    tuples {},
+    records {}
+);
+record_layout!(oasis7_agent_api::world_entity::ModuleVisualEntity,{entity_id,module_id,kind,label,anchor});
+enum_layout!(oasis7_agent_api::world_entity::ModuleVisualAnchor,units{},tuples{},records{Agent{agent_id},Location{location_id},Absolute{pos}});
+// Their exact same concrete types are already in the WS Action schema. The
+// delegated graph is conservative and retains every actual child layout.
+runtime_layout!(
+    oasis7_agent_api::world_action::ResourceKind,
+    oasis7_agent_api::world_action::ModuleInstallTarget
+);

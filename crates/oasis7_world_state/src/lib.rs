@@ -37,6 +37,8 @@ pub mod modules;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod node_points;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod observation_projection;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod policy;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod reward_asset;
@@ -224,9 +226,89 @@ pub mod incremental_field_read;
 pub mod incremental_field_overlay;
 
 #[cfg(not(target_arch = "wasm32"))]
+mod incremental_byte_map;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_current_complete_v3;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_delivery_cursor;
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_field_write;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_inventory;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_original_decode;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_original_producer;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_pending_action_codec;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_pending_action_family;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_pending_action_index;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_pending_action_original_binding;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_pending_action_overlay;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_record_qualification_phase;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_rollback_family;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_rule_decision_decode;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_rule_decision_json_decode;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_allocators_codec;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_allocators_family;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_history_decode;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_history_index;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_history_manifest;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_history_original;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_history_source;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_pending_action_record;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_pending_actions;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_registry;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_typed_complete;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_verified_world_transition;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_collection_controls;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_current_complete;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_current_limits;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_event_decode;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_event_owned;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_format;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_key_router;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_native_complete;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_raw_complete;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_result_router;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_result_router_accepted;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rules_family;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_storage_source;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_storage_source_cold;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_world_id_sets;
@@ -244,6 +326,8 @@ pub mod incremental_authorization_mapsets;
 mod incremental_expected_bytes;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_factory_authority_records;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_factory_lifecycle_index;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_factory_records;
 #[cfg(not(target_arch = "wasm32"))]
@@ -330,7 +414,15 @@ pub mod incremental_cognition_absence;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_cognition_history;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_proof_ledger;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_retention_ledger;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_collection_layout;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_main_token_policy_records;
+#[cfg(not(target_arch = "wasm32"))]
+mod incremental_organization_scope_index;
 #[cfg(not(target_arch = "wasm32"))]
 mod incremental_qualification_class;
 #[cfg(not(target_arch = "wasm32"))]
@@ -378,3 +470,173 @@ pub mod incremental_cognition_lifecycle_qualification_v2;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod incremental_owner_closure;
+
+/// Runtime business counters and signed threat-map records.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_business;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_authorization_audit;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_authorization_invocation;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_rollback_records;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_authorization_grants;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_rollback_genesis;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_authorization_genesis;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_rollback_read;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_rollback_family_genesis;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_authorization_root;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_authorization_grants_family;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_rollback_recovery;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_rollback_qualification;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_authorization_decode;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_rollback_family_recovery;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_governance;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) mod incremental_record_columns_read;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_rollback_delta;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_authorization_family;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_rollback_overlay;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_rollback_registry_overlay;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_authorization_family_genesis;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_revocation;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_module_state_recovery;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_module_state_family;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_module_state_projection_delta;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_module_instance_recovery;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_module_instance_family;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_module_instance_receiver;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) mod incremental_typed_record_codec;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) mod incremental_typed_record_diff;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) mod incremental_typed_record_patch;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rule_composite;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rule_composite_family;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rule_composite_overlay;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rule_continuity;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rule_industrial;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rule_receipts;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rule_requests_current;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_native;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_native_gameplay;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_native_governance;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_native_industry;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_state_genesis;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_proposal;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(crate) mod incremental_typed_record_test_support;
+
+/// Fixed typed resource metadata and quantity operations for Current settlement.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_inventory_resource_overlay;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_factory_schedule_index;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_factory_schedule_receipts;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_factory_schedule_authority;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_factory_schedule_factory;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_factory_schedule_logistics;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_normal_gameplay_cycles_directory;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_normal_gameplay_cycles_selected;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_iws_tick_consensus;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_normal_cognition_current;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_agent_instance_projection_delta;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_industry_projection_delta;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_inventory_projection_delta;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_world_rule_projection_delta;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_cognition_projection_aux;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod incremental_runtime_projection_aux;

@@ -32,70 +32,56 @@ impl EmergencySupplyStateV1 {
                 .is_some_and(|e| self.validate_current_sources(state, e, now).is_ok())
     }
     pub fn for_reader(&self, reader: Option<&str>) -> Self {
-        let mut visible: BTreeSet<String> = self
-            .needs
-            .iter()
-            .filter(|(_, n)| reader == Some(n.beneficiary_id.as_str()))
-            .map(|(id, _)| id.clone())
-            .collect();
-        for a in self
-            .authorizations
-            .values()
-            .filter(|a| reader == Some(a.provider_id.as_str()))
-        {
-            visible.extend(a.requested.iter().cloned());
-        }
-        for review in self.reviews.values() {
-            if self
-                .batches
-                .get(&review.batch_id)
-                .and_then(|b| self.authorizations.get(&b.authorization_id))
-                .is_some_and(|a| reader == Some(a.reviewer_id.as_str()))
-            {
-                visible.insert(review.need_id.clone());
-            }
-        }
+        let visibility_source = super::readonly_visibility::LegacyEmergencyVisibilityV1(self);
+        let visibility =
+            super::readonly_visibility::emergency_visibility_plan_v1(&visibility_source, reader)
+                .unwrap();
         let mut result = self.clone();
-        result.needs.retain(|id, _| visible.contains(id));
-        let obligations: BTreeSet<_> = result
+        result
             .needs
-            .values()
-            .map(|n| n.obligation_id.clone())
-            .chain(
-                self.services
-                    .values()
-                    .filter(|s| reader == Some(s.beneficiary_id.as_str()))
-                    .map(|s| s.obligation_id.clone()),
-            )
-            .collect();
-        result.services.retain(|id, _| obligations.contains(id));
+            .retain(|id, _| visibility.need(&visibility_source, id).unwrap());
+        result
+            .services
+            .retain(|id, _| visibility.obligation(&visibility_source, id).unwrap());
         for e in result.evidence.values_mut() {
             for w in &mut e.observations {
-                w.obligation_ids.retain(|id| obligations.contains(id));
-                w.normal_coverage.retain(|id, _| obligations.contains(id));
+                w.obligation_ids
+                    .retain(|id| visibility.obligation(&visibility_source, id).unwrap());
+                w.normal_coverage
+                    .retain(|id, _| visibility.obligation(&visibility_source, id).unwrap());
             }
         }
         for w in result.observations.values_mut() {
-            w.obligation_ids.retain(|id| obligations.contains(id));
-            w.normal_coverage.retain(|id, _| obligations.contains(id));
+            w.obligation_ids
+                .retain(|id| visibility.obligation(&visibility_source, id).unwrap());
+            w.normal_coverage
+                .retain(|id, _| visibility.obligation(&visibility_source, id).unwrap());
         }
         for coverage in result.observation_interval_coverage.values_mut() {
-            coverage.retain(|id, _| visible.contains(id));
+            coverage.retain(|id, _| visibility.need(&visibility_source, id).unwrap());
         }
         for a in result.authorizations.values_mut() {
-            a.requested.retain(|id| visible.contains(id));
+            a.requested
+                .retain(|id| visibility.need(&visibility_source, id).unwrap());
         }
         for b in result.batches.values_mut() {
-            b.demands.retain(|id, _| visible.contains(id));
-            b.frozen_ledger.retain(|id, _| visible.contains(id));
-            b.allocation.retain(|id, _| visible.contains(id));
+            b.demands
+                .retain(|id, _| visibility.need(&visibility_source, id).unwrap());
+            b.frozen_ledger
+                .retain(|id, _| visibility.need(&visibility_source, id).unwrap());
+            b.allocation
+                .retain(|id, _| visibility.need(&visibility_source, id).unwrap());
         }
-        result
-            .reviews
-            .retain(|_, r| visible.contains(&r.need_id) || reader == Some(r.requester_id.as_str()));
-        result
-            .restricted_power
-            .retain(|_, p| reader == Some(p.beneficiary_id.as_str()));
+        result.reviews.retain(|_, r| {
+            visibility
+                .review(&visibility_source, &r.need_id, &r.requester_id, reader)
+                .unwrap()
+        });
+        result.restricted_power.retain(|_, p| {
+            visibility
+                .restricted(&visibility_source, &p.beneficiary_id, reader)
+                .unwrap()
+        });
         result
     }
 }

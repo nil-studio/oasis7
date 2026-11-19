@@ -369,6 +369,16 @@ pub(super) fn child_with_ordinal<R: ValueNodeReader, C: FnMut() -> bool>(
     length: u64,
     records: &mut InventoryValueReader<'_, '_, R, C>,
 ) -> Result<(StateRootV1, Option<u64>), ValueTreeError> {
+    child_with_output(profile, entry, index, length, records, &mut std::io::sink())
+}
+pub(super) fn child_with_output<R: ValueNodeReader, C: FnMut() -> bool>(
+    profile: JsonRecordProfileV1,
+    entry: &oasis7_formal_protocol::incremental_state::StateEntryV1,
+    index: bool,
+    length: u64,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    output: &mut impl Write,
+) -> Result<(StateRootV1, Option<u64>), ValueTreeError> {
     let _scratch = records.values.memory.reserve(8192, records.values.class)?;
     let binding = WorldFieldKeyV1::from_bytes(&entry.key).map_err(ValueTreeError::Invalid)?;
     if binding.owner != profile.field.owner
@@ -395,8 +405,7 @@ pub(super) fn child_with_ordinal<R: ValueNodeReader, C: FnMut() -> bool>(
         limits,
         &mut *records.cancelled,
     )?;
-    let mut sink = std::io::sink();
-    let mut probe = Probe::new(index, &mut sink);
+    let mut probe = Probe::new(index, output);
     let mut bytes = [0; 165];
     records
         .values

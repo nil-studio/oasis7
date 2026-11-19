@@ -3,6 +3,17 @@
 //! before treating sink delivery as complete. No head/authority is granted.
 use super::*;
 
+#[derive(Debug)]
+pub enum BufferedPageWriteErrorV1 {
+    Value(ValueTreeError),
+    Store(PageStoreError),
+}
+impl From<ValueTreeError> for BufferedPageWriteErrorV1 {
+    fn from(error: ValueTreeError) -> Self {
+        Self::Value(error)
+    }
+}
+
 pub const BUFFERED_PAGE_MAX_BYTES: usize = 256 * 1024;
 
 #[must_use = "finish the buffered page writer; dropping it discards queued pages"]
@@ -120,56 +131,65 @@ impl<'a> BufferedPageWriter<'a> {
         &mut self,
         id: [u8; 32],
         bytes: ReservedValue<Vec<u8>>,
-    ) -> std::result::Result<(), ValueTreeError> {
-        self.check().map_err(value_error)?;
+    ) -> std::result::Result<(), BufferedPageWriteErrorV1> {
+        self.check().map_err(BufferedPageWriteErrorV1::Store)?;
         if !bytes.uses_budget(&self.store.memory)
             || bytes.capacity() > bytes.reserved_bytes()
             || bytes.is_empty()
             || bytes.len() > VALUE_MAX_NODE_BYTES
             || blake3::hash(&bytes).as_bytes() != &id
         {
-            return Err(ValueTreeError::Invalid(
-                "object batch page accounting/hash/bound",
-            ));
+            return Err(ValueTreeError::Invalid("object batch page accounting/hash/bound").into());
         }
         let charge = bytes.reserved_bytes();
         if charge > BUFFERED_PAGE_MAX_BYTES {
-            return Err(ValueTreeError::ResourceLimited(
-                "buffered page charge bound",
-            ));
+            return Err(ValueTreeError::ResourceLimited("buffered page charge bound").into());
         }
         if let Some((_, old)) = self.pending.iter().find(|(old, _)| old == &id) {
             if old.as_slice() != bytes.as_slice() {
-                return Err(ValueTreeError::Invalid("object batch page collision"));
+                return Err(ValueTreeError::Invalid("object batch page collision").into());
             }
-            self.check().map_err(value_error)?;
+            self.check().map_err(BufferedPageWriteErrorV1::Store)?;
             return Ok(());
         }
         if self.pending.len() == pack::MAX_ENTRIES
             || self.pending_bytes + charge > BUFFERED_PAGE_MAX_BYTES
         {
-            self.flush_inner().map_err(value_error)?;
+            self.flush_inner()
+                .map_err(BufferedPageWriteErrorV1::Store)?;
         }
-        self.check().map_err(value_error)?;
+        self.check().map_err(BufferedPageWriteErrorV1::Store)?;
         self.pending_bytes += charge;
         self.pending.push((id, bytes));
-        self.check().map_err(value_error)
+        self.check().map_err(BufferedPageWriteErrorV1::Store)
     }
 }
 
-impl ValueNodeWriter for BufferedPageWriter<'_> {
-    fn put_node(
+impl BufferedPageWriter<'_> {
+    pub fn put_node_with_store_error_v1(
         &mut self,
         id: [u8; 32],
         bytes: ReservedValue<Vec<u8>>,
-    ) -> std::result::Result<(), ValueTreeError> {
-        self.healthy().map_err(value_error)?;
-        // Catching a callback unwind must not reopen an incomplete writer.
+    ) -> std::result::Result<(), BufferedPageWriteErrorV1> {
+        self.healthy().map_err(BufferedPageWriteErrorV1::Store)?;
         self.failed = true;
         let result = self.put_inner(id, bytes);
         if result.is_ok() {
             self.failed = false;
         }
         result
+    }
+}
+impl ValueNodeWriter for BufferedPageWriter<'_> {
+    fn put_node(
+        &mut self,
+        id: [u8; 32],
+        bytes: ReservedValue<Vec<u8>>,
+    ) -> std::result::Result<(), ValueTreeError> {
+        self.put_node_with_store_error_v1(id, bytes)
+            .map_err(|error| match error {
+                BufferedPageWriteErrorV1::Value(error) => error,
+                BufferedPageWriteErrorV1::Store(error) => value_error(error),
+            })
     }
 }

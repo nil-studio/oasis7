@@ -484,7 +484,18 @@ fn recovered_config_readmission_retains_scope_and_pays_ordinary_without_io() {
         nodes: Rc::new(RefCell::new(BTreeMap::new())),
     };
     let (roots, _) = seed(&memory, &mut pages);
+    let seeded_bytes = memory.used();
     let (family, body) = family_in_pool(&roots, &pages, &memory, MemoryClass::Recovery).unwrap();
+    // This single-key directory has no discarded path-copy nodes. Its actual
+    // Recovery charge is the producer's retained usage minus the two carriers.
+    assert_eq!(family.registry_records(), 1);
+    let recovery_directory_bytes =
+        memory.used() - seeded_bytes - family.reserved_bytes() - body.reserved_bytes();
+    // Sharing the original charged tree requires a separate Ordinary covering
+    // reservation, including its Arc bookkeeping, until the final owner drops.
+    let ordinary_coverage_bytes = recovery_directory_bytes
+        + 2 * std::mem::size_of::<usize>()
+        + 4 * std::mem::align_of::<oasis7_proto::memory_budget::MemoryReservation>();
     let kind = body.kind();
     let root = body.root().clone();
     let foreign = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
@@ -548,6 +559,10 @@ fn recovered_config_readmission_retains_scope_and_pays_ordinary_without_io() {
     let unavailable = std::mem::take(&mut *pages.nodes.borrow_mut());
     let ordinary_family =
         readmit_artifact_config_family_ordinary_v1(&family, &roots, &memory, || false).unwrap();
+    assert_eq!(
+        ordinary_family.registry_records(),
+        family.registry_records()
+    );
     let ordinary_body =
         readmit_artifact_config_body_ordinary_v1(&body, kind, &root, &memory, || false).unwrap();
     *pages.nodes.borrow_mut() = unavailable;
@@ -565,8 +580,8 @@ fn recovered_config_readmission_retains_scope_and_pays_ordinary_without_io() {
     drop(body);
     assert_eq!(
         memory.used(),
-        before,
-        "new paid carriers replace both old Recovery carriers"
+        before + ordinary_coverage_bytes,
+        "Ordinary carriers retain the original Recovery tree and its paid coverage"
     );
     ordinary_family
         .validate_binding(&roots.digest().unwrap())
@@ -585,6 +600,14 @@ fn recovered_config_readmission_retains_scope_and_pays_ordinary_without_io() {
         MemoryClass::Ordinary,
     );
     assert_eq!(json.allocation_class(), MemoryClass::Ordinary);
+    drop(json);
+    drop(ordinary_body);
+    drop(ordinary_family);
+    assert_eq!(
+        memory.used(),
+        seeded_bytes,
+        "all readmitted metadata and shared Recovery charges release with their owners"
+    );
 }
 
 pub(super) fn json_in_pool(

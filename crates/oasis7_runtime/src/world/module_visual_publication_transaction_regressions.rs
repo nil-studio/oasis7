@@ -1,7 +1,7 @@
 use super::*;
-use oasis7_agent_api::world_action::GeoPos;
 use crate::WorldEventBody;
 use crate::cognition::{MAX_EXPECTED_VALUE_BYTES, MAX_IDENTIFIER_BYTES};
+use oasis7_agent_api::world_action::GeoPos;
 use oasis7_agent_api::world_entity::ModuleVisualAnchor;
 use oasis7_agent_api::world_entity::ModuleVisualEntity;
 use oasis7_wasm_abi::ModuleEmitEvent;

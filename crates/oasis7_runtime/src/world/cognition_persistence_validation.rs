@@ -1,5 +1,5 @@
 use super::World;
-use crate::cognition::{finality_binding_is_legal, world_state_binding_digest_v1};
+use crate::cognition::finality_binding_is_legal;
 use crate::cognition_recovery::{
     CognitionRecoveryReport, CognitionResponseRecordV1, RuntimeCognitionResponseArtifactV1,
     WorldCommitRecordV1, WorldRootViewV1, cognition_digest_v1, response_artifact_digest,
@@ -143,19 +143,26 @@ pub(super) fn append_cognition_event(
         events.push(JsonValue::Object(event));
     }
     journal.insert("head_seq".to_string(), json!(next_seq));
-    let events = journal
-        .get("events")
-        .cloned()
-        .ok_or_else(|| validation("cognition_events_missing"))?;
-    journal.insert(
-        "head_digest".to_string(),
-        cognition_digest_v1(
-            "oasis7.cognition.journal-head.v1",
-            &json!({"head_seq": next_seq, "events": events}),
-        )
-        .into(),
-    );
+    let head_digest = {
+        let events = journal
+            .get("events")
+            .ok_or_else(|| validation("cognition_events_missing"))?;
+        cognition_journal_head_digest_borrowed_v1(next_seq, events)
+    };
+    journal.insert("head_digest".to_string(), head_digest.into());
     Ok(next_seq)
+}
+
+/// The v1 commitment covers the entire original dense event array. Borrowing
+/// the array avoids a second journal-sized JSON graph without changing either
+/// the canonical CBOR map or the v1 digest domain used by recovery.
+pub(super) fn cognition_journal_head_digest_borrowed_v1(head_seq: u64, events: &JsonValue) -> String {
+    #[derive(serde::Serialize)]
+    struct Head<'a> {
+        head_seq: u64,
+        events: &'a JsonValue,
+    }
+    cognition_digest_v1("oasis7.cognition.journal-head.v1", &Head { head_seq, events })
 }
 
 /// Return the canonical event payload independently of journal linkage. The
@@ -520,23 +527,25 @@ pub(super) fn validate_response_lineage_binding(
     response: &CognitionResponseRecordV1,
     marker: &WorldCommitRecordV1,
 ) -> Result<(), WorldError> {
+    match validate_response_lineage_binding_with_work_v1(response,marker,&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1){Ok(())=>Ok(()),Err(super::cognition_persistence::receipt_observation::ReceiptReadErrorV1::World(e))=>Err(e),Err(super::cognition_persistence::receipt_observation::ReceiptReadErrorV1::Work(_))=>unreachable!("legacy response lineage work cannot fail")}
+}
+pub(in crate::world)fn validate_response_lineage_binding_with_work_v1<A:oasis7_wasm_abi::CapabilityCanonicalWorkV1>(response:&CognitionResponseRecordV1,marker:&WorldCommitRecordV1,source:&A)->Result<(),super::cognition_persistence::receipt_observation::ReceiptReadErrorV1>{
+    let _phase=oasis7_world_state::cognition_feedback_contract::readonly_work::phase(&(response,marker),source)?;
     let Some(artifact) = response.response_artifact.as_ref() else {
-        return Err(validation("response_artifact_missing"));
+        return Err(validation("response_artifact_missing").into());
     };
     let Some(_) = artifact.get("context_discriminator") else {
         return if marker.agent_id.is_empty() {
             Ok(())
         } else {
-            Err(validation("response_artifact_identity_required"))
+            Err(validation("response_artifact_identity_required").into())
         };
     };
     let identity: RuntimeCognitionResponseArtifactV1 = serde_json::from_value(artifact.clone())
         .map_err(|_| validation("response_artifact_identity_invalid"))?;
-    identity
-        .validate()
-        .map_err(|_| validation("response_artifact_identity_invalid"))?;
+    identity.validate_with_work_v1(source)?.map_err(|_|validation("response_artifact_identity_invalid"))?;
     if marker.response_artifact_digest.is_empty() {
-        return Err(validation("response_artifact_marker_missing"));
+        return Err(validation("response_artifact_marker_missing").into());
     }
     let outer = artifact
         .get("outer_lineage")
@@ -546,26 +555,10 @@ pub(super) fn validate_response_lineage_binding(
         .get("finality_block_hash")
         .and_then(JsonValue::as_str)
         .map(str::to_string);
-    let expected_base_world_hash = if marker.parent_world_hash.starts_with("blake3:") {
-        marker.parent_world_hash.clone()
-    } else {
-        world_state_binding_digest_v1(
-            &marker.world_id,
-            &marker.branch_id,
-            marker.finality_epoch,
-            marker.finality_block_hash.as_deref(),
-            &marker.finality_status,
-            marker.parent_tick,
-            &marker.parent_world_hash,
-            marker.reorg_epoch,
-            &marker.runtime_manifest_hash,
-        )
-    };
-    let expected_manifest_hash = if marker.runtime_manifest_hash.starts_with("blake3:") {
-        marker.runtime_manifest_hash.clone()
-    } else {
-        cognition_digest_v1("oasis7.runtime.manifest.v1", &marker.runtime_manifest_hash)
-    };
+    enum Hash<'a,C>{Text(&'a str),Digest(oasis7_agent_api::world_cognition::PaidCognitionDigestDataV1<C>)}
+    impl<C>Hash<'_,C>{fn as_str(&self)->&str{match self{Self::Text(v)=>v,Self::Digest(v)=>v.as_str()}}}
+    let expected_base_world_hash=if marker.parent_world_hash.starts_with("blake3:"){Hash::Text(marker.parent_world_hash.as_str())}else{Hash::Digest(oasis7_world_state::cognition::world_state_binding_digest_with_work_v1(&marker.world_id,&marker.branch_id,marker.finality_epoch,marker.finality_block_hash.as_deref(),&marker.finality_status,marker.parent_tick,&marker.parent_world_hash,marker.reorg_epoch,&marker.runtime_manifest_hash,source)?)};
+    let expected_manifest_hash=if marker.runtime_manifest_hash.starts_with("blake3:"){Hash::Text(marker.runtime_manifest_hash.as_str())}else{Hash::Digest(oasis7_agent_api::world_cognition::cognition_digest_with_work_v1("oasis7.runtime.manifest.v1",&marker.runtime_manifest_hash,source)?)};
     if outer.get("agent_id").and_then(JsonValue::as_str) != Some(marker.agent_id.as_str())
         || outer.get("world_id").and_then(JsonValue::as_str) != Some(marker.world_id.as_str())
         || outer.get("branch_id").and_then(JsonValue::as_str) != Some(marker.branch_id.as_str())
@@ -582,7 +575,7 @@ pub(super) fn validate_response_lineage_binding(
             .and_then(JsonValue::as_str)
             != Some(expected_manifest_hash.as_str())
     {
-        return Err(validation("response_outer_lineage_mismatch"));
+        return Err(validation("response_outer_lineage_mismatch").into());
     }
     if identity.agent_session_id != marker.agent_session_id
         || identity.agent_turn_id != marker.agent_turn_id
@@ -595,7 +588,7 @@ pub(super) fn validate_response_lineage_binding(
         || (!marker.response_artifact_digest.is_empty()
             && response.response_digest != marker.response_artifact_digest)
     {
-        return Err(validation("response_artifact_lineage_mismatch"));
+        return Err(validation("response_artifact_lineage_mismatch").into());
     }
     Ok(())
 }
@@ -776,6 +769,22 @@ fn validation(code: &str) -> WorldError {
 #[cfg(test)]
 mod lifecycle_validation_tests {
     use super::*;
+
+    #[test]
+    fn borrowed_journal_head_preserves_full_v1_canonical_commitment() {
+        let events = json!([
+            {"journal_seq":1,"nested":{"long_key":[null,true,3],"a":"first"}},
+            {"journal_seq":2,"event_digest":"second"}
+        ]);
+        let legacy = cognition_digest_v1(
+            "oasis7.cognition.journal-head.v1",
+            &json!({"head_seq":2,"events":events.clone()}),
+        );
+        assert_eq!(cognition_journal_head_digest_borrowed_v1(2,&events),legacy);
+        let mut altered = events.clone();
+        altered[0]["nested"]["a"] = json!("changed");
+        assert_ne!(cognition_journal_head_digest_borrowed_v1(2,&altered),legacy);
+    }
 
     fn event(kind: &str, attempt: Option<u64>) -> serde_json::Map<String, JsonValue> {
         let mut event = json!({

@@ -78,9 +78,20 @@ fn successive_moves_use_overlay_positions_and_exact_originals_without_agent_clon
     world.state.agents.get_mut("alice").unwrap().state.pos = GeoPos::new(-30, -40, -50);
     let unchanged = world.state.clone();
     let source = values.clone();
+    let mut material_owner = material_fixture(&world, &parent, &state, &source, &memory);
+    let mut materials =
+        material_owner
+            .fixture
+            .context(&parent.roots, &material_owner.pages, || None);
     let live = parent.fence().unwrap();
-    let mut txn =
-        ExecutionTransaction::begin(parent.clone(), [4; 32], &state, &memory, limits()).unwrap();
+    let mut txn = ExecutionTransaction::begin(
+        parent.clone(),
+        [4; 32],
+        &material_owner.pages,
+        &memory,
+        limits(),
+    )
+    .unwrap();
     let mut originals = Vec::new();
     for (id, to) in [
         (1, GeoPos::new(4, 5, 6)),
@@ -112,6 +123,8 @@ fn successive_moves_use_overlay_positions_and_exact_originals_without_agent_clon
                     max_event_bytes: 4096,
                     original_work: original_work(),
                 },
+                &mut materials,
+                &live,
             )
             .unwrap();
     }
@@ -220,9 +233,20 @@ fn move_failure_aborts_all_outer_writes_and_preserves_world() {
             }
         }
         let source = values.clone();
+        let mut material_owner = material_fixture(&world, &parent, &state, &source, &memory);
+        let mut materials =
+            material_owner
+                .fixture
+                .context(&parent.roots, &material_owner.pages, || None);
         let live = parent.fence().unwrap();
-        let mut txn =
-            ExecutionTransaction::begin(parent, [4; 32], &state, &memory, limits()).unwrap();
+        let mut txn = ExecutionTransaction::begin(
+            parent.clone(),
+            [4; 32],
+            &material_owner.pages,
+            &memory,
+            limits(),
+        )
+        .unwrap();
         txn.write(Ns::Effects, b"outer-write", Some([99; 32]))
             .unwrap();
         let mut event = moved(1, GeoPos::new(4, 5, 6));
@@ -254,6 +278,8 @@ fn move_failure_aborts_all_outer_writes_and_preserves_world() {
                 max_event_bytes: 4096,
                 original_work: original_work(),
             },
+            &mut materials,
+            &live,
         );
         assert!(result.is_err(), "failure {failure}");
         let guard = txn.guard();

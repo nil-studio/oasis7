@@ -1,7 +1,4 @@
-use super::super::apply_domain_event_industry_helpers::{
-    aggregate_recipe_material_stacks, validate_recipe_material_stacks,
-    validate_recipe_output_capacity,
-};
+use super::super::apply_domain_event_industry_helpers::validate_recipe_output_capacity;
 use super::*;
 use crate::AgentActivityV1;
 
@@ -136,134 +133,28 @@ impl PreparedRecipeLifecycle {
         else {
             unreachable!()
         };
-        if committed_recipe_origin
-            .as_ref()
-            .is_some_and(|origin| !origin.matches_recipe(requester_agent_id, factory_id, recipe_id))
-        {
-            return Err(invalid("recipe start committed origin mismatch"));
-        }
-        if state.pending_recipe_jobs.contains_key(job_id) {
-            return Err(invalid(format!(
-                "recipe start job is already pending: job_id={job_id}"
-            )));
-        }
-        if state.settled_recipe_job_ids.contains(job_id) {
-            return Err(invalid(format!(
-                "recipe start job identity is already settled: job_id={job_id}"
-            )));
-        }
-        if state.retired_factory_ids.contains(factory_id) {
-            return Err(invalid(format!(
-                "recipe scheduled for retired factory: factory_id={factory_id}"
-            )));
-        }
-        let mut factory =
-            state.factories.get(factory_id).cloned().ok_or_else(|| {
-                invalid(format!("recipe factory not found: factory_id={factory_id}"))
-            })?;
-        let power_owner = power_owner_agent_id.as_deref().ok_or_else(|| {
-            invalid(format!(
-                "recipe power owner is missing: job_id={job_id} factory_id={factory_id}"
-            ))
-        })?;
-        if power_owner != factory.builder_agent_id || power_owner != requester_agent_id {
-            return Err(invalid(format!(
-                "recipe power owner mismatch: job_id={job_id} payer={power_owner} requester={requester_agent_id} builder={} ",
-                factory.builder_agent_id
-            )));
-        }
-        let mut agent = state.agents.get(power_owner).cloned().ok_or_else(|| {
-            invalid(format!(
-                "recipe power owner agent not found: job_id={job_id} payer={power_owner}"
-            ))
-        })?;
-        if factory.builder_agent_id != *requester_agent_id {
-            return Err(invalid(format!(
-                "recipe requester is not factory builder: factory_id={factory_id} requester={requester_agent_id} builder={}",
-                factory.builder_agent_id
-            )));
-        }
-        if factory.spec.recipe_slots == 0 {
-            return Err(invalid(format!(
-                "recipe factory has no execution slots: factory_id={factory_id}"
-            )));
-        }
-        let pending_count = state
-            .pending_recipe_jobs
-            .values()
-            .filter(|job| job.factory_id == *factory_id)
-            .count();
-        if pending_count >= usize::from(factory.spec.recipe_slots)
-            || usize::from(factory.production.active_jobs) >= usize::from(factory.spec.recipe_slots)
-        {
-            return Err(invalid(format!(
-                "recipe factory has no free execution slot: factory_id={factory_id} active_jobs={} pending_jobs={} recipe_slots={}",
-                factory.production.active_jobs, pending_count, factory.spec.recipe_slots
-            )));
-        }
-        let expected_output = if *consume_ledger == MaterialLedgerId::world() {
-            MaterialLedgerId::world()
-        } else if *consume_ledger == factory.input_ledger {
-            factory.output_ledger.clone()
-        } else {
-            return Err(invalid(format!(
-                "recipe consume ledger does not match factory input or world fallback: factory_id={factory_id} consume_ledger={consume_ledger} input_ledger={}",
-                factory.input_ledger
-            )));
+        let prefix = match crate::world_rules::readonly_recipe_started::admission_prefix(
+            state, event, now,
+        ) {
+            Ok(result) => result?,
+            Err(error) => match error {},
         };
-        if *output_ledger != expected_output {
-            return Err(invalid(format!(
-                "recipe output ledger does not match committed factory route: factory_id={factory_id} output_ledger={output_ledger} expected={expected_output}"
-            )));
-        }
-        if *accepted_batches == 0 {
-            return Err(invalid(format!(
-                "recipe accepted_batches must be positive: job_id={job_id}"
-            )));
-        }
-        if *duration_ticks == 0 || *ready_at <= now {
-            return Err(invalid(format!(
-                "recipe timing commitment is invalid: job_id={job_id} duration_ticks={duration_ticks} ready_at={ready_at} now={now}"
-            )));
-        }
-        validate_recipe_material_stacks("consume", consume)
-            .map_err(|r| invalid(format!("recipe consume stack invalid: {r}")))?;
-        validate_recipe_material_stacks("produce", produce)
-            .map_err(|r| invalid(format!("recipe produce stack invalid: {r}")))?;
-        validate_recipe_material_stacks("byproduct", byproducts)
-            .map_err(|r| invalid(format!("recipe byproduct stack invalid: {r}")))?;
-        let required = aggregate_recipe_material_stacks(consume)
-            .map_err(|r| invalid(format!("recipe consume aggregation failed: {r}")))?;
-        let allocations = state
-            .allocate_recipe_path_amounts(
-                consume_ledger,
-                logistics_route_ids,
-                logistics_path_ids,
-                consume,
-            )
-            .map_err(|r| invalid(format!("recipe logistics path authority failed: {r}")))?;
+        let allocations = prefix.allocations;
+        let mut factory = state
+            .factories
+            .get(factory_id)
+            .expect("validated factory")
+            .clone();
+        let power_owner = power_owner_agent_id
+            .as_deref()
+            .expect("validated power owner");
+        let mut agent = state
+            .agents
+            .get(power_owner)
+            .expect("validated power owner agent")
+            .clone();
         let (mut materials, world) = normalized_materials(state);
         let world_id = MaterialLedgerId::world();
-        for (kind, amount) in required {
-            let available = (if consume_ledger == &world_id {
-                Some(&world)
-            } else {
-                state.material_ledgers.get(consume_ledger)
-            })
-            .and_then(|ledger| ledger.get(&kind))
-            .copied()
-            .unwrap_or(0);
-            if available < amount {
-                return Err(invalid(format!(
-                    "recipe consume failed: insufficient material {kind}: requested={amount} available={available}"
-                )));
-            }
-        }
-        if *power_required < 0 {
-            return Err(invalid(format!(
-                "recipe power_required must be non-negative: job_id={job_id} power_required={power_required}"
-            )));
-        }
         let prepared_rules = if let Some(obligation) = emergency_power_obligation {
             let canonical = crate::builtin_recipe_plan(recipe_id, *accepted_batches)
                 .ok_or_else(|| invalid("unsupported_essential_recipe"))?;
@@ -307,9 +198,13 @@ impl PreparedRecipeLifecycle {
             )?;
             Some(rules)
         } else {
-            let available = agent.state.resources.get(ResourceKind::Electricity);
-            if available < *power_required {
-                return Err(invalid("insufficient electricity"));
+            match crate::world_rules::readonly_recipe_started::ordinary_power(
+                state,
+                prefix.electricity,
+                *power_required,
+            ) {
+                Ok(result) => result?,
+                Err(error) => match error {},
             }
             None
         };
@@ -451,20 +346,8 @@ impl PreparedRecipeLifecycle {
             unreachable!()
         };
         let (mut materials, world) = normalized_materials(state);
-        let mut completion_receipt = RecipeCompletionReceiptV1 {
-            committed_recipe_origin: committed_recipe_origin.clone(),
-            job_id: *job_id,
-            requester_agent_id: requester_agent_id.clone(),
-            factory_id: factory_id.clone(),
-            recipe_id: recipe_id.clone(),
-            accepted_batches: *accepted_batches,
-            produce: produce.clone(),
-            byproducts: byproducts.clone(),
-            output_ledger: output_ledger.clone(),
-            bottleneck_tags: bottleneck_tags.clone(),
-            logistics_route_ids: logistics_route_ids.clone(),
-            logistics_path_ids: logistics_path_ids.clone(),
-        };
+        let mut completion_receipt = super::recipe_completion_receipt_from_event_v1(event)
+            .expect("RecipeCompleted matched above");
         if let Some(existing) = state.recipe_completion_receipts.get(job_id)
             && existing != &completion_receipt
         {
@@ -540,62 +423,18 @@ impl PreparedRecipeLifecycle {
         if output_ledger == &world_id {
             materials = ledgers[&world_id].clone();
         }
-        let snapshot = FactoryProductionSnapshot::from_recipe_job(&pending);
         let mut factory = state.factories.get(factory_id).cloned();
         if let Some(value) = factory.as_mut() {
-            value.production.active_jobs = value.production.active_jobs.saturating_sub(1);
-            if value.production.current_job_id == Some(*job_id) {
-                value.production.current_job_id = None;
-            }
-            value.production.current_recipe_id = None;
-            value.production.last_completed_at = Some(now);
-            value.production.completed_jobs = value.production.completed_jobs.saturating_add(1);
-            let same =
-                value.production.last_completed_canonical_snapshot.as_ref() == Some(&snapshot);
-            value.production.same_recipe_repeat_count = if same {
-                value.production.same_recipe_repeat_count.saturating_add(1)
-            } else {
-                1
-            };
-            value.production.last_completed_recipe_id = Some(recipe_id.clone());
-            value.production.last_completed_canonical_snapshot = Some(snapshot);
-            if value.production.active_jobs == 0 {
-                value.production.status = FactoryProductionStatus::Idle;
-            }
+            super::complete_recipe_factory_production_v1(value, &pending, now);
         }
         let mut progress = state.industry_progress.clone();
         progress.completed_recipe_jobs = progress.completed_recipe_jobs.saturating_add(1);
-        if progress.starter_industrial_milestone.is_none()
-            && *accepted_batches > 0
-            && factory_id == STARTER_SMELTER_FACTORY_ID
-            && recipe_id == STARTER_SMELTER_RECIPE_ID
-            && state
-                .factories
-                .get(factory_id)
-                .is_some_and(|factory| factory.output_ledger == *output_ledger)
-            && produce
-                .iter()
-                .any(|stack| stack.kind == "iron_ingot" && stack.amount > 0)
-        {
-            progress.starter_industrial_milestone = Some(StarterIndustrialMilestoneV1 {
-                settlement_summary: pending.committed_recipe_origin.as_ref().map(|_| {
-                    StarterIndustrialSettlementSummaryV1 {
-                        requester_agent_id: pending.requester_agent_id.clone(),
-                        accepted_batches: pending.accepted_batches,
-                        consume: pending.consume.clone(),
-                        power_required: pending.power_required,
-                        produce: pending.produce.clone(),
-                    }
-                }),
-                committed_recipe_origin: pending.committed_recipe_origin.clone(),
-                profile_id: STARTER_INDUSTRIAL_PROFILE_ID.to_string(),
-                profile_revision: STARTER_INDUSTRIAL_PROFILE_REVISION,
-                factory_id: factory_id.clone(),
-                recipe_id: recipe_id.clone(),
-                output_ledger: output_ledger.clone(),
-                settlement_job_id: *job_id,
-                settled_at: now,
-            });
+        if progress.starter_industrial_milestone.is_none() {
+            progress.starter_industrial_milestone = super::starter_recipe_completion_milestone_v1(
+                &pending,
+                state.factories.get(factory_id).map(|f| &f.output_ledger),
+                now,
+            );
         }
         let factory_update = factory.map(|value| (factory_id.clone(), value));
         refresh_progress(state, factory_update.as_ref(), &mut progress, now);
@@ -656,10 +495,7 @@ impl PreparedRecipeLifecycle {
         else {
             unreachable!()
         };
-        let terminal = matches!(
-            blocker_kind.as_str(),
-            "product_validation" | "industrial_termination"
-        );
+        let terminal = super::recipe_blocker_is_terminal_v1(blocker_kind);
         let pending = state.pending_recipe_jobs.get(action_id).cloned();
         if terminal
             && let Some(existing) = state.factory_production_failure_dispositions.get(action_id)
@@ -705,18 +541,13 @@ impl PreparedRecipeLifecycle {
         }
         let mut factory = state.factories.get(factory_id).cloned();
         if let Some(value) = factory.as_mut() {
-            if terminal && pending.is_some() {
-                value.production.active_jobs = value.production.active_jobs.saturating_sub(1);
-            }
-            value.production.status = FactoryProductionStatus::Blocked;
-            value.production.last_blocked_at = Some(now);
-            value.production.current_blocker_kind = Some(blocker_kind.clone());
-            value.production.current_blocker_detail = Some(blocker_detail.clone());
-            value.production.current_job_id = None;
-            value.production.current_recipe_id = None;
-            value.production.last_completed_recipe_id = None;
-            value.production.same_recipe_repeat_count = 0;
-            value.production.last_completed_canonical_snapshot = None;
+            super::block_recipe_factory_production_v1(
+                value,
+                pending.as_ref(),
+                blocker_kind,
+                blocker_detail,
+                now,
+            );
         }
         let factory = factory.map(|value| (factory_id.clone(), value));
         let mut progress = state.industry_progress.clone();
@@ -740,26 +571,12 @@ impl PreparedRecipeLifecycle {
             let pending = pending.as_ref().expect("terminal pending validated");
             (
                 *action_id,
-                FactoryProductionFailureDispositionV1 {
-                    action_id: *action_id,
-                    requester_agent_id: pending.requester_agent_id.clone(),
-                    factory_id: pending.factory_id.clone(),
-                    recipe_id: pending.recipe_id.clone(),
-                    blocker_kind: blocker_kind.clone(),
-                    blocker_detail: blocker_detail.clone(),
-                    disposition_kind: "consumed_lost".into(),
-                    consumed_inputs: pending.consume.clone(),
-                    lost_inputs: pending.consume.clone(),
-                    consumed_power: pending.power_required,
-                    lost_power: pending.power_required,
-                    next_action: if blocker_kind == "industrial_termination" {
-                        "inspect_industrial_termination"
-                    } else {
-                        "inspect_product_validation_and_reschedule"
-                    }
-                    .into(),
-                    next_recheck: None,
-                },
+                super::recipe_failure_disposition_v1(
+                    *action_id,
+                    pending,
+                    blocker_kind,
+                    blocker_detail,
+                ),
             )
         });
         let settlement_order = terminal.then(|| {
@@ -1063,10 +880,11 @@ fn refresh_progress(
             .unwrap_or(factory)
     });
     let collected = factories.collect::<Vec<_>>();
-    let jobs = collected
-        .iter()
-        .map(|factory| factory.production.completed_jobs)
-        .sum::<u64>();
+    let jobs = aggregate_stage_completed_jobs_v1(
+        collected
+            .iter()
+            .map(|factory| factory.production.completed_jobs),
+    );
     let stable = collected
         .iter()
         .any(|factory| factory_has_canonical_stable_line(factory));

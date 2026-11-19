@@ -145,7 +145,10 @@ fn native_profile2_c10_over_64_records_and_16mib_reopens_and_retries_original_on
         else {
             panic!("permanent original missing");
         };
-        let FormalRequestStateV1::Qualified { candidate, proof } = *state else {
+        let FormalRequestStateV1::Qualified {
+            candidate, proof, ..
+        } = *state
+        else {
             panic!("original no longer Qualified");
         };
         assert_eq!(proof, original_proof);

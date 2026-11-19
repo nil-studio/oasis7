@@ -232,3 +232,5 @@ pub use receiver::accept_runtime_scheduler_controls_transition_v1;
 #[path = "incremental_runtime_scheduler_controls_pages.rs"]
 mod pages;
 pub use pages::*;
+
+pub(crate) use receiver::accept_runtime_scheduler_controls_verified_v1;

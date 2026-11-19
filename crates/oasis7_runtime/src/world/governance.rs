@@ -601,43 +601,7 @@ impl World {
         let consensus_height = self.journal.events.len() as u64 + 1;
         let epoch_id = self.current_governance_epoch();
         let snapshot = self.governance_finality_epoch_snapshot_for_epoch(epoch_id);
-        let min_unique_signers = snapshot.effective_min_unique_signers();
-        let mut signatures = BTreeMap::new();
-        for (node_id, seed_label) in LOCAL_GOVERNANCE_FINALITY_SIGNERS {
-            let payload = GovernanceFinalityCertificate::signing_payload_v1(
-                proposal_id,
-                manifest_hash.as_str(),
-                consensus_height,
-                epoch_id,
-                snapshot.validator_set_hash.as_str(),
-                snapshot.stake_root.as_str(),
-                snapshot.threshold_bps,
-                min_unique_signers,
-                node_id,
-            );
-            let signing_key = local_governance_finality_signing_key(seed_label);
-            let signature = signing_key.sign(payload.as_slice());
-            signatures.insert(
-                node_id.to_string(),
-                format!(
-                    "{}{}",
-                    GovernanceFinalityCertificate::SIGNATURE_PREFIX_ED25519_V1,
-                    hex::encode(signature.to_bytes())
-                ),
-            );
-        }
-        Ok(GovernanceFinalityCertificate {
-            proposal_id,
-            manifest_hash,
-            consensus_height,
-            epoch_id,
-            validator_set_hash: snapshot.validator_set_hash,
-            stake_root: snapshot.stake_root,
-            threshold_bps: snapshot.threshold_bps,
-            min_unique_signers,
-            threshold: min_unique_signers,
-            signatures,
-        })
+        module_admission_finality::ModuleFinalityRecordsV1::build_local_certificate_v1(&snapshot,proposal_id,&manifest_hash,consensus_height,epoch_id)
     }
 
     pub fn apply_proposal(&mut self, proposal_id: ProposalId) -> Result<String, WorldError> {
@@ -696,30 +660,8 @@ impl World {
         &self,
         epoch_id: u64,
     ) -> GovernanceFinalityEpochSnapshot {
-        if let Some(snapshot) = self.governance_finality_epoch_snapshots.get(&epoch_id) {
-            return snapshot.clone();
-        }
-        if let Some(snapshot) = self.governance_finality_registry_epoch_snapshot(epoch_id) {
-            return snapshot;
-        }
-        let signer_node_ids: Vec<String> = LOCAL_GOVERNANCE_FINALITY_SIGNERS
-            .iter()
-            .map(|(node_id, _)| (*node_id).to_string())
-            .collect();
-        let min_unique_signers = LOCAL_GOVERNANCE_FINALITY_SIGNERS.len() as u16;
-        GovernanceFinalityEpochSnapshot {
-            epoch_id,
-            threshold_bps: 10_000,
-            min_unique_signers,
-            validator_set_hash: governance_finality_validator_set_hash(signer_node_ids.as_slice()),
-            stake_root: governance_finality_stake_root(
-                signer_node_ids.as_slice(),
-                &BTreeMap::new(),
-            ),
-            threshold: min_unique_signers,
-            signer_node_ids,
-            validator_stakes: BTreeMap::new(),
-        }
+        if let Some(snapshot)=self.governance_finality_epoch_snapshots.get(&epoch_id){return snapshot.clone()}
+        module_admission_finality::ModuleFinalityRecordsV1::from_world(self).fallback_epoch_snapshot_v1(epoch_id,self.current_governance_epoch())
     }
 }
 
@@ -758,3 +700,6 @@ mod tests {
         assert!(legacy_payload.contains("governance.local.finality.signer.2:100"));
     }
 }
+
+#[path="incremental_module_capability_admission_finality.rs"]
+pub(in crate::world) mod module_admission_finality;

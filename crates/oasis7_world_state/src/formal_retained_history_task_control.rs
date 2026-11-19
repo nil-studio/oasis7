@@ -1,6 +1,18 @@
 //! Original signed task-control scope and immutable result matching.
 use super::*;
 
+/// Borrowed task scope fields used by the signed-result identity comparison.
+pub type GameTaskResultScopeFieldsV1<'a> = (
+    &'a str,
+    &'a str,
+    u64,
+    &'a str,
+    &'a str,
+    &'a str,
+    &'a str,
+    u64,
+);
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GameTaskControlLookupV1 {
@@ -55,58 +67,71 @@ pub fn game_task_result_matches(
 pub fn game_task_result_lookup(
     result: &CanonicalIntentResultV1,
 ) -> Result<Option<GameTaskControlLookupV1>, String> {
-    use crate::service_admission::WorldServicePayloadV1;
-    let (agent, owner, generation, key, world, genesis, branch, epoch) =
-        match &result.request.signed_payload {
-            WorldServicePayloadV1::GameTaskCreate(s) => {
-                let r = &s.request;
-                (
-                    &r.agent_id,
-                    &r.owner_binding,
-                    r.owner_generation.0,
-                    &s.subject_public_key,
-                    &r.world_id,
-                    &r.genesis_digest,
-                    &r.branch_id,
-                    r.reorg_epoch.0,
-                )
-            }
-            WorldServicePayloadV1::GameGoalPublish(s) => {
-                let r = &s.request;
-                (
-                    &r.agent_id,
-                    &r.owner_binding,
-                    r.owner_generation.0,
-                    &s.subject_public_key,
-                    &r.world_id,
-                    &r.genesis_digest,
-                    &r.branch_id,
-                    r.reorg_epoch.0,
-                )
-            }
-            WorldServicePayloadV1::GameExecutorControl(s) => {
-                let r = &s.request.fence;
-                (
-                    &r.agent_id,
-                    &r.owner_binding,
-                    r.owner_generation.0,
-                    &s.subject_public_key,
-                    &r.world_id,
-                    &r.genesis_digest,
-                    &r.branch_id,
-                    r.reorg_epoch.0,
-                )
-            }
-            _ => return Ok(None),
-        };
+    let Some((agent, owner, generation, key, world, genesis, branch, epoch)) =
+        game_task_result_scope_data_v1(result)
+    else {
+        return Ok(None);
+    };
     Ok(Some(GameTaskControlLookupV1 {
-        agent_id: agent.clone(),
-        owner_binding: owner.clone(),
+        agent_id: agent.to_owned(),
+        owner_binding: owner.to_owned(),
         owner_generation: generation,
         owner_public_key_digest: digest_text("owner-public-key", key)?,
-        world_id: world.clone(),
-        genesis_digest: genesis.clone(),
-        branch_id: branch.clone(),
+        world_id: world.to_owned(),
+        genesis_digest: genesis.to_owned(),
+        branch_id: branch.to_owned(),
         reorg_epoch: epoch,
     }))
+}
+
+/// Borrowed original signed task scope. This is DATA; it performs no receipt,
+/// Current owner or archive admission. Both original owned lookup and paid
+/// consumers use this one variant dispatcher.
+pub fn game_task_result_scope_data_v1(
+    result: &CanonicalIntentResultV1,
+) -> Option<GameTaskResultScopeFieldsV1<'_>> {
+    use crate::service_admission::WorldServicePayloadV1;
+    let fields: GameTaskResultScopeFieldsV1<'_> = match &result.request.signed_payload {
+        WorldServicePayloadV1::GameTaskCreate(s) => {
+            let r = &s.request;
+            (
+                &r.agent_id,
+                &r.owner_binding,
+                r.owner_generation.0,
+                &s.subject_public_key,
+                &r.world_id,
+                &r.genesis_digest,
+                &r.branch_id,
+                r.reorg_epoch.0,
+            )
+        }
+        WorldServicePayloadV1::GameGoalPublish(s) => {
+            let r = &s.request;
+            (
+                &r.agent_id,
+                &r.owner_binding,
+                r.owner_generation.0,
+                &s.subject_public_key,
+                &r.world_id,
+                &r.genesis_digest,
+                &r.branch_id,
+                r.reorg_epoch.0,
+            )
+        }
+        WorldServicePayloadV1::GameExecutorControl(s) => {
+            let r = &s.request.fence;
+            (
+                &r.agent_id,
+                &r.owner_binding,
+                r.owner_generation.0,
+                &s.subject_public_key,
+                &r.world_id,
+                &r.genesis_digest,
+                &r.branch_id,
+                r.reorg_epoch.0,
+            )
+        }
+        _ => return None,
+    };
+    Some(fields)
 }

@@ -8,18 +8,57 @@ mod material_transfer;
 mod material_transit;
 mod recipe_lifecycle;
 
+/// The original first RecipeStarted replay check. Correlation metadata does
+/// not grant authority; restored pending originals must satisfy the same match.
+pub fn validate_recipe_started_origin_v1(
+    origin: Option<&crate::CommittedRecipeOrigin>,
+    requester: &str,
+    factory: &str,
+    recipe: &str,
+) -> Result<(), WorldError> {
+    if origin.is_some_and(|origin| !origin.matches_recipe(requester, factory, recipe)) {
+        return Err(invalid("recipe start committed origin mismatch"));
+    }
+    Ok(())
+}
+
 pub fn factory_has_canonical_stable_line(factory: &FactoryState) -> bool {
-    factory.production.same_recipe_repeat_count >= 3
-        && factory
+    factory_has_canonical_stable_line_parts_v1(
+        u64::from(factory.production.same_recipe_repeat_count),
+        factory
             .production
             .last_completed_canonical_snapshot
             .as_ref()
-            .zip(factory.production.last_completed_recipe_id.as_ref())
-            .is_some_and(|(snapshot, recipe_id)| {
-                !snapshot.recipe_id.trim().is_empty()
-                    && !recipe_id.trim().is_empty()
-                    && snapshot.recipe_id == *recipe_id
+            .map(|snapshot| snapshot.recipe_id.as_str()),
+        factory.production.last_completed_recipe_id.as_deref(),
+    )
+}
+/// The same pure kernel for a qualified typed projection, without constructing
+/// a materialized FactoryState or changing its original string semantics.
+pub(crate) fn factory_has_canonical_stable_line_parts_v1(
+    repeat_count: u64,
+    snapshot_recipe_id: Option<&str>,
+    last_completed_recipe_id: Option<&str>,
+) -> bool {
+    repeat_count >= 3
+        && snapshot_recipe_id
+            .zip(last_completed_recipe_id)
+            .is_some_and(|(snapshot, recipe)| {
+                !snapshot.trim().is_empty() && !recipe.trim().is_empty() && snapshot == recipe
             })
+}
+
+/// Bound only the stage decision input, leaving stored and diagnostic counts intact.
+pub(crate) fn stage_completed_jobs_threshold_v1(total: u128) -> u64 {
+    total.min(6) as u64
+}
+
+/// Stage decisions need only the mathematical threshold, never an overflowing
+/// exact u64 sum. Recompute from remaining members after any removal.
+pub fn aggregate_stage_completed_jobs_v1(jobs: impl Iterator<Item = u64>) -> u64 {
+    jobs.fold(0, |sum, count| {
+        stage_completed_jobs_threshold_v1(u128::from(sum) + u128::from(count))
+    })
 }
 
 /// Select the canonical industry stage from the supplied scope's progress.
@@ -190,26 +229,9 @@ impl PreparedIndustryEvent {
         event: &DomainEvent,
         now: WorldTime,
     ) -> Result<Self, WorldError> {
-        let factory = match event {
-            DomainEvent::RecipeStarted { factory_id, .. }
-            | DomainEvent::FactoryRecycled { factory_id, .. } => Some(factory_id),
-            _ => None,
-        };
-        if factory.is_some_and(|id| {
-            let reserved = crate::world_rules::manufacturing_reserved_slots(state, id) as usize;
-            let jobs = state
-                .pending_recipe_jobs
-                .values()
-                .filter(|j| &j.factory_id == id)
-                .count();
-            reserved > 0
-                && (matches!(event, DomainEvent::FactoryRecycled { .. })
-                    || state
-                        .factories
-                        .get(id)
-                        .is_none_or(|f| jobs + reserved >= f.spec.recipe_slots as usize))
-        }) {
-            return Err(invalid("factory_capacity_reserved_by_agent_order"));
+        match crate::world_rules::readonly_recipe_factory_capacity_gate_v1(state, event) {
+            Ok(result) => result?,
+            Err(never) => match never {},
         }
         match event {
             DomainEvent::LogisticsRouteRegistered { .. }
@@ -633,5 +655,168 @@ fn normalized_materials(state: &WorldState) -> (BTreeMap<String, i64>, BTreeMap<
 fn invalid(reason: impl Into<String>) -> WorldError {
     WorldError::ResourceBalanceInvalid {
         reason: reason.into(),
+    }
+}
+
+/// Original RecipeCompleted production projection on one selected real factory.
+/// Callers retain the factory and pending-job allocation owners; this is data
+/// mutation only and grants no event or execution authority.
+pub fn complete_recipe_factory_production_v1(
+    value: &mut FactoryState,
+    pending: &RecipeJobState,
+    now: WorldTime,
+) {
+    let snapshot = FactoryProductionSnapshot::from_recipe_job(pending);
+    value.production.active_jobs = value.production.active_jobs.saturating_sub(1);
+    if value.production.current_job_id == Some(pending.job_id) {
+        value.production.current_job_id = None;
+    }
+    value.production.current_recipe_id = None;
+    value.production.last_completed_at = Some(now);
+    value.production.completed_jobs = value.production.completed_jobs.saturating_add(1);
+    let same = value.production.last_completed_canonical_snapshot.as_ref() == Some(&snapshot);
+    value.production.same_recipe_repeat_count = if same {
+        value.production.same_recipe_repeat_count.saturating_add(1)
+    } else {
+        1
+    };
+    value.production.last_completed_recipe_id = Some(pending.recipe_id.clone());
+    value.production.last_completed_canonical_snapshot = Some(snapshot);
+    if value.production.active_jobs == 0 {
+        value.production.status = FactoryProductionStatus::Idle;
+    }
+}
+
+/// Original terminal receipt projection, shared by legacy replay and the
+/// bounded Current producer. Allocation remains the caller's responsibility.
+pub fn recipe_completion_receipt_from_event_v1(
+    event: &DomainEvent,
+) -> Option<RecipeCompletionReceiptV1> {
+    let DomainEvent::RecipeCompleted {
+        committed_recipe_origin,
+        job_id,
+        requester_agent_id,
+        factory_id,
+        recipe_id,
+        accepted_batches,
+        produce,
+        byproducts,
+        output_ledger,
+        bottleneck_tags,
+        logistics_route_ids,
+        logistics_path_ids,
+        ..
+    } = event
+    else {
+        return None;
+    };
+    Some(RecipeCompletionReceiptV1 {
+        committed_recipe_origin: committed_recipe_origin.clone(),
+        job_id: *job_id,
+        requester_agent_id: requester_agent_id.clone(),
+        factory_id: factory_id.clone(),
+        recipe_id: recipe_id.clone(),
+        accepted_batches: *accepted_batches,
+        produce: produce.clone(),
+        byproducts: byproducts.clone(),
+        output_ledger: output_ledger.clone(),
+        bottleneck_tags: bottleneck_tags.clone(),
+        logistics_route_ids: logistics_route_ids.clone(),
+        logistics_path_ids: logistics_path_ids.clone(),
+    })
+}
+
+/// The original first starter-smelter completion milestone, with the actual
+/// selected factory output ledger. This data helper does not authorize a job.
+pub fn starter_recipe_completion_milestone_v1(
+    pending: &RecipeJobState,
+    factory_output: Option<&MaterialLedgerId>,
+    now: WorldTime,
+) -> Option<StarterIndustrialMilestoneV1> {
+    if pending.accepted_batches == 0
+        || pending.factory_id != STARTER_SMELTER_FACTORY_ID
+        || pending.recipe_id != STARTER_SMELTER_RECIPE_ID
+        || factory_output != Some(&pending.output_ledger)
+        || !pending
+            .produce
+            .iter()
+            .any(|s| s.kind == "iron_ingot" && s.amount > 0)
+    {
+        return None;
+    }
+    Some(StarterIndustrialMilestoneV1 {
+        settlement_summary: pending.committed_recipe_origin.as_ref().map(|_| {
+            StarterIndustrialSettlementSummaryV1 {
+                requester_agent_id: pending.requester_agent_id.clone(),
+                accepted_batches: pending.accepted_batches,
+                consume: pending.consume.clone(),
+                power_required: pending.power_required,
+                produce: pending.produce.clone(),
+            }
+        }),
+        committed_recipe_origin: pending.committed_recipe_origin.clone(),
+        profile_id: STARTER_INDUSTRIAL_PROFILE_ID.to_string(),
+        profile_revision: STARTER_INDUSTRIAL_PROFILE_REVISION,
+        factory_id: pending.factory_id.clone(),
+        recipe_id: pending.recipe_id.clone(),
+        output_ledger: pending.output_ledger.clone(),
+        settlement_job_id: pending.job_id,
+        settled_at: now,
+    })
+}
+
+/// Original terminal distinction; industrial_terminal deliberately stays pending.
+pub fn recipe_blocker_is_terminal_v1(kind: &str) -> bool {
+    matches!(kind, "product_validation" | "industrial_termination")
+}
+/// Original blocked production mutation on one real selected factory.
+pub fn block_recipe_factory_production_v1(
+    value: &mut FactoryState,
+    pending: Option<&RecipeJobState>,
+    blocker_kind: &str,
+    blocker_detail: &str,
+    now: WorldTime,
+) {
+    let terminal = recipe_blocker_is_terminal_v1(blocker_kind);
+    if terminal && pending.is_some() {
+        value.production.active_jobs = value.production.active_jobs.saturating_sub(1);
+    }
+    value.production.status = FactoryProductionStatus::Blocked;
+    value.production.last_blocked_at = Some(now);
+    value.production.current_blocker_kind = Some(blocker_kind.to_owned());
+    value.production.current_blocker_detail = Some(blocker_detail.to_owned());
+    value.production.current_job_id = None;
+    value.production.current_recipe_id = None;
+    value.production.last_completed_recipe_id = None;
+    value.production.same_recipe_repeat_count = 0;
+    value.production.last_completed_canonical_snapshot = None;
+}
+/// The exact consumed/lost disposition projection. This data helper neither
+/// settles a job nor authorizes a failure without its genuine caller source.
+pub fn recipe_failure_disposition_v1(
+    action_id: ActionId,
+    pending: &RecipeJobState,
+    blocker_kind: &str,
+    blocker_detail: &str,
+) -> FactoryProductionFailureDispositionV1 {
+    FactoryProductionFailureDispositionV1 {
+        action_id,
+        requester_agent_id: pending.requester_agent_id.clone(),
+        factory_id: pending.factory_id.clone(),
+        recipe_id: pending.recipe_id.clone(),
+        blocker_kind: blocker_kind.to_owned(),
+        blocker_detail: blocker_detail.to_owned(),
+        disposition_kind: "consumed_lost".into(),
+        consumed_inputs: pending.consume.clone(),
+        lost_inputs: pending.consume.clone(),
+        consumed_power: pending.power_required,
+        lost_power: pending.power_required,
+        next_action: if blocker_kind == "industrial_termination" {
+            "inspect_industrial_termination"
+        } else {
+            "inspect_product_validation_and_reschedule"
+        }
+        .into(),
+        next_recheck: None,
     }
 }

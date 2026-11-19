@@ -5,6 +5,16 @@ use super::*;
 mod install_provider;
 use install_provider::InstallProvider;
 #[test]
+fn disabled_iws_endpoint_layout_does_not_embed_candidate_owner_slots() {
+    let capability =
+        std::mem::size_of::<super::super::super::incremental::IwsPageStoreCapabilityV1>();
+    let jobs = super::super::super::incremental::iws_job_state_layout_bytes_for_test();
+    assert!(
+        capability < jobs,
+        "IWS capability still carries the staged/accepted owner layout inline: capability={capability}, jobs={jobs}"
+    );
+}
+#[test]
 fn native_healthy_install_awaiting_reopen_dual_activate_and_first_normal() {
     exercise_native_install(false);
 }

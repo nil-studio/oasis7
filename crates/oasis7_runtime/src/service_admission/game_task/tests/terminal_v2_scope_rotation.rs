@@ -54,7 +54,10 @@ fn terminal_v2_new_owner_generation_can_create_publish_bind_new_id_without_taskl
             .unwrap()
             .is_none()
     );
-    assert!(validate_cognition_fence_staged(&world, "agent", None, &initial.owner_public_key, 0, []).is_err());
+    assert!(
+        validate_cognition_fence_staged(&world, "agent", None, &initial.owner_public_key, 0, [])
+            .is_err()
+    );
     // Reusing the original task operation still derives the same permanent task ID.
     let revive = create_in_current_scope(&world, &owner, "create");
     let WorldServicePayloadV1::GameTaskCreate(signed) = &revive.signed_payload else {
@@ -143,7 +146,10 @@ fn terminal_v2_new_owner_generation_can_create_publish_bind_new_id_without_taskl
         )
         .is_err()
     );
-    assert!(validate_cognition_fence_staged(&world, "agent", None, &initial.owner_public_key, 0, []).is_err());
+    assert!(
+        validate_cognition_fence_staged(&world, "agent", None, &initial.owner_public_key, 0, [])
+            .is_err()
+    );
     assert!(
         world
             .closed_game_task_v2(&initial.task_id)

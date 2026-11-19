@@ -99,6 +99,12 @@ pub fn read_qualified_factory_authority_cell_overlay_v1<
         if context.values.class != MemoryClass::Ordinary
             || !tx.uses_budget(context.values.memory)
             || !request.qualification.uses_budget(context.values.memory)
+            || crate::incremental_record_qualification_phase::check_class_v1(
+                request.qualification,
+                context.values.memory,
+                context.values.class,
+            )
+            .is_err()
         {
             return Err(invalid().into());
         }

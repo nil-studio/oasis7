@@ -1,0 +1,78 @@
+use super::*;
+struct Fields;
+impl serde::ser::SerializeStruct for Fields {
+    type Ok = ();
+    type Error = serde_json::Error;
+    fn serialize_field<T: Serialize + ?Sized>(
+        &mut self,
+        _: &'static str,
+        _: &T,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+    fn end(self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+fn slots(state: &WorldState) -> Vec<(OriginalStateFieldSlotV1, bool)> {
+    let mut slots: Vec<(OriginalStateFieldSlotV1, bool)> = Vec::new();
+    state
+        .visit_original_serialized_fields_with_slots_v1(|_| Ok(Fields), &mut |event| {
+            match event {
+                OriginalStateFieldSlotEventV1::Declared(slot) => slots.push((slot, false)),
+                OriginalStateFieldSlotEventV1::Emitted(name) => {
+                    if let Some(slot) = slots.iter_mut().find(|slot| slot.0.name == name) {
+                        slot.1 = true
+                    } else {
+                        slots.push((
+                            OriginalStateFieldSlotV1 {
+                                name,
+                                emission: OriginalStateFieldEmissionV1::Always,
+                            },
+                            true,
+                        ))
+                    }
+                }
+            }
+            Ok(())
+        })
+        .unwrap();
+    slots
+}
+#[test]
+fn first_optional_appearance_and_empty_removal_preserve_original_slot_order() {
+    let mut state = WorldState::default();
+    let initial = slots(&state);
+    let index = initial
+        .iter()
+        .position(|slot| slot.0.name == "agent_claim_acquisition_sequences")
+        .unwrap();
+    assert!(!initial[index].1);
+    assert_eq!(
+        initial[index].0.emission,
+        OriginalStateFieldEmissionV1::NonEmpty
+    );
+    state
+        .agent_claim_acquisition_sequences
+        .insert("orphan".into(), 42);
+    let added = slots(&state);
+    assert!(added[index].1);
+    assert_eq!(
+        initial.iter().map(|s| s.0).collect::<Vec<_>>(),
+        added.iter().map(|s| s.0).collect::<Vec<_>>()
+    );
+    state.agent_claim_acquisition_sequences.clear();
+    assert_eq!(slots(&state), initial);
+}
+#[test]
+fn prefix_slots_follow_original_serializer_and_not_registry_order() {
+    let state = WorldState::default();
+    let slots = slots(&state);
+    assert_eq!(
+        slots.iter().take(4).map(|s| s.0.name).collect::<Vec<_>>(),
+        vec!["time", "retained_history_root", "world_rules", "agents"]
+    );
+    assert!(!slots[1].1);
+    assert!(!slots[2].1);
+    assert!(slots[3].1);
+}

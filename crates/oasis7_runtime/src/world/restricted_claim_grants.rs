@@ -1,6 +1,8 @@
+#[cfg(test)]
+use super::super::DomainEvent;
 use super::super::{
-    AgentClaimState, DomainEvent, RestrictedStarterClaimGrantStatus,
-    RestrictedStarterClaimRefundSink, WorldError, WorldEvent, WorldEventBody,
+    AgentClaimState, RestrictedStarterClaimGrantStatus, RestrictedStarterClaimRefundSink,
+    WorldError, WorldEvent, WorldEventBody,
 };
 use super::World;
 
@@ -36,33 +38,8 @@ impl World {
         &self,
         claim: &AgentClaimState,
     ) -> RestrictedStarterClaimRefundDecision {
-        if let Some(bucket_id) = claim
-            .claim_bond_restricted_source_treasury_bucket_id
-            .clone()
-        {
-            return RestrictedStarterClaimRefundDecision {
-                sink: RestrictedStarterClaimRefundSink::SourceTreasuryBucket,
-                treasury_bucket_id: Some(bucket_id),
-            };
-        }
-        let account_id = claim.claim_owner_id.as_str();
-        let Some(grant) = self.state.restricted_starter_claim_grants.get(account_id) else {
-            return RestrictedStarterClaimRefundDecision {
-                sink: RestrictedStarterClaimRefundSink::BeneficiaryRestrictedBalance,
-                treasury_bucket_id: None,
-            };
-        };
-        match grant.status {
-            RestrictedStarterClaimGrantStatus::Issued => RestrictedStarterClaimRefundDecision {
-                sink: RestrictedStarterClaimRefundSink::BeneficiaryRestrictedBalance,
-                treasury_bucket_id: None,
-            },
-            RestrictedStarterClaimGrantStatus::Expired
-            | RestrictedStarterClaimGrantStatus::Revoked => RestrictedStarterClaimRefundDecision {
-                sink: RestrictedStarterClaimRefundSink::SourceTreasuryBucket,
-                treasury_bucket_id: Some(grant.source_treasury_bucket_id.clone()),
-            },
-        }
+        super::incremental_normal_claim_epochs::evaluate::refund_sink_v1(claim,
+            self.state.restricted_starter_claim_grants.get(&claim.claim_owner_id))
     }
 
     fn prepare_restricted_starter_claim_grant_expiry_bodies_at_epoch(
@@ -79,18 +56,7 @@ impl World {
             .map(|(account_id, grant)| {
                 let expired_amount =
                     self.main_token_restricted_starter_claim_balance(account_id.as_str());
-                WorldEventBody::Domain(DomainEvent::RestrictedStarterClaimGrantExpired {
-                    beneficiary_account_id: account_id.clone(),
-                    issuer_id: grant.issuer_id.clone(),
-                    issuance_reason: grant.issuance_reason.clone(),
-                    spend_scope: grant.spend_scope.clone(),
-                    source_treasury_bucket_id: grant.source_treasury_bucket_id.clone(),
-                    issued_amount: grant.issued_amount,
-                    expired_amount,
-                    issued_at_epoch: grant.issued_at_epoch,
-                    expired_at_epoch: current_epoch,
-                    configured_expires_at_epoch: grant.expires_at_epoch,
-                })
+                WorldEventBody::Domain(super::incremental_normal_claim_epochs::evaluate::grant_expiry_v1(account_id,grant,current_epoch,expired_amount))
             })
             .collect()
     }

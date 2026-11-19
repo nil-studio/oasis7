@@ -17,6 +17,20 @@ fn invalid(reason: impl Into<String>) -> WorldError {
     }
 }
 
+/// Shared ingress/execution classification; protected actions still require
+/// their genuine qualified-parent verifier before any execution permission.
+pub(super) fn is_unprotected_governance_envelope(
+    envelope: &ActionEnvelope,
+) -> Result<bool, WorldError> {
+    if governance_validator_admission_auth_required(&envelope.action) {
+        return Ok(false);
+    }
+    if envelope.governance_authorization.is_some() {
+        return Err(invalid("governance proof attached to unsupported action"));
+    }
+    Ok(true)
+}
+
 pub(super) fn policy_digest(
     registry: &GovernanceMainTokenControllerRegistry,
 ) -> Result<String, WorldError> {
@@ -129,10 +143,7 @@ impl World {
         &self,
         envelope: &ActionEnvelope,
     ) -> Result<(), WorldError> {
-        if !governance_validator_admission_auth_required(&envelope.action) {
-            if envelope.governance_authorization.is_some() {
-                return Err(invalid("governance proof attached to unsupported action"));
-            }
+        if is_unprotected_governance_envelope(envelope)? {
             return Ok(());
         }
         let proof = envelope

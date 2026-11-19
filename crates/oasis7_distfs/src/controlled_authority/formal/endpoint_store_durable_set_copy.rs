@@ -484,8 +484,11 @@ pub(crate) fn copy_authenticated_closure(
             }
             Visit::Entry(_, expected) => {
                 let started = trace.start();
-                let FormalRequestStateV1::Qualified { candidate, proof } =
-                    decode::<FormalRequestStateV1>(&bytes)?
+                let FormalRequestStateV1::Qualified {
+                    candidate,
+                    proof,
+                    data_closure,
+                } = decode::<FormalRequestStateV1>(&bytes)?
                 else {
                     return Err(invalid(
                         "healthy copy permanent index contains unresolved slot",
@@ -500,6 +503,34 @@ pub(crate) fn copy_authenticated_closure(
                     record_id: record.record_id()?,
                 };
                 check_entry_head(&head, expected)?;
+                if let Some(reference) = data_closure {
+                    hash_hex(&reference)?;
+                    let closure_bytes = if copy {
+                        source_memo
+                            .as_mut()
+                            .ok_or_else(|| invalid("local closure source memo"))?
+                            .read_object(&reference)?
+                            .ok_or_else(|| invalid("local closure archive record missing"))?
+                    } else {
+                        crate::controlled_authority::formal::business_pack::read_object_durable_once(
+                            &objects.join(&reference),&reference,visits,
+                        )?.ok_or_else(||invalid("local closure independent record missing"))?
+                    };
+                    if closure_bytes.len() > 4096
+                        || blake3::hash(&closure_bytes).to_hex().as_str() != reference
+                    {
+                        return Err(invalid("local closure archived record bound/hash"));
+                    }
+                    let closure: super::super::super::incremental::local_closure::LocalDataClosureRecordV1=decode(&closure_bytes)?;
+                    closure.validate_head(&head)?;
+                    // Copy before recording the Entry projection. A retry may
+                    // reuse that projection only after the dependency is local.
+                    if copy {
+                        publish_raw_copy_object(&objects, &reference, &closure_bytes)?;
+                    }
+                    work.push(Visit::Raw(reference, closure_bytes));
+                }
+
                 if candidate.candidate.record != *record {
                     return Err(invalid("healthy copy qualified material/history binding"));
                 }

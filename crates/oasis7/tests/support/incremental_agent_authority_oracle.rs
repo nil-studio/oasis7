@@ -325,6 +325,8 @@ fn literal_original_keys_profiles_and_payloads_cover_every_agent_column() {
             IncrementalPageStore::open(&path, memory.clone(), compression, MemoryClass::Recovery)
                 .unwrap();
         assert_complete_original_rows(&store, &memory, &roots, MemoryClass::Recovery, &source());
+        let qualification = qualify(&store, &memory, &roots, MemoryClass::Recovery);
+        assert_eq!(qualification.max_intent_reorg_epoch_v2(), u64::MAX);
     }
 }
 
@@ -375,5 +377,10 @@ fn every_original_option_preserves_none_and_some_empty_or_zero_wire() {
         )
         .unwrap();
         assert_complete_original_rows(&store, &memory, &roots, MemoryClass::Recovery, &original);
+        // Both original nullable encodings must also enter the complete family
+        // and its epoch aggregate without changing the fixed recovery budget.
+        let qualification = qualify(&store, &memory, &roots, MemoryClass::Recovery);
+        assert_eq!(qualification.record_counts(), [1, 1, 1]);
+        assert_eq!(qualification.max_intent_reorg_epoch_v2(), 0);
     }
 }

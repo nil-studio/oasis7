@@ -52,7 +52,8 @@ impl World {
                 "local test authority requires a live agent",
             ));
         }
-        let identity = self.current_agent_identity(config.agent_id.as_str())
+        let identity = self
+            .current_agent_identity(config.agent_id.as_str())
             .ok_or_else(|| local_test_error("local test capability identity is missing"))?;
         if identity != authority.identity {
             return Err(local_test_error(

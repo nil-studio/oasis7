@@ -12,6 +12,8 @@ fn cleanup_v2_actual_closed_world_preserves_versioned_formal_publication() {
         .unwrap()
         .root()
         .unwrap();
+    #[cfg(feature = "test_tier_full")]
+    oasis7_runtime::incremental_genesis_projection::assert_genesis_projection_matches_original_for_test_v1(&world, &active_root);
     let owner = request.subject_public_key.clone();
     let delegate = world.capability_revocation_state().agent_signer_delegations["agent"]
         .delegate_public_key
@@ -70,6 +72,8 @@ fn cleanup_v2_actual_closed_world_preserves_versioned_formal_publication() {
         .expect("versioned Closed formal commitment must remain constructible")
         .root()
         .unwrap();
+    #[cfg(feature = "test_tier_full")]
+    oasis7_runtime::incremental_genesis_projection::assert_genesis_projection_matches_original_for_test_v1(&world, &terminal_root);
     assert_ne!(terminal_root, active_root);
     let owner = request.subject_public_key.clone();
     let audience =

@@ -138,8 +138,8 @@ fn physical_instance_cold_recovery_and_fixed_delta_skip_unchanged_32m_version() 
             let path = directory.0.join("pages");
             let roots = {
                 let memory = MemoryBudget::new(96 << 20, 4 << 20).unwrap();
-                let store = IncrementalPageStore::create(&path, memory.clone(), compression)
-                    .unwrap();
+                let store =
+                    IncrementalPageStore::create(&path, memory.clone(), compression).unwrap();
                 let (mut world, mut parent, _, _) = setup(&memory);
                 world.state.module_instances.clear();
                 let mut value = instance();
@@ -172,13 +172,9 @@ fn physical_instance_cold_recovery_and_fixed_delta_skip_unchanged_32m_version() 
             };
             // No World, original DTO, backing pool or retained source pages survive.
             let cold = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
-            let store = IncrementalPageStore::open(
-                &path,
-                cold.clone(),
-                compression,
-                MemoryClass::Recovery,
-            )
-            .unwrap();
+            let store =
+                IncrementalPageStore::open(&path, cold.clone(), compression, MemoryClass::Recovery)
+                    .unwrap();
             let state = store
                 .state_session(physical(), MemoryClass::Recovery)
                 .unwrap();

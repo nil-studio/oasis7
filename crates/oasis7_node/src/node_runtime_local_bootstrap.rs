@@ -29,7 +29,44 @@ impl NodeRuntime {
             });
         }
 
-        if let Some(genesis) = self.local_execution_genesis_bootstrap.as_ref() {
+        let current = if let Some(hook) = self.execution_hook.as_ref() {
+            let mut hook = hook.lock().map_err(|_| NodeError::Execution {
+                reason: "guarded bootstrap hook lock unavailable".into(),
+            })?;
+            if hook.guarded_local_execution() {
+                hook.current_guarded_local_execution_bootstrap()
+                    .map_err(|reason| NodeError::Execution { reason })?
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        if current.is_some()
+            && (self.config.replication.is_some()
+                || self.replication_network.is_some()
+                || self.config.gossip.is_some())
+        {
+            return Err(NodeError::Execution {
+                reason: "current guarded local bootstrap rejects network recovery and gossip"
+                    .into(),
+            });
+        }
+        // A static bootstrap is the initial boundary. A live owner can advance
+        // while this same NodeRuntime is stopped, so each start uses its freshly
+        // verified boundary, including the transition from Genesis to Normal.
+        let genesis = match current.as_ref() {
+            Some(NodeLocalExecutionBootstrapV1::Genesis(value)) => Some(value),
+            Some(NodeLocalExecutionBootstrapV1::Normal(_)) => None,
+            None => self.local_execution_genesis_bootstrap.as_ref(),
+        };
+        let bootstrap = match current.as_ref() {
+            Some(NodeLocalExecutionBootstrapV1::Normal(value)) => Some(value),
+            Some(NodeLocalExecutionBootstrapV1::Genesis(_)) => None,
+            None => self.local_execution_bootstrap.as_ref(),
+        };
+
+        if let Some(genesis) = genesis {
             if self.config.replication.is_some()
                 || self.replication_network.is_some()
                 || self.config.gossip.is_some()
@@ -97,11 +134,14 @@ impl NodeRuntime {
                     &self.config.world_id,
                 )?;
                 engine.restore_guarded_local_schedule_clock(&saved)?;
+                hook.restored_verified_local_continuation(
+                    &crate::execution_hook::VerifiedNodeRestoredContinuationV1::from_restored_engine(&saved),
+                ).map_err(|reason| NodeError::Execution { reason })?;
             }
             return Ok(());
         }
 
-        if let Some(bootstrap) = self.local_execution_bootstrap.as_ref() {
+        if let Some(bootstrap) = bootstrap {
             engine.apply_local_execution_bootstrap(bootstrap)?;
         }
         if let Some(hook) = self.execution_hook.as_ref() {
@@ -119,10 +159,7 @@ impl NodeRuntime {
                     .pending_local_continuation()
                     .map_err(|reason| NodeError::Execution { reason })?
                 {
-                    if self
-                        .local_execution_bootstrap
-                        .as_ref()
-                        .is_none_or(|b| b.height != saved.predecessor_committed_height)
+                    if bootstrap.is_none_or(|b| b.height != saved.predecessor_committed_height)
                         || saved.next_height != saved.context.height
                     {
                         return Err(NodeError::Execution {
@@ -136,6 +173,9 @@ impl NodeRuntime {
                         &self.config.world_id,
                     )?;
                     engine.restore_guarded_local_schedule_clock(&saved)?;
+                    hook.restored_verified_local_continuation(
+                    &crate::execution_hook::VerifiedNodeRestoredContinuationV1::from_restored_engine(&saved),
+                ).map_err(|reason| NodeError::Execution { reason })?;
                 }
             }
         }

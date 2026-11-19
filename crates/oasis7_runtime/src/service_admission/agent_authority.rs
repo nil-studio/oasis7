@@ -5,18 +5,16 @@ use super::{
 use crate::World;
 
 pub fn owner_public_key(world: &World, agent_id: &str) -> Result<String, String> {
-    let identity = world
-        .current_agent_identity(agent_id)
-        .ok_or("Agent identity unavailable")?;
-    let owner = world
-        .current_agent_owner(agent_id)
-        .ok_or("canonical owner claim unavailable")?;
-    if owner.player_id != identity.owner_binding {
-        return Err("canonical owner changed".into());
-    }
-    owner
-        .public_key
-        .ok_or_else(|| "canonical owner key unavailable".into())
+    world.owner_public_key_observation_data_v1(agent_id)
+}
+
+/// Observation-only original predicate. The caller must hold the actual
+/// identity and resolved-owner sources; these facts never mint admission.
+pub(in crate) fn owner_public_key_from_original_owner_v1<'a>(
+    identity_owner_binding:&str, owner:&'a oasis7_world_state::ResolvedAgentOwnerV1,
+)->Result<&'a str,&'static str>{
+    if owner.player_id != identity_owner_binding {return Err("canonical owner changed")}
+    owner.public_key.as_deref().ok_or("canonical owner key unavailable")
 }
 
 pub fn validate_delegation(
@@ -150,10 +148,7 @@ pub fn validate_agent_signer(
     public_key: &str,
     generation: u64,
 ) -> Result<(), String> {
-    if public_key == owner_public_key(world, agent_id)? {
-        if generation != 0 {
-            return Err("owner proof has delegate generation".into());
-        }
+    if original_agent_signer_is_owner_v1(&owner_public_key(world, agent_id)?,public_key,generation).map_err(str::to_owned)? {
         return Ok(());
     }
     let delegation = world
@@ -167,17 +162,49 @@ pub fn validate_agent_signer(
     let binding = world
         .current_cognition_runtime_binding()
         .map_err(|e| format!("{e:?}"))?;
-    if delegation.revoked
-        || delegation.delegate_public_key != public_key
-        || delegation.generation != generation
-        || delegation.owner_binding != identity.owner_binding
-        || delegation.agent_identity_generation != identity.generation
-        || delegation.world_id != binding.world_id
-        || delegation.branch_id != binding.branch_id
-    {
-        return Err("provider delegation revoked or fenced".into());
-    }
-    Ok(())
+    validate_original_delegation_binding_v1(
+        delegation,public_key,generation,&identity.owner_binding,identity.generation,
+        &binding.world_id,&binding.branch_id,
+    ).map_err(str::to_owned)
+}
+
+/// First phase of the original signer predicate. A non-owner result causes
+/// the caller to read the actual delegation/identity/binding in the old order;
+/// no such reads occur for the owner-key branch.
+pub(in crate) fn original_agent_signer_is_owner_v1(owner_key:&str,public_key:&str,generation:u64)->Result<bool,&'static str>{
+    if public_key!=owner_key{return Ok(false)}
+    if generation!=0{return Err("owner proof has delegate generation")}
+    Ok(true)
+}
+
+/// Same owner/delegate fence in the original order, shared by readonly Current
+/// projection. It accepts original fields, not a caller validity flag.
+pub(in crate) fn validate_original_delegation_binding_v1(
+    delegation:&AgentSignerDelegationChangeV1,public_key:&str,generation:u64,
+    identity_owner_binding:&str,identity_generation:u64,world_id:&str,branch_id:&str,
+)->Result<(),&'static str>{
+    validate_original_delegation_fields_v1(OriginalDelegationBindingDataV1{
+        revoked:delegation.revoked,delegate_public_key:&delegation.delegate_public_key,generation:delegation.generation,
+        owner_binding:&delegation.owner_binding,agent_identity_generation:delegation.agent_identity_generation,
+        world_id:&delegation.world_id,branch_id:&delegation.branch_id,
+    },public_key,generation,identity_owner_binding,identity_generation,world_id,branch_id)
+}
+
+/// Borrowed original fields only. This DATA view carries no authorization;
+/// fixed observers must retain their actual identity/delegation sources.
+pub(in crate) struct OriginalDelegationBindingDataV1<'a>{
+ pub(in crate) revoked:bool,pub(in crate) delegate_public_key:&'a str,pub(in crate) generation:u64,
+ pub(in crate) owner_binding:&'a str,pub(in crate) agent_identity_generation:u64,
+ pub(in crate) world_id:&'a str,pub(in crate) branch_id:&'a str,
+}
+pub(in crate) fn validate_original_delegation_fields_v1(
+ delegation:OriginalDelegationBindingDataV1<'_>,public_key:&str,generation:u64,
+ identity_owner_binding:&str,identity_generation:u64,world_id:&str,branch_id:&str,
+)->Result<(),&'static str>{
+ if delegation.revoked||delegation.delegate_public_key!=public_key||delegation.generation!=generation
+ ||delegation.owner_binding!=identity_owner_binding||delegation.agent_identity_generation!=identity_generation
+ ||delegation.world_id!=world_id||delegation.branch_id!=branch_id{return Err("provider delegation revoked or fenced")}
+ Ok(())
 }
 
 /// Pure admission: verify an Agent proof and match the original canonical

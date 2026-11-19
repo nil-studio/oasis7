@@ -1,7 +1,6 @@
 use oasis7_wasm_abi::{
     ModuleCallErrorCode, ModuleCallFailure, ModuleEmitEvent, ModuleSandbox, ModuleSubscriptionStage,
 };
-use serde::Deserialize;
 use std::cmp::Ordering;
 
 use super::super::{
@@ -12,65 +11,7 @@ use super::super::{
 use super::World;
 use oasis7_agent_api::world_action::ResourceKind;
 
-const CRISIS_AUTO_INTERVAL_TICKS: u64 = 8;
-const CRISIS_DEFAULT_DURATION_TICKS: u64 = 6;
-const CRISIS_TIMEOUT_PENALTY_PER_SEVERITY: i64 = 10;
-const WAR_SCORE_PER_MEMBER: i64 = 10;
-const WAR_SCORE_REPUTATION_DIVISOR: i64 = 10;
-const WAR_WINNER_REPUTATION_PER_INTENSITY: i64 = 2;
-const WAR_LOSER_REPUTATION_PER_INTENSITY: i64 = 3;
-const WAR_LOSER_ELECTRICITY_PENALTY_PER_INTENSITY: i64 = 6;
-const WAR_LOSER_DATA_PENALTY_PER_INTENSITY: i64 = 4;
-const CONTRACT_EXPIRY_COUNTERPARTY_PENALTY_DIVISOR: i64 = 2;
-const GAMEPLAY_LIFECYCLE_EMIT_KIND: &str = "gameplay.lifecycle.directives";
-
-#[derive(Debug, Deserialize)]
-struct GameplayDirectiveEnvelope {
-    #[serde(default)]
-    directives: Vec<GameplayLifecycleDirective>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum GameplayLifecycleDirective {
-    GovernanceFinalize {
-        proposal_key: String,
-        #[serde(default)]
-        winning_option: Option<String>,
-        winning_weight: u64,
-        total_weight: u64,
-        passed: bool,
-    },
-    CrisisSpawn {
-        crisis_id: String,
-        kind: String,
-        severity: u32,
-        expires_at: u64,
-    },
-    CrisisTimeout {
-        crisis_id: String,
-        penalty_impact: i64,
-    },
-    WarConclude {
-        war_id: String,
-        winner_alliance_id: String,
-        #[serde(default)]
-        loser_alliance_id: Option<String>,
-        aggressor_score: i64,
-        defender_score: i64,
-        summary: String,
-        #[serde(default)]
-        participant_outcomes: Vec<WarParticipantOutcome>,
-    },
-    MetaGrant {
-        operator_agent_id: String,
-        target_agent_id: String,
-        track: String,
-        points: i64,
-        #[serde(default)]
-        achievement_id: Option<String>,
-    },
-}
+use super::incremental_normal_gameplay_cycles::kernel::*;
 
 impl World {
     pub(super) fn process_gameplay_cycles_with_modules(
@@ -176,87 +117,23 @@ impl World {
         &self,
         directive: GameplayLifecycleDirective,
     ) -> Option<DomainEvent> {
-        match directive {
-            GameplayLifecycleDirective::GovernanceFinalize {
-                proposal_key,
-                winning_option,
-                winning_weight,
-                total_weight,
-                passed,
-            } => Some(DomainEvent::GovernanceProposalFinalized {
-                proposal_key,
-                winning_option,
-                winning_weight,
-                total_weight,
-                passed,
-            }),
-            GameplayLifecycleDirective::CrisisSpawn {
-                crisis_id,
-                kind,
-                severity,
-                expires_at,
-            } => Some(DomainEvent::CrisisSpawned {
-                crisis_id,
-                kind,
-                severity,
-                expires_at,
-            }),
-            GameplayLifecycleDirective::CrisisTimeout {
-                crisis_id,
-                penalty_impact,
-            } => Some(DomainEvent::CrisisTimedOut {
-                crisis_id,
-                penalty_impact,
-            }),
+        let war = match &directive {
             GameplayLifecycleDirective::WarConclude {
                 war_id,
-                winner_alliance_id,
-                loser_alliance_id,
-                aggressor_score,
-                defender_score,
-                summary,
-                participant_outcomes,
-            } => Some(DomainEvent::WarConcluded {
-                loser_alliance_id: loser_alliance_id.unwrap_or_else(|| {
-                    self.state
-                        .wars
-                        .get(war_id.as_str())
-                        .map(|war| {
-                            if war.aggressor_alliance_id == winner_alliance_id {
-                                war.defender_alliance_id.clone()
-                            } else {
-                                war.aggressor_alliance_id.clone()
-                            }
-                        })
-                        .unwrap_or_default()
-                }),
-                war_id,
-                winner_alliance_id,
-                aggressor_score,
-                defender_score,
-                summary,
-                participant_outcomes,
+                loser_alliance_id: None,
+                ..
+            } => self.state.wars.get(war_id.as_str()),
+            _ => None,
+        };
+        prepare_gameplay_directive_event_v1(
+            directive,
+            war.map(|w| {
+                (
+                    w.aggressor_alliance_id.as_str(),
+                    w.defender_alliance_id.as_str(),
+                )
             }),
-            GameplayLifecycleDirective::MetaGrant {
-                operator_agent_id,
-                target_agent_id,
-                track,
-                points,
-                achievement_id,
-            } => {
-                if points == 0 {
-                    None
-                } else {
-                    Some(DomainEvent::MetaProgressGranted {
-                        operator_agent_id,
-                        target_agent_id,
-                        track,
-                        points,
-                        achievement_id,
-                    })
-                }
-            }
-        }
+        )
     }
 
     fn gameplay_module_output_invalid<T>(
@@ -333,23 +210,13 @@ impl World {
                     status,
                     reputation_stake,
                 )| {
-                    let (creator_reputation_delta, counterparty_reputation_delta) = match status {
-                        EconomicContractStatus::Open => (-reputation_stake, 0),
-                        EconomicContractStatus::Accepted => (
-                            -reputation_stake,
-                            -reputation_stake
-                                .saturating_div(CONTRACT_EXPIRY_COUNTERPARTY_PENALTY_DIVISOR)
-                                .max(1),
-                        ),
-                        EconomicContractStatus::Settled | EconomicContractStatus::Expired => (0, 0),
-                    };
-                    DomainEvent::EconomicContractExpired {
+                    prepare_contract_expiry_event_v1(
                         contract_id,
                         creator_agent_id,
                         counterparty_agent_id,
-                        creator_reputation_delta,
-                        counterparty_reputation_delta,
-                    }
+                        status,
+                        reputation_stake,
+                    )
                 },
             )
             .collect()
@@ -395,34 +262,21 @@ impl World {
                     .cloned()?;
                 let vote_state = self.state.governance_votes.get(&proposal_key);
                 let total_weight = vote_state.map(|value| value.total_weight).unwrap_or(0);
-                let (winning_option, winning_weight) = vote_state
-                    .and_then(|value| {
-                        value
-                            .tallies
-                            .iter()
-                            .max_by(|(left_option, left_weight), (right_option, right_weight)| {
-                                left_weight
-                                    .cmp(right_weight)
-                                    .then_with(|| right_option.cmp(left_option))
-                            })
-                            .map(|(option, weight)| (Some(option.clone()), *weight))
-                    })
-                    .unwrap_or((None, 0));
-                let reached_quorum = total_weight >= proposal.quorum_weight;
-                let reached_threshold = if total_weight == 0 {
-                    false
-                } else {
-                    (u128::from(winning_weight) * 10_000_u128)
-                        >= (u128::from(total_weight) * u128::from(proposal.pass_threshold_bps))
-                };
-                let passed = reached_quorum && reached_threshold && winning_option.is_some();
-                Some(DomainEvent::GovernanceProposalFinalized {
-                    proposal_key: proposal_key.clone(),
-                    winning_option,
-                    winning_weight,
-                    total_weight,
-                    passed,
-                })
+                Some(
+                    prepare_governance_finalization_event_v1(
+                        proposal_key.clone(),
+                        proposal.quorum_weight,
+                        proposal.pass_threshold_bps,
+                        total_weight,
+                        vote_state.into_iter().flat_map(|v| {
+                            v.tallies
+                                .iter()
+                                .map(|(option, weight)| (option.as_str(), *weight))
+                        }),
+                        &mut |_| Ok::<(), std::convert::Infallible>(()),
+                    )
+                    .expect("legacy no-op gameplay fee callback"),
+                )
             })
             .collect()
     }
@@ -454,27 +308,7 @@ impl World {
             .crises
             .values()
             .any(|crisis| crisis.status == CrisisStatus::Active);
-        if !has_active_crisis && now > 0 && now.is_multiple_of(CRISIS_AUTO_INTERVAL_TICKS) {
-            let sequence = now / CRISIS_AUTO_INTERVAL_TICKS;
-            let severity = ((sequence % 3) + 1) as u32;
-            let kind = match severity {
-                1 => "supply_shock",
-                2 => "solar_storm",
-                _ => "network_outage",
-            }
-            .to_string();
-            let crisis_id = format!("crisis.auto.{now}");
-            let expires_at = now
-                .saturating_add(CRISIS_DEFAULT_DURATION_TICKS)
-                .saturating_add(u64::from(severity));
-            return Some(DomainEvent::CrisisSpawned {
-                crisis_id,
-                kind,
-                severity,
-                expires_at,
-            });
-        }
-        None
+        prepare_crisis_auto_spawn_event_v1(has_active_crisis, now)
     }
 
     fn prepare_crisis_timeout_events_at(&self, now: u64) -> Vec<DomainEvent> {
@@ -488,14 +322,7 @@ impl World {
         due_timeouts.sort_by(|left, right| left.0.cmp(&right.0));
         due_timeouts
             .into_iter()
-            .map(|(crisis_id, severity)| {
-                let penalty_impact =
-                    -i64::from(severity).saturating_mul(CRISIS_TIMEOUT_PENALTY_PER_SEVERITY);
-                DomainEvent::CrisisTimedOut {
-                    crisis_id,
-                    penalty_impact,
-                }
-            })
+            .map(|(crisis_id, severity)| prepare_crisis_timeout_event_v1(crisis_id, severity))
             .collect()
     }
 
@@ -548,13 +375,13 @@ impl World {
         let aggressor_reputation =
             self.alliance_reputation_total(war.aggressor_alliance_id.as_str());
         let defender_reputation = self.alliance_reputation_total(war.defender_alliance_id.as_str());
-        let aggressor_score = aggressor_members
-            .saturating_mul(WAR_SCORE_PER_MEMBER)
-            .saturating_add(i64::from(war.intensity))
-            .saturating_add(aggressor_reputation.saturating_div(WAR_SCORE_REPUTATION_DIVISOR));
-        let defender_score = defender_members
-            .saturating_mul(WAR_SCORE_PER_MEMBER)
-            .saturating_add(defender_reputation.saturating_div(WAR_SCORE_REPUTATION_DIVISOR));
+        let (aggressor_score, defender_score) = prepare_war_scores_v1(
+            aggressor_members,
+            defender_members,
+            aggressor_reputation,
+            defender_reputation,
+            war.intensity,
+        );
         let (winner_alliance_id, loser_alliance_id) = match aggressor_score.cmp(&defender_score) {
             Ordering::Greater | Ordering::Equal => (
                 war.aggressor_alliance_id.clone(),
@@ -631,82 +458,29 @@ impl World {
         loser_alliance_id: &str,
         intensity: u32,
     ) -> Vec<WarParticipantOutcome> {
-        let intensity = i64::from(intensity.max(1));
-        let loser_electricity_penalty = intensity
-            .saturating_mul(WAR_LOSER_ELECTRICITY_PENALTY_PER_INTENSITY)
-            .max(1);
-        let loser_data_penalty = intensity
-            .saturating_mul(WAR_LOSER_DATA_PENALTY_PER_INTENSITY)
-            .max(1);
-        let loser_reputation_delta = intensity
-            .saturating_mul(WAR_LOSER_REPUTATION_PER_INTENSITY)
-            .saturating_neg();
-        let winner_reputation_delta = intensity.saturating_mul(WAR_WINNER_REPUTATION_PER_INTENSITY);
-
-        let loser_members = self.alliance_members_sorted(loser_alliance_id);
+        let loser_members = self
+            .alliance_members_sorted(loser_alliance_id)
+            .into_iter()
+            .map(|member| {
+                let cell = self.state.agents.get(member.as_str());
+                let electricity = cell
+                    .map(|c| c.state.resources.get(ResourceKind::Electricity))
+                    .unwrap_or(0);
+                let data = cell
+                    .map(|c| c.state.resources.get(ResourceKind::Data))
+                    .unwrap_or(0);
+                (member, electricity, data)
+            })
+            .collect();
         let winner_members = self.alliance_members_sorted(winner_alliance_id);
-        let mut outcomes = Vec::new();
-        let mut total_electricity_spoils = 0_i64;
-        let mut total_data_spoils = 0_i64;
-
-        for member in loser_members {
-            let available_electricity = self
-                .state
-                .agents
-                .get(member.as_str())
-                .map(|cell| cell.state.resources.get(ResourceKind::Electricity))
-                .unwrap_or(0)
-                .max(0);
-            let available_data = self
-                .state
-                .agents
-                .get(member.as_str())
-                .map(|cell| cell.state.resources.get(ResourceKind::Data))
-                .unwrap_or(0)
-                .max(0);
-            let electricity_loss = available_electricity.min(loser_electricity_penalty);
-            let data_loss = available_data.min(loser_data_penalty);
-            total_electricity_spoils = total_electricity_spoils.saturating_add(electricity_loss);
-            total_data_spoils = total_data_spoils.saturating_add(data_loss);
-            outcomes.push(WarParticipantOutcome {
-                agent_id: member,
-                electricity_delta: electricity_loss.saturating_neg(),
-                data_delta: data_loss.saturating_neg(),
-                reputation_delta: loser_reputation_delta,
-            });
-        }
-
-        if !winner_members.is_empty() {
-            let winner_count = i64::try_from(winner_members.len()).unwrap_or(1).max(1);
-            let base_electricity_gain = total_electricity_spoils.saturating_div(winner_count);
-            let base_data_gain = total_data_spoils.saturating_div(winner_count);
-            let mut electricity_remainder = total_electricity_spoils
-                .saturating_sub(base_electricity_gain.saturating_mul(winner_count));
-            let mut data_remainder =
-                total_data_spoils.saturating_sub(base_data_gain.saturating_mul(winner_count));
-
-            for member in winner_members {
-                let mut electricity_gain = base_electricity_gain;
-                let mut data_gain = base_data_gain;
-                if electricity_remainder > 0 {
-                    electricity_gain = electricity_gain.saturating_add(1);
-                    electricity_remainder = electricity_remainder.saturating_sub(1);
-                }
-                if data_remainder > 0 {
-                    data_gain = data_gain.saturating_add(1);
-                    data_remainder = data_remainder.saturating_sub(1);
-                }
-                outcomes.push(WarParticipantOutcome {
-                    agent_id: member,
-                    electricity_delta: electricity_gain,
-                    data_delta: data_gain,
-                    reputation_delta: winner_reputation_delta,
-                });
-            }
-        }
-
-        outcomes.sort_by(|left, right| left.agent_id.cmp(&right.agent_id));
-        outcomes
+        prepare_war_participant_outcomes_v1(
+            loser_members,
+            winner_members,
+            intensity,
+            Vec::new(),
+            &mut |_| Ok::<(), std::convert::Infallible>(()),
+        )
+        .unwrap_or_else(|never| match never {})
     }
 
     fn append_gameplay_domain_event(

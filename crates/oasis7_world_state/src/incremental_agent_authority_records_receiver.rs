@@ -42,7 +42,7 @@ fn changed<R: ValueNodeReader, C: FnMut() -> bool>(
     }
     Err(invalid())
 }
-fn child<R: ValueNodeReader, C: FnMut() -> bool>(
+pub(super) fn child<R: ValueNodeReader, C: FnMut() -> bool>(
     kind: AgentAuthorityRecordKindV1,
     before: &StateRootV1,
     after: &StateRootV1,
@@ -96,23 +96,73 @@ pub fn accept_agent_authority_transition_v1<
     max: u64,
 ) -> Result<ReservedValue<AgentAuthorityFamilyQualificationV1>, WorldFieldOverlayErrorV1> {
     ctx.check()?;
-    if !parent.uses_budget(ctx.values.memory)
-        || !verifier.memory.same_pool(ctx.values.memory)
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary
         || verifier.class != ctx.values.class
+        || !verifier.memory.same_pool(ctx.values.memory)
+        || !record.after.state.iter().any(|r| r == ctx.root)
     {
         return Err(invalid().into());
     }
-    parent.validate_binding(&record.before.digest().map_err(|_| invalid())?)?;
-    let verified = verifier.verify(record);
-    let error = (ctx.take_state_error)();
-    ctx.check()?;
-    if let Some(error) = error {
-        return Err(error.into());
+    {
+        let _phase = crate::incremental_record_qualification_phase::bind_phase_v1(
+            parent,
+            crate::incremental_record_qualification_phase::FamilyBindingV1::Roots(&record.before),
+            ctx.values.memory,
+            ctx.values.class,
+            &mut ctx.cancelled,
+        )?;
     }
-    let verified = verified?;
+    let witness = crate::incremental_verified_world_transition::verify_world_transition_v1(
+        verifier, record, ctx,
+    )?;
+    accept_agent_authority_verified_v1(parent, &witness, ctx, inner_scan, cells, max)
+}
+
+pub(crate) fn accept_agent_authority_verified_v1<
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+>(
+    parent: &ReservedValue<AgentAuthorityFamilyQualificationV1>,
+    witness: &crate::incremental_verified_world_transition::VerifiedWorldTransitionV1,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    inner_scan: &mut StateScanBudget,
+    cells: &mut u64,
+    max: u64,
+) -> Result<ReservedValue<AgentAuthorityFamilyQualificationV1>, WorldFieldOverlayErrorV1> {
+    ctx.check()?;
+    witness.check_context(ctx.values.memory, ctx.values.class, ctx.root)?;
+    let record = witness.record();
+
+    ctx.check()?;
+    if ctx.values.class != oasis7_proto::memory_budget::MemoryClass::Ordinary {
+        return Err(ValueTreeError::Invalid("ordinary receiver class").into());
+    }
+
+    if !parent.uses_budget(ctx.values.memory)
+        || crate::incremental_record_qualification_phase::check_class_v1(
+            parent,
+            ctx.values.memory,
+            ctx.values.class,
+        )
+        .is_err()
+    {
+        return Err(invalid().into());
+    }
+    let _phase = crate::incremental_record_qualification_phase::bind_phase_v1(
+        parent,
+        crate::incremental_record_qualification_phase::FamilyBindingV1::Roots(&record.before),
+        ctx.values.memory,
+        ctx.values.class,
+        &mut ctx.cancelled,
+    )?;
+    let verified = witness.prepared();
     if !verified.record.after.state.iter().any(|r| r == ctx.root) {
         return Err(invalid().into());
     }
+    parent.check_intent_epoch_pool(ctx.values.memory)?;
+    let mut intent_epochs = family::intent_epochs::share_tree(&parent.intent_epochs);
     let mut counts = parent.record_counts();
     for write in &verified.record.writes {
         *cells = cells.checked_sub(1).ok_or(ValueTreeError::ResourceLimited(
@@ -162,10 +212,10 @@ pub fn accept_agent_authority_transition_v1<
             AgentAuthorityRecordKindV1::AgentLocation => 1,
             AgentAuthorityRecordKindV1::LocationAnchor => 2,
         };
-        match (old, new) {
+        match (&old, &new) {
             (None, Some((owner_kind, owner, root))) => {
                 let mut body = WorldFieldReadContextV1 {
-                    root: &root,
+                    root,
                     state: ctx.state,
                     values: ValueReadContext {
                         source: ctx.values.source,
@@ -180,7 +230,12 @@ pub fn accept_agent_authority_transition_v1<
                     cancelled: &mut ctx.cancelled,
                 };
                 qualify_agent_authority_body_v1(
-                    owner_kind, owner, &mut body, inner_scan, cells, max,
+                    *owner_kind,
+                    *owner,
+                    &mut body,
+                    inner_scan,
+                    cells,
+                    max,
                 )?;
                 counts[index] = counts[index].checked_add(1).ok_or_else(invalid)?;
             }
@@ -188,18 +243,33 @@ pub fn accept_agent_authority_transition_v1<
                 if old_kind != new_kind || old_owner != new_owner {
                     return Err(invalid().into());
                 }
-                child(kind, &old, &new, &mut ctx.records(), cells, max)?;
+                child(kind, old, new, &mut ctx.records(), cells, max)?;
             }
             (Some(_), None) => {
                 counts[index] = counts[index].checked_sub(1).ok_or_else(invalid)?;
             }
             (None, None) => return Err(invalid().into()),
         }
+        if kind == AgentAuthorityRecordKindV1::IntentLedger {
+            intent_epochs = family::fold_verified_intent_epoch_change(
+                &intent_epochs,
+                &write.mutation.key,
+                old.as_ref().map(|row| &row.2),
+                new.as_ref().map(|row| &row.2),
+                ctx,
+                cells,
+            )?;
+        }
         ctx.check()?;
     }
     let result = family::mint(
         verified.record.after.digest().map_err(|_| invalid())?,
         counts,
+        intent_epochs,
+        parent
+            .intent_ordinary_cover
+            .as_ref()
+            .map(std::sync::Arc::clone),
         ctx.values.memory,
         ctx.values.class,
     )?;

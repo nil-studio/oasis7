@@ -305,3 +305,7 @@ where
         class: ctx.values.class,
     }))
 }
+
+#[path = "incremental_runtime_module_authorization_changed.rs"]
+mod changed;
+pub(super) use changed::advance_module_authorization_body_v1;

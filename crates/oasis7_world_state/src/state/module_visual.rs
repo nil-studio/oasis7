@@ -16,6 +16,36 @@ pub fn parse_module_visual_emit(
     oasis7_agent_api::module_visual::parse_module_visual_emit(event).map_err(WorldError::Serde)
 }
 
+/// Allocation-free shared ownership/count kernel. Anchor existence/liveness is
+/// checked by each concrete storage reader before calling this point kernel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModuleVisualPointErrorV1 {
+    Unknown,
+    DifferentOwner,
+    Capacity,
+}
+pub fn check_module_visual_point_v1(
+    module_id: &str,
+    mutation: &ModuleVisualMutation,
+    existing: Option<&str>,
+    current_count: usize,
+) -> Result<(), ModuleVisualPointErrorV1> {
+    if let Some(existing) = existing {
+        if existing != module_id.trim() {
+            return Err(ModuleVisualPointErrorV1::DifferentOwner);
+        }
+    } else {
+        match mutation {
+            ModuleVisualMutation::Remove(_) => return Err(ModuleVisualPointErrorV1::Unknown),
+            ModuleVisualMutation::Upsert(_) if current_count >= MAX_MODULE_VISUAL_ENTITIES => {
+                return Err(ModuleVisualPointErrorV1::Capacity);
+            }
+            ModuleVisualMutation::Upsert(_) => {}
+        }
+    }
+    Ok(())
+}
+
 impl WorldState {
     pub fn prepare_module_visual_event(
         &self,
@@ -42,43 +72,44 @@ impl WorldState {
             return Ok(None);
         };
         let module_id = event.module_id.trim();
-        match mutation {
+        let entity_id = match &mutation {
             ModuleVisualMutation::Upsert(entity) => {
                 validate_anchor(self, &entity.anchor, time)?;
-                if let Some(existing) = current_entities.get(entity.entity_id.as_str()) {
-                    if existing.module_id != module_id {
-                        return Err(WorldError::ResourceBalanceInvalid {
-                            reason: format!(
-                                "module visual entity {} is owned by module {}",
-                                entity.entity_id, existing.module_id
-                            ),
-                        });
-                    }
-                } else if current_entities.len() >= MAX_MODULE_VISUAL_ENTITIES {
-                    return Err(WorldError::ResourceBalanceInvalid {
-                        reason: format!(
-                            "module visual entity maximum of {MAX_MODULE_VISUAL_ENTITIES} reached"
-                        ),
-                    });
+                entity.entity_id.as_str()
+            }
+            ModuleVisualMutation::Remove(entity_id) => entity_id.as_str(),
+        };
+        let existing = current_entities.get(entity_id);
+        check_module_visual_point_v1(
+            module_id,
+            &mutation,
+            existing.map(|e| e.module_id.as_str()),
+            current_entities.len(),
+        )
+        .map_err(|error| WorldError::ResourceBalanceInvalid {
+            reason: match error {
+                ModuleVisualPointErrorV1::Unknown => {
+                    format!("module visual entity unknown: {entity_id}")
                 }
+                ModuleVisualPointErrorV1::DifferentOwner => format!(
+                    "module visual entity {} is owned by module {}",
+                    entity_id,
+                    existing
+                        .expect("kernel ownership error requires existing point")
+                        .module_id
+                ),
+                ModuleVisualPointErrorV1::Capacity => {
+                    format!("module visual entity maximum of {MAX_MODULE_VISUAL_ENTITIES} reached")
+                }
+            },
+        })?;
+        match mutation {
+            ModuleVisualMutation::Upsert(entity) => {
                 let mut next = current_entities.clone();
                 next.insert(entity.entity_id.clone(), entity);
                 Ok(Some(next))
             }
             ModuleVisualMutation::Remove(entity_id) => {
-                let Some(existing) = current_entities.get(entity_id.as_str()) else {
-                    return Err(WorldError::ResourceBalanceInvalid {
-                        reason: format!("module visual entity unknown: {entity_id}"),
-                    });
-                };
-                if existing.module_id != module_id {
-                    return Err(WorldError::ResourceBalanceInvalid {
-                        reason: format!(
-                            "module visual entity {} is owned by module {}",
-                            entity_id, existing.module_id
-                        ),
-                    });
-                }
                 let mut next = current_entities.clone();
                 next.remove(entity_id.as_str());
                 Ok(Some(next))

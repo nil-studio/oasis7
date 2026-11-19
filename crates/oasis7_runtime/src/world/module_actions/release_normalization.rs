@@ -14,7 +14,7 @@ impl World {
         normalized
     }
 
-    pub(super) fn normalize_module_release_required_roles(
+    pub(in crate::world) fn normalize_module_release_required_roles(
         required_roles: &[String],
     ) -> Vec<String> {
         let mut normalized = Self::normalize_module_release_roles(required_roles);
@@ -27,26 +27,17 @@ impl World {
         normalized
     }
 
-    pub(super) fn normalize_module_release_role_set(roles: &[String]) -> Vec<String> {
+    pub(in crate::world) fn normalize_module_release_role_set(roles: &[String]) -> Vec<String> {
         Self::normalize_module_release_roles(roles)
     }
 
-    pub(super) fn normalize_module_release_role(role: &str) -> Option<String> {
+    pub(in crate::world) fn normalize_module_release_role(role: &str) -> Option<String> {
         let normalized = role.trim().to_ascii_lowercase();
         if normalized.is_empty() {
             None
         } else {
             Some(normalized)
         }
-    }
-
-    pub(super) fn module_release_roles_satisfied(
-        required_roles: &[String],
-        role_approvals: &std::collections::BTreeMap<String, String>,
-    ) -> bool {
-        required_roles
-            .iter()
-            .all(|required| role_approvals.contains_key(required))
     }
 
     pub(super) fn module_release_profile_commitment(
@@ -99,7 +90,7 @@ impl World {
         Ok(())
     }
 
-    pub(super) fn module_release_attestation_key(signer_node_id: &str, platform: &str) -> String {
+    pub(in crate::world) fn module_release_attestation_key(signer_node_id: &str, platform: &str) -> String {
         format!(
             "{}|{}",
             signer_node_id.trim(),
@@ -107,7 +98,7 @@ impl World {
         )
     }
 
-    pub(super) fn normalize_module_release_attestation_platform(platform: &str) -> Option<String> {
+    pub(in crate::world) fn normalize_module_release_attestation_platform(platform: &str) -> Option<String> {
         let normalized = platform.trim().to_ascii_lowercase();
         if normalized.is_empty() {
             None
@@ -116,7 +107,7 @@ impl World {
         }
     }
 
-    pub(super) fn normalize_module_release_attestation_hash(
+    pub(in crate::world) fn normalize_module_release_attestation_hash(
         raw: &str,
         field: &str,
     ) -> Result<String, String> {
@@ -129,7 +120,7 @@ impl World {
         Ok(normalized)
     }
 
-    pub(super) fn normalize_module_release_attestation_builder_image_digest(
+    pub(in crate::world) fn normalize_module_release_attestation_builder_image_digest(
         raw: &str,
     ) -> Result<String, String> {
         let normalized = raw.trim().to_ascii_lowercase();
@@ -148,7 +139,7 @@ impl World {
         Ok(normalized)
     }
 
-    pub(super) fn normalize_module_release_attestation_label(
+    pub(in crate::world) fn normalize_module_release_attestation_label(
         raw: &str,
         field: &str,
     ) -> Result<String, String> {
@@ -166,7 +157,7 @@ impl World {
         Ok(normalized)
     }
 
-    pub(super) fn normalize_module_release_attestation_proof_cid(
+    pub(in crate::world) fn normalize_module_release_attestation_proof_cid(
         proof_cid: &str,
     ) -> Option<String> {
         let normalized = proof_cid.trim().to_string();
@@ -179,7 +170,7 @@ impl World {
         Some(normalized)
     }
 
-    pub(super) fn evaluate_module_release_shadow_hash(
+    pub(in crate::world) fn evaluate_module_release_shadow_hash(
         &self,
         manifest: &oasis7_wasm_abi::ModuleManifest,
         activate: bool,

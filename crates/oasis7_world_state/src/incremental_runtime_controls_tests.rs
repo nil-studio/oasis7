@@ -561,3 +561,6 @@ mod fault_tests;
 
 #[path = "incremental_runtime_controls_malformed_tests.rs"]
 mod malformed_tests;
+
+#[path = "incremental_runtime_controls_class_tests.rs"]
+mod class_tests;

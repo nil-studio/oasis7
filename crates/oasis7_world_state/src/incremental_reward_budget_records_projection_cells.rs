@@ -1,0 +1,287 @@
+//! Actual changed reward-cell output. The original relative-key parser,
+//! primitive decoder and after-row lookups remain the sole wire kernels.
+use super::*;
+use crate::{
+    incremental_inventory_value_read::InventoryValueReader, incremental_record_tree,
+    incremental_runtime_revocation::BusinessDiffProcessingWorkV1,
+};
+use oasis7_formal_protocol::{
+    incremental_state::{StateEntryV1, StateRootV1},
+    incremental_value::ValueNodeReader,
+};
+use oasis7_proto::memory_budget::{MemoryReservation, ReservedValue};
+use std::{
+    io::{self, Write},
+    mem::size_of,
+};
+fn bad() -> ValueTreeError {
+    ValueTreeError::Invalid("reward projection cell")
+}
+fn limited() -> ValueTreeError {
+    ValueTreeError::ResourceLimited("reward projection cell")
+}
+fn pay(p: &mut BusinessDiffProcessingWorkV1, n: usize) -> Result<(), ValueTreeError> {
+    let n = u64::try_from(n).map_err(|_| limited())?;
+    p.steps_remaining = p
+        .steps_remaining
+        .checked_sub(n.checked_add(1).ok_or_else(limited)?)
+        .ok_or_else(limited)?;
+    p.bytes_remaining = p.bytes_remaining.checked_sub(n).ok_or_else(limited)?;
+    Ok(())
+}
+fn reserve<R: ValueNodeReader, C: FnMut() -> bool>(
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    p: &mut BusinessDiffProcessingWorkV1,
+    n: usize,
+) -> Result<MemoryReservation, ValueTreeError> {
+    if (records.cancelled)() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    pay(p, n)?;
+    Ok(records.values.memory.reserve(n, records.values.class)?)
+}
+fn at<R: ValueNodeReader, C: FnMut() -> bool>(
+    kind: RewardRecordKindV1,
+    cell: RewardCellV1<'_>,
+    root: &StateRootV1,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+) -> Result<((WorldFieldKeyV1, u64), [u8; 32]), ValueTreeError> {
+    let key = read::cell_key(kind, cell, records)?;
+    let value =
+        incremental_record_tree::lookup(root, &key.0, records, genesis::LABELS)?.ok_or_else(bad)?;
+    Ok((key, value))
+}
+fn uint<R: ValueNodeReader, C: FnMut() -> bool>(
+    kind: RewardRecordKindV1,
+    cell: RewardCellV1<'_>,
+    root: &StateRootV1,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    p: &mut BusinessDiffProcessingWorkV1,
+) -> Result<u64, ValueTreeError> {
+    pay(p, 0)?;
+    let (key, value) = at(kind, cell, root, records)?;
+    match read::primitive(cell.codec(), &value, &key, records, 8, &mut io::sink())? {
+        RewardValueV1::Unsigned(v) => Ok(v),
+        _ => Err(bad()),
+    }
+}
+fn text<R: ValueNodeReader, C: FnMut() -> bool>(
+    kind: RewardRecordKindV1,
+    cell: RewardCellV1<'_>,
+    root: &StateRootV1,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    p: &mut BusinessDiffProcessingWorkV1,
+    max: u64,
+    held: &mut MemoryReservation,
+) -> Result<String, ValueTreeError> {
+    let (key, value) = at(kind, cell, root, records)?;
+    let RewardValueV1::Text { utf8_bytes } =
+        read::primitive(cell.codec(), &value, &key, records, max, &mut io::sink())?
+    else {
+        return Err(bad());
+    };
+    let n = usize::try_from(utf8_bytes).map_err(|_| limited())?;
+    let mut fee = reserve(
+        records,
+        p,
+        n.checked_add(size_of::<String>()).ok_or_else(limited)?,
+    )?;
+    struct Out {
+        bytes: Vec<u8>,
+        bound: usize,
+    }
+    impl Write for Out {
+        fn write(&mut self, b: &[u8]) -> io::Result<usize> {
+            if self
+                .bytes
+                .len()
+                .checked_add(b.len())
+                .filter(|n| *n <= self.bound)
+                .is_none()
+            {
+                return Err(io::Error::other("governance projection string bound"));
+            }
+            self.bytes.extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut out = Out {
+        bytes: Vec::with_capacity(n),
+        bound: n,
+    };
+    if out.bytes.capacity() != n {
+        return Err(limited());
+    }
+    let actual = read::primitive(cell.codec(), &value, &key, records, max, &mut out)?;
+    if actual != (RewardValueV1::Text { utf8_bytes }) || out.bytes.len() != n {
+        return Err(bad());
+    }
+    pay(p, n)?;
+    let value = String::from_utf8(out.bytes);
+    if (records.cancelled)() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    let value = value.map_err(|_| bad())?;
+    held.merge(&mut fee).map_err(ValueTreeError::Invalid)?;
+    Ok(value)
+}
+pub(super) fn scalar_value<R: ValueNodeReader, C: FnMut() -> bool>(
+    kind: RewardRecordKindV1,
+    cell: RewardCellV1<'_>,
+    entry: &StateEntryV1,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    p: &mut BusinessDiffProcessingWorkV1,
+) -> Result<u64, ValueTreeError> {
+    pay(p, 0)?;
+    let key = read::cell_key(kind, cell, records)?;
+    if key.0.as_bytes() != entry.key {
+        return Err(bad());
+    }
+    match read::primitive(
+        MemberPayloadCodecV1::U64,
+        &entry.value,
+        &key,
+        records,
+        8,
+        &mut io::sink(),
+    )? {
+        RewardValueV1::Unsigned(value) => Ok(value),
+        _ => Err(bad()),
+    }
+}
+pub(super) fn member_id<R: ValueNodeReader, C: FnMut() -> bool>(
+    collection: RewardCollectionV1,
+    entry: &StateEntryV1,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    p: &mut BusinessDiffProcessingWorkV1,
+) -> Result<ReservedValue<String>, ValueTreeError> {
+    let parsed = WorldFieldKeyV1::from_bytes(&entry.key).map_err(ValueTreeError::Invalid)?;
+    let key = WorldFieldKeyV1::new(
+        RewardRecordKindV1::Pool.descriptor()?,
+        parsed.kind,
+        parsed.semantic_key,
+    )
+    .map_err(ValueTreeError::Invalid)?;
+    let limits = MemberRecordLimitsV1 {
+        semantic_bytes: records.semantic_bytes,
+        payload_bytes: 8,
+        record_bytes: records.record_bytes,
+    };
+    let info = read_member_record_header_v1(
+        &entry.value,
+        &key,
+        records.values,
+        limits,
+        &mut *records.cancelled,
+    )?;
+    let n = usize::try_from(info.semantic_bytes).map_err(|_| limited())?;
+    let _phase = reserve(
+        records,
+        p,
+        n.checked_add(size_of::<Vec<u8>>()).ok_or_else(limited)?,
+    )?;
+    let mut semantic = Vec::with_capacity(n);
+    if semantic.capacity() != n {
+        return Err(limited());
+    }
+    read_member_record_key_v1(
+        &entry.value,
+        &key,
+        records.values,
+        limits,
+        &mut semantic,
+        &mut *records.cancelled,
+    )?;
+    if semantic.len() != n {
+        return Err(bad());
+    }
+    pay(p, n)?;
+    use crate::incremental_semantic_key::{SemanticKeyRefV1 as K, read_semantic_key_v1};
+    let K::Pair { right, .. } = read_semantic_key_v1(&semantic).map_err(ValueTreeError::Invalid)?
+    else {
+        return Err(bad());
+    };
+    let K::Text(id) = right.decode().map_err(ValueTreeError::Invalid)? else {
+        return Err(bad());
+    };
+    let expected = read::cell_key(
+        RewardRecordKindV1::Pool,
+        RewardCellV1::Member(collection, id),
+        records,
+    )?;
+    if expected.0.as_bytes() != entry.key {
+        return Err(bad());
+    }
+    let fee = reserve(
+        records,
+        p,
+        id.len()
+            .checked_add(size_of::<String>())
+            .ok_or_else(limited)?,
+    )?;
+    let mut out = String::with_capacity(id.len());
+    if out.capacity() != id.len() {
+        return Err(limited());
+    }
+    let mut start = 0;
+    while start < id.len() {
+        if (records.cancelled)() {
+            return Err(ValueTreeError::Cancelled);
+        }
+        let mut end = (start + 8192).min(id.len());
+        while !id.is_char_boundary(end) {
+            end -= 1
+        }
+        pay(p, end - start + 4)?;
+        out.push_str(&id[start..end]);
+        start = end;
+    }
+    Ok(fee.retain(out))
+}
+pub(super) fn mint_json<R: ValueNodeReader, C: FnMut() -> bool>(
+    root: &StateRootV1,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    p: &mut BusinessDiffProcessingWorkV1,
+    max: u64,
+) -> Result<ReservedValue<Vec<u8>>, ValueTreeError> {
+    let kind = RewardRecordKindV1::Mint;
+    let memory = records.values.memory.clone();
+    let mut held = reserve(records, p, size_of::<NodeRewardMintRecord>())?;
+    use RewardColumnV1 as F;
+    macro_rules! unsigned {
+        ($c:ident) => {
+            uint(kind, RewardCellV1::Column(F::$c), root, records, p)?
+        };
+    }
+    macro_rules! string {
+        ($c:ident) => {
+            text(
+                kind,
+                RewardCellV1::Column(F::$c),
+                root,
+                records,
+                p,
+                max,
+                &mut held,
+            )?
+        };
+    }
+    let value = NodeRewardMintRecord {
+        epoch_index: unsigned!(EpochIndex),
+        node_id: string!(NodeId),
+        source_awarded_points: unsigned!(SourceAwardedPoints),
+        minted_power_credits: unsigned!(MintedPowerCredits),
+        settlement_hash: string!(SettlementHash),
+        signer_node_id: string!(SignerNodeId),
+        signature: string!(Signature),
+    };
+    crate::incremental_world_rule_projection_delta::encode_original_projection_json_data_v1(
+        &value,
+        &memory,
+        p,
+        &mut *records.cancelled,
+    )
+}

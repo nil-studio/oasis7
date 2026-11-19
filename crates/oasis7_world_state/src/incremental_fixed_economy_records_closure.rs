@@ -12,8 +12,13 @@ use std::cell::RefCell;
 pub struct FixedEconomyRecordQualificationV1 {
     field: FixedEconomyFieldV1,
     root: StateRootV1,
+    class: oasis7_proto::memory_budget::MemoryClass,
 }
 impl FixedEconomyRecordQualificationV1 {
+    pub fn allocation_class(&self) -> oasis7_proto::memory_budget::MemoryClass {
+        self.class
+    }
+
     pub fn root(&self) -> &StateRootV1 {
         &self.root
     }
@@ -40,7 +45,7 @@ pub(super) fn mint(
 ) -> Result<ReservedValue<FixedEconomyRecordQualificationV1>, ValueTreeError> {
     Ok(memory
         .reserve(512, class)?
-        .retain(FixedEconomyRecordQualificationV1 { field, root }))
+        .retain(FixedEconomyRecordQualificationV1 { field, root, class }))
 }
 /// One exact child only. This does not authenticate the owning RootSet/family.
 pub fn qualify_fixed_economy_body_v1<
@@ -157,5 +162,49 @@ pub fn qualify_fixed_economy_body_v1<
     Ok(retained.retain(FixedEconomyRecordQualificationV1 {
         field,
         root: ctx.root.clone(),
+        class: ctx.values.class,
     }))
+}
+
+impl crate::incremental_record_qualification_phase::PhaseQualificationV1
+    for FixedEconomyRecordQualificationV1
+{
+    const RETAINED_BYTES: usize = 512;
+    type Binding<'a> = (
+        FixedEconomyFieldV1,
+        &'a oasis7_formal_protocol::incremental_state::StateRootV1,
+    );
+    fn phase_class(&self) -> oasis7_proto::memory_budget::MemoryClass {
+        self.class
+    }
+    fn validate_phase_binding(&self, binding: Self::Binding<'_>) -> Result<(), ValueTreeError> {
+        self.validate_binding(binding.0, binding.1)
+    }
+    fn from_readmission(
+        permit: crate::incremental_record_qualification_phase::ReadmissionPermitV1<'_, Self>,
+    ) -> Self {
+        let source = permit.source();
+        Self {
+            field: source.field,
+            root: source.root.clone(),
+            class: permit.class(),
+        }
+    }
+}
+pub fn readmit_fixed_economy_record_ordinary_v1(
+    source: &oasis7_proto::memory_budget::ReservedValue<FixedEconomyRecordQualificationV1>,
+    key: FixedEconomyFieldV1,
+    root: &oasis7_formal_protocol::incremental_state::StateRootV1,
+    memory: &oasis7_proto::memory_budget::MemoryBudget,
+    cancelled: impl FnMut() -> bool,
+) -> Result<
+    oasis7_proto::memory_budget::ReservedValue<FixedEconomyRecordQualificationV1>,
+    ValueTreeError,
+> {
+    crate::incremental_record_qualification_phase::readmit_ordinary_v1(
+        source,
+        (key, root),
+        memory,
+        cancelled,
+    )
 }

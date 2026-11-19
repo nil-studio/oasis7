@@ -93,6 +93,16 @@ fn private_audience_leaf(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "test_tier_full")]
+    #[test]
+    fn actual_genesis_projection_matches_original_public_world_commitment() {
+        let mut world = oasis7_runtime::World::new();
+        world
+            .bind_cognition_runtime("genesis-projection", "main", 0, None, "pending", 0)
+            .unwrap();
+        let expected = commitments_for_world(&world).unwrap().root().unwrap();
+        oasis7_runtime::incremental_genesis_projection::assert_genesis_projection_matches_original_for_test_v1(&world, &expected);
+    }
     #[test]
     fn formal_world_projection_binds_permission_header_and_legacy_omits_it() {
         let world = oasis7_runtime::World::new();

@@ -407,8 +407,7 @@ pub(crate) fn persist(
 }
 // The physical selector was absent inside the caller's pinned batch. Inspect
 // raw/legacy pack bounds before allocating a logical object, not afterwards.
-#[cfg(any(not(unix), test))]
-pub(super) fn read_legacy_durable_expected(
+pub(crate) fn read_legacy_durable_expected(
     path: &Path,
     id: &str,
     expected: usize,
@@ -630,4 +629,32 @@ pub(crate) fn persist_kill_after_first_link_for_test(
     writes: &[BusinessIndexNodeWriteV1],
 ) -> Result<(), FormalError> {
     persist_inner(directory, writes, Some(usize::MAX - 1))
+}
+
+impl LegacyReadWorkV1 {
+    /// A single fixed Store lookup; limits derive from the original locator
+    /// grammar and at most two reads of the capped logical value (magic raw).
+    pub(crate) fn one_fixed_object_allowance(max: usize) -> Result<Self, FormalError> {
+        let comparisons = u64::from(usize::BITS - MAX_ENTRIES.leading_zeros());
+        let cap = u64::try_from(max).map_err(|_| invalid("legacy fixed consumer cap layout"))?;
+        let controls = (HEADER as u64)
+            .checked_add(
+                comparisons
+                    .checked_mul(INDEX_ENTRY)
+                    .ok_or_else(|| invalid("legacy fixed consumer control layout"))?,
+            )
+            .ok_or_else(|| invalid("legacy fixed consumer control layout"))?;
+        Ok(Self {
+            remaining_steps: comparisons
+                .checked_mul(3)
+                .and_then(|n| n.checked_add(2 * (cap / 8192 + 1)))
+                .and_then(|n| n.checked_add(32))
+                .ok_or_else(|| invalid("legacy fixed consumer steps layout"))?,
+            remaining_read_bytes: cap
+                .checked_mul(2)
+                .and_then(|n| controls.checked_mul(2).and_then(|c| n.checked_add(c)))
+                .and_then(|n| n.checked_add(1))
+                .ok_or_else(|| invalid("legacy fixed consumer bytes layout"))?,
+        })
+    }
 }

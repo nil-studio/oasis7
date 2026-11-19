@@ -141,7 +141,10 @@ pub(crate) fn restore_native_with_durable_set(
         return Err(invalid("native restore authenticated head node"));
     }
     let entry: FormalRequestStateV1 = object(&node.entry, &mut load)?;
-    let FormalRequestStateV1::Qualified { candidate, proof } = entry else {
+    let FormalRequestStateV1::Qualified {
+        candidate, proof, ..
+    } = entry
+    else {
         return Err(invalid("native restore qualified entry required"));
     };
     if node.request != candidate.candidate.record.request_digest
@@ -177,6 +180,7 @@ pub(crate) fn restore_native_with_durable_set(
         let FormalRequestStateV1::Qualified {
             candidate: parent_candidate,
             proof: parent,
+            ..
         } = object(&parent_node.entry, &mut load)?
         else {
             return Err(invalid("native restore immutable qualified parent"));

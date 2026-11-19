@@ -8,6 +8,31 @@ use crate::main_token::{
 use std::collections::BTreeSet;
 
 impl World {
+    /// Original transfer input decision shared by World and the bounded owner.
+    /// The returned text is DATA and grants no admission or mutation authority.
+    pub(in crate::world) fn main_token_transfer_input_reason_v1(
+        from_account_id: &str,
+        to_account_id: &str,
+        amount: u64,
+        nonce: u64,
+    ) -> Option<&'static str> {
+        let from_account_id = from_account_id.trim();
+        let to_account_id = to_account_id.trim();
+        if from_account_id.is_empty() {
+            Some("from_account_id cannot be empty")
+        } else if to_account_id.is_empty() {
+            Some("to_account_id cannot be empty")
+        } else if from_account_id == to_account_id {
+            Some("from_account_id and to_account_id cannot be the same")
+        } else if amount == 0 {
+            Some("amount must be > 0")
+        } else if nonce == 0 {
+            Some("nonce must be > 0")
+        } else {
+            None
+        }
+    }
+
     #[expect(
         clippy::too_many_arguments,
         reason = "Main-token transfer validation keeps the signed action fields explicit and ordered."
@@ -26,43 +51,13 @@ impl World {
         let to_account_id = to_account_id.trim();
         let asset_id = asset_id.map(str::trim).filter(|value| !value.is_empty());
         let memo = memo.map(str::trim).filter(|value| !value.is_empty());
-        if from_account_id.is_empty() {
+        if let Some(reason) =
+            Self::main_token_transfer_input_reason_v1(from_account_id, to_account_id, amount, nonce)
+        {
             return DomainEvent::ActionRejected {
                 action_id,
                 reason: RejectReason::RuleDenied {
-                    notes: vec!["from_account_id cannot be empty".to_string()],
-                },
-            };
-        }
-        if to_account_id.is_empty() {
-            return DomainEvent::ActionRejected {
-                action_id,
-                reason: RejectReason::RuleDenied {
-                    notes: vec!["to_account_id cannot be empty".to_string()],
-                },
-            };
-        }
-        if from_account_id == to_account_id {
-            return DomainEvent::ActionRejected {
-                action_id,
-                reason: RejectReason::RuleDenied {
-                    notes: vec!["from_account_id and to_account_id cannot be the same".to_string()],
-                },
-            };
-        }
-        if amount == 0 {
-            return DomainEvent::ActionRejected {
-                action_id,
-                reason: RejectReason::RuleDenied {
-                    notes: vec!["amount must be > 0".to_string()],
-                },
-            };
-        }
-        if nonce == 0 {
-            return DomainEvent::ActionRejected {
-                action_id,
-                reason: RejectReason::RuleDenied {
-                    notes: vec!["nonce must be > 0".to_string()],
+                    notes: vec![reason.to_string()],
                 },
             };
         }

@@ -108,6 +108,46 @@ pub(crate) fn advance_json_subtree_records_v1<R: ValueNodeReader, C: FnMut() -> 
         Mode::Structural(immediate),
     )
 }
+/// Internal owner bridge. The typed receiver must already hold and bind its
+/// private complete parent qualification to this exact child, RootSet and pool.
+/// This does not bootstrap arbitrary roots, and does not traverse the old graph.
+/// Its diagnostic node bound is deliberately unknown; actual work remains
+/// controlled exclusively by the shared finite JSON budgets.
+pub(crate) fn advance_from_qualified_root<R: ValueNodeReader, C: FnMut() -> bool>(
+    profile: JsonRecordProfileV1,
+    before: &StateRootV1,
+    after: &StateRootV1,
+    records: &mut crate::incremental_inventory_value_read::InventoryValueReader<'_, '_, R, C>,
+    work: &mut JsonChangeWorkV1,
+) -> Result<(), ValueTreeError> {
+    if records.values.class != MemoryClass::Ordinary {
+        return Err(ValueTreeError::Invalid("inherited JSON class"));
+    }
+    before.validate().map_err(|_| invalid())?;
+    if before.namespace != profile.namespace()? {
+        return Err(invalid());
+    }
+    let parent = records
+        .values
+        .memory
+        .reserve(1024, records.values.class)?
+        .retain(JsonSubtreeQualificationV1 {
+            root: before.clone(),
+            profile,
+            nodes: u64::MAX,
+            exact: false,
+        });
+    advance_json_subtree_records_v1(profile, &parent, after, records, work, None)?;
+    Ok(())
+}
+fn add_bound(nodes: u64, exact: bool, added: u64) -> Result<u64, ValueTreeError> {
+    if nodes == u64::MAX && !exact {
+        return Ok(u64::MAX);
+    }
+    nodes
+        .checked_add(added)
+        .ok_or(ValueTreeError::ResourceLimited("JSON changed node bound"))
+}
 fn needed_kind(shape: JsonImmediateShapeV1, kind: read::Kind) -> bool {
     matches!(
         (shape, kind),
@@ -202,9 +242,7 @@ fn advance_records<R: ValueNodeReader, C: FnMut() -> bool>(
                     nodes = new.node_count_upper_bound();
                     exact = new.exact;
                 } else if old_kind.container() || new_kind.container() {
-                    nodes = nodes
-                        .checked_add(new.node_count_upper_bound())
-                        .ok_or(ValueTreeError::ResourceLimited("JSON changed node bound"))?;
+                    nodes = add_bound(nodes, exact, new.node_count_upper_bound())?;
                     exact = false;
                 }
                 continue;
@@ -316,9 +354,7 @@ fn advance_records<R: ValueNodeReader, C: FnMut() -> bool>(
                             return Err(invalid());
                         }
                         let child = full_at(profile, &after, depth, records, &mut work.json)?;
-                        nodes = nodes
-                            .checked_add(child.node_count_upper_bound())
-                            .ok_or(ValueTreeError::ResourceLimited("JSON changed node bound"))?;
+                        nodes = add_bound(nodes, exact, child.node_count_upper_bound())?;
                         exact = false;
                         added = added.checked_add(1).ok_or_else(invalid)?;
                     }
@@ -439,6 +475,29 @@ pub(crate) fn require_json_immediate_records_v1<R: ValueNodeReader, C: FnMut() -
         if child.kind != expected {
             return Err(ValueTreeError::Invalid("JSON immediate child kind"));
         }
+    }
+    if (records.cancelled)() {
+        return Err(ValueTreeError::Cancelled);
+    }
+    Ok(())
+}
+
+pub(crate) fn require_empty_object_records_v1<R: ValueNodeReader, C: FnMut() -> bool>(
+    profile: JsonRecordProfileV1,
+    proof: &ReservedValue<JsonSubtreeQualificationV1>,
+    records: &mut crate::incremental_inventory_value_read::InventoryValueReader<'_, '_, R, C>,
+    work: &mut JsonReadWorkV1,
+) -> Result<(), ValueTreeError> {
+    require_json_container_records_v1(profile, proof, false, records, work)?;
+    work.cells_remaining = work
+        .cells_remaining
+        .checked_sub(5)
+        .ok_or(ValueTreeError::ResourceLimited("JSON empty-object cells"))?;
+    let frame = read::frame(profile, proof.root(), records, work)?;
+    if frame.length != 0 {
+        return Err(ValueTreeError::Invalid(
+            "nonempty delegation grants unsupported",
+        ));
     }
     if (records.cancelled)() {
         return Err(ValueTreeError::Cancelled);

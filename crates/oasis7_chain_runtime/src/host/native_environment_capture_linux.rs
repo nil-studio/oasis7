@@ -14,6 +14,14 @@ pub(super) struct Mapping {
     path: String,
 }
 pub(super) fn inventory() -> Result<Vec<Mapping>, String> {
+    inventory_inner(None)
+}
+pub(super) fn inventory_for_loaded_executable(
+    executable: &Metadata,
+) -> Result<Vec<Mapping>, String> {
+    inventory_inner(Some(executable))
+}
+fn inventory_inner(executable: Option<&Metadata>) -> Result<Vec<Mapping>, String> {
     let mut bytes = Vec::new();
     File::open("/proc/self/maps")
         .map_err(|e| e.to_string())?
@@ -41,9 +49,6 @@ pub(super) fn inventory() -> Result<Vec<Mapping>, String> {
         if inode == 0 {
             continue;
         }
-        if !path.starts_with('/') || path.ends_with(" (deleted)") {
-            return Err("Unavailable: mapped backing file is deleted or unnamed".into());
-        }
         let (major, minor) = fields[3].split_once(':').ok_or("malformed map device")?;
         let major = u32::from_str_radix(major, 16).map_err(|e| e.to_string())?;
         let minor = u32::from_str_radix(minor, 16).map_err(|e| e.to_string())?;
@@ -54,6 +59,14 @@ pub(super) fn inventory() -> Result<Vec<Mapping>, String> {
             inode,
             path: path.into(),
         };
+        // Bound mode permits only the exact already-validated actual sealed
+        // image to have a memfd/deleted pathname. Never exempt a DSO by name.
+        if executable.is_some_and(|actual| matches(&mapping, actual)) {
+            continue;
+        }
+        if !path.starts_with('/') || path.ends_with(" (deleted)") {
+            return Err("Unavailable: mapped backing file is deleted or unnamed".into());
+        }
         // One file may be mapped through multiple loader aliases. Choose a
         // stable logical path rather than whichever ASLR address sorts first.
         files

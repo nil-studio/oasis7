@@ -69,6 +69,17 @@ impl FormalArchiveReadWorkV1 {
             cancelled,
         )
     }
+    pub(in crate::controlled_authority::formal::endpoint) fn with_child_counters<T>(
+        &self,
+        cancelled: &mut dyn FnMut() -> bool,
+        run: impl FnOnce(u64, u64, &mut dyn FnMut() -> bool) -> (Result<T, FormalError>, u64, u64),
+    ) -> Result<T, FormalError> {
+        self.step(cancelled)?;
+        let lease = self.core.begin_child()?;
+        let before = (lease.remaining_steps(), lease.remaining_read_bytes());
+        let (result, steps, bytes) = run(before.0, before.1, cancelled);
+        Self::reconcile_child(lease, before, (steps, bytes), result)
+    }
     // Only this trusted adapter sees legacy scalar snapshots. Common providers
     // receive no arbitrary after-counter or refund operation.
     fn reconcile_child<T>(
@@ -117,6 +128,19 @@ pub struct FormalArchiveReadOwnerV1 {
     meter_id: WorkIdentityV1,
 }
 impl FormalArchiveReadOwnerV1 {
+    /// Private DATA-only move for the fixed native checkpoint reader. The
+    /// original Ordinary byte reservation remains attached, and the producer's
+    /// actual Common identity is checked before any field is moved.
+    pub(in crate::controlled_authority::formal::endpoint) fn into_native_bytes_v1(
+        self,
+        common: &mut FormalBoundedContextV1<'_>,
+    ) -> Result<ReservedValue<Vec<u8>>, FormalError> {
+        common.consume_steps(1)?;
+        if self.meter_id != common.work().identity() || !self.uses_budget(common.memory()) {
+            return Err(invalid("native archive bytes foreign context"));
+        }
+        Ok(self.bytes)
+    }
     pub fn as_slice(&self) -> &[u8] {
         self.bytes.as_slice()
     }

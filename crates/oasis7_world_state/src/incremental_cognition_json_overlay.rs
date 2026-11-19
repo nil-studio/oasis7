@@ -397,3 +397,106 @@ pub fn qualify_cognition_json_path_overlay_v1<
         Ok(proof)
     })
 }
+
+#[path = "incremental_cognition_json_overlay_empty.rs"]
+mod empty;
+pub use empty::require_current_delegation_grants_empty_v1;
+
+/// Fixed Cognition retry fallback. Reopen only staged_actions[commit_id] from
+/// its actual Current outer row and held qualification; never decode the map.
+/// A replacement qualification must come from the original edit producer.
+pub fn read_current_staged_cognition_action_v1<M, R, E, C>(
+    qualification: Option<&ReservedValue<CognitionJsonEntryQualificationV1>>,
+    commit_id: &str,
+    context: &mut WorldFieldOverlayContextV1<'_, '_, '_, M, R, E, C>,
+    work: &mut crate::incremental_json_records::JsonReadWorkV1,
+    max_heap: usize,
+    guard: &PreparedGuard,
+    live: &ExecutionFence,
+) -> Result<Option<ReservedValue<serde_json::Value>>, WorldFieldOverlayErrorV1>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    let field = CognitionJsonFieldV1::StagedActions;
+    context
+        .transaction
+        .contribute(|tx| {
+            tx.validate_guard(guard, live)?;
+            let mut records = InventoryValueReader {
+                values: &mut context.values,
+                key_work: &mut *context.key_work,
+                semantic_bytes: context.semantic_bytes,
+                record_bytes: context.record_bytes,
+                cancelled: &mut context.cancelled,
+            };
+            let qualification = match qualification {
+                Some(value) => value,
+                None => {
+                    if records.values.class != MemoryClass::Ordinary
+                        || !tx.uses_budget(records.values.memory)
+                    {
+                        return Err(ValueTreeError::Invalid("staged Cognition absence pool").into());
+                    }
+                    let metadata = WorldFieldKeyV1::new(
+                        field.descriptor(),
+                        WorldFieldRecordKindV1::Metadata,
+                        None,
+                    )
+                    .map_err(ValueTreeError::Invalid)?;
+                    let present =
+                        lookup(tx, &metadata, &mut records, &mut context.take_state_error)?;
+                    let (key, _) =
+                        records.key(field.descriptor(), WorldFieldRecordKindV1::Entry, &())?;
+                    let entry = lookup(tx, &key, &mut records, &mut context.take_state_error)?;
+                    if present.is_some() || entry.is_some() {
+                        return Err(ValueTreeError::Invalid(
+                            "staged Cognition present source qualification missing",
+                        )
+                        .into());
+                    }
+                    if (records.cancelled)() {
+                        return Err(ValueTreeError::Cancelled.into());
+                    }
+                    return Ok(None);
+                }
+            };
+            current(
+                field,
+                qualification,
+                tx,
+                &mut records,
+                &mut context.take_state_error,
+            )?;
+            let selected =
+                crate::incremental_json_records::qualify_optional_json_object_member_records_v1(
+                    field.profile(),
+                    qualification.json(),
+                    commit_id,
+                    &mut records,
+                    work,
+                )?;
+            let Some(selected) = selected else {
+                return Ok(None);
+            };
+            let (value, fee) = crate::incremental_json_records::materialize_records(
+                field.profile(),
+                &selected,
+                &mut records,
+                work,
+                max_heap,
+            )?;
+            if (records.cancelled)() {
+                return Err(ValueTreeError::Cancelled.into());
+            }
+            Ok(Some(fee.retain(value)))
+        })
+        .map_err(|error| match error {
+            WorldFieldOverlayErrorV1::Member(error) => {
+                WorldFieldOverlayErrorV1::Value(error.into_value_error())
+            }
+            other => other,
+        })
+}

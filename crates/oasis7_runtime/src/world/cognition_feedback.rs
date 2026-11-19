@@ -16,6 +16,8 @@ use oasis7_agent_api::FeedbackEnvelopeV1;
 use serde_json::{Value as JsonValue, json};
 use std::collections::BTreeMap;
 
+#[path="cognition_feedback_observation.rs"]
+pub(in crate::world) mod observation;
 const OUTBOX_FIELD: &str = "feedback_outbox";
 
 fn verify_feedback_receipt_lineage(
@@ -66,21 +68,7 @@ fn feedback_error(code: impl Into<String>) -> WorldError {
 fn parse_outbox(
     projection: &JsonValue,
 ) -> Result<BTreeMap<String, RuntimeFeedbackOutboxRecordV1>, WorldError> {
-    let Some(value) = projection.get(OUTBOX_FIELD) else {
-        return Ok(BTreeMap::new());
-    };
-    let records: BTreeMap<String, RuntimeFeedbackOutboxRecordV1> =
-        serde_json::from_value(value.clone())
-            .map_err(|_| feedback_error("feedback_outbox_invalid"))?;
-    for (key, record) in &records {
-        if key != &record.feedback_id {
-            return Err(feedback_error("feedback_outbox_key_mismatch"));
-        }
-        record
-            .validate()
-            .map_err(|error| feedback_error(error.code()))?;
-    }
-    Ok(records)
+    observation::legacy(projection.get(OUTBOX_FIELD))
 }
 
 fn current_projection(world: &World) -> JsonValue {

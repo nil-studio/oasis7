@@ -415,13 +415,15 @@ fn certified_producer_to_decision_conversion_binding_and_normal_start_survives_r
                     .len(),
                 1
             );
-            assert!(contender
-                .world_rules
-                .as_ref()
-                .unwrap()
-                .substitution
-                .retained_residuals
-                .is_empty());
+            assert!(
+                contender
+                    .world_rules
+                    .as_ref()
+                    .unwrap()
+                    .substitution
+                    .retained_residuals
+                    .is_empty()
+            );
             let mut expired = state.clone();
             expired
                 .world_rules
@@ -479,17 +481,19 @@ fn certified_producer_to_decision_conversion_binding_and_normal_start_survives_r
                 .decision_ref
                 .clone();
             let before = serde_json::to_vec(&fork).unwrap();
-            assert!(PreparedWorldRule::prepare(
-                &fork,
-                &sub_event(
-                    "unauthorized-conversion",
-                    RecipeSubstitutionCommandV1::Convert {
-                        decision_ref: only_ref
-                    }
-                ),
-                2
-            )
-            .is_err());
+            assert!(
+                PreparedWorldRule::prepare(
+                    &fork,
+                    &sub_event(
+                        "unauthorized-conversion",
+                        RecipeSubstitutionCommandV1::Convert {
+                            decision_ref: only_ref
+                        }
+                    ),
+                    2
+                )
+                .is_err()
+            );
             assert_eq!(before, serde_json::to_vec(&fork).unwrap());
         }
         if material == "iron_ore" {

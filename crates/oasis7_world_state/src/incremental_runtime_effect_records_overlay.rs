@@ -268,6 +268,8 @@ pub fn change_runtime_effect_membership_v1<
             || !tx.uses_budget(context.values.memory)
             || !tx.uses_budget(write.memory)
             || !qualification.uses_budget(write.memory)
+            || qualification.reserved_bytes() < 512
+            || qualification.allocation_class() != MemoryClass::Ordinary
         {
             return Err(bad());
         }

@@ -2,7 +2,7 @@ use super::*;
 use crate::codec::*;
 
 fn projection() -> WorldServiceProjection {
-    WorldServiceProjection {
+    WorldServiceProjection::from(WorldServiceProjectionData {
         world_rule_status: None,
         formal_commit_header: None,
         canonical_agent_owner: None,
@@ -18,7 +18,7 @@ fn projection() -> WorldServiceProjection {
         continuations: Vec::new(),
         cognition_leases: Vec::new(),
         continuation_contexts: Default::default(),
-    }
+    })
 }
 
 #[test]
@@ -178,6 +178,145 @@ fn concrete_changes_codec_preserves_page_bytes_and_parser_errors() {
         assert_eq!(
             changes_page_from_json(invalid).unwrap_err().to_string(),
             serde_json::from_slice::<ChangesPage>(invalid)
+                .unwrap_err()
+                .to_string()
+        );
+    }
+}
+
+#[test]
+fn transparent_adapter_preserves_shared_data_layout_and_commitments() {
+    use oasis7_client_api::formal_projection::ProjectionAudienceV1;
+    assert_eq!(
+        std::mem::size_of::<WorldServiceProjection>(),
+        std::mem::size_of::<WorldServiceProjectionData>()
+    );
+    assert_eq!(
+        std::mem::align_of::<WorldServiceProjection>(),
+        std::mem::align_of::<WorldServiceProjectionData>()
+    );
+    type Column = current_commitment::ProjectionColumnDataV1;
+    assert_eq!(
+        std::mem::size_of::<WorldServiceProjection<Column>>(),
+        std::mem::size_of::<WorldServiceProjectionData<Column>>()
+    );
+    for (json, cbor) in [
+        (
+            include_bytes!("../fixtures/public.json").as_slice(),
+            include_bytes!("../fixtures/public.cbor").as_slice(),
+        ),
+        (
+            include_bytes!("../fixtures/owner.json").as_slice(),
+            include_bytes!("../fixtures/owner.cbor").as_slice(),
+        ),
+        (
+            include_bytes!("../fixtures/delegate.json").as_slice(),
+            include_bytes!("../fixtures/delegate.cbor").as_slice(),
+        ),
+    ] {
+        for data in [
+            serde_json::from_slice::<WorldServiceProjectionData>(json).unwrap(),
+            serde_cbor::from_slice::<WorldServiceProjectionData>(cbor).unwrap(),
+        ] {
+            let projection = WorldServiceProjection::from(data);
+            assert_eq!(serde_json::to_vec(projection.data()).unwrap(), json);
+            assert_eq!(serde_cbor::to_vec(projection.data()).unwrap(), cbor);
+            assert_eq!(projection_to_json(&projection).unwrap(), json);
+            assert_eq!(projection_to_cbor(&projection).unwrap(), cbor);
+            assert_eq!(
+                format!("{projection:?}"),
+                format!("{:?}", projection.data())
+            );
+            assert_eq!(
+                projection_revision(&projection).unwrap(),
+                oasis7_client_api::world_service::request_digest("projection", projection.data())
+                    .unwrap()
+            );
+            for audience in [
+                ProjectionAudienceV1::public(),
+                ProjectionAudienceV1::agent("agent-a", "a".repeat(64)).unwrap(),
+            ] {
+                assert_eq!(
+                    projection_leaf(&audience, &projection).unwrap(),
+                    oasis7_client_api::formal_projection::projection_leaf(
+                        &audience,
+                        projection.data()
+                    )
+                    .unwrap()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn transparent_adapter_keeps_generic_serde_numbers_defaults_and_errors() {
+    type Data = WorldServiceProjectionData<serde_json::Value>;
+    type Adapter = WorldServiceProjection<serde_json::Value>;
+    let mut data = oasis7_world_state::observation_projection::original_formatter::base_data_v1(
+        serde_json::json!({"negative_zero": -0.0, "fraction": 1.25, "array": [null, true, "雪"]}),
+        Some(serde_json::json!({"fraction": -2.5})),
+        None,
+        None,
+        None,
+    );
+    data.continuation_contexts.insert(
+        "context".into(),
+        WorldServiceContinuationContext {
+            baseline_observation_digest: "baseline".into(),
+            goal_digest: "goal".into(),
+            policy_digest: "policy".into(),
+            policy_revision: 3,
+            precondition_summary: "summary".into(),
+            precondition_digest: "precondition".into(),
+        },
+    );
+    let json = serde_json::to_vec(&data).unwrap();
+    let cbor = serde_cbor::to_vec(&data).unwrap();
+    let adapter = Adapter::from(data);
+    assert_eq!(serde_json::to_vec(&adapter).unwrap(), json);
+    assert_eq!(serde_cbor::to_vec(&adapter).unwrap(), cbor);
+    assert_eq!(serde_json::to_vec(&adapter.into_data()).unwrap(), json);
+    for adapter in [
+        serde_json::from_slice::<Adapter>(&json).unwrap(),
+        serde_cbor::from_slice::<Adapter>(&cbor).unwrap(),
+    ] {
+        assert_eq!(serde_json::to_vec(&adapter).unwrap(), json);
+        assert_eq!(serde_cbor::to_vec(&adapter).unwrap(), cbor);
+        assert!(
+            adapter.state["negative_zero"]
+                .as_f64()
+                .unwrap()
+                .is_sign_negative()
+        );
+    }
+    let mut future: serde_json::Value = serde_json::from_slice(&json).unwrap();
+    future
+        .as_object_mut()
+        .unwrap()
+        .insert("future".into(), true.into());
+    assert_eq!(
+        serde_json::to_vec(&serde_json::from_value::<Adapter>(future).unwrap()).unwrap(),
+        json
+    );
+    let source = std::str::from_utf8(&json).unwrap();
+    let duplicate = format!("{{\"state\":{{}},{rest}", rest = &source[1..]);
+    for invalid in [b"null".as_slice(), b"{}", b"{", duplicate.as_bytes()] {
+        assert_eq!(
+            serde_json::from_slice::<Adapter>(invalid)
+                .unwrap_err()
+                .to_string(),
+            serde_json::from_slice::<Data>(invalid)
+                .unwrap_err()
+                .to_string()
+        );
+    }
+    for invalid in [b"".as_slice(), &[0xff], &[0xa1, 0x65, b's']] {
+        assert_eq!(
+            serde_cbor::from_slice::<Adapter>(invalid)
+                .unwrap_err()
+                .to_string(),
+            serde_cbor::from_slice::<Data>(invalid)
                 .unwrap_err()
                 .to_string()
         );

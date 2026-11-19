@@ -38,9 +38,7 @@ impl World {
 
     /// Validate the durable projection without applying repair or cloning the
     /// state/journal/artifacts of an observer world.
-    pub(in crate::world) fn validate_observer_cognition(
-        &mut self,
-    ) -> Result<(), WorldError> {
+    pub(in crate::world) fn validate_observer_cognition(&mut self) -> Result<(), WorldError> {
         self.recover_cognition_mode(false).map(|_| ())
     }
 

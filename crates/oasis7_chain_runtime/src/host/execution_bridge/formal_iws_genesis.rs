@@ -1,0 +1,561 @@
+//! Actual Host GEN fanout to two independent endpoint page namespaces.
+//! This produces provisional bytes and installs capabilities, never receipts.
+use super::incremental_genesis::*;
+use oasis7_distfs::{
+    controlled_authority::formal::endpoint::{
+        FileFormalEndpoint, IwsCurrentLimitsV1, IwsEndpointVerificationBudgetsV1,
+        IwsPageStoreCapabilityV1,
+    },
+    incremental_page_store::{
+        IncrementalPageStore, PageIoBudget, PageStoreError, objects::IncrementalObjectStore,
+    },
+};
+use oasis7_formal_protocol::{
+    incremental_state::{StateScanBudget, StateScanError},
+    incremental_value::{ValueIoBudget, ValueTreeError},
+};
+use oasis7_runtime::{
+    BodyMutationError, World,
+    incremental_action_original::{
+        ActionOriginalStreamV1, persist_action_original_v1, persist_world_event_original_v1,
+    },
+    incremental_genesis::RuntimeGenesisWorkV1,
+};
+use oasis7_wasm_abi::CanonicalCborWorkV1;
+use oasis7_world_state::WorldEventBody;
+use std::{cell::RefCell, convert::Infallible, sync::atomic::{AtomicBool, Ordering}};
+#[path = "formal_iws_genesis_business.rs"]
+pub(super) mod business_originals;
+#[path = "formal_iws_genesis_native.rs"]
+mod native;
+#[path = "formal_iws_originals.rs"]
+mod originals;
+#[path = "formal_iws_pages.rs"]
+mod pages;
+#[cfg(any(
+    all(test, feature = "wasmtime"),
+    feature = "iws-host-native-test-support"
+))]
+#[path = "formal_iws_genesis_rule_test_support.rs"]
+pub(crate) mod rule_test_support;
+pub(crate) use business_originals::execution_inputs::ProvisionalGenesisExecutionInputsV1;
+pub(crate) use business_originals::package::PaidGenesisCandidatePackageV1;
+pub(crate) use business_originals::source_history::GenesisSourceHistoryWorkV1;
+pub(crate) use native::{CapturedGenesisNativeV1, StagedGenesisNativeV1};
+/// Every account belongs to the caller. Three object accounts distinguish the
+/// producer and both replicas; neither a retry nor a second original resets any.
+pub(crate) struct IwsGenesisTransferWorkV1 {
+    pub objects_physical: [PageIoBudget; 3],
+    pub objects_logical: [ValueIoBudget; 3],
+    pub page_publish: [PageIoBudget; 2],
+    pub outer_reads: PageIoBudget,
+    pub outer_scan: StateScanBudget,
+    pub canonical: CanonicalCborWorkV1,
+    pub originals_remaining: u64,
+    pub max_original_bytes: usize,
+    pub mailbox_search_steps: u64,
+}
+#[derive(Debug)]
+pub(crate) enum IwsGenesisTransferErrorV1 {
+    Value(ValueTreeError),
+    Store(PageStoreError),
+    Body(BodyMutationError),
+    Genesis(RuntimeGenesisPhysicalErrorV1),
+    Scan(StateScanError<Infallible>),
+}
+impl std::fmt::Display for IwsGenesisTransferErrorV1 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Value(e) => e.fmt(f),
+            Self::Store(e) => e.fmt(f),
+            Self::Body(e) => e.fmt(f),
+            Self::Genesis(e) => e.fmt(f),
+            Self::Scan(e) => write!(f, "{e:?}"),
+        }
+    }
+}
+impl std::error::Error for IwsGenesisTransferErrorV1 {}
+impl From<ValueTreeError> for IwsGenesisTransferErrorV1 {
+    fn from(e: ValueTreeError) -> Self {
+        Self::Value(e)
+    }
+}
+impl From<PageStoreError> for IwsGenesisTransferErrorV1 {
+    fn from(e: PageStoreError) -> Self {
+        Self::Store(e)
+    }
+}
+fn lease_id(store: &IncrementalPageStore) -> Result<(u64, u64), IwsGenesisTransferErrorV1> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata =
+        std::fs::symlink_metadata(store.root().join("lease")).map_err(|e| PageStoreError::Io(e))?;
+    if !metadata.is_file() || metadata.nlink() != 1 || metadata.len() != 0 {
+        return Err(ValueTreeError::Invalid("IWS GEN endpoint lease").into());
+    }
+    Ok((metadata.dev(), metadata.ino()))
+}
+/// No Snapshot/Journal material is accepted by this entry. The actual borrowed
+/// initial World is only a GEN producer; ordinary execution uses a root driver.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn prepare_iws_genesis_for_endpoints_v1(
+    world: &World,
+    source: &IncrementalPageStore,
+    targets: [&IncrementalPageStore; 2],
+    config: &oasis7_formal_protocol::incremental_history::GenesisConfigV1,
+    context: &mut RuntimeGenesisPhysicalContextV1<'_>,
+    producer: &mut RuntimeGenesisWorkV1,
+    physical: RuntimeGenesisPhysicalBudgetsV1,
+    work: &mut IwsGenesisTransferWorkV1,
+) -> Result<ProvisionalRuntimeGenesisIndexV1, IwsGenesisTransferErrorV1> {
+    match prepare_iws_genesis_for_endpoints_inner_v1(
+        world, source, targets, config, context, producer, physical, work, None,
+    )? {
+        GenesisEndpointOutputV1::Original(value) => Ok(value),
+        GenesisEndpointOutputV1::Projected(_, _) => unreachable!("fixed original GEN mode"),
+    }
+}
+
+/// The same physical GEN fanout plus actual business descriptor/delta/node
+/// originals in all three namespaces. Retain their original paid graph/wires
+/// with the exact projected owner. Acceptance, output locator assembly and
+/// cache promotion keep their own gates.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn prepare_projected_iws_genesis_for_endpoints_v1(
+    world: &World,
+    source: &IncrementalPageStore,
+    targets: [&IncrementalPageStore; 2],
+    config: &oasis7_formal_protocol::incremental_history::GenesisConfigV1,
+    context: &mut RuntimeGenesisPhysicalContextV1<'_>,
+    producer: &mut RuntimeGenesisWorkV1,
+    physical: RuntimeGenesisPhysicalBudgetsV1,
+    work: &mut IwsGenesisTransferWorkV1,
+    retention_work: &mut oasis7_world_state::incremental_cognition_retention_ledger::CognitionRetentionWorkV1<'_>,
+    common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+) -> Result<business_originals::ProvisionalProjectedGenesisBusinessV1, IwsGenesisTransferErrorV1> {
+    match prepare_iws_genesis_for_endpoints_inner_v1(
+        world,
+        source,
+        targets,
+        config,
+        context,
+        producer,
+        physical,
+        work,
+        Some((&mut *common, retention_work)),
+    )? {
+        GenesisEndpointOutputV1::Projected(value, catalog) => {
+            business_originals::persist_projected_genesis_business_v1(
+                (value, catalog),
+                source,
+                targets,
+                config,
+                work,
+                common,
+                context.cancelled,
+            )
+        }
+        GenesisEndpointOutputV1::Original(_) => unreachable!("fixed projected GEN mode"),
+    }
+}
+
+/// One immutable initial World is the only source for P, Rules and business
+/// metadata. Native DATA comes from the actual pre-approval pinned capture;
+/// the complete candidate later consumes its dual-endpoint staged owner.
+pub(crate) struct ProjectedGenesisInputsRequestV1<'a> {
+    pub world: &'a World,
+    pub native: &'a CapturedGenesisNativeV1,
+    pub source: &'a IncrementalPageStore,
+    pub targets: [&'a IncrementalPageStore; 2],
+    pub config: &'a oasis7_formal_protocol::incremental_history::GenesisConfigV1,
+}
+
+pub(crate) fn prepare_projected_iws_genesis_inputs_v1(
+    request: ProjectedGenesisInputsRequestV1<'_>,
+    context: &mut RuntimeGenesisPhysicalContextV1<'_>,
+    producer: &mut RuntimeGenesisWorkV1,
+    physical: RuntimeGenesisPhysicalBudgetsV1,
+    history_work: GenesisSourceHistoryWorkV1,
+    work: &mut IwsGenesisTransferWorkV1,
+    retention_work: &mut oasis7_world_state::incremental_cognition_retention_ledger::CognitionRetentionWorkV1<'_>,
+    common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+) -> Result<ProvisionalGenesisExecutionInputsV1, IwsGenesisTransferErrorV1> {
+    let business = prepare_projected_iws_genesis_for_endpoints_v1(
+        request.world,
+        request.source,
+        request.targets,
+        request.config,
+        context,
+        producer,
+        physical,
+        work,
+        retention_work,
+        common,
+    )?;
+    business_originals::execution_inputs::persist(
+        &request,
+        business,
+        history_work,
+        work,
+        common,
+        context.cancelled,
+    )
+}
+
+/// The authority and certificate are independently approved originals. The
+/// writer is the actual authority key; the native owner is obtainable only by
+/// staging the exact pre-approval capture at both original endpoints.
+pub(crate) struct GenesisCandidateRequestV1<'a> {
+    pub authority: &'a oasis7_formal_protocol::controlled_authority::formal::VerifiedAuthorityV1,
+    pub certificate:
+        &'a oasis7_formal_protocol::controlled_authority::formal::SignedInitialActivationV1,
+    pub writer: &'a ed25519_dalek::SigningKey,
+    pub native: StagedGenesisNativeV1,
+    pub stores: [&'a IncrementalPageStore; 3],
+}
+
+pub(crate) fn prepare_iws_genesis_candidate_v1(
+    inputs: ProvisionalGenesisExecutionInputsV1,
+    request: GenesisCandidateRequestV1<'_>,
+    work: &mut IwsGenesisTransferWorkV1,
+    common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+    stop: &AtomicBool,
+) -> Result<PaidGenesisCandidatePackageV1, IwsGenesisTransferErrorV1> {
+    let header = business_originals::history::prepare(
+        inputs,
+        business_originals::history::GenesisApprovalInputV1 {
+            authority: request.authority,
+            certificate: request.certificate,
+        },
+        request.stores,
+        work,
+        common,
+        stop,
+    )?;
+    business_originals::package::prepare(header, request, work, common, stop)
+}
+
+enum GenesisEndpointOutputV1 {
+    Original(ProvisionalRuntimeGenesisIndexV1),
+    Projected(
+        ProvisionalProjectedRuntimeGenesisIndexV1,
+        business_originals::artifact_catalog::CatalogBuilder,
+    ),
+}
+impl GenesisEndpointOutputV1 {
+    fn roots(&self) -> &oasis7_formal_protocol::incremental_execution::RootSetV1 {
+        match self {
+            Self::Original(value) => &value.roots,
+            Self::Projected(value, _) => value.roots(),
+        }
+    }
+}
+#[allow(clippy::too_many_arguments)]
+fn prepare_iws_genesis_for_endpoints_inner_v1(
+    world: &World,
+    source: &IncrementalPageStore,
+    targets: [&IncrementalPageStore; 2],
+    config: &oasis7_formal_protocol::incremental_history::GenesisConfigV1,
+    context: &mut RuntimeGenesisPhysicalContextV1<'_>,
+    producer: &mut RuntimeGenesisWorkV1,
+    physical: RuntimeGenesisPhysicalBudgetsV1,
+    work: &mut IwsGenesisTransferWorkV1,
+    common: Option<(&mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>, &mut oasis7_world_state::incremental_cognition_retention_ledger::CognitionRetentionWorkV1<'_>)>,
+) -> Result<GenesisEndpointOutputV1, IwsGenesisTransferErrorV1> {
+    if context.cancelled.load(Ordering::Acquire) {
+        return Err(ValueTreeError::Cancelled.into());
+    }
+    if !context.memory.same_pool(source.memory_budget()) {
+        return Err(ValueTreeError::Invalid("IWS GEN source pool").into());
+    }
+    let identity = [
+        lease_id(source)?,
+        lease_id(targets[0])?,
+        lease_id(targets[1])?,
+    ];
+    if identity[0] == identity[1] || identity[0] == identity[2] || identity[1] == identity[2] {
+        return Err(
+            ValueTreeError::Invalid("IWS GEN replicas must be independent namespaces").into(),
+        );
+    }
+    let stores = [
+        IncrementalObjectStore::create(source, &mut work.objects_physical[0], context.cancelled)?,
+        IncrementalObjectStore::create(
+            targets[0],
+            &mut work.objects_physical[1],
+            context.cancelled,
+        )?,
+        IncrementalObjectStore::create(
+            targets[1],
+            &mut work.objects_physical[2],
+            context.cancelled,
+        )?,
+    ];
+    let failed = RefCell::new(None);
+    let body_error = RefCell::new(None);
+    let originals = RefCell::new(originals::Originals {
+        stores: &stores,
+        physical: &mut work.objects_physical,
+        logical: &mut work.objects_logical,
+        occurrences: &mut work.originals_remaining,
+        max_bytes: work.max_original_bytes,
+        cancelled: context.cancelled,
+        error: &failed,
+    });
+    let canonical = RefCell::new(&mut work.canonical);
+    let cancelled = context.cancelled;
+    let memory = context.memory;
+    let max_original = work.max_original_bytes;
+    let mailbox_steps = &mut work.mailbox_search_steps;
+    let mut first_cancel = || cancelled.load(std::sync::atomic::Ordering::Acquire);
+    let mut second_cancel = || cancelled.load(std::sync::atomic::Ordering::Acquire);
+    let targets = pages::Targets::new(
+        targets,
+        &mut work.page_publish,
+        cancelled,
+        [&mut first_cancel, &mut second_cancel],
+    )?;
+    let RuntimeGenesisPhysicalBudgetsV1 {
+        producer_pages,
+        index_reads,
+        index_writes,
+        index,
+    } = physical;
+    let mut primary = source.value_session_with_cancelled(producer_pages, cancelled);
+    let mut fanout = pages::Fanout {
+        primary: &mut primary,
+        targets: &targets,
+        memory,
+    };
+    let mut persist_action = |_ordinal: u64, action: &oasis7_world_state::ActionEnvelope| {
+        let receipt = persist_action_original_v1(
+            action,
+            memory,
+            &mut canonical.borrow_mut(),
+            &mut || cancelled.load(Ordering::Acquire),
+            max_original,
+            &mut |stream: &mut dyn ActionOriginalStreamV1, poll: &mut dyn FnMut() -> bool| {
+                originals.borrow_mut().stream(stream, poll)
+            },
+        )
+        .map_err(|error| {
+            *body_error.borrow_mut() = Some(error);
+            ValueTreeError::Invalid("IWS GEN action original transfer failed")
+        })?;
+        Ok(
+            oasis7_formal_protocol::incremental_artifacts::OriginalArtifactRefV1 {
+                id: receipt.original_id(),
+                byte_len: receipt.original_bytes(),
+            },
+        )
+    };
+    let mut mailbox_original =
+        |_agent: &str, _ordinal: u64, event: &oasis7_world_state::DomainEvent| {
+            let mut selected = None;
+            for original in &world.journal().events {
+                *mailbox_steps = mailbox_steps
+                    .checked_sub(1)
+                    .ok_or(BodyMutationError::Invalid(
+                        "IWS GEN mailbox original search allowance",
+                    ))?;
+                if matches!(&original.body,WorldEventBody::Domain(domain) if domain==event) {
+                    selected = Some(original);
+                    break;
+                }
+            }
+            let original = selected.ok_or(BodyMutationError::Invalid(
+                "IWS GEN mailbox has no actual WorldEvent original",
+            ))?;
+            let receipt = persist_world_event_original_v1(
+                original,
+                memory,
+                &mut canonical.borrow_mut(),
+                &mut || cancelled.load(Ordering::Acquire),
+                max_original,
+                &mut |stream: &mut dyn ActionOriginalStreamV1, poll: &mut dyn FnMut() -> bool| {
+                    originals.borrow_mut().stream(stream, poll)
+                },
+            )?;
+            Ok(receipt.original_id())
+        };
+    let result = match common {
+        Some((common, retention_work)) => {
+            let mut catalog = business_originals::artifact_catalog::CatalogBuilder::new(
+                oasis7_formal_protocol::incremental_artifacts::ArtifactKindV1::Wasm,
+                common,
+            )?;
+            let catalog_error = RefCell::new(None);
+            let mut persist_artifact =
+                |reference: oasis7_formal_protocol::incremental_artifacts::OriginalArtifactRefV1,
+                 bytes: &[u8],
+                 common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>| {
+                    let actual = originals
+                        .borrow_mut()
+                        .raw_bounded(reference, bytes, common)
+                        .map_err(|error| {
+                            let mut first = body_error.borrow_mut();
+                            if first.is_none() {
+                                *first = Some(error);
+                            }
+                            ValueTreeError::Invalid("IWS GEN artifact original transfer failed")
+                        })?;
+                    catalog.append_original(actual, &originals, common).map_err(|error| {
+                        let mut first = catalog_error.borrow_mut();
+                        if first.is_none() {
+                            *first = Some(error);
+                        }
+                        ValueTreeError::Invalid("IWS GEN Wasm catalog failed")
+                    })
+                };
+            let mut journal_original = |event: &oasis7_world_state::WorldEvent,
+                                        common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>| {
+                originals
+                    .borrow_mut()
+                    .event_bounded(event, &mut canonical.borrow_mut(), common)
+            };
+            let mut snapshot_original = |snapshot: &oasis7_world_state::snapshot::SnapshotRecord,
+                                         common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>| {
+                originals
+                    .borrow_mut()
+                    .snapshot_bounded(snapshot, &mut canonical.borrow_mut(), common)
+            };
+            let mut hot_tick_original = |tick: &oasis7_world_state::consensus::TickConsensusRecord,
+                                         common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>| {
+                originals
+                    .borrow_mut()
+                    .hot_tick_bounded(tick, &mut canonical.borrow_mut(), common)
+            };
+            let mut retained_audit_original = |audit: &oasis7_world_state::consensus::TickConsensusRejectionAuditEvent,
+                                         common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>| {
+                originals
+                    .borrow_mut()
+                    .retained_audit_bounded(audit, &mut canonical.borrow_mut(), common)
+            };
+            let projected = prepare_projected_runtime_genesis_index_with_writer_v1(
+                world,
+                source,
+                config,
+                context,
+                producer,
+                RuntimeGenesisIndexBudgetsV1 {
+                    index_reads,
+                    index_writes,
+                    index,
+                },
+                &mut fanout,
+                &mut persist_artifact,
+                &mut persist_action,
+                &mut mailbox_original,
+                retention_work,
+                &mut journal_original,
+                &mut snapshot_original,
+                &mut hot_tick_original,
+                &mut retained_audit_original,
+                common,
+            );
+            if let Some(error) = catalog_error.into_inner() {
+                if let Some(store_error) = failed.borrow_mut().take() {
+                    return Err(IwsGenesisTransferErrorV1::Store(store_error));
+                }
+                return Err(error);
+            }
+            projected.map(|value| GenesisEndpointOutputV1::Projected(value, catalog))
+        }
+        None => {
+            let mut persist_artifact =
+                |reference: oasis7_formal_protocol::incremental_artifacts::OriginalArtifactRefV1,
+                 bytes: &[u8]| {
+                    originals
+                        .borrow_mut()
+                        .raw(reference.id, bytes)
+                        .map_err(|error| {
+                            *body_error.borrow_mut() = Some(error);
+                            ValueTreeError::Invalid("IWS GEN artifact original transfer failed")
+                        })
+                };
+            prepare_runtime_genesis_index_with_writer_v1(
+                world,
+                source,
+                config,
+                context,
+                producer,
+                RuntimeGenesisIndexBudgetsV1 {
+                    index_reads,
+                    index_writes,
+                    index,
+                },
+                &mut fanout,
+                &mut persist_artifact,
+                &mut persist_action,
+                &mut mailbox_original,
+            )
+            .map(GenesisEndpointOutputV1::Original)
+        }
+    };
+    if let Some(error) = failed.borrow_mut().take() {
+        return Err(IwsGenesisTransferErrorV1::Store(error));
+    }
+    if let Some(error) = targets.take_error() {
+        return Err(IwsGenesisTransferErrorV1::Store(error));
+    }
+    if let Some(error) = body_error.borrow_mut().take() {
+        return Err(IwsGenesisTransferErrorV1::Body(error));
+    }
+    let result = result.map_err(IwsGenesisTransferErrorV1::Genesis)?;
+    targets.check_healthy()?;
+    // Move the allowance out before IO. Even a poisoned read account cannot
+    // leave the original allowance available for an implicit retry.
+    let outer_io = std::mem::replace(
+        &mut work.outer_reads,
+        PageIoBudget {
+            reads_remaining: 0,
+            read_bytes_remaining: 0,
+            writes_remaining: 0,
+            write_bytes_remaining: 0,
+        },
+    );
+    let state = source.state_session_with_cancelled(
+        outer_io,
+        oasis7_proto::memory_budget::MemoryClass::Ordinary,
+        cancelled,
+    )?;
+    let transferred = pages::send_outer_indexes(
+        result.roots(),
+        &state,
+        &targets,
+        memory,
+        &mut work.outer_scan,
+    );
+    let actual_error = state.take_read_error();
+    let remaining = state.remaining_io();
+    if let Ok(remaining) = &remaining {
+        work.outer_reads = remaining.clone();
+    }
+    if let Some(error) = actual_error {
+        return Err(IwsGenesisTransferErrorV1::Store(error));
+    }
+    remaining?;
+    transferred?;
+    targets.finish()?;
+    targets.check_complete()?;
+    Ok(result)
+}
+/// Install only the actual transferred namespace. The endpoint still performs
+/// its complete candidate checks and retains both receipt/Qualified guards.
+pub(crate) fn install_iws_endpoint_pages_v1(
+    endpoint: &mut FileFormalEndpoint,
+    pages: IncrementalPageStore,
+    budgets: IwsEndpointVerificationBudgetsV1,
+    current: IwsCurrentLimitsV1,
+    memo: Option<(usize, usize)>,
+) -> Result<(), oasis7_distfs::controlled_authority::formal::FormalError> {
+    let mut capability =
+        IwsPageStoreCapabilityV1::new(pages, budgets)?.with_current_limits(current)?;
+    if let Some((entries, bytes)) = memo {
+        capability = capability.with_state_read_memo(entries, bytes)?;
+    }
+    endpoint.install_iws_page_store(capability)
+}
+
+#[cfg(all(test, unix))]
+#[path = "incremental_genesis_tests.rs"]
+mod tests;

@@ -2,7 +2,7 @@
 use super::*;
 
 #[derive(Clone, Copy)]
-pub(super) enum OwnerKeyKind {
+pub(crate) enum OwnerKeyKind {
     Text,
     Action,
 }
@@ -10,7 +10,7 @@ pub(super) enum OwnerKeyKind {
 /// Validates closed text/action semantic-key tokens without materializing
 /// arbitrarily long original keys. The record reader separately hashes the
 /// full stream and binds it to the structural field-key digest.
-pub(super) struct OwnerSemanticKeyProbe {
+pub(crate) struct OwnerSemanticKeyProbe {
     expected: OwnerKeyKind,
     prefix: [u8; SEMANTIC_KEY_DOMAIN.len() + 9],
     prefix_len: usize,
@@ -19,11 +19,11 @@ pub(super) struct OwnerSemanticKeyProbe {
     max_bytes: u64,
     utf8_pending: [u8; 4],
     utf8_pending_len: usize,
-    pub(super) invalid: bool,
+    pub(crate) invalid: bool,
 }
 
 impl OwnerSemanticKeyProbe {
-    pub(super) fn new(expected: OwnerKeyKind, max_bytes: u64) -> Self {
+    pub(crate) fn new(expected: OwnerKeyKind, max_bytes: u64) -> Self {
         Self {
             expected,
             prefix: [0; SEMANTIC_KEY_DOMAIN.len() + 9],
@@ -108,7 +108,7 @@ impl OwnerSemanticKeyProbe {
         }
     }
 
-    pub(super) fn finish(&self) -> bool {
+    pub(crate) fn finish(&self) -> bool {
         self.expected_total == Some(self.bytes_seen)
             && self.prefix_len == self.prefix.len()
             && (matches!(self.expected, OwnerKeyKind::Action) || self.utf8_pending_len == 0)

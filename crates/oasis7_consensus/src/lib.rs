@@ -250,3 +250,7 @@ mod tests {
 
 #[cfg(test)]
 mod membership_restore_auth_tests;
+
+pub mod normal_tick_input;
+
+pub mod replicated_execution_input;

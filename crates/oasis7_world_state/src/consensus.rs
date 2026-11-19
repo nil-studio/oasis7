@@ -82,8 +82,18 @@ pub struct TickBlock {
 
 impl TickBlock {
     pub fn block_hash(&self) -> String {
-        let payload = if self.header.schema_version >= TICK_BLOCK_HEADER_SCHEMA_V2 {
-            format!(
+        let mut payload = String::new();
+        // String's fmt::Write implementation is infallible.
+        let _ = self.write_hash_payload(&mut payload);
+        sha256_hex(payload.as_bytes())
+    }
+
+    /// The original consensus hash preimage, streamed without an intermediate
+    /// allocation. Bounded consumers can charge each actual write.
+    pub fn write_hash_payload(&self, output: &mut impl std::fmt::Write) -> std::fmt::Result {
+        if self.header.schema_version >= TICK_BLOCK_HEADER_SCHEMA_V2 {
+            write!(
+                output,
                 "tickblock:v2|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
                 self.header.parent_hash,
                 self.header.tick,
@@ -98,7 +108,8 @@ impl TickBlock {
                 self.header.committed_at_unix_ms.unwrap_or_default()
             )
         } else {
-            format!(
+            write!(
+                output,
                 "tickblock:v1|{}|{}|{}|{}|{}",
                 self.header.parent_hash,
                 self.header.tick,
@@ -106,8 +117,7 @@ impl TickBlock {
                 self.header.state_root,
                 self.header.executor_version
             )
-        };
-        sha256_hex(payload.as_bytes())
+        }
     }
 }
 
@@ -148,4 +158,64 @@ pub struct TickConsensusRejectionAuditEvent {
 pub struct TickConsensusDriftReport {
     pub tick: WorldTime,
     pub reason: String,
+}
+
+#[cfg(test)]
+mod streamed_hash_payload_tests {
+    use super::*;
+    fn block(schema_version: u16) -> TickBlock {
+        TickBlock {
+            header: TickBlockHeader {
+                schema_version,
+                epoch: 9,
+                tick: 17,
+                parent_hash: "parent".into(),
+                events_hash: "events".into(),
+                state_root: "state".into(),
+                executor_version: "executor".into(),
+                randomness_seed: "excluded".into(),
+                chain_height: Some(u64::MAX),
+                chain_slot: None,
+                chain_epoch: Some(23),
+                node_block_hash: Some("node".into()),
+                action_root: None,
+                committed_at_unix_ms: Some(i64::MIN),
+            },
+            ordered_action_ids: Vec::new(),
+            ordered_event_ids: Vec::new(),
+            event_count: 0,
+            execution_digest: TickExecutionDigest {
+                action_batch_hash: "excluded".into(),
+                domain_events_hash: "excluded".into(),
+                state_projection_hash: "excluded".into(),
+            },
+        }
+    }
+    #[test]
+    fn preserves_original_v1_v2_literal_payload_and_sink_refusal() {
+        for (version, expected) in [
+            (1, "tickblock:v1|parent|17|events|state|executor"),
+            (
+                2,
+                "tickblock:v2|parent|17|events|state|executor|18446744073709551615|0|23|node||-9223372036854775808",
+            ),
+            (
+                3,
+                "tickblock:v2|parent|17|events|state|executor|18446744073709551615|0|23|node||-9223372036854775808",
+            ),
+        ] {
+            let value = block(version);
+            let mut output = String::new();
+            value.write_hash_payload(&mut output).unwrap();
+            assert_eq!(output, expected);
+            assert_eq!(value.block_hash(), sha256_hex(expected.as_bytes()));
+        }
+        struct Refusal;
+        impl std::fmt::Write for Refusal {
+            fn write_str(&mut self, _: &str) -> std::fmt::Result {
+                Err(std::fmt::Error)
+            }
+        }
+        assert!(block(2).write_hash_payload(&mut Refusal).is_err());
+    }
 }

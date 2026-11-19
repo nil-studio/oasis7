@@ -11,6 +11,10 @@ fi
 # then retain each complete generated module in a separate role directory.
 mkdir .role-build-lock 2>/dev/null || { echo 'another role build is running' >&2; exit 2; }
 trap 'rmdir .role-build-lock' EXIT
+# worker-build uses this explicit path, not a wasm-bindgen executable on PATH.
+# Reuse the repository's exact Cargo.lock version and verified CLI resolver.
+WASM_BINDGEN_BIN="$(../../scripts/ensure-wasm-bindgen-cli.sh --print-bin)"
+export WASM_BINDGEN_BIN
 env -u RUSTC_WRAPPER worker-build --release --no-opt -- --locked --no-default-features --features "$role"
 mkdir -p artifacts
 if [[ -e "artifacts/$role" ]]; then rm -rf "artifacts/$role"; fi

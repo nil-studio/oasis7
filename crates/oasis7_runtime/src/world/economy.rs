@@ -20,14 +20,10 @@ use super::super::{
 use super::World;
 use oasis7_agent_api::world_action::ResourceKind;
 
-const FACTORY_BUILD_DECISION_EMIT_KIND: &str = "economy.factory_build_decision";
-const RECIPE_EXECUTION_PLAN_EMIT_KIND: &str = "economy.recipe_execution_plan";
-const PRODUCT_VALIDATION_EMIT_KIND: &str = "economy.product_validation";
-const FACTORY_DURABILITY_PPM_BASE: i64 = 1_000_000;
-const FACTORY_DEPRECIATION_PPM_PER_MAINTENANCE_UNIT: i64 = 1_000;
-const FACTORY_DEPRECIATION_REASON: &str = "depreciation_tick";
-const FACTORY_LOAD_FACTOR_BASE_BPS: i64 = 10_000;
-const FACTORY_LOAD_FACTOR_MAX_BPS: i64 = 20_000;
+pub(in crate::world) const FACTORY_BUILD_DECISION_EMIT_KIND: &str = "economy.factory_build_decision";
+pub(in crate::world) const RECIPE_EXECUTION_PLAN_EMIT_KIND: &str = "economy.recipe_execution_plan";
+pub(in crate::world) const PRODUCT_VALIDATION_EMIT_KIND: &str = "economy.product_validation";
+use super::incremental_factory_depreciation::{FACTORY_DEPRECIATION_REASON, depreciation_v1};
 const SURVIVAL_KEYWORDS: &[&str] = &[
     "survival",
     "lifeline",
@@ -69,7 +65,7 @@ pub(super) fn invalid_recipe_plan_stack_note(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum ProductionQueuePriority {
+pub(in crate::world) enum ProductionQueuePriority {
     Survival = 0,
     Energy = 1,
     Scale = 2,
@@ -77,12 +73,23 @@ enum ProductionQueuePriority {
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct ProductValidationModuleCallRequest {
-    product_id: String,
-    stack: MaterialStack,
+pub(in crate::world) struct ProductValidationModuleCallRequest<'a> {
+    product_id: &'a str,
+    stack: &'a MaterialStack,
     deterministic_seed: u64,
-    kind: String,
+    kind: &'a str,
     amount: i64,
+}
+impl<'a> ProductValidationModuleCallRequest<'a> {
+    pub(in crate::world) fn from_request(request: &'a ProductValidationRequest) -> Self {
+        Self {
+            product_id: &request.product_id,
+            stack: &request.stack,
+            deterministic_seed: request.deterministic_seed,
+            kind: &request.stack.kind,
+            amount: request.stack.amount,
+        }
+    }
 }
 
 #[expect(
@@ -420,7 +427,9 @@ impl World {
 
         bodies.reserve(due_recipes.len());
         for job in due_recipes {
-            if let super::industrial_completion::IndustrialCompletionGuard::Blocked(body) = self.industrial_completion_guard(&job) {
+            if let super::industrial_completion::IndustrialCompletionGuard::Blocked(body) =
+                self.industrial_completion_guard(&job)
+            {
                 bodies.extend(body.map(|body| *body));
                 continue;
             }
@@ -502,10 +511,14 @@ impl World {
         });
 
         for job in due_recipes {
-            if let super::industrial_completion::IndustrialCompletionGuard::Blocked(body) = self.industrial_completion_guard(&job) {
+            if let super::industrial_completion::IndustrialCompletionGuard::Blocked(body) =
+                self.industrial_completion_guard(&job)
+            {
                 if let Some(body) = body {
                     self.append_event(*body, None)?;
-                    if let Some(event) = self.journal.events.last() { emitted.push(event.clone()); }
+                    if let Some(event) = self.journal.events.last() {
+                        emitted.push(event.clone());
+                    }
                 }
                 continue;
             }
@@ -684,10 +697,7 @@ impl World {
             if validation_rejected {
                 continue;
             }
-            self.append_event(
-                Self::recipe_completion_body(job),
-                None,
-            )?;
+            self.append_event(Self::recipe_completion_body(job), None)?;
             if let Some(event) = self.journal.events.last() {
                 emitted.push(event.clone());
             }
@@ -710,49 +720,20 @@ impl World {
 
         self.add_manufacturing_factory_workload(&mut active_jobs_by_factory, now);
         for factory in factories {
-            if factory.built_at >= now {
-                continue;
-            }
-            let current = factory.durability_ppm.clamp(0, FACTORY_DURABILITY_PPM_BASE);
-            if current <= 0 {
-                continue;
-            }
-            let maintenance_rate = factory.spec.maintenance_per_tick.max(0);
-            if maintenance_rate <= 0 {
-                continue;
-            }
-            let base_decay = maintenance_rate
-                .saturating_mul(FACTORY_DEPRECIATION_PPM_PER_MAINTENANCE_UNIT)
-                .clamp(0, FACTORY_DURABILITY_PPM_BASE);
-            if base_decay <= 0 {
-                continue;
-            }
             let active_jobs = active_jobs_by_factory
                 .get(factory.factory_id.as_str())
                 .copied()
                 .unwrap_or(0);
-            let recipe_slots = i64::from(factory.spec.recipe_slots.max(1));
-            let utilization_bps = ((active_jobs as i128)
-                .saturating_mul(FACTORY_LOAD_FACTOR_BASE_BPS as i128)
-                .saturating_div(recipe_slots as i128))
-            .clamp(0, FACTORY_LOAD_FACTOR_BASE_BPS as i128)
-                as i64;
-            let load_factor_bps = FACTORY_LOAD_FACTOR_BASE_BPS
-                .saturating_add(utilization_bps)
-                .clamp(FACTORY_LOAD_FACTOR_BASE_BPS, FACTORY_LOAD_FACTOR_MAX_BPS);
-            let decay = ((base_decay as i128)
-                .saturating_mul(load_factor_bps as i128)
-                .saturating_div(FACTORY_LOAD_FACTOR_BASE_BPS as i128))
-            .clamp(0, FACTORY_DURABILITY_PPM_BASE as i128) as i64;
-            if decay <= 0 {
+            let Some((current, durability_ppm)) = depreciation_v1(
+                now,
+                factory.built_at,
+                factory.durability_ppm,
+                factory.spec.maintenance_per_tick,
+                factory.spec.recipe_slots,
+                active_jobs,
+            ) else {
                 continue;
-            }
-            let durability_ppm = current
-                .saturating_sub(decay)
-                .clamp(0, FACTORY_DURABILITY_PPM_BASE);
-            if durability_ppm == current {
-                continue;
-            }
+            };
 
             prepared.push(WorldEventBody::Domain(
                 DomainEvent::FactoryDurabilityChanged {
@@ -835,48 +816,26 @@ impl World {
         &self,
         job: &super::super::FactoryBuildJobState,
     ) -> ProductionQueuePriority {
-        let mut tokens = vec![
-            job.spec.factory_id.to_ascii_lowercase(),
-            job.spec.display_name.to_ascii_lowercase(),
-        ];
-        tokens.extend(job.spec.tags.iter().map(|tag| tag.to_ascii_lowercase()));
-        production_priority_from_tokens(
-            &tokens,
-            self.is_electricity_critical(),
-            self.is_hardware_parts_critical(),
-            ProductionQueuePriority::Expansion,
-        )
+        match due_priority::factory_priority_with_facts_v1(
+            &mut due_priority::LegacyDuePriorityFactsV1 { world: self },
+            job,
+        ) {
+            Ok(value) => value,
+            Err(never) => match never {},
+        }
     }
 
     fn production_priority_for_recipe_job(
         &self,
         job: &super::super::RecipeJobState,
     ) -> ProductionQueuePriority {
-        let mut tokens = vec![job.recipe_id.to_ascii_lowercase()];
-        tokens.extend(
-            job.produce
-                .iter()
-                .map(|stack| stack.kind.to_ascii_lowercase()),
-        );
-        tokens.extend(
-            job.byproducts
-                .iter()
-                .map(|stack| stack.kind.to_ascii_lowercase()),
-        );
-        let baseline = self
-            .production_priority_from_recipe_role_tags(job)
-            .unwrap_or_else(|| {
-                production_priority_from_tokens(
-                    &tokens,
-                    self.is_electricity_critical(),
-                    self.is_hardware_parts_critical(),
-                    ProductionQueuePriority::Scale,
-                )
-            });
-        if self.is_bottleneck_pressure_active(&job.bottleneck_tags) {
-            return bump_recipe_priority_under_bottleneck(baseline);
+        match due_priority::recipe_priority_with_facts_v1(
+            &mut due_priority::LegacyDuePriorityFactsV1 { world: self },
+            job,
+        ) {
+            Ok(value) => value,
+            Err(never) => match never {},
         }
-        baseline
     }
 
     fn production_priority_from_recipe_role_tags(
@@ -927,13 +886,7 @@ impl World {
             |index| format!("action-{action_id}-{module_id}-product-{index}"),
         );
         // Keep backward compatibility for product modules that decode legacy stack-only payloads.
-        let wire_request = ProductValidationModuleCallRequest {
-            product_id: request.product_id.clone(),
-            stack: request.stack.clone(),
-            deterministic_seed: request.deterministic_seed,
-            kind: request.stack.kind.clone(),
-            amount: request.stack.amount,
-        };
+        let wire_request = ProductValidationModuleCallRequest::from_request(request);
         let output =
             self.execute_economy_module_call(module_id, &trace_id, &wire_request, sandbox)?;
         if !output.effects.is_empty() {
@@ -947,22 +900,12 @@ impl World {
     }
 
     pub(super) fn resolve_product_module_for_stack(&self, product_kind: &str) -> Option<String> {
-        if let Some(module_id) = Self::builtin_product_module_for_kind(product_kind)
-            && self.module_registry.active.contains_key(module_id)
-        {
-            return Some(module_id.to_string());
-        }
-        let suffix = format!(".{product_kind}");
-        self.module_registry
-            .active
-            .keys()
-            .find(|module_id| {
-                module_id.contains(".product.") && module_id.ends_with(suffix.as_str())
-            })
-            .cloned()
+        match readonly_recipe_modules::select_product_module_v1(product_kind,Self::builtin_product_module_for_kind(product_kind),&mut|id|Ok::<_,std::convert::Infallible>(self.module_registry.active.contains_key(id)),&mut|visit|{for id in self.module_registry.active.keys(){if visit(id)?.is_break(){break}}Ok(())},&mut|_,_,_|Ok(())){Ok(result)=>result,Err(error)=>match error{}}
     }
 
-    fn builtin_product_module_for_kind(product_kind: &str) -> Option<&'static str> {
+    pub(in crate::world) fn builtin_product_module_for_kind(
+        product_kind: &str,
+    ) -> Option<&'static str> {
         match product_kind {
             "iron_ingot" => Some(M4_PRODUCT_IRON_INGOT_MODULE_ID),
             "alloy_plate" => Some(M4_PRODUCT_ALLOY_PLATE_MODULE_ID),
@@ -1117,6 +1060,19 @@ impl World {
     }
 }
 
+pub(in crate::world) fn production_priority_from_factory_tokens_v1(
+    tokens: &[String],
+    electricity_critical: bool,
+    hardware_critical: bool,
+) -> ProductionQueuePriority {
+    production_priority_from_tokens(
+        tokens,
+        electricity_critical,
+        hardware_critical,
+        ProductionQueuePriority::Expansion,
+    )
+}
+
 fn production_priority_from_tokens(
     tokens: &[String],
     electricity_critical: bool,
@@ -1179,3 +1135,15 @@ fn production_priority_from_role_tag(role_tag: &str) -> Option<ProductionQueuePr
         _ => None,
     }
 }
+
+#[path = "incremental_normal_industry_due_priority.rs"]
+pub(in crate::world) mod due_priority;
+pub(in crate::world) fn critical_electricity_floor_for_due_v1() -> i64 {
+    CRITICAL_ELECTRICITY_FLOOR
+}
+pub(in crate::world) fn critical_hardware_floor_for_due_v1() -> i64 {
+    CRITICAL_HARDWARE_PART_FLOOR
+}
+
+#[path="readonly_recipe_modules.rs"]
+pub(in crate::world) mod readonly_recipe_modules;

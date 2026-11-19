@@ -262,10 +262,9 @@ impl World {
                 action_id,
                 event_id,
             } => {
-                let mut projected = self.clone();
-                projected.capability_revocation_state = capability_revocation_state.clone();
-                let record =
-                    projected.safe_alternative_outcome_projection(key, *action_id, *event_id)?;
+                let record=super::incremental_safe_alternative_originals::project_outcome_from_originals_v1(
+                    capability_revocation_state.safe_alternatives.get(key),*action_id,*event_id,&self.journal.events,
+                )?;
                 capability_revocation_state
                     .safe_alternatives
                     .insert(key.clone(), record);
@@ -306,7 +305,9 @@ impl World {
             }
             CapabilityAuthorizationEvent::AuthorityInstalledWithProof { record, proof } => {
                 if self.devlocal_participant_authority.is_some() {
-                    return Err(super::capability_authorization::deny("finality authority conflicts with explicit DevLocal participant authority"));
+                    return Err(super::capability_authorization::deny(
+                        "finality authority conflicts with explicit DevLocal participant authority",
+                    ));
                 }
 
                 super::capability_authorization::validate_authority_record(record)?;

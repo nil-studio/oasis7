@@ -713,6 +713,9 @@ jobs:
           if [[ "$PREVIEW_GROUP" == oasis7_required ]]; then
             plan_args+=(--ordinary-partition "$PREVIEW_PARTITION")
           fi
+          if [[ "$PREVIEW_SAMPLE" == runtime-world && "$PREVIEW_GROUP" == oasis7_required && "$PREVIEW_PARTITION" == oasis7_world_state ]]; then
+            export OASIS7_CI_BUILD_DIAGNOSTICS="$RUNNER_TEMP/pr-fast-preview-build-diagnostics"
+          fi
           bash scripts/ci-tests.sh required --group "$PREVIEW_GROUP" "${plan_args[@]}" \
             --repo-root "$GITHUB_WORKSPACE" 2>&1 | tee "$RUNNER_TEMP/pr-fast-preview.log"
       - name: Record preview group timing and outcome
@@ -743,6 +746,7 @@ jobs:
           path: |
             ${{ runner.temp }}/pr-fast-preview.log
             ${{ runner.temp }}/pr-fast-preview-timing.json
+            ${{ runner.temp }}/pr-fast-preview-build-diagnostics
           retention-days: 14
           if-no-files-found: error
 
@@ -1015,10 +1019,11 @@ jobs:
         name: Build ordinary test artifacts
         env:
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+          CARGO_BUILD_JOBS: "1"
           ORDINARY_DELIVERY_VERSION: ${{ fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version || 0 }}
         run: |
           set -euo pipefail
-          python3 scripts/ci-test-artifacts.py build --scope ordinary --plan "$RUNNER_TEMP/selection.json" --bundle "$RUNNER_TEMP/native-tests" --cache-state "$RUNNER_TEMP/ordinary-cache-state.json"
+          python3 scripts/ci-test-artifacts.py build --scope ordinary --plan "$RUNNER_TEMP/selection.json" --bundle "$RUNNER_TEMP/native-tests" --cache-state "$RUNNER_TEMP/ordinary-cache-state.json" --build-diagnostics "$RUNNER_TEMP/ordinary-build-diagnostics"
           if [[ "$ORDINARY_DELIVERY_VERSION" == 1 || "$ORDINARY_DELIVERY_VERSION" == 2 ]]; then
             python3 scripts/ci-test-artifacts.py pack --split-ordinary --plan "$RUNNER_TEMP/selection.json" --bundle "$RUNNER_TEMP/native-tests" --suite ordinary --output "$RUNNER_TEMP/ordinary-archives"
           else
@@ -2141,6 +2146,14 @@ jobs:
             --common-archive "$RUNNER_TEMP/ordinary-archives/common.tar.gz" \
             --partition-archive "$RUNNER_TEMP/ordinary-archives/$ORDINARY_PARTITION.tar.gz" \
             --ordinary-partition "$ORDINARY_PARTITION" --bundle "$RUNNER_TEMP/native-tests"
+      - name: Execute complete IWS native Host target
+        if: >-
+          matrix.partition == fromJSON(needs.select.outputs.ordinary_partitions)[0] &&
+          contains(fromJSON(needs.select.outputs.plan).oasis7_required_packages, 'oasis7_chain_runtime')
+        shell: bash
+        env:
+          CI_VERBOSE: "1"
+        run: bash ./scripts/ci-tests.sh required --group "iws_host_native" --repo-root "$GITHUB_WORKSPACE"
       - name: Execute selected group
         shell: bash
         env:
@@ -3528,8 +3541,13 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
-      - name: Install Rust for packaging contract fixtures
-        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+      - name: Install pinned Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+          cargo --version
+          rustc --version
       - name: Execute selected group
         shell: bash
         env:

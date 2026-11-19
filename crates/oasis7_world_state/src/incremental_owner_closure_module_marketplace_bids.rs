@@ -227,7 +227,7 @@ where
     clippy::too_many_arguments,
     reason = "Validates one pair membership child against the same parent scan and shared budgets."
 )]
-fn validate_bid_group<M, V, C>(
+pub(super) fn validate_bid_group<M, V, C>(
     primary: &StateRootV1,
     reader: &StateScanReader<'_, M, C>,
     field: FieldDescriptor,

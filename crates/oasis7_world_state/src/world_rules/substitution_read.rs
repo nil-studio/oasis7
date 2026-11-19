@@ -1,20 +1,25 @@
 //! One authorized projection for native API, Agent and Viewer consumers.
 use super::{WorldRulesStateV1, industrial_work, recipe_substitution};
 use crate::WorldState;
-use oasis7_agent_api::world_action::SubstitutionPreviewRequestV1;
-use oasis7_agent_api::world_action::{
-    IndustrialWorkCommandV1, RecipeSubstitutionCommandV1, WorldRuleCommandV1,
-};
+use oasis7_agent_api::world_action::WorldRuleCommandV1;
 
 impl WorldRulesStateV1 {
     /// Reacquiring an Agent identity does not grant access to its former owner's records.
     pub fn for_current_reader(&self, state: &WorldState, reader: Option<&str>) -> Self {
+        let owner = reader.and_then(|actor| state.resolved_agent_owner(actor));
+        self.for_current_reader_from_owner_v1(reader, owner.as_ref())
+    }
+    /// Same visibility kernel over actual readonly owner facts. A caller cannot
+    /// supply a canRead verdict or an owner-binding digest.
+    pub fn for_current_reader_from_owner_v1(
+        &self,
+        reader: Option<&str>,
+        owner: Option<&crate::ResolvedAgentOwnerV1>,
+    ) -> Self {
         let mut view = self.for_reader(reader);
-        let Some((actor, binding)) = reader.and_then(|actor| {
-            super::industrial_work_admission::industrial_owner_binding(state, actor)
-                .ok()
-                .map(|binding| (actor, binding))
-        }) else {
+        let Some((actor, binding)) = reader.zip(
+            super::industrial_work_admission::industrial_owner_binding_from_owner_v1(owner).ok(),
+        ) else {
             view.requests.retain(|_, r| {
                 !matches!(
                     r.command,
@@ -47,18 +52,34 @@ impl WorldRulesStateV1 {
             .retain(|id, _| work.roots.contains_key(id));
         let mut substitutions = recipe_substitution::for_reader(&self.substitution, actor);
         substitutions.authorities.retain(|_, a| {
-            a.owner_binding_digest == binding
-                && work
-                    .roots
-                    .get(&a.root_ref.id)
-                    .is_some_and(|r| r.root_ref == a.root_ref)
+            super::substitution_visibility::substitution_authority_visible_with_work_v1(
+                a,
+                actor,
+                &binding,
+                &mut |_, _| Ok::<(), std::convert::Infallible>(()),
+                &mut |reference| {
+                    Ok(work
+                        .roots
+                        .get(&reference.id)
+                        .is_some_and(|root| root.root_ref == *reference))
+                },
+            )
+            .unwrap()
         });
         substitutions.decisions.retain(|_, d| {
-            d.candidate.authority.owner_binding_digest == binding
-                && work
-                    .roots
-                    .get(&d.intent.preview.request.root_ref.id)
-                    .is_some_and(|r| r.root_ref == d.intent.preview.request.root_ref)
+            super::substitution_visibility::substitution_decision_visible_with_work_v1(
+                d,
+                actor,
+                &binding,
+                &mut |_, _| Ok::<(), std::convert::Infallible>(()),
+                &mut |reference| {
+                    Ok(work
+                        .roots
+                        .get(&reference.id)
+                        .is_some_and(|root| root.root_ref == *reference))
+                },
+            )
+            .unwrap()
         });
         substitutions
             .settlements
@@ -86,40 +107,32 @@ impl WorldRulesStateV1 {
             .filter(|(_, receipt)| receipt.actor_id == actor)
             .map(|(id, receipt)| (id.clone(), receipt.clone()))
             .collect();
-        view.requests.retain(|_, receipt| match &receipt.command {
-            WorldRuleCommandV1::IndustrialWork { command } => match command.as_ref() {
-                IndustrialWorkCommandV1::ImportQualifiedLot { facts, .. } => {
-                    facts.owner_binding_digest == binding
-                }
-                IndustrialWorkCommandV1::AcceptRoot { authority, .. } => {
-                    authority.owner_binding_digest == binding
-                }
-                IndustrialWorkCommandV1::ReleaseLot { lot_ref } => work
-                    .lots
-                    .get(&lot_ref.id)
-                    .is_some_and(|l| l.lot_ref == *lot_ref),
-                IndustrialWorkCommandV1::StartRoot { root_ref, .. }
-                | IndustrialWorkCommandV1::TerminateRoot { root_ref, .. } => work
-                    .roots
-                    .get(&root_ref.id)
-                    .is_some_and(|r| r.root_ref == *root_ref),
-            },
-            WorldRuleCommandV1::RecipeSubstitution { command } => match command.as_ref() {
-                RecipeSubstitutionCommandV1::PublishAuthority { authority, .. } => {
-                    authority.owner_binding_digest == binding
-                }
-                RecipeSubstitutionCommandV1::Confirm { confirmation } => work
-                    .roots
-                    .get(&confirmation.preview.request.root_ref.id)
-                    .is_some_and(|r| r.root_ref == confirmation.preview.request.root_ref),
-                RecipeSubstitutionCommandV1::Convert { decision_ref }
-                | RecipeSubstitutionCommandV1::ApplyBinding { decision_ref }
-                | RecipeSubstitutionCommandV1::Cutover { decision_ref, .. } => substitutions
-                    .decisions
-                    .get(&decision_ref.id)
-                    .is_some_and(|d| d.decision_ref == *decision_ref),
-            },
-            _ => true,
+        view.requests.retain(|_, receipt| {
+            super::substitution_visibility::current_rule_request_visible_with_work_v1(
+                receipt,
+                Some(actor),
+                Some(&binding),
+                &mut |_, _| Ok::<(), std::convert::Infallible>(()),
+                &mut |reference| {
+                    Ok(work
+                        .roots
+                        .get(&reference.id)
+                        .is_some_and(|r| r.root_ref == *reference))
+                },
+                &mut |reference| {
+                    Ok(work
+                        .lots
+                        .get(&reference.id)
+                        .is_some_and(|l| l.lot_ref == *reference))
+                },
+                &mut |reference| {
+                    Ok(substitutions
+                        .decisions
+                        .get(&reference.id)
+                        .is_some_and(|d| d.decision_ref == *reference))
+                },
+            )
+            .unwrap()
         });
         view.industrial_work = work;
         view.substitution = substitutions;
@@ -133,50 +146,13 @@ impl WorldState {
         reader: Option<&str>,
         world_binding: Option<&str>,
     ) -> Option<serde_json::Value> {
-        let actor = reader?;
-        let rules = self
-            .world_rules
-            .as_ref()?
-            .for_current_reader(self, Some(actor));
-        let work = rules.industrial_work;
-        let substitutions = rules.substitution;
-        let mut previews = Vec::new();
-        let mut truncated = false;
-        for root in work.roots.values() {
-            for slot in root.slots.keys() {
-                if previews.len() == 128 {
-                    truncated = true;
-                    break;
-                }
-                let request = SubstitutionPreviewRequestV1 {
-                    root_ref: root.root_ref.clone(),
-                    slot_id: slot.clone(),
-                    authority_refs: Vec::new(),
-                };
-                let result = world_binding
-                    .ok_or_else(|| super::invalid("substitution_world_binding_missing"))
-                    .and_then(|world| {
-                        recipe_substitution::preview_substitution(
-                            self, actor, &request, world, self.time,
-                        )
-                    });
-                previews.push(match result {
-                    Ok(preview) => serde_json::json!({"preview":preview}),
-                    Err(error) => serde_json::json!({
-                        "request":request,"status":"unknown","blocker":format!("{error:?}"),
-                        "next_action":"restore_authority_and_preview_again"
-                    }),
-                });
-            }
-            if truncated {
-                break;
-            }
+        match super::readonly_status_substitution::substitution_status_readonly_v1(
+            self,
+            reader,
+            world_binding,
+        ) {
+            Ok(value) => value,
+            Err(never) => match never {},
         }
-        Some(serde_json::json!({
-            "schema":"recipe-substitution/v1","reader_agent_id":actor,"source_tick":self.time,
-            "roots":work.roots,"previews":previews,"decisions":substitutions.decisions,
-            "settlements":substitutions.settlements,"residuals":substitutions.retained_residuals,"truncated":truncated,
-            "decision_effect":"selection_only","conversion_effect":"linked_settlement_only"
-        }))
     }
 }

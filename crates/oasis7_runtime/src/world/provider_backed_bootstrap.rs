@@ -13,7 +13,7 @@ use super::super::capability_authorization::{
 use super::super::error::WorldError;
 use super::World;
 use super::cognition_economy::{CognitionProvisioningReceiptV1, CognitionProvisioningRequestV1};
-use oasis7_wasm_abi::{CapabilityGrantV2, CapabilitySubject};
+use oasis7_wasm_abi::CapabilityGrantV2;
 use serde::{Deserialize, Serialize};
 
 /// Pre-verified authority input for one ProviderBacked agent.
@@ -268,92 +268,15 @@ impl World {
         input: &ProviderBackedBootstrapAuthorityV1,
     ) -> Result<(), WorldError> {
         let binding = self.current_cognition_runtime_binding()?;
-        if input.agent_id.trim().is_empty()
-            || input.owner_binding.trim().is_empty()
-            || input.owner_generation == 0
-            || input.identity.owner_binding != input.owner_binding
-            || input.identity.generation != input.owner_generation
-            || input.world_id != binding.world_id
-            || input.branch_id != binding.branch_id
-            || input.reorg_epoch != binding.reorg_epoch
-        {
-            return Err(bootstrap_denied(
-                "provider bootstrap identity does not match live Runtime binding",
-            ));
-        }
+        input_rules::validate_binding_fields_v1(input, &binding)?;
         if !self.state.agents.contains_key(&input.agent_id) {
             return Err(bootstrap_denied("provider bootstrap requires a live agent"));
         }
-
-        match &input.grant.subject {
-            CapabilitySubject::Agent {
-                agent_id,
-                owner_binding,
-                generation,
-            } if agent_id == &input.agent_id
-                && owner_binding == &input.owner_binding
-                && *generation == input.owner_generation => {}
-            _ => {
-                return Err(bootstrap_denied(
-                    "provider bootstrap grant subject does not match identity",
-                ));
-            }
-        }
-        if input.grant.audience.world_id != input.world_id
-            || input.grant.audience.branch_id != input.branch_id
-            || input.grant.audience.finality_epoch != binding.finality_epoch
-        {
-            return Err(bootstrap_denied(
-                "provider bootstrap grant audience does not match Runtime binding",
-            ));
-        }
-        if input.authority_record.world_id != input.world_id
-            || input.authority_record.branch_id != input.branch_id
-            || input.authority_record.finality_epoch != binding.finality_epoch
-            || input.authority_record.finality_status != "finalized"
-            || input.authority_record.issuer_id != input.grant.issuer.issuer_id
-        {
-            return Err(bootstrap_denied(
-                "provider bootstrap authority record does not match grant binding",
-            ));
-        }
-        if input.invocation_context.grant_id != input.grant.grant_id
-            || input.invocation_context.subject != input.grant.subject
-            || input.invocation_context.audience != input.grant.audience
-            || input.invocation_context.module_id != input.grant.scope.module_id
-            || input.invocation_context.module_version != input.grant.scope.module_version
-        {
-            return Err(bootstrap_denied(
-                "provider bootstrap invocation context identity mismatch",
-            ));
-        }
-
-        let expected_request = CognitionProvisioningRequestV1::new(
-            input.provision_id.clone(),
-            input.owner_binding.clone(),
-            input.owner_binding.clone(),
-            input.owner_generation,
-            input.world_id.clone(),
-            input.branch_id.clone(),
-            input.reorg_epoch,
-            input.allowance,
-            input.authority_context.clone(),
-        );
-        expected_request
-            .validate()
-            .map_err(|error| bootstrap_denied(format!("provider bootstrap request: {error}")))?;
-        if expected_request.authority_digest != input.authority_digest
-            || expected_request.provisioning_digest != input.provisioning_digest
-        {
-            return Err(bootstrap_denied(
-                "provider bootstrap provisioning digest does not match request",
-            ));
-        }
-        Ok(())
+        input_rules::validate_authority_fields_v1(input, &binding)
     }
 }
 
-fn bootstrap_denied(reason: impl Into<String>) -> WorldError {
+pub(super) fn bootstrap_denied(reason: impl Into<String>) -> WorldError {
     WorldError::CapabilityAuthorizationDenied {
         reason: reason.into(),
     }
@@ -589,3 +512,6 @@ mod tests {
         let _ = fs::remove_dir_all(dir);
     }
 }
+
+#[path = "normal_bootstrap_current_rules.rs"]
+pub(super) mod input_rules;

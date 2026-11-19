@@ -95,6 +95,19 @@ fn actual_public_agent_event_streams_large_originals_then_reopens_in_small_recov
                 &cancelled,
             )
             .unwrap();
+            let roots = parent.roots.clone();
+            let mut material_backing = materials::MaterialFixtureV1::build(
+                &roots,
+                &source,
+                &values,
+                &memory,
+                materials::MaterialFixtureLimitsV1::for_state(world.state()),
+                || source.take_read_error().map(state_error),
+                || false,
+            );
+            let mut material_context = material_backing.context(&roots, &source, || {
+                source.take_read_error().map(state_error)
+            });
             let live = parent.fence().unwrap();
             let mut tx =
                 ExecutionTransaction::begin(parent.clone(), [4; 32], &source, &memory, limits())
@@ -131,6 +144,8 @@ fn actual_public_agent_event_streams_large_originals_then_reopens_in_small_recov
                         max_event_bytes: length + 4096,
                         original_work: work,
                     },
+                    &mut material_context,
+                    &live,
                 )
                 .unwrap();
             let guard = tx.guard();
@@ -205,7 +220,7 @@ fn actual_original_last_flush_cancellation_and_io_quota_abort_all_outer_state() 
             let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
             let store =
                 IncrementalPageStore::create(&root, memory.clone(), PageCompression::Raw).unwrap();
-            fixture(&store, &memory)
+            fixture_with_page_layout(&store, &memory, StatePageLayout::Individual)
         };
         let memory = MemoryBudget::new(16 << 20, 4 << 20).unwrap();
         let store = IncrementalPageStore::open(
@@ -231,6 +246,18 @@ fn actual_original_last_flush_cancellation_and_io_quota_abort_all_outer_state() 
         if mode == 2 {
             physical_io.writes_remaining = 0;
         }
+        let roots = parent.roots.clone();
+        let mut material_backing = materials::MaterialFixtureV1::build(
+            &roots,
+            &state,
+            &values,
+            &memory,
+            materials::MaterialFixtureLimitsV1::for_state(world.state()),
+            || state.take_read_error().map(state_error),
+            || false,
+        );
+        let mut material_context =
+            material_backing.context(&roots, &state, || state.take_read_error().map(state_error));
         let live = parent.fence().unwrap();
         let mut tx =
             ExecutionTransaction::begin(parent, [4; 32], &state, &memory, limits()).unwrap();
@@ -297,6 +324,8 @@ fn actual_original_last_flush_cancellation_and_io_quota_abort_all_outer_state() 
                 max_event_bytes: 4096,
                 original_work: original_work(),
             },
+            &mut material_context,
+            &live,
         );
         if mode < 2 {
             assert!(
@@ -345,7 +374,7 @@ fn fake_completed_sink_does_not_create_a_readable_fact_original() {
         let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
         let store =
             IncrementalPageStore::create(&root, memory.clone(), PageCompression::Raw).unwrap();
-        fixture(&store, &memory)
+        fixture_with_page_layout(&store, &memory, StatePageLayout::Individual)
     };
     let memory = MemoryBudget::new(16 << 20, 4 << 20).unwrap();
     let store = IncrementalPageStore::open(
@@ -360,6 +389,18 @@ fn fake_completed_sink_does_not_create_a_readable_fact_original() {
         .unwrap();
     let values = store.value_session(physical());
     let mut sink = store.value_session(physical());
+    let roots = parent.roots.clone();
+    let mut material_backing = materials::MaterialFixtureV1::build(
+        &roots,
+        &state,
+        &values,
+        &memory,
+        materials::MaterialFixtureLimitsV1::for_state(world.state()),
+        || state.take_read_error().map(state_error),
+        || false,
+    );
+    let mut material_context =
+        material_backing.context(&roots, &state, || state.take_read_error().map(state_error));
     let live = parent.fence().unwrap();
     let mut tx = ExecutionTransaction::begin(parent, [4; 32], &state, &memory, limits()).unwrap();
     world
@@ -385,6 +426,8 @@ fn fake_completed_sink_does_not_create_a_readable_fact_original() {
                 max_event_bytes: 4096,
                 original_work: original_work(),
             },
+            &mut material_context,
+            &live,
         )
         .unwrap();
     let guard = tx.guard();

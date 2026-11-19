@@ -19,7 +19,7 @@ fn invalid(reason: impl Into<String>) -> WorldError {
         reason: reason.into(),
     }
 }
-fn verify_key_proof(
+pub(in crate::world) fn verify_key_proof(
     body: &BootstrapFinalityKeyRotationBodyV1,
     proof: &BootstrapFinalityKeyRotationProofV1,
     role: BootstrapFinalityKeyRotationRoleV1,
@@ -53,42 +53,7 @@ impl World {
         &self,
         admissions: &BTreeMap<String, GovernanceValidatorAdmissionRecord>,
     ) -> Result<(), WorldError> {
-        validate_finality_key_rotation_history_capacity(
-            self.state.governance_finality_key_rotations.len(),
-            self.state.governance_bootstrap_finality_key_rotations.len(),
-        )
-        .map_err(invalid)?;
-        let mut keys = std::collections::BTreeSet::new();
-        if let Some(raw) = &self.state.governance_finality_signer_registry {
-            keys.extend(raw.signer_bindings.values().cloned());
-        }
-        for record in self.state.governance_finality_key_rotations.values() {
-            let body = record.body().map_err(invalid)?;
-            let origin = admissions
-                .get(&body.candidate_id)
-                .ok_or_else(|| invalid("rotation original admission missing"))?;
-            if body.new_public_key_hex == origin.finality_signer_public_key
-                || !keys.insert(body.new_public_key_hex.clone())
-            {
-                return Err(invalid(
-                    "retained rotation reuses its origin or a historical new key",
-                ));
-            }
-        }
-        for (id, record) in &self.state.governance_bootstrap_finality_key_rotations {
-            let body = record.body().map_err(invalid)?;
-            if self
-                .state
-                .governance_finality_key_rotations
-                .contains_key(id)
-                || !keys.insert(body.new_public_key_hex.clone())
-            {
-                return Err(invalid(
-                    "retained bootstrap rotation reuses a rotation ID or key",
-                ));
-            }
-        }
-        Ok(())
+        super::governance::module_admission_finality::ModuleFinalityRecordsV1::from_world(self).validate_retained_rotation_namespace(admissions)
     }
     /// All sources share one ID/key namespace and one capacity budget. Include
     /// current-batch reservations as well as the immutable parent authorities.
@@ -165,95 +130,7 @@ impl World {
         authority: &BTreeMap<String, &GovernanceValidatorAdmissionRecord>,
         epoch: u64,
     ) -> Result<(), WorldError> {
-        validate_finality_key_rotation_history_capacity(
-            self.state.governance_finality_key_rotations.len(),
-            self.state.governance_bootstrap_finality_key_rotations.len(),
-        )
-        .map_err(invalid)?;
-        if self
-            .state
-            .governance_bootstrap_finality_key_rotations
-            .is_empty()
-        {
-            return Ok(());
-        }
-        let raw = self
-            .state
-            .governance_finality_signer_registry
-            .as_ref()
-            .ok_or_else(|| invalid("bootstrap rotation source registry missing"))?;
-        let source_digest = bootstrap_finality_registry_digest_v1(raw).map_err(invalid)?;
-        let mut groups: BTreeMap<&str, Vec<&BootstrapFinalityKeyRotationRecordV1>> =
-            BTreeMap::new();
-        for (id, record) in &self.state.governance_bootstrap_finality_key_rotations {
-            record.validate().map_err(invalid)?;
-            let body = record.body().map_err(invalid)?;
-            if id != &body.rotation_id
-                || self
-                    .state
-                    .governance_finality_key_rotations
-                    .contains_key(id)
-                || body.bootstrap_registry_digest_hex != source_digest
-                || raw.signer_bindings.get(&body.node_id) != Some(&body.bootstrap_public_key_hex)
-            {
-                return Err(invalid(
-                    "bootstrap rotation original source or identity mismatch",
-                ));
-            }
-            groups.entry(&body.node_id).or_default().push(record);
-        }
-        for (node, mut records) in groups {
-            records.sort_by_key(|r| r.body().map(|b| b.expected_generation).unwrap_or(u64::MAX));
-            let mut key = raw
-                .signer_bindings
-                .get(node)
-                .cloned()
-                .ok_or_else(|| invalid("bootstrap rotation source node missing"))?;
-            let mut effective = key.clone();
-            let mut generation = 0_u64;
-            let mut previous_activation = None;
-            for record in records {
-                let (body, old, new) = record.typed_parts().map_err(invalid)?;
-                if body.expected_generation != generation
-                    || body.old_public_key_hex != key
-                    || previous_activation.is_some_and(|height| body.decision_height < height)
-                    || body
-                        .target_epoch
-                        .checked_mul(self.governance_execution_policy().epoch_length_ticks)
-                        != Some(body.activation_height)
-                {
-                    return Err(invalid(
-                        "bootstrap rotation history generation, key or boundary discontinuity",
-                    ));
-                }
-                verify_key_proof(
-                    body,
-                    old,
-                    BootstrapFinalityKeyRotationRoleV1::OldKeyAuthorization,
-                )?;
-                verify_key_proof(
-                    body,
-                    new,
-                    BootstrapFinalityKeyRotationRoleV1::NewKeyPossession,
-                )?;
-                key = body.new_public_key_hex.clone();
-                generation = generation
-                    .checked_add(1)
-                    .ok_or_else(|| invalid("bootstrap generation exhausted"))?;
-                previous_activation = Some(body.activation_height);
-                if body.target_epoch <= epoch {
-                    effective = key.clone();
-                }
-            }
-            // Effective authority records, rather than equality of keys, own
-            // the source. A revocation or same-key Admission cannot be overlaid.
-            if !authority.contains_key(node)
-                && let Some(binding) = registry.signer_bindings.get_mut(node)
-            {
-                *binding = effective;
-            }
-        }
-        Ok(())
+        super::governance::module_admission_finality::ModuleFinalityRecordsV1::from_world(self).project_bootstrap_finality_key_rotations(registry,authority,epoch)
     }
     pub(super) fn prepare_bootstrap_finality_key_rotation(
         &self,

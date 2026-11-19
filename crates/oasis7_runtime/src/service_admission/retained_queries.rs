@@ -54,7 +54,8 @@ pub(crate) fn agent_chat_goal_results(
 ) -> Result<BTreeMap<String, CanonicalIntentResultV1>, String> {
     let mut results = hot_results(world)?;
     if world.state().retained_history_root.is_some() {
-        let identity = world.current_agent_identity(agent)
+        let identity = world
+            .current_agent_identity(agent)
             .ok_or("retained chat owner identity unavailable")?;
         let binding = world
             .current_cognition_runtime_binding()
@@ -86,7 +87,8 @@ pub(crate) fn game_task_results(
 ) -> Result<BTreeMap<String, CanonicalIntentResultV1>, String> {
     let mut results = hot_results(world)?;
     if world.state().retained_history_root.is_some() {
-        let identity = world.current_agent_identity(agent)
+        let identity = world
+            .current_agent_identity(agent)
             .ok_or("retained Game task owner identity unavailable")?;
         let binding = world
             .current_cognition_runtime_binding()

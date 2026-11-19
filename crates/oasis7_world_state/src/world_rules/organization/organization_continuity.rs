@@ -27,6 +27,70 @@ pub use types::*;
 mod helpers;
 use helpers::*;
 pub use helpers::{activity_catalog_root, economic_contract_terms_hash};
+pub use helpers::{
+    controller_binding_from_owner_v1, controller_binding_matches_owner_v1,
+    economic_contract_terms_hash_with_work_v1,
+};
+
+#[path = "organization_continuity_system.rs"]
+mod system;
+pub use system::{
+    OrganizationCurrentAgentFactV1, OrganizationCurrentAllianceFactV1,
+    OrganizationCurrentContractFactV1, OrganizationCurrentEstateFactV1,
+    OrganizationCurrentLifecycleFactsV1, OrganizationCurrentOwnerV1,
+    OrganizationCurrentRequestFactV1, apply_system_lifecycle_command_from_current_v1,
+    prepare_activity_close_command_for_registration_v1,
+    prepare_activity_close_commands_from_current_v1, prepare_lifecycle_commands_from_current_v1,
+    prepare_lifecycle_commands_selected_from_current_v1,
+};
+
+/// A plain fixed semantic plan, never a source or execution capability.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MembershipEventPlanV1 {
+    Noop,
+    EnsureHistory,
+    Join,
+    Close,
+}
+/// Shared with the typed Current owner. The callback only charges work; every
+/// predicate and the original already-open rejection remain inside this kernel.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn plan_membership_event_with_work_v1<E: From<WorldError>>(
+    registered: bool,
+    history: Option<&[(u64, Option<u64>, String)]>,
+    member_id: &str,
+    world_tick: u64,
+    event_ref: &str,
+    joined: bool,
+    work: &mut impl FnMut(usize) -> Result<(), E>,
+) -> Result<MembershipEventPlanV1, E> {
+    work(member_id.len())?;
+    work(event_ref.len())?;
+    if !registered || member_id.is_empty() || event_ref.is_empty() || world_tick == 0 {
+        return Ok(MembershipEventPlanV1::Noop);
+    }
+    for (_, _, reference) in history.unwrap_or(&[]) {
+        work(reference.len())?;
+        work(event_ref.len())?;
+        if reference == event_ref {
+            return Ok(MembershipEventPlanV1::Noop);
+        }
+    }
+    let open = history
+        .and_then(|events| events.last())
+        .is_some_and(|(_, left, _)| left.is_none());
+    work(std::mem::size_of::<(u64, Option<u64>)>())?;
+    if joined {
+        if open {
+            return Err(invalid("organization_membership_already_open").into());
+        }
+        Ok(MembershipEventPlanV1::Join)
+    } else if open {
+        Ok(MembershipEventPlanV1::Close)
+    } else {
+        Ok(MembershipEventPlanV1::EnsureHistory)
+    }
+}
 
 fn accounted_through(
     continuity: &OrganizationContinuityStateV1,
@@ -81,92 +145,12 @@ impl OrganizationContinuityStateV1 {
         reader: Option<&str>,
         world_binding: Option<&str>,
     ) -> Vec<OrganizationActivityContractCandidateV1> {
-        let Some(reader) = reader else {
-            return Vec::new();
-        };
-        let Some(world_binding) = world_binding else {
-            return Vec::new();
-        };
-        let mut candidates = Vec::new();
-        for registration in self.registrations.values() {
-            if registration.founder_id != reader
-                || registration.policy_version != ORGANIZATION_CONTINUITY_POLICY_VERSION_V1
-                || registration.world_binding != world_binding
-                || !controller_binding_matches(state, registration, reader)
-                || self.cases.values().any(|case| {
-                    case.organization_id == registration.organization_id
-                        && !matches!(
-                            case.phase,
-                            OrganizationContinuityPhaseV1::Resolved
-                                | OrganizationContinuityPhaseV1::Cancelled
-                        )
-                })
-            {
-                continue;
-            }
-            let Some(alliance) = state.alliances.get(&registration.organization_id) else {
-                continue;
-            };
-            let Some(founder_binding) = registration.controller_bindings.get(reader) else {
-                continue;
-            };
-            let Ok(member_bindings) = alliance
-                .members
-                .iter()
-                .map(|member| controller_binding_for(state, member))
-                .collect::<Result<Vec<_>, _>>()
-            else {
-                continue;
-            };
-            for contract in state.economic_contracts.values() {
-                if contract.creator_agent_id != reader
-                    || contract.counterparty_agent_id == reader
-                    || contract.fulfillment_kind
-                        != crate::EconomicContractFulfillmentKind::AtomicExchange
-                    || contract.status != crate::EconomicContractStatus::Accepted
-                    || contract.expires_at < state.time
-                    || contract.settlement_amount <= 0
-                    || contract.reputation_stake < 0
-                    || registration
-                        .activity_sources
-                        .contains_key(&contract.contract_id)
-                    || self.registrations.values().any(|other| {
-                        other.organization_id != registration.organization_id
-                            && other.activity_sources.contains_key(&contract.contract_id)
-                    })
-                {
-                    continue;
-                }
-                let Ok(counterparty_binding) =
-                    controller_binding_for(state, &contract.counterparty_agent_id)
-                else {
-                    continue;
-                };
-                let overlaps_member = member_bindings.iter().any(|member| {
-                    member.player_id == counterparty_binding.player_id
-                        || member.root_agent_id == counterparty_binding.root_agent_id
-                }) || founder_binding.player_id
-                    == counterparty_binding.player_id
-                    || founder_binding.root_agent_id == counterparty_binding.root_agent_id;
-                if overlaps_member {
-                    continue;
-                }
-                let Ok(expected_terms_hash) = economic_contract_terms_hash(contract) else {
-                    continue;
-                };
-                candidates.push(OrganizationActivityContractCandidateV1 {
-                    organization_id: registration.organization_id.clone(),
-                    contract_id: contract.contract_id.clone(),
-                    expected_terms_hash,
-                    expires_at: contract.expires_at,
-                });
-            }
-        }
-        candidates.sort_by(|left, right| {
-            (&left.organization_id, &left.contract_id)
-                .cmp(&(&right.organization_id, &right.contract_id))
-        });
-        candidates
+        crate::world_rules::readonly_organization::legacy_candidates(
+            state,
+            self,
+            reader,
+            world_binding,
+        )
     }
 
     /// Observe only a previously registered AtomicExchange. The economic
@@ -264,153 +248,23 @@ impl OrganizationContinuityStateV1 {
         through_event_hash: &str,
         close_hash: &str,
     ) -> Result<String, WorldError> {
-        let mut registration = self
+        let registration = self
             .registrations
             .get(organization_id)
             .cloned()
             .ok_or_else(|| invalid("organization_continuity_not_enabled"))?;
-        if registration.activity_sources.is_empty()
-            || registration
-                .activity_observation_started_at_world_tick
-                .is_none()
-        {
-            return Err(invalid("organization_activity_source_catalog_empty"));
-        }
-        if now == 0
-            || registration.world_binding.is_empty()
-            || activity_catalog_root(&registration)? != source_catalog_root
-            || previous_close_hash != registration.activity_close_hash.as_deref()
-            || through_event_id == 0
-            || through_event_hash.len() != 64
-            || !through_event_hash
-                .bytes()
-                .all(|byte| byte.is_ascii_hexdigit())
-        {
-            return Err(invalid("organization_activity_close_binding_invalid"));
-        }
-        let expected_hash = activity_close_commitment(
+        let facts = system::old_world_facts(state, self, organization_id);
+        system::apply_close_activity_tick_from_current_v1(
+            self,
+            &facts,
             &registration,
             now,
             previous_close_hash,
             source_catalog_root,
             through_event_id,
             through_event_hash,
-        )?;
-        if expected_hash != close_hash {
-            return Err(invalid("organization_activity_close_hash_mismatch"));
-        }
-        if now <= registration.activity_close_cursor_world_tick {
-            if now == registration.activity_close_cursor_world_tick
-                && registration.activity_close_hash.as_deref() == Some(close_hash)
-            {
-                return Ok(close_hash.to_owned());
-            }
-            return Err(invalid("organization_activity_close_tick_stale"));
-        }
-        if through_event_id <= registration.activity_last_closed_event_id.unwrap_or(0) {
-            return Err(invalid("organization_activity_event_cursor_stale"));
-        }
-
-        let catalog_integrity = registration.activity_sources.values().all(|source| {
-            let Some(contract) = state.economic_contracts.get(&source.contract_id) else {
-                return false;
-            };
-            if !economic_contract_terms_hash(contract)
-                .is_ok_and(|hash| hash == source.terms_hash)
-                || source.world_binding != registration.world_binding
-            {
-                return false;
-            }
-            if contract.status == crate::EconomicContractStatus::Accepted {
-                return controller_binding_for(state, &contract.creator_agent_id)
-                    .is_ok_and(|binding| binding == source.creator_binding)
-                    && controller_binding_for(state, &contract.counterparty_agent_id)
-                        .is_ok_and(|binding| binding == source.counterparty_binding)
-                    && counterparty_is_external_to_current_members(
-                        state,
-                        organization_id,
-                        &contract.counterparty_agent_id,
-                    );
-            }
-            if contract.status == crate::EconomicContractStatus::Settled {
-                let expected_receipt = format!("economic-contract-settlement:{}", source.contract_id);
-                return contract.settlement_success == Some(true)
-                    && contract.transfer_amount == contract.settlement_amount
-                    && contract.settled_at.is_some_and(|settled_at| {
-                        self.activity_receipts
-                            .get(organization_id)
-                            .and_then(|receipts| receipts.get(&expected_receipt))
-                            .is_some_and(|receipt| {
-                                receipt.world_tick == settled_at
-                                    && receipt.kind
-                                        == OrganizationActivityKindV1::ExternalAtomicExchangeSettlement
-                            })
-                    });
-            }
-            true
-        });
-        let expected_tick = registration
-            .activity_close_cursor_world_tick
-            .saturating_add(1);
-        let continuous = now == expected_tick;
-        let observation_started = registration
-            .activity_observation_started_at_world_tick
-            .is_some_and(|started| now >= started);
-        registration.activity_close_cursor_world_tick = now;
-        registration.activity_close_hash = Some(close_hash.to_owned());
-        registration.activity_last_closed_event_id = Some(through_event_id);
-        registration.activity_last_closed_event_hash = Some(through_event_hash.to_owned());
-        let prior_pause = registration.activity_evidence_paused_reason.as_deref();
-        let evidence_restarted = catalog_integrity
-            && continuous
-            && matches!(
-                prior_pause,
-                Some("activity_evidence_gap" | "activity_source_integrity_failed")
-            );
-        if !catalog_integrity {
-            registration.activity_evidence_paused_reason =
-                Some("activity_source_integrity_failed".into());
-        } else if !continuous || !observation_started {
-            registration.activity_evidence_paused_reason = Some("activity_evidence_gap".into());
-        } else if evidence_restarted {
-            // Do not let a later close retroactively certify the unknown
-            // interval. Start a new complete observation window here.
-            registration.activity_observation_started_at_world_tick = Some(now);
-            registration.activity_evidence_complete_through_world_tick = now;
-            registration.activity_evidence_paused_reason = None;
-        } else if !matches!(
-            prior_pause,
-            Some("activity_evidence_gap" | "activity_source_integrity_failed")
-        ) {
-            registration.activity_evidence_complete_through_world_tick = now;
-            registration.activity_evidence_paused_reason = None;
-        }
-        if !catalog_integrity || !continuous || !observation_started {
-            let reason = if catalog_integrity {
-                "activity-evidence-gap"
-            } else {
-                "activity-source-integrity-failed"
-            };
-            let cancellation_ref = format!("{reason}:{}", close_hash);
-            for case in self.cases.values_mut().filter(|case| {
-                case.organization_id == organization_id
-                    && case.origin == OrganizationCaseOriginV1::Dormancy
-                    && !matches!(
-                        case.phase,
-                        OrganizationContinuityPhaseV1::Resolved
-                            | OrganizationContinuityPhaseV1::Cancelled
-                    )
-            }) {
-                case.phase = OrganizationContinuityPhaseV1::Cancelled;
-                case.revision = case.revision.saturating_add(1);
-                if !case.stage_receipts.contains(&cancellation_ref) {
-                    case.stage_receipts.push(cancellation_ref.clone());
-                }
-            }
-        }
-        self.registrations
-            .insert(organization_id.to_owned(), registration);
-        Ok(close_hash.to_owned())
+            close_hash,
+        )
     }
 
     // The authoritative ledger adapter supplies one exact deposit fact tuple.
@@ -540,37 +394,44 @@ impl OrganizationContinuityStateV1 {
         {
             return Ok(());
         }
+        // Preserve the legacy observable entry creation point, including a
+        // leave with no open history and errors after this point.
         let events = self
             .membership_history
             .entry(organization_id.to_owned())
             .or_default()
             .entry(member_id.to_owned())
             .or_default();
-        if events
-            .iter()
-            .any(|(_, _, reference)| reference == event_ref)
-        {
-            return Ok(());
-        }
-        if joined {
-            if events.last().is_some_and(|(_, left, _)| left.is_none()) {
-                return Err(invalid("organization_membership_already_open"));
-            }
-            let binding = controller_binding_for(state, member_id)?;
-            events.push((world_tick, None, event_ref.to_owned()));
-            self.registrations
-                .get_mut(organization_id)
-                .expect("registration checked above")
-                .membership_controller_bindings
-                .insert(member_id.to_owned(), binding);
-        } else if let Some((_, left, _)) = events.last_mut()
-            && left.is_none()
-        {
-            *left = Some(world_tick);
-            if let Some(registration) = self.registrations.get_mut(organization_id) {
-                registration
+        let plan = plan_membership_event_with_work_v1(
+            true,
+            Some(events),
+            member_id,
+            world_tick,
+            event_ref,
+            joined,
+            &mut |_| Ok::<(), WorldError>(()),
+        )?;
+        match plan {
+            MembershipEventPlanV1::Noop | MembershipEventPlanV1::EnsureHistory => {}
+            MembershipEventPlanV1::Join => {
+                let binding = controller_binding_for(state, member_id)?;
+                events.push((world_tick, None, event_ref.to_owned()));
+                self.registrations
+                    .get_mut(organization_id)
+                    .expect("registration checked above")
                     .membership_controller_bindings
-                    .remove(member_id);
+                    .insert(member_id.to_owned(), binding);
+            }
+            MembershipEventPlanV1::Close => {
+                // The fixed plan observed this exact borrowed last row.
+                if let Some((_, left, _)) = events.last_mut() {
+                    *left = Some(world_tick);
+                }
+                if let Some(registration) = self.registrations.get_mut(organization_id) {
+                    registration
+                        .membership_controller_bindings
+                        .remove(member_id);
+                }
             }
         }
         Ok(())
@@ -581,183 +442,14 @@ impl OrganizationContinuityStateV1 {
         state: &WorldState,
         now: u64,
     ) -> Result<Vec<(String, String, Command)>, WorldError> {
-        let mut work = Vec::new();
-        for registration in self.registrations.values() {
-            let accounted_through = accounted_through(self, registration);
-            if accounted_through < now {
-                let request_id = format!(
-                    "organization-continuity:availability-unknown:{}:{}",
-                    short_id(&registration.organization_id),
-                    now
-                );
-                work.push((
-                    registration.founder_id.clone(),
-                    request_id,
-                    Command::FinalizeAvailabilityUnknown {
-                        organization_id: registration.organization_id.clone(),
-                        through_world_tick: now,
-                    },
-                ));
-                continue;
-            }
-            let currently_available = self
-                .availability
-                .get(&registration.organization_id)
-                .and_then(|intervals| intervals.last())
-                .is_some_and(|interval| {
-                    interval.through_world_tick == now
-                        && interval.evidence_status
-                            == OrganizationAvailabilityEvidenceStatusV1::Certified
-                        && interval.world_binding == registration.world_binding
-                        && interval.registration_receipt == registration.registration_receipt
-                        && interval.world_writes_available
-                        && interval.notice_available
-                        && interval.remedy_available
-                });
-            if !currently_available {
-                continue;
-            }
-            let clock = self.continuity_clock_at(&registration.organization_id, now);
-            let active_case = self.cases.values().find(|case| {
-                case.organization_id == registration.organization_id
-                    && !matches!(
-                        case.phase,
-                        OrganizationContinuityPhaseV1::Resolved
-                            | OrganizationContinuityPhaseV1::Cancelled
-                    )
-            });
-            if let Some(case) = active_case {
-                if case.origin == OrganizationCaseOriginV1::Dormancy
-                    && !activity_evidence_complete(registration, now)
-                {
-                    continue;
-                }
-                let command = match case.phase {
-                    OrganizationContinuityPhaseV1::AwaitingNotice => {
-                        let recipients = expected_recipients(state, self, &case.organization_id)?;
-                        Some(Command::PublishNotice {
-                            case_id: case.case_id.clone(),
-                            expected_revision: case.revision,
-                            recipient_ids: recipients,
-                            scope_refs: case.manifest_asset_refs.clone(),
-                            reason_code: match case.origin {
-                                OrganizationCaseOriginV1::Dormancy => {
-                                    "organization_dormancy_continuity".into()
-                                }
-                                OrganizationCaseOriginV1::VoluntaryDissolution => {
-                                    "organization_voluntary_dissolution".into()
-                                }
-                                OrganizationCaseOriginV1::VoluntaryReorganization => {
-                                    "organization_voluntary_reorganization".into()
-                                }
-                            },
-                            trigger_fact_ref: case
-                                .trigger_activity_receipt
-                                .clone()
-                                .unwrap_or_else(|| case.registration_receipt.clone()),
-                            evidence_refs: vec![
-                                case.manifest_root.clone(),
-                                case.registration_receipt.clone(),
-                            ],
-                            allowed_actions: default_notice_allowed_actions(),
-                            restricted_actions: default_notice_restricted_actions(),
-                        })
-                    }
-                    OrganizationContinuityPhaseV1::Notice
-                    | OrganizationContinuityPhaseV1::Protection
-                    | OrganizationContinuityPhaseV1::CandidateCollection => {
-                        let current_activity = latest_activity_after_notice(
-                            self,
-                            &case.organization_id,
-                            case.notified_at_clock.unwrap_or(case.opened_at_clock),
-                        );
-                        let phase_due = match case.phase {
-                            OrganizationContinuityPhaseV1::Notice => {
-                                current_activity.is_some()
-                                    || clock
-                                        >= case
-                                            .notified_at_clock
-                                            .unwrap_or(clock)
-                                            .saturating_add(ORGANIZATION_NOTICE_TICKS_V1)
-                            }
-                            OrganizationContinuityPhaseV1::Protection => case
-                                .candidate_window_starts_at_clock
-                                .is_some_and(|start| clock >= start),
-                            OrganizationContinuityPhaseV1::CandidateCollection => case
-                                .protection_ends_at_clock
-                                .is_some_and(|end| clock >= end),
-                            _ => false,
-                        };
-                        phase_due.then(|| Command::AdvancePhase {
-                            case_id: case.case_id.clone(),
-                            expected_revision: case.revision,
-                        })
-                    }
-                    _ => None,
-                };
-                if let Some(command) = command {
-                    let request_id = format!(
-                        "organization-continuity:lifecycle:{}:{}:{}",
-                        short_id(&case.case_id),
-                        case.revision,
-                        command_kind(&command)
-                    );
-                    work.push((registration.founder_id.clone(), request_id, command));
-                }
-                continue;
-            }
-            if !activity_evidence_complete(registration, now) {
-                continue;
-            }
-            let Ok(current_root) = manifest_root_for_organization(state, registration) else {
-                continue;
-            };
-            if current_root != registration.manifest_root {
-                continue;
-            }
-            let last_activity_clock = self
-                .activity_receipts
-                .get(&registration.organization_id)
-                .and_then(|items| {
-                    items
-                        .values()
-                        .filter_map(|item| {
-                            activity_clock(self, &registration.organization_id, item.world_tick)
-                                .map(|at| (at, item.source_ref.as_str()))
-                        })
-                        .max_by_key(|(at, _)| *at)
-                        .map(|(at, ref_)| (at, ref_.to_owned()))
-                });
-            let Some(observation_start_clock) = registration
-                .activity_observation_started_at_world_tick
-                .map(|tick| self.continuity_clock_at(&registration.organization_id, tick))
-            else {
-                continue;
-            };
-            let idle_from = last_activity_clock
-                .as_ref()
-                .map_or(observation_start_clock, |(clock, _)| {
-                    (*clock).max(observation_start_clock)
-                });
-            if clock.saturating_sub(idle_from) >= ORGANIZATION_INACTIVITY_TICKS_V1 {
-                let trigger_activity_receipt = last_activity_clock.map(|(_, id)| id);
-                let request_id = format!(
-                    "organization-continuity:dormancy:{}:{}",
-                    short_id(&registration.organization_id),
-                    clock
-                );
-                work.push((
-                    registration.founder_id.clone(),
-                    request_id,
-                    Command::OpenDormancyCase {
-                        organization_id: registration.organization_id.clone(),
-                        expected_manifest_root: current_root,
-                        trigger_activity_receipt,
-                    },
-                ));
-            }
+        let mut facts = BTreeMap::new();
+        for organization_id in self.registrations.keys() {
+            facts.insert(
+                organization_id.clone(),
+                system::old_world_facts(state, self, organization_id),
+            );
         }
-        Ok(work)
+        system::prepare_lifecycle_commands_from_current_v1(self, &facts, now)
     }
 
     pub fn continuity_clock_at(&self, organization_id: &str, world_tick: u64) -> u64 {
@@ -803,19 +495,80 @@ impl PreparedWorldRule {
         is_system_event: bool,
     ) -> Result<String, WorldError> {
         let mut continuity = self.rules.organization_continuity.clone();
-        let result = commands::apply_continuity_command(
-            state,
-            &mut self.rules,
-            &mut continuity,
-            actor,
-            key,
-            command,
-            now,
-            world_binding,
-            is_system_event,
-            &mut self.ledgers,
-        )?;
+        let result = if is_system_event && is_system_lifecycle_command_v1(command) {
+            apply_system_lifecycle_command_v1(
+                state,
+                &mut self.rules,
+                &mut continuity,
+                actor,
+                key,
+                command,
+                now,
+                world_binding,
+                &mut self.ledgers,
+            )?
+        } else {
+            commands::apply_continuity_command(
+                state,
+                &mut self.rules,
+                &mut continuity,
+                actor,
+                key,
+                command,
+                now,
+                world_binding,
+                is_system_event,
+                &mut self.ledgers,
+            )?
+        };
         self.rules.organization_continuity = continuity;
         Ok(result)
     }
+}
+
+/// The fixed subset emitted by the normal tail. This dispatch is deliberately
+/// separate from public command admission so the tail cannot accidentally
+/// route another continuity command through its system-event path.
+pub fn is_system_lifecycle_command_v1(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::CloseActivityTick { .. }
+            | Command::FinalizeAvailabilityUnknown { .. }
+            | Command::OpenDormancyCase { .. }
+            | Command::AdvancePhase { .. }
+            | Command::PublishNotice { .. }
+    )
+}
+
+/// Apply one of the five fixed tail commands through the original continuity
+/// reducer. Callers still have to provide the selected Current facts used by
+/// the reducer and validate the Current source after the sparse write; this is
+/// a reducer entry point, not a qualification or publication capability.
+#[allow(clippy::too_many_arguments)]
+pub fn apply_system_lifecycle_command_v1(
+    state: &WorldState,
+    rules: &mut WorldRulesStateV1,
+    continuity: &mut OrganizationContinuityStateV1,
+    actor: &str,
+    key: &str,
+    command: &Command,
+    now: u64,
+    world_binding: &str,
+    ledgers: &mut BTreeMap<MaterialLedgerId, BTreeMap<String, i64>>,
+) -> Result<String, WorldError> {
+    if !is_system_lifecycle_command_v1(command) {
+        return Err(invalid("organization_system_lifecycle_command_required"));
+    }
+    commands::apply_continuity_command(
+        state,
+        rules,
+        continuity,
+        actor,
+        key,
+        command,
+        now,
+        world_binding,
+        true,
+        ledgers,
+    )
 }

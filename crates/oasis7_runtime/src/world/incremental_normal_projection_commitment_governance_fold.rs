@@ -1,0 +1,28 @@
+//! Fold only the exact original governance-cell changes. Counts are checked
+//! after all member patches, independently of sparse-tree visitation order.
+use super::*;
+use super::{
+    governance_rows::OriginalGovernanceRecordDataV1, original_rows::OriginalProjectionRowDataV1,
+    state_columns::OriginalStateColumnsDataV1,
+};
+use oasis7_world_state::incremental_governance_records::{CurrentGovernanceProjectionDeltaV1,GovernanceProjectionPathRefV1 as Path,GovernanceCollectionV1 as Collection};
+use oasis7_formal_protocol::{incremental_execution::{ExecutionTransaction,ExecutionFence},incremental_state::MerkleNodeReader};
+use std::cell::RefCell;
+fn bytes(value:&[u8],common:&mut FormalBoundedContextV1<'_>)->Result<ReservedValue<Vec<u8>>,BodyMutationError>{super::initial::capture(common,|out|std::io::Write::write_all(out,value).map_err(paid))}
+fn key<K:oasis7_world_state::incremental_semantic_key::SemanticKeyV1+?Sized>(value:&K,common:&mut FormalBoundedContextV1<'_>)->Result<(ReservedValue<Vec<u8>>,ReservedValue<Vec<u8>>),BodyMutationError>{let semantic=super::initial::capture(common,|out|oasis7_world_state::incremental_semantic_key::write_semantic_key_v1(value,out).map_err(paid))?;let json=super::capture_projection_json_data_v1(value,common)?;Ok((semantic,json))}
+pub(super) fn fold_governance_v1<M:MerkleNodeReader>(out:&mut OriginalStateColumnsDataV1,source:&CurrentGovernanceProjectionDeltaV1,tx:&ExecutionTransaction<'_,M>,common:&mut FormalBoundedContextV1<'_>,live:&ExecutionFence)->Result<(),BodyMutationError>{
+ fold_rows_v1(out,source,tx,common,live)
+}
+pub(super) fn fold_rows_v1<M:MerkleNodeReader,T:super::cold_record_maps::RecordMapsV1>(out:&mut T,source:&CurrentGovernanceProjectionDeltaV1,tx:&ExecutionTransaction<'_,M>,common:&mut FormalBoundedContextV1<'_>,live:&ExecutionFence)->Result<(),BodyMutationError>{
+ source.validate(tx,common.memory(),live)?;let common=RefCell::new(common);
+ source.visit_entities_with_work_v1(|s,b|common.borrow_mut().charge(s,b).map_err(paid),|kind,semantic,key_json,before,after|{let mut common=common.borrow_mut();let field=kind.field_name();let rows=out.map_data_v1(field,&mut common)?.ok_or_else(||invalid("governance original field missing"))?;let old=rows.row_data_v1(semantic,&mut common)?;if old.is_some()!=before{return Err(invalid("governance original entity before presence"))}
+ if !after{let rows=rows.without_row_data_v1(semantic,&mut common)?;return out.replace_original_map_data_v1(field,rows,&mut common)}
+ if !before{let value=OriginalGovernanceRecordDataV1::empty_for_new_actual_entity_v1(kind,&mut common)?;let row=OriginalProjectionRowDataV1::from_governance_data_v1(bytes(semantic,&mut common)?,bytes(key_json,&mut common)?,value,&mut common)?;let rows=rows.with_row_data_v1(row,&mut common)?;out.replace_original_map_data_v1(field,rows,&mut common)?;}else if old.and_then(|v|v.governance_record_v1()).is_none(){return Err(invalid("governance resident parent kind"))}Ok(())})?;
+ source.visit_patches_with_work_v1(|s,b|common.borrow_mut().charge(s,b).map_err(paid),|kind,semantic,key_json,path,after|{let mut common=common.borrow_mut();if matches!(path,Path::Count(..)){return Ok(())}let field=kind.field_name();let rows=out.map_data_v1(field,&mut common)?.ok_or_else(||invalid("governance original field missing"))?;let record=rows.row_data_v1(semantic,&mut common)?.and_then(|v|v.governance_record_v1()).ok_or_else(||invalid("governance current entity missing"))?;
+ let value=match path{Path::Column(column)=>record.with_scalar_v1(column,after.ok_or_else(||invalid("governance required scalar removed"))?,&mut common)?,Path::Option(index)=>{let(k,j)=key(&index,&mut common)?;let after=after.map(|v|bytes(v,&mut common)).transpose()?;record.with_collection_member_v1(Collection::Options,k,j,after,&mut common)?},Path::Snapshot(id)|Path::Ballot(id)|Path::Tally(id)=>{let collection=match path{Path::Snapshot(_)=>Collection::Snapshot,Path::Ballot(_)=>Collection::Ballots,Path::Tally(_)=>Collection::Tallies,_=>unreachable!()};let(k,j)=key(id,&mut common)?;let after=after.map(|v|bytes(v,&mut common)).transpose()?;record.with_collection_member_v1(collection,k,j,after,&mut common)?},Path::Count(..)=>unreachable!()};
+ let row=OriginalProjectionRowDataV1::from_governance_data_v1(bytes(semantic,&mut common)?,bytes(key_json,&mut common)?,value,&mut common)?;let rows=rows.with_row_data_v1(row,&mut common)?;out.replace_original_map_data_v1(field,rows,&mut common)
+ })?;
+ source.visit_patches_with_work_v1(|s,b|common.borrow_mut().charge(s,b).map_err(paid),|kind,semantic,_key,path,_after|{let Path::Count(collection,count)=path else{return Ok(())};let mut common=common.borrow_mut();let rows=out.map_data_v1(kind.field_name(),&mut common)?.ok_or_else(||invalid("governance original field missing"))?;let record=rows.row_data_v1(semantic,&mut common)?.and_then(|v|v.governance_record_v1()).ok_or_else(||invalid("governance count entity missing"))?;if u64::try_from(record.collection_len_v1(collection,&mut common)?).map_err(|_|invalid("governance resident count layout"))?!=count{return Err(invalid("governance resident actual count mismatch"))}Ok(())})?;
+ source.visit_entities_with_work_v1(|s,b|common.borrow_mut().charge(s,b).map_err(paid),|kind,semantic,_key,_before,after|{if !after{return Ok(())}let mut common=common.borrow_mut();let rows=out.map_data_v1(kind.field_name(),&mut common)?.ok_or_else(||invalid("governance original field missing"))?;let record=rows.row_data_v1(semantic,&mut common)?.and_then(|v|v.governance_record_v1()).ok_or_else(||invalid("governance final entity missing"))?;record.validate_complete_v1(&mut common)})?;
+ let common=common.into_inner();source.validate(tx,common.memory(),live)
+}

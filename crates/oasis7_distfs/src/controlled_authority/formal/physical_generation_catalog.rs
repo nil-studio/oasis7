@@ -144,7 +144,11 @@ struct Cache {
     bytes: usize,
 }
 static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
+#[cfg(test)]
+thread_local! {static CACHE_ACCESSES:std::cell::Cell<u64>=const{std::cell::Cell::new(0)};}
 fn parsed(bytes: &[u8], digest: [u8; 32]) -> Result<Arc<Node>, FormalError> {
+    #[cfg(test)]
+    CACHE_ACCESSES.with(|n| n.set(n.get() + 1));
     let mut cache = CACHE
         .get_or_init(|| Mutex::new(Cache::default()))
         .lock()
@@ -752,4 +756,9 @@ mod tests {
         };
         assert!(format!("{error}").len() < 512);
     }
+}
+
+#[cfg(test)]
+pub(super) fn cache_accesses() -> u64 {
+    CACHE_ACCESSES.with(std::cell::Cell::get)
 }

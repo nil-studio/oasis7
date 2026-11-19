@@ -329,7 +329,7 @@ fn instance_change_output_failure_poison_includes_prior_outer_write() {
     assert!(txn.seal(&guard, &live, 0).is_err());
 }
 
-#[path = "incremental_module_instance_recovery_tests.rs"]
-mod recovery;
 #[path = "incremental_module_instance_physical_tests.rs"]
 mod physical;
+#[path = "incremental_module_instance_recovery_tests.rs"]
+mod recovery;

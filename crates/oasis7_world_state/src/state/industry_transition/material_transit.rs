@@ -583,11 +583,12 @@ pub fn refresh_progress_stage(
     now: WorldTime,
 ) {
     let current = progress.stage;
-    let active_completed_jobs = state
-        .factories
-        .values()
-        .map(|factory| factory.production.completed_jobs)
-        .sum::<u64>();
+    let active_completed_jobs = aggregate_stage_completed_jobs_v1(
+        state
+            .factories
+            .values()
+            .map(|factory| factory.production.completed_jobs),
+    );
     let stable = state
         .factories
         .values()

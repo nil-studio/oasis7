@@ -23,7 +23,7 @@ fn equal(a: Option<MemberPayloadRefV1<'_>>, b: Option<MemberPayloadRefV1<'_>>) -
         _ => false,
     }
 }
-fn expected<R: ValueNodeReader, C: FnMut() -> bool>(
+pub(super) fn expected<R: ValueNodeReader, C: FnMut() -> bool>(
     payload: MemberPayloadRefV1<'_>,
     value: &[u8; 32],
     key: &(WorldFieldKeyV1, u64),

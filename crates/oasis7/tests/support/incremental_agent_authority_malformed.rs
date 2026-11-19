@@ -353,7 +353,7 @@ fn malformed_raw_and_changed_closures_are_rejected() {
         },
     };
     let live = parent.fence().unwrap();
-    for case in 0..7 {
+    for case in 0..9 {
         let bad = match case {
             0 => {
                 let row = member!(
@@ -409,7 +409,29 @@ fn malformed_raw_and_changed_closures_are_rejected() {
                 bad.leaf_count += 1;
                 bad
             }
-            _ => swapped_leaf_paths(&store, &memory, &child),
+            6 => swapped_leaf_paths(&store, &memory, &child),
+            7 => child_changes(
+                &store,
+                &memory,
+                child.clone(),
+                vec![(column("reorg_epoch"), None)],
+            ),
+            _ => {
+                // Eight bytes alone do not qualify: the original nullable
+                // epoch permits only Unit or the unsigned U64 codec.
+                let row = member!(
+                    &store,
+                    &memory,
+                    (((), "record"), "reorg_epoch"),
+                    MemberPayloadRefV1::I64(0)
+                );
+                child_changes(
+                    &store,
+                    &memory,
+                    child.clone(),
+                    vec![(row.field_key, Some(row.value_root))],
+                )
+            }
         };
         let reference = outer_reference(&store, &memory, bad);
         let bad_roots = changed_roots(&store, &memory, &roots, &outer, reference.value_root);

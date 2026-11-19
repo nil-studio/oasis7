@@ -29,8 +29,17 @@ fn read<R: ValueNodeReader, C: FnMut() -> bool>(
     id: Option<&String>,
     depth: u16,
     labels: RecordDiffLabelsV1,
+    work: &mut dyn FnMut(usize) -> Result<(), ValueTreeError>,
 ) -> Result<Option<StatePageLinksV1>, ValueTreeError> {
     let Some(id) = id else { return Ok(None) };
+    // Admit a complete bounded page attempt before touching the store. The
+    // callback may charge/cancel only; page selection remains this kernel's.
+    work(
+        STATE_MAX_PAGE_BYTES
+            .checked_mul(16)
+            .and_then(|n| n.checked_add(id.len()))
+            .ok_or(ValueTreeError::Invalid(labels.invalid))?,
+    )?;
     let page = source
         .finish(source.read_node(id, STATE_MAX_PAGE_BYTES))?
         .ok_or(ValueTreeError::Invalid(labels.invalid))?;
@@ -61,6 +70,70 @@ pub(crate) fn visit<R: ValueNodeReader, C: FnMut() -> bool>(
         &mut InventoryValueReader<'_, '_, R, C>,
     ) -> Result<(), ValueTreeError>,
 ) -> Result<(), ValueTreeError> {
+    visit_with_cells(
+        before,
+        after,
+        records,
+        cells,
+        labels,
+        |old, new, records, _cells| visitor(old, new, records),
+    )
+}
+pub(crate) fn visit_with_cells<R: ValueNodeReader, C: FnMut() -> bool>(
+    before: &StateRootV1,
+    after: &StateRootV1,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    cells: &mut u64,
+    labels: RecordDiffLabelsV1,
+    visitor: impl FnMut(
+        Option<&StateEntryV1>,
+        Option<&StateEntryV1>,
+        &mut InventoryValueReader<'_, '_, R, C>,
+        &mut u64,
+    ) -> Result<(), ValueTreeError>,
+) -> Result<(), ValueTreeError> {
+    visit_with_cells_and_work(before, after, records, cells, labels, visitor, &mut |_| {
+        Ok(())
+    })
+}
+pub(crate) fn visit_with_work<R: ValueNodeReader, C: FnMut() -> bool>(
+    before: &StateRootV1,
+    after: &StateRootV1,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    cells: &mut u64,
+    labels: RecordDiffLabelsV1,
+    mut visitor: impl FnMut(
+        Option<&StateEntryV1>,
+        Option<&StateEntryV1>,
+        &mut InventoryValueReader<'_, '_, R, C>,
+    ) -> Result<(), ValueTreeError>,
+    work: &mut dyn FnMut(usize) -> Result<(), ValueTreeError>,
+) -> Result<(), ValueTreeError> {
+    visit_with_cells_and_work(
+        before,
+        after,
+        records,
+        cells,
+        labels,
+        |old, new, records, _| visitor(old, new, records),
+        work,
+    )
+}
+pub(crate) fn visit_with_cells_and_work<R: ValueNodeReader, C: FnMut() -> bool>(
+    before: &StateRootV1,
+    after: &StateRootV1,
+    records: &mut InventoryValueReader<'_, '_, R, C>,
+    cells: &mut u64,
+    labels: RecordDiffLabelsV1,
+    mut visitor: impl FnMut(
+        Option<&StateEntryV1>,
+        Option<&StateEntryV1>,
+        &mut InventoryValueReader<'_, '_, R, C>,
+        &mut u64,
+    ) -> Result<(), ValueTreeError>,
+    work: &mut dyn FnMut(usize) -> Result<(), ValueTreeError>,
+) -> Result<(), ValueTreeError> {
+    work(1)?;
     if before.namespace != after.namespace {
         return Err(ValueTreeError::Invalid(labels.invalid));
     }
@@ -83,6 +156,14 @@ pub(crate) fn visit<R: ValueNodeReader, C: FnMut() -> bool>(
             Some(root.node_root.clone())
         }
     };
+    work(
+        before
+            .node_root
+            .len()
+            .checked_add(after.node_root.len())
+            .and_then(|n| n.checked_add(257 * std::mem::size_of::<Frame>()))
+            .ok_or(ValueTreeError::Invalid(labels.invalid))?,
+    )?;
     let mut stack = Vec::with_capacity(257);
     stack.push(Frame {
         old: nonempty(before),
@@ -93,6 +174,7 @@ pub(crate) fn visit<R: ValueNodeReader, C: FnMut() -> bool>(
     let mut added = 0u64;
     let mut removed = 0u64;
     while let Some(frame) = stack.pop() {
+        work(1)?;
         if (records.cancelled)() {
             return Err(ValueTreeError::Cancelled);
         }
@@ -113,8 +195,8 @@ pub(crate) fn visit<R: ValueNodeReader, C: FnMut() -> bool>(
                 labels: labels.tree,
             };
             (
-                read(&source, frame.old.as_ref(), frame.depth, labels)?,
-                read(&source, frame.new.as_ref(), frame.depth, labels)?,
+                read(&source, frame.old.as_ref(), frame.depth, labels, work)?,
+                read(&source, frame.new.as_ref(), frame.depth, labels, work)?,
             )
         };
         if frame.depth == 256 {
@@ -126,6 +208,13 @@ pub(crate) fn visit<R: ValueNodeReader, C: FnMut() -> bool>(
             let old = leaf(old)?;
             let new = leaf(new)?;
             for entry in old.iter().chain(new.iter()) {
+                work(
+                    entry
+                        .key
+                        .len()
+                        .checked_add(256)
+                        .ok_or(ValueTreeError::Invalid(labels.invalid))?,
+                )?;
                 if entry.namespace != before.namespace
                     || entry
                         .key_digest()
@@ -150,7 +239,7 @@ pub(crate) fn visit<R: ValueNodeReader, C: FnMut() -> bool>(
                     .checked_add(1)
                     .ok_or(ValueTreeError::Invalid(labels.invalid))?;
             }
-            visitor(old.as_ref(), new.as_ref(), records)?;
+            visitor(old.as_ref(), new.as_ref(), records, cells)?;
         } else {
             let children = |node| match node {
                 None => Ok([None, None]),

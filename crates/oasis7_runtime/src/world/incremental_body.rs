@@ -100,7 +100,7 @@ impl PreparedBodyAttributesUpdate {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, all(feature = "test_tier_required", feature = "test-support")))]
 #[path = "incremental_body_tests.rs"]
 pub(super) mod tests;
 

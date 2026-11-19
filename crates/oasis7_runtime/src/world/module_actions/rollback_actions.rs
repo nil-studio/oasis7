@@ -9,167 +9,21 @@ impl World {
         target_module_version: &str,
         finality_certificate: Option<&GovernanceFinalityCertificate>,
     ) -> Result<bool, WorldError> {
-        if !self.state.agents.contains_key(operator_agent_id) {
-            self.append_event(
-                WorldEventBody::Domain(DomainEvent::ActionRejected {
-                    action_id,
-                    reason: RejectReason::AgentNotFound {
-                        agent_id: operator_agent_id.to_string(),
-                    },
-                }),
-                Some(CausedBy::Action(action_id)),
-            )?;
-            return Ok(true);
-        }
-        let target_module_version = target_module_version.trim();
-        if target_module_version.is_empty() {
-            self.append_event(
-                WorldEventBody::Domain(DomainEvent::ActionRejected {
-                    action_id,
-                    reason: RejectReason::RuleDenied {
-                        notes: vec![
-                            "rollback module rejected: target_module_version is empty".to_string(),
-                        ],
-                    },
-                }),
-                Some(CausedBy::Action(action_id)),
-            )?;
-            return Ok(true);
-        }
+        use crate::world::incremental_normal_action_module_lifecycle::{rollback_legacy::LegacyModuleRollbackFactsV1,rollback_rules::{prepare_module_rollback_prelude_v1,ModuleRollbackPreludeV1},upgrade_rules::ModuleInstanceRecordV1};
+        let (instance,target_manifest,changes,from_wasm_hash,from_release_request_id,fee_kind,fee_amount)=match prepare_module_rollback_prelude_v1(
+            &mut LegacyModuleRollbackFactsV1::new(self),operator_agent_id,instance_id,target_module_version,
+        )?{
+            ModuleRollbackPreludeV1::Rejected(reason)=>{
+                self.append_event(WorldEventBody::Domain(DomainEvent::ActionRejected{action_id,reason}),Some(CausedBy::Action(action_id)))?;
+                return Ok(true);
+            },
+            ModuleRollbackPreludeV1::Plan{instance,target_source:_,target_manifest,changes,from_wasm_hash,from_release_request_id,fee_kind,fee_amount}=>{
+                let instance=match instance{ModuleInstanceRecordV1::Legacy(record)=>record.clone(),ModuleInstanceRecordV1::Current(_)=>unreachable!("fixed legacy rollback observer")};
+                (instance,target_manifest,changes,from_wasm_hash,from_release_request_id,fee_kind,fee_amount)
+            },
+        };
 
-        let Some(instance) = self.state.module_instances.get(instance_id).cloned() else {
-            self.append_event(
-                WorldEventBody::Domain(DomainEvent::ActionRejected {
-                    action_id,
-                    reason: RejectReason::RuleDenied {
-                        notes: vec![format!(
-                            "rollback module rejected: instance not found {}",
-                            instance_id
-                        )],
-                    },
-                }),
-                Some(CausedBy::Action(action_id)),
-            )?;
-            return Ok(true);
-        };
-        if instance.owner_agent_id != operator_agent_id {
-            self.append_event(
-                WorldEventBody::Domain(DomainEvent::ActionRejected {
-                    action_id,
-                    reason: RejectReason::RuleDenied {
-                        notes: vec![format!(
-                            "rollback module rejected: operator {} does not own instance {} (owner {})",
-                            operator_agent_id, instance_id, instance.owner_agent_id
-                        )],
-                    },
-                }),
-                Some(CausedBy::Action(action_id)),
-            )?;
-            return Ok(true);
-        }
-        if instance.module_version == target_module_version {
-            self.append_event(
-                WorldEventBody::Domain(DomainEvent::ActionRejected {
-                    action_id,
-                    reason: RejectReason::RuleDenied {
-                        notes: vec![format!(
-                            "rollback module rejected: target version equals current version {}",
-                            target_module_version
-                        )],
-                    },
-                }),
-                Some(CausedBy::Action(action_id)),
-            )?;
-            return Ok(true);
-        }
-
-        let current_key = oasis7_wasm_abi::ModuleRegistry::record_key(
-            instance.module_id.as_str(),
-            instance.module_version.as_str(),
-        );
-        let Some(current_record) = self.module_registry.records.get(current_key.as_str()) else {
-            self.append_event(
-                WorldEventBody::Domain(DomainEvent::ActionRejected {
-                    action_id,
-                    reason: RejectReason::RuleDenied {
-                        notes: vec![format!(
-                            "rollback module rejected: current module record missing {}",
-                            current_key
-                        )],
-                    },
-                }),
-                Some(CausedBy::Action(action_id)),
-            )?;
-            return Ok(true);
-        };
-        let target_key = oasis7_wasm_abi::ModuleRegistry::record_key(
-            instance.module_id.as_str(),
-            target_module_version,
-        );
-        let Some(target_record) = self.module_registry.records.get(target_key.as_str()) else {
-            self.append_event(
-                WorldEventBody::Domain(DomainEvent::ActionRejected {
-                    action_id,
-                    reason: RejectReason::RuleDenied {
-                        notes: vec![format!(
-                            "rollback module rejected: target version not found {}",
-                            target_key
-                        )],
-                    },
-                }),
-                Some(CausedBy::Action(action_id)),
-            )?;
-            return Ok(true);
-        };
-        if let Err(reason) = Self::validate_upgrade_interface_compatible(
-            &current_record.manifest,
-            &target_record.manifest,
-        ) {
-            self.append_event(
-                WorldEventBody::Domain(DomainEvent::ActionRejected {
-                    action_id,
-                    reason: RejectReason::RuleDenied {
-                        notes: vec![format!("rollback module rejected: {reason}")],
-                    },
-                }),
-                Some(CausedBy::Action(action_id)),
-            )?;
-            return Ok(true);
-        }
-        let from_wasm_hash = current_record.manifest.wasm_hash.clone();
-        let target_manifest = target_record.manifest.clone();
-        if self.reject_frozen_module_admission(action_id, &target_manifest)? {
-            return Ok(true);
-        }
-        let mut source_requests = self
-            .state
-            .module_release_requests
-            .values()
-            .filter(|request| {
-                request.status == ModuleReleaseRequestStatus::Applied
-                    && request.manifest.module_id == instance.module_id
-                    && request.manifest.version == instance.module_version
-                    && request.manifest.wasm_hash == from_wasm_hash
-            });
-        let source_request = source_requests.next().map(|request| request.request_id);
-        let from_release_request_id = if source_requests.next().is_none() {
-            source_request
-        } else {
-            None
-        };
-        let fee_kind = ResourceKind::Electricity;
-        let fee_amount = Self::module_install_fee_amount(&target_manifest);
-        if !self.ensure_module_fee_affordable(action_id, operator_agent_id, fee_kind, fee_amount)? {
-            return Ok(true);
-        }
-
-        let mut changes = ModuleChangeSet::default();
-        if instance.active {
-            changes.activate.push(ModuleActivation {
-                module_id: target_manifest.module_id.clone(),
-                version: target_manifest.version.clone(),
-            });
-        }
+        let target_module_version=target_module_version.trim();
 
         let module_changes_value = match serde_json::to_value(&changes) {
             Ok(value) => value,

@@ -397,13 +397,16 @@ pub use read::{
 };
 #[path = "incremental_main_token_policy_records_closure.rs"]
 mod closure;
-pub use closure::{MainTokenPolicyRecordQualificationV1, qualify_main_token_policy_body_v1};
+pub use closure::{
+    MainTokenPolicyRecordQualificationV1, qualify_main_token_policy_body_v1,
+    readmit_main_token_policy_record_ordinary_v1,
+};
 
 #[path = "incremental_main_token_policy_records_family.rs"]
 mod family;
 pub use family::{
     MainTokenPolicyFamilyQualificationV1, open_qualified_main_token_policy_record_v1,
-    qualify_main_token_policy_family_v1,
+    qualify_main_token_policy_family_v1, readmit_main_token_policy_family_ordinary_v1,
 };
 
 #[path = "incremental_main_token_policy_records_point.rs"]
@@ -426,4 +429,30 @@ mod pages;
 pub use pages::{
     MainTokenPolicyFamilyPagesV1, MainTokenPolicyPagesWorkV1,
     mark_main_token_policy_family_pages_v1, transfer_main_token_policy_family_pages_v1,
+};
+
+pub(crate) use receiver::accept_main_token_policy_verified_v1;
+
+#[path = "incremental_main_token_policy_grant_current.rs"]
+mod grant_current;
+pub use grant_current::{CurrentRestrictedClaimGrantV1, read_current_restricted_claim_grant_v1};
+
+#[path = "incremental_main_token_policy_grant_directory.rs"]
+mod grant_directory;
+pub use grant_directory::{
+    CurrentRestrictedClaimGrantSnapshotV1, RestrictedClaimGrantDirectoryV1,
+    RestrictedClaimGrantIdentityV1, build_restricted_claim_grant_directory_v1,
+    recover_current_restricted_claim_grant_snapshot_v1,
+};
+
+#[path = "incremental_main_token_policy_records_projection.rs"]
+mod projection;
+pub use projection::{
+    CurrentMainTokenPolicyProjectionDeltaV1, is_main_token_policy_projection_field_v1,
+    read_current_main_token_policy_projection_delta_v1,
+};
+
+pub use projection::{
+    QualifiedMainTokenPolicyProjectionColumnsV1,
+    read_qualified_main_token_policy_projection_columns_v1,
 };
