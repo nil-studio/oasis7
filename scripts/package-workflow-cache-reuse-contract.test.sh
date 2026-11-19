@@ -262,9 +262,19 @@ def cache_identity(workflow: str, name: str, non_linux: bool = False) -> dict:
             toolchains.add(args[3])
         elif args[1] == "default":
             default = args[2]
-    assert toolchains and default, f"{name}: install a pinned toolchain before restoring cache"
+    image = re.search(r"^    container:\n      image: ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:([0-9a-f]{64})$",
+                      body, re.M)
+    if image:
+        assert name in ("newapi-bridge-package", "package-linux-x86-64"), name
+        assert inputs.get("shared-key") == "newapi-bridge-service-linux-x86-64-ci-rust-build-" + image[1]
+        assert 'rustc +"${RUST_TOOLCHAIN}" -vV' in body[:cache.start()]
+        assert "pkg-config --exists wayland-client x11 alsa libudev openssl" in body[:cache.start()]
+        default = env["RUST_TOOLCHAIN"]
+        toolchains.add(default)
+    assert toolchains and default, f"{name}: verify a pinned toolchain before restoring cache"
     return {
         "action": cache[1], "runner": values(body, 4)["runs-on"],
+        "image": image[1] if image else None,
         "prefix": inputs.get("prefix-key", "v0-rust"),
         "shared-key": inputs.get("shared-key"),
         "environment-hash": inputs.get("add-rust-environment-hash-key", "true"),
