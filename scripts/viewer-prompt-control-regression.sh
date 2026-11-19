@@ -638,12 +638,6 @@ configure_loopback_browser_args() {
   export AGENT_BROWSER_ARGS
 }
 
-visible_action_contract() {
-  cat <<'EOF'
-{"selection":"[data-pixel-world-agent-marker=\"true\"][data-agent-id=\"${AGENT_ID}\"]","promptDisclosure":"Advanced Prompt Settings","shortTermGoal":"#prompt-short","testLogin":"[data-auth-action=\"test-login\"]","approvalCode":"#strong-auth-approval-code","preview":"button[data-prompt-action=\"preview\"]","apply":"button[data-prompt-action=\"apply\"]","rollbackTarget":"#prompt-rollback-version","rollback":"button[data-prompt-action=\"rollback\"]"}
-EOF
-}
-
 write_manifest() {
   local root="$1"
   local tier="$2"

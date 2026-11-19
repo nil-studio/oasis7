@@ -443,7 +443,6 @@ state_gameplay_progress_percent() { json_get "$1" gameplaySummary.progressPercen
 state_gameplay_next_step() { json_get "$1" gameplaySummary.nextStepHint; }
 state_recent_feedback_stage() { json_get "$1" gameplaySummary.recentFeedback.stage; }
 feedback_stage() { json_get "$1" stage; }
-feedback_effect() { json_get "$1" effect; }
 
 state_meets_followup_contract() {
   local state_json=$1
