@@ -37,31 +37,39 @@ runs:
         path: ${{ steps.downloads.outputs.chrome_root }}
         key: ${{ steps.downloads.outputs.chrome_key }}
     - name: Install locked browser tools without lifecycle scripts
-      if: inputs.prebuilt != 'true'
       shell: bash
-      run: python3 scripts/ci-browser-deps.py tools
+      env:
+        PREBUILT_BROWSER: ${{ inputs.prebuilt }}
+      run: |
+        if [[ "${PREBUILT_BROWSER:-false}" == true ]]; then exit 0; fi
+        python3 scripts/ci-browser-deps.py tools
     - name: Verify browser downloads and inspect complete dependencies
-      if: inputs.prebuilt != 'true'
       shell: bash
       env:
-        BROWSER_KIND: ${{ inputs.browser }}
-      run: python3 scripts/ci-browser-deps.py prepare --browser "$BROWSER_KIND" --work-dir "$RUNNER_TEMP/oasis7-ci-browser-$BROWSER_KIND"
-    - name: Install missing browser system dependencies
-      if: inputs.prebuilt != 'true'
-      shell: bash
-      env:
+        PREBUILT_BROWSER: ${{ inputs.prebuilt }}
         BROWSER_KIND: ${{ inputs.browser }}
       run: |
+        if [[ "${PREBUILT_BROWSER:-false}" == true ]]; then exit 0; fi
+        python3 scripts/ci-browser-deps.py prepare --browser "$BROWSER_KIND" --work-dir "$RUNNER_TEMP/oasis7-ci-browser-$BROWSER_KIND"
+    - name: Install missing browser system dependencies
+      shell: bash
+      env:
+        PREBUILT_BROWSER: ${{ inputs.prebuilt }}
+        BROWSER_KIND: ${{ inputs.browser }}
+      run: |
+        if [[ "${PREBUILT_BROWSER:-false}" == true ]]; then exit 0; fi
         mapfile -t browser_packages < "$RUNNER_TEMP/oasis7-ci-browser-$BROWSER_KIND/apt-arguments.txt"
         if (( ${#browser_packages[@]} )); then
           sudo -n /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 300 --no-remove "${browser_packages[@]}"
         fi
     - name: Verify and launch the actual pinned browser
-      if: inputs.prebuilt != 'true'
       shell: bash
       env:
+        PREBUILT_BROWSER: ${{ inputs.prebuilt }}
         BROWSER_KIND: ${{ inputs.browser }}
-      run: python3 scripts/ci-browser-deps.py activate --browser "$BROWSER_KIND" --work-dir "$RUNNER_TEMP/oasis7-ci-browser-$BROWSER_KIND" --github-env "$GITHUB_ENV"
+      run: |
+        if [[ "${PREBUILT_BROWSER:-false}" == true ]]; then exit 0; fi
+        python3 scripts/ci-browser-deps.py activate --browser "$BROWSER_KIND" --work-dir "$RUNNER_TEMP/oasis7-ci-browser-$BROWSER_KIND" --github-env "$GITHUB_ENV"
     - name: Capture browser installation failure
       if: failure() && inputs.browser == 'agent'
       shell: bash
