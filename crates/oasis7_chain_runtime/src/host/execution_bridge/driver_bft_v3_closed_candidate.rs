@@ -1,4 +1,5 @@
 //! Read-only original candidate execution against an independently qualified archive parent.
+use super::super::node_execution::{capture_h_index, node_material_identity};
 use super::*;
 use oasis7_consensus::tendermint_v3::BftHeaderValueV3;
 use oasis7_distfs::protected_bft_v3::{
@@ -101,15 +102,11 @@ impl OriginalCandidateArchivePinV1 {
         source_at_h(source, &qualified.handoff)?;
         let origin = ledger.ledger.origin()?;
         let ledger_origin = origin.digest()?;
-        let actual_material = blake3_hex(
-            &serde_cbor::to_vec(&(
-                "oasis7.formal.bft.node_material.v3",
-                &ledger_origin,
-                &marker.creation_identity,
-                origin.material_pin_digest(),
-            ))
-            .map_err(error)?,
-        );
+        let actual_material = node_material_identity(
+            &ledger_origin,
+            &marker.creation_identity,
+            origin.material_pin_digest(),
+        )?;
         if marker.digest().map_err(error)? != marker_digest
             || marker.source != self.reference.source
             || marker.creation_identity != self.original_instance_id
@@ -128,7 +125,7 @@ impl OriginalCandidateArchivePinV1 {
             Vec::new(),
             false,
         )?;
-        super::super::node_execution::capture_h_index(&execution)?;
+        capture_h_index(&execution)?;
         let retained_h_dependencies = execution
             .retained_nodes
             .accessed_nodes()?
@@ -541,15 +538,12 @@ impl FormalBftHeaderLedgerExecutionV3 {
         let origin = self.ledger.origin().unwrap();
         let ledger_origin_digest = origin.digest().unwrap();
         let creation_identity = "11".repeat(32);
-        let material_identity = blake3_hex(
-            &serde_cbor::to_vec(&(
-                "oasis7.formal.bft.node_material.v3",
-                &ledger_origin_digest,
-                &creation_identity,
-                origin.material_pin_digest(),
-            ))
-            .unwrap(),
-        );
+        let material_identity = node_material_identity(
+            &ledger_origin_digest,
+            &creation_identity,
+            origin.material_pin_digest(),
+        )
+        .unwrap();
         let h = &self.origin.handoff;
         let source = BftSuccessorWindowSourceV1 {
             scope: h.target().scope.clone(),
@@ -574,7 +568,7 @@ impl FormalBftHeaderLedgerExecutionV3 {
             initial_state_digest: "31".repeat(32),
             initial_height: self.origin.schedule.height(),
         };
-        super::super::node_execution::capture_h_index(&self.origin).unwrap();
+        capture_h_index(&self.origin).unwrap();
         (source, marker)
     }
 }
