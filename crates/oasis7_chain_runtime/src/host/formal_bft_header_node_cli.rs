@@ -24,6 +24,8 @@ pub(super) mod status;
 
 #[path = "formal_bft_header_node_output.rs"]
 mod output;
+#[path = "formal_bft_header_node_source.rs"]
+mod private_source;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -88,8 +90,19 @@ pub(super) fn run<'a>(
     let mut config = None;
     let mut actions = None;
     let mut print_binding = false;
+    let mut source_action = None;
+    let mut source_config = None;
     let mut serve = false;
     while let Some(option) = args.next() {
+        if matches!(
+            option,
+            "--prepare-private-source" | "--activate-private-source"
+        ) {
+            if source_action.replace(option).is_some() {
+                return Err("duplicate private source operation".into());
+            }
+            continue;
+        }
         if option == "--serve" {
             if serve {
                 return Err("duplicate header Node option".into());
@@ -107,6 +120,7 @@ pub(super) fn run<'a>(
         let slot = match option {
             "--config" => &mut config,
             "--actions" => &mut actions,
+            "--source-config" => &mut source_config,
             _ => return Err("unsupported header Node option".into()),
         };
         if slot.is_some() {
@@ -122,6 +136,21 @@ pub(super) fn run<'a>(
         *slot = Some(path);
     }
     let config = config.ok_or("bft-header node requires --config")?;
+    if let Some(action) = source_action {
+        if print_binding || serve || actions.is_some() {
+            return Err("private source operations use a dedicated offline Node command".into());
+        }
+        let source_config =
+            source_config.ok_or("private source operation requires --source-config")?;
+        return private_source::run(
+            &config,
+            &source_config,
+            action == "--activate-private-source",
+        );
+    }
+    if source_config.is_some() {
+        return Err("--source-config requires a private source operation".into());
+    }
     if print_binding {
         if serve {
             return Err("header Node --print-binding cannot be combined with --serve".into());
@@ -338,7 +367,16 @@ pub(super) fn prepare_binding_report(config_path: &Path) -> Result<BindingReport
     })
 }
 
-fn prepare(config: &Config) -> Result<Prepared, String> {
+struct PreparedH {
+    anchor: oasis7_formal_protocol::controlled_authority::formal::VerifiedFormalReadAnchorV1,
+    material: oasis7_distfs::controlled_authority::replicated_protocol::ClosedRecord,
+    store: LocalCasStore,
+    requester: ed25519_dalek::SigningKey,
+    #[cfg(feature = "node-libp2p")]
+    initial_trust: oasis7_distfs::controlled_authority::formal::InitialActivationTrustV1,
+}
+
+fn prepare_h(config: &Config) -> Result<PreparedH, String> {
     // All private inputs and existing directories are checked before creating Node state.
     let cas = require_existing_directory(&config.cas_directory, "private Node CAS")?;
     crate::controlled_live_config::require_private_owned(&cas, true)?;
@@ -385,6 +423,25 @@ fn prepare(config: &Config) -> Result<Prepared, String> {
     let material = read_qualified_handoff_material(&config.handoff_material_path)
         .map_err(|_| "header Node qualified H material rejected")?;
     let store = LocalCasStore::new(cas);
+    Ok(PreparedH {
+        anchor,
+        material,
+        store,
+        requester,
+        #[cfg(feature = "node-libp2p")]
+        initial_trust: trust.initial_trust,
+    })
+}
+
+fn prepare(config: &Config) -> Result<Prepared, String> {
+    let PreparedH {
+        anchor,
+        material,
+        store,
+        requester,
+        #[cfg(feature = "node-libp2p")]
+        initial_trust,
+    } = prepare_h(config)?;
     let source = Arc::new(CasBusinessIndexReader {
         store: store.clone(),
     });
@@ -421,7 +478,7 @@ fn prepare(config: &Config) -> Result<Prepared, String> {
         binding,
         requester,
         #[cfg(feature = "node-libp2p")]
-        initial_trust: trust.initial_trust,
+        initial_trust,
     })
 }
 

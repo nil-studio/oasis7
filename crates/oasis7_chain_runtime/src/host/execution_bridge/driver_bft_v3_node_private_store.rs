@@ -8,6 +8,7 @@ use std::fs;
 const MAX_RECORD: usize = 4 * 1024 * 1024;
 const SCOPE: &str = "formal-bft-header-node-private-v3";
 const MARKER: &[u8] = b"oasis7.formal.bft.node_private.required/v3\n";
+const COVERED_SOURCE_ORIGIN_DOMAIN: &str = "oasis7.formal.bft.node_private_covered_origin.v1";
 const DOMAIN: &str = "oasis7.formal.bft.node_private.v3";
 const MULTI_DOMAIN: &str = "oasis7.formal.bft.node_private_candidate.v4";
 const SELECTION_DOMAIN: &str = "oasis7.formal.bft.node_private_selection.v5";
@@ -15,6 +16,9 @@ const MAX_CANDIDATES_PER_HEIGHT: usize = 16;
 const MAX_CANDIDATES: usize = 256;
 #[path = "driver_bft_v3_node_private_multivalue.rs"]
 mod multivalue;
+#[path = "driver_bft_v3_source_private_activation.rs"]
+pub(super) mod source_activation;
+use source_activation::SourceActivationBindingV1;
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -31,12 +35,17 @@ struct Data {
     actions_cbor: Vec<u8>,
     #[serde(deserialize_with = "bounded_references")]
     references: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_activation: Option<SourceActivationBindingV1>,
 }
 impl Data {
     fn validate(&self) -> Result<(), String> {
         if !matches!(
             (self.schema_version, self.domain.as_str()),
-            (3, DOMAIN) | (4, MULTI_DOMAIN) | (5, SELECTION_DOMAIN)
+            (3, DOMAIN)
+                | (4, MULTI_DOMAIN)
+                | (5, SELECTION_DOMAIN)
+                | (8, COVERED_SOURCE_ORIGIN_DOMAIN)
         ) || self.height == 0
             || !canonical_hash(&self.ledger_origin_digest)
             || !canonical_hash(&self.material_identity)
@@ -51,6 +60,14 @@ impl Data {
         {
             return Err("invalid original Node private record identity or capacity".into());
         }
+        if (self.schema_version == 8) != self.source_activation.is_some()
+            || (self.schema_version == 8 && !self.origin)
+        {
+            return Err("covered private Origin activation schema differs".into());
+        }
+        if let Some(activation) = &self.source_activation {
+            activation.validate()?;
+        }
         if self.schema_version == 5 {
             if self.origin || !self.actions_cbor.is_empty() || self.references.len() != 1 {
                 return Err("invalid original local selection".into());
@@ -64,7 +81,7 @@ impl Data {
                 return Err("local selection height differs".into());
             }
         } else if self.origin {
-            if self.schema_version != 3 {
+            if !matches!(self.schema_version, 3 | 8) {
                 return Err("foreign Node origin schema".into());
             }
             if self.value.is_some() || !self.actions_cbor.is_empty() {
@@ -99,6 +116,7 @@ impl Data {
             .references
             .iter()
             .cloned()
+            .chain(self.source_activation.iter().map(|a| a.reference.clone()))
             .chain([self.digest()?])
             .collect())
     }
@@ -195,8 +213,8 @@ impl NodePrivateStore {
         let mut nodes = BTreeMap::new();
         let pending_references = match &origin {
             Some(slot) => {
-                if !slot.data.origin {
-                    return Err("Node origin has candidate schema".into());
+                if !slot.data.origin || slot.data.schema_version != 3 {
+                    return Err("ordinary Node requires its original uncovered Origin".into());
                 }
                 let marker = common_storage::read_optional_bytes(&dir.join("ready"), MARKER.len())?;
                 if marker.is_some()
@@ -294,6 +312,7 @@ impl NodePrivateStore {
             value: None,
             actions_cbor: Vec::new(),
             references: nodes.keys().cloned().collect(),
+            source_activation: None,
         };
         if self.origin.as_ref().is_some_and(|slot| slot.data != data) {
             return Err("Node private origin differs from its exact qualified H".into());
@@ -536,6 +555,7 @@ impl NodePrivateStore {
             value: Some(candidate.public_value.clone()),
             actions_cbor: candidate.actions_cbor.clone(),
             references: nodes.keys().cloned().collect(),
+            source_activation: None,
         };
         data.validate()?;
         if self
@@ -719,6 +739,16 @@ fn verify_material(store: &LocalCasStore, data: &Data) -> Result<(), String> {
     if common_storage::read_cas_bounded(store, &data.digest()?, MAX_RECORD)? != data.bytes()? {
         return Err("original private Node CAS record changed".into());
     }
+    if let Some(activation) = &data.source_activation {
+        let bytes = common_storage::read_cas_bounded(
+            store,
+            &activation.reference,
+            source_activation::MAX_ACTIVATION_BYTES,
+        )?;
+        if bytes.len() as u64 != activation.encoded_bytes {
+            return Err("covered private Origin activation bytes changed".into());
+        }
+    }
     for reference in &data.references {
         common_storage::read_cas_bounded(
             store,
@@ -744,6 +774,19 @@ fn publish(
     complete: bool,
     origin: bool,
 ) -> Result<(), String> {
+    publish_checked(store, path, data, nodes, complete, origin, &|| Ok(()))
+}
+
+fn publish_checked(
+    store: &LocalCasStore,
+    path: &Path,
+    data: &Data,
+    nodes: &BTreeMap<String, Vec<u8>>,
+    complete: bool,
+    origin: bool,
+    guard: &dyn Fn() -> Result<(), String>,
+) -> Result<(), String> {
+    guard()?;
     if complete {
         return verify_material(store, data);
     }
@@ -759,6 +802,7 @@ fn publish(
     if common_storage::read_optional_bytes(&intent, MAX_RECORD)?.is_none()
         && common_storage::read_optional_bytes(path, MAX_RECORD)?.is_none()
     {
+        guard()?;
         files::publish(&reservation, &bytes)?;
     }
     let has_pins = store
@@ -771,12 +815,14 @@ fn publish(
         if already_retained {
             return Err("original Node retention receipt is missing".into());
         }
+        guard()?;
         common_storage::put_cas_durable(store, &bytes, MAX_RECORD)?;
         for reference in &data.references {
             if let Some(bytes) = nodes.get(reference) {
                 if blake3_hex(bytes) != *reference {
                     return Err("Node retained dependency identity mismatch".into());
                 }
+                guard()?;
                 common_storage::put_cas_durable(
                     store,
                     bytes,
@@ -790,6 +836,7 @@ fn publish(
                 )?;
             }
         }
+        guard()?;
         store
             .replace_pin_scope_shard(SCOPE, &data.shard(), &data.retained()?)
             .map_err(|_| "publish original Node pins")?;
@@ -801,11 +848,14 @@ fn publish(
         // Promotion already consumed the reservation in an intent-only crash.
         // Resume the retained original intent; never recreate its material.
         if common_storage::read_optional_bytes(&intent, MAX_RECORD)?.is_none() {
+            guard()?;
             files::promote(&reservation, &intent, &bytes)?;
         }
+        guard()?;
         files::link_record(path, &intent, &bytes)?;
     }
     if origin {
+        guard()?;
         files::publish(
             &path
                 .parent()
@@ -814,6 +864,7 @@ fn publish(
             MARKER,
         )?;
     }
+    guard()?;
     files::finish(path, &intent, &bytes)
 }
 fn canonical_hash(value: &str) -> bool {
@@ -894,6 +945,7 @@ mod tests {
             value: None,
             actions_cbor: Vec::new(),
             references: Vec::new(),
+            source_activation: None,
         }
     }
 
