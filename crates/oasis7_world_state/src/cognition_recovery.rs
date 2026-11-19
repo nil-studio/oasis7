@@ -127,7 +127,7 @@ impl RuntimeReceiptLineageV1 {
     /// Convert this Runtime-owned receipt correlation into the portable API
     /// projection. Callers must still use Runtime's durable readback verifier;
     /// the returned DTO is not a proof of commit or world state.
-    #[allow(dead_code)] // Harness adopts the projection in the later adapter slice.
+    #[allow(dead_code)]
     pub fn agent_api_projection(&self) -> oasis7_agent_api::RuntimeReceiptLineageV1 {
         oasis7_agent_api::RuntimeReceiptLineageV1 {
             schema_version: self.schema_version.clone(),
