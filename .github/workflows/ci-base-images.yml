@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - docker/ci-base/**
+      - scripts/ci-browser-tools/package.json
+      - scripts/ci-browser-tools/package-lock.json
       - .github/workflows/ci-base-images.yml
   workflow_dispatch:
   schedule:
@@ -21,7 +23,7 @@ jobs:
       contents: read
     strategy:
       matrix:
-        target: [runtime, build]
+        target: [runtime, build, browser]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -80,6 +82,15 @@ jobs:
                 --requirement scripts/doc-governance-requirements.txt
               exec bash ./scripts/ci-tests.sh required --group doc_checker_contracts --repo-root /workspace
             '
+      - name: Run the site-quality group in the browser image
+        if: github.event_name == 'pull_request' && matrix.target == 'browser'
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --user "$(id -u):$(id -g)" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=/workspace" \
+            --workdir /workspace --env HOME=/tmp --env CI_VERBOSE=1 \
+            oasis7-ci-browser:candidate \
+            bash ./scripts/ci-tests.sh required --group site_quality --repo-root /workspace
       - name: Scan OS vulnerabilities
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
         with:
@@ -113,7 +124,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        target: [runtime, build]
+        target: [runtime, build, browser]
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
