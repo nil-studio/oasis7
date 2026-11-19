@@ -627,6 +627,8 @@ v4 另外从可信 checkout 的完整 fast target 清单补齐精确 `default_fe
 
 Linux CI 的 Rust native 构建及 WASM 构建所需的 host 程序统一使用 `setup-linux-mold` 维护的固定版本、固定摘要 mold 3.0.0。普通任务通过该 action 只为当前 Linux 架构导出 `CARGO_TARGET_<HOST>_LINKER`，指向稳定的 `3.0.0-v1/bin/oasis7-mold-gcc` 路径；wrapper 经 GCC 调用该版本的 mold，不替换系统 `ld`，不设置全局 `RUSTFLAGS`。canonical Docker 镜像复用同一 installer，在容器内配置 Linux host linker，并把 installer 纳入 producer recipe；安装时验证 producer 的真实 ELF 使用 mold。WASM target 继续使用自身链接器，镜像身份与候选基线按 [WASM 构建合同](../../world-runtime/wasm/wasm-deterministic-build-pipeline.design.md#build-wrapper-contract)核对。macOS、Windows 维持原生链接路径。
 
+Rust 主工作流从 `github.workflow_sha` 加载 mold action。仅当该 SHA 与任务实际业务 checkout 的非空 SHA 相同时，首次 checkout 直接取得完整工作树并保留业务所需的历史深度，供 mold setup 和后续测试共用；否则仍按 workflow SHA 稀疏 checkout、mold setup、业务源码 checkout 的顺序执行。比较对象沿用各任务原有的 `tested_sha` 或已准入的 `github.sha`，不以其中一个替代另一个；浅克隆任务保持浅克隆，macOS/Windows 仍执行原业务 checkout。`pr-fast-preview` 和历史 CodeQL/发行入口保留各自来源流程。
+
 安装和配置必须在依赖缓存恢复及 workspace identity 计算前完成，并覆盖共享 writer、真实 reader 及 Formal merge。target linker 环境与带版本的 wrapper 路径进入既有 `CARGO_*` 环境指纹和 Formal component identity；改变 mold 版本或 wrapper 的链接语义时更新路径版本，避免新旧链接配置串用。只读 WASM metadata 诊断不安装或继承 linker。无 checkout 的 CodeQL WASM context 将同一 installer 纳入固定 tool SHA 的 verified helper closure，在绑定原 job clock 后、既有 prepare deadline 内受控安装到私有目录；只将本机 Linux native linker 传给编译环境，保留其他 target 和 flags 的隔离。installer 摘要、wrapper 与 mold 字节、`ld.mold` 别名进入证据，结束前再次核对身份，失败或变化不能报告完整语义观测。
 
 首次切换产生正常的缓存冷启动。效果评估沿用 build timings、ECS 资源与 Cargo 单元报告，分别记录安装、恢复、编译链接、保存和测试时间；缓存未命中或首次准备的结果不能直接与旧暖缓存比较。链接器 A/B 固定相同源码、profile、features、runner 和缓存条件；现有 Compile Metrics 的 current/baseline 共用调用环境，单独指定旧源码 baseline 不代表切回旧链接器，warm/no-op check 也不代表重新链接收益。

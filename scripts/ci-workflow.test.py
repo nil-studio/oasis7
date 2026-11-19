@@ -122,15 +122,76 @@ TRUSTED_SOURCE_WRITERS = (
 )
 
 
+def checkout_inputs(step):
+    fields = re.findall(r'^          ([a-z][a-z-]*): (.*)$', step, re.M)
+    assert len(fields) == len(dict(fields)), 'checkout inputs must be unique'
+    return dict(fields)
+
+
+def mold_expression(expression, values):
+    """Evaluate the actual string-only checkout guards, including missing outputs."""
+    expression = expression.strip().removeprefix('${{').removesuffix('}}').strip()
+    tokens = r'\b(?:github\.(?:workflow_sha|sha)|runner\.os|needs\.[a-z0-9_-]+\.outputs\.tested_sha)\b'
+    expression = re.sub(tokens, lambda match: repr(values.get(match[0]) or ''), expression)
+    expression = re.sub(r'\btrue\b', 'True', expression)
+    expression = re.sub(r'\bfalse\b', 'False', expression)
+    expression = re.sub(r'!(?!=)', 'not ', expression.replace('&&', ' and ').replace('||', ' or '))
+    return eval(expression, {'__builtins__': {}}, {})
+
+
+def mold_checkout_contract(tools, setup, source):
+    """Prove either one equivalent full checkout or the original two-revision path."""
+    first, selected = checkout_inputs(tools), checkout_inputs(source)
+    assert first['ref'] == '${{ github.workflow_sha }}', 'linker tools must use the workflow revision'
+    assert first['persist-credentials'] == selected['persist-credentials'] == 'false'
+    assert set(first) == {'ref', 'fetch-depth', 'persist-credentials', 'sparse-checkout'}
+    assert set(selected) <= {'ref', 'fetch-depth', 'persist-credentials'}, 'reuse must preserve all source checkout inputs'
+    source_ref = selected['ref'].removeprefix('${{').removesuffix('}}').strip()
+    assert source_ref in ('needs.select.outputs.tested_sha', 'github.sha')
+    depth = selected.get('fetch-depth', '1')
+    assert depth in ('0', '1')
+    conditions = [re.findall(r'^        if: (.+)$', step, re.M) for step in (tools, setup, source)]
+    assert all(len(condition) <= 1 for condition in conditions)
+    assert conditions[0] == conditions[1], 'Linux tools checkout and setup must have the same platform guard'
+    assert conditions[0] in ([], ["runner.os == 'Linux'"])
+    assert len(conditions[2]) == 1, 'the selected checkout needs an explicit fallback condition'
+    cases = [(workflow, tested) for workflow, tested in itertools.product(
+        ('a' * 40, 'b' * 40, '', None), repeat=2)]
+    for runner in ('Linux', 'Windows', 'macOS') if conditions[0] else ('Linux',):
+        for workflow, tested in cases:
+            # Keep the other source context different: using github.sha to
+            # decide a selected-source reuse (or vice versa) must be detected.
+            values = {'github.workflow_sha': workflow, 'github.sha': 'c' * 40,
+                      'needs.select.outputs.tested_sha': 'd' * 40, 'runner.os': runner}
+            if tested is None:
+                values.pop(source_ref)
+            else:
+                values[source_ref] = tested
+            active = not conditions[0] or bool(mold_expression(conditions[0][0], values))
+            reuse = active and bool(tested) and workflow == tested
+            sparse = first['sparse-checkout']
+            sparse = mold_expression(sparse, values) if sparse.startswith('${{') else sparse
+            first_depth = first['fetch-depth']
+            first_depth = mold_expression(first_depth, values) if first_depth.startswith('${{') else first_depth
+            fallback = bool(mold_expression(conditions[2][0], values))
+            assert fallback is not reuse, 'only the nonempty identical source may skip its checkout'
+            if active:
+                assert sparse == ('' if reuse else '.github/actions/setup-linux-mold'), 'reuse requires a full source tree'
+                assert str(first_depth) == (depth if reuse else '1'), 'reuse must preserve source history depth'
+    return source_ref
+
+
 def selected_source_steps(name):
-    """Normalize only the equivalent first checkout of admitted main writers."""
+    """Normalize only checkout fields proved equivalent for admitted main writers."""
     steps = JOBS[name].split('    steps:\n', 1)[1]
     checkouts = [step for step in re.findall(r'^      - .*?(?=^      - |\Z)', steps, re.M | re.S)
                  if re.search(r'^\s+(?:- )?uses: actions/checkout@', step, re.M)]
     if 'uses: ./.github/actions/setup-linux-mold' in steps:
         assert len(checkouts) == 2, 'workflow tools and one selected checkout are required'
         assert '          ref: ${{ github.workflow_sha }}\n' in checkouts[0], 'linker tools must use the workflow revision'
-        assert '          sparse-checkout: .github/actions/setup-linux-mold\n' in checkouts[0], 'only linker tools may precede source'
+        setup = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', steps, re.M | re.S)
+                     if 'uses: ./.github/actions/setup-linux-mold' in step)
+        mold_checkout_contract(checkouts[0], setup, checkouts[-1])
     else:
         assert len(checkouts) == 1, 'one selected checkout is required'
     if name in TRUSTED_SOURCE_WRITERS:
@@ -140,8 +201,12 @@ def selected_source_steps(name):
     tested = '${{ needs.select.outputs.tested_sha }}'
     allowed = (tested, '${{ github.sha }}') if name in TRUSTED_SOURCE_WRITERS else (tested,)
     assert len(refs) == 1 and refs[0] in allowed, 'checkout must use the selected or proven identical source'
-    # Do not normalize any other checkout setting, later step, or candidate ref.
-    return steps.replace('          ref: ' + refs[0] + '\n', '          ref: ' + tested + '\n', 1)
+    # The event-SHA writer's guards are equivalent only after the full branch
+    # contract above. Do not normalize a later step or unrelated checkout input.
+    if refs[0] == '${{ github.sha }}':
+        for checkout in checkouts:
+            steps = steps.replace(checkout, checkout.replace('github.sha', 'needs.select.outputs.tested_sha'), 1)
+    return steps
 
 
 def effective_job_condition(condition, values, ancestor_results, *, cancelled=False):
@@ -573,7 +638,10 @@ class Workflow(unittest.TestCase):
                                  if 'uses: ./.github/actions/setup-linux-mold' in step)
                     self.assertIn('uses: actions/checkout@', steps[setup - 1])
                     self.assertIn('ref: ${{ github.workflow_sha }}', steps[setup - 1])
-                    self.assertIn('sparse-checkout: .github/actions/setup-linux-mold\n', steps[setup - 1])
+                    if filename == 'rust.yml' and name not in ('codeql-rust-model-diagnostic', 'pr-fast-preview'):
+                        mold_checkout_contract(steps[setup - 1], steps[setup], steps[setup + 1])
+                    else:
+                        self.assertIn('sparse-checkout: .github/actions/setup-linux-mold\n', steps[setup - 1])
                     self.assertNotIn('sparse-checkout-cone-mode: false', steps[setup - 1])
                     self.assertIn('uses: actions/checkout@', steps[setup + 1])
                     self.assertNotIn('sparse-checkout:', steps[setup + 1])
@@ -581,11 +649,70 @@ class Workflow(unittest.TestCase):
                         self.assertIn("if: runner.os == 'Linux'", steps[setup - 1])
                         self.assertIn("if: runner.os == 'Linux'", steps[setup])
 
+    def test_mold_checkout_reuse_preserves_each_selected_revision_and_history_depth(self):
+        checked = set()
+        for name, job in JOBS.items():
+            if (name in ('codeql-rust-model-diagnostic', 'pr-fast-preview', 'newapi-bridge-package')
+                    or 'uses: ./.github/actions/setup-linux-mold' not in job):
+                continue
+            with self.subTest(job=name):
+                steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+                setup = next(i for i, step in enumerate(steps)
+                             if 'uses: ./.github/actions/setup-linux-mold' in step)
+                tools, action, source = steps[setup - 1:setup + 2]
+                ref = mold_checkout_contract(tools, action, source)
+                self.assertEqual(ref, 'github.sha' if name in TRUSTED_SOURCE_WRITERS
+                                 else 'needs.select.outputs.tested_sha')
+                depth = '1' if name in ('custody-native-contracts', 'custody-node') else '0'
+                self.assertEqual(checkout_inputs(source).get('fetch-depth', '1'), depth)
+                checked.add(name)
+        self.assertEqual(len(checked), 35)
+        self.assertTrue(set(TRUSTED_SOURCE_WRITERS) <= checked)
+
+    def test_mold_checkout_reuse_rejects_wrong_revision_empty_ref_and_sparse_mutations(self):
+        steps = re.findall(r'^      - .*?(?=^      - |\Z)', JOBS['oasis7-test-build-candidate'], re.M | re.S)
+        setup = next(i for i, step in enumerate(steps) if 'uses: ./.github/actions/setup-linux-mold' in step)
+        tools, action, source = steps[setup - 1:setup + 2]
+        source_if = re.search(r'^        if: (.+)$', source, re.M)[1]
+        broken = [
+            (tools.replace('ref: ${{ github.workflow_sha }}', 'ref: ${{ github.sha }}'), source),
+            (tools.replace('needs.select.outputs.tested_sha', 'github.sha'), source),
+            (re.sub(r'^          sparse-checkout: .*$', '          sparse-checkout: .github/actions/setup-linux-mold', tools, flags=re.M), source),
+            (re.sub(r'^          fetch-depth: .*$', '          fetch-depth: 1', tools, flags=re.M), source),
+            (tools, source.replace(source_if, '${{ github.workflow_sha != needs.select.outputs.tested_sha }}')),
+            (tools, source.replace(source_if, '${{ false }}')),
+            (tools, source.replace('persist-credentials: false', 'persist-credentials: true')),
+            (tools, source.replace('          fetch-depth: 0', '          path: other-source')),
+        ]
+        for first, last in broken:
+            with self.subTest(first=first, last=last), self.assertRaises(AssertionError):
+                mold_checkout_contract(first, action, last)
+        fleet = re.findall(r'^      - .*?(?=^      - |\Z)', JOBS['fleet-health'], re.M | re.S)
+        setup = next(i for i, step in enumerate(fleet) if 'uses: ./.github/actions/setup-linux-mold' in step)
+        first, action, last = fleet[setup - 1:setup + 2]
+        with self.assertRaises(AssertionError):
+            mold_checkout_contract(first, action, last.replace("runner.os != 'Linux' || ", ''))
+
+    def test_preview_and_model_source_do_not_use_selected_source_checkout_reuse(self):
+        for name in ('pr-fast-preview', 'codeql-rust-model-diagnostic'):
+            with self.subTest(job=name):
+                steps = re.findall(r'^      - .*?(?=^      - |\Z)', JOBS[name], re.M | re.S)
+                setup = next(i for i, step in enumerate(steps)
+                             if 'uses: ./.github/actions/setup-linux-mold' in step)
+                first, source = steps[setup - 1], steps[setup + 1]
+                self.assertEqual(checkout_inputs(first)['sparse-checkout'], '.github/actions/setup-linux-mold')
+                self.assertNotRegex(source, re.compile(r'^        if:', re.M))
+                self.assertNotIn('needs.select.outputs.tested_sha', first + source)
+        preview = JOBS['pr-fast-preview']
+        self.assertIn('ref: ${{ needs.pr-fast-preview-plan.outputs.tested_sha }}', preview)
+        self.assertIn("if: matrix.group != 'baseline'", preview)
+        self.assertLess(preview.index('needs.pr-fast-preview-plan.outputs.tested_sha'),
+                        preview.index('name: Restore diagnostic synthetic baseline'))
+        self.assertLess(preview.index('name: Restore diagnostic synthetic baseline'),
+                        preview.index('name: Execute actual preview group'))
+        self.assertIn('path: model-source', JOBS['codeql-rust-model-diagnostic'])
+
     def test_real_git_restores_business_files_after_sparse_linker_tools(self):
-        tools = re.search(r'^      - name: Check out workflow linker setup\n.*?(?=^      - |\Z)',
-                          JOBS['pr-governance-preview'], re.M | re.S).group()
-        pattern = re.search(r'^          sparse-checkout: (.+)$', tools, re.M)[1]
-        cone = 'sparse-checkout-cone-mode: false' not in tools
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / 'source'
@@ -607,34 +734,70 @@ class Workflow(unittest.TestCase):
             historical = git(source, 'rev-parse', 'HEAD')
             action = source / '.github/actions/setup-linux-mold'
             action.mkdir(parents=True)
-            (action / 'action.yml').write_text('name: fixture\n')
+            (action / 'action.yml').write_text('name: workflow-fixture\n')
             (source / 'scripts/ci-tests.sh').write_text('echo current-source\n')
             git(source, 'add', '.')
             git(source, 'commit', '-qm', 'Add workflow linker tools')
             current = git(source, 'rev-parse', 'HEAD')
-            for label, revision in (('current', current), ('historical', historical)):
-                with self.subTest(source=label):
-                    checkout = root / label
-                    git(root, 'clone', '-q', '--no-checkout', str(source), str(checkout))
-                    if cone:
-                        git(checkout, 'sparse-checkout', 'set', pattern)
-                    else:
-                        git(checkout, 'config', 'core.sparseCheckout', 'true')
-                        (checkout / '.git/info/sparse-checkout').write_text(pattern + '\n')
-                    git(checkout, 'checkout', '--force', current)
-                    self.assertTrue((checkout / '.github/actions/setup-linux-mold/action.yml').is_file())
-                    self.assertFalse((checkout / 'scripts/ci-tests.sh').exists())
-                    # Exact sparse-disable sequence in the pinned checkout action:
-                    # non-cone common config can become active again after unset.
-                    git(checkout, 'sparse-checkout', 'disable')
-                    git(checkout, 'config', '--local', '--unset-all', 'extensions.worktreeConfig')
-                    git(checkout, 'checkout', '--force', revision)
-                    self.assertEqual((checkout / 'scripts/ci-tests.sh').read_text(), f'echo {label}-source\n')
-                    self.assertTrue((checkout / 'Cargo.toml').is_file())
-                    self.assertEqual(git(checkout, 'rev-parse', 'HEAD'), revision)
-                    self.assertEqual(git(checkout, 'status', '--porcelain'), '')
-                    self.assertEqual((checkout / '.github/actions/setup-linux-mold/action.yml').exists(),
-                                     label == 'current')
+            git(source, 'checkout', '-qb', 'candidate')
+            (source / 'scripts/ci-tests.sh').write_text('echo synthetic-source\n')
+            (action / 'action.yml').write_text('name: candidate-action-must-not-install\n')
+            git(source, 'add', '.')
+            git(source, 'commit', '-qm', 'Change candidate business source and action')
+            git(source, 'checkout', '-q', 'main')
+            git(source, 'merge', '-q', '--no-ff', 'candidate', '-m', 'Synthetic tested merge')
+            synthetic = git(source, 'rev-parse', 'HEAD')
+            self.assertEqual(len(git(source, 'rev-list', '--parents', '-n', '1', synthetic).split()), 3)
+            for job in ('oasis7-test-build-candidate', 'oasis7-test-build-trusted',
+                        'custody-native-contracts', 'fleet-health'):
+                steps = re.findall(r'^      - .*?(?=^      - |\Z)', JOBS[job], re.M | re.S)
+                setup = next(i for i, step in enumerate(steps)
+                             if 'uses: ./.github/actions/setup-linux-mold' in step)
+                pipeline = steps[setup - 1:setup + 2]
+                source_ref = checkout_inputs(pipeline[-1])['ref'].removeprefix('${{').removesuffix('}}').strip()
+                for label, revision in (('current', current), ('historical', historical), ('synthetic', synthetic)):
+                    for runner in ('Linux', 'Windows') if job == 'fleet-health' else ('Linux',):
+                        with self.subTest(job=job, source=label, runner=runner):
+                            checkout = root / (job + '-' + label + '-' + runner)
+                            git(root, 'clone', '-q', '--no-checkout', str(source), str(checkout))
+                            values = {'github.workflow_sha': current, source_ref: revision, 'runner.os': runner}
+                            checkouts = setups = 0
+                            sparse_enabled = False
+                            for step in pipeline:
+                                condition = re.search(r'^        if: (.+)$', step, re.M)
+                                if condition and not mold_expression(condition[1], values):
+                                    continue
+                                if 'uses: ./.github/actions/setup-linux-mold' in step:
+                                    self.assertEqual(git(checkout, 'rev-parse', 'HEAD'), current)
+                                    self.assertEqual((checkout / '.github/actions/setup-linux-mold/action.yml').read_text(),
+                                                     'name: workflow-fixture\n')
+                                    setups += 1
+                                    continue
+                                inputs = checkout_inputs(step)
+                                pattern = inputs.get('sparse-checkout', '')
+                                if pattern.startswith('${{'):
+                                    pattern = mold_expression(pattern, values)
+                                if pattern:
+                                    git(checkout, 'sparse-checkout', 'set', pattern)
+                                    sparse_enabled = True
+                                elif sparse_enabled:
+                                    # Exact sparse-disable sequence in the pinned checkout action.
+                                    git(checkout, 'sparse-checkout', 'disable')
+                                    git(checkout, 'config', '--local', '--unset-all', 'extensions.worktreeConfig')
+                                    sparse_enabled = False
+                                git(checkout, 'checkout', '--force', mold_expression(inputs['ref'], values))
+                                checkouts += 1
+                                if pattern:
+                                    self.assertFalse((checkout / 'scripts/ci-tests.sh').exists())
+                            self.assertEqual(checkouts, 2 if runner == 'Linux' and revision != current else 1)
+                            self.assertEqual(setups, int(runner == 'Linux'))
+                            self.assertFalse(sparse_enabled)
+                            self.assertEqual((checkout / 'scripts/ci-tests.sh').read_text(), f'echo {label}-source\n')
+                            self.assertTrue((checkout / 'Cargo.toml').is_file())
+                            self.assertEqual(git(checkout, 'rev-parse', 'HEAD'), revision)
+                            self.assertEqual(git(checkout, 'status', '--porcelain'), '')
+                            self.assertEqual((checkout / '.github/actions/setup-linux-mold/action.yml').exists(),
+                                             label != 'historical')
 
     def test_step_aliases_preserve_order_and_reject_unknown_or_duplicate_definitions(self):
         workflow = '''jobs:
@@ -684,10 +847,12 @@ class Workflow(unittest.TestCase):
                 selected_source_steps(writer)
         for changed in (direct.replace('persist-credentials: false', 'persist-credentials: true', 1),
                         direct.replace('          fetch-depth: 0', '          path: another', 1),
-                        direct.replace('          fetch-depth: 0', '          repository: another/repo', 1),
-                        direct.replace('run: python3 scripts/ci-workspace-cache.py identity', 'run: false #', 1)):
-            with patch.dict(JOBS, {writer: changed}):
-                self.assertNotEqual(selected_source_steps(writer).strip(), selected_source_steps(reader).strip())
+                        direct.replace('          fetch-depth: 0', '          repository: another/repo', 1)):
+            with patch.dict(JOBS, {writer: changed}), self.assertRaises(AssertionError):
+                selected_source_steps(writer)
+        changed = direct.replace('run: python3 scripts/ci-workspace-cache.py identity', 'run: false #', 1)
+        with patch.dict(JOBS, {writer: changed}):
+            self.assertNotEqual(selected_source_steps(writer).strip(), selected_source_steps(reader).strip())
 
     def test_writer_identity_is_bound_by_the_real_selector_and_job_conditions(self):
         selection = re.search(r'^          trusted_source=false\n.*?^          fi\n',
