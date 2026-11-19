@@ -1,4 +1,3 @@
-use futures::future::Either;
 use libp2p::autonat;
 use libp2p::core::muxing::StreamMuxerBox;
 use libp2p::core::transport::OrTransport;
@@ -391,34 +390,45 @@ pub(super) fn build_swarm_with_receiver(
         request_timeout,
     );
 
-    let quic_transport = libp2p::quic::tokio::Transport::new(libp2p::quic::Config::new(keypair));
+    let quic_counters = wire_byte_counters.clone();
+    let quic_transport = libp2p::quic::tokio::Transport::new(libp2p::quic::Config::new(keypair))
+        .map(move |(peer, muxer), _| {
+            (
+                peer,
+                StreamMuxerBox::new(InstrumentedStreamMuxer::new(muxer, quic_counters.clone())),
+            )
+        });
+    let tcp_counters = wire_byte_counters.clone();
     let tcp_transport = libp2p::tcp::tokio::Transport::new(libp2p::tcp::Config::default())
         .upgrade(libp2p::core::upgrade::Version::V1)
         .authenticate(noise::Config::new(keypair).expect("noise config"))
         .multiplex(libp2p::yamux::Config::default())
-        .map(|(peer_id, muxer), _| (peer_id, StreamMuxerBox::new(muxer)));
-    let direct_transport = OrTransport::new(quic_transport, tcp_transport).map(
-        |either_output, _| match either_output {
-            Either::Left((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
-            Either::Right((peer_id, muxer)) => (peer_id, muxer),
-        },
-    );
+        .map(move |(peer, muxer), _| {
+            (
+                peer,
+                StreamMuxerBox::new(InstrumentedStreamMuxer::new_yamux(
+                    muxer,
+                    tcp_counters.clone(),
+                )),
+            )
+        });
+    let direct_transport =
+        OrTransport::new(quic_transport, tcp_transport).map(|output, _| output.into_inner());
     let relay_transport = relay_transport
         .upgrade(libp2p::core::upgrade::Version::V1Lazy)
         .authenticate(noise::Config::new(keypair).expect("relay noise config"))
         .multiplex(libp2p::yamux::Config::default())
-        .map(|(peer_id, muxer), _| (peer_id, StreamMuxerBox::new(muxer)));
-    let transport = OrTransport::new(direct_transport, relay_transport)
-        .map(move |either_output, _| {
-            let (peer_id, muxer) = either_output.into_inner();
+        .map(move |(peer, muxer), _| {
             (
-                peer_id,
-                StreamMuxerBox::new(InstrumentedStreamMuxer::new(
+                peer,
+                StreamMuxerBox::new(InstrumentedStreamMuxer::new_yamux(
                     muxer,
                     wire_byte_counters.clone(),
                 )),
             )
-        })
+        });
+    let transport = OrTransport::new(direct_transport, relay_transport)
+        .map(|output, _| output.into_inner())
         .boxed();
 
     Swarm::new(transport, behaviour, peer_id, swarm_config)
