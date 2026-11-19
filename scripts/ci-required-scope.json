@@ -2122,6 +2122,11 @@
       "reason": "module_release_runtime_acceptance"
     },
     {
+      "match": ["scripts/main-token-regression.sh"],
+      "groups": ["oasis7_required", "workflow_governance"],
+      "reason": "main_token_runtime_acceptance"
+    },
+    {
       "match": [
         "scripts/release-web-fixture-lib.sh",
         "scripts/run-launcher-stack.sh"
