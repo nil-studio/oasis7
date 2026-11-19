@@ -44,3 +44,8 @@ RUN rustup set auto-self-update disable \
     && rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src \
     && rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN" \
     && rustup target add wasm32-unknown-unknown --toolchain "$RUST_TOOLCHAIN"
+
+FROM rust-build AS rust-wasm-build
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends clang llvm \
+    && rm -rf /var/lib/apt/lists/*
