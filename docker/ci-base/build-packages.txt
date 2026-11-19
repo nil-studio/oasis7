@@ -1,5 +1,6 @@
 build-essential
 libasound2-dev
+libssl-dev
 libudev-dev
 libwayland-dev
 libx11-dev
