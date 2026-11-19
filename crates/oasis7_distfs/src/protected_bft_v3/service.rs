@@ -23,9 +23,10 @@ use super::state::{
     validate_candidate_transition, validate_signing_install_gate, validate_state,
 };
 use super::wire::{
-    BFT_SIGNER_LEASE_DOMAIN_V3, BFT_SIGNER_MAX_WIRE_FRAME_BYTES_V3, BftSignerCommandV3,
-    BftSignerLeaseCredentialV3, BftSignerReplyBodyV3, BftSignerReplyKindV3, SignedBftSignerReplyV3,
-    SignedBftSignerRequestV3, encode_frame, request_digest, validate_request,
+    BFT_SIGNER_LEASE_DOMAIN_V3, BFT_SIGNER_MAX_WIRE_FRAME_BYTES_V3, BftRetentionReplyLedgerV1,
+    BftSignerCommandV3, BftSignerLeaseCredentialV3, BftSignerReplyBodyV3, BftSignerReplyKindV3,
+    SignedBftSignerReplyV3, SignedBftSignerRequestV3, encode_frame, request_digest,
+    validate_request,
 };
 
 mod bootstrap_rotation;
@@ -44,6 +45,7 @@ const MAX_SESSION_OPERATIONS_V3: u64 = 65_536;
 /// this service makes no hardware or nonrollback claim about an implementation.
 pub struct BftSignerServiceV3 {
     fresh_coverage: Option<BftFreshCoverageSupportV1>,
+    first_reserve: Option<(Box<dyn BftFirstReserveSourceV1>, std::time::Duration)>,
     candidate_read_policy: Option<BftCandidateReadPolicyV3>,
     pub(super) binding: BftSignerBindingV3,
     pub(super) provider_key: Box<dyn BftSigningKeyHandleV3>,
@@ -90,8 +92,11 @@ pub(super) struct ReplyDataV3 {
     pub(super) state_digest: String,
 }
 
+#[path = "service/first_reservation.rs"]
+mod first_reservation;
 #[path = "service/fresh_coverage.rs"]
 mod fresh_coverage;
+pub use first_reservation::BftFirstReserveSourceV1;
 pub use fresh_coverage::{BftFreshCoverageSupportV1, BftFreshSourceVerifierV1};
 
 impl BftSignerServiceV3 {
@@ -118,6 +123,25 @@ impl BftSignerServiceV3 {
             backend,
             Some(support),
         )
+    }
+
+    /// Enable the first pending Reserve on the explicitly configured source.
+    /// The ordinary provider constructors retain their fail-closed defaults.
+    pub fn with_first_reservation(
+        mut self,
+        support: Box<dyn BftFirstReserveSourceV1>,
+        operation_timeout: std::time::Duration,
+    ) -> Result<Self, BftSignerErrorV3> {
+        if self.fresh_coverage.is_none() {
+            return Err(invalid(
+                "first Reserve requires original Fresh configuration",
+            ));
+        }
+        if operation_timeout.is_zero() {
+            return Err(invalid("first Reserve requires a finite positive duration"));
+        }
+        self.first_reserve = Some((support, operation_timeout));
+        Ok(self)
     }
 
     fn open_inner(
@@ -180,6 +204,7 @@ impl BftSignerServiceV3 {
         }
         Ok(Self {
             fresh_coverage,
+            first_reserve: None,
             candidate_read_policy: None,
             binding,
             provider_key,
@@ -633,6 +658,7 @@ impl BftSignerServiceV3 {
                 command,
                 BftSignerCommandV3::Checkpoint
                     | BftSignerCommandV3::ProvisionPrivateRetention { .. }
+                    | BftSignerCommandV3::ReservePrivateRetentionInput { .. }
             )
         {
             return Err(invalid(
@@ -676,6 +702,9 @@ impl BftSignerServiceV3 {
             ));
         }
         match command {
+            BftSignerCommandV3::ReservePrivateRetentionInput { .. } => {
+                self.reserve_first_original(runtime, snapshot, request, request_digest)
+            }
             BftSignerCommandV3::ProvisionPrivateRetention { .. } => {
                 self.provision_fresh_coverage(runtime, snapshot, request, request_digest)
             }

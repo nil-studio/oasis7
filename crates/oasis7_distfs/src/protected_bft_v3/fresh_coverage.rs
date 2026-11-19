@@ -7,11 +7,11 @@ use super::state::{BftSignerStateV3, validate_digest};
 use super::{BftPrivateRetentionSourceV1, BftSignerBackendSnapshotV3};
 use serde::{Deserialize, Serialize};
 
-const MAP_DOMAIN: &str = "oasis7.bft.private-retention.v1.map";
-const RECEIPT_DOMAIN: &str = "oasis7.bft.private-retention.v1.head-receipt";
+pub(super) const MAP_DOMAIN: &str = "oasis7.bft.private-retention.v1.map";
+pub(super) const RECEIPT_DOMAIN: &str = "oasis7.bft.private-retention.v1.head-receipt";
 const SOURCE_INITIALIZATION_RESERVE: u64 =
     64 * 1024 * 1024 + 4 * 4 * 1024 * 1024 + 4 * 64 * 1024 + 2 * 4 * 1024 * 1024 + 1024 * 1024;
-const ORIGINAL_RECEIPT_RESERVE: u64 = 16 * 1024;
+pub(super) const ORIGINAL_RECEIPT_RESERVE: u64 = 16 * 1024;
 const NAMESPACE_LIMIT: u64 = super::BFT_SUCCESSOR_WINDOW_MAX_ARCHIVE_BYTES_V1;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -91,15 +91,14 @@ impl BftPrivateRetentionAttestorV1 {
     }
 }
 
-/// The empty-only subset of the original V1 map. A nonempty map is outside
-/// this activation protocol, and cannot be accepted as an initial map.
+/// Exact empty activation subset of the original V1 map.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BftPrivateRetentionEmptyMapV1 {
-    schema_version: u32,
-    source: BftPrivateRetentionSourceV1,
-    coverage_start_height: u64,
-    previous_seal_receipt_digest: Option<String>,
+    pub(super) schema_version: u32,
+    pub(super) source: BftPrivateRetentionSourceV1,
+    pub(super) coverage_start_height: u64,
+    pub(super) previous_seal_receipt_digest: Option<String>,
     entries: [(); 0],
 }
 
@@ -119,7 +118,10 @@ pub struct BftPrivateRetentionHeadV1 {
 }
 
 impl BftPrivateRetentionHeadV1 {
-    pub(super) fn validate_initial(&self, binding_digest: &str) -> Result<(), BftSignerErrorV3> {
+    pub(super) fn validate_supported_head(
+        &self,
+        binding_digest: &str,
+    ) -> Result<(), BftSignerErrorV3> {
         self.source.validate()?;
         for hash in [
             &self.capability_digest,
@@ -130,9 +132,14 @@ impl BftPrivateRetentionHeadV1 {
         }
         if self.schema_version != 2
             || self.source.binding_digest != binding_digest
-            || self.sequence != 1
-            || self.entry_count != 0
-            || self.previous_receipt_digest.is_some()
+            || !matches!(
+                (
+                    self.sequence,
+                    self.entry_count,
+                    &self.previous_receipt_digest
+                ),
+                (1, 0, None) | (2, 1, Some(_))
+            )
             || self
                 .retained_material_bytes
                 .is_none_or(|bytes| bytes > NAMESPACE_LIMIT || bytes == 0)
@@ -140,6 +147,9 @@ impl BftPrivateRetentionHeadV1 {
             return Err(invalid(
                 "private retention first head shape or binding differs",
             ));
+        }
+        if let Some(digest) = &self.previous_receipt_digest {
+            validate_digest(digest)?;
         }
         Ok(())
     }
@@ -225,7 +235,7 @@ impl BftPrivateRetentionActivationV1 {
     }
 }
 
-fn activation_body(
+pub(super) fn activation_body(
     attestor: &BftPrivateRetentionAttestorV1,
     before: &BftSignerStateV3,
     generation: u64,
