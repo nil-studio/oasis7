@@ -19,14 +19,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: build
-            image: ghcr.io/nil-studio/oasis7/ci-build@sha256:027eb11ad5c315b7ba3aaf834d3ceff5bd84cf6d4d7dfb196bbe4989fc9aa57c
-          - target: browser
-            image: ghcr.io/nil-studio/oasis7/ci-browser@sha256:60ff26345b28212994d2a9754e249383ab1ca25d2a9015e82a91a527efffc016
-          - target: rust-build
-            image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3
-          - target: rust-build-previous
-            image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f
+          - target: rust-wasm-build
+            image: ghcr.io/nil-studio/oasis7/ci-rust-wasm-build@sha256:57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6
     container:
       image: ${{ matrix.image }}
       credentials:
