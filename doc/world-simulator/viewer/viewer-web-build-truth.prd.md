@@ -72,7 +72,7 @@
 
 - native-only runtime、live server、node 与持久化依赖不得重新进入 wasm Viewer dependency graph；Web 不支持的动作必须返回可诊断反馈，不能静默丢弃。
 - 从 bundle 中移出的字体等浏览器资源必须由 canonical finalize/served-asset flow 提供；加载失败必须有可用 fallback 或可见诊断，不能把缺失资源伪装成成功构建。
-- build/finalize 变更至少验证 `npm --prefix crates/oasis7_viewer run build:viewer`、`test:feedback-contract` 与 freshness 证据；UI 行为另用适用 `test:ui`，Rust Bevy bridge 用实际 `pixel_world_bridge` package，后端协议用实际 `oasis7` 测试。不存在 Rust `oasis7_viewer` package，不得用失效 check 命令或任意测试替代原断言。历史 byte-size/trunk 对比不是当前预算。
+- build/finalize 变更至少验证 `npm --prefix crates/oasis7_viewer run build:viewer`、`test:feedback-contract` 与 freshness 证据；UI 行为另用适用 `test:ui`，Rust Bevy bridge 用实际 `pixel_world_bridge` package，后端 seek 与回放行为由 `oasis7_viewer_runtime` 测试，协议辅助逻辑和 wire 类型分别由 `oasis7_client_api` 与 `oasis7_proto` 承担；按实际断言选择对应测试包。不存在 Rust `oasis7_viewer` package，不得用失效 check 命令或任意测试替代原断言。历史 byte-size/trunk 对比不是当前预算。
 
 ### Chat Web 稳定性验收边界
 

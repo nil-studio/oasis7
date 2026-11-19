@@ -400,7 +400,7 @@ completion 测试并补完整链，不引入 Web Seek 或 live seek。
 
 ## 代码与验证接点
 
-- 协议/服务：`crates/oasis7_proto/src/viewer.rs`、`crates/oasis7/src/viewer/{protocol.rs,server.rs,live_controls.rs,runtime_live.rs}`。
+- 协议/服务：`crates/oasis7_proto/src/viewer.rs`、`crates/oasis7_viewer_runtime/src/server.rs`、`crates/oasis7_viewer_runtime/src/viewer/{protocol.rs,live_controls.rs,runtime_live.rs}`。
 - PromptControl authority 与签名：`crates/oasis7_client_api/src/viewer_auth.rs`、`crates/oasis7_viewer_runtime/src/viewer/runtime_live.rs`、`crates/oasis7_viewer_runtime/src/viewer/runtime_live/control_plane.rs`、`crates/oasis7_viewer_runtime/src/viewer/runtime_live/control_plane/prompt_profile.rs`、`crates/oasis7_viewer_runtime/src/viewer/runtime_live/llm_sidecar.rs`。
 - 表现/自动化：`crates/oasis7_viewer/software_safe_src/{legacy_core.js,legacy_core_control_gate.test.js}`；生成浏览器入口为 `crates/oasis7_viewer/viewer.js`。
 - PromptControl 浏览器签名与反馈 consumer 还需对齐 `crates/oasis7_viewer/software_safe_src/{main.jsx,viewer_feedback_module.js,viewer_auth_surface_module.js,software_safe_state.js}`；runner/QA 使用真实 backend-issued grant 与 runtime trace。
