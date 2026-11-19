@@ -144,3 +144,25 @@ jobs:
           docker push "$ref"
           digest=$(docker buildx imagetools inspect "$ref" --format "{{json .Manifest}}" | jq -er .digest)
           printf "%s@%s\n" "$image" "$digest" >> "$GITHUB_STEP_SUMMARY"
+
+  consumer-pull-probe:
+    name: Pull CI images with PR read permissions
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      packages: read
+    steps:
+      - name: Pull published digests
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          export DOCKER_CONFIG
+          DOCKER_CONFIG=$(mktemp -d)
+          trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          unset GHCR_TOKEN
+          time docker pull ghcr.io/nil-studio/oasis7/ci-runtime@sha256:73da06ece78efcd73205ceb943608b6dfa3738fb3b38c8412a66b0284132ef6b
+          time docker pull ghcr.io/nil-studio/oasis7/ci-build@sha256:027eb11ad5c315b7ba3aaf834d3ceff5bd84cf6d4d7dfb196bbe4989fc9aa57c
+          time docker pull ghcr.io/nil-studio/oasis7/ci-browser@sha256:60ff26345b28212994d2a9754e249383ab1ca25d2a9015e82a91a527efffc016
