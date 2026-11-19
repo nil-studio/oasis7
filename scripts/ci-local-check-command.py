@@ -161,8 +161,41 @@ def summaries(path):
     return ''.join(selected)
 
 
+def verified_libtest_count(output, selector, exact):
+    """Verify a single pretty-printed libtest target, not an aggregate of runs."""
+    runs = re.findall(r'^running (\d+) tests? *$', output, re.M)
+    tests = re.findall(r'^test (\S+) \.\.\. (\S+) *$', output, re.M)
+    results = re.findall(
+        r'^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; '
+        r'(\d+) ignored; (\d+) measured; \d+ filtered out; finished in [^\n]+$',
+        output, re.M,
+    )
+    count = len(tests)
+    if not selector or not count or len(runs) != 1 or int(runs[0]) != count:
+        return 0
+    if len(results) != 1 or results[0] != ('ok', str(count), '0', '0', '0'):
+        return 0
+    if exact:
+        return 1 if tests == [(selector, 'ok')] else 0
+    if len({identity for identity, _ in tests}) != count:
+        return 0
+    return count if all(selector in identity and status == 'ok' for identity, status in tests) else 0
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] == '--verify-libtest':
+        if len(argv) != 4 or argv[1] not in ('exact', 'contains'):
+            raise SystemExit('usage: --verify-libtest {exact,contains} SELECTOR LOG')
+        _, mode, selector, log = argv
+        count = verified_libtest_count(Path(log).read_text(encoding='utf-8', errors='replace'),
+                                       selector, exact=mode == 'exact')
+        if not count:
+            print(f'error: no verified passing libtest result for {mode} selector {selector!r}',
+                  file=sys.stderr)
+            return 1
+        print(f'verified_test_count={count}')
+        return 0
     if not argv or argv[0] != '--' or len(argv) == 1:
         raise SystemExit('internal command runner requires -- COMMAND')
     command = argv[1:]

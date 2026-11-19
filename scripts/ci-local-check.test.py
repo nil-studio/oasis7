@@ -239,6 +239,52 @@ class InputCapture(GitFixture):
 
 
 class Evidence(unittest.TestCase):
+    def test_focused_libtest_rejects_empty_wrong_skipped_failed_or_inconsistent_runs(self):
+        selector = 'tests::module::'
+        one = 'tests::module::first'
+        two = 'tests::module::second'
+        summary = 'test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.01s\n'
+        valid = f'running 2 tests\ntest {one} ... ok\ntest {two} ... ok\n{summary}'
+        self.assertEqual(command.verified_libtest_count(valid, selector, exact=False), 2)
+        for output in (
+            '', 'running 0 tests\n' + summary.replace('2 passed', '0 passed'),
+            valid.replace(two, 'tests::other::second'), valid.replace(two, one),
+            valid.replace(f'{two} ... ok', f'{two} ... ignored'),
+            valid.replace(f'{two} ... ok', f'{two} ... FAILED'),
+            valid.replace('0 ignored', '1 ignored'), valid.replace('2 passed', '1 passed'),
+            valid.replace('running 2', 'running 3'), valid + valid,
+            valid.replace(summary, ''), valid.replace('result: ok', 'result: FAILED'),
+        ):
+            with self.subTest(output=output):
+                self.assertEqual(command.verified_libtest_count(output, selector, exact=False), 0)
+        valid_exact = f'running 1 test\ntest {one} ... ok\n' + summary.replace('2 passed', '1 passed')
+        self.assertEqual(command.verified_libtest_count(valid_exact, one, exact=True), 1)
+        self.assertEqual(command.verified_libtest_count(valid_exact, two, exact=True), 0)
+        self.assertEqual(command.verified_libtest_count(valid, one, exact=True), 0)
+
+    def test_module_release_dry_run_shows_chain_and_runtime_targets_without_cargo(self):
+        bash_version = subprocess.check_output(['bash', '-c', 'echo "${BASH_VERSINFO[0]}"'], text=True)
+        if int(bash_version) < 4:
+            self.skipTest('module-release acceptance requires Bash 4+')
+        with tempfile.TemporaryDirectory() as temporary:
+            result = subprocess.run(['bash', str(HERE / 'module-release-node-acceptance.sh'),
+                                     '--include-full', '--dry-run', '--out-dir', temporary],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report_path, = Path(temporary).glob('*/summary.json')
+            report = json.loads(report_path.read_text())
+            self.assertTrue(report['dry_run'])
+            commands = {step['name']: step['command'] for step in report['steps']}
+            self.assertIn('cargo test -p oasis7_chain_runtime --lib', commands['required_submit_api'])
+            self.assertIn('module_release_attestation_submit_api::tests::', commands['required_submit_api'])
+            self.assertIn('cargo test -p oasis7_chain_runtime --lib', commands['required_release_policy'])
+            for name in ('required_attestation', 'required_threshold', 'required_receipt_evidence'):
+                self.assertIn('cargo test -p oasis7_runtime --lib --features test_tier_required', commands[name])
+            for name in ('required_threshold', 'required_receipt_evidence'):
+                self.assertIn('--exact', commands[name])
+            self.assertIn('test_tier_full\\,wasmtime tests::power_bootstrap_release_manifest_full::',
+                          commands['full_manifest_faults'])
+
     def test_structured_completion_rejects_boolean_counts_and_truthy_flags(self):
         argv = ['python3', 'scripts/ci-python-control-contracts.py', 'local-contract']
         valid = dict(expected_count=2, passed=True, count_ok=True)
