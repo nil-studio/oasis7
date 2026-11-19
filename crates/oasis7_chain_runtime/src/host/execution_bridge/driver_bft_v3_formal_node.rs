@@ -702,7 +702,7 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
 
 /// Retain the bounded complete H index before the first signing lease: future
 /// actions can touch branches no earlier proposal happened to observe.
-fn capture_h_index(origin: &FormalBftHeaderExecutionV3) -> Result<(), String> {
+pub(super) fn capture_h_index(origin: &FormalBftHeaderExecutionV3) -> Result<(), String> {
     use oasis7_distfs::controlled_authority::formal::business_index::{
         BUSINESS_INDEX_DEPTH, BusinessIndexNodeKindV1, BusinessIndexNodeV1, empty_subtree_hashes,
     };
