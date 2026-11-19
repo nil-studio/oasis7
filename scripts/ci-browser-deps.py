@@ -330,13 +330,17 @@ def install_tools():
         check_tools('agent')
 
 
-def activate(browser, work, github_env=None):
+def activate(browser, work, github_env=None, *, prebuilt=False):
     require_platform()
     work = safe_path(work)
     missing = missing_packages(browser)
     if missing:
         raise BrowserError('browser dependencies remain missing: ' + ', '.join(missing))
-    agent = check_tools(browser)
+    if prebuilt:
+        if browser != 'playwright':
+            raise BrowserError('prebuilt activation supports Playwright only')
+        work.mkdir(parents=True, exist_ok=True)
+    agent = None if prebuilt else check_tools(browser)
     if browser == 'agent':
         agent.chmod(0o755)
         actual = checked_command([str(agent), '--version'], work, 'agent-version', 10).strip()
@@ -354,10 +358,16 @@ def activate(browser, work, github_env=None):
             raise BrowserError('Chrome renderer probe did not return the expected document')
         values = dict(AGENT_BROWSER_BIN=str(agent), AGENT_BROWSER_EXECUTABLE_PATH=str(chrome))
     else:
-        browsers = work / 'playwright-browsers'
+        module = Path('/opt/oasis7-browser/node_modules/playwright') if prebuilt else TOOLS / 'node_modules/playwright'
+        browsers = Path('/opt/oasis7-playwright') if prebuilt else work / 'playwright-browsers'
         extra = dict(PLAYWRIGHT_BROWSERS_PATH=str(browsers))
-        checked_command(['node', str(TOOLS / 'node_modules/playwright/cli.js'),
-                         'install', 'chromium', '--only-shell'], work, 'playwright-install', 180, extra)
+        if prebuilt:
+            for package in (module, module.with_name('playwright-core')):
+                if json.loads((package / 'package.json').read_text()).get('version') != PLAYWRIGHT_VERSION:
+                    raise BrowserError(f'prebuilt browser package version mismatch: {package.name}')
+        else:
+            checked_command(['node', str(module / 'cli.js'), 'install', 'chromium', '--only-shell'],
+                            work, 'playwright-install', 180, extra)
         probe = """const {chromium}=require(process.argv[1]);
 (async()=>{const browser=await chromium.launch({headless:true});
 try {if(browser.version()!==process.argv[2]) throw Error('browser version mismatch');
@@ -365,9 +375,9 @@ const page=await browser.newPage(); await page.setContent('<body>oasis7-ci-brows
 if(await page.textContent('body')!=='oasis7-ci-browser-ready') throw Error('renderer probe failed');
 console.log('browser-ready '+browser.version());} finally {await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});"""
-        checked_command(['node', '-e', probe, str(TOOLS / 'node_modules/playwright'), SHELL_VERSION],
+        checked_command(['node', '-e', probe, str(module), SHELL_VERSION],
                         work, 'playwright-launch', 30, extra)
-        values = dict(OASIS7_PLAYWRIGHT_MODULE=str(TOOLS / 'node_modules/playwright'), **extra)
+        values = dict(OASIS7_PLAYWRIGHT_MODULE=str(module), **extra)
     if github_env:
         with Path(github_env).open('a') as stream:
             stream.writelines(f'{key}={value}\n' for key, value in values.items())
@@ -397,6 +407,7 @@ def main(argv=None):
     parser.add_argument('--work-dir', type=Path)
     parser.add_argument('--github-output', type=Path)
     parser.add_argument('--github-env', type=Path)
+    parser.add_argument('--prebuilt', action='store_true')
     parser.add_argument('--key')
     args = parser.parse_args(argv)
     if args.command in ('fetch', 'admit-save') and not args.component:
@@ -425,7 +436,7 @@ def main(argv=None):
         elif args.command == 'prepare':
             prepare(args.browser, args.work_dir, args.cache_base)
         elif args.command == 'activate':
-            activate(args.browser, args.work_dir, args.github_env)
+            activate(args.browser, args.work_dir, args.github_env, prebuilt=args.prebuilt)
         else:
             report = admission(args.component, args.cache_base, args.key, os.environ)
             if args.github_output:

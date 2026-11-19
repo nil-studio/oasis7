@@ -415,7 +415,7 @@ PR 汇总只等待本 PR 计划的必要检查，周期汇总等待本轮完整�
 
 schedule 使用 `17,37,57 * * * *`（UTC）执行轻量观察。短串行 admission 从实际 Actions run、jobs 与版本化 admission 产物判断：无活动 full 且距最近真实 full 启动达到四小时，才启动本轮完整图；没有历史记录且查询完整时启动首轮。失败和取消仍计入真实启动间隔，不每二十分钟重跑测试；错过多个时隙只补当前一轮。每轮固定事件 main SHA，所有 checkout、产物和汇总引用该值，保留 manual full。
 
-PR 并发组按 PR 编号取消过期运行。schedule 观察使用每 run 独立并发组，admission job 使用固定短并发组且不取消正在执行的判断。判断与上传启动资格在同一短锁内；已发布资格但 select 尚未启动也阻止下一轮重复启动。活动 full 超期只报告，不自动取消或重叠。candidate-full 按触发 ref 与固定候选区分，避免取消主线回归或把不同候选串成一个成功结果。完整扩展 job 的执行上限为 210 分钟，主线健康检查另以四小时观测单轮预算；这不等于整条 workflow 已证明在四小时内完成。超过容量目标时优化分片或资源，不无限重叠。需要硬性隔离 PR 容量时使用独立 runner 池，普通 concurrency 不等于平台优先级。
+PR 并发组按 PR 编号取消过期运行；`main` 分支的 `push`（`main-fast`）按目标分支 ref 共享并发组并取消被新合入覆盖的过期运行（漏掉的中间提交由后续 `periodic-full` 兜底）。schedule 观察使用每 run 独立并发组，admission job 使用固定短并发组且不取消正在执行的判断。判断与上传启动资格在同一短锁内；已发布资格但 select 尚未启动也阻止下一轮重复启动。活动 full 超期只报告，不自动取消或重叠。candidate-full 按触发 ref 与固定候选区分，避免取消主线回归或把不同候选串成一个成功结果。完整扩展 job 的执行上限为 210 分钟，主线健康检查另以四小时观测单轮预算；这不等于整条 workflow 已证明在四小时内完成。超过容量目标时优化分片或资源，不无限重叠。需要硬性隔离 PR 容量时使用独立 runner 池，普通 concurrency 不等于平台优先级。
 
 `ci-full-result.py health` 只读观察最近两天 main schedule 的实际 attempt，区分观察与实际 full，报告最近完整运行、最近终态、`last_successful_sha` 和 `commit_range`，缺数据保留 unknown。为覆盖旧 run 最近重跑，metadata 按两天窗口回看三十七天，并单独查询全部活动轮；范围覆盖 GitHub 的[三十天重跑期限](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)及[三十五天 workflow 运行上限](https://docs.github.com/en/actions/reference/limits)加两天观察窗，不把创建时间当最新 attempt 时间。
 

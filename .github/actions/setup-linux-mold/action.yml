@@ -1,5 +1,9 @@
 name: Set up Linux mold
 description: Install and verify the pinned linker for Linux native and host Rust artifacts
+inputs:
+  install-dir:
+    description: Optional writable directory for the verified linker
+    required: false
 outputs:
   linker:
     description: Absolute path to the compiler driver using mold
@@ -64,4 +68,11 @@ runs:
       id: mold
       if: runner.os == 'Linux'
       shell: bash
-      run: python3 "$GITHUB_WORKSPACE/.github/actions/setup-linux-mold/setup.py" --archive "$RUNNER_TEMP/oasis7-mold-cache/release.tar.gz"
+      env:
+        MOLD_INSTALL_DIR: ${{ inputs.install-dir }}
+      run: |
+        args=(--archive "$RUNNER_TEMP/oasis7-mold-cache/release.tar.gz")
+        if [[ -n "$MOLD_INSTALL_DIR" ]]; then
+          args+=(--install-dir "$MOLD_INSTALL_DIR")
+        fi
+        python3 "$GITHUB_WORKSPACE/.github/actions/setup-linux-mold/setup.py" "${args[@]}"

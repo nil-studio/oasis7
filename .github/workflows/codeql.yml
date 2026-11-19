@@ -27,6 +27,7 @@ cache-mode: read
 jobs:
   plan:
     name: CodeQL / plan
+    if: github.event_name != 'pull_request' || github.event.action != 'closed'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -515,7 +516,7 @@ jobs:
   summary:
     name: CodeQL / summary
     needs: [plan, analyze]
-    if: always()
+    if: always() && (github.event_name != 'pull_request' || github.event.action != 'closed')
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:
