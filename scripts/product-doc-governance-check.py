@@ -554,10 +554,6 @@ SCOPED_INTEGRITY_CODES = frozenset({
 })
 
 
-def is_content_finding(error: str) -> bool:
-    return error.split(": ", 2)[1] in CONTENT_FINDING_CODES
-
-
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parent.parent)

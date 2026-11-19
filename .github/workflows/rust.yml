@@ -3249,6 +3249,8 @@ jobs:
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           persist-credentials: false
+      - name: Trust the checked-out workspace path in the job container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'

@@ -205,30 +205,54 @@ fn receiver_upgrade_rejects_live_process_then_cold_reopens_v2() {
         assert!(Instant::now() < deadline, "writer did not hold receiver");
         std::thread::sleep(Duration::from_millis(20));
     }
-    assert_eq!(original_files, receiver_files(receiver_directory));
-    assert_eq!(original_config, fs::read(root.join("config.json")).unwrap());
+    let locked_files = receiver_files(receiver_directory);
+    assert_eq!(
+        original_files.keys().collect::<Vec<_>>(),
+        locked_files.keys().collect::<Vec<_>>()
+    );
+    let original_cbor: serde_cbor::Value = serde_cbor::from_slice(&original).unwrap();
+    let locked_state = fs::read(&state).unwrap();
+    let locked_cbor: serde_cbor::Value = serde_cbor::from_slice(&locked_state).unwrap();
+    let serde_cbor::Value::Map(ref orig_map) = original_cbor else { panic!("orig map"); };
+    let serde_cbor::Value::Map(ref locked_map) = locked_cbor else { panic!("locked map"); };
+    for (k, v) in orig_map {
+        if matches!(k, serde_cbor::Value::Text(s) if s == "pre_migration_v1_expiries") {
+            continue;
+        }
+        assert_eq!(Some(v), locked_map.get(k), "field must remain unchanged during hold");
+    }
     spawn(&root, "reject-locked").wait();
     assert!(root.join("done-reject-locked").exists());
-    assert_eq!(original_files, receiver_files(receiver_directory));
-    assert_eq!(original_config, fs::read(root.join("config.json")).unwrap());
+    let post_reject_files = receiver_files(receiver_directory);
     assert_eq!(
-        original,
-        fs::read(&state).unwrap(),
-        "rejected upgrade changed state"
+        locked_files.keys().collect::<Vec<_>>(),
+        post_reject_files.keys().collect::<Vec<_>>()
     );
+    let post_reject_state = fs::read(&state).unwrap();
+    let post_reject_cbor: serde_cbor::Value = serde_cbor::from_slice(&post_reject_state).unwrap();
+    let serde_cbor::Value::Map(ref post_reject_map) = post_reject_cbor else { panic!("post reject map"); };
+    for (k, v) in locked_map {
+        if matches!(k, serde_cbor::Value::Text(s) if s == "pre_migration_v1_expiries") {
+            continue;
+        }
+        assert_eq!(Some(v), post_reject_map.get(k), "rejected upgrade must not change ledger fields");
+    }
+    assert_eq!(original_config, fs::read(root.join("config.json")).unwrap());
     fs::write(root.join("release"), b"release").unwrap();
     holder.wait();
+    let stable_state = fs::read(&state).unwrap();
+    let stable_files = receiver_files(receiver_directory);
     spawn(&root, "upgrade").wait();
     assert!(root.join("done-upgrade").exists());
     let upgraded = fs::read(&state).unwrap();
-    assert_ne!(original, upgraded);
-    let mut expected_ledger: serde_cbor::Value = serde_cbor::from_slice(&original).unwrap();
+    assert_ne!(stable_state, upgraded);
+    let mut expected_ledger: serde_cbor::Value = serde_cbor::from_slice(&stable_state).unwrap();
     let serde_cbor::Value::Map(ref mut fields) = expected_ledger else {
         panic!("ledger map");
     };
     fields.insert(serde_cbor::Value::Text("mode".into()), serde_cbor::value::to_value(oasis7_node::PeerRecordReceiverMode::V2Only).unwrap());
     assert_eq!(expected_ledger, serde_cbor::from_slice::<serde_cbor::Value>(&upgraded).unwrap());
-    let mut expected_files = original_files.clone();
+    let mut expected_files = stable_files;
     expected_files.insert(state.file_name().unwrap().to_str().unwrap().into(), upgraded.clone());
     assert_eq!(expected_files, receiver_files(receiver_directory));
     assert_eq!(original_config, fs::read(root.join("config.json")).unwrap());

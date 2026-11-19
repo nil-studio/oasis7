@@ -1,6 +1,8 @@
 //! Real endpoint executable recovery with simulated external custody/uniqueness.
 //! This verifies bootstrap plumbing, not real host/storage fault domains.
 use super::*;
+use crate::controlled_authority::formal::ProfileHandoffV1;
+use crate::controlled_authority::formal::business_index::*;
 #[path = "endpoint_consecutive_process_tests.rs"]
 mod consecutive_tests;
 use crate::controlled_authority::formal::{
@@ -47,23 +49,17 @@ fn remote(
     )
     .unwrap()
 }
-#[test]
-#[ignore = "requires OASIS7_FORMAL_ENDPOINT_TEST_BIN; external providers are simulations"]
-fn recovered_endpoint_children_import_ready_complete_original_and_reopen_without_reexecution() {
-    run_recovery(false);
-}
-#[test]
-#[ignore = "requires OASIS7_FORMAL_ENDPOINT_TEST_BIN; external providers are simulations"]
-fn recovered_endpoint_children_consecutive_epoch_before_first_completion_preserves_original() {
-    run_recovery(true);
-}
-fn run_recovery(consecutive: bool) {
-    let binary = std::env::var_os("OASIS7_FORMAL_ENDPOINT_TEST_BIN").unwrap();
-    let fixture = Fixture::new();
-    let po = Oracle::start(&fixture, EndpointRole::Primary);
-    let ro = Oracle::start(&fixture, EndpointRole::Replica);
-    let authfile = fixture.path.join("oracle-auth");
-    credential(&authfile);
+fn original_configs(
+    fixture: &Fixture,
+    po: &Oracle,
+    ro: &Oracle,
+    authfile: &Path,
+) -> (
+    SignedInitialActivationV1,
+    InitialActivationTrustV1,
+    Vec<PathBuf>,
+) {
+    credential(authfile);
     let body = fixture.authority.initial_body().cloned().unwrap();
     let initial = SignedInitialActivationV1 {
         signature_hex: signed(initial_activation_signing_bytes(&body).unwrap(), 9),
@@ -76,7 +72,7 @@ fn run_recovery(consecutive: bool) {
         governing_manifest_digest: initial.body.governing_manifest_digest.clone(),
         recovery_policy_digest: fixture.authority.policy().digest().unwrap(),
     };
-    let mut old_configs = Vec::new();
+    let mut configs = Vec::new();
     for (role, dir, oracle) in [
         (EndpointRole::Primary, &fixture.pdir, &po),
         (EndpointRole::Replica, &fixture.rdir, &ro),
@@ -84,8 +80,162 @@ fn run_recovery(consecutive: bool) {
         fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).unwrap();
         let config = fixture.path.join(format!("old-{role:?}.json"));
         fs::write(&config,serde_json::to_vec(&serde_json::json!({"schema_version":2,"initial_trust":trust,"initial_certificate":initial,"initial_qualified":null,"role":role,"data_dir":dir,"oracle_authentication_key_file":authfile,"oracle_address":oracle.address,"listen":"127.0.0.1:0","timeout_ms":3000})).unwrap()).unwrap();
-        old_configs.push(config);
+        configs.push(config);
     }
+    (initial, trust, configs)
+}
+
+fn assert_cold_committed_handoff_stays_closed_before_bft_commit() {
+    let binary = std::env::var_os("OASIS7_FORMAL_ENDPOINT_TEST_BIN").unwrap();
+    struct HandoffIndex(Vec<BusinessIndexNodeWriteV1>);
+    impl BusinessIndexNodeReader for HandoffIndex {
+        fn read_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
+            Ok(self
+                .0
+                .iter()
+                .find(|node| node.digest == digest)
+                .map(|node| node.bytes.clone()))
+        }
+    }
+
+    let (fixture, initial_envelope) = super::super::business_tests::fixture();
+    let primary_oracle = Oracle::start(&fixture, EndpointRole::Primary);
+    let replica_oracle = Oracle::start(&fixture, EndpointRole::Replica);
+    let authfile = fixture.path.join("oracle-auth");
+    let (_, _, configs) = original_configs(&fixture, &primary_oracle, &replica_oracle, &authfile);
+    let (mut primary, primary_address) = start(&binary, &configs[0]);
+    let (mut replica, replica_address) = start(&binary, &configs[1]);
+    let genesis = fixture.authority.definition().world.genesis_head().unwrap();
+    let mut coordinator = FormalCoordinator::new(
+        remote(
+            primary_address,
+            &fixture.authority,
+            EndpointRole::Primary,
+            4,
+            genesis.clone(),
+        ),
+        remote(
+            replica_address,
+            &fixture.authority,
+            EndpointRole::Replica,
+            4,
+            genesis,
+        ),
+        fixture.authority.clone(),
+        fixture.authority.clone(),
+        None,
+        None,
+    )
+    .unwrap();
+    let initial_proof = coordinator.submit(fixture.initial.clone()).unwrap();
+    let initial = verify_formal_qualified(&initial_proof, &fixture.authority, None, None).unwrap();
+    let (mut input, material) = fixture.frozen(&initial, 44);
+    let handoff = ProfileHandoffV1 {
+        next_profile: "bft".into(),
+        next_profile_version: 1,
+        next_authority_digest: h(79),
+        valid_from_position: 3,
+    };
+    input.body.handoff = Some(handoff.clone());
+    input.signature_hex = signed(frozen_signing_bytes(&input.body).unwrap(), 4);
+    let executable = coordinator.freeze(input, material).unwrap();
+    let original_request = executable.input().body.request_digest.clone();
+    let mut candidate = fixture.candidate(&executable);
+    let mut updates = vec![
+        BusinessIndexLeafV1 {
+            key_digest: metadata_key_digest(),
+            kind: BusinessIndexLeafKindV1::CommitMetadata,
+            canonical_value: b"committed handoff".to_vec(),
+        },
+        BusinessIndexLeafV1 {
+            key_digest: original_request.clone(),
+            kind: BusinessIndexLeafKindV1::Outcome,
+            canonical_value: serde_cbor::to_vec(&(44u8, 2u64)).unwrap(),
+        },
+        FormalHistoricalCutV1::from_proof(&initial_proof)
+            .unwrap()
+            .leaf()
+            .unwrap(),
+    ];
+    updates.sort_by(|a, b| a.key_digest.cmp(&b.key_digest));
+    let delta = BusinessIndexDeltaV1::build(
+        initial_envelope.delta.new,
+        updates,
+        &HandoffIndex(initial_envelope.delta.node_writes),
+    )
+    .unwrap();
+    let envelope = super::super::business_tests::envelope(delta);
+    super::super::business_tests::replace_result(
+        &mut candidate.material,
+        envelope.encode().unwrap(),
+    );
+    let record = &mut candidate.candidate.record;
+    record.handoff = Some(handoff.clone());
+    record.artifact_roots = candidate.material.roots.clone();
+    record.result_root = envelope.delta.new_root;
+    candidate.candidate.writer_signature_hex =
+        signed(canonical_candidate_signing_bytes(record).unwrap(), 4);
+    let committed = coordinator.submit(candidate).unwrap();
+    let cut =
+        verify_formal_qualified(&committed, &fixture.authority, Some(&initial), None).unwrap();
+    assert_eq!(cut.record().handoff.as_ref(), Some(&handoff));
+    drop(coordinator);
+    primary.kill().unwrap();
+    primary.wait().unwrap();
+    replica.kill().unwrap();
+    replica.wait().unwrap();
+
+    for (config, role) in configs
+        .iter()
+        .zip([EndpointRole::Primary, EndpointRole::Replica])
+    {
+        let (_reopened, address) = start(&binary, config);
+        let mut endpoint = remote(address, &fixture.authority, role, 4, cut.head());
+        let (input, material) = fixture.frozen(&cut, 45);
+        let next_request = input.body.request_digest.clone();
+        let FormalQueryOutcomeV1::Recorded(state) = endpoint.query(&original_request).unwrap()
+        else {
+            panic!("committed H was absent after cold reopen");
+        };
+        let FormalRequestStateV1::Qualified { proof, .. } = *state else {
+            panic!("committed H was not qualified after cold reopen");
+        };
+        assert_eq!(proof, committed);
+        let before = endpoint.checkpoint().unwrap();
+        let error = endpoint.freeze(input, material).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("formal normal parent/profile/fresh-write boundary"),
+            "{error}"
+        );
+        assert_eq!(endpoint.head().unwrap(), cut.head());
+        assert_eq!(endpoint.checkpoint().unwrap(), before);
+        assert!(matches!(
+            endpoint.query(&next_request).unwrap(),
+            FormalQueryOutcomeV1::NotRecorded
+        ));
+    }
+}
+
+#[test]
+#[ignore = "requires OASIS7_FORMAL_ENDPOINT_TEST_BIN; external providers are simulations"]
+fn recovered_endpoint_children_import_ready_complete_original_and_reopen_without_reexecution() {
+    run_recovery(false);
+    assert_cold_committed_handoff_stays_closed_before_bft_commit();
+}
+#[test]
+#[ignore = "requires OASIS7_FORMAL_ENDPOINT_TEST_BIN; external providers are simulations"]
+fn recovered_endpoint_children_consecutive_epoch_before_first_completion_preserves_original() {
+    run_recovery(true);
+}
+fn run_recovery(consecutive: bool) {
+    let binary = std::env::var_os("OASIS7_FORMAL_ENDPOINT_TEST_BIN").unwrap();
+    let fixture = Fixture::new();
+    let po = Oracle::start(&fixture, EndpointRole::Primary);
+    let ro = Oracle::start(&fixture, EndpointRole::Replica);
+    let authfile = fixture.path.join("oracle-auth");
+    let (initial, trust, old_configs) = original_configs(&fixture, &po, &ro, &authfile);
     let (mut pchild, paddr) = start(&binary, &old_configs[0]);
     let (mut rchild, raddr) = start(&binary, &old_configs[1]);
     let genesis = fixture.authority.definition().world.genesis_head().unwrap();

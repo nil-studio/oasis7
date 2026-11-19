@@ -12,7 +12,6 @@ mod provider_validation;
 use provider_validation::validate_local_test_provider_options;
 
 use std::{collections::BTreeMap, fmt, fs};
-use std::io::{self, BufReader, Read};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -30,9 +29,9 @@ use oasis7_proto::distributed_dht::{PeerDeploymentMode, PeerNodeRole, PeerReacha
 use oasis7_proto::storage_profile::StorageProfile;
 use oasis7_runtime::RewardAssetConfig;
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
 
 use super::distfs_probe_runtime::{DistfsProbeRuntimeConfig, parse_distfs_probe_runtime_option};
+use super::runtime_file_io::{sha256_dir_tree_hex, sha256_file_hex};
 
 #[path = "cli_help.rs"]
 pub(super) mod cli_help;
@@ -113,6 +112,9 @@ pub(super) struct CliOptions {
     /// One-time receiver floor bootstrap action; deliberately not persisted in runtime config.
     pub initialize_peer_record_receiver: bool,
     pub upgrade_peer_record_receiver: bool,
+    pub prune_peer_record_receiver: bool,
+    pub peer_record_trusted_time_unix_ms: Option<i64>,
+    pub peer_record_retained_peers: Vec<String>,
     /// One-startup durable publisher action; deliberately not persisted in runtime config.
     pub withdraw_peer_record_publication: bool,
     pub resume_peer_record_publication: bool,
@@ -262,6 +264,20 @@ pub(super) fn parse_options<'a>(args: impl Iterator<Item = &'a str>) -> Result<C
             }
             "--upgrade-peer-record-receiver" => {
                 options.upgrade_peer_record_receiver = true;
+            }
+            "--prune-peer-record-receiver" => {
+                options.prune_peer_record_receiver = true;
+            }
+            "--peer-record-trusted-time-unix-ms" => {
+                let raw = parse_required_value(&mut iter, "--peer-record-trusted-time-unix-ms")?;
+                let value = raw.parse::<i64>().map_err(|error| {
+                    format!("invalid --peer-record-trusted-time-unix-ms value '{raw}': {error}")
+                })?;
+                options.peer_record_trusted_time_unix_ms = Some(value);
+            }
+            "--peer-record-retained-peer" => {
+                let raw = parse_required_value(&mut iter, "--peer-record-retained-peer")?;
+                options.peer_record_retained_peers.push(raw.to_string());
             }
             "--initialize-peer-record-receiver" => {
                 options.initialize_peer_record_receiver = true;
@@ -665,6 +681,7 @@ pub(super) fn parse_options<'a>(args: impl Iterator<Item = &'a str>) -> Result<C
             && options.network_tier_manifest_path.is_none())
     {
         let has_one_shot_peer_record_action = options.upgrade_peer_record_receiver
+            || options.prune_peer_record_receiver
             || options.initialize_peer_record_publication
             || options.initialize_peer_record_receiver
             || options.withdraw_peer_record_publication
@@ -1033,67 +1050,6 @@ fn is_sha256_hex(raw: &str) -> bool {
     raw.len() == 64 && raw.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
-fn sha256_file_hex(path: &Path) -> io::Result<String> {
-    let file = fs::File::open(path)?;
-    let mut reader = BufReader::new(file);
-    let mut hasher = Sha256::new();
-    let mut buffer = [0_u8; 64 * 1024];
-    loop {
-        let read = reader.read(&mut buffer)?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-    }
-    Ok(hex::encode(hasher.finalize()))
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Sha256DirTree {
-    sha256_tree: String,
-    file_count: u64,
-    total_bytes: u64,
-}
-
-fn sha256_dir_tree_hex(path: &Path) -> io::Result<Sha256DirTree> {
-    let mut files = Vec::new();
-    collect_files(path, &mut files)?;
-    files.sort();
-
-    let mut combined = Sha256::new();
-    let mut total_bytes = 0_u64;
-    for file in files.iter() {
-        let rel = file.strip_prefix(path).map_err(io::Error::other)?;
-        let rel = rel.to_string_lossy().replace('\\', "/");
-        let digest = sha256_file_hex(file.as_path())?;
-        let size = fs::metadata(file.as_path())?.len();
-        combined.update(rel.as_bytes());
-        combined.update(b"\0");
-        combined.update(digest.as_bytes());
-        combined.update(b"\0");
-        combined.update(size.to_string().as_bytes());
-        combined.update(b"\n");
-        total_bytes += size;
-    }
-    Ok(Sha256DirTree {
-        sha256_tree: hex::encode(combined.finalize()),
-        file_count: files.len() as u64,
-        total_bytes,
-    })
-}
-
-fn collect_files(path: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
-    for entry in fs::read_dir(path)? {
-        let entry = entry?;
-        let child = entry.path();
-        if child.is_dir() {
-            collect_files(child.as_path(), files)?;
-        } else if child.is_file() {
-            files.push(child);
-        }
-    }
-    Ok(())
-}
 
 pub(super) fn p2p_auto_detection_from_options(
     options: &CliOptions,

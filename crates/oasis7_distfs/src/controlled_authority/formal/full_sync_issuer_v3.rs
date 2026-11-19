@@ -251,8 +251,17 @@ impl DurableFullSyncIssuerV3 {
         request: SignedFullSyncProviderLeaseRequestV3,
         witness: &mut dyn FullSyncIssuerWitnessV3,
     ) -> Result<FullSyncIssuerCommittedEntryV3, FormalError> {
-        self.ensure_healthy()?;
-        let state = self.synchronize_v3(witness)?;
+        self.issue_lease_at(request, None, witness)
+    }
+
+    fn issue_lease_at(
+        &mut self,
+        request: SignedFullSyncProviderLeaseRequestV3,
+        requested_minimum: Option<&FullSyncIssuerAnchorV3>,
+        witness: &mut dyn FullSyncIssuerWitnessV3,
+    ) -> Result<FullSyncIssuerCommittedEntryV3, FormalError> {
+        let minimum = requested_minimum.unwrap_or(&self.minimum_anchor).clone();
+        let (state, _) = self.synchronize_v3_at(witness, minimum, random_nonce()?)?;
         let pending = match read_pending_any(&self.directory)? {
             Some(ReadPendingFile::V3(pending)) => Some(*pending),
             Some(ReadPendingFile::V2(_)) => {
@@ -325,6 +334,22 @@ impl DurableFullSyncIssuerV3 {
             return Err(error);
         }
         Ok(decision.entry().clone())
+    }
+
+    /// Handle evidence after the trusted service independently authenticates
+    /// the provider and authorizes disclosure of complete issuer history.
+    /// A read without the separate signed lease request cannot sign a lease.
+    pub fn read_evidence_for_provider(
+        &mut self,
+        access: &FullSyncIssuerHistoryAccessV3<'_>,
+        request: FullSyncReadEvidenceQueryV3,
+        witness: &mut dyn FullSyncIssuerWitnessV3,
+    ) -> Result<FullSyncIssuerReadEvidenceV3, FormalError> {
+        let nonce = request.verify_provider(access, &self.policy)?;
+        if let Some(lease) = request.provider_lease_request {
+            self.issue_lease_at(lease, Some(&request.minimum_anchor), witness)?;
+        }
+        self.read_evidence(request.minimum_anchor, nonce, witness)
     }
 
     /// Produce nonce-bound raw evidence for an already authorized service

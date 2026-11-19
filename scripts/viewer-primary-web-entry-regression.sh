@@ -149,7 +149,6 @@ ab_state() {
 state_connection() { json_get "$1" connectionStatus; }
 state_render_mode() { json_get "$1" renderMode; }
 state_reason() { json_get "$1" viewerReason; }
-state_selected_kind() { json_get "$1" selectedKind; }
 state_last_error() { json_get "$1" lastError; }
 
 wait_for_api() {
@@ -175,24 +174,6 @@ wait_for_connected() {
   while (( SECONDS * 1000 < deadline )); do
     state=$(ab_state "$session")
     if [[ "$(state_connection "$state")" == "connected" ]]; then
-      printf '%s\n' "$state"
-      return 0
-    fi
-    sleep_ms 250
-  done
-  printf '%s\n' "$state"
-  return 1
-}
-
-wait_for_selected_kind() {
-  local session=$1
-  local expected_kind=$2
-  local timeout_ms=${3:-10000}
-  local deadline=$((SECONDS * 1000 + timeout_ms))
-  local state='null'
-  while (( SECONDS * 1000 < deadline )); do
-    state=$(ab_state "$session")
-    if [[ "$(state_selected_kind "$state")" == "$expected_kind" ]]; then
       printf '%s\n' "$state"
       return 0
     fi

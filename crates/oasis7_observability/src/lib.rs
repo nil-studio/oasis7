@@ -26,6 +26,7 @@ pub fn init_tracing(service_name: &str) {
             .unwrap_or_else(|_| EnvFilter::new(format!("{service_name}=info,oasis7=info,warn")));
         let _ = tracing_subscriber::fmt()
             .with_env_filter(filter)
+            .with_writer(std::io::stderr)
             .with_target(true)
             .with_thread_names(true)
             .compact()

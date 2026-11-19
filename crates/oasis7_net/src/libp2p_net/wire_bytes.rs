@@ -95,11 +95,28 @@ pub(crate) struct InstrumentedStreamMuxer<SMInner> {
     #[pin]
     inner: SMInner,
     counters: SharedLibp2pWireByteCounters,
+    yamux_write_zero: bool,
 }
 
 impl<SMInner> InstrumentedStreamMuxer<SMInner> {
     pub(crate) fn new(inner: SMInner, counters: SharedLibp2pWireByteCounters) -> Self {
-        Self { inner, counters }
+        Self {
+            inner,
+            counters,
+            yamux_write_zero: false,
+        }
+    }
+}
+
+impl<SMInner: StreamMuxer<Substream = libp2p::yamux::Stream>> InstrumentedStreamMuxer<SMInner> {
+    pub(super) fn new_yamux(inner: SMInner, counters: SharedLibp2pWireByteCounters) -> Self {
+        // Pinned Yamux reports WriteZero only before this payload's frame is
+        // queued. Retain this fact before erasing the concrete stream type.
+        Self {
+            inner,
+            counters,
+            yamux_write_zero: true,
+        }
     }
 }
 
@@ -128,7 +145,8 @@ where
             inner,
             counters: this.counters.clone(),
             read_wait: BudgetWait::default(),
-            write_wait: BudgetWait::default(),
+            write_wait: BudgetWait::for_write(*this.yamux_write_zero),
+            send_closed: false,
         }))
     }
 
@@ -142,7 +160,8 @@ where
             inner,
             counters: this.counters.clone(),
             read_wait: BudgetWait::default(),
-            write_wait: BudgetWait::default(),
+            write_wait: BudgetWait::for_write(*this.yamux_write_zero),
+            send_closed: false,
         }))
     }
 
@@ -159,6 +178,7 @@ pub(crate) struct InstrumentedSubstream<SMInner> {
     counters: SharedLibp2pWireByteCounters,
     read_wait: BudgetWait,
     write_wait: BudgetWait,
+    send_closed: bool,
 }
 
 fn offered_vectored_bytes(lengths: impl Iterator<Item = usize>) -> io::Result<usize> {
@@ -293,6 +313,11 @@ impl<SMInner: AsyncWrite> AsyncWrite for InstrumentedSubstream<SMInner> {
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let this = self.project();
-        this.inner.poll_close(cx)
+        if *this.send_closed {
+            return Poll::Ready(Ok(()));
+        }
+        ready!(this.inner.poll_close(cx))?;
+        *this.send_closed = this.counters.window.is_some();
+        Poll::Ready(Ok(()))
     }
 }

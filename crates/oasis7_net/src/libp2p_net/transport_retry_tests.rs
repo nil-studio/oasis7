@@ -174,6 +174,7 @@ fn request_with_providers_does_not_fallback_outside_provider_subset() {
             protocol: "/aw/rr/1.0.0/fetch_blob".to_string(),
             payload: Vec::new(),
             providers: vec![provider_outside_subset.to_string()],
+            deadline: None,
             response: sender,
         }),
         super::runtime_loop::CommandStateRefs {

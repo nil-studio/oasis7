@@ -31,14 +31,6 @@ class CompletionDecodeError(RuntimeError):
         self.diagnostics = diagnostics
 
 
-def env_required(*names: str) -> str:
-    for name in names:
-        value = os.environ.get(name, "").strip()
-        if value:
-            return value
-    raise RuntimeError(f"missing required environment variable: {' or '.join(names)}")
-
-
 def env_optional(*names: str) -> str:
     for name in names:
         value = os.environ.get(name, "")
