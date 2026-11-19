@@ -85,9 +85,7 @@ fn original_configs(
     (initial, trust, configs)
 }
 
-#[test]
-#[ignore = "requires OASIS7_FORMAL_ENDPOINT_TEST_BIN; external providers are simulations"]
-fn recovered_endpoint_children_keep_committed_handoff_closed_before_bft_commit() {
+fn assert_cold_committed_handoff_stays_closed_before_bft_commit() {
     let binary = std::env::var_os("OASIS7_FORMAL_ENDPOINT_TEST_BIN").unwrap();
     struct HandoffIndex(Vec<BusinessIndexNodeWriteV1>);
     impl BusinessIndexNodeReader for HandoffIndex {
@@ -223,6 +221,7 @@ fn recovered_endpoint_children_keep_committed_handoff_closed_before_bft_commit()
 #[ignore = "requires OASIS7_FORMAL_ENDPOINT_TEST_BIN; external providers are simulations"]
 fn recovered_endpoint_children_import_ready_complete_original_and_reopen_without_reexecution() {
     run_recovery(false);
+    assert_cold_committed_handoff_stays_closed_before_bft_commit();
 }
 #[test]
 #[ignore = "requires OASIS7_FORMAL_ENDPOINT_TEST_BIN; external providers are simulations"]
