@@ -286,7 +286,8 @@ fn bounded_sort_work_refuses_before_sort_and_cancel_after_comparisons_poison() {
         type Charge = Charge;
         fn reserve(&self, bytes: usize) -> Result<Charge, CanonicalCborStreamError> {
             let charge = self.alloc.reserve(bytes)?;
-            if bytes == 1024 * 512 + 4096 {
+            // "key-000" is seven UTF-8 bytes plus its one-byte CBOR header.
+            if bytes == 8 * 512 + 4096 {
                 self.flag.set(true);
             }
             Ok(charge)
@@ -315,6 +316,274 @@ fn bounded_sort_work_refuses_before_sort_and_cancel_after_comparisons_poison() {
     assert_eq!(ctx.work.visits_remaining, remaining);
     assert_eq!(alloc.state.used.get(), 0);
 }
+struct ObserveSortScratch<'a> {
+    alloc: &'a Alloc,
+    expected_bytes: usize,
+    requests: Cell<usize>,
+    used_before: Cell<usize>,
+}
+impl CanonicalCborAllocator for ObserveSortScratch<'_> {
+    type Charge = Charge;
+    fn reserve(&self, bytes: usize) -> Result<Charge, CanonicalCborStreamError> {
+        if bytes == self.expected_bytes {
+            self.requests.set(self.requests.get() + 1);
+            self.used_before.set(self.alloc.state.used.get());
+        }
+        self.alloc.reserve(bytes)
+    }
+}
+#[test]
+fn sort_scratch_uses_longest_encoded_key_and_refuses_before_comparison() {
+    // The longest key is first, so retaining only the last key length is wrong.
+    let source = std::collections::BTreeMap::from([("longest-key-first", 1u8), ("z", 2)]);
+    let oracle = encode_canonical_cbor(&source).unwrap();
+    // Both text keys use a one-byte CBOR header; the original bound is unchanged.
+    let scratch = ("longest-key-first".len() + 1) * 512 + 4096;
+    let alloc = Alloc::new(4 << 20);
+    let admission = ObserveSortScratch {
+        alloc: &alloc,
+        expected_bytes: scratch,
+        requests: Cell::new(0),
+        used_before: Cell::new(0),
+    };
+    let mut ctx = CanonicalCborStreamContextV1::new(&admission, work(), || false);
+    let mut out = Vec::new();
+    stream_canonical_cbor_v1(&source, &mut ctx, &mut out).unwrap();
+    assert_eq!(out, oracle);
+    assert_eq!(admission.requests.get(), 1);
+    assert!(ctx.metrics().map_comparisons > 0);
+    assert_eq!(alloc.state.used.get(), 0);
+
+    // Admit all key discovery, but leave exactly one byte too little for sorting.
+    let limit = admission.used_before.get() + scratch - 1;
+    let alloc = Alloc::new(limit);
+    let admission = ObserveSortScratch {
+        alloc: &alloc,
+        expected_bytes: scratch,
+        requests: Cell::new(0),
+        used_before: Cell::new(0),
+    };
+    let mut ctx = CanonicalCborStreamContextV1::new(&admission, work(), || false);
+    let mut out = Vec::new();
+    assert!(matches!(
+        stream_canonical_cbor_v1(&source, &mut ctx, &mut out),
+        Err(CanonicalCborStreamError::ResourceLimited("test allocator"))
+    ));
+    assert_eq!(admission.requests.get(), 1);
+    assert_eq!(ctx.metrics().map_sorts, 0);
+    assert_eq!(ctx.metrics().map_comparisons, 0);
+    assert!(ctx.is_poisoned());
+    assert!(out.is_empty());
+    assert_eq!(alloc.state.used.get(), 0);
+    let remaining = ctx.work.visits_remaining;
+    assert!(matches!(
+        stream_canonical_cbor_v1(&source, &mut ctx, &mut out),
+        Err(CanonicalCborStreamError::Poisoned)
+    ));
+    assert_eq!(ctx.work.visits_remaining, remaining);
+}
+#[test]
+fn nested_short_keys_fit_small_pool_with_large_allowed_key_count() {
+    let source = std::collections::BTreeMap::from([(
+        "outer",
+        std::collections::BTreeMap::from([("longest-key-first", 1u8), ("z", 2)]),
+    )]);
+    let oracle = encode_canonical_cbor(&source).unwrap();
+    let alloc = Alloc::new(4 << 20);
+    let mut limits = work();
+    limits.max_map_keys = 10_000;
+    let mut ctx = CanonicalCborStreamContextV1::new(&alloc, limits, || false);
+    let mut out = Vec::new();
+    stream_canonical_cbor_v1(&source, &mut ctx, &mut out).unwrap();
+    assert_eq!(out, oracle);
+    assert_eq!(ctx.metrics().map_sorts, 2);
+    assert!(ctx.metrics().map_comparisons > 0);
+    assert!(!ctx.is_poisoned());
+    assert!(alloc.state.peak.get() <= 4 << 20);
+    assert_eq!(alloc.state.used.get(), 0);
+}
+#[test]
+fn empty_map_sort_scratch_does_not_reserve_unused_key_allowance() {
+    let source = std::collections::BTreeMap::<String, u8>::new();
+    let alloc = Alloc::new(8 << 10);
+    let admission = ObserveSortScratch {
+        alloc: &alloc,
+        expected_bytes: 4096,
+        requests: Cell::new(0),
+        used_before: Cell::new(0),
+    };
+    let mut limits = work();
+    limits.max_map_keys = 0;
+    limits.max_key_bytes = 1 << 20;
+    let mut ctx = CanonicalCborStreamContextV1::new(&admission, limits, || false);
+    let mut out = Vec::new();
+    stream_canonical_cbor_v1(&source, &mut ctx, &mut out).unwrap();
+    assert_eq!(out, [0xa0]);
+    assert_eq!(admission.requests.get(), 1);
+    assert_eq!(ctx.metrics().map_sorts, 1);
+    assert_eq!(ctx.metrics().map_comparisons, 0);
+    assert!(!ctx.is_poisoned());
+    assert_eq!(alloc.state.used.get(), 0);
+}
+
+struct CommonBytes<'a> {
+    alloc: &'a Alloc,
+    remaining: Cell<u64>,
+    last_request: Cell<u64>,
+}
+impl CanonicalCborAllocator for CommonBytes<'_> {
+    type Charge = Charge;
+    fn charge_work(&self, _: u64, bytes: u64) -> Result<(), CanonicalCborStreamError> {
+        self.last_request.set(bytes);
+        let before = self.remaining.get();
+        self.remaining.set(before.saturating_sub(bytes));
+        if before < bytes {
+            return Err(CanonicalCborStreamError::ResourceLimited(
+                "test Common bytes",
+            ));
+        }
+        Ok(())
+    }
+    fn reserve(&self, bytes: usize) -> Result<Charge, CanonicalCborStreamError> {
+        self.alloc.reserve(bytes)
+    }
+}
+
+#[test]
+fn actual_short_text_fields_fit_finite_common_without_changing_canonical_bytes() {
+    let source = std::collections::BTreeMap::from([("executor_epoch", 7u64), ("task_revision", 2)]);
+    let oracle = encode_canonical_cbor(&source).unwrap();
+    let alloc = Alloc::new(4 << 20);
+    // A fixed workload budget, independent of the encoder's accounting formula.
+    let admission = CommonBytes {
+        alloc: &alloc,
+        remaining: Cell::new(128 << 10),
+        last_request: Cell::new(0),
+    };
+    let mut ctx = CanonicalCborStreamContextV1::new(&admission, work(), || false);
+    let mut out = Vec::new();
+    stream_canonical_cbor_v1(&source, &mut ctx, &mut out).unwrap();
+    assert_eq!(out, oracle);
+    assert!(admission.remaining.get() > 0);
+    assert!(admission.remaining.get() < 128 << 10);
+    assert!(ctx.metrics().map_comparisons > 0);
+    assert!(!ctx.is_poisoned());
+    assert_eq!(alloc.state.used.get(), 0);
+}
+
+#[test]
+fn text_comparison_byte_refusal_precedes_sort_and_keeps_context_poisoned() {
+    let source = std::collections::BTreeMap::from([("executor_epoch", 7u64), ("task_revision", 2)]);
+    let alloc = Alloc::new(4 << 20);
+    let admission = CommonBytes {
+        alloc: &alloc,
+        remaining: Cell::new(32 << 10),
+        last_request: Cell::new(0),
+    };
+    let mut ctx = CanonicalCborStreamContextV1::new(&admission, work(), || false);
+    let mut out = Vec::new();
+    assert!(matches!(
+        stream_canonical_cbor_v1(&source, &mut ctx, &mut out),
+        Err(CanonicalCborStreamError::ResourceLimited(
+            "test Common bytes"
+        ))
+    ));
+    assert!(admission.last_request.get() > 32 << 10);
+    assert_eq!(ctx.metrics().map_sorts, 0);
+    assert_eq!(ctx.metrics().map_comparisons, 0);
+    assert!(ctx.is_poisoned());
+    assert!(out.is_empty());
+    assert_eq!(alloc.state.used.get(), 0);
+    let remaining = (ctx.work.visits_remaining, admission.remaining.get());
+    assert!(matches!(
+        stream_canonical_cbor_v1(&source, &mut ctx, &mut out),
+        Err(CanonicalCborStreamError::Poisoned)
+    ));
+    assert_eq!(
+        remaining,
+        (ctx.work.visits_remaining, admission.remaining.get())
+    );
+}
+
+#[test]
+fn any_later_non_text_key_keeps_the_original_comparison_bound() {
+    use ciborium::Value;
+    for key in [
+        Value::Bytes(b"task_revision".to_vec()),
+        Value::Tag(1, Box::new(Value::Text("task_revision".into()))),
+        Value::Array(vec![Value::Text("task_revision".into())]),
+        Value::from(2u64),
+    ] {
+        let source = Value::Map(vec![
+            (Value::Text("executor_epoch".into()), Value::from(7u64)),
+            (key, Value::from(2u64)),
+        ]);
+        // Independent original-codec oracle still includes the actual mixed key.
+        parity(&source);
+        let alloc = Alloc::new(4 << 20);
+        let admission = CommonBytes {
+            alloc: &alloc,
+            remaining: Cell::new(128 << 10),
+            last_request: Cell::new(0),
+        };
+        let mut ctx = CanonicalCborStreamContextV1::new(&admission, work(), || false);
+        let mut out = Vec::new();
+        assert!(matches!(
+            stream_canonical_cbor_v1(&source, &mut ctx, &mut out),
+            Err(CanonicalCborStreamError::ResourceLimited(
+                "test Common bytes"
+            ))
+        ));
+        assert!(admission.last_request.get() > 128 << 10);
+        assert_eq!(ctx.metrics().map_sorts, 0);
+        assert_eq!(ctx.metrics().map_comparisons, 0);
+        assert!(ctx.is_poisoned());
+        assert!(out.is_empty());
+        assert_eq!(alloc.state.used.get(), 0);
+    }
+}
+
+#[test]
+fn cancellation_during_retained_text_scan_never_enters_sort() {
+    struct CancelScan<'a> {
+        alloc: &'a Alloc,
+        cancelled: &'a Cell<bool>,
+    }
+    impl CanonicalCborAllocator for CancelScan<'_> {
+        type Charge = Charge;
+        fn charge_work(&self, steps: u64, bytes: u64) -> Result<(), CanonicalCborStreamError> {
+            // The source's short keys never emit a Value-header-sized chunk.
+            // Cancel at the actual paid retained-model scan, before its next row.
+            if steps == 0 && bytes == std::mem::size_of::<ciborium::Value>() as u64 {
+                self.cancelled.set(true);
+            }
+            Ok(())
+        }
+        fn reserve(&self, bytes: usize) -> Result<Charge, CanonicalCborStreamError> {
+            self.alloc.reserve(bytes)
+        }
+    }
+    let source = std::collections::BTreeMap::from([("executor_epoch", 7u64), ("task_revision", 2)]);
+    let alloc = Alloc::new(4 << 20);
+    let cancelled = Cell::new(false);
+    let admission = CancelScan {
+        alloc: &alloc,
+        cancelled: &cancelled,
+    };
+    let mut ctx = CanonicalCborStreamContextV1::new(&admission, work(), || cancelled.get());
+    let mut out = Vec::new();
+    assert!(matches!(
+        stream_canonical_cbor_v1(&source, &mut ctx, &mut out),
+        Err(CanonicalCborStreamError::Cancelled)
+    ));
+    assert!(cancelled.get());
+    assert_eq!(ctx.metrics().map_sorts, 0);
+    assert_eq!(ctx.metrics().map_comparisons, 0);
+    assert!(ctx.is_poisoned());
+    assert!(out.is_empty());
+    assert_eq!(alloc.state.used.get(), 0);
+}
+
 struct Output<'a> {
     mode: u8,
     attempts: usize,
