@@ -2,7 +2,7 @@
 use oasis7_distfs::incremental_page_store::*;
 use oasis7_formal_protocol::{incremental_state::*, incremental_value::*};
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
-use oasis7_runtime::{
+use oasis7_world_state::{
     incremental_field_member::*, incremental_field_read::WorldFieldReadContextV1,
     incremental_json_records::*,
 };
