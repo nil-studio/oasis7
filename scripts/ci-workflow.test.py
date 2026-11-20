@@ -158,8 +158,7 @@ def workspace_support_image_matrix(job):
     if not container:
         return None
     expected_matrix = (
-        "        execution: ${{ fromJSON((fromJSON(needs.select.outputs.plan).scope == 'full' || "
-        "contains(fromJSON(needs.select.outputs.plan).workspace_support_profiles, 'oasis7_game_client')) "
+        "        execution: ${{ fromJSON(needs.select.outputs.workspace_support_host != 'false' "
         "&& '[\"host\",\"image\"]' || '[\"image\"]') }}\n")
     assert expected_matrix in job and '      fail-fast: false\n' in job
     assert '--support-execution "$SUPPORT_EXECUTION"' in job
