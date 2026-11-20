@@ -111,6 +111,19 @@ pub(super) fn check_preparation(
     let with_status = || prepare_with_status(status_path.to_str());
     write_status(status.clone(), 118);
     with_status().expect("revoked statuses are authenticated without opening current or renewal");
+    // A root-signed status cannot be backdated before independent authorization,
+    // even when its effective window and full revocation set are otherwise valid.
+    let mut before_authorization = status.clone();
+    before_authorization["issued_at_unix_ms"] = serde_json::json!(9);
+    before_authorization["issuer_keys"][0]["revoked_at_unix_ms"] = serde_json::json!(9);
+    write_status(before_authorization, 118);
+    assert!(with_status().unwrap_err().contains("authorization window"));
+    // The independent authorization start itself remains an inclusive boundary.
+    let mut at_authorization = status.clone();
+    at_authorization["issued_at_unix_ms"] = serde_json::json!(10);
+    at_authorization["issuer_keys"][0]["revoked_at_unix_ms"] = serde_json::json!(10);
+    write_status(at_authorization, 118);
+    with_status().expect("status issued at original authorization start is valid");
     write_status(status.clone(), 117);
     assert!(
         with_status()

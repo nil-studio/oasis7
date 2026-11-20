@@ -54,7 +54,7 @@ pub(in crate::world::event_processing) enum PreparedEventStateDelta {
         super::super::super::capability_authz::command_projection::PreparedCapabilityCommandCommit,
     ),
     CapabilityEffectReceipt(
-        super::super::super::capability_effect_receipt_projection::PreparedCapabilityEffectReceipt,
+        super::super::super::capability_authz::effect_receipt_projection::PreparedCapabilityEffectReceipt,
     ),
     AgentIntent(super::super::super::agent_intent_publication::PreparedAgentIntent),
     EconomyData(super::super::super::economy_data_publication::PreparedEconomyDataEvent),

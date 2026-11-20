@@ -1,4 +1,5 @@
 import importlib.util,pathlib,tempfile,unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 s=importlib.util.spec_from_file_location("capacity",pathlib.Path(__file__).with_name("ci-candidate-capacity.py"));m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 class Tests(unittest.TestCase):
@@ -30,12 +31,18 @@ class Tests(unittest.TestCase):
  def test_environment_rejects_other_job(self):
   with self.assertRaises(RuntimeError):m.check_environment({}, {"ID":"ubuntu","VERSION_ID":"24.04"},0)
  def test_same_device_domains(self):
-  with tempfile.TemporaryDirectory() as t:
-   m.capacity_domains({"GITHUB_WORKSPACE":t,"RUNNER_TEMP":t})
+  env={"GITHUB_WORKSPACE":"/work","RUNNER_TEMP":"/runner-temp"}
+  capacity=SimpleNamespace(f_bavail=10,f_frsize=4096,f_favail=8)
+  with patch.object(m.os,"statvfs",return_value=capacity), patch.object(m.pathlib.Path,"stat",return_value=SimpleNamespace(st_dev=7)) as stat:
+   m.capacity_domains(env)
+  self.assertEqual(stat.call_count,3)
  def test_different_device_domains_rejected(self):
-  from types import SimpleNamespace
-  with patch.object(m.pathlib.Path,"stat",side_effect=[SimpleNamespace(st_dev=1),SimpleNamespace(st_dev=2),SimpleNamespace(st_dev=1)]):
-   with self.assertRaises(RuntimeError):m.capacity_domains({"GITHUB_WORKSPACE":"/","RUNNER_TEMP":"/"})
+  env={"GITHUB_WORKSPACE":"/work","RUNNER_TEMP":"/runner-temp"}
+  capacity=SimpleNamespace(f_bavail=10,f_frsize=4096,f_favail=8)
+  devices=[SimpleNamespace(st_dev=device) for device in (7,8,7)]
+  with patch.object(m.os,"statvfs",return_value=capacity), patch.object(m.pathlib.Path,"stat",side_effect=devices):
+   with self.assertRaisesRegex(RuntimeError,"different build filesystem"):
+    m.capacity_domains(env)
  def test_reclaim_skips_du_by_default(self):
   with tempfile.TemporaryDirectory() as t:
    sdk=pathlib.Path(t).resolve()/"sdk";sdk.mkdir();(sdk/"x").write_text("unused")

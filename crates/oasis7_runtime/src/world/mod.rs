@@ -47,7 +47,6 @@ mod capability_authorization_state;
 mod capability_authorization_transaction;
 mod provider_terminal_authority;
 pub use provider_terminal_authority::ProviderCapabilityAvailability;
-mod capability_effect_receipt_projection;
 #[cfg(any(test, feature = "test_tier_required", feature = "test-support"))]
 mod capability_test_fixture;
 mod cognition_command;
@@ -68,7 +67,6 @@ mod effect_publication;
 mod effect_publication_transaction_regressions;
 mod effects;
 mod event_processing;
-mod factory_authority;
 mod formal_execution_tick;
 mod formal_retention;
 mod formal_tick_consensus;
@@ -97,7 +95,6 @@ pub(crate) mod governance_meta_publication;
 #[cfg(test)]
 mod governance_proposal_status_publication_transaction_regressions;
 pub(crate) mod governance_publication;
-mod governance_quote;
 pub(crate) mod governance_registry_publication;
 pub use governance_history_snapshot::{
     GovernanceHistoryVerificationError, VerifiedGovernanceHistorySnapshot,

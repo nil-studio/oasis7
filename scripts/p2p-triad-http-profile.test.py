@@ -95,6 +95,64 @@ class ProfileHttpTests(unittest.TestCase):
                 else:
                     self.assertEqual(recovered["profile_readiness"]["status"], "ready")
 
+    def test_nonfinite_http_status_numbers_fail_closed_before_projection_and_recover(self):
+        # Python's default JSON decoder accepts these non-JSON numeric tokens.
+        # An otherwise valid controlled or BFT producer must not be collected.
+        for status in (fixtures.fixture(), fixtures.bft_fixture()):
+            for literal in ("NaN", "Infinity", "-Infinity", "1e9999"):
+                with self.subTest(schema=status["api_version"], token=literal):
+                    self.status = status
+                    payload = json.dumps(status)
+                    self.body = ('{"untrusted_nonfinite": ' + literal + ',' + payload[1:]).encode("utf-8")
+                    rejected = self.run_outer(expected=1)["nodes"]["local_node"]
+                    self.assertEqual(rejected["profile_collection"]["result"], "invalid_status")
+                    self.assertFalse(rejected["profile_collection"]["complete"])
+                    self.assertEqual(rejected["profile_readiness"]["status"], "unknown")
+                    self.assertFalse(rejected["profile_readiness"]["can_propose"])
+                    self.assertNotIn("untrusted_nonfinite", json.dumps(rejected))
+
+                    self.body = None
+                    recovered = self.run_outer()["nodes"]["local_node"]
+                    self.assertTrue(recovered["profile_collection"]["complete"])
+                    if status["api_version"] == "oasis7.bft-node-observation/v1":
+                        self.assertEqual(recovered["profile_readiness"]["height"], 10)
+                        self.assertFalse(recovered["profile_readiness"]["can_propose"])
+                    else:
+                        self.assertEqual(recovered["profile_readiness"]["status"], "ready")
+
+    def test_bft_future_applied_height_is_rejected_through_actual_http_report(self):
+        self.status = fixtures.bft_fixture()
+        observed = self.status["observation"]
+        observed["last_applied_height"] = observed["height"] + 1
+        report = self.run_outer()
+        profile = report["nodes"]["local_node"]["profile_readiness"]
+        self.assertEqual(profile["status"], "unknown")
+        self.assertEqual(profile["reason"], "invalid_bft_window_or_applied")
+        self.assertFalse(profile["can_propose"])
+        self.assertNotIn("last_applied_height", profile)
+        self.assertTrue(report["nodes"]["local_node"]["profile_collection"]["complete"])
+
+        observed["last_applied_height"] = observed["height"]
+        recovered = self.run_outer()["nodes"]["local_node"]["profile_readiness"]
+        self.assertEqual(recovered["reason"], "bft_qualification_not_observed")
+        self.assertEqual(recovered["last_applied_height"], observed["height"])
+        self.assertFalse(recovered["can_propose"])
+
+    def test_bft_window_history_exceeding_observed_span_is_unknown_and_recovers(self):
+        self.status = fixtures.bft_fixture()
+        self.status["observation"]["committed_window_heights"] = 2
+        invalid = self.run_outer()["nodes"]["local_node"]
+        self.assertTrue(invalid["profile_collection"]["complete"])
+        self.assertEqual(invalid["profile_readiness"]["status"], "unknown")
+        self.assertEqual(invalid["profile_readiness"]["reason"], "invalid_bft_window_or_applied")
+        self.assertFalse(invalid["profile_readiness"]["can_propose"])
+
+        self.status["observation"]["committed_window_heights"] = 1
+        recovered = self.run_outer()["nodes"]["local_node"]["profile_readiness"]
+        self.assertEqual(recovered["reason"], "bft_qualification_not_observed")
+        self.assertEqual(recovered["committed_window_heights"], 1)
+        self.assertFalse(recovered["can_propose"])
+
     def test_formal_http_uses_same_identity_and_producer_age_as_file(self):
         status = fixtures.fixture()
         now = time.time_ns() // 1_000_000
@@ -269,6 +327,73 @@ print(json.dumps(result))
         self.assertEqual(stale["reason"], "controlled_host_observation_expired")
         self.assertEqual(stale["source_freshness"], "stale")
         self.assertEqual(stale["observed_at_unix_ms"], profile["observed_at_unix_ms"])
+
+    def test_controlled_verifier_stdout_is_bounded_before_collection_and_recovers(self):
+        inventory = self.controlled_inventory_fixture()
+        runtime = self.fixture.root / "fixture-status-verifier"
+        original = runtime.read_bytes()
+        for output_bytes in (64 * 1024 + 1, 1024 * 1024):
+            with self.subTest(output_bytes=output_bytes):
+                runtime.write_text('''#!/usr/bin/env python3
+import sys
+sys.stdout.buffer.write(b"X" * %d)
+''' % output_bytes)
+                process = self.fixture.start(self.env, [
+                    "--controlled-status-inventory", str(inventory),
+                ])
+                out, err = process.communicate(timeout=20)
+                self.assertEqual(process.returncode, 1, (out.decode(), err.decode()))
+                report = json.loads((self.fixture.out / "latest_summary.json").read_text())
+                node = report["nodes"]["local_node"]
+                self.assertEqual(node["profile_collection"]["result"], "output_limit")
+                self.assertFalse(node["profile_collection"]["complete"])
+                self.assertEqual(node["profile_readiness"]["status"], "unknown")
+                self.assertFalse(node["profile_readiness"]["can_propose"])
+                self.assertNotIn("XXXX", json.dumps(report))
+
+        # A later valid observation uses the same configured consumer without
+        # borrowing failed stdout or turning host diagnostics into authority.
+        runtime.write_bytes(original)
+        process = self.fixture.start(self.env, [
+            "--controlled-status-inventory", str(inventory),
+        ])
+        out, err = process.communicate(timeout=20)
+        self.assertEqual(process.returncode, 0, (out.decode(), err.decode()))
+        recovered = json.loads((self.fixture.out / "latest_summary.json").read_text())
+        node = recovered["nodes"]["local_node"]
+        self.assertTrue(node["profile_collection"]["complete"])
+        self.assertEqual(node["profile_readiness"]["source"], "verified_controlled_status")
+        self.assertEqual(node["profile_readiness"]["committed_position"], 8)
+        self.assertFalse(node["profile_readiness"]["can_propose"])
+
+
+    def test_controlled_verifier_nonfinite_json_fails_closed_and_recovers(self):
+        inventory = self.controlled_inventory_fixture()
+        runtime = self.fixture.root / "fixture-status-verifier"
+        original = runtime.read_text()
+        self.assertIn("print(json.dumps(result))", original)
+        runtime.write_text(original.replace(
+            "print(json.dumps(result))",
+            'print(json.dumps(dict(result, untrusted_nonfinite=float("nan"))))',
+        ))
+        process = self.fixture.start(self.env, ["--controlled-status-inventory", str(inventory)])
+        out, err = process.communicate(timeout=20)
+        self.assertEqual(process.returncode, 1, (out.decode(), err.decode()))
+        rejected = json.loads((self.fixture.out / "latest_summary.json").read_text())["nodes"]["local_node"]
+        self.assertEqual(rejected["profile_collection"]["result"], "invalid_status")
+        self.assertFalse(rejected["profile_collection"]["complete"])
+        self.assertEqual(rejected["profile_readiness"]["status"], "unknown")
+        self.assertFalse(rejected["profile_readiness"]["can_propose"])
+
+        runtime.write_text(original)
+        process = self.fixture.start(self.env, ["--controlled-status-inventory", str(inventory)])
+        out, err = process.communicate(timeout=20)
+        self.assertEqual(process.returncode, 0, (out.decode(), err.decode()))
+        recovered = json.loads((self.fixture.out / "latest_summary.json").read_text())["nodes"]["local_node"]
+        self.assertTrue(recovered["profile_collection"]["complete"])
+        self.assertEqual(recovered["profile_readiness"]["source"], "verified_controlled_status")
+        self.assertEqual(recovered["profile_readiness"]["committed_position"], 8)
+        self.assertFalse(recovered["profile_readiness"]["can_propose"])
 
     def test_controlled_owner_observation_keeps_its_original_sample_time(self):
         inventory = self.controlled_inventory_fixture()

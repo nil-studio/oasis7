@@ -48,6 +48,11 @@ LEGACY_DEPENDENCY_NAMESPACES = frozenset(('ci-shared-native-trusted-v4', 'oasis7
 RUST_IMAGE_DEPENDENCY_NAMESPACE = 'ci-rust-build-0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3'
 DEPENDENCY_PLATFORMS = {
     RUST_IMAGE_DEPENDENCY_NAMESPACE: frozenset({('Linux', 'x64')}),
+    **{name: frozenset({('Linux', 'x64')}) for name in (
+        'ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f',
+        'ci-rust-wasm-build-57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6',
+        'ci-rust-build-cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6',
+        'ci-rust-build-d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc')},
     **{name: frozenset({('Linux', 'x64')}) for name in LEGACY_DEPENDENCY_NAMESPACES},
     'ci-formal-debug-deps-trusted-v1': frozenset({('Linux', 'x64')}),
     'ci-formal-endpoint-deps-trusted-v1': frozenset({('Linux', 'x64')}),

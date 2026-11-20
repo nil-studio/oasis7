@@ -73,7 +73,7 @@ impl World {
         &self,
         event: &CapabilityAuthorizationEvent,
     ) -> Result<
-        super::capability_effect_receipt_projection::PreparedCapabilityEffectReceipt,
+        super::capability_authz::effect_receipt_projection::PreparedCapabilityEffectReceipt,
         WorldError,
     > {
         let CapabilityAuthorizationEvent::EffectReceiptCommitted {
@@ -803,7 +803,7 @@ fn prepare_effect_receipt_commit(
     intent_id: &str,
     authorization_receipt_id: &str,
     effect_receipt_id: &str,
-) -> Result<super::capability_effect_receipt_projection::PreparedCapabilityEffectReceipt, WorldError>
+) -> Result<super::capability_authz::effect_receipt_projection::PreparedCapabilityEffectReceipt, WorldError>
 {
     let mut capability_authorization_receipts = world.capability_authorization_receipts.clone();
     let mut capability_effect_receipt_links = world.capability_effect_receipt_links.clone();
@@ -837,7 +837,7 @@ fn prepare_effect_receipt_commit(
                     &capability_effect_receipt_links,
                 )?;
             return Ok(
-                super::capability_effect_receipt_projection::PreparedCapabilityEffectReceipt {
+                super::capability_authz::effect_receipt_projection::PreparedCapabilityEffectReceipt {
                     event: event.clone(),
                     capability_authorization_receipts,
                     capability_effect_receipt_links,
@@ -875,7 +875,7 @@ fn prepare_effect_receipt_commit(
             &capability_effect_receipt_links,
         )?;
     Ok(
-        super::capability_effect_receipt_projection::PreparedCapabilityEffectReceipt {
+        super::capability_authz::effect_receipt_projection::PreparedCapabilityEffectReceipt {
             event: event.clone(),
             capability_authorization_receipts,
             capability_effect_receipt_links,
