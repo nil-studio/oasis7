@@ -52,6 +52,7 @@ class Selection(unittest.TestCase):
     def test_workspace_support_host_schedule_preserves_targeted_game_client_and_full(self):
         for scope, profiles, expected in (
             ('targeted', ['oasis7_game_client'], True),
+            ('targeted', ['oasis7_local_signer'], True),
             ('targeted', ['oasis7_context'], False),
             ('full', ['oasis7_context'], True),
         ):

@@ -3664,10 +3664,13 @@ def custody_source_supports_compile_proof(plan, *, field='custody_compile_proof_
     return True
 
 
+WORKSPACE_SUPPORT_HOST_PROFILES = frozenset({'oasis7_game_client', 'oasis7_local_signer'})
+
+
 def workspace_support_requires_host(plan):
-    """Keep the native game-client contract and the full-profile fallback."""
+    """Keep non-root native contracts and the full-profile fallback."""
     return (plan.get('scope') == 'full'
-            or 'oasis7_game_client' in plan.get('workspace_support_profiles', ()))
+            or bool(WORKSPACE_SUPPORT_HOST_PROFILES.intersection(plan.get('workspace_support_profiles', ()))))
 
 
 def support_partitions(profiles):

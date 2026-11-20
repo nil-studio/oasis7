@@ -157,23 +157,23 @@ after(()=>{assert.equal(completed,2);record('finish');});
     def test_other_support_host_and_image_cover_the_exact_selected_profiles(self):
         plan = dict(scope='targeted', groups=['workspace_support'],
                     workspace_support_profile_version=1,
-                    workspace_support_profiles=['oasis7_custody_worker', 'oasis7_context', 'oasis7_game_client'],
+                    workspace_support_profiles=['oasis7_custody_worker', 'oasis7_context', 'oasis7_game_client', 'oasis7_local_signer'],
                     workspace_support_partition_version=1,
                     workspace_support_partitions=['custody', 'other'])
         planned = 'plan:' + json.dumps(plan)
-        for mode, profile in [('host', 'oasis7_game_client'), ('image', 'oasis7_context')]:
+        for mode, profiles in [('host', ['oasis7_game_client', 'oasis7_local_signer']), ('image', ['oasis7_context'])]:
             with self.subTest(mode=mode):
                 result = self.invoke(planned, environment={'support_partition': 'other',
                                                           'support_execution': mode})
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual([line for line in result.stdout.splitlines()
-                                  if line.startswith('+ support profile: ')], ['+ support profile: ' + profile])
+                                  if line.startswith('+ support profile: ')], ['+ support profile: ' + profile for profile in profiles])
         for partition, mode in [('all', 'host'), ('custody', 'image'), ('other', 'unknown')]:
             result = self.invoke(planned, environment={'support_partition': partition,
                                                       'support_execution': mode})
             self.assertNotEqual(result.returncode, 0)
             self.assertNotIn('+ support profile: ', result.stdout)
-        plan['workspace_support_profiles'].remove('oasis7_game_client')
+        plan['workspace_support_profiles'] = ['oasis7_custody_worker', 'oasis7_context']
         result = self.invoke('plan:' + json.dumps(plan), environment={'support_partition': 'other',
                                                                      'support_execution': 'host'})
         self.assertEqual(result.returncode, 0, result.stderr)

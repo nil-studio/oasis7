@@ -592,7 +592,7 @@ if execution != 'all':
     if partition != 'other' or execution not in ('host', 'image'):
         raise SystemExit('support execution requires a trusted other partition')
     profiles = [profile for profile in profiles
-                if (profile == 'oasis7_game_client') == (execution == 'host')]
+                if (profile in module.WORKSPACE_SUPPORT_HOST_PROFILES) == (execution == 'host')]
 expanded = plan_input and plan.get('fast_plan_version') == 1 and plan.get('test_policy_changed') is True
 if expanded:
     spec = importlib.util.spec_from_file_location('artifacts', Path(sys.argv[2]) / 'ci-test-artifacts.py')
