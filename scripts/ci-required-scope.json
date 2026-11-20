@@ -126,7 +126,7 @@
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_genesis", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 18020},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_pages", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 54634},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_roots", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 16617},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_text_maps", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 17219},
+      {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_world_text_maps", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 17219},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_u64", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 6610},
       {"package": "oasis7_runtime", "target_kind": "test", "target_name": "module_input_cbor", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
       {"package": "oasis7_runtime", "target_kind": "test", "target_name": "module_lifecycle", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
