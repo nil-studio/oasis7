@@ -2,7 +2,7 @@
 use super::*;
 use oasis7_distfs::protected_bft_v3::{
     BftPrivateRetentionAttestorV1, BftPrivateRetentionCreationMarkerV1,
-    BftSuccessorWindowArchiveRefV1, LocalBftSuccessorArchiveStoreV1,
+    BftSuccessorWindowArchiveRefV1, BftSuccessorWindowSourceV1, LocalBftSuccessorArchiveStoreV1,
 };
 
 #[derive(Deserialize)]
@@ -12,6 +12,14 @@ struct SourceConfig {
     creation_identity: String,
     attestor: Option<BftPrivateRetentionAttestorV1>,
     archive_directory: Option<PathBuf>,
+    reserve_input: Option<FirstReserveInputPin>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FirstReserveInputPin {
+    source: BftSuccessorWindowSourceV1,
+    candidate: OriginalCandidateArchivePinV1,
 }
 
 #[derive(Serialize)]
@@ -29,6 +37,7 @@ pub(super) enum Mode<'a> {
     Prepare,
     Activate,
     ArchiveFirst(&'a Path),
+    ReserveFirst,
 }
 
 pub(super) fn run(config_path: &Path, source_path: &Path, mode: Mode<'_>) -> Result<(), String> {
@@ -90,6 +99,51 @@ pub(super) fn run(config_path: &Path, source_path: &Path, mode: Mode<'_>) -> Res
         hex::encode(requester.verifying_key().to_bytes()),
     )
     .map_err(|error| error.to_string())?;
+    if matches!(mode, Mode::ReserveFirst) {
+        let (attestor, trust) = protection.ok_or("first Reserve requires source authority")?;
+        let pins = source_config
+            .reserve_input
+            .ok_or("first Reserve requires exact original descriptor")?;
+        let directory = source_config
+            .archive_directory
+            .ok_or("first Reserve requires the separate original archive")?;
+        let archive = open_archive(&config, &directory)?;
+        let input = Arc::new(
+            archive
+                .load_original_admission_input(&pins.candidate.reference)
+                .map_err(|error| error.to_string())?,
+        );
+        let timeout = Duration::from_millis(config.provider_timeout_ms);
+        let provider = RemoteBftSignerProviderV3::new(
+            config.provider_address,
+            timeout,
+            binding.clone(),
+            requester,
+            trust,
+        )
+        .map_err(|error| error.to_string())?;
+        let deadline = Instant::now()
+            .checked_add(timeout)
+            .ok_or("first Reserve deadline overflow")?;
+        let (wal_digest, pending_state_digest) = ledger.reserve_first_covered_local(
+            &binding,
+            &attestor,
+            &source_config.creation_identity,
+            &pins.source,
+            &pins.candidate,
+            input,
+            &provider,
+            deadline,
+        )?;
+        let report = serde_json::json!({
+            "schema_version": "oasis7.formal_bft_original_pending_local.v1",
+            "original_candidate_wal_digest": wal_digest,
+            "pending_state_digest": pending_state_digest,
+        });
+        let encoded =
+            serde_json::to_string(&report).map_err(|_| "encode first Pending Local report")?;
+        return output::write_line(&mut std::io::stdout().lock(), &encoded);
+    }
     let marker = ledger.covered_source_marker(&binding, &source_config.creation_identity)?;
     let digest = marker.digest().map_err(|error| error.to_string())?;
     let original_private_origin_digest =
@@ -147,18 +201,7 @@ fn archive_first(
     directory: &Path,
     actions: &Path,
 ) -> Result<(), String> {
-    let directory = require_existing_directory(directory, "private admission input archive")?;
-    crate::controlled_live_config::require_private_owned(&directory, true)?;
-    if [
-        &config.cas_directory,
-        &config.records_directory,
-        &config.replication_directory,
-    ]
-    .into_iter()
-    .any(|live| super::super::super::formal_bft_read_cli::paths_overlap(&directory, live))
-    {
-        return Err("original input archive and Node storage must be disjoint".into());
-    }
+    let archive = open_archive(config, directory)?;
     let actions = read_private(actions, BFT_MAX_ACTIONS_CBOR_BYTES_V1 as u64)?;
     let decoded = oasis7_consensus::formal_bft_payload_v3::decode_private_actions_v3(&actions)
         .map_err(|_| "first original input requires canonical local actions")?;
@@ -171,8 +214,6 @@ fn archive_first(
             "first original input requires nonempty actions for the configured player".into(),
         );
     }
-    let archive = LocalBftSuccessorArchiveStoreV1::new(LocalCasStore::new(directory))
-        .map_err(|error| error.to_string())?;
     let (source, candidate, replayed, first_reservation_bytes) =
         ledger.archive_first_original_local(&archive, binding, attestor, marker, actions)?;
     let report = serde_json::json!({
@@ -185,4 +226,24 @@ fn archive_first(
     let encoded =
         serde_json::to_string(&report).map_err(|_| "encode staged first original input")?;
     output::write_line(&mut std::io::stdout().lock(), &encoded)
+}
+
+fn open_archive(
+    config: &Config,
+    directory: &Path,
+) -> Result<LocalBftSuccessorArchiveStoreV1, String> {
+    let directory = require_existing_directory(directory, "private admission input archive")?;
+    crate::controlled_live_config::require_private_owned(&directory, true)?;
+    if [
+        &config.cas_directory,
+        &config.records_directory,
+        &config.replication_directory,
+    ]
+    .into_iter()
+    .any(|live| super::super::super::formal_bft_read_cli::paths_overlap(&directory, live))
+    {
+        return Err("original input archive and Node storage must be disjoint".into());
+    }
+    LocalBftSuccessorArchiveStoreV1::new(LocalCasStore::new(directory))
+        .map_err(|error| error.to_string())
 }
