@@ -19,8 +19,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: rust-wasm-build
-            image: ghcr.io/nil-studio/oasis7/ci-rust-wasm-build@sha256:57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6
+          - target: rust-build-procps
+            image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6
     container:
       image: ${{ matrix.image }}
       credentials:
