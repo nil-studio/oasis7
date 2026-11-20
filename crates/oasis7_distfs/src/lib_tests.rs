@@ -1,86 +1,31 @@
-use super::*;
+use crate::{LocalCasStore, assemble_journal, assemble_snapshot, segment_journal, segment_snapshot};
 use oasis7_proto::distributed_storage::SegmentConfig;
-use serde::{Deserialize, Serialize};
 use std::{
     fs,
-    path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct DemoEvent {
-    id: u64,
-    kind: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct DemoSnapshot {
-    tick: u64,
-    world: String,
-}
-
-fn temp_dir(prefix: &str) -> PathBuf {
+#[test]
+fn cas_segmentation_exports_support_existing_distfs_callers() {
+    // CAS owns the boundary cases and multi-segment behavior. Verify only
+    // that callers can still assemble a snapshot and journal via DistFS.
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("duration")
         .as_nanos();
-    std::env::temp_dir().join(format!("oasis7-distfs-{prefix}-{unique}"))
-}
-
-#[test]
-fn segment_and_assemble_roundtrip() {
-    let dir = temp_dir("segment");
+    let dir = std::env::temp_dir().join(format!("oasis7-distfs-cas-exports-{unique}"));
     let store = LocalCasStore::new(&dir);
-    let snapshot = DemoSnapshot {
-        tick: 42,
-        world: "w1".to_string(),
-    };
-    let events = vec![
-        DemoEvent {
-            id: 1,
-            kind: "a".to_string(),
-        },
-        DemoEvent {
-            id: 2,
-            kind: "b".to_string(),
-        },
-        DemoEvent {
-            id: 3,
-            kind: "c".to_string(),
-        },
-    ];
-
-    let manifest = segment_snapshot(
-        &snapshot,
-        "w1",
-        1,
-        &store,
-        SegmentConfig {
-            snapshot_chunk_bytes: 8,
-            ..SegmentConfig::default()
-        },
-    )
-    .expect("segment snapshot");
-
-    let segments = segment_journal(
-        &events,
-        &store,
-        SegmentConfig {
-            journal_events_per_segment: 2,
-            ..SegmentConfig::default()
-        },
-        |event| event.id,
-    )
-    .expect("segment journal");
-
-    let snapshot_loaded: DemoSnapshot =
-        assemble_snapshot(&manifest, &store).expect("assemble snapshot");
-    let events_loaded: Vec<DemoEvent> =
-        assemble_journal(&segments, &store, |event: &DemoEvent| event.id)
-            .expect("assemble journal");
-
-    assert_eq!(snapshot_loaded, snapshot);
-    assert_eq!(events_loaded, events);
+    let snapshot = 42_u64;
+    let events = [1_u64];
+    let manifest = segment_snapshot(&snapshot, "w1", 1, &store, SegmentConfig::default())
+        .expect("segment snapshot through the DistFS export");
+    let segments = segment_journal(&events, &store, SegmentConfig::default(), |event| *event)
+        .expect("segment journal through the DistFS export");
+    let snapshot_loaded: u64 = assemble_snapshot(&manifest, &store).expect("assemble snapshot");
+    let events_loaded: Vec<u64> =
+        assemble_journal(&segments, &store, |event| *event).expect("assemble journal");
 
     let _ = fs::remove_dir_all(&dir);
+    assert_eq!(snapshot_loaded, snapshot);
+    assert_eq!(events_loaded.as_slice(), &events);
 }
