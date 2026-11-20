@@ -303,6 +303,45 @@ print(json.dumps(result))
         self.assertEqual(stale["source_freshness"], "stale")
         self.assertEqual(stale["observed_at_unix_ms"], profile["observed_at_unix_ms"])
 
+    def test_controlled_verifier_stdout_is_bounded_before_collection_and_recovers(self):
+        inventory = self.controlled_inventory_fixture()
+        runtime = self.fixture.root / "fixture-status-verifier"
+        original = runtime.read_bytes()
+        for output_bytes in (64 * 1024 + 1, 1024 * 1024):
+            with self.subTest(output_bytes=output_bytes):
+                runtime.write_text('''#!/usr/bin/env python3
+import sys
+sys.stdout.buffer.write(b"X" * %d)
+''' % output_bytes)
+                process = self.fixture.start(self.env, [
+                    "--controlled-status-inventory", str(inventory),
+                ])
+                out, err = process.communicate(timeout=20)
+                self.assertEqual(process.returncode, 1, (out.decode(), err.decode()))
+                report = json.loads((self.fixture.out / "latest_summary.json").read_text())
+                node = report["nodes"]["local_node"]
+                self.assertEqual(node["profile_collection"]["result"], "output_limit")
+                self.assertFalse(node["profile_collection"]["complete"])
+                self.assertEqual(node["profile_readiness"]["status"], "unknown")
+                self.assertFalse(node["profile_readiness"]["can_propose"])
+                self.assertNotIn("XXXX", json.dumps(report))
+
+        # A later valid observation uses the same configured consumer without
+        # borrowing failed stdout or turning host diagnostics into authority.
+        runtime.write_bytes(original)
+        process = self.fixture.start(self.env, [
+            "--controlled-status-inventory", str(inventory),
+        ])
+        out, err = process.communicate(timeout=20)
+        self.assertEqual(process.returncode, 0, (out.decode(), err.decode()))
+        recovered = json.loads((self.fixture.out / "latest_summary.json").read_text())
+        node = recovered["nodes"]["local_node"]
+        self.assertTrue(node["profile_collection"]["complete"])
+        self.assertEqual(node["profile_readiness"]["source"], "verified_controlled_status")
+        self.assertEqual(node["profile_readiness"]["committed_position"], 8)
+        self.assertFalse(node["profile_readiness"]["can_propose"])
+
+
     def test_controlled_owner_observation_keeps_its_original_sample_time(self):
         inventory = self.controlled_inventory_fixture()
         config = self.fixture.root / "owner-private-config"
