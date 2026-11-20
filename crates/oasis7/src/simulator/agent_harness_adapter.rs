@@ -9,17 +9,14 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use oasis7_agent_api::{
-    CognitionError, CognitionLeaseConsumptionViewV1,
     ContinuousAgentRequestContextV1 as ApiRequestContext,
     ContinuousAgentResponseContextV1 as ApiResponseContext,
     DecisionResponse as ApiDecisionResponse, FeedbackEnvelopeV1 as ApiFeedbackEnvelope,
-    ProviderDecision as ApiProviderDecision, ResponseArtifactIdentityV1, RuntimeReceiptLineageV1,
+    ProviderDecision as ApiProviderDecision,
 };
 use oasis7_agent_harness::{
-    CompatibilityDecisionProvider, CompatibilityTurnRequest, ContinuationHostProjection,
-    DecisionProvider as HarnessProvider, DecisionProviderError as HarnessProviderError,
-    FeedbackHistoryProjection, MemoryWritePolicyContextV1, RuntimeAuthority,
-    cognition_response_digest,
+    CompatibilityDecisionProvider, CompatibilityTurnRequest, DecisionProvider as HarnessProvider,
+    DecisionProviderError as HarnessProviderError, cognition_response_digest,
 };
 
 use super::super::agent::{ActionResult, AgentBehavior, AgentDecision, AgentDecisionTrace};
@@ -78,67 +75,7 @@ struct ProductionInput {
     request_context: ContinuousAgentRequestContextV1,
 }
 
-/// RuntimeAuthority adapter for a scope-authenticated World Service View.
-/// This authority is intentionally history-only: callers cannot obtain lease,
-/// receipt, memory, or continuation authority from the reduced projection.
-pub(super) struct ScopedFeedbackHistoryAuthority {
-    history: Vec<FeedbackHistoryProjection>,
-}
-
-impl ScopedFeedbackHistoryAuthority {
-    pub fn new(history: Vec<FeedbackHistoryProjection>) -> Self {
-        Self { history }
-    }
-}
-
-impl RuntimeAuthority for ScopedFeedbackHistoryAuthority {
-    type Lease = ();
-    type Receipt = ();
-    type Continuation = ();
-
-    fn validate_lease(
-        &self,
-        _lease: &Self::Lease,
-        _request: &ApiRequestContext,
-    ) -> Result<CognitionLeaseConsumptionViewV1, CognitionError> {
-        Err(scoped_history_only())
-    }
-
-    fn verify_receipt_readback(
-        &self,
-        _feedback: &ApiFeedbackEnvelope,
-        _receipt: &Self::Receipt,
-        _response_identity: &ResponseArtifactIdentityV1,
-    ) -> Result<RuntimeReceiptLineageV1, CognitionError> {
-        Err(scoped_history_only())
-    }
-
-    fn verify_memory_receipt(
-        &self,
-        _receipt: &Self::Receipt,
-        _context: Option<&MemoryWritePolicyContextV1>,
-    ) -> Result<RuntimeReceiptLineageV1, CognitionError> {
-        Err(scoped_history_only())
-    }
-
-    fn validated_feedback_history(&self) -> Result<Vec<FeedbackHistoryProjection>, CognitionError> {
-        Ok(self.history.clone())
-    }
-
-    fn continuation_projection(
-        &self,
-        _continuation: &Self::Continuation,
-    ) -> Result<ContinuationHostProjection, CognitionError> {
-        Err(scoped_history_only())
-    }
-}
-
-fn scoped_history_only() -> CognitionError {
-    CognitionError::new(
-        "scoped_feedback_history_only",
-        "authenticated feedback scope does not authorize Runtime mutations or projections",
-    )
-}
+pub(super) use oasis7_agent_harness::ScopedFeedbackHistoryAuthority;
 
 impl AdapterControl {
     pub fn new() -> Self {
