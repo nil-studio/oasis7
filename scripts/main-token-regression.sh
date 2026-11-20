@@ -15,22 +15,28 @@ Runs main-token and NodePoints-bridge focused regression suites.
 USAGE
 }
 
-run() {
-  echo "+ $*"
-  "$@"
-}
+run() (
+  local tier_feature="$1" selector="$2" log
+  local -a cmd=(oasis7_cargo_dev test -p oasis7_runtime --lib --features "$tier_feature"
+    "$selector" -- --format pretty --color never)
+  log="$(mktemp)" || exit 1
+  trap 'rm -f -- "$log"' EXIT
+  echo "+ ${cmd[*]}"
+  "${cmd[@]}" 2>&1 | tee "$log" || exit "$?"
+  python3 "$ROOT_DIR/scripts/ci-local-check-command.py" --verify-libtest contains "$selector" "$log"
+)
 
 case "${TIER}" in
   required)
-    run oasis7_cargo_dev test -p oasis7 --features test_tier_required runtime::tests::main_token:: -- --nocapture
-    run oasis7_cargo_dev test -p oasis7 --features test_tier_required runtime::tests::reward_asset_settlement_action:: -- --nocapture
+    run test_tier_required tests::main_token::
+    run test_tier_required tests::reward_asset_settlement_action::
     ;;
   full)
-    run oasis7_cargo_dev test -p oasis7 --features test_tier_required runtime::tests::main_token:: -- --nocapture
-    run oasis7_cargo_dev test -p oasis7 --features test_tier_required runtime::tests::reward_asset_settlement_action:: -- --nocapture
-    run oasis7_cargo_dev test -p oasis7 --features test_tier_full runtime::tests::main_token:: -- --nocapture
-    run oasis7_cargo_dev test -p oasis7 --features test_tier_full runtime::tests::reward_asset_settlement_action:: -- --nocapture
-    run oasis7_cargo_dev test -p oasis7 --features test_tier_full runtime::tests::reward_asset:: -- --nocapture
+    run test_tier_required tests::main_token::
+    run test_tier_required tests::reward_asset_settlement_action::
+    run test_tier_full tests::main_token::
+    run test_tier_full tests::reward_asset_settlement_action::
+    run test_tier_full tests::reward_asset::
     ;;
   *)
     usage
