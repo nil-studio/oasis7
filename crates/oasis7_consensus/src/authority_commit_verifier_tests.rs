@@ -201,7 +201,10 @@ fn controlled_qualified_commit_passes_and_preserves_decision_vs_qualified_distin
         )
         .expect("qualified commit should verify");
     assert!(verified.is_qualified_commit());
-    assert_eq!(verified.height_or_position(), initial_commit.record().position);
+    assert_eq!(
+        verified.height_or_position(),
+        initial_commit.record().position
+    );
     let commit = verified.into_controlled_qualified().unwrap();
     assert_eq!(commit.head().record_id, initial_record_id);
 

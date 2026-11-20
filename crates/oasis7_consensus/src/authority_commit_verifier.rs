@@ -152,12 +152,16 @@ impl VerifiedAuthorityCommit {
         }
     }
 
-    pub fn into_controlled_qualified(self) -> Result<VerifiedFormalCommitV1, AuthorityCommitReject> {
+    pub fn into_controlled_qualified(
+        self,
+    ) -> Result<VerifiedFormalCommitV1, AuthorityCommitReject> {
         match self {
             Self::ControlledQualified(commit) => Ok(*commit),
-            Self::ControlledDecision(decision) => Err(AuthorityCommitReject::DecisionOnlyNotQualified {
-                position: decision.record().position,
-            }),
+            Self::ControlledDecision(decision) => {
+                Err(AuthorityCommitReject::DecisionOnlyNotQualified {
+                    position: decision.record().position,
+                })
+            }
             Self::BftV3(_) => Err(AuthorityCommitReject::ProfileMismatch {
                 expected: "controlled_single_authority",
                 actual: "bft_v3",
@@ -293,11 +297,15 @@ impl AuthorityCommitVerifier for ControlledAuthorityCommitVerifier {
 
         match proof {
             AuthorityCommitProof::ControlledQualified(qualified) => {
-                let verified =
-                    verify_formal_qualified(qualified, authority, parent.as_ref(), recovery.as_ref())
-                        .map_err(|err| {
-                            AuthorityCommitReject::ControlledVerificationFailed(err.to_string())
-                        })?;
+                let verified = verify_formal_qualified(
+                    qualified,
+                    authority,
+                    parent.as_ref(),
+                    recovery.as_ref(),
+                )
+                .map_err(|err| {
+                    AuthorityCommitReject::ControlledVerificationFailed(err.to_string())
+                })?;
                 validate_controlled_candidate(
                     verified.record().position,
                     &hex::encode(verified.verified_record_id()),

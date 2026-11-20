@@ -98,6 +98,11 @@ pub mod util {
     }
 }
 
+pub use authority_commit_verifier::{
+    AuthorityCommitProof, AuthorityCommitReject, AuthorityCommitVerifier,
+    BftV3AuthorityCommitVerifier, CommitCandidateRef, CompositeAuthorityCommitVerifier,
+    ControlledAuthorityCommitVerifier, TrustedCommitAnchor, VerifiedAuthorityCommit,
+};
 pub use lease::{LeaseDecision, LeaseManager, LeaseState, ScopedLeaseManager};
 pub use membership::{
     FileMembershipAuditStore, InMemoryMembershipAuditStore, MembershipAuditStore,
@@ -210,11 +215,6 @@ pub use quorum::{
     ConsensusMembershipChangeRequest, ConsensusMembershipChangeResult, ConsensusStatus,
     ConsensusVote, HeadConsensusRecord, QuorumConsensus, ensure_lease_holder_validator,
     propose_world_head_with_quorum, vote_world_head_with_quorum,
-};
-pub use authority_commit_verifier::{
-    AuthorityCommitProof, AuthorityCommitReject, AuthorityCommitVerifier,
-    BftV3AuthorityCommitVerifier, CommitCandidateRef, CompositeAuthorityCommitVerifier,
-    ControlledAuthorityCommitVerifier, TrustedCommitAnchor, VerifiedAuthorityCommit,
 };
 pub use sequencer_mainloop::{
     SequencerMainloop, SequencerMainloopConfig, SequencerTickReport, SequencerTickState,
