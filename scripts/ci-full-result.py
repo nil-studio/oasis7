@@ -88,6 +88,12 @@ def definition_digest(root, revision):
             raise ValueError("invalid trusted custody compile proof definition")
         proof = "crates/oasis7_custody_worker/scripts/verify.sh"
         contents[proof] = read(proof)
+    if "custody_policy_tests_version" in config:
+        if (type(config["custody_policy_tests_version"]) is not int
+                or config["custody_policy_tests_version"] != 1
+                or type(config.get("custody_compile_proof_version")) is not int
+                or config["custody_compile_proof_version"] != 1):
+            raise ValueError("invalid trusted custody policy tests definition")
     contract_tests = set()
     if "workflow_governance_python_tests" in config:
         governed = config["workflow_governance_python_tests"]

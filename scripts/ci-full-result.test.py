@@ -290,6 +290,23 @@ class DefinitionDigest(unittest.TestCase):
         self.prepare_separate_custody_proof()
         self.assert_rejects_previous_definition(self.PROOF)
 
+    def test_custody_policy_tests_require_strict_capability_and_bound_execution_definition(self):
+        self.prepare_separate_custody_proof()
+        self.config['custody_policy_tests_version'] = 1
+        self.write_config()
+        self.assert_rejects_previous_definition('scripts/ci-custody-platform.py')
+        valid = copy.deepcopy(self.config)
+        for key in ('custody_policy_tests_version', 'custody_compile_proof_version'):
+            for value in (None, True, False, 0, 2, 1.0, '1', 'missing'):
+                self.config = valid | {key: value}
+                if value == 'missing':
+                    if key == 'custody_policy_tests_version':
+                        continue
+                    del self.config[key]
+                self.write_config()
+                with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                    module.definition_digest(self.root, self.commit())
+
     def test_separate_custody_proof_definition_reads_fixed_revision_not_worktree(self):
         proof = self.prepare_separate_custody_proof()
         revision = self.commit()
