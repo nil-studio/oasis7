@@ -17,7 +17,8 @@ impl World {
     /// every signed authority field to historical finality.
     ///
     /// This compatibility entry point intentionally remains rejected.  A
-    /// process-local certificate is not a sufficient trust root.
+    /// certificate alone is not a sufficient trust root. Use
+    /// [`Self::install_capability_authority_record_with_finality_proof`] instead.
     pub fn install_capability_authority_record_with_finality(
         &mut self,
         record: CapabilityAuthorityRecord,

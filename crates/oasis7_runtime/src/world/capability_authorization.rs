@@ -20,7 +20,8 @@ use super::capability_authorization_state::{capability_budget_key, validate_budg
 impl World {
     /// Legacy compatibility shim.  Authority cannot be installed from a
     /// process-local key/epoch pair; callers must provide finalized
-    /// governance evidence through [`Self::install_capability_authority_record`].
+    /// governance evidence through
+    /// [`Self::install_capability_authority_record_with_finality_proof`].
     #[deprecated(note = "install a finalized CapabilityAuthorityRecord")]
     pub fn set_capability_trusted_issuer(
         &mut self,
@@ -56,8 +57,9 @@ impl World {
     ///
     /// Authority records are trust roots, so accepting a structurally valid
     /// record from a public API would let a caller choose its own issuer key.
-    /// Use [`Self::install_capability_authority_record_with_finality`] with a
-    /// certificate verified against the live governance signer set instead.
+    /// Use [`Self::install_capability_authority_record_with_finality_proof`]
+    /// with a quorum-signed binding between the exact record and historical
+    /// governance finality. A certificate alone is not sufficient.
     #[deprecated(note = "install a CapabilityAuthorityRecord with finality proof")]
     pub fn install_capability_authority_record(
         &mut self,
