@@ -3587,7 +3587,8 @@ run_cargo() {
         workflow, writer = self.shared_cache_workflow()
         on = re.search(r'^on:\n(.*?)(?=^[^\s#]|\Z)', workflow, re.M | re.S)[1]
         self.assertEqual(set(re.findall(r'^  ([a-z_]+):', on, re.M)), {'schedule', 'workflow_dispatch'})
-        self.assertIn('options: [full]', on)
+        image_writer = workflow_jobs(workflow).get('rust-image-native-cache')
+        self.assertIn('options: [full, image-native]' if image_writer else 'options: [full]', on)
         self.assertNotIn('source_ref', on)
         self.assertNotIn('workflow_run', on)
         self.assertIn('cache-mode: write', writer)
@@ -3598,7 +3599,7 @@ run_cargo() {
         for event in ('schedule', 'workflow_dispatch', 'push', 'pull_request', 'workflow_run'):
             for ref in ('refs/heads/main', 'refs/heads/topic', 'refs/pull/1/merge', 'refs/tags/v1'):
                 for matching in (False, True):
-                    for mode in ('full', '', 'newapi_bridge_package'):
+                    for mode in ('full', 'image-native', '', 'newapi_bridge_package'):
                         values = {'github.event_name': event, 'github.ref': ref,
                                   'github.workflow_sha': 'a' if matching else 'b',
                                   'github.sha': 'a', 'inputs.run_mode': mode}
@@ -3969,7 +3970,9 @@ run_cargo() {
             dependency_caches = rust_cache_steps(writer)
             self.assertEqual(len(dependency_caches), 1, name)
             dependency_cache = dependency_caches[0]
-            family = 'shared-native' if name == 'shared-native-cache' else 'release-web'
+            family = {'shared-native-cache': 'shared-native',
+                      'rust-image-native-cache': 'rust-image-native',
+                      'web-wasm-cache': 'release-web'}[name]
             self.assertIn('OASIS7_DEPENDENCY_CACHE_FAMILY: ' + family + '\n', dependency_cache)
             self.assertEqual(dependency_cache.count('GH_TOKEN: ${{ github.token }}'), 1)
             without_admitted_uploads = without_admitted_uploads.replace(dependency_cache, '', 1)
