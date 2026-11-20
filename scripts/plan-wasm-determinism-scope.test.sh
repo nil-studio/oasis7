@@ -60,6 +60,9 @@ for path in \
   .dockerignore \
   scripts/build-builtin-wasm-candidate-batch-lib.sh \
   docker/wasm-builder/Dockerfile \
+  docker/wasm-builder/Cargo.toml \
+  docker/wasm-builder/Cargo.lock \
+  docker/wasm-builder/src/main.rs \
   crates/oasis7_wasm_build/src/producer_recipe.rs \
   tools/wasm_build_suite/src/lib.rs; do
   output="$(plan_for_path "$path")"
@@ -73,8 +76,8 @@ for path in \
   assert_reason_contains "$output" "shared_wasm_pipeline:$path"
 done
 
-# Nearby files do not become producer inputs just by sharing a path prefix.
-for path in .github/actions/setup-linux-mold/README.md .dockerignore.local scripts/build-builtin-wasm-candidate-batch-lib.sh.bak; do
+# Root Cargo files and nearby files do not become producer inputs.
+for path in Cargo.toml Cargo.lock .github/actions/setup-linux-mold/README.md .dockerignore.local scripts/build-builtin-wasm-candidate-batch-lib.sh.bak; do
   output="$(plan_for_path "$path")"
   assert_key_equals "$output" scope skip
   assert_key_equals "$output" run_all false

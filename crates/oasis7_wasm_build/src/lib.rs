@@ -111,63 +111,16 @@ pub use producer_recipe::{
 };
 mod build_manifest;
 mod source_inputs;
+mod workspace_inputs;
 pub use build_manifest::{BuildManifest, compute_build_manifest_hash};
 pub use source_inputs::{
     SOURCE_INPUT_RULE_VERSION, SourceInputRecord, SourceInputs, compute_source_inputs,
     validate_source_evidence,
 };
+use workspace_inputs::collect_owning_workspace_manifests;
 
 pub fn compute_source_hash(manifest_path: &Path, target: &str) -> Result<String, SourceHashError> {
     Ok(compute_source_inputs(manifest_path, target)?.source_hash)
-}
-
-fn collect_owning_workspace_manifests(
-    package_dirs: &[PathBuf],
-) -> Result<Vec<PathBuf>, SourceHashError> {
-    let package_manifests = package_dirs
-        .iter()
-        .map(|dir| dir.join("Cargo.toml"))
-        .collect::<BTreeSet<_>>();
-    let mut manifests = Vec::new();
-    for manifest_path in &package_manifests {
-        let output = Command::new("cargo")
-            .env_remove("RUSTC_WRAPPER")
-            .args(["locate-project", "--workspace", "--manifest-path"])
-            .arg(manifest_path)
-            .args(["--message-format", "plain"])
-            .output()
-            .map_err(|source| SourceHashError::Io {
-                path: Some(manifest_path.clone()),
-                source,
-            })?;
-        if !output.status.success() {
-            return Err(SourceHashError::WorkspaceCommand {
-                manifest_path: manifest_path.clone(),
-                stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
-                status_code: output.status.code(),
-            });
-        }
-        let path = String::from_utf8(output.stdout).map_err(|source| SourceHashError::Io {
-            path: Some(manifest_path.clone()),
-            source: io::Error::new(io::ErrorKind::InvalidData, source),
-        })?;
-        if path.trim().is_empty() {
-            return Err(SourceHashError::InvalidManifestPath(format!(
-                "cargo locate-project --workspace returned an empty path for {}",
-                manifest_path.display()
-            )));
-        }
-        let owner_path = Path::new(path.trim());
-        let owner = fs::canonicalize(owner_path).map_err(|source| SourceHashError::Io {
-            path: Some(owner_path.to_path_buf()),
-            source,
-        })?;
-        if !package_manifests.contains(&owner) {
-            manifests.push(owner);
-        }
-    }
-    sort_dedup_paths(&mut manifests);
-    Ok(manifests)
 }
 
 fn read_cargo_metadata(
@@ -733,7 +686,7 @@ build_inputs={{}}
         write_fixture_workspace(&root, "pub fn value() -> u32 { 1 }\n", None);
         let dirs = [root.join("module"), root.join("shared")];
         assert_eq!(
-            collect_owning_workspace_manifests(&dirs).unwrap(),
+            collect_owning_workspace_manifests(&dirs).unwrap().all,
             vec![canonical_or_original(&root.join("Cargo.toml"))]
         );
         // A package manifest already in the closure must not be hashed a second time.
@@ -742,6 +695,7 @@ build_inputs={{}}
         assert!(
             collect_owning_workspace_manifests(&[standalone])
                 .unwrap()
+                .all
                 .is_empty()
         );
         fs::remove_dir_all(root).unwrap();

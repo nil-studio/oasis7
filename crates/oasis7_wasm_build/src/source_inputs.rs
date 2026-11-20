@@ -306,6 +306,7 @@ pub fn compute_source_inputs(
     let mut dirs = packages.clone();
     dirs.extend(
         owners
+            .all
             .iter()
             .filter_map(|v| v.parent().map(Path::to_path_buf)),
     );
@@ -329,7 +330,13 @@ pub fn compute_source_inputs(
         .map_err(unsupported)?;
     validate_file(&root, &root.join(relative))?;
     validate_file(&root, &manifest)?;
-    let mut files = owners.into_iter().collect::<BTreeSet<_>>();
+    let mut files = owners.inherited.into_iter().collect::<BTreeSet<_>>();
+    // Profiles, patches and resolver settings come from the actual build
+    // workspace, even when every member declares its package fields explicitly.
+    if metadata.workspace_root.is_empty() {
+        return Err(unsupported("Cargo metadata lacks a build workspace root"));
+    }
+    files.insert(Path::new(&metadata.workspace_root).join("Cargo.toml"));
     if let Some(lock) = find_lockfile_for_metadata(&manifest) {
         files.insert(lock);
     }
