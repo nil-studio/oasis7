@@ -22,6 +22,7 @@ struct FreshBackend {
     marker: BftPrivateRetentionCreationMarkerV1,
     original: Option<BftPrivateRetentionActivationV1>,
     spend: u64,
+    pending: Option<BftFirstReservedOriginalV1>,
 }
 impl BftSignerBackendV3 for FreshBackend {
     fn load_provisioned(
@@ -105,6 +106,87 @@ impl BftSignerBackendV3 for FreshBackend {
         self.original = next.original.clone();
         self.spend = next.reserved_response_bytes;
         Ok(())
+    }
+    fn read_first_reserve_for_lease(
+        &mut self,
+        generation: u64,
+        token: &str,
+    ) -> Result<BftFirstReserveSnapshotV1, BftSignerErrorV3> {
+        Ok(BftFirstReserveSnapshotV1 {
+            current: self.read_fresh_coverage_for_lease(generation, token)?,
+            reservation: self.pending.clone(),
+        })
+    }
+
+    fn compare_and_commit_first_reserve(
+        &mut self,
+        expected: &BftFirstReserveSnapshotV1,
+        next: &BftFirstReserveSnapshotV1,
+    ) -> Result<(), BftSignerErrorV3> {
+        if self.pending != expected.reservation {
+            return Err(BftSignerErrorV3(
+                "test original Pending inventory changed".into(),
+            ));
+        }
+        self.compare_and_commit_fresh_coverage(&expected.current, &next.current)?;
+        self.pending = next.reservation.clone();
+        Ok(())
+    }
+}
+
+type VerifiedReader = Arc<
+    Mutex<
+        Option<(
+            Arc<BftPrivateRetentionAdmissionInputV1>,
+            BftFirstReservationPriceV1,
+        )>,
+    >,
+>;
+struct ArchiveOriginalReader(VerifiedReader);
+impl BftFirstReserveSourceV1 for ArchiveOriginalReader {
+    fn read_authorized_original(
+        &self,
+        reference: &BftPrivateRetentionAdmissionInputRefV1,
+        _deadline: Instant,
+    ) -> Result<BftAuthorizedOriginalReserveInputV1, BftSignerErrorV3> {
+        let pair = self.0.lock().unwrap();
+        let (input, _) = pair
+            .as_ref()
+            .ok_or_else(|| BftSignerErrorV3("test reader denied".into()))?;
+        if input.descriptor()? != *reference {
+            return Err(BftSignerErrorV3(
+                "test reader permitted a different original".into(),
+            ));
+        }
+        Ok(BftAuthorizedOriginalReserveInputV1 {
+            input: input.clone(),
+            transport_hold: Box::new(()),
+        })
+    }
+
+    fn verify_actual_first_price(
+        &self,
+        _: &BftSignerBindingV3,
+        _: &BftPrivateRetentionCreationMarkerV1,
+        _: &BftSignerStateV3,
+        input: &BftPrivateRetentionAdmissionInputV1,
+        _deadline: Instant,
+    ) -> Result<BftFirstReservationPriceV1, BftSignerErrorV3> {
+        let pair = self.0.lock().unwrap();
+        let (verified, price) = pair
+            .as_ref()
+            .ok_or_else(|| BftSignerErrorV3("test price denied".into()))?;
+        if verified.as_ref() != input {
+            return Err(BftSignerErrorV3(
+                "test Runtime verified a different exact input".into(),
+            ));
+        }
+        Ok(BftFirstReservationPriceV1 {
+            publication_bytes: price.publication_bytes,
+            private_pin_bytes: price.private_pin_bytes,
+            original_selection_bytes: price.original_selection_bytes,
+            retained_h_dependencies: price.retained_h_dependencies.clone(),
+        })
     }
 }
 
@@ -235,6 +317,7 @@ fn activation_case() {
         lease_token_digest: String::new(),
         protected_time_floor_ms: 1_000,
     }));
+    let verified_reader = Arc::new(Mutex::new(None));
     let service = Arc::new(
         BftSignerServiceV3::open_with_fresh_coverage(
             binding.clone(),
@@ -249,6 +332,7 @@ fn activation_case() {
                 marker: marker.clone(),
                 original: None,
                 spend: 0,
+                pending: None,
             }),
             BftFreshCoverageSupportV1 {
                 attestor: attestor.clone(),
@@ -256,24 +340,29 @@ fn activation_case() {
                 verifier: Box::new(PinnedSource(marker.clone())),
             },
         )
+        .unwrap()
+        .with_first_reservation(
+            Box::new(ArchiveOriginalReader(verified_reader.clone())),
+            Duration::from_secs(25),
+        )
         .unwrap(),
     );
 
-    let activate = |node_value: &mut serde_json::Value| {
+    let session = |action: &str, node_value: &mut serde_json::Value| {
         let (address, join) = tcp(service.clone());
         node_value["provider_address"] = serde_json::json!(address);
         write("node.json", &serde_json::to_vec(node_value).unwrap());
-        let result = run("--activate-private-source");
+        let result = run(action);
         join.join().unwrap().unwrap();
         result
     };
     FormalBftHeaderLedgerExecutionV3::inject_covered_source_reservation_cut();
-    let interrupted = activate(&mut node_value).unwrap_err();
+    let interrupted = session("--activate-private-source", &mut node_value).unwrap_err();
     assert!(interrupted.contains("injected cut after covered original reservation"));
     assert!(dir.join("origin.reservation.cbor").is_file());
     assert!(!dir.join("origin.cbor").exists());
     assert_eq!(snapshot.lock().unwrap().state.revision, 1);
-    activate(&mut node_value).unwrap();
+    session("--activate-private-source", &mut node_value).unwrap();
     let bytes = fs::read(dir.join("origin.cbor")).unwrap();
     assert_eq!(
         store
@@ -293,7 +382,7 @@ fn activation_case() {
         "oasis7.formal.bft.private-source.activation.v1"
     );
     assert_eq!(snapshot.lock().unwrap().state.revision, 1);
-    activate(&mut node_value).unwrap();
+    session("--activate-private-source", &mut node_value).unwrap();
     assert_eq!(fs::read(dir.join("origin.cbor")).unwrap(), bytes);
     assert_eq!(snapshot.lock().unwrap().state.revision, 1);
     let action_bytes = super::super::execution_tests::private_actions();
@@ -338,7 +427,7 @@ fn activation_case() {
     let (source, pin, replayed, first_bytes) = recovered_ledger
         .archive_first_original_local(&archive, &binding, &attestor, &marker, action_bytes)
         .unwrap();
-    let (cold_result, _) = pin
+    let (cold_result, price) = pin
         .verify_first_price(
             &recovered_ledger,
             &archive
@@ -362,7 +451,8 @@ fn activation_case() {
         .iter()
         .find(|object| object.kind == BftPrivateRetentionInputObjectKindV1::OriginalData)
         .unwrap();
-    let data: serde_json::Value = serde_cbor::from_slice(&data.bytes).unwrap();
+    let candidate_bytes = data.bytes.clone();
+    let data: serde_json::Value = serde_cbor::from_slice(&candidate_bytes).unwrap();
     assert_eq!(data["schema_version"], 9);
     assert_eq!(data["protected_source_origin_ref"], blake3_hex(&bytes));
     assert!(fs::read_dir(&dir).unwrap().all(|entry| {
@@ -373,7 +463,42 @@ fn activation_case() {
             .starts_with("candidate")
     }));
     assert_eq!(snapshot.lock().unwrap().state.revision, 1);
+    let pending_path = dir.join(format!("candidate-{:020}.cbor", original.key.height));
     drop(recovered_ledger);
+    let reserve_options = serde_json::json!({
+        "schema_version":1, "creation_identity":creation, "attestor":attestor,
+        "archive_directory": archive_store.root(),
+        "reserve_input": { "source": source, "candidate": pin },
+    });
+    let mut wrong_pin = reserve_options.clone();
+    wrong_pin["reserve_input"]["candidate"]["original_private_origin_digest"] =
+        serde_json::json!("f1".repeat(32));
+    write("source.json", &serde_json::to_vec(&wrong_pin).unwrap());
+    assert!(
+        run("--reserve-first-private-source-input")
+            .unwrap_err()
+            .contains("does not bind the original private Origin")
+    );
+    assert!(!pending_path.exists());
+    assert_eq!(snapshot.lock().unwrap().state.revision, 1);
+    write(
+        "source.json",
+        &serde_json::to_vec(&reserve_options).unwrap(),
+    );
+    assert!(session("--reserve-first-private-source-input", &mut node_value).is_err());
+    assert!(!pending_path.exists());
+    assert_eq!(snapshot.lock().unwrap().state.revision, 1);
+    *verified_reader.lock().unwrap() = Some((Arc::new(original), price));
+    FormalBftHeaderLedgerExecutionV3::inject_covered_source_reservation_cut();
+    let cut = session("--reserve-first-private-source-input", &mut node_value).unwrap_err();
+    assert!(cut.contains("injected cut after covered original reservation"));
+    assert!(pending_path.with_extension("reservation.cbor").is_file());
+    assert!(!pending_path.exists());
+    assert_eq!(snapshot.lock().unwrap().state.revision, 2);
+    *verified_reader.lock().unwrap() = None;
+    session("--reserve-first-private-source-input", &mut node_value).unwrap();
+    assert_eq!(fs::read(&pending_path).unwrap(), candidate_bytes);
+    assert_eq!(snapshot.lock().unwrap().state.revision, 2);
 
     let ordinary = crate::identity_receipt::dispatch(
         [
@@ -400,7 +525,7 @@ fn activation_case() {
         fs::copy(saved.join(name), dir.join(name)).unwrap();
     }
     assert!(
-        run("--activate-private-source")
+        run("--reserve-first-private-source-input")
             .unwrap_err()
             .contains("namespace identity changed")
     );

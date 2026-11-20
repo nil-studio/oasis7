@@ -1,10 +1,12 @@
 //! Singleton actual-World Node consumer of an independently provisioned wire-3 provider.
 use super::*;
 #[cfg(not(test))]
-use crate::execution_bridge::{FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3};
+use crate::execution_bridge::{
+    FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3, OriginalCandidateArchivePinV1,
+};
 #[cfg(test)]
 use crate::execution_bridge_real_tests::real_execution_bridge::{
-    FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3,
+    FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3, OriginalCandidateArchivePinV1,
 };
 use oasis7_consensus::tendermint_v1::BftTimeoutsV1;
 use oasis7_distfs::protected_bft_v3::{
@@ -101,6 +103,7 @@ pub(super) fn run<'a>(
             "--prepare-private-source"
                 | "--activate-private-source"
                 | "--archive-first-private-source-input"
+                | "--reserve-first-private-source-input"
         ) {
             if source_action.replace(option).is_some() {
                 return Err("duplicate private source operation".into());
@@ -149,6 +152,7 @@ pub(super) fn run<'a>(
         let mode = match (action, actions.as_deref()) {
             ("--prepare-private-source", None) => private_source::Mode::Prepare,
             ("--activate-private-source", None) => private_source::Mode::Activate,
+            ("--reserve-first-private-source-input", None) => private_source::Mode::ReserveFirst,
             ("--archive-first-private-source-input", Some(path)) => {
                 private_source::Mode::ArchiveFirst(path)
             }
