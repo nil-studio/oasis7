@@ -42,7 +42,7 @@ def render_job(group: str) -> str:
             "      contents: read\n"
             "      packages: read\n"
             "    container:\n"
-            "      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:e350e64c5d2001f4925b0e0f581447d549950d90b71375636239444a33798bbb\n"
+            "      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:6ea7e7ebeb0abeefc7aa2cba6c48627ad76b3c8551d5f7c400c661c783ada51a\n"
             "      credentials:\n"
             "        username: ${{ github.actor }}\n"
             "        password: ${{ github.token }}\n"
