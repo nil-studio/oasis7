@@ -380,7 +380,7 @@ def summarize(directory, expected, needs=None):
     if len(labels) != len(set(labels)) or set(labels) != set(expected) or len(expected) != len(set(expected)):
         raise ValueError('missing, duplicate or unexpected acceptance result')
     if needs is not None:
-        if set(needs) != {'build', 'merge', 'verify', 'capacity-long', 'full-node-long'}:
+        if set(needs) != {'build', 'verify', 'capacity-long', 'full-node-long'}:
             raise ValueError('missing or unexpected acceptance job')
         long_selected = any(label in ('capacity-1000', 'capacity-10000') for label in expected)
         for name, job in needs.items():

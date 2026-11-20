@@ -51,7 +51,7 @@ env:
   OASIS7_STORAGE_PROGRESS_INTERVAL: '100'
 
 jobs:
-  build:
+  build-components:
     strategy:
       fail-fast: false
       matrix:
@@ -110,8 +110,8 @@ jobs:
           if-no-files-found: error
           overwrite: true
 
-  merge:
-    needs: build
+  build:
+    needs: build-components
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -156,7 +156,7 @@ jobs:
 
   verify:
     name: Verify / ${{ matrix.label }}
-    needs: merge
+    needs: build
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -283,7 +283,7 @@ jobs:
   capacity-long:
     name: Capacity / ${{ inputs.capacity_scale }} heights
     if: inputs.capacity_scale != '10'
-    needs: merge
+    needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     env:
@@ -300,7 +300,7 @@ jobs:
   full-node-long:
     name: Full node maintenance / ${{ inputs.full_node_scale }} commits
     if: inputs.full_node_scale != '10'
-    needs: merge
+    needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     strategy:
@@ -314,7 +314,7 @@ jobs:
 
   summary:
     if: always()
-    needs: [build, merge, verify, capacity-long, full-node-long]
+    needs: [build, verify, capacity-long, full-node-long]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:

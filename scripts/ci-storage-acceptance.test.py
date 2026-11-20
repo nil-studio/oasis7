@@ -287,7 +287,7 @@ class Contracts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / 'summary.json').write_text(json.dumps(self.report()))
-            needs = {name: {'result': 'success'} for name in ('build', 'merge', 'verify')}
+            needs = {name: {'result': 'success'} for name in ('build', 'verify')}
             needs['capacity-long'] = {'result': 'skipped'}
             needs['full-node-long'] = {'result': 'skipped'}
             self.assertTrue(acceptance.summarize(root, ['units'], needs)['passed'])
