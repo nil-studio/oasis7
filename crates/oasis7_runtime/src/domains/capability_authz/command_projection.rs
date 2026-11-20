@@ -3,29 +3,29 @@
 use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;
 
-use super::super::{
+use crate::{
     CapabilityAuthorizationAuditReceipt, CapabilityAuthorizationEvent,
     CapabilityAuthorizationNonceRecord, CapabilityBudgetAccount, CapabilityEffectReceiptLink,
 };
-use super::World;
+use crate::world::World;
 
-pub(super) struct PreparedCapabilityCommandCommit {
-    pub(super) event: CapabilityAuthorizationEvent,
-    pub(super) capability_grants_v2: BTreeMap<String, JsonValue>,
-    pub(super) capability_nonce_records: BTreeMap<String, CapabilityAuthorizationNonceRecord>,
-    pub(super) capability_authorization_receipts:
+pub(in crate::world) struct PreparedCapabilityCommandCommit {
+    pub(in crate::world) event: CapabilityAuthorizationEvent,
+    pub(in crate::world) capability_grants_v2: BTreeMap<String, JsonValue>,
+    pub(in crate::world) capability_nonce_records: BTreeMap<String, CapabilityAuthorizationNonceRecord>,
+    pub(in crate::world) capability_authorization_receipts:
         BTreeMap<String, CapabilityAuthorizationAuditReceipt>,
-    pub(super) capability_budget_accounts: BTreeMap<String, CapabilityBudgetAccount>,
-    pub(super) capability_effect_receipt_links: BTreeMap<String, CapabilityEffectReceiptLink>,
-    pub(super) capability_authorization_root: String,
+    pub(in crate::world) capability_budget_accounts: BTreeMap<String, CapabilityBudgetAccount>,
+    pub(in crate::world) capability_effect_receipt_links: BTreeMap<String, CapabilityEffectReceiptLink>,
+    pub(in crate::world) capability_authorization_root: String,
 }
 
 impl PreparedCapabilityCommandCommit {
-    pub(super) fn matches_event(&self, event: &CapabilityAuthorizationEvent) -> bool {
+    pub(in crate::world) fn matches_event(&self, event: &CapabilityAuthorizationEvent) -> bool {
         &self.event == event
     }
 
-    pub(super) fn install(self, world: &mut World) {
+    pub(in crate::world) fn install(self, world: &mut World) {
         world.capability_grants_v2 = self.capability_grants_v2;
         world.capability_nonce_records = self.capability_nonce_records;
         world.capability_authorization_receipts = self.capability_authorization_receipts;
