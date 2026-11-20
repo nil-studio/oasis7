@@ -3,15 +3,17 @@ use super::*;
 use crate::source_inputs::{include_path, put_string, validate_file};
 use serde::Serialize;
 
-const PRODUCERS: [&str; 2] = ["crates/oasis7_wasm_build", "tools/wasm_build_suite"];
-const FIXED: [&str; 7] = [
+const PRODUCERS: [&str; 3] = [
+    "crates/oasis7_wasm_build",
+    "docker/wasm-builder",
+    "tools/wasm_build_suite",
+];
+const FIXED: [&str; 5] = [
     ".github/actions/setup-linux-mold/setup.py",
     "docker/wasm-builder/Dockerfile",
+    "docker/wasm-builder/Cargo.lock",
     ".dockerignore",
     "scripts/build-wasm-module.sh",
-    "Cargo.toml",
-    "Cargo.lock",
-    "docker/wasm-builder/prepare-workspace.sh",
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -186,7 +188,7 @@ fn validate_dockerfile(root: &Path) -> Result<(), SourceHashError> {
         "RUN python3 /opt/oasis7/.github/actions/setup-linux-mold/setup.py",
         "RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none && chmod -R a+rX /cargo /rustup",
         "RUN rustup toolchain install \"${WASM_TOOLCHAIN}\" --profile minimal --component rust-src && rustup target add \"${WASM_TARGET}\" --toolchain \"${WASM_TOOLCHAIN}\" && chmod -R a+rX /rustup",
-        "RUN bash /opt/oasis7/docker/wasm-builder/prepare-workspace.sh && env -u RUSTC_WRAPPER CARGO_TARGET_DIR=/tmp/oasis7-producer-target cargo install --locked --path /opt/oasis7/tools/wasm_build_suite && readelf -p .comment /cargo/bin/wasm_build_suite | grep -E 'mold 3[.]0[.]0([[:space:]]|$)' && chmod a+rx /cargo/bin/wasm_build_suite && rm -rf /tmp/oasis7-producer-target /cargo/registry /cargo/git",
+        "RUN env -u RUSTC_WRAPPER CARGO_TARGET_DIR=/tmp/oasis7-producer-target cargo install --locked --path /opt/oasis7/docker/wasm-builder && readelf -p .comment /cargo/bin/wasm_build_suite | grep -E 'mold 3[.]0[.]0([[:space:]]|$)' && chmod a+rx /cargo/bin/wasm_build_suite && rm -rf /tmp/oasis7-producer-target /cargo/registry /cargo/git",
     ];
     for instruction in &logical {
         let opcode = instruction.split_whitespace().next().unwrap_or_default();
@@ -259,17 +261,11 @@ fn validate_dockerfile(root: &Path) -> Result<(), SourceHashError> {
         .collect::<Vec<_>>();
     let expected = [
         mold_copy,
-        "COPY --chmod=0755 Cargo.toml Cargo.lock /opt/oasis7/",
-        "COPY --chmod=0755 crates /opt/oasis7/crates",
-        "COPY --chmod=0755 vendor-if-watch-3.2.2 /opt/oasis7/vendor-if-watch-3.2.2",
-        "COPY --chmod=0755 vendor-libp2p-swarm-0.48.0 /opt/oasis7/vendor-libp2p-swarm-0.48.0",
-        "COPY --chmod=0755 vendor-libp2p-rendezvous-0.18.1 /opt/oasis7/vendor-libp2p-rendezvous-0.18.1",
-        "COPY --chmod=0755 vendor-libp2p-quic-0.14.0 /opt/oasis7/vendor-libp2p-quic-0.14.0",
-        "COPY --chmod=0755 tools/scenario_test_runner /opt/oasis7/tools/scenario_test_runner",
+        "COPY --chmod=0755 docker/wasm-builder/Cargo.toml docker/wasm-builder/Cargo.lock /opt/oasis7/docker/wasm-builder/",
+        "COPY --chmod=0755 docker/wasm-builder/src /opt/oasis7/docker/wasm-builder/src",
+        "COPY --chmod=0755 crates/oasis7_wasm_build /opt/oasis7/crates/oasis7_wasm_build",
         "COPY --chmod=0755 tools/wasm_build_suite /opt/oasis7/tools/wasm_build_suite",
-        "COPY --chmod=0755 tools/wasm_module_observe /opt/oasis7/tools/wasm_module_observe",
         "COPY --chmod=0755 scripts/build-wasm-module.sh /opt/oasis7/scripts/build-wasm-module.sh",
-        "COPY --chmod=0755 docker/wasm-builder/prepare-workspace.sh /opt/oasis7/docker/wasm-builder/prepare-workspace.sh",
     ];
     let workdirs = text
         .lines()
@@ -292,7 +288,10 @@ fn files(root: &Path, image: bool) -> Result<BTreeSet<PathBuf>, SourceHashError>
     } else {
         validate_dockerfile(root)?;
     }
-    let manifest = root.join("tools/wasm_build_suite/Cargo.toml");
+    let manifest = root.join("docker/wasm-builder/Cargo.toml");
+    if !root.join("docker/wasm-builder/Cargo.lock").is_file() {
+        return Err(invalid("missing docker/wasm-builder/Cargo.lock"));
+    }
     let metadata = read_cargo_metadata_from(&manifest, "x86_64-unknown-linux-gnu", Some(root))?;
     crate::source_inputs::validate_macro_owners_with_procedural(
         &metadata,
@@ -605,17 +604,16 @@ mod tests {
         )
         .unwrap();
         validate_dockerfile(&dir).unwrap();
-        let quic_copy =
-            "COPY --chmod=0755 vendor-libp2p-quic-0.14.0 /opt/oasis7/vendor-libp2p-quic-0.14.0";
-        assert!(original.contains(quic_copy));
+        let launcher_copy = "COPY --chmod=0755 docker/wasm-builder/Cargo.toml docker/wasm-builder/Cargo.lock /opt/oasis7/docker/wasm-builder/";
+        assert!(original.contains(launcher_copy));
         for replacement in [
             "",
-            "COPY --chmod=0755 vendor-libp2p-quic-0.15.0 /opt/oasis7/vendor-libp2p-quic-0.15.0",
+            "COPY --chmod=0755 Cargo.toml Cargo.lock /opt/oasis7/",
         ] {
-            fs::write(&path, original.replace(quic_copy, replacement)).unwrap();
+            fs::write(&path, original.replace(launcher_copy, replacement)).unwrap();
             assert!(
                 validate_dockerfile(&dir).is_err(),
-                "accepted changed QUIC manifest copy"
+                "accepted changed launcher manifest copy"
             );
         }
         let mut accepted_directives = Vec::new();
@@ -683,31 +681,37 @@ mod tests {
         let dir = dir.canonicalize().unwrap();
         for name in FIXED
             .into_iter()
-            .filter(|name| !matches!(*name, "Cargo.toml" | "Cargo.lock"))
+            .filter(|name| *name != "docker/wasm-builder/Cargo.lock")
         {
             let target = dir.join(name);
             fs::create_dir_all(target.parent().unwrap()).unwrap();
             fs::copy(repo.join(name), target).unwrap();
         }
-        fs::write(dir.join("Cargo.toml"), "[workspace]\nmembers=[\"crates/oasis7_wasm_build\",\"tools/wasm_build_suite\"]\nresolver=\"2\"\n").unwrap();
         for (package, name) in [
-            (PRODUCERS[0], "oasis7_wasm_build"),
-            (PRODUCERS[1], "wasm_build_suite"),
+            ("crates/oasis7_wasm_build", "oasis7_wasm_build"),
+            ("tools/wasm_build_suite", "wasm_build_suite"),
+            ("docker/wasm-builder", "oasis7_wasm_builder_launcher"),
         ] {
             let package = dir.join(package);
             fs::create_dir_all(package.join("src")).unwrap();
-            let mut manifest =
-                format!("[package]\nname=\"{name}\"\nversion=\"0.1.0\"\nedition=\"2024\"\n");
-            if name == "wasm_build_suite" {
-                manifest.push_str(
-                    "[dependencies]\noasis7_wasm_build={path=\"../../crates/oasis7_wasm_build\"}\n",
-                );
-            }
+            let manifest = match name {
+                "oasis7_wasm_build" => {
+                    "[package]\nname=\"oasis7_wasm_build\"\nversion=\"0.1.0\"\nedition=\"2024\"\n"
+                        .to_string()
+                }
+                "wasm_build_suite" => "[package]\nname=\"wasm_build_suite\"\nversion=\"0.1.0\"\nedition=\"2024\"\n[dependencies]\noasis7_wasm_build={path=\"../../crates/oasis7_wasm_build\"}\n".to_string(),
+                _ => "[workspace]\n[package]\nname=\"oasis7_wasm_builder_launcher\"\nversion=\"0.1.0\"\nedition=\"2024\"\n[[bin]]\nname=\"wasm_build_suite\"\npath=\"src/main.rs\"\n[dependencies]\nwasm_build_suite={path=\"../../tools/wasm_build_suite\"}\n".to_string(),
+            };
             fs::write(package.join("Cargo.toml"), manifest).unwrap();
         }
         fs::write(
-            dir.join("tools/wasm_build_suite/src/main.rs"),
-            "fn main(){oasis7_wasm_build::value();}\n",
+            dir.join("tools/wasm_build_suite/src/lib.rs"),
+            "pub fn run(){oasis7_wasm_build::value();}\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join("docker/wasm-builder/src/main.rs"),
+            "fn main(){wasm_build_suite::run();}\n",
         )
         .unwrap();
         dir
@@ -729,18 +733,20 @@ mod tests {
         );
         let original = compute_builder_recipe(&dir).unwrap();
         for helper in [
-            "docker/wasm-builder/prepare-workspace.sh",
+            "docker/wasm-builder/Cargo.lock",
             ".github/actions/setup-linux-mold/setup.py",
         ] {
             let saved = fs::read(dir.join(helper)).unwrap();
             assert!(original.inputs.iter().any(|input| input.path == helper));
             verify_image_producer_recipe(&dir, &original).unwrap();
-            fs::write(dir.join(helper), "changed preparation helper\n").unwrap();
-            assert_ne!(
-                original.producer_recipe_hash,
-                compute_builder_recipe(&dir).unwrap().producer_recipe_hash
-            );
-            assert!(verify_image_producer_recipe(&dir, &original).is_err());
+            if helper.ends_with(".py") {
+                fs::write(dir.join(helper), "changed preparation helper\n").unwrap();
+                assert_ne!(
+                    original.producer_recipe_hash,
+                    compute_builder_recipe(&dir).unwrap().producer_recipe_hash
+                );
+                assert!(verify_image_producer_recipe(&dir, &original).is_err());
+            }
             fs::remove_file(dir.join(helper)).unwrap();
             assert!(compute_builder_recipe(&dir).is_err());
             assert!(verify_image_producer_recipe(&dir, &original).is_err());
@@ -753,7 +759,7 @@ mod tests {
         std::process::Command::new("cargo")
             .env_remove("RUSTC_WRAPPER")
             .args(["build", "--offline", "--manifest-path"])
-            .arg(dir.join("tools/wasm_build_suite/Cargo.toml"))
+            .arg(dir.join("docker/wasm-builder/Cargo.toml"))
             .current_dir(dir)
             .output()
             .unwrap()

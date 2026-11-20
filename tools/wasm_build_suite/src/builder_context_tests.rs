@@ -1,8 +1,13 @@
-//! Cargo must parse every original tool manifest; only the actual producer
-//! contributes its complete source tree to the builder image.
-const WORKSPACE: &str = include_str!("../../../Cargo.toml");
+//! The Docker builder image uses its own standalone workspace under
+//! `docker/wasm-builder/` so root `Cargo.toml` / `Cargo.lock` changes never
+//! leak into WASM producer recipes or `.wasm` bytecode.
 const DOCKERFILE: &str = include_str!("../../../docker/wasm-builder/Dockerfile");
 const CONTEXT: &str = include_str!("../../../.dockerignore");
+const BUILDER_MANIFEST: &str = include_str!("../../../docker/wasm-builder/Cargo.toml");
+const SDK_MANIFEST: &str = include_str!("../../../crates/oasis7_wasm_sdk/Cargo.toml");
+const ABI_MANIFEST: &str = include_str!("../../../crates/oasis7_wasm_abi/Cargo.toml");
+const BUILD_MANIFEST: &str = include_str!("../../../crates/oasis7_wasm_build/Cargo.toml");
+const SUITE_MANIFEST: &str = include_str!("../../../tools/wasm_build_suite/Cargo.toml");
 
 #[test]
 fn builder_context_includes_only_the_shared_native_linker_installer() {
@@ -32,59 +37,69 @@ fn builder_context_includes_only_the_shared_native_linker_installer() {
 }
 
 #[test]
-fn builder_context_contains_every_workspace_tool() {
-    let members = WORKSPACE
-        .split("members = [")
-        .nth(1)
-        .expect("workspace members")
-        .split(']')
-        .next()
-        .expect("members list");
+fn builder_context_uses_standalone_workspace_and_excludes_root_cargo_and_unrelated_crates() {
     let context: Vec<_> = CONTEXT.lines().collect();
-    let excluded = context
-        .iter()
-        .position(|line| *line == "tools/*/*")
-        .expect("non-producer tool contents must be excluded");
-    let manifests = context
-        .iter()
-        .position(|line| *line == "!tools/*/Cargo.toml")
-        .expect("all actual tool manifests must be included");
-    assert!(excluded < manifests, "manifest exception follows exclusion");
-    assert!(!context.contains(&"!tools/**"));
-    let mut checked = 0;
-    for token in members.split('"').skip(1).step_by(2) {
-        if !token.starts_with("tools/") {
-            continue;
-        }
+    for required in [
+        "!docker/wasm-builder/Dockerfile",
+        "!docker/wasm-builder/Cargo.toml",
+        "!docker/wasm-builder/Cargo.lock",
+        "!docker/wasm-builder/src/**",
+        "!crates/oasis7_wasm_build/**",
+        "!tools/wasm_build_suite/**",
+        "!scripts/build-wasm-module.sh",
+    ] {
         assert!(
-            DOCKERFILE
-                .lines()
-                .any(|line| line == format!("COPY --chmod=0755 {token} /opt/oasis7/{token}")),
-            "builder must copy workspace member {token} with readable permissions"
+            context.contains(&required),
+            "missing standalone builder context entry {required}"
         );
-        if token == "tools/wasm_build_suite" {
-            let sources = context
-                .iter()
-                .position(|line| *line == format!("!{token}/**"))
-                .expect("actual producer's complete source tree must be included");
-            assert!(sources > excluded, "producer exception follows exclusion");
-        } else {
-            assert!(
-                !context.iter().any(|line| {
-                    line.starts_with(&format!("!{token}/"))
-                        && **line != format!("!{token}/Cargo.toml")
-                }),
-                "non-producer {token} must remain manifest-only"
-            );
-        }
-        checked += 1;
     }
-    assert!(checked > 0, "must validate actual tool members");
-    for excluded_target in ["tools/**/target", "tools/**/target/**"] {
-        let position = context
-            .iter()
-            .position(|line| *line == excluded_target)
-            .expect("tool build outputs must remain excluded");
-        assert!(position > manifests);
+    for forbidden in [
+        "!Cargo.toml",
+        "!Cargo.lock",
+        "!crates/**",
+        "!crates/*/Cargo.toml",
+        "!tools/**",
+        "!tools/*/Cargo.toml",
+        "!docker/wasm-builder/prepare-workspace.sh",
+    ] {
+        assert!(
+            !context.contains(&forbidden),
+            "root workspace or unrelated crate entry must stay excluded: {forbidden}"
+        );
+    }
+    assert!(
+        !DOCKERFILE
+            .lines()
+            .any(|line| line.contains(" Cargo.toml ") || line.contains(" Cargo.lock ")),
+        "Dockerfile must not copy root Cargo.toml/Cargo.lock"
+    );
+    assert!(BUILDER_MANIFEST.contains("[workspace]"));
+    for excluded_target in [
+        "crates/**/target",
+        "crates/**/target/**",
+        "tools/**/target",
+        "tools/**/target/**",
+        "docker/wasm-builder/target",
+        "docker/wasm-builder/target/**",
+    ] {
+        assert!(
+            context.contains(&excluded_target),
+            "build outputs must remain excluded: {excluded_target}"
+        );
+    }
+}
+
+#[test]
+fn wasm_sdk_and_producer_manifests_do_not_inherit_root_workspace() {
+    for (name, manifest) in [
+        ("crates/oasis7_wasm_sdk/Cargo.toml", SDK_MANIFEST),
+        ("crates/oasis7_wasm_abi/Cargo.toml", ABI_MANIFEST),
+        ("crates/oasis7_wasm_build/Cargo.toml", BUILD_MANIFEST),
+        ("tools/wasm_build_suite/Cargo.toml", SUITE_MANIFEST),
+    ] {
+        assert!(
+            !manifest.contains("workspace = true") && !manifest.contains(".workspace = true"),
+            "{name} must stay self-contained without root workspace inheritance"
+        );
     }
 }

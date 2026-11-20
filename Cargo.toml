@@ -56,7 +56,7 @@ members = ["crates/oasis7_model_provider",
     "tools/wasm_build_suite",
     "tools/wasm_module_observe",
 ]
-exclude = ["vendor-if-watch-3.2.2", "tools/oasis7-command-center"]
+exclude = ["vendor-if-watch-3.2.2", "tools/oasis7-command-center", "docker/wasm-builder"]
 resolver = "2"
 
 # Shared values are opt-in; package versions and publication policy stay local.
