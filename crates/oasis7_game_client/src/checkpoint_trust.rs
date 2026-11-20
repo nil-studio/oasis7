@@ -274,9 +274,13 @@ mod tests {
         use std::os::unix::{ffi::OsStrExt, fs::symlink};
         use std::time::{SystemTime, UNIX_EPOCH};
 
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let root = std::env::temp_dir().join(format!(
-            "oasis7-checkpoint-loader-{}-{nonce}", std::process::id()
+            "oasis7-checkpoint-loader-{}-{nonce}",
+            std::process::id()
         ));
         std::fs::create_dir(&root).unwrap();
         struct Cleanup(std::path::PathBuf);
