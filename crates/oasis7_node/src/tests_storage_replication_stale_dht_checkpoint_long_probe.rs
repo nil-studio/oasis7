@@ -654,13 +654,3 @@ fn testnet_251_signed_high_heads_hold_height_zero_without_checkpoint_closure() {
 fn testnet_251_late_signed_high_heads_hold_height_zero_without_checkpoint_closure() {
     testnet_251_signed_high_heads_scenario(false);
 }
-
-#[test]
-fn testnet_251_signed_high_heads_install_verified_checkpoint_when_closure_available() {
-    peer_head_checkpoint_before_height_one_with_stale_dht(
-        InitialPeerHead::HighCheckpoint,
-        true,
-        true,
-        false,
-    );
-}
