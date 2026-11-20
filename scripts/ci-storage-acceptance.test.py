@@ -64,7 +64,14 @@ class Contracts(unittest.TestCase):
         native = acceptance.artifacts
         components = native.STORAGE_COMPONENTS
         scopes = [variant for component in components for variant in native.build_variants(component)]
-        self.assertEqual(scopes, native.build_variants('storage'))
+        storage = native.build_variants('storage')
+        self.assertEqual(scopes[1:], storage[1:])
+        feature = 'oasis7_chain_runtime/ci_storage_acceptance'
+        variant, args, features = scopes[0]
+        self.assertEqual(features, [*storage[0][2], feature])
+        args[args.index('--features') + 1] = ','.join(storage[0][2])
+        self.assertEqual((variant, args), storage[0][:2])
+        self.assertNotIn(feature, native.build_variants('formal')[0][2])
         for component in components:
             self.assertEqual(native.build_environment(component), native.build_environment('storage'))
             with self.assertRaisesRegex(ValueError, 'partial Storage component'):

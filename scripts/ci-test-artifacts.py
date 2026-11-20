@@ -1266,6 +1266,8 @@ def build_variants(scope, plan=None, ordinary_partition=None):
         # The CI-only marker reproduces shared dependency features from all
         # required roots without compiling their unrelated harnesses.
         features = ['test_tier_required', 'ci_formal_required_features']
+        if scope == 'storage-required':
+            features.append('oasis7_chain_runtime/ci_storage_acceptance')
         core = ('formal-required', ['test', '-p', 'oasis7', '-p', 'oasis7_chain_runtime',
                 '--lib', '--bins', '--features', ','.join(features), '--no-run'], features)
         result = [core, *(v for v in variants if v[0] in ('runtime', 'endpoint', 'distfs-tests'))]
