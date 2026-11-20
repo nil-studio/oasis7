@@ -150,9 +150,41 @@ def validate_mold_checkout_reuse(tools, setup, source):
     assert guards(source) == ["${{ " + fallback + " }}"], 'only the identical nonempty source may skip checkout'
 
 
+def workspace_support_image_matrix(job):
+    container = re.search(
+        r"^    container:\n      image: \$\{\{ matrix\.execution == 'image' && "
+        r"'ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:([0-9a-f]{64})' \|\| '' \}\}$",
+        job, re.M)
+    if not container:
+        return None
+    expected_matrix = (
+        "        execution: ${{ fromJSON((fromJSON(needs.select.outputs.plan).scope == 'full' || "
+        "contains(fromJSON(needs.select.outputs.plan).workspace_support_profiles, 'oasis7_game_client')) "
+        "&& '[\"host\",\"image\"]' || '[\"image\"]') }}\n")
+    assert expected_matrix in job and '      fail-fast: false\n' in job
+    assert '--support-execution "$SUPPORT_EXECUTION"' in job
+    assert '          SUPPORT_EXECUTION: ${{ matrix.execution }}\n' in job
+    steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+    apt = [step for step in steps if 'scripts/ci-apt-install.py' in step]
+    assert len(apt) == 1 and "        if: matrix.execution == 'host'\n" in apt[0]
+    caches = [step for step in steps if 'Swatinem/rust-cache@' in step]
+    keys = {'host': 'ci-shared-native-trusted-v4',
+            'image': 'ci-rust-build-' + container[1]}
+    assert len(caches) == len(keys)
+    for mode, key in keys.items():
+        matching = [step for step in caches if f"        if: matrix.execution == '{mode}'\n" in step]
+        assert len(matching) == 1
+        assert f'          shared-key: {key}\n' in matching[0]
+        assert '          save-if: false\n' in matching[0]
+        assert '          add-rust-environment-hash-key: true\n' in matching[0]
+    return keys['image']
+
+
 def rust_image_cache_namespace(name, job):
     if name not in ('node', 'consensus', 'distfs', 'rust-baseline', 'pixel-world-bridge', 'net', 'scenario-regression', 'launcher-web', 'custody-wasm-contracts', 'workspace-support-other', 'cargo-tooling-contracts') or '    container:' not in job:
         return None
+    if name == 'workspace-support-other' and (matrix := workspace_support_image_matrix(job)):
+        return matrix
     target = 'rust-wasm-build' if name == 'net' else 'rust-build'
     image = re.search(r'^    container:\n      image: ghcr\.io/nil-studio/oasis7/ci-' + target
                       + r'@sha256:([0-9a-f]{64})$', job, re.M)
@@ -4995,7 +5027,8 @@ class AptWorkflow(unittest.TestCase):
                     for name in self.NATIVE_JOBS}
         for name in ('rust-baseline', 'pixel-world-bridge', 'scenario-regression', 'launcher-web', 'workspace-support-other'):
             if rust_image_cache_namespace(name, JOBS[name]):
-                del expected['rust', name, 'Install native libraries']
+                if name != 'workspace-support-other' or not workspace_support_image_matrix(JOBS[name]):
+                    del expected['rust', name, 'Install native libraries']
                 packages = (ROOT / 'docker/ci-base/build-packages.txt').read_text().splitlines()
                 self.assertLessEqual(set(self.NATIVE), set(packages))
         custody = ('rust', 'custody-node', 'Install native libraries')
