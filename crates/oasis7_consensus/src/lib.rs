@@ -12,6 +12,8 @@ mod membership_recovery;
 mod mempool;
 mod network;
 pub mod node_consensus_action;
+pub mod normal_tick_input;
+pub mod replicated_execution_input;
 pub mod node_consensus_error;
 pub mod node_consensus_message;
 pub mod node_consensus_signature;
