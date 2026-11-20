@@ -1493,16 +1493,17 @@ if [[ -z "$group" ]]; then
     full|full-standard|full-extended|full-core) prepare_full_provider_artifact ;;
   esac
 fi
+# Exercise the focused entry itself, in full tiers only.
+case "$tier:$group" in
+  full:|full-standard:|full-extended:) run bash "$repo_root/scripts/main-token-regression.sh" full ;;
+esac
+
 # Only the full extension dispatch opts into exporting Rust owner snapshots.
 agency_snapshot_bridge=0
 case "$tier:$group" in
   full:|full-standard:|full-extended:) agency_snapshot_bridge=1 ;;
 esac
 
-# Exercise the focused entry itself, in full tiers only.
-case "$tier:$group" in
-  full:|full-standard:|full-extended:) run bash "$repo_root/scripts/main-token-regression.sh" full ;;
-esac
 if [[ -n "$group" ]]; then
   [[ "$tier" == required ]] || { echo '--group requires required tier' >&2; exit 2; }
   run_group "$group"
