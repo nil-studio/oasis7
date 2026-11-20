@@ -79,8 +79,8 @@
 
 | 实际消费者 | 使用的源与交接检查 |
 | --- | --- |
-| [native recipe quote](../../../crates/oasis7_runtime/src/world/builtin_recipe_quote.rs)与[选择校验](../../../crates/oasis7_agent_api/src/world_quote/recipe.rs) | 从 canonical ID/batches 构造 plan；私有 world clone 复用真实授权与准入，预览不预留或结算。核对实际 consume/output ledger、产物/副产物和原拒绝。 |
-| [native factory quote](../../../crates/oasis7_runtime/src/world/builtin_factory_quote.rs)与[选择校验](../../../crates/oasis7_agent_api/src/world_quote/factory.rs) | kind 与实例 ID 分别绑定；实际 owner、site/location authority、建造消费与 construction power 一并核验。 |
+| [native recipe quote](../../../crates/oasis7_runtime/src/domains/industrial/recipe_quote.rs)与[选择校验](../../../crates/oasis7_agent_api/src/world_quote/recipe.rs) | 从 canonical ID/batches 构造 plan；私有 world clone 复用真实授权与准入，预览不预留或结算。核对实际 consume/output ledger、产物/副产物和原拒绝。 |
+| [native factory quote](../../../crates/oasis7_runtime/src/domains/industrial/factory_quote.rs)与[选择校验](../../../crates/oasis7_agent_api/src/world_quote/factory.rs) | kind 与实例 ID 分别绑定；实际 owner、site/location authority、建造消费与 construction power 一并核验。 |
 | [首局动作构造](../../../crates/oasis7/src/runtime_host/gameplay_actions.rs)、[feasibility](../../../crates/oasis7_world_state/src/state/starter_industrial.rs)与[结算写入](../../../crates/oasis7_world_state/src/state/industry_transition/recipe_lifecycle.rs) | 固定动作参数、profile/revision 与持久 milestone 各自沿原权威；目录更新不能自动修改首局动作、完成条件或已确认历史。 |
 | [首局表达](../../world-simulator/viewer/first-session-content-delivery.design.md#content-source-boundary) | 采用当前候选已发布的事实，不用此表补齐未发布数量、单位、状态或执行按钮。 |
 
