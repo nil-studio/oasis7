@@ -2245,7 +2245,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install native libraries
-        if: !contains(fromJSON('["storage-recovery","world-history"]'), matrix.shard)
+        if: ${{ !contains(fromJSON('["storage-recovery","world-history"]'), matrix.shard) }}
         shell: bash
         timeout-minutes: 11
         run: |
