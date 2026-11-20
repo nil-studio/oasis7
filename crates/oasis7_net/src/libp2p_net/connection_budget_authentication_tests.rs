@@ -88,3 +88,75 @@ fn denied_inbound_authentication_keeps_unknown_slot_until_transport_ends() {
     drop((recovered, outbound_permit));
     assert_eq!(budget.snapshot().unwrap().total, 0);
 }
+
+#[test]
+fn expired_authorized_connection_cannot_establish_and_releases_on_transport_drop() {
+    let budget = ConnectionBudget::new(limits()).unwrap();
+    let peer = Keypair::generate_ed25519().public().to_peer_id();
+    let address: Multiaddr = "/ip4/127.0.0.1/tcp/1".parse().unwrap();
+
+    for inbound in [true, false] {
+        let connection = dial_for(peer, address.clone()).connection_id();
+        let key = if inbound {
+            AttemptKey::Inbound(connection)
+        } else {
+            AttemptKey::Outbound(connection, address.clone())
+        };
+        let permit = budget
+            .reserve(key.clone(), if inbound { None } else { Some(peer) })
+            .unwrap();
+        let admission = if inbound {
+            budget.authorize_inbound(connection, peer)
+        } else {
+            budget.authorize_outbound(connection, &address, peer)
+        }
+        .unwrap();
+
+        // The peer has authenticated, but child behaviours have not yet
+        // finished the established-connection callback. The original deadline
+        // expires here, without needing to sleep or race a real socket.
+        budget
+            .0
+            .state
+            .lock()
+            .unwrap()
+            .entries
+            .get_mut(&key)
+            .unwrap()
+            .deadline = Instant::now();
+        assert!(admission.establish().is_err());
+        assert_eq!(
+            budget.0.diagnostics.latest().0,
+            Some(ResourceBudgetRejection::HandshakeDeadline)
+        );
+        let pending = budget.snapshot().unwrap();
+        assert_eq!(pending.total, 1);
+        assert_eq!(pending.pending, 1);
+        assert_eq!(pending.established, 0);
+
+        // Failed late admission does not refund the pending or peer slot until
+        // the transport permit actually drops. Then a fresh attempt recovers.
+        drop(permit);
+        assert_eq!(budget.snapshot().unwrap().total, 0);
+        let fresh = dial_for(peer, address.clone()).connection_id();
+        let fresh_key = if inbound {
+            AttemptKey::Inbound(fresh)
+        } else {
+            AttemptKey::Outbound(fresh, address.clone())
+        };
+        let fresh_permit = budget
+            .reserve(fresh_key, if inbound { None } else { Some(peer) })
+            .unwrap();
+        if inbound {
+            budget.authorize_inbound(fresh, peer).unwrap().establish().unwrap();
+        } else {
+            budget
+                .authorize_outbound(fresh, &address, peer)
+                .unwrap()
+                .establish()
+                .unwrap();
+        }
+        drop(fresh_permit);
+        assert_eq!(budget.snapshot().unwrap().total, 0);
+    }
+}
