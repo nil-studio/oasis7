@@ -262,6 +262,57 @@ class Evidence(unittest.TestCase):
         self.assertEqual(command.verified_libtest_count(valid_exact, two, exact=True), 0)
         self.assertEqual(command.verified_libtest_count(valid, one, exact=True), 0)
 
+    def test_main_token_drives_each_runtime_target_and_propagates_selector_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            record = root / 'cargo.jsonl'
+            cargo = root / 'cargo'
+            cargo.write_text(f'#!{sys.executable}\n' + """
+import json, os, sys
+from pathlib import Path
+args = sys.argv[1:]
+with Path(os.environ['CARGO_FIXTURE_RECORD']).open('a') as record:
+    record.write(json.dumps(args) + '\\n')
+assert args[:5] == ['test', '-p', 'oasis7_runtime', '--lib', '--features']
+assert args[7:] == ['--', '--format', 'pretty', '--color', 'never']
+failed_selector = 'tests::reward_asset_settlement_action::'
+failed = args[6] == failed_selector
+mode = os.environ['CARGO_FIXTURE_MODE']
+if failed and mode == 'failed':
+    sys.exit(7)
+count = 0 if failed and mode == 'zero' else 1
+print(f'running {count} test' + ('s' if count != 1 else ''))
+if count:
+    print(f'test {args[6]}fixture ... ok')
+print(f'test result: ok. {count} passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.01s')
+""")
+            cargo.chmod(0o755)
+            env = dict(os.environ, PATH=f"{root}{os.pathsep}{os.environ['PATH']}",
+                       OASIS7_FORCE_RAW_CARGO='1', CARGO_FIXTURE_RECORD=str(record))
+            required = [
+                ('test_tier_required', 'tests::main_token::'),
+                ('test_tier_required', 'tests::reward_asset_settlement_action::'),
+            ]
+            for tier, expected in (
+                ('required', required),
+                ('full', required + [
+                    ('test_tier_full', 'tests::main_token::'),
+                    ('test_tier_full', 'tests::reward_asset_settlement_action::'),
+                    ('test_tier_full', 'tests::reward_asset::'),
+                ]),
+            ):
+                record.write_text('')
+                result = subprocess.run(['bash', str(HERE / 'main-token-regression.sh'), tier],
+                                        env=dict(env, CARGO_FIXTURE_MODE='valid'), capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual([tuple(json.loads(line)[5:7]) for line in record.read_text().splitlines()], expected)
+            for mode, code in [('zero', 1), ('failed', 7)]:
+                record.write_text('')
+                result = subprocess.run(['bash', str(HERE / 'main-token-regression.sh'), 'full'],
+                                        env=dict(env, CARGO_FIXTURE_MODE=mode), capture_output=True, text=True)
+                self.assertEqual(result.returncode, code, result.stderr)
+                self.assertEqual([tuple(json.loads(line)[5:7]) for line in record.read_text().splitlines()], required)
+
     def test_module_release_dry_run_shows_chain_and_runtime_targets_without_cargo(self):
         bash_version = subprocess.check_output(['bash', '-c', 'echo "${BASH_VERSINFO[0]}"'], text=True)
         if int(bash_version) < 4:
