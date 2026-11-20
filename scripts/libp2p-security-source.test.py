@@ -34,23 +34,22 @@ class NetworkSourceContract(unittest.TestCase):
         timers = [p for p in lock["package"] if p["name"] == "futures-timer"]
         self.assertTrue(all(tuple(map(int, p["version"].split("."))) >= (3, 0, 4) for p in timers))
 
-    def test_wasm_builder_includes_workspace_path_patch(self):
-        # cargo install resolves root patches even for a non-network tool.
+    def test_wasm_builder_is_isolated_from_root_workspace_path_patches(self):
+        # The WASM builder uses its own standalone workspace under docker/wasm-builder/.
         root = tomllib.loads((ROOT / "Cargo.toml").read_text())
         docker = (ROOT / "docker/wasm-builder/Dockerfile").read_text().splitlines()
         context_policy = (ROOT / ".dockerignore").read_text().splitlines()
+        self.assertNotIn("COPY --chmod=0755 Cargo.toml Cargo.lock /opt/oasis7/", docker)
+        self.assertNotIn("!Cargo.toml", context_policy)
+        self.assertNotIn("!Cargo.lock", context_policy)
         paths = [root["patch"][URL][name]["path"]
                  for name in ("libp2p-swarm", "libp2p-rendezvous", "libp2p-quic")]
         paths.append(root["patch"]["crates-io"]["if-watch"]["path"])
         for patch in paths:
-            self.assertIn(f"COPY --chmod=0755 {patch} /opt/oasis7/{patch}", docker)
             self.assertTrue((ROOT / patch / "Cargo.toml").is_file())
-            self.assertIn(f"!{patch}/", context_policy)
-            self.assertIn(f"!{patch}/Cargo.toml", context_policy)
-            self.assertIn(f"{patch}/*", context_policy)
-            self.assertNotIn(f"!{patch}/**", context_policy)
-            self.assertLess(context_policy.index(f"!{patch}/"), context_policy.index(f"{patch}/*"))
-            self.assertLess(context_policy.index(f"{patch}/*"), context_policy.index(f"!{patch}/Cargo.toml"))
+            self.assertNotIn(f"COPY --chmod=0755 {patch} /opt/oasis7/{patch}", docker)
+            self.assertNotIn(f"!{patch}/", context_policy)
+            self.assertNotIn(f"!{patch}/Cargo.toml", context_policy)
 
     def test_if_watch_patch_preserves_sources_and_removes_paste(self):
         vendor = ROOT / "vendor-if-watch-3.2.2"

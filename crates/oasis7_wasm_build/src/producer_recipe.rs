@@ -606,10 +606,7 @@ mod tests {
         validate_dockerfile(&dir).unwrap();
         let launcher_copy = "COPY --chmod=0755 docker/wasm-builder/Cargo.toml docker/wasm-builder/Cargo.lock /opt/oasis7/docker/wasm-builder/";
         assert!(original.contains(launcher_copy));
-        for replacement in [
-            "",
-            "COPY --chmod=0755 Cargo.toml Cargo.lock /opt/oasis7/",
-        ] {
+        for replacement in ["", "COPY --chmod=0755 Cargo.toml Cargo.lock /opt/oasis7/"] {
             fs::write(&path, original.replace(launcher_copy, replacement)).unwrap();
             assert!(
                 validate_dockerfile(&dir).is_err(),
