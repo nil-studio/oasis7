@@ -1,4 +1,6 @@
-use oasis7::chain_pos_defaults::{chain_pos_timing_defaults, parse_chain_pos_timing_defaults};
+use oasis7_client_api::chain_pos_defaults::{
+    chain_pos_timing_defaults, parse_chain_pos_timing_defaults,
+};
 
 #[test]
 fn repo_chain_pos_defaults_parse_to_current_profile() {
