@@ -1,12 +1,14 @@
 # CI 基础镜像
 
-- 状态：proposed
+- 状态：设计已采用，分批实施与验收中
 - 上游要求：[CI 分级执行 PRD](ci-tiered-execution.prd.md)
 - 控制与验证：[CI 分级执行设计](ci-tiered-execution.design.md)
 
 ## 上游需求与问题
 
-`rust.yml` 的 `custody-node` 四个分片分别在临时 Ubuntu runner 安装 13 个相同系统包（含 gdb、gcc 和 pkg-config），然后下载上游预编译产物。PR #6023 的 [custody-node (2) 原始日志](https://github.com/nil-studio/oasis7/actions/runs/44297220098/job/134807710346) 显示微软 apt 源返回 HTTP 429，分片在测试启动前即失败。同一组开发包还出现在 Rust、编译指标、缓存预热、存储验收和发布打包流程。镜像将逐任务联网安装改为按镜像版本集中安装。测试内部的计划过期等时序问题沿既有缺陷独立处理。
+迁移前，`rust.yml` 的 `custody-node` 四个分片在临时 Ubuntu runner 分别安装 13 个相同系统包（含 gdb、gcc 和 pkg-config），然后下载上游预编译产物。PR #6023 的 [custody-node (2) 原始日志](https://github.com/nil-studio/oasis7/actions/runs/44297220098/job/134807710346) 显示微软 apt 源返回 HTTP 429，分片在测试启动前即失败。同一组开发包还出现在 Rust、编译指标、缓存预热、存储验收和发布打包流程。镜像将逐任务联网安装改为按镜像版本集中安装。测试内部的计划过期等时序问题沿既有缺陷独立处理。
+
+主干[可信发布流水线](https://github.com/nil-studio/oasis7/actions/runs/44685362408)已发布镜像。迁移清单和剩余验收见 [#6031](https://github.com/nil-studio/oasis7/issues/6031)；单个作业是否已迁移或验收，以其 workflow 配置、固定 digest 和实际运行证据为准。
 
 ## 镜像结构与消费边界
 
