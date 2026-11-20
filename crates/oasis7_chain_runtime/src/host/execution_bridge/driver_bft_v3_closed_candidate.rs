@@ -56,6 +56,10 @@ struct OriginalCandidateData {
 }
 
 impl OriginalCandidateArchivePinV1 {
+    pub(in super::super) fn original_private_origin_digest(&self) -> &str {
+        &self.original_private_origin_digest
+    }
+
     pub(crate) fn replay(
         &self,
         archive: &LocalBftSuccessorArchiveStoreV1,

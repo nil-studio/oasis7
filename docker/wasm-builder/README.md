@@ -37,6 +37,11 @@ docker build \
 - repo 内模块默认以仓库根目录作为 workspace root。
 - `ModuleSourcePackage` 这类临时源码包应在其临时 workspace root 下调用该脚本。
 
+## 独立 Cargo 工作区与维护注意
+- `docker/wasm-builder/Cargo.toml` 与 `docker/wasm-builder/Cargo.lock` 是 WASM builder 镜像的独立工作区与锁文件，有意与仓库根目录的 `Cargo.toml` / `Cargo.lock` 解耦，避免无关业务依赖改动传递到 `.wasm` 字节码或 `producer_recipe_hash`。
+- `crates/oasis7_wasm_sdk/Cargo.toml`、`crates/oasis7_wasm_abi/Cargo.toml`、`crates/oasis7_wasm_build/Cargo.toml`、`tools/wasm_build_suite/Cargo.toml` 必须保持自包含，**不得**通过 `workspace = true` / `.workspace = true` 继承根 `Cargo.toml`（由 `wasm_build_suite` 单测守护）。
+- 维护代价：升级或调整 `oasis7_wasm_build` / `wasm_build_suite` 的依赖时，除根 `Cargo.lock` 外，需同步刷新 `docker/wasm-builder/Cargo.lock`（例如运行 `env -u RUSTC_WRAPPER cargo metadata --manifest-path docker/wasm-builder/Cargo.toml >/dev/null` 或 `cargo update --manifest-path docker/wasm-builder/Cargo.toml`）。
+
 ## Linux 原生链接器
 
 镜像复用 `.github/actions/setup-linux-mold/setup.py` 安装并校验固定的 mold 3.0.0。镜像内的 `wasm_build_suite`、build script 和过程宏通过固定的 GNU host linker wrapper 链接；WASM 目标继续使用自己的链接器。镜像构建会检查 producer 的真实 ELF 使用 mold。

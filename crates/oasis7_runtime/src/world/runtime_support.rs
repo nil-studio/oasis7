@@ -44,7 +44,7 @@ impl BusinessIndexNodeReader for SharedFormalHistoryReader {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct PreparedSubscriptionCacheEntry {
+pub(crate) struct PreparedSubscriptionCacheEntry {
     #[cfg(test)]
     pub(super) subscriptions: Vec<ModuleSubscription>,
     pub(super) _subscription_fingerprint: String,

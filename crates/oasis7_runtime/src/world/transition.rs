@@ -342,3 +342,357 @@ impl PreparedCommit {
         Ok(())
     }
 }
+
+// ============================================================================
+// StagedTransition Root Contract (Stage 1 Prepare -> Stage 2 Gate -> Stage 3 Install)
+// ============================================================================
+
+use super::prepared_base_head::WorldPreparedBaseHead;
+use super::{World, WorldError};
+use crate::{CausedBy, TickConsensusRecord, WorldEvent, WorldEventId, WorldState, WorldTime};
+
+/// Read-only borrowed view over the canonical [`World`] and its base head during Stage 1 preparation.
+///
+/// Nested domain operations and rule-settlement policies inspect canonical state through this view
+/// and stage typed [`SubsystemDelta`]s into a [`StagedRootTransaction`] without cloning [`World`]
+/// or committing independently.
+pub struct BorrowedWorldView<'a> {
+    world: &'a World,
+    base_head: WorldPreparedBaseHead,
+}
+
+impl<'a> BorrowedWorldView<'a> {
+    pub fn new(world: &'a World) -> Result<Self, WorldError> {
+        let base_head = WorldPreparedBaseHead::capture(world)?;
+        Ok(Self { world, base_head })
+    }
+
+    pub(crate) fn from_captured(world: &'a World, base_head: WorldPreparedBaseHead) -> Self {
+        Self { world, base_head }
+    }
+
+    pub fn world(&self) -> &'a World {
+        self.world
+    }
+
+    pub fn state(&self) -> &'a WorldState {
+        &self.world.state
+    }
+
+    pub fn time(&self) -> WorldTime {
+        self.world.state.time
+    }
+
+    pub(crate) fn base_head(&self) -> &WorldPreparedBaseHead {
+        &self.base_head
+    }
+}
+
+/// Execution context passed into [`StagedTransition::prepare`] during Stage 1.
+#[derive(Debug, Clone, Default)]
+pub struct TransitionContext {
+    pub tick: WorldTime,
+    pub caused_by: Option<CausedBy>,
+}
+
+impl TransitionContext {
+    pub fn new(tick: WorldTime, caused_by: Option<CausedBy>) -> Self {
+        Self { tick, caused_by }
+    }
+}
+
+/// Stage 2 durable commit confirmation outcome before Stage 3 canonical installation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DurableCommitConfirmation {
+    /// Post-prepare gate and durable persistence succeeded; Stage 3 installation is authorized.
+    Confirmed,
+    /// Post-prepare gate or durable commit status is indeterminate (`StatusUnknown`);
+    /// canonical memory MUST NOT be mutated and the caller must enter Fenced/Reconcile recovery.
+    StatusUnknown { reason: String },
+}
+
+/// Rejection raised during Stage 1 preparation or Stage 2 commit confirmation.
+#[derive(Debug)]
+pub enum TransitionReject {
+    World(WorldError),
+    BaseHeadStale,
+    StatusUnknownFenced { reason: String },
+    InvalidSavepoint,
+}
+
+impl From<WorldError> for TransitionReject {
+    fn from(error: WorldError) -> Self {
+        Self::World(error)
+    }
+}
+
+impl TransitionReject {
+    pub fn into_world_error(self) -> WorldError {
+        match self {
+            Self::World(err) => err,
+            Self::BaseHeadStale => WorldPreparedBaseHead::stale_error(),
+            Self::StatusUnknownFenced { reason } => WorldError::DistributedValidationFailed {
+                reason: format!("staged transition fenced on StatusUnknown: {reason}"),
+            },
+            Self::InvalidSavepoint => WorldError::ResourceBalanceInvalid {
+                reason: "invalid staged transition savepoint".to_string(),
+            },
+        }
+    }
+}
+
+/// Restricted root installation context used exclusively during Stage 3 (`apply_infallible`).
+///
+/// Only [`PreparedStagedCommit::install_confirmed`] can construct this context after
+/// verifying the captured [`WorldPreparedBaseHead`] and [`DurableCommitConfirmation::Confirmed`].
+pub struct RootInstallContext<'a> {
+    world: &'a mut World,
+}
+
+impl<'a> RootInstallContext<'a> {
+    pub(crate) fn new(world: &'a mut World) -> Self {
+        Self { world }
+    }
+
+    pub fn world(&self) -> &World {
+        self.world
+    }
+
+    pub fn world_mut(&mut self) -> &mut World {
+        self.world
+    }
+
+    pub fn state_mut(&mut self) -> &mut WorldState {
+        &mut self.world.state
+    }
+
+    pub fn install_journal_tail(
+        &mut self,
+        next_event_id: WorldEventId,
+        next_event_id_era: u64,
+        journal_events: Vec<WorldEvent>,
+        journal_events_evicted: u64,
+    ) {
+        self.world.next_event_id = next_event_id;
+        self.world.next_event_id_era = next_event_id_era;
+        self.world.journal.events = journal_events;
+        self.world.runtime_backpressure_stats.journal_events_evicted = self
+            .world
+            .runtime_backpressure_stats
+            .journal_events_evicted
+            .saturating_add(journal_events_evicted);
+    }
+}
+
+/// A typed subsystem or domain delta staged inside a root transaction.
+///
+/// Implementations perform all fallible validation before producing the delta;
+/// [`SubsystemDelta::apply_infallible`] is invoked only in Stage 3 after confirmed commit.
+pub trait SubsystemDelta {
+    fn apply_infallible(self, ctx: &mut RootInstallContext<'_>);
+}
+
+impl<A: SubsystemDelta, B: SubsystemDelta> SubsystemDelta for (A, B) {
+    fn apply_infallible(self, ctx: &mut RootInstallContext<'_>) {
+        self.0.apply_infallible(ctx);
+        self.1.apply_infallible(ctx);
+    }
+}
+
+impl<D: SubsystemDelta> SubsystemDelta for Vec<D> {
+    fn apply_infallible(self, ctx: &mut RootInstallContext<'_>) {
+        for delta in self {
+            delta.apply_infallible(ctx);
+        }
+    }
+}
+
+impl<D: SubsystemDelta> SubsystemDelta for Option<D> {
+    fn apply_infallible(self, ctx: &mut RootInstallContext<'_>) {
+        if let Some(delta) = self {
+            delta.apply_infallible(ctx);
+        }
+    }
+}
+
+/// Unified two-phase / three-stage atomic transition contract (`Stage 1 Prepare -> Stage 2 Gate -> Stage 3 Install`).
+pub trait StagedTransition {
+    type Delta: SubsystemDelta;
+
+    fn prepare(
+        &self,
+        view: &BorrowedWorldView<'_>,
+        ctx: &TransitionContext,
+    ) -> Result<PreparedStagedCommit<Self::Delta>, TransitionReject>;
+}
+
+/// Savepoint for nested domain/fee staging within a single [`StagedRootTransaction`].
+#[derive(Debug, Clone)]
+pub struct StagedSubtransactionSavepoint {
+    transaction_marker: Arc<()>,
+    staged_len: usize,
+}
+
+/// Root staging transaction that enforces "nested operations only stage deltas and cannot commit independently".
+pub struct StagedRootTransaction<'a, D> {
+    view: BorrowedWorldView<'a>,
+    ctx: TransitionContext,
+    deltas: Vec<D>,
+    consensus_record: Option<TickConsensusRecord>,
+    transaction_marker: Arc<()>,
+}
+
+impl<'a, D: SubsystemDelta> StagedRootTransaction<'a, D> {
+    pub fn begin(world: &'a World, ctx: TransitionContext) -> Result<Self, WorldError> {
+        let view = BorrowedWorldView::new(world)?;
+        Ok(Self {
+            view,
+            ctx,
+            deltas: Vec::new(),
+            consensus_record: None,
+            transaction_marker: Arc::new(()),
+        })
+    }
+
+    pub fn view(&self) -> &BorrowedWorldView<'a> {
+        &self.view
+    }
+
+    pub fn context(&self) -> &TransitionContext {
+        &self.ctx
+    }
+
+    pub fn staged_count(&self) -> usize {
+        self.deltas.len()
+    }
+
+    /// Stage a nested domain or fee delta without committing it independently.
+    pub fn stage_delta(&mut self, delta: D) {
+        self.deltas.push(delta);
+    }
+
+    /// Stage a nested fallible operation atomically: if `op` fails, all deltas staged inside `op`
+    /// are rolled back to the pre-call savepoint while earlier staged deltas remain intact.
+    pub fn stage_nested<R>(
+        &mut self,
+        op: impl FnOnce(&mut Self) -> Result<R, TransitionReject>,
+    ) -> Result<R, TransitionReject> {
+        let sp = self.savepoint();
+        match op(self) {
+            Ok(output) => Ok(output),
+            Err(err) => {
+                let _ = self.rollback_to(sp);
+                Err(err)
+            }
+        }
+    }
+
+    pub fn set_consensus_record(&mut self, record: TickConsensusRecord) {
+        self.consensus_record = Some(record);
+    }
+
+    pub fn savepoint(&self) -> StagedSubtransactionSavepoint {
+        StagedSubtransactionSavepoint {
+            transaction_marker: Arc::clone(&self.transaction_marker),
+            staged_len: self.deltas.len(),
+        }
+    }
+
+    pub fn rollback_to(
+        &mut self,
+        savepoint: StagedSubtransactionSavepoint,
+    ) -> Result<(), TransitionReject> {
+        if !Arc::ptr_eq(&self.transaction_marker, &savepoint.transaction_marker)
+            || savepoint.staged_len > self.deltas.len()
+        {
+            return Err(TransitionReject::InvalidSavepoint);
+        }
+        self.deltas.truncate(savepoint.staged_len);
+        Ok(())
+    }
+
+    pub fn finish_prepare(self) -> PreparedStagedCommit<Vec<D>> {
+        PreparedStagedCommit {
+            expected_base_head: self.view.base_head,
+            consensus_record: self.consensus_record,
+            delta: self.deltas,
+        }
+    }
+}
+
+/// Root prepared commit produced by Stage 1 (`prepare`) and consumed in Stage 3 (`install_confirmed`).
+#[derive(Debug, Clone)]
+pub struct PreparedStagedCommit<D> {
+    expected_base_head: WorldPreparedBaseHead,
+    consensus_record: Option<TickConsensusRecord>,
+    delta: D,
+}
+
+impl<D: SubsystemDelta> PreparedStagedCommit<D> {
+    pub(crate) fn new(
+        expected_base_head: WorldPreparedBaseHead,
+        consensus_record: Option<TickConsensusRecord>,
+        delta: D,
+    ) -> Self {
+        Self {
+            expected_base_head,
+            consensus_record,
+            delta,
+        }
+    }
+
+    pub fn delta(&self) -> &D {
+        &self.delta
+    }
+
+    pub fn consensus_record(&self) -> Option<&TickConsensusRecord> {
+        self.consensus_record.as_ref()
+    }
+
+    /// Stage 2 -> Stage 3 boundary: verifies durable commit confirmation, checks that the canonical
+    /// [`WorldPreparedBaseHead`] has not drifted since Stage 1, installs the prepared consensus
+    /// record (if any), and then executes [`SubsystemDelta::apply_infallible`] via [`RootInstallContext`].
+    pub fn install_confirmed(
+        self,
+        world: &mut World,
+        confirmation: DurableCommitConfirmation,
+    ) -> Result<(), TransitionReject> {
+        self.install_confirmed_inner(world, confirmation, true)
+    }
+
+    /// Same as [`Self::install_confirmed`], used when the caller prepared the commit against
+    /// `&mut World` immediately before Stage 2 failpoint check in the same synchronous call frame.
+    pub(crate) fn install_confirmed_unchecked_head(
+        self,
+        world: &mut World,
+        confirmation: DurableCommitConfirmation,
+    ) -> Result<(), TransitionReject> {
+        self.install_confirmed_inner(world, confirmation, false)
+    }
+
+    fn install_confirmed_inner(
+        self,
+        world: &mut World,
+        confirmation: DurableCommitConfirmation,
+        verify_base_head: bool,
+    ) -> Result<(), TransitionReject> {
+        match confirmation {
+            DurableCommitConfirmation::Confirmed => {}
+            DurableCommitConfirmation::StatusUnknown { reason } => {
+                return Err(TransitionReject::StatusUnknownFenced { reason });
+            }
+        }
+        if verify_base_head {
+            let actual_head = WorldPreparedBaseHead::capture(world)?;
+            if actual_head != self.expected_base_head {
+                return Err(TransitionReject::BaseHeadStale);
+            }
+        }
+        if let Some(record) = self.consensus_record {
+            world.install_prepared_tick_consensus_record(record)?;
+        }
+        let mut ctx = RootInstallContext::new(world);
+        self.delta.apply_infallible(&mut ctx);
+        Ok(())
+    }
+}
