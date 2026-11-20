@@ -214,8 +214,7 @@ mod regular_open_tests {
             fs::remove_file(&original).unwrap();
             symlink(&replacement, &original).unwrap();
         })
-        .err()
-        .expect("a symlink replacement after preflight must be rejected");
+        .expect_err("a symlink replacement after preflight must be rejected");
         assert!(
             err.contains("symbolic") || err.contains("symlink") || err.contains("Too many levels"),
             "unexpected error: {err}"
@@ -228,8 +227,7 @@ mod regular_open_tests {
             let path = CString::new(original.as_os_str().as_bytes()).unwrap();
             assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
         })
-        .err()
-        .expect("a FIFO substituted without a writer must not block");
+        .expect_err("a FIFO substituted without a writer must not block");
         assert!(err.contains("not a regular file"), "unexpected error: {err}");
 
         // A different regular inode is also forbidden after preflight.
@@ -238,8 +236,7 @@ mod regular_open_tests {
         let err = open_checked_regular_with(&original, || {
             fs::rename(&replacement, &original).unwrap();
         })
-        .err()
-        .expect("regular-file replacement must not pass preflight");
+        .expect_err("regular-file replacement must not pass preflight");
         assert!(
             err.contains("node metadata changed during open"),
             "unexpected error: {err}"
