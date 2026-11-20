@@ -66,6 +66,9 @@ enum AttemptPhase {
 struct ActiveAttempts {
     entries: HashMap<AttemptKey, Attempt>,
     pending: [u32; 2],
+    // Only unauthenticated inbound attempts occupy the unknown-peer pool.
+    // An authenticated attempt remains globally pending until establishment.
+    pending_inbound_unknown: u32,
     peers: HashMap<PeerId, u32>,
     next_serial: u64,
     failed: bool,
@@ -90,6 +93,13 @@ impl ActiveAttempts {
             let lane = &mut self.pending[key.pending_lane()];
             if let Some(remaining) = lane.checked_sub(1) {
                 *lane = remaining;
+            } else {
+                self.failed = true;
+            }
+        }
+        if matches!(key, AttemptKey::Inbound(_)) && attempt.peer.is_none() {
+            if let Some(remaining) = self.pending_inbound_unknown.checked_sub(1) {
+                self.pending_inbound_unknown = remaining;
             } else {
                 self.failed = true;
             }
@@ -164,7 +174,7 @@ impl ConnectionBudget {
             total,
             established: total.checked_sub(pending)?,
             pending,
-            pending_inbound_unknown: state.pending[0],
+            pending_inbound_unknown: state.pending_inbound_unknown,
             pending_outbound: state.pending[1],
         })
     }
@@ -228,7 +238,12 @@ impl ConnectionBudget {
             ));
         }
         let lane = key.pending_lane();
-        if state.pending[lane] >= [limits.inbound_unknown, limits.outbound][lane] {
+        let directional_pending = if matches!(&key, AttemptKey::Inbound(_)) {
+            state.pending_inbound_unknown
+        } else {
+            state.pending[1]
+        };
+        if directional_pending >= [limits.inbound_unknown, limits.outbound][lane] {
             let reason = [
                 ResourceBudgetRejection::PendingInbound,
                 ResourceBudgetRejection::PendingOutbound,
@@ -249,6 +264,9 @@ impl ConnectionBudget {
             .checked_add(1)
             .ok_or_else(|| denied("connection attempt sequence exhausted"))?;
         state.pending[lane] += 1;
+        if matches!(&key, AttemptKey::Inbound(_)) && peer.is_none() {
+            state.pending_inbound_unknown += 1;
+        }
         if let Some(peer) = peer {
             *state.peers.entry(peer).or_default() += 1;
         }
@@ -327,6 +345,11 @@ impl ConnectionBudget {
                 "authenticated peer connection budget exhausted",
             ));
         }
+        let was_unknown_inbound = add_peer && matches!(&key, AttemptKey::Inbound(_));
+        if was_unknown_inbound && state.pending_inbound_unknown == 0 {
+            state.failed = true;
+            return Err(denied("connection budget unavailable"));
+        }
         let current = state
             .entries
             .get_mut(&key)
@@ -335,6 +358,9 @@ impl ConnectionBudget {
         // connection. Still hold the pending slot until they all approve it.
         current.peer = Some(peer);
         current.phase = AttemptPhase::Authorized;
+        if was_unknown_inbound {
+            state.pending_inbound_unknown -= 1;
+        }
         if add_peer {
             *state.peers.entry(peer).or_default() += 1;
         }
