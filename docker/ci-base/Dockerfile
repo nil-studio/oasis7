@@ -40,6 +40,7 @@ RUN curl -fsSL --retry 3 https://www.kernel.org/pub/software/scm/git/git-2.56.1.
     && make prefix=/usr/local NO_RUST=YesPlease NO_TCLTK=YesPlease NO_GETTEXT=YesPlease NO_PERL=YesPlease DESTDIR=/tmp/git-install install
 
 FROM build AS rust-build
+COPY --from=node-tools /usr/local/bin/node /usr/local/bin/node
 RUN apt-get update \
     && apt-get install -y --no-install-recommends jq ruby \
     && rm -rf /var/lib/apt/lists/*
