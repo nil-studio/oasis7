@@ -118,7 +118,7 @@ Viewer、pure API 与 Agent 的正式读入口必须表达同一 goal/source、�
 
 独立玩家判别先使用隐去推荐结果的来源事实和候选，让评估者说明哪条满足原目标、哪项尚待验证、各条会消费/保留什么以及何时改变选择，再对照推荐理由；不能只检查字段存在或让作者背诵文案。实际执行验证另沿同一原目标检查合法动作、单次资源/状态变化与真实产物/交付结果，证明被选步骤确实改变原 blocker，并指出恢复后的下一项有意义选择。静态判别、构造 fixture、源码断言、正式入口执行和真实玩家体验分别记证；比较生成、换标签、重复产量或维护 receipt 不能单独证明恢复、成熟世界成长或发行就绪。
 
-在 `567c4c55a2f160574fdcf0902ccb068646210c7d` 基线，当前[成熟世界投影](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/gameplay_snapshot_lane.rs)保留恢复/赞助的 `unverified`，[已有断言](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/tests/industrial_progression.rs)要求缺恢复来源时三类候选均 `unknown` 且无 action。已有 [builtin recipe quote](../../../crates/oasis7_runtime/src/world/builtin_recipe_quote.rs)是单个排产的条件预览，已有建设、材料转移和排产也各有窄执行能力；它们尚不构成上述同目标完整比较、有限来源读取与三入口证据。本合同为目标设计，不把原先的定性投影、测试 fixture 或相邻目标设计当成新比较已实现。
+在 `567c4c55a2f160574fdcf0902ccb068646210c7d` 基线，当前[成熟世界投影](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/gameplay_snapshot_lane.rs)保留恢复/赞助的 `unverified`，[已有断言](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/tests/industrial_progression.rs)要求缺恢复来源时三类候选均 `unknown` 且无 action。已有 [builtin recipe quote](../../../crates/oasis7_runtime/src/domains/industrial/recipe_quote.rs)是单个排产的条件预览，已有建设、材料转移和排产也各有窄执行能力；它们尚不构成上述同目标完整比较、有限来源读取与三入口证据。本合同为目标设计，不把原先的定性投影、测试 fixture 或相邻目标设计当成新比较已实现。
 
 #### 2.9.1.8 专业验收
 
