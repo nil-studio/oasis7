@@ -43,6 +43,8 @@ env:
   OASIS7_WASM_BUILD_STD: '1'
   OASIS7_WASM_BUILD_STD_COMPONENTS: std,panic_abort
   SOURCE_SHA: ${{ github.sha }}
+  STORAGE_ARTIFACT_CHECKOUT: /__w/oasis7/oasis7
+  ImageOS: ubuntu24
   OASIS7_STORAGE_MAX_LOGICAL_BYTES: '4294967296'
   OASIS7_STORAGE_STEP_BYTES: '67108864'
   OASIS7_STORAGE_PROGRESS_INTERVAL: '100'
@@ -89,6 +91,7 @@ jobs:
           shared-key: storage-acceptance-ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f
       - name: Build and inventory exact native acceptance executables
         run: |
+          test "$(pwd -P)" = "$STORAGE_ARTIFACT_CHECKOUT"
           python3 scripts/ci-storage-acceptance.py build --bundle "$RUNNER_TEMP/storage-tests"
           python3 scripts/ci-storage-acceptance.py pack --bundle "$RUNNER_TEMP/storage-tests" --output "$RUNNER_TEMP/storage-tests.tar.gz"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -174,7 +177,16 @@ jobs:
           if [[ "$NETWORK" != none ]]; then repeats="$FAULT_REPEATS"; fi
           command=(python3 scripts/ci-storage-acceptance.py run --bundle "$RUNNER_TEMP/storage-tests" --group "$GROUP" --label "$LABEL" --results-dir output/storage --capacity-scale "$SCALE" --repeat-faults "$repeats")
           if [[ "$USE_PREBUILT" != true ]]; then
-            exec "${command[@]}"
+            # Cargo embeds absolute executable paths. A bind mount preserves
+            # this path for host-only tests and for Python's resolved checkout.
+            sudo mkdir -p "$(dirname "$STORAGE_ARTIFACT_CHECKOUT")"
+            sudo mkdir "$STORAGE_ARTIFACT_CHECKOUT"
+            trap 'sudo rmdir "$STORAGE_ARTIFACT_CHECKOUT"' EXIT
+            sudo mount --bind "$GITHUB_WORKSPACE" "$STORAGE_ARTIFACT_CHECKOUT"
+            trap 'cd / && sudo umount "$STORAGE_ARTIFACT_CHECKOUT" && sudo rmdir "$STORAGE_ARTIFACT_CHECKOUT"' EXIT
+            cd "$STORAGE_ARTIFACT_CHECKOUT"
+            GITHUB_WORKSPACE="$STORAGE_ARTIFACT_CHECKOUT" "${command[@]}"
+            exit
           fi
           export DOCKER_CONFIG
           DOCKER_CONFIG=$(mktemp -d)
@@ -183,9 +195,9 @@ jobs:
           unset GHCR_TOKEN
           time docker pull "$STORAGE_VERIFY_IMAGE"
           docker run --rm --pull never --user "$(id -u):$(id -g)" \
-            --mount "type=bind,source=$GITHUB_WORKSPACE,target=$GITHUB_WORKSPACE" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE,target=$STORAGE_ARTIFACT_CHECKOUT" \
             --mount "type=bind,source=$RUNNER_TEMP/storage-tests,target=$RUNNER_TEMP/storage-tests,readonly" \
-            --workdir "$GITHUB_WORKSPACE" --env HOME=/tmp --env SOURCE_SHA --env GITHUB_RUN_ID --env GITHUB_RUN_ATTEMPT \
+            --workdir "$STORAGE_ARTIFACT_CHECKOUT" --env GITHUB_WORKSPACE="$STORAGE_ARTIFACT_CHECKOUT" --env HOME=/tmp --env SOURCE_SHA --env GITHUB_RUN_ID --env GITHUB_RUN_ATTEMPT \
             --env RUST_TOOLCHAIN --env ImageOS --env ImageVersion \
             "$STORAGE_VERIFY_IMAGE" "${command[@]}"
       - name: Check actual fault traffic
