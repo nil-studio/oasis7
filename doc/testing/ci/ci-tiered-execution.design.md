@@ -611,7 +611,9 @@ trunk-archive-${{ runner.os }}-${{ runner.arch }}-${{ env.TRUNK_VERSION }}-${{ h
 
 ordinary、formal-debug、formal-endpoint 的 trusted workspace writer 与 `full-regression` 仅在 main、workflow SHA 与事件 SHA 一致、selector 证明 source 等于事件 SHA、且事件与 profile 准入时执行。在这些条件下 tested SHA 与事件 SHA 相同，writer checkout 可直接引用 `github.sha`；candidate 必须继续引用选定的 `tested_sha`，包括 main dispatch 指定另一候选提交的场景。合同测试联合验证 selector 和 job 条件，只允许这四个 writer 首次 checkout 的两种等价 ref 表达；其余 checkout 设置、后续步骤内容与顺序，以及既有缓存保存差异继续逐项核对。复用步骤的 alias 不得掩盖缺失、重复、未知引用或执行差异。
 
-普通原生 Rust CI 与 Release / Mainnet 的 runtime core、support、sync、soak 读取 `ci-shared-native-trusted-v4`。唯一依赖 producer 是独立 `rust-cache.yml` 的 `shared-native-cache`，仅接受 main 的四小时 schedule 或 `run_mode=full` 手动触发；不接受 source 覆盖，也不从候选 workflow、产物或分支取得代码。checkout、workflow SHA、事件 SHA、精确 job 和 REST run 身份须一致。Release / Mainnet gate 仅有只读 cache token，Rust `full-regression` 也只读这份依赖缓存；其原有 Trunk、wasm-bindgen 和 npm 工具缓存合同保留。GitHub cache 是不可变归档，同 key 的并行保存不会合并各自 target，因此由 producer 在同一根 target 内形成依赖并集，全部编译成功后保存一次，禁止失败保存。
+宿主原生 Rust CI 与 Release / Mainnet 的 runtime core、support、sync、soak 按作业配置读取 `ci-shared-native-trusted-v4`。这个宿主缓存族仅由独立 `rust-cache.yml` 的 `shared-native-cache` 生产，接受 main 的四小时 schedule 或 `run_mode=full` 手动触发；不接受 source 覆盖，也不从候选 workflow、产物或分支取得代码。checkout、workflow SHA、事件 SHA、精确 job 和 REST run 身份须一致。Release / Mainnet gate 仅有只读 cache token，Rust `full-regression` 也只读这份依赖缓存；其原有 Trunk、wasm-bindgen 和 npm 工具缓存合同保留。GitHub cache 是不可变归档，同 key 的并行保存不会合并各自 target，因此由 producer 在同一根 target 内形成依赖并集，全部编译成功后保存一次，禁止失败保存。
+
+固定 `ci-rust-build` 镜像的原生 job 使用独立缓存族：在 [Rust Cache workflow](../../../.github/workflows/rust-cache.yml) 中由 `rust-image-native-cache` 在同一固定 digest 的容器中预热，只接受可信当前 main 的 `workflow_dispatch`、`run_mode=image-native`。缓存 key 绑定镜像 digest，并保留 Rust 环境 hash 与仓库缓存预算；只在成功后保存。消费者按实际镜像、工具链、环境和 key 判断命中，不跨宿主、其他镜像 digest 或缓存族回退。预热范围以该 job 实际构建的 context 为准；[主干预热样本](https://github.com/nil-studio/oasis7/actions/runs/44675338155/job/136085715334)和[同镜像消费者样本](https://github.com/nil-studio/oasis7/actions/runs/44589247897/job/136096335325)不证明其他镜像、所有容器 job 或 Storage 均命中，也不代替测试。
 
 新命名空间使旧的不完整快照不能成为精确命中；后续改变生产覆盖时必须更新族版本，不使用每个 source SHA 或 run ID 给大依赖包换代。
 

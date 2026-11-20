@@ -336,8 +336,8 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
   - `required-gate` 是最后汇总，明确依赖 select 和所有测试组；选中组必须真实成功，失败、取消、缺失及意外跳过均失败。
   - 控制逻辑或共享输入变化、未知影响及依赖解析失败扩大普通 required；迁移 PR 使用完整保留组，不由候选选择器缩小覆盖。
   - CI 和评审结果使用真实 HEAD、测试对象、Actions 运行和 review 记录，不依赖 Task、Project 或通用 receipt。
-  - `full` 可显式本地运行；schedule 为 UTC `17 */4 * * *`，完整 profile 展开全部配置组和平台，专项环境仅在普通 CI 存在具体不足时使用。
-  - 新 `pr-fast`/`main-fast` 只读消费缓存；可信 main 的完整 producer 保留预算内写入，旧 BASE 回退保留原权限分支。候选完整回归缓存只读、不写 trusted sentinel。
+  - `full` 可显式本地运行。Rust workflow 的 schedule 为 UTC `17,37,57 * * * *`，每 20 分钟观察一次。准入以最近一次实际 full 启动为准，满四小时且无活动 full 才启动完整回归；四小时是目标，不是实际触发间隔保证。完整 profile 展开全部配置组和平台，专项环境仅在普通 CI 存在具体不足时使用。
+  - `pr-fast` 只读消费缓存，`main-fast` 默认只读。只有可信计划明确启用写入能力、workflow/source/tested 均绑定当前 main push 且普通产物 producer 采用完整 ordinary 范围时，才可按预算保存 ordinary workspace library 缓存。可信 main 的完整 producer 保留原预算内写入，旧 BASE 回退保留原权限分支。候选完整回归缓存只读、不写 trusted sentinel。
   - select summary 记录 source/tested/policy 三个 SHA，candidate-full 另记录实际 tree；artifact 绑定 tested commit 与真实构建输入。main manual full 可固定不同于 workflow 事件的 candidate source。它验证所选源版本，不自动代表最新 main 合并组合，必须核对 `explicit-full-gate` 的所有实际依赖，而非单个扩展 job 或旧运行。
 - 入口 C：`.github/workflows/wasm-determinism-gate.yml`（构建 hash / receipt evidence 独立 gate）
   - GitHub-hosted runner 矩阵：`(m1|m4|m5) x (ubuntu-24.04/linux-x86_64)`
