@@ -315,9 +315,44 @@ UNIT_TEST_CONTRACT_FIELDS = frozenset((
 ORDINARY_ARTIFACT_PARTITIONS = ('controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1')
 TARGETED_ORDINARY_ARTIFACT_PARTITIONS = ('controls', 'native-0', 'native-1', 'native-2', 'native-3')
 
+# This is one reviewed source-sharing contract, not name-based test deduplication.
+# Pin the shared cases, their fixture, the AgentState re-export chain and the
+# dependency declarations. Any edit requires review before this optimization can
+# apply again; an unrecognized checkout simply executes both forms.
+SHARED_INCREMENTAL_SOURCES = {
+    'crates/oasis7_runtime/tests/pr_fast_incremental.rs': '8e07bb49fd412ce1f32156e9c82fc07fb791452a123d65d6b3bb0467e3d7e7fa',
+    'crates/oasis7/tests/incremental_due_module_batch.rs': 'fc6d4fe1a4bd8e40ca240e0532f45428d3a7bdeb9d0142d95eb83937c1694a76',
+    'crates/oasis7/tests/incremental_runtime_allocators.rs': 'dbdfc17092dcc46d2f772e9e6375c2569b694cad305c340e682b88452d62c084',
+    'crates/oasis7/tests/incremental_runtime_commit.rs': '99ac3d2893c1b0b4b643c97fdad5fc26de8a8abe8cd7fe29aa0fa0c6e0ec19de',
+    'crates/oasis7/tests/support/incremental_agent_event.rs': 'c5d2621fd5846ef58a375d481d964f657738f12f72de1ddcebf5f2df57612223',
+    'crates/oasis7/src/lib.rs': '07eed3a15669119848639c8d0a8cc73bf973e3486a1c0ec0ca88d0ded33ead6c',
+    'crates/oasis7/src/models.rs': 'cd0630a964229637f850250336e08d569795e9bf739c44b29644d208df35a9ea',
+    'crates/oasis7_runtime/src/lib.rs': '28dc7b51d5c159d294f73b14dd1c0c17626476536de2e40954e174766f22b69d',
+    'crates/oasis7_runtime/src/native.rs': '4c032d8964abf305c907e482f4fb6b41db3e6dff5d0dd8259f8a7e19d9770b3a',
+    'crates/oasis7_world_state/src/lib.rs': '2fb0925412385723e1b5b206916417ecaf871820708f5af42055e6a621ac5434',
+    'crates/oasis7/Cargo.toml': 'd6b564414ef30cf54ae1f217b3eec51b2c0e4b2e7b08ccb518f62622a9b71bac',
+    'crates/oasis7_runtime/Cargo.toml': 'aeb103be65757b5eddde562723c762b8ea6e557c0da964bd69081586bdb59fe4',
+    'crates/oasis7_world_state/Cargo.toml': 'c037a83d366d1144f8c8a9e67fcd1f49918884f858a542f4cd75c2fb8ed8aba8',
+}
+SHARED_INCREMENTAL_CASES = {
+    'incremental_due_module_batch': ('due_module_batch', 'real_schedule_pages_reopen_and_select_in_original_instance_order'),
+    'incremental_runtime_allocators': ('runtime_allocators', 'allocator_raw_zstd_cold_roots_continue_without_materialized_world'),
+    'incremental_runtime_commit': ('runtime_commit', 'runtime_candidate_history_reopens_and_continues_from_original_parent_material'),
+}
+SHARED_INCREMENTAL_LIBRARIES = frozenset((
+    'oasis7', 'oasis7_runtime', 'oasis7_world_state', 'oasis7_agent_api',
+    'oasis7_distfs', 'oasis7_formal_protocol', 'oasis7_proto', 'oasis7_wasm_abi',
+    'serde_cbor_2', 'blake3',
+))
+
 
 def fast_plan(plan):
     """Old trusted planners retain the complete previous execution inventory."""
+    for capability in ('ordinary_case_prefix_contract_version', 'ordinary_shared_incremental_contract_version'):
+        if isinstance(plan, dict) and capability in plan and (
+                type(plan[capability]) is not int or plan[capability] != 1
+                or type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1):
+            raise ValueError('invalid ordinary execution capability: ' + capability)
     formal_full_only = isinstance(plan, dict) and 'formal_full_profiles_only_version' in plan
     if formal_full_only and (type(plan['formal_full_profiles_only_version']) is not int
                              or plan['formal_full_profiles_only_version'] != 1
@@ -742,7 +777,8 @@ def target_inventory(plan, version_key, targets_key):
     identities = set()
     fields = {'package', 'target_kind', 'target_name', 'default_features', 'features', 'cases'}
     for target in targets:
-        if (not isinstance(target, dict) or set(target) != fields
+        if (not isinstance(target, dict) or not fields <= set(target)
+                or set(target) - fields - {'case_prefixes'}
                 or not isinstance(target['package'], str) or target['package'] not in packages
                 or target['target_kind'] not in ('lib', 'test')
                 or not isinstance(target['target_name'], str)
@@ -756,6 +792,19 @@ def target_inventory(plan, version_key, targets_key):
                     or len(values) != len(set(values))
                     or (key == 'features' and any(re.fullmatch(r'[A-Za-z_][A-Za-z0-9_-]*', value) is None for value in values))):
                 raise ValueError('invalid ordinary target ' + key)
+        if 'case_prefixes' in target:
+            prefixes = target['case_prefixes']
+            if (targets_key == 'ordinary_risk_targets'
+                    or type(plan.get('ordinary_case_prefix_contract_version')) is not int
+                    or plan['ordinary_case_prefix_contract_version'] != 1
+                    or not isinstance(prefixes, list) or not prefixes
+                    or any(not isinstance(prefix, str)
+                           or re.fullmatch(r'(?:[A-Za-z_][A-Za-z0-9_]*::)+', prefix) is None
+                           for prefix in prefixes)
+                    or len(prefixes) != len(set(prefixes))
+                    or any(not any(case.startswith(prefix) for prefix in prefixes)
+                           for case in target['cases'])):
+                raise ValueError('invalid ordinary target case prefixes')
         if not target['default_features'] and 'default' in target['features']:
             raise ValueError('ordinary target explicitly enables disabled default features')
         identity = (target['package'], target['target_kind'], target['target_name'])
@@ -990,10 +1039,24 @@ def validate_target_inventory(targets, binaries):
                 or (not target['default_features'] and 'default' in binary.get('features', []))):
             raise ValueError('ordinary target feature inventory mismatch')
         behavior = set(binary.get('tests', [])) - set(binary.get('ignored_tests', []))
-        if not set(target['cases']) <= behavior:
-            raise ValueError('ordinary target minimum case inventory mismatch')
+        target_case_inventory(target, behavior)
     if actual != set(expected):
         raise ValueError('ordinary target inventory mismatch')
+
+
+def target_case_inventory(target, behavior):
+    """Keep every actual case in each registered module, including new tests."""
+    if not set(target['cases']) <= behavior:
+        raise ValueError('ordinary target minimum case inventory mismatch')
+    prefixes = target.get('case_prefixes')
+    if prefixes is None:
+        return behavior
+    if any(not any(case.startswith(prefix) for case in behavior) for prefix in prefixes):
+        raise ValueError('ordinary target case prefix has no executable tests')
+    selected = {case for case in behavior if any(case.startswith(prefix) for prefix in prefixes)}
+    if not set(target['cases']) <= selected:
+        raise ValueError('ordinary target minimum case is outside its prefixes')
+    return selected
 
 
 def validate_ordinary_selection(manifest):
@@ -1041,8 +1104,15 @@ def validate_ordinary_selection(manifest):
                     raise ValueError('ordinary partition target variant mismatch')
         return
     if supplements is not None:
-        validate_target_inventory(supplements, [entry for entry in binaries
-                                  if entry.get('variant', '').startswith('required-full-fast-')])
+        supplementary_binaries = [entry for entry in binaries
+                                  if entry.get('variant', '').startswith('required-full-fast-')]
+        validate_target_inventory(supplements, supplementary_binaries)
+        variants = {(target['package'], target['target_kind'], target['target_name']): 'required-full-fast-' + str(index)
+                    for index, target in enumerate(supplements)}
+        for binary in supplementary_binaries:
+            identity = (binary['package'], binary['target_kind'][0], binary['target'])
+            if binary.get('variant') != variants[identity]:
+                raise ValueError('ordinary full supplement target variant mismatch')
         # Supplementary no-default-feature harnesses cannot replace any of the
         # original required packages, including the same package's default build.
         binaries = [entry for entry in binaries if not entry.get('variant', '').startswith('required-full-fast-')]
@@ -1348,6 +1418,110 @@ class BuildObservation:
         return False
 
 
+def shared_incremental_enabled(scope, plan):
+    selected = fast_plan(plan)
+    return (scope == 'ordinary' and selected is not None
+            and selected.get('ordinary_shared_incremental_contract_version') == 1
+            and selected.get('execution_profile') in ('pr-fast', 'main-fast')
+            and selected.get('scope') == 'targeted' and not selected.get('test_policy_changed')
+            and ordinary_fast_targets(selected) is None)
+
+
+def shared_incremental_sources_match():
+    try:
+        return all(digest(ROOT / path) == expected for path, expected in SHARED_INCREMENTAL_SOURCES.items())
+    except OSError:
+        return False
+
+
+def shared_incremental_observation(artifact):
+    """Capture actual Cargo units only within the one successful required call."""
+    target = artifact.get('target', {})
+    selected = ((target.get('kind') == ['test'] and target.get('name') in
+                 {*SHARED_INCREMENTAL_CASES, 'pr_fast_incremental'})
+                or (target.get('kind') == ['lib'] and target.get('name') in SHARED_INCREMENTAL_LIBRARIES
+                    and artifact.get('profile', {}).get('test') is False))
+    fields = ('package_id', 'manifest_path', 'target', 'profile', 'features', 'filenames', 'executable')
+    if artifact.get('reason') == 'compiler-artifact' and selected and all(key in artifact for key in fields):
+        return {key: artifact[key] for key in fields}
+    return None
+
+
+def shared_incremental_duplicate(manifest):
+    """Keep the originals unless the observed dependency/source contract is exact."""
+    if not shared_incremental_enabled(manifest.get('scope'), manifest.get('execution_plan')):
+        return None
+    proof = manifest.get('ordinary_shared_incremental')
+    if (not isinstance(proof, dict) or type(proof.get('version')) is not int or proof['version'] != 1
+            or set(proof) != {'version', 'units', 'binaries'}):
+        return None
+    if not shared_incremental_sources_match():
+        return None
+    try:
+        # Different features may still name identical tests. Require all four
+        # roots from this invocation and the same native profile/output tree.
+        checkout = Path(manifest['checkout'])
+        owners = {}
+        expected = {target: ('oasis7', {case}) for target, (_, case) in SHARED_INCREMENTAL_CASES.items()}
+        expected['pr_fast_incremental'] = ('oasis7_runtime', {
+            module + '::' + case for module, case in SHARED_INCREMENTAL_CASES.values()})
+        units = proof['units']
+        if not isinstance(units, list) or not isinstance(proof['binaries'], dict):
+            return None
+        for target, (package, cases) in expected.items():
+            matches = [(name, binary) for name, binary in manifest['binaries'].items()
+                       if binary.get('ordinary') and binary.get('test') and binary.get('variant') == 'required'
+                       and (binary.get('package'), binary.get('target_kind'), binary.get('target')) ==
+                           (package, ['test'], target)]
+            if len(matches) != 1:
+                return None
+            name, binary = matches[0]
+            if (set(binary['tests']) != cases or binary['ignored_tests']
+                    or binary['default_features'] is not True
+                    or proof['binaries'].get(name) != binary['sha256']):
+                return None
+            observed = [unit for unit in units if unit['target']['name'] == target
+                        and unit['target']['kind'] == ['test']]
+            if len(observed) != 1:
+                return None
+            unit = observed[0]
+            if (unit['manifest_path'] != str(checkout / 'crates' / package / 'Cargo.toml')
+                    or unit['target']['src_path'] != str(checkout / 'crates' / package / 'tests' / (target + '.rs'))
+                    or any(unit[key] != binary[key] for key in ('profile', 'features'))
+                    or unit['executable'] != binary['original_executable']):
+                return None
+            owners[target] = (name, binary)
+        if set(proof['binaries']) != {name for name, _ in owners.values()}:
+            return None
+        reference = owners['pr_fast_incremental'][1]
+        native_directory = Path(reference['original_executable']).parent
+        if any(any(binary[key] != reference[key] for key in ('profile', 'requested_features', 'default_features'))
+               or Path(binary['original_executable']).parent != native_directory for _, binary in owners.values()):
+            return None
+        # One actual native library unit for every shared import. Multiple
+        # feature/profile/host units are ambiguous, so retain both harnesses.
+        libraries = {}
+        for name in SHARED_INCREMENTAL_LIBRARIES:
+            matches = [unit for unit in units if unit['target']['name'] == name and unit['target']['kind'] == ['lib']]
+            if len(matches) != 1:
+                return None
+            unit = matches[0]
+            rlibs = [Path(path) for path in unit['filenames'] if path.endswith('.rlib')]
+            if (unit['profile']['test'] is not False or len(rlibs) != 1 or rlibs[0].parent != native_directory
+                    or not isinstance(unit['package_id'], str) or not unit['package_id']
+                    or not isinstance(unit['features'], list) or not all(isinstance(item, str) for item in unit['features'])):
+                return None
+            if name.startswith('oasis7') and unit['manifest_path'] != str(checkout / 'crates' / name / 'Cargo.toml'):
+                return None
+            libraries[name] = unit
+        for _, binary in owners.values():
+            if binary['features'] != libraries[binary['package']]['features']:
+                return None
+        return owners['pr_fast_incremental'][0]
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return None
+
+
 def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir=None, ordinary_partition=None):
     validate_plan_identity(plan)
     if ordinary_partition is not None:
@@ -1384,6 +1558,7 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
                                target=str((ROOT / 'target').resolve()), selection=selection,
                                complete=False, error=str(error))
     binaries, timings = {}, []
+    shared_units = [] if shared_incremental_enabled(scope, plan) and shared_incremental_sources_match() else None
     variants = (build_variants(scope, plan, ordinary_partition=ordinary_partition) if ordinary_partition is not None
                 else build_variants(scope, plan) if plan is not None else build_variants(scope))
     target_specs = {}
@@ -1415,6 +1590,10 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
                     continue
                 if artifact.get('reason') == 'compiler-message':
                     print(artifact['message'].get('rendered', ''), end='', flush=True)
+                if variant == 'required' and shared_units is not None:
+                    observed = shared_incremental_observation(artifact)
+                    if observed is not None:
+                        shared_units.append(observed)
                 if cache_state is not None and not cache_state.get('error'):
                     try:
                         cache_record(cache_state, artifact, ordinary_baseline=(scope == 'ordinary' and variant in
@@ -1501,6 +1680,13 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
             binary['tests'] = inventory(bundle / binary['path'], env=list_env)
             binary['ignored_tests'] = inventory(bundle / binary['path'], True, list_env)
             binary['test_list_sha256'] = hashlib.sha256(json.dumps(binary['tests']).encode()).hexdigest()
+    if shared_units is not None:
+        names = {name: binary['sha256'] for name, binary in binaries.items()
+                 if binary['variant'] == 'required' and binary['target_kind'] == ['test']
+                 and binary['target'] in {*SHARED_INCREMENTAL_CASES, 'pr_fast_incremental'}}
+        manifest['ordinary_shared_incremental'] = dict(version=1, units=shared_units, binaries=names)
+        if shared_incremental_duplicate(manifest) is None:
+            del manifest['ordinary_shared_incremental']
     config = formal_configuration()
     component = scope in FORMAL_COMPONENTS
     manifest['suites'] = resolve_suites(config, binaries) if scope != 'ordinary' and not component else {}
@@ -2993,20 +3179,40 @@ def execute_inline_jobs(jobs, results, *, formal=False, shard=None, ordinary_par
 def ordinary_entries(manifest):
     plan = fast_plan(manifest.get('execution_plan'))
     deferred = plan.get('formal_deferred_ordinary_cases', {}) if plan else {}
+    # Prefixes identify a particular feature variant. Full profiles keep every
+    # original required case and add the fast variant's complete module contract.
+    targets = ordinary_fast_targets(plan)
+    prefix_targets = {(target['package'], target['target_kind'], target['target_name'], prefix + str(index)): target
+                      for prefix, inventory in (('required-fast-', targets),
+                                                ('required-full-fast-', ordinary_full_fast_targets(plan)))
+                      for index, target in enumerate(inventory or []) if 'case_prefixes' in target}
+    duplicate = shared_incremental_duplicate(manifest)
     entries = []
     for name, binary in manifest['binaries'].items():
-        if not binary['ordinary']:
+        if not binary['ordinary'] or name == duplicate:
             continue
         ordinary = set(binary['tests']) - set(binary['ignored_tests'])
-        excluded = ordinary.intersection(deferred.get(name, ()))
-        if excluded and (binary.get('package') != 'oasis7_chain_runtime'
-                         or binary.get('target_kind') != ['lib']
-                         or binary.get('target') != 'oasis7_chain_runtime'):
+        runtime_library = ((binary.get('package'), binary.get('target_kind'), binary.get('target')) ==
+                           ('oasis7_chain_runtime', ['lib'], 'oasis7_chain_runtime'))
+        deferred_cases = set(deferred.get(name, ()))
+        if targets is not None and runtime_library:
+            # A bounded fast build has a generated logical name, but it still
+            # owns the canonical runtime library's full-profile-only cases.
+            deferred_cases.update(deferred.get('runtime-tests', ()))
+        excluded = ordinary.intersection(deferred_cases)
+        if excluded and not runtime_library:
             raise ValueError('deferred Formal case has a different target identity')
+        kinds = binary.get('target_kind', [])
+        target = prefix_targets.get((binary.get('package'), kinds[0], binary.get('target'),
+                                     binary.get('variant'))) if len(kinds) == 1 else None
+        selected = target_case_inventory(target, ordinary - excluded) if target is not None else ordinary - excluded
         if ordinary - excluded:
             entry = dict(binary=name, batch=True)
             if excluded:
                 entry['skip'] = sorted(excluded)
+            remainder = ordinary - excluded - selected
+            if remainder:
+                entry['skip_exact'] = sorted(remainder)
             entries.append(entry)
     for owner, pattern in snapshot_regressions(manifest):
         if owner not in manifest['binaries']:
@@ -3063,7 +3269,8 @@ def expand_ordinary_batches(entries, binaries):
     expanded = []
     for entry in entries:
         binary = binaries[entry['binary']]
-        tests = set(binary['tests']) - set(binary['ignored_tests']) - set(entry.get('skip', []))
+        skipped = set(entry.get('skip', ())) | set(entry.get('skip_exact', ()))
+        tests = set(binary['tests']) - set(binary['ignored_tests']) - skipped
         exclusive = sorted(tests & ORDINARY_EXCLUSIVE_RUNTIME_CASES) if (
             entry.get('batch') and binary.get('target_kind') == ['lib']
             and binary.get('package') == binary.get('target') == 'oasis7_chain_runtime') else []
@@ -3073,7 +3280,8 @@ def expand_ordinary_batches(entries, binaries):
         # Exact skips and exact singleton jobs partition this same validated
         # nonignored inventory, even when another test contains a whole name.
         if tests - set(exclusive):
-            expanded.append(dict(entry, skip_exact=exclusive, count=len(tests) - len(exclusive)))
+            expanded.append(dict(entry, skip_exact=sorted(set(entry.get('skip_exact', ())) | set(exclusive)),
+                                 count=len(tests) - len(exclusive)))
         expanded.extend(dict(binary=entry['binary'], name=name, ignored=False, exclusive=True)
                         for name in exclusive)
     return expanded

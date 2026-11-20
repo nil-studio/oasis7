@@ -255,6 +255,89 @@ fn controlled_qualified_commit_passes_and_preserves_decision_vs_qualified_distin
 }
 
 #[test]
+fn controlled_recovery_commit_requires_original_authority_and_exact_context() {
+    let verifier = CompositeAuthorityCommitVerifier::qualified_only();
+    for branch in [
+        FormalCompletionBranchV1::ReplayFrozen,
+        FormalCompletionBranchV1::CompletePrepared,
+    ] {
+        let (intent, original, cut, frozen, record) = fixtures::recovery_fixture_for(branch, None);
+        let recovery = fixtures::verified_recovery(&intent, &original);
+        let record_id = record.record_id().unwrap();
+        let candidate = CommitCandidateRef::controlled(Some(record.position), Some(&record_id));
+        let proof = AuthorityCommitProof::controlled_qualified(fixtures::proof(
+            record.clone(),
+            recovery.successor(),
+            branch,
+            Some(recovery.certificate_digest().into()),
+            Some(frozen),
+            if branch == FormalCompletionBranchV1::ReplayFrozen {
+                10
+            } else {
+                4
+            },
+            11,
+            12,
+        ));
+        let anchor = TrustedCommitAnchor::controlled(
+            original.clone(),
+            Some(cut.clone()),
+            Some(recovery.clone()),
+        );
+        let verified = verifier
+            .verify_authority_commit(&anchor, &candidate, &proof)
+            .expect("signed recovery commit verifies against its original authority")
+            .into_controlled_qualified()
+            .unwrap();
+        assert_eq!(verified.record(), &record);
+        assert_eq!(
+            verified.finalizing_authority_id(),
+            recovery.successor().authority_id().unwrap()
+        );
+
+        let (other_intent, _, _, _, _) =
+            fixtures::recovery_fixture_with_profile(branch, None, 13, 1);
+        let other_recovery = fixtures::verified_recovery(&other_intent, &original);
+        for invalid_anchor in [
+            TrustedCommitAnchor::controlled(original.clone(), Some(cut.clone()), None),
+            TrustedCommitAnchor::controlled(
+                recovery.successor().clone(),
+                Some(cut.clone()),
+                Some(recovery.clone()),
+            ),
+            TrustedCommitAnchor::controlled(original.clone(), Some(cut), Some(other_recovery)),
+        ] {
+            assert!(matches!(
+                verifier.verify_authority_commit(&invalid_anchor, &candidate, &proof),
+                Err(AuthorityCommitReject::ControlledVerificationFailed(_))
+            ));
+        }
+        assert!(matches!(
+            verifier.verify_authority_commit(
+                &anchor,
+                &CommitCandidateRef::controlled(Some(record.position + 1), Some(&record_id)),
+                &proof,
+            ),
+            Err(AuthorityCommitReject::CandidateMismatch {
+                field: "position",
+                ..
+            })
+        ));
+        assert!(matches!(
+            verifier.verify_authority_commit(
+                &anchor,
+                &CommitCandidateRef::controlled(Some(record.position), Some(&fixtures::h(99))),
+                &proof,
+            ),
+            Err(AuthorityCommitReject::CandidateMismatch {
+                field: "record_id",
+                ..
+            })
+        ));
+    }
+}
+
+#[test]
 fn bft_v3_verifier_accepts_valid_quorum_and_rejects_insufficient_weight_or_height_mismatch() {
     let (schedule, keys) = build_bft_schedule_and_keys(&[1, 1, 1, 1]);
     let valid_cert = build_certified_bft_header(&schedule, &keys, &[0, 1, 2]);
