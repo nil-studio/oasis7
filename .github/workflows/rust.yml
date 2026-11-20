@@ -2245,7 +2245,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install native libraries
-        if: ${{ !contains(fromJSON('["storage-recovery","world-history","healthy-set"]'), matrix.shard) }}
+        if: ${{ !contains(fromJSON('["storage-recovery","world-history","healthy-set","lifecycle-cli"]'), matrix.shard) }}
         shell: bash
         timeout-minutes: 11
         run: |
@@ -2262,8 +2262,8 @@ jobs:
           tar -C "$RUNNER_TEMP/native-tests" -xzf "$RUNNER_TEMP/$SHARD.tar.gz"
       - name: Run exact formal process suite without Cargo
         env:
-          USE_PREBUILT: ${{ contains(fromJSON('["storage-recovery","world-history","healthy-set"]'), matrix.shard) }}
-          GHCR_TOKEN: ${{ contains(fromJSON('["storage-recovery","world-history","healthy-set"]'), matrix.shard) && github.token || '' }}
+          USE_PREBUILT: ${{ contains(fromJSON('["storage-recovery","world-history","healthy-set","lifecycle-cli"]'), matrix.shard) }}
+          GHCR_TOKEN: ${{ contains(fromJSON('["storage-recovery","world-history","healthy-set","lifecycle-cli"]'), matrix.shard) && github.token || '' }}
           SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
           SHARD: ${{ matrix.shard }}
         shell: bash
