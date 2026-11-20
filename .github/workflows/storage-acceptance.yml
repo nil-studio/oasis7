@@ -61,7 +61,8 @@ jobs:
     defaults:
       run:
         shell: bash
-    timeout-minutes: 90
+    # Cold optimized artifacts can exhaust the previous 90-minute build budget.
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
