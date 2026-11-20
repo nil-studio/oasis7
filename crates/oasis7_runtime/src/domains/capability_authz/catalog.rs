@@ -216,7 +216,7 @@ impl World {
         Ok(invocation)
     }
 
-    pub(super) fn verify_capability_catalog_audience(
+    pub(in crate::world) fn verify_capability_catalog_audience(
         &self,
         grant: &CapabilityGrantV2,
     ) -> Result<(), WorldError> {

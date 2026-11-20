@@ -35,6 +35,8 @@ pub use industrial::{
 mod native_resource_basis;
 mod ordinary_starter;
 pub use native_resource_basis::*;
+#[path = "../domains/capability_authz/mod.rs"]
+pub mod capability_authz;
 mod capability_authorization;
 mod capability_authorization_admin;
 mod capability_authorization_command;
@@ -44,8 +46,6 @@ mod capability_authorization_events;
 mod capability_authorization_publication;
 mod capability_authorization_state;
 mod capability_authorization_transaction;
-mod capability_authorization_validation;
-mod capability_catalog;
 mod provider_terminal_authority;
 pub use provider_terminal_authority::ProviderCapabilityAvailability;
 mod capability_effect_receipt_projection;

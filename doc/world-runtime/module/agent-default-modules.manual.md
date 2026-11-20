@@ -36,7 +36,7 @@ ADM-M-01 是只读源核对；ADM-M-02 给出现有自动回归入口；ADM-M-03
 | [radiation](../../../crates/oasis7_builtin_wasm_modules/m1_power_radiation_harvest/src/lib.rs) 与 [storage](../../../crates/oasis7_builtin_wasm_modules/m1_power_storage/src/lib.rs) | 当前按 action 调用补能、位置轴向和超过 800,000 cm 时增加 bonus；有限电池上限 12、首次注册 6、普通私有移动每取整公里 3。新逻辑 tick/热/距离衰减算法只在明确新候选中验证，不把旧输出代入新算例 |
 | [cargo](../../../crates/oasis7_builtin_wasm_modules/m1_storage_cargo/src/lib.rs) | 只消费扩容/拒绝事件，私有计数/层级变化；没有完整货物列表、容量、存取 effects 或 command 声明 |
 | [sensor](../../../crates/oasis7_builtin_wasm_modules/m1_sensor_basic/src/lib.rs)、[mobility](../../../crates/oasis7_builtin_wasm_modules/m1_mobility_basic/src/lib.rs)、[memory](../../../crates/oasis7_builtin_wasm_modules/m1_memory_core/src/lib.rs) | 当前分别为附近 Agent observation、零距离/距离费用规则、最多 256 条 `time/kind/agent_id` 标签；完整目标的其他义务不得由同名推出 |
-| [实例路由](../../../crates/oasis7_runtime/src/world/module_runtime.rs) 与 [capability catalog](../../../crates/oasis7_runtime/src/world/capability_catalog.rs) | 精确 active 实例/target 与声明/当前 grant；槽位标签、全局 active、有效目录和最终调用分开判断 |
+| [实例路由](../../../crates/oasis7_runtime/src/world/module_runtime.rs) 与 [capability catalog](../../../crates/oasis7_runtime/src/domains/capability_authz/catalog.rs) | 精确 active 实例/target 与声明/当前 grant；槽位标签、全局 active、有效目录和最终调用分开判断 |
 | [测试注册](../../../crates/oasis7_runtime/src/tests/mod.rs) | `power_bootstrap`、`agent_default_modules` 在 `test_tier_full` 下才注册；测试名称与实际执行层对应 |
 
 把七类目标逐项列为“实际消费者已定位/只见局部实现/尚缺目标消费者”，并写直接来源。不要只用一次全文检索或同名文件作结论。检查旧文档或当前 UI 若将“已安装默认包”直接写成“全部能力已可用”，定位具体误读并修正其消费者。
