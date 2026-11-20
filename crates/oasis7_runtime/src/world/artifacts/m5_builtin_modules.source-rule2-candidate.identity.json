@@ -20,7 +20,7 @@
     "builder_recipe": {
       "recipe_schema_version": 1,
       "kind": "producer-content",
-      "producer_recipe_hash": "c6a2e67f66b0eeb44d875ee68023119f7a5beb239bca170c1bd4291482a6f0f3",
+      "producer_recipe_hash": "f2409600beafba6dbae305682e5b5a72c22b9ef7a44c710d587dfecbd0f5062a",
       "arguments": [
         {
           "name": "GUEST_CARGO_BUILD_JOBS",
@@ -47,22 +47,12 @@
         {
           "kind": "source-file",
           "path": ".dockerignore",
-          "sha256": "9f5f14257eb7834b399099dbfac5dd1eea302f4daa58a1944485fcb0b16c7c57"
+          "sha256": "5370b476d63b0f516e04e8d07de716518bfb37f9bba00502fc47195978971abb"
         },
         {
           "kind": "source-file",
           "path": ".github/actions/setup-linux-mold/setup.py",
           "sha256": "faeda82b8ad40217a4a1be9c27aa1d6a67984d959aff8587baa48573298c4a65"
-        },
-        {
-          "kind": "source-file",
-          "path": "Cargo.lock",
-          "sha256": "3899a245d8421fd0d14e93dc953622091e74262c72f4367b9aa7a244999cf2a0"
-        },
-        {
-          "kind": "source-file",
-          "path": "Cargo.toml",
-          "sha256": "2896c95397441d550aaa440283f3984a60b58854381f8dc345537c5de5a657ab"
         },
         {
           "kind": "source-file",
@@ -82,7 +72,7 @@
         {
           "kind": "source-file",
           "path": "crates/oasis7_wasm_build/src/producer_recipe.rs",
-          "sha256": "76118540cf6b805bdbb58bd91b4a0925eed1a42066fd9478b4b90e1bed91ce7d"
+          "sha256": "dae20db6d1c94c9079602076439e6d9625ddb017644a9a40a18f28d55a07a1dd"
         },
         {
           "kind": "source-file",
@@ -106,13 +96,23 @@
         },
         {
           "kind": "source-file",
-          "path": "docker/wasm-builder/Dockerfile",
-          "sha256": "7d945bf0ee437b39a4c592c6d585cc42bfc93c517d3e700441e55d04d76a9ea7"
+          "path": "docker/wasm-builder/Cargo.lock",
+          "sha256": "2f3741390e2f95ded62aedbc155327d6cf1e2bd149f8e8d2018652bfe412d989"
         },
         {
           "kind": "source-file",
-          "path": "docker/wasm-builder/prepare-workspace.sh",
-          "sha256": "7891f46fd85aca1f566a9cba39d5ac60350b55363bd5551365919b69132f97ac"
+          "path": "docker/wasm-builder/Cargo.toml",
+          "sha256": "329c191cec52fb5c31f91e56c611820251cbb6697e1e761e945da471fd6c121f"
+        },
+        {
+          "kind": "source-file",
+          "path": "docker/wasm-builder/Dockerfile",
+          "sha256": "ce26e815810b5f07cfea13c4e82e923cfe9502f9f3346f7b03cb1fe01b7f12ed"
+        },
+        {
+          "kind": "source-file",
+          "path": "docker/wasm-builder/src/main.rs",
+          "sha256": "5dfd8ab622f5b83fac8cfd968cdedb04ef6d57d720bda70c2469c35e5efbb371"
         },
         {
           "kind": "source-file",
@@ -122,7 +122,7 @@
         {
           "kind": "source-file",
           "path": "tools/wasm_build_suite/Cargo.toml",
-          "sha256": "7515aa6be7617aaaf80598db4f411bb555aa5f616ffbd5f40f1f670daf850750"
+          "sha256": "a66186c38f0c1245fd78b9647be4dec897a4ab433f23a72f33c102be3f768445"
         },
         {
           "kind": "source-file",
@@ -142,7 +142,12 @@
         {
           "kind": "source-file",
           "path": "tools/wasm_build_suite/src/builder_context_tests.rs",
-          "sha256": "57aa49e8b4df6f24347259176ff4843304e60ed4fd4c7e3c305e994c6997ee07"
+          "sha256": "2a45468887b049b461054ce7dddfc490f7d27cc79b7ee19b40dc2d7a1ffd4fed"
+        },
+        {
+          "kind": "source-file",
+          "path": "tools/wasm_build_suite/src/cli.rs",
+          "sha256": "79c5d9ebfb8862ec309bb3381c6902b84b9225441eb71969001c58d4483bb899"
         },
         {
           "kind": "source-file",
@@ -152,12 +157,12 @@
         {
           "kind": "source-file",
           "path": "tools/wasm_build_suite/src/lib.rs",
-          "sha256": "5971d9bf4d32c75d4be7f43f2acfa3b4a8fe0e7185cc9cf1d57a6c2338b61303"
+          "sha256": "1fcc94d8d727b0a003a3579d35b378e6635a571957eff09a5e25605c25915858"
         },
         {
           "kind": "source-file",
           "path": "tools/wasm_build_suite/src/main.rs",
-          "sha256": "30f10477dae24543c9a78a801dcf07b0ed2340716f0f11e45e16ce8248d5a49d"
+          "sha256": "5dfd8ab622f5b83fac8cfd968cdedb04ef6d57d720bda70c2469c35e5efbb371"
         }
       ]
     }
@@ -173,7 +178,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "2896c95397441d550aaa440283f3984a60b58854381f8dc345537c5de5a657ab"
+          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
         },
         {
           "kind": "source-file",
@@ -193,7 +198,7 @@
         {
           "kind": "source-file",
           "path": "crates/oasis7_wasm_sdk/Cargo.toml",
-          "sha256": "2a106a9b8b248e49d9c3b9cada398586c827d9eb2d4962e838b8f8ec5133d4c9"
+          "sha256": "9da9cdedd34b3b186a33779a07dee91d0d62d36875e9e14a107fd4033590170d"
         },
         {
           "kind": "source-file",
@@ -201,9 +206,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "3daeec38a7b5e291a48acabf76ce925205e53daebf20fd918333e6f1a309e21f",
-      "build_manifest_hash": "50f117cf94ea610ae527811f28bc86f32230f533c2ae8a7532caad5c365b2d99",
-      "identity_hash": "9cce7cd52dfa413e96556f67bd484816a5089da0bf3c4b266aa2557b1cfeda8b"
+      "source_hash": "addd552f3795fe2c161b0f0041f6e4df55a22f5707f720a63285e7765151ced5",
+      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
+      "identity_hash": "56027208a0da1fb71df166a89110d1273e9aeb40a85df69abcf442c8599d2632"
     },
     {
       "module_id": "m5.gameplay.economic.overlay",
@@ -215,7 +220,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "2896c95397441d550aaa440283f3984a60b58854381f8dc345537c5de5a657ab"
+          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
         },
         {
           "kind": "source-file",
@@ -235,7 +240,7 @@
         {
           "kind": "source-file",
           "path": "crates/oasis7_wasm_sdk/Cargo.toml",
-          "sha256": "2a106a9b8b248e49d9c3b9cada398586c827d9eb2d4962e838b8f8ec5133d4c9"
+          "sha256": "9da9cdedd34b3b186a33779a07dee91d0d62d36875e9e14a107fd4033590170d"
         },
         {
           "kind": "source-file",
@@ -243,9 +248,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "0421785c09fb4c7c0cd37d1bcc04d40e596dbf6f76c977166741b40d25462866",
-      "build_manifest_hash": "50f117cf94ea610ae527811f28bc86f32230f533c2ae8a7532caad5c365b2d99",
-      "identity_hash": "3bec34913730eca4f87b7fc72ae3a650645979359e9b2a956ae0bec62d0ca7c1"
+      "source_hash": "a4bcd9f7deba4fb6cf064948882be6a06fbf0e01e279302144306c53dfecc36c",
+      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
+      "identity_hash": "d3720253b1eaad68d15939c3c9c952509df528cd7f4c3060fb28eea58a175a72"
     },
     {
       "module_id": "m5.gameplay.governance.council",
@@ -257,7 +262,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "2896c95397441d550aaa440283f3984a60b58854381f8dc345537c5de5a657ab"
+          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
         },
         {
           "kind": "source-file",
@@ -277,7 +282,7 @@
         {
           "kind": "source-file",
           "path": "crates/oasis7_wasm_sdk/Cargo.toml",
-          "sha256": "2a106a9b8b248e49d9c3b9cada398586c827d9eb2d4962e838b8f8ec5133d4c9"
+          "sha256": "9da9cdedd34b3b186a33779a07dee91d0d62d36875e9e14a107fd4033590170d"
         },
         {
           "kind": "source-file",
@@ -285,9 +290,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "c0db9a46f80d4d47470dc03e806faf4b9b6e9d1dd797902ad80910402132c484",
-      "build_manifest_hash": "50f117cf94ea610ae527811f28bc86f32230f533c2ae8a7532caad5c365b2d99",
-      "identity_hash": "f9a0c5f55650130122a8643b26d50697c4e8f77526f2892c6cc087e171bfacd3"
+      "source_hash": "d1474edb544b9ca522310ae8ad11c7fa8b64e8766780ced9e7c6053581999d51",
+      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
+      "identity_hash": "51a901c3dad80234e41ab5407b7551cbae48c5b9873a004abf1957d3ba10574a"
     },
     {
       "module_id": "m5.gameplay.meta.progression",
@@ -299,7 +304,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "2896c95397441d550aaa440283f3984a60b58854381f8dc345537c5de5a657ab"
+          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
         },
         {
           "kind": "source-file",
@@ -319,7 +324,7 @@
         {
           "kind": "source-file",
           "path": "crates/oasis7_wasm_sdk/Cargo.toml",
-          "sha256": "2a106a9b8b248e49d9c3b9cada398586c827d9eb2d4962e838b8f8ec5133d4c9"
+          "sha256": "9da9cdedd34b3b186a33779a07dee91d0d62d36875e9e14a107fd4033590170d"
         },
         {
           "kind": "source-file",
@@ -327,9 +332,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "d8a7c410ee0e00856364d7f51b5ce9f1afda3224e1c6f7ab5ee478aa45a0e849",
-      "build_manifest_hash": "50f117cf94ea610ae527811f28bc86f32230f533c2ae8a7532caad5c365b2d99",
-      "identity_hash": "2c7d2c7a66f339f2814b8aff4862945007b6c34057ee09d4dbc7b31a22faff83"
+      "source_hash": "13d0e679e422fc32e8ddeb1f1c5b8d29ffc7abced37a6f9619d8938c86d99df7",
+      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
+      "identity_hash": "f692f3f75e07fec1527d1dc95684dbef0e5aea0b1bab5004428aa6582f152828"
     },
     {
       "module_id": "m5.gameplay.war.core",
@@ -341,7 +346,7 @@
         {
           "kind": "source-file",
           "path": "Cargo.toml",
-          "sha256": "2896c95397441d550aaa440283f3984a60b58854381f8dc345537c5de5a657ab"
+          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
         },
         {
           "kind": "source-file",
@@ -361,7 +366,7 @@
         {
           "kind": "source-file",
           "path": "crates/oasis7_wasm_sdk/Cargo.toml",
-          "sha256": "2a106a9b8b248e49d9c3b9cada398586c827d9eb2d4962e838b8f8ec5133d4c9"
+          "sha256": "9da9cdedd34b3b186a33779a07dee91d0d62d36875e9e14a107fd4033590170d"
         },
         {
           "kind": "source-file",
@@ -369,9 +374,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "a8e76b6ea5a9fe5bf5ef415bca8be3de04e6233b457fddb1ece82e1a8bf0eb35",
-      "build_manifest_hash": "50f117cf94ea610ae527811f28bc86f32230f533c2ae8a7532caad5c365b2d99",
-      "identity_hash": "fba045c1eef5b358cf20ac7bfd9e5f8d3db8b15fb88504e477fc231400bc1fb7"
+      "source_hash": "d2e8931519e1a8376afc71b13f4c9074ba86c0cfd61bbe5d12ccdc8b8e1516b7",
+      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
+      "identity_hash": "354714b11d18c48be1934ff41055c5848bb3b4504ba85689433453b6d0a6459e"
     }
   ]
 }
