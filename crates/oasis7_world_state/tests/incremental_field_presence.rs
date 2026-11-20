@@ -6,7 +6,13 @@ use oasis7_formal_protocol::incremental_state::{
 };
 use oasis7_formal_protocol::incremental_value::{ValueIoBudget, ValueReadContext};
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
-use oasis7_runtime::{incremental_field_member::*, types::MaterialLedgerId};
+use oasis7_world_state::{
+    incremental_field_member::{
+        FieldDescriptor, FieldDestination, FieldOwner, FieldShape, SemanticKeyBudget,
+        WorldFieldRecordKindV1,
+    },
+    incremental_field_presence::*,
+};
 use std::{
     io::Write,
     sync::atomic::{AtomicU64, Ordering},
@@ -22,7 +28,7 @@ impl Directory {
             .as_nanos();
         let sequence = NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!(
-            "oasis7-field-member-{}-{nonce}-{sequence}",
+            "oasis7-field-presence-{}-{nonce}-{sequence}",
             std::process::id()
         ));
         std::fs::create_dir(&path).unwrap();
@@ -65,7 +71,7 @@ impl Write for HashOutput {
 }
 
 #[test]
-fn original_large_key_and_ledger_payload_reopen_as_separate_authenticated_ranges() {
+fn metadata_and_large_outer_key_reopen_from_state_root_without_member_payloads() {
     for compression in [PageCompression::Raw, PageCompression::Zstd] {
         let directory = Directory::new();
         let path = directory.0.join("pages");
@@ -75,11 +81,9 @@ fn original_large_key_and_ledger_payload_reopen_as_separate_authenticated_ranges
         let source = memory
             .reserve(length + 256, MemoryClass::Ordinary)
             .unwrap()
-            .retain(MaterialLedgerId::Factory("ab甲".repeat(repetitions)));
-        let MaterialLedgerId::Factory(id) = &*source else {
-            unreachable!()
-        };
-        let (record, state_root_bytes, expected_key, expected_payload) = {
+            .retain("ab甲".repeat(repetitions));
+        let id = &*source;
+        let (record, metadata, state_root_bytes, expected_key) = {
             let _output = memory.reserve(8192, MemoryClass::Ordinary).unwrap();
             // Derive both oracles from frozen wire bytes, not the member writer.
             let mut key_hash = blake3::Hasher::new();
@@ -87,42 +91,32 @@ fn original_large_key_and_ledger_payload_reopen_as_separate_authenticated_ranges
             key_hash.update(&[1]);
             key_hash.update(&(length as u64).to_be_bytes());
             key_hash.update(id.as_bytes());
-            let mut payload_hash = blake3::Hasher::new();
-            payload_hash.update(b"oasis7.iws.ledger-value.v1\0");
-            payload_hash.update(&[3]);
-            payload_hash.update(&(length as u64).to_be_bytes());
-            payload_hash.update(id.as_bytes());
             let store = IncrementalPageStore::create(&path, memory.clone(), compression).unwrap();
             let mut sink = store.value_session(physical());
-            let record = write_member_record_v1(
-                FieldDescriptor {
-                    owner: FieldOwner::WorldState,
-                    destination: FieldDestination::State(
-                        oasis7_formal_protocol::incremental_state::StateNamespaceV1::Business,
-                    ),
-                    name: "fixture.ledger",
-                    shape: FieldShape::Map,
+            let field = FieldDescriptor {
+                owner: FieldOwner::WorldState,
+                destination: FieldDestination::State(StateNamespaceV1::Business),
+                name: "fixture.ledgers",
+                shape: FieldShape::NestedMap,
+            };
+            let mut quota = logical();
+            let mut key_work = SemanticKeyBudget {
+                bytes_remaining: 128 << 20,
+            };
+            let mut context = PresenceRecordWriteContext {
+                sink: &mut sink,
+                memory: &memory,
+                io: &mut quota,
+                key_work: &mut key_work,
+                limits: PresenceRecordLimitsV1 {
+                    semantic_bytes: 128 << 20,
+                    record_bytes: 128 << 20,
                 },
-                WorldFieldRecordKindV1::Entry,
-                id.as_str(),
-                MemberPayloadRefV1::Ledger(&source),
-                &mut MemberRecordWriteContext {
-                    sink: &mut sink,
-                    memory: &memory,
-                    io: &mut logical(),
-                    key_work: &mut SemanticKeyBudget {
-                        bytes_remaining: 128 << 20,
-                    },
-                    limits: MemberRecordLimitsV1 {
-                        semantic_bytes: 128 << 20,
-                        payload_bytes: 128 << 20,
-                        record_bytes: 192 << 20,
-                    },
-                    cancelled: || false,
-                },
-            )
-            .unwrap();
-            // Attach the bounded field key to its member value in the actual
+                cancelled: || false,
+            };
+            let metadata = write_field_metadata_v1(field, &mut context).unwrap();
+            let record = write_field_group_v1(field, id.as_str(), &mut context).unwrap();
+            // Attach both distinct presence keys to their values in the actual
             // state tree; this is provisional content, not an authority head.
             let state_root_bytes: [u8; STATE_ROOT_BYTES] = {
                 let state_source = store
@@ -132,11 +126,18 @@ fn original_large_key_and_ledger_payload_reopen_as_separate_authenticated_ranges
                 let delta = charge.retain(
                     StateDeltaV1::build(
                         StateRootV1::empty(StateNamespaceV1::Business).unwrap(),
-                        vec![StateWriteV1 {
-                            key: record.field_key.as_bytes().to_vec(),
-                            before: None,
-                            after: Some(record.value_root),
-                        }],
+                        vec![
+                            StateWriteV1 {
+                                key: metadata.field_key.as_bytes().to_vec(),
+                                before: None,
+                                after: Some(metadata.value_root),
+                            },
+                            StateWriteV1 {
+                                key: record.field_key.as_bytes().to_vec(),
+                                before: None,
+                                after: Some(record.value_root),
+                            },
+                        ],
                         &state_source,
                         2 << 20,
                     )
@@ -145,12 +146,7 @@ fn original_large_key_and_ledger_payload_reopen_as_separate_authenticated_ranges
                 sink.put_state_pages(&delta, &memory).unwrap();
                 delta.after.canonical_bytes().unwrap().try_into().unwrap()
             };
-            (
-                record,
-                state_root_bytes,
-                key_hash.finalize(),
-                payload_hash.finalize(),
-            )
+            (record, metadata, state_root_bytes, key_hash.finalize())
         };
         drop(source);
         assert_eq!(memory.used(), 0);
@@ -198,30 +194,48 @@ fn original_large_key_and_ledger_payload_reopen_as_separate_authenticated_ranges
                 hash: blake3::Hasher::new(),
                 bytes: 0,
             };
-            let mut payload = HashOutput {
-                hash: blake3::Hasher::new(),
-                bytes: 0,
-            };
-            let info = read_member_record_v1(
+            let info = read_field_presence_v1(
                 &value_root,
                 &record.field_key,
                 &mut reader,
-                MemberRecordLimitsV1 {
+                PresenceRecordLimitsV1 {
                     semantic_bytes: 128 << 20,
-                    payload_bytes: 128 << 20,
-                    record_bytes: 192 << 20,
+                    record_bytes: 128 << 20,
                 },
                 &mut key,
-                &mut payload,
                 || false,
             )
             .unwrap();
             assert_eq!(info, record.info);
-            assert_eq!(info.codec, MemberPayloadCodecV1::Ledger);
+            assert_eq!(info.kind, WorldFieldRecordKindV1::Group);
             assert_eq!(key.bytes, info.semantic_bytes);
-            assert_eq!(payload.bytes, info.payload_bytes);
             assert_eq!(key.hash.finalize(), expected_key);
-            assert_eq!(payload.hash.finalize(), expected_payload);
+            let metadata_root = {
+                let _query = memory.reserve(512 << 10, class).unwrap();
+                StateRootV1::from_canonical_bytes(&state_root_bytes)
+                    .unwrap()
+                    .get(metadata.field_key.as_bytes(), &state_source)
+                    .unwrap()
+                    .unwrap()
+            };
+            let mut no_key = HashOutput {
+                hash: blake3::Hasher::new(),
+                bytes: 0,
+            };
+            let info = read_field_presence_v1(
+                &metadata_root,
+                &metadata.field_key,
+                &mut reader,
+                PresenceRecordLimitsV1 {
+                    semantic_bytes: 0,
+                    record_bytes: 1024,
+                },
+                &mut no_key,
+                || false,
+            )
+            .unwrap();
+            assert_eq!(info.kind, WorldFieldRecordKindV1::Metadata);
+            assert_eq!(no_key.bytes, 0);
         }
     }
 }

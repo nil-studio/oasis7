@@ -7006,6 +7006,7 @@ dependencies = [
  "oasis7_agent_api",
  "oasis7_cas",
  "oasis7_client_api",
+ "oasis7_distfs",
  "oasis7_formal_protocol",
  "oasis7_proto",
  "oasis7_wasm_abi",
