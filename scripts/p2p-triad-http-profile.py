@@ -5,6 +5,7 @@ The enclosing observability attempt owns ordering/publication. No raw producer
 DTO, endpoint, credentials or error body is saved in the report.
 """
 import argparse
+import asyncio
 import hashlib
 import http.client
 import importlib.util
@@ -28,6 +29,7 @@ TIMEOUT = 5
 CONTROLLED_CAP = 16 * 1024
 CONTROLLED_TIMEOUT = 6
 CONTROLLED_OWNER_TIMEOUT = 12
+CONTROLLED_OUTPUT_CAP = 64 * 1024
 START = "<!-- triad-profile-start -->"
 END = "<!-- triad-profile-end -->"
 
@@ -150,6 +152,56 @@ def project_owner_pair(value, position, record, received):
     return result
 
 
+
+async def _bounded_controlled_output(args, payload):
+    """Concurrent stdin/output, with a hard parent-side output and time cap."""
+    process = await asyncio.create_subprocess_exec(
+        *args, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL, limit=CONTROLLED_OUTPUT_CAP,
+    )
+
+    async def send_request():
+        try:
+            process.stdin.write(payload)
+            await process.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        finally:
+            process.stdin.close()
+
+    sender = asyncio.create_task(send_request())
+    try:
+        output = bytearray()
+        while True:
+            # Read at most one byte beyond the cap, even if the child floods
+            # stdout. asyncio pauses its pipe transport at the bounded limit.
+            chunk = await process.stdout.read(min(8192, CONTROLLED_OUTPUT_CAP + 1 - len(output)))
+            if not chunk:
+                break
+            output.extend(chunk)
+            if len(output) > CONTROLLED_OUTPUT_CAP:
+                return None, "output_limit"
+        await sender
+        if await process.wait() != 0:
+            return None, "controlled_observation_failed"
+        return bytes(output), "success"
+    finally:
+        sender.cancel()
+        if process.returncode is None:
+            process.kill()
+        await process.wait()
+        await asyncio.gather(sender, return_exceptions=True)
+
+
+def run_controlled_bounded(args, payload, timeout):
+    try:
+        return asyncio.run(asyncio.wait_for(_bounded_controlled_output(args, payload), timeout))
+    except asyncio.TimeoutError:
+        return None, "timeout"
+    except OSError:
+        return None, "invalid_status"
+
+
 def observe_controlled(runtime, pins):
     try:
         # The selected verifier is the operator's trusted shipping binary. Pins
@@ -159,18 +211,13 @@ def observe_controlled(runtime, pins):
         if owner is not None:
             args += ["--owner-config", owner]
         status_pins = {key: value for key, value in pins.items() if key != "owner_config"}
-        result = subprocess.run(
-            args, input=json.dumps(status_pins).encode("utf-8"), stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL, check=False,
-            timeout=CONTROLLED_OWNER_TIMEOUT if owner is not None else CONTROLLED_TIMEOUT,
+        output, result = run_controlled_bounded(
+            args, json.dumps(status_pins).encode("utf-8"),
+            CONTROLLED_OWNER_TIMEOUT if owner is not None else CONTROLLED_TIMEOUT,
         )
-        if result.returncode != 0:
-            return None, "controlled_observation_failed"
-        if len(result.stdout) > 64 * 1024:
-            return None, "output_limit"
-        status = json.loads(result.stdout.decode("utf-8"), object_pairs_hook=decode_object)
-    except subprocess.TimeoutExpired:
-        return None, "timeout"
+        if result != "success":
+            return None, result
+        status = json.loads(output.decode("utf-8"), object_pairs_hook=decode_object)
     except (OSError, ValueError, UnicodeError):
         return None, "invalid_status"
     if (not isinstance(status, dict)
