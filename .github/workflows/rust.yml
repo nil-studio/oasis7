@@ -3097,6 +3097,8 @@ jobs:
           SUPPORT_PARTITION: other
         run: |
           source scripts/ci-tests.sh
+          # The image has rustup on PATH, while Cargo installs tools under the job home.
+          export PATH="$PATH:${CARGO_HOME:-$HOME/.cargo}/bin"
           support_capacity_snapshot after-native-libraries
           bash ./scripts/ci-tests.sh required --group "workspace_support" --repo-root "$GITHUB_WORKSPACE" --support-plan-file "$RUNNER_TEMP/selection.json" --support-partition "$SUPPORT_PARTITION"
       - name: Observe support capacity on job exit
