@@ -16,7 +16,10 @@ use std::{
     fs,
     net::{TcpListener, TcpStream},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
