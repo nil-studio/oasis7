@@ -292,22 +292,24 @@ print(json.dumps(result))
         inventory = self.controlled_inventory_fixture()
         runtime = self.fixture.root / "fixture-status-verifier"
         original = runtime.read_bytes()
-        runtime.write_text('''#!/usr/bin/env python3
+        for output_bytes in (64 * 1024 + 1, 1024 * 1024):
+            with self.subTest(output_bytes=output_bytes):
+                runtime.write_text('''#!/usr/bin/env python3
 import sys
-sys.stdout.buffer.write(b"X" * (64 * 1024 + 1))
-''')
-        process = self.fixture.start(self.env, [
-            "--controlled-status-inventory", str(inventory),
-        ])
-        out, err = process.communicate(timeout=20)
-        self.assertEqual(process.returncode, 1, (out.decode(), err.decode()))
-        report = json.loads((self.fixture.out / "latest_summary.json").read_text())
-        node = report["nodes"]["local_node"]
-        self.assertEqual(node["profile_collection"]["result"], "output_limit")
-        self.assertFalse(node["profile_collection"]["complete"])
-        self.assertEqual(node["profile_readiness"]["status"], "unknown")
-        self.assertFalse(node["profile_readiness"]["can_propose"])
-        self.assertNotIn("XXXX", json.dumps(report))
+sys.stdout.buffer.write(b"X" * %d)
+''' % output_bytes)
+                process = self.fixture.start(self.env, [
+                    "--controlled-status-inventory", str(inventory),
+                ])
+                out, err = process.communicate(timeout=20)
+                self.assertEqual(process.returncode, 1, (out.decode(), err.decode()))
+                report = json.loads((self.fixture.out / "latest_summary.json").read_text())
+                node = report["nodes"]["local_node"]
+                self.assertEqual(node["profile_collection"]["result"], "output_limit")
+                self.assertFalse(node["profile_collection"]["complete"])
+                self.assertEqual(node["profile_readiness"]["status"], "unknown")
+                self.assertFalse(node["profile_readiness"]["can_propose"])
+                self.assertNotIn("XXXX", json.dumps(report))
 
         # A later valid observation uses the same configured consumer without
         # borrowing failed stdout or turning host diagnostics into authority.
