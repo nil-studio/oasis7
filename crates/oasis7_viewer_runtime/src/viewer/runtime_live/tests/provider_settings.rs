@@ -15,11 +15,11 @@ fn runtime_live_llm_timeout_defaults_to_configured_budget() {
     clear_runtime_provider_env();
 
     assert_eq!(
-        super::llm_sidecar::resolve_runtime_live_llm_timeout_ms(180_000),
+        super::control_plane::llm_sidecar::resolve_runtime_live_llm_timeout_ms(180_000),
         30_000
     );
     assert_eq!(
-        super::llm_sidecar::resolve_runtime_live_llm_timeout_ms(8_000),
+        super::control_plane::llm_sidecar::resolve_runtime_live_llm_timeout_ms(8_000),
         8_000
     );
 }
@@ -34,11 +34,11 @@ fn runtime_live_llm_timeout_respects_env_ceiling_without_expanding_budget() {
     }
 
     assert_eq!(
-        super::llm_sidecar::resolve_runtime_live_llm_timeout_ms(180_000),
+        super::control_plane::llm_sidecar::resolve_runtime_live_llm_timeout_ms(180_000),
         9_000
     );
     assert_eq!(
-        super::llm_sidecar::resolve_runtime_live_llm_timeout_ms(4_000),
+        super::control_plane::llm_sidecar::resolve_runtime_live_llm_timeout_ms(4_000),
         4_000
     );
 
