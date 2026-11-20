@@ -40,6 +40,9 @@ RUN curl -fsSL --retry 3 https://www.kernel.org/pub/software/scm/git/git-2.56.1.
     && make prefix=/usr/local NO_RUST=YesPlease NO_TCLTK=YesPlease NO_GETTEXT=YesPlease NO_PERL=YesPlease DESTDIR=/tmp/git-install install
 
 FROM build AS rust-build
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ruby \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=git-tools /tmp/git-install/usr/local/ /usr/local/
 ARG RUST_TOOLCHAIN
 ARG WASM_TOOLCHAIN
