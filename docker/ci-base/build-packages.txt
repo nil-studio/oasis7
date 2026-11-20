@@ -10,4 +10,5 @@ libxinerama-dev
 libxkbcommon-dev
 libxrandr-dev
 pkg-config
+procps
 wayland-protocols
