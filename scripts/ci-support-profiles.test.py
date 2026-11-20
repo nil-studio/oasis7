@@ -716,6 +716,9 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
                          set(re.findall(r'-p\s+([a-zA-Z0-9_]+)', legacy)) | {'oasis7_custody_worker', 'oasis7_dev_test_worker'})
         self.assertIn('run bash crates/oasis7_custody_worker/scripts/verify.sh --platform', legacy)
         self.assertIn('run_dev_test_worker_checks', legacy)
+        # The Linux worker's executable and process/FD/regex integration tests
+        # must run in the old full-inventory path, not just library tests.
+        self.assertIn('run_cargo test -p oasis7_wasm_executor --features wasmtime --all-targets --locked', legacy)
         plan = dict(groups=['workspace_support'], scope='full',
                     workspace_support_profile_version=1,
                     workspace_support_profiles=list(module.SUPPORT_PROFILES))
@@ -723,7 +726,7 @@ run_oasis7_workspace_support_crate_tests() { echo full-inventory; }
         self.assertEqual(result.returncode, 0, result.stderr)
         for profile in module.SUPPORT_PROFILES:
             self.assertIn('+ support profile completed: ' + profile, result.stdout)
-        for command in ['oasis7_wasm_executor --features wasmtime --lib',
+        for command in ['oasis7_wasm_executor --features wasmtime --all-targets --locked',
                         'oasis7_context --all-targets --locked',
                         'oasis7_secure_envelope --all-targets --locked',
                         'oasis7_local_signer --test context_cli --locked',
