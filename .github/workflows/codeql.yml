@@ -271,7 +271,7 @@ jobs:
         env:
           CODEQL_OVERLAY_DATABASE_MODE: ${{ steps.rust_tools.outcome == 'success' && 'none' || '' }}
         with:
-          tools: ${{ steps.rust_tools.outputs.tools_path }}
+          tools: ${{ matrix.language == 'actions' && '2.27.4' || steps.rust_tools.outputs.tools_path }} # Actions custom cache-mode query is validated against 2.27.4
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build_mode }}
           db-location: ${{ runner.temp }}/codeql_databases
