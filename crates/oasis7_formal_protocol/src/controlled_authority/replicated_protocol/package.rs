@@ -19,6 +19,7 @@ pub enum ArtifactRole {
     IncrementalRootSet,
     IncrementalCommitBody,
     IncrementalHistoryPrefix,
+    IncrementalRetentionLedger,
 }
 const ROLES: [ArtifactRole; 9] = [
     ArtifactRole::Input,
@@ -89,6 +90,39 @@ fn decode_references<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Strin
 fn decode_objects<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<ArtifactObject>, D::Error> {
     bounded_vec::<D, ArtifactObject, MAX_OBJECTS>(d)
 }
+trait PackageValidationOps {
+    type Error: From<ProtocolError>;
+    type Native: std::borrow::Borrow<crate::native_environment::NativeExecutionEnvironmentV1>;
+    fn work(&mut self, bytes: usize) -> Result<(), Self::Error>;
+    fn before_closure(&mut self, record: &ClosedRecord) -> Result<(), Self::Error>;
+    fn retention(&mut self, bytes: &[u8]) -> Result<(), Self::Error>;
+    fn native(&mut self, bytes: &[u8]) -> Result<Self::Native, Self::Error>;
+    fn hash(&mut self, bytes: &[u8]) -> Result<blake3::Hash, Self::Error>;
+}
+struct LegacyPackageOps;
+impl PackageValidationOps for LegacyPackageOps {
+    type Error = ProtocolError;
+    type Native = crate::native_environment::NativeExecutionEnvironmentV1;
+    fn work(&mut self, _: usize) -> Result<(), ProtocolError> {
+        Ok(())
+    }
+    fn before_closure(&mut self, _: &ClosedRecord) -> Result<(), ProtocolError> {
+        Ok(())
+    }
+    fn retention(&mut self, b: &[u8]) -> Result<(), ProtocolError> {
+        crate::incremental_retention::RetentionLedgerManifestV1::decode_with_work(b, &mut |_, _| {
+            Ok(())
+        })
+        .map(|_| ())
+        .map_err(|_| invalid("retention ledger descriptor codec"))
+    }
+    fn native(&mut self, b: &[u8]) -> Result<Self::Native, ProtocolError> {
+        crate::native_environment::NativeExecutionEnvironmentV1::decode(b).map_err(invalid)
+    }
+    fn hash(&mut self, b: &[u8]) -> Result<blake3::Hash, ProtocolError> {
+        Ok(blake3::hash(b))
+    }
+}
 impl ClosedRecord {
     /// Resolve an explicitly versioned Snapshot delta closure to its original
     /// canonical bytes. Legacy raw artifacts retain their exact representation.
@@ -129,22 +163,29 @@ impl ClosedRecord {
         &self,
     ) -> Result<Option<crate::native_environment::NativeExecutionEnvironmentV1>, ProtocolError>
     {
+        self.native_environment_with(&mut LegacyPackageOps)
+    }
+    fn native_environment_with<O: PackageValidationOps>(
+        &self,
+        ops: &mut O,
+    ) -> Result<Option<O::Native>, O::Error> {
+        ops.work(0)?;
         let Some(id) = self.roots.get(&ArtifactRole::NativeExecutionEnvironment) else {
             return Ok(None);
         };
-        let object = self
-            .objects
-            .iter()
-            .find(|object| &object.content_hash == id)
-            .ok_or_else(|| invalid("native descriptor object missing"))?;
-        if !object.references.is_empty() {
-            return Err(invalid(
-                "native external chunks are not embedded references",
-            ));
+        let mut found = None;
+        for object in &self.objects {
+            ops.work(object.content_hash.len().min(id.len()))?;
+            if &object.content_hash == id {
+                found = Some(object);
+                break;
+            }
         }
-        crate::native_environment::NativeExecutionEnvironmentV1::decode(&object.bytes)
-            .map(Some)
-            .map_err(invalid)
+        let object = found.ok_or_else(|| invalid("native descriptor object missing"))?;
+        if !object.references.is_empty() {
+            return Err(invalid("native external chunks are not embedded references").into());
+        }
+        ops.native(&object.bytes).map(Some)
     }
 
     /// Caller must supply an authorized, correctly executed record and declare
@@ -169,6 +210,9 @@ impl ClosedRecord {
     /// Snapshot/Journal package. Page trees are stored in the separate bounded
     /// IWS page store and are verified by the endpoint owner.
     pub fn validate_iws(&self) -> Result<(), ProtocolError> {
+        self.validate_iws_with(&mut LegacyPackageOps)
+    }
+    fn validate_iws_with<O: PackageValidationOps>(&self, ops: &mut O) -> Result<(), O::Error> {
         const IWS_ROLES: [ArtifactRole; 9] = [
             ArtifactRole::Input,
             ArtifactRole::IncrementalGenesisConfig,
@@ -180,70 +224,143 @@ impl ClosedRecord {
             ArtifactRole::Rules,
             ArtifactRole::NativeExecutionEnvironment,
         ];
+        ops.work(self.payload_digest.len())?;
         crypto::hash_hex(&self.payload_digest)?;
+        ops.work(self.before_state_root.len())?;
         crypto::hash_hex(&self.before_state_root)?;
+        ops.work(self.after_state_root.len())?;
         crypto::hash_hex(&self.after_state_root)?;
-        if self.roots.len() != IWS_ROLES.len()
-            || IWS_ROLES.iter().any(|role| !self.roots.contains_key(role))
-            || self.roots.get(&ArtifactRole::Input) != Some(&self.payload_digest)
+        if self.roots.len()
+            != IWS_ROLES.len()
+                + usize::from(
+                    self.roots
+                        .contains_key(&ArtifactRole::IncrementalRetentionLedger),
+                )
+            || {
+                let mut missing = false;
+                for role in IWS_ROLES {
+                    ops.work(0)?;
+                    if !self.roots.contains_key(&role) {
+                        missing = true;
+                        break;
+                    }
+                }
+                missing
+            }
+            || {
+                ops.work(
+                    self.payload_digest.len()
+                        + self.roots.get(&ArtifactRole::Input).map_or(0, String::len),
+                )?;
+                self.roots.get(&ArtifactRole::Input) != Some(&self.payload_digest)
+            }
         {
-            return Err(invalid("incremental record exact roles/input"));
+            return Err(invalid("incremental record exact roles/input").into());
         }
         for value in self.roots.values() {
+            ops.work(value.len())?;
             crypto::hash_hex(value)?;
         }
-        self.native_environment()?;
-        self.validate_object_closure()
+        if let Some(id) = self.roots.get(&ArtifactRole::IncrementalRetentionLedger) {
+            let mut selected = None;
+            for object in &self.objects {
+                ops.work(object.content_hash.len() + id.len())?;
+                if object.content_hash == *id {
+                    if selected.is_some() {
+                        return Err(invalid("duplicate retention ledger descriptor").into());
+                    }
+                    selected = Some(object);
+                }
+            }
+            let object = selected.ok_or_else(|| invalid("retention ledger descriptor missing"))?;
+            ops.retention(&object.bytes)?;
+        }
+        self.native_environment_with(ops)?;
+        self.validate_object_closure_with(ops)
     }
 
     fn validate_object_closure(&self) -> Result<(), ProtocolError> {
+        self.validate_object_closure_with(&mut LegacyPackageOps)
+    }
+    fn validate_object_closure_with<O: PackageValidationOps>(
+        &self,
+        ops: &mut O,
+    ) -> Result<(), O::Error> {
         if self.objects.is_empty() || self.objects.len() > MAX_OBJECTS {
-            return Err(invalid("record bounded objects"));
+            return Err(invalid("record bounded objects").into());
         }
+        ops.before_closure(self)?;
         let mut total = 0usize;
         let mut objects = BTreeMap::new();
         let mut previous: Option<&str> = None;
         for object in &self.objects {
+            ops.work(object.content_hash.len() * 2)?;
             crypto::hash_hex(&object.content_hash)?;
             if previous.is_some_and(|p| p >= object.content_hash.as_str()) {
-                return Err(invalid("objects must be strictly hash ordered"));
+                return Err(invalid("objects must be strictly hash ordered").into());
             }
             previous = Some(&object.content_hash);
             total = total
                 .checked_add(object.bytes.len())
                 .ok_or_else(|| invalid("byte overflow"))?;
             if total > MAX_RECORD_BYTES || object.references.len() > MAX_OBJECTS {
-                return Err(invalid("record byte/reference limit"));
+                return Err(invalid("record byte/reference limit").into());
             }
-            if blake3::hash(&object.bytes).to_hex().as_str() != object.content_hash {
-                return Err(invalid("artifact byte hash mismatch"));
+            if ops.hash(&object.bytes)?.to_hex().as_str() != object.content_hash {
+                return Err(invalid("artifact byte hash mismatch").into());
             }
             let mut last: Option<&str> = None;
             for reference in &object.references {
+                ops.work(reference.len() * 2)?;
                 crypto::hash_hex(reference)?;
                 if last.is_some_and(|p| p >= reference.as_str()) {
-                    return Err(invalid("references must be strictly ordered"));
+                    return Err(invalid("references must be strictly ordered").into());
                 }
                 last = Some(reference);
             }
+            ops.work(
+                object
+                    .content_hash
+                    .len()
+                    .saturating_mul(11)
+                    .saturating_mul((objects.len() + 1).ilog2() as usize + 1),
+            )?;
             objects.insert(object.content_hash.as_str(), object);
         }
+        ops.work(self.roots[&ArtifactRole::Input].len() + self.payload_digest.len())?;
         if self.roots[&ArtifactRole::Input] != self.payload_digest {
-            return Err(invalid("payload digest must identify complete input bytes"));
+            return Err(invalid("payload digest must identify complete input bytes").into());
         }
         let mut reached = BTreeSet::new();
-        let mut queue = self.roots.values().map(String::as_str).collect::<Vec<_>>();
+        let mut queue = Vec::with_capacity(self.roots.len());
+        for value in self.roots.values() {
+            ops.work(0)?;
+            queue.push(value.as_str());
+        }
         while let Some(hash) = queue.pop() {
+            ops.work(
+                hash.len()
+                    .saturating_mul(11)
+                    .saturating_mul((reached.len() + 1).ilog2() as usize + 1),
+            )?;
             if !reached.insert(hash) {
                 continue;
             }
+            ops.work(
+                hash.len()
+                    .saturating_mul(11)
+                    .saturating_mul((objects.len() + 1).ilog2() as usize + 1),
+            )?;
             let object = objects
                 .get(hash)
                 .ok_or_else(|| invalid("declared artifact missing"))?;
-            queue.extend(object.references.iter().map(String::as_str));
+            for reference in &object.references {
+                ops.work(0)?;
+                queue.push(reference.as_str());
+            }
         }
         if reached.len() != objects.len() {
-            return Err(invalid("unreachable undeclared artifact"));
+            return Err(invalid("unreachable undeclared artifact").into());
         }
         Ok(())
     }
@@ -252,3 +369,8 @@ impl ClosedRecord {
         self.objects.iter().map(|o| o.bytes.len()).sum()
     }
 }
+
+#[path = "package_bounded.rs"]
+mod bounded;
+
+pub use bounded::{BoundedIwsValidationErrorV1, PaidIwsValidationRefusalV1};

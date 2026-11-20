@@ -172,3 +172,202 @@ fn response_wire_and_request_hash_bind_exact_selection() {
     altered.response_nonce = "response-2".to_string();
     assert_ne!(first, capability_request_hash(&altered).unwrap());
 }
+
+fn catalog_entry() -> CapabilityCatalogEntry {
+    CapabilityCatalogEntry {
+        module_id: "module.weather".into(),
+        module_version: "1.0.0".into(),
+        namespace: "weather".into(),
+        command: "observe".into(),
+        schema_version: 1,
+        schema_hash: SCHEMA_HASH.into(),
+        max_payload_bytes: 128,
+        eligible_grant_ids: Vec::new(),
+    }
+}
+
+fn catalog() -> oasis7_wasm_abi::CapabilityCatalogSnapshot {
+    oasis7_wasm_abi::CapabilityCatalogSnapshot {
+        snapshot_id: "catalog".into(),
+        world_id: "world.test".into(),
+        world_head: 7,
+        branch_id: "branch-1".into(),
+        finality_epoch: 4,
+        logical_tick: 10,
+        module_registry_hash: "registry".into(),
+        policy_hash: "policy".into(),
+        revocation_epoch: 2,
+        subject: subject(),
+        presenter: presenter(),
+        audience: audience(),
+        entries: vec![catalog_entry()],
+        valid_until_tick: 20,
+    }
+}
+
+fn command_response() -> AgentCommandResponse {
+    AgentCommandResponse {
+        response_nonce: "response".into(),
+        subject: subject(),
+        presenter: presenter(),
+        audience: audience(),
+        catalog_snapshot_id: "catalog".into(),
+        selected_entry: catalog_entry(),
+        envelope: oasis7_wasm_abi::ModuleCommandEnvelope {
+            namespace: "weather".into(),
+            name: "observe".into(),
+            schema_version: 1,
+            schema_hash: SCHEMA_HASH.into(),
+            payload: b"{}".to_vec(),
+        },
+        provider_id: Some("provider-1".into()),
+        trace_id: Some("trace".into()),
+    }
+}
+
+#[test]
+fn all_fallible_validation_entries_preserve_the_host_error() {
+    macro_rules! check {
+        ($value:expr) => {{
+            let value = $value;
+            assert_eq!(
+                value
+                    .validate_with_fallible_work_v1(&mut |_, _| Ok::<_, u64>(()))
+                    .unwrap(),
+                value.validate()
+            );
+            let mut calls = 0;
+            let result = value.validate_with_fallible_work_v1(&mut |_, _| {
+                calls += 1;
+                Err(73_u64)
+            });
+            assert_eq!(result, Err(73));
+            assert_eq!(calls, 1);
+        }};
+    }
+    check!(subject());
+    check!(presenter());
+    check!(audience());
+    check!(grant().issuer);
+    check!(scope());
+    check!(grant());
+    check!(catalog_entry());
+    check!(catalog());
+    check!(command_response());
+}
+
+#[test]
+fn metered_validation_preserves_business_error_order_and_utf8_byte_debits() {
+    use oasis7_wasm_abi::CapabilityAuthorizationValidationError as Error;
+    let invalid = CapabilitySubject::Agent {
+        agent_id: " \n".into(),
+        owner_binding: String::new(),
+        generation: 0,
+    };
+    assert_eq!(
+        invalid
+            .validate_with_fallible_work_v1(&mut |_, _| Ok::<_, u64>(()))
+            .unwrap(),
+        Err(Error::EmptyField("subject.agent_id"))
+    );
+    let value = CapabilitySubject::Agent {
+        agent_id: "界".into(),
+        owner_binding: "αβ".into(),
+        generation: 1,
+    };
+    let mut charged = Vec::new();
+    value
+        .validate_with_fallible_work_v1(&mut |steps, bytes| {
+            charged.push((steps, bytes));
+            Ok::<_, u64>(())
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(charged, [(1, 0), (1, 3), (1, 4)]);
+    let mut invalid_grant = grant();
+    invalid_grant.grant_version = 3;
+    invalid_grant.grant_id.clear();
+    assert_eq!(
+        invalid_grant
+            .validate_with_fallible_work_v1(&mut |_, _| Ok::<_, u64>(()))
+            .unwrap(),
+        Err(Error::UnsupportedVersion(3))
+    );
+}
+
+#[test]
+fn metered_subset_refusal_never_becomes_a_business_mismatch() {
+    let mut parent = scope();
+    parent.entity_selector = Some(vec!["first".into(), "station-1".into()]);
+    let child = scope();
+    let mut total_calls = 0;
+    let accepted = parent
+        .contains_subset_with_fallible_work_v1(&child, &mut |_, _| {
+            total_calls += 1;
+            Ok::<_, u64>(())
+        })
+        .unwrap();
+    assert!(accepted);
+    assert!(total_calls > 2);
+    for stop in [0, total_calls - 1] {
+        let mut calls = 0;
+        let result = parent.contains_subset_with_fallible_work_v1(&child, &mut |_, _| {
+            calls += 1;
+            if calls > stop { Err(97_u64) } else { Ok(()) }
+        });
+        assert_eq!(result, Err(97));
+        assert_eq!(calls, stop + 1);
+    }
+    let mut missing = child;
+    missing.entity_selector = Some(vec!["absent".into()]);
+    assert!(
+        !parent
+            .contains_subset_with_fallible_work_v1(&missing, &mut |_, _| Ok::<_, u64>(()))
+            .unwrap()
+    );
+}
+
+#[test]
+fn borrowed_hash_preimages_keep_the_original_field_exclusions() {
+    use oasis7_wasm_abi::{canonical_hash, encode_canonical_cbor};
+    for optional_fields in [false, true] {
+        let mut value = grant();
+        value.issuer.issuer_id = "issuer/治理\0".into();
+        value.issuer.authority_rotation_receipt_id = optional_fields.then(|| "rotation/α".into());
+        value.parent_grant_id = optional_fields.then(|| "parent".into());
+        value.expires_at_tick = optional_fields.then_some(100);
+        // The original body excludes the grant identity and both signatures.
+        let mut expected = serde_json::to_value(&value).unwrap();
+        let fields = expected.as_object_mut().unwrap();
+        for field in ["grant_id", "canonical_body_hash", "issuance_signature"] {
+            fields.remove(field);
+        }
+        let issuer = fields.get_mut("issuer").unwrap().as_object_mut().unwrap();
+        issuer.remove("signature");
+        if !optional_fields {
+            issuer.remove("authority_rotation_receipt_id");
+        }
+        let borrowed = value.canonical_body_input_v1();
+        assert_eq!(serde_json::to_value(&borrowed).unwrap(), expected);
+        let expected_bytes = encode_canonical_cbor(&expected).unwrap();
+        assert_eq!(value.canonical_body_bytes().unwrap(), expected_bytes);
+        assert_eq!(encode_canonical_cbor(&borrowed).unwrap(), expected_bytes);
+        assert_eq!(
+            value.canonical_body_hash().unwrap(),
+            canonical_hash(&expected).unwrap()
+        );
+    }
+    let value = catalog();
+    let mut expected = serde_json::to_value(&value).unwrap();
+    expected.as_object_mut().unwrap().remove("snapshot_id");
+    let borrowed = value.canonical_hash_input_v1();
+    assert_eq!(serde_json::to_value(&borrowed).unwrap(), expected);
+    assert_eq!(
+        encode_canonical_cbor(&borrowed).unwrap(),
+        encode_canonical_cbor(&expected).unwrap()
+    );
+    assert_eq!(
+        value.canonical_hash().unwrap(),
+        canonical_hash(&expected).unwrap()
+    );
+}

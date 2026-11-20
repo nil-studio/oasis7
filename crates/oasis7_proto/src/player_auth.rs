@@ -115,43 +115,13 @@ pub fn verify_gameplay_action_auth_proof(
     request: &GameplayActionRequest,
     proof: &PlayerAuthProof,
 ) -> Result<VerifiedPlayerAuth, String> {
-    verify_proof_scheme(proof)?;
-    let request_player_id =
-        normalize_required_field(request.player_id.as_str(), "gameplay_action player_id")?;
-    let request_public_key = normalize_required_optional_public_key(
-        request.public_key.as_deref(),
-        "gameplay_action public_key",
-    )?;
-    let proof_player_id =
-        normalize_required_field(proof.player_id.as_str(), "auth proof player_id")?;
-    let proof_public_key =
-        normalize_public_key_field(proof.public_key.as_str(), "auth proof public key")?;
-    if request_player_id != proof_player_id {
-        return Err("auth proof player_id does not match request player_id".to_string());
-    }
-    if request_public_key != proof_public_key {
-        return Err("auth proof public_key does not match request public_key".to_string());
-    }
-    if proof.nonce == 0 {
-        return Err("auth nonce must be greater than zero".to_string());
-    }
-    let signing_payload = build_gameplay_action_signing_payload(
+    work::verify_gameplay_action_auth_proof_with_work_v1(
         request,
-        proof_player_id.as_str(),
-        proof_public_key.as_str(),
-        proof.nonce,
-    )?;
-    verify_player_auth_signature(
-        proof_public_key.as_str(),
-        proof.signature.as_str(),
-        signing_payload.as_slice(),
-    )?;
-    Ok(VerifiedPlayerAuth {
-        player_id: proof_player_id,
-        public_key: proof_public_key,
-        nonce: proof.nonce,
-        hosted_registration_nonce: None,
-    })
+        proof,
+        &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+    )
+    .map(work::PaidVerifiedPlayerAuthDataV1::into_legacy)
+    .map_err(work::legacy_error)
 }
 
 fn build_agent_chat_signing_payload(
@@ -160,36 +130,10 @@ fn build_agent_chat_signing_payload(
     public_key: &str,
     nonce: u64,
 ) -> Result<Vec<u8>, String> {
-    let intent_seq = match request.intent_seq {
-        Some(0) => {
-            return Err("agent_chat intent_seq must be greater than zero".to_string());
-        }
-        Some(value) => Some(value),
-        None => None,
-    };
-    let authority = normalize_agent_chat_authority(request)?;
-    let replaces_intent_id = normalize_optional_agent_chat_field(
-        request.replaces_intent_id.as_deref(),
-        "agent_chat replaces_intent_id",
-    )?;
-    let payload = AgentChatSigningPayload {
-        operation: "agent_chat",
-        agent_id: request.agent_id.as_str(),
-        player_id,
-        public_key,
-        nonce,
-        message: request.message.as_str(),
-        intent_tick: request.intent_tick,
-        intent_seq,
-        world_id: authority.as_ref().map(|(world_id, _, _)| world_id.as_str()),
-        reorg_epoch: authority.as_ref().map(|(_, reorg_epoch, _)| *reorg_epoch),
-        authority_scope: authority
-            .as_ref()
-            .map(|(_, _, authority_scope)| authority_scope.as_str()),
-        replaces_intent_id: replaces_intent_id.as_deref(),
-        canonical_authority: request.canonical_authority.as_ref(),
-    };
-    encode_signing_payload(payload)
+    let mut phase = work::Phase::new(&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1)
+        .map_err(work::legacy_error)?;
+    work::chat_payload(request, player_id, public_key, nonce, &mut phase)
+        .map_err(work::legacy_error)
 }
 
 fn normalize_agent_chat_authority(
@@ -213,53 +157,16 @@ fn normalize_agent_chat_authority(
     }
 }
 
-fn normalize_optional_agent_chat_field(
-    raw: Option<&str>,
-    label: &str,
-) -> Result<Option<String>, String> {
-    raw.map(|value| normalize_required_field(value, label))
-        .transpose()
-}
-
 fn build_gameplay_action_signing_payload(
     request: &GameplayActionRequest,
     player_id: &str,
     public_key: &str,
     nonce: u64,
 ) -> Result<Vec<u8>, String> {
-    let action_id =
-        normalize_required_field(request.action_id.as_str(), "gameplay_action action_id")?;
-    let target_agent_id = normalize_required_field(
-        request.target_agent_id.as_str(),
-        "gameplay_action target_agent_id",
-    )?;
-    let actor_agent_id = request
-        .actor_agent_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    let payload = GameplayActionSigningPayload {
-        operation: "gameplay_action",
-        action_id: action_id.as_str(),
-        target_agent_id: target_agent_id.as_str(),
-        actor_agent_id,
-        player_id,
-        public_key,
-        nonce,
-    };
-    encode_signing_payload(payload)
-}
-
-fn encode_signing_payload<T>(payload: T) -> Result<Vec<u8>, String>
-where
-    T: Serialize,
-{
-    let envelope = ViewerPlayerAuthSigningEnvelope {
-        version: VIEWER_PLAYER_AUTH_PAYLOAD_VERSION,
-        payload,
-        actor: None,
-    };
-    serde_cbor::to_vec(&envelope).map_err(|err| format!("encode auth payload failed: {err}"))
+    let mut phase = work::Phase::new(&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1)
+        .map_err(work::legacy_error)?;
+    work::gameplay_payload(request, player_id, public_key, nonce, &mut phase)
+        .map_err(work::legacy_error)
 }
 
 fn sign_player_auth_proof(
@@ -287,16 +194,11 @@ fn verify_player_auth_signature(
     signature: &str,
     signing_payload: &[u8],
 ) -> Result<(), String> {
-    let public_key_bytes = decode_hex_array::<32>(public_key_hex, "auth public key")?;
-    let signature_hex = signature
-        .strip_prefix(VIEWER_PLAYER_AUTH_SIGNATURE_V1_PREFIX)
-        .ok_or_else(|| "auth signature is not awviewauth:v1".to_string())?;
-    let signature_bytes = decode_hex_array::<64>(signature_hex, "auth signature")?;
-    let verifying_key = VerifyingKey::from_bytes(&public_key_bytes)
-        .map_err(|err| format!("parse auth public key failed: {err}"))?;
-    verifying_key
-        .verify(signing_payload, &Signature::from_bytes(&signature_bytes))
-        .map_err(|err| format!("verify auth signature failed: {err}"))
+    let mut phase = work::Phase::new(&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1)
+        .map_err(work::legacy_error)?;
+    phase
+        .verify_signature(public_key_hex, signature, signing_payload)
+        .map_err(work::legacy_error)
 }
 
 fn verify_proof_scheme(proof: &PlayerAuthProof) -> Result<(), String> {
@@ -370,3 +272,10 @@ fn decode_hex_array<const N: usize>(raw: &str, label: &str) -> Result<[u8; N], S
 
 mod agency_control;
 pub use agency_control::{sign_agency_control_auth_proof, verify_agency_control_auth_proof};
+
+pub(crate) mod work;
+pub use work::{
+    PaidPlayerAuthRefusalV1, PaidVerifiedPlayerAuthDataV1, PlayerAuthWorkErrorV1,
+    verify_agent_chat_auth_proof_with_work_v1, verify_collect_data_auth_proof_with_work_v1,
+    verify_gameplay_action_auth_proof_with_work_v1,
+};

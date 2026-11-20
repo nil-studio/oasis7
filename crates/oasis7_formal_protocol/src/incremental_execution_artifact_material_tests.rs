@@ -204,6 +204,90 @@ fn exact_manifest_catalog_and_original_allowances_bind_to_original_signed_core()
     drop(checked);
     assert_eq!(m.s.memory.used(), before);
 }
+
+#[test]
+fn metered_execution_artifacts_keep_signed_proof_and_continuing_common() {
+    use crate::controlled_authority::formal::bounded_context::FormalBoundedWorkV1;
+    let mut m = material(|_| {});
+    let common = FormalBoundedWorkV1::new(2_000_000, 256 << 20).unwrap();
+    let identity = common.identity();
+    let before = m.s.memory.used();
+    for _ in 0..2 {
+        common.charge(3, 5, &mut || false).unwrap();
+        let start = (common.remaining_steps(), common.remaining_read_bytes());
+        let mut quota = quota(&m);
+        let checked = verify_execution_artifacts_with_work(
+            &m.core,
+            &m.native,
+            ExecutionArtifactReadContext {
+                objects: &mut m.objects,
+                pages: &m.pages,
+                memory: &m.s.memory,
+            },
+            &mut quota,
+            &mut |steps, bytes| {
+                common
+                    .charge(steps, bytes, &mut || false)
+                    .map_err(|_| ExecutionError::ResourceLimited("test Common exhausted"))
+            },
+            || false,
+        )
+        .unwrap();
+        assert_eq!(checked.body_id(), m.s.history.body.digest().unwrap());
+        assert_eq!(checked.manifest_id(), m.core.execution_artifacts().manifest);
+        assert_eq!(checked.catalog_counts(), [1, 1]);
+        assert_eq!(checked.original_bytes(), 8 + m.manifest.policy.byte_len);
+        assert_eq!(
+            (
+                quota.structural.objects_remaining,
+                quota.structural.original_bytes_remaining,
+                quota.structural.merkle_reads_remaining,
+                quota.originals.objects_remaining,
+                quota.originals.bytes_remaining,
+            ),
+            (0, 0, 0, 0, 0)
+        );
+        assert!(common.remaining_steps() < start.0);
+        assert!(common.remaining_read_bytes() < start.1);
+        assert_eq!(common.identity(), identity);
+        drop(checked);
+        assert_eq!(m.s.memory.used(), before);
+    }
+}
+
+#[test]
+fn metered_execution_artifacts_reject_before_page_read_and_keep_original_work_error() {
+    let mut m = material(|_| {});
+    let mut quota = quota(&m);
+    let before = m.s.memory.used();
+    let reads = m.pages.reads.get();
+    let error = verify_execution_artifacts_with_work(
+        &m.core,
+        &m.native,
+        ExecutionArtifactReadContext {
+            objects: &mut m.objects,
+            pages: &m.pages,
+            memory: &m.s.memory,
+        },
+        &mut quota,
+        &mut |_, bytes| {
+            if bytes == ARTIFACT_MAX_PAGE_BYTES as u64 {
+                Err(ExecutionError::Aborted)
+            } else {
+                Ok(())
+            }
+        },
+        || false,
+    );
+    assert!(matches!(
+        error,
+        Err(CoreError::Execution(ExecutionError::Aborted))
+    ));
+    assert_eq!(m.pages.reads.get(), reads);
+    assert_eq!(m.s.memory.used(), before);
+    assert_eq!(quota.originals.objects_remaining, 2);
+    assert!(quota.structural.objects_remaining < 3);
+}
 #[test]
 fn signed_manifest_mismatches_do_not_pass_opaque_original_hash_checks() {
     for mode in 0..6 {

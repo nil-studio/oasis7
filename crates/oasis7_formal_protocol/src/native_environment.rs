@@ -56,71 +56,133 @@ fn hash(id: &str) -> Result<(), String> {
     }
     Ok(())
 }
+trait NativeValidationOps {
+    type Error;
+    type Decoded: std::borrow::Borrow<NativeExecutionEnvironmentV1>;
+    type Encoded: AsRef<[u8]>;
+    fn error(&mut self, note: &'static str) -> Self::Error;
+    fn work(&mut self, bytes: usize) -> Result<(), Self::Error>;
+    fn before_names(&mut self, components: usize) -> Result<(), Self::Error>;
+    fn decode(&mut self, bytes: &[u8]) -> Result<Self::Decoded, Self::Error>;
+    fn encode(
+        &mut self,
+        value: &NativeExecutionEnvironmentV1,
+    ) -> Result<Self::Encoded, Self::Error>;
+}
+struct LegacyNativeOps;
+impl NativeValidationOps for LegacyNativeOps {
+    type Error = String;
+    type Decoded = NativeExecutionEnvironmentV1;
+    type Encoded = Vec<u8>;
+    fn error(&mut self, n: &'static str) -> String {
+        n.into()
+    }
+    fn work(&mut self, _: usize) -> Result<(), String> {
+        Ok(())
+    }
+    fn before_names(&mut self, _: usize) -> Result<(), String> {
+        Ok(())
+    }
+    fn decode(&mut self, b: &[u8]) -> Result<Self::Decoded, String> {
+        serde_cbor::from_slice(b).map_err(|e| e.to_string())
+    }
+    fn encode(&mut self, v: &NativeExecutionEnvironmentV1) -> Result<Vec<u8>, String> {
+        serde_cbor::to_vec(v).map_err(|e| e.to_string())
+    }
+}
 impl NativeExecutionEnvironmentV1 {
     pub fn validate(&self) -> Result<(), String> {
+        self.validate_with(&mut LegacyNativeOps)
+    }
+    fn validate_with<O: NativeValidationOps>(&self, ops: &mut O) -> Result<(), O::Error> {
+        ops.work(0)?;
         if self.schema_version != 1 || self.components.is_empty() || self.components.len() > 256 {
-            return Err("native descriptor schema/component count".into());
+            return Err(ops.error("native descriptor schema/component count"));
         }
         for value in [&self.target, &self.os, &self.arch] {
+            ops.work(value.len())?;
             if value.is_empty() || value.len() > 256 {
-                return Err("native platform metadata".into());
+                return Err(ops.error("native platform metadata"));
             }
         }
+        ops.before_names(self.components.len())?;
         let mut names = BTreeSet::new();
         let mut total = 0u64;
         let mut executable = 0;
         let mut metadata = false;
         for component in &self.components {
+            ops.work(
+                component
+                    .name
+                    .len()
+                    .saturating_mul(11)
+                    .saturating_mul((names.len() + 1).ilog2() as usize + 1),
+            )?;
             if component.name.is_empty()
                 || component.name.len() > 4096
                 || !names.insert(&component.name)
                 || component.chunks.is_empty()
                 || component.chunks.len() > 4096
             {
-                return Err("native component name/chunk count".into());
+                return Err(ops.error("native component name/chunk count"));
             }
-            hash(&component.content_digest)?;
+            ops.work(component.content_digest.len())?;
+            hash(&component.content_digest).map_err(|_| ops.error("native content hash"))?;
             executable += usize::from(component.role == NativeEnvironmentRole::Executable);
             metadata |= component.role == NativeEnvironmentRole::BuildMetadata;
             let mut size = 0u64;
             for (index, chunk) in component.chunks.iter().enumerate() {
-                hash(&chunk.digest)?;
+                ops.work(chunk.digest.len())?;
+                hash(&chunk.digest).map_err(|_| ops.error("native content hash"))?;
                 if chunk.byte_len == 0
                     || chunk.byte_len as usize > MAX_NATIVE_CHUNK_BYTES
                     || (index + 1 < component.chunks.len()
                         && chunk.byte_len as usize != MAX_NATIVE_CHUNK_BYTES)
                 {
-                    return Err("native chunk length".into());
+                    return Err(ops.error("native chunk length"));
                 }
                 size = size
                     .checked_add(chunk.byte_len as u64)
-                    .ok_or("native size overflow")?;
+                    .ok_or_else(|| ops.error("native size overflow"))?;
             }
             if size != component.byte_len {
-                return Err("native component length".into());
+                return Err(ops.error("native component length"));
             }
-            total = total.checked_add(size).ok_or("native total overflow")?;
+            total = total
+                .checked_add(size)
+                .ok_or_else(|| ops.error("native total overflow"))?;
         }
         if executable != 1 || !metadata || total > MAX_NATIVE_ENVIRONMENT_BYTES {
-            return Err("native executable/build metadata/environment budget".into());
+            return Err(ops.error("native executable/build metadata/environment budget"));
         }
-        if serde_cbor::to_vec(self).map_err(|e| e.to_string())?.len() > MAX_NATIVE_DESCRIPTOR_BYTES
-        {
-            return Err("native descriptor byte budget".into());
+        if ops.encode(self)?.as_ref().len() > MAX_NATIVE_DESCRIPTOR_BYTES {
+            return Err(ops.error("native descriptor byte budget"));
         }
         Ok(())
     }
     pub fn encode(&self) -> Result<Vec<u8>, String> {
-        self.validate()?;
-        serde_cbor::to_vec(self).map_err(|e| e.to_string())
+        self.encode_with(&mut LegacyNativeOps)
+    }
+    fn encode_with<O: NativeValidationOps>(&self, ops: &mut O) -> Result<O::Encoded, O::Error> {
+        self.validate_with(ops)?;
+        ops.encode(self)
     }
     pub fn decode(bytes: &[u8]) -> Result<Self, String> {
+        Self::decode_with(bytes, &mut LegacyNativeOps)
+    }
+    fn decode_with<O: NativeValidationOps>(
+        bytes: &[u8],
+        ops: &mut O,
+    ) -> Result<O::Decoded, O::Error> {
+        use std::borrow::Borrow;
         if bytes.len() > MAX_NATIVE_DESCRIPTOR_BYTES {
-            return Err("native descriptor byte budget".into());
+            return Err(ops.error("native descriptor byte budget"));
         }
-        let value: Self = serde_cbor::from_slice(bytes).map_err(|e| e.to_string())?;
-        if value.encode()? != bytes {
-            return Err("noncanonical native descriptor".into());
+        let value = ops.decode(bytes)?;
+        let encoded = value.borrow().encode_with(ops)?;
+        ops.work(encoded.as_ref().len().min(bytes.len()))?;
+        if encoded.as_ref() != bytes {
+            return Err(ops.error("noncanonical native descriptor"));
         }
         Ok(value)
     }
@@ -240,3 +302,9 @@ mod tests {
 #[path = "native_environment_verification.rs"]
 mod verification;
 pub use verification::*;
+
+#[path = "native_environment_bounded.rs"]
+mod bounded;
+pub(crate) use bounded::{
+    NativeBoundedError, NativeCodecRefusal, decode_native_environment_bounded,
+};
