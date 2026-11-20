@@ -54,7 +54,7 @@ pub(super) fn run<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
             super::super::controlled_live_config::require_private_owned(&path, false)?;
             let policy = &prepared.config().policy;
             let bytes =
-                super::controlled_history_cli::read_bounded(&path, policy.max_status_bytes)?;
+                super::super::controlled_history_cli::read_bounded(&path, policy.max_status_bytes)?;
             AuthenticatedBftCheckpointIssuerStatusV1::decode(&bytes, policy, &pin)
         })
         .transpose()?;
