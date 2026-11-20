@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import sys
 import tarfile
+import tempfile
 import threading
 import shutil
 import signal
@@ -105,10 +106,15 @@ def select(manifest, group, scale=10):
     return entries
 
 
-def pack(bundle, destination):
-    manifest, _ = artifacts.load(bundle)
-    if manifest['scope'] != 'storage' or manifest.get('selection') is not None:
-        raise ValueError('expected complete storage producer bundle')
+def pack(bundle, destination, component=None):
+    if component is None:
+        manifest, _ = artifacts.load(bundle)
+        if manifest['scope'] != 'storage' or manifest.get('selection') is not None:
+            raise ValueError('expected complete storage producer bundle')
+    else:
+        manifest = json.loads((bundle / 'manifest.json').read_text())
+        if manifest.get('scope') != component or manifest.get('storage_component_version') != 1:
+            raise ValueError('unexpected storage component bundle')
     files = [('manifest.json', None)]
     files.extend((entry['path'], entry['sha256']) for entry in manifest['binaries'].values())
     files.extend(manifest['libraries'].items())
@@ -117,6 +123,35 @@ def pack(bundle, destination):
         for name, sha in files:
             path = artifacts.checked_file(bundle, name, sha) if sha else bundle / name
             archive.add(path, arcname=name, recursive=False)
+
+
+def merge(component_directory, bundle):
+    components = artifacts.STORAGE_COMPONENTS
+    archives = {name: component_directory / ('component-' + name) / (name + '.tar.gz') for name in components}
+    if {entry.name for entry in component_directory.iterdir()} != {path.parent.name for path in archives.values()}:
+        raise ValueError('unexpected or incomplete Storage component archives')
+    with tempfile.TemporaryDirectory(dir=bundle.parent, prefix='storage-components-') as temporary:
+        sources = {}
+        for name, archive in archives.items():
+            source = Path(temporary) / name
+            source.mkdir()
+            with tarfile.open(archive, 'r:gz') as payload:
+                seen = set()
+                for member in payload:
+                    path = Path(member.name)
+                    if (not member.isfile() or member.name in seen or path.as_posix() != member.name
+                            or not (member.name == 'manifest.json' or
+                                    len(path.parts) == 2 and path.parts[0] in ('bin', 'lib'))):
+                        raise ValueError('invalid Storage component archive member')
+                    seen.add(member.name)
+                    payload.extract(member, source, filter='data')
+            manifest = json.loads((source / 'manifest.json').read_text())
+            expected = {'manifest.json', *(entry['path'] for entry in manifest['binaries'].values()),
+                        *manifest['libraries']}
+            if seen != expected:
+                raise ValueError('Storage component archive does not match its manifest')
+            sources[name] = source
+        artifacts.merge_storage(sources, bundle)
 
 
 class MemorySampler:
@@ -345,7 +380,7 @@ def summarize(directory, expected, needs=None):
     if len(labels) != len(set(labels)) or set(labels) != set(expected) or len(expected) != len(set(expected)):
         raise ValueError('missing, duplicate or unexpected acceptance result')
     if needs is not None:
-        if set(needs) != {'build', 'verify', 'capacity-long', 'full-node-long'}:
+        if set(needs) != {'build', 'merge', 'verify', 'capacity-long', 'full-node-long'}:
             raise ValueError('missing or unexpected acceptance job')
         long_selected = any(label in ('capacity-1000', 'capacity-10000') for label in expected)
         for name, job in needs.items():
@@ -382,8 +417,10 @@ def summarize(directory, expected, needs=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('build', 'pack', 'run', 'summarize'))
+    parser.add_argument('action', choices=('build', 'pack', 'merge', 'run', 'summarize'))
     parser.add_argument('--bundle', type=Path)
+    parser.add_argument('--component', choices=artifacts.STORAGE_COMPONENTS)
+    parser.add_argument('--component-directory', type=Path)
     parser.add_argument('--output', type=Path)
     parser.add_argument('--results-dir', type=Path)
     parser.add_argument('--group', choices=GROUPS)
@@ -397,9 +434,13 @@ def main():
     if args.timeout_seconds is not None and not 1 <= args.timeout_seconds <= 21600:
         parser.error('--timeout-seconds must be between 1 and 21600')
     if args.action == 'build':
-        artifacts.build(args.bundle.resolve(), 'storage')
+        artifacts.build(args.bundle.resolve(), args.component or 'storage')
     elif args.action == 'pack':
-        pack(args.bundle.resolve(), args.output)
+        pack(args.bundle.resolve(), args.output, args.component)
+    elif args.action == 'merge':
+        if not args.component_directory or not args.bundle:
+            parser.error('merge requires --component-directory and --bundle')
+        merge(args.component_directory.resolve(), args.bundle.resolve())
     elif args.action == 'run':
         if not args.group or not args.results_dir:
             parser.error('run requires --group and --results-dir')

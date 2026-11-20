@@ -60,6 +60,44 @@ class Contracts(unittest.TestCase):
         self.assertIn(variable + ": ${{ matrix.group == 'full-node' && '1' || '' }}", step)
         self.assertIn('python3 scripts/ci-storage-acceptance.py run', step)
 
+    def test_storage_components_preserve_every_exact_build_variant_and_profile(self):
+        native = acceptance.artifacts
+        components = native.STORAGE_COMPONENTS
+        scopes = [variant for component in components for variant in native.build_variants(component)]
+        self.assertEqual(scopes, native.build_variants('storage'))
+        for component in components:
+            self.assertEqual(native.build_environment(component), native.build_environment('storage'))
+            with self.assertRaisesRegex(ValueError, 'partial Storage component'):
+                native.complete_bundle_scope({'scope': component})
+
+    def test_storage_merge_requires_exact_archive_members(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            payload = root / 'payload'
+            payload.write_text('executable')
+            manifest = root / 'manifest.json'
+            manifest.write_text(json.dumps({'binaries': {'fixture': {'path': 'bin/fixture'}}, 'libraries': {}}))
+            inputs = root / 'parts'
+            for name in acceptance.artifacts.STORAGE_COMPONENTS:
+                directory = inputs / ('component-' + name)
+                directory.mkdir(parents=True)
+                with tarfile.open(directory / (name + '.tar.gz'), 'w:gz') as archive:
+                    archive.add(manifest, arcname='manifest.json')
+                    archive.add(payload, arcname='bin/fixture')
+            output = root / 'bundle'
+            with patch.object(acceptance.artifacts, 'merge_storage') as merge:
+                acceptance.merge(inputs, output)
+                self.assertEqual(set(merge.call_args.args[0]), set(acceptance.artifacts.STORAGE_COMPONENTS))
+                self.assertEqual(merge.call_args.args[1], output)
+            name = next(iter(acceptance.artifacts.STORAGE_COMPONENTS))
+            with tarfile.open(inputs / ('component-' + name) / (name + '.tar.gz'), 'w:gz') as archive:
+                archive.add(manifest, arcname='manifest.json')
+                archive.add(payload, arcname='bin/fixture')
+                archive.add(payload, arcname='bin/extra')
+            with self.assertRaisesRegex(ValueError, 'archive does not match its manifest'):
+                acceptance.merge(inputs, output)
+            self.assertFalse(output.exists())
+
     def test_storage_build_optimizes_native_tests_without_disabling_checks(self):
         with patch.dict(os.environ, {'RUSTC_WRAPPER': 'untrusted-wrapper',
                                    'CARGO_PROFILE_TEST_DEBUG_ASSERTIONS': 'false'}):
@@ -249,7 +287,7 @@ class Contracts(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / 'summary.json').write_text(json.dumps(self.report()))
-            needs = {name: {'result': 'success'} for name in ('build', 'verify')}
+            needs = {name: {'result': 'success'} for name in ('build', 'merge', 'verify')}
             needs['capacity-long'] = {'result': 'skipped'}
             needs['full-node-long'] = {'result': 'skipped'}
             self.assertTrue(acceptance.summarize(root, ['units'], needs)['passed'])

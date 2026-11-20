@@ -1211,6 +1211,12 @@ def resolve_shards(config, suites):
 
 
 FORMAL_COMPONENTS = ('formal-debug', 'formal-endpoint')
+STORAGE_COMPONENTS = {
+    'storage-required': ('formal-required',),
+    'storage-executables': ('runtime', 'endpoint'),
+    'storage-tests': ('distfs-tests', 'storage-libs'),
+}
+BUILD_COMPONENTS = (*FORMAL_COMPONENTS, *STORAGE_COMPONENTS)
 
 
 def build_variants(scope, plan=None, ordinary_partition=None):
@@ -1253,7 +1259,7 @@ def build_variants(scope, plan=None, ordinary_partition=None):
             return (selected + target_build_variants(ordinary_full_fast_targets(plan), 'required-full-fast-')
                     + target_build_variants(ordinary_risk_supplements(plan), 'required-risk-'))
         return [v for v in variants if v[0] in ('viewer', 'required', 'snapshot-tests', 'viewer-snapshot-tests')]
-    if scope in ('formal', 'storage', *FORMAL_COMPONENTS):
+    if scope in ('formal', 'storage', *BUILD_COMPONENTS):
         # Keep both core libraries and the exact Chain binary harness. Chain
         # configuration library tests belong to the ordinary required variant;
         # integration tests, viewer executables and snapshot variants run elsewhere.
@@ -1265,10 +1271,10 @@ def build_variants(scope, plan=None, ordinary_partition=None):
         result = [core, *(v for v in variants if v[0] in ('runtime', 'endpoint', 'distfs-tests'))]
         if scope in FORMAL_COMPONENTS:
             return [variant for variant in result if (variant[0] == 'endpoint') == (scope == 'formal-endpoint')]
-        if scope == 'storage':
+        if scope == 'storage' or scope in STORAGE_COMPONENTS:
             result.append(('storage-libs', ['test', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol',
                 '-p', 'oasis7_runtime', '-p', 'oasis7_world_state', '-p', 'oasis7_world_projection', '-p', 'oasis7_world_service', '--lib', '--no-run'], []))
-        return result
+        return [v for v in result if v[0] in STORAGE_COMPONENTS[scope]] if scope in STORAGE_COMPONENTS else result
     raise ValueError('unknown build scope: ' + scope)
 
 
@@ -1295,9 +1301,11 @@ def artifact_logical_name(variant, package, target, test):
 
 
 def build_environment(scope):
+    if scope in STORAGE_COMPONENTS:
+        scope = 'storage'
     env = dict(os.environ)
     env.pop('RUSTC_WRAPPER', None)
-    if scope in ('formal', 'storage', *FORMAL_COMPONENTS):
+    if scope in ('formal', 'storage', *BUILD_COMPONENTS):
         # Formal keeps the original cheap debug profile. Optimizing its entire
         # dependency graph and large test harnesses greatly increases cold cost.
         # Storage retains its established profile; release endpoint is separate.
@@ -1328,6 +1336,8 @@ def build_cache_dependencies(scope):
 
 
 def validate_profile(logical, binary, scope=None):
+    if scope in STORAGE_COMPONENTS:
+        scope = 'storage'
     if logical == 'endpoint':
         profile = binary['profile']
         if (binary['target'] != 'oasis7_durability_endpoint' or binary['test']
@@ -1536,6 +1546,7 @@ def shared_incremental_duplicate(manifest):
 
 def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir=None, ordinary_partition=None):
     validate_plan_identity(plan)
+    image = storage_build_image() if scope in STORAGE_COMPONENTS else None
     if ordinary_partition is not None:
         if scope != 'ordinary':
             raise ValueError('ordinary partition requires ordinary build scope')
@@ -1700,10 +1711,14 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
         if shared_incremental_duplicate(manifest) is None:
             del manifest['ordinary_shared_incremental']
     config = formal_configuration()
-    component = scope in FORMAL_COMPONENTS
+    component = scope in BUILD_COMPONENTS
     manifest['suites'] = resolve_suites(config, binaries) if scope != 'ordinary' and not component else {}
     if component:
-        manifest['formal_component_version'] = 1
+        if scope in STORAGE_COMPONENTS:
+            manifest['storage_component_version'] = 1
+            manifest['image'] = image
+        else:
+            manifest['formal_component_version'] = 1
         manifest['compiler_environment'] = compiler_environment(env)
     elif scope == 'formal':
         manifest['formal_execution_version'] = 1
@@ -1737,6 +1752,8 @@ def complete_bundle_scope(manifest):
         return  # Original manifests predate named scopes and execute serially.
     if scope in FORMAL_COMPONENTS:
         raise ValueError('partial Formal component must be validated and merged before consumption')
+    if scope in STORAGE_COMPONENTS:
+        raise ValueError('partial Storage component must be validated and merged before consumption')
     if scope not in ('all', 'ordinary', 'formal', 'storage'):
         raise ValueError('unknown native bundle scope')
     if 'formal_execution_version' in manifest and type(manifest['formal_execution_version']) is not int:
@@ -1782,8 +1799,25 @@ def formal_component_targets(scope):
     return expected
 
 
+def storage_build_image():
+    image = os.environ.get('STORAGE_BUILD_IMAGE', '')
+    if not re.fullmatch(r'ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:[0-9a-f]{64}', image):
+        raise ValueError('storage build requires a fixed Rust image digest')
+    return image
+
+
 def merge_formal(debug, endpoint, bundle, plan=None):
-    """Join two complete build roles only after validating every input artifact."""
+    merge_components(dict(zip(FORMAL_COMPONENTS, (debug, endpoint))), bundle, 'formal', plan)
+
+
+def merge_storage(sources, bundle):
+    if set(sources) != set(STORAGE_COMPONENTS):
+        raise ValueError('incomplete Storage component set')
+    merge_components({name: sources[name] for name in STORAGE_COMPONENTS}, bundle, 'storage')
+
+
+def merge_components(sources, bundle, output_scope, plan=None):
+    """Join complete build roles only after validating every input artifact."""
     validate_plan_identity(plan)
     configuration = formal_configuration()
     tested = output(['git', 'rev-parse', 'HEAD'])
@@ -1793,17 +1827,20 @@ def merge_formal(debug, endpoint, bundle, plan=None):
         rust_toolchain=os.environ.get('RUST_TOOLCHAIN', 'local'), rustc_version=output(['rustc', '--version']),
         target_triple=output(['rustc', '-vV']).split('host: ')[1].splitlines()[0],
         runner_image=os.environ.get('ImageOS', sys.platform), execution_plan=fast_plan(plan),
-        compiler_environment=compiler_environment(build_environment('formal')))
+        compiler_environment=compiler_environment(build_environment(output_scope)))
+    component_version = output_scope + '_component_version'
+    if output_scope == 'storage':
+        identity['image'] = storage_build_image()
     current_attempt = os.environ.get('GITHUB_RUN_ATTEMPT', '1')
     if not re.fullmatch(r'[1-9][0-9]*', current_attempt):
         raise ValueError('invalid current producer attempt')
     binaries, libraries, components, timings, inputs, component_names = {}, {}, {}, {}, {}, {}
-    for scope, source in zip(FORMAL_COMPONENTS, (debug, endpoint)):
+    for scope, source in sources.items():
         source = Path(source)
         manifest_path = ProviderArtifact.checked(source, 'manifest.json')
         manifest = json.loads(manifest_path.read_text())
-        if (manifest.get('scope') != scope or type(manifest.get('formal_component_version')) is not int
-                or manifest['formal_component_version'] != 1 or manifest.get('selection') is not None
+        if (manifest.get('scope') != scope or type(manifest.get(component_version)) is not int
+                or manifest[component_version] != 1 or manifest.get('selection') is not None
                 or manifest.get('suites') != {}):
             raise ValueError('invalid Formal component role or completeness')
         for key, expected in identity.items():
@@ -1870,17 +1907,19 @@ def merge_formal(debug, endpoint, bundle, plan=None):
     # Validate the entire minimum inventory before listing or copying any binary.
     suites = resolve_suites(configuration, binaries)
     resolve_shards(configuration, suites)
-    for scope, source in zip(FORMAL_COMPONENTS, (debug, endpoint)):
+    for scope, source in sources.items():
         env = dict(os.environ, LD_LIBRARY_PATH=str(Path(source) / 'lib') + os.pathsep + os.environ.get('LD_LIBRARY_PATH', ''))
         for logical in component_names[scope]:
             entry = binaries[logical]
             if entry['test'] and (inventory(inputs[entry['path']][0], env=env) != entry['tests']
                     or inventory(inputs[entry['path']][0], True, env) != entry['ignored_tests']):
                 raise ValueError('Formal component actual test inventory mismatch')
-    manifest = dict(identity, scope='formal', producer_attempt=current_attempt,
-        formal_execution_version=1, components=components, binaries=binaries, libraries=libraries,
+    manifest = dict(identity, scope=output_scope, producer_attempt=current_attempt,
+        components=components, binaries=binaries, libraries=libraries,
         suites=suites, included_binaries=sorted(binaries), selection=None,
-        build_timings=[timings[name] for name, _, _ in build_variants('formal')])
+        build_timings=[timings[name] for name, _, _ in build_variants(output_scope)])
+    if output_scope == 'formal':
+        manifest['formal_execution_version'] = 1
     # Partial and corrupt inputs leave no consumable output. Never share mutable
     # Cargo targets between the two producers or hardlink their input artifacts.
     for path, sha in inputs.values():
@@ -1898,7 +1937,7 @@ def merge_formal(debug, endpoint, bundle, plan=None):
     except BaseException:
         shutil.rmtree(bundle)
         raise
-    print('formal_merge=' + json.dumps(dict(components=components, binaries=len(binaries),
+    print(output_scope + '_merge=' + json.dumps(dict(components=components, binaries=len(binaries),
                                            cases=sum(len(entries) for entries in suites.values()))), flush=True)
 
 
