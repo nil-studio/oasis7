@@ -73,13 +73,32 @@ pub(crate) fn private_file(path: &Path) -> Result<File, String> {
     super::super::controlled_live_config::require_private_owned(path, false)?;
     Ok(file)
 }
+// The path preflight is not atomic with open. Recheck the opened descriptor
+// after refusing replacement leaf symlinks and nonregular files.
+fn open_checked_regular(path: &Path) -> Result<File, String> {
+    open_checked_regular_with(path, || {})
+}
+
+fn open_checked_regular_with(path: &Path, after_preflight: impl FnOnce()) -> Result<File, String> {
+    let path = regular(path)?;
+    after_preflight();
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    let file = options.open(&path).map_err(|e| e.to_string())?;
+    if !file.metadata().map_err(|e| e.to_string())?.is_file() {
+        return Err(format!("not a regular file: {}", path.display()));
+    }
+    Ok(file)
+}
+
 pub(crate) fn read<T: DeserializeOwned>(path: &Path) -> Result<T, String> {
     read_bounded_json(path, MAX_JSON)
 }
 pub(super) fn read_bounded_json<T: DeserializeOwned>(path: &Path, limit: u64) -> Result<T, String> {
     let limit_plus_probe = limit.checked_add(1).ok_or("invalid node metadata size limit")?;
-    let path = regular(path)?;
-    let file = File::open(path).map_err(|e| e.to_string())?;
+    let file = open_checked_regular(path)?;
     if file.metadata().map_err(|e| e.to_string())?.len() > limit {
         return Err("node metadata size limit".into());
     }
@@ -120,8 +139,7 @@ pub(super) fn write_bounded_json<T: Serialize>(path: &Path, value: &T, limit: u6
     result
 }
 pub(crate) fn sha256(path: &Path) -> Result<String, String> {
-    let path = regular(path)?;
-    let mut file = File::open(path).map_err(|e| e.to_string())?;
+    let mut file = open_checked_regular(path)?;
     let mut hash = Sha256::new();
     let mut buffer = [0u8; 64 * 1024];
     loop {
@@ -147,4 +165,62 @@ pub(crate) fn sync_dir(path: &Path) -> Result<(), String> {
     File::open(path)
         .and_then(|f| f.sync_all())
         .map_err(|e| e.to_string())
+}
+
+#[cfg(all(test, unix))]
+mod regular_open_tests {
+    use super::*;
+    use std::ffi::CString;
+    use std::os::unix::{ffi::OsStrExt, fs::symlink};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn rejects_symlink_and_fifo_swaps_after_path_preflight() {
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "oasis7-node-read-open-{}-{nonce}", std::process::id()
+        ));
+        fs::create_dir(&root).unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let original = root.join("operation.json");
+        let replacement = root.join("replacement.json");
+        fs::write(&original, b"{}").unwrap();
+        fs::write(&replacement, b"{\"untrusted\":true}").unwrap();
+
+        let err = open_checked_regular_with(&original, || {
+            fs::remove_file(&original).unwrap();
+            symlink(&replacement, &original).unwrap();
+        })
+        .err()
+        .expect("a symlink replacement after preflight must be rejected");
+        assert!(
+            err.contains("symbolic") || err.contains("symlink")
+                || err.contains("Too many levels"),
+            "unexpected error: {err}"
+        );
+
+        fs::remove_file(&original).unwrap();
+        fs::write(&original, b"{}").unwrap();
+        let err = open_checked_regular_with(&original, || {
+            fs::remove_file(&original).unwrap();
+            let path = CString::new(original.as_os_str().as_bytes()).unwrap();
+            assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0);
+        })
+        .err()
+        .expect("a FIFO substituted without a writer must not block");
+        assert!(err.contains("not a regular file"), "unexpected error: {err}");
+
+        fs::remove_file(&original).unwrap();
+        fs::write(&original, b"{}").unwrap();
+        let mut file = open_checked_regular(&original).unwrap();
+        let mut contents = String::new();
+        file.read_to_string(&mut contents).unwrap();
+        assert_eq!(contents, "{}");
+    }
 }
