@@ -81,14 +81,27 @@ fn open_checked_regular(path: &Path) -> Result<File, String> {
 
 fn open_checked_regular_with(path: &Path, after_preflight: impl FnOnce()) -> Result<File, String> {
     let path = regular(path)?;
+    // An attacker can replace a checked regular file with another regular
+    // file as well as with a symlink/FIFO. Bind the open handle to the file
+    // identity checked just before opening, without trusting the pathname.
+    #[cfg(unix)]
+    let before = fs::metadata(&path).map_err(|e| e.to_string())?;
     after_preflight();
     let mut options = OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
     options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     let file = options.open(&path).map_err(|e| e.to_string())?;
-    if !file.metadata().map_err(|e| e.to_string())?.is_file() {
+    let opened = file.metadata().map_err(|e| e.to_string())?;
+    if !opened.is_file() {
         return Err(format!("not a regular file: {}", path.display()));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if before.dev() != opened.dev() || before.ino() != opened.ino() {
+            return Err(format!("node metadata changed during open: {}", path.display()));
+        }
     }
     Ok(file)
 }
@@ -219,7 +232,19 @@ mod regular_open_tests {
         .expect("a FIFO substituted without a writer must not block");
         assert!(err.contains("not a regular file"), "unexpected error: {err}");
 
+        // A different regular inode is also forbidden after preflight.
         fs::remove_file(&original).unwrap();
+        fs::write(&original, b"{}").unwrap();
+        let err = open_checked_regular_with(&original, || {
+            fs::rename(&replacement, &original).unwrap();
+        })
+        .err()
+        .expect("regular-file replacement must not pass preflight");
+        assert!(
+            err.contains("node metadata changed during open"),
+            "unexpected error: {err}"
+        );
+
         fs::write(&original, b"{}").unwrap();
         let mut file = open_checked_regular(&original).unwrap();
         let mut contents = String::new();
