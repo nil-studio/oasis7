@@ -44,7 +44,6 @@ mod capability_authorization_command_stage;
 mod capability_authorization_events;
 mod capability_authorization_publication;
 mod capability_authorization_state;
-mod capability_authorization_transaction;
 mod provider_terminal_authority;
 pub use provider_terminal_authority::ProviderCapabilityAvailability;
 #[cfg(any(test, feature = "test_tier_required", feature = "test-support"))]

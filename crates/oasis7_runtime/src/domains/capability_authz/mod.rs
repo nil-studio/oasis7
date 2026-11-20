@@ -12,3 +12,4 @@ mod catalog;
 pub(super) mod command_projection;
 pub(super) mod effect_receipt_projection;
 mod validation;
+mod transaction;
