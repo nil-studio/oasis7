@@ -120,13 +120,17 @@ fn authenticated_inbound_releases_unknown_pool_but_retains_global_pending_permit
     // have not accepted the connection: it must still occupy total + pending.
     let first_admission = budget.authorize_inbound(first, first_peer).unwrap();
     let snapshot = budget.snapshot().unwrap();
-    assert_eq!((snapshot.total, snapshot.pending, snapshot.pending_inbound_unknown), (1, 1, 0));
+    assert_eq!(snapshot.total, 1);
+    assert_eq!(snapshot.pending, 1);
+    assert_eq!(snapshot.pending_inbound_unknown, 0);
     assert_eq!(occupancy(&budget, first_peer), (1, [1, 0], 1));
 
     // A different unknown peer can now handshake without exceeding global P.
     let second_permit = budget.reserve(AttemptKey::Inbound(second), None).unwrap();
     let snapshot = budget.snapshot().unwrap();
-    assert_eq!((snapshot.total, snapshot.pending, snapshot.pending_inbound_unknown), (2, 2, 1));
+    assert_eq!(snapshot.total, 2);
+    assert_eq!(snapshot.pending, 2);
+    assert_eq!(snapshot.pending_inbound_unknown, 1);
     assert!(budget.reserve(AttemptKey::Inbound(third), None).is_err());
     assert_eq!(
         budget.0.diagnostics.latest().0,
@@ -139,7 +143,10 @@ fn authenticated_inbound_releases_unknown_pool_but_retains_global_pending_permit
     assert_eq!(budget.snapshot().unwrap().pending, 1);
     second_admission.establish().unwrap();
     let snapshot = budget.snapshot().unwrap();
-    assert_eq!((snapshot.total, snapshot.established, snapshot.pending, snapshot.pending_inbound_unknown), (2, 2, 0, 0));
+    assert_eq!(snapshot.total, 2);
+    assert_eq!(snapshot.established, 2);
+    assert_eq!(snapshot.pending, 0);
+    assert_eq!(snapshot.pending_inbound_unknown, 0);
     drop((first_permit, second_permit));
     assert_eq!(budget.snapshot().unwrap().total, 0);
 }
@@ -153,7 +160,11 @@ fn denied_inbound_authentication_keeps_unknown_slot_until_transport_ends() {
     let outbound_permit = budget
         .reserve(AttemptKey::Outbound(outbound, address.clone()), Some(peer))
         .unwrap();
-    budget.authorize_outbound(outbound, &address, peer).unwrap().establish().unwrap();
+    budget
+        .authorize_outbound(outbound, &address, peer)
+        .unwrap()
+        .establish()
+        .unwrap();
 
     let incoming = dial_for(peer, address.clone()).connection_id();
     let refused = budget.reserve(AttemptKey::Inbound(incoming), None).unwrap();
