@@ -1772,7 +1772,7 @@ def formal_component_targets(scope):
         for root in roots:
             package = packages[root]
             available = package['features']
-            enabled = set(features) & set(available)
+            enabled = {feature.removeprefix(root + '/') for feature in features} & set(available)
             if '--no-default-features' not in args and 'default' in available:
                 enabled.add('default')
             pending = list(enabled)
