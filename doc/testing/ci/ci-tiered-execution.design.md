@@ -248,6 +248,16 @@ planner 的可信最低合同固定验证必要的选择、未知输入和失败
 
 对照可信 BASE 与候选的标签、cfg 和实际清单。planner 按完整词法 module/函数归属比较选择属性，required 改 full 时标记 `test_policy_changed`，在有实际扩展 driver 且 manifest 声明 feature 的 package 上显式启用 required、full、wasmtime/viewer 等适用组合。条件表达式按实际执行组合求值；例如 `any(test, feature = "test-support")` 在测试 harness 中为真，不能只因另一个分支的 feature 未启用就拒绝。引用的 feature 仍须由真实 owner 声明，声明不等于已经启用；普通组合无法证明时才检查实际扩展 driver。无法证明的嵌套选择门控、未映射的新 ignore 和跨 binary 同名短函数均不能让用例消失。
 
+#### Authority 消费者与原场景分层
+
+可信基线登记 authority verifier、BFT V3 worker/startup、Controlled writer 的精确输入及实际消费者。仅当整个变更的相关输入都有可信映射、源码在指定 Cargo target/features 内可达、没有测试政策迁移或未知输入时，ordinary 使用 Chain 的 native `node-libp2p + wasmtime + test_tier_required` 库，consensus 变化另选既有 `pr_fast_incremental` 物理合同，避免将全部反向依赖的世界字段、内建 WASM 和业务旅程一起带入。consensus/node 仍由原独立组执行完整库合同；这些组不能被普通消费者映射移除，未能证明其执行能力时回到原必要范围。所有策略来自 BASE，候选不能借本轮新合同减少自己的 required 验证。
+
+Chain 定向执行按可信完整 module 前缀取并集：`formal_writer::tests`、`formal_node_hook::tests` 和 V3 `header_certificate_v3_tests`，保留族内所有实际非 ignored case，包括新增 case；另核对非空最低清单，特别保护 live worker、startup replay、真实冷重开、publication 失败和原 completion 恢复。执行器从真实 `--list` 清单计算精确差集，缺少目标/前缀/最低 case、重复身份、未跑完、取消和失败都必须判红。相应 trusted fast plan 使用差集；完整 profile 的原 `required` 库保留原全集与原 feature 组合，不能按前缀缩小；`full-regression` / `candidate-full-regression` 的既有 `full-extended` 入口另行执行 `test_tier_full` 全集。另行追加的 `required-full-fast-N` 原生 feature 变体只执行其登记的完整前缀合同，必须同时匹配该补充目标的身份与 variant 序号，避免在原完整库之外重复执行所有无关用例；既有无前缀的完整组件变体仍全量运行。复用原 library 意味着编译仍包含该库的测试源码，这项改造不以名字过滤证明独立编译或十分钟达标。
+
+四 live-node bootstrap 轮换与两代 bootstrap 完整场景在既有 module 挂载处增加 `test_tier_full` 门控；十高度存储容量 smoke 对单个原 case 门控。原测试体与 helper 保留，不添加 ignore、不缩短过程、不改变节点、数据与断言。三个轻量存储 IO/progress 合同和原大规模手动入口保持其职责。 这三个长组合默认属于完整层，相关多代、网络活性或容量工作通过现有 `candidate-full` 提前验收；路径映射不宣称任意 worker 改动已经执行全部多节点组合。策略迁移 PR 继续由可信旧 driver 启用完整 features 检查；`periodic-full`、`candidate-full` 仍执行三个迁移后的场景。
+
+普通包级计划中的 `pr_fast_incremental` 与三个原 integration 只有在可信能力、实际同一 Cargo 构建/依赖类型、feature 组合及完整共享源码合同都匹配时才可去重。优先保留三个原 harness；仅省去全部 case 已被原 harness 完整覆盖的组合 harness。独立 native feature 变体、完整 profile、来源或库存不匹配继续各自执行，不能凭短函数同名去重。可信窄计划直接选择组合 target 一次，仍保留 Raw/Zstd、冷重开、原 parent material 与继续执行断言。
+
 首批五个增量规模用例保留独立的必要与大规模入口：原 integration target 的 required 使用 `2 * VALUE_CHUNK_BYTES + 17` 跨叶边界输入，专用 `incremental_full_scales` target 保留五个原名及 1/32/64 MiB、Raw/Zstd、成员数量和预算矩阵。Module State 的小输入保留现有 CBOR 32 位长度类别；Runtime Effect 的 full 场景继续证明未变数据大于 24 MiB 工作池也不被读取。两端复用不注册测试的 helper 和纯 fixture，其他身份、拒绝、取消、原子失败及冷恢复用例留在原 target。专用 target 以显式 `[[test]]` 及 `required-features=["test_tier_full"]` 声明，保留 crate 级门控；required 不再编译、链接它的空 harness。其他 integration targets 继续自动发现，共享 helper 仍由 required 编译。此步只裁去一个独立空产物，不据此推定共享依赖闭包或端到端耗时已经收缩。
 
 行业增量状态的 `incremental_industry_jobs` 由 `oasis7_distfs` 的独立 integration target 承接，直接使用已有 `oasis7_world_state` 公开 API 和真实物理 PageStore，不再经顶层 `oasis7` 包引入 Runtime、World Service 与 Wasmtime。保留原八项测试、全部输入规模、Raw/Zstd、预算、错误拒绝、取消、完整 transfer 和冷恢复断言；本地 fixture 只提供临时目录与物理 I/O 预算，不复制 Inventory 业务夹具或引入新的暂存层。保持 integration harness，避免改为库单元测试后改变被测 DistFS 的 `cfg(test)` 环境。实际 Cargo 产物及直接依赖用于核对退出的编译单元，构建缓存状态与执行耗时分开报告。

@@ -35,9 +35,13 @@ def build_variants(root):
     planner.validate_config(config)
     # Validate the entire trusted inventory before the first Cargo invocation.
     # This is not a narrowed PR plan and grants no candidate write authority.
+    # validate_config checks the prefix capability and complete case contracts.
+    # Cache compilation warms each whole target; execution-only case prefixes
+    # must not turn this compiler inventory into an executable fast plan.
     targets = artifacts.target_inventory({
         'version': config['fast_test_inventory_version'],
-        'targets': list(config['ordinary_fast_targets'].values()),
+        'targets': [{key: value for key, value in target.items() if key != 'case_prefixes'}
+                    for target in config['ordinary_fast_targets'].values()],
     }, 'version', 'targets')
     packages = [arg for package in artifacts.required_packages() for arg in ('-p', package)]
     variants = []

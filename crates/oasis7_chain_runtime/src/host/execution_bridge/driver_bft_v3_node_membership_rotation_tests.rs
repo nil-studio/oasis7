@@ -11,8 +11,12 @@ use oasis7_consensus::tendermint_v3::{
 };
 use oasis7_proto::distributed_bft::v3::BftVoteValueV3;
 
+// Full-tier combinations retain both generations and all continuously live nodes.
+// The ordinary key-rotation, authority, commit and recovery contracts remain below.
+#[cfg(feature = "test_tier_full")]
 #[path = "driver_bft_v3_node_bootstrap_rotation_tests.rs"]
 mod bootstrap_rotation_cases;
+#[cfg(feature = "test_tier_full")]
 #[path = "driver_bft_v3_node_bootstrap_rotation_live_tests.rs"]
 mod bootstrap_rotation_live_cases;
 #[path = "driver_bft_v3_node_membership_key_rotation_tests.rs"]

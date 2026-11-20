@@ -443,8 +443,8 @@ run() {
                 result = self.build()
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 named = self.named_calls(result)
-                self.assertEqual(len(named), 53)
-                self.assertIn('cache_build_complete variants=53 verification=false', result.stdout)
+                self.assertEqual(len(named), 54)
+                self.assertIn('cache_build_complete variants=54 verification=false', result.stdout)
                 self.assertEqual({compile_context(call) for name, call in named.items()
                                   if not name.startswith('fast-')}, expected)
                 self.assert_fast_inventory(named, self.config)
@@ -461,6 +461,12 @@ run() {
                         and compile_context(call)[1] == ('oasis7_executable_image',)]
                 self.assertEqual(leaf, [('test', ('oasis7_executable_image',), (('--lib', ''),),
                                         False, (), 'default', '1')])
+                authority = [compile_context(call) for name, call in named.items()
+                             if name.startswith('fast-')
+                             and compile_context(call)[1] == ('oasis7_chain_runtime',)]
+                self.assertEqual(authority, [('test', ('oasis7_chain_runtime',), (('--lib', ''),),
+                                             False, ('node-libp2p', 'test_tier_required', 'wasmtime'),
+                                             'default', '1')])
                 self.assertFalse(self.behaviors.exists(), 'cache warming must not execute a verification guard')
                 for call in named.values():
                     self.assertIsNone(call['wrapper'])
@@ -515,7 +521,7 @@ cd "$repo_root"
                                       '-D', 'clippy::suspicious'])
 
     def test_compile_failure_stops_remaining_cache_population(self):
-        for number in (1, 27, 29, 32, 40, 41, 50, 51, 52, 53):
+        for number in (1, 27, 29, 32, 40, 41, 50, 51, 52, 53, 54):
             with self.subTest(number=number):
                 self.env['TEST_FAIL_CALL'] = str(number)
                 result = self.build()
@@ -541,6 +547,17 @@ cd "$repo_root"
         config = copy.deepcopy(self.config)
         config['ordinary_fast_targets']['duplicate'] = config['ordinary_fast_targets']['runtime-basic']
         invalid.append(('ambiguous-target', json.dumps(config)))
+        for version in (None, 0, 2, True):
+            config = copy.deepcopy(self.config)
+            if version is None:
+                config.pop('ordinary_case_prefix_contract_version')
+            else:
+                config['ordinary_case_prefix_contract_version'] = version
+            invalid.append(('prefix-capability-' + repr(version), json.dumps(config)))
+        for prefixes in ([], ['not-a-module'], ['unregistered::'], ['writer::', 'writer::']):
+            config = copy.deepcopy(self.config)
+            config['ordinary_fast_targets']['chain-authority']['case_prefixes'] = prefixes
+            invalid.append(('invalid-prefixes-' + repr(prefixes), json.dumps(config)))
         invalid.append(('invalid-json', '{'))
         for name, contents in invalid:
             with self.subTest(name=name):
@@ -549,6 +566,19 @@ cd "$repo_root"
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(self.calls(), [])
                 self.assertNotIn('cache_build_complete', result.stdout)
+
+    def test_unfiltered_inventory_does_not_require_case_prefix_capability(self):
+        config = copy.deepcopy(self.config)
+        config.pop('ordinary_case_prefix_contract_version')
+        for target in config['ordinary_fast_targets'].values():
+            target.pop('case_prefixes', None)
+        self.config_path.write_text(json.dumps(config))
+        result = self.build()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        named = self.named_calls(result)
+        self.assertEqual(len(named), 54)
+        self.assert_fast_inventory(named, config)
+        self.assertFalse(self.behaviors.exists())
 
     def test_missing_support_manifest_is_rejected_before_any_cargo(self):
         (self.root / 'crates/oasis7_agent_api/Cargo.toml').unlink()
@@ -582,7 +612,7 @@ cd "$repo_root"
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         named = self.named_calls(result)
         self.assert_fast_inventory(named, config)
-        self.assertEqual(sum(name.startswith('fast-') for name in named), 15)
+        self.assertEqual(sum(name.startswith('fast-') for name in named), 16)
 
 
 if __name__ == '__main__':
