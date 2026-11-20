@@ -26,6 +26,15 @@ mod cognition_scheduler;
 mod cognition_validation;
 mod cognition_wake;
 pub use oasis7_world_state::codec;
+pub use oasis7_world_state::commitment_envelope;
+pub use oasis7_world_state::commitment_envelope::{
+    CONTROL_CONTINUATION_COMMITMENT_V2_DOMAIN, ControlContinuationCommitmentView, Digest32,
+    GOVERNANCE_SIDECAR_COMMITMENT_V2_DOMAIN, GovernanceSidecarCommitmentView,
+    INCREMENTAL_COMMITMENT_BINDING_V2_DOMAIN, IncrementalWorldCommitmentBindingV2,
+    WORLD_COMMITMENT_ENVELOPE_FILE, WORLD_COMMITMENT_ENVELOPE_SCHEMA_V1,
+    WORLD_COMMITMENT_ENVELOPE_SCHEMA_V2, WORLD_COMMITMENT_ENVELOPE_V2_DOMAIN,
+    WorldCommitmentEnvelope, WorldCommitmentRecoveryProfile, digest32_from_hex, digest32_to_hex,
+};
 pub use oasis7_world_state::consensus;
 pub use oasis7_world_state::effect;
 pub use oasis7_world_state::error;
