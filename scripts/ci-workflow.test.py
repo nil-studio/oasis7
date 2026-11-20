@@ -151,7 +151,7 @@ def validate_mold_checkout_reuse(tools, setup, source):
 
 
 def rust_image_cache_namespace(name, job):
-    if name not in ('node', 'consensus', 'distfs', 'rust-baseline', 'pixel-world-bridge', 'net', 'scenario-regression', 'launcher-web', 'custody-wasm-contracts') or '    container:' not in job:
+    if name not in ('node', 'consensus', 'distfs', 'rust-baseline', 'pixel-world-bridge', 'net', 'scenario-regression', 'launcher-web', 'custody-wasm-contracts', 'workspace-support-other') or '    container:' not in job:
         return None
     target = 'rust-wasm-build' if name == 'net' else 'rust-build'
     image = re.search(r'^    container:\n      image: ghcr\.io/nil-studio/oasis7/ci-' + target
@@ -4905,7 +4905,7 @@ class AptWorkflow(unittest.TestCase):
     def test_all_rust_apt_consumers_keep_packages_and_bounded_failure(self):
         expected = {('rust', name, 'Install native libraries'): self.NATIVE
                     for name in self.NATIVE_JOBS}
-        for name in ('rust-baseline', 'pixel-world-bridge', 'scenario-regression', 'launcher-web'):
+        for name in ('rust-baseline', 'pixel-world-bridge', 'scenario-regression', 'launcher-web', 'workspace-support-other'):
             if rust_image_cache_namespace(name, JOBS[name]):
                 del expected['rust', name, 'Install native libraries']
                 packages = (ROOT / 'docker/ci-base/build-packages.txt').read_text().splitlines()
