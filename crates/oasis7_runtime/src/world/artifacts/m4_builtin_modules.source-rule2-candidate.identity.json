@@ -20,7 +20,7 @@
     "builder_recipe": {
       "recipe_schema_version": 1,
       "kind": "producer-content",
-      "producer_recipe_hash": "f2409600beafba6dbae305682e5b5a72c22b9ef7a44c710d587dfecbd0f5062a",
+      "producer_recipe_hash": "1c522a175f9ba35e9fd4dc3dbdc926a71f6a26e733965dd7980adad1ebe1363d",
       "arguments": [
         {
           "name": "GUEST_CARGO_BUILD_JOBS",
@@ -57,7 +57,7 @@
         {
           "kind": "source-file",
           "path": "crates/oasis7_wasm_build/Cargo.toml",
-          "sha256": "260b675af12eb421d12ae23f2e53abcf9ee71f57603eac9ff4bdbf3541b70adc"
+          "sha256": "d873b5a3e0ebcb9b6ad724659fd2cb04f78de03b90627eb8586032c65a0bafe7"
         },
         {
           "kind": "source-file",
@@ -67,7 +67,7 @@
         {
           "kind": "source-file",
           "path": "crates/oasis7_wasm_build/src/lib.rs",
-          "sha256": "2671101045899d41e46b6b9a0d4e260558ed3a6357c5bbef5def5be98bd5cfd2"
+          "sha256": "c16e90dbe194c7ea81d48de4f9fbdc9b863bf2d5d0600d18bed14b2038e4eb89"
         },
         {
           "kind": "source-file",
@@ -87,17 +87,27 @@
         {
           "kind": "source-file",
           "path": "crates/oasis7_wasm_build/src/source_inputs.rs",
-          "sha256": "3bf16e0d3d88c6d4c9a61ef4eec2de334a0e4b637699ae07e311d6979fd7dd4c"
+          "sha256": "a6743c2edea5df649a699f7fd46816bf83d9befe01a10979b2a1ca5cd7157b02"
         },
         {
           "kind": "source-file",
           "path": "crates/oasis7_wasm_build/src/source_inputs_tests.rs",
-          "sha256": "f0f44a7be3ec254f0e2824efb33978526ee0d14e72219c2217dc0c1b3c34b392"
+          "sha256": "a3da7eeb568ed4e51b91e7e2a6e7f2deb49facff3465555643a1c6a54e8c54be"
+        },
+        {
+          "kind": "source-file",
+          "path": "crates/oasis7_wasm_build/src/workspace_inputs.rs",
+          "sha256": "5d9e84a29dac270a5ae5bc26393b7b4023e8dde40ee330775ee8762944c75ae7"
+        },
+        {
+          "kind": "source-file",
+          "path": "crates/oasis7_wasm_build/src/workspace_inputs_tests.rs",
+          "sha256": "70765b8708cfe5bcbc7d10032a80f3718a295653b12a5e4087f314b573aea765"
         },
         {
           "kind": "source-file",
           "path": "docker/wasm-builder/Cargo.lock",
-          "sha256": "2f3741390e2f95ded62aedbc155327d6cf1e2bd149f8e8d2018652bfe412d989"
+          "sha256": "d224e9d9a9152471446e484dcaecca227cd7af2cc3b714c6385fa74a498b950a"
         },
         {
           "kind": "source-file",
@@ -177,11 +187,6 @@
       "source_inputs": [
         {
           "kind": "source-file",
-          "path": "Cargo.toml",
-          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
-        },
-        {
-          "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/_templates/m4_factory_module_template.rs",
           "sha256": "fd6e4408047efde807d92d5f1b793ebf906a0fb31bf5dbbbf972897c5483fe0f"
         },
@@ -216,9 +221,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "c18cfa5a0fbc35381167f73991dcbceca191616287631e35229fa93034197d35",
-      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
-      "identity_hash": "f46cacb84945c3f512f259b3a73fd30281513a17771d3f3f94a18281a69af997"
+      "source_hash": "ec1008664923360213f8ad8723ae4f21e0ac68d699f5e3c79cab84837c8dc31a",
+      "build_manifest_hash": "72f9caa089b6c858157a82f6df9f988595b97d3a85b2850b00ef9eda13b4966f",
+      "identity_hash": "cbaca1e8dfae0b90c24192145ce22e50aba8613532ef866b6be677e624f634ab"
     },
     {
       "module_id": "m4.factory.miner.mk1",
@@ -227,11 +232,6 @@
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
-        {
-          "kind": "source-file",
-          "path": "Cargo.toml",
-          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
-        },
         {
           "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/_templates/m4_factory_module_template.rs",
@@ -268,9 +268,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "c01310c0ad14ed54e79f147bd18ca71ebd46f772259ab8fcc63de7abf5069435",
-      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
-      "identity_hash": "1c932c22609bb069e2ff7875bb7909d9a5ac736d0ed183f2f7f41428fa0b5372"
+      "source_hash": "c3d90419b3673cf956e6404c33d9d7cbc84aa035c2417c517257960dc21ad992",
+      "build_manifest_hash": "72f9caa089b6c858157a82f6df9f988595b97d3a85b2850b00ef9eda13b4966f",
+      "identity_hash": "eb644ac03c100c00707caa74210cd00c2996b2f3219fb62975d2b8d36444bf94"
     },
     {
       "module_id": "m4.factory.smelter.mk1",
@@ -279,11 +279,6 @@
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
-        {
-          "kind": "source-file",
-          "path": "Cargo.toml",
-          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
-        },
         {
           "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/_templates/m4_factory_module_template.rs",
@@ -320,9 +315,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "92f13f91a7a57079269792f768069168e5ce5d5793597e3fc609f1d42df056c3",
-      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
-      "identity_hash": "1394628bbbd6443ce2c73aadc96c6ce82b1ba511eb671b33e613249ce31036b2"
+      "source_hash": "282f1b01d235f66fd8cd934dd4d802b46f3c5a264166f7a0814be602432e6c54",
+      "build_manifest_hash": "72f9caa089b6c858157a82f6df9f988595b97d3a85b2850b00ef9eda13b4966f",
+      "identity_hash": "ed4935001a6f35c93933c4bda3ab42b9a92c7d71d3a40ec43eba1d9998d75886"
     },
     {
       "module_id": "m4.product.component.control_chip",
@@ -331,11 +326,6 @@
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
-        {
-          "kind": "source-file",
-          "path": "Cargo.toml",
-          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
-        },
         {
           "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/_templates/m4_product_module_template.rs",
@@ -372,9 +362,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "363d416bd0c686f93cbee814ab0e74cd7403b8bec9273d37568397dedffe7e5b",
-      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
-      "identity_hash": "1ae33ac1458a74c92f11df67a2c412ab599a75a61c8627c1afabb67b7b080a08"
+      "source_hash": "7405a3644846eb7a4e77364b56401137c8e774f4515d28d3884c1b46b946b282",
+      "build_manifest_hash": "72f9caa089b6c858157a82f6df9f988595b97d3a85b2850b00ef9eda13b4966f",
+      "identity_hash": "6e73e1cdc3b6b826026a989f1aeb9174a05bd600f26683f004bfaf2e7d41f6ae"
     },
     {
       "module_id": "m4.product.component.motor_mk1",
@@ -383,11 +373,6 @@
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
-        {
-          "kind": "source-file",
-          "path": "Cargo.toml",
-          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
-        },
         {
           "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/_templates/m4_product_module_template.rs",
@@ -424,9 +409,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "214f7b216dd53714b3fef532cdf9759b9e0166564daef5c94732d7362d5ce472",
-      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
-      "identity_hash": "8658d15a906a2369808875cfd33a5013e2216b5f4f0963487d1cf6ba33e25f7f"
+      "source_hash": "6dff1470a0b002a5274f9be1193f6a2f940f2253bdc661d9b55cea4c34d8f89f",
+      "build_manifest_hash": "72f9caa089b6c858157a82f6df9f988595b97d3a85b2850b00ef9eda13b4966f",
+      "identity_hash": "9537f1513d8e521b5e1e38177d50f2192475f4c559470ece82ada3f220642838"
     },
     {
       "module_id": "m4.product.component.sensor_pack",
@@ -435,11 +420,6 @@
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
-        {
-          "kind": "source-file",
-          "path": "Cargo.toml",
-          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
-        },
         {
           "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/_templates/m4_product_module_template.rs",
@@ -476,9 +456,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "eb5d7acd65b87fb15371883d742918ee4284f628eca4e62538654810774da676",
-      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
-      "identity_hash": "40edd8ee4090e40c683611da60b627a77716f90ee1e4cf11de5d6f984da17ad4"
+      "source_hash": "0974149240bf7d69fb83f4c64a5a0efefe1fceee2bf7a975ffbaddfd139a9c04",
+      "build_manifest_hash": "72f9caa089b6c858157a82f6df9f988595b97d3a85b2850b00ef9eda13b4966f",
+      "identity_hash": "fe1e291be231df2c8d824da119b81b0d0a4cb0626729ea7ac89ddd32e2caee4d"
     },
     {
       "module_id": "m4.product.finished.logistics_drone",
@@ -487,11 +467,6 @@
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
-        {
-          "kind": "source-file",
-          "path": "Cargo.toml",
-          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
-        },
         {
           "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/_templates/m4_product_module_template.rs",
@@ -528,9 +503,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "00f644a6c2b46391e8f9f8aac4713ccef241d8f8262aecb8063c372b55d4f189",
-      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
-      "identity_hash": "14f1c06ac35e7fb602d2d5130e941431f38e5d191ae286eb23bc7dbf96dfdbfe"
+      "source_hash": "1a7d99fb95b32c67ff777a3fa151c272d938e5fa8ea05068e5f1d9f001a3ae01",
+      "build_manifest_hash": "72f9caa089b6c858157a82f6df9f988595b97d3a85b2850b00ef9eda13b4966f",
+      "identity_hash": "315a204b0f5eb06b3a0dd3849c1ff0f1a1fa9c82d33d07f72819c004b497ee6d"
     },
     {
       "module_id": "m4.product.finished.module_rack",
@@ -539,11 +514,6 @@
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
-        {
-          "kind": "source-file",
-          "path": "Cargo.toml",
-          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
-        },
         {
           "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/_templates/m4_product_module_template.rs",
@@ -580,9 +550,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "d2bda9c43b3a2406f370875b0d51522b6800ed7f6110378240864b53b3befedd",
-      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
-      "identity_hash": "83f5a90de6441a0fcf4714a7aecb77b32a6cf9e472f0a4e798c39a728ff9932b"
+      "source_hash": "3cfc441d338ba880114985ae255208bfa84626764d5e859c419bb9bcdce86689",
+      "build_manifest_hash": "72f9caa089b6c858157a82f6df9f988595b97d3a85b2850b00ef9eda13b4966f",
+      "identity_hash": "b5c5e7bf9bc49659916b1bf6192877dc89f2d1157354b03cf4be6576757aedae"
     },
     {
       "module_id": "m4.product.infrastructure.factory_core",
@@ -591,11 +561,6 @@
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
-        {
-          "kind": "source-file",
-          "path": "Cargo.toml",
-          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
-        },
         {
           "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/_templates/m4_product_module_template.rs",
@@ -632,9 +597,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "7ac1a48cc4eb0fe1d1d8278011ab4d30b2d5159a35657c067b66862c65a517df",
-      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
-      "identity_hash": "40d6739f5c6bb8ac059ab26926ae2c9e101656b1db07cdff12f0527a344f2ba1"
+      "source_hash": "30e3425f6b454560043fe6081a534f0af910a5a04a6e90db8c4d66df34302fd0",
+      "build_manifest_hash": "72f9caa089b6c858157a82f6df9f988595b97d3a85b2850b00ef9eda13b4966f",
+      "identity_hash": "344fb2163bd05ec6c47bf67737227ca811126bc0bf328c2427fa5a284c008725"
     },
     {
       "module_id": "m4.product.material.alloy_plate",
@@ -643,11 +608,6 @@
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
-        {
-          "kind": "source-file",
-          "path": "Cargo.toml",
-          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
-        },
         {
           "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/_templates/m4_product_module_template.rs",
@@ -684,9 +644,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "837466e1982cccf6f137f5d6cf7993522ee315ea55b2be22a177235dd73681ae",
-      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
-      "identity_hash": "97c646698ec306bd78fab0bd9bf81e74f08955423d4755e5f80bcd62b69fd415"
+      "source_hash": "946301e46770d9203741ef4f3d5903d5a584788bdb67b5c7168704b5e9859c5a",
+      "build_manifest_hash": "72f9caa089b6c858157a82f6df9f988595b97d3a85b2850b00ef9eda13b4966f",
+      "identity_hash": "604d89bf6f608837558376c4d7c9a0a7f87e1f256fa0e6c099d29b6ffa337a35"
     },
     {
       "module_id": "m4.product.material.iron_ingot",
@@ -695,11 +655,6 @@
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
-        {
-          "kind": "source-file",
-          "path": "Cargo.toml",
-          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
-        },
         {
           "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/_templates/m4_product_module_template.rs",
@@ -736,9 +691,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "b354510a5a6ced508f630da50398f6e797f17f5bfc213f71f646a7147c5d05fa",
-      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
-      "identity_hash": "8adaa7a5ed655e0a9f67fec9ede0689111895b83a120a5f08d06a288574a847d"
+      "source_hash": "de2ae0180a0f70ff96faeb2c6c8a60aebaae80c4690ffca4fa74a51fbc6cc5fe",
+      "build_manifest_hash": "72f9caa089b6c858157a82f6df9f988595b97d3a85b2850b00ef9eda13b4966f",
+      "identity_hash": "077fcf0a87add043ccaee7e50ccd713631b43f47f934a2d9b57e7e5e14f64486"
     },
     {
       "module_id": "m4.recipe.assembler.control_chip",
@@ -747,11 +702,6 @@
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
-        {
-          "kind": "source-file",
-          "path": "Cargo.toml",
-          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
-        },
         {
           "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/_templates/m4_recipe_module_template.rs",
@@ -788,9 +738,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "d61267b7bfe931b72e361e9a863a52a6a83c22a128aa639d66ca02213bdca195",
-      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
-      "identity_hash": "77f8ff7593eef07239aad0c9dacd96b7ded6a031c65a0842876e95e3cc2d4c26"
+      "source_hash": "8464826ee62a71952e28ce0a673534a29b95b2e509b5d036dccd54476aa32622",
+      "build_manifest_hash": "72f9caa089b6c858157a82f6df9f988595b97d3a85b2850b00ef9eda13b4966f",
+      "identity_hash": "8df7e3602898d3decd00f2cadc49df63e16a13098cecb276b74ab95343281a4f"
     },
     {
       "module_id": "m4.recipe.assembler.factory_core",
@@ -799,11 +749,6 @@
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
-        {
-          "kind": "source-file",
-          "path": "Cargo.toml",
-          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
-        },
         {
           "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/_templates/m4_recipe_module_template.rs",
@@ -840,9 +785,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "2651c1790a550ad286c1595a9b85ea645d23cc919aca077a92c8c0ee4c36d71a",
-      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
-      "identity_hash": "418c6f9395727d915ea90dcab72dee4a480d6855dd7bd8cf4affc37f75b23b9a"
+      "source_hash": "8829b08ee975a9d27ab6f98668315fef92baaeaf86ec71255815734902c4363e",
+      "build_manifest_hash": "72f9caa089b6c858157a82f6df9f988595b97d3a85b2850b00ef9eda13b4966f",
+      "identity_hash": "391e26cdb499e3e1cfacbdfcc2b865c3fe692e844cb456738a7d70cc8798f125"
     },
     {
       "module_id": "m4.recipe.assembler.gear",
@@ -851,11 +796,6 @@
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
-        {
-          "kind": "source-file",
-          "path": "Cargo.toml",
-          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
-        },
         {
           "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/_templates/m4_recipe_module_template.rs",
@@ -892,9 +832,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "b45be418e7c799174758eb7619e32ed7a9a0293c03ce47f566c6e0355f39474a",
-      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
-      "identity_hash": "984f83f256195dd6713c2d5ad0c6c167ac3a7353f68045b7dd5352d2e0d6666e"
+      "source_hash": "bacab42642938437f9746bdacd99c6e085d572787ee095b6216d9c237646badb",
+      "build_manifest_hash": "72f9caa089b6c858157a82f6df9f988595b97d3a85b2850b00ef9eda13b4966f",
+      "identity_hash": "6d4491677a3fa4bfae94df48330012d2c397efea556d1925ac34847de49bf200"
     },
     {
       "module_id": "m4.recipe.assembler.logistics_drone",
@@ -903,11 +843,6 @@
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
-        {
-          "kind": "source-file",
-          "path": "Cargo.toml",
-          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
-        },
         {
           "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/_templates/m4_recipe_module_template.rs",
@@ -944,9 +879,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "5e39c730f955b73dc3e06deb7f7967ee251770e661016bf0b4c29f8f1e012451",
-      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
-      "identity_hash": "dd54dd82a5f87ed70db8ef91a2800b30c9d71278a0feeedba173e4eb8eea56a6"
+      "source_hash": "cbc2c6ae1ce4329442827a808586dc4146b33e8d73ddc4236aed86488deb5446",
+      "build_manifest_hash": "72f9caa089b6c858157a82f6df9f988595b97d3a85b2850b00ef9eda13b4966f",
+      "identity_hash": "690e090ac8eb4ccf700cad0910f59a0c5e1be7a107363b2005ff3af2ed92277d"
     },
     {
       "module_id": "m4.recipe.assembler.module_rack",
@@ -955,11 +890,6 @@
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
-        {
-          "kind": "source-file",
-          "path": "Cargo.toml",
-          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
-        },
         {
           "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/_templates/m4_recipe_module_template.rs",
@@ -996,9 +926,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "1e3b3c0c8b7dbe58aca00275497f8365d5759b9f3c579422c1ddd78f45052940",
-      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
-      "identity_hash": "69ef094404606d91cc43b17c13e3b0492b26e037b6275b38c82768a41c6a3284"
+      "source_hash": "8035be869db447ba7518a00662bd0bac295d624ab6099faed62b72d237401e09",
+      "build_manifest_hash": "72f9caa089b6c858157a82f6df9f988595b97d3a85b2850b00ef9eda13b4966f",
+      "identity_hash": "809e1ed4b174b4c72315b29c079c1199ea5ba83739c0cd9b0f0dd42effcb75bd"
     },
     {
       "module_id": "m4.recipe.assembler.motor_mk1",
@@ -1007,11 +937,6 @@
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
-        {
-          "kind": "source-file",
-          "path": "Cargo.toml",
-          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
-        },
         {
           "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/_templates/m4_recipe_module_template.rs",
@@ -1048,9 +973,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "0d0e0c7211198097061404294227029ce8e74fa55990b19f956d0c6e37514814",
-      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
-      "identity_hash": "e09897e4ca3bab65bb2568d04a36754d4d58c68c96b67c4cdcba369ecac5fbe3"
+      "source_hash": "ab91539553095eca76a8483099852d96dcecda74495da99344b1cca01ef60434",
+      "build_manifest_hash": "72f9caa089b6c858157a82f6df9f988595b97d3a85b2850b00ef9eda13b4966f",
+      "identity_hash": "1dd17b31df4d6db4b27d98879d34bfb2cd15c08fd8596da9f97fd4e0ba13643e"
     },
     {
       "module_id": "m4.recipe.assembler.sensor_pack",
@@ -1059,11 +984,6 @@
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
-        {
-          "kind": "source-file",
-          "path": "Cargo.toml",
-          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
-        },
         {
           "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/_templates/m4_recipe_module_template.rs",
@@ -1100,9 +1020,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "d8518d39aca3ebfe5321788f137a9615dc0e9cf19b462b8c146947653f32cb5e",
-      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
-      "identity_hash": "12c96cafd6f19f503de66e63d9149af782e6192e609ccb2ff7d66f5747570cd7"
+      "source_hash": "8ddced08faf8390b7c77efe346f5490808cfe3df283cdce7774c7bb77d2e839d",
+      "build_manifest_hash": "72f9caa089b6c858157a82f6df9f988595b97d3a85b2850b00ef9eda13b4966f",
+      "identity_hash": "828a71adc783260b4a6e3a7152b0a12fe6a21572d2c6d68afef9eb6ed429b967"
     },
     {
       "module_id": "m4.recipe.smelter.alloy_plate",
@@ -1111,11 +1031,6 @@
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
-        {
-          "kind": "source-file",
-          "path": "Cargo.toml",
-          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
-        },
         {
           "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/_templates/m4_recipe_module_template.rs",
@@ -1152,9 +1067,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "8037e58233ebdfc3494ec1224cf058d3206b6d478c93db01ade73894abb46cfc",
-      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
-      "identity_hash": "19ab7e1acd3631d1944dbf58724404ab3dae82adfa6efd35cddc3604f169da00"
+      "source_hash": "a5d7e2610b82e7b7e8fc6d9b945adb22d604602cb02f2245483f256bc7291f28",
+      "build_manifest_hash": "72f9caa089b6c858157a82f6df9f988595b97d3a85b2850b00ef9eda13b4966f",
+      "identity_hash": "570630a9170b548953a34fd9923a0940ebdb731375864eb2f64f9465c0f32bc5"
     },
     {
       "module_id": "m4.recipe.smelter.copper_wire",
@@ -1163,11 +1078,6 @@
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
-        {
-          "kind": "source-file",
-          "path": "Cargo.toml",
-          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
-        },
         {
           "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/_templates/m4_recipe_module_template.rs",
@@ -1204,9 +1114,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "f2f57c97531c63410b4fbfb9977bb8f1c3e436bb8cde3566d70c80e4c18d99b0",
-      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
-      "identity_hash": "0c7a4424268413ec4e8235ab04d3fb1785bcd26cfe3699aedffa0736e8e022a6"
+      "source_hash": "35e7e80853d6cf62a469afc4696fbe5246a43a7f365481b8b797452839305dd8",
+      "build_manifest_hash": "72f9caa089b6c858157a82f6df9f988595b97d3a85b2850b00ef9eda13b4966f",
+      "identity_hash": "78b9e838e7eefc30b6fc3f6a711c72c12802b9b16efa911dea66388a0ee303f5"
     },
     {
       "module_id": "m4.recipe.smelter.iron_ingot",
@@ -1215,11 +1125,6 @@
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
-        {
-          "kind": "source-file",
-          "path": "Cargo.toml",
-          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
-        },
         {
           "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/_templates/m4_recipe_module_template.rs",
@@ -1256,9 +1161,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "a207943127297773c0fac2c3969801ba980ad8b961cfc822d7d13f05366133d2",
-      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
-      "identity_hash": "55ba9ee8969fd571bef46bf9bc4dfd728c8337715f64dc3d8ec11d175eeb29f8"
+      "source_hash": "5fcf929f93298a5b18cf6c5f8f6280629943e95440e1d25f1cf920d9e4206e68",
+      "build_manifest_hash": "72f9caa089b6c858157a82f6df9f988595b97d3a85b2850b00ef9eda13b4966f",
+      "identity_hash": "10dfb97097e88c658583da9db835bd3ce38914259f1f223a2dbdaa14bc177a6c"
     },
     {
       "module_id": "m4.recipe.smelter.polymer_resin",
@@ -1267,11 +1172,6 @@
       ],
       "source_input_rule_version": 2,
       "source_inputs": [
-        {
-          "kind": "source-file",
-          "path": "Cargo.toml",
-          "sha256": "e1614386949b036c7a6f64590b227a5e424eac3b2f24a90469b9edf958e4c173"
-        },
         {
           "kind": "source-file",
           "path": "crates/oasis7_builtin_wasm_modules/_templates/m4_recipe_module_template.rs",
@@ -1308,9 +1208,9 @@
           "sha256": "54abdfd4ebaf83840ad3c58d7fba377a5181e169f71d81afdb0c6e3ea22b658e"
         }
       ],
-      "source_hash": "824c8ee150b2f6814977ddbed080eccfe3da404683591dc4444608e52f8912a5",
-      "build_manifest_hash": "5c252740aa30d82466dc2b40bcf0f38e74cc416975477fac5f4424a240b2aabe",
-      "identity_hash": "40bb8734d4cb4f37fa5e7c7eae510584ad41b1cfe820484e96ebc0b4c189fb88"
+      "source_hash": "dcdf0a95852499452e38f8a52c39313ae56653e7a86e428ae24b2c6b2236b1d6",
+      "build_manifest_hash": "72f9caa089b6c858157a82f6df9f988595b97d3a85b2850b00ef9eda13b4966f",
+      "identity_hash": "c64d5c98e6dbfc402b7cfbd2693073fc5aa816a73b0059e153147e66d5244bad"
     }
   ]
 }
