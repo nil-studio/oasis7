@@ -525,6 +525,9 @@ run_oasis7_workspace_support_crate_tests() {
     --lib
   # The native worker is an executable + integration-test contract, not only
   # the lib tests. Build and execute both bounded_worker integration targets.
+  # Preserve the trusted-baseline library command while extending coverage to
+  # the worker binary and process/FD/regex integration targets.
+  run_cargo test -p oasis7_wasm_executor --features wasmtime --lib
   run_cargo test -p oasis7_wasm_executor --features wasmtime --all-targets --locked
   run_cargo test -p oasis7_secure_envelope -p oasis7_context --all-targets --locked
   run_cargo test -p oasis7_local_signer --test context_cli --locked
@@ -611,6 +614,8 @@ PY
         # Run the actual Linux worker binary, process/FD and regex integration
         # tests alongside the library tests. This crate's sole nondefault
         # feature is wasmtime, so this is the complete feature/target matrix.
+        # The trusted-baseline contract still requires this original library run.
+        run_cargo test -p "$profile" --features wasmtime --lib
         run_cargo test -p "$profile" --features wasmtime --all-targets --locked
         complete_targets=true
         expand_targets=false
