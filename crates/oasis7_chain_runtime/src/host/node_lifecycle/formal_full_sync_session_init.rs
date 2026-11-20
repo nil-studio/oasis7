@@ -184,7 +184,10 @@ impl FormalFullSyncSession {
             original_request.get("initial_minimum")
                 == Some(&serde_json::to_value(&minimum).map_err(|error| error.to_string())?)
                 && original_request.get("initial_minimum_record")
-                    == Some(&serde_json::to_value(anchor.head().record()).map_err(|error| error.to_string())?)
+                    == Some(
+                        &serde_json::to_value(anchor.head().record())
+                            .map_err(|error| error.to_string())?,
+                    )
         };
         if original_request.get("config")
             != Some(&serde_json::to_value(&self.config).map_err(|error| error.to_string())?)

@@ -57,7 +57,10 @@ pub(super) struct PersistedFormalReadHistoryV1 {
     poisoned: bool,
 }
 
-pub(super) type ReadOnlyHistory = (Option<serde_json::Value>, Option<VerifiedFormalReadAnchorV1>);
+pub(super) type ReadOnlyHistory = (
+    Option<serde_json::Value>,
+    Option<VerifiedFormalReadAnchorV1>,
+);
 
 impl PersistedFormalReadHistoryV1 {
     /// Replay the retained pages from external C0 and optionally require an
@@ -115,19 +118,22 @@ impl PersistedFormalReadHistoryV1 {
                 if minimum_cut.is_some_and(|minimum| minimum != &origin_cut) {
                     return Err("HistoryUnavailable: empty full-sync history is below the immutable stage minimum cut".into());
                 }
-                return Ok((Some(serde_json::json!({
-                    "state": "uninitialized",
-                    "origin_cut": origin_cut,
-                    "current_cut": origin_cut,
-                    "last_verified_cut": serde_json::Value::Null,
-                    "page_count": 0,
-                    "total_page_bytes": 0,
-                    "total_manifest_bytes": 0,
-                    "trust_identity_digest": trust_identity_digest,
-                    "cas": cas_summary,
-                    "minimum_cut_verified": minimum_cut.is_some(),
-                    "minimum_cut": minimum_cut
-                })), minimum_cut.map(|_| origin_anchor)));
+                return Ok((
+                    Some(serde_json::json!({
+                        "state": "uninitialized",
+                        "origin_cut": origin_cut,
+                        "current_cut": origin_cut,
+                        "last_verified_cut": serde_json::Value::Null,
+                        "page_count": 0,
+                        "total_page_bytes": 0,
+                        "total_manifest_bytes": 0,
+                        "trust_identity_digest": trust_identity_digest,
+                        "cas": cas_summary,
+                        "minimum_cut_verified": minimum_cut.is_some(),
+                        "minimum_cut": minimum_cut
+                    })),
+                    minimum_cut.map(|_| origin_anchor),
+                ));
             }
             Err(error) => return Err(format!("read full-sync history head: {error}")),
         };
@@ -152,24 +158,27 @@ impl PersistedFormalReadHistoryV1 {
             .formal_current_anchor()
             .map_err(|error| format!("restore full-sync verified anchor: {error}"))?;
         let current_cut = cut_from_anchor(&current_anchor)?;
-        Ok((Some(serde_json::json!({
-            "schema_version": history.head.schema_version,
-            "world_id": history.head.world_id,
-            "chain_id": history.head.chain_id,
-            "origin_checkpoint_digest": history.head.origin_checkpoint_digest,
-            "trust_identity_digest": trust_identity_digest,
-            "origin_cut": origin_cut,
-            "page_count": history.head.page_count,
-            "total_page_bytes": history.head.total_page_bytes,
-            "total_manifest_bytes": history.head.total_manifest_bytes,
-            "manifest_digest": history.head.manifest_digest,
-            "final_cursor": history.head.final_cursor,
-            "last_verified_cut": history.head.last_verified_cut,
-            "current_cut": current_cut,
-            "cas": cas_summary,
-            "minimum_cut_verified": minimum_cut.is_some(),
-            "minimum_cut": minimum_cut
-        })), minimum_anchor))
+        Ok((
+            Some(serde_json::json!({
+                "schema_version": history.head.schema_version,
+                "world_id": history.head.world_id,
+                "chain_id": history.head.chain_id,
+                "origin_checkpoint_digest": history.head.origin_checkpoint_digest,
+                "trust_identity_digest": trust_identity_digest,
+                "origin_cut": origin_cut,
+                "page_count": history.head.page_count,
+                "total_page_bytes": history.head.total_page_bytes,
+                "total_manifest_bytes": history.head.total_manifest_bytes,
+                "manifest_digest": history.head.manifest_digest,
+                "final_cursor": history.head.final_cursor,
+                "last_verified_cut": history.head.last_verified_cut,
+                "current_cut": current_cut,
+                "cas": cas_summary,
+                "minimum_cut_verified": minimum_cut.is_some(),
+                "minimum_cut": minimum_cut
+            })),
+            minimum_anchor,
+        ))
     }
 
     pub(super) fn open(

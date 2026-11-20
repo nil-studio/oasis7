@@ -364,7 +364,9 @@ fn exercise_real_owned_worker(selected: Option<bool>) {
     let advance_provider = || {
         let newer = successor.as_ref().unwrap();
         history.push(newer.clone());
-        published.publish(newer.world.clone(), newer.anchor.clone()).unwrap();
+        published
+            .publish(newer.world.clone(), newer.anchor.clone())
+            .unwrap();
     };
     let target = selected.map(|head_ahead| {
         let target = worker.sample_selected_target(true).unwrap();
@@ -389,13 +391,16 @@ fn exercise_real_owned_worker(selected: Option<bool>) {
     let owner = Arc::new(process::lock(&data).unwrap());
     let worker = if let Some(target) = &target {
         let cas = LocalCasStore::new(data.join("state/full-sync"));
-        let orphan = cas.put_bytes(b"retain unrelated CAS during cold admission").unwrap();
+        let orphan = cas
+            .put_bytes(b"retain unrelated CAS during cold admission")
+            .unwrap();
         if selected == Some(false) {
             let original_disk: serde_json::Value = local_io::read(&ledger_path).unwrap();
             let mut wrong = original_disk.clone();
             wrong["verified_target_json"] = serde_json::to_value(
                 serde_json::to_vec(&(target, serde_json::Value::Null)).unwrap(),
-            ).unwrap();
+            )
+            .unwrap();
             let mut pending = original_disk.clone();
             pending["publication"] = serde_json::json!({
                 "intent_digest": "11".repeat(32),
@@ -409,16 +414,27 @@ fn exercise_real_owned_worker(selected: Option<bool>) {
                 local_io::write(&ledger_path, &invalid).unwrap();
                 let before = std::fs::read(&ledger_path).unwrap();
                 let error = InitialBudgetedSession::resume_selected_target(
-                    &node, &new_instance, Arc::clone(&owner),
-                ).err().expect("invalid selected operation resumed");
+                    &node,
+                    &new_instance,
+                    Arc::clone(&owner),
+                )
+                .err()
+                .expect("invalid selected operation resumed");
                 assert!(error.contains(expected), "{error}");
                 assert_eq!(std::fs::read(&ledger_path).unwrap(), before);
             }
             local_io::write(&ledger_path, &original_disk).unwrap();
         }
         let before = std::fs::read(&ledger_path).unwrap();
-        let result = InitialBudgetedSession::resume_selected_target(&node, &new_instance, Arc::clone(&owner));
-        assert_eq!(cas.get(&orphan).unwrap(), b"retain unrelated CAS during cold admission");
+        let result = InitialBudgetedSession::resume_selected_target(
+            &node,
+            &new_instance,
+            Arc::clone(&owner),
+        );
+        assert_eq!(
+            cas.get(&orphan).unwrap(),
+            b"retain unrelated CAS during cold admission"
+        );
         if selected == Some(true) {
             let error = result.err().expect("later durable head accepted");
             assert!(error.contains("target differs"), "{error}");

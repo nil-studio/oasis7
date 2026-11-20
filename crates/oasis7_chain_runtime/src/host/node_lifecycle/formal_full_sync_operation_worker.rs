@@ -6,10 +6,9 @@ use super::super::super::super::{
 };
 use super::super::super::{
     FormalFullSyncConfigV1, FormalFullSyncConfigV2, FormalFullSyncCutV1, FormalFullSyncSession,
-    FormalFullSyncStatusV1, LocalCasStore, attempt::FullSyncTargetV1, cut_from_anchor, history_chain,
-    nondecreasing_cut, now_unix_ms,
-    operation_ledger, operation_snapshot::read_snapshot, providers, shared_exchange,
-    validate_grant_for_node,
+    FormalFullSyncStatusV1, LocalCasStore, attempt::FullSyncTargetV1, cut_from_anchor,
+    history_chain, nondecreasing_cut, now_unix_ms, operation_ledger,
+    operation_snapshot::read_snapshot, providers, shared_exchange, validate_grant_for_node,
 };
 use serde_json::Value;
 use std::{
@@ -131,7 +130,8 @@ impl<'a> OperationInputs<'a> {
             Some(&minimum),
             true,
         )?;
-        let minimum_anchor = minimum_anchor.ok_or("original minimum is missing from authenticated history")?;
+        let minimum_anchor =
+            minimum_anchor.ok_or("original minimum is missing from authenticated history")?;
         let grant = self.read.grant.as_ref().ok_or("missing recovery grant")?;
         let expected = self.attach_binding(serde_json::json!({
             "api_version": "oasis7.full-sync-original-operation-request/v1",
@@ -145,7 +145,9 @@ impl<'a> OperationInputs<'a> {
         if expected != *original {
             return Err("original request differs from the authenticated minimum and owner".into());
         }
-        let anchor = client.formal_current_anchor().map_err(|error| error.to_string())?;
+        let anchor = client
+            .formal_current_anchor()
+            .map_err(|error| error.to_string())?;
         let cut = cut_from_anchor(&anchor)?;
         let Some(selected) = selected else {
             if cut != minimum {
@@ -265,7 +267,9 @@ impl InitialBudgetedSession {
             || snapshot.publication_journal_version != Some(1)
             || snapshot.publication.is_some()
         {
-            return Err("operation_recovery_required: unpublished continuity is unavailable".into());
+            return Err(
+                "operation_recovery_required: unpublished continuity is unavailable".into(),
+            );
         }
         if snapshot.attempts_used >= policy.max_attempts {
             return Err("operation_budget_exhausted: attempts".into());
@@ -300,22 +304,29 @@ impl InitialBudgetedSession {
             !expect_selected,
         )?;
         if let Some(target) = &recovery_target {
-            let current = session.client.formal_current_anchor().map_err(|error| error.to_string())?;
+            let current = session
+                .client
+                .formal_current_anchor()
+                .map_err(|error| error.to_string())?;
             if cut_from_anchor(&current)? != target.cut
                 || current.head().record() != target.anchor.head().record()
             {
                 return Err("selected history changed during session open".into());
             }
         } else {
-            let request =
-                inputs.attach_binding(session.prepare_operation_request(policy, &inputs.transport)?);
+            let request = inputs
+                .attach_binding(session.prepare_operation_request(policy, &inputs.transport)?);
             if request != original {
-                return Err("operation differs from original request after CAS initialization".into());
+                return Err(
+                    "operation differs from original request after CAS initialization".into(),
+                );
             }
         }
         session.recovery_target = recovery_target;
         let attempt = match selected {
-            Some(target) => ledger.resume_unpublished(&owner, &directory, &original, Some(target), deadline)?,
+            Some(target) => {
+                ledger.resume_unpublished(&owner, &directory, &original, Some(target), deadline)?
+            }
             None => ledger.resume_before_target(&owner, &directory, &original, deadline)?,
         };
         Self::attach(
@@ -365,7 +376,9 @@ impl InitialBudgetedSession {
         if select {
             let target = serde_json::to_vec(&(&cut, anchor.head().record()))
                 .map_err(|error| error.to_string())?;
-            self.exchange.bind_verified_target(&target).map_err(|error| error.to_string())?;
+            self.exchange
+                .bind_verified_target(&target)
+                .map_err(|error| error.to_string())?;
         }
         Ok(cut)
     }
