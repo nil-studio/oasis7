@@ -13,6 +13,8 @@ impl WasmExecutor {
             None,
         )
     }
+    /// The worker runs the same VM kernel as ordinary call(), but retains a
+    /// sticky host-resource classification across actual execution and sink.
     pub(crate) fn call_for_bounded_worker_v1<T>(
         &self,
         request: &ModuleCallRequest,
