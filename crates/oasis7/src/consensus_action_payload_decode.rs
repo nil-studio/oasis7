@@ -24,10 +24,13 @@ pub trait ConsensusPayloadDecodeOpsV1 {
 
 pub use oasis7_client_api::consensus_action_wire::DecodedConsensusPayloadV1;
 
+type ConsensusPayloadDecodeResultV1<Envelope, RuntimeAction, Error> =
+    Result<Result<DecodedConsensusPayloadV1<Envelope, RuntimeAction>, String>, Error>;
+
 pub fn decode_consensus_action_payload_envelope_with<O: ConsensusPayloadDecodeOpsV1>(
     payload_cbor: &[u8],
     ops: &mut O,
-) -> Result<Result<DecodedConsensusPayloadV1<O::Envelope, O::RuntimeAction>, String>, O::Error> {
+) -> ConsensusPayloadDecodeResultV1<O::Envelope, O::RuntimeAction, O::Error> {
     struct Lift<'a, T>(&'a mut T);
     impl<T: ConsensusPayloadDecodeOpsV1>
         oasis7_client_api::consensus_action_wire::ConsensusPayloadDecodeOpsV1<
