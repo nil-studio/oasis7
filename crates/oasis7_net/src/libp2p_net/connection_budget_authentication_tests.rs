@@ -88,4 +88,3 @@ fn denied_inbound_authentication_keeps_unknown_slot_until_transport_ends() {
     drop((recovered, outbound_permit));
     assert_eq!(budget.snapshot().unwrap().total, 0);
 }
-
