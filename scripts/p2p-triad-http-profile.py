@@ -10,6 +10,7 @@ import hashlib
 import http.client
 import importlib.util
 import json
+import math
 import os
 import re
 from pathlib import Path
@@ -67,6 +68,19 @@ def decode_object(pairs):
     return result
 
 
+def reject_nonfinite_json_constant(_token):
+    # Python accepts NaN/Infinity by default although they are not JSON.
+    # Never project a malformed producer observation as a successful sample.
+    raise ValueError("nonfinite JSON numeric token")
+
+
+def parse_finite_json_float(token):
+    value = float(token)
+    if not math.isfinite(value):
+        raise ValueError("nonfinite JSON numeric token")
+    return value
+
+
 def hex_digest(value):
     return isinstance(value, str) and re.fullmatch(r"[0-9a-fA-F]{64}", value) is not None
 
@@ -100,7 +114,9 @@ def controlled_inventory(path):
         data = source.read(CONTROLLED_CAP + 1)
     if len(data) > CONTROLLED_CAP:
         raise ValueError("controlled status inventory exceeds bound")
-    inventory = json.loads(data.decode("utf-8"), object_pairs_hook=decode_object)
+    inventory = json.loads(data.decode("utf-8"), object_pairs_hook=decode_object,
+                          parse_constant=reject_nonfinite_json_constant,
+                          parse_float=parse_finite_json_float)
     if (not isinstance(inventory, dict) or set(inventory) != {"api_version", "runtime_bin", "slots"}
             or inventory["api_version"] != "oasis7.controlled-status-inventory/v1"
             or not isinstance(inventory["runtime_bin"], str)):
@@ -222,7 +238,9 @@ def observe_controlled(runtime, pins):
         )
         if result != "success":
             return None, result
-        status = json.loads(output.decode("utf-8"), object_pairs_hook=decode_object)
+        status = json.loads(output.decode("utf-8"), object_pairs_hook=decode_object,
+                          parse_constant=reject_nonfinite_json_constant,
+                          parse_float=parse_finite_json_float)
     except (OSError, ValueError, UnicodeError):
         return None, "invalid_status"
     if (not isinstance(status, dict)
@@ -296,7 +314,9 @@ def _fetch(url, deadline, owned):
             return None, "invalid_status"
         # Do not let a duplicate producer field silently shadow identity,
         # time, readiness, or BFT checkpoint facts.
-        status = json.loads(chunks.decode("utf-8"), object_pairs_hook=decode_object)
+        status = json.loads(chunks.decode("utf-8"), object_pairs_hook=decode_object,
+                          parse_constant=reject_nonfinite_json_constant,
+                          parse_float=parse_finite_json_float)
         if not isinstance(status, dict):
             return None, "invalid_status"
         return status, "success"
