@@ -2864,7 +2864,7 @@ jobs:
       contents: read
       packages: read
     container:
-      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6
       credentials:
         username: ${{ github.actor }}
         password: ${{ github.token }}
@@ -2896,6 +2896,7 @@ jobs:
       - name: Verify the preinstalled Rust toolchains
         run: |
           set -euo pipefail
+          ps -o pid= -p "$$"
           rustc +"$RUST_TOOLCHAIN" -vV
           rustc +"$OASIS7_WASM_TOOLCHAIN" -vV
           cargo +"$RUST_TOOLCHAIN" clippy --version
@@ -2908,7 +2909,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: ci-rust-build-0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3
+          shared-key: ci-rust-build-cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
