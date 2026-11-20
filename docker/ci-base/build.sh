@@ -13,13 +13,15 @@ digest=$(docker buildx imagetools inspect "$base" --format "{{json .Manifest}}" 
 [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
 image="oasis7-ci-${target}:candidate"
 options=()
-if [[ "$target" == browser ]]; then
+if [[ "$target" == browser || "$target" == rust-build || "$target" == rust-wasm-build ]]; then
   node_base=node:24-bookworm-slim
   node_digest=$(docker buildx imagetools inspect "$node_base" --format "{{json .Manifest}}" | jq -er .digest)
   [[ "$node_digest" =~ ^sha256:[0-9a-f]{64}$ ]]
   options+=(--build-arg "NODE_BASE=${node_base}@${node_digest}"
-            --build-context browser-tools=../../scripts/ci-browser-tools
             --label "org.oasis7.ci.node-base.digest=$node_digest")
+fi
+if [[ "$target" == browser ]]; then
+  options+=(--build-context browser-tools=../../scripts/ci-browser-tools)
 fi
 if [[ "$target" == rust-build || "$target" == rust-wasm-build ]]; then
   workflow=../../.github/workflows/rust.yml
@@ -84,6 +86,7 @@ if [[ "$target" == rust-build || "$target" == rust-wasm-build ]]; then
       rustc +"$OASIS7_WASM_TOOLCHAIN" -vV
       cargo +"$RUST_TOOLCHAIN" clippy --version
       rustfmt +"$RUST_TOOLCHAIN" --version
+      node -e "if (!process.version.startsWith(\"v24.\")) process.exit(1)"
       jq -e ".ready == true" <<< "{\"ready\":true}" >/dev/null
       test "$(ruby -ryaml -rjson -e "puts JSON.generate(YAML.safe_load(File.read(%q{/dev/stdin})))" <<< "ready: true")" = "{\"ready\":true}"
       rustup component list --installed --toolchain "$OASIS7_WASM_TOOLCHAIN" | grep -Fx rust-src
