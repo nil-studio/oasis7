@@ -47,7 +47,6 @@ mod capability_authorization_state;
 mod capability_authorization_transaction;
 mod provider_terminal_authority;
 pub use provider_terminal_authority::ProviderCapabilityAvailability;
-mod capability_effect_receipt_projection;
 #[cfg(any(test, feature = "test_tier_required", feature = "test-support"))]
 mod capability_test_fixture;
 mod cognition_command;
