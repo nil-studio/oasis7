@@ -5,7 +5,7 @@ use oasis7_formal_protocol::incremental_value::{
     ValueIoBudget, ValueReadContext, ValueStreamWriter,
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
-use oasis7_runtime::{incremental_ledger_value::*, types::MaterialLedgerId};
+use oasis7_world_state::{incremental_ledger_value::*, types::MaterialLedgerId};
 use std::{
     io::Write,
     sync::atomic::{AtomicU64, Ordering},

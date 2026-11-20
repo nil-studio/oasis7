@@ -37,3 +37,4 @@ test-support = ["oasis7_formal_protocol/test-support"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 oasis7_formal_protocol = { path = "../oasis7_formal_protocol", features = ["test-support"] }
+oasis7_distfs = { path = "../oasis7_distfs" }
