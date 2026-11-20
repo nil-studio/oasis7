@@ -64,6 +64,37 @@ class ProfileHttpTests(unittest.TestCase):
         self.assertEqual(recovered["profile_readiness"]["height"], 10)
         self.assertFalse(recovered["profile_readiness"]["can_propose"])
 
+    def test_duplicate_status_fields_fail_closed_before_projection_and_recover(self):
+        # Both a top-level readiness claim and a nested BFT checkpoint fact
+        # must be rejected before an otherwise valid profile is projected.
+        cases = (
+            (fixtures.fixture(), '"formal_readiness": true',
+             '"formal_readiness": false, "formal_readiness": true'),
+            (fixtures.bft_fixture(), '"height": 10',
+             '"height": 10, "height": 11'),
+        )
+        for status, original, conflicting in cases:
+            with self.subTest(schema=status["api_version"]):
+                self.status = status
+                encoded = json.dumps(status)
+                self.assertIn(original, encoded)
+                self.body = encoded.replace(original, conflicting, 1).encode("utf-8")
+                rejected = self.run_outer(expected=1)["nodes"]["local_node"]
+                self.assertEqual(rejected["profile_collection"]["result"], "invalid_status")
+                self.assertFalse(rejected["profile_collection"]["complete"])
+                self.assertEqual(rejected["profile_readiness"]["status"], "unknown")
+                self.assertFalse(rejected["profile_readiness"]["can_propose"])
+                self.assertNotIn("height", rejected["profile_readiness"])
+
+                self.body = None
+                recovered = self.run_outer()["nodes"]["local_node"]
+                self.assertTrue(recovered["profile_collection"]["complete"])
+                if status["api_version"] == "oasis7.bft-node-observation/v1":
+                    self.assertEqual(recovered["profile_readiness"]["height"], 10)
+                    self.assertFalse(recovered["profile_readiness"]["can_propose"])
+                else:
+                    self.assertEqual(recovered["profile_readiness"]["status"], "ready")
+
     def test_formal_http_uses_same_identity_and_producer_age_as_file(self):
         status = fixtures.fixture()
         now = time.time_ns() // 1_000_000
