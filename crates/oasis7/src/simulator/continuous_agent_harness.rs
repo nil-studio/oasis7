@@ -35,57 +35,7 @@ pub const COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN: &str =
     "oasis7.cognition.capability-invocation-context.v1";
 const MAX_FEEDBACK_REPLAY_ENTRIES: usize = 8;
 
-/// Shared branch/finality binding.  Runtime is authoritative for its values;
-/// the Harness only carries and hashes the verified projection.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FinalityBindingV1 {
-    #[serde(default = "default_schema_version")]
-    pub schema_version: u16,
-    pub branch_id: String,
-    pub finality_epoch: u64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub finality_block_hash: Option<Digest32>,
-    pub finality_status: String,
-    pub reorg_epoch: u64,
-}
-
-impl FinalityBindingV1 {
-    /// Validate the Runtime-owned branch/finality projection.  A block hash
-    /// is optional for non-verified states, but every supplied hash must use
-    /// the shared typed BLAKE3-256 rendering.
-    pub fn validate(&self) -> Result<(), CognitionError> {
-        if self.branch_id.trim().is_empty() || self.branch_id.len() > 128 {
-            return Err(CognitionError::new(
-                "recovery_pending",
-                "finality binding branch identity is invalid",
-            ));
-        }
-        if !matches!(
-            self.finality_status.as_str(),
-            "pending" | "verified" | "reorged" | "suspended"
-        ) {
-            return Err(CognitionError::new(
-                "recovery_pending",
-                "finality binding status is not in the v1 registry",
-            ));
-        }
-        match self.finality_block_hash.as_ref() {
-            Some(hash) if !valid_blake3_digest(hash.as_str()) => Err(CognitionError::new(
-                "recovery_pending",
-                "finality block hash is not a canonical BLAKE3-256 digest",
-            )),
-            None if self.finality_status == "verified" => Err(CognitionError::new(
-                "recovery_pending",
-                "verified finality requires a block hash",
-            )),
-            _ => Ok(()),
-        }
-    }
-
-    pub fn digest(&self) -> Digest32 {
-        h_v1("oasis7.runtime.finality-binding.v1", self)
-    }
-}
+pub use oasis7_agent_harness::FinalityBindingV1;
 
 pub use super::continuous_agent_budget::BudgetContractV1;
 
