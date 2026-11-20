@@ -3023,7 +3023,7 @@ jobs:
       contents: read
       packages: read
     container:
-      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc
       credentials:
         username: ${{ github.actor }}
         password: ${{ github.token }}
@@ -3079,7 +3079,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: ci-rust-build-cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6
+          shared-key: ci-rust-build-d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
