@@ -4,4 +4,5 @@
 //! coordinates multi-slice staging and produces [`crate::SubsystemDelta`]s installed
 //! through [`crate::RootInstallContext`].
 
+pub mod institutions;
 pub mod module_lifecycle;
