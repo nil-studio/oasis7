@@ -113,6 +113,21 @@ class ProfileHttpTests(unittest.TestCase):
         self.assertEqual(recovered["last_applied_height"], observed["height"])
         self.assertFalse(recovered["can_propose"])
 
+    def test_bft_window_history_exceeding_observed_span_is_unknown_and_recovers(self):
+        self.status = fixtures.bft_fixture()
+        self.status["observation"]["committed_window_heights"] = 2
+        invalid = self.run_outer()["nodes"]["local_node"]
+        self.assertTrue(invalid["profile_collection"]["complete"])
+        self.assertEqual(invalid["profile_readiness"]["status"], "unknown")
+        self.assertEqual(invalid["profile_readiness"]["reason"], "invalid_bft_window_or_applied")
+        self.assertFalse(invalid["profile_readiness"]["can_propose"])
+
+        self.status["observation"]["committed_window_heights"] = 1
+        recovered = self.run_outer()["nodes"]["local_node"]["profile_readiness"]
+        self.assertEqual(recovered["reason"], "bft_qualification_not_observed")
+        self.assertEqual(recovered["committed_window_heights"], 1)
+        self.assertFalse(recovered["can_propose"])
+
     def test_formal_http_uses_same_identity_and_producer_age_as_file(self):
         status = fixtures.fixture()
         now = time.time_ns() // 1_000_000
