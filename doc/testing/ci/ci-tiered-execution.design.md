@@ -663,7 +663,7 @@ Custody 的可信分阶段执行保留 `custody_execution_version=1`，将 nativ
 
 完整周期 definition 在固定 policy revision 存在新能力时严格校验父子能力，并额外绑定该 revision 的实际 `verify.sh` 字节；脚本缺失或版本非法失败，旧能力缺席时保留历史定义输入。已有 workflow、planner、helper、driver 与登记合同测试仍逐文件绑定。真实配置能力演进沿既有完整 full-policy migration 验证，保留固定 BASE 安全集、完整候选合同和旧协议回归，不改变迁移准入或完整选组。
 
-固定 `worker-build 0.7.5` 由独立工具目录准备。缓存 key 精确绑定 OS、架构、Rust toolchain、工具版本、安装器和进程监督实现，不使用兼容前缀恢复。PR producer 只恢复；命中后核对普通可执行文件、路径安全和精确版本，缺失或错误命中必须失败，不能自动重装掩盖损坏。未命中时有界执行一次固定版本的 locked Cargo 安装，完成版本校验及自有后代清理后才原子发布目录。缓存唯一 writer 位于 `rust-cache.yml` 的 `worker-build-cache`，只允许 workflow/source/checkout 一致的 main schedule/manual-full；完整仓库库存及既有总预算允许时才保存，容量或观察失败仅跳过保存。缓存不代替实际角色构建、编译证明或平台测试，未 seed 时仍执行真实冷路径；真实跨 runner 命中与耗时由托管记录另验。
+固定 `worker-build 0.7.5` 由独立工具目录准备。缓存 key 精确绑定 OS、架构、Rust toolchain、工具版本、安装器和进程监督实现，不使用兼容前缀恢复。分阶段 PR producer 与 legacy support 中实际选中的 custody/all 分区只恢复；legacy 的实际选择同时覆盖显式 Worker profile、full 扩展和旧 BASE 无 profile 版本时的完整库存，other 分区不恢复工具。历史 tested source 缺少工具准备 helper 时只跳过该缓存优化，仍执行原完整 verifier；helper 已存在但为空、非普通文件、符号链接或 metadata 执行失败时明确失败。命中后核对普通可执行文件、路径安全和精确版本，缺失或错误命中必须失败，不能自动重装掩盖损坏。未命中时有界执行一次固定版本的 locked Cargo 安装，完成版本校验及自有后代清理后才原子发布目录。缓存唯一 writer 位于 `rust-cache.yml` 的 `worker-build-cache`，只允许 workflow/source/checkout 一致的 main schedule/manual-full；完整仓库库存及既有总预算允许时才保存，容量或观察失败仅跳过保存。缓存不代替实际角色构建、编译证明或平台测试，未 seed 时仍执行真实冷路径；真实跨 runner 命中与耗时由托管记录另验。
 
 产物绑定 source/tested/policy、run 与 producer attempt、平台及工具链、完整测试文件清单和每文件摘要/权限；consumer 仅接受本 run 明确成功的 producer 输出，核验全部文件后恢复到自己的路径，并重建 native/world 二进制指针。Node consumer 不重复 Cargo 构建或恢复 native target 缓存。四个分片按确定性文件清单执行全部 `tests/*.test.mjs`，每个 runner 内文件串行，测试内部操作、断言、超时与 freshness 合同保持。TestSession 按完整场景拆文件，共享 fixture 由每文件独立实例持有可变开关。TypeScript 检查保留一次必要执行。
 

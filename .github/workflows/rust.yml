@@ -2999,6 +2999,45 @@ jobs:
         run: |
           source scripts/ci-tests.sh
           support_capacity_snapshot after-cache
+      - name: Identify pinned Worker build tool
+        id: worker-meta
+        if: matrix.partition == 'custody' || matrix.partition == 'all'
+        shell: bash
+        run: |
+          python3 - "$RUNNER_TEMP/selection.json" <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          plan = json.loads(Path(sys.argv[1]).read_text())
+          if not (plan.get('scope') == 'full' or 'workspace_support_profile_version' not in plan
+                  or 'oasis7_custody_worker' in plan.get('workspace_support_profiles', [])):
+              raise SystemExit(0)
+          helper = Path('scripts/ci-worker-build.py')
+          if not helper.exists() and not helper.is_symlink():
+              print('Historical source has no Worker cache helper; retaining its original verifier.')
+              raise SystemExit(0)
+          if helper.is_symlink() or not helper.is_file() or not helper.stat().st_size:
+              raise SystemExit('Worker cache helper must be a nonempty regular file.')
+          os.execv(sys.executable, [sys.executable, str(helper), 'metadata', '--github-output', os.environ['GITHUB_OUTPUT']])
+          PY
+      - name: Restore exact Worker build tool
+        id: worker-tool-cache
+        if: steps.worker-meta.outputs.root != ''
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.worker-meta.outputs.root }}
+          key: worker-build-cli-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN }}-0.7.5-${{ steps.worker-meta.outputs.definition_sha }}
+      - name: Prepare verified Worker build tool
+        if: steps.worker-meta.outputs.root != ''
+        shell: bash
+        timeout-minutes: 11
+        env:
+          TOOL_CACHE_HIT: ${{ steps.worker-tool-cache.outputs.cache-hit }}
+        run: |
+          if [[ "$TOOL_CACHE_HIT" == true ]]; then
+            python3 scripts/ci-worker-build.py check
+          else
+            python3 scripts/ci-worker-build.py ensure
+          fi
       - name: Install native libraries
         shell: bash
         timeout-minutes: 11
