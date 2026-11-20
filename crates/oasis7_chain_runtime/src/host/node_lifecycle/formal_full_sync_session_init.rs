@@ -10,6 +10,16 @@ impl FormalFullSyncSession {
         cas_root: &Path,
         instance: &super::super::LocalInstance,
     ) -> Result<Self, String> {
+        Self::open(config, node_private_key_hex, cas_root, instance, true)
+    }
+
+    pub(super) fn open(
+        config: FormalFullSyncConfigV1,
+        node_private_key_hex: String,
+        cas_root: &Path,
+        instance: &super::super::LocalInstance,
+        initialize: bool,
+    ) -> Result<Self, String> {
         config.validate()?;
         let signed = authority::sign_read_request(
             "formal-full-sync-node-key-check",
@@ -23,7 +33,9 @@ impl FormalFullSyncSession {
         {
             return Err("full-sync node key differs from issuer grant".into());
         }
-        super::super::local_io::private_dir(cas_root)?;
+        if initialize {
+            super::super::local_io::private_dir(cas_root)?;
+        }
         let providers = config.providers();
         let active_provider = providers
             .first()
@@ -41,9 +53,12 @@ impl FormalFullSyncSession {
             &client,
             Arc::clone(&cas),
             cas_root,
+            initialize,
         )?;
-        cas_lifecycle::stabilize_loaded_world_pins(&cas)?;
-        cas_lifecycle::prune_unpinned(&cas)?;
+        if initialize {
+            cas_lifecycle::stabilize_loaded_world_pins(&cas)?;
+            cas_lifecycle::prune_unpinned(&cas)?;
+        }
         let status = FormalFullSyncStatusV1 {
             api_version: "oasis7.formal-full-sync-status/v1".into(),
             runtime_profile: PROFILE.into(),
@@ -78,6 +93,7 @@ impl FormalFullSyncSession {
             http,
             active_provider_index: 0,
             shared_exchange: None,
+            recovery_target: None,
             node_private_key_hex,
             node_public_key_hex,
             cas,
@@ -162,19 +178,21 @@ impl FormalFullSyncSession {
             .formal_current_anchor()
             .map_err(|error| error.to_string())?;
         let minimum = cut_from_anchor(&anchor)?;
+        let minimum_matches = if let Some(target) = &self.recovery_target {
+            target.cut == minimum
+        } else {
+            original_request.get("initial_minimum")
+                == Some(&serde_json::to_value(&minimum).map_err(|error| error.to_string())?)
+                && original_request.get("initial_minimum_record")
+                    == Some(&serde_json::to_value(anchor.head().record()).map_err(|error| error.to_string())?)
+        };
         if original_request.get("config")
             != Some(&serde_json::to_value(&self.config).map_err(|error| error.to_string())?)
             || original_request
                 .get("node_public_key")
                 .and_then(serde_json::Value::as_str)
                 != Some(self.node_public_key_hex.as_str())
-            || original_request.get("initial_minimum")
-                != Some(&serde_json::to_value(&minimum).map_err(|error| error.to_string())?)
-            || original_request.get("initial_minimum_record")
-                != Some(
-                    &serde_json::to_value(anchor.head().record())
-                        .map_err(|error| error.to_string())?,
-                )
+            || !minimum_matches
             || self
                 .history
                 .last_verified_cut()

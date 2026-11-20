@@ -6,7 +6,8 @@ use super::super::super::super::{
 };
 use super::super::super::{
     FormalFullSyncConfigV1, FormalFullSyncConfigV2, FormalFullSyncCutV1, FormalFullSyncSession,
-    FormalFullSyncStatusV1, LocalCasStore, cut_from_anchor, history_chain, now_unix_ms,
+    FormalFullSyncStatusV1, LocalCasStore, attempt::FullSyncTargetV1, cut_from_anchor, history_chain,
+    nondecreasing_cut, now_unix_ms,
     operation_ledger, operation_snapshot::read_snapshot, providers, shared_exchange,
     validate_grant_for_node,
 };
@@ -95,7 +96,12 @@ impl<'a> OperationInputs<'a> {
 
     /// Replay and compare the exact original minimum without invoking the
     /// session constructor, which may stabilize and prune local CAS roots.
-    fn verify_pre_target_minimum(&self, root: &Path, original: &Value) -> Result<(), String> {
+    fn verify_recovery_history(
+        &self,
+        root: &Path,
+        original: &Value,
+        selected: Option<&[u8]>,
+    ) -> Result<Option<FullSyncTargetV1>, String> {
         if original["node_identity"] != self.node_identity
             || original["native_owner_binding"].as_str() != Some(self.owner_binding.as_str())
             || original["transport_binding"].as_str() != Some(self.transport.binding_digest())
@@ -117,26 +123,51 @@ impl<'a> OperationInputs<'a> {
         let minimum: FormalFullSyncCutV1 =
             serde_json::from_value(original["initial_minimum"].clone())
                 .map_err(|error| error.to_string())?;
-        history_chain::PersistedFormalReadHistoryV1::verify_read_only_at_least(
+        let (_, minimum_anchor) = history_chain::PersistedFormalReadHistoryV1::verify_read_only(
             &self.read,
             &client,
             Arc::new(LocalCasStore::new(root)),
             root,
             Some(&minimum),
+            true,
         )?;
-        let anchor = client
-            .formal_current_anchor()
-            .map_err(|error| error.to_string())?;
-        if cut_from_anchor(&anchor)? != minimum
-            || original["initial_minimum_record"]
-                != serde_json::to_value(anchor.head().record())
-                    .map_err(|error| error.to_string())?
-        {
-            return Err(
-                "original minimum and record differ before recovery CAS initialization".into(),
-            );
+        let minimum_anchor = minimum_anchor.ok_or("original minimum is missing from authenticated history")?;
+        let grant = self.read.grant.as_ref().ok_or("missing recovery grant")?;
+        let expected = self.attach_binding(serde_json::json!({
+            "api_version": "oasis7.full-sync-original-operation-request/v1",
+            "config": &self.read,
+            "transfer_policy": &self.configured.transfer_policy,
+            "node_public_key": &grant.body.node_public_key,
+            "initial_minimum": &minimum,
+            "initial_minimum_record": minimum_anchor.head().record(),
+            "transport_binding": self.transport.binding_digest(),
+        }));
+        if expected != *original {
+            return Err("original request differs from the authenticated minimum and owner".into());
         }
-        Ok(())
+        let anchor = client.formal_current_anchor().map_err(|error| error.to_string())?;
+        let cut = cut_from_anchor(&anchor)?;
+        let Some(selected) = selected else {
+            if cut != minimum {
+                return Err("original minimum differs before pre-target recovery".into());
+            }
+            return Ok(None);
+        };
+        let expected = serde_json::to_vec(&(&cut, anchor.head().record()))
+            .map_err(|error| error.to_string())?;
+        if selected != expected || !nondecreasing_cut(&minimum, &cut) {
+            return Err("selected target differs from authenticated durable head".into());
+        }
+        grant.verify(
+            &self.read.formal_read_trust.initial_trust.issuer_public_key,
+            &cut.world,
+            &cut.chain_id,
+            &grant.body.node_public_key,
+            &self.read.expected_role,
+            cut.authority_epoch,
+            now_unix_ms().ok_or("system clock before Unix epoch")?,
+        )?;
+        Ok(Some(FullSyncTargetV1 { anchor, cut }))
     }
 }
 
@@ -202,6 +233,23 @@ impl InitialBudgetedSession {
         instance: &LocalInstance,
         owner: Arc<ProcessOwnership>,
     ) -> Result<Self, String> {
+        Self::resume_unpublished(node, instance, owner, false)
+    }
+
+    pub(super) fn resume_selected_target(
+        node: &NodeConfig,
+        instance: &LocalInstance,
+        owner: Arc<ProcessOwnership>,
+    ) -> Result<Self, String> {
+        Self::resume_unpublished(node, instance, owner, true)
+    }
+
+    fn resume_unpublished(
+        node: &NodeConfig,
+        instance: &LocalInstance,
+        owner: Arc<ProcessOwnership>,
+        expect_selected: bool,
+    ) -> Result<Self, String> {
         let started = Instant::now();
         let directory = node.identity.data_dir.clone();
         let inputs = OperationInputs::validate(node, instance, &owner)?;
@@ -213,14 +261,27 @@ impl InitialBudgetedSession {
         let path = sync_root.join("operation.json");
         let snapshot = read_snapshot(&path)?;
         if snapshot.identity.binding_digest != inputs.owner_binding
-            || snapshot.verified_target_json.is_some()
+            || snapshot.verified_target_json.is_some() != expect_selected
             || snapshot.publication_journal_version != Some(1)
             || snapshot.publication.is_some()
         {
-            return Err("operation_recovery_required: pre-target continuity is unavailable".into());
+            return Err("operation_recovery_required: unpublished continuity is unavailable".into());
         }
         if snapshot.attempts_used >= policy.max_attempts {
             return Err("operation_budget_exhausted: attempts".into());
+        }
+        let original: Value = serde_json::from_slice(
+            snapshot
+                .original_request_json
+                .as_deref()
+                .ok_or("operation recovery requires the full original request")?,
+        )
+        .map_err(|error| error.to_string())?;
+        let selected = snapshot.verified_target_json.as_deref();
+        let recovery_target = inputs.verify_recovery_history(&sync_root, &original, selected)?;
+        owner.require_directory(&directory)?;
+        if Instant::now() >= deadline {
+            return Err("operation_reopen_expired".into());
         }
         let mut ledger = operation_ledger::Ledger::open(
             &path,
@@ -231,30 +292,32 @@ impl InitialBudgetedSession {
         if ledger.snapshot() != &snapshot {
             return Err("operation ledger changed during reopen".into());
         }
-        let original: Value = serde_json::from_slice(
-            snapshot
-                .original_request_json
-                .as_deref()
-                .ok_or("operation recovery requires the full original request")?,
-        )
-        .map_err(|error| error.to_string())?;
-        inputs.verify_pre_target_minimum(&sync_root, &original)?;
-        owner.require_directory(&directory)?;
-        if Instant::now() >= deadline {
-            return Err("operation_reopen_expired".into());
-        }
-        let session = FormalFullSyncSession::new(
+        let mut session = FormalFullSyncSession::open(
             inputs.read.clone(),
             inputs.private_key_hex.clone(),
             &sync_root,
             instance,
+            !expect_selected,
         )?;
-        let request =
-            inputs.attach_binding(session.prepare_operation_request(policy, &inputs.transport)?);
-        if request != original {
-            return Err("operation differs from original request after CAS initialization".into());
+        if let Some(target) = &recovery_target {
+            let current = session.client.formal_current_anchor().map_err(|error| error.to_string())?;
+            if cut_from_anchor(&current)? != target.cut
+                || current.head().record() != target.anchor.head().record()
+            {
+                return Err("selected history changed during session open".into());
+            }
+        } else {
+            let request =
+                inputs.attach_binding(session.prepare_operation_request(policy, &inputs.transport)?);
+            if request != original {
+                return Err("operation differs from original request after CAS initialization".into());
+            }
         }
-        let attempt = ledger.resume_before_target(&owner, &directory, &request, deadline)?;
+        session.recovery_target = recovery_target;
+        let attempt = match selected {
+            Some(target) => ledger.resume_unpublished(&owner, &directory, &original, Some(target), deadline)?,
+            None => ledger.resume_before_target(&owner, &directory, &original, deadline)?,
+        };
         Self::attach(
             owner,
             directory,
@@ -262,7 +325,7 @@ impl InitialBudgetedSession {
             session,
             ledger,
             attempt,
-            &request,
+            &original,
         )
     }
 
@@ -287,6 +350,24 @@ impl InitialBudgetedSession {
             session,
             exchange,
         })
+    }
+
+    pub(super) fn sample_selected_target(
+        &mut self,
+        select: bool,
+    ) -> Result<FormalFullSyncCutV1, String> {
+        use oasis7_game_client::formal_sync_exchange::FullSyncExchange;
+
+        self.owner.require_directory(&self.directory)?;
+        let view = self.session.read_best_effort_current_view()?;
+        let anchor = super::super::verified_anchor(&view, &self.session.config)?;
+        let cut = cut_from_anchor(&anchor)?;
+        if select {
+            let target = serde_json::to_vec(&(&cut, anchor.head().record()))
+                .map_err(|error| error.to_string())?;
+            self.exchange.bind_verified_target(&target).map_err(|error| error.to_string())?;
+        }
+        Ok(cut)
     }
 
     pub(super) fn run_once(

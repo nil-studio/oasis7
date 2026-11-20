@@ -57,6 +57,8 @@ pub(super) struct PersistedFormalReadHistoryV1 {
     poisoned: bool,
 }
 
+pub(super) type ReadOnlyHistory = (Option<serde_json::Value>, Option<VerifiedFormalReadAnchorV1>);
+
 impl PersistedFormalReadHistoryV1 {
     /// Replay the retained pages from external C0 and optionally require an
     /// immutable stage cut to occur in that exact authenticated lineage.
@@ -67,6 +69,20 @@ impl PersistedFormalReadHistoryV1 {
         root_path: &Path,
         minimum_cut: Option<&FormalFullSyncCutV1>,
     ) -> Result<Option<serde_json::Value>, String> {
+        Self::verify_read_only(config, client, cas, root_path, minimum_cut, false)
+            .map(|(summary, _)| summary)
+    }
+
+    /// With exact_boundary, recover the typed page-boundary anchor for the
+    /// original minimum as well as the ordinary stage summary.
+    pub(super) fn verify_read_only(
+        config: &FormalFullSyncConfigV1,
+        client: &RemoteWorldServiceClient,
+        cas: Arc<LocalCasStore>,
+        root_path: &Path,
+        minimum_cut: Option<&FormalFullSyncCutV1>,
+        exact_boundary: bool,
+    ) -> Result<ReadOnlyHistory, String> {
         let origin_checkpoint_digest = config
             .formal_read_trust
             .checkpoint
@@ -99,7 +115,7 @@ impl PersistedFormalReadHistoryV1 {
                 if minimum_cut.is_some_and(|minimum| minimum != &origin_cut) {
                     return Err("HistoryUnavailable: empty full-sync history is below the immutable stage minimum cut".into());
                 }
-                return Ok(Some(serde_json::json!({
+                return Ok((Some(serde_json::json!({
                     "state": "uninitialized",
                     "origin_cut": origin_cut,
                     "current_cut": origin_cut,
@@ -111,7 +127,7 @@ impl PersistedFormalReadHistoryV1 {
                     "cas": cas_summary,
                     "minimum_cut_verified": minimum_cut.is_some(),
                     "minimum_cut": minimum_cut
-                })));
+                })), minimum_cut.map(|_| origin_anchor)));
             }
             Err(error) => return Err(format!("read full-sync history head: {error}")),
         };
@@ -123,13 +139,20 @@ impl PersistedFormalReadHistoryV1 {
             history_pins: BTreeSet::new(),
             poisoned: false,
         };
-        history.restore(config, client, &origin_cursor, false, minimum_cut)?;
+        let minimum_anchor = history.restore(
+            config,
+            client,
+            &origin_cursor,
+            false,
+            minimum_cut,
+            exact_boundary,
+        )?;
         let cas_summary = super::cas_lifecycle::verify_read_only_cas(&cas)?;
         let current_anchor = client
             .formal_current_anchor()
             .map_err(|error| format!("restore full-sync verified anchor: {error}"))?;
         let current_cut = cut_from_anchor(&current_anchor)?;
-        Ok(Some(serde_json::json!({
+        Ok((Some(serde_json::json!({
             "schema_version": history.head.schema_version,
             "world_id": history.head.world_id,
             "chain_id": history.head.chain_id,
@@ -146,7 +169,7 @@ impl PersistedFormalReadHistoryV1 {
             "cas": cas_summary,
             "minimum_cut_verified": minimum_cut.is_some(),
             "minimum_cut": minimum_cut
-        })))
+        })), minimum_anchor))
     }
 
     pub(super) fn open(
@@ -154,6 +177,7 @@ impl PersistedFormalReadHistoryV1 {
         client: &RemoteWorldServiceClient,
         cas: Arc<LocalCasStore>,
         root_path: &Path,
+        initialize: bool,
     ) -> Result<Self, String> {
         let origin_checkpoint_digest = config
             .formal_read_trust
@@ -187,7 +211,7 @@ impl PersistedFormalReadHistoryV1 {
                 super::super::local_io::read::<FormalFullSyncHistoryHeadV1>(&head_path)?
             }
             Ok(_) => return Err("full-sync history head is not a regular file".into()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(error) if initialize && error.kind() == std::io::ErrorKind::NotFound => {
                 super::super::local_io::write(&head_path, &genesis)?;
                 genesis
             }
@@ -201,7 +225,7 @@ impl PersistedFormalReadHistoryV1 {
             history_pins: BTreeSet::new(),
             poisoned: false,
         };
-        history.restore(config, client, &origin_cursor, true, None)?;
+        history.restore(config, client, &origin_cursor, initialize, None, false)?;
         Ok(history)
     }
 
@@ -228,7 +252,8 @@ impl PersistedFormalReadHistoryV1 {
         let origin_cursor = client
             .formal_replay_cursor()
             .map_err(|error| format!("full-sync provider external cursor: {error}"))?;
-        self.restore(config, client, &origin_cursor, false, None)
+        self.restore(config, client, &origin_cursor, false, None, false)
+            .map(|_| ())
     }
 
     pub(super) fn persist_verified_view(
@@ -371,7 +396,8 @@ impl PersistedFormalReadHistoryV1 {
         origin_cursor: &FormalReadReplayCursorV1,
         publish_pins: bool,
         minimum_cut: Option<&FormalFullSyncCutV1>,
-    ) -> Result<(), String> {
+        exact_boundary: bool,
+    ) -> Result<Option<VerifiedFormalReadAnchorV1>, String> {
         validate_head(&self.head, config, &self.trust_identity_digest)?;
         let origin_anchor = client
             .formal_current_anchor()
@@ -396,7 +422,7 @@ impl PersistedFormalReadHistoryV1 {
                     .map_err(|error| error.to_string())?;
             }
             self.history_pins.clear();
-            return Ok(());
+            return Ok(minimum_cut.map(|_| origin_anchor));
         }
         if self.head.manifest_digest.is_none() || self.head.last_verified_cut.is_none() {
             return Err(
@@ -504,11 +530,19 @@ impl PersistedFormalReadHistoryV1 {
             }
             Ok((manifest.page_digest, page_bytes))
         });
-        client
-            .resume_formal_history_pages(
+        let boundary = minimum_cut.filter(|_| exact_boundary).map(|cut| {
+            oasis7_client_api::world_service::FormalReadAnchorRefV1 {
+                position: cut.position,
+                record_id: cut.record_id.clone(),
+                active_authority_id: cut.active_authority_id.clone(),
+            }
+        });
+        let minimum_anchor = client
+            .resume_formal_history_pages_at_boundary(
                 &config.formal_read_trust.checkpoint_digest,
                 pages,
                 &self.head.final_cursor,
+                boundary.as_ref(),
             )
             .map_err(|error| format!("replay full-sync external-origin history pages: {error}"))?;
         let anchor = client
@@ -521,6 +555,19 @@ impl PersistedFormalReadHistoryV1 {
         }
         let current_cut = cut_from_anchor(&anchor)?;
         if let Some(minimum) = minimum_cut {
+            if exact_boundary
+                && minimum_anchor
+                    .as_ref()
+                    .map(cut_from_anchor)
+                    .transpose()?
+                    .as_ref()
+                    != Some(minimum)
+            {
+                return Err(
+                    "HistoryUnavailable: original minimum differs from authenticated boundary"
+                        .into(),
+                );
+            }
             if !minimum_found || !super::nondecreasing_cut(minimum, &current_cut) {
                 return Err("HistoryUnavailable: verified full-sync history is below the immutable stage minimum cut".into());
             }
@@ -533,7 +580,7 @@ impl PersistedFormalReadHistoryV1 {
                 .map_err(|error| error.to_string())?;
         }
         self.history_pins = history_pins;
-        Ok(())
+        Ok(minimum_anchor)
     }
 }
 

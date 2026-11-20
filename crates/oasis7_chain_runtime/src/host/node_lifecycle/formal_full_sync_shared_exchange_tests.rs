@@ -272,11 +272,27 @@ fn original_request_cannot_be_attached_to_another_transport_policy() {
 
 #[test]
 fn v4_config_and_issuer_grant_bind_the_real_owned_worker_to_one_budget() {
+    exercise_real_owned_worker(None);
+}
+
+#[test]
+fn selected_target_cold_recovery_does_not_follow_an_advanced_provider() {
+    exercise_real_owned_worker(Some(false));
+}
+
+#[test]
+fn selected_target_cold_recovery_rejects_a_later_durable_head() {
+    exercise_real_owned_worker(Some(true));
+}
+
+fn exercise_real_owned_worker(selected: Option<bool>) {
     use super::super::super::{actions, model, process};
+    use oasis7_runtime::BlobStore;
     use operation_worker::InitialBudgetedSession;
 
     let (world, trust, anchor, material, proof) = full_sync_fixture();
-    let (mut server, endpoint, key, runtime, _, _) =
+    let successor = selected.map(|_| same_epoch_successor_fixture(&world, &anchor, &material));
+    let (mut server, endpoint, key, runtime, published, history) =
         start_live_service(world, trust.clone(), anchor, material, proof);
     let mut seed = config(endpoint, key, vec![], trust, &test_key(92));
     seed.grant = None;
@@ -343,12 +359,25 @@ fn v4_config_and_issuer_grant_bind_the_real_owned_worker_to_one_budget() {
     let instance = instance_for(&node);
     let owner = Arc::new(process::lock(&data).unwrap());
     let owner_digest = owner.binding_digest().unwrap();
-    let worker = InitialBudgetedSession::prepare(&node, &instance, Arc::clone(&owner)).unwrap();
+    let mut worker = InitialBudgetedSession::prepare(&node, &instance, Arc::clone(&owner)).unwrap();
     assert!(process::lock(&data).is_err());
+    let advance_provider = || {
+        let newer = successor.as_ref().unwrap();
+        history.push(newer.clone());
+        published.publish(newer.world.clone(), newer.anchor.clone()).unwrap();
+    };
+    let target = selected.map(|head_ahead| {
+        let target = worker.sample_selected_target(true).unwrap();
+        advance_provider();
+        if head_ahead {
+            assert_ne!(worker.sample_selected_target(false).unwrap(), target);
+        }
+        target
+    });
     let ledger_path = data.join("state/full-sync/operation.json");
     let original = super::super::operation_snapshot::read_snapshot(&ledger_path).unwrap();
     assert_eq!(original.attempts_used, 1);
-    assert!(original.verified_target_json.is_none());
+    assert_eq!(original.verified_target_json.is_some(), selected.is_some());
     assert!(original.active_attempt_nonce.is_some());
     drop(worker);
     drop(owner);
@@ -358,12 +387,57 @@ fn v4_config_and_issuer_grant_bind_the_real_owned_worker_to_one_budget() {
         ..instance_for(&node)
     };
     let owner = Arc::new(process::lock(&data).unwrap());
-    let worker =
-        InitialBudgetedSession::resume_pre_target(&node, &new_instance, Arc::clone(&owner))
-            .unwrap();
+    let worker = if let Some(target) = &target {
+        let cas = LocalCasStore::new(data.join("state/full-sync"));
+        let orphan = cas.put_bytes(b"retain unrelated CAS during cold admission").unwrap();
+        if selected == Some(false) {
+            let original_disk: serde_json::Value = local_io::read(&ledger_path).unwrap();
+            let mut wrong = original_disk.clone();
+            wrong["verified_target_json"] = serde_json::to_value(
+                serde_json::to_vec(&(target, serde_json::Value::Null)).unwrap(),
+            ).unwrap();
+            let mut pending = original_disk.clone();
+            pending["publication"] = serde_json::json!({
+                "intent_digest": "11".repeat(32),
+                "attempt_no": original.attempts_used,
+                "completed": false,
+            });
+            for (invalid, expected) in [
+                (wrong, "target differs"),
+                (pending, "unpublished continuity is unavailable"),
+            ] {
+                local_io::write(&ledger_path, &invalid).unwrap();
+                let before = std::fs::read(&ledger_path).unwrap();
+                let error = InitialBudgetedSession::resume_selected_target(
+                    &node, &new_instance, Arc::clone(&owner),
+                ).err().expect("invalid selected operation resumed");
+                assert!(error.contains(expected), "{error}");
+                assert_eq!(std::fs::read(&ledger_path).unwrap(), before);
+            }
+            local_io::write(&ledger_path, &original_disk).unwrap();
+        }
+        let before = std::fs::read(&ledger_path).unwrap();
+        let result = InitialBudgetedSession::resume_selected_target(&node, &new_instance, Arc::clone(&owner));
+        assert_eq!(cas.get(&orphan).unwrap(), b"retain unrelated CAS during cold admission");
+        if selected == Some(true) {
+            let error = result.err().expect("later durable head accepted");
+            assert!(error.contains("target differs"), "{error}");
+            assert_eq!(std::fs::read(&ledger_path).unwrap(), before);
+            server.stop().unwrap();
+            runtime.lock().unwrap().stop().unwrap();
+            return;
+        }
+        result.unwrap()
+    } else {
+        InitialBudgetedSession::resume_pre_target(&node, &new_instance, Arc::clone(&owner)).unwrap()
+    };
     let thread = owner.spawn_bound_worker(move || worker.run_once()).unwrap();
     let (status, snapshot) = thread.join().unwrap().unwrap();
     assert!(status.loaded_cut.is_some());
+    if let Some(target) = target {
+        assert_eq!(status.loaded_cut.as_ref(), Some(&target));
+        assert_eq!(snapshot.verified_target_json, original.verified_target_json);
+    }
     assert!(!status.ready);
     assert_eq!(snapshot.identity.binding_digest, owner_digest);
     assert_eq!(snapshot.attempts_used, 2);
@@ -397,12 +471,12 @@ fn v4_config_and_issuer_grant_bind_the_real_owned_worker_to_one_budget() {
     let owner = Arc::new(process::lock(&data).unwrap());
     let before = std::fs::read(&ledger_path).unwrap();
     let selected =
-        InitialBudgetedSession::resume_pre_target(&node, &new_instance, Arc::clone(&owner));
+        InitialBudgetedSession::resume_selected_target(&node, &new_instance, Arc::clone(&owner));
     assert!(
         selected
             .err()
             .unwrap()
-            .contains("pre-target continuity is unavailable")
+            .contains("unpublished continuity is unavailable")
     );
     let resumed = InitialBudgetedSession::prepare(&node, &instance, owner);
     assert!(

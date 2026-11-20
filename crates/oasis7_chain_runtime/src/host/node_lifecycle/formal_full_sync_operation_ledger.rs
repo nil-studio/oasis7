@@ -268,6 +268,17 @@ impl Ledger {
         request: &serde_json::Value,
         deadline_cap: Instant,
     ) -> Result<AttemptPermit, String> {
+        self.resume_unpublished(owner, data, request, None, deadline_cap)
+    }
+
+    pub(super) fn resume_unpublished(
+        &mut self,
+        owner: &super::super::process::ProcessOwnership,
+        data: &Path,
+        request: &serde_json::Value,
+        verified_target: Option<&[u8]>,
+        deadline_cap: Instant,
+    ) -> Result<AttemptPermit, String> {
         let deadline = self
             .reopen_deadline
             .ok_or("not a reopened operation")?
@@ -277,9 +288,9 @@ impl Ledger {
             || Instant::now() >= deadline
             || self.state.publication_journal_version != Some(1)
             || self.state.publication.is_some()
-            || self.state.verified_target_json.is_some()
+            || self.state.verified_target_json.as_deref() != verified_target
         {
-            return Err("operation_recovery_required: pre-target recovery unavailable".into());
+            return Err("operation_recovery_required: unpublished recovery unavailable".into());
         }
         owner.require_directory(data)?;
         let owner_binding = owner.binding_digest()?;
