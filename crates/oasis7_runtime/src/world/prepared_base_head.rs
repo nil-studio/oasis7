@@ -9,7 +9,7 @@ use super::super::util::{hash_json, sha256_hex};
 use super::{World, WorldError};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct WorldPreparedBaseHead {
+pub(crate) struct WorldPreparedBaseHead {
     state_and_configuration: String,
     journal_and_allocators: String,
     authorization: String,
@@ -21,7 +21,7 @@ pub(super) struct WorldPreparedBaseHead {
 }
 
 impl WorldPreparedBaseHead {
-    pub(super) fn capture(world: &World) -> Result<Self, WorldError> {
+    pub(crate) fn capture(world: &World) -> Result<Self, WorldError> {
         let artifact_bytes: Vec<(&String, String)> = world
             .module_artifact_bytes
             .iter()

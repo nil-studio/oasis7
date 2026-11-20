@@ -452,10 +452,12 @@ impl World {
                 reason: format!("artifact hash mismatch expected {wasm_hash} found {computed}"),
             });
         }
-        Ok(PreparedModuleArtifactRegistration {
-            wasm_hash,
-            bytes: Arc::<[u8]>::from(bytes),
-        })
+        Ok(PreparedModuleArtifactRegistration(
+            crate::domains::module_lifecycle::ModuleArtifactRegistrationDelta::new(
+                wasm_hash,
+                Arc::<[u8]>::from(bytes),
+            ),
+        ))
     }
 
     pub fn register_module_artifact(
@@ -883,21 +885,19 @@ impl World {
     }
 }
 
-pub(super) struct PreparedModuleArtifactRegistration {
-    wasm_hash: String,
-    bytes: Arc<[u8]>,
-}
+pub(super) struct PreparedModuleArtifactRegistration(
+    pub(super) crate::domains::module_lifecycle::ModuleArtifactRegistrationDelta,
+);
 
 impl PreparedModuleArtifactRegistration {
     pub(super) fn wasm_hash(&self) -> &str {
-        &self.wasm_hash
+        self.0.wasm_hash()
     }
 
     pub(super) fn install(self, world: &mut World) {
-        world.module_artifacts.insert(self.wasm_hash.clone());
-        world
-            .module_artifact_bytes
-            .insert(self.wasm_hash, self.bytes);
+        use crate::world::transition::{RootInstallContext, SubsystemDelta};
+        let mut ctx = RootInstallContext::new(world);
+        self.0.apply_infallible(&mut ctx);
     }
 }
 
