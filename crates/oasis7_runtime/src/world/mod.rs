@@ -68,7 +68,6 @@ mod effect_publication;
 mod effect_publication_transaction_regressions;
 mod effects;
 mod event_processing;
-mod factory_authority;
 mod formal_execution_tick;
 mod formal_retention;
 mod formal_tick_consensus;
