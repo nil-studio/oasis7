@@ -1,4 +1,6 @@
-use crate::{LocalCasStore, assemble_journal, assemble_snapshot, segment_journal, segment_snapshot};
+use crate::{
+    LocalCasStore, assemble_journal, assemble_snapshot, segment_journal, segment_snapshot,
+};
 use oasis7_proto::distributed_storage::SegmentConfig;
 use std::{
     fs,
