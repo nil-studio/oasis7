@@ -4,4 +4,5 @@
 //! coordinates multi-slice staging and produces [`crate::SubsystemDelta`]s installed
 //! through [`crate::RootInstallContext`].
 
+pub use crate::world::industrial;
 pub mod module_lifecycle;
