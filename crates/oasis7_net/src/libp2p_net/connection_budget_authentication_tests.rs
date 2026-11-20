@@ -148,7 +148,11 @@ fn expired_authorized_connection_cannot_establish_and_releases_on_transport_drop
             .reserve(fresh_key, if inbound { None } else { Some(peer) })
             .unwrap();
         if inbound {
-            budget.authorize_inbound(fresh, peer).unwrap().establish().unwrap();
+            budget
+                .authorize_inbound(fresh, peer)
+                .unwrap()
+                .establish()
+                .unwrap();
         } else {
             budget
                 .authorize_outbound(fresh, &address, peer)
