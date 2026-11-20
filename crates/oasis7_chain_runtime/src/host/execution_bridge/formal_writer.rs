@@ -1100,24 +1100,12 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
         timing.mark("dual_qualified");
         #[cfg(all(test, unix))]
         super::formal_crash_test_boundary::stop_after("dual_qualified")?;
-        let head = verify_formal_qualified(
+        let head = saved_candidate::verify_qualified_commit(
+            &self.anchor,
+            self.recovery.as_ref(),
             &proof,
-            if proof.decision.branch == FormalCompletionBranchV1::Normal {
-                self.anchor.authority()
-            } else {
-                self.recovery
-                    .as_ref()
-                    .ok_or("recovery proof lacks checked context")?
-                    .original_authority()
-            },
-            Some(self.anchor.head()),
-            if proof.decision.branch == FormalCompletionBranchV1::Normal {
-                None
-            } else {
-                self.recovery.as_ref()
-            },
-        )
-        .map_err(|e| e.to_string())?;
+            candidate.candidate.record.position,
+        )?;
         let next_anchor = self
             .anchor
             .after_verified_commit(self.anchor.authority().clone(), head.clone())
