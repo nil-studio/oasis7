@@ -507,6 +507,7 @@ run_oasis7_workspace_support_crate_tests() {
   run_cargo test -p oasis7_agent_api
   run_cargo test -p oasis7_agent_harness --lib
   run_cargo test -p oasis7_client_storage -p oasis7_signer_protocol --lib
+  run_cargo test -p oasis7_domain_types --lib
   run_cargo test -p oasis7_game_client --lib
   run_game_client_cli_contracts
   run_cargo test -p oasis7_model_provider --all-targets
