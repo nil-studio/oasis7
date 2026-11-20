@@ -5,3 +5,4 @@
 //! through [`crate::RootInstallContext`].
 
 pub mod module_lifecycle;
+pub use crate::world::capability_authz;
