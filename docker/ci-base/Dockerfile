@@ -41,7 +41,7 @@ RUN curl -fsSL --retry 3 https://www.kernel.org/pub/software/scm/git/git-2.56.1.
 
 FROM build AS rust-build
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ruby \
+    && apt-get install -y --no-install-recommends jq ruby \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=git-tools /tmp/git-install/usr/local/ /usr/local/
 ARG RUST_TOOLCHAIN

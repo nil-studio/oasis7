@@ -84,6 +84,7 @@ if [[ "$target" == rust-build || "$target" == rust-wasm-build ]]; then
       rustc +"$OASIS7_WASM_TOOLCHAIN" -vV
       cargo +"$RUST_TOOLCHAIN" clippy --version
       rustfmt +"$RUST_TOOLCHAIN" --version
+      jq -e ".ready == true" <<< "{\"ready\":true}" >/dev/null
       test "$(ruby -ryaml -rjson -e "puts JSON.generate(YAML.safe_load(File.read(%q{/dev/stdin})))" <<< "ready: true")" = "{\"ready\":true}"
       rustup component list --installed --toolchain "$OASIS7_WASM_TOOLCHAIN" | grep -Fx rust-src
       printf "pub fn smoke() {}\n" >/tmp/smoke.rs
