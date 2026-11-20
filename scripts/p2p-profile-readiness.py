@@ -278,7 +278,7 @@ def project_bft_observation(status, source, now, result):
             return finish("unknown", "invalid_bft_counter")
         result[key] = value
     applied = observation.get("last_applied_height")
-    if ((applied is not None and uint(applied) is None)
+    if ((applied is not None and (uint(applied) is None or applied > result["height"]))
             or (applied is None) != (observation.get("last_applied_header_id") is None)
             or type(observation.get("pending_driver_apply")) is not bool
             or result["committed_window_heights"] > 64
