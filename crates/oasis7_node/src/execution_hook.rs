@@ -19,9 +19,8 @@ pub use oasis7_consensus::normal_tick_input::NodeExecutionCommitContext;
 pub use oasis7_consensus::replicated_execution_input::{
     NodeReplicatedExecutionInputV1, PROVIDER_BACKED_BOOTSTRAP_EXECUTION_INPUT_KIND,
     REPLICATED_EXECUTION_INPUT_ACTION_ID, REPLICATED_EXECUTION_INPUT_SUBMITTER,
-    REPLICATED_EXECUTION_INPUT_VERSION,
-    bind_replicated_execution_input_action, decode_replicated_execution_input_action,
-    validate_replicated_execution_input_actions,
+    REPLICATED_EXECUTION_INPUT_VERSION, bind_replicated_execution_input_action,
+    decode_replicated_execution_input_action, validate_replicated_execution_input_actions,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
