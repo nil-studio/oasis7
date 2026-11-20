@@ -109,7 +109,7 @@ fn committed_recipe_origin_version_two_is_explicit_and_legacy_one_bytes_unchange
     fn legacy_v1_decode(bytes: &[u8]) -> Result<ConsensusActionPayloadEnvelope, String> {
         let envelope: ConsensusActionPayloadEnvelope =
             serde_cbor::from_slice(bytes).map_err(|e| e.to_string())?;
-        if envelope.version != CONSENSUS_ACTION_PAYLOAD_ENVELOPE_VERSION {
+        if envelope.version != 1 {
             return Err("unsupported consensus payload envelope version".into());
         }
         Ok(envelope)

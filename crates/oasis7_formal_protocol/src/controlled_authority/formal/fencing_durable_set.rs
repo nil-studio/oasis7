@@ -18,9 +18,18 @@ pub struct DurableSetNativeBindingV1 {
 }
 impl DurableSetNativeBindingV1 {
     pub fn validate(&self) -> Result<(), FencingError> {
+        self.validate_with_work(&mut |_| Ok::<(), FencingError>(()))
+    }
+    pub fn validate_with_work<E: From<FencingError>>(
+        &self,
+        work: &mut impl FnMut(usize) -> Result<(), E>,
+    ) -> Result<(), E> {
+        work(self.transition_digest.len())?;
         canonical_hash(&self.transition_digest)?;
+        work(self.independent_inventory_digest.len())?;
         canonical_hash(&self.independent_inventory_digest)?;
         if let Some(digest) = &self.activation_digest {
+            work(digest.len())?;
             canonical_hash(digest)?;
         }
         Ok(())

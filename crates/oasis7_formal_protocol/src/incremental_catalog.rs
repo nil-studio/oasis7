@@ -1,8 +1,35 @@
 use super::*;
 use crate::merkle::Updater;
-use catalog_codec::{CatalogCodec, CatalogLeaf, empty_hashes, query_key};
+use catalog_codec::{CatalogCodec, CatalogLeaf};
 use wire::{Reader, Writer, digest, parse_hash};
 
+type CatalogWork<'a> = dyn Fn(u64, u64) -> Result<(), ExecutionError> + 'a;
+fn with_catalog_work<T>(
+    work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    run: impl FnOnce(&CatalogWork<'_>, &crate::merkle::WorkMeter<'_>) -> Result<T, ExecutionError>,
+) -> Result<T, ExecutionError> {
+    let work = std::cell::RefCell::new(work);
+    let first = std::cell::RefCell::new(None);
+    let pay = |s, b| (work.borrow_mut())(s, b);
+    let tree = |bytes: usize| {
+        if first.borrow().is_some() {
+            return Err("catalog meter stopped".to_owned());
+        }
+        match pay(1, bytes as u64) {
+            Ok(()) => Ok(()),
+            Err(error) => {
+                *first.borrow_mut() = Some(error);
+                Err("catalog meter stopped".to_owned())
+            }
+        }
+    };
+    let result = run(&pay, &tree);
+    if let Some(error) = first.into_inner() {
+        Err(error)
+    } else {
+        result
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CatalogRootV1 {
     pub scope: WorldScopeV1,
@@ -63,19 +90,37 @@ pub struct CatalogProofV1 {
 
 impl CatalogRootV1 {
     pub fn empty(scope: WorldScopeV1) -> Result<Self, ExecutionError> {
+        Self::empty_with_work(scope, &mut |_, _| Ok(()))
+    }
+    pub fn empty_with_work(
+        scope: WorldScopeV1,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<Self, ExecutionError> {
+        work(1, scope.world_id.len() as u64)?;
         scope.validate()?;
         Ok(Self {
             scope,
             count: 0,
-            node_root: empty_hashes()?[0].clone(),
+            node_root: {
+                let hashes = catalog_codec::empty_hashes_with_work(work)?;
+                work(1, hashes[0].len() as u64)?;
+                hashes[0].clone()
+            },
             last_commit: None,
             last_checkpoint: None,
         })
     }
     pub fn validate(&self) -> Result<(), ExecutionError> {
+        self.validate_with_work(&mut |_, _| Ok(()))
+    }
+    pub fn validate_with_work(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<(), ExecutionError> {
+        work(1, (self.scope.world_id.len() + self.node_root.len()) as u64)?;
         self.scope.validate()?;
         parse_hash(&self.node_root)?;
-        if (self.count == 0) != (self.node_root == empty_hashes()?[0])
+        if (self.count == 0) != (self.node_root == catalog_codec::empty_hashes_with_work(work)?[0])
             || (self.count == 0) != self.last_commit.is_none()
             || self
                 .last_checkpoint
@@ -86,8 +131,16 @@ impl CatalogRootV1 {
         Ok(())
     }
     pub fn canonical_bytes(&self) -> Result<Vec<u8>, ExecutionError> {
-        self.validate()?;
-        let mut out = Writer::new();
+        self.canonical_bytes_with_work(&mut |_, _| Ok(()))
+    }
+    pub fn canonical_bytes_with_work(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<Vec<u8>, ExecutionError> {
+        self.validate_with_work(work)?;
+        let work = std::cell::RefCell::new(work);
+        let meter = |s, b| (work.borrow_mut())(s, b);
+        let mut out = Writer::with_work(&meter);
         out.scope(&self.scope);
         out.u64(self.count);
         out.hash(&parse_hash(&self.node_root)?);
@@ -113,17 +166,29 @@ impl CatalogRootV1 {
         Ok(value)
     }
     pub fn digest(&self) -> Result<[u8; 32], ExecutionError> {
-        Ok(digest(&self.canonical_bytes()?))
+        self.digest_with_work(&mut |_, _| Ok(()))
+    }
+    pub fn digest_with_work(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<[u8; 32], ExecutionError> {
+        let bytes = self.canonical_bytes_with_work(work)?;
+        work(1, bytes.len() as u64)?;
+        Ok(digest(&bytes))
     }
 
     fn lookup_leaf(
         &self,
         query: CatalogQueryV1,
         source: &impl MerkleNodeReader,
+        work: &CatalogWork<'_>,
+        tree: &crate::merkle::WorkMeter<'_>,
     ) -> Result<Option<CatalogLeaf>, ExecutionError> {
-        let mut reader = Updater::<CatalogCodec, _>::new(source, empty_hashes()?, 0);
+        let empty = catalog_codec::empty_hashes_with_work(&mut |s, b| work(s, b))?;
+        let mut reader = Updater::<CatalogCodec, _>::new(source, empty, 0).with_meter(Some(tree));
+        let key = catalog_codec::query_key_with_work(&self.scope, query, &mut |s, b| work(s, b))?;
         reader
-            .lookup(&self.node_root, &query_key(&self.scope, query)?)
+            .lookup(&self.node_root, &key)
             .map_err(ExecutionError::Tree)
     }
     /// The root must come from a qualified body/prefix, never a local mtime or
@@ -133,10 +198,29 @@ impl CatalogRootV1 {
         query: CatalogQueryV1,
         source: &impl MerkleNodeReader,
     ) -> Result<Option<CatalogEntryV1>, ExecutionError> {
-        self.validate()?;
+        self.lookup_with_work(query, source, &mut |_, _| Ok(()))
+    }
+    pub fn lookup_with_work(
+        &self,
+        query: CatalogQueryV1,
+        source: &impl MerkleNodeReader,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<Option<CatalogEntryV1>, ExecutionError> {
+        with_catalog_work(work, |work, tree| {
+            self.lookup_inner(query, source, work, tree)
+        })
+    }
+    fn lookup_inner(
+        &self,
+        query: CatalogQueryV1,
+        source: &impl MerkleNodeReader,
+        work: &CatalogWork<'_>,
+        tree: &crate::merkle::WorkMeter<'_>,
+    ) -> Result<Option<CatalogEntryV1>, ExecutionError> {
+        self.validate_with_work(&mut |s, b| work(s, b))?;
         let height = match query {
             CatalogQueryV1::Height(height) => height,
-            CatalogQueryV1::Commit(commit) => match self.lookup_leaf(query, source)? {
+            CatalogQueryV1::Commit(commit) => match self.lookup_leaf(query, source, work, tree)? {
                 Some(CatalogLeaf::Commit {
                     scope,
                     commit: found,
@@ -149,7 +233,7 @@ impl CatalogRootV1 {
         if height >= self.count {
             return Ok(None);
         }
-        match self.lookup_leaf(CatalogQueryV1::Height(height), source)? {
+        match self.lookup_leaf(CatalogQueryV1::Height(height), source, work, tree)? {
             Some(CatalogLeaf::Height(entry))
                 if entry.scope == self.scope && entry.height == height =>
             {
@@ -158,6 +242,7 @@ impl CatalogRootV1 {
                 {
                     return Err(ExecutionError::Invalid("catalog locator/entry mismatch"));
                 }
+                work(1, entry.scope.world_id.len() as u64)?;
                 entry.validate()?;
                 Ok(Some(entry))
             }
@@ -176,13 +261,44 @@ impl CatalogRootV1 {
         memory: &MemoryBudget,
         max_pending_bytes: usize,
     ) -> Result<ReservedValue<CatalogDeltaV1>, ExecutionError> {
+        self.extend_with_work(body, source, memory, max_pending_bytes, &mut |_, _| Ok(()))
+    }
+    pub fn extend_with_work(
+        &self,
+        body: &CommitBodyV1,
+        source: &impl MerkleNodeReader,
+        memory: &MemoryBudget,
+        max_pending_bytes: usize,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<ReservedValue<CatalogDeltaV1>, ExecutionError> {
+        with_catalog_work(work, |work, tree| {
+            self.extend_inner(body, source, memory, max_pending_bytes, work, tree)
+        })
+    }
+    fn extend_inner(
+        &self,
+        body: &CommitBodyV1,
+        source: &impl MerkleNodeReader,
+        memory: &MemoryBudget,
+        max_pending_bytes: usize,
+        work: &CatalogWork<'_>,
+        tree: &crate::merkle::WorkMeter<'_>,
+    ) -> Result<ReservedValue<CatalogDeltaV1>, ExecutionError> {
+        work(1, 0)?;
         crate::incremental_execution::validate_source_budget(
             source,
             memory,
             MemoryClass::Ordinary,
         )?;
-        self.validate()?;
-        body.validate()?;
+        self.validate_with_work(&mut |s, b| work(s, b))?;
+        work(
+            1,
+            (body.scope.world_id.len()
+                + self.scope.world_id.len()
+                + body.catalog_before.node_root.len()
+                + self.node_root.len()) as u64,
+        )?;
+        body.validate_with_work(&mut |s, b| work(s, b))?;
         if body.catalog_before != *self {
             return Err(ExecutionError::ParentConflict);
         }
@@ -193,7 +309,7 @@ impl CatalogRootV1 {
         let mut workspace = memory.reserve(2 * 1024 * 1024, MemoryClass::Ordinary)?;
         if self.count > 0 {
             let last = self
-                .lookup(CatalogQueryV1::Height(self.count - 1), source)?
+                .lookup_inner(CatalogQueryV1::Height(self.count - 1), source, work, tree)?
                 .ok_or(ExecutionError::Invalid("last catalog entry missing"))?;
             if Some(last.commit) != self.last_commit
                 || last.latest_checkpoint != self.last_checkpoint
@@ -201,11 +317,12 @@ impl CatalogRootV1 {
                 return Err(ExecutionError::Invalid("catalog tail metadata mismatch"));
             }
         }
-        let commit = body.digest()?;
+        let commit = body.digest_with_work(&mut |s, b| work(s, b))?;
         let checkpoint = body.checkpoint.map(|descriptor| CheckpointPointerV1 {
             height: body.height,
             descriptor,
         });
+        work(1, self.scope.world_id.len() as u64)?;
         let entry = CatalogEntryV1 {
             scope: self.scope.clone(),
             height: body.height,
@@ -215,6 +332,7 @@ impl CatalogRootV1 {
             latest_checkpoint: checkpoint.or(self.last_checkpoint),
         };
         entry.validate()?;
+        work(2, (2 * self.scope.world_id.len()) as u64)?;
         let leaves = [
             CatalogLeaf::Height(entry.clone()),
             CatalogLeaf::Commit {
@@ -225,14 +343,26 @@ impl CatalogRootV1 {
         ];
         let mut leaves = leaves
             .into_iter()
-            .map(|leaf| Ok((CatalogCodec::key_digest(&leaf)?, leaf)))
+            .map(|leaf| {
+                Ok((
+                    CatalogCodec::key_digest_with_work(&leaf, &mut |s, b| work(s, b))?,
+                    leaf,
+                ))
+            })
             .collect::<Result<Vec<_>, ExecutionError>>()?;
+        work(1, 64)?;
         leaves.sort_unstable_by_key(|(key, _)| *key);
-        let mut updater =
-            Updater::<CatalogCodec, _>::new(source, empty_hashes()?, max_pending_bytes)
-                .track_parent_nodes();
+        let mut updater = Updater::<CatalogCodec, _>::new(
+            source,
+            catalog_codec::empty_hashes_with_work(&mut |s, b| work(s, b))?,
+            max_pending_bytes,
+        )
+        .with_meter(Some(tree))
+        .track_parent_nodes();
+        work(1, self.node_root.len() as u64)?;
         let mut node_root = self.node_root.clone();
         for (key, leaf) in &leaves {
+            work(1, 32)?;
             if updater
                 .lookup(&node_root, key)
                 .map_err(ExecutionError::Tree)?
@@ -251,8 +381,12 @@ impl CatalogRootV1 {
             .final_writes(&node_root)
             .map_err(ExecutionError::Tree)?
             .into_iter()
-            .map(|(digest, bytes)| CatalogNodeWriteV1 { digest, bytes })
-            .collect();
+            .map(|(digest, bytes)| {
+                work(1, 0)?;
+                Ok(CatalogNodeWriteV1 { digest, bytes })
+            })
+            .collect::<Result<Vec<_>, ExecutionError>>()?;
+        work(1, self.scope.world_id.len() as u64)?;
         let after = Self {
             scope: self.scope.clone(),
             count,
@@ -260,14 +394,15 @@ impl CatalogRootV1 {
             last_commit: Some(commit),
             last_checkpoint: entry.latest_checkpoint,
         };
-        after.validate()?;
+        after.validate_with_work(&mut |s, b| work(s, b))?;
+        work(1, (self.scope.world_id.len() + self.node_root.len()) as u64)?;
         let value = CatalogDeltaV1 {
             before: self.clone(),
             after,
             entry,
             new_nodes,
         };
-        let bytes = value.heap_bytes();
+        let bytes = value.heap_bytes_with_work(work)?;
         let charge = workspace
             .split(bytes)
             .map_err(|_| ExecutionError::Invalid("catalog extension accounting"))?;
@@ -346,15 +481,22 @@ impl CatalogDeltaV1 {
         }
         Ok(())
     }
-    fn heap_bytes(&self) -> usize {
-        std::mem::size_of::<Self>()
+    fn heap_bytes_with_work(&self, work: &CatalogWork<'_>) -> Result<usize, ExecutionError> {
+        let nodes = self.new_nodes.iter().try_fold(
+            self.new_nodes.capacity() * std::mem::size_of::<CatalogNodeWriteV1>(),
+            |bytes, node| {
+                work(1, 0)?;
+                Ok::<_, ExecutionError>(bytes + node.digest.capacity() + node.bytes.capacity())
+            },
+        )?;
+        Ok(std::mem::size_of::<Self>()
             + 64
-            + node_bytes(&self.new_nodes)
+            + nodes
             + self.before.scope.world_id.capacity()
             + self.after.scope.world_id.capacity()
             + self.before.node_root.capacity()
             + self.after.node_root.capacity()
-            + self.entry.scope.world_id.capacity()
+            + self.entry.scope.world_id.capacity())
     }
 }
 fn node_bytes(nodes: &Vec<CatalogNodeWriteV1>) -> usize {

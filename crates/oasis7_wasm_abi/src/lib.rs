@@ -7,6 +7,8 @@ mod canonical_cbor;
 mod canonical_cbor_stream;
 mod capability_v2;
 mod economy;
+mod module_artifact_identity_payload;
+pub mod module_raw_output;
 mod recipe_substitution;
 pub use canonical_cbor::encode_canonical_cbor;
 pub use canonical_cbor_stream::{
@@ -68,17 +70,6 @@ impl ModuleArtifactIdentity {
             && !self.signer_node_id.trim().is_empty()
             && !self.signature_scheme.trim().is_empty()
             && !self.artifact_signature.trim().is_empty()
-    }
-    pub fn signing_payload_v1(
-        wasm_hash: &str,
-        source_hash: &str,
-        build_manifest_hash: &str,
-        signer_node_id: &str,
-    ) -> Vec<u8> {
-        format!(
-            "modsig:ed25519:v1|{wasm_hash}|{source_hash}|{build_manifest_hash}|{signer_node_id}"
-        )
-        .into_bytes()
     }
     pub fn expected_signature_prefix(&self) -> Option<&'static str> {
         match self.signature_scheme.as_str() {

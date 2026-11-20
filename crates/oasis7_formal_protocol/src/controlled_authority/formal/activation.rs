@@ -54,6 +54,11 @@ impl VerifiedAuthorityV1 {
     pub fn initial_body(&self) -> Option<&InitialActivationBodyV1> {
         self.initial.as_ref()
     }
+    /// Identity of the original signed activation input already authenticated
+    /// by this authority. Reading it grants no storage or acceptance authority.
+    pub fn initial_input_digest(&self) -> Option<&str> {
+        self.initial_input_digest.as_deref()
+    }
     pub fn definition(&self) -> &AuthorityDefinitionV1 {
         &self.definition
     }

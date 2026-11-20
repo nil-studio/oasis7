@@ -92,6 +92,15 @@ pub struct CoreRequest<'a> {
     pub max_pending_node_bytes: usize,
 }
 
+/// Structural reconstruction from an already verified accepted head. This
+/// neither manufactures a candidate context nor qualifies recovered storage.
+pub struct AcceptedCoreRequest<'a> {
+    pub head: &'a VerifiedFormalCommitV1,
+    pub original_authority: &'a VerifiedAuthorityV1,
+    pub parent: Option<&'a VerifiedFormalCommitV1>,
+    pub max_pending_node_bytes: usize,
+}
+
 /// Exact original record role references. This is no closure/acceptance proof.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ExecutionArtifactRefs {
@@ -106,6 +115,7 @@ pub struct ExecutionArtifactRefs {
 #[derive(Debug)]
 pub struct CheckedCommitCore {
     execution_artifacts: ExecutionArtifactRefs,
+    retention_ledger_artifact: Option<[u8; 32]>,
     original_input: [u8; 32],
     original_execution_policy: [u8; 32],
     config: GenesisConfigV1,
@@ -124,6 +134,10 @@ pub struct CheckedCommitCore {
 }
 
 impl CheckedCommitCore {
+    pub fn retention_ledger_artifact_id(&self) -> Option<[u8; 32]> {
+        self.retention_ledger_artifact
+    }
+
     pub fn original_execution_policy_id(&self) -> [u8; 32] {
         self.original_execution_policy
     }
@@ -306,6 +320,52 @@ pub fn verify_commit_core<O: OriginalObjectReader, R: MerkleNodeReader>(
     pages: &R,
     memory: &MemoryBudget,
     budget: &mut CoreBudget,
+    cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<CheckedCommitCore>, CoreError<O::Error>> {
+    verify_record_core(
+        request.candidate.record(),
+        request.original_authority,
+        request.parent,
+        request.max_pending_node_bytes,
+        objects,
+        pages,
+        memory,
+        budget,
+        cancelled,
+    )
+}
+
+pub fn verify_accepted_commit_core<O: OriginalObjectReader, R: MerkleNodeReader>(
+    request: &AcceptedCoreRequest<'_>,
+    objects: &mut O,
+    pages: &R,
+    memory: &MemoryBudget,
+    budget: &mut CoreBudget,
+    cancelled: impl FnMut() -> bool,
+) -> Result<ReservedValue<CheckedCommitCore>, CoreError<O::Error>> {
+    verify_record_core(
+        request.head.record(),
+        request.original_authority,
+        request.parent,
+        request.max_pending_node_bytes,
+        objects,
+        pages,
+        memory,
+        budget,
+        cancelled,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn verify_record_core<O: OriginalObjectReader, R: MerkleNodeReader>(
+    record: &formal::CanonicalRecordV1,
+    original_authority: &VerifiedAuthorityV1,
+    parent_commit: Option<&VerifiedFormalCommitV1>,
+    max_pending_node_bytes: usize,
+    objects: &mut O,
+    pages: &R,
+    memory: &MemoryBudget,
+    budget: &mut CoreBudget,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<ReservedValue<CheckedCommitCore>, CoreError<O::Error>> {
     let charge = memory
@@ -320,7 +380,6 @@ pub fn verify_commit_core<O: OriginalObjectReader, R: MerkleNodeReader>(
     {
         return Err(CoreError::Invalid("core source memory pools"));
     }
-    let record = request.candidate.record();
     record.validate().map_err(BindingError::from)?;
     if !incremental::is_iws_record(record.schema_version) {
         return Err(CoreError::Invalid("IWS original record required"));
@@ -359,8 +418,8 @@ pub fn verify_commit_core<O: OriginalObjectReader, R: MerkleNodeReader>(
     )?)?;
     incremental::verify_commit_binding(
         record,
-        request.original_authority,
-        request.parent,
+        original_authority,
+        parent_commit,
         CommitMaterialRefs {
             config: &config,
             roots: &roots,
@@ -426,7 +485,7 @@ pub fn verify_commit_core<O: OriginalObjectReader, R: MerkleNodeReader>(
             )?)
         })
         .transpose()?;
-    let parent = if let Some(parent) = request.parent {
+    let parent = if let Some(parent) = parent_commit {
         let parent_record = parent.record();
         let parent_body = CommitBodyV1::from_canonical_bytes(&load(
             objects,
@@ -463,7 +522,7 @@ pub fn verify_commit_core<O: OriginalObjectReader, R: MerkleNodeReader>(
                 &parent_body,
                 source,
                 memory,
-                request.max_pending_node_bytes,
+                max_pending_node_bytes,
             )?)
         })?;
         if extension.after != body.catalog_before {
@@ -521,7 +580,7 @@ pub fn verify_commit_core<O: OriginalObjectReader, R: MerkleNodeReader>(
                 source,
                 memory,
                 class: MemoryClass::Ordinary,
-                max_pending_node_bytes: request.max_pending_node_bytes,
+                max_pending_node_bytes,
             }
             .verify(transition)?;
             check_pages(
@@ -536,9 +595,9 @@ pub fn verify_commit_core<O: OriginalObjectReader, R: MerkleNodeReader>(
         })?;
     }
     let catalog = with_pages(pages, budget, &mut cancelled, |source, remaining| {
-        let catalog =
-            body.catalog_before
-                .extend(&body, source, memory, request.max_pending_node_bytes)?;
+        let catalog = body
+            .catalog_before
+            .extend(&body, source, memory, max_pending_node_bytes)?;
         check_pages(
             catalog
                 .new_nodes
@@ -580,8 +639,14 @@ pub fn verify_commit_core<O: OriginalObjectReader, R: MerkleNodeReader>(
     let (parent_body, parent_roots, parent_record_id) = parent
         .map(|(body, _, roots, record_id)| (Some(body), Some(roots), Some(record_id)))
         .unwrap_or((None, None, None));
+    let retention_ledger_artifact = if incremental::has_retention_ledger(record.schema_version) {
+        Some(role(record, ArtifactRole::IncrementalRetentionLedger)?)
+    } else {
+        None
+    };
     Ok(charge.retain(CheckedCommitCore {
         execution_artifacts,
+        retention_ledger_artifact,
         original_input: input_id,
         original_execution_policy: crate::incremental_history::wire::parse_hash(
             &record.execution_policy_digest,
