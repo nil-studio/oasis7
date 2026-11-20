@@ -16,6 +16,28 @@ pub(crate) struct RemoteFullSyncReadEvidenceSourceV3 {
 }
 impl RemoteFullSyncReadEvidenceSourceV3 {
     pub(crate) fn new(endpoint: &str) -> Result<Self, String> {
+        Self::with_transport(endpoint, None)
+    }
+
+    pub(crate) fn new_with_mtls(
+        endpoint: &str,
+        ca_pem: &[u8],
+        identity_pem: &[u8],
+    ) -> Result<Self, String> {
+        let roots = reqwest::Certificate::from_pem_bundle(ca_pem)
+            .map_err(|_| "invalid issuer mTLS server CA PEM")?;
+        if roots.is_empty() {
+            return Err("issuer mTLS requires at least one pinned server CA".into());
+        }
+        let identity = reqwest::Identity::from_pem(identity_pem)
+            .map_err(|_| "invalid issuer mTLS client identity PEM")?;
+        Self::with_transport(endpoint, Some((roots, identity)))
+    }
+
+    fn with_transport(
+        endpoint: &str,
+        mtls: Option<(Vec<reqwest::Certificate>, reqwest::Identity)>,
+    ) -> Result<Self, String> {
         let endpoint =
             reqwest::Url::parse(endpoint).map_err(|_| "invalid full-sync evidence endpoint")?;
         let loopback = endpoint.host_str().is_some_and(|host| {
@@ -37,9 +59,19 @@ impl RemoteFullSyncReadEvidenceSourceV3 {
         {
             return Err("full-sync evidence endpoint requires HTTPS or explicit loopback HTTP without URL credentials".into());
         }
-        let client = reqwest::blocking::Client::builder()
+        let builder = reqwest::blocking::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
-            .no_proxy()
+            .no_proxy();
+        let builder = match mtls {
+            Some((roots, identity)) => {
+                if endpoint.scheme() != "https" {
+                    return Err("issuer mTLS requires an HTTPS evidence endpoint".into());
+                }
+                builder.https_only(true).tls_certs_only(roots).identity(identity)
+            }
+            None => builder,
+        };
+        let client = builder
             .build()
             .map_err(|_| "cannot build full-sync evidence client")?;
         Ok(Self {

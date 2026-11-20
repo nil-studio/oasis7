@@ -27,6 +27,7 @@ impl StartupV3Fixture {
         listener.set_nonblocking(true).unwrap();
         let config = FormalLiveReadAuthorizationV3 {
             evidence_endpoint: format!("http://{}/read", listener.local_addr().unwrap()),
+            evidence_mtls: None,
             signed_v2_policy: f.signed_v2,
             signed_v3_policy: f.signed_v3,
             minimum_anchor: f.minimum_v3,
