@@ -4890,6 +4890,79 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
                 self.assertEqual(complete['ordinary_partitions'],
                                  ['controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1'])
 
+    def test_targeted_policy_change_partitions_preserve_the_complete_original_plan(self):
+        for package in ('oasis7', 'oasis7_viewer_runtime'):
+            self.write(f'crates/{package}/Cargo.toml',
+                       f'[package]\nname="{package}"\nversion="0.1.0"\n'
+                       '[dependencies]\noasis7_chain_runtime={path="../oasis7_chain_runtime"}\n'
+                       '[features]\ntest_tier_required=[]\ntest_tier_full=["test_tier_required"]\n')
+            self.write(f'crates/{package}/src/lib.rs', '')
+        self.base = self.commit()
+        self.write(self.source, 'pub fn target_cut() -> u64 { 2 }\n'
+                   '#[cfg(feature="test_tier_full")] #[test] fn added_full_case() {}\n')
+        head = self.commit()
+        physical = {'ordinary_artifact_partition_version', 'ordinary_partitions',
+                    'ordinary_artifact_delivery_version', 'ordinary_harness_costs'}
+        legacy_config = {key: value for key, value in self.config.items() if key not in physical}
+        for profile in ('pr-fast', 'main-fast'):
+            with self.subTest(profile=profile):
+                selected = selector.select(self.config, self.base, head, profile=profile)
+                legacy = selector.select(legacy_config, self.base, head, profile=profile)
+                self.assertEqual(selected['scope'], 'targeted')
+                self.assertIs(selected['test_policy_changed'], True)
+                self.assertEqual(selected['oasis7_required_packages'],
+                                 ['oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'])
+                self.assertEqual(selected['ordinary_artifact_partition_version'], 1)
+                self.assertEqual(selected['ordinary_artifact_delivery_version'], 1)
+                self.assertEqual(selected['ordinary_partitions'],
+                                 ['controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1'])
+                self.assertNotIn('ordinary_harness_costs', selected)
+                self.assertNotIn('ordinary_partitions', legacy)
+                self.assertEqual({key: value for key, value in selected.items() if key not in physical}, legacy)
+                output = Path('github-output-' + profile)
+                with patch.object(sys, 'argv', ['planner', '--base-ref', self.base, '--head-ref', head,
+                        '--profile', profile, '--config', str(HERE / 'ci-required-scope.json'),
+                        '--formal-config', str(Path.cwd() / 'absent-formal.json'), '--github-output', str(output)]), \
+                     contextlib.redirect_stdout(io.StringIO()):
+                    selector.main()
+                projected = dict(line.split('=', 1) for line in output.read_text().splitlines())
+                self.assertEqual(json.loads(projected['plan']), selected)
+                self.assertEqual(json.loads(projected['ordinary_partitions']), selected['ordinary_partitions'])
+                self.assertEqual(projected['run_oasis7_required'], 'true')
+
+    def test_policy_partition_admission_requires_the_complete_layout_and_execution_contract(self):
+        original = dict(scope='targeted', groups=['oasis7_required'], execution_profile='pr-fast',
+                        test_policy_changed=True,
+                        oasis7_required_packages=['oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'])
+        changes = [
+            ('oasis7_required_packages', [package for package in original['oasis7_required_packages']
+                                         if package != missing])
+            for missing in original['oasis7_required_packages']
+        ] + [
+            ('oasis7_required_packages', None), ('oasis7_required_packages', 'oasis7'),
+            ('ordinary_execution', 'inline'), ('fast_execution_version', 1),
+            ('ordinary_partition_version', 1), ('ordinary_fast_targets', []),
+            ('ordinary_full_fast_targets', []), ('groups', ['baseline']),
+            ('execution_profile', 'candidate-full'), ('execution_profile', 'periodic-full'),
+            *[('test_policy_changed', value) for value in (None, 1, 0, '', [], {}, 'true')],
+        ]
+        for key, value in changes:
+            with self.subTest(key=key, value=value):
+                selected = original | {key: value}
+                selector.complete_ordinary_partitions(self.config, selected)
+                self.assertNotIn('ordinary_artifact_partition_version', selected)
+                self.assertNotIn('ordinary_artifact_delivery_version', selected)
+        for version in (1, 2):
+            selected = copy.deepcopy(original)
+            selector.complete_ordinary_partitions(self.config | {'ordinary_artifact_partition_version': version}, selected)
+            self.assertEqual(selected['ordinary_artifact_partition_version'], 1)
+            self.assertEqual(selected['ordinary_artifact_delivery_version'], 1)
+        old = {key: value for key, value in self.config.items() if key not in (
+            'ordinary_artifact_partition_version', 'ordinary_artifact_delivery_version', 'ordinary_harness_costs')}
+        selected = copy.deepcopy(original)
+        selector.complete_ordinary_partitions(old, selected)
+        self.assertEqual(selected, original)
+
     def test_only_eligible_noninline_chain_runtime_with_explicit_unchanged_policy_is_partitioned(self):
         original = dict(scope='targeted', groups=['oasis7_required'], execution_profile='pr-fast',
                         test_policy_changed=False, oasis7_required_packages=['oasis7_chain_runtime'])

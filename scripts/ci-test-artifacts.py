@@ -532,6 +532,18 @@ def validate_distfs_clippy_handoff(plan):
 
 def validate_ordinary_partitions(plan):
     """The trusted parent retains every target; only their physical owner changes."""
+    # Match the trusted planner's bounded v1 policy-migration layout without
+    # calling required_packages(), which re-enters fast_plan validation.
+    targeted_policy = (
+        plan.get('scope') == 'targeted'
+        and plan.get('execution_profile') in ('pr-fast', 'main-fast')
+        and plan.get('test_policy_changed') is True
+        and not {'fast_execution_version', 'ordinary_partition_version',
+                 'ordinary_fast_targets', 'ordinary_full_fast_targets'}.intersection(plan)
+        and isinstance(plan.get('oasis7_required_packages'), list)
+        and all(package in plan['oasis7_required_packages'] for package in (
+            'oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'))
+    )
     if 'ordinary_harness_costs' in plan:
         if plan.get('ordinary_artifact_partition_version') != 2:
             raise ValueError('ordinary harness costs require artifact v2')
@@ -551,7 +563,7 @@ def validate_ordinary_partitions(plan):
                 or plan.get('ordinary_execution') == 'inline'
                 or 'oasis7_required' not in plan.get('groups', [])
                 or plan.get('ordinary_partitions') != list(expected)
-                or (version == 1 and plan.get('scope') not in ('full', 'explicit-full'))
+                or (version == 1 and plan.get('scope') not in ('full', 'explicit-full') and not targeted_policy)
                 or (version == 2 and (
                     (plan.get('scope') != 'targeted' and not (
                         plan.get('scope') == 'full' and plan.get('ordinary_artifact_delivery_version') == 2))
