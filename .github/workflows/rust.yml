@@ -3830,7 +3830,7 @@ jobs:
       contents: read
       packages: read
     container:
-      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:3395596ee4a090242b77a42ec9f67a5b1b1758b707bed70907107bdfbdc932bf
       credentials:
         username: ${{ github.actor }}
         password: ${{ github.token }}
