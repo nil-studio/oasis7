@@ -239,7 +239,7 @@ else: record([name, *a])
         trace = self.root / 'commands.jsonl'
         environment = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'],
             CAPTURE=str(trace), WORKER_TOOL=str(binary / 'worker-build'), RECORD_SCRIPT=str(recorder),
-            OASIS7_SUPPORT_CAPACITY='0', CI_VERBOSE='0')
+            OASIS7_SUPPORT_CAPACITY='0')
         common = 'set -euo pipefail\nci_python="$1"; driver_dir="$2"\nsource "$driver_dir/ci-tests.sh"\n'
         def shell(script, *arguments):
             result = subprocess.run(['bash', '-c', common + script, 'contract', sys.executable,
@@ -250,27 +250,36 @@ else: record([name, *a])
         for field in ('custody_execution_version', 'custody_node_shards',
                       'custody_compile_proof_version', 'custody_policy_tests_version'):
             before.pop(field)
-        shell('support_profiles="$3"\nrun_selected_workspace_support\n', 'plan:' + json.dumps(before))
-        legacy = Counter(tuple(json.loads(line)) for line in trace.read_text().splitlines())
-        trace.unlink()
-        for stage in ('native-contracts', 'native-fixtures', 'wasm-production',
-                      'wasm-approval-artifacts', 'wasm-contracts'):
-            shell('bash crates/oasis7_custody_worker/scripts/verify.sh --stage "$3"\n', stage)
-        shell('run_worker_wasm_compile_profiles\n')
-        result = subprocess.run(C.policy_test_command(self.root, self.policy_plan()),
-                                cwd=self.root, env=environment, text=True, capture_output=True)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        shell('npm run test:types --prefix crates/oasis7_custody_worker\n')
-        staged = Counter(tuple(json.loads(line)) for line in trace.read_text().splitlines())
-        # File placement is the existing shard protocol, exercised with real Node
-        # files by test_real_node_files_complete_all_shards_... .
-        for batch in C.partition(C.inventory(self.root)):
-            staged.update(('node-test', filename) for filename in batch)
-        # The existing separate WASM proof prepares its own real fixture before
-        # checking approval-harness; it cannot reuse another runner's local file.
-        legacy.update([('cargo', 'test', '-p', 'oasis7_custody_core', '--test',
-                        'approval_admission', 'export_developer_admission_fixture', '--locked')])
-        self.assertEqual(staged, legacy)
+        for verbose in ('0', '1'):
+            with self.subTest(CI_VERBOSE=verbose):
+                environment['CI_VERBOSE'] = verbose
+                trace.unlink(missing_ok=True)
+                shell('support_profiles="$3"\nrun_selected_workspace_support\n', 'plan:' + json.dumps(before))
+                legacy = Counter(tuple(json.loads(line)) for line in trace.read_text().splitlines())
+                trace.unlink()
+                for stage in ('native-contracts', 'native-fixtures', 'wasm-production',
+                              'wasm-approval-artifacts', 'wasm-contracts'):
+                    shell('bash crates/oasis7_custody_worker/scripts/verify.sh --stage "$3"\n', stage)
+                shell('run_worker_wasm_compile_profiles\n')
+                # Command construction reads the current process environment;
+                # use the same verbosity as the legacy driver and child Cargo.
+                with mock.patch.dict(os.environ, {'CI_VERBOSE': verbose}):
+                    command = C.policy_test_command(self.root, self.policy_plan())
+                result = subprocess.run(command, cwd=self.root, env=environment,
+                                        text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                shell('npm run test:types --prefix crates/oasis7_custody_worker\n')
+                staged = Counter(tuple(json.loads(line)) for line in trace.read_text().splitlines())
+                # File placement is the existing shard protocol, exercised with real Node
+                # files by test_real_node_files_complete_all_shards_... .
+                for batch in C.partition(C.inventory(self.root)):
+                    staged.update(('node-test', filename) for filename in batch)
+                # The existing separate WASM proof prepares its own real fixture before
+                # checking approval-harness; it cannot reuse another runner's local file.
+                legacy.update([('cargo', 'test', '-p', 'oasis7_custody_core', '--test',
+                                'approval_admission', 'export_developer_admission_fixture', '--locked')])
+                self.assertEqual(staged, legacy,
+                                 f'extra={staged - legacy}; missing={legacy - staged}')
 
     def test_compile_proof_requires_strict_capability_and_complete_parent_plan(self):
         self.assertFalse(C.separate_proof(self.plan))
