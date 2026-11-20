@@ -60,6 +60,8 @@ node-libp2p = ["dep:oasis7_executable_image", "oasis7_node/libp2p", "dep:oasis7_
 wasmtime = ["oasis7_wasm_executor/wasmtime", "oasis7/wasmtime"]
 test_tier_required = ["oasis7/test_tier_required"]
 test_tier_full = ["test_tier_required", "oasis7/test_tier_full"]
+# Compile the existing capacity smoke for the standalone Storage producer.
+ci_storage_acceptance = []
 
 [dev-dependencies]
 # Signed History fixtures use the existing test authority; no production feature changes.

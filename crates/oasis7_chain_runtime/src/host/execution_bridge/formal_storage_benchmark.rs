@@ -273,7 +273,7 @@ fn run_inner(heights: u64, progress: &mut Progress) {
     );
 }
 #[test]
-#[cfg(all(unix, feature = "test_tier_full"))]
+#[cfg(all(unix, any(feature = "test_tier_full", feature = "ci_storage_acceptance")))]
 fn actual_formal_storage_capacity_smoke_10_heights() {
     std::thread::Builder::new()
         .name("storage-capacity".into())
