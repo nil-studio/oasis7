@@ -26,10 +26,12 @@ mod body;
 mod bootstrap_economy;
 mod bootstrap_gameplay;
 mod bootstrap_power;
-mod builtin_factory_quote;
-pub use builtin_factory_quote::{BuiltinFactoryStartPreview, NativeBuiltinFactoryQuote};
-mod builtin_recipe_quote;
-pub use builtin_recipe_quote::{BuiltinRecipeStartPreview, NativeBuiltinRecipeQuote};
+#[path = "../domains/industrial/mod.rs"]
+pub mod industrial;
+pub use industrial::{
+    BuiltinFactoryStartPreview, BuiltinRecipeStartPreview, NativeBuiltinFactoryQuote,
+    NativeBuiltinRecipeQuote,
+};
 mod native_resource_basis;
 mod ordinary_starter;
 pub use native_resource_basis::*;
