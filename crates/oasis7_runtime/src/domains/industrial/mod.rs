@@ -6,6 +6,7 @@
 
 use super::{ActionEnvelope, World, WorldError};
 
+mod factory_authority;
 mod factory_quote;
 mod recipe_quote;
 
