@@ -1288,6 +1288,8 @@ prepare_full_provider_artifact() {
 }
 
 run_full_extended_tier_tests() {
+  # Prove the focused Token entry, not just coverage from a broad test harness.
+  run bash "$repo_root/scripts/main-token-regression.sh" full
   run_oasis7_full_tier_tests
   run_workspace_support_full_feature_tests
   run_oasis7_llm_baseline_fixture_smoke

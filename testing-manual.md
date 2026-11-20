@@ -725,6 +725,7 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --lib --features test_tier_f
 ./scripts/main-token-regression.sh required
 ./scripts/main-token-regression.sh full
 ```
+- 修改定向脚本时，PR 的 `workflow-governance` 选中候选脚本的轻量合同测试，确认选择真实 Runtime 包与筛选路径，并拒绝零用例或 Cargo 失败；普通 Rust 分片的用例通过不代替这个入口测试。自然与手动候选 full 共用 `full-extended`，直接调用 `main-token-regression.sh full`，要求五次实际选择都非空且通过；无关 PR 不额外运行这五次 Cargo 命令。
 - 当前运行与审计权威：`doc/p2p/token/mainchain-token-allocation-mechanism.prd.md`。
 - 用途：
   - 按实际测试归属快速定位 Runtime、Simulator 或 Viewer 回归；`oasis7` 命令保留应用层 Simulator 适配测试，不能代替 `oasis7_simulator` 的内核用例。不必每次跑全套 full。定向验收应核对选中的用例及实际执行数；零匹配不算通过。
