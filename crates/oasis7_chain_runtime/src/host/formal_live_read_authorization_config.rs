@@ -42,7 +42,7 @@ pub(crate) struct FormalLiveReadEvidenceMtlsV1 {
 impl FormalLiveReadEvidenceMtlsV1 {
     pub(super) fn build(&self, endpoint: &str) -> Result<RemoteFullSyncReadEvidenceSourceV3, String> {
         const MAX_PEM_BYTES: u64 = 64 * 1024;
-        let read_private = |path: &Path| {
+        let read_private = |path: &Path| -> Result<Vec<u8>, String> {
             if !path.is_absolute() {
                 return Err("issuer mTLS credentials must use absolute paths".into());
             }
