@@ -78,6 +78,8 @@ fi
 if [[ "$target" == rust-build || "$target" == rust-wasm-build ]]; then
   docker run --rm --platform linux/amd64 --network none --user 65534:65534 \
     --env HOME=/tmp "$image" bash -ec '
+      /usr/local/bin/git --no-lazy-fetch --no-replace-objects --no-pager --no-optional-locks --version
+      test -x "$(/usr/local/bin/git --exec-path)/git-remote-https"
       rustc +"$RUST_TOOLCHAIN" -vV
       rustc +"$OASIS7_WASM_TOOLCHAIN" -vV
       cargo +"$RUST_TOOLCHAIN" clippy --version
