@@ -5,7 +5,7 @@ use std::net::TcpListener;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::runtime_paths::{repo_root_dir, viewer_dev_dist_candidates};
+use super::runtime_paths::repo_root_dir;
 use super::{
     ChainP2pStatusSnapshot, ChainRecoverySnapshot, ChainRuntimeStatus, CliOptions,
     DEFAULT_CHAIN_NODE_ID, DEFAULT_CHAIN_STATUS_BIND, DEFAULT_LISTEN_BIND, DEFAULT_SCENARIO,
@@ -438,17 +438,6 @@ fn build_chain_runtime_args_rejects_hosted_public_join() {
     })
     .expect_err("hosted public join should block local chain runtime");
     assert!(err.contains("guest/player session lane"));
-}
-
-#[test]
-fn viewer_dev_dist_candidates_only_return_oasis7_path() {
-    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-    let candidates = viewer_dev_dist_candidates();
-
-    assert_eq!(
-        candidates,
-        vec![repo_root.join("oasis7_viewer").join("dist")]
-    );
 }
 
 #[test]
