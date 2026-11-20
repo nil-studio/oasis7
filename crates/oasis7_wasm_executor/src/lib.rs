@@ -758,7 +758,8 @@ impl WasmExecutor {
                     &self.metrics,
                     elapsed_ms(instantiate_started),
                 );
-                let instance = instance.map_err(|err| self.map_worker_execution_error(request, err, context))?;
+                let instance = instance
+                    .map_err(|err| self.map_worker_execution_error(request, err, context))?;
                 let memory = instance.get_memory(&mut store, "memory").ok_or_else(|| {
                     self.failure(
                         request,
@@ -898,9 +899,9 @@ impl WasmExecutor {
                         )
                     }
                     EntrypointAbi::SRet(func) => {
-                        let out_pair_ptr = alloc
-                            .call(&mut store, 8)
-                            .map_err(|err| self.map_worker_execution_error(request, err, context))?;
+                        let out_pair_ptr = alloc.call(&mut store, 8).map_err(|err| {
+                            self.map_worker_execution_error(request, err, context)
+                        })?;
                         if out_pair_ptr < 0 {
                             return Err(self.failure(
                                 request,
@@ -909,7 +910,9 @@ impl WasmExecutor {
                             ));
                         }
                         func.call(&mut store, (out_pair_ptr, input_ptr, input_len))
-                            .map_err(|err| self.map_worker_execution_error(request, err, context))?;
+                            .map_err(|err| {
+                                self.map_worker_execution_error(request, err, context)
+                            })?;
                         let mut pair = [0_u8; 8];
                         memory
                             .read(&mut store, out_pair_ptr as usize, &mut pair)
