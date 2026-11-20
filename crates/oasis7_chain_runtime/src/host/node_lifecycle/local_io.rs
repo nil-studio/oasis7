@@ -176,9 +176,13 @@ mod regular_open_tests {
 
     #[test]
     fn rejects_symlink_and_fifo_swaps_after_path_preflight() {
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         let root = std::env::temp_dir().join(format!(
-            "oasis7-node-read-open-{}-{nonce}", std::process::id()
+            "oasis7-node-read-open-{}-{nonce}",
+            std::process::id()
         ));
         fs::create_dir(&root).unwrap();
         struct Cleanup(PathBuf);
@@ -200,8 +204,7 @@ mod regular_open_tests {
         .err()
         .expect("a symlink replacement after preflight must be rejected");
         assert!(
-            err.contains("symbolic") || err.contains("symlink")
-                || err.contains("Too many levels"),
+            err.contains("symbolic") || err.contains("symlink") || err.contains("Too many levels"),
             "unexpected error: {err}"
         );
 
