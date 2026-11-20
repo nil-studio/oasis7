@@ -95,6 +95,24 @@ class ProfileHttpTests(unittest.TestCase):
                 else:
                     self.assertEqual(recovered["profile_readiness"]["status"], "ready")
 
+    def test_bft_future_applied_height_is_rejected_through_actual_http_report(self):
+        self.status = fixtures.bft_fixture()
+        observed = self.status["observation"]
+        observed["last_applied_height"] = observed["height"] + 1
+        report = self.run_outer()
+        profile = report["nodes"]["local_node"]["profile_readiness"]
+        self.assertEqual(profile["status"], "unknown")
+        self.assertEqual(profile["reason"], "invalid_bft_window_or_applied")
+        self.assertFalse(profile["can_propose"])
+        self.assertNotIn("last_applied_height", profile)
+        self.assertTrue(report["nodes"]["local_node"]["profile_collection"]["complete"])
+
+        observed["last_applied_height"] = observed["height"]
+        recovered = self.run_outer()["nodes"]["local_node"]["profile_readiness"]
+        self.assertEqual(recovered["reason"], "bft_qualification_not_observed")
+        self.assertEqual(recovered["last_applied_height"], observed["height"])
+        self.assertFalse(recovered["can_propose"])
+
     def test_formal_http_uses_same_identity_and_producer_age_as_file(self):
         status = fixtures.fixture()
         now = time.time_ns() // 1_000_000
