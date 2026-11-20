@@ -10,7 +10,7 @@ use rustls::{
 };
 use std::io::{self, Write};
 use std::net::TcpListener;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt, symlink};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt, symlink};
 use std::path::Path;
 
 struct TestPemDirectory(std::path::PathBuf);
@@ -82,11 +82,14 @@ fn configured_evidence_mtls_requires_server_pin_hostname_and_client_certificate(
         ExtendedKeyUsagePurpose::ClientAuth,
     );
 
-    let files = TestPemDirectory(std::env::temp_dir().canonicalize().unwrap().join(format!(
-        "oasis7-issuer-mtls-{}",
-        crate::local_io::random_id().unwrap()
-    )));
-    crate::local_io::private_dir(files.path()).unwrap();
+    let mut nonce = [0_u8; 16];
+    getrandom::fill(&mut nonce).unwrap();
+    let path = std::env::temp_dir()
+        .canonicalize()
+        .unwrap()
+        .join(format!("oasis7-issuer-mtls-{}", hex::encode(nonce)));
+    std::fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
+    let files = TestPemDirectory(path);
     let server_ca_file = files.path().join("server-ca.pem");
     private_pem(&server_ca_file, &authority.0.pem());
     let unrelated_ca_file = files.path().join("unrelated-ca.pem");
