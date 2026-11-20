@@ -334,3 +334,67 @@ thread_local! {
 pub(in super::super) fn inject_reservation_cut() {
     ABORT_AFTER_RESERVATION.with(|abort| abort.set(true));
 }
+
+pub(in super::super) fn read_authenticated_original(
+    ledger: &storage::Ledger,
+    store: &LocalCasStore,
+    binding: &BftSignerBindingV3,
+    attestor: &BftPrivateRetentionAttestorV1,
+    marker: &BftPrivateRetentionCreationMarkerV1,
+) -> Result<(String, BTreeSet<String>), String> {
+    let directory = ledger.directory().join(storage::NODE_PRIVATE_DIRECTORY);
+    let path = directory.join("origin.cbor");
+    ledger.verify_carriers()?;
+    let original = preflight(&directory, store, marker)?
+        .filter(|slot| slot.complete)
+        .ok_or("complete authenticated original private Origin required")?;
+    if common_storage::read_optional_bytes(&directory.join("ready"), MARKER.len())?.as_deref()
+        != Some(MARKER)
+    {
+        return Err("covered Origin has no original ready marker".into());
+    }
+    verify_original_slot(store, &path, &original)?;
+    let carrier = original
+        .data
+        .source_activation
+        .as_ref()
+        .ok_or("covered activation carrier absent")?;
+    let bytes = common_storage::read_cas_bounded(store, &carrier.reference, MAX_ACTIVATION_BYTES)?;
+    let record: SourceActivationRecordV1 = serde_cbor::from_slice(&bytes)
+        .map_err(|_| "decode original protected activation capsule")?;
+    if record.schema_version != 1
+        || record.domain != ACTIVATION_DOMAIN
+        || &record.marker != marker
+        || record.capability_digest != attestor.digest().map_err(|error| error.to_string())?
+        || record.bytes()? != bytes
+    {
+        return Err("original activation capsule differs from pinned source".into());
+    }
+    // Validate the signed historical transition in its own lease generation.
+    // Staging a byte archive does not establish a current read or signing lease.
+    let activation = &record.original_empty_coverage;
+    let body = &activation.receipt.body;
+    let mut original_state =
+        oasis7_distfs::protected_bft_v3::BftSignerStateV3::from_handoff(binding)
+            .map_err(|error| error.to_string())?;
+    original_state.revision = body.after_revision;
+    original_state.state_digest = body.after_state_digest.clone();
+    original_state.private_retention = Some(body.head.clone());
+    activation
+        .verify(
+            binding,
+            attestor,
+            marker,
+            &original_state,
+            body.original_lease_generation,
+        )
+        .map_err(|error| error.to_string())?;
+    if DirectoryIdentity::open(&directory)? != carrier.directory {
+        return Err("original private directory changed during activation verification".into());
+    }
+    ledger.verify_carriers()?;
+    Ok((
+        original.data.digest()?,
+        original.data.references.into_iter().collect(),
+    ))
+}

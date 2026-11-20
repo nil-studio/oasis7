@@ -162,7 +162,7 @@ fn activation_case() {
         "schema_version":1, "trust_config_path":trust, "target":h.target,
         "handoff_material_path":material, "cas_directory":store.root(),
         "records_directory":records, "replication_directory":replication,
-        "validator_id":validator, "player_id":"covered-source-cli-player",
+        "validator_id":validator, "player_id":"wire3-world-private",
         "operator_instance_id":"original-covered-source-test",
         "provisioned_signing_keys":[{"validator_id":validator,"public_key_hex":validator_key}],
         "timeouts":{"propose_ms":2000,"prevote_ms":2000,"precommit_ms":2000,"round_delta_ms":100},
@@ -251,9 +251,9 @@ fn activation_case() {
                 spend: 0,
             }),
             BftFreshCoverageSupportV1 {
-                attestor,
+                attestor: attestor.clone(),
                 marker: marker.clone(),
-                verifier: Box::new(PinnedSource(marker)),
+                verifier: Box::new(PinnedSource(marker.clone())),
             },
         )
         .unwrap(),
@@ -296,6 +296,85 @@ fn activation_case() {
     activate(&mut node_value).unwrap();
     assert_eq!(fs::read(dir.join("origin.cbor")).unwrap(), bytes);
     assert_eq!(snapshot.lock().unwrap().state.revision, 1);
+    let action_bytes = super::super::execution_tests::private_actions();
+    let actions = write("first-actions.cbor", &action_bytes);
+    let archive_root = Scratch::new();
+    let archive_store = cas(archive_root.path());
+    let archive = LocalBftSuccessorArchiveStoreV1::new(archive_store.clone()).unwrap();
+    write(
+        "source.json",
+        &serde_json::to_vec(&serde_json::json!({
+            "schema_version": 1, "creation_identity":creation, "attestor":attestor,
+            "archive_directory": archive_store.root(),
+        }))
+        .unwrap(),
+    );
+    crate::identity_receipt::dispatch(
+        [
+            "bft-header",
+            "node",
+            "--config",
+            node_path.to_str().unwrap(),
+            "--archive-first-private-source-input",
+            "--source-config",
+            source_path.to_str().unwrap(),
+            "--actions",
+            actions.to_str().unwrap(),
+        ]
+        .into_iter(),
+    )
+    .unwrap()
+    .unwrap();
+    let recovered_ledger = FormalBftHeaderLedgerExecutionV3::open_from_handoff(
+        &records,
+        store.clone(),
+        h.anchor.clone(),
+        h.target.clone(),
+        h.material.clone(),
+        h.reader.clone(),
+        false,
+    )
+    .unwrap();
+    let (source, pin, replayed, first_bytes) = recovered_ledger
+        .archive_first_original_local(&archive, &binding, &attestor, &marker, action_bytes)
+        .unwrap();
+    let (cold_result, _) = pin
+        .verify_first_price(
+            &recovered_ledger,
+            &archive
+                .load_original_admission_input(&pin.reference)
+                .unwrap(),
+            &source,
+            &marker,
+            &marker.digest().unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(replayed).unwrap(),
+        serde_json::to_value(cold_result).unwrap()
+    );
+    let original = archive
+        .load_original_admission_input(&pin.reference)
+        .unwrap();
+    assert_eq!(original.publication_reservation_bytes, first_bytes);
+    let data = original
+        .objects
+        .iter()
+        .find(|object| object.kind == BftPrivateRetentionInputObjectKindV1::OriginalData)
+        .unwrap();
+    let data: serde_json::Value = serde_cbor::from_slice(&data.bytes).unwrap();
+    assert_eq!(data["schema_version"], 9);
+    assert_eq!(data["protected_source_origin_ref"], blake3_hex(&bytes));
+    assert!(fs::read_dir(&dir).unwrap().all(|entry| {
+        !entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with("candidate")
+    }));
+    assert_eq!(snapshot.lock().unwrap().state.revision, 1);
+    drop(recovered_ledger);
+
     let ordinary = crate::identity_receipt::dispatch(
         [
             "bft-header",

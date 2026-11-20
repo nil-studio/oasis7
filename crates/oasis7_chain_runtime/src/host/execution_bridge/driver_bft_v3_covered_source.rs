@@ -1,6 +1,7 @@
 //! Runtime original H namespace preparation and locally durable activation.
 use super::private_store::source_activation::{
     CoveredSourcePublication, SourceActivationRecordV1, check_original_namespace,
+    read_authenticated_original,
 };
 use super::*;
 use oasis7_distfs::protected_bft_v3::{
@@ -84,6 +85,18 @@ impl FormalBftHeaderLedgerExecutionV3 {
         };
         check_original_namespace(&self.ledger, &self.store, &marker)?;
         Ok(marker)
+    }
+
+    pub(in super::super) fn original_source_for_candidate(
+        &self,
+        binding: &BftSignerBindingV3,
+        attestor: &BftPrivateRetentionAttestorV1,
+        marker: &BftPrivateRetentionCreationMarkerV1,
+    ) -> Result<(String, std::collections::BTreeSet<String>), String> {
+        if &self.covered_source_marker(binding, &marker.creation_identity)? != marker {
+            return Err("candidate source marker differs from qualified H".into());
+        }
+        read_authenticated_original(&self.ledger, &self.store, binding, attestor, marker)
     }
 
     pub(crate) fn activate_covered_original_source(
