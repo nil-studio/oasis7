@@ -816,13 +816,3 @@ fn feedback_digest(feedback: &FeedbackEnvelopeV1) -> Digest32 {
 fn validate_feedback_contract(feedback: &FeedbackEnvelopeV1) -> Result<(), CognitionError> {
     super::agent_api_compat::feedback_to_api(feedback).validate()
 }
-
-fn valid_blake3_digest(value: &str) -> bool {
-    let Some(hex) = value.strip_prefix("blake3:") else {
-        return false;
-    };
-    hex.len() == 64
-        && hex
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-}

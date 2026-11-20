@@ -9,17 +9,14 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
 use oasis7_agent_api::{
-    CognitionError, CognitionLeaseConsumptionViewV1,
     ContinuousAgentRequestContextV1 as ApiRequestContext,
     ContinuousAgentResponseContextV1 as ApiResponseContext,
     DecisionResponse as ApiDecisionResponse, FeedbackEnvelopeV1 as ApiFeedbackEnvelope,
-    ProviderDecision as ApiProviderDecision, ResponseArtifactIdentityV1, RuntimeReceiptLineageV1,
+    ProviderDecision as ApiProviderDecision,
 };
 use oasis7_agent_harness::{
-    CompatibilityDecisionProvider, CompatibilityTurnRequest, ContinuationHostProjection,
-    DecisionProvider as HarnessProvider, DecisionProviderError as HarnessProviderError,
-    FeedbackHistoryProjection, MemoryWritePolicyContextV1, RuntimeAuthority,
-    cognition_response_digest,
+    CompatibilityDecisionProvider, CompatibilityTurnRequest, DecisionProvider as HarnessProvider,
+    DecisionProviderError as HarnessProviderError, cognition_response_digest,
 };
 
 use super::super::agent::{ActionResult, AgentBehavior, AgentDecision, AgentDecisionTrace};
