@@ -1100,24 +1100,22 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
         timing.mark("dual_qualified");
         #[cfg(all(test, unix))]
         super::formal_crash_test_boundary::stop_after("dual_qualified")?;
-        let head = verify_formal_qualified(
-            &proof,
-            if proof.decision.branch == FormalCompletionBranchV1::Normal {
-                self.anchor.authority()
-            } else {
-                self.recovery
-                    .as_ref()
-                    .ok_or("recovery proof lacks checked context")?
-                    .original_authority()
-            },
-            Some(self.anchor.head()),
-            if proof.decision.branch == FormalCompletionBranchV1::Normal {
-                None
-            } else {
-                self.recovery.as_ref()
-            },
-        )
-        .map_err(|e| e.to_string())?;
+        use oasis7_consensus::{
+            AuthorityCommitProof, AuthorityCommitVerifier, CommitCandidateRef,
+            ControlledAuthorityCommitVerifier, TrustedCommitAnchor, VerifiedAuthorityCommit,
+        };
+        let (auth, rec) = if proof.decision.branch == FormalCompletionBranchV1::Normal {
+            (self.anchor.authority().clone(), None)
+        } else {
+            let r = self.recovery.as_ref().ok_or("recovery proof lacks checked context")?;
+            (r.original_authority().clone(), Some(r.clone()))
+        };
+        let anchor = TrustedCommitAnchor::controlled(auth, Some(self.anchor.head().clone()), rec);
+        let cand = CommitCandidateRef::controlled(Some(candidate.candidate.record.position), None);
+        let head = ControlledAuthorityCommitVerifier::qualified_only()
+            .verify_authority_commit(&anchor, &cand, &AuthorityCommitProof::controlled_qualified(proof.clone()))
+            .and_then(VerifiedAuthorityCommit::into_controlled_qualified)
+            .map_err(|e| e.to_string())?;
         let next_anchor = self
             .anchor
             .after_verified_commit(self.anchor.authority().clone(), head.clone())
