@@ -3,7 +3,7 @@
 use crate::geometry::GeoPos;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum ModuleVisualAnchor {
     Agent { agent_id: String },
@@ -11,7 +11,7 @@ pub enum ModuleVisualAnchor {
     Absolute { pos: GeoPos },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default)]
 pub struct ModuleVisualEntity {
     pub entity_id: String,
@@ -87,3 +87,7 @@ impl RobotBodySpec {
         self.height_cm as f64 / 100.0
     }
 }
+
+#[path = "world_entity_projection.rs"]
+mod projection;
+pub use projection::{ModuleVisualAnchorProjectionDataV1, ModuleVisualEntityProjectionFieldsV1};

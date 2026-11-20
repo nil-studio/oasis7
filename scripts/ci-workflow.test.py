@@ -4734,6 +4734,41 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
         self.assertIn('--workspace --all-targets', host)
         self.assertIn('cancel-in-progress: false', center)
 
+    def test_token_regression_is_witnessed_in_governance_and_full_only(self):
+        entry = 'scripts/main-token-regression.sh'
+        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
+        dispatch = re.search(r'^case "\$tier:\$group" in\n.*?^esac$', driver, re.M | re.S)
+        self.assertIsNotNone(dispatch)
+        self.assertEqual(driver.count('run bash "$repo_root/' + entry + '" full'), 1)
+        self.assertLess(dispatch.end(), driver.index('if [[ -n "$group" ]]; then\n  [[ "$tier"'))
+        for job in ('full-regression', 'candidate-full-regression'):
+            self.assertIn('./scripts/ci-tests.sh full-extended', JOBS[job])
+        mapping = next(rule for rule in CONFIG['rules'] if entry in rule['match'])
+        self.assertIn('workflow_governance', mapping['groups'])
+        self.assertIn('scripts/ci-local-check.test.py', CONFIG['workflow_governance_python_tests'])
+        for tier, group, status, selected in (
+                ('full', '', 0, True), ('full-standard', '', 0, True), ('full-extended', '', 0, True),
+                ('full-extended', '', 7, True), ('required', '', 7, False),
+                ('required', 'workflow_governance', 7, False),
+                ('full-core', '', 7, False), ('full-support', '', 7, False),
+                ('full-extended', 'workflow_governance', 7, False)):
+            with self.subTest(tier=tier, group=group, status=status), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                fixture = root / entry
+                fixture.parent.mkdir()
+                fixture.write_text('printf "token:%s\\n" "$*"\n'
+                                   'exit "$TOKEN_FIXTURE_STATUS"\n')
+                command = ('repo_root=$1\ntier=$2\ngroup=$3\nrun() { "$@"; }\n'
+                           + dispatch.group() + "\necho 'remaining full checks'\n")
+                observed = subprocess.run(
+                    ['bash', '-euo', 'pipefail', '-c', command, 'full-fixture', str(root), tier, group],
+                    cwd=ROOT, env=dict(os.environ, TOKEN_FIXTURE_STATUS=str(status)),
+                    capture_output=True, text=True, timeout=15)
+                expected = status if selected else 0
+                self.assertEqual(observed.returncode, expected, observed.stdout + observed.stderr)
+                self.assertEqual(observed.stdout.splitlines().count('token:full'), int(selected))
+                self.assertEqual('remaining full checks' in observed.stdout, expected == 0)
+
     def test_clippy_precedes_heavy_group_tests(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         ordinary = driver.split('    oasis7_required)\n', 1)[1].split('    formal_process)', 1)[0]
