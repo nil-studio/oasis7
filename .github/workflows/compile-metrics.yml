@@ -69,9 +69,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-24.04
-            platform: linux-x64
-          - os: macos-14
+          - os: macos-15
             platform: macos-arm64
           - os: windows-2022
             platform: windows-x64
@@ -79,13 +77,18 @@ jobs:
     # Bound stalled toolchain/download/compile work so a metrics run cannot
     # consume unbounded CI time without producing evidence.
     timeout-minutes: 45
-    steps:
+    steps: &compile-metrics-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Current-only measurements never inspect repository history. Fetch a
           # baseline explicitly below when one is requested instead of paying
           # the full-history transfer cost on every run.
           fetch-depth: 1
+
+      - name: Trust the checked-out workspace path in the job container
+        if: runner.os == 'Linux'
+        shell: bash
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Configure mold for Linux host linking
         if: runner.os == 'Linux'
@@ -141,32 +144,21 @@ jobs:
           git fetch --no-tags --depth=1 origin -- "${BASELINE_REF}"
 
       - name: Install pinned Rust toolchain
+        if: runner.os != 'Linux'
         shell: bash
         run: |
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal
           rustup default "${RUST_TOOLCHAIN}"
 
-      - name: Install Linux system dependencies
+      - name: Verify the preinstalled Linux Rust toolchain
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            pkg-config \
-            libwayland-dev \
-            wayland-protocols \
-            libxkbcommon-dev \
-            libx11-dev \
-            libxi-dev \
-            libxcursor-dev \
-            libxrandr-dev \
-            libxinerama-dev \
-            libasound2-dev \
-            libudev-dev
+        shell: bash
+        run: rustc +"${RUST_TOOLCHAIN}" -vV
 
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           save-if: false
-          shared-key: compile-metrics-${{ runner.os }}-rust-surface-trusted-v2
+          shared-key: ${{ runner.os == 'Linux' && 'compile-metrics-ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f' || format('compile-metrics-{0}-rust-surface-trusted-v2', runner.os) }}
           cache-on-failure: true
 
       - name: Resolve baseline ref
@@ -230,7 +222,7 @@ jobs:
           if [[ "${MEASURE_WARM}" == "true" ]]; then
             cmd+=(--measure-warm-check)
           fi
-          cmd+=("${extra_args[@]}")
+          cmd+=(${extra_args[@]+"${extra_args[@]}"})
           if [[ -n "${BASELINE_REF}" ]]; then
             cmd+=(--baseline-ref "${BASELINE_REF}")
           fi
@@ -297,9 +289,26 @@ jobs:
           path: output/compile-metrics/${{ matrix.platform }}
           if-no-files-found: error
 
+  compile-metrics-linux:
+    name: compile-metrics-${{ matrix.platform }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      matrix:
+        platform: [linux-x64]
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    steps: *compile-metrics-steps
+
   summarize:
     name: summarize-compile-metrics
-    needs: compile-metrics
+    needs: [compile-metrics, compile-metrics-linux]
     if: always()
     runs-on: ubuntu-24.04
     steps:
