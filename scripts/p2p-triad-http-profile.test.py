@@ -99,7 +99,7 @@ class ProfileHttpTests(unittest.TestCase):
         # Python's default JSON decoder accepts these non-JSON numeric tokens.
         # An otherwise valid controlled or BFT producer must not be collected.
         for status in (fixtures.fixture(), fixtures.bft_fixture()):
-            for literal in ("NaN", "Infinity", "-Infinity"):
+            for literal in ("NaN", "Infinity", "-Infinity", "1e9999"):
                 with self.subTest(schema=status["api_version"], token=literal):
                     self.status = status
                     payload = json.dumps(status)
