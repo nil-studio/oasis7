@@ -1,6 +1,7 @@
 //! Resource manifest contracts and canonical encoding.
 use super::FragmentElementKind;
-use crate::world_action::{MaterialLedgerId, ResourceKind};
+use super::ResourceKind;
+use crate::ledger::MaterialLedgerId;
 use crate::world_geometry::ChunkCoord;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

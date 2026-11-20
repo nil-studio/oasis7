@@ -1,9 +1,10 @@
 [workspace]
-members = ["crates/oasis7_model_provider",
-"crates/oasis7_game_client",
+members = [
+    "crates/oasis7_game_client",
     "crates/oasis7_browser_game_client",
     "crates/oasis7_client_api",
     "crates/oasis7_agent_api",
+    "crates/oasis7_domain_types",
     "crates/oasis7_custody_core",
     "crates/oasis7_custody_worker",
     "crates/oasis7_dev_test_worker",

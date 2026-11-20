@@ -32,6 +32,9 @@ policy = maintenance.policy
 ACTION_REVISION = 'd1527c8f67ef9af357290475d4af4b0fab8f12e0'
 DENIED = 78
 FAMILIES = {
+    'rust-image-native': ('ci-rust-build-0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3',
+                          '.github/workflows/rust-cache.yml',
+                          'rust-image-native-cache'),
     'shared-native': ('ci-shared-native-trusted-v4', '.github/workflows/rust-cache.yml', 'shared-native-cache'),
     'formal-debug': ('ci-formal-debug-deps-trusted-v1', '.github/workflows/rust.yml', 'formal-debug-build-trusted'),
     'formal-endpoint': ('ci-formal-endpoint-deps-trusted-v1', '.github/workflows/rust.yml', 'formal-endpoint-build-trusted'),
@@ -129,19 +132,20 @@ def trusted_writer(environment, api):
             or environment.get('GITHUB_WORKFLOW_REF') != f'{api.repository}/{workflow}@refs/heads/main'
             or not re.fullmatch(r'[0-9a-f]{40}', sha) or not re.fullmatch(r'[1-9][0-9]*', run_id)):
         raise AdmissionError('dependency upload requires the current trusted main writer identity')
-    if rust_full and event == 'workflow_dispatch':
+    if (rust_full or family == 'rust-image-native') and event == 'workflow_dispatch':
+        mode = 'image-native' if family == 'rust-image-native' else 'full'
         try:
             payload = json.loads(Path(environment.get('GITHUB_EVENT_PATH', '')).read_text())
-            full = payload.get('inputs', {}).get('run_mode') == 'full'
+            selected = payload.get('inputs', {}).get('run_mode') == mode
         except (OSError, ValueError, AttributeError):
-            full = False
-        if not full:
-            raise AdmissionError('manual dependency upload requires run_mode=full')
+            selected = False
+        if not selected:
+            raise AdmissionError(f'manual dependency upload requires run_mode={mode}')
     if family.startswith('release-') or family == 'testnet-linux':
         if (environment.get('OASIS7_DEPENDENCY_CACHE_SOURCE_SHA') != sha
                 or environment.get('INPUT_CACHE-PROVIDER') != 'github'):
             raise AdmissionError('package dependency upload requires the matching planned main source and GitHub provider')
-    if family == 'shared-native' or family.startswith('release-') or family == 'testnet-linux':
+    if family in ('shared-native', 'rust-image-native', 'testnet-linux') or family.startswith('release-'):
         try:
             # The plan must still describe the actual checkout after the build.
             git_environment = {key: value for key, value in environment.items()

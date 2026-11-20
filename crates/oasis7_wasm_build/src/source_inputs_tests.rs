@@ -1,6 +1,9 @@
 use super::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+#[path = "workspace_inputs_tests.rs"]
+mod workspace_inputs_tests;
+
 static NEXT: AtomicU64 = AtomicU64::new(0);
 struct Fixture(PathBuf);
 impl Fixture {
@@ -428,6 +431,13 @@ fn actual_repository_wrapper_closures_support_the_real_local_dependency_lane() {
             continue;
         }
         let evidence = compute_source_inputs(&dir.join("Cargo.toml"), DEFAULT_WASM_TARGET).unwrap();
+        assert!(
+            evidence
+                .source_inputs
+                .iter()
+                .all(|input| !matches!(input.path.as_str(), "Cargo.toml" | "Cargo.lock")),
+            "the standalone wrapper must not inherit unrelated root Cargo inputs"
+        );
         assert!(
             evidence
                 .source_inputs

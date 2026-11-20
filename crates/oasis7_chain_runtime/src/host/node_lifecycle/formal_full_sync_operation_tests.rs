@@ -496,3 +496,69 @@ fn fenced_pre_target_reopen_preserves_the_original_pending_reservation() {
     );
     assert_eq!(reopened.snapshot(), &closed);
 }
+
+#[test]
+fn native_initial_ledger_durably_publishes_the_complete_original_request() {
+    use super::super::process;
+
+    let temp = TestDir::new();
+    let data = temp.path();
+    local_io::private_file(&data.join("process.lock")).unwrap();
+    local_io::private_dir(&data.join("state")).unwrap();
+    let sync = data.join("state/full-sync");
+    local_io::private_dir(&sync).unwrap();
+    let path = sync.join("operation.json");
+    let owner = process::lock(data).unwrap();
+    let binding = owner.binding_digest().unwrap();
+    let request = serde_json::json!({
+        "native_owner_binding": binding,
+        "original": {"minimum": 37}
+    });
+    let policy = policy();
+    let mut identity = identity(&policy);
+    identity.request_digest = local_io::digest(&request).unwrap();
+    let wrong_owner = Ledger::create_bound(
+        &path,
+        identity.clone(),
+        policy.clone(),
+        1,
+        &request,
+        &owner,
+        data,
+    );
+    assert!(wrong_owner.is_err());
+    assert!(!path.exists());
+
+    identity.binding_digest = binding;
+    let ledger = Ledger::create_bound(
+        &path,
+        identity.clone(),
+        policy.clone(),
+        1,
+        &request,
+        &owner,
+        data,
+    )
+    .unwrap();
+    let original = ledger.snapshot().clone();
+    assert_eq!(original.revision, 0);
+    assert_eq!(original.attempts_used, 0);
+    assert_eq!(
+        original.original_request_json.as_deref(),
+        Some(serde_json::to_vec(&request).unwrap().as_slice())
+    );
+    drop(ledger);
+
+    let repeated = Ledger::create_bound(
+        &path,
+        identity.clone(),
+        policy.clone(),
+        1,
+        &request,
+        &owner,
+        data,
+    );
+    assert!(repeated.is_err());
+    let observed = Ledger::open(&path, &identity, &policy, 1).unwrap();
+    assert_eq!(observed.snapshot(), &original);
+}

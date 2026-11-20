@@ -1024,6 +1024,7 @@ fn ordinary_v3_configuration_binds_existing_trust_and_node_key_without_rpc() {
     let fixture = issue_lease_fixture(trust.initial_trust.clone(), now_ms());
     let config = FormalLiveReadAuthorizationV3 {
         evidence_endpoint: "http://127.0.0.1:1/evidence".into(),
+        evidence_mtls: None,
         signed_v2_policy: fixture.signed_v2.clone(),
         signed_v3_policy: fixture.signed_v3.clone(),
         minimum_anchor: fixture.minimum_v3.clone(),

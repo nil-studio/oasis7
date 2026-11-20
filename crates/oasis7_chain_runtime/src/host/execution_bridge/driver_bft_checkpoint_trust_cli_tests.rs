@@ -63,27 +63,71 @@ pub(super) fn check_preparation(
     let bytes = canonical(&config);
     let path = root.join("checkpoint-trust.cbor");
     private_file(&path, &bytes);
-    let prepare = || {
-        crate::identity_receipt::dispatch(
-            [
-                "bft-header",
-                "prepare-checkpoint-trust",
-                "--config",
-                path.to_str().unwrap(),
-                "--node-config",
-                node_config.to_str().unwrap(),
-                "--policy-pin",
-                &policy_pin,
-                "--consumer-binding",
-                &pin,
-                "--original-c0-pin",
-                &c0_pin,
-            ]
-            .into_iter(),
-        )
-        .unwrap()
+    let prepare_with_status = |status: Option<&str>| {
+        let mut arguments = vec![
+            "bft-header",
+            "prepare-checkpoint-trust",
+            "--config",
+            path.to_str().unwrap(),
+            "--node-config",
+            node_config.to_str().unwrap(),
+            "--policy-pin",
+            &policy_pin,
+            "--consumer-binding",
+            &pin,
+            "--original-c0-pin",
+            &c0_pin,
+        ];
+        if let Some(status) = status {
+            arguments.extend(["--issuer-status", status]);
+        }
+        crate::identity_receipt::dispatch(arguments.into_iter()).unwrap()
     };
+    let prepare = || prepare_with_status(None);
     prepare().expect("real host consumes SDK preparation and original Node binding");
+    let status = serde_json::json!({
+        "schema_version":1,
+        "origin_digest":digest("origin", &value["policy"]["origin"]),
+        "policy_digest":policy_pin,
+        "root_authorization_generation":1,
+        "status_sequence":2,
+        "issued_at_unix_ms":20,
+        "not_before_unix_ms":20,
+        "expires_at_unix_ms":40,
+        "policy_revoked":true,
+        "issuer_keys":[{"key_id":"issuer-key","issuer_generation":1,"revoked_at_unix_ms":19}],
+    });
+    let status_path = root.join("checkpoint-issuer-status.cbor");
+    let write_status = |body: serde_json::Value, signing_key| {
+        let digest_bytes = hex::decode(digest("issuer-status", &body)).unwrap();
+        private_file(
+            &status_path,
+            &canonical(&serde_json::json!({
+                "body":body,
+                "signature_hex":fixtures::sign(digest_bytes, signing_key),
+            })),
+        );
+    };
+    let with_status = || prepare_with_status(status_path.to_str());
+    write_status(status.clone(), 118);
+    with_status().expect("revoked statuses are authenticated without opening current or renewal");
+    write_status(status.clone(), 117);
+    assert!(
+        with_status()
+            .unwrap_err()
+            .contains("root signature rejected")
+    );
+    for (field, invalid) in [
+        ("issuer_keys", serde_json::json!([])),
+        ("expires_at_unix_ms", serde_json::json!(101)),
+        ("policy_digest", serde_json::json!(fixtures::h(49))),
+        ("root_authorization_generation", serde_json::json!(2)),
+    ] {
+        let mut altered = status.clone();
+        altered[field] = invalid;
+        write_status(altered, 118);
+        assert!(with_status().is_err(), "{field}");
+    }
     let prepared =
         BftCheckpointTrustConfigV1::decode_and_prepare(&bytes, &policy_pin, &pin, &c0_pin).unwrap();
     assert_eq!(prepared.config(), &config);

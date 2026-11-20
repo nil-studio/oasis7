@@ -59,6 +59,38 @@ class RepositoryUpstreams(unittest.TestCase):
                     anchors.add(re.sub(r'[^\w\- ]', '', heading.strip()).lower().replace(' ', '-'))
                 self.assertIn(anchor, anchors, 'upstream must name a defined anchor, not a historical link')
 
+    def test_root_workspace_members_have_no_duplicates(self):
+        import tomllib
+        manifest = tomllib.loads((HERE.parent / 'Cargo.toml').read_text(encoding='utf-8'))
+        members = manifest['workspace']['members']
+        duplicates = sorted({m for m in members if members.count(m) > 1})
+        self.assertEqual(duplicates, [], f'root Cargo.toml workspace.members has duplicate entries: {duplicates}')
+
+    def test_l0_api_rules_cover_all_upper_layer_and_capable_leaf_members(self):
+        import tomllib
+        rules = json.loads((HERE / 'cargo-dev-architecture.json').read_text(encoding='utf-8'))['rules']
+        pure_l0 = {
+            'oasis7_agent_api', 'oasis7_client_api', 'oasis7_formal_protocol',
+            'oasis7_proto', 'oasis7_wasm_abi', 'oasis7_wasm_sdk',
+            'oasis7_secure_envelope', 'oasis7_signer_protocol', 'oasis7_launcher_ui',
+            'oasis7_domain_types',
+        }
+        members = tomllib.loads((HERE.parent / 'Cargo.toml').read_text(encoding='utf-8'))['workspace']['members']
+        expected_forbidden = {
+            tomllib.loads((HERE.parent / m / 'Cargo.toml').read_text(encoding='utf-8'))['package']['name']
+            for m in members
+        } - pure_l0
+        for key in ('agent-api', 'client-api', 'domain-types'):
+            rule = next(r for r in rules if r['key'] == key)
+            actual = {entry['name'] for entry in rule['forbidden']}
+            missing = sorted(expected_forbidden - actual)
+            self.assertEqual(missing, [], f'{key} rule omits non-pure-L0 workspace crates: {missing}')
+            self.assertIn('oasis7_cas', actual)
+            if key == 'domain-types':
+                self.assertIn('oasis7_agent_api', actual)
+                self.assertIn('oasis7_client_api', actual)
+
+
 
 class CargoBoundaries(unittest.TestCase):
     def setUp(self):
@@ -263,6 +295,9 @@ class CargoBoundaries(unittest.TestCase):
         self.assertIn(dict(name='wasmtime'), state['forbidden'])
         scenarios = [(rule, rule['forbidden'][0]) for rule in rules]
         scenarios.append((state, dict(name='wasmtime')))
+        for key in ('agent-api', 'client-api'):
+            api_rule = next(r for r in rules if r['key'] == key)
+            scenarios.append((api_rule, dict(name='oasis7_cas')))
         for rule, forbidden in scenarios:
             with self.subTest(rule=rule['key'], forbidden=forbidden['name']):
                 rule = json.loads(json.dumps(rule))

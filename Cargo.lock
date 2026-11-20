@@ -6136,6 +6136,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "hex",
+ "oasis7_domain_types",
  "oasis7_wasm_abi",
  "schemars",
  "serde",
@@ -6240,6 +6241,7 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "oasis7_agent_api",
+ "oasis7_domain_types",
  "oasis7_proto",
  "oasis7_wasm_abi",
  "serde",
@@ -6427,6 +6429,19 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "zstd",
+]
+
+[[package]]
+name = "oasis7_domain_types"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "hex",
+ "oasis7_wasm_abi",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
 ]
 
 [[package]]
@@ -6877,6 +6892,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "syn 2.0.119",
+ "toml",
 ]
 
 [[package]]

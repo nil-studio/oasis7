@@ -698,7 +698,7 @@ fn read_existing_signing_key(path: &Path) -> Result<SigningKey, String> {
     Ok(SigningKey::from_bytes(&secret))
 }
 
-fn read_private_owned_bounded(path: &Path, maximum: u64) -> Result<Vec<u8>, String> {
+pub(super) fn read_private_owned_bounded(path: &Path, maximum: u64) -> Result<Vec<u8>, String> {
     #[cfg(not(unix))]
     {
         let _ = (path, maximum);

@@ -302,7 +302,7 @@ ecs = (root / ".github/workflows/ecs-packages.yml").read_text()
 repository_budget = '20000000000'
 budget_entries = {
     'rust.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 2),
-    'rust-cache.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 2),
+    'rust-cache.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 3),
     'ecs-packages.yml': ('ECS_CACHE_REPOSITORY_BUDGET_BYTES', 1),
     'release-packages.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 2),
     'testnet-packages.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 1),

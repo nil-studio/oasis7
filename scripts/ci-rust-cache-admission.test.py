@@ -153,6 +153,27 @@ class AdmissionTests(unittest.TestCase):
                 self.api.list_caches.return_value = []
         self.api.delete_cache.assert_not_called()
 
+    def test_image_writer_binds_the_main_dispatch_and_exact_namespace(self):
+        mode = self.root / 'image-event.json'
+        mode.write_text(json.dumps({'inputs': {'run_mode': 'image-native'}}))
+        namespace, _, job = admission.FAMILIES['rust-image-native']
+        self.assertEqual(namespace, admission.maintenance.RUST_IMAGE_DEPENDENCY_NAMESPACE)
+        environment = self.environment | {
+            'OASIS7_DEPENDENCY_CACHE_FAMILY': 'rust-image-native',
+            'INPUT_SHARED-KEY': namespace, 'GITHUB_JOB': job,
+            'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_EVENT_PATH': str(mode),
+        }
+        self.run['event'] = 'workflow_dispatch'
+        self.assertTrue(admission.check_archive(self.archive, environment, self.api)['allowed'])
+        for change in ({'GITHUB_REF': 'refs/pull/1/merge'}, {'GITHUB_EVENT_NAME': 'pull_request'},
+                       {'INPUT_SHARED-KEY': 'ci-shared-native-trusted-v4'},
+                       {'INPUT_SHARED-KEY': 'ci-rust-build-' + 'a' * 64},
+                       {'GITHUB_JOB': 'shared-native-cache'}, {'GITHUB_WORKFLOW_SHA': 'a' * 40}):
+            with self.subTest(change=change):
+                self.assertFalse(admission.check_archive(self.archive, environment | change, self.api)['allowed'])
+        mode.write_text(json.dumps({'inputs': {'run_mode': 'full'}}))
+        self.assertFalse(admission.check_archive(self.archive, environment, self.api)['allowed'])
+
     def test_archive_growth_during_inventory_cannot_reuse_admission(self):
         def changed():
             self.archive.write_bytes(b'x' * 101)

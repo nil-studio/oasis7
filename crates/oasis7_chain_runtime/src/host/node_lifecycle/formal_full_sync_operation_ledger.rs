@@ -59,6 +59,46 @@ impl Ledger {
         policy: Policy,
         material_limit: u64,
     ) -> Result<Self, String> {
+        Self::create_initial(path, identity, policy, material_limit, None, None)
+    }
+
+    /// Begin with the exact request and current native directory proof in the
+    /// same durable snapshot. A write failure never authorizes a new operation.
+    pub(super) fn create_bound(
+        path: &Path,
+        identity: Identity,
+        policy: Policy,
+        material_limit: u64,
+        request: &serde_json::Value,
+        owner: &super::super::process::ProcessOwnership,
+        data: &Path,
+    ) -> Result<Self, String> {
+        owner.require_directory(data)?;
+        if path != data.join("state/full-sync/operation.json")
+            || identity.binding_digest != owner.binding_digest()?
+            || request["native_owner_binding"].as_str() != Some(identity.binding_digest.as_str())
+        {
+            return Err("initial operation differs from the exact native owner".into());
+        }
+        let original = serde_json::to_vec(request).map_err(|error| error.to_string())?;
+        Self::create_initial(
+            path,
+            identity,
+            policy,
+            material_limit,
+            Some(original),
+            Some((owner, data)),
+        )
+    }
+
+    fn create_initial(
+        path: &Path,
+        identity: Identity,
+        policy: Policy,
+        material_limit: u64,
+        original_request_json: Option<Vec<u8>>,
+        owner: Option<(&super::super::process::ProcessOwnership, &Path)>,
+    ) -> Result<Self, String> {
         let lock = Self::lock(path)?;
         if path.try_exists().map_err(|e| e.to_string())? {
             return Err("operation ledger already exists; reopen its original identity".into());
@@ -72,7 +112,7 @@ impl Ledger {
             encoded_rx_actual: 0,
             unknown_final_charged: 0,
             exchanges_started: 0,
-            original_request_json: None,
+            original_request_json,
             verified_target_json: None,
             publication: None,
             publication_journal_version: Some(1),
@@ -92,6 +132,9 @@ impl Ledger {
             reservation: None,
         };
         state.validate()?;
+        if let Some((owner, data)) = owner {
+            owner.require_directory(data)?;
+        }
         // Failure may have published the file. The caller must reconcile it,
         // not retry create or generate another operation identity.
         local_io::write_bounded_json(path, &state, MAX_LEDGER_JSON)?;
@@ -225,6 +268,17 @@ impl Ledger {
         request: &serde_json::Value,
         deadline_cap: Instant,
     ) -> Result<AttemptPermit, String> {
+        self.resume_unpublished(owner, data, request, None, deadline_cap)
+    }
+
+    pub(super) fn resume_unpublished(
+        &mut self,
+        owner: &super::super::process::ProcessOwnership,
+        data: &Path,
+        request: &serde_json::Value,
+        verified_target: Option<&[u8]>,
+        deadline_cap: Instant,
+    ) -> Result<AttemptPermit, String> {
         let deadline = self
             .reopen_deadline
             .ok_or("not a reopened operation")?
@@ -234,9 +288,9 @@ impl Ledger {
             || Instant::now() >= deadline
             || self.state.publication_journal_version != Some(1)
             || self.state.publication.is_some()
-            || self.state.verified_target_json.is_some()
+            || self.state.verified_target_json.as_deref() != verified_target
         {
-            return Err("operation_recovery_required: pre-target recovery unavailable".into());
+            return Err("operation_recovery_required: unpublished recovery unavailable".into());
         }
         owner.require_directory(data)?;
         let owner_binding = owner.binding_digest()?;

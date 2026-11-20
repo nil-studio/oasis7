@@ -1675,6 +1675,9 @@
     "oasis7_agent_api": [
       "workspace_support"
     ],
+    "oasis7_domain_types": [
+      "workspace_support"
+    ],
     "oasis7_agent_harness": [
       "workspace_support"
     ],

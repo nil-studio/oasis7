@@ -4,6 +4,7 @@
 //! persist consensus state, or depend on local storage services.
 
 mod certificate;
+pub mod checkpoint_issuer_status;
 pub mod checkpoint_trust_policy;
 mod formal_handoff;
 mod header_certificate;

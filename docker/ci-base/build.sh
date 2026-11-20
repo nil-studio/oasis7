@@ -53,6 +53,7 @@ if [[ "$target" == build ]]; then
   docker run --rm --platform linux/amd64 "$image" bash -ec '
     gcc --version
     pkg-config --exists wayland-client x11 alsa libudev openssl
+    ps -o pid= -p "$$"
   '
 fi
 
