@@ -30,7 +30,7 @@
 
 ## 共享类型与资源派生边界
 
-Simulator 原生 Action、Agent、WorldModel 与 Runtime 模型各自保持现有语义。共享库存/元素预算、机器人规格/视觉实体、chunk 几何和 player-safe intent summary 直接由 `oasis7_agent_api` 拥有，Simulator 旧路径保留兼容导出。几何派生仅接收所需空间尺寸，不依赖完整 WorldConfig。
+Simulator 原生 Action、Agent、WorldModel 与 Runtime 模型各自保持现有语义。共享库存/元素预算、机器人规格/视觉实体与 chunk 几何由 `oasis7_domain_types` 拥有，`oasis7_agent_api` 兼容导出这些共享类型并继续拥有 player-safe intent summary。Simulator 旧路径保留兼容导出。几何派生仅接收所需空间尺寸，不依赖完整 WorldConfig。
 
 `simulator::chain_resource` 从内核模型、配置和 journal 构建 API 资源 manifest/delta；Runtime 派生位于其自己的模块。共享 DTO 的字段、默认值、canonical 排序与 hash 算法保持不变；旧组合 snapshot 的 Runtime、player、chain 字段仍须完整保存，不能用裁剪后的读取值覆盖完整归档。
 
