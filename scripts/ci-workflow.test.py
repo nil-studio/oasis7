@@ -5357,6 +5357,82 @@ class BrowserDownloadCache(unittest.TestCase):
 
 
 class WorkerToolCache(unittest.TestCase):
+    def test_legacy_reader_covers_actual_worker_selection_and_keeps_other_partitions_cold(self):
+        job = JOBS['workspace-support-legacy']
+        steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+        tool_steps = [step for step in steps if 'ci-worker-build.py' in step or 'id: worker-tool-cache' in step]
+        self.assertEqual(len(tool_steps), 3)
+        identify, restore, prepare = tool_steps
+        condition = re.search(r'^        if: (.*?)(?=^        [a-z-]+:|\Z)', identify, re.M | re.S)[1]
+        for partition in ('all', 'custody', 'other'):
+            values = {'matrix.partition': partition}
+            with self.subTest(partition=partition):
+                self.assertEqual(effective_job_condition(condition, values, ['success']), partition != 'other')
+                self.assertFalse(effective_job_condition(condition, values, ['failure']))
+        writer = workflow_jobs((ROOT / '.github/workflows/rust-cache.yml').read_text())['worker-build-cache']
+        expected_key = re.search(r'^          key: (worker-build-cli-v1-.*)$', writer, re.M)[1]
+        self.assertIn('key: ' + expected_key, restore)
+        self.assertIn('path: ${{ steps.worker-meta.outputs.root }}', restore)
+        self.assertIn('uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9', restore)
+        self.assertNotIn('restore-keys:', restore)
+        self.assertNotIn('actions/cache/save@', job)
+        self.assertNotIn('GH_TOKEN:', job)
+        for step in tool_steps:
+            self.assertNotIn('continue-on-error', step)
+        for step in (restore, prepare):
+            condition = re.search(r'^        if: (.*)$', step, re.M)[1]
+            for root in ('', '/fixture/worker-cache'):
+                values = {'steps.worker-meta.outputs.root': root}
+                self.assertEqual(effective_job_condition(condition, values, ['success']), bool(root))
+                self.assertFalse(effective_job_condition(condition, values, ['failure']))
+        self.assertLess(job.index('Install pinned Rust toolchains'), job.index('Identify pinned Worker build tool'))
+        self.assertLess(job.index('Prepare verified Worker build tool'), job.index('Execute selected group'))
+        self.assertIn('--support-plan-file "$RUNNER_TEMP/selection.json" --support-partition "$SUPPORT_PARTITION"', job)
+
+    def test_legacy_metadata_preserves_old_source_and_rejects_existing_broken_helpers(self):
+        script = workflow_step_script(JOBS['workspace-support-legacy'], 'Identify pinned Worker build tool')
+        for kind, expected in (('missing', 0), ('regular', 0), ('failure', 17),
+                               ('empty', 1), ('directory', 1), ('symlink', 1), ('dangling', 1)):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                helper = root / 'scripts/ci-worker-build.py'
+                helper.parent.mkdir()
+                output = root / 'metadata-output'
+                if kind in ('regular', 'failure'):
+                    helper.write_text('import os, pathlib, sys\n'
+                        'assert sys.argv[1:] == ["metadata", "--github-output", os.environ["GITHUB_OUTPUT"]]\n'
+                        + ('sys.exit(17)\n' if kind == 'failure' else
+                           'pathlib.Path(os.environ["GITHUB_OUTPUT"]).write_text("root=/fixture/worker-cache\\n")\n'))
+                elif kind == 'empty':
+                    helper.touch()
+                elif kind == 'directory':
+                    helper.mkdir()
+                elif kind in ('symlink', 'dangling'):
+                    target = root / 'other.py'
+                    if kind == 'symlink':
+                        target.write_text('raise SystemExit("must not execute")\n')
+                    helper.symlink_to(target)
+                # Read the full downloaded plan, not the compact DAG projection:
+                # full and pre-profile BASE plans expand the driver inventory.
+                for scope, version, profiles, selected in (
+                        ('targeted', 1, ['oasis7_custody_worker'], True),
+                        ('targeted', 1, ['oasis7_context'], False),
+                        ('targeted', None, [], True),
+                        ('full', 1, ['oasis7_context'], True),
+                        ('full', None, [], True)):
+                    plan = dict(scope=scope, workspace_support_profiles=profiles)
+                    if version is not None:
+                        plan['workspace_support_profile_version'] = version
+                    (root / 'selection.json').write_text(json.dumps(plan))
+                    output.unlink(missing_ok=True)
+                    result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script], cwd=root,
+                        env=dict(os.environ, GITHUB_OUTPUT=str(output), RUNNER_TEMP=str(root)),
+                        text=True, capture_output=True)
+                    with self.subTest(scope=scope, version=version, profiles=profiles):
+                        self.assertEqual(result.returncode, expected if selected else 0,
+                                         result.stdout + result.stderr)
+                        self.assertEqual(output.exists(), kind == 'regular' and selected)
+
     def test_exact_readers_and_sole_trusted_writer(self):
         cache_jobs = workflow_jobs((ROOT / '.github/workflows/rust-cache.yml').read_text())
         writer = cache_jobs['worker-build-cache']
@@ -5398,7 +5474,8 @@ class WorkerToolCache(unittest.TestCase):
 
     def test_prepare_hit_miss_and_real_failure_propagation(self):
         writer = workflow_jobs((ROOT / '.github/workflows/rust-cache.yml').read_text())['worker-build-cache']
-        for name, job in [('writer', writer), ('production', JOBS['custody-wasm-production']),
+        for name, job in [('writer', writer), ('legacy', JOBS['workspace-support-legacy']),
+                          ('production', JOBS['custody-wasm-production']),
                           ('approval', JOBS['custody-wasm-approval'])]:
             step = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
                         if 'name: Prepare verified Worker build tool' in step)

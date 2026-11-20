@@ -242,7 +242,9 @@ def _fetch(url, deadline, owned):
         # prefix is not a complete HTTP observation.
         if response.length not in (None, 0):
             return None, "invalid_status"
-        status = json.loads(chunks.decode("utf-8"))
+        # Do not let a duplicate producer field silently shadow identity,
+        # time, readiness, or BFT checkpoint facts.
+        status = json.loads(chunks.decode("utf-8"), object_pairs_hook=decode_object)
         if not isinstance(status, dict):
             return None, "invalid_status"
         return status, "success"

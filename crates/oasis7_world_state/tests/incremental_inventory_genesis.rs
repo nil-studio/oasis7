@@ -6,7 +6,7 @@ use oasis7_formal_protocol::{
     incremental_value::ValueReadContext,
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
-use oasis7_runtime::{
+use oasis7_world_state::{
     WorldState, incremental_field_member::*, incremental_field_presence::*,
     incremental_inventory_genesis::*, types::MaterialLedgerId,
 };
