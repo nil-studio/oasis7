@@ -397,6 +397,14 @@ impl ConnectionAdmission {
                 attempt.serial == self.serial && attempt.phase == AttemptPhase::Authorized
             })
             .ok_or_else(|| denied("authorized connection permit disappeared"))?;
+        // Authentication does not finish the Swarm admission callback. The
+        // child behaviours may reject or take time after the peer is bound:
+        // do not turn an already-expired pending transport into an established
+        // connection merely because authorization happened before expiry.
+        if Instant::now() >= attempt.deadline {
+            self.budget.note_handshake_deadline();
+            return Err(ConnectionDenied::new(TransportHandshakeDeadlineElapsed));
+        }
         attempt.phase = AttemptPhase::Established;
         state.pending[lane] -= 1;
         Ok(())
