@@ -2279,7 +2279,8 @@ jobs:
           printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           unset GHCR_TOKEN
           time docker pull "$FORMAL_VERIFY_IMAGE"
-          docker run --rm --pull never --user "$(id -u):$(id -g)" \
+          # Reap orphaned process fixtures inside the container PID namespace.
+          docker run --rm --init --pull never --user "$(id -u):$(id -g)" \
             --mount "type=bind,source=$GITHUB_WORKSPACE,target=$GITHUB_WORKSPACE" \
             --mount "type=bind,source=$RUNNER_TEMP/selection.json,target=$RUNNER_TEMP/selection.json,readonly" \
             --mount "type=bind,source=$RUNNER_TEMP/ci-authority/ci-formal-process-suites.json,target=$RUNNER_TEMP/ci-authority/ci-formal-process-suites.json,readonly" \
