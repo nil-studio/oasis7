@@ -27,6 +27,7 @@ mod cognition_validation;
 mod cognition_wake;
 pub use oasis7_world_state::codec;
 pub use oasis7_world_state::consensus;
+pub mod domains;
 pub use oasis7_world_state::effect;
 pub use oasis7_world_state::error;
 mod events;
@@ -411,16 +412,19 @@ pub use world::agent_delegation::{
 };
 pub use world::{
     AgentIntentProviderFailureDisposition, AgentIntentRecordOutcome, AgentIntentReference,
-    AuthoritativeRecoveryCommitError, AuthoritativeRecoveryCommitStatus,
+    AuthoritativeRecoveryCommitError, AuthoritativeRecoveryCommitStatus, BorrowedWorldView,
     BuiltinReleaseManifestEntry, BuiltinReleaseManifestState,
-    CommittedAuthoritativeRecoveryGeneration, ExecutionTransaction, LogisticsTransferQuote,
-    M1ScenarioBootstrapConfig, MarketQuoteDecisionPreview, MarketQuoteSupplyDelta,
-    ModuleTickRoutingDeterministicSnapshot, ModuleTickRoutingDurationBuckets,
-    ModuleTickRoutingMetricsSnapshot, PreparedCommit, ProductValidationQuote,
-    ReleaseSecurityPolicy, TransitionBaseHead, TransitionBuffer, TransitionCommitError,
+    CommittedAuthoritativeRecoveryGeneration, DurableCommitConfirmation, ExecutionTransaction,
+    LogisticsTransferQuote, M1ScenarioBootstrapConfig, MarketQuoteDecisionPreview,
+    MarketQuoteSupplyDelta, ModuleTickRoutingDeterministicSnapshot,
+    ModuleTickRoutingDurationBuckets, ModuleTickRoutingMetricsSnapshot, PreparedCommit,
+    PreparedStagedCommit, ProductValidationQuote, ReleaseSecurityPolicy, RootInstallContext,
+    StagedRootTransaction, StagedSubtransactionSavepoint, StagedTransition, SubsystemDelta,
+    TransitionBaseHead, TransitionBuffer, TransitionCommitError, TransitionContext,
     TransitionKernelEntriesView, TransitionKernelState, TransitionKernelView,
-    TransitionPrepareError, TransitionRollbackError, TransitionSavepoint, WarDeclarationQuote,
-    World, WorldExecutionStateIdentity, WorldRuntimeBackpressureStats, WorldRuntimeMemoryLimits,
+    TransitionPrepareError, TransitionReject, TransitionRollbackError, TransitionSavepoint,
+    WarDeclarationQuote, World, WorldExecutionStateIdentity, WorldRuntimeBackpressureStats,
+    WorldRuntimeMemoryLimits,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use world::{ObserverLoadControl, ObserverLoadError, ObserverReadLimits};

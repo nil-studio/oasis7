@@ -95,7 +95,7 @@ mod governance_identity_penalty;
 pub(crate) mod governance_meta_publication;
 #[cfg(test)]
 mod governance_proposal_status_publication_transaction_regressions;
-mod governance_publication;
+pub(crate) mod governance_publication;
 mod governance_quote;
 pub(crate) mod governance_registry_publication;
 pub use governance_history_snapshot::{
@@ -193,7 +193,7 @@ mod tick_consensus;
 mod tick_consensus_state_root;
 #[cfg(test)]
 mod tick_consensus_test_support;
-mod transition;
+pub(crate) mod transition;
 mod world_service;
 pub use cognition_economy::{
     COGNITION_ECONOMY_SCHEMA_VERSION, COGNITION_FIXED_UNIT_EXPERIMENTAL_POLICY_REVISION,
@@ -214,9 +214,11 @@ pub use local_test_provider_bootstrap::{
 };
 pub use provider_backed_bootstrap::ProviderBackedBootstrapAuthorityV1;
 pub use transition::{
-    ExecutionTransaction, PreparedCommit, TransitionBaseHead, TransitionBuffer,
-    TransitionCommitError, TransitionKernelEntriesView, TransitionKernelState,
-    TransitionKernelView, TransitionPrepareError, TransitionRollbackError, TransitionSavepoint,
+    BorrowedWorldView, DurableCommitConfirmation, ExecutionTransaction, PreparedCommit,
+    PreparedStagedCommit, RootInstallContext, StagedRootTransaction, StagedSubtransactionSavepoint,
+    StagedTransition, SubsystemDelta, TransitionBaseHead, TransitionBuffer, TransitionCommitError,
+    TransitionContext, TransitionKernelEntriesView, TransitionKernelState, TransitionKernelView,
+    TransitionPrepareError, TransitionReject, TransitionRollbackError, TransitionSavepoint,
 };
 
 use super::capability_authorization::{
@@ -358,21 +360,21 @@ pub struct World {
     manifest: Manifest,
     #[serde(default = "super::cognition_recovery::default_cognition_persistence_projection")]
     cognition: JsonValue,
-    module_registry: ModuleRegistry,
-    module_artifacts: BTreeSet<String>,
+    pub(crate) module_registry: ModuleRegistry,
+    pub(crate) module_artifacts: BTreeSet<String>,
     #[serde(skip)]
-    module_artifact_bytes: BTreeMap<String, Arc<[u8]>>,
+    pub(crate) module_artifact_bytes: BTreeMap<String, Arc<[u8]>>,
     #[serde(skip)]
-    module_cache: ModuleCache,
+    pub(crate) module_cache: ModuleCache,
     #[serde(skip)]
-    prepared_subscription_cache: BTreeMap<String, PreparedSubscriptionCacheEntry>,
+    pub(crate) prepared_subscription_cache: BTreeMap<String, PreparedSubscriptionCacheEntry>,
     module_limits_max: ModuleLimits,
     snapshot_catalog: SnapshotCatalog,
     #[serde(default)]
     chain_resource_manifest: ChainResourceManifest,
     #[serde(default)]
     latest_chain_resource_delta: Option<ChainResourceDelta>,
-    state: WorldState,
+    pub(crate) state: WorldState,
     /// Process-local authenticated CAS access. It is intentionally absent from
     /// snapshots and survives only in-memory World clones.
     #[serde(skip, default)]
@@ -382,10 +384,10 @@ pub struct World {
     /// Heap allocation bounds World construction and clone stack frames.
     #[serde(skip, default)]
     bft_governance_parent: Option<Box<governance_bft_parent::BftGovernanceParentV2>>,
-    journal: Journal,
-    next_event_id: WorldEventId,
+    pub(crate) journal: Journal,
+    pub(crate) next_event_id: WorldEventId,
     #[serde(default)]
-    next_event_id_era: u64,
+    pub(crate) next_event_id_era: u64,
     next_action_id: ActionId,
     #[serde(default)]
     next_action_id_era: u64,
@@ -399,7 +401,7 @@ pub struct World {
     pending_effects: VecDeque<EffectIntent>,
     inflight_effects: BTreeMap<String, EffectIntent>,
     #[serde(default)]
-    module_tick_schedule: BTreeMap<String, u64>,
+    pub(crate) module_tick_schedule: BTreeMap<String, u64>,
     #[serde(default)]
     module_tick_routing_metrics: ModuleTickRoutingMetrics,
     capabilities: BTreeMap<String, CapabilityGrant>,
@@ -432,7 +434,7 @@ pub struct World {
     #[serde(skip, default)]
     persistence_dir: RefCell<Option<PathBuf>>,
     #[serde(default)]
-    runtime_memory_limits: WorldRuntimeMemoryLimits,
+    pub(crate) runtime_memory_limits: WorldRuntimeMemoryLimits,
     #[serde(default)]
     runtime_backpressure_stats: WorldRuntimeBackpressureStats,
     #[serde(default)]
@@ -904,7 +906,7 @@ impl World {
     }
 
     #[cfg(test)]
-    fn take_fail_next_append_after_publication_prepare_for_test(&mut self) -> bool {
+    pub(crate) fn take_fail_next_append_after_publication_prepare_for_test(&mut self) -> bool {
         if std::mem::take(&mut self.fail_next_append_after_publication_prepare) {
             return true;
         }
@@ -922,7 +924,7 @@ impl World {
     }
 
     #[cfg(not(test))]
-    fn take_fail_next_append_after_publication_prepare_for_test(&mut self) -> bool {
+    pub(crate) fn take_fail_next_append_after_publication_prepare_for_test(&mut self) -> bool {
         false
     }
 

@@ -1,7 +1,7 @@
 use super::*;
 
 impl World {
-    pub(in crate::world) fn try_apply_runtime_module_action(
+    pub(crate) fn try_apply_runtime_module_action(
         &mut self,
         envelope: &ActionEnvelope,
     ) -> Result<bool, WorldError> {
