@@ -87,6 +87,7 @@ fn fresh_observer_defers_height_one_until_stale_peer_head_advances_to_high_check
 
 #[test]
 fn fresh_observer_prefers_connected_high_checkpoint_over_stale_dht_height_one() {
+    // Also covers testnet #251 when the signed high-checkpoint closure is available.
     peer_head_checkpoint_before_height_one_with_stale_dht(
         InitialPeerHead::HighCheckpoint,
         true,
