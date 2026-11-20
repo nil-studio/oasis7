@@ -78,6 +78,7 @@ impl AuthenticatedBftCheckpointIssuerStatusV1 {
             .root_expires_at_unix_ms
             .min(policy.policy_expires_at_unix_ms);
         if body.not_before_unix_ms < start
+            || body.issued_at_unix_ms < start
             || body.issued_at_unix_ms > body.not_before_unix_ms
             || body.not_before_unix_ms >= body.expires_at_unix_ms
             || body.expires_at_unix_ms > end
