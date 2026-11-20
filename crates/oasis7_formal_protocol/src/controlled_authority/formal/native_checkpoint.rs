@@ -5,6 +5,10 @@ use super::super::{crypto, fencing};
 use super::*;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 const LIMIT: usize = 64 * 1024 * 1024;
+#[path = "native_checkpoint_paid.rs"]
+mod paid;
+pub use paid::{PaidNativeCheckpointErrorV1, PaidNativeCheckpointVerdictV1};
+
 const DOMAIN: &str = "oasis7.formal.endpoint_checkpoint.sign.v1";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NativeHotBodyV1 {
@@ -71,21 +75,38 @@ pub struct NativeCheckpointVerdictV1 {
     current_head: FormalHeadRefV1,
     data_closure: Option<String>,
 }
-fn object<T: DeserializeOwned>(
-    id: &str,
-    load: &mut impl FnMut(&str) -> Result<Vec<u8>, FormalError>,
-) -> Result<T, FormalError> {
-    crypto::hash_hex(id)?;
-    let bytes = load(id)?;
-    if bytes.len() > LIMIT || blake3::hash(&bytes).to_hex().as_str() != id {
-        return Err(invalid("native provenance referenced CAS checksum/bound"));
+// Only these three original wire roots can enter the native archive decoder.
+// Adapters are private; they cannot substitute a validation predicate.
+trait ClosedNative: DeserializeOwned {}
+impl ClosedNative for SignedHot {}
+impl ClosedNative for NativeHistoryNodeV1 {}
+impl ClosedNative for ArchivedEntry {}
+trait NativeReadOps {
+    fn decode<T: ClosedNative>(&mut self, raw: &[u8]) -> Result<T, FormalError>;
+    fn object<T: ClosedNative>(&mut self, id: &str) -> Result<T, FormalError>;
+    fn before<T: Serialize>(&mut self, value: &T) -> Result<(), FormalError>;
+}
+struct LegacyNativeReadOps<F>(F);
+impl<F: FnMut(&str) -> Result<Vec<u8>, FormalError>> NativeReadOps for LegacyNativeReadOps<F> {
+    fn decode<T: ClosedNative>(&mut self, raw: &[u8]) -> Result<T, FormalError> {
+        serde_cbor::from_slice(raw).map_err(|e| invalid(e.to_string()))
     }
-    serde_cbor::from_slice(&bytes).map_err(|e| invalid(e.to_string()))
+    fn object<T: ClosedNative>(&mut self, id: &str) -> Result<T, FormalError> {
+        crypto::hash_hex(id)?;
+        let bytes = (self.0)(id)?;
+        if bytes.len() > LIMIT || blake3::hash(&bytes).to_hex().as_str() != id {
+            return Err(invalid("native provenance referenced CAS checksum/bound"));
+        }
+        self.decode(&bytes)
+    }
+    fn before<T: Serialize>(&mut self, _: &T) -> Result<(), FormalError> {
+        Ok(())
+    }
 }
 fn descend(
     body: &NativeHotBodyV1,
     target: &FormalHeadRefV1,
-    load: &mut impl FnMut(&str) -> Result<Vec<u8>, FormalError>,
+    ops: &mut impl NativeReadOps,
 ) -> Result<NativeHistoryNodeV1, FormalError> {
     crypto::hash_hex(&target.record_id)?;
     if target.position == 0 || target.position > body.head.position {
@@ -99,7 +120,7 @@ fn descend(
         .clone();
     let mut expected = body.head.clone();
     for _ in 0..=64 {
-        let node: NativeHistoryNodeV1 = object(&id, load)?;
+        let node: NativeHistoryNodeV1 = ops.object(&id)?;
         if node.head != expected || node.ancestors.len() > 64 {
             return Err(invalid("native provenance node/head bound"));
         }
@@ -151,13 +172,51 @@ impl NativeCheckpointVerdictV1 {
         target: &FormalHeadRefV1,
         minimum: &FormalHeadRefV1,
         authority_id: &str,
-        mut load: impl FnMut(&str) -> Result<Vec<u8>, FormalError>,
+        load: impl FnMut(&str) -> Result<Vec<u8>, FormalError>,
+    ) -> Result<Self, FormalError> {
+        Self::verify_with_ops(
+            signed_checkpoint,
+            checkpoint_authority,
+            endpoint_public_key,
+            expected_checkpoint,
+            provider,
+            target,
+            minimum,
+            authority_id,
+            &mut LegacyNativeReadOps(load),
+        )
+    }
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the shared legacy/paid verifier binds checkpoint authority, endpoint, protected commitment, target and minimum to the original read operations"
+    )]
+    fn verify_with_ops(
+        signed_checkpoint: &[u8],
+        checkpoint_authority: &VerifiedAuthorityV1,
+        endpoint_public_key: &str,
+        expected_checkpoint: &fencing::EndpointCheckpointBindingV1,
+        provider: &fencing::MonotonicProviderEvidenceV1,
+        target: &FormalHeadRefV1,
+        minimum: &FormalHeadRefV1,
+        authority_id: &str,
+        ops: &mut impl NativeReadOps,
     ) -> Result<Self, FormalError> {
         if signed_checkpoint.len() > LIMIT {
             return Err(invalid("native provenance checkpoint byte bound"));
         }
-        let hot: SignedHot =
-            serde_cbor::from_slice(signed_checkpoint).map_err(|e| invalid(e.to_string()))?;
+        let hot: SignedHot = ops.decode(signed_checkpoint)?;
+        // Source metadata is borrowed, not implicitly covered by checkpoint bytes.
+        ops.before(&(
+            checkpoint_authority.definition(),
+            checkpoint_authority.policy(),
+            checkpoint_authority.activation_ref(),
+            endpoint_public_key,
+            expected_checkpoint,
+            provider,
+            target,
+            minimum,
+            authority_id,
+        ))?;
         crypto::verify(DOMAIN, &hot.body, &hot.signature, endpoint_public_key)?;
         let body = &hot.body;
         let instance = [
@@ -212,15 +271,15 @@ impl NativeCheckpointVerdictV1 {
         // Both roots are authenticated beneath the same signed history. A raw
         // caller-selected minimum never grants a new ancestry bridge.
         if minimum.position != 0 {
-            descend(body, minimum, &mut load)?;
+            descend(body, minimum, ops)?;
         } else if *minimum != checkpoint_authority.definition().world.genesis_head()? {
             return Err(invalid("native provenance genesis minimum"));
         }
-        let node = descend(body, target, &mut load)?;
+        let node = descend(body, target, ops)?;
         let ArchivedEntry::Qualified {
             proof,
             data_closure: archived_data_closure,
-        } = object(&node.entry, &mut load)?;
+        } = ops.object(&node.entry)?;
         if proof.decision.record.position != target.position
             || proof.decision.record.record_id()? != target.record_id
             || proof.decision.primary.body.finalizing_authority_id != authority_id
@@ -251,12 +310,11 @@ impl NativeCheckpointVerdictV1 {
             if link.head.position.checked_add(1) != Some(node.head.position) {
                 return Err(invalid("native provenance immediate parent position"));
             }
-            let parent_node: NativeHistoryNodeV1 = object(&link.node, &mut load)?;
+            let parent_node: NativeHistoryNodeV1 = ops.object(&link.node)?;
             if parent_node.head != link.head {
                 return Err(invalid("native provenance immediate parent node"));
             }
-            let ArchivedEntry::Qualified { proof: parent, .. } =
-                object(&parent_node.entry, &mut load)?;
+            let ArchivedEntry::Qualified { proof: parent, .. } = ops.object(&parent_node.entry)?;
             if parent.decision.record.position != link.head.position
                 || parent.decision.record.record_id()? != link.head.record_id
                 || parent.decision.primary.body.finalizing_authority_id
@@ -490,6 +548,69 @@ mod tests {
         fork.record_id = h(98);
         assert!(verify(&checkpoint, &fork, false).is_err());
         assert!(verify(&checkpoint, &commit.head(), true).is_err());
+
+        // The same native verifier must admit a real signed checkpoint and its
+        // referenced proof under a finite small pool. Paying an entire proof
+        // root for each CBOR field used to reject this bounded restore before
+        // the original authentication predicates could run.
+        let verify_paid = |pin: &fencing::EndpointCheckpointBindingV1,
+                           target: &FormalHeadRefV1,
+                           corrupt: bool| {
+            use super::super::super::bounded_context::{
+                FormalBoundedContextV1, FormalBoundedWorkV1,
+            };
+            use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
+            let memory = MemoryBudget::new(64 << 20, 4 << 20).unwrap();
+            let work = FormalBoundedWorkV1::new(1_000_000, 1 << 30).unwrap();
+            let mut stop = || false;
+            let mut common = FormalBoundedContextV1::new(&memory, &work, &mut stop);
+            let result = NativeCheckpointVerdictV1::verify_bounded(
+                &bytes,
+                &authority,
+                &public(5),
+                pin,
+                &provider,
+                target,
+                &commit.head(),
+                &authority.authority_id().unwrap(),
+                |id, common| {
+                    let source = objects
+                        .get(id)
+                        .ok_or_else(|| invalid("test missing object"))?;
+                    common.charge(1, source.len() as u64)?;
+                    let length = source.len() + usize::from(corrupt);
+                    let fee = common
+                        .memory()
+                        .reserve(
+                            length + std::mem::size_of::<Vec<u8>>(),
+                            MemoryClass::Ordinary,
+                        )
+                        .map_err(|e| invalid(e.to_string()))?;
+                    let mut loaded = Vec::with_capacity(length);
+                    loaded.extend_from_slice(source);
+                    if corrupt {
+                        loaded.push(0);
+                    }
+                    Ok(fee.retain(loaded))
+                },
+                &mut common,
+            );
+            let result = result
+                .map(|paid| {
+                    paid.validate_context(&mut common).unwrap();
+                    assert_eq!(paid.value().proof(), &proof);
+                    assert_eq!(paid.value().head(), verdict.head());
+                    assert!(paid.reserved_bytes() > 0);
+                })
+                .map_err(|e| e.to_string());
+            assert_eq!(memory.used(), 0, "all success/failure owners must drop");
+            result
+        };
+        verify_paid(&checkpoint, &commit.head(), false).unwrap();
+        assert!(verify_paid(&stale_floor, &commit.head(), false).is_err());
+        assert!(verify_paid(&wrong_pin, &commit.head(), false).is_err());
+        assert!(verify_paid(&checkpoint, &fork, false).is_err());
+        assert!(verify_paid(&checkpoint, &commit.head(), true).is_err());
     }
     /// Recovery imports retain the sealed cut as checkpoint base_parent, but
     /// that is an archive boundary, not the parent of the initial activation.

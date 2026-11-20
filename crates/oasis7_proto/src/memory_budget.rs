@@ -101,6 +101,11 @@ pub struct MemoryReservation {
 }
 
 impl MemoryReservation {
+    /// Check the actual allocation pool without exposing or duplicating its charge.
+    pub fn uses_budget(&self, budget: &MemoryBudget) -> bool {
+        Arc::ptr_eq(&self.pool, &budget.0)
+    }
+
     pub fn bytes(&self) -> usize {
         self.bytes
     }

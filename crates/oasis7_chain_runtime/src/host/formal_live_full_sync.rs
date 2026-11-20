@@ -689,7 +689,8 @@ fn wire_role(role: ArtifactRole) -> FormalReadResult<WireRole> {
         ArtifactRole::IncrementalGenesisConfig
         | ArtifactRole::IncrementalRootSet
         | ArtifactRole::IncrementalCommitBody
-        | ArtifactRole::IncrementalHistoryPrefix => {
+        | ArtifactRole::IncrementalHistoryPrefix
+        | ArtifactRole::IncrementalRetentionLedger => {
             return Err(FormalReadError::Integrity(
                 "incremental artifacts require the typed incremental sync format".into(),
             ));
@@ -919,6 +920,7 @@ mod incremental_role_tests {
             ArtifactRole::IncrementalRootSet,
             ArtifactRole::IncrementalCommitBody,
             ArtifactRole::IncrementalHistoryPrefix,
+            ArtifactRole::IncrementalRetentionLedger,
         ] {
             assert!(matches!(
                 wire_role(role),

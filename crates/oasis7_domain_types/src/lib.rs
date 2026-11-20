@@ -4,6 +4,7 @@
 //! deterministic hashing, and canonical projection commitments only. It must
 //! never depend on L1-L4 workspace crates, API/service facades, or runtime I/O.
 
+pub mod canonical_digest;
 pub mod formal_projection;
 pub mod geometry;
 pub mod ledger;
