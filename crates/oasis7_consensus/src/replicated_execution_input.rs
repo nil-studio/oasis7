@@ -143,39 +143,64 @@ mod contract_regression_tests {
         NodeConsensusAction::from_payload(
             REPLICATED_EXECUTION_INPUT_ACTION_ID,
             REPLICATED_EXECUTION_INPUT_SUBMITTER,
-            NodeReplicatedExecutionInputV1::new("test", height, vec![1]).encode().unwrap(),
+            NodeReplicatedExecutionInputV1::new("test", height, vec![1])
+                .encode()
+                .unwrap(),
         )
         .unwrap()
     }
 
     #[test]
     fn ordinary_payload_is_not_a_reserved_envelope() {
-        assert!(NodeReplicatedExecutionInputV1::decode(b"not cbor").unwrap().is_none());
-        assert!(decode_replicated_execution_input_action(
-            &NodeConsensusAction::from_payload(1, "player", vec![1]).unwrap()
-        ).unwrap().is_none());
+        assert!(
+            NodeReplicatedExecutionInputV1::decode(b"not cbor")
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            decode_replicated_execution_input_action(
+                &NodeConsensusAction::from_payload(1, "player", vec![1]).unwrap()
+            )
+            .unwrap()
+            .is_none()
+        );
     }
 
     #[test]
     fn half_reserved_identity_is_rejected_not_fallen_through() {
         let mut action = input(2);
         action.submitter_player_id = "player".into();
-        assert!(validate_replicated_execution_input_actions(&[action], 2).unwrap_err()
-            .contains("identity is malformed"));
+        assert!(
+            validate_replicated_execution_input_actions(&[action], 2)
+                .unwrap_err()
+                .contains("identity is malformed")
+        );
         let mut action = input(2);
         action.action_id = 7;
-        assert!(validate_replicated_execution_input_actions(&[action], 2).unwrap_err()
-            .contains("identity is malformed"));
+        assert!(
+            validate_replicated_execution_input_actions(&[action], 2)
+                .unwrap_err()
+                .contains("identity is malformed")
+        );
     }
 
     #[test]
     fn duplicate_unbound_and_mismatched_heights_are_rejected() {
-        assert!(validate_replicated_execution_input_actions(&[input(2), input(2)], 2)
-            .unwrap_err().contains("multiple replicated execution"));
-        assert!(validate_replicated_execution_input_actions(&[input(0)], 2)
-            .unwrap_err().contains("bound to a height"));
-        assert!(validate_replicated_execution_input_actions(&[input(3)], 2)
-            .unwrap_err().contains("height mismatch"));
+        assert!(
+            validate_replicated_execution_input_actions(&[input(2), input(2)], 2)
+                .unwrap_err()
+                .contains("multiple replicated execution")
+        );
+        assert!(
+            validate_replicated_execution_input_actions(&[input(0)], 2)
+                .unwrap_err()
+                .contains("bound to a height")
+        );
+        assert!(
+            validate_replicated_execution_input_actions(&[input(3)], 2)
+                .unwrap_err()
+                .contains("height mismatch")
+        );
         assert!(validate_replicated_execution_input_actions(&[input(2)], 2).is_ok());
     }
 
@@ -183,7 +208,9 @@ mod contract_regression_tests {
     fn fatal_paid_decode_is_not_a_non_matching_payload() {
         let action = input(2);
         let result = decode_replicated_execution_input_action_with::<
-            NodeReplicatedExecutionInputV1, (), &'static str
+            NodeReplicatedExecutionInputV1,
+            (),
+            &'static str,
         >(&action, |_| Err("cancelled"));
         assert_eq!(result.unwrap_err(), "cancelled");
     }
