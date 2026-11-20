@@ -3558,6 +3558,19 @@ def add_ordinary_scale_contract(config, plan, paths, path_affected, comparisons,
 
 
 def complete_ordinary_partitions(config, plan):
+    # The unchanged producer already supplies both default snapshots and the
+    # runtime/component libraries. Actual nonempty inventories remain checked
+    # at build and consumption; smaller policy migrations keep the all owner.
+    targeted_policy = (
+        plan['scope'] == 'targeted'
+        and plan.get('execution_profile') in ('pr-fast', 'main-fast')
+        and plan.get('test_policy_changed') is True
+        and not {'fast_execution_version', 'ordinary_partition_version',
+                 'ordinary_fast_targets', 'ordinary_full_fast_targets'}.intersection(plan)
+        and isinstance(plan.get('oasis7_required_packages'), list)
+        and all(package in plan['oasis7_required_packages'] for package in (
+            'oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'))
+    )
     if (config.get('ordinary_artifact_partition_version') in (1, 2)
             and 'oasis7_required' in plan['groups']
             and plan.get('ordinary_execution') != 'inline'):
@@ -3574,7 +3587,7 @@ def complete_ordinary_partitions(config, plan):
                         ordinary_partitions=list(TARGETED_ORDINARY_ARTIFACT_PARTITIONS))
             if 'ordinary_harness_costs' in config:
                 plan['ordinary_harness_costs'] = config['ordinary_harness_costs']
-        elif plan['scope'] in ('full', 'explicit-full'):
+        elif plan['scope'] in ('full', 'explicit-full') or targeted_policy:
             plan.update(ordinary_artifact_partition_version=1,
                         ordinary_partitions=list(ORDINARY_ARTIFACT_PARTITIONS))
     if (config.get('ordinary_artifact_delivery_version') in (1, 2)

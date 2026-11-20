@@ -1880,6 +1880,11 @@ class CompleteArtifactPartitions(unittest.TestCase):
             scope='full', ordinary_artifact_partition_version=1,
             ordinary_partitions=['controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1'])
 
+    def policy_selection(self):
+        return self.selection() | dict(scope='targeted', test_policy_changed=True,
+            oasis7_required_packages=['oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'],
+            oasis7_required_wasm_packages=['oasis7_viewer_runtime'])
+
     def manifest(self, selected):
         binaries = {}
         for name, package, kind, variant in [
@@ -1933,6 +1938,53 @@ class CompleteArtifactPartitions(unittest.TestCase):
             selected = self.selection()
             del selected[field]
             with self.subTest(missing=field), self.assertRaises(ValueError):
+                artifacts.ordinary_partitions(selected)
+
+    def test_targeted_policy_partitions_preserve_build_features_and_complete_inventory(self):
+        for profile in ('pr-fast', 'main-fast'):
+            selected = self.policy_selection() | dict(execution_profile=profile, ordinary_artifact_delivery_version=1)
+            manifest = self.manifest(selected)
+            manifest['binaries']['supplement'].update(package='oasis7_viewer_runtime',
+                target='oasis7_viewer_runtime', variant='required', tests=['required_behavior', 'new_full_behavior'])
+            with self.subTest(profile=profile):
+                partitions = artifacts.ordinary_partitions(selected)
+                groups = {owner: artifacts.ordinary_artifact_entries(manifest, selected, owner) for owner in partitions}
+                self.assertEqual(groups['controls'], [])
+                self.assertTrue(all(groups[owner] for owner in partitions[1:]))
+                self.assertCountEqual([entry for entries in groups.values() for entry in entries],
+                                      artifacts.ordinary_entries(manifest))
+                original = {key: value for key, value in selected.items() if key not in (
+                    'ordinary_artifact_partition_version', 'ordinary_partitions', 'ordinary_artifact_delivery_version')}
+                self.assertEqual(artifacts.build_variants('ordinary', selected),
+                                 artifacts.build_variants('ordinary', original))
+                self.assertEqual(artifacts.required_native_commands(selected), artifacts.required_native_commands(original))
+                self.assertEqual(artifacts.snapshot_regressions(manifest), artifacts.DEFAULT_SNAPSHOT_REGRESSIONS)
+                required = next(args for name, args, _ in artifacts.build_variants('ordinary', selected) if name == 'required')
+                self.assertIn('oasis7_chain_runtime/test_tier_full', required[required.index('--features') + 1].split(','))
+
+    def test_targeted_policy_partition_consumer_rejects_incomplete_or_mixed_plans(self):
+        original = self.policy_selection()
+        changes = [
+            ('oasis7_required_packages', [package for package in original['oasis7_required_packages'] if package != missing])
+            for missing in original['oasis7_required_packages']
+        ] + [
+            ('oasis7_required_packages', None), ('oasis7_required_packages', 'oasis7'),
+            ('test_policy_changed', False), ('test_policy_changed', 1),
+            ('execution_profile', 'candidate-full'), ('execution_profile', 'periodic-full'),
+            ('ordinary_fast_targets', []), ('ordinary_full_fast_targets', []),
+            ('ordinary_execution', 'inline'), ('fast_execution_version', 1), ('ordinary_partition_version', 1),
+            ('ordinary_artifact_partition_version', 2), ('ordinary_artifact_delivery_version', 2),
+            ('ordinary_partitions', ['all']), ('ordinary_partitions', ['controls', 'runtime']),
+            ('ordinary_partitions', ['controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-0']),
+            ('groups', ['baseline']),
+        ]
+        for key, value in changes:
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                artifacts.ordinary_partitions(original | {key: value})
+        for key in ('test_policy_changed', 'oasis7_required_packages'):
+            selected = dict(original)
+            selected.pop(key)
+            with self.subTest(missing=key), self.assertRaises(ValueError):
                 artifacts.ordinary_partitions(selected)
 
     def test_full_parent_still_executes_formal_and_native_failure_is_not_hidden(self):
@@ -2877,10 +2929,10 @@ class TargetedArtifactProcess(unittest.TestCase):
         cls.temporary = tempfile.TemporaryDirectory()
         cls.addClassCleanup(cls.temporary.cleanup)
         cls.root = Path(cls.temporary.name).resolve()
-        (cls.root / 'Cargo.toml').write_text('[workspace]\nmembers=["runtime","viewer","risk"]\nresolver="2"\n')
+        (cls.root / 'Cargo.toml').write_text('[workspace]\nmembers=["runtime","viewer","risk","core"]\nresolver="2"\n')
         (cls.root / '.gitignore').write_text('target/\nbundle/\nconsumer/\n*.tar.gz\n')
-        runtime, viewer, risk = cls.root / 'runtime', cls.root / 'viewer', cls.root / 'risk'
-        for member in (runtime, viewer, risk):
+        runtime, viewer, risk, core = (cls.root / name for name in ('runtime', 'viewer', 'risk', 'core'))
+        for member in (runtime, viewer, risk, core):
             (member / 'src').mkdir(parents=True)
         (runtime / 'Cargo.toml').write_text(
             '[package]\nname="oasis7_chain_runtime"\nversion="0.1.0"\nedition="2021"\n'
@@ -2948,7 +3000,10 @@ pub fn mark(name: &str) {
             'pub fn mark(name: &str) {\n'
             ' let path = std::path::PathBuf::from(std::env::var("FIXTURE_RECORDS").unwrap()).join(name);\n'
             ' std::fs::OpenOptions::new().create_new(true).write(true).open(path).unwrap();\n}\n'
-            '#[test] fn risk_required() { assert!(cfg!(feature="test_tier_required")); mark("risk_required"); }\n')
+            '#[test] fn risk_required() { assert!(cfg!(feature="test_tier_required")); mark("risk_required"); }\n'
+            '#[cfg(feature="test_tier_full")] #[test] fn newly_added_full_case() {\n'
+            ' assert_ne!(std::env::var("FIXTURE_MODE").unwrap_or_default(), "policy-panic");\n'
+            ' mark("newly_added_full_case");\n}\n')
         (risk / 'tests').mkdir()
         (risk / 'tests/full_scales.rs').write_text(
             '#[cfg(not(feature="test_tier_full"))] compile_error!("full risk tier is required");\n' +
@@ -2958,6 +3013,22 @@ pub fn mark(name: &str) {
             '[package]\nname="oasis7_viewer_runtime"\nversion="0.1.0"\nedition="2021"\n'
             '[features]\ntest_tier_required=[]\n[[bin]]\nname="oasis7_viewer_live"\npath="src/main.rs"\n')
         (viewer / 'src/main.rs').write_text('fn main() {}\n')
+        (core / 'Cargo.toml').write_text(
+            '[package]\nname="oasis7"\nversion="0.1.0"\nedition="2021"\n'
+            '[features]\ntest_tier_required=[]\n')
+        marker = (
+            'pub fn mark(name: &str) {\n'
+            ' let path = std::path::PathBuf::from(std::env::var("FIXTURE_RECORDS").unwrap()).join(name);\n'
+            ' std::fs::OpenOptions::new().create_new(true).write(true).open(path).unwrap();\n}\n')
+        (core / 'src/lib.rs').write_text(marker +
+            '#[test] fn ordinary_core() { mark("ordinary_core"); }\n'
+            '#[test] fn snapshot_player_gameplay_execution_state_backfills_from_legacy_fields() {\n'
+            ' mark(if cfg!(feature="test_tier_required") { "core_snapshot_required" } else { "core_snapshot_default" });\n}\n')
+        (viewer / 'src/lib.rs').write_text(marker +
+            '#[test] fn ordinary_viewer() { mark("ordinary_viewer"); }\n'
+            '#[cfg(test)] mod snapshot_progress {\n'
+            ' #[test] fn restored() { super::mark(if cfg!(feature="test_tier_required")\n'
+            ' { "viewer_snapshot_required" } else { "viewer_snapshot_default" }); }\n}\n')
         cls.config = cls.root / 'scripts/ci-formal-process-suites.json'
         cls.config.parent.mkdir()
         cls.config.write_text('{}')
@@ -3037,6 +3108,21 @@ pub fn mark(name: &str) {
         selected.pop('ordinary_harness_costs')
         self.assert_delivery_roundtrip(selected)
 
+    def test_real_targeted_policy_delivery_keeps_full_cases_risks_and_both_default_snapshots(self):
+        for profile in ('pr-fast', 'main-fast'):
+            selected = self.selected | dict(execution_profile=profile, test_policy_changed=True,
+                ordinary_artifact_partition_version=1, ordinary_artifact_delivery_version=1,
+                ordinary_partitions=list(artifacts.ORDINARY_ARTIFACT_PARTITIONS),
+                oasis7_required_packages=['oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_codec', 'oasis7_viewer_runtime'],
+                oasis7_required_wasm_packages=['oasis7_viewer_codec', 'oasis7_viewer_runtime'],
+                risk_test_inventory_version=1,
+                ordinary_risk_targets=[dict(package='oasis7_viewer_codec', target_kind='test',
+                    target_name='full_scales', default_features=True, features=['test_tier_full'],
+                    cases=[f'full_scale_{index}' for index in range(5)])])
+            selected.pop('ordinary_harness_costs')
+            with self.subTest(profile=profile):
+                self.assert_delivery_roundtrip(selected)
+
     def test_real_full_fast_v2_delivery_preserves_full_risks_exact_deferrals_and_failures(self):
         for profile in ('pr-fast', 'main-fast'):
             selected = self.selected | dict(scope='full', execution_profile=profile,
@@ -3057,8 +3143,10 @@ pub fn mark(name: &str) {
             baseline, records = root / 'baseline', root / 'records'
             baseline.mkdir()
             records.mkdir()
-            with self.context(baseline), patch.object(artifacts, 'required_packages',
-                                                      return_value=selected['oasis7_required_packages']):
+            with self.context(baseline) as context:
+                if selected['scope'] in ('full', 'explicit-full'):
+                    context.enter_context(patch.object(artifacts, 'required_packages',
+                                                      return_value=selected['oasis7_required_packages']))
                 bundle, archives = root / 'bundle', root / 'archives'
                 artifacts.build(bundle, 'ordinary', plan=selected)
                 artifacts.pack_ordinary_delivery(bundle, archives, selected)
@@ -3084,6 +3172,8 @@ pub fn mark(name: &str) {
                         parent, _ = artifacts.load(destination, 'ordinary', plan=selected, ordinary_artifact_partition=owner)
                         self.assertTrue(all(helper.is_file() for helper in helpers))
                         entries = artifacts.ordinary_artifact_entries(parent, selected, owner)
+                        if selected.get('test_policy_changed') is True:
+                            self.assertTrue(entries, 'each admitted policy partition must actually execute')
                         if selected['ordinary_artifact_partition_version'] == 2:
                             self.assertTrue(entries)
                         elif entries:
@@ -3110,6 +3200,26 @@ pub fn mark(name: &str) {
                         if selected['execution_profile'] == 'pr-fast':
                             self.assert_failed_owners({owner: root / owner for owner in owners}, selected, manifest)
                     else:
+                        if selected.get('test_policy_changed') is True:
+                            self.assertTrue(all((records / name).is_file() for name in (
+                                'ordinary_core', 'ordinary_viewer', 'core_snapshot_required', 'core_snapshot_default',
+                                'viewer_snapshot_required', 'viewer_snapshot_default', 'newly_added_full_case',
+                                *(f'full_scale_{index}' for index in range(5)))))
+                            risk = [entry for entry in manifest['binaries'].values()
+                                    if entry.get('package') == 'oasis7_viewer_codec' and entry.get('target') == 'full_scales']
+                            self.assertEqual(len(risk), 1)
+                            self.assertEqual(risk[0]['variant'], 'required')
+                            self.assertIn('test_tier_full', risk[0]['features'])
+                            self.assertFalse(any(entry.get('variant', '').startswith('required-risk-')
+                                                 for entry in manifest['binaries'].values()))
+                            full_failure = root / 'full-failure'
+                            full_failure.mkdir()
+                            with patch.dict(os.environ, FIXTURE_MODE='policy-panic', FIXTURE_RECORDS=str(full_failure)), \
+                                 self.assertRaises(RuntimeError):
+                                artifacts.execute(root / 'component-libs', 'ordinary', root / 'full-failure.jsonl',
+                                                  plan=selected, ordinary_partition='component-libs')
+                            failures = [json.loads(line) for line in (root / 'full-failure.jsonl').read_text().splitlines()]
+                            self.assertTrue(any(not row['passed'] for row in failures))
                         fault_records = root / 'fault'
                         fault_records.mkdir()
                         with patch.dict(os.environ, FIXTURE_MODE='panic', FIXTURE_RECORDS=str(fault_records)), self.assertRaises(RuntimeError):
@@ -3720,9 +3830,13 @@ class DriverCoverage(unittest.TestCase):
                             self.assertNotIn('manifest.json', result.stderr)
 
     def test_complete_artifact_cli_controls_run_once_and_consumers_never_call_cargo(self):
+        for selected in (CompleteArtifactPartitions().selection(), CompleteArtifactPartitions().policy_selection()):
+            with self.subTest(scope=selected['scope'], policy=selected['test_policy_changed']):
+                self.assert_complete_artifact_cli_controls(selected)
+
+    def assert_complete_artifact_cli_controls(self, selected):
         root = HERE.parent
         sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
-        selected = CompleteArtifactPartitions().selection()
         selected['architecture'] = dict(source=sha, tested=sha)
         with tempfile.TemporaryDirectory() as temporary:
             temporary = Path(temporary)
@@ -3757,6 +3871,13 @@ class DriverCoverage(unittest.TestCase):
                     self.assertIn('-D', calls[0])
                     self.assertIn('clippy::correctness', calls[0])
                     self.assertIn('wasm32-unknown-unknown', calls[1])
+                    if selected.get('test_policy_changed') is True:
+                        self.assertIn('oasis7_chain_runtime/test_tier_full',
+                                      calls[0][calls[0].index('--features') + 1].split(','))
+                        self.assertEqual([calls[0][index + 1] for index, arg in enumerate(calls[0]) if arg == '-p'],
+                                         selected['oasis7_required_packages'])
+                        self.assertEqual([calls[1][index + 1] for index, arg in enumerate(calls[1]) if arg == '-p'],
+                                         ['oasis7_viewer_runtime'])
                     for failure, expected in [('clippy', ['clippy']), ('check', ['clippy', 'check'])]:
                         result, calls = invoke('controls', failure)
                         self.assertEqual(result.returncode, 19)
