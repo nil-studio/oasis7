@@ -48,45 +48,18 @@ pub fn verify_collect_data_auth_proof(
     command: &CollectDataCommand,
     proof: &PlayerAuthProof,
 ) -> Result<VerifiedPlayerAuth, String> {
-    verify_proof_scheme(proof)?;
-    let (operation, request) = collect_data_command_parts(command);
-    let request_player_id =
-        normalize_required_field(request.player_id.as_str(), "collect_data player_id")?;
-    let request_public_key = normalize_required_optional_public_key(
-        request.public_key.as_deref(),
-        "collect_data public_key",
-    )?;
-    let proof_player_id =
-        normalize_required_field(proof.player_id.as_str(), "auth proof player_id")?;
-    let proof_public_key =
-        normalize_public_key_field(proof.public_key.as_str(), "auth proof public key")?;
-    if request_player_id != proof_player_id {
-        return Err("auth proof player_id does not match request player_id".to_string());
-    }
-    if request_public_key != proof_public_key {
-        return Err("auth proof public_key does not match request public_key".to_string());
-    }
-    if proof.nonce == 0 {
-        return Err("auth nonce must be greater than zero".to_string());
-    }
-    crate::collect_data_auth::verify_authorization(
-        operation,
-        request.electricity_cost,
-        request.data_amount,
-        proof_player_id.as_str(),
-        proof_public_key.as_str(),
-        proof.nonce,
-        proof.signature.as_str(),
-    )?;
-    Ok(VerifiedPlayerAuth {
-        player_id: proof_player_id,
-        public_key: proof_public_key,
-        nonce: proof.nonce,
-        hosted_registration_nonce: None,
-    })
+    work::verify_collect_data_auth_proof_with_work_v1(
+        command,
+        proof,
+        &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+    )
+    .map(work::PaidVerifiedPlayerAuthDataV1::into_legacy)
+    .map_err(work::legacy_error)
 }
 
-fn collect_data_command_parts(command: &CollectDataCommand) -> (&'static str, &CollectDataRequest) {
+pub(super) fn collect_data_command_parts(
+    command: &CollectDataCommand,
+) -> (&'static str, &CollectDataRequest) {
     match command {
         CollectDataCommand::Preflight { request } => ("collect_data_preflight", request),
         CollectDataCommand::Submit { request } => ("collect_data_submit", request),

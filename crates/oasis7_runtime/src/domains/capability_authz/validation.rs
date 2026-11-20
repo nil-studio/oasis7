@@ -11,7 +11,7 @@ impl World {
     /// the execution boundary. A provider/catalog may repeat audience data,
     /// but it cannot make an institution or module-instance target live by
     /// assertion; this runtime currently exposes the world target only.
-    pub(super) fn verify_live_capability_audience(
+    pub(in crate::world) fn verify_live_capability_audience(
         &self,
         grant: &CapabilityGrantV2,
         catalog: &CapabilityCatalogSnapshot,
@@ -80,7 +80,7 @@ impl World {
         Ok(())
     }
 
-    pub(super) fn verify_parent_chain(&self, grant: &CapabilityGrantV2) -> Result<(), WorldError> {
+    pub(in crate::world) fn verify_parent_chain(&self, grant: &CapabilityGrantV2) -> Result<(), WorldError> {
         // Depth one is the first delegated-child level. A higher-depth
         // parent may be issued directly by governance as a delegation root;
         // a depth-one grant without a parent is otherwise an orphan child.
@@ -93,7 +93,7 @@ impl World {
         self.verify_parent_chain_inner(grant, &mut visited, self.state.time)
     }
 
-    pub(super) fn verify_parent_chain_at_tick(
+    pub(in crate::world) fn verify_parent_chain_at_tick(
         &self,
         grant: &CapabilityGrantV2,
         tick: u64,

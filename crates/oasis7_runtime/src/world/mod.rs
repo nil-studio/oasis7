@@ -26,13 +26,17 @@ mod body;
 mod bootstrap_economy;
 mod bootstrap_gameplay;
 mod bootstrap_power;
-mod builtin_factory_quote;
-pub use builtin_factory_quote::{BuiltinFactoryStartPreview, NativeBuiltinFactoryQuote};
-mod builtin_recipe_quote;
-pub use builtin_recipe_quote::{BuiltinRecipeStartPreview, NativeBuiltinRecipeQuote};
+#[path = "../domains/industrial/mod.rs"]
+pub mod industrial;
+pub use industrial::{
+    BuiltinFactoryStartPreview, BuiltinRecipeStartPreview, NativeBuiltinFactoryQuote,
+    NativeBuiltinRecipeQuote,
+};
 mod native_resource_basis;
 mod ordinary_starter;
 pub use native_resource_basis::*;
+#[path = "../domains/capability_authz/mod.rs"]
+pub mod capability_authz;
 mod capability_authorization;
 mod capability_authorization_admin;
 mod capability_authorization_command;
@@ -42,8 +46,6 @@ mod capability_authorization_events;
 mod capability_authorization_publication;
 mod capability_authorization_state;
 mod capability_authorization_transaction;
-mod capability_authorization_validation;
-mod capability_catalog;
 mod provider_terminal_authority;
 pub use provider_terminal_authority::ProviderCapabilityAvailability;
 mod capability_effect_receipt_projection;

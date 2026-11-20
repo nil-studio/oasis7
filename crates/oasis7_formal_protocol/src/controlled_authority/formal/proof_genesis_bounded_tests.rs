@@ -8,6 +8,15 @@ pub(super) fn fixture() -> (
     SignedCanonicalCandidateV1,
     VerifiedCandidateContextV1,
 ) {
+    fixture_with_schema(7)
+}
+fn fixture_with_schema(
+    schema: u32,
+) -> (
+    FormalQualifiedCommitProofV1,
+    SignedCanonicalCandidateV1,
+    VerifiedCandidateContextV1,
+) {
     let (mut certificate, _, legacy, _) = f::initial();
     certificate.body.schema_version = 3;
     certificate.body.authority.profile_version = 3;
@@ -47,7 +56,7 @@ pub(super) fn fixture() -> (
         .to_hex()
         .to_string();
     let mut record = legacy.decision.record;
-    record.schema_version = 7;
+    record.schema_version = schema;
     record.original_authority_id = authority.authority_id().unwrap();
     record.activation_ref = authority.activation_ref().into();
     record.before_state_root = certificate.body.initial_state_root.clone();
@@ -61,6 +70,11 @@ pub(super) fn fixture() -> (
     record
         .artifact_roots
         .insert(ArtifactRole::IncrementalHistoryPrefix, f::h(96));
+    if super::super::incremental::has_retention_ledger(schema) {
+        record
+            .artifact_roots
+            .insert(ArtifactRole::IncrementalRetentionLedger, f::h(97));
+    }
     let proof = f::proof(
         record,
         &authority,
@@ -94,40 +108,83 @@ fn work() -> FormalBoundedWorkV1 {
 }
 #[test]
 fn genuine_dual_genesis_quorum_matches_original_and_retains_exact_proof() {
-    let (proof, candidate, context) = fixture();
-    let original =
-        verify_formal_qualified(&proof, context.finalizing_authority(), None, None).unwrap();
-    let memory = memory();
-    let work = work();
-    let mut stop = || false;
-    let mut ctx = FormalBoundedContextV1::new(&memory, &work, &mut stop);
-    let decision =
-        verify_genesis_decision_bounded(&proof.decision, &candidate, &context, &mut ctx).unwrap();
-    assert_eq!(
-        &*decision
-            .complete_receipt_body_bounded(EndpointRole::Primary, &mut ctx)
-            .unwrap(),
-        &proof.primary_complete.body
-    );
-    let final_body =
-        genesis_final_receipt_body_bounded(&candidate, &context, EndpointRole::Replica, &mut ctx)
-            .unwrap();
-    assert_eq!(&*final_body, &proof.decision.replica.body);
-    let paid = verify_genesis_qualified_bounded(&proof, &candidate, &context, &mut ctx).unwrap();
-    assert_eq!(
-        paid.verified().verified_record_id(),
-        original.verified_record_id()
-    );
-    assert_eq!(paid.verified().record(), original.record());
-    assert_eq!(paid.proof(), &proof);
-    assert_eq!(
-        memory.used(),
-        paid.reserved_bytes() + decision.reserved_bytes() + final_body.reserved_bytes()
-    );
-    drop(paid);
-    drop(decision);
-    drop(final_body);
-    assert_eq!(memory.used(), 0);
+    for schema in [7, 9] {
+        let (proof, candidate, context) = fixture_with_schema(schema);
+        let original =
+            verify_formal_qualified(&proof, context.finalizing_authority(), None, None).unwrap();
+        let memory = memory();
+        let work = work();
+        let mut stop = || false;
+        let mut ctx = FormalBoundedContextV1::new(&memory, &work, &mut stop);
+        let decision =
+            verify_genesis_decision_bounded(&proof.decision, &candidate, &context, &mut ctx)
+                .unwrap();
+        assert_eq!(
+            &*decision
+                .complete_receipt_body_bounded(EndpointRole::Primary, &mut ctx)
+                .unwrap(),
+            &proof.primary_complete.body
+        );
+        let final_body = genesis_final_receipt_body_bounded(
+            &candidate,
+            &context,
+            EndpointRole::Replica,
+            &mut ctx,
+        )
+        .unwrap();
+        assert_eq!(&*final_body, &proof.decision.replica.body);
+        let paid =
+            verify_genesis_qualified_bounded(&proof, &candidate, &context, &mut ctx).unwrap();
+        assert_eq!(
+            paid.verified().verified_record_id(),
+            original.verified_record_id()
+        );
+        assert_eq!(paid.verified().record(), original.record());
+        assert_eq!(paid.proof(), &proof);
+        assert_eq!(
+            memory.used(),
+            paid.reserved_bytes() + decision.reserved_bytes() + final_body.reserved_bytes()
+        );
+        drop(paid);
+        drop(decision);
+        drop(final_body);
+        assert_eq!(memory.used(), 0);
+    }
+}
+#[test]
+fn retention_genesis_preserves_required_role_and_original_initial_authorization() {
+    let (_, candidate, context) = fixture_with_schema(9);
+    let verify = |candidate: &SignedCanonicalCandidateV1| {
+        verify_formal_candidate(
+            candidate,
+            None,
+            context.finalizing_authority(),
+            None,
+            None,
+            FormalCompletionBranchV1::Normal,
+        )
+    };
+    let mut missing = candidate.clone();
+    missing
+        .record
+        .artifact_roots
+        .remove(&ArtifactRole::IncrementalRetentionLedger);
+    assert!(matches!(verify(&missing), Err(FormalError::Invalid(why))
+        if why == "formal record version/position/closure roots"));
+
+    // Keep a valid role set, root binding and writer signature; only the
+    // original signed activation's state differs from this candidate.
+    let mut wrong = candidate;
+    wrong.record.before_state_root = f::h(98);
+    wrong.record.after_state_root = f::h(98);
+    wrong
+        .record
+        .artifact_roots
+        .insert(ArtifactRole::IncrementalRootSet, f::h(98));
+    wrong.writer_signature_hex =
+        f::sign(canonical_candidate_signing_bytes(&wrong.record).unwrap(), 4);
+    assert!(matches!(verify(&wrong), Err(FormalError::Invalid(why))
+        if why == "initial formal committed record differs from authorization"));
 }
 #[test]
 fn correctly_signed_wrong_context_or_role_cannot_mint_verified_genesis() {

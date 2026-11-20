@@ -12,6 +12,9 @@ use std::{cell::Cell, collections::BTreeMap};
 #[path = "incremental_written_values_tests.rs"]
 mod written_value_tests;
 
+#[path = "incremental_projection_sidecar_tests.rs"]
+mod projection_sidecar_tests;
+
 struct Objects {
     memory: MemoryBudget,
     class: MemoryClass,

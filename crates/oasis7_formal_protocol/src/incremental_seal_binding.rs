@@ -104,6 +104,147 @@ impl<R: MerkleNodeReader> ExecutionTransaction<'_, R> {
             }),
         })
     }
+    /// The same witness for the complete profile: final Result originals still
+    /// come only from the existing frozen-after-root producer and real seal.
+    #[allow(clippy::too_many_arguments)]
+    pub fn seal_with_final_results_and_binding<E>(
+        self,
+        guard: &PreparedGuard,
+        live: &ExecutionFence,
+        next_tick: u64,
+        mut cancelled: impl FnMut() -> bool,
+        produce: impl FnOnce(&RootSetV1) -> Result<[ExecutionFactRefV1; 2], E>,
+    ) -> Result<SealedExecutionTransitionV1, SealWithFinalFactError<E>> {
+        self.seal_with_final_results_and_binding_with_work(
+            guard,
+            live,
+            next_tick,
+            &mut cancelled,
+            produce,
+            &mut |_, _| Ok(()),
+        )
+    }
+    pub fn seal_with_final_results_and_binding_with_work<E>(
+        self,
+        guard: &PreparedGuard,
+        live: &ExecutionFence,
+        next_tick: u64,
+        mut cancelled: impl FnMut() -> bool,
+        produce: impl FnOnce(&RootSetV1) -> Result<[ExecutionFactRefV1; 2], E>,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<SealedExecutionTransitionV1, SealWithFinalFactError<E>> {
+        work(1, 0)?;
+        self.validate_guard(guard, live)?;
+        let memory = self.memory.clone();
+        let charge = memory
+            .reserve(
+                std::mem::size_of::<SealedExecutionBindingV1>()
+                    + std::mem::size_of::<SealedExecutionTransitionV1>()
+                    + 128,
+                MemoryClass::Ordinary,
+            )
+            .map_err(ExecutionError::Memory)?;
+        let _phase = memory
+            .reserve(4096, MemoryClass::Ordinary)
+            .map_err(ExecutionError::Memory)?;
+        let captured = self.guard();
+        let transition =
+            self.seal_inner(guard, live, next_tick, &mut cancelled, Some(produce), work)?;
+        let roots = &transition.record.after;
+        let n = b"oasis7.iws.root-set.v1\0".len()
+            + 4
+            + 2
+            + roots.world_id.len()
+            + 48
+            + 6 * crate::incremental_state::STATE_ROOT_BYTES;
+        work(
+            20,
+            (n * 2 + roots.world_id.len() + 6 * 64 + 6 * crate::incremental_state::STATE_ROOT_BYTES)
+                as u64,
+        )?;
+        let after_roots = transition.record.after.digest()?;
+        if cancelled() {
+            return Err(SealWithFinalFactError::Cancelled);
+        }
+        Ok(SealedExecutionTransitionV1 {
+            transition,
+            binding: charge.retain(SealedExecutionBindingV1 {
+                guard: captured,
+                after_roots,
+                memory,
+            }),
+        })
+    }
+    /// Opaque same-transaction seal for the independent three-Result profile.
+    #[allow(clippy::too_many_arguments)]
+    pub fn seal_with_proof_ledger_results_and_binding<E>(
+        self,
+        guard: &PreparedGuard,
+        live: &ExecutionFence,
+        next_tick: u64,
+        mut cancelled: impl FnMut() -> bool,
+        produce: impl FnOnce(&RootSetV1) -> Result<[ExecutionFactRefV1; 3], E>,
+    ) -> Result<SealedExecutionTransitionV1, SealWithFinalFactError<E>> {
+        self.seal_with_proof_ledger_results_and_binding_with_work(
+            guard,
+            live,
+            next_tick,
+            &mut cancelled,
+            produce,
+            &mut |_, _| Ok(()),
+        )
+    }
+    pub fn seal_with_proof_ledger_results_and_binding_with_work<E>(
+        self,
+        guard: &PreparedGuard,
+        live: &ExecutionFence,
+        next_tick: u64,
+        mut cancelled: impl FnMut() -> bool,
+        produce: impl FnOnce(&RootSetV1) -> Result<[ExecutionFactRefV1; 3], E>,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<SealedExecutionTransitionV1, SealWithFinalFactError<E>> {
+        work(1, 0)?;
+        self.validate_guard(guard, live)?;
+        let memory = self.memory.clone();
+        let charge = memory
+            .reserve(
+                std::mem::size_of::<SealedExecutionBindingV1>()
+                    + std::mem::size_of::<SealedExecutionTransitionV1>()
+                    + 128,
+                MemoryClass::Ordinary,
+            )
+            .map_err(ExecutionError::Memory)?;
+        let _phase = memory
+            .reserve(4096, MemoryClass::Ordinary)
+            .map_err(ExecutionError::Memory)?;
+        let captured = self.guard();
+        let transition =
+            self.seal_inner(guard, live, next_tick, &mut cancelled, Some(produce), work)?;
+        let roots = &transition.record.after;
+        let n = b"oasis7.iws.root-set.v1\0".len()
+            + 4
+            + 2
+            + roots.world_id.len()
+            + 48
+            + 6 * crate::incremental_state::STATE_ROOT_BYTES;
+        work(
+            20,
+            (n * 2 + roots.world_id.len() + 6 * 64 + 6 * crate::incremental_state::STATE_ROOT_BYTES)
+                as u64,
+        )?;
+        let after_roots = transition.record.after.digest()?;
+        if cancelled() {
+            return Err(SealWithFinalFactError::Cancelled);
+        }
+        Ok(SealedExecutionTransitionV1 {
+            transition,
+            binding: charge.retain(SealedExecutionBindingV1 {
+                guard: captured,
+                after_roots,
+                memory,
+            }),
+        })
+    }
 }
 #[cfg(test)]
 #[path = "incremental_seal_binding_tests.rs"]

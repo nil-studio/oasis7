@@ -6436,6 +6436,7 @@ name = "oasis7_domain_types"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "ciborium",
  "hex",
  "oasis7_wasm_abi",
  "schemars",
@@ -6706,6 +6707,7 @@ dependencies = [
  "blake3",
  "ed25519-dalek",
  "hex",
+ "oasis7_wasm_abi",
  "serde",
  "serde_cbor_2",
  "serde_json",
@@ -7006,6 +7008,7 @@ dependencies = [
  "oasis7_agent_api",
  "oasis7_cas",
  "oasis7_client_api",
+ "oasis7_distfs",
  "oasis7_formal_protocol",
  "oasis7_proto",
  "oasis7_wasm_abi",
