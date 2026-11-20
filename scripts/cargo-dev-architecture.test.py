@@ -80,12 +80,15 @@ class RepositoryUpstreams(unittest.TestCase):
             tomllib.loads((HERE.parent / m / 'Cargo.toml').read_text(encoding='utf-8'))['package']['name']
             for m in members
         } - pure_l0
-        for key in ('agent-api', 'client-api'):
+        for key in ('agent-api', 'client-api', 'domain-types'):
             rule = next(r for r in rules if r['key'] == key)
             actual = {entry['name'] for entry in rule['forbidden']}
             missing = sorted(expected_forbidden - actual)
             self.assertEqual(missing, [], f'{key} rule omits non-pure-L0 workspace crates: {missing}')
             self.assertIn('oasis7_cas', actual)
+            if key == 'domain-types':
+                self.assertIn('oasis7_agent_api', actual)
+                self.assertIn('oasis7_client_api', actual)
 
 
 

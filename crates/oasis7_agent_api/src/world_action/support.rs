@@ -11,12 +11,7 @@ pub struct BodyKernelView {
     pub cross_section_cm2: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ResourceKind {
-    Electricity,
-    Data,
-}
+pub use oasis7_domain_types::world_resource::ResourceKind;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
