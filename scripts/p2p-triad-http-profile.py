@@ -189,6 +189,11 @@ async def _bounded_controlled_output(args, payload):
         sender.cancel()
         if process.returncode is None:
             process.kill()
+        # A StreamReader may pause its subprocess pipe at the high-water
+        # mark. Drain and discard after killing the exact child so wait()
+        # observes EOF; retaining the buffered data would defeat the cap.
+        while await process.stdout.read(8192):
+            pass
         await process.wait()
         await asyncio.gather(sender, return_exceptions=True)
 
