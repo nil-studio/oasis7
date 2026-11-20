@@ -2,8 +2,8 @@
 
 mod common;
 
-use oasis7::GeoPos;
-use oasis7::runtime::{
+use oasis7_agent_api::world_action::GeoPos;
+use oasis7_runtime::{
     Action, Manifest, ModuleAbiContract, ModuleActivation, ModuleChangeSet, ModuleKind,
     ModuleLimits, ModuleManifest, ModuleRole, ModuleSubscription, ModuleSubscriptionStage,
     PolicySet, ProposalDecision, World, WorldEventBody,
@@ -14,7 +14,7 @@ use oasis7_wasm_abi::{
 use sha2::{Digest, Sha256};
 
 #[cfg(feature = "test_tier_full")]
-use oasis7::runtime::WorldError;
+use oasis7_runtime::WorldError;
 #[cfg(feature = "test_tier_full")]
 use oasis7_wasm_abi::ModuleCallErrorCode;
 #[cfg(feature = "test_tier_full")]
@@ -93,7 +93,7 @@ fn apply_module_manifest(world: &mut World, module_manifest: ModuleManifest) {
 #[cfg(feature = "test_tier_required")]
 #[test]
 fn reducer_state_updates_and_is_reused() {
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = World::new();
     world.set_policy(PolicySet::allow_all());
 
     let wasm_bytes = b"module-state";
@@ -162,7 +162,7 @@ fn reducer_state_updates_and_is_reused() {
 
     let snapshot = world.snapshot();
     let journal = world.journal().clone();
-    let restored = oasis7::runtime_host::world::from_snapshot(snapshot, journal).unwrap();
+    let restored = World::from_snapshot(snapshot, journal).unwrap();
     assert_eq!(
         restored.state().module_states.get("m.state"),
         Some(&b"state-1".to_vec())
@@ -172,7 +172,7 @@ fn reducer_state_updates_and_is_reused() {
 #[cfg(feature = "test_tier_full")]
 #[test]
 fn pure_module_new_state_is_rejected() {
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = World::new();
     world.set_policy(PolicySet::allow_all());
 
     let wasm_bytes = b"module-state-pure";
