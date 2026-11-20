@@ -182,7 +182,8 @@ Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；承接[快速反馈与
 | `ordinary_artifact_partition_version=1/2`、`ordinary_partitions` | v1 保留完整目标分区；v2 对有 chain-runtime 的 targeted 或获可信 delivery v2 授权的 full 快速普通库存执行 controls 与四个 native case 分区；保留唯一 producer 的完整 feature 组合，区别于 inline 分包构建 |
 | `ordinary_artifact_delivery_version=1/2` | delivery v1 为 artifact v1 分发共享辅助产物与四个完整 harness 包；delivery v2 为 artifact v2 另共享唯一 required Runtime harness，其余 harness 保持唯一 payload owner；完整父清单、构建与测试选择不变，旧计划继续原路 |
 | `workspace_support_partition_version=1`、`workspace_support_partitions` | 选中 custody worker 时单列 custody，其余 profile 归 other；两路并集保留全部选中 profile，旧 BASE 使用 all |
-| `custody_execution_version=1`、`custody_node_shards` | 可信能力且无测试政策变化时允许 custody 三路构建与四个完整 Node 文件分片；缺能力或测试政策变化继续原完整 verifier，稳定 support 汇总核验全部实际结果 |
+| `custody_execution_version=1`、`custody_node_shards` | 可信能力且无测试政策变化时允许 custody 三路构建与四个完整 Node 文件分片；策略变更还须具备下述完整扩展能力，其他情况继续原 verifier，稳定 support 汇总核验全部实际结果 |
+| `custody_policy_tests_version=1` | 可信能力及固定 tested 源码均支持时，快速 profile 的策略变更也可分阶段执行；依赖 custody 与独立 WASM proof，原生合同 job 额外完整执行原 Worker expanded-feature `--all-targets` 尾部 |
 | `fast_test_inventory_version=1`、`ordinary_fast_targets` | 可信路径合同允许时，固定普通快速检查的 Cargo target、features 和最低 case 身份；构建、Clippy、打包与执行使用同一清单 |
 | `fast_execution_version=1`、`ordinary_execution=inline`、`ordinary_clippy_group`、`rust_baseline_checks` | 可信组件快速计划在单 runner 构建并执行测试，由明确的并行组执行相同 target 的 Clippy；显式选择 accounting/独立工具专项，缺少新能力时保留旧执行与 baseline 全集 |
 | `architecture.build_policy_version=1`、`build_policy=ordinary-targets` | 全部直接架构输入由快速目标承接时，保留全部声明/依赖图，额外 profile 编译明确延期到 full；缺少能力或混合未覆盖输入保持原编译选择 |
@@ -651,7 +652,11 @@ registry 下载内容与 target 编译产物分别核对复用价值。当前固
 
 `workspace-support-legacy` 在可信计划声明版本化分区时，以 custody / other 两路 matrix 执行完整原 profile 命令。custody worker 的 native 单测、role/WASM 正反编译、真实 World barrier、fixture、TypeScript 和平台测试仍由原 verifier 完整执行；其他支持包不再与其串联。full 在分区前扩展候选完整 profile 库存，缺失、重复、未知分区及任何失败均阻断。本地未指定 `--support-partition` 时，校验完整计划后执行全部选中 profile；显式 custody / other 仍按计划核对并收窄。旧 BASE 保留 all，矩阵 `fail-fast: false`、最多两路，最终 required/full gate 经稳定 support 汇总等待整个选中矩阵的真实终态。
 
-Custody 的可信分阶段执行保留 `custody_execution_version=1`，将 native、wasm-production、wasm-approval 放到三个独立产物 runner，并单列原生合同 runner。完整 core/worker 单测与 native fixture 构建并行，仍是最终 support 汇总的必要条件；它不生产 Node 消费者所需的二进制，因此消费者不等待该合同 job。native 产物承接 Launcher 回归、真实 World commit barrier、contract 和 context-body fixtures；production 构建四个生产角色、Wrangler dry-run 和 native harness；approval 产生真实 approval fixture 与 release approval harness。每个 WASM producer 内保持原角色构建锁与顺序，不在共享 build 目录并发。只有计划明确 `test_policy_changed=false` 才启用分阶段执行；测试政策变化或字段不确定时保留 legacy 路径及原有 `--all-targets` 扩展。
+Custody 的可信分阶段执行保留 `custody_execution_version=1`，将 native、wasm-production、wasm-approval 放到三个独立产物 runner，并单列原生合同 runner。完整 core/worker 单测与 native fixture 构建并行，仍是最终 support 汇总的必要条件；它不生产 Node 消费者所需的二进制，因此消费者不等待该合同 job。native 产物承接 Launcher 回归、真实 World commit barrier、contract 和 context-body fixtures；production 构建四个生产角色、Wrangler dry-run 和 native harness；approval 产生真实 approval fixture 与 release approval harness。每个 WASM producer 内保持原角色构建锁与顺序，不在共享 build 目录并发。基础能力只接受明确 `test_policy_changed=false`；策略变更仅按下述完整扩展能力准入，字段不确定时仍保留 legacy 路径。
+
+可信 BASE 的 `custody_policy_tests_version=1` 在 `pr-fast/main-fast`、`fast_plan_version=1`、明确 `test_policy_changed=true` 且选中 Worker profile 时，允许复用完整 custody 图。该能力依赖严格整数版本的 custody v1、独立 WASM proof v1 和 support 分区，且固定 tested revision 的配置必须声明同一父子能力；候选只能收回不可消费的能力，不能自授权。旧 BASE 或旧 tested 源码缺少该能力时，继续原 legacy verifier 和 expanded-feature 尾部；显式非法版本、缺失父能力或不可读声明失败。默认和 full profile、其他 support profiles、原 source/tested/policy 及完整选组不因此改变。
+
+策略变更分阶段执行时，`custody-native-contracts` 在原 core/worker 检查后额外执行原 support driver 的 `cargo test -p oasis7_custody_worker --all-targets`，复用同一个 manifest-owned feature 选择器启用 required/full tiers 与适用风险 features；没有 tier feature 的新增集成 target 也必须执行。该尾部不是产物消费者前置，但其真实失败、取消、缺失或跳过仍通过既有必需 native-contract job 阻断稳定 support 汇总。WASM proof 继续全部正反角色证明与动态 profiles，三路 producer 保留全部真实 fixture/角色构建，Node 四片保留完整文件库存和一次 TypeScript 检查。投影携带严格能力并绑定完整 selection 摘要；执行尾部前沿用 stage 的 source/tested/policy、实际 checkout、run/attempt 校验，不接受未选中的命令或跨身份材料。命令多重集合回归、真实小型 Cargo full-only/无 feature 新 target、真实 Node 正负与非空回归分别证明编排和实际执行；产品完整构建与墙钟收益仍以 hosted 运行验收，不能由模拟命令记录代签。
 
 可信 BASE 的可选 `custody_compile_proof_version=1` 将编译证明移到独立必要 job `custody-wasm-contracts`。该能力只接受严格整数1，依赖合法的 custody 父能力和 support 分区，且只在原本已选中完整 custody 分阶段执行的分支发出；候选配置不能自授权，非法字段必须拒绝。无父能力保留 legacy 完整入口；有父能力但无新能力时，approval 继续执行原十六项 core/角色/harness 正反编译证明及完整动态 Worker WASM profiles。
 

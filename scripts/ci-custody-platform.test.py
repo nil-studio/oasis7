@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise custody file completeness, artifact relocation and failed execution."""
 import copy
+from collections import Counter
 import hashlib
 import importlib.util
 import json
@@ -96,6 +97,180 @@ class Custody(unittest.TestCase):
 
     def proof_plan(self):
         return dict(self.plan, custody_compile_proof_version=1, test_policy_changed=False)
+
+    def policy_plan(self):
+        return dict(self.proof_plan(), fast_plan_version=1, execution_profile='pr-fast',
+                    test_policy_changed=True, custody_policy_tests_version=1)
+
+    def test_policy_tests_require_complete_trusted_capabilities(self):
+        plan = self.policy_plan()
+        self.assertTrue(C.enabled(plan))
+        self.assertTrue(C.separate_proof(plan))
+        for key in ('custody_policy_tests_version', 'custody_compile_proof_version',
+                    'custody_execution_version', 'fast_plan_version',
+                    'workspace_support_profile_version', 'workspace_support_partition_version'):
+            for value in (None, False, True, 0, 2, 1.0, '1', 'missing'):
+                changed = plan | {key: value}
+                if value == 'missing':
+                    del changed[key]
+                with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                    C.enabled(changed)
+        for key, value in [('test_policy_changed', False), ('test_policy_changed', 1),
+                           ('execution_profile', 'periodic-full'), ('execution_profile', None)]:
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                C.enabled(plan | {key: value})
+
+    @unittest.skipUnless(shutil.which('cargo') and shutil.which('rustc'), 'requires a Rust toolchain')
+    def test_real_policy_tail_runs_full_features_and_new_targets_and_propagates_failure(self):
+        (self.root / '.gitignore').write_text('target/\n')
+        (self.root / 'Cargo.toml').write_text('[workspace]\nresolver="2"\nmembers=["crates/oasis7_custody_worker"]\n')
+        (self.worker / 'src').mkdir()
+        manifest = self.worker / 'Cargo.toml'
+        manifest.write_text('[package]\nname="oasis7_custody_worker"\nversion="0.1.0"\nedition="2021"\n'
+                            '[features]\ntest_tier_required=[]\ntest_tier_full=[]\n')
+        (self.worker / 'src/lib.rs').write_text('#[test] fn original_library_case() {}\n')
+        case = self.worker / 'tests/policy_case.rs'
+        case.write_text('#[cfg(feature="test_tier_required")] #[test] fn required_case() {}\n'
+                        '#[cfg(feature="test_tier_full")] #[test] fn full_case() { '
+                        'assert!(std::env::var_os("FAIL_POLICY_CASE").is_none()); }\n')
+        def git(*arguments):
+            return subprocess.check_output(['git', '-C', str(self.root), *arguments], text=True).strip()
+        git('init', '-q')
+        git('add', '.')
+        git('-c', 'user.name=CI fixture', '-c', 'user.email=fixture@example.invalid',
+            'commit', '-qm', 'real policy tail fixture')
+        plan = self.policy_plan() | {'tested_sha': git('rev-parse', 'HEAD')}
+        selection = Path(self.temporary.name) / 'policy-selection.json'
+        selection.write_text(json.dumps(plan))
+        environment = dict(os.environ, GITHUB_RUN_ID='71', GITHUB_RUN_ATTEMPT='2',
+            RUSTC_WRAPPER='/does-not-exist-policy-cargo-wrapper',
+            CUSTODY_SELECTION_SHA256=hashlib.sha256(selection.read_bytes()).hexdigest(),
+            **{'OASIS7_SUPPORT_' + key.upper(): plan[key] for key in ('source_sha', 'tested_sha', 'policy_sha')})
+        def invoke(extra=None):
+            return subprocess.run([sys.executable, str(Path(C.__file__)), 'policy-tests',
+                '--repo-root', str(self.root), '--plan', str(selection)],
+                env=environment | (extra or {}), text=True, capture_output=True)
+        result = invoke()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('test required_case ... ok', result.stdout)
+        self.assertIn('test full_case ... ok', result.stdout)
+        self.assertEqual(result.stdout.count('test original_library_case ... ok'), 1)
+        failed = invoke({'FAIL_POLICY_CASE': '1'})
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertIn('test full_case ... FAILED', failed.stdout)
+        # A new target must run even when this package owns no tier features.
+        manifest.write_text(manifest.read_text().split('[features]')[0])
+        case.write_text('#[test] fn new_no_feature_target() {}\n')
+        git('add', '.')
+        git('-c', 'user.name=CI fixture', '-c', 'user.email=fixture@example.invalid',
+            'commit', '-qm', 'new no-feature target')
+        plan['tested_sha'] = git('rev-parse', 'HEAD')
+        selection.write_text(json.dumps(plan))
+        environment.update(CUSTODY_SELECTION_SHA256=hashlib.sha256(selection.read_bytes()).hexdigest(),
+                           OASIS7_SUPPORT_TESTED_SHA=plan['tested_sha'])
+        result = invoke()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('test new_no_feature_target ... ok', result.stdout)
+        for changed in ({'CUSTODY_SELECTION_SHA256': '0' * 64},
+                        {'OASIS7_SUPPORT_POLICY_SHA': 'd' * 40},
+                        {'GITHUB_RUN_ID': '0'}, {'GITHUB_RUN_ATTEMPT': '0'}):
+            failed = invoke(changed)
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertNotIn('test new_no_feature_target', failed.stdout)
+
+    def test_policy_stages_preserve_the_complete_legacy_command_multiset(self):
+        # This records the actual verifier/driver dispatch; it does not claim
+        # real product WASM compilation. The expansion and Node execution have
+        # separate real Cargo/Node fixtures above and below.
+        source = Path(__file__).resolve().parents[1]
+        scripts = self.worker / 'scripts'
+        scripts.mkdir()
+        shutil.copyfile(source / C.WORKER / 'scripts/verify.sh', scripts / 'verify.sh')
+        (self.root / 'scripts').mkdir()
+        (self.root / 'scripts/ci-worker-build.py').write_text(
+            'import os\nprint(os.environ["WORKER_TOOL"])\n')
+        binary = self.root / 'bin'
+        binary.mkdir()
+        recorder = binary / 'record'
+        recorder.write_text('''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+name = Path(sys.argv[0]).name
+a = sys.argv[1:]
+def record(command):
+    with open(os.environ['CAPTURE'], 'a') as f: f.write(json.dumps(command) + '\\n')
+if name == 'cargo':
+    record([name, *a])
+    if a[0] == 'check' and 'oasis7_custody_worker' in a:
+        feature = a[a.index('--features') + 1] if '--features' in a else ''
+        if not feature or (',' in feature and 'harness' not in feature):
+            print('requires exactly one role feature'); sys.exit(1)
+        if feature == 'identity,approval-harness':
+            print('approval-harness requires owner'); sys.exit(1)
+        if 'native-runtime-harness' in feature and not feature.startswith('identity,'):
+            print('native-runtime-harness requires identity'); sys.exit(1)
+elif name == 'npm':
+    if a[0] == 'test':
+        record(['typescript'])
+        for path in sorted(Path('crates/oasis7_custody_worker/tests').glob('*.test.mjs')):
+            record(['node-test', path.name])
+    elif a[:2] == ['run', 'test:types']: record(['typescript'])
+elif name == 'world':
+    if a == ['--list']:
+        print('fixture::custody_happy_submit_barrier_preserves_unknown_and_settles_exact_originals: test')
+    else:
+        record(['world-regression', *a]); print('test result: ok. 1 passed; 0 failed; 0 ignored;')
+elif name == 'node': record([name, *a])
+else: record([name, *a])
+''')
+        recorder.chmod(0o755)
+        for name in ('cargo', 'npm', 'npx', 'node', 'world'):
+            shutil.copyfile(recorder, binary / name)
+            (binary / name).chmod(0o755)
+        (self.artifacts / 'world-test-binary.txt').write_text(str(binary / 'world') + '\n')
+        for name in ('build-role.sh', 'build-approval-harness.sh', 'build-native-runtime-harness.sh',
+                     'build-native-fixture.sh', 'build-world-fixture.sh', 'export-context-body-fixture.sh'):
+            (scripts / name).write_text('#!/bin/sh\nexec "$RECORD_SCRIPT" "' + name + '" "$@"\n')
+        (self.root / 'Cargo.toml').write_text('[workspace]\nmembers=["crates/oasis7_custody_worker"]\n')
+        (self.worker / 'Cargo.toml').write_text('[package]\nname="oasis7_custody_worker"\nversion="0.1.0"\n'
+            '[features]\ndefault=[]\nidentity=[]\nowner=[]\nexecutor=[]\nrecovery-fence=[]\n'
+            'approval-harness=[]\nnative-runtime-harness=[]\ntest_tier_required=[]\ntest_tier_full=[]\n'
+            'wasmtime=[]\nviewer_live_integration=[]\n')
+        trace = self.root / 'commands.jsonl'
+        environment = dict(os.environ, PATH=str(binary) + os.pathsep + os.environ['PATH'],
+            CAPTURE=str(trace), WORKER_TOOL=str(binary / 'worker-build'), RECORD_SCRIPT=str(recorder),
+            OASIS7_SUPPORT_CAPACITY='0', CI_VERBOSE='0')
+        common = 'set -euo pipefail\nci_python="$1"; driver_dir="$2"\nsource "$driver_dir/ci-tests.sh"\n'
+        def shell(script, *arguments):
+            result = subprocess.run(['bash', '-c', common + script, 'contract', sys.executable,
+                str(source / 'scripts'), *arguments], cwd=self.root, env=environment,
+                text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        before = self.policy_plan()
+        for field in ('custody_execution_version', 'custody_node_shards',
+                      'custody_compile_proof_version', 'custody_policy_tests_version'):
+            before.pop(field)
+        shell('support_profiles="$3"\nrun_selected_workspace_support\n', 'plan:' + json.dumps(before))
+        legacy = Counter(tuple(json.loads(line)) for line in trace.read_text().splitlines())
+        trace.unlink()
+        for stage in ('native-contracts', 'native-fixtures', 'wasm-production',
+                      'wasm-approval-artifacts', 'wasm-contracts'):
+            shell('bash crates/oasis7_custody_worker/scripts/verify.sh --stage "$3"\n', stage)
+        shell('run_worker_wasm_compile_profiles\n')
+        result = subprocess.run(C.policy_test_command(self.root, self.policy_plan()),
+                                cwd=self.root, env=environment, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        shell('npm run test:types --prefix crates/oasis7_custody_worker\n')
+        staged = Counter(tuple(json.loads(line)) for line in trace.read_text().splitlines())
+        # File placement is the existing shard protocol, exercised with real Node
+        # files by test_real_node_files_complete_all_shards_... .
+        for batch in C.partition(C.inventory(self.root)):
+            staged.update(('node-test', filename) for filename in batch)
+        # The existing separate WASM proof prepares its own real fixture before
+        # checking approval-harness; it cannot reuse another runner's local file.
+        legacy.update([('cargo', 'test', '-p', 'oasis7_custody_core', '--test',
+                        'approval_admission', 'export_developer_admission_fixture', '--locked')])
+        self.assertEqual(staged, legacy)
 
     def test_compile_proof_requires_strict_capability_and_complete_parent_plan(self):
         self.assertFalse(C.separate_proof(self.plan))
@@ -330,30 +505,32 @@ class Custody(unittest.TestCase):
         self.assertEqual(C.tap_summary(skip, 'host-control-https.integration.test.mjs')['skipped'], 1)
 
     def test_real_node_files_complete_all_shards_and_missing_or_duplicate_receipts_fail(self):
-        receipts = []
-        for shard in C.SHARDS:
-            output = Path(self.temporary.name) / f'results-{shard}'
-            C.execute(self.root, self.plan, shard, output, '71', 2)
-            receipts.append(output / 'result.json')
-        C.validate_results(self.root, self.plan, receipts, '71', 3)
-        for paths in [receipts[:-1], receipts + receipts[:1]]:
+        for index, plan in enumerate((self.plan, self.policy_plan())):
+            receipts = []
+            for shard in C.SHARDS:
+                output = Path(self.temporary.name) / f'results-{index}-{shard}'
+                C.execute(self.root, plan, shard, output, '71', 2)
+                receipts.append(output / 'result.json')
+            C.validate_results(self.root, plan, receipts, '71', 3)
+            for paths in [receipts[:-1], receipts + receipts[:1]]:
+                with self.assertRaises(ValueError):
+                    C.validate_results(self.root, plan, paths, '71', 3)
+            value = C.load(receipts[0])
+            value['files'][0]['process']['timeout'] = True
+            receipts[0].write_text(json.dumps(value))
             with self.assertRaises(ValueError):
-                C.validate_results(self.root, self.plan, paths, '71', 3)
-        value = C.load(receipts[0])
-        value['files'][0]['process']['timeout'] = True
-        receipts[0].write_text(json.dumps(value))
-        with self.assertRaises(ValueError):
-            C.validate_results(self.root, self.plan, receipts, '71', 3)
+                C.validate_results(self.root, plan, receipts, '71', 3)
 
     def test_real_node_failure_and_zero_tests_cannot_publish_success(self):
-        for index, source in enumerate(["import {test} from 'node:test';test('bad',()=>{throw Error('real failure')});", '']):
-            path = self.worker / 'tests/0.test.mjs'
-            path.write_text(source)
-            shard = next(i for i, batch in enumerate(C.partition(C.inventory(self.root))) if path.name in batch)
-            output = Path(self.temporary.name) / f'failure-{index}'
-            with self.assertRaises(ValueError):
-                C.execute(self.root, self.plan, shard, output, '71', 2)
-            self.assertFalse((output / 'result.json').exists())
+        for version, plan in enumerate((self.plan, self.policy_plan())):
+            for index, source in enumerate(["import {test} from 'node:test';test('bad',()=>{throw Error('real failure')});", '']):
+                path = self.worker / 'tests/0.test.mjs'
+                path.write_text(source)
+                shard = next(i for i, batch in enumerate(C.partition(C.inventory(self.root))) if path.name in batch)
+                output = Path(self.temporary.name) / f'failure-{version}-{index}'
+                with self.assertRaises(ValueError):
+                    C.execute(self.root, plan, shard, output, '71', 2)
+                self.assertFalse((output / 'result.json').exists())
 
     def client_fixture(self):
         path = self.worker / 'tests' / C.workerd_capture.TEST_FILE
@@ -441,17 +618,19 @@ class Custody(unittest.TestCase):
                  'workspace-support-other': dict(result='skipped'), 'custody-node': dict(result='success'),
                  'custody-native-contracts': dict(result='success'), 'custody-wasm-contracts': dict(result='success'),
                  **{f'custody-{part}': dict(result='success') for part in C.COMPONENTS}}
-        self.assertTrue(C.validate_jobs(self.proof_plan(), needs))
         with self.assertRaisesRegex(ValueError, 'unknown or missing support dependencies'):
             C.validate_jobs(self.plan, needs)
-        for state in ('failure', 'cancelled', 'skipped', None, 'missing'):
-            changed = copy.deepcopy(needs)
-            if state == 'missing':
-                del changed['custody-wasm-contracts']
-            else:
-                changed['custody-wasm-contracts']['result'] = state
-            with self.subTest(state=state), self.assertRaises(ValueError):
-                C.validate_jobs(self.proof_plan(), changed)
+        for plan in (self.proof_plan(), self.policy_plan()):
+            self.assertTrue(C.validate_jobs(plan, needs))
+            for job in ('custody-native-contracts', 'custody-wasm-contracts', 'custody-node'):
+                for state in ('failure', 'cancelled', 'skipped', None, 'missing'):
+                    changed = copy.deepcopy(needs)
+                    if state == 'missing':
+                        del changed[job]
+                    else:
+                        changed[job]['result'] = state
+                    with self.subTest(job=job, state=state), self.assertRaises(ValueError):
+                        C.validate_jobs(plan, changed)
 
 
 if __name__ == '__main__':

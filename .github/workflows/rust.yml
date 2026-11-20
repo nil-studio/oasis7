@@ -343,17 +343,24 @@ jobs:
           capability = 'ordinary_main_fast_cache_writer_version'
           if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1):
               raise ValueError('invalid ordinary main-fast cache writer capability')
+          capability = 'custody_policy_tests_version'
+          if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1
+                  or type(plan.get('custody_compile_proof_version')) is not int or plan['custody_compile_proof_version'] != 1
+                  or type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1
+                  or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
+                  or plan.get('test_policy_changed') is not True):
+              raise ValueError('invalid custody policy tests capability')
           capability = 'custody_compile_proof_version'
           if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1
                   or type(plan.get('custody_execution_version')) is not int or plan['custody_execution_version'] != 1
                   or type(plan.get('workspace_support_partition_version')) is not int or plan['workspace_support_partition_version'] != 1
-                  or plan.get('test_policy_changed') is not False):
+                  or not (plan.get('test_policy_changed') is False or 'custody_policy_tests_version' in plan)):
               raise ValueError('invalid custody compile proof capability')
           fields = (
               'scope', 'execution_profile', 'fast_plan_version', 'fast_execution_version',
               'ordinary_execution', 'ordinary_artifact_delivery_version', 'ordinary_artifact_partition_version',
               'ordinary_main_fast_cache_writer_version',
-              'oasis7_required_packages', 'custody_execution_version', 'custody_node_shards', 'custody_compile_proof_version',
+              'oasis7_required_packages', 'custody_execution_version', 'custody_node_shards', 'custody_compile_proof_version', 'custody_policy_tests_version',
               'python_control_contract_version', 'groups', 'source_sha', 'tested_sha', 'policy_sha',
               'check_inventory_version', 'fast_plan_exceptions',
           )
@@ -3161,6 +3168,20 @@ jobs:
         run: |
           test "$(id -u)" -ne 0
           bash crates/oasis7_custody_worker/scripts/verify.sh --stage native-contracts
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: fromJSON(needs.select.outputs.plan).custody_policy_tests_version == 1
+        with:
+          name: ${{ needs.select.outputs.selection_artifact }}
+          path: ${{ runner.temp }}
+      - name: Execute complete custody policy targets
+        if: fromJSON(needs.select.outputs.plan).custody_policy_tests_version == 1
+        env:
+          RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}
+          CUSTODY_SELECTION_SHA256: ${{ fromJSON(needs.select.outputs.plan).selection_sha256 }}
+          OASIS7_SUPPORT_SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+          OASIS7_SUPPORT_TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
+          OASIS7_SUPPORT_POLICY_SHA: ${{ needs.select.outputs.policy_sha }}
+        run: python3 scripts/ci-custody-platform.py policy-tests --plan "$RUNNER_TEMP/selection.json"
 
   custody-native:
     needs: select
@@ -4163,11 +4184,18 @@ jobs:
           capability = 'ordinary_main_fast_cache_writer_version'
           if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1):
               raise ValueError('invalid ordinary main-fast cache writer capability')
+          capability = 'custody_policy_tests_version'
+          if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1
+                  or type(plan.get('custody_compile_proof_version')) is not int or plan['custody_compile_proof_version'] != 1
+                  or type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1
+                  or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
+                  or plan.get('test_policy_changed') is not True):
+              raise ValueError('invalid custody policy tests capability')
           capability = 'custody_compile_proof_version'
           if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1
                   or type(plan.get('custody_execution_version')) is not int or plan['custody_execution_version'] != 1
                   or type(plan.get('workspace_support_partition_version')) is not int or plan['workspace_support_partition_version'] != 1
-                  or plan.get('test_policy_changed') is not False):
+                  or not (plan.get('test_policy_changed') is False or 'custody_policy_tests_version' in plan)):
               raise ValueError('invalid custody compile proof capability')
           if (type(projected.get('workflow_projection_version')) is not int
                   or projected['workflow_projection_version'] != 1
@@ -4177,7 +4205,7 @@ jobs:
               'scope', 'execution_profile', 'fast_plan_version', 'fast_execution_version',
               'ordinary_execution', 'ordinary_artifact_delivery_version', 'ordinary_artifact_partition_version',
               'ordinary_main_fast_cache_writer_version',
-              'oasis7_required_packages', 'custody_execution_version', 'custody_node_shards', 'custody_compile_proof_version',
+              'oasis7_required_packages', 'custody_execution_version', 'custody_node_shards', 'custody_compile_proof_version', 'custody_policy_tests_version',
               'python_control_contract_version', 'groups', 'source_sha', 'tested_sha', 'policy_sha',
               'check_inventory_version', 'fast_plan_exceptions',
           )
