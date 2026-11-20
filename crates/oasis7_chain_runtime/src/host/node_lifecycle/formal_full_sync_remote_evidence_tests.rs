@@ -41,50 +41,58 @@ fn relay_once(
         stream
             .set_read_timeout(Some(Duration::from_secs(3)))
             .unwrap();
-        let mut header = Vec::new();
-        while !header.ends_with(b"\r\n\r\n") {
-            let mut byte = [0];
-            stream.read_exact(&mut byte).unwrap();
-            header.push(byte[0]);
-            assert!(header.len() <= 8192);
-        }
-        let header = String::from_utf8(header).unwrap();
-        assert!(header.starts_with("POST /read HTTP/1.1"));
-        let size: usize = header
-            .lines()
-            .find_map(|line| {
-                let (key, value) = line.split_once(':')?;
-                key.eq_ignore_ascii_case("content-length")
-                    .then(|| value.trim().parse().unwrap())
-            })
-            .unwrap();
-        assert!(size < 16 * 1024);
-        let mut body = vec![0; size];
-        stream.read_exact(&mut body).unwrap();
-        let query: FullSyncReadEvidenceQueryV3 = serde_json::from_slice(&body).unwrap();
-        assert_eq!(query.schema_version, 3);
-        let start = Instant::now();
-        source.return_bad_nonce(bad_nonce);
-        let evidence = source
-            .fetch(&FullSyncIssuerReadEvidenceRequestV3 {
-                observation_nonce: hex::decode(query.observation_nonce)
-                    .unwrap()
-                    .try_into()
-                    .unwrap(),
-                minimum_anchor: query.minimum_anchor,
-                provider_public_key: query.provider_public_key,
-                provider_incarnation: query.provider_incarnation,
-                target: query.target,
-                target_generation: query.target_generation,
-                started_at: start,
-                deadline: start + Duration::from_secs(3),
-            })
-            .unwrap();
-        let body = serde_json::to_vec(&evidence).unwrap();
-        write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",body.len()).unwrap();
-        stream.write_all(&body).unwrap();
+        serve_relay(&mut stream, &source, bad_nonce);
     });
     (endpoint, thread)
+}
+
+fn serve_relay(
+    stream: &mut (impl Read + Write),
+    source: &SignedEvidenceSource,
+    bad_nonce: bool,
+) {
+    let mut header = Vec::new();
+    while !header.ends_with(b"\r\n\r\n") {
+        let mut byte = [0];
+        stream.read_exact(&mut byte).unwrap();
+        header.push(byte[0]);
+        assert!(header.len() <= 8192);
+    }
+    let header = String::from_utf8(header).unwrap();
+    assert!(header.starts_with("POST /read HTTP/1.1"));
+    let size: usize = header
+        .lines()
+        .find_map(|line| {
+            let (key, value) = line.split_once(':')?;
+            key.eq_ignore_ascii_case("content-length")
+                .then(|| value.trim().parse().unwrap())
+        })
+        .unwrap();
+    assert!(size < 16 * 1024);
+    let mut body = vec![0; size];
+    stream.read_exact(&mut body).unwrap();
+    let query: FullSyncReadEvidenceQueryV3 = serde_json::from_slice(&body).unwrap();
+    assert_eq!(query.schema_version, 3);
+    let start = Instant::now();
+    source.return_bad_nonce(bad_nonce);
+    let evidence = source
+        .fetch(&FullSyncIssuerReadEvidenceRequestV3 {
+            observation_nonce: hex::decode(query.observation_nonce)
+                .unwrap()
+                .try_into()
+                .unwrap(),
+            minimum_anchor: query.minimum_anchor,
+            provider_public_key: query.provider_public_key,
+            provider_incarnation: query.provider_incarnation,
+            target: query.target,
+            target_generation: query.target_generation,
+            started_at: start,
+            deadline: start + Duration::from_secs(3),
+        })
+        .unwrap();
+    let body = serde_json::to_vec(&evidence).unwrap();
+    write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",body.len()).unwrap();
+    stream.write_all(&body).unwrap();
 }
 
 #[test]
@@ -248,3 +256,7 @@ fn remote_evidence_does_not_follow_redirects_to_another_endpoint() {
     );
     server.join().unwrap();
 }
+
+#[cfg(unix)]
+#[path = "formal_full_sync_remote_mtls_tests.rs"]
+mod mtls_tests;

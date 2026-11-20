@@ -1,12 +1,14 @@
 //! Runtime original H namespace preparation and locally durable activation.
 use super::private_store::source_activation::{
     CoveredSourcePublication, SourceActivationRecordV1, check_original_namespace,
+    read_authenticated_original,
 };
 use super::*;
 use oasis7_distfs::protected_bft_v3::{
-    BftPrivateRetentionAttestorV1, BftPrivateRetentionCreationMarkerV1,
-    BftPrivateRetentionSourceV1, BftSignerProviderV3, BftSignerStateV3,
-    BftSuccessorWindowArchiveRefV1, RemoteBftSignerProviderV3,
+    BftPrivateRetentionAdmissionInputV1, BftPrivateRetentionAttestorV1,
+    BftPrivateRetentionCreationMarkerV1, BftPrivateRetentionSourceV1, BftSignerProviderV3,
+    BftSignerStateV3, BftSuccessorWindowArchiveRefV1, BftSuccessorWindowSourceV1,
+    RemoteBftSignerProviderV3,
 };
 use std::time::Instant;
 
@@ -60,6 +62,16 @@ impl FormalBftHeaderLedgerExecutionV3 {
         binding: &BftSignerBindingV3,
         creation_identity: &str,
     ) -> Result<BftPrivateRetentionCreationMarkerV1, String> {
+        let marker = self.derive_covered_source_marker(binding, creation_identity)?;
+        check_original_namespace(&self.ledger, &self.store, &marker)?;
+        Ok(marker)
+    }
+
+    fn derive_covered_source_marker(
+        &self,
+        binding: &BftSignerBindingV3,
+        creation_identity: &str,
+    ) -> Result<BftPrivateRetentionCreationMarkerV1, String> {
         let (handoff, schedule, material) = self.covered_source_binding_parts(creation_identity)?;
         if binding.handoff().target_digest() != handoff.target_digest()
             || binding.handoff_record_id != handoff.handoff_head().record_id
@@ -82,8 +94,78 @@ impl FormalBftHeaderLedgerExecutionV3 {
             initial_state_digest: initial.state_digest,
             initial_height: schedule.height(),
         };
-        check_original_namespace(&self.ledger, &self.store, &marker)?;
         Ok(marker)
+    }
+
+    pub(in super::super) fn original_source_for_candidate(
+        &self,
+        binding: &BftSignerBindingV3,
+        attestor: &BftPrivateRetentionAttestorV1,
+        marker: &BftPrivateRetentionCreationMarkerV1,
+    ) -> Result<(String, std::collections::BTreeSet<String>), String> {
+        if &self.covered_source_marker(binding, &marker.creation_identity)? != marker {
+            return Err("candidate source marker differs from qualified H".into());
+        }
+        read_authenticated_original(&self.ledger, &self.store, binding, attestor, marker, None)?
+            .inventory()
+    }
+
+    /// Write the local original WAL only after an authenticated provider lease
+    /// proves its exact original Pending result. The staged archive is immutable input.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The independent source and lease boundaries remain explicit."
+    )]
+    pub(crate) fn reserve_first_covered_local(
+        &mut self,
+        binding: &BftSignerBindingV3,
+        attestor: &BftPrivateRetentionAttestorV1,
+        creation_identity: &str,
+        source: &BftSuccessorWindowSourceV1,
+        pin: &OriginalCandidateArchivePinV1,
+        input: Arc<BftPrivateRetentionAdmissionInputV1>,
+        provider: &RemoteBftSignerProviderV3,
+        deadline: Instant,
+    ) -> Result<(String, String), String> {
+        let marker = self.derive_covered_source_marker(binding, creation_identity)?;
+        if input.key.height != marker.initial_height {
+            return Err("first Local Reserve requires the exact original H height".into());
+        }
+        let original = read_authenticated_original(
+            &self.ledger,
+            &self.store,
+            binding,
+            attestor,
+            &marker,
+            Some(input.key.height),
+        )?;
+        let (origin, _) = original.inventory()?;
+        if pin.original_private_origin_digest() != origin {
+            return Err(
+                "first Local Reserve archive does not bind the original private Origin".into(),
+            );
+        }
+        pin.verify_first_price(
+            self,
+            &input,
+            source,
+            &marker,
+            &attestor.creation_marker_digest,
+        )?;
+        let publication = original.prepare_pending_local(&input, &mut self.ledger, &self.store)?;
+        if Instant::now() >= deadline {
+            return Err("first Local Reserve deadline expired before protected lease".into());
+        }
+        self.ledger.verify_carriers()?;
+        let mut lease = provider
+            .acquire(binding)
+            .map_err(|error| error.to_string())?;
+        let pending = lease
+            .reserve_first_private_retention(attestor, &marker, &original.activation, &input)
+            .map_err(|error| error.to_string())?;
+        let hash = publication.publish(&self.ledger, &self.store, deadline)?;
+        drop(lease);
+        Ok((hash, pending.receipt.body.after_state_digest))
     }
 
     pub(crate) fn activate_covered_original_source(

@@ -19,3 +19,7 @@ pub mod incremental_schedule;
 pub mod incremental_material;
 
 pub mod incremental_scratch_counter;
+
+pub mod incremental_business_output;
+pub mod incremental_projection_sidecar;
+pub mod incremental_retention;

@@ -67,7 +67,7 @@ Trace refs: O7-REQ-f8497929-34dc-4193-a435-7dbe60bf0e4c；承接[既有产品消
 3. 接收前核对 manifest 的 world/chain/genesis、seed、生成版本、配置摘要及 generated chunks；`world_seed` 与固定 chunk runtime 必须一致。正式初始 snapshot 的 typed 恢复不能改变这些值。缺输入、未知版本、摘要不匹配或其他世界材料均阻塞，不能回退到 `runtime_agent_chunk_v1`、本地固定 seed 或生成一个“相同外观”的世界。
 4. 后续同世界记录继承上述生成上下文；允许变化的是已提交的资源状态。替换 seed、空间尺寸或生成上下文不是普通刷新/claim 的恢复方式。旧世界沿自己的已承诺历史恢复，本选择不把它就地重建为新开局；确需改变时沿原世界迁移/治理合同另作明确变更。
 
-当前 [manifest DTO](../../../crates/oasis7_agent_api/src/world_resource/manifest.rs)已有 world/chain/genesis、seed、配置与生成摘要字段；[正式初始检查点](../../../crates/oasis7_chain_runtime/src/host/execution_bridge/formal_initial.rs)核身份并把整个 snapshot 纳入 state root，[初始化入口](../../../crates/oasis7_chain_runtime/src/host/world_initialization.rs)只恢复外部准备的 snapshot/journal，不创建 World 或授权。它们提供可复用的承载与信任边界；固定生成上下文、真实自然资源内容及逐消费者引用仍须实际接入，不能声称这些文件已经验证完整 unified seed。
+当前 [manifest DTO](../../../crates/oasis7_domain_types/src/world_resource/manifest.rs)已有 world/chain/genesis、seed、配置与生成摘要字段；[正式初始检查点](../../../crates/oasis7_chain_runtime/src/host/execution_bridge/formal_initial.rs)核身份并把整个 snapshot 纳入 state root，[初始化入口](../../../crates/oasis7_chain_runtime/src/host/world_initialization.rs)只恢复外部准备的 snapshot/journal，不创建 World 或授权。它们提供可复用的承载与信任边界；固定生成上下文、真实自然资源内容及逐消费者引用仍须实际接入，不能声称这些文件已经验证完整 unified seed。
 
 ### 3.2 Seed 派生
 

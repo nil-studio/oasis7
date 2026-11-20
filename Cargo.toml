@@ -4,6 +4,7 @@ members = [
     "crates/oasis7_browser_game_client",
     "crates/oasis7_client_api",
     "crates/oasis7_agent_api",
+    "crates/oasis7_domain_types",
     "crates/oasis7_custody_core",
     "crates/oasis7_custody_worker",
     "crates/oasis7_dev_test_worker",
@@ -56,7 +57,7 @@ members = [
     "tools/wasm_build_suite",
     "tools/wasm_module_observe",
 ]
-exclude = ["vendor-if-watch-3.2.2", "tools/oasis7-command-center"]
+exclude = ["vendor-if-watch-3.2.2", "tools/oasis7-command-center", "docker/wasm-builder"]
 resolver = "2"
 
 # Shared values are opt-in; package versions and publication policy stay local.

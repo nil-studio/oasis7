@@ -24,6 +24,10 @@ LOCAL_INPUTS_VERSION = 1
 _LOCAL_INPUT_TREES = ContextVar('local_input_trees', default=frozenset())
 FAST_TEST_INVENTORY_VERSION = 1
 FAST_EXECUTION_VERSION = 1
+# These independent groups execute complete default-feature lib tests and
+# Clippy in ci-tests.sh. Their targets are proof inputs, never duplicate builds
+# in the ordinary inventory.
+ORDINARY_GROUP_LIBRARIES = {'consensus': 'oasis7_consensus', 'node': 'oasis7_node'}
 ORDINARY_MAIN_FAST_CACHE_WRITER_VERSION = 1
 ORDINARY_PARTITION_VERSION = 1
 ORDINARY_PARTITION_PACKAGES = frozenset(('oasis7_runtime', 'oasis7_world_state'))
@@ -1107,6 +1111,12 @@ def validate_config(config):
                 or type(config.get('workspace_support_partition_version')) is not int
                 or config['workspace_support_partition_version'] != 1):
             raise ValueError('invalid custody compile proof capability')
+    if 'custody_policy_tests_version' in config:
+        if (type(config['custody_policy_tests_version']) is not int
+                or config['custody_policy_tests_version'] != 1
+                or type(config.get('custody_compile_proof_version')) is not int
+                or config['custody_compile_proof_version'] != CUSTODY_COMPILE_PROOF_VERSION):
+            raise ValueError('invalid custody policy tests capability')
     if 'ordinary_artifact_partition_version' in config:
         if (type(config['ordinary_artifact_partition_version']) is not int
                 or config['ordinary_artifact_partition_version'] not in (1, 2)
@@ -1280,9 +1290,10 @@ def valid_fast_declaration(item):
     if not isinstance(item, str):
         return False
     item = item.strip()
-    native = '#[cfg(not(target_arch = "wasm32"))]'
-    if item.startswith(native):
-        item = item[len(native):].strip()
+    for gate in ('#[cfg(not(target_arch = "wasm32"))]', '#[cfg(test)]'):
+        if item.startswith(gate):
+            item = item[len(gate):].strip()
+            break
     identifier = r'[A-Za-z_][A-Za-z0-9_]*'
     module = r'(?:pub(?:\(super\))?\s+)?mod\s+' + identifier + r'\s*;'
     names = identifier + r'(?:\s*,\s*' + identifier + r')*\s*,?'
@@ -1294,7 +1305,9 @@ def valid_fast_declaration(item):
 def validate_fast_test_inventory(config):
     """Only an explicit trusted inventory may replace package-wide tests."""
     fields = {'fast_test_inventory_version', 'ordinary_fast_targets', 'ordinary_fast_rules'}
-    if not (fields | {'fast_execution_version', 'ordinary_fast_component_rules'}).intersection(config):
+    if not (fields | {'fast_execution_version', 'ordinary_fast_component_rules',
+                     'ordinary_case_prefix_contract_version', 'ordinary_shared_incremental_contract_version',
+                     'ordinary_fast_group_contract_version', 'ordinary_fast_group_contracts'}).intersection(config):
         return
     if (not fields.issubset(config)
             or type(config['fast_test_inventory_version']) is not int
@@ -1305,11 +1318,20 @@ def validate_fast_test_inventory(config):
     rules = config['ordinary_fast_rules']
     if not isinstance(targets, dict) or not targets or not isinstance(rules, list) or not rules:
         raise ValueError('invalid fast test targets or rules')
+    prefix_capability = config.get('ordinary_case_prefix_contract_version')
+    if (prefix_capability is not None
+            and (type(prefix_capability) is not int or prefix_capability != 1)):
+        raise ValueError('invalid ordinary case prefix capability')
+    dedup_capability = config.get('ordinary_shared_incremental_contract_version')
+    if (dedup_capability is not None
+            and (type(dedup_capability) is not int or dedup_capability != 1)):
+        raise ValueError('invalid shared incremental contract capability')
     identities = set()
     for key, target in targets.items():
         if (not isinstance(key, str) or not re.fullmatch(r'[a-z0-9_-]+', key)
                 or not isinstance(target, dict)
-                or set(target) != {'package', 'target_kind', 'target_name', 'default_features', 'features', 'cases'}):
+                or set(target) - {'package', 'target_kind', 'target_name', 'default_features', 'features', 'cases', 'case_prefixes'}
+                or not {'package', 'target_kind', 'target_name', 'default_features', 'features', 'cases'}.issubset(target)):
             raise ValueError('invalid fast test target')
         if (target['package'] not in config['oasis7_required_packages']
                 or target['target_kind'] not in ('lib', 'test')
@@ -1331,6 +1353,15 @@ def validate_fast_test_inventory(config):
         if (any(not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_-]*', feature) for feature in target['features'])
                 or not target['default_features'] and 'default' in target['features']):
             raise ValueError('invalid fast test features')
+        if 'case_prefixes' in target:
+            prefixes = target['case_prefixes']
+            if (prefix_capability != 1 or not isinstance(prefixes, list) or not prefixes
+                    or any(not isinstance(prefix, str)
+                           or re.fullmatch(r'(?:[A-Za-z_][A-Za-z0-9_]*::)+', prefix) is None
+                           for prefix in prefixes)
+                    or len(prefixes) != len(set(prefixes))
+                    or any(not any(case.startswith(prefix) for prefix in prefixes) for case in target['cases'])):
+                raise ValueError('invalid fast test case prefixes')
     seen_paths = set()
     for rule in rules:
         if (not isinstance(rule, dict) or set(rule) - {'paths', 'targets', 'reason', 'added_declarations', 'static_module_additions'}
@@ -1357,8 +1388,25 @@ def validate_fast_test_inventory(config):
         if 'static_module_additions' in rule and (
                 rule['static_module_additions'] is not True
                 or config.get('fast_execution_version') != FAST_EXECUTION_VERSION
-                or not any(targets[key]['target_kind'] == 'lib' for key in rule['targets'])):
+                or not any(targets[key]['target_kind'] == 'lib' and 'case_prefixes' not in targets[key]
+                           for key in rule['targets'])):
             raise ValueError('static module additions require a complete component library target')
+    contracts = config.get('ordinary_fast_group_contracts')
+    if 'ordinary_fast_group_contract_version' in config or contracts is not None:
+        version = config.get('ordinary_fast_group_contract_version')
+        if (type(version) is not int or version != 1
+                or not isinstance(contracts, dict) or not contracts
+                or set(contracts) - set(ORDINARY_GROUP_LIBRARIES)):
+            raise ValueError('invalid ordinary retained group contract')
+        for group, paths in contracts.items():
+            package = ORDINARY_GROUP_LIBRARIES[group]
+            if (group not in config.get('groups', ())
+                    or group not in config.get('package_groups', {}).get(package, ())
+                    or not isinstance(paths, list) or not paths
+                    or any(not isinstance(path, str) or path not in seen_paths
+                           or not path.startswith('crates/' + package + '/src/') for path in paths)
+                    or len(paths) != len(set(paths))):
+                raise ValueError('invalid ordinary retained group paths')
     component_rules = config.get('ordinary_fast_component_rules')
     if 'fast_execution_version' not in config:
         if component_rules is not None:
@@ -1748,6 +1796,26 @@ def ordinary_fast_selection(config, paths, path_affected, path_rules, selected_c
     return targets, covered, reasons, path_features
 
 
+def ordinary_group_proof_targets(config, paths, groups):
+    """Witness exact inputs with the existing complete independent lib drivers.
+
+    Matching a reverse consumer never proves that its dependency's own tests
+    execute. Each retained group supplies its real default-feature Cargo root;
+    changed_test_policy checks source reachability in every compared tree.
+    """
+    if config.get('ordinary_fast_group_contract_version') != 1:
+        return {}, []
+    retained = {group: sorted(set(paths).intersection(registered))
+                for group, registered in config['ordinary_fast_group_contracts'].items()
+                if set(paths).intersection(registered)}
+    if not set(retained).issubset(groups):
+        return retained, []
+    return retained, [dict(package=ORDINARY_GROUP_LIBRARIES[group], target_kind='lib',
+                          target_name=ORDINARY_GROUP_LIBRARIES[group], default_features=True,
+                          features=[], cases=[])
+                      for group in sorted(retained)]
+
+
 def resolve_commit(ref):
     # Only the validated, invocation-scoped local snapshot may use tree identity.
     # Every normal caller and the policy/base still require real commits.
@@ -1795,12 +1863,14 @@ WORKER_SIGNER_FEATURE = 'execution-signer-harness'
 WORKER_SIGNER_GUARD_MESSAGE = 'execution-signer-harness requires executor and is not a deployment profile'
 
 
-def local_feature_closure(manifest, initial, *, include_dev=False):
+def local_feature_closure(manifest, initial, *, include_dev=False, allow_enabled_optional=False):
     """Reuse the existing local fixed point, without injecting defaults.
 
     Dependency forwarding cannot be guessed into a local cfg proof. A known
-    non-optional dependency's foreign feature has no local feature edge; optional
-    forwarding/implicit features require a richer Cargo model and stay rejected.
+    non-optional dependency's foreign feature has no local feature edge. Selected
+    native targets may additionally prove a unique optional dependency already
+    enabled by an explicit dep: edge in this same local closure. Weak/implicit
+    activation and ambiguous declarations remain rejected; Worker stays strict.
     """
     features = manifest.get('features', {})
     if not isinstance(features, dict) or any(name not in features for name in initial):
@@ -1809,7 +1879,7 @@ def local_feature_closure(manifest, initial, *, include_dev=False):
         enabled = default_feature_closure(manifest, initial=initial)
     except (ValueError, TypeError):
         raise TestPolicyError('invalid Cargo local feature closure') from None
-    dependencies = {}
+    dependencies, declaration_counts = {}, {}
     tables = [manifest]
     targets = manifest.get('target', {})
     if not isinstance(targets, dict):
@@ -1831,6 +1901,8 @@ def local_feature_closure(manifest, initial, *, include_dev=False):
                 if type(optional) is not bool:
                     raise TestPolicyError('unknown Cargo dependency optionality')
                 dependencies.setdefault(name, set()).add(optional)
+                declaration_counts[name] = declaration_counts.get(name, 0) + 1
+    activated = {edge[4:] for name in enabled for edge in features[name] if edge.startswith('dep:')}
     for name in enabled:
         for edge in features[name]:
             if edge in features:
@@ -1841,10 +1913,13 @@ def local_feature_closure(manifest, initial, *, include_dev=False):
                 continue  # dep: enables the dependency, not a local feature.
             if '/' in edge:
                 dependency, foreign = edge.split('/', 1)
+                explicit_optional = (allow_enabled_optional and dependency in activated
+                                     and dependencies.get(dependency) == {True}
+                                     and declaration_counts.get(dependency) == 1)
                 if (not foreign or '/' in foreign or dependency.endswith('?')
-                        or dependencies.get(dependency) != {False}):
+                        or (dependencies.get(dependency) != {False} and not explicit_optional)):
                     raise TestPolicyError('unmodeled Cargo optional dependency feature forwarding')
-                continue  # Known non-optional foreign feature: no local cfg edge.
+                continue  # Proved dependency forwarding adds no local cfg edge.
             raise TestPolicyError('unmodeled Cargo implicit local feature')
     return enabled
 
@@ -1926,7 +2001,8 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                         ordinary_roots=(), source_inputs=None, narrow_features_by_path=None,
                         narrow_unavailable=None, selected_targets=None, required_source_paths=(),
                         portable_paths=None, worker_wasm_compile=False, native_root_deltas=None,
-                        pixel_platform_driver=False, unit_test_targets=(), unit_test_sources=None):
+                        pixel_platform_driver=False, unit_test_targets=(), unit_test_sources=None,
+                        required_group_source_targets=None):
     """Detect selection-affecting edits without executing candidate Rust.
 
     Full-feature execution preserves a required->full move. Semantic retirement
@@ -1944,6 +2020,12 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         return owner == test_owner or (owner[0] in ('mod', 'module') and
                (not owner[1] or test_owner[1].startswith(owner[1] + '::')))
 
+    def builtin_attribute(values, names):
+        # A qualified proc attribute may deliberately share a builtin's first
+        # segment (for example doc::case). Only an unqualified name is inert.
+        return (bool(values) and values[0] in names
+                and (len(values) == 1 or values[1] in ('(', '=')))
+
     def ordinary_attribute(values, native_linux=False):
         return (values == ('test',)
                 or enabled_gate(values, native_linux, set())
@@ -1951,7 +2033,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                     and rust_literal_path(values[2]) is not None)
                 or (values[:4] == ('tokio', ':', ':', 'test')
                     and (len(values) == 4 or (values[4:5] == ('(',) and values[-1] == ')')))
-                or values[0] in ('allow', 'warn', 'deny', 'forbid', 'expect', 'doc', 'should_panic'))
+                or builtin_attribute(values, ('allow', 'warn', 'deny', 'forbid', 'expect', 'doc', 'should_panic')))
 
     def attributes(source, native_linux=False):
         tokens, closing = rust_source_inputs(source, return_tokens=True)
@@ -2061,6 +2143,9 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                     break
             return start
 
+        def direct_declaration(start):
+            return start == 0 or tokens[start - 1][1] in ('{', '}', ';')
+
         plain_impls, impl_occurrences = {}, {}
         for start, owner in item_owners.items():
             if owner[0] != 'impl':
@@ -2069,7 +2154,8 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             while end < len(tokens) and tokens[end][1] not in ('{', ';'):
                 end += 1
             header = tokens[start + 1:end]
-            if (end not in closing or tokens[end][1] != '{'
+            if (not direct_declaration(declaration_start(start))
+                    or end not in closing or tokens[end][1] != '{'
                     or len(header) % 3 != 1
                     or any(kind != 'identifier' if offset % 3 == 0 else value != ':'
                            for offset, (kind, value, _) in enumerate(header))):
@@ -2104,6 +2190,142 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                             and tokens[opening - 1][0] == 'identifier')]
         statement_context = {owner: context for owner, context in statement_context.items()
                              if not any(left < context[2] < right for left, right in macro_ranges)}
+
+        # Direct method-call statements have a smaller complete lexical owner
+        # than the whole method body. Keep an unchanged cfg hook stable when a
+        # sibling business statement changes length, including in generic/trait
+        # impls. This grants no execution proof to new/changed gates. Initializers,
+        # nested blocks/items, macro input and ambiguous signatures retain the
+        # conservative owners above.
+        def complete_header(start, end):
+            depth = 0
+            for index in range(start, end):
+                value = tokens[index][1]
+                if value in ('{', '}', '!', '#'):
+                    return False
+                if value == '<':
+                    depth += 1
+                elif value == '>' and tokens[index - 1][1] != '-':
+                    depth -= 1
+                    if depth < 0:
+                        return False
+            return depth == 0
+
+        def transparent_attributes(start, end):
+            # A proc-macro attribute may rewrite sibling source into new gates.
+            # Only cfg and inert builtins can preserve a statement identity;
+            # cfg_attr stays conservative because its payload may be a macro.
+            for index in range(start, end):
+                if tokens[index][1] != '#':
+                    continue
+                opening = index + 1 + (tokens[index + 1][1] == '!')
+                if (opening not in closing or tokens[opening][1] != '['
+                        or not builtin_attribute(tuple(value.removeprefix('r#') if kind == 'identifier' else value
+                                                       for kind, value, _ in tokens[opening + 1:closing[opening]]),
+                                                 ('cfg', 'test', 'path', 'allow', 'warn', 'deny', 'forbid',
+                                                  'expect', 'doc', 'inline', 'cold'))):
+                    return False
+            return True
+
+        def transparent_inner_attributes(left, right):
+            cursor = left + 1
+            while cursor + 2 < right and [value for _, value, _ in tokens[cursor:cursor + 3]] == ['#', '!', '[']:
+                cursor = closing[cursor + 2] + 1
+            return transparent_attributes(left + 1, cursor)
+
+        method_impls, method_impl_occurrences = {}, {}
+        for start, owner in item_owners.items():
+            if owner[0] != 'impl':
+                continue
+            declaration = declaration_start(start)
+            if (not direct_declaration(declaration)
+                    or not transparent_attributes(declaration, start)
+                    or not transparent_inner_attributes(-1, len(tokens))
+                    or any(left < start < right and left not in module_braces
+                           for left, right in closing.items())):
+                continue
+            end = start + 1
+            while end < len(tokens) and tokens[end][1] not in ('{', ';'):
+                end = closing[end] + 1 if end in closing else end + 1
+            if end not in closing or not complete_header(start, end):
+                continue
+            modules_here = tuple(item_owners[left - 2] for left, right, _ in modules
+                                 if left < start < right)
+            if any(not transparent_attributes(declaration_start(left - 2), left - 2)
+                   or not transparent_inner_attributes(left, right)
+                   for left, right, _ in modules if left < start < right):
+                continue
+            context = modules_here, tuple(value for _, value, _ in tokens[declaration:end])
+            occurrence = method_impl_occurrences.get(context, 0)
+            method_impl_occurrences[context] = occurrence + 1
+            method_impls[end] = context, occurrence
+
+        def path_call_end(start, right):
+            cursor = start
+            if [value for _, value, _ in tokens[cursor:cursor + 2]] == [':', ':']:
+                cursor += 2
+            while True:
+                if cursor >= right or tokens[cursor][0] != 'identifier':
+                    return None
+                cursor += 1
+                if [value for _, value, _ in tokens[cursor:cursor + 2]] != [':', ':']:
+                    break
+                cursor += 2
+            if cursor not in closing or tokens[cursor][1] != '(':
+                return None
+            end = closing[cursor]
+            if any(value in ('{', '}', '!', '#', 'fn', 'const')
+                   for _, value, _ in tokens[cursor + 1:end]):
+                return None
+            end += 1
+            if end < right and tokens[end][1] == '?':
+                end += 1
+            return end if end < right and tokens[end][1] == ';' else None
+
+        method_occurrences = {}
+        for left, right, _ in function_bodies:
+            start = function_starts[left]
+            declaration = declaration_start(start)
+            parents = [opening for opening, stop in closing.items()
+                       if opening < start < right < stop and opening not in module_braces]
+            if (len(parents) != 1 or parents[0] not in method_impls
+                    or tokens[start + 1][0] != 'identifier'
+                    or not direct_declaration(declaration)
+                    or not transparent_attributes(declaration, start)
+                    or not transparent_inner_attributes(parents[0], closing[parents[0]])
+                    or not transparent_inner_attributes(left, right)
+                    or not complete_header(start, left)):
+                continue
+            context = method_impls[parents[0]], tuple(value for _, value, _ in tokens[declaration:left])
+            occurrence = method_occurrences.get(context, 0)
+            method_occurrences[context] = occurrence + 1
+            calls, cursor = {}, left + 1
+            while cursor < right:
+                statement = cursor
+                while (cursor + 1 in closing and tokens[cursor][1] == '#'
+                       and tokens[cursor + 1][1] == '['):
+                    cursor = closing[cursor + 1] + 1
+                end = path_call_end(cursor, right)
+                if end is not None and transparent_attributes(statement, cursor):
+                    # Count bare calls too: moving a cfg between two identical
+                    # calls must not cancel in the attribute set comparison.
+                    call = tuple(value for _, value, _ in tokens[cursor:end + 1])
+                    call_occurrence = calls.get(call, 0)
+                    calls[call] = call_occurrence + 1
+                    identity = hashlib.sha256(json.dumps(
+                        (context, occurrence, [value for _, value, _ in tokens[statement:end + 1]]),
+                        ensure_ascii=True, separators=(',', ':')).encode()).hexdigest()
+                    statement_owners[cursor] = 'method_call', identity, call_occurrence
+                    cursor = end + 1
+                    continue
+                # Only start a new candidate at a direct statement boundary.
+                # Skip complete token trees so nested owners never acquire a
+                # method-level identity.
+                while cursor < right:
+                    value = tokens[cursor][1]
+                    cursor = closing[cursor] + 1 if cursor in closing else cursor + 1
+                    if value in (';', '{'):
+                        break
 
         def enclosing_function_owner(index, fallback):
             bodies = [left for left, right, _ in function_bodies if left < index < right]
@@ -2162,9 +2384,135 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         ordinary_items = {owner for owner in ordinary_context
                           if all(ordinary_attribute(attribute, native_linux)
                                  for attribute, target in annotations if applies_to(target, owner))}
+
+        def test_region_fingerprint():
+            # A filtered harness cannot witness arbitrary edits to tests in a
+            # production file. Compare complete test/helper regions, retaining
+            # their lexical parents. Ordinary sibling function bodies are not
+            # part of this fingerprint; an unchanged crash hook therefore does
+            # not pull its entire production method into the test region.
+            marked = {owner for values, owner in selection
+                      if 'test' in values or any('test_tier_' in value for value in values)}
+            positions = {index for index, owner in item_owners.items() if owner in marked}
+            # Include inline module helpers/fixtures, not just #[test] bodies.
+            marked.update(item_owners[left - 2] for left, right, _ in modules
+                          if any(left < position < right for position in positions))
+            regions = set()
+            # Any macro can export another test-generating macro, even from an
+            # ordinary function body. Preserve every complete invocation and
+            # its function/impl/module headers and binding declarations. This
+            # token projection keeps ordering and duplicate calls, never token
+            # offsets or a whitelist of supposedly harmless macro names.
+            macro_definitions = {index for index, (_, value, _) in enumerate(tokens[:-1])
+                                 if value.removeprefix('r#') == 'macro_rules' and tokens[index + 1][1] == '!'}
+            macro_inputs = []
+            for opening, stop in macro_ranges:
+                if (opening > 1 and tokens[opening - 1][1] == '!'
+                        and tokens[opening - 2][0] == 'identifier'
+                        and tokens[opening - 2][1] not in ('if', 'while', 'match', 'return', 'break', 'yield')):
+                    start = opening - 2
+                elif opening > 2 and opening - 3 in macro_definitions:
+                    start = opening - 3
+                else:
+                    continue  # Inner attributes and boolean negation are not calls.
+                while start >= 2 and [value for _, value, _ in tokens[start - 2:start]] == [':', ':']:
+                    start -= 2
+                    if start and tokens[start - 1][0] == 'identifier':
+                        start -= 1
+                    else:
+                        break
+                if start and tokens[start - 1][1] == '$':
+                    start -= 1  # Preserve $crate in a containing macro's input.
+                macro_inputs.append((start, stop))
+            opaque_items = (bool(macro_definitions)
+                            or bool(macro_inputs)
+                            or any(values[0] != 'cfg' and not ordinary_attribute(values, native_linux)
+                                   and not any(left < index < right for left, right, _ in function_bodies)
+                                   for values, _, index, _, _ in lexical_annotations))
+            if opaque_items:
+                ordinary_tokens = set()
+                for left, right, _ in function_bodies:
+                    start = function_starts[left]
+                    declaration = declaration_start(start)
+                    parents = [opening for opening, stop in closing.items()
+                               if opening < start < right < stop and opening not in module_braces]
+                    calls = [(opening, stop) for opening, stop in macro_inputs if left < opening < stop < right]
+                    if (len(parents) > 1 or parents and parents[0] not in method_impls
+                            or not direct_declaration(declaration) or not complete_header(start, left)
+                            or not transparent_attributes(declaration, start)
+                            or not transparent_inner_attributes(-1, len(tokens))
+                            or any(opening < start < stop for opening, stop in macro_ranges)
+                            or any(left < index < right for index in macro_definitions)
+                            # Local aliases/items can change an unchanged
+                            # invocation's binding or expansion context.
+                            or calls and (any(left < index < right for index in item_owners)
+                                          or any(value == 'extern' for _, value, _ in tokens[left + 1:right]))
+                            or any(not transparent_attributes(declaration_start(opening - 2), opening - 2)
+                                   or not transparent_inner_attributes(opening, stop)
+                                   for opening, stop, _ in modules if opening < start < stop)):
+                        continue
+                    if calls:
+                        body = set(range(left + 1, right))
+                        for opening, stop in calls:
+                            body.difference_update(range(opening, stop + 1))
+                        ordinary_tokens.update(body)
+                    else:
+                        ordinary_tokens.update(range(declaration, right + 1))
+                regions.add(('opaque_items', tuple(value for index, (_, value, _) in enumerate(tokens)
+                                                   if index not in ordinary_tokens)))
+            for owner in marked:
+                if owner[0] in ('method_call', 'statement', 'body'):
+                    regions.add((owner, tuple(sorted(values for values, target in selection if target == owner))))
+                    continue
+                if owner[0] == 'module':
+                    regions.add((owner, tuple(value for _, value, _ in tokens)))
+                    continue
+                candidates = [index for index, target in item_owners.items() if target == owner]
+                if not candidates and owner[0] == 'unresolved':
+                    indices = [index for _, target, index, _, _ in lexical_annotations if target == owner]
+                    bodies = set()
+                    for index in indices:
+                        enclosing = [body for body in function_bodies if body[0] < index < body[1]]
+                        if not enclosing or any(left < index < right for left, right in macro_ranges):
+                            return None
+                        bodies.add(min(enclosing, key=lambda body: body[1] - body[0]))
+                    if len(bodies) != 1:
+                        return None
+                    # Unknown nested statement/field ownership can only prove
+                    # an unchanged complete function, never a sibling body edit.
+                    left, _, owner = bodies.pop()
+                    candidates = [function_starts[left]]
+                if len(candidates) != 1:
+                    return None
+                start = candidates[0]
+                declaration = declaration_start(start)
+                if not transparent_attributes(declaration, start):
+                    return None
+                parents = [left for left, right in closing.items()
+                           if left < start < right and tokens[left][1] == '{' and left not in module_braces]
+                if len(parents) > 1 or parents and parents[0] not in method_impls:
+                    return None
+                if owner[0] == 'fn':
+                    bodies = [(left, right) for left, right, target in function_bodies
+                              if target == owner and function_starts[left] == start]
+                    if len(bodies) != 1 or not complete_header(start, bodies[0][0]):
+                        return None
+                    end = bodies[0][1]
+                elif owner[0] == 'mod' and tokens[start + 2][1] in ('{', ';'):
+                    end = closing.get(start + 2, start + 2)
+                else:
+                    return None  # Fields, macro owners and other opaque regions.
+                context = tuple(item_owners[left - 2] for left, right, _ in modules if left < start < right)
+                context = context, method_impls.get(parents[0]) if parents else None
+                regions.add(((owner, context), tuple(value for _, value, _ in tokens[declaration:end + 1])))
+            return frozenset(regions)
+
+        test_regions = (test_region_fingerprint()
+                        if any('case_prefixes' in target for target in selected_targets or ()) else None)
         return (selection, ignored, test_owners, set(item_owners.values()),
                 test_owners & ordinary_items, ordinary_items, annotations,
-                tokens, closing, item_owners, modules, ordinary_context, lexical_annotations, statement_context)
+                tokens, closing, item_owners, modules, ordinary_context, lexical_annotations, statement_context,
+                test_regions)
 
     def lexical_attributes(info, position):
         # Keep stable named/occurrence owners for edit comparison. Compilation
@@ -2441,7 +2789,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         ordinary_structure_cache[key] = enabled
         return enabled
 
-    def inherited_paths(path, native, visiting=frozenset(), roots=None):
+    def inherited_paths(path, native, visiting=frozenset(), roots=None, *, selected_features=None, selected_root=None):
         # AND within a concrete Cargo-root path, never across alternative mounts.
         # Opaque references/cycles cannot be hidden by a second convenient path.
         if path in visiting:
@@ -2451,11 +2799,13 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             result.append(((), True, False, frozenset(source_owners(path))))
         if path not in sources:
             return result
-        parents(path, native)  # Fill the same exact-reference provenance cache.
-        for parent, known, opaque, resolved, gates in reference_cache[(path, native, None, None)]:
+        parents(path, native, selected_features, selected_root)
+        for parent, known, opaque, resolved, gates in reference_cache[(path, native, selected_features, selected_root)]:
             if parent in visiting and not resolved:
                 continue
-            for previous, proven, uncertain, packages in inherited_paths(parent, native, visiting | {path}, roots):
+            for previous, proven, uncertain, packages in inherited_paths(
+                    parent, native, visiting | {path}, roots,
+                    selected_features=selected_features, selected_root=selected_root):
                 result.append((previous + gates, proven and known, uncertain or opaque, packages))
         return result
 
@@ -2484,8 +2834,8 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         return executable
 
     def inherited_gates(path, native, visiting=frozenset()):
-        # Narrow inventory keeps its conservative ancestor check; the legacy
-        # policy below evaluates concrete alternative execution paths instead.
+        # Without an explicit selected Cargo root, retain the original
+        # conservative ancestor check rather than inventing a route witness.
         if path in visiting or path not in sources:
             return set()
         result = set()
@@ -2502,7 +2852,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         if target['default_features'] and 'default' in manifest.get('features', {}):
             initial.append('default')
         try:
-            return frozenset(local_feature_closure(manifest, initial, include_dev=True))
+            return frozenset(local_feature_closure(manifest, initial, include_dev=True, allow_enabled_optional=True))
         except TestPolicyError:
             return None
 
@@ -2576,6 +2926,23 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 break
         selected_context_cache[key] = result
         return result
+
+    def selected_inherited_context(path, target):
+        # The production and test mounts of a shared source are alternative
+        # routes, not predicates on one combined route. Evaluate each ancestor
+        # conjunction with this exact Cargo root and feature tuple. Unknown,
+        # opaque and unresolved alternatives still cannot borrow a good path.
+        if not selected_source_context(path, target):
+            return False
+        root, features = selected_target_root(target), selected_target_features(target)
+        paths = inherited_paths(path, True, roots={root}, selected_features=features, selected_root=root)
+        executable = False
+        for gates, proven, opaque, _ in paths:
+            values = [gate_value(gate, True, features) for gate in gates]
+            if not proven or opaque or any(value is None for value in values):
+                return False
+            executable |= all(values)
+        return executable
 
     def private_unit_test_source(path, target, cargo_roots):
         """Witness the registered private-source contract, never arbitrary I/O.
@@ -2933,9 +3300,14 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         changes = before_attrs ^ after_attrs
         native = native_context(path)
         ordinary_source = ordinary_source_context(path, native)
+        group_target = (required_group_source_targets or {}).get(path)
+        # Retained independent groups must witness their own default-feature
+        # source route. A consumer importing the file with extra features does
+        # not establish that the retained group's tests execute.
+        source_targets = [group_target] if group_target is not None else selected_targets
         if path in required_source_paths:
-            selected_source = bool(selected_targets) and any(
-                selected_source_context(path, target) for target in selected_targets)
+            selected_source = bool(source_targets) and any(
+                selected_source_context(path, target) for target in source_targets)
             if not selected_source and narrow_unavailable is not None:
                 narrow_unavailable.add(path)
             if portable_paths is not None and not (selected_source and native_only_source(path)):
@@ -2948,17 +3320,25 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         # Attribute diffs alone cannot prove that a narrower driver runs it.
         if narrow_unavailable is not None and path in (narrow_features_by_path or {}):
             gates = {attribute for attribute, _ in after_attrs if attribute[0] in ('cfg', 'cfg_attr')}
-            gates.update(inherited_gates(path, True))
-            feature_sets = ([selected_target_features(target) for target in selected_targets
-                             if selected_source_context(path, target)] if selected_targets
-                            else [narrow_features_by_path[path]])
+            if source_targets:
+                feature_sets = [selected_target_features(target) for target in source_targets
+                                if selected_inherited_context(path, target)]
+            else:
+                gates.update(inherited_gates(path, True))
+                feature_sets = [narrow_features_by_path[path]]
             if not any(features is not None and all(enabled_gate(attribute, True, features) for attribute in gates)
                        for features in feature_sets):
                 narrow_unavailable.add(path)
-        if selected_targets and path in (narrow_features_by_path or {}):
+        filtered_targets = any('case_prefixes' in target for target in source_targets or ())
+        if source_targets and (path in (narrow_features_by_path or {}) or filtered_targets or group_target is not None):
             # A legacy root is not evidence that the chosen small target runs a
-            # new case. Prove one static route to an actually selected root.
-            ordinary_source = any(selected_source_context(path, target) for target in selected_targets)
+            # new case. Only an unfiltered target can prove ordinary additions;
+            # filtered targets still prove production reachability above.
+            ordinary_source = any('case_prefixes' not in target and selected_source_context(path, target)
+                                  for target in source_targets)
+            if (filtered_targets and not ordinary_source and narrow_unavailable is not None
+                    and (before[14] is None or after[14] is None or before[14] != after[14])):
+                narrow_unavailable.add(path)
         new_ordinary = ordinary_owners - old_items if ordinary_source and not has_removed_tests else set()
         benign_additions = {item for item in after_attrs - before_attrs if item[1] in new_ordinary}
         production_additions = {item for item in after_attrs - before_attrs
@@ -3184,6 +3564,19 @@ def add_ordinary_scale_contract(config, plan, paths, path_affected, comparisons,
 
 
 def complete_ordinary_partitions(config, plan):
+    # The unchanged producer already supplies both default snapshots and the
+    # runtime/component libraries. Actual nonempty inventories remain checked
+    # at build and consumption; smaller policy migrations keep the all owner.
+    targeted_policy = (
+        plan['scope'] == 'targeted'
+        and plan.get('execution_profile') in ('pr-fast', 'main-fast')
+        and plan.get('test_policy_changed') is True
+        and not {'fast_execution_version', 'ordinary_partition_version',
+                 'ordinary_fast_targets', 'ordinary_full_fast_targets'}.intersection(plan)
+        and isinstance(plan.get('oasis7_required_packages'), list)
+        and all(package in plan['oasis7_required_packages'] for package in (
+            'oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime'))
+    )
     if (config.get('ordinary_artifact_partition_version') in (1, 2)
             and 'oasis7_required' in plan['groups']
             and plan.get('ordinary_execution') != 'inline'):
@@ -3200,7 +3593,7 @@ def complete_ordinary_partitions(config, plan):
                         ordinary_partitions=list(TARGETED_ORDINARY_ARTIFACT_PARTITIONS))
             if 'ordinary_harness_costs' in config:
                 plan['ordinary_harness_costs'] = config['ordinary_harness_costs']
-        elif plan['scope'] in ('full', 'explicit-full'):
+        elif plan['scope'] in ('full', 'explicit-full') or targeted_policy:
             plan.update(ordinary_artifact_partition_version=1,
                         ordinary_partitions=list(ORDINARY_ARTIFACT_PARTITIONS))
     if (config.get('ordinary_artifact_delivery_version') in (1, 2)
@@ -3221,13 +3614,21 @@ def complete_ordinary_partitions(config, plan):
     if config.get('workspace_support_partition_version') == 1 and 'workspace_support' in plan['groups']:
         plan.update(workspace_support_partition_version=1,
                     workspace_support_partitions=support_partitions(plan['workspace_support_profiles']))
+        policy_tests = (config.get('custody_policy_tests_version') == 1
+                        and plan.get('test_policy_changed') is True
+                        and type(plan.get('fast_plan_version')) is int and plan['fast_plan_version'] == 1
+                        and plan.get('execution_profile') in ('pr-fast', 'main-fast')
+                        and 'oasis7_custody_worker' in plan['workspace_support_profiles']
+                        and custody_source_supports_compile_proof(plan, field='custody_policy_tests_version'))
         if (config.get('custody_execution_version') == CUSTODY_EXECUTION_VERSION
                 and 'oasis7_custody_worker' in plan['workspace_support_profiles']
-                and plan.get('test_policy_changed') is False):
-            # Policy edits keep the legacy support driver's expanded-feature
-            # --all-targets tail; the split build contract does not replace it.
+                and (plan.get('test_policy_changed') is False or policy_tests)):
+            # Policy edits only split when a trusted, source-supported native
+            # contract owner also runs the complete expanded --all-targets tail.
             plan.update(custody_execution_version=CUSTODY_EXECUTION_VERSION,
                         custody_node_shards=list(CUSTODY_NODE_SHARDS))
+            if policy_tests:
+                plan['custody_policy_tests_version'] = 1
             if config.get('custody_compile_proof_version') == CUSTODY_COMPILE_PROOF_VERSION:
                 if custody_source_supports_compile_proof(plan):
                     plan['custody_compile_proof_version'] = CUSTODY_COMPILE_PROOF_VERSION
@@ -3235,7 +3636,7 @@ def complete_ordinary_partitions(config, plan):
                     plan['reasons'].append('tested source retains complete legacy custody approval proofs')
 
 
-def custody_source_supports_compile_proof(plan):
+def custody_source_supports_compile_proof(plan, *, field='custody_compile_proof_version'):
     # A trusted workflow can validate a historical source whose helper and
     # verifier predate this optional protocol. Source declarations can only
     # withhold trusted authority, never grant it. The same rule applies to fast
@@ -3249,15 +3650,17 @@ def custody_source_supports_compile_proof(plan):
         raise ValueError('cannot read tested custody protocol configuration') from error
     if not isinstance(source_config, dict):
         raise ValueError('invalid tested custody protocol configuration')
-    field = 'custody_compile_proof_version'
     if field not in source_config:
         return False
     if (type(source_config[field]) is not int or source_config[field] != CUSTODY_COMPILE_PROOF_VERSION
             or type(source_config.get('custody_execution_version')) is not int
             or source_config['custody_execution_version'] != CUSTODY_EXECUTION_VERSION
             or type(source_config.get('workspace_support_partition_version')) is not int
-            or source_config['workspace_support_partition_version'] != 1):
-        raise ValueError('invalid tested custody compile proof capability')
+            or source_config['workspace_support_partition_version'] != 1
+            or field == 'custody_policy_tests_version' and (
+                type(source_config.get('custody_compile_proof_version')) is not int
+                or source_config['custody_compile_proof_version'] != CUSTODY_COMPILE_PROOF_VERSION)):
+        raise ValueError('invalid tested custody capability: ' + field)
     return True
 
 
@@ -3296,6 +3699,8 @@ def full_plan(config, profile, source_head, test_head=None, policy_ref=None, for
         plan['full_fast_test_inventory_version'] = FAST_TEST_INVENTORY_VERSION
         plan['ordinary_full_fast_targets'] = [config['ordinary_fast_targets'][key]
                                                for key in sorted(config['ordinary_fast_targets'])]
+        if config.get('ordinary_case_prefix_contract_version') == 1:
+            plan['ordinary_case_prefix_contract_version'] = 1
     plan.update(python_control_plan(config))
     if config.get('formal_full_profiles_only_version') == 1:
         plan['formal_full_profiles_only_version'] = 1
@@ -3324,6 +3729,16 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
             and not any('oasis7_required' in groups for groups in path_rules.values())):
         native_fast_candidate = ordinary_fast_selection(
             config, paths, path_affected, path_rules, selected_core, comparisons or [(base, source)], source_inputs)
+    retained_groups, group_proof_targets = ordinary_group_proof_targets(config, paths, chosen)
+    if retained_groups and not group_proof_targets:
+        native_fast_candidate = None
+    proof_targets = ([*native_fast_candidate[0], *group_proof_targets]
+                     if native_fast_candidate is not None else None)
+    group_source_targets = {path: target
+                            for group, inputs in retained_groups.items()
+                            for target in group_proof_targets
+                            if target['package'] == ORDINARY_GROUP_LIBRARIES[group]
+                            for path in inputs}
     narrow_features_by_path, narrow_unavailable = {}, set()
     execution_capable = config.get('fast_execution_version') == FAST_EXECUTION_VERSION
     portable_paths, native_root_comparisons = set(), []
@@ -3344,14 +3759,15 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
             (test_target_roots or {}).get(resolve_commit(after), set()),
             (source_inputs or {}).get(resolve_commit(after), {}),
             narrow_features_by_path, narrow_unavailable,
-            native_fast_candidate[0] if native_fast_candidate else None,
+            proof_targets,
             native_fast_candidate[1] if execution_capable and native_fast_candidate else (),
             portable_paths if execution_capable else None,
             worker_wasm_compile=(conservative or 'oasis7_custody_worker'
                                  in plan.get('workspace_support_profiles', ())),
             native_root_deltas=comparison_native_roots,
             pixel_platform_driver=('pixel_world_bridge' in chosen
-                                   and 'pixel_world_bridge' in config['package_groups'].get('pixel_world_bridge', ())))
+                                   and 'pixel_world_bridge' in config['package_groups'].get('pixel_world_bridge', ())),
+            required_group_source_targets=group_source_targets)
         native_root_comparisons.append(comparison_native_roots)
         policy_paths.update(changed_policy)
         ignored_risk |= changed_ignored
@@ -3402,6 +3818,14 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
         plan['fast_test_inventory_version'] = FAST_TEST_INVENTORY_VERSION
         plan['ordinary_fast_targets'] = native_fast[0]
         plan['reasons'].extend(native_fast[2])
+        if config.get('ordinary_case_prefix_contract_version') == 1:
+            plan['ordinary_case_prefix_contract_version'] = 1
+        if retained_groups:
+            plan.update(ordinary_fast_group_contract_version=1,
+                        ordinary_fast_retained_groups=sorted(retained_groups))
+            plan['reasons'].extend('complete default-feature lib tests and Clippy retained in '
+                                   + group + ': ' + ', '.join(inputs)
+                                   for group, inputs in sorted(retained_groups.items()))
 
     if native_fast is not None and execution_capable:
         plan['fast_execution_version'] = FAST_EXECUTION_VERSION
@@ -3470,6 +3894,7 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
     unit_groups = {'baseline', 'rust_baseline', 'oasis7_required'}
     if (config.get('ordinary_unit_test_contract_version') == 1
             and native_fast is not None and execution_capable and not exceptions and not additions
+            and not retained_groups
             and paths and set(paths).issubset(native_fast[1] - portable_paths)
             and not any(path_rules.values())
             and chosen <= unit_groups | {'consensus', 'distfs', 'net', 'node'}
@@ -3554,6 +3979,10 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
                 command_center_package=center_package,
                 test_policy_changed=bool(policy_paths), test_policy_paths=policy_paths,
                 fast_plan_exceptions=exceptions)
+    if native_fast is not None and not set(retained_groups).issubset(chosen):
+        raise ValueError('ordinary consumer plan lost a required independent group')
+    if config.get('ordinary_shared_incremental_contract_version') == 1:
+        plan['ordinary_shared_incremental_contract_version'] = 1
     # Architecture graphs remain complete. Only a final, exception-free ordinary
     # plan may defer their extra profile builds to full; a mixed support input
     # cannot borrow an unrelated component's fast target contract.

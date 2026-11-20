@@ -1,0 +1,15 @@
+[workspace]
+
+[package]
+name = "oasis7_wasm_builder_launcher"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "wasm_build_suite"
+path = "src/main.rs"
+
+[dependencies]
+wasm_build_suite = { path = "../../tools/wasm_build_suite" }

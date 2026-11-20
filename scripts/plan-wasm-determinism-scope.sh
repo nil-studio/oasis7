@@ -117,7 +117,7 @@ classify_changed_path() {
 
   case "$path" in
     crates/oasis7_runtime/src/world/artifacts/builtin_wasm_candidate_baseline.v1.json|\
-    Cargo.toml|Cargo.lock|rust-toolchain.toml|.dockerignore|\
+    rust-toolchain.toml|.dockerignore|\
     .github/actions/setup-linux-mold/setup.py|\
     .github/workflows/wasm-determinism-gate.yml|\
     scripts/plan-wasm-determinism-scope.sh|\

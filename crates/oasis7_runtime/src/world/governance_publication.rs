@@ -412,7 +412,7 @@ impl PreparedGovernanceProposalApply {
     clippy::too_many_arguments,
     reason = "Module projection receives independent mutable stores to preserve deterministic update ordering."
 )]
-pub(super) fn project_module_changes(
+pub(crate) fn project_module_changes(
     time: u64,
     proposal_id: ProposalId,
     changes: &ModuleChangeSet,

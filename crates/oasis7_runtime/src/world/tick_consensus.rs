@@ -273,7 +273,7 @@ impl World {
         )
     }
 
-    pub(super) fn build_tick_consensus_record_for_prepared_events(
+    pub(crate) fn build_tick_consensus_record_for_prepared_events(
         &self,
         tick: WorldTime,
         tick_events: &[WorldEvent],
@@ -368,7 +368,7 @@ impl World {
         Ok(candidate)
     }
 
-    pub(super) fn validate_tick_consensus_candidate_for_prepared_publication(
+    pub(crate) fn validate_tick_consensus_candidate_for_prepared_publication(
         &self,
         candidate: &TickConsensusRecord,
         prepared_tick_events: &[WorldEvent],
@@ -921,7 +921,7 @@ impl World {
         })
     }
 
-    pub(super) fn state_root_hash_with_module_release_overlay(
+    pub(crate) fn state_root_hash_with_module_release_overlay(
         &self,
         instance: Option<&super::super::state::module_instance_transition::PreparedModuleInstance>,
         release: &super::super::state::module_release_transition::PreparedModuleRelease,
@@ -1153,7 +1153,7 @@ impl World {
         })
     }
 
-    pub(super) fn state_root_hash_with_module_marketplace_overlay(
+    pub(crate) fn state_root_hash_with_module_marketplace_overlay(
         &self,
         market: &super::super::state::module_marketplace_transition::PreparedModuleMarketplace,
     ) -> Result<String, WorldError> {

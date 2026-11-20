@@ -27,7 +27,24 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && node "$OASIS7_PLAYWRIGHT_MODULE/cli.js" install chromium --with-deps --only-shell \
     && rm -rf /var/lib/apt/lists/* /root/.npm
 
+# Build on Ubuntu so Git and its transport helpers use the consumer ABI.
+FROM build AS git-tools
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libcurl4-openssl-dev libexpat1-dev xz-utils zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /tmp/git-source
+RUN curl -fsSL --retry 3 https://www.kernel.org/pub/software/scm/git/git-2.56.1.tar.xz -o git.tar.xz \
+    && echo 'f0b0bf89264b9bd2e1c640363e7529643989da76281600473c50745cd34a607f  git.tar.xz' | sha256sum -c - \
+    && tar -xJf git.tar.xz --strip-components=1 \
+    && make -j"$(nproc)" prefix=/usr/local NO_RUST=YesPlease NO_TCLTK=YesPlease NO_GETTEXT=YesPlease NO_PERL=YesPlease all \
+    && make prefix=/usr/local NO_RUST=YesPlease NO_TCLTK=YesPlease NO_GETTEXT=YesPlease NO_PERL=YesPlease DESTDIR=/tmp/git-install install
+
 FROM build AS rust-build
+COPY --from=node-tools /usr/local/bin/node /usr/local/bin/node
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends jq ruby \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=git-tools /tmp/git-install/usr/local/ /usr/local/
 ARG RUST_TOOLCHAIN
 ARG WASM_TOOLCHAIN
 ARG WASM_TARGET

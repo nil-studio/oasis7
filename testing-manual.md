@@ -336,8 +336,8 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
   - `required-gate` 是最后汇总，明确依赖 select 和所有测试组；选中组必须真实成功，失败、取消、缺失及意外跳过均失败。
   - 控制逻辑或共享输入变化、未知影响及依赖解析失败扩大普通 required；迁移 PR 使用完整保留组，不由候选选择器缩小覆盖。
   - CI 和评审结果使用真实 HEAD、测试对象、Actions 运行和 review 记录，不依赖 Task、Project 或通用 receipt。
-  - `full` 可显式本地运行；schedule 为 UTC `17 */4 * * *`，完整 profile 展开全部配置组和平台，专项环境仅在普通 CI 存在具体不足时使用。
-  - 新 `pr-fast`/`main-fast` 只读消费缓存；可信 main 的完整 producer 保留预算内写入，旧 BASE 回退保留原权限分支。候选完整回归缓存只读、不写 trusted sentinel。
+  - `full` 可显式本地运行。Rust workflow 的 schedule 为 UTC `17,37,57 * * * *`，每 20 分钟观察一次。准入以最近一次实际 full 启动为准，满四小时且无活动 full 才启动完整回归；四小时是目标，不是实际触发间隔保证。完整 profile 展开全部配置组和平台，专项环境仅在普通 CI 存在具体不足时使用。
+  - `pr-fast` 只读消费缓存，`main-fast` 默认只读。只有可信计划明确启用写入能力、workflow/source/tested 均绑定当前 main push 且普通产物 producer 采用完整 ordinary 范围时，才可按预算保存 ordinary workspace library 缓存。可信 main 的完整 producer 保留原预算内写入，旧 BASE 回退保留原权限分支。候选完整回归缓存只读、不写 trusted sentinel。
   - select summary 记录 source/tested/policy 三个 SHA，candidate-full 另记录实际 tree；artifact 绑定 tested commit 与真实构建输入。main manual full 可固定不同于 workflow 事件的 candidate source。它验证所选源版本，不自动代表最新 main 合并组合，必须核对 `explicit-full-gate` 的所有实际依赖，而非单个扩展 job 或旧运行。
 - 入口 C：`.github/workflows/wasm-determinism-gate.yml`（构建 hash / receipt evidence 独立 gate）
   - GitHub-hosted runner 矩阵：`(m1|m4|m5) x (ubuntu-24.04/linux-x86_64)`
@@ -348,7 +348,7 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
   - verify job 会按命中的 `module_set` 下载 summaries，并执行：`./scripts/wasm-release-evidence-report.sh --module-sets <m1|m4|m5> --skip-collect --summary-import-dir <downloaded-summary-dir> --expected-runners linux-x86_64`
   - verify job 同时上传 `summary.md/json + logs + module_sets.tsv` 的 release evidence report artifact
   - collect 失败时另保留 `wasm-candidate-raw-<module_set>-<runner>-<run_id>-<attempt>` artifact，保存 7 天，只包含实际生成的 `.wasm`、`.metadata.json` 和 `.build-receipt.json`；构建早期失败时可能不完整，上传成功不改变原 gate 的失败结果。成功运行不重复上传这些诊断原件。
-  - 根 `Cargo.lock` 等 producer 输入改变后，即使 WASM hash 未变，candidate identity 仍需刷新。从同一实际源码与 recipe 的三组运行取得全部 37 组原件，保留原 bytes，拒绝路径穿越、重复文件和覆盖；在匹配源码的本地工作区按[候选基线生成约定](doc/world-runtime/wasm/wasm-deterministic-build-pipeline.design.md)运行 `OASIS7_WASM_SYNC_WRITE_ALLOW=local-dev env -u RUSTC_WRAPPER cargo run --locked -p oasis7_distfs --features sync-builtin-wasm-identity --bin sync_builtin_wasm_identity -- --candidate-baseline-prepare "$PWD" <raw-dir> <new-staging-dir>`，审核 staging 后提升 candidate 文件，再对 m1/m4/m5 执行 `--candidate-baseline-check "$PWD" <raw-dir> <module-set>`。CI 不生成或提交基线；缺原件不得用日志哈希补造 receipt，也不修改冻结的 release 清单。
+  - `docker/wasm-builder/Cargo.lock` 等 producer 输入改变后，即使 WASM hash 未变，candidate identity 仍需刷新。从同一实际源码与 recipe 的三组运行取得全部 37 组原件，保留原 bytes，拒绝路径穿越、重复文件和覆盖；在匹配源码的本地工作区按[候选基线生成约定](doc/world-runtime/wasm/wasm-deterministic-build-pipeline.design.md)运行 `OASIS7_WASM_SYNC_WRITE_ALLOW=local-dev env -u RUSTC_WRAPPER cargo run --locked -p oasis7_distfs --features sync-builtin-wasm-identity --bin sync_builtin_wasm_identity -- --candidate-baseline-prepare "$PWD" <raw-dir> <new-staging-dir>`，审核 staging 后提升 candidate 文件，再对 m1/m4/m5 执行 `--candidate-baseline-check "$PWD" <raw-dir> <module-set>`。CI 不生成或提交基线；缺原件不得用日志哈希补造 receipt，也不修改冻结的 release 清单。
   - 若要补独立跨宿主产物证据，可把外部 Docker-capable macOS runner 产出的 summary 作为额外 import 输入，再以 `--expected-runners linux-x86_64,darwin-arm64` 做离线对账；该结果不属于 `test_tier_full`，也不替代 `./scripts/ci-tests.sh full`
 
 ### CI 工具缓存与 local-signer 验证
@@ -725,6 +725,7 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_simulator --lib --features test_tier_f
 ./scripts/main-token-regression.sh required
 ./scripts/main-token-regression.sh full
 ```
+- 修改定向脚本时，PR 的 `workflow-governance` 选中候选脚本的轻量合同测试，确认选择真实 Runtime 包与筛选路径，并拒绝零用例或 Cargo 失败；普通 Rust 分片的用例通过不代替这个入口测试。自然与手动候选 full 共用 `full-extended`，直接调用 `main-token-regression.sh full`，要求五次实际选择都非空且通过；无关 PR 不额外运行这五次 Cargo 命令。
 - 当前运行与审计权威：`doc/p2p/token/mainchain-token-allocation-mechanism.prd.md`。
 - 用途：
   - 按实际测试归属快速定位 Runtime、Simulator 或 Viewer 回归；`oasis7` 命令保留应用层 Simulator 适配测试，不能代替 `oasis7_simulator` 的内核用例。不必每次跑全套 full。定向验收应核对选中的用例及实际执行数；零匹配不算通过。

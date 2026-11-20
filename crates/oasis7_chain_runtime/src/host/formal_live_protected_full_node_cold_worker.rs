@@ -149,12 +149,19 @@ fn run(path: &Path) -> Result<(), String> {
     )?;
     receipt.emits = wasm_emit_count(&final_cut.world);
     receipt.final_position = final_cut.anchor.head().record().position;
-    if receipt.result != input.result
-        || receipt.effect != input.effect
+    let result_matches = receipt.result == input.result;
+    let effect_matches = receipt.effect == input.effect;
+    if !result_matches
+        || !effect_matches
         || receipt.emits != input.emits
         || receipt.final_position <= fixed_position
     {
-        return Err("fresh writer continuation changed original unique effect/result".into());
+        return Err(format!(
+            "fresh writer continuation changed original unique effect/result: \
+             result_matches={result_matches}, effect_matches={effect_matches}, \
+             emits_expected={}, emits_observed={}, fixed_position={fixed_position}, final_position={}",
+            input.emits, receipt.emits, receipt.final_position
+        ));
     }
     receipt.original_commit = Some(duplicate_commit);
     if receipt.original_commit.as_ref() != Some(&input.original_commit) {

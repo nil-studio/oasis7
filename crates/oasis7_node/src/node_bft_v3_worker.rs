@@ -431,8 +431,7 @@ impl Worker {
         Ok(())
     }
     fn apply_commit(&mut self, certificate: FormalBftCertifiedHeaderV3) -> Result<(), NodeError> {
-        let token =
-            verify_commit_certificate_token_v3(&self.schedule, &certificate).map_err(error)?;
+        let token = startup::verify_bft_v3_authority_commit(&self.schedule, &certificate)?;
         let committed = certificate.clone();
         let value = BftHeaderValueV3 {
             header: certificate.header.clone(),

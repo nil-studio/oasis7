@@ -17,6 +17,7 @@ hex.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 blake3 = "1"
+oasis7_domain_types = { version = "0.1.0", path = "../oasis7_domain_types" }
 oasis7_wasm_abi = { version = "0.1.0", path = "../oasis7_wasm_abi" }
 
 oasis7_agent_api = { path = "../oasis7_agent_api" }

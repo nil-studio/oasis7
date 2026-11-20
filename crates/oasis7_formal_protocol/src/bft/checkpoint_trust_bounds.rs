@@ -23,6 +23,20 @@ impl<'a> Cursor<'a> {
         };
         Ok((byte >> 5, value))
     }
+    fn map_count(&mut self) -> Result<u64, String> {
+        let (kind, count) = self.head()?;
+        if kind != 5 || count > (self.bytes.len() - self.at) as u64 / 2 {
+            return Err("invalid checkpoint CBOR map".into());
+        }
+        Ok(count)
+    }
+    fn text_key(&mut self) -> Result<&'a [u8], String> {
+        let (kind, n) = self.head()?;
+        if kind != 3 {
+            return Err("checkpoint CBOR key is not text".into());
+        }
+        self.take(usize::try_from(n).map_err(|_| "CBOR key length overflow")?)
+    }
     fn item(&mut self, depth: usize) -> Result<(), String> {
         if depth > 128 {
             return Err("CBOR nesting exceeds decoder bound".into());
@@ -126,6 +140,41 @@ pub(super) fn policy_issuer_bounds(bytes: &[u8]) -> Result<(), String> {
     }
 }
 
+pub fn issuer_status_bounds(
+    bytes: &[u8],
+    max_bytes: usize,
+    issuer_count: usize,
+) -> Result<(), String> {
+    if bytes.len() > max_bytes || !bytes.starts_with(&[0xd9, 0xd9, 0xf7]) {
+        return Err("invalid bounded checkpoint issuer status framing".into());
+    }
+    let mut c = Cursor { bytes, at: 3 };
+    let mut found_issuers = false;
+    for _ in 0..c.map_count()? {
+        if c.text_key()? != b"body" {
+            c.item(0)?;
+            continue;
+        }
+        for _ in 0..c.map_count()? {
+            if c.text_key()? != b"issuer_keys" {
+                c.item(0)?;
+                continue;
+            }
+            if found_issuers || c.head()? != (4, issuer_count as u64) {
+                return Err("checkpoint issuer status exceeds exact issuer count".into());
+            }
+            for _ in 0..issuer_count {
+                c.item(0)?;
+            }
+            found_issuers = true;
+        }
+    }
+    if !found_issuers || c.at != bytes.len() {
+        return Err("incomplete checkpoint issuer status framing".into());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,6 +197,20 @@ mod tests {
                 .contains("64 KiB")
         );
     }
+    #[test]
+    fn rejects_status_issuer_array_bound_before_reading_entries() {
+        let mut bytes = vec![0xd9, 0xd9, 0xf7, 0xa1, 0x64];
+        bytes.extend_from_slice(b"body");
+        bytes.extend_from_slice(&[0xa1, 0x6b]);
+        bytes.extend_from_slice(b"issuer_keys");
+        bytes.extend_from_slice(&[0x9a, 0xff, 0xff, 0xff, 0xff]);
+        assert!(
+            issuer_status_bounds(&bytes, 64 * 1024, 1)
+                .unwrap_err()
+                .contains("exact issuer count")
+        );
+    }
+
     #[test]
     fn rejects_advertised_huge_collection_without_allocation() {
         let bytes = [

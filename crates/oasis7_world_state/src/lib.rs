@@ -9,6 +9,8 @@ pub mod audit;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod capability_authorization;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod commitment_envelope;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod consensus;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod effect;
@@ -95,6 +97,8 @@ pub use cognition_recovery::*;
 pub use cognition_scheduler::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub use cognition_wake::*;
+#[cfg(not(target_arch = "wasm32"))]
+pub use commitment_envelope::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub use consensus::*;
 #[cfg(not(target_arch = "wasm32"))]

@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 schemars = { version = "1.2", optional = true }
 blake3 = "1"
+oasis7_domain_types = { version = "0.1.0", path = "../oasis7_domain_types" }
 oasis7_wasm_abi = { version = "0.1.0", path = "../oasis7_wasm_abi" }
 serde.workspace = true
 serde_json.workspace = true
@@ -16,7 +17,7 @@ serde_cbor.workspace = true
 unicode-normalization = "0.1"
 
 [features]
-schema = ["dep:schemars"]
+schema = ["dep:schemars", "oasis7_domain_types/schema"]
 test-support = []
 
 [lints]

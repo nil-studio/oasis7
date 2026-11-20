@@ -26,7 +26,17 @@ mod cognition_scheduler;
 mod cognition_validation;
 mod cognition_wake;
 pub use oasis7_world_state::codec;
+pub use oasis7_world_state::commitment_envelope;
+pub use oasis7_world_state::commitment_envelope::{
+    CONTROL_CONTINUATION_COMMITMENT_V2_DOMAIN, ControlContinuationCommitmentView, Digest32,
+    GOVERNANCE_SIDECAR_COMMITMENT_V2_DOMAIN, GovernanceSidecarCommitmentView,
+    INCREMENTAL_COMMITMENT_BINDING_V2_DOMAIN, IncrementalWorldCommitmentBindingV2,
+    WORLD_COMMITMENT_ENVELOPE_FILE, WORLD_COMMITMENT_ENVELOPE_SCHEMA_V1,
+    WORLD_COMMITMENT_ENVELOPE_SCHEMA_V2, WORLD_COMMITMENT_ENVELOPE_V2_DOMAIN,
+    WorldCommitmentEnvelope, WorldCommitmentRecoveryProfile, digest32_from_hex, digest32_to_hex,
+};
 pub use oasis7_world_state::consensus;
+pub mod domains;
 pub use oasis7_world_state::effect;
 pub use oasis7_world_state::error;
 mod events;
@@ -34,9 +44,9 @@ pub use oasis7_world_state::formal_retained_history;
 mod gameplay;
 pub use oasis7_world_state::gameplay_state;
 pub use oasis7_world_state::governance;
-mod governance_candidate_projection;
-mod governance_membership;
-mod governance_projection;
+
+
+
 mod m1_builtin_wasm_artifact;
 mod m4_builtin_wasm_artifact;
 mod m5_builtin_wasm_artifact;
@@ -411,16 +421,19 @@ pub use world::agent_delegation::{
 };
 pub use world::{
     AgentIntentProviderFailureDisposition, AgentIntentRecordOutcome, AgentIntentReference,
-    AuthoritativeRecoveryCommitError, AuthoritativeRecoveryCommitStatus,
+    AuthoritativeRecoveryCommitError, AuthoritativeRecoveryCommitStatus, BorrowedWorldView,
     BuiltinReleaseManifestEntry, BuiltinReleaseManifestState,
-    CommittedAuthoritativeRecoveryGeneration, ExecutionTransaction, LogisticsTransferQuote,
-    M1ScenarioBootstrapConfig, MarketQuoteDecisionPreview, MarketQuoteSupplyDelta,
-    ModuleTickRoutingDeterministicSnapshot, ModuleTickRoutingDurationBuckets,
-    ModuleTickRoutingMetricsSnapshot, PreparedCommit, ProductValidationQuote,
-    ReleaseSecurityPolicy, TransitionBaseHead, TransitionBuffer, TransitionCommitError,
+    CommittedAuthoritativeRecoveryGeneration, DurableCommitConfirmation, ExecutionTransaction,
+    LogisticsTransferQuote, M1ScenarioBootstrapConfig, MarketQuoteDecisionPreview,
+    MarketQuoteSupplyDelta, ModuleTickRoutingDeterministicSnapshot,
+    ModuleTickRoutingDurationBuckets, ModuleTickRoutingMetricsSnapshot, PreparedCommit,
+    PreparedStagedCommit, ProductValidationQuote, ReleaseSecurityPolicy, RootInstallContext,
+    StagedRootTransaction, StagedSubtransactionSavepoint, StagedTransition, SubsystemDelta,
+    TransitionBaseHead, TransitionBuffer, TransitionCommitError, TransitionContext,
     TransitionKernelEntriesView, TransitionKernelState, TransitionKernelView,
-    TransitionPrepareError, TransitionRollbackError, TransitionSavepoint, WarDeclarationQuote,
-    World, WorldExecutionStateIdentity, WorldRuntimeBackpressureStats, WorldRuntimeMemoryLimits,
+    TransitionPrepareError, TransitionReject, TransitionRollbackError, TransitionSavepoint,
+    WarDeclarationQuote, World, WorldExecutionStateIdentity, WorldRuntimeBackpressureStats,
+    WorldRuntimeMemoryLimits,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use world::{ObserverLoadControl, ObserverLoadError, ObserverReadLimits};
@@ -442,10 +455,9 @@ pub use world_event::{
 };
 
 // Committed governance queries and explicit runtime adoption status.
-pub use governance_candidate_projection::WorldGovernanceCandidateRegistryProjectionV2;
-pub use governance_membership::{
-    RuntimeMembershipApplicationView, WorldGovernanceFinalityRegistryProjectionV1,
-    WorldGovernanceMembershipView,
+pub use domains::institutions::{
+    RuntimeMembershipApplicationView, WorldGovernanceCandidateRegistryProjectionV2,
+    WorldGovernanceFinalityRegistryProjectionV1, WorldGovernanceMembershipView,
 };
 
 pub mod chain_resource;

@@ -60,6 +60,70 @@ pub trait RuntimeAuthority {
     ) -> Result<ContinuationHostProjection, CognitionError>;
 }
 
+/// History-only `RuntimeAuthority` adapter for a scope-authenticated view.
+///
+/// Callers can hydrate validated feedback replay history through this adapter
+/// without obtaining lease, receipt, memory, or continuation mutation authority.
+#[derive(Debug, Clone, Default)]
+pub struct ScopedFeedbackHistoryAuthority {
+    history: Vec<FeedbackHistoryProjection>,
+}
+
+impl ScopedFeedbackHistoryAuthority {
+    pub fn new(history: Vec<FeedbackHistoryProjection>) -> Self {
+        Self { history }
+    }
+}
+
+impl RuntimeAuthority for ScopedFeedbackHistoryAuthority {
+    type Lease = ();
+    type Receipt = ();
+    type Continuation = ();
+
+    fn validate_lease(
+        &self,
+        _lease: &Self::Lease,
+        _request: &ContinuousAgentRequestContextV1,
+    ) -> Result<CognitionLeaseConsumptionViewV1, CognitionError> {
+        Err(scoped_history_only())
+    }
+
+    fn verify_receipt_readback(
+        &self,
+        _feedback: &FeedbackEnvelopeV1,
+        _receipt: &Self::Receipt,
+        _response_identity: &ResponseArtifactIdentityV1,
+    ) -> Result<RuntimeReceiptLineageV1, CognitionError> {
+        Err(scoped_history_only())
+    }
+
+    fn verify_memory_receipt(
+        &self,
+        _receipt: &Self::Receipt,
+        _context: Option<&MemoryWritePolicyContextV1>,
+    ) -> Result<RuntimeReceiptLineageV1, CognitionError> {
+        Err(scoped_history_only())
+    }
+
+    fn validated_feedback_history(&self) -> Result<Vec<FeedbackHistoryProjection>, CognitionError> {
+        Ok(self.history.clone())
+    }
+
+    fn continuation_projection(
+        &self,
+        _continuation: &Self::Continuation,
+    ) -> Result<ContinuationHostProjection, CognitionError> {
+        Err(scoped_history_only())
+    }
+}
+
+fn scoped_history_only() -> CognitionError {
+    CognitionError::new(
+        "scoped_feedback_history_only",
+        "authenticated feedback scope does not authorize Runtime mutations or projections",
+    )
+}
+
 #[cfg(test)]
 pub(crate) mod test_support {
     use std::sync::Arc;

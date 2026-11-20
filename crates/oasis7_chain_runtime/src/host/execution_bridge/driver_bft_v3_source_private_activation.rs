@@ -150,7 +150,7 @@ impl CoveredSourcePublication<'_> {
             return Err("covered source must initialize at original H".into());
         }
         let path = dir.join("origin.cbor");
-        let existing = preflight(&dir, self.store, marker)?;
+        let existing = preflight(&dir, self.store, marker, None)?;
         ensure_private_directory(&dir)?;
         let directory = DirectoryIdentity::open(&dir)?;
         let guarded = || -> Result<(), String> {
@@ -178,7 +178,9 @@ impl CoveredSourcePublication<'_> {
             value: None,
             actions_cbor: Vec::new(),
             references: self.nodes.keys().cloned().collect(),
+            publication_reservation_ref: None,
             source_activation: Some(activation.clone()),
+            protected_source_origin_ref: None,
         };
         if existing.as_ref().is_some_and(|slot| slot.data != data) {
             return Err("existing covered source differs from original H/receipt bytes".into());
@@ -247,13 +249,14 @@ pub(in super::super) fn check_original_namespace(
     marker: &BftPrivateRetentionCreationMarkerV1,
 ) -> Result<(), String> {
     let dir = ledger.directory().join(storage::NODE_PRIVATE_DIRECTORY);
-    preflight(&dir, store, marker).map(|_| ())
+    preflight(&dir, store, marker, None).map(|_| ())
 }
 
 fn preflight(
     dir: &Path,
     store: &LocalCasStore,
     marker: &BftPrivateRetentionCreationMarkerV1,
+    pending_height: Option<u64>,
 ) -> Result<Option<Slot>, String> {
     let path = dir.join("origin.cbor");
     let existing = read_slot(&path)?;
@@ -274,7 +277,7 @@ fn preflight(
             return Err("covered origin WAL disappeared while original pins remain".into());
         }
     }
-    check_original_files(dir, existing.is_some())?;
+    check_original_files(dir, existing.is_some(), pending_height)?;
     if let Some(slot) = &existing {
         let activation = slot
             .data
@@ -296,28 +299,39 @@ fn preflight(
     Ok(existing)
 }
 
-fn check_original_files(dir: &Path, has_origin: bool) -> Result<(), String> {
+fn check_original_files(
+    dir: &Path,
+    has_origin: bool,
+    pending_height: Option<u64>,
+) -> Result<(), String> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(_) => return Err("inspect covered source namespace".into()),
     };
+    let pending_name = pending_height.map(|height| format!("candidate-{height:020}"));
+    let bare = pending_name.as_deref();
     for (count, entry) in entries.enumerate() {
         let entry = entry.map_err(|_| "read covered source namespace")?;
         let name = entry
             .file_name()
             .into_string()
             .map_err(|_| "covered source filename")?;
-        if count >= 8
+        let path = files::stage_target(&name).unwrap_or(&name);
+        let is_origin = matches!(
+            path,
+            "origin.cbor" | "origin.intent.cbor" | "origin.reservation.cbor" | "ready"
+        );
+        let is_pending = bare
+            .and_then(|basename| path.strip_prefix(basename))
+            .is_some_and(|suffix| matches!(suffix, ".cbor" | ".intent.cbor" | ".reservation.cbor"));
+        if count >= if bare.is_some() { 14 } else { 8 }
             || !has_origin
             || !entry
                 .file_type()
                 .map_err(|_| "covered source file type")?
                 .is_file()
-            || !matches!(
-                files::stage_target(&name).unwrap_or(&name),
-                "origin.cbor" | "origin.intent.cbor" | "origin.reservation.cbor" | "ready"
-            )
+            || (!is_origin && !is_pending)
         {
             return Err("covered source initialization requires only original H files".into());
         }
@@ -333,4 +347,271 @@ thread_local! {
 #[cfg(test)]
 pub(in super::super) fn inject_reservation_cut() {
     ABORT_AFTER_RESERVATION.with(|abort| abort.set(true));
+}
+
+pub(in super::super) struct AuthenticatedOriginalV1 {
+    directory: PathBuf,
+    data: Data,
+    pub(in super::super) activation: BftPrivateRetentionActivationV1,
+}
+
+impl AuthenticatedOriginalV1 {
+    pub(in super::super) fn inventory(&self) -> Result<(String, BTreeSet<String>), String> {
+        Ok((
+            self.data.digest()?,
+            self.data.references.iter().cloned().collect(),
+        ))
+    }
+}
+
+pub(in super::super) fn read_authenticated_original(
+    ledger: &storage::Ledger,
+    store: &LocalCasStore,
+    binding: &BftSignerBindingV3,
+    attestor: &BftPrivateRetentionAttestorV1,
+    marker: &BftPrivateRetentionCreationMarkerV1,
+    pending_height: Option<u64>,
+) -> Result<AuthenticatedOriginalV1, String> {
+    let directory = ledger.directory().join(storage::NODE_PRIVATE_DIRECTORY);
+    let path = directory.join("origin.cbor");
+    ledger.verify_carriers()?;
+    let original = preflight(&directory, store, marker, pending_height)?
+        .filter(|slot| slot.complete)
+        .ok_or("complete authenticated original private Origin required")?;
+    if common_storage::read_optional_bytes(&directory.join("ready"), MARKER.len())?.as_deref()
+        != Some(MARKER)
+    {
+        return Err("covered Origin has no original ready marker".into());
+    }
+    verify_original_slot(store, &path, &original)?;
+    let carrier = original
+        .data
+        .source_activation
+        .as_ref()
+        .ok_or("covered activation carrier absent")?;
+    let bytes = common_storage::read_cas_bounded(store, &carrier.reference, MAX_ACTIVATION_BYTES)?;
+    let record: SourceActivationRecordV1 = serde_cbor::from_slice(&bytes)
+        .map_err(|_| "decode original protected activation capsule")?;
+    if record.schema_version != 1
+        || record.domain != ACTIVATION_DOMAIN
+        || &record.marker != marker
+        || record.capability_digest != attestor.digest().map_err(|error| error.to_string())?
+        || record.bytes()? != bytes
+    {
+        return Err("original activation capsule differs from pinned source".into());
+    }
+    // Validate the signed historical transition in its own lease generation.
+    // Staging a byte archive does not establish a current read or signing lease.
+    let activation = &record.original_empty_coverage;
+    let body = &activation.receipt.body;
+    let mut original_state =
+        oasis7_distfs::protected_bft_v3::BftSignerStateV3::from_handoff(binding)
+            .map_err(|error| error.to_string())?;
+    original_state.revision = body.after_revision;
+    original_state.state_digest = body.after_state_digest.clone();
+    original_state.private_retention = Some(body.head.clone());
+    activation
+        .verify(
+            binding,
+            attestor,
+            marker,
+            &original_state,
+            body.original_lease_generation,
+        )
+        .map_err(|error| error.to_string())?;
+    if DirectoryIdentity::open(&directory)? != carrier.directory {
+        return Err("original private directory changed during activation verification".into());
+    }
+    ledger.verify_carriers()?;
+    Ok(AuthenticatedOriginalV1 {
+        directory,
+        data: original.data,
+        activation: record.original_empty_coverage,
+    })
+}
+
+pub(in super::super) struct PreparedPendingLocal<'a> {
+    original: &'a AuthenticatedOriginalV1,
+    data: Data,
+    metadata: &'a oasis7_distfs::protected_bft_v3::BftPrivateRetentionInputObjectV1,
+    dependencies: BTreeMap<String, Vec<u8>>,
+    existing: Option<Slot>,
+}
+
+impl AuthenticatedOriginalV1 {
+    pub(in super::super) fn prepare_pending_local<'a>(
+        &'a self,
+        input: &'a oasis7_distfs::protected_bft_v3::BftPrivateRetentionAdmissionInputV1,
+        ledger: &mut storage::Ledger,
+        store: &LocalCasStore,
+    ) -> Result<PreparedPendingLocal<'a>, String> {
+        use oasis7_distfs::protected_bft_v3::BftPrivateRetentionInputObjectKindV1 as Kind;
+
+        input.validate().map_err(|error| error.to_string())?;
+        let data = input
+            .objects
+            .iter()
+            .find(|object| object.kind == Kind::OriginalData)
+            .ok_or("first Pending original Local Data absent")?;
+        let metadata = input
+            .objects
+            .iter()
+            .find(|object| object.kind == Kind::PublicationMetadata)
+            .ok_or("first Pending original publication metadata absent")?;
+        let dependencies: BTreeMap<_, _> = input
+            .objects
+            .iter()
+            .filter(|object| object.kind == Kind::Dependency)
+            .map(|object| (object.reference.digest.clone(), object.bytes.clone()))
+            .collect();
+        let original_hash = self.data.digest()?;
+        let candidate: Data = serde_cbor::from_slice(&data.bytes)
+            .map_err(|_| "read exact schema-9 original Local WAL bytes")?;
+        if candidate.schema_version != 9
+            || candidate.bytes()? != data.bytes
+            || candidate.ledger_origin_digest != self.data.ledger_origin_digest
+            || candidate.material_identity != self.data.material_identity
+            || candidate.instance_id != self.data.instance_id
+            || self.data.height.checked_add(1) != Some(candidate.height)
+            || candidate.height != input.key.height
+            || input.key.ledger_origin_digest != candidate.ledger_origin_digest
+            || candidate.protected_source_origin_ref.as_ref() != Some(&original_hash)
+            || candidate.publication_reservation_ref.as_ref() != Some(&metadata.reference.digest)
+            || candidate.references.iter().ne(dependencies.keys())
+            || candidate
+                .value
+                .as_ref()
+                .ok_or("original Local public value absent")?
+                .block_id()?
+                != input.key.header_id
+        {
+            return Err("first Pending Local WAL differs from protected original input".into());
+        }
+        let path = self
+            .directory
+            .join(format!("candidate-{:020}.cbor", candidate.height));
+        let existing = read_slot(&path)?;
+        if existing.as_ref().is_some_and(|slot| slot.data != candidate) {
+            return Err("original first Local candidate WAL names a different input".into());
+        }
+        let known_shards = BTreeSet::from([self.data.shard(), candidate.shard()]);
+        let shard_prefix = format!("ledger-{}-", candidate.ledger_origin_digest);
+        for shard in store
+            .list_pin_scope_shards(SCOPE)
+            .map_err(|_| "inspect covered Local candidate pins")?
+        {
+            if shard.starts_with(&shard_prefix)
+                && (!known_shards.contains(&shard)
+                    || (shard == candidate.shard() && existing.is_none()))
+            {
+                return Err("covered Local original WAL/pin inventory changed".into());
+            }
+        }
+        if let Some(slot) = &existing {
+            verify_original_slot(store, &path, slot)?;
+        }
+
+        let source = self
+            .data
+            .source_activation
+            .as_ref()
+            .ok_or("original coverage capsule absent")?;
+        let price = usize::try_from(input.publication_reservation_bytes)
+            .map_err(|_| "first Pending original publication budget conversion")?;
+        let mut use_bytes = self
+            .data
+            .bytes()?
+            .len()
+            .checked_mul(2)
+            .and_then(|n| n.checked_add(source.accounted_bytes().ok()?))
+            .and_then(|n| n.checked_add(price))
+            .ok_or("first Pending original budget overflow")?;
+        for hash in &self.data.references {
+            let bytes = common_storage::read_cas_bounded(
+                store,
+                hash,
+                formal_dependencies::BUSINESS_INDEX_MAX_NODE_BYTES,
+            )?;
+            use_bytes = use_bytes
+                .checked_add(bytes.len())
+                .ok_or("first Pending H usage overflow")?;
+        }
+        ledger.verify_carriers()?;
+        ledger.reserve_external_material(use_bytes)?;
+        Ok(PreparedPendingLocal {
+            original: self,
+            data: candidate,
+            metadata,
+            dependencies,
+            existing,
+        })
+    }
+}
+
+impl PreparedPendingLocal<'_> {
+    /// Called only after the actual remote lease validates the original
+    /// Pending receipt and its exact authenticated checkpoint.
+    pub(in super::super) fn publish(
+        self,
+        ledger: &storage::Ledger,
+        store: &LocalCasStore,
+        deadline: Instant,
+    ) -> Result<String, String> {
+        let path = self
+            .original
+            .directory
+            .join(format!("candidate-{:020}.cbor", self.data.height));
+        let carrier = self
+            .original
+            .data
+            .source_activation
+            .as_ref()
+            .ok_or("covered Origin activation absent")?;
+        let guard = || -> Result<(), String> {
+            if Instant::now() >= deadline {
+                return Err("first Pending local publication deadline expired".into());
+            }
+            ledger.verify_carriers()?;
+            if DirectoryIdentity::open(&self.original.directory)? != carrier.directory {
+                return Err("covered private Original changed during Pending publication".into());
+            }
+            #[cfg(test)]
+            if path.with_extension("reservation.cbor").is_file()
+                && ABORT_AFTER_RESERVATION.with(|abort| abort.replace(false))
+            {
+                return Err("injected cut after covered original reservation".into());
+            }
+            Ok(())
+        };
+        guard()?;
+        let retained = retention_required(&path)?
+            || store
+                .list_pin_scope_shards(SCOPE)
+                .map_err(|_| "inspect first Pending original pins")?
+                .contains(&self.data.shard());
+        if retained {
+            verify_material(store, &self.data)?;
+        } else {
+            common_storage::put_cas_durable(store, &self.metadata.bytes, 16 * 1024)?;
+        }
+        publish_checked(
+            store,
+            &path,
+            &self.data,
+            &self.dependencies,
+            self.existing.as_ref().is_some_and(|slot| slot.complete),
+            false,
+            &guard,
+        )?;
+        verify_original_slot(
+            store,
+            &path,
+            &Slot {
+                data: self.data.clone(),
+                complete: true,
+            },
+        )?;
+        guard()?;
+        self.data.digest()
+    }
 }

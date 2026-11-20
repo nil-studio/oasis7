@@ -14,6 +14,7 @@ impl FormalFullSyncSession {
         // `sync_latest()` call, not to an individual provider attempt.
         let mut attempt = FullSyncAttemptV1::new(self.config.max_total_sync_bytes);
         attempt.budget.shared_exchange = self.shared_exchange.clone();
+        attempt.target = self.recovery_target.clone();
         for offset in 0..provider_count {
             let provider_index = (starting_provider + offset) % provider_count;
             if offset > 0

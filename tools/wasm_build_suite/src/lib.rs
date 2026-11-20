@@ -7,6 +7,7 @@ mod builder_context_tests;
 
 mod build_timing;
 mod build_util;
+pub mod cli;
 #[cfg(test)]
 mod env_prefix_tests;
 

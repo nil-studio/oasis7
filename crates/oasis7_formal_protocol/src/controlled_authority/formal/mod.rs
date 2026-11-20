@@ -1,8 +1,8 @@
 //! Formal-profile wire contracts and independent verification; no endpoint actor.
 pub mod activation;
+pub mod bounded_cbor_data;
 pub mod bounded_context;
-pub mod bounded_wire;
-pub mod context_wire;
+
 pub mod crypto;
 pub mod frozen;
 pub mod proof;
@@ -38,3 +38,14 @@ pub mod test_fixtures;
 mod tests;
 
 pub mod incremental;
+
+pub mod incremental_frozen_material;
+pub use incremental_frozen_material::*;
+
+pub mod bounded_wire;
+pub mod context_wire;
+
+pub mod normal_frozen_bounded;
+pub use normal_frozen_bounded::{normal_frozen_hash_bounded, verify_formal_reservation_bounded};
+mod normal_frozen_certificate_bounded;
+pub use normal_frozen_certificate_bounded::verify_normal_frozen_certificate_bounded;

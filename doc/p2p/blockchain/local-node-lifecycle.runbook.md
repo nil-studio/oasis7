@@ -40,7 +40,7 @@ Init captures absolute paths and byte hashes for the manifest, genesis, registry
 
 ### Formal read-only chain configuration
 
-Formal profiles use `oasis7.chain-config/v2` for `formal_public_observer_v1` and `oasis7.chain-config/v3` for `formal_full_state_sync_read_only_v1`. The chain owner supplies the World identity and genesis digest, service endpoint and service public key, an `InitialActivationTrustV1`, and a `FormalReadCheckpointV1` with its digest. These trust values must be pinned independently of the service response; a service-provided checkpoint or issuer key cannot establish its own authority.
+可运行的 formal 只读入口使用 `oasis7.chain-config/v2`（`formal_public_observer_v1`）或 `oasis7.chain-config/v3`（`formal_full_state_sync_read_only_v1`）。 The chain owner supplies the World identity and genesis digest, service endpoint and service public key, an `InitialActivationTrustV1`, and a `FormalReadCheckpointV1` with its digest. These trust values must be pinned independently of the service response; a service-provided checkpoint or issuer key cannot establish its own authority.
 
 在现有 v3 完整状态同步 chain config 中，`formal_full_sync` 固定预期角色（`state_sync` 或 `full_read_only`）、轮询间隔、单请求 timeout 以及**按 digest 去重的材料预算**。`max_total_sync_bytes` 不是实际网络字节计数：一次 `sync_latest()` 在独立 pin 的不同 provider 之间共享这份材料预算和首个已验证目标。执行 `node init` 时 `grant` 必须为 `null`；初始化生成 node key 后再安装独立签名 grant。chain config 与 issuer 信任材料应保存在私有、已备份的运维存储中。
 
@@ -78,9 +78,9 @@ The grant file is a `FormalNodeReadGrantV1` signed by the issuer key in the inde
 
 Status reports `formal_full_state_sync`, `verified_sync_readiness`, `can_propose: false`, and the full-sync CAS/history paths. Wait for `verified_sync_readiness: "ready"`; a running process with a missing grant, expired lease, unavailable source, failed proof, or incomplete restore is not synchronized. The full-state node has no validator or proposal rights.
 
-[整次操作预算合同](../design.md#des-p2p-full-sync-operation-budget-v1)是待实现扩展。其版本入口固定为 `chain-config/v4`、内层 `formal-full-state-sync/v2` 与必填 `transfer_policy` V1、本地 `local-node/v4` 及 `formal-full-sync-status/v2`。现有配置和状态 V1 不提供持久传输账、跨进程 attempt 接续或整次 attempt 绝对期限；不得向旧 strict 配置添加新字段，也不能因为进程正在运行就推断它支持这份合同。
+[整次操作预算合同](../design.md#des-p2p-full-sync-operation-budget-v1)已接入 `chain-config/v4`、内层 `formal-full-state-sync/v2` 与必填 `transfer_policy` V1、本地 `local-node/v4` 及 `formal-full-sync-status/v2` 的配置解析和只读状态观察。生产 worker 尚未启用：对预算化配置，`node start` 和内部 `_run` 均在启动前拒绝，`node status` 可观察 `operation_worker_inactive` 或实际阻断。可解析配置、可读取预算账状态，不代表能执行整次同步或恢复 attempt；日常操作继续使用上面的 v3 步骤。不得向 v1 严格配置添加新字段。
 
-支持该合同的 build 必须输出确切配置／状态版本和显式 operation policy。启动前记录固定 World/C0、node/role、原 minimum、材料上限、编码消息上限、交换／proof 上限、有限 attempt 次数、attempt timeout 及本地 reopen timeout。HTTP 编码计数覆盖传输计量点的完整签名 JSON 正文，不包括 HTTP headers/framing 或 TLS/TCP 开销；状态必须区分已知实际 bytes 与尚未结算的预留，并明确哪些维度不支持或未知。各 attempt 授权窗口总额不是耗时 SLO。
+以下是启用该合同后的操作要求，不是当前 v4 启动步骤。支持该合同的 build 必须输出确切配置／状态版本和显式 operation policy。启动前记录固定 World/C0、node/role、原 minimum、材料上限、编码消息上限、交换／proof 上限、有限 attempt 次数、attempt timeout 及本地 reopen timeout。HTTP 编码计数覆盖传输计量点的完整签名 JSON 正文，不包括 HTTP headers/framing 或 TLS/TCP 开销；状态必须区分已知实际 bytes 与尚未结算的预留，并明确哪些维度不支持或未知。各 attempt 授权窗口总额不是耗时 SLO。
 
 中断后保留原 operation、cut、ledger、已验证 history 和 CAS/pins。当前有效 owner 开启下一 attempt 前须确认旧 attempt 的 I/O／worker 和占用已终止；新 owner 还须证明旧实例已经停止或受到合法 fencing。随后只恢复原本地事务，或在同一 operation、剩余次数与预算下开始合法的新 bounded attempt；未定预留继续占额度。不得删除 ledger、替换 grant/cut、选择旧 pointer 或清零预算来制造续传成功，陈旧或缺失账本也不能自动重建。不要用 wall clock 恢复旧单调 deadline。
 

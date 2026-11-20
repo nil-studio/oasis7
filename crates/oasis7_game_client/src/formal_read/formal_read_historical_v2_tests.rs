@@ -1012,9 +1012,58 @@ fn historical_normal_lookup_survives_qualification_cache_eviction() {
     .unwrap();
     // Preserve the complete portable cursor across the same serialization
     // boundary used by a reopened external client.
-    let expected_cursor =
+    let expected_cursor: crate::formal_read::FormalReadReplayCursorV1 =
         serde_json::from_value(serde_json::to_value(live.replay_cursor().unwrap()).unwrap())
             .unwrap();
+    // Boundary observation never commits a partially verified history.
+    let before_boundary = client.formal_replay_cursor().unwrap();
+    let mut bad_final = expected_cursor.clone();
+    bad_final.checkpoint_digest = "ff".repeat(32);
+    assert!(
+        client
+            .resume_formal_history_pages_at_boundary(
+                &origin_digest,
+                persisted_pages.iter().cloned().map(Ok),
+                &bad_final,
+                Some(&first_page.end.anchor),
+            )
+            .is_err()
+    );
+    assert_eq!(client.formal_replay_cursor().unwrap(), before_boundary);
+    let mut corrupted_suffix = persisted_pages.clone();
+    corrupted_suffix.last_mut().unwrap().1.push(0);
+    assert!(
+        client
+            .resume_formal_history_pages_at_boundary(
+                &origin_digest,
+                corrupted_suffix.into_iter().map(Ok),
+                &expected_cursor,
+                Some(&first_page.end.anchor),
+            )
+            .is_err()
+    );
+    assert_eq!(client.formal_replay_cursor().unwrap(), before_boundary);
+    // An authenticated commit inside a page is not the saved page-end cut.
+    let interior = match &first_page.history.steps[0] {
+        FormalReadStepV1::Commit(proof) => FormalReadAnchorRefV1 {
+            position: proof.decision.record.position,
+            record_id: proof.decision.record.record_id().unwrap(),
+            active_authority_id: first_page.end.anchor.active_authority_id.clone(),
+        },
+        _ => panic!("fixture first step must be a commit"),
+    };
+    assert_ne!(interior, first_page.end.anchor);
+    assert!(
+        client
+            .resume_formal_history_pages_at_boundary(
+                &origin_digest,
+                persisted_pages.iter().cloned().map(Ok),
+                &expected_cursor,
+                Some(&interior),
+            )
+            .is_err()
+    );
+    assert_eq!(client.formal_replay_cursor().unwrap(), before_boundary);
     client
         .resume_formal_history_pages(
             &origin_digest,

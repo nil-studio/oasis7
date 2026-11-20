@@ -84,6 +84,13 @@ pub fn classify_cognition_response_digest<A: Serialize, Q: Serialize>(
     }
 }
 
+pub fn validate_response_artifact_identity<A: Serialize, Q: Serialize>(
+    response_context: &ContinuousAgentResponseContextV1<A, Q>,
+    identity: &oasis7_agent_api::ResponseArtifactIdentityV1,
+) -> Result<(), CognitionError> {
+    response_context.validate_response_artifact_identity(identity)
+}
+
 /// Portable DecisionProvider seam. Application adapters retain the mapping
 /// between typed game actions and this shared proposal DTO; a provider cannot
 /// write World state through this interface.

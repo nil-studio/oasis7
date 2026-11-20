@@ -99,6 +99,15 @@ pub fn journal_from_cbor(bytes: &[u8]) -> Result<Journal, serde_cbor::Error> {
 pub fn journal_canonical_cbor(journal: &Journal) -> Result<Vec<u8>, WorldError> {
     crate::util::to_canonical_cbor(journal)
 }
+pub use crate::commitment_envelope::{
+    CONTROL_CONTINUATION_COMMITMENT_V2_DOMAIN, ControlContinuationCommitmentView, Digest32,
+    GOVERNANCE_SIDECAR_COMMITMENT_V2_DOMAIN, GovernanceSidecarCommitmentView,
+    INCREMENTAL_COMMITMENT_BINDING_V2_DOMAIN, IncrementalWorldCommitmentBindingV2,
+    WORLD_COMMITMENT_ENVELOPE_SCHEMA_V1, WORLD_COMMITMENT_ENVELOPE_SCHEMA_V2,
+    WORLD_COMMITMENT_ENVELOPE_V2_DOMAIN, WorldCommitmentEnvelope, WorldCommitmentRecoveryProfile,
+    compute_authorization_root_digest32, compute_authorization_root_hex,
+    compute_business_state_root_digest32, digest32_from_hex, digest32_to_hex,
+};
 
 #[cfg(test)]
 mod tests {

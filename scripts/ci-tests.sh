@@ -4,7 +4,7 @@
 
 usage() {
   cat <<'USAGE'
-Usage: ./scripts/ci-tests.sh [commit|required|full|full-standard|full-extended|full-core|full-support|cache-native] [--repo-root PATH] [--group NAME] [--plan PATH] [--ordinary-partition NAME] [--support-plan-file PATH|--support-plan JSON|--support-profiles JSON] [--support-partition NAME]
+Usage: ./scripts/ci-tests.sh [commit|required|full|full-standard|full-extended|full-core|full-support|cache-native] [--repo-root PATH] [--group NAME] [--plan PATH] [--ordinary-partition NAME] [--support-plan-file PATH|--support-plan JSON|--support-profiles JSON] [--support-partition NAME] [--support-execution all|host|image]
 
   commit        Run explicit local diagnostics; the ordinary pre-commit hook remains a no-op.
   required      Run the explicit heavier required gate for local validation and PR gate.
@@ -523,7 +523,12 @@ run_oasis7_workspace_support_crate_tests() {
     -p oasis7_wasm_store \
     -p pixel_world_bridge \
     --lib
+  # The native worker is an executable + integration-test contract, not only
+  # the lib tests. Build and execute both bounded_worker integration targets.
+  # Preserve the trusted-baseline library command while extending coverage to
+  # the worker binary and process/FD/regex integration targets.
   run_cargo test -p oasis7_wasm_executor --features wasmtime --lib
+  run_cargo test -p oasis7_wasm_executor --features wasmtime --all-targets --locked
   run_cargo test -p oasis7_secure_envelope -p oasis7_context --all-targets --locked
   run_cargo test -p oasis7_local_signer --test context_cli --locked
   run_cargo test -p oasis7_client_launcher --bin oasis7_client_launcher
@@ -538,7 +543,7 @@ run_selected_workspace_support() {
   fi
   local selected profile expand_targets expanded_features complete_targets
   local -a expanded_args
-  selected=$("$ci_python" - "$support_profiles" "$driver_dir" "${support_partition:-all}" <<'PY'
+  selected=$("$ci_python" - "$support_profiles" "$driver_dir" "${support_partition:-all}" "${support_execution:-all}" <<'PY'
 import importlib.util, json, sys
 from pathlib import Path
 spec = importlib.util.spec_from_file_location('scope', Path(sys.argv[2]) / 'plan-rust-required-scope.py')
@@ -582,6 +587,12 @@ if plan_input and ('workspace_support_partition_version' in plan or 'workspace_s
                     if ('custody' if profile == 'oasis7_custody_worker' else 'other') == partition]
 elif partition != 'all':
     raise SystemExit('support partition requires a trusted capability')
+execution = sys.argv[4]
+if execution != 'all':
+    if partition != 'other' or execution not in ('host', 'image'):
+        raise SystemExit('support execution requires a trusted other partition')
+    profiles = [profile for profile in profiles
+                if (profile == 'oasis7_game_client') == (execution == 'host')]
 expanded = plan_input and plan.get('fast_plan_version') == 1 and plan.get('test_policy_changed') is True
 if expanded:
     spec = importlib.util.spec_from_file_location('artifacts', Path(sys.argv[2]) / 'ci-test-artifacts.py')
@@ -593,6 +604,7 @@ for profile in sorted(profiles):
     print(profile + '|' + ('true' if expanded else 'false') + '|' + ','.join(features))
 PY
   ) || return 2
+  [[ -n "$selected" ]] || return 0
   while IFS='|' read -r profile expand_targets expanded_features; do
     [[ "${OASIS7_SUPPORT_CAPACITY:-0}" != 1 ]] || support_capacity_snapshot "profile-before:$profile"
     echo "+ support profile: $profile"
@@ -605,7 +617,16 @@ PY
       oasis7_dev_test_worker) run_dev_test_worker_checks; complete_targets=true ;;
       oasis7_custody_core) run_cargo test -p "$profile" --all-targets --locked; complete_targets=true ;;
       oasis7_custody_worker) run bash crates/oasis7_custody_worker/scripts/verify.sh --platform; run_worker_wasm_compile_profiles ;;
-      oasis7_wasm_executor) run_cargo test -p "$profile" --features wasmtime --lib ;;
+      oasis7_wasm_executor)
+        # Run the actual Linux worker binary, process/FD and regex integration
+        # tests alongside the library tests. This crate's sole nondefault
+        # feature is wasmtime, so this is the complete feature/target matrix.
+        # The trusted-baseline contract still requires this original library run.
+        run_cargo test -p "$profile" --features wasmtime --lib
+        run_cargo test -p "$profile" --features wasmtime --all-targets --locked
+        complete_targets=true
+        expand_targets=false
+        ;;
       oasis7_client_storage|oasis7_signer_protocol) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib ;;
       oasis7_secure_envelope|oasis7_context) run_cargo test -p "$profile" --all-targets --locked; complete_targets=true ;;
       oasis7_local_signer) run_cargo test -p "$profile" --lib; run_cargo test -p "$profile" --test context_cli --locked ;;
@@ -1405,6 +1426,7 @@ support_profiles=""
 required_plan=""
 ordinary_partition=""
 support_partition="all"
+support_execution="all"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo-root)
@@ -1442,6 +1464,11 @@ while [[ $# -gt 0 ]]; do
       support_partition="$2"
       shift 2
       ;;
+    --support-execution)
+      [[ $# -ge 2 && -n "$2" ]] || { usage; exit 2; }
+      support_execution="$2"
+      shift 2
+      ;;
     --ordinary-partition)
       [[ $# -ge 2 && -n "$2" && -z "$ordinary_partition" ]] || { usage; exit 2; }
       ordinary_partition="$2"
@@ -1468,6 +1495,10 @@ if [[ "$support_partition" != all && ( "$tier" != required || "$group" != worksp
   echo '--support-partition requires required --group workspace_support --support-plan' >&2
   exit 2
 fi
+if [[ "$support_execution" != all && ( "$support_partition" != other || ( "$support_execution" != host && "$support_execution" != image ) ) ]]; then
+  echo '--support-execution requires --support-partition other and host or image' >&2
+  exit 2
+fi
 if [[ -n "$required_plan" && ( "$tier" != required || ( "$group" != oasis7_required && "$group" != rust_baseline && "$group" != distfs ) ) ]]; then
   echo '--plan requires required --group oasis7_required, rust_baseline or distfs' >&2
   exit 2
@@ -1481,6 +1512,10 @@ if [[ -z "$group" ]]; then
     full|full-standard|full-extended|full-core) prepare_full_provider_artifact ;;
   esac
 fi
+# Exercise the focused entry itself, in full tiers only.
+case "$tier:$group" in
+  full:|full-standard:|full-extended:) run bash "$repo_root/scripts/main-token-regression.sh" full ;;
+esac
 if [[ -n "$group" ]]; then
   [[ "$tier" == required ]] || { echo '--group requires required tier' >&2; exit 2; }
   run_group "$group"

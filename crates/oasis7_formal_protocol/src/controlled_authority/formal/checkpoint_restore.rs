@@ -12,6 +12,23 @@ pub fn restore_formal_commit_from_checkpoint(
     recovery: Option<&VerifiedRecovery>,
     checkpoint: &NativeCheckpointVerdictV1,
 ) -> Result<VerifiedFormalCommitV1, FormalError> {
+    restore_formal_commit_and_parent_from_checkpoint(
+        proof,
+        original_authority,
+        recovery,
+        checkpoint,
+    )
+    .map(|(head, _)| head)
+}
+
+/// Preserve the very same authenticated predecessor used by the original
+/// checkpoint verifier. No raw record or caller verdict can construct it.
+pub fn restore_formal_commit_and_parent_from_checkpoint(
+    proof: &FormalQualifiedCommitProofV1,
+    original_authority: &VerifiedAuthorityV1,
+    recovery: Option<&VerifiedRecovery>,
+    checkpoint: &NativeCheckpointVerdictV1,
+) -> Result<(VerifiedFormalCommitV1, Option<VerifiedFormalCommitV1>), FormalError> {
     if checkpoint.proof() != proof {
         return Err(invalid("native checkpoint exact archived proof binding"));
     }
@@ -46,5 +63,5 @@ pub fn restore_formal_commit_from_checkpoint(
             "native checkpoint canonical head/finalizing authority binding",
         ));
     }
-    Ok(commit)
+    Ok((commit, parent))
 }

@@ -1,4 +1,3 @@
-use super::platform_ops::viewer_dev_dist_candidates;
 use super::{
     ChainRuntimeStatus, ClientLauncherApp, ConfigIssue, DEFAULT_CLIENT_LAUNCHER_CONTROL_BIND,
     GlossaryTerm, LaunchConfig, LauncherStatus, OASIS7_CJK_FONT_NAME,
@@ -281,17 +280,6 @@ fn build_game_url_brackets_ipv6_hosts() {
         "http://[::1]:4173/?render_mode=viewer&ws=ws%3A%2F%2F%5B%3A%3A1%5D%3A5011&hosted_access="
     ));
     assert!(url.contains("%22deployment_mode%22%3A%22hosted_public_join%22"));
-}
-
-#[test]
-fn viewer_dev_dist_candidates_only_return_current_oasis7_name() {
-    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
-    let candidates = viewer_dev_dist_candidates();
-
-    assert_eq!(
-        candidates,
-        vec![repo_root.join("oasis7_viewer").join("dist")]
-    );
 }
 
 #[test]

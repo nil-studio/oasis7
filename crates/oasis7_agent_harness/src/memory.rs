@@ -206,10 +206,10 @@ impl MemoryWriteIntentPolicyV1 {
 
     pub fn normalize(
         &self,
-        intent: MemoryWriteIntentV1,
+        intent: impl Into<MemoryWriteIntentV1>,
         context: &MemoryWritePolicyContextV1,
     ) -> Result<NormalizedMemoryWriteIntentV1, CognitionError> {
-        let normalized = self.normalize_inner(intent, context)?;
+        let normalized = self.normalize_inner(intent.into(), context)?;
         if self.canonical_intent_bytes(&normalized).len() > self.max_payload_bytes {
             return Err(error(
                 "memory_payload_too_large",
@@ -221,9 +221,10 @@ impl MemoryWriteIntentPolicyV1 {
 
     pub fn normalize_legacy(
         &self,
-        mut intent: MemoryWriteIntentV1,
+        intent: impl Into<MemoryWriteIntentV1>,
         context: &MemoryWritePolicyContextV1,
     ) -> Result<NormalizedMemoryWriteIntentV1, CognitionError> {
+        let mut intent = intent.into();
         if intent.scope != "short_term" {
             return self.normalize(intent, context);
         }
@@ -239,9 +240,9 @@ impl MemoryWriteIntentPolicyV1 {
         Ok(normalized)
     }
 
-    pub fn normalize_batch(
+    pub fn normalize_batch<I: Into<MemoryWriteIntentV1>>(
         &self,
-        intents: Vec<MemoryWriteIntentV1>,
+        intents: Vec<I>,
         context: &MemoryWritePolicyContextV1,
     ) -> Result<Vec<NormalizedMemoryWriteIntentV1>, CognitionError> {
         if intents.len() > self.max_intents_per_turn {
@@ -252,7 +253,7 @@ impl MemoryWriteIntentPolicyV1 {
         }
         let normalized = intents
             .into_iter()
-            .map(|intent| self.normalize(intent, context))
+            .map(|intent| self.normalize(intent.into(), context))
             .collect::<Result<Vec<_>, _>>()?;
         let total = normalized
             .iter()

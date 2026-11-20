@@ -116,6 +116,10 @@ CI 规范写作应减少歧义：严格区分不可妥协的安全/正确性底�
 
 ordinary Rust 的快速范围由可信组件合同决定，不再只对白名单中的少量文件生效。Runtime、World State、Simulator、World Service、World Projection、oasis7、Viewer Codec、Observability 和 Launcher Config 的已登记源码，在证明改动可达所选 Cargo target/features 后，执行所属组件完整非 ignored library 测试及必要的独立 integration；已登记的增量候选准备/查询仍执行 Runtime 全部原生 unit 和真实物理重开 integration。最低 case 清单保护正常、拒绝、边界与取消行为，不是用例数量上限。修改 integration、fixture、生成输入、未映射源码、不可达 feature gate 及共享控制时，继续执行能覆盖真实输入的原必要范围，不能仅因位于组件目录就忽略。
 
+Authority 验证端口、BFT V3 worker/startup 与 Controlled writer 的已登记直接输入，按可信消费者合同执行：consensus、node 保留原完整库验证，Chain 保留完整 writer、node hook 与 V3 certificate/commit/recovery 测试族，以及真实物理候选冷重开。实际节点正常提交、publication 失败、StatusUnknown 后原 completion 和重启继续执行属于必要集合；不能用少量 verifier 成功单测替代。未命中合同的网络、私有读取、业务世界、fixture、共享源码或混合输入继续按原影响范围执行。测试族内新增用例自动进入集合，最低 case 清单用于发现空执行与必要合同消失，不是抽样上限。此次仅收窄执行与所需 features；复用原库 harness 时不得宣称已隔离其编译成本。
+
+四 live-node bootstrap 轮换、两代 bootstrap 完整接续及十高度存储容量 smoke 默认归入 `test_tier_full`，原签名、节点数量、恢复条件、操作长度和断言保持不变。完整 profile 实际执行这些场景并传播失败；直接修改对应多代/网络 liveness 或容量行为、需要提前验证完整组合时，显式运行 `candidate-full`。普通 authority 合同保留有界签名、schedule、权重、原子发布及冷恢复证明。
+
 Viewer Runtime 的 Agent service IO、阶段推进和流式诊断使用完整 library 测试承接快速行为，保留身份变化拒绝、队列失败恢复及诊断有界性回归；认证、正式读取、恢复等其他源码沿用原影响范围。对明确登记的模块入口，单纯新增静态模块可以随新源码一起进入快速层：已有声明和实现保持不变，新模块必须实际挂载到完整 library 目标。删除、替换、属性或动态路径变化，以及未能证明执行的源码继续扩大覆盖。
 
 反向消费者图继续用于识别影响、直接平台需求与明确风险，但不再把每次有界内部改动都升级为全部上层长回归。持久化、恢复、历史裁剪、共识、身份、host 和共享协议的普通库、单元及合同验证保留；重型 Formal 按上述完整层策略执行。Launcher 完整 release 构建可以由真实直接输入触发，并由周期 full 覆盖其余组合；适用的 WASM 编译仍保留，只有证明改动在 WASM source 路由上不可达时才移除无关检查。

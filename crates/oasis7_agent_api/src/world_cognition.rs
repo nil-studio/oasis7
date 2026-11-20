@@ -119,12 +119,12 @@ impl RuntimeCognitionResponseArtifactV1 {
     pub const CONTEXT_VERSION: u16 = 1;
 
     pub fn recompute_artifact_digest(&self) -> String {
-        let mut payload = serde_json::to_value(self).unwrap_or(JsonValue::Null);
-        payload
-            .as_object_mut()
-            .expect("response artifact identity is an object")
-            .remove("artifact_digest");
-        cognition_digest_v1("oasis7.cognition.response-artifact-identity.v1", &payload)
+        self.recompute_artifact_digest_with_work_v1(
+            &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+        )
+        .expect("cognition payload must be canonically encodable")
+        .as_str()
+        .to_owned()
     }
 
     pub fn refresh_artifact_digest(&mut self) {
@@ -132,44 +132,19 @@ impl RuntimeCognitionResponseArtifactV1 {
     }
 
     pub fn validate(&self) -> Result<(), CognitionRecoveryError> {
-        let bounded = |value: &str| !value.trim().is_empty() && value.len() <= 256;
-        if self.schema_version != Self::CONTEXT_VERSION
-            || self.context_discriminator != Self::CONTEXT_DISCRIMINATOR
-            || self.context_version != Self::CONTEXT_VERSION
-            || !bounded(&self.agent_session_id)
-            || !bounded(&self.agent_turn_id)
-            || !bounded(&self.decision_request_id)
-            || self.retry_seq == 0
-            || self.transport_attempt == 0
-            || !canonical_blake3(&self.request_digest)
-            || !canonical_blake3(&self.response_digest)
-            || !canonical_blake3(&self.artifact_digest)
-            || self.artifact_digest != self.recompute_artifact_digest()
-        {
-            return Err(CognitionRecoveryError::new(
-                "runtime_cognition_response_artifact_invalid",
-            ));
-        }
-        Ok(())
+        self.validate_with_work_v1(&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1)
+            .expect("cognition payload must be canonically encodable")
     }
 
     pub fn validate_for_request(
         &self,
         request: &RuntimeCognitionCommitRequestV1,
     ) -> Result<(), CognitionRecoveryError> {
-        self.validate()?;
-        if self.agent_session_id != request.agent_session_id
-            || self.agent_turn_id != request.agent_turn_id
-            || self.decision_request_id != request.decision_request_id
-            || self.retry_seq != request.retry_seq
-            || self.transport_attempt != request.transport_attempt
-            || self.request_digest != request.request_digest
-        {
-            return Err(CognitionRecoveryError::new(
-                "runtime_cognition_response_lineage_mismatch",
-            ));
-        }
-        Ok(())
+        self.validate_for_request_with_work_v1(
+            request,
+            &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+        )
+        .expect("cognition payload must be canonically encodable")
     }
 }
 
@@ -193,11 +168,29 @@ pub fn finality_binding_is_legal(status: &str, block_hash: Option<&str>) -> bool
         }
 }
 
+/// The original digest preimage, shared by legacy and paid streaming producers.
+pub fn cognition_digest_input_v1<'a, T: Serialize + ?Sized>(
+    domain: &'a str,
+    payload: &'a T,
+) -> (&'a str, &'a T) {
+    (domain, payload)
+}
+#[path = "world_cognition_digest_paid.rs"]
+mod paid_digest;
+pub use paid_digest::{
+    PaidCognitionDigestDataV1, canonical_blake3_data_with_work_v1, cognition_digest_with_work_v1,
+};
+
 /// Canonical digest helper shared by World admission, restore and replay.
 pub fn cognition_digest_v1<T: Serialize>(domain: &str, payload: &T) -> String {
-    let bytes = oasis7_wasm_abi::encode_canonical_cbor(&(domain, payload))
-        .expect("cognition payload must be canonically encodable");
-    format!("blake3:{}", blake3::hash(&bytes))
+    cognition_digest_with_work_v1(
+        domain,
+        payload,
+        &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+    )
+    .expect("cognition payload must be canonically encodable")
+    .as_str()
+    .to_owned()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -222,3 +215,6 @@ impl fmt::Display for CognitionRecoveryError {
 }
 
 impl std::error::Error for CognitionRecoveryError {}
+
+#[path = "world_cognition_response_work.rs"]
+mod response_work;

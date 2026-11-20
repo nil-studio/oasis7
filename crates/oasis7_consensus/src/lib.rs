@@ -1,5 +1,6 @@
 //! Consensus-focused facade for distributed runtime capabilities.
 
+pub mod authority_commit_verifier;
 mod dht;
 mod ed25519_signer_policy;
 pub mod formal_bft_payload_v3;
@@ -16,8 +17,10 @@ pub mod node_consensus_message;
 pub mod node_consensus_signature;
 #[path = "node_pos.rs"]
 mod node_pos_core;
+pub mod normal_tick_input;
 mod pos;
 mod quorum;
+pub mod replicated_execution_input;
 mod sequencer_mainloop;
 mod signature;
 pub mod tendermint_v1;
@@ -97,6 +100,11 @@ pub mod util {
     }
 }
 
+pub use authority_commit_verifier::{
+    AuthorityCommitProof, AuthorityCommitReject, AuthorityCommitVerifier,
+    BftV3AuthorityCommitVerifier, CommitCandidateRef, CompositeAuthorityCommitVerifier,
+    ControlledAuthorityCommitVerifier, TrustedCommitAnchor, VerifiedAuthorityCommit,
+};
 pub use lease::{LeaseDecision, LeaseManager, LeaseState, ScopedLeaseManager};
 pub use membership::{
     FileMembershipAuditStore, InMemoryMembershipAuditStore, MembershipAuditStore,
@@ -214,6 +222,9 @@ pub use sequencer_mainloop::{
     SequencerMainloop, SequencerMainloopConfig, SequencerTickReport, SequencerTickState,
 };
 pub use signature::{Ed25519SignatureSigner, HmacSha256Signer};
+
+#[cfg(test)]
+mod authority_commit_verifier_tests;
 
 #[cfg(test)]
 mod membership_dead_letter_replay_archive_tests;

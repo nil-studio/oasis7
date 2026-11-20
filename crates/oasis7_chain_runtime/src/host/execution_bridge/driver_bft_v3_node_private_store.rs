@@ -9,6 +9,7 @@ const MAX_RECORD: usize = 4 * 1024 * 1024;
 const SCOPE: &str = "formal-bft-header-node-private-v3";
 const MARKER: &[u8] = b"oasis7.formal.bft.node_private.required/v3\n";
 const COVERED_SOURCE_ORIGIN_DOMAIN: &str = "oasis7.formal.bft.node_private_covered_origin.v1";
+const COVERED_SOURCE_LOCAL_DOMAIN: &str = "oasis7.formal.bft.node_private_protected_input.v1";
 const DOMAIN: &str = "oasis7.formal.bft.node_private.v3";
 const MULTI_DOMAIN: &str = "oasis7.formal.bft.node_private_candidate.v4";
 const SELECTION_DOMAIN: &str = "oasis7.formal.bft.node_private_selection.v5";
@@ -36,7 +37,11 @@ struct Data {
     #[serde(deserialize_with = "bounded_references")]
     references: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    publication_reservation_ref: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     source_activation: Option<SourceActivationBindingV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    protected_source_origin_ref: Option<String>,
 }
 impl Data {
     fn validate(&self) -> Result<(), String> {
@@ -46,6 +51,7 @@ impl Data {
                 | (4, MULTI_DOMAIN)
                 | (5, SELECTION_DOMAIN)
                 | (8, COVERED_SOURCE_ORIGIN_DOMAIN)
+                | (9, COVERED_SOURCE_LOCAL_DOMAIN)
         ) || self.height == 0
             || !canonical_hash(&self.ledger_origin_digest)
             || !canonical_hash(&self.material_identity)
@@ -67,6 +73,18 @@ impl Data {
         }
         if let Some(activation) = &self.source_activation {
             activation.validate()?;
+        }
+        match (
+            &self.publication_reservation_ref,
+            &self.protected_source_origin_ref,
+        ) {
+            (Some(metadata), Some(origin))
+                if self.schema_version == 9
+                    && !self.origin
+                    && canonical_hash(metadata)
+                    && canonical_hash(origin) => {}
+            (None, None) if self.schema_version != 9 => {}
+            _ => return Err("covered first Local material refs do not match schema".into()),
         }
         if self.schema_version == 5 {
             if self.origin || !self.actions_cbor.is_empty() || self.references.len() != 1 {
@@ -117,6 +135,8 @@ impl Data {
             .iter()
             .cloned()
             .chain(self.source_activation.iter().map(|a| a.reference.clone()))
+            .chain(self.publication_reservation_ref.iter().cloned())
+            .chain(self.protected_source_origin_ref.iter().cloned())
             .chain([self.digest()?])
             .collect())
     }
@@ -312,7 +332,9 @@ impl NodePrivateStore {
             value: None,
             actions_cbor: Vec::new(),
             references: nodes.keys().cloned().collect(),
+            publication_reservation_ref: None,
             source_activation: None,
+            protected_source_origin_ref: None,
         };
         if self.origin.as_ref().is_some_and(|slot| slot.data != data) {
             return Err("Node private origin differs from its exact qualified H".into());
@@ -553,7 +575,9 @@ impl NodePrivateStore {
             value: Some(candidate.public_value.clone()),
             actions_cbor: candidate.actions_cbor.clone(),
             references: nodes.keys().cloned().collect(),
+            publication_reservation_ref: None,
             source_activation: None,
+            protected_source_origin_ref: None,
         };
         data.validate()?;
         if self
@@ -751,6 +775,12 @@ fn verify_material(store: &LocalCasStore, data: &Data) -> Result<(), String> {
             return Err("covered private Origin activation bytes changed".into());
         }
     }
+    if let Some(metadata) = &data.publication_reservation_ref {
+        common_storage::read_cas_bounded(store, metadata, 16 * 1024)?;
+    }
+    if let Some(origin) = &data.protected_source_origin_ref {
+        common_storage::read_cas_bounded(store, origin, MAX_RECORD)?;
+    }
     for reference in &data.references {
         common_storage::read_cas_bounded(
             store,
@@ -947,7 +977,9 @@ mod tests {
             value: None,
             actions_cbor: Vec::new(),
             references: Vec::new(),
+            publication_reservation_ref: None,
             source_activation: None,
+            protected_source_origin_ref: None,
         }
     }
 

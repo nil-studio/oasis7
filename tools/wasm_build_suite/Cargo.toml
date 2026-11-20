@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-hex = { workspace = true }
+hex = "0.4"
 oasis7_wasm_build = { path = "../../crates/oasis7_wasm_build" }
-serde = { workspace = true }
-serde_json = { workspace = true }
-sha2 = { workspace = true }
-wasm-encoder = { workspace = true }
-wasmparser = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+wasm-encoder = "0.261"
+wasmparser = "0.256"

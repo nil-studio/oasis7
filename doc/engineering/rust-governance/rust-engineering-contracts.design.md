@@ -161,7 +161,7 @@ flowchart TB
         L0_API["oasis7_agent_api / oasis7_client_api / oasis7_formal_protocol"]
         L0_PURE["零 I/O 协议与原语: oasis7_proto / oasis7_wasm_abi / oasis7_wasm_sdk / secure_envelope / signer_protocol / ..."]
         L0_LEAF["无内部依赖的带能力叶子库: oasis7_wasm_build / oasis7_letai_credit_adapter / oasis7_hosted_access / pixel_world_bridge / ..."]
-        L0_DOM["oasis7_domain_types (Target · 严格零 I/O 纯值子集)"]
+        L0_DOM["oasis7_domain_types (严格零 I/O 纯值子集)"]
     end
 
     L4_VIEW --> L3_SVC
@@ -202,9 +202,9 @@ flowchart TB
     L0_API -. "pub use 兼容重导出" .-> L0_DOM
 ```
 
-| 架构层级 | 层级定位 | 归属 Crate / Tool 清单（全量 55 个现存成员 + 1 个目标 L0） | 依赖边界与 I/O 能力说明 |
+| 架构层级 | 层级定位 | 归属 Crate / Tool 清单 | 依赖边界与 I/O 能力说明 |
 | --- | --- | --- | --- |
-| **L0** | **Domain Primitives, Pure Wire Contracts & Leaf Utilities（领域原语、纯协议合同与无内部依赖底层库）** | **纯零 I/O 原语与协议合同**：`oasis7_domain_types`（目标新增，严格零 I/O 纯值子集）、`oasis7_proto`、`oasis7_wasm_abi`、`oasis7_wasm_sdk`、`oasis7_secure_envelope`、`oasis7_signer_protocol`、`oasis7_launcher_ui`、`oasis7_agent_api`、`oasis7_client_api`、`oasis7_formal_protocol`；<br>**无内部 workspace 依赖的带能力叶子库**：`oasis7_observability`、`oasis7_executable_image`、`oasis7_hosted_access`（文件系统 replay ledger）、`pixel_world_bridge`（Canvas DOM / Bevy 窗口与渲染循环）、`oasis7_wasm_build`（文件系统/构建进程）、`oasis7_letai_credit_adapter`（HTTP 客户端） | 拓扑上均不依赖任何 `L1`–`L4` 成员，但**拓扑层号与 I/O 能力分开约束**：严格零 I/O 纯度仅要求于 `oasis7_domain_types` 与真正的纯协议子集；带文件系统、进程、HTTP 或 DOM/渲染能力的叶子库保留在 L0 拓扑位，不得被 `oasis7_domain_types` 或纯协议包反向引入。`oasis7_agent_api` / `oasis7_client_api` 后续按收益将纯领域值（`world_resource`、`world_entity`、`world_geometry`、`formal_projection`）渐进下沉至 `oasis7_domain_types` 并保留 `pub use` 兼容路径。 |
+| **L0** | **Domain Primitives, Pure Wire Contracts & Leaf Utilities（领域原语、纯协议合同与无内部依赖底层库）** | **纯零 I/O 原语与协议合同**：`oasis7_domain_types`（严格零 I/O 纯值子集）、`oasis7_proto`、`oasis7_wasm_abi`、`oasis7_wasm_sdk`、`oasis7_secure_envelope`、`oasis7_signer_protocol`、`oasis7_launcher_ui`、`oasis7_agent_api`、`oasis7_client_api`、`oasis7_formal_protocol`；<br>**无内部 workspace 依赖的带能力叶子库**：`oasis7_observability`、`oasis7_executable_image`、`oasis7_hosted_access`（文件系统 replay ledger）、`pixel_world_bridge`（Canvas DOM / Bevy 窗口与渲染循环）、`oasis7_wasm_build`（文件系统/构建进程）、`oasis7_letai_credit_adapter`（HTTP 客户端） | 拓扑上均不依赖任何 `L1`–`L4` 成员，但**拓扑层号与 I/O 能力分开约束**：严格零 I/O 纯度仅要求于 `oasis7_domain_types` 与真正的纯协议子集；带文件系统、进程、HTTP 或 DOM/渲染能力的叶子库保留在 L0 拓扑位，不得被 `oasis7_domain_types` 或纯协议包反向引入。#6185 已将首批共享纯值与算法（`world_resource`、`world_entity`、`world_geometry`、`formal_projection`）放入 `oasis7_domain_types`；`oasis7_agent_api` / `oasis7_client_api` 保留 `pub use` 兼容路径，API 专属合同不随这一批纯值迁移。 |
 | **L1** | **Substrate, Storage, Crypto, WASM & Client Core（底座、存储、加密、沙箱与客户端验证核层）** | `oasis7_cas`、`oasis7_context`、`oasis7_local_signer`、`oasis7_client_storage`、`oasis7_custody_core`、`oasis7_wasm_store`、`oasis7_wasm_executor`、`oasis7_wasm_router`、`oasis7_wasm_materializer`、`oasis7_consensus`、`oasis7_game_client`、`oasis7_browser_game_client`、`oasis7_launcher_config` | 仅可依赖 `L0` 及同层合法底座组件；提供内容寻址、签名/密钥封装、WASM 沙箱与工件拉取、共识内核及独立客户端读模型/验证核心，不反向依赖 `L2` 世界状态或执行引擎。 |
 | **L2** | **Authoritative State, Execution, Simulation & P2P Node（权威状态、执行、仿真与节点层）** | `oasis7_world_state`、`oasis7_world_projection`、`oasis7_runtime`、`oasis7_simulator`、`oasis7_distfs`、`oasis7_net`、`oasis7_node` | 仅可依赖 `L0`–`L1` 及同层允许边（例如 `world_projection -> world_state`、`runtime -> world_state`、`node -> net -> distfs -> world_state`）；同层禁止边沿用 `§4.3` 方向矩阵与 [Runtime 实现边界](../../world-runtime/design.md#实现边界与共享值所有权)。 |
 | **L3** | **Service Facades, Bridges, Workers & Agent Harness（服务门面、桥接、工作节点与驱动层）** | `oasis7_world_service`、`oasis7_chain_runtime`、`oasis7`（历史兼容伞包，退役中）、`oasis7_agent_harness`、`oasis7_model_provider`、`oasis7_provider_local_bridge`、`oasis7_newapi_bridge_service`、`oasis7_custody_worker`、`oasis7_dev_test_worker` | 组装受权服务用例、链运行宿主、模型提供方桥接与 Agent harness；严禁绕过 `L2` 准入门禁直接修改权威状态或伪造恢复凭据。 |

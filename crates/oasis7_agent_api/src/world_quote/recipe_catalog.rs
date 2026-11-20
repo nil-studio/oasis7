@@ -1,25 +1,54 @@
 //! Canonical native plans for the eleven built-in production recipes.
 //! External callers select an exact recipe ID and batch count, never a plan.
 //! Trusted and module-backed custom plans retain their separate execution paths.
-use oasis7_wasm_abi::MaterialStack;
-use oasis7_wasm_abi::RecipeExecutionPlan;
-
-fn scale_material_stacks(stacks: &[MaterialStack], scale: i64) -> Option<Vec<MaterialStack>> {
-    stacks
-        .iter()
-        .map(|stack| {
-            Some(MaterialStack::new(
-                stack.kind.clone(),
-                stack.amount.checked_mul(scale)?,
-            ))
-        })
-        .collect()
+use oasis7_wasm_abi::{MaterialStack, RecipeExecutionPlan};
+fn literal_stacks<E>(
+    stacks: &[(&str, i64)],
+    work: &mut impl FnMut(u64, usize, usize) -> Result<(), E>,
+) -> Result<Vec<MaterialStack>, E> {
+    work(1, 0, stacks.len() * std::mem::size_of::<MaterialStack>())?;
+    let mut out = Vec::with_capacity(stacks.len());
+    for (kind, amount) in stacks {
+        work(1, kind.len(), kind.len())?;
+        out.push(MaterialStack::new((*kind).to_owned(), *amount));
+    }
+    Ok(out)
 }
-
-/// Returns the complete built-in plan for an exact canonical ID and positive batches.
-pub fn builtin_recipe_plan(recipe_id: &str, accepted_batches: u32) -> Option<RecipeExecutionPlan> {
+fn scale_material_stacks<E>(
+    stacks: &[MaterialStack],
+    scale: i64,
+    work: &mut impl FnMut(u64, usize, usize) -> Result<(), E>,
+) -> Result<Option<Vec<MaterialStack>>, E> {
+    work(1, 0, std::mem::size_of_val(stacks))?;
+    let mut out = Vec::with_capacity(stacks.len());
+    for stack in stacks {
+        work(1, stack.kind.len(), stack.kind.len())?;
+        let kind = stack.kind.clone();
+        let Some(amount) = stack.amount.checked_mul(scale) else {
+            return Ok(None);
+        };
+        out.push(MaterialStack::new(kind, amount));
+    }
+    Ok(Some(out))
+}
+/// Same original plan constructor; the callback admits actual work and heap
+/// before each allocation. It cannot alter any recipe or plan field.
+pub fn builtin_recipe_plan_with_work_v1<E>(
+    recipe_id: &str,
+    accepted_batches: u32,
+    work: &mut impl FnMut(u64, usize, usize) -> Result<(), E>,
+) -> Result<Option<RecipeExecutionPlan>, E> {
+    macro_rules! some {
+        ($value:expr) => {
+            match $value {
+                Some(value) => value,
+                None => return Ok(None),
+            }
+        };
+    }
+    work(1, recipe_id.len(), 0)?;
     if accepted_batches == 0 {
-        return None;
+        return Ok(None);
     }
     let accepted_batches_i64 = i64::from(accepted_batches);
     let (consume, produce, byproducts, power_per_batch): (
@@ -29,110 +58,104 @@ pub fn builtin_recipe_plan(recipe_id: &str, accepted_batches: u32) -> Option<Rec
         i64,
     ) = match recipe_id {
         "recipe.smelter.iron_ingot" => (
-            vec![
-                MaterialStack::new("iron_ore", 4),
-                MaterialStack::new("carbon_fuel", 1),
-            ],
-            vec![MaterialStack::new("iron_ingot", 3)],
-            vec![MaterialStack::new("slag", 1)],
+            literal_stacks(&[("iron_ore", 4), ("carbon_fuel", 1)], work)?,
+            literal_stacks(&[("iron_ingot", 3)], work)?,
+            literal_stacks(&[("slag", 1)], work)?,
             8,
         ),
         "recipe.smelter.copper_wire" => (
-            vec![MaterialStack::new("copper_ore", 3)],
-            vec![MaterialStack::new("copper_wire", 4)],
-            Vec::new(),
+            literal_stacks(&[("copper_ore", 3)], work)?,
+            literal_stacks(&[("copper_wire", 4)], work)?,
+            literal_stacks(&[], work)?,
             6,
         ),
         "recipe.smelter.polymer_resin" => (
-            vec![
-                MaterialStack::new("carbon_fuel", 2),
-                MaterialStack::new("silicate_ore", 2),
-            ],
-            vec![MaterialStack::new("polymer_resin", 2)],
-            vec![MaterialStack::new("waste_resin", 1)],
+            literal_stacks(&[("carbon_fuel", 2), ("silicate_ore", 2)], work)?,
+            literal_stacks(&[("polymer_resin", 2)], work)?,
+            literal_stacks(&[("waste_resin", 1)], work)?,
             7,
         ),
         "recipe.smelter.alloy_plate" => (
-            vec![
-                MaterialStack::new("iron_ingot", 2),
-                MaterialStack::new("copper_wire", 2),
-            ],
-            vec![MaterialStack::new("alloy_plate", 2)],
-            vec![MaterialStack::new("slag", 1)],
+            literal_stacks(&[("iron_ingot", 2), ("copper_wire", 2)], work)?,
+            literal_stacks(&[("alloy_plate", 2)], work)?,
+            literal_stacks(&[("slag", 1)], work)?,
             9,
         ),
         "recipe.assembler.gear" => (
-            vec![MaterialStack::new("iron_ingot", 2)],
-            vec![MaterialStack::new("gear", 1)],
-            Vec::new(),
+            literal_stacks(&[("iron_ingot", 2)], work)?,
+            literal_stacks(&[("gear", 1)], work)?,
+            literal_stacks(&[], work)?,
             4,
         ),
         "recipe.assembler.control_chip" => (
-            vec![
-                MaterialStack::new("copper_wire", 4),
-                MaterialStack::new("polymer_resin", 2),
-            ],
-            vec![MaterialStack::new("control_chip", 1)],
-            vec![MaterialStack::new("waste_resin", 1)],
+            literal_stacks(&[("copper_wire", 4), ("polymer_resin", 2)], work)?,
+            literal_stacks(&[("control_chip", 1)], work)?,
+            literal_stacks(&[("waste_resin", 1)], work)?,
             6,
         ),
         "recipe.assembler.motor_mk1" => (
-            vec![
-                MaterialStack::new("gear", 2),
-                MaterialStack::new("copper_wire", 3),
-            ],
-            vec![MaterialStack::new("motor_mk1", 1)],
-            Vec::new(),
+            literal_stacks(&[("gear", 2), ("copper_wire", 3)], work)?,
+            literal_stacks(&[("motor_mk1", 1)], work)?,
+            literal_stacks(&[], work)?,
             7,
         ),
         "recipe.assembler.logistics_drone" => (
-            vec![
-                MaterialStack::new("motor_mk1", 2),
-                MaterialStack::new("control_chip", 1),
-                MaterialStack::new("iron_ingot", 2),
-            ],
-            vec![MaterialStack::new("logistics_drone", 1)],
-            vec![MaterialStack::new("assembly_scrap", 1)],
+            literal_stacks(
+                &[("motor_mk1", 2), ("control_chip", 1), ("iron_ingot", 2)],
+                work,
+            )?,
+            literal_stacks(&[("logistics_drone", 1)], work)?,
+            literal_stacks(&[("assembly_scrap", 1)], work)?,
             12,
         ),
         "recipe.assembler.sensor_pack" => (
-            vec![
-                MaterialStack::new("control_chip", 1),
-                MaterialStack::new("copper_wire", 2),
-            ],
-            vec![MaterialStack::new("sensor_pack", 1)],
-            vec![MaterialStack::new("calibration_scrap", 1)],
+            literal_stacks(&[("control_chip", 1), ("copper_wire", 2)], work)?,
+            literal_stacks(&[("sensor_pack", 1)], work)?,
+            literal_stacks(&[("calibration_scrap", 1)], work)?,
             8,
         ),
         "recipe.assembler.module_rack" => (
-            vec![
-                MaterialStack::new("sensor_pack", 2),
-                MaterialStack::new("control_chip", 1),
-            ],
-            vec![MaterialStack::new("module_rack", 1)],
-            vec![MaterialStack::new("precision_scrap", 1)],
+            literal_stacks(&[("sensor_pack", 2), ("control_chip", 1)], work)?,
+            literal_stacks(&[("module_rack", 1)], work)?,
+            literal_stacks(&[("precision_scrap", 1)], work)?,
             10,
         ),
         "recipe.assembler.factory_core" => (
-            vec![
-                MaterialStack::new("module_rack", 1),
-                MaterialStack::new("alloy_plate", 3),
-            ],
-            vec![MaterialStack::new("factory_core", 1)],
-            vec![MaterialStack::new("structural_waste", 1)],
+            literal_stacks(&[("module_rack", 1), ("alloy_plate", 3)], work)?,
+            literal_stacks(&[("factory_core", 1)], work)?,
+            literal_stacks(&[("structural_waste", 1)], work)?,
             14,
         ),
-        _ => return None,
+        _ => return Ok(None),
     };
 
-    Some(RecipeExecutionPlan::accepted(
+    work(
+        1,
+        std::mem::size_of::<RecipeExecutionPlan>(),
+        std::mem::size_of::<RecipeExecutionPlan>(),
+    )?;
+    Ok(Some(RecipeExecutionPlan::accepted(
         accepted_batches,
-        scale_material_stacks(&consume, accepted_batches_i64)?,
-        scale_material_stacks(&produce, accepted_batches_i64)?,
-        scale_material_stacks(&byproducts, accepted_batches_i64)?,
-        power_per_batch.checked_mul(accepted_batches_i64)?,
-        super::canonical_recipe_base_duration_ticks(recipe_id)?,
-    ))
+        some!(scale_material_stacks(&consume, accepted_batches_i64, work)?),
+        some!(scale_material_stacks(&produce, accepted_batches_i64, work)?),
+        some!(scale_material_stacks(
+            &byproducts,
+            accepted_batches_i64,
+            work
+        )?),
+        some!(power_per_batch.checked_mul(accepted_batches_i64)),
+        some!(super::canonical_recipe_base_duration_ticks(recipe_id)),
+    )))
+}
+
+/// Returns the complete built-in plan for an exact canonical ID and positive batches.
+pub fn builtin_recipe_plan(recipe_id: &str, accepted_batches: u32) -> Option<RecipeExecutionPlan> {
+    match builtin_recipe_plan_with_work_v1(recipe_id, accepted_batches, &mut |_, _, _| {
+        Ok::<_, std::convert::Infallible>(())
+    }) {
+        Ok(value) => value,
+        Err(never) => match never {},
+    }
 }
 
 #[cfg(test)]

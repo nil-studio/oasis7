@@ -48,43 +48,13 @@ pub fn verify_agent_chat_auth_proof(
     request: &AgentChatRequest,
     proof: &PlayerAuthProof,
 ) -> Result<VerifiedPlayerAuth, String> {
-    verify_proof_scheme(proof)?;
-    let request_player_id =
-        normalize_required_optional_field(request.player_id.as_deref(), "agent_chat player_id")?;
-    let request_public_key = normalize_required_optional_public_key(
-        request.public_key.as_deref(),
-        "agent_chat public_key",
-    )?;
-    let proof_player_id =
-        normalize_required_field(proof.player_id.as_str(), "auth proof player_id")?;
-    let proof_public_key =
-        normalize_public_key_field(proof.public_key.as_str(), "auth proof public key")?;
-    if request_player_id != proof_player_id {
-        return Err("auth proof player_id does not match request player_id".to_string());
-    }
-    if request_public_key != proof_public_key {
-        return Err("auth proof public_key does not match request public_key".to_string());
-    }
-    if proof.nonce == 0 {
-        return Err("auth nonce must be greater than zero".to_string());
-    }
-    let signing_payload = build_agent_chat_signing_payload(
+    work::verify_agent_chat_auth_proof_with_work_v1(
         request,
-        proof_player_id.as_str(),
-        proof_public_key.as_str(),
-        proof.nonce,
-    )?;
-    verify_player_auth_signature(
-        proof_public_key.as_str(),
-        proof.signature.as_str(),
-        signing_payload.as_slice(),
-    )?;
-    Ok(VerifiedPlayerAuth {
-        player_id: proof_player_id,
-        public_key: proof_public_key,
-        nonce: proof.nonce,
-        hosted_registration_nonce: None,
-    })
+        proof,
+        &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+    )
+    .map(work::PaidVerifiedPlayerAuthDataV1::into_legacy)
+    .map_err(work::legacy_error)
 }
 
 /// Verify an Agent Chat proof and require that it is scoped to the current

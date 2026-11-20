@@ -1,5 +1,19 @@
 {
   "fast_scope_version": 1,
+  "ordinary_case_prefix_contract_version": 1,
+  "ordinary_shared_incremental_contract_version": 1,
+  "ordinary_fast_group_contract_version": 1,
+  "ordinary_fast_group_contracts": {
+    "consensus": [
+      "crates/oasis7_consensus/src/authority_commit_verifier.rs",
+      "crates/oasis7_consensus/src/authority_commit_verifier_tests.rs",
+      "crates/oasis7_consensus/src/lib.rs"
+    ],
+    "node": [
+      "crates/oasis7_node/src/node_bft_v3_worker.rs",
+      "crates/oasis7_node/src/node_bft_v3_startup.rs"
+    ]
+  },
   "formal_full_profiles_only_version": 1,
   "formal_deferred_ordinary_cases": {
     "runtime-tests": [
@@ -57,13 +71,13 @@
     "harnesses": [
       {"package": "oasis7", "target_kind": "lib", "target_name": "oasis7", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2606},
       {"package": "oasis7", "target_kind": "lib", "target_name": "oasis7", "variant": "snapshot-tests", "mode": "filter", "selector": "snapshot_player_gameplay_execution_state_backfills_from_legacy_fields", "elapsed_ms": 206},
-      {"package": "oasis7", "target_kind": "test", "target_name": "chain_pos_defaults_tests", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 206},
+      {"package": "oasis7_client_api", "target_kind": "test", "target_name": "chain_pos_defaults_tests", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 206},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_agent_authority_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 62673},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_agent_event", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 8414},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_agent_genesis", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 807},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_agent_subtree", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 43249},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_authenticated_nonces", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 11813},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_authorization_mapsets", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 14615},
+      {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_authorization_mapsets", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 14615},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_cognition_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 127494},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_delivery_cursor", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2208},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_diplomacy_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 56482},
@@ -71,17 +85,17 @@
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_factory_authority_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 59274},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_factory_record_closure", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 75458},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_factory_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 115530},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_field_member", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2406},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_field_presence", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2007},
+      {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_field_member", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2406},
+      {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_field_presence", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2007},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_fixed_economy_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 35436},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_full_scales", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 179744},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_governance_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 57254},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_installed_module_targets", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 7209},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_inventory_change", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 4613},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_inventory_genesis", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 3809},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_inventory_read", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 4609},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_json_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 805},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_ledger_value", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 1808},
+      {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_inventory_genesis", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 3809},
+      {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_inventory_read", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 4609},
+      {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_json_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 805},
+      {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_ledger_value", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 1808},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_logistics_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 21831},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_main_token_policy_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 113502},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_material_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 25232},
@@ -95,7 +109,7 @@
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_governance_controls", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2808},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_scheduler_controls", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 31039},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_balances", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 10212},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_id_sets", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 6211},
+      {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_world_id_sets", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 6211},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_number_maps", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 20418},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_authorizations", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 3011},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_batches", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2811},
@@ -112,13 +126,13 @@
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_genesis", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 18020},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_pages", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 54634},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_roots", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 16617},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_text_maps", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 17219},
+      {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_world_text_maps", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 17219},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_u64", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 6610},
-      {"package": "oasis7", "target_kind": "test", "target_name": "module_input_cbor", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
-      {"package": "oasis7", "target_kind": "test", "target_name": "module_lifecycle", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
-      {"package": "oasis7", "target_kind": "test", "target_name": "module_state", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 205},
-      {"package": "oasis7", "target_kind": "test", "target_name": "module_store", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 206},
-      {"package": "oasis7", "target_kind": "test", "target_name": "module_subscription_filters", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 207},
+      {"package": "oasis7_runtime", "target_kind": "test", "target_name": "module_input_cbor", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
+      {"package": "oasis7_runtime", "target_kind": "test", "target_name": "module_lifecycle", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
+      {"package": "oasis7_runtime", "target_kind": "test", "target_name": "module_state", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 205},
+      {"package": "oasis7_runtime", "target_kind": "test", "target_name": "module_store", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 206},
+      {"package": "oasis7_runtime", "target_kind": "test", "target_name": "module_subscription_filters", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 207},
       {"package": "oasis7_cas", "target_kind": "lib", "target_name": "oasis7_cas", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 806},
       {"package": "oasis7_chain_runtime", "target_kind": "bin", "target_name": "oasis7_chain_runtime", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 207},
       {"package": "oasis7_chain_runtime", "target_kind": "test", "target_name": "host_api", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
@@ -175,6 +189,7 @@
   "workspace_support_partition_version": 1,
   "custody_execution_version": 1,
   "custody_compile_proof_version": 1,
+  "custody_policy_tests_version": 1,
   "distfs_clippy_contract_version": 1,
   "architecture_build_policy_version": 1,
   "additive_governance_registration_version": 1,
@@ -207,6 +222,38 @@
     }
   ],
   "ordinary_fast_targets": {
+    "chain-authority": {
+      "package": "oasis7_chain_runtime",
+      "target_kind": "lib",
+      "target_name": "oasis7_chain_runtime",
+      "default_features": false,
+      "features": [
+        "node-libp2p",
+        "test_tier_required",
+        "wasmtime"
+      ],
+      "cases": [
+        "execution_bridge_real_tests::real_execution_bridge::formal_writer::tests::saved_candidate_reconciles_lost_decision_without_reexecuting_world",
+        "execution_bridge_real_tests::real_execution_bridge::formal_writer::tests::saved_candidate_tests::formal_cached_candidate_matches_exact_frozen_and_cannot_assert_prepared_rank",
+        "execution_bridge_real_tests::real_execution_bridge::formal_writer::tests::saved_candidate_tests::recovery_commit_adapter_uses_original_authority_from_successor_anchor",
+        "execution_bridge_real_tests::real_execution_bridge::formal_node_hook::tests::terminal_pending_bootstraps_from_original_predecessor_not_published_result",
+        "execution_bridge_real_tests::real_execution_bridge::formal_node_hook::tests::proof_head_record_mismatch_never_returns_applied_or_clears_pending",
+        "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::v3_qc_rejects_insufficient_duplicate_wrong_policy_and_wrong_proposer_key",
+        "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::v3_qc_binds_activation_parent_header_round_phase_and_signature_domain",
+        "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::signed_header_qcs_chain_three_heights_and_accept_valid_round_evidence",
+        "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::transition_tests::v3_qc_rotation_keeps_old_set_at_h_and_h_plus_one_then_uses_new_keys_at_h_plus_two",
+        "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::transition_tests::v3_handoff_target_uses_weighted_quorum_not_signature_count",
+        "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::execution_tests::wire3_formal_read_signed_execution_lie_and_private_input_tampering_are_rejected",
+        "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::node_execution_tests::wire3_formal_read_actual_node_tcp_provider_cold_object_restart_continues",
+        "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::node_execution_tests::node_publication_failure_tests::wire3_formal_read_actual_node_pending_apply_recovers_after_publication_failure",
+        "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::node_execution_tests::node_publication_failure_tests::wire3_formal_read_same_node_restart_delivers_original_pending_completion"
+      ],
+      "case_prefixes": [
+        "execution_bridge_real_tests::real_execution_bridge::formal_writer::tests::",
+        "execution_bridge_real_tests::real_execution_bridge::formal_node_hook::tests::",
+        "execution_bridge_real_tests::real_execution_bridge::driver::bft_execution::v2::formal_read::tests::header_certificate_v3_tests::"
+      ]
+    },
     "game-client-lib": {
       "package": "oasis7_game_client",
       "target_kind": "lib",
@@ -518,6 +565,52 @@
     }
   },
   "ordinary_fast_rules": [
+    {
+      "paths": [
+        "crates/oasis7_consensus/src/authority_commit_verifier.rs",
+        "crates/oasis7_consensus/src/authority_commit_verifier_tests.rs"
+      ],
+      "targets": [
+        "chain-authority",
+        "runtime-incremental"
+      ],
+      "reason": "authority_verifier_complete_consensus_and_node_groups_with_real_commit_recovery_consumers"
+    },
+    {
+      "paths": [
+        "crates/oasis7_consensus/src/lib.rs"
+      ],
+      "targets": [
+        "chain-authority",
+        "runtime-incremental"
+      ],
+      "reason": "authority_verifier_additive_export_with_complete_consensus_library",
+      "added_declarations": [
+        "pub mod authority_commit_verifier;",
+        "#[cfg(test)] mod authority_commit_verifier_tests;",
+        "pub use authority_commit_verifier::{AuthorityCommitProof, AuthorityCommitReject, AuthorityCommitVerifier, BftV3AuthorityCommitVerifier, CommitCandidateRef, CompositeAuthorityCommitVerifier, ControlledAuthorityCommitVerifier, TrustedCommitAnchor, VerifiedAuthorityCommit,};"
+      ]
+    },
+    {
+      "paths": [
+        "crates/oasis7_node/src/node_bft_v3_worker.rs",
+        "crates/oasis7_node/src/node_bft_v3_startup.rs"
+      ],
+      "targets": [
+        "chain-authority"
+      ],
+      "reason": "bft_worker_startup_complete_node_library_and_real_chain_commit_recovery"
+    },
+    {
+      "paths": [
+        "crates/oasis7_chain_runtime/src/host/execution_bridge/formal_writer.rs",
+        "crates/oasis7_chain_runtime/src/host/execution_bridge/formal_writer_saved_candidate.rs"
+      ],
+      "targets": [
+        "chain-authority"
+      ],
+      "reason": "controlled_writer_complete_authority_commit_and_cold_recovery_families"
+    },
     {
       "paths": [
         "crates/oasis7_game_client/src/dev_test_service_cli.rs",
@@ -1673,6 +1766,9 @@
     "oasis7_world_service": ["oasis7_required"],
     "oasis7_simulator": ["oasis7_required", "launcher_web"],
     "oasis7_agent_api": [
+      "workspace_support"
+    ],
+    "oasis7_domain_types": [
       "workspace_support"
     ],
     "oasis7_agent_harness": [

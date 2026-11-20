@@ -42,10 +42,9 @@ impl NodeRuntime {
             self.validate_bft_v3_payload_admission(payload)?;
         }
         validate_consensus_action_payload_auth(&self.config, payload)?;
-        // BFT V2 admission above is stateful: its execution hook validates the
-        // signed governance action against the exact verified V2 parent cursor.
-        // The legacy preflight uses the ordinary governance path and can reject
-        // a valid V2 transition under a different, non-BFT parent projection.
+        // BFT V2 and V3 each perform stateful validation through their own
+        // execution hook. The ordinary governance preflight uses a different
+        // parent projection, so it is not applied to these profiles.
         if self.bft_v2_config.is_none() && self.bft_v3_config.is_none() {
             governance_auth::preflight(self, payload)?;
         }
