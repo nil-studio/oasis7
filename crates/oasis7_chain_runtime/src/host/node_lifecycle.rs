@@ -230,13 +230,12 @@ pub(crate) mod tests;
 #[path = "node_lifecycle/profile_report_tests.rs"]
 mod profile_report_tests;
 
+// The candidate-reader helper is consumed only by full-tier scenarios.
+#[allow(unused_imports)]
 #[cfg(all(test, feature = "node-libp2p"))]
 pub(crate) use formal_full_sync::tests::read_gate_tests::network_fixture::{
-    NetworkGates, network_gates, network_gates_for_count,
+    NetworkGates, network_gates, network_gates_for_count, network_gates_with_candidate_readers,
 };
-
-#[cfg(all(test, feature = "node-libp2p", feature = "test_tier_full"))]
-pub(crate) use formal_full_sync::tests::read_gate_tests::network_fixture::network_gates_with_candidate_readers;
 
 #[cfg(test)]
 pub(crate) use formal_full_sync::tests::read_gate_tests::startup_fixture::StartupV3Fixture;
