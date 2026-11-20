@@ -303,6 +303,20 @@ def web_cache_layout(cache_workflow, release_workflow, admission_source):
     if 'browser-archive-cache' in cache_jobs:
         browser_archive_cache_writer(cache_jobs['browser-archive-cache'])
         tool_jobs.add('browser-archive-cache')
+    image_writer = 'rust-image-native-cache'
+    if image_writer in cache_jobs:
+        job = cache_jobs[image_writer]
+        digest = re.search(r'^      image: ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:([0-9a-f]{64})$', job, re.M)
+        assert digest, 'image cache writer requires the published Rust digest'
+        image_namespace = 'ci-rust-build-' + digest[1]
+        assert families.get('rust-image-native') == (image_namespace, '.github/workflows/rust-cache.yml', image_writer)
+        assert 'shared-key: ' + image_namespace + '\n' in job
+        assert "github.ref == 'refs/heads/main' && github.workflow_sha == github.sha" in job
+        assert "github.event_name == 'workflow_dispatch' && inputs.run_mode == 'image-native'" in job
+        assert 'OASIS7_DEPENDENCY_CACHE_FAMILY: rust-image-native\n' in job
+        tool_jobs.add(image_writer)
+    else:
+        assert 'rust-image-native' not in families
     assert set(cache_jobs) == (({'shared-native-cache', 'web-wasm-cache'} if migrated
                                else {'shared-native-cache'}) | tool_jobs), 'incomplete cache producer layout'
     active = []
