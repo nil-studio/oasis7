@@ -281,6 +281,78 @@ def browser_archive_cache_writer(job):
     return admissions[0]
 
 
+def component_image_cache_writer(job, families, readers=JOBS):
+    """Bind each complete writer row to the actual reader cache environment."""
+    header, steps = job.split('    steps:', 1)
+    for required in ('cache-mode: write', 'contents: read', 'actions: read', 'packages: read',
+                     "github.ref == 'refs/heads/main' && github.workflow_sha == github.sha",
+                     "github.event_name == 'schedule'", "github.event_name == 'workflow_dispatch'",
+                     "inputs.run_mode == 'full'", "inputs.run_mode == 'image-native'",
+                     'fail-fast: false', 'max-parallel: 1', 'runs-on: ubuntu-24.04',
+                     'timeout-minutes: 60', 'image: ${{ matrix.image }}', 'options: ${{ matrix.options }}'):
+        assert required in header, 'component image writer needs its complete trusted main layout'
+    records = re.findall(r'^          - profile: ([a-z]+)\n((?:^            .+\n)+)', header, re.M)
+    rows = {profile: dict((key, value.strip("'")) for key, value in re.findall(
+        r'^            ([a-z-]+): (.*)$', body, re.M)) for profile, body in records}
+    expected = {
+        'native': (('consensus', 'distfs'), 'rust-image-components'),
+        'node': (('node',), 'rust-image-components'),
+        'net': (('net',), 'rust-image-net'),
+        'launcher': (('launcher-web',), 'rust-image-launcher'),
+        'tooling': (('cargo-tooling-contracts',), 'rust-image-tooling'),
+    }
+    assert len(records) == len(rows) == len(expected) and set(rows) == set(expected)
+    for profile, (names, family) in expected.items():
+        row = rows[profile]
+        assert set(row) == {'family', 'image', 'namespace', 'options', 'mold-dir'}
+        assert row['family'] == family
+        assert families.get(family) == (row['namespace'], '.github/workflows/rust-cache.yml',
+                                        'rust-image-component-cache')
+        for name in names:
+            reader = readers[name]
+            assert 'image: ' + row['image'] + '\n' in reader
+            assert re.fullmatch(r'ghcr.io/nil-studio/oasis7/ci-rust-(?:wasm-)?build@sha256:[0-9a-f]{64}', row['image'])
+            assert row['namespace'] == row['image'].rsplit('/', 1)[1].replace('@sha256:', '-')
+            caches = rust_cache_steps(reader)
+            assert len(caches) == 1 and 'shared-key: ' + row['namespace'] + '\n' in caches[0]
+            assert 'save-if: false\n' in caches[0]
+            assert 'add-rust-environment-hash-key: true' in caches[0]
+            assert 'env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM' in caches[0]
+            assert not re.search(r'^          (?:key|prefix-key|workspaces|cache-directories|cache-targets):', caches[0], re.M)
+            options = re.search(r'^      options: (.+)$', reader, re.M)
+            assert row['options'] == (options[1] if options else '')
+            mold = re.search(r'^          install-dir: \$\{\{ runner.temp \}\}/([^\n]+)$', reader, re.M)
+            assert row['mold-dir'] == (mold[1] if mold else '')
+    assert "install-dir: ${{ matrix.mold-dir != '' && format('{0}/{1}', runner.temp, matrix.mold-dir) || '' }}" in steps
+    for required in ('ref: ${{ github.sha }}', 'persist-credentials: false',
+                     'test "$GITHUB_REF" = refs/heads/main', 'test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"',
+                     'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"',
+                     'python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"',
+                     'python3 scripts/ci-rust-cache-admission.py install',
+                     "if: steps.image-cache.outputs.cache-hit != 'true'",
+                     'IMAGE_CACHE_PROFILE: ${{ matrix.profile }}',
+                     'python3 scripts/ci-image-cache.py --profile "$IMAGE_CACHE_PROFILE"'):
+        assert required in steps
+    assert 'continue-on-error' not in job and 'actions: write' not in job and 'secrets.' not in job
+    caches = rust_cache_steps(job)
+    assert len(caches) == 1
+    cache = caches[0]
+    for required in ('Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0',
+                     'PATH: ${{ steps.dependency-cache-tools.outputs.path }}',
+                     'OASIS7_DEPENDENCY_CACHE_FAMILY: ${{ matrix.family }}',
+                     'OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}',
+                     'shared-key: ${{ matrix.namespace }}', 'add-rust-environment-hash-key: true',
+                     'env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM',
+                     "save-if: ${{ job.status == 'success' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}",
+                     'cache-on-failure: false'):
+        assert required in cache
+    assert not re.search(r'^          (?:key|prefix-key|workspaces|cache-directories|cache-targets|restore-keys):', cache, re.M)
+    assert steps.index('Verify current main cache source') < steps.index('ci-rust-cache-admission.py install')
+    assert steps.index('setup-linux-mold') < steps.index('Stabilize Rust cache toolchains') < steps.index(cache)
+    assert steps.index(cache) < steps.index('Warm the exact component dependency contexts')
+    return rows
+
+
 def web_cache_layout(cache_workflow, release_workflow, admission_source):
     """Accept only the complete old or new sole-writer wiring during migration."""
     assignments = [node for node in ast.parse(admission_source).body
@@ -317,6 +389,13 @@ def web_cache_layout(cache_workflow, release_workflow, admission_source):
         tool_jobs.add(image_writer)
     else:
         assert 'rust-image-native' not in families
+    component_writer = 'rust-image-component-cache'
+    if component_writer in cache_jobs:
+        component_image_cache_writer(cache_jobs[component_writer], families)
+        tool_jobs.add(component_writer)
+    else:
+        assert not {'rust-image-components', 'rust-image-net', 'rust-image-launcher',
+                    'rust-image-tooling'}.intersection(families)
     assert set(cache_jobs) == (({'shared-native-cache', 'web-wasm-cache'} if migrated
                                else {'shared-native-cache'}) | tool_jobs), 'incomplete cache producer layout'
     active = []
@@ -612,7 +691,8 @@ class Workflow(unittest.TestCase):
                 'viewer-performance-report', 'launcher-web',
                 'custody-wasm-production', 'custody-wasm-approval',
             ),
-            'rust-cache.yml': ('worker-build-cache', 'shared-native-cache', 'web-wasm-cache'),
+            'rust-cache.yml': ('worker-build-cache', 'shared-native-cache', 'web-wasm-cache',
+                               'rust-image-native-cache', 'rust-image-component-cache'),
             'ecs-packages.yml': ('web', 'native', 'native-trusted', 'build-metrics'),
             'native-cache-diagnostic.yml': ('diagnose',),
             'storage-acceptance.yml': ('build',),
@@ -870,6 +950,69 @@ class Workflow(unittest.TestCase):
         web_cache_layout(workflow, (ROOT / '.github/workflows/release-packages.yml').read_text(),
                          (ROOT / 'scripts/ci-rust-cache-admission.py').read_text())
         return workflow, jobs['shared-native-cache']
+
+    def test_component_image_writer_matches_reader_contexts_and_rejects_partial_wiring(self):
+        workflow, _ = self.shared_cache_workflow()
+        job = workflow_jobs(workflow)['rust-image-component-cache']
+        source = ast.parse((ROOT / 'scripts/ci-rust-cache-admission.py').read_text())
+        families = ast.literal_eval(next(node.value for node in source.body
+            if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name)
+                and target.id == 'FAMILIES' for target in node.targets)))
+        self.assertEqual(set(component_image_cache_writer(job, families)),
+                         {'native', 'node', 'net', 'launcher', 'tooling'})
+        # These global values enter the upstream Rust environment hash. The
+        # matrix must not create a different identity before any Cargo runs.
+        def cache_environment(text):
+            header = text.split('\njobs:\n', 1)[0]
+            return dict(re.findall(r'^  ((?:CARGO|RUST|OASIS7_WASM)[A-Z0-9_]*): (.+)$', header, re.M))
+        self.assertEqual(cache_environment(workflow), cache_environment(RAW_WORKFLOW))
+        mutations = (
+            job.replace('profile: node', 'profile: native', 1),
+            job.replace('mold-dir: oasis7-node-mold', 'mold-dir: oasis7-other-mold', 1),
+            job.replace('options: --user 1001:1001', "options: ''", 1),
+            job.replace('max-parallel: 1', 'max-parallel: 5', 1),
+            job.replace('family: rust-image-net', 'family: rust-image-components', 1),
+            job.replace('add-rust-environment-hash-key: true', 'add-rust-environment-hash-key: false', 1),
+            job.replace('cache-on-failure: false', 'cache-on-failure: true', 1),
+            job.replace('shared-key: ${{ matrix.namespace }}', 'shared-key: ci-shared-native-trusted-v4', 1),
+            job.replace('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM', 'env-vars: CARGO', 1),
+            job.replace('cache-on-failure: false', 'cache-on-failure: false\n          workspaces: . -> other-target', 1),
+            job.replace('OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}',
+                        'OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: 999999999999', 1),
+            job.replace('python3 scripts/ci-rust-cache-admission.py install', 'true', 1),
+            job.replace('ci-image-cache.py --profile "$IMAGE_CACHE_PROFILE"', 'ci-image-cache.py --profile native', 1),
+            job.replace("job.status == 'success'", "job.status != 'cancelled'", 1),
+            job.replace('persist-credentials: false', 'persist-credentials: true', 1),
+        )
+        for changed in mutations:
+            with self.subTest(change=changed):
+                with self.assertRaises(AssertionError):
+                    component_image_cache_writer(changed, families)
+        for family in ('rust-image-components', 'rust-image-net', 'rust-image-launcher', 'rust-image-tooling'):
+            with self.subTest(missing=family), self.assertRaises(AssertionError):
+                component_image_cache_writer(job, {key: value for key, value in families.items() if key != family})
+        changed_reader = dict(JOBS, node=JOBS['node'].replace('oasis7-node-mold', 'different-node-mold'))
+        with self.assertRaises(AssertionError):
+            component_image_cache_writer(job, families, changed_reader)
+
+    def test_component_image_writer_runs_only_for_current_main_cache_events(self):
+        workflow, _ = self.shared_cache_workflow()
+        job = workflow_jobs(workflow)['rust-image-component-cache']
+        expression = ' '.join(job.split('    if:', 1)[1].split('    strategy:', 1)[0]
+                              .strip().removeprefix('>-').split())
+        for event, ref, matching, mode in itertools.product(
+                ('schedule', 'workflow_dispatch', 'pull_request', 'push', 'workflow_run'),
+                ('refs/heads/main', 'refs/heads/topic', 'refs/pull/1/merge', 'refs/tags/v1'),
+                (True, False), ('full', 'image-native', 'pr-fast', '')):
+            values = {'github.event_name': event, 'github.ref': ref, 'github.workflow_sha': 'a',
+                      'github.sha': 'a' if matching else 'b', 'inputs.run_mode': mode}
+            predicate = expression
+            for token, value in values.items():
+                predicate = predicate.replace(token, repr(value))
+            with self.subTest(event=event, ref=ref, matching=matching, mode=mode):
+                self.assertEqual(eval(predicate.replace('&&', ' and ').replace('||', ' or '), {'__builtins__': {}}, {}),
+                    ref == 'refs/heads/main' and matching and (event == 'schedule'
+                    or event == 'workflow_dispatch' and mode in ('full', 'image-native')))
 
     def test_web_cache_migration_rejects_partial_or_multiple_writers(self):
         namespace = 'release-packages-web-wasm-trusted-v3'
@@ -4018,6 +4161,7 @@ run_cargo() {
             dependency_cache = dependency_caches[0]
             family = {'shared-native-cache': 'shared-native',
                       'rust-image-native-cache': 'rust-image-native',
+                      'rust-image-component-cache': '${{ matrix.family }}',
                       'web-wasm-cache': 'release-web'}[name]
             self.assertIn('OASIS7_DEPENDENCY_CACHE_FAMILY: ' + family + '\n', dependency_cache)
             self.assertEqual(dependency_cache.count('GH_TOKEN: ${{ github.token }}'), 1)

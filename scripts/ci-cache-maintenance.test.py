@@ -433,6 +433,23 @@ class DependencyRetentionTests(unittest.TestCase):
     NAMESPACES = ('ci-shared-native-trusted-v4', 'oasis7-ecs-native-linux-ecs-v2',
                   'ci-formal-debug-deps-trusted-v1', 'ci-formal-endpoint-deps-trusted-v1')
 
+    def test_component_image_namespaces_cannot_replace_other_images_linkers_or_versions(self):
+        namespaces = (
+            'ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f',
+            'ci-rust-wasm-build-57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6',
+            'ci-rust-build-cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6',
+            'ci-rust-build-d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc',
+        )
+        for namespace in namespaces:
+            with self.subTest(namespace=namespace):
+                entries = [self.dependency(1, namespace), self.dependency(2, namespace),
+                           self.dependency(3, namespace, environment='b'),
+                           self.dependency(4, namespace, version='other'),
+                           self.dependency(5, maintenance.RUST_IMAGE_DEPENDENCY_NAMESPACE)]
+                plan = maintenance.plan_recovery(entries, START, repository_limit_bytes=1)
+                self.assertEqual([entry['id'] for entry in plan['delete']], [1])
+                self.assertEqual(set(plan['dependencies']['recovery_ids']), {2, 3, 4, 5})
+
     def test_formal_dependency_profiles_cannot_replace_one_another_or_shared_native(self):
         entries = [self.dependency(i, namespace) for i, namespace in enumerate(
             ('ci-formal-debug-deps-trusted-v1', 'ci-formal-endpoint-deps-trusted-v1',
