@@ -16,7 +16,7 @@ use publication_metadata::PublicationReservationV1;
 mod publication_plan;
 use publication_plan::planned_publication_bytes;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct OriginalCandidateArchivePinV1 {
     pub(crate) reference: BftPrivateRetentionAdmissionInputRefV1,
@@ -348,6 +348,156 @@ fn first_price_bounds(
         original_selection_bytes,
         retained_h_dependencies,
     })
+}
+
+impl FormalBftHeaderLedgerExecutionV3 {
+    /// Prepare the exact Local original from the authenticated retained source.
+    /// The resulting archive is input material, with no protected lifecycle write.
+    pub(crate) fn archive_first_original_local(
+        &self,
+        archive: &LocalBftSuccessorArchiveStoreV1,
+        binding: &oasis7_distfs::protected_bft_v3::BftSignerBindingV3,
+        attestor: &oasis7_distfs::protected_bft_v3::BftPrivateRetentionAttestorV1,
+        marker: &BftPrivateRetentionCreationMarkerV1,
+        actions: Vec<u8>,
+    ) -> Result<
+        (
+            BftSuccessorWindowSourceV1,
+            OriginalCandidateArchivePinV1,
+            ReplayedOriginalCandidateV1,
+            u64,
+        ),
+        String,
+    > {
+        use oasis7_distfs::protected_bft_v3::{
+            BftPrivateRetentionInputObjectV1, BftPrivateRetentionKeyV1,
+        };
+        let (private_origin, retained_h) =
+            self.original_source_for_candidate(binding, attestor, marker)?;
+        let execution = FormalBftHeaderExecutionV3::from_handoff(
+            self.inputs.anchor.clone(),
+            self.inputs.target.clone(),
+            &self.inputs.material,
+            self.inputs.source.clone(),
+            Vec::new(),
+            false,
+        )?;
+        capture_h_index(&execution)?;
+        if execution
+            .retained_nodes
+            .accessed_nodes()?
+            .keys()
+            .ne(retained_h.iter())
+        {
+            return Err("actual qualified H differs from protected original inventory".into());
+        }
+        let recorder = formal_dependencies::RecordingBusinessIndexReaderV1::new(
+            execution.retained_nodes.clone(),
+            Vec::new(),
+        )?;
+        let candidate_context = execution.with_candidate_reader(recorder.clone())?;
+        let executed = candidate_context.execute(&actions)?;
+        let dependencies = recorder.accessed_nodes()?;
+        let publication_bytes = planned_publication_bytes(
+            &execution.schedule,
+            &executed,
+            &actions,
+            &dependencies
+                .iter()
+                .map(|(id, bytes)| (id.clone(), bytes.len()))
+                .collect(),
+            &[],
+        )?;
+        let origin = &marker.ledger_origin_digest;
+        let meta = PublicationReservationV1::from_actual(
+            origin,
+            &binding.material_identity,
+            &marker.creation_identity,
+            &actions,
+            &executed,
+            publication_bytes,
+        )?;
+        let object = |kind, bytes: Vec<u8>| BftPrivateRetentionInputObjectV1 {
+            kind,
+            reference: BftSuccessorWindowArchiveRefV1 {
+                digest: blake3_hex(&bytes),
+                bytes: bytes.len() as u64,
+            },
+            bytes,
+        };
+        let metadata = object(Kind::PublicationMetadata, meta.encode()?);
+        let header_id = executed.candidate.header.block_id()?;
+        let height = executed.candidate.commitment.height;
+        let data = OriginalCandidateData {
+            schema_version: 9,
+            domain: "oasis7.formal.bft.node_private_protected_input.v1".into(),
+            origin: false,
+            ledger_origin_digest: origin.clone(),
+            material_identity: binding.material_identity.clone(),
+            instance_id: marker.creation_identity.clone(),
+            height,
+            value: Some(BftHeaderValueV3 {
+                header: executed.candidate.header,
+                execution_commitment: executed.candidate.commitment,
+            }),
+            actions_cbor: actions,
+            references: dependencies.keys().cloned().collect(),
+            publication_reservation_ref: metadata.reference.digest.clone(),
+            protected_source_origin_ref: private_origin.clone(),
+        };
+        let mut objects = vec![
+            object(
+                Kind::OriginalData,
+                serde_cbor::to_vec(&data).map_err(error)?,
+            ),
+            metadata,
+        ];
+        objects.extend(
+            dependencies
+                .into_values()
+                .map(|bytes| object(Kind::Dependency, bytes)),
+        );
+        objects.sort_by(|a, b| a.reference.digest.cmp(&b.reference.digest));
+        let mut input = BftPrivateRetentionAdmissionInputV1 {
+            schema_version: 1,
+            source: marker.source.clone(),
+            key: BftPrivateRetentionKeyV1 {
+                ledger_origin_digest: origin.clone(),
+                height,
+                header_id,
+            },
+            // An unpublished input needs a nonzero value to pass structural
+            // validation while computing the actual original charge.
+            publication_reservation_bytes: 1,
+            objects,
+        };
+        input.publication_reservation_bytes =
+            first_price_bounds(&input, publication_bytes as u64, retained_h)?
+                .required_input_bytes(&input)
+                .map_err(error)?;
+        let handoff = &execution.handoff;
+        let source = BftSuccessorWindowSourceV1 {
+            scope: handoff.target().scope.clone(),
+            binding_digest: marker.source.binding_digest.clone(),
+            handoff_position: handoff.handoff_position(),
+            handoff_record_id: handoff.handoff_head().record_id.clone(),
+            handoff_snapshot_root: handoff.raw_snapshot_root().into(),
+            target_digest: handoff.target_digest().into(),
+            activation_digest: handoff.activation_digest().into(),
+            material_identity: binding.material_identity.clone(),
+        };
+        let pin = OriginalCandidateArchivePinV1 {
+            reference: input.descriptor().map_err(error)?,
+            original_private_origin_digest: private_origin,
+            original_instance_id: marker.creation_identity.clone(),
+        };
+        let result = pin.replay_candidate(&input, &source, &execution, origin, &[])?;
+        self.ledger.verify_carriers()?;
+        archive
+            .persist_original_admission_input(&pin.reference, &input)
+            .map_err(error)?;
+        Ok((source, pin, result, input.publication_reservation_bytes))
+    }
 }
 
 #[cfg(test)]

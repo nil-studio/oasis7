@@ -74,6 +74,20 @@ impl BftFirstReservationPriceV1 {
         &self,
         input: &BftPrivateRetentionAdmissionInputV1,
     ) -> Result<(), BftSignerErrorV3> {
+        if self.required_input_bytes(input)? != input.publication_reservation_bytes {
+            return Err(invalid(
+                "first reserve price differs from original authenticated inventory",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Derive the first charge from the exact input object roles. The producer
+    /// assigns this value, while the protected service separately checks it.
+    pub fn required_input_bytes(
+        &self,
+        input: &BftPrivateRetentionAdmissionInputV1,
+    ) -> Result<u64, BftSignerErrorV3> {
         use BftPrivateRetentionInputObjectKindV1 as Kind;
         input.validate()?;
         if self.publication_bytes == 0
@@ -113,12 +127,10 @@ impl BftFirstReservationPriceV1 {
                 .checked_add(added)
                 .ok_or_else(|| invalid("first reserve original price overflow"))?;
         }
-        if total > MAX_PUBLICATION_BYTES || total != input.publication_reservation_bytes {
-            return Err(invalid(
-                "first reserve price differs from original authenticated inventory",
-            ));
+        if total > MAX_PUBLICATION_BYTES {
+            return Err(invalid("first reserve original publication capacity"));
         }
-        Ok(())
+        Ok(total)
     }
 }
 

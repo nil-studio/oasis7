@@ -98,7 +98,9 @@ pub(super) fn run<'a>(
     while let Some(option) = args.next() {
         if matches!(
             option,
-            "--prepare-private-source" | "--activate-private-source"
+            "--prepare-private-source"
+                | "--activate-private-source"
+                | "--archive-first-private-source-input"
         ) {
             if source_action.replace(option).is_some() {
                 return Err("duplicate private source operation".into());
@@ -139,16 +141,20 @@ pub(super) fn run<'a>(
     }
     let config = config.ok_or("bft-header node requires --config")?;
     if let Some(action) = source_action {
-        if print_binding || serve || actions.is_some() {
+        if print_binding || serve {
             return Err("private source operations use a dedicated offline Node command".into());
         }
         let source_config =
             source_config.ok_or("private source operation requires --source-config")?;
-        return private_source::run(
-            &config,
-            &source_config,
-            action == "--activate-private-source",
-        );
+        let mode = match (action, actions.as_deref()) {
+            ("--prepare-private-source", None) => private_source::Mode::Prepare,
+            ("--activate-private-source", None) => private_source::Mode::Activate,
+            ("--archive-first-private-source-input", Some(path)) => {
+                private_source::Mode::ArchiveFirst(path)
+            }
+            _ => return Err("only first private input archiving requires --actions".into()),
+        };
+        return private_source::run(&config, &source_config, mode);
     }
     if source_config.is_some() {
         return Err("--source-config requires a private source operation".into());

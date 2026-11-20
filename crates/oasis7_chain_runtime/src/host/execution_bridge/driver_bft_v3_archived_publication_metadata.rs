@@ -83,6 +83,40 @@ impl PublicationReservationV1 {
         Ok(())
     }
 
+    pub(super) fn from_actual(
+        ledger_origin: &str,
+        material_identity: &str,
+        instance_id: &str,
+        actions: &[u8],
+        executed: &ExecutedFormalHeaderV3,
+        publication_bytes: usize,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            schema_version: 1,
+            domain: DOMAIN.into(),
+            ledger_origin_digest: ledger_origin.into(),
+            material_identity: material_identity.into(),
+            instance_id: instance_id.into(),
+            height: executed.candidate.commitment.height,
+            header_id: executed.candidate.header.block_id()?,
+            actions_digest: blake3_hex(actions),
+            snapshot_digest: blake3_hex(&executed.snapshot_bytes),
+            snapshot_bytes: executed.snapshot_bytes.len() as u64,
+            journal_digest: blake3_hex(&executed.journal_bytes),
+            journal_bytes: executed.journal_bytes.len() as u64,
+            derived_nodes_digest: derived_nodes_digest(executed)?,
+            publication_bytes: publication_bytes as u64,
+        })
+    }
+
+    pub(super) fn encode(&self) -> Result<Vec<u8>, String> {
+        let bytes = serde_cbor::to_vec(self).map_err(error)?;
+        if bytes.len() > MAX_PUBLICATION_METADATA_BYTES {
+            return Err("original publication metadata capacity".into());
+        }
+        Ok(bytes)
+    }
+
     #[cfg(test)]
     pub(super) fn fixture(
         ledger_origin: &str,
