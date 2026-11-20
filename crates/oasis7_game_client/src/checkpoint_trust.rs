@@ -228,10 +228,27 @@ pub fn load_checkpoint_trust_preparation(
     if !path.is_absolute() {
         return Err("checkpoint trust path must be absolute".into());
     }
+    // Keep the actual open bounded and refuse a replaced leaf symlink or
+    // FIFO, even if a caller preflighted the file before this point.
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    let file = options
+        .open(path)
+        .map_err(|e| format!("open checkpoint trust input: {e}"))?;
+    if !file
+        .metadata()
+        .map_err(|e| format!("stat checkpoint trust input: {e}"))?
+        .is_file()
+    {
+        return Err("checkpoint trust input must be a regular file".into());
+    }
     let mut bytes = Vec::new();
-    std::fs::File::open(path)
-        .map_err(|e| e.to_string())?
-        .take(BFT_CHECKPOINT_CONFIG_MAX_BYTES_V1 as u64 + 1)
+    file.take(BFT_CHECKPOINT_CONFIG_MAX_BYTES_V1 as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())?;
     BftCheckpointTrustConfigV1::decode_and_prepare(
@@ -250,6 +267,50 @@ mod tests {
         let bytes = canonical(&serde_json::json!({"kind":"successor_window_v1"})).unwrap();
         assert!(serde_cbor::from_slice::<BftCheckpointAnchorRefV1>(&bytes).is_err());
     }
+    #[cfg(unix)]
+    #[test]
+    fn checkpoint_loader_refuses_symlink_and_fifo_without_waiting_for_writer() {
+        use std::ffi::CString;
+        use std::os::unix::{ffi::OsStrExt, fs::symlink};
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "oasis7-checkpoint-loader-{}-{nonce}", std::process::id()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let regular = root.join("config.cbor");
+        std::fs::write(&regular, b"invalid CBOR").unwrap();
+        let linked = root.join("linked.cbor");
+        symlink(&regular, &linked).unwrap();
+        let fifo = root.join("blocked-fifo");
+        let fifo_path = CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo_path.as_ptr(), 0o600) }, 0);
+        let pin = "11".repeat(32);
+
+        for blocked in [&linked, &fifo] {
+            let result = load_checkpoint_trust_preparation(blocked, &pin, &pin, &pin);
+            let error = match result {
+                Ok(_) => panic!("unsafe checkpoint file unexpectedly accepted"),
+                Err(error) => error,
+            };
+            assert!(
+                error.starts_with("open checkpoint trust input:")
+                    || error == "checkpoint trust input must be a regular file",
+                "unexpected checkpoint file error: {error}"
+            );
+        }
+        // A real regular file reaches the existing canonical framing checks.
+        assert!(load_checkpoint_trust_preparation(&regular, &pin, &pin, &pin).is_err());
+    }
+
     #[test]
     fn rejects_oversize_and_legacy_config_at_the_new_entry() {
         let pin = "11".repeat(32);
