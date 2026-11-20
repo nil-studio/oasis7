@@ -33,10 +33,36 @@ def render_job(group: str) -> str:
         source_checkout_condition = (
             "        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}\n"
         )
-    rust_setup = (
-        '      - name: Install Rust for packaging contract fixtures\n'
-        '        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy\n'
-    ) if group == "packaging_contracts" else ""
+    container = ""
+    trust_checkout = ""
+    rust_setup = ""
+    if group == "packaging_contracts":
+        container = (
+            "    permissions:\n"
+            "      contents: read\n"
+            "      packages: read\n"
+            "    container:\n"
+            "      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:3395596ee4a090242b77a42ec9f67a5b1b1758b707bed70907107bdfbdc932bf\n"
+            "      credentials:\n"
+            "        username: ${{ github.actor }}\n"
+            "        password: ${{ github.token }}\n"
+            "    defaults:\n"
+            "      run:\n"
+            "        shell: bash\n"
+        )
+        trust_checkout = (
+            '      - name: Trust the checked-out workspace path in the job container\n'
+            '        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"\n'
+        )
+        rust_setup = (
+            '      - name: Verify preinstalled Rust for packaging contract fixtures\n'
+            '        run: |\n'
+            '          set -euo pipefail\n'
+            '          rustc +"$RUST_TOOLCHAIN" -vV\n'
+            '          cargo +"$RUST_TOOLCHAIN" --version\n'
+            '          cargo +"$RUST_TOOLCHAIN" fmt --version\n'
+            '          cargo +"$RUST_TOOLCHAIN" clippy --version\n'
+        )
     return (
         f"  {job_id}:\n"
         f"    needs: select\n"
@@ -45,6 +71,7 @@ def render_job(group: str) -> str:
         f"      (needs.select.outputs.run_{group} == 'true' ||\n"
         f"       fromJSON(needs.select.outputs.plan).scope == 'full')\n"
         f"    runs-on: ubuntu-24.04\n"
+        f"{container}"
         f"    steps:\n"
         f"{mold_prefix}"
         f"      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n"
@@ -53,6 +80,7 @@ def render_job(group: str) -> str:
         f"          ref: ${{{{ needs.select.outputs.tested_sha }}}}\n"
         f"          fetch-depth: 0\n"
         f"          persist-credentials: false\n"
+        f"{trust_checkout}"
         f"      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7\n"
         f"        with:\n"
         f"          python-version: '3.12'\n"
