@@ -36,8 +36,8 @@ WORKDIR /tmp/git-source
 RUN curl -fsSL --retry 3 https://www.kernel.org/pub/software/scm/git/git-2.56.1.tar.xz -o git.tar.xz \
     && echo 'f0b0bf89264b9bd2e1c640363e7529643989da76281600473c50745cd34a607f  git.tar.xz' | sha256sum -c - \
     && tar -xJf git.tar.xz --strip-components=1 \
-    && make -j"$(nproc)" prefix=/usr/local NO_TCLTK=YesPlease NO_GETTEXT=YesPlease NO_PERL=YesPlease all \
-    && make prefix=/usr/local NO_TCLTK=YesPlease NO_GETTEXT=YesPlease NO_PERL=YesPlease DESTDIR=/tmp/git-install install
+    && make -j"$(nproc)" prefix=/usr/local NO_RUST=YesPlease NO_TCLTK=YesPlease NO_GETTEXT=YesPlease NO_PERL=YesPlease all \
+    && make prefix=/usr/local NO_RUST=YesPlease NO_TCLTK=YesPlease NO_GETTEXT=YesPlease NO_PERL=YesPlease DESTDIR=/tmp/git-install install
 
 FROM build AS rust-build
 COPY --from=git-tools /tmp/git-install/usr/local/ /usr/local/
