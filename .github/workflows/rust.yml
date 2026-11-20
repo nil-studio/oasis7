@@ -196,6 +196,7 @@ jobs:
       formal_shards: ${{ steps.select.outputs.formal_shards || '["runtime-protocol","world-history","healthy-set","storage-recovery","lifecycle-cli"]' }}
       ordinary_partitions: ${{ steps.select.outputs.ordinary_partitions || '["all"]' }}
       workspace_support_partitions: ${{ steps.select.outputs.workspace_support_partitions || '["all"]' }}
+      workspace_support_host: ${{ steps.select.outputs.workspace_support_host }}
       command_center_package: ${{ steps.select.outputs.command_center_package || 'true' }}
       run_baseline: ${{ steps.select.outputs.run_baseline }}
       run_command_center: ${{ steps.select.outputs.run_command_center }}
@@ -3079,7 +3080,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        execution: ${{ fromJSON((fromJSON(needs.select.outputs.plan).scope == 'full' || contains(fromJSON(needs.select.outputs.plan).workspace_support_profiles, 'oasis7_game_client')) && '["host","image"]' || '["image"]') }}
+        execution: ${{ fromJSON(needs.select.outputs.workspace_support_host != 'false' && '["host","image"]' || '["image"]') }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
