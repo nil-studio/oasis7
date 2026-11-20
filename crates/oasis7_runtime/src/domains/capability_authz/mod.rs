@@ -9,4 +9,5 @@
 use super::{World, capability_authorization};
 
 mod catalog;
+pub(super) mod command_projection;
 mod validation;

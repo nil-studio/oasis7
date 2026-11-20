@@ -40,7 +40,6 @@ pub mod capability_authz;
 mod capability_authorization;
 mod capability_authorization_admin;
 mod capability_authorization_command;
-mod capability_authorization_command_projection;
 mod capability_authorization_command_stage;
 mod capability_authorization_events;
 mod capability_authorization_publication;
