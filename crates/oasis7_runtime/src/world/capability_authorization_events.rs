@@ -32,7 +32,7 @@ impl World {
         event: &CapabilityAuthorizationEvent,
         time: WorldTime,
     ) -> Result<
-        super::capability_authorization_command_projection::PreparedCapabilityCommandCommit,
+        super::capability_authz::command_projection::PreparedCapabilityCommandCommit,
         WorldError,
     > {
         let CapabilityAuthorizationEvent::CommandCommitted {
@@ -549,7 +549,7 @@ fn apply_command_commit(
     effect_receipt_links: &std::collections::BTreeMap<String, CapabilityEffectReceiptLink>,
     time: WorldTime,
 ) -> Result<
-    super::capability_authorization_command_projection::PreparedCapabilityCommandCommit,
+    super::capability_authz::command_projection::PreparedCapabilityCommandCommit,
     WorldError,
 > {
     let mut capability_grants_v2 = world.capability_grants_v2.clone();
@@ -785,7 +785,7 @@ fn apply_command_commit(
             &capability_effect_receipt_links,
         )?;
     Ok(
-        super::capability_authorization_command_projection::PreparedCapabilityCommandCommit {
+        super::capability_authz::command_projection::PreparedCapabilityCommandCommit {
             event: event.clone(),
             capability_grants_v2,
             capability_nonce_records,

@@ -51,7 +51,7 @@ pub(in crate::world::event_processing) enum PreparedEventStateDelta {
         Box<super::super::super::capability_authorization_publication::PreparedCapabilityAuthorizationEvent>,
     ),
     CapabilityCommandCommit(
-        super::super::super::capability_authorization_command_projection::PreparedCapabilityCommandCommit,
+        super::super::super::capability_authz::command_projection::PreparedCapabilityCommandCommit,
     ),
     CapabilityEffectReceipt(
         super::super::super::capability_effect_receipt_projection::PreparedCapabilityEffectReceipt,

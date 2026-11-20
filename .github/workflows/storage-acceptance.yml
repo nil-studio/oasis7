@@ -194,7 +194,8 @@ jobs:
           printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           unset GHCR_TOKEN
           time docker pull "$STORAGE_VERIFY_IMAGE"
-          docker run --rm --pull never --user "$(id -u):$(id -g)" \
+          # Reap orphaned process fixtures inside the container PID namespace.
+          docker run --rm --init --pull never --user "$(id -u):$(id -g)" \
             --mount "type=bind,source=$GITHUB_WORKSPACE,target=$STORAGE_ARTIFACT_CHECKOUT" \
             --mount "type=bind,source=$RUNNER_TEMP/storage-tests,target=$RUNNER_TEMP/storage-tests,readonly" \
             --workdir "$STORAGE_ARTIFACT_CHECKOUT" --env GITHUB_WORKSPACE="$STORAGE_ARTIFACT_CHECKOUT" --env HOME=/tmp --env SOURCE_SHA --env GITHUB_RUN_ID --env GITHUB_RUN_ATTEMPT \
