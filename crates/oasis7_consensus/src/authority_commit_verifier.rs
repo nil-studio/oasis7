@@ -22,12 +22,14 @@ use oasis7_formal_protocol::controlled_authority::formal::{
 pub enum TrustedCommitAnchor {
     /// Single-authority Controlled profile anchor (authority set + optional parent & recovery).
     Controlled {
-        authority: VerifiedAuthorityV1,
-        parent: Option<VerifiedFormalCommitV1>,
-        recovery: Option<VerifiedRecovery>,
+        authority: Box<VerifiedAuthorityV1>,
+        parent: Option<Box<VerifiedFormalCommitV1>>,
+        recovery: Option<Box<VerifiedRecovery>>,
     },
     /// Qualified-H BFT V3 profile anchor (active validator set, policy, parent link & `H / H+1` schedule).
-    BftV3 { schedule: BftHeaderHeightScheduleV3 },
+    BftV3 {
+        schedule: Box<BftHeaderHeightScheduleV3>,
+    },
 }
 
 impl TrustedCommitAnchor {
@@ -37,14 +39,16 @@ impl TrustedCommitAnchor {
         recovery: Option<VerifiedRecovery>,
     ) -> Self {
         Self::Controlled {
-            authority,
-            parent,
-            recovery,
+            authority: Box::new(authority),
+            parent: parent.map(Box::new),
+            recovery: recovery.map(Box::new),
         }
     }
 
     pub fn bft_v3(schedule: BftHeaderHeightScheduleV3) -> Self {
-        Self::BftV3 { schedule }
+        Self::BftV3 {
+            schedule: Box::new(schedule),
+        }
     }
 
     fn profile_name(&self) -> &'static str {
@@ -300,8 +304,8 @@ impl AuthorityCommitVerifier for ControlledAuthorityCommitVerifier {
                 let verified = verify_formal_qualified(
                     qualified,
                     authority,
-                    parent.as_ref(),
-                    recovery.as_ref(),
+                    parent.as_deref(),
+                    recovery.as_deref(),
                 )
                 .map_err(|err| {
                     AuthorityCommitReject::ControlledVerificationFailed(err.to_string())
@@ -322,11 +326,15 @@ impl AuthorityCommitVerifier for ControlledAuthorityCommitVerifier {
                         position: decision.record.position,
                     });
                 }
-                let verified =
-                    verify_formal_decision(decision, authority, parent.as_ref(), recovery.as_ref())
-                        .map_err(|err| {
-                            AuthorityCommitReject::ControlledVerificationFailed(err.to_string())
-                        })?;
+                let verified = verify_formal_decision(
+                    decision,
+                    authority,
+                    parent.as_deref(),
+                    recovery.as_deref(),
+                )
+                .map_err(|err| {
+                    AuthorityCommitReject::ControlledVerificationFailed(err.to_string())
+                })?;
                 let record_id = verified.record().record_id().map_err(|err| {
                     AuthorityCommitReject::ControlledVerificationFailed(err.to_string())
                 })?;
