@@ -2,8 +2,8 @@
 
 mod common;
 
-use oasis7::GeoPos;
-use oasis7::runtime::{
+use oasis7_agent_api::world_action::GeoPos;
+use oasis7_runtime::{
     Action, Manifest, ModuleAbiContract, ModuleActivation, ModuleChangeSet, ModuleKind,
     ModuleLimits, ModuleManifest, ModuleRole, ModuleSubscription, ModuleSubscriptionStage,
     PolicySet, ProposalDecision, World, WorldEvent,
@@ -14,7 +14,7 @@ use oasis7_wasm_abi::{
 use sha2::{Digest, Sha256};
 
 #[cfg(feature = "test_tier_full")]
-use oasis7::runtime::ActionEnvelope;
+use oasis7_runtime::ActionEnvelope;
 
 fn pos(x: i64, y: i64) -> GeoPos {
     GeoPos {
@@ -89,7 +89,7 @@ fn apply_module_manifest(world: &mut World, module_manifest: ModuleManifest) {
 #[cfg(feature = "test_tier_required")]
 #[test]
 fn module_route_encodes_event_input_as_cbor() {
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = World::new();
     world.set_policy(PolicySet::allow_all());
 
     let wasm_bytes = b"module-cbor-input";
@@ -161,7 +161,7 @@ fn module_route_encodes_event_input_as_cbor() {
 #[cfg(feature = "test_tier_full")]
 #[test]
 fn module_route_encodes_action_input_as_cbor() {
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = World::new();
     world.set_policy(PolicySet::allow_all());
 
     let wasm_bytes = b"module-cbor-action";
@@ -239,7 +239,7 @@ fn module_route_encodes_action_input_as_cbor() {
 #[cfg(feature = "test_tier_full")]
 #[test]
 fn module_route_pure_input_omits_state() {
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = World::new();
     world.set_policy(PolicySet::allow_all());
 
     let wasm_bytes = b"module-cbor-pure";

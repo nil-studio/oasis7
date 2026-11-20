@@ -38,11 +38,13 @@ pub fn invalid(s: impl Into<String>) -> FencingError {
     FencingError::Invalid(s.into())
 }
 pub fn hash_value<T: Serialize>(value: &T) -> Result<String, FencingError> {
-    Ok(
-        blake3::hash(&serde_cbor::to_vec(value).map_err(|e| invalid(e.to_string()))?)
-            .to_hex()
-            .to_string(),
-    )
+    Ok(hash_encoded(
+        &serde_cbor::to_vec(value).map_err(|e| invalid(e.to_string()))?,
+    ))
+}
+/// The same digest over an already encoded canonical protocol value.
+pub fn hash_encoded(bytes: &[u8]) -> String {
+    blake3::hash(bytes).to_hex().to_string()
 }
 pub fn canonical_hash(hash: &str) -> Result<(), FencingError> {
     if hash.len() != 64
@@ -396,23 +398,45 @@ pub fn verify_monotonic_checkpoint_evidence(
     checkpoint: &EndpointCheckpointBindingV1,
     policy: &TrustedFencingPolicyV1,
 ) -> Result<(), FencingError> {
+    verify_monotonic_checkpoint_evidence_with(
+        evidence,
+        instance,
+        checkpoint,
+        policy,
+        |statement, signature, key| verify(PROVIDER_DOMAIN, statement, signature, key),
+        EndpointInstanceBindingV1::digest,
+        |policy, resource| {
+            Ok(policy
+                .authorized_resource_bindings
+                .iter()
+                .any(|v| v == resource))
+        },
+    )
+}
+/// Preserve the original statement verification and comparison order while
+/// allowing operational adapters to pay for encoding, hashing and traversal.
+pub fn verify_monotonic_checkpoint_evidence_with<E>(
+    evidence: &MonotonicProviderEvidenceV1,
+    instance: &EndpointInstanceBindingV1,
+    checkpoint: &EndpointCheckpointBindingV1,
+    policy: &TrustedFencingPolicyV1,
+    verify_statement: impl FnOnce(&MonotonicProviderStatementV1, &str, &str) -> Result<(), E>,
+    instance_digest: impl FnOnce(&EndpointInstanceBindingV1) -> Result<String, E>,
+    authorized: impl FnOnce(&TrustedFencingPolicyV1, &str) -> Result<bool, E>,
+) -> Result<(), E>
+where
+    E: From<FencingError>,
+{
     let statement = &evidence.statement;
-    verify(
-        PROVIDER_DOMAIN,
-        statement,
-        &evidence.signature,
-        &policy.provider_public_key,
-    )?;
+    verify_statement(statement, &evidence.signature, &policy.provider_public_key)?;
     if statement.schema_version != 1
         || statement.capability != ProviderCapabilityV1::MonotonicExclusiveSignerStorageV1
-        || !policy
-            .authorized_resource_bindings
-            .contains(&statement.resource_binding)
-        || statement.instance_digest != instance.digest()?
+        || !authorized(policy, &statement.resource_binding)?
+        || statement.instance_digest != instance_digest(instance)?
         || &statement.checkpoint != checkpoint
         || statement.epoch_floor < instance.authority_epoch
     {
-        return Err(FencingError::FencingUnproven);
+        return Err(E::from(FencingError::FencingUnproven));
     }
     Ok(())
 }

@@ -188,12 +188,10 @@ impl CognitionLeaseQuoteV1 {
     }
 
     pub fn recompute_digest(&self) -> String {
-        let mut value = serde_json::to_value(self).expect("lease quote is serializable");
-        value
-            .as_object_mut()
-            .expect("lease quote is an object")
-            .remove("quote_digest");
-        economy_digest(COGNITION_ECONOMY_QUOTE_DOMAIN, &value)
+        self.recompute_digest_with_work_v1(&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1)
+            .expect("lease quote is serializable")
+            .as_str()
+            .to_owned()
     }
 
     pub fn refresh_digest(&mut self) {
@@ -201,6 +199,28 @@ impl CognitionLeaseQuoteV1 {
     }
 
     pub fn validate(&self) -> Result<(), CognitionEconomyError> {
+        self.validate_with_work_v1(&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1)
+    }
+    pub fn validate_with_work_v1<A: oasis7_wasm_abi::CapabilityCanonicalWorkV1>(
+        &self,
+        source: &A,
+    ) -> Result<(), CognitionEconomyError> {
+        for text in [
+            &self.schema_version,
+            &self.quote_id,
+            &self.resource,
+            &self.payer_id,
+            &self.resource_version,
+            &self.purpose,
+            &self.scope,
+            &self.policy_revision,
+            &self.authority_context,
+            &self.world_binding,
+            &self.quote_digest,
+        ] {
+            paid::work(source, text.len())?;
+        }
+
         if self.schema_version != COGNITION_LEASE_SCHEMA_VERSION
             || !bounded_identity(&self.quote_id)
             || !bounded_identity(&self.resource)
@@ -213,13 +233,25 @@ impl CognitionLeaseQuoteV1 {
             || !bounded_identity(&self.authority_context)
             || !bounded_identity(&self.world_binding)
             || !valid_digest(&self.quote_digest)
-            || self.quote_digest != self.recompute_digest()
+            || self.quote_digest != self.recompute_digest_with_work_v1(source)?.as_str()
         {
             return Err(CognitionEconomyError::InvalidInput(
                 "cognition_quote_invalid",
             ));
         }
         Ok(())
+    }
+    pub fn recompute_digest_with_work_v1<A: oasis7_wasm_abi::CapabilityCanonicalWorkV1>(
+        &self,
+        source: &A,
+    ) -> Result<PaidLeaseDigestDataV1<A::Charge>, CognitionEconomyError> {
+        let _phase = paid::phase(self, source)?;
+        let mut value = serde_json::to_value(self).expect("lease quote is serializable");
+        value
+            .as_object_mut()
+            .expect("lease quote is an object")
+            .remove("quote_digest");
+        paid::digest(COGNITION_ECONOMY_QUOTE_DOMAIN, &value, source)
     }
 }
 
@@ -240,6 +272,33 @@ pub struct CognitionLeaseRequestV1 {
 
 impl CognitionLeaseRequestV1 {
     #[allow(clippy::too_many_arguments)]
+    pub fn new_with_work_v1<A: oasis7_wasm_abi::CapabilityCanonicalWorkV1>(
+        idempotency_key: String,
+        account_id: String,
+        agent_id: String,
+        agent_session_id: String,
+        agent_turn_id: String,
+        decision_request_id: String,
+        request_digest: String,
+        mut quote: CognitionLeaseQuoteV1,
+        source: &A,
+    ) -> Result<Self, CognitionEconomyError> {
+        paid::work(source, COGNITION_LEASE_SCHEMA_VERSION.len())?;
+        normalize_request_quote_with_work_v1(&mut quote, &account_id, source)?;
+        Ok(Self {
+            schema_version: COGNITION_LEASE_SCHEMA_VERSION.into(),
+            idempotency_key,
+            account_id,
+            agent_id,
+            agent_session_id,
+            agent_turn_id,
+            decision_request_id,
+            request_digest,
+            quote,
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         idempotency_key: impl Into<String>,
         account_id: impl Into<String>,
@@ -251,10 +310,12 @@ impl CognitionLeaseRequestV1 {
         mut quote: CognitionLeaseQuoteV1,
     ) -> Self {
         let account_id = account_id.into();
-        if quote.payer_id.is_empty() {
-            quote.payer_id = account_id.clone();
-            quote.refresh_digest();
-        }
+        normalize_request_quote_with_work_v1(
+            &mut quote,
+            &account_id,
+            &oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1,
+        )
+        .expect("lease quote is serializable");
         Self {
             schema_version: COGNITION_LEASE_SCHEMA_VERSION.to_string(),
             idempotency_key: idempotency_key.into(),
@@ -269,6 +330,26 @@ impl CognitionLeaseRequestV1 {
     }
 
     pub fn validate(&self) -> Result<(), CognitionEconomyError> {
+        self.validate_with_work_v1(&oasis7_wasm_abi::LegacyCapabilityCanonicalWorkV1)
+    }
+    pub fn validate_with_work_v1<A: oasis7_wasm_abi::CapabilityCanonicalWorkV1>(
+        &self,
+        source: &A,
+    ) -> Result<(), CognitionEconomyError> {
+        for text in [
+            &self.schema_version,
+            &self.idempotency_key,
+            &self.account_id,
+            &self.agent_id,
+            &self.agent_session_id,
+            &self.agent_turn_id,
+            &self.decision_request_id,
+            &self.request_digest,
+            &self.quote.payer_id,
+        ] {
+            paid::work(source, text.len())?;
+        }
+
         if self.schema_version != COGNITION_LEASE_SCHEMA_VERSION
             || !bounded_identity(&self.idempotency_key)
             || !bounded_identity(&self.account_id)
@@ -284,13 +365,15 @@ impl CognitionLeaseRequestV1 {
                 "cognition_lease_request_invalid",
             ));
         }
-        self.quote.validate()
+        self.quote.validate_with_work_v1(source)
     }
 
-    pub fn fingerprint_digest(&self) -> String {
-        economy_digest(
+    /// Original fingerprint preimage, shared with metered data consumers.
+    /// This readonly tuple is DATA and establishes no lease admission.
+    pub fn fingerprint_input_v1(&self) -> (&'static str, impl Serialize + '_) {
+        (
             COGNITION_ECONOMY_REQUEST_DOMAIN,
-            &(
+            (
                 &self.schema_version,
                 &self.account_id,
                 &self.agent_id,
@@ -302,11 +385,62 @@ impl CognitionLeaseRequestV1 {
             ),
         )
     }
+    pub fn fingerprint_digest(&self) -> String {
+        let (domain, input) = self.fingerprint_input_v1();
+        economy_digest(domain, &input)
+    }
 
+    pub fn fingerprint_digest_with_work_v1<A: oasis7_wasm_abi::CapabilityCanonicalWorkV1>(
+        &self,
+        source: &A,
+    ) -> Result<PaidLeaseDigestDataV1<A::Charge>, CognitionEconomyError> {
+        let (domain, input) = self.fingerprint_input_v1();
+        paid::digest(domain, &input, source)
+    }
+    pub fn derived_lease_id_with_work_v1<A: oasis7_wasm_abi::CapabilityCanonicalWorkV1>(
+        &self,
+        source: &A,
+    ) -> Result<PaidLeaseDigestDataV1<A::Charge>, CognitionEconomyError> {
+        let fingerprint = self.fingerprint_digest_with_work_v1(source)?;
+        paid::digest(
+            COGNITION_ECONOMY_LEASE_ID_DOMAIN,
+            &(self.idempotency_key.as_str(), fingerprint.as_str()),
+            source,
+        )
+    }
     pub fn derived_lease_id(&self) -> String {
         economy_digest(
             COGNITION_ECONOMY_LEASE_ID_DOMAIN,
             &(self.idempotency_key.as_str(), self.fingerprint_digest()),
         )
     }
+}
+
+#[path = "legacy_economy_paid.rs"]
+mod paid;
+pub use paid::PaidLeaseDigestDataV1;
+
+pub fn admit_lease_data_with_work_v1<
+    T: Serialize + ?Sized,
+    A: oasis7_wasm_abi::CapabilityCanonicalWorkV1,
+>(
+    value: &T,
+    source: &A,
+) -> Result<Option<A::Charge>, CognitionEconomyError> {
+    paid::phase(value, source)
+}
+
+fn normalize_request_quote_with_work_v1<A: oasis7_wasm_abi::CapabilityCanonicalWorkV1>(
+    quote: &mut CognitionLeaseQuoteV1,
+    account_id: &str,
+    source: &A,
+) -> Result<(), CognitionEconomyError> {
+    if quote.payer_id.is_empty() {
+        paid::work(source, account_id.len())?;
+        quote.payer_id = account_id.to_owned();
+        let digest = quote.recompute_digest_with_work_v1(source)?;
+        paid::work(source, 71)?;
+        quote.quote_digest = digest.as_str().to_owned();
+    }
+    Ok(())
 }

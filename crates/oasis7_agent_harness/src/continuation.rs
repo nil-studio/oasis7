@@ -118,6 +118,19 @@ pub struct ContinuationBudgetProgressV1 {
     pub terminal_disposition: Option<String>,
 }
 
+/// Legacy status-only continuation DTO rejected unless accompanied by an
+/// authoritative host continuation projection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeContinuationStatusV1 {
+    pub status: String,
+    #[serde(default)]
+    pub terminal_disposition: Option<String>,
+    pub continuation_id: String,
+    pub wake_id: String,
+    pub wake_seq: u64,
+    pub continuation_digest: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ContinuationHandle {
     pub proposal: ContinuationProposalV1,

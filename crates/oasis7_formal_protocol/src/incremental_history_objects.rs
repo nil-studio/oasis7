@@ -11,10 +11,19 @@ pub struct GenesisConfigV1 {
 }
 impl GenesisConfigV1 {
     pub fn canonical_bytes(&self) -> Result<Vec<u8>, ExecutionError> {
+        self.canonical_bytes_with_work(&mut |_, _| Ok(()))
+    }
+    pub fn canonical_bytes_with_work(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<Vec<u8>, ExecutionError> {
+        let work = std::cell::RefCell::new(work);
+        let meter = |s, b| (work.borrow_mut())(s, b);
+        meter(1, self.world_id.len() as u64 + 128)?;
         if self.world_id.is_empty() || self.world_id.len() > 256 {
             return Err(ExecutionError::Invalid("genesis world ID bound"));
         }
-        let mut out = Writer::new();
+        let mut out = Writer::with_work(&meter);
         out.string(&self.world_id);
         out.hash(&self.format_profile);
         out.hash(&self.initial_content);
@@ -39,12 +48,27 @@ impl GenesisConfigV1 {
         Ok(value)
     }
     pub fn digest(&self) -> Result<[u8; 32], ExecutionError> {
-        Ok(digest(&self.canonical_bytes()?))
+        self.digest_with_work(&mut |_, _| Ok(()))
+    }
+    pub fn digest_with_work(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<[u8; 32], ExecutionError> {
+        let bytes = self.canonical_bytes_with_work(work)?;
+        work(1, bytes.len() as u64)?;
+        Ok(digest(&bytes))
     }
     pub fn scope(&self) -> Result<WorldScopeV1, ExecutionError> {
+        self.scope_with_work(&mut |_, _| Ok(()))
+    }
+    pub fn scope_with_work(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<WorldScopeV1, ExecutionError> {
+        work(1, self.world_id.len() as u64)?;
         Ok(WorldScopeV1 {
             world_id: self.world_id.clone(),
-            genesis_config: self.digest()?,
+            genesis_config: self.digest_with_work(work)?,
         })
     }
 }
@@ -75,8 +99,17 @@ impl HistorySegmentV1 {
         Ok(())
     }
     pub fn canonical_bytes(&self) -> Result<Vec<u8>, ExecutionError> {
+        self.canonical_bytes_with_work(&mut |_, _| Ok(()))
+    }
+    pub fn canonical_bytes_with_work(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<Vec<u8>, ExecutionError> {
+        let work = std::cell::RefCell::new(work);
+        let meter = |s, b| (work.borrow_mut())(s, b);
+        meter(1, self.scope.world_id.len() as u64 + 128)?;
         self.validate()?;
-        let mut out = Writer::new();
+        let mut out = Writer::with_work(&meter);
         out.scope(&self.scope);
         out.u64(self.height);
         out.optional(&self.parent_commit);
@@ -108,7 +141,15 @@ impl HistorySegmentV1 {
         Ok(value)
     }
     pub fn digest(&self) -> Result<[u8; 32], ExecutionError> {
-        Ok(digest(&self.canonical_bytes()?))
+        self.digest_with_work(&mut |_, _| Ok(()))
+    }
+    pub fn digest_with_work(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<[u8; 32], ExecutionError> {
+        let bytes = self.canonical_bytes_with_work(work)?;
+        work(1, bytes.len() as u64)?;
+        Ok(digest(&bytes))
     }
 }
 
@@ -128,8 +169,17 @@ impl HistoryPrefixV1 {
         Ok(())
     }
     pub fn canonical_bytes(&self) -> Result<Vec<u8>, ExecutionError> {
+        self.canonical_bytes_with_work(&mut |_, _| Ok(()))
+    }
+    pub fn canonical_bytes_with_work(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<Vec<u8>, ExecutionError> {
+        let work = std::cell::RefCell::new(work);
+        let meter = |s, b| (work.borrow_mut())(s, b);
+        meter(1, self.scope.world_id.len() as u64 + 128)?;
         self.validate()?;
-        let mut out = Writer::new();
+        let mut out = Writer::with_work(&meter);
         out.scope(&self.scope);
         out.u64(self.count);
         out.optional(&self.previous);
@@ -153,7 +203,15 @@ impl HistoryPrefixV1 {
         Ok(value)
     }
     pub fn digest(&self) -> Result<[u8; 32], ExecutionError> {
-        Ok(digest(&self.canonical_bytes()?))
+        self.digest_with_work(&mut |_, _| Ok(()))
+    }
+    pub fn digest_with_work(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<[u8; 32], ExecutionError> {
+        let bytes = self.canonical_bytes_with_work(work)?;
+        work(1, bytes.len() as u64)?;
+        Ok(digest(&bytes))
     }
 }
 
@@ -182,8 +240,17 @@ impl CheckpointDescriptorV1 {
         Ok(())
     }
     pub fn canonical_bytes(&self) -> Result<Vec<u8>, ExecutionError> {
+        self.canonical_bytes_with_work(&mut |_, _| Ok(()))
+    }
+    pub fn canonical_bytes_with_work(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<Vec<u8>, ExecutionError> {
+        let work = std::cell::RefCell::new(work);
+        let meter = |s, b| (work.borrow_mut())(s, b);
+        meter(1, self.scope.world_id.len() as u64 + 128)?;
         self.validate()?;
-        let mut out = Writer::new();
+        let mut out = Writer::with_work(&meter);
         out.scope(&self.scope);
         out.u64(self.height);
         out.optional(&self.parent_commit);
@@ -213,7 +280,15 @@ impl CheckpointDescriptorV1 {
         Ok(value)
     }
     pub fn digest(&self) -> Result<[u8; 32], ExecutionError> {
-        Ok(digest(&self.canonical_bytes()?))
+        self.digest_with_work(&mut |_, _| Ok(()))
+    }
+    pub fn digest_with_work(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<[u8; 32], ExecutionError> {
+        let bytes = self.canonical_bytes_with_work(work)?;
+        work(1, bytes.len() as u64)?;
+        Ok(digest(&bytes))
     }
 }
 
@@ -234,8 +309,15 @@ pub struct CommitBodyV1 {
 }
 impl CommitBodyV1 {
     pub fn validate(&self) -> Result<(), ExecutionError> {
+        self.validate_with_work(&mut |_, _| Ok(()))
+    }
+    pub fn validate_with_work(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<(), ExecutionError> {
+        work(1, self.scope.world_id.len() as u64)?;
         self.scope.validate()?;
-        self.catalog_before.validate()?;
+        self.catalog_before.validate_with_work(work)?;
         if self.scope != self.catalog_before.scope
             || self.height != self.catalog_before.count
             || self.parent_commit != self.catalog_before.last_commit
@@ -248,15 +330,29 @@ impl CommitBodyV1 {
         Ok(())
     }
     pub fn canonical_bytes(&self) -> Result<Vec<u8>, ExecutionError> {
-        self.validate()?;
-        let mut out = Writer::new();
+        self.canonical_bytes_with_work(&mut |_, _| Ok(()))
+    }
+    pub fn canonical_bytes_with_work(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<Vec<u8>, ExecutionError> {
+        let work = std::cell::RefCell::new(work);
+        let meter = |s, b| (work.borrow_mut())(s, b);
+        meter(1, self.scope.world_id.len() as u64 + 128)?;
+        self.validate_with_work(&mut |s, b| meter(s, b))?;
+        let mut out = Writer::with_work(&meter);
         out.scope(&self.scope);
         out.u64(self.height);
         out.hash(&self.operation);
         out.optional(&self.parent_commit);
         out.hash(&self.authority.token);
         out.u64(self.authority.epoch);
-        out.nested(&self.catalog_before.canonical_bytes()?);
+        out.check()?;
+        out.nested(
+            &self
+                .catalog_before
+                .canonical_bytes_with_work(&mut |s, b| meter(s, b))?,
+        );
         out.hash(&self.roots);
         out.optional(&self.transition);
         out.hash(&self.history);
@@ -293,6 +389,14 @@ impl CommitBodyV1 {
         Ok(value)
     }
     pub fn digest(&self) -> Result<[u8; 32], ExecutionError> {
-        Ok(digest(&self.canonical_bytes()?))
+        self.digest_with_work(&mut |_, _| Ok(()))
+    }
+    pub fn digest_with_work(
+        &self,
+        work: &mut dyn FnMut(u64, u64) -> Result<(), ExecutionError>,
+    ) -> Result<[u8; 32], ExecutionError> {
+        let bytes = self.canonical_bytes_with_work(work)?;
+        work(1, bytes.len() as u64)?;
+        Ok(digest(&bytes))
     }
 }

@@ -8,6 +8,7 @@ license.workspace = true
 path = "src/lib.rs"
 
 [dependencies]
+oasis7_wasm_abi = { path = "../oasis7_wasm_abi" }
 serde.workspace = true
 serde_json.workspace = true
 serde_cbor.workspace = true

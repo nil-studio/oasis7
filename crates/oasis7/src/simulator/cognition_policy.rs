@@ -1,8 +1,9 @@
 //! Simulator-side policy objects for the continuous-agent Harness.
 //!
-//! These types are deliberately limited to bounded Agent-private cognition.
-//! Runtime remains authoritative for receipts, durable continuation status and
-//! world effects; this module only validates and projects those boundaries.
+//! Pure memory write policy, normalized intent, correction, and goal projection
+//! types live in `oasis7_agent_harness` (`DES-AGC-001`) and are re-exported
+//! here; this module retains only the host/Runtime receipt adapter methods on
+//! `MemoryWriteStore`.
 
 use std::collections::BTreeMap;
 
@@ -13,15 +14,12 @@ use super::continuous_agent_harness::{CognitionError, Digest32, MemoryWriteInten
 
 pub use oasis7_agent_api::{GoalSnapshotV1, MemoryContextEntryV1, MemoryContextSnapshotV1};
 
+use oasis7_agent_harness::MemoryWriteStore as HarnessMemoryWriteStore;
 #[cfg(not(target_arch = "wasm32"))]
 use oasis7_agent_harness::RuntimeAuthority as HarnessRuntimeAuthority;
-use oasis7_agent_harness::{
-    GoalSnapshotInputV1 as HarnessGoalSnapshotInputV1,
-    GoalSnapshotProjector as HarnessGoalSnapshotProjector,
-    MemoryWriteIntentPolicyV1 as HarnessMemoryWriteIntentPolicyV1,
-    MemoryWritePolicyContextV1 as HarnessMemoryWritePolicyContextV1,
-    MemoryWriteStore as HarnessMemoryWriteStore,
-    NormalizedMemoryWriteIntentV1 as HarnessNormalizedMemoryWriteIntentV1,
+pub use oasis7_agent_harness::{
+    GoalSnapshotInputV1, GoalSnapshotProjector, MemoryCorrectionV1, MemoryWriteIntentPolicyV1,
+    MemoryWritePolicyContextV1, MemoryWritePolicyOutcome, NormalizedMemoryWriteIntentV1,
 };
 
 #[path = "cognition_continuation.rs"]
@@ -30,45 +28,6 @@ pub use cognition_continuation::*;
 
 fn error(code: &'static str, message: impl Into<String>) -> CognitionError {
     CognitionError::new(code, message)
-}
-
-// ---------------------------------------------------------------------------
-// Memory retrieval and write policy
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MemoryWritePolicyContextV1 {
-    pub agent_id: String,
-    pub agent_session_id: String,
-    pub agent_turn_id: String,
-    pub request_digest: String,
-    pub source: String,
-    pub provenance: String,
-}
-
-impl From<&MemoryWritePolicyContextV1> for HarnessMemoryWritePolicyContextV1 {
-    fn from(value: &MemoryWritePolicyContextV1) -> Self {
-        Self {
-            agent_id: value.agent_id.clone(),
-            agent_session_id: value.agent_session_id.clone(),
-            agent_turn_id: value.agent_turn_id.clone(),
-            request_digest: value.request_digest.clone(),
-            source: value.source.clone(),
-            provenance: value.provenance.clone(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NormalizedMemoryWriteIntentV1 {
-    pub schema_version: u16,
-    pub scope: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
-    #[serde(default)]
-    pub tags: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub compatibility_reason: Option<String>,
 }
 
 impl From<NormalizedMemoryWriteIntentV1> for MemoryWriteIntentV1 {
@@ -95,125 +54,6 @@ impl From<MemoryWriteIntentV1> for oasis7_agent_api::MemoryWriteIntentV1 {
     }
 }
 
-impl From<&NormalizedMemoryWriteIntentV1> for HarnessNormalizedMemoryWriteIntentV1 {
-    fn from(value: &NormalizedMemoryWriteIntentV1) -> Self {
-        Self {
-            schema_version: value.schema_version,
-            scope: value.scope.clone(),
-            summary: value.summary.clone(),
-            tags: value.tags.clone(),
-            compatibility_reason: value.compatibility_reason.clone(),
-        }
-    }
-}
-
-impl From<HarnessNormalizedMemoryWriteIntentV1> for NormalizedMemoryWriteIntentV1 {
-    fn from(value: HarnessNormalizedMemoryWriteIntentV1) -> Self {
-        Self {
-            schema_version: value.schema_version,
-            scope: value.scope,
-            summary: value.summary,
-            tags: value.tags,
-            compatibility_reason: value.compatibility_reason,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MemoryWriteIntentPolicyV1 {
-    pub max_intents_per_turn: usize,
-    pub max_summary_bytes: usize,
-    pub max_tags_per_intent: usize,
-    pub max_tag_bytes: usize,
-    pub max_payload_bytes: usize,
-}
-
-impl Default for MemoryWriteIntentPolicyV1 {
-    fn default() -> Self {
-        let policy = HarnessMemoryWriteIntentPolicyV1::default();
-        Self {
-            max_intents_per_turn: policy.max_intents_per_turn,
-            max_summary_bytes: policy.max_summary_bytes,
-            max_tags_per_intent: policy.max_tags_per_intent,
-            max_tag_bytes: policy.max_tag_bytes,
-            max_payload_bytes: policy.max_payload_bytes,
-        }
-    }
-}
-
-impl MemoryWriteIntentPolicyV1 {
-    fn harness_policy(&self) -> HarnessMemoryWriteIntentPolicyV1 {
-        HarnessMemoryWriteIntentPolicyV1 {
-            max_intents_per_turn: self.max_intents_per_turn,
-            max_summary_bytes: self.max_summary_bytes,
-            max_tags_per_intent: self.max_tags_per_intent,
-            max_tag_bytes: self.max_tag_bytes,
-            max_payload_bytes: self.max_payload_bytes,
-        }
-    }
-
-    pub fn normalize(
-        &self,
-        intent: MemoryWriteIntentV1,
-        context: &MemoryWritePolicyContextV1,
-    ) -> Result<NormalizedMemoryWriteIntentV1, CognitionError> {
-        self.harness_policy()
-            .normalize(
-                intent.into(),
-                &HarnessMemoryWritePolicyContextV1::from(context),
-            )
-            .map(Into::into)
-    }
-
-    pub fn normalize_legacy(
-        &self,
-        intent: MemoryWriteIntentV1,
-        context: &MemoryWritePolicyContextV1,
-    ) -> Result<NormalizedMemoryWriteIntentV1, CognitionError> {
-        self.harness_policy()
-            .normalize_legacy(
-                intent.into(),
-                &HarnessMemoryWritePolicyContextV1::from(context),
-            )
-            .map(Into::into)
-    }
-
-    pub fn normalize_batch(
-        &self,
-        intents: Vec<MemoryWriteIntentV1>,
-        context: &MemoryWritePolicyContextV1,
-    ) -> Result<Vec<NormalizedMemoryWriteIntentV1>, CognitionError> {
-        self.harness_policy()
-            .normalize_batch(
-                intents.into_iter().map(Into::into).collect(),
-                &HarnessMemoryWritePolicyContextV1::from(context),
-            )
-            .map(|intents| intents.into_iter().map(Into::into).collect())
-    }
-
-    pub fn intent_digest(
-        &self,
-        intent: &NormalizedMemoryWriteIntentV1,
-        context: &MemoryWritePolicyContextV1,
-    ) -> Result<Digest32, CognitionError> {
-        self.harness_policy().intent_digest(
-            &HarnessNormalizedMemoryWriteIntentV1::from(intent),
-            &HarnessMemoryWritePolicyContextV1::from(context),
-        )
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MemoryWritePolicyOutcome {
-    Committed {
-        receipt_id: String,
-        provenance: String,
-    },
-    Rejected,
-    Failed,
-    Pending,
-}
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MemoryWriteStore {
     /// Monotonic store revision used to bind a retrieved snapshot to the
@@ -227,34 +67,6 @@ pub struct MemoryWriteStore {
     corrections: Vec<MemoryCorrectionV1>,
     #[serde(default)]
     referenced_context_by_agent: BTreeMap<String, Value>,
-}
-
-/// Private-memory correction evidence. `applied` means a corrected retrieval
-/// participated in a committed decision, never that the prediction came true.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MemoryCorrectionV1 {
-    pub correction_id: String,
-    pub agent_id: String,
-    pub agent_session_id: String,
-    pub scope: String,
-    pub target_memory_id: String,
-    pub expected_revision: u64,
-    pub replacement_summary: String,
-    pub status: String,
-    pub reason: String,
-    pub memory_revision: u64,
-    pub earliest_decision_request_id: Option<String>,
-    pub earliest_request_digest: Option<String>,
-    #[serde(default)]
-    pub active_decision_request_id: Option<String>,
-    #[serde(default)]
-    pub active_request_digest: Option<String>,
-    #[serde(default)]
-    pub committed_decision_request_id: Option<String>,
-    #[serde(default)]
-    pub committed_request_digest: Option<String>,
-    pub runtime_receipt_id: Option<String>,
-    pub action_id: Option<String>,
 }
 
 impl MemoryWriteStore {
@@ -318,31 +130,14 @@ impl MemoryWriteStore {
         &mut self,
         correction: MemoryCorrectionV1,
     ) -> Result<MemoryCorrectionV1, CognitionError> {
-        let correction = serde_json::from_value(
-            serde_json::to_value(correction)
-                .map_err(|err| error("memory_correction_invalid", err.to_string()))?,
-        )
-        .map_err(|err| error("memory_correction_invalid", err.to_string()))?;
         self.with_harness_store(|store| store.correct_memory(correction))
-            .and_then(|correction| {
-                serde_json::from_value(
-                    serde_json::to_value(correction)
-                        .map_err(|err| error("memory_correction_invalid", err.to_string()))?,
-                )
-                .map_err(|err| error("memory_correction_invalid", err.to_string()))
-            })
     }
 
     pub fn bind_corrections_to_decision(
         &mut self,
         turn: &super::continuous_agent_harness::ContinuousAgentTurnContextV1,
     ) -> Result<(), CognitionError> {
-        let turn = serde_json::from_value(
-            serde_json::to_value(turn)
-                .map_err(|err| error("memory_context_invalid", err.to_string()))?,
-        )
-        .map_err(|err| error("memory_context_invalid", err.to_string()))?;
-        self.with_harness_store(|store| store.bind_corrections_to_decision(&turn))
+        self.with_harness_store(|store| store.bind_corrections_to_decision(turn))
     }
 
     /// Host-only continuation of an authoritative stale parent. Earliest
@@ -353,13 +148,8 @@ impl MemoryWriteStore {
         parent_digest: &str,
         turn: &super::continuous_agent_harness::ContinuousAgentTurnContextV1,
     ) -> Result<(), CognitionError> {
-        let turn = serde_json::from_value(
-            serde_json::to_value(turn)
-                .map_err(|err| error("memory_context_invalid", err.to_string()))?,
-        )
-        .map_err(|err| error("memory_context_invalid", err.to_string()))?;
         self.with_harness_store(|store| {
-            store.rebind_corrections_after_stale_parent(parent_request_id, parent_digest, &turn)
+            store.rebind_corrections_after_stale_parent(parent_request_id, parent_digest, turn)
         })
     }
 
@@ -412,16 +202,13 @@ impl MemoryWriteStore {
         }
         Ok(())
     }
+
     pub fn entries(&self) -> &[Value] {
         &self.entries
     }
 
     /// Build a deterministic, bounded snapshot for the next turn of one
-    /// Agent session.  Runtime-authoritative entries carry their originating
-    /// Harness identity; entries from another Agent/session (or legacy
-    /// checkpoints without that identity) are never projected into this
-    /// context.  The newest entries are selected while preserving commit
-    /// order in the resulting snapshot.
+    /// Agent session.
     pub fn context_snapshot(
         &self,
         agent_id: &str,
@@ -440,8 +227,6 @@ impl MemoryWriteStore {
         digest: Digest32,
         outcome: MemoryWritePolicyOutcome,
     ) -> Result<(), CognitionError> {
-        // Compatibility fixture lane: production commits must enter through
-        // apply_runtime_receipt_with_context after the Runtime receipt gate.
         let digest_key = digest.as_str().to_string();
         if let Some(receipt) = self.committed_by_digest.get(&digest_key) {
             if matches!(outcome, MemoryWritePolicyOutcome::Committed { ref receipt_id, .. } if receipt_id == receipt)
@@ -508,9 +293,7 @@ impl MemoryWriteStore {
         }
     }
 
-    /// Compatibility-only projection from a receipt DTO. This validates the
-    /// DTO's internal lineage but does not prove durable World readback, so
-    /// production paths must use the authority-gated Harness transition.
+    /// Compatibility-only projection from a receipt DTO.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn apply_runtime_receipt(
         &mut self,
@@ -522,11 +305,7 @@ impl MemoryWriteStore {
     }
 
     /// Compatibility-only receipt DTO projection with optional Harness
-    /// identity metadata. The metadata is deliberately outside the intent
-    /// digest: it is retrieval partitioning evidence. This method does not
-    /// establish durable World readback and is not a production authority
-    /// boundary; production paths must use the authority-gated Harness
-    /// transition below.
+    /// identity metadata.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn apply_runtime_receipt_with_context(
         &mut self,
@@ -565,8 +344,7 @@ impl MemoryWriteStore {
 
     /// Production receipt projection delegates state changes to the canonical
     /// Harness transition after the supplied host authority verifies the
-    /// receipt. The public DTO-only methods above remain for compatibility
-    /// fixtures and are not an authorization path for production callers.
+    /// receipt.
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn apply_runtime_receipt_with_authority<A: HarnessRuntimeAuthority>(
         &mut self,
@@ -576,26 +354,19 @@ impl MemoryWriteStore {
         context: &MemoryWritePolicyContextV1,
         authority: &A,
     ) -> Result<(), CognitionError> {
-        let intent: HarnessNormalizedMemoryWriteIntentV1 = serde_json::from_value(
-            serde_json::to_value(intent)
-                .map_err(|err| error("memory_intent_invalid", err.to_string()))?,
-        )
-        .map_err(|err| error("memory_intent_invalid", err.to_string()))?;
-        let context = HarnessMemoryWritePolicyContextV1::from(context);
         self.with_harness_store(|store| {
             store.apply_runtime_receipt_with_context(
                 intent,
                 digest,
                 receipt,
-                Some(&context),
+                Some(context),
                 authority,
             )
         })
     }
 
     /// Finalize only corrections bound to a receipt accepted by the same
-    /// authority boundary as memory writes. This keeps production correction
-    /// transitions in the canonical Harness store.
+    /// authority boundary as memory writes.
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn finalize_corrections_with_authority<A: HarnessRuntimeAuthority>(
         &mut self,
@@ -603,41 +374,6 @@ impl MemoryWriteStore {
         context: &MemoryWritePolicyContextV1,
         authority: &A,
     ) -> Result<(), CognitionError> {
-        let context = HarnessMemoryWritePolicyContextV1::from(context);
-        self.with_harness_store(|store| store.finalize_corrections(receipt, &context, authority))
-    }
-}
-
-// ---------------------------------------------------------------------------
-// GoalSnapshot projection
-// ---------------------------------------------------------------------------
-
-/// Oasis-facing DTO retained for source compatibility. Projection policy is
-/// canonical in `oasis7_agent_harness` and converted explicitly at this seam.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct GoalSnapshotInputV1 {
-    pub revision: u64,
-    pub short_term_summary: String,
-    pub long_term_summary: String,
-    #[serde(default)]
-    pub blocked_reason: Option<String>,
-    pub provenance: String,
-}
-
-pub struct GoalSnapshotProjector;
-
-impl GoalSnapshotProjector {
-    pub fn project(
-        host: Option<GoalSnapshotInputV1>,
-        legacy: Option<GoalSnapshotInputV1>,
-    ) -> Result<GoalSnapshotV1, CognitionError> {
-        let into_harness = |input: GoalSnapshotInputV1| HarnessGoalSnapshotInputV1 {
-            revision: input.revision,
-            short_term_summary: input.short_term_summary,
-            long_term_summary: input.long_term_summary,
-            blocked_reason: input.blocked_reason,
-            provenance: input.provenance,
-        };
-        HarnessGoalSnapshotProjector::project(host.map(&into_harness), legacy.map(&into_harness))
+        self.with_harness_store(|store| store.finalize_corrections(receipt, context, authority))
     }
 }

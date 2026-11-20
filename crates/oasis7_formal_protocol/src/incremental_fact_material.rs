@@ -6,6 +6,14 @@ use std::io::Write;
 /// Output is provisional until the source returns successfully. Implementors
 /// must honor Write's partial-write/error contract and their own IO allowances.
 pub trait OriginalObjectStreamReader: OriginalObjectReader {
+    /// An explicitly supplied read/write session may expose provisional writes.
+    /// Existing read-only sessions keep this absent; byte persistence grants no
+    /// business admission, complete closure, or acceptance authority.
+    fn original_writer(
+        &mut self,
+    ) -> Option<&mut dyn OriginalObjectStreamWriter<Error = Self::Error>> {
+        None
+    }
     fn stream_original(
         &mut self,
         id: &[u8; 32],
@@ -13,6 +21,18 @@ pub trait OriginalObjectStreamReader: OriginalObjectReader {
         memory: &MemoryBudget,
         output: &mut dyn Write,
     ) -> Result<u64, Self::Error>;
+}
+/// Provisional byte storage. Consumers still verify exact readback and the
+/// complete candidate closure independently before any formal publication.
+pub trait OriginalObjectStreamWriter {
+    type Error;
+    fn write_original(
+        &mut self,
+        input: &mut dyn std::io::Read,
+        length: u64,
+        expected_id: [u8; 32],
+        memory: &MemoryBudget,
+    ) -> Result<[u8; 32], Self::Error>;
 }
 pub struct FactBudget {
     pub facts_remaining: u64,

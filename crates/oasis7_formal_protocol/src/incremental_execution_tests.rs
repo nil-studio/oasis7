@@ -68,6 +68,99 @@ fn fact(kind: ExecutionFactKindV1, n: u8) -> ExecutionFactRefV1 {
 }
 
 #[test]
+fn world_event_counter_claim_is_unique_per_fresh_transaction() {
+    let pages = Pages::default();
+    let memory = memory();
+    let mut tx =
+        ExecutionTransaction::begin(empty_parent(), [1; 32], &pages, &memory, limits()).unwrap();
+    let guard = tx.guard();
+    tx.claim_world_event_counter().unwrap();
+    assert!(tx.claim_world_event_counter().is_err());
+    assert_eq!(tx.ordered_fact_count(), 0);
+    tx.validate_guard(&guard, &tx.parent_fence()).unwrap();
+    tx.append_fact(fact(ExecutionFactKindV1::Event, 1)).unwrap();
+    assert!(tx.claim_world_event_counter().is_err());
+    let other =
+        ExecutionTransaction::begin(empty_parent(), [1; 32], &pages, &memory, limits()).unwrap();
+    other.claim_world_event_counter().unwrap();
+    let mut nonfresh =
+        ExecutionTransaction::begin(empty_parent(), [2; 32], &pages, &memory, limits()).unwrap();
+    nonfresh
+        .append_fact(fact(ExecutionFactKindV1::Input, 2))
+        .unwrap();
+    assert!(nonfresh.claim_world_event_counter().is_err());
+}
+
+#[test]
+fn pending_write_inspection_is_net_delta_bounded_and_never_reads_parent() {
+    let pages = Pages::default();
+    let memory = memory();
+    let mut txn =
+        ExecutionTransaction::begin(empty_parent(), [1; 32], &pages, &memory, limits()).unwrap();
+    let ns = StateNamespaceV1::Business;
+    txn.write(ns, b"changed", Some([1; 32])).unwrap();
+    txn.write(ns, b"changed", Some([2; 32])).unwrap();
+    txn.write(ns, b"reverted", Some([3; 32])).unwrap();
+    txn.write(ns, b"reverted", None).unwrap();
+    txn.read(ns, b"read-only").unwrap();
+    let reads = pages.reads.get();
+    let used = memory.used();
+    let mut work = 3;
+    let mut changes = 0;
+    txn.visit_pending_writes::<ExecutionError>(
+        ns,
+        &mut work,
+        || Ok(()),
+        |key, before, after| {
+            assert_eq!(key, b"changed");
+            assert_eq!(before, None);
+            assert_eq!(after, Some([2; 32]));
+            changes += 1;
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        (work, changes, pages.reads.get(), memory.used()),
+        (0, 1, reads, used)
+    );
+    assert!(matches!(
+        txn.visit_pending_writes::<ExecutionError>(ns, &mut 2, || Ok(()), |_, _, _| Ok(())),
+        Err(ExecutionError::ResourceLimited(_))
+    ));
+    let cancelled = Cell::new(false);
+    assert!(
+        txn.visit_pending_writes::<ExecutionError>(
+            ns,
+            &mut 3,
+            || {
+                if cancelled.get() {
+                    Err(ExecutionError::Invalid("cancelled"))
+                } else {
+                    Ok(())
+                }
+            },
+            |_, _, _| {
+                cancelled.set(true);
+                Ok(())
+            }
+        )
+        .is_err()
+    );
+    let _: Result<(), ExecutionError> =
+        txn.contribute(|_| Err(ExecutionError::Invalid("owner failed")));
+    assert!(matches!(
+        txn.visit_pending_writes::<ExecutionError>(
+            ns,
+            &mut 3,
+            || Ok(()),
+            |_, _, _| panic!("aborted overlay visited")
+        ),
+        Err(ExecutionError::Aborted)
+    ));
+}
+
+#[test]
 fn single_overlay_coalesces_all_namespaces_but_retains_original_fact_order() {
     let pages = Pages::default();
     let memory = memory();
@@ -169,7 +262,9 @@ fn guards_bind_revision_parent_roots_and_authority_without_serializing_state() {
     let live = parent.fence().unwrap();
     let mut txn =
         ExecutionTransaction::begin(parent.clone(), [1; 32], &pages, &memory, limits()).unwrap();
+    let initial_used = memory.used();
     let guard = txn.guard();
+    txn.validate_transaction_identity(&guard).unwrap();
     for changed in 0..4 {
         let mut other = live;
         match changed {
@@ -183,9 +278,30 @@ fn guards_bind_revision_parent_roots_and_authority_without_serializing_state() {
             Err(ExecutionError::ParentConflict)
         ));
     }
-    let other = ExecutionTransaction::begin(parent, [1; 32], &pages, &memory, limits()).unwrap();
+    let mut other =
+        ExecutionTransaction::begin(parent, [1; 32], &pages, &memory, limits()).unwrap();
     assert!(matches!(
         other.validate_guard(&guard, &live),
+        Err(ExecutionError::StaleGuard)
+    ));
+    assert!(matches!(
+        other.validate_transaction_identity(&guard),
+        Err(ExecutionError::StaleGuard)
+    ));
+    let other_guard = other.guard();
+    let failed: Result<(), ExecutionError> =
+        other.contribute(|_| Err(ExecutionError::Invalid("identity test failure")));
+    assert!(failed.is_err());
+    assert!(matches!(
+        other.validate_transaction_identity(&other_guard),
+        Err(ExecutionError::Aborted)
+    ));
+    drop(other_guard);
+    txn.read(StateNamespaceV1::Business, b"identity-read")
+        .unwrap();
+    txn.validate_transaction_identity(&guard).unwrap();
+    assert!(matches!(
+        txn.validate_guard(&guard, &live),
         Err(ExecutionError::StaleGuard)
     ));
     // Even a same-tick write that coalesces back to absence invalidates prepare.
@@ -198,7 +314,9 @@ fn guards_bind_revision_parent_roots_and_authority_without_serializing_state() {
     assert_eq!(pages.reads.get(), 0);
     drop(other);
     drop(txn);
-    assert_eq!(memory.used(), 64);
+    // The retained guard owns both its identity and the shared lineage domain;
+    // consuming the transaction releases the workspace and every overlay entry.
+    assert_eq!(memory.used(), initial_used - 64 * 1024);
     drop(guard);
     assert_eq!(memory.used(), 0);
 }
@@ -634,13 +752,21 @@ fn missing_parent_page_and_memory_failure_also_prevent_partial_seal() {
         Err(ExecutionError::Aborted)
     ));
 
-    let tiny = MemoryBudget::new(64 * 1024 + 64 + 513, 0).unwrap();
+    let limit = 128 * 1024;
+    let tiny = MemoryBudget::new(limit, 0).unwrap();
     let original = empty_parent();
     let live = original.fence().unwrap();
     let source = Pages::default();
     let mut txn = ExecutionTransaction::begin(original, [3; 32], &source, &tiny, limits()).unwrap();
+    // Leave exactly one one-byte-key entry after the actual owner/domain fees.
+    // This boundary does not assume an architecture-specific identity layout.
+    let pressure = tiny
+        .reserve(limit - tiny.used() - 513, MemoryClass::Ordinary)
+        .unwrap();
+    assert_eq!(limit - tiny.used(), 513);
     txn.write(StateNamespaceV1::Business, b"a", Some([1; 32]))
         .unwrap();
+    assert_eq!(tiny.used(), limit);
     assert!(matches!(
         txn.append_fact(fact(ExecutionFactKindV1::Result, 3)),
         Err(ExecutionError::Memory(_))
@@ -651,6 +777,8 @@ fn missing_parent_page_and_memory_failure_also_prevent_partial_seal() {
         Err(ExecutionError::Aborted)
     ));
     drop(guard);
+    assert_eq!(tiny.used(), pressure.bytes());
+    drop(pressure);
     assert_eq!(tiny.used(), 0);
 }
 
@@ -703,6 +831,7 @@ fn external_contribution_failures_cannot_seal_partial_reducers() {
         let live = parent.fence().unwrap();
         let mut txn =
             ExecutionTransaction::begin(parent, [1; 32], &pages, &memory, limits()).unwrap();
+        let initial_used = memory.used();
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             txn.contribute::<(), ExecutionError>(|txn| {
                 txn.write(StateNamespaceV1::Business, b"debit", Some([1; 32]))?;
@@ -728,7 +857,9 @@ fn external_contribution_failures_cannot_seal_partial_reducers() {
             txn.seal(&guard, &live, 0),
             Err(ExecutionError::Aborted)
         ));
-        assert_eq!(memory.used(), 64); // only retained guard identity
+        assert_eq!(memory.used(), initial_used - 64 * 1024); // retained identity and lineage
+        drop(guard);
+        assert_eq!(memory.used(), 0);
     }
 }
 
@@ -862,75 +993,6 @@ fn execution_rejects_same_pool_sources_with_a_different_allocation_class() {
 
 #[path = "incremental_final_fact_tests.rs"]
 mod final_fact_tests;
-
-#[test]
-fn pending_write_inspection_is_net_delta_bounded_and_never_reads_parent() {
-    let pages = Pages::default();
-    let memory = memory();
-    let mut txn =
-        ExecutionTransaction::begin(empty_parent(), [1; 32], &pages, &memory, limits()).unwrap();
-    let ns = StateNamespaceV1::Business;
-    txn.write(ns, b"changed", Some([1; 32])).unwrap();
-    txn.write(ns, b"changed", Some([2; 32])).unwrap();
-    txn.write(ns, b"reverted", Some([3; 32])).unwrap();
-    txn.write(ns, b"reverted", None).unwrap();
-    txn.read(ns, b"read-only").unwrap();
-    let reads = pages.reads.get();
-    let used = memory.used();
-    let mut work = 3;
-    let mut changes = 0;
-    txn.visit_pending_writes::<ExecutionError>(
-        ns,
-        &mut work,
-        || Ok(()),
-        |key, before, after| {
-            assert_eq!(key, b"changed");
-            assert_eq!(before, None);
-            assert_eq!(after, Some([2; 32]));
-            changes += 1;
-            Ok(())
-        },
-    )
-    .unwrap();
-    assert_eq!(
-        (work, changes, pages.reads.get(), memory.used()),
-        (0, 1, reads, used)
-    );
-    assert!(matches!(
-        txn.visit_pending_writes::<ExecutionError>(ns, &mut 2, || Ok(()), |_, _, _| Ok(())),
-        Err(ExecutionError::ResourceLimited(_))
-    ));
-    let cancelled = Cell::new(false);
-    assert!(
-        txn.visit_pending_writes::<ExecutionError>(
-            ns,
-            &mut 3,
-            || {
-                if cancelled.get() {
-                    Err(ExecutionError::Invalid("cancelled"))
-                } else {
-                    Ok(())
-                }
-            },
-            |_, _, _| {
-                cancelled.set(true);
-                Ok(())
-            }
-        )
-        .is_err()
-    );
-    let _: Result<(), ExecutionError> =
-        txn.contribute(|_| Err(ExecutionError::Invalid("owner failed")));
-    assert!(matches!(
-        txn.visit_pending_writes::<ExecutionError>(
-            ns,
-            &mut 3,
-            || Ok(()),
-            |_, _, _| panic!("aborted overlay visited")
-        ),
-        Err(ExecutionError::Aborted)
-    ));
-}
 
 #[test]
 fn pending_write_inspection_scopes_namespace_and_preserves_guard_on_callback_error() {

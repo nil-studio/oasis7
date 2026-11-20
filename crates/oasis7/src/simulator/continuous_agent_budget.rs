@@ -1,1 +1,1 @@
-pub use oasis7_agent_api::BudgetContractV1;
+pub use oasis7_agent_harness::BudgetContractV1;
