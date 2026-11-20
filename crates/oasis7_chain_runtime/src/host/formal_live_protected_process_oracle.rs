@@ -291,11 +291,6 @@ pub(super) fn unique_private_root() -> Result<PathBuf, String> {
     Ok(root)
 }
 
-// Keep the type imported through this support module for the included oracle's
-// `use super::*`; it is an independent simulation, not production custody.
-#[allow(dead_code)]
-fn _oracle_contract_is_test_only(_: Arc<AtomicBool>, _: Ordering, _: Duration) {}
-
 #[cfg(test)]
 #[path = "formal_live_protected_handoff_tests.rs"]
 mod handoff_tests;
