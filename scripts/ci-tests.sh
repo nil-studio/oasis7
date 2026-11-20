@@ -523,7 +523,12 @@ run_oasis7_workspace_support_crate_tests() {
     -p oasis7_wasm_store \
     -p pixel_world_bridge \
     --lib
+  # The native worker is an executable + integration-test contract, not only
+  # the lib tests. Build and execute both bounded_worker integration targets.
+  # Preserve the trusted-baseline library command while extending coverage to
+  # the worker binary and process/FD/regex integration targets.
   run_cargo test -p oasis7_wasm_executor --features wasmtime --lib
+  run_cargo test -p oasis7_wasm_executor --features wasmtime --all-targets --locked
   run_cargo test -p oasis7_secure_envelope -p oasis7_context --all-targets --locked
   run_cargo test -p oasis7_local_signer --test context_cli --locked
   run_cargo test -p oasis7_client_launcher --bin oasis7_client_launcher
@@ -605,7 +610,16 @@ PY
       oasis7_dev_test_worker) run_dev_test_worker_checks; complete_targets=true ;;
       oasis7_custody_core) run_cargo test -p "$profile" --all-targets --locked; complete_targets=true ;;
       oasis7_custody_worker) run bash crates/oasis7_custody_worker/scripts/verify.sh --platform; run_worker_wasm_compile_profiles ;;
-      oasis7_wasm_executor) run_cargo test -p "$profile" --features wasmtime --lib ;;
+      oasis7_wasm_executor)
+        # Run the actual Linux worker binary, process/FD and regex integration
+        # tests alongside the library tests. This crate's sole nondefault
+        # feature is wasmtime, so this is the complete feature/target matrix.
+        # The trusted-baseline contract still requires this original library run.
+        run_cargo test -p "$profile" --features wasmtime --lib
+        run_cargo test -p "$profile" --features wasmtime --all-targets --locked
+        complete_targets=true
+        expand_targets=false
+        ;;
       oasis7_client_storage|oasis7_signer_protocol) run_cargo_clippy -p "$profile" --all-targets; run_cargo test -p "$profile" --lib ;;
       oasis7_secure_envelope|oasis7_context) run_cargo test -p "$profile" --all-targets --locked; complete_targets=true ;;
       oasis7_local_signer) run_cargo test -p "$profile" --lib; run_cargo test -p "$profile" --test context_cli --locked ;;
