@@ -151,7 +151,7 @@ def validate_mold_checkout_reuse(tools, setup, source):
 
 
 def rust_image_cache_namespace(name, job):
-    if name not in ('node', 'consensus', 'distfs', 'rust-baseline', 'pixel-world-bridge', 'net', 'scenario-regression', 'launcher-web') or '    container:' not in job:
+    if name not in ('node', 'consensus', 'distfs', 'rust-baseline', 'pixel-world-bridge', 'net', 'scenario-regression', 'launcher-web', 'custody-wasm-contracts') or '    container:' not in job:
         return None
     target = 'rust-wasm-build' if name == 'net' else 'rust-build'
     image = re.search(r'^    container:\n      image: ghcr\.io/nil-studio/oasis7/ci-' + target
