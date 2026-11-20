@@ -2,11 +2,9 @@
 //! independently verified target stays fixed for later providers, and material
 //! bytes already charged by a failed provider remain charged for this call.
 
-use super::cas_lifecycle::CasBudget;
 use super::FormalFullSyncConfigV1;
-use oasis7::{
-    runtime::LocalCasStore, world_service::verified_view::VerifiedWorldView,
-};
+use super::cas_lifecycle::CasBudget;
+use oasis7::{runtime::LocalCasStore, world_service::verified_view::VerifiedWorldView};
 use oasis7_client_api::world_service::WorldIdentity;
 use oasis7_client_api::world_service_full_sync::{
     FormalFullSyncArtifactRoleV1 as WireArtifactRole, FormalFullSyncCutV1,
@@ -22,6 +20,7 @@ pub(super) struct FullSyncAttemptV1 {
     pub(super) target: Option<FullSyncTargetV1>,
 }
 
+#[derive(Clone)]
 pub(super) struct FullSyncTargetV1 {
     pub(super) anchor: VerifiedFormalReadAnchorV1,
     pub(super) cut: FormalFullSyncCutV1,
