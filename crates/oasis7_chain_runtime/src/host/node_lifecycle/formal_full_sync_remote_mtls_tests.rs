@@ -13,6 +13,20 @@ use std::net::TcpListener;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt, symlink};
 use std::path::Path;
 
+struct TestPemDirectory(std::path::PathBuf);
+
+impl TestPemDirectory {
+    fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TestPemDirectory {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 fn private_pem(path: &Path, pem: &str) {
     std::fs::OpenOptions::new()
         .create_new(true)
@@ -68,7 +82,11 @@ fn configured_evidence_mtls_requires_server_pin_hostname_and_client_certificate(
         ExtendedKeyUsagePurpose::ClientAuth,
     );
 
-    let files = tempfile::tempdir_in(std::env::temp_dir().canonicalize().unwrap()).unwrap();
+    let files = TestPemDirectory(std::env::temp_dir().canonicalize().unwrap().join(format!(
+        "oasis7-issuer-mtls-{}",
+        crate::local_io::random_id().unwrap()
+    )));
+    crate::local_io::private_dir(files.path()).unwrap();
     let server_ca_file = files.path().join("server-ca.pem");
     private_pem(&server_ca_file, &authority.0.pem());
     let unrelated_ca_file = files.path().join("unrelated-ca.pem");
