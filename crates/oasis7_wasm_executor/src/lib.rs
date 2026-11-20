@@ -1,7 +1,7 @@
 //! Sandbox execution scaffolding for WASM modules.
 
-mod metrics;
 mod incremental_output;
+mod metrics;
 
 pub use metrics::{
     CompileCachePathKind, SharedWasmExecutorMetrics, WasmExecutorMetricsSnapshot,

@@ -1153,9 +1153,7 @@ fn perf_probe_executor_call_and_watchdog_overhead() {
 #[cfg(feature = "wasmtime")]
 #[test]
 fn raw_sink_receives_real_vm_bytes_before_typed_decode() {
-    use oasis7_wasm_abi::module_raw_output::{
-        ModuleRawOutputSinkV1, ModuleSandboxRawOutputV1,
-    };
+    use oasis7_wasm_abi::module_raw_output::{ModuleRawOutputSinkV1, ModuleSandboxRawOutputV1};
 
     #[derive(Default)]
     struct Sink {
@@ -1199,16 +1197,25 @@ fn raw_sink_receives_real_vm_bytes_before_typed_decode() {
     executor.call_to(&request, &mut sink).unwrap();
     assert_eq!(sink.calls, 1);
     assert_eq!(sink.bytes, trivial_output_bytes());
-    assert_eq!(executor.call(&request).unwrap().output_bytes, sink.bytes.len() as u64);
+    assert_eq!(
+        executor.call(&request).unwrap().output_bytes,
+        sink.bytes.len() as u64
+    );
 
     let bad = request_for(invalid_cbor_output_wasm());
-    assert_eq!(executor.call(&bad).unwrap_err().code, ModuleCallErrorCode::InvalidOutput);
+    assert_eq!(
+        executor.call(&bad).unwrap_err().code,
+        ModuleCallErrorCode::InvalidOutput
+    );
     let mut sink = Sink::default();
     executor.call_to(&bad, &mut sink).unwrap();
     assert_eq!(sink.calls, 1);
     assert_eq!(sink.bytes, vec![255]);
 
-    let mut sink = Sink { reject: true, ..Default::default() };
+    let mut sink = Sink {
+        reject: true,
+        ..Default::default()
+    };
     let error = executor.call_to(&request, &mut sink).unwrap_err();
     assert_eq!(sink.calls, 1);
     assert_eq!(error.code, ModuleCallErrorCode::InvalidOutput);
