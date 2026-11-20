@@ -3,10 +3,26 @@ use crate::{
     NodeBftExecutionCommitResultV3, NodeBftExecutionContextV3, NodeBftPrivateCandidateV3,
     NodeError, NodeExecutionHook, NodeRuntime,
 };
-use oasis7_consensus::tendermint_v3::*;
+use oasis7_consensus::{
+    AuthorityCommitProof, AuthorityCommitVerifier, BftV3AuthorityCommitVerifier,
+    CommitCandidateRef, TrustedCommitAnchor, VerifiedAuthorityCommit, tendermint_v3::*,
+};
 use oasis7_distfs::protected_bft_v3::{BftSignerCheckpointV3, BftSignerProviderV3};
 use std::sync::{Arc, Mutex, atomic::Ordering, mpsc};
 pub(super) type Hook = Arc<Mutex<Box<dyn NodeExecutionHook>>>;
+pub(super) fn verify_bft_v3_authority_commit(
+    schedule: &BftHeaderHeightScheduleV3,
+    certificate: &FormalBftCertifiedHeaderV3,
+) -> Result<VerifiedBftHeaderCertificateV3, NodeError> {
+    let verifier = BftV3AuthorityCommitVerifier::new();
+    let anchor = TrustedCommitAnchor::bft_v3(schedule.clone());
+    let candidate = CommitCandidateRef::bft_v3(Some(schedule.height()), None);
+    let proof = AuthorityCommitProof::bft_v3(certificate.clone());
+    verifier
+        .verify_authority_commit(&anchor, &candidate, &proof)
+        .and_then(VerifiedAuthorityCommit::into_bft_v3)
+        .map_err(|err| error(err.to_string()))
+}
 pub(super) fn lock_hook(
     hook: &Hook,
 ) -> Result<std::sync::MutexGuard<'_, Box<dyn NodeExecutionHook>>, NodeError> {
@@ -370,7 +386,7 @@ pub(super) fn start(runtime: &mut NodeRuntime) -> Result<(), NodeError> {
     let mut recovery_batches = Vec::new();
     let mut actual_tip = None;
     for certificate in &history {
-        let token = verify_commit_certificate_token_v3(&schedule, certificate).map_err(error)?;
+        let token = verify_bft_v3_authority_commit(&schedule, certificate)?;
         let value = BftHeaderValueV3 {
             header: certificate.header.clone(),
             execution_commitment: certificate.execution_commitment.clone(),

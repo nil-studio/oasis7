@@ -1,5 +1,6 @@
 //! Consensus-focused facade for distributed runtime capabilities.
 
+pub mod authority_commit_verifier;
 mod dht;
 mod ed25519_signer_policy;
 pub mod formal_bft_payload_v3;
@@ -210,10 +211,18 @@ pub use quorum::{
     ConsensusVote, HeadConsensusRecord, QuorumConsensus, ensure_lease_holder_validator,
     propose_world_head_with_quorum, vote_world_head_with_quorum,
 };
+pub use authority_commit_verifier::{
+    AuthorityCommitProof, AuthorityCommitReject, AuthorityCommitVerifier,
+    BftV3AuthorityCommitVerifier, CommitCandidateRef, CompositeAuthorityCommitVerifier,
+    ControlledAuthorityCommitVerifier, TrustedCommitAnchor, VerifiedAuthorityCommit,
+};
 pub use sequencer_mainloop::{
     SequencerMainloop, SequencerMainloopConfig, SequencerTickReport, SequencerTickState,
 };
 pub use signature::{Ed25519SignatureSigner, HmacSha256Signer};
+
+#[cfg(test)]
+mod authority_commit_verifier_tests;
 
 #[cfg(test)]
 mod membership_dead_letter_replay_archive_tests;
