@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
-use super::super::GovernanceProposalStatus;
-use super::World;
+use crate::GovernanceProposalStatus;
+use crate::world::World;
 
 const GOVERNANCE_VOTE_QUOTE_MISSING: &str = "governance_vote_quote_missing";
 
@@ -211,5 +211,29 @@ fn likely_outcome(
         "passed"
     } else {
         "rejected"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recast_replaces_ballot_without_double_counting() {
+        let tallies = BTreeMap::from([("yes".to_owned(), 5), ("no".to_owned(), 3)]);
+        let (next, total) = project_vote(tallies, 8, Some(("yes", 2)), "no", 4);
+        assert_eq!(next["yes"], 3);
+        assert_eq!(next["no"], 7);
+        assert_eq!(total, 10);
+    }
+
+    #[test]
+    fn vote_quote_uses_exact_quorum_and_pass_threshold() {
+        assert_eq!(pass_bps(0, 0), 0);
+        assert_eq!(pass_bps(2, 3), 6666);
+        assert_eq!(likely_outcome(10, Some("yes"), "yes", 6, 10, 6000), "passed");
+        assert_eq!(likely_outcome(9, Some("yes"), "yes", 6, 10, 6000), "rejected");
+        assert_eq!(likely_outcome(10, Some("no"), "yes", 4, 10, 4000), "rejected");
+        assert_eq!(likely_outcome(10, Some("yes"), "yes", 5, 10, 6000), "rejected");
     }
 }

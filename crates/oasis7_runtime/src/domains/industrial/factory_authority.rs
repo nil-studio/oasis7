@@ -1,4 +1,4 @@
-use super::super::{
+use crate::{
     AgentLocationAuthorityV1, DomainEvent, FactoryConstructionPowerProfileV1,
     FactorySiteAuthorityV1, LocationAnchorV1, WorldError, WorldEventBody,
 };

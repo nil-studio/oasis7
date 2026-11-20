@@ -1,7 +1,7 @@
 //! Read-only membership projection. The caller must verify the commit proof and
 //! resolve its state_root_ref to the supplied state root before invoking this adapter.
 //! A CAS snapshot reference is not itself a world state hash.
-use super::{GovernanceFinalitySignerRegistry, GovernanceValidatorAdmissionRecord, World};
+use crate::{GovernanceFinalitySignerRegistry, GovernanceValidatorAdmissionRecord, World};
 use crate::service_admission::CommitRef;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
