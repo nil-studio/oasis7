@@ -37,32 +37,55 @@ impl ResourceStock {
     }
 
     pub fn add(&mut self, kind: ResourceKind, amount: i64) -> Result<(), StockError> {
-        if amount < 0 {
-            return Err(StockError::NegativeAmount { amount });
-        }
-        let current = self.get(kind);
-        let next = current.checked_add(amount).ok_or(StockError::Overflow {
-            kind,
-            current,
-            delta: amount,
-        })?;
+        let next = checked_resource_add_v1(kind, self.get(kind), amount)?;
         self.set(kind, next)
     }
 
     pub fn remove(&mut self, kind: ResourceKind, amount: i64) -> Result<(), StockError> {
-        if amount < 0 {
-            return Err(StockError::NegativeAmount { amount });
-        }
-        let current = self.get(kind);
-        if current < amount {
-            return Err(StockError::Insufficient {
-                kind,
-                requested: amount,
-                available: current,
-            });
-        }
-        self.set(kind, current - amount)
+        let next = checked_resource_remove_v1(kind, self.get(kind), amount)?;
+        self.set(kind, next)
     }
+}
+
+/// Original stock addition without allocating a temporary resource map.
+pub fn checked_resource_add_v1(
+    kind: ResourceKind,
+    current: i64,
+    amount: i64,
+) -> Result<i64, StockError> {
+    if amount < 0 {
+        return Err(StockError::NegativeAmount { amount });
+    }
+    let next = current.checked_add(amount).ok_or(StockError::Overflow {
+        kind,
+        current,
+        delta: amount,
+    })?;
+    // Publicly decoded legacy stocks can contain negative balances. Preserve
+    // ResourceStock::set's original final-balance error for those inputs.
+    if next < 0 {
+        return Err(StockError::NegativeAmount { amount: next });
+    }
+    Ok(next)
+}
+
+/// Original stock removal, including its insufficient-balance error order.
+pub fn checked_resource_remove_v1(
+    kind: ResourceKind,
+    current: i64,
+    amount: i64,
+) -> Result<i64, StockError> {
+    if amount < 0 {
+        return Err(StockError::NegativeAmount { amount });
+    }
+    if current < amount {
+        return Err(StockError::Insufficient {
+            kind,
+            requested: amount,
+            available: current,
+        });
+    }
+    Ok(current - amount)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,6 +104,9 @@ pub enum StockError {
         available: i64,
     },
 }
+
+#[cfg(test)]
+mod resource_stock_tests;
 
 const PPM_BASE: i64 = 1_000_000;
 
