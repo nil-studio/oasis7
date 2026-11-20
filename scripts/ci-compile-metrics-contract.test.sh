@@ -19,7 +19,7 @@ if [[ "$workflow_toolchain_install" == *"--profile default"* ]]; then
 fi
 
 workflow_checkout_depth=$(awk '
-/^[[:space:]]*- uses: actions\/checkout@[0-9a-f]{40}([[:space:]]|$)/ { in_step=1; next }
+$1 == "-" && $2 == "uses:" && $3 ~ /^actions\/checkout@[0-9a-f]+$/ && length($3) == length("actions/checkout@") + 40 { in_step=1; next }
 in_step && /^[[:space:]]*- name:/ { in_step=0 }
 in_step && /fetch-depth:/ { print $2; exit }
 ' .github/workflows/compile-metrics.yml)
