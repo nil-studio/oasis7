@@ -222,7 +222,8 @@ Trace refs: O7-REQ-a805d965-b040-44ba-9af1-68ca3c96b2d8；本接口承接同一�
 | PRD-ID | 历史来源或验证入口 | 测试层级 | 验证方法 | 回归影响范围 |
 | --- | --- | --- | --- | --- |
 | PRD-SCRIPTS-001 | TASK-SCRIPTS-001/002/005/009/011 | `test_tier_required` | 脚本分层与入口清单核验 | 日常开发链路稳定性 |
-| PRD-SCRIPTS-002 | TASK-SCRIPTS-002/003/005/viewer-software-safe-step-regression-smoke | `test_tier_required` + `test_tier_full` | 参数契约与失败语义回归、`viewer-software-safe-step-regression-smoke.sh` fixture-driven browser smoke | CI 稳定性与故障定位效率 |
+| PRD-SCRIPTS-002 | TASK-SCRIPTS-002/003/005 | `test_tier_required` + `test_tier_full` | 参数契约与失败语义回归 | CI 稳定性与故障定位效率 |
+| PRD-SCRIPTS-002 / AC-18I | `scripts/viewer-software-safe-step-regression-smoke.sh` | 手动工具层预检，未接入常规 required/full | 真实浏览器在临时 HTML fixture 上验证工具链和 summary/state 产物；不作为 Viewer 产品回归证据 | 浏览器工具链与产物契约 |
 | PRD-SCRIPTS-003 | TASK-SCRIPTS-003/004/005/010 | `test_tier_required` | fallback 使用条件抽样检查 | 排障闭环和风险控制 |
 | PRD-SCRIPTS-004 | TASK-SCRIPTS-014 | `test_tier_required` | `bash -n` + `--help` + 双实例并行 smoke + `state.json` / ready payload 检查 + 文档治理检查 | 多 worktree 并行执行稳定性与 agent 可驱动性 |
 | PRD-SCRIPTS-005 | PR / Issue 按需 | `test_tier_required` | 真实 Git hook 失败保留、resume 幂等与身份冲突回归 | bootstrap 数据保护 |
