@@ -221,8 +221,23 @@ async def _bounded_controlled_output(args, payload):
         # A StreamReader may pause its subprocess pipe at the high-water
         # mark. Drain and discard after killing the exact child so wait()
         # observes EOF; retaining the buffered data would defeat the cap.
-        while await process.stdout.read(8192):
-            pass
+        # A verifier can also spawn a detached descendant which escapes our
+        # process group but inherits stdout. Such a child must not prolong
+        # collection beyond the deadline while this finally block waits for
+        # its unrelated lifetime.
+        async def drain_owned_stdout():
+            while await process.stdout.read(8192):
+                pass
+
+        try:
+            await asyncio.wait_for(drain_owned_stdout(), timeout=1.0)
+        except asyncio.TimeoutError:
+            # asyncio.subprocess exposes no public stdout-close operation.
+            # Close only our own read pipe, not an unrelated descendant PID.
+            # The direct verifier has already been killed or reaped above.
+            pipe = process._transport.get_pipe_transport(1)
+            if pipe is not None:
+                pipe.close()
         await process.wait()
         await asyncio.gather(sender, return_exceptions=True)
 
