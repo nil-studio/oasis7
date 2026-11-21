@@ -1,6 +1,7 @@
 //! Real loader preparation over retained H, not a current-authority test.
 use super::*;
 use oasis7_game_client::checkpoint_trust::BftCheckpointTrustConfigV1;
+use oasis7_formal_protocol::bft::checkpoint_trust_policy::BftCheckpointTrustPolicyV1;
 use serde::Serialize;
 
 fn canonical<T: Serialize>(value: &T) -> Vec<u8> {
@@ -248,18 +249,13 @@ pub(super) fn check_preparation(
             serde_json::json!(digest("security-policy", &bad["policy"]["security_policy"]));
         let changed_pin = digest("policy", &bad["policy"]);
         bad["policy_digest"] = serde_json::json!(changed_pin);
-        let altered: oasis7_formal_protocol::bft::checkpoint_trust_policy::BftCheckpointTrustPolicyV1 =
+        let altered: BftCheckpointTrustPolicyV1 =
             serde_json::from_value(bad["policy"].clone()).unwrap();
-        let failure = altered.validate_configuration().unwrap_err();
+        let error = altered.validate_configuration().unwrap_err();
+        assert!(error.contains("origin world/chain mismatch"), "{field}: {error}");
+        let decoded = BftCheckpointTrustPolicyV1::decode_canonical(&canonical(&altered));
         assert!(
-            failure.contains("origin world/chain mismatch"),
-            "{field}: {failure}"
-        );
-        assert!(
-            oasis7_formal_protocol::bft::checkpoint_trust_policy::BftCheckpointTrustPolicyV1::decode_canonical(
-                &canonical(&altered)
-            )
-            .is_err(),
+            decoded.is_err(),
             "{field}: portable canonical decode must also reject"
         );
     }
