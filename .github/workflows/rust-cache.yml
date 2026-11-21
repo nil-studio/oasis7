@@ -361,6 +361,12 @@ jobs:
             namespace: ci-rust-build-d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc
             options: ''
             mold-dir: ''
+          - profile: support
+            family: rust-image-support
+            image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2
+            namespace: ci-rust-build-822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2
+            options: ''
+            mold-dir: ''
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     container:
