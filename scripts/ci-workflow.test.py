@@ -3413,6 +3413,81 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             failed = subprocess.run(['bash', '-c', definitions.replace("printf '%s\\n' \"$*\"", 'return 42') + case], text=True, capture_output=True)
             self.assertEqual(failed.returncode, 42)
 
+    def test_full_viewer_agency_bridge_uses_existing_rust_run_and_propagates_failure(self):
+        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
+        opt_in = re.search(r'^agency_snapshot_bridge=0\ncase "\$tier:\$group" in\n.*?^esac$', driver, re.M | re.S).group()
+        full = re.search(r'^run_oasis7_full_tier_tests\(\) \{\n.*?^\}', driver, re.M | re.S).group()
+        script = """set -euo pipefail
+run_oasis7_test_tier_with_viewer() {
+  [[ "$1" == test_tier_full,wasmtime,viewer_live_integration ]]
+  printf 'rust\\n'
+  if [[ "${OASIS7_AGENCY_TEST_SNAPSHOT_OUT:-}" != "" ]]; then
+    printf '{}' > "$OASIS7_AGENCY_TEST_SNAPSHOT_OUT"
+    printf '{}' > "$OASIS7_AGENCY_STALE_SNAPSHOT_OUT"
+  fi
+  return "$rust_status"
+}
+run() {
+  [[ "$1" == node && "$2" == */verify-agency-snapshot-bridge.mjs ]]
+  [[ -s "$3/restored.json" && -s "$3/stale.json" ]]
+  printf 'viewer\\n'
+  return "$viewer_status"
+}
+""" + full + '\n' + opt_in + '\nrun_oasis7_full_tier_tests\n'
+        with tempfile.TemporaryDirectory() as root:
+            target = Path(root) / 'target'
+            target.mkdir()
+            for tier, group, rust_status, viewer_status, code, expected in (
+                ('full', '', 0, 0, 0, ['rust', 'viewer']),
+                ('full-standard', '', 0, 0, 0, ['rust', 'viewer']),
+                ('full-extended', '', 0, 0, 0, ['rust', 'viewer']),
+                ('full-extended', '', 71, 0, 71, ['rust']),
+                ('full-extended', '', 0, 72, 72, ['rust', 'viewer']),
+                ('full-support', '', 0, 0, 0, ['rust']),
+                ('required', 'viewer_js_required', 0, 0, 0, ['rust']),
+            ):
+                with self.subTest(tier=tier, group=group, code=code):
+                    env = dict(os.environ, tier=tier, group=group, repo_root=root,
+                               rust_status=str(rust_status), viewer_status=str(viewer_status))
+                    result = subprocess.run(['bash', '-c', script], text=True,
+                                            capture_output=True, env=env)
+                    self.assertEqual(result.returncode, code, result.stderr)
+                    self.assertEqual(result.stdout.splitlines(), expected)
+                    self.assertEqual(list(target.iterdir()), [])
+
+    def test_viewer_agency_bridge_receipt_rejects_absent_skipped_or_wrong_tests(self):
+        script = """import assert from 'node:assert/strict';
+import { pathToFileURL } from 'node:url';
+const { verifyAgencySnapshotReceipt } = await import(pathToFileURL(process.env.BRIDGE_VERIFIER));
+const name = '/viewer/software_safe_src/control_proof_panel.test.jsx';
+const report = {
+  success: true, numFailedTests: 0, numPassedTests: 2,
+  testResults: [{ name, assertionResults: [
+    { title: 'preserves durable correction and canonical receipt identity through feedback and the rendered panel',
+      ancestorTitles: ['actual restored Rust owner snapshot bridge'], status: 'passed' },
+    { title: 'keeps the earliest prepared identity separate from the committed replacement and its receipt',
+      ancestorTitles: ['actual stale-replacement owner snapshot bridge'], status: 'passed' },
+  ] }],
+};
+verifyAgencySnapshotReceipt(report, name);
+for (const mutate of [
+  r => { r.numPassedTests = 0; },
+  r => { r.testResults[0].assertionResults[1].status = 'skipped'; },
+  r => { r.testResults[0].assertionResults[1].title = 'unrelated passed test'; },
+  r => { r.testResults[0].name = '/other/control_proof_panel.test.jsx'; },
+  r => { r.testResults[0].assertionResults.push(r.testResults[0].assertionResults[0]); },
+]) {
+  const changed = structuredClone(report);
+  mutate(changed);
+  assert.throws(() => verifyAgencySnapshotReceipt(changed, name));
+}
+"""
+        env = dict(os.environ, BRIDGE_VERIFIER=str(
+            ROOT / 'crates/oasis7_viewer/scripts/verify-agency-snapshot-bridge.mjs'))
+        result = subprocess.run(['node', '--input-type=module', '-e', script],
+                                env=env, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_required_and_full_tier_runners_share_feature_matched_viewer_artifact(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         names = ('run_oasis7_package_tests', 'build_oasis7_viewer_binary', 'run_oasis7_test_tier_with_viewer',

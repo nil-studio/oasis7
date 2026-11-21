@@ -331,7 +331,19 @@ run_oasis7_required_clippy_for_group() {
 }
 
 run_oasis7_full_tier_tests() {
-  run_oasis7_test_tier_with_viewer "test_tier_full,wasmtime,viewer_live_integration"
+  if [[ "${agency_snapshot_bridge:-0}" != 1 ]]; then
+    run_oasis7_test_tier_with_viewer "test_tier_full,wasmtime,viewer_live_integration"
+    return
+  fi
+  (
+    snapshot_dir=$(mktemp -d "$repo_root/target/ci-viewer-agency.XXXXXX")
+    trap 'rm -rf -- "$snapshot_dir"' EXIT
+    # Both Rust unit tests write their real snapshots in this existing run.
+    OASIS7_AGENCY_TEST_SNAPSHOT_OUT="$snapshot_dir/restored.json" \
+      OASIS7_AGENCY_STALE_SNAPSHOT_OUT="$snapshot_dir/stale.json" \
+      run_oasis7_test_tier_with_viewer "test_tier_full,wasmtime,viewer_live_integration"
+    run node "$repo_root/crates/oasis7_viewer/scripts/verify-agency-snapshot-bridge.mjs" "$snapshot_dir"
+  )
 }
 
 run_oasis7_production_mock_guard() {
@@ -1516,6 +1528,13 @@ fi
 case "$tier:$group" in
   full:|full-standard:|full-extended:) run bash "$repo_root/scripts/main-token-regression.sh" full ;;
 esac
+
+# Only the full extension dispatch opts into exporting Rust owner snapshots.
+agency_snapshot_bridge=0
+case "$tier:$group" in
+  full:|full-standard:|full-extended:) agency_snapshot_bridge=1 ;;
+esac
+
 if [[ -n "$group" ]]; then
   [[ "$tier" == required ]] || { echo '--group requires required tier' >&2; exit 2; }
   run_group "$group"
