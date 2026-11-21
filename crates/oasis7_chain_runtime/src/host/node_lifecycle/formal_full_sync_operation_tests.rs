@@ -67,6 +67,9 @@ fn zero_attempt_ledger_rejects_forged_activity_on_cold_open() {
     // Test each independently without changing the fixed identity or policy.
     for field in [
         "active_attempt_nonce",
+        "encoded_tx_actual",
+        "encoded_rx_actual",
+        "unknown_final_charged",
         "exchanges_started",
         "window_seq",
         "proof_pages",
