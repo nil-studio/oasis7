@@ -594,6 +594,18 @@ impl Ledger {
         tx_credit: u64,
         rx_credit: u64,
     ) -> Result<ExchangePermit, String> {
+        self.begin_exchange_with_finished_at(permit, tx_credit, rx_credit, Instant::now)
+    }
+
+    // Inject only the post-persistence observation time in native regression.
+    // Production uses Instant::now after the durable ledger write/readback.
+    pub(super) fn begin_exchange_with_finished_at(
+        &mut self,
+        permit: &AttemptPermit,
+        tx_credit: u64,
+        rx_credit: u64,
+        finished_at: impl FnOnce() -> Instant,
+    ) -> Result<ExchangePermit, String> {
         self.check_attempt(permit)?;
         let attempt_no = permit.number;
         // The original selected cut has entered the local publication CAS.
@@ -655,6 +667,12 @@ impl Ledger {
         next.tx_credit = tx_credit;
         next.rx_credit = rx_credit;
         self.save(next)?;
+        if finished_at() >= permit.deadline {
+            // Admission is already durable, but no I/O permit escaped. Retain
+            // the paid original request and require explicit fenced recovery.
+            self.poisoned = true;
+            return Err("attempt_expired".into());
+        }
         Ok(ExchangePermit {
             identity: self.state.identity.clone(),
             attempt_nonce: permit.nonce.clone(),
@@ -691,6 +709,17 @@ impl Ledger {
         request: &ExchangePermit,
         direction: Direction,
         bytes: u64,
+    ) -> Result<Reservation, String> {
+        self.reserve_with_finished_at(permit, request, direction, bytes, Instant::now)
+    }
+
+    pub(super) fn reserve_with_finished_at(
+        &mut self,
+        permit: &AttemptPermit,
+        request: &ExchangePermit,
+        direction: Direction,
+        bytes: u64,
+        finished_at: impl FnOnce() -> Instant,
     ) -> Result<Reservation, String> {
         self.check_attempt(permit)?;
         let attempt = permit.number;
@@ -738,6 +767,12 @@ impl Ledger {
         };
         next.reservation = Some(token.clone());
         self.save(next)?;
+        if finished_at() >= permit.deadline {
+            // The original reservation is not refunded on unknown or late
+            // persistence; no token is returned to authorize transport I/O.
+            self.poisoned = true;
+            return Err("attempt_expired".into());
+        }
         Ok(token)
     }
 
