@@ -1,7 +1,4 @@
 use super::*;
-use oasis7_cas::assemble_snapshot;
-
-const ISSUE160_SAMPLE_WORLD_ENV: &str = "OASIS7_VERIFY_ISSUE160_SAMPLE_WORLD";
 
 #[test]
 fn load_from_dir_ignores_invalid_legacy_payload_when_indexed_sidecar_is_valid() {
@@ -73,53 +70,57 @@ fn snapshot_json_without_era_fields_keeps_backward_compatibility() {
 }
 
 #[test]
-fn sample_issue160_execution_world_matches_tick_consensus_after_distfs_restore() {
-    if std::env::var_os(ISSUE160_SAMPLE_WORLD_ENV).is_none() {
-        return;
+fn json_and_indexed_distfs_restore_the_same_tick_consensus() {
+    let mut world = World::new();
+    world.submit_action(Action::RegisterAgent {
+        agent_id: "agent-cross-format".to_string(),
+        pos: pos(0, 0),
+    });
+    world.step().expect("commit agent registration");
+    world.step().expect("commit successor tick");
+    let expected = world
+        .latest_tick_consensus_record()
+        .expect("generated world has a consensus record");
+
+    let dir = temp_dir("persist-json-distfs-parity");
+    world.save_to_dir(&dir).expect("save both representations");
+
+    // Make the JSON snapshot unavailable so the indexed sidecar has to supply
+    // the state. Keep the real JSON bytes for the separate recovery below.
+    let json_path = dir.join("snapshot.json");
+    let json = fs::read(&json_path).expect("read generated JSON snapshot");
+    fs::remove_file(&json_path).expect("exclude JSON snapshot from indexed restore");
+    let distfs = World::load_from_dir(&dir).expect("restore from indexed DistFS");
+    let audit: serde_json::Value = serde_json::from_slice(
+        &fs::read(dir.join("distfs.recovery.audit.json")).expect("read DistFS recovery audit"),
+    )
+    .expect("decode DistFS recovery audit");
+    assert_eq!(audit["status"].as_str(), Some("distfs_restored"));
+
+    // Keep the same serialization of the original world and remove every
+    // indexed generation and CAS blob, so JSON cannot reuse the first path.
+    fs::write(&json_path, json).expect("restore generated JSON input bytes");
+    fs::remove_dir_all(dir.join(".distfs-state")).expect("exclude DistFS from JSON restore");
+    let json = World::load_from_dir(&dir).expect("restore from JSON");
+
+    for restored in [&distfs, &json] {
+        restored
+            .verify_tick_consensus_chain()
+            .expect("verify restored consensus chain");
+        let record = restored
+            .latest_tick_consensus_record()
+            .expect("restored world has a consensus record");
+        assert_eq!(
+            record.block.header.state_root,
+            expected.block.header.state_root
+        );
+        assert_eq!(
+            restored.tick_consensus_records(),
+            world.tick_consensus_records()
+        );
     }
+    assert_eq!(distfs.state(), json.state());
+    assert_eq!(distfs.state(), world.state());
 
-    let dir = std::path::Path::new(
-        "output/chain-runtime/viewer-live-node-playtest-issue160-trust-refresh-fix1/reward-runtime-execution-world",
-    );
-    assert!(
-        dir.exists(),
-        "set {ISSUE160_SAMPLE_WORLD_ENV}=1 only when the sample world exists at {}",
-        dir.display()
-    );
-
-    let snapshot_json = Snapshot::load_json(dir.join("snapshot.json")).expect("load snapshot json");
-    let journal = Journal::load_json(dir.join("journal.json")).expect("load journal json");
-    let manifest: oasis7_proto::distributed::SnapshotManifest =
-        crate::util::read_json_from_path(dir.join("snapshot.manifest.json").as_path())
-            .expect("load distfs snapshot manifest");
-    let store = LocalCasStore::new(dir.join(".distfs-state"));
-    let snapshot_distfs: Snapshot =
-        assemble_snapshot(&manifest, &store).expect("assemble distfs snapshot");
-
-    let world_from_json =
-        World::from_snapshot(snapshot_json.clone(), journal.clone()).expect("world from json");
-    let world_from_distfs =
-        World::from_snapshot(snapshot_distfs.clone(), journal).expect("world from distfs");
-
-    let json_tick_root = snapshot_json
-        .tick_consensus_records
-        .last()
-        .map(|record| record.block.header.state_root.clone())
-        .expect("json tick consensus record");
-    let distfs_tick_root = snapshot_distfs
-        .tick_consensus_records
-        .last()
-        .map(|record| record.block.header.state_root.clone())
-        .expect("distfs tick consensus record");
-    let json_world_tick_root = world_from_json
-        .latest_tick_consensus_record()
-        .map(|record| record.block.header.state_root.clone())
-        .expect("json world tick root");
-    let distfs_world_tick_root = world_from_distfs
-        .latest_tick_consensus_record()
-        .map(|record| record.block.header.state_root.clone())
-        .expect("distfs world tick root");
-
-    assert_eq!(json_tick_root, json_world_tick_root);
-    assert_eq!(distfs_tick_root, distfs_world_tick_root);
+    let _ = fs::remove_dir_all(&dir);
 }
