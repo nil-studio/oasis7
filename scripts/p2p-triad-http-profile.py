@@ -188,7 +188,7 @@ async def _bounded_controlled_output(args, payload):
             process.stdin.close()
 
     sender = asyncio.create_task(send_request())
-    finished_normally = False
+    stdout_complete = False
     try:
         output = bytearray()
         while True:
@@ -196,6 +196,7 @@ async def _bounded_controlled_output(args, payload):
             # stdout. asyncio pauses its pipe transport at the bounded limit.
             chunk = await process.stdout.read(min(8192, CONTROLLED_OUTPUT_CAP + 1 - len(output)))
             if not chunk:
+                stdout_complete = True
                 break
             output.extend(chunk)
             if len(output) > CONTROLLED_OUTPUT_CAP:
@@ -203,15 +204,14 @@ async def _bounded_controlled_output(args, payload):
         await sender
         if await process.wait() != 0:
             return None, "controlled_observation_failed"
-        finished_normally = True
         return bytes(output), "success"
     finally:
         sender.cancel()
-        # A verifier can exit while its descendants still hold stdout open.
-        # Killing only the direct child on cancellation would make the drain
-        # below wait past the original deadline. Terminate its isolated POSIX
-        # process group for failed/cancelled probes, including exited parents.
-        if not finished_normally and os.name == "posix":
+        # A verifier may exit while a child retains stdout. Terminate its
+        # isolated POSIX group while this pipe is incomplete, even if the
+        # launcher has already exited. After EOF the group might be gone and
+        # its numeric identifier could eventually be reused.
+        if not stdout_complete and os.name == "posix":
             try:
                 os.killpg(process.pid, signal.SIGKILL)
             except ProcessLookupError:
