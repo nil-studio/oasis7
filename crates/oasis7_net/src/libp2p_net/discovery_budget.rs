@@ -378,7 +378,7 @@ mod tests {
         budget.registered_rendezvous_addresses.get_mut(&peer).unwrap().1 =
             Instant::now() - Duration::from_secs(1);
         assert!(!budget.rendezvous_registration_matches(peer, Some(digest)));
-        budget.remember_rendezvous_registration(peer, digest);
+        budget.remember_rendezvous_registration(peer, digest, 7_200);
         assert!(budget.rendezvous_registration_matches(peer, Some(digest)));
         assert_eq!(budget.registered_rendezvous_addresses.len(), 1);
     }
