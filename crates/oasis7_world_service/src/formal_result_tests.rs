@@ -249,23 +249,24 @@ fn changes_context(
             emit_count: 0,
         }),
     };
-    let projection = WorldServiceProjection {
-        world_rule_status: None,
-        native_delegation_authorizations: Vec::new(),
-        formal_commit_header: Some(header),
-        canonical_agent_owner: None,
-        canonical_agent_chat: None,
-        game_task_control: None,
-        feedback_history: None,
-        state: oasis7_runtime::World::new().state().clone(),
-        events: vec![event(12), event(25)],
-        runtime_binding: None,
-        agent_context: None,
-        scheduler_wakes: Vec::new(),
-        continuations: Vec::new(),
-        cognition_leases: Vec::new(),
-        continuation_contexts: Default::default(),
-    };
+    let projection =
+        WorldServiceProjection::from(oasis7_world_projection::WorldServiceProjectionData {
+            world_rule_status: None,
+            native_delegation_authorizations: Vec::new(),
+            formal_commit_header: Some(header),
+            canonical_agent_owner: None,
+            canonical_agent_chat: None,
+            game_task_control: None,
+            feedback_history: None,
+            state: oasis7_runtime::World::new().state().clone(),
+            events: vec![event(12), event(25)],
+            runtime_binding: None,
+            agent_context: None,
+            scheduler_wakes: Vec::new(),
+            continuations: Vec::new(),
+            cognition_leases: Vec::new(),
+            continuation_contexts: Default::default(),
+        });
     let target_view = ReadWorldViewResponse {
         formal_profile: Some(FormalReadProfileV1::controlled()),
         formal_proof: Some(FormalReadSidecarV1 {

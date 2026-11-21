@@ -39,6 +39,8 @@ pub mod modules;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod node_points;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod observation_projection;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod policy;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod reward_asset;

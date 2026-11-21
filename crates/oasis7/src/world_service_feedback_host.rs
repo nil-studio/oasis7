@@ -83,7 +83,7 @@ mod tests {
         enqueue(&mut world, "agent-b", "session-b", 1);
         let projection =
             oasis7_world_service::projection::from_world(&world, Some("agent-a")).unwrap();
-        let history = projection.feedback_history.unwrap();
+        let history = projection.feedback_history.clone().unwrap();
         assert_eq!(history.records.len(), 2);
         check_fresh_session(&history, "agent-a", "session-a").unwrap();
         let encoded = serde_json::to_string(&history).unwrap();

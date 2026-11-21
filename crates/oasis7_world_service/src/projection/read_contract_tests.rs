@@ -407,6 +407,7 @@ fn gameplay_query_reaches_real_game_client_industry_over_signed_json_read() {
             crate::projection::from_authenticated_world(&world, Some("7"), &public(reader))
                 .unwrap()
                 .world_rule_status
+                .as_ref()
                 .unwrap()["gameplay_capability"]
                 .clone();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();

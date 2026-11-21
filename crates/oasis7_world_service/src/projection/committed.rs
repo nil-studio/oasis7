@@ -44,10 +44,13 @@ pub fn from_committed_world(
             .into_iter()
             .filter(|wake| wake.agent_id == agent)
             .collect();
-        for continuation in &projection.continuations {
+        // Borrow the shared DATA directly so continuation and context fields
+        // remain disjoint; DerefMut on the adapter would borrow the whole wrapper.
+        let projection_data = projection.data_mut();
+        for continuation in &projection_data.continuations {
             if let Some(context) = world.service_continuation_context(&continuation.continuation_id)
             {
-                projection.continuation_contexts.insert(
+                projection_data.continuation_contexts.insert(
                     continuation.continuation_id.clone(),
                     oasis7_world_projection::codec::decode_continuation_context(context)
                         .map_err(|e| e.to_string())?,
