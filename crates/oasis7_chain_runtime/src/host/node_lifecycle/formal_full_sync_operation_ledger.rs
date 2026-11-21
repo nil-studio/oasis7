@@ -566,6 +566,13 @@ impl Ledger {
     ) -> Result<ExchangePermit, String> {
         self.check_attempt(permit)?;
         let attempt_no = permit.number;
+        // The original selected cut has entered the local publication CAS.
+        // Even a pending/unknown publication must not start another HTTP
+        // exchange: its external effect may already exist and its admission
+        // boundary is no longer a read-only synchronization operation.
+        if self.state.publication.is_some() {
+            return Err("operation_recovery_required: publication has already started".into());
+        }
         if self.state.active_request.is_some() || self.state.reservation.is_some() {
             return Err("operation_recovery_required: previous exchange has not ended".into());
         }
