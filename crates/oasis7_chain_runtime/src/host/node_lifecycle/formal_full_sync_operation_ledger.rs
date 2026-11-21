@@ -508,6 +508,12 @@ impl Ledger {
 
     pub fn charge_proof(&mut self, permit: &AttemptPermit, bytes: u64) -> Result<(), String> {
         self.check_attempt(permit)?;
+        // The original selected cut has entered publication; no later proof
+        // progress may change the frozen operation, even while the CAS result
+        // remains unknown.
+        if self.state.publication.is_some() {
+            return Err("operation_recovery_required: publication has already started".into());
+        }
         if bytes == 0 || bytes > 4 * 1024 * 1024 {
             return Err("invalid canonical proof size".into());
         }
@@ -535,6 +541,11 @@ impl Ledger {
         bytes: u64,
     ) -> Result<(), String> {
         self.check_attempt(permit)?;
+        // Both new and repeated material charges belong to the original
+        // pre-publication synchronization phase, never its final CAS.
+        if self.state.publication.is_some() {
+            return Err("operation_recovery_required: publication has already started".into());
+        }
         if digest.len() != 64 || !digest.bytes().all(|b| b.is_ascii_hexdigit()) || bytes == 0 {
             return Err("invalid verified material identity".into());
         }
