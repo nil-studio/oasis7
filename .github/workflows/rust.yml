@@ -943,6 +943,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - *linux-mold-tools-checkout
       - &ordinary-configure-linux-mold
@@ -1187,6 +1188,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - &linux-mold-event-tools-checkout
         name: Check out workflow linker setup
@@ -1276,6 +1278,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - *linux-mold-tools-checkout
       - &formal-debug-configure-linux-mold
@@ -1499,6 +1502,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - *linux-mold-event-tools-checkout
       - *formal-debug-configure-linux-mold
@@ -1557,6 +1561,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - *linux-mold-tools-checkout
       - &formal-endpoint-configure-linux-mold
@@ -1780,6 +1785,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - *linux-mold-event-tools-checkout
       - *formal-endpoint-configure-linux-mold
@@ -1834,6 +1840,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps: &formal-merge-steps
       - *linux-mold-tools-checkout
       - name: Configure mold for Linux host linking
@@ -1965,6 +1972,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps: *formal-merge-steps
 
   cache-maintenance:
@@ -2041,6 +2049,7 @@ jobs:
       (needs.select.outputs.run_oasis7_required == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -2962,6 +2971,7 @@ jobs:
       (needs.select.outputs.run_workspace_support == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -3096,6 +3106,7 @@ jobs:
       matrix:
         execution: ${{ fromJSON(needs.select.outputs.workspace_support_host != 'false' && '["host","image"]' || '["image"]') }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: read
@@ -3762,6 +3773,7 @@ jobs:
       (needs.select.outputs.run_operational_contracts == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
