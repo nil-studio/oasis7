@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use oasis7::network_tier_manifest::LoadedNetworkTierManifest;
+use oasis7_client_api::network_tier_manifest::LoadedNetworkTierManifest;
 use oasis7_node::{
     NodeConfig, NodeMainTokenControllerBindingConfig, NodeMainTokenControllerSignerPolicy,
     NodePosConfig, PosValidator,

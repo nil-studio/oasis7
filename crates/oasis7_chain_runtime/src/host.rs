@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use oasis7::network_tier_manifest::LoadedNetworkTierManifest;
+use oasis7_client_api::network_tier_manifest::LoadedNetworkTierManifest;
 use oasis7::observability::emit_stderr_or_event;
 use oasis7_node::{
     Libp2pReplicationNetwork, NodeConfig, NodeConsensusSlashingReceiptSnapshot, NodeNetworkPolicy,
