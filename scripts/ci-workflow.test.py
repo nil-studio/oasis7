@@ -349,7 +349,8 @@ def component_image_cache_writer(job, families, readers=JOBS):
             if name == 'workspace-support-other':
                 assert workspace_support_image_matrix(reader) == row['namespace']
                 assert row['options'] == row['mold-dir'] == ''
-                assert 'uses: ./.github/actions/setup-linux-mold\n' in reader
+                assert not re.search(r'^      options:', reader, re.M)
+                assert 'uses: ./.github/actions/setup-linux-mold\n      - ' in reader
                 continue
             assert 'image: ' + row['image'] + '\n' in reader
             caches = rust_cache_steps(reader)
