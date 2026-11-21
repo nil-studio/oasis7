@@ -103,6 +103,48 @@ fn zero_attempt_ledger_rejects_forged_activity_on_cold_open() {
 }
 
 #[test]
+fn cold_open_rejects_zero_exchange_sequence_but_keeps_real_exchange() {
+    let temp = TestDir::new();
+    let path = temp.path().join("operation.json");
+    let policy = policy();
+    let identity = identity(&policy);
+    let mut ledger = Ledger::create(&path, identity.clone(), policy.clone()).unwrap();
+    let attempt = ledger.begin_attempt().unwrap();
+    let pristine = ledger.snapshot().clone();
+    assert_eq!(pristine.attempts_used, 1);
+    assert_eq!(pristine.exchanges_started, 0);
+    drop(ledger);
+
+    // A forged request #0 has an otherwise valid live attempt and request
+    // nonce. No actual begin_exchange could have created this combination.
+    let mut forged = pristine.clone();
+    forged.active_request = Some((pristine.attempts_used, 0));
+    forged.active_request_nonce = Some("ab".repeat(16));
+    assert!(forged.validate().is_err());
+    local_io::write(&path, &forged).unwrap();
+    assert!(Ledger::open(&path, &identity, &policy, 0).is_err());
+
+    // Restoring the original admitted attempt is valid; a real persisted
+    // exchange must also remain recoverable as an observation.
+    local_io::write(&path, &pristine).unwrap();
+    let reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
+    assert_eq!(reopened.snapshot(), &pristine);
+    drop(reopened);
+
+    // A newly admitted operation on a separate ledger exercises the normal
+    // one-based sequence producer without reusing the recovered handle.
+    let live_path = temp.path().join("real-operation.json");
+    let mut live = Ledger::create(&live_path, identity.clone(), policy.clone()).unwrap();
+    let real_attempt = live.begin_attempt().unwrap();
+    let _exchange = live.begin_exchange(&real_attempt, 1, 1).unwrap();
+    let real_snapshot = live.snapshot().clone();
+    assert_eq!(real_snapshot.active_request, Some((1, 1)));
+    drop(live);
+    let reopened = Ledger::open(&live_path, &identity, &policy, 0).unwrap();
+    assert_eq!(reopened.snapshot(), &real_snapshot);
+}
+
+#[test]
 fn real_tcp_body_accounting_survives_original_identity_reopen() {
     let temp = TestDir::new();
     let path = temp.path().join("operation.json");
