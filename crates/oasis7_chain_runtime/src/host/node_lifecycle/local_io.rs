@@ -64,13 +64,46 @@ pub(crate) fn private_dir(path: &Path) -> Result<(), String> {
     super::super::controlled_live_config::require_private_owned(path, true)
 }
 pub(crate) fn private_file(path: &Path) -> Result<File, String> {
+    private_file_with(path, || {})
+}
+
+// The operation-ledger and owner lock must protect the inode at the requested
+// path, not a substituted symlink/FIFO or a different regular file.
+fn private_file_with(path: &Path, after_preflight: impl FnOnce()) -> Result<File, String> {
     reject_symlinks(path)?;
+    #[cfg(unix)]
+    let before = match fs::symlink_metadata(path) {
+        Ok(metadata) => Some(metadata),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.to_string()),
+    };
+    after_preflight();
     let mut options = OpenOptions::new();
     options.read(true).write(true).create(true).truncate(false);
     #[cfg(unix)]
-    options.mode(0o600);
+    {
+        options.mode(0o600);
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
     let file = options.open(path).map_err(|e| e.to_string())?;
+    let opened = file.metadata().map_err(|e| e.to_string())?;
+    if !opened.is_file() {
+        return Err("node private lock is not a regular file".into());
+    }
     super::super::controlled_live_config::require_private_owned(path, false)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let current = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
+        if before
+            .as_ref()
+            .is_some_and(|old| old.dev() != opened.dev() || old.ino() != opened.ino())
+            || current.dev() != opened.dev()
+            || current.ino() != opened.ino()
+        {
+            return Err("node private lock changed during open".into());
+        }
+    }
     Ok(file)
 }
 // The path preflight is not atomic with open. Recheck the opened descriptor
@@ -248,4 +281,65 @@ mod regular_open_tests {
         file.read_to_string(&mut contents).unwrap();
         assert_eq!(contents, "{}");
     }
+    #[test]
+    fn private_lock_open_rejects_leaf_swaps_before_taking_a_writer_lock() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "oasis7-private-lock-open-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir(&root).unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let original = root.join("owner.lock");
+        let replacement = root.join("replacement.lock");
+        private_file(&original).unwrap();
+        private_file(&replacement).unwrap();
+
+        let error = private_file_with(&original, || {
+            fs::remove_file(&original).unwrap();
+            symlink(&replacement, &original).unwrap();
+        })
+        .expect_err("lock opening must refuse a substituted symlink");
+        assert!(
+            error.contains("symbolic") || error.contains("symlink") || error.contains("Too many levels"),
+            "unexpected error: {error}"
+        );
+
+        fs::remove_file(&original).unwrap();
+        private_file(&original).unwrap();
+        let error = private_file_with(&original, || {
+            fs::remove_file(&original).unwrap();
+            let fifo = CString::new(original.as_os_str().as_bytes()).unwrap();
+            assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+        })
+        .expect_err("a substituted FIFO must never be used as a lock");
+        assert!(
+            error.contains("not a regular file"),
+            "unexpected error: {error}"
+        );
+
+        fs::remove_file(&original).unwrap();
+        private_file(&original).unwrap();
+        let error = private_file_with(&original, || {
+            fs::rename(&replacement, &original).unwrap();
+        })
+        .expect_err("a different regular inode must not pass the lock preflight");
+        assert!(
+            error.contains("node private lock changed during open"),
+            "unexpected error: {error}"
+        );
+
+        // A valid private regular file remains usable as the original lock.
+        private_file(&original).unwrap();
+    }
+
 }
