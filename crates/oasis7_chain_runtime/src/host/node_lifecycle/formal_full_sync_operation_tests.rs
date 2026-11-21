@@ -562,6 +562,59 @@ fn publication_intent_and_ack_block_new_real_http_exchange() {
 }
 
 #[test]
+fn publication_intent_freezes_proof_and_material_progress_through_cold_reopen() {
+    let temp = TestDir::new();
+    let path = temp.path().join("operation.json");
+    let policy = policy();
+    let identity = identity(&policy);
+    let mut ledger =
+        Ledger::create_with_material_limit(&path, identity.clone(), policy.clone(), 16).unwrap();
+    let attempt = ledger.begin_attempt().unwrap();
+    let first_material = "ab".repeat(32);
+    let other_material = "cd".repeat(32);
+
+    // Both accounting operations are allowed during the real sync phase.
+    ledger.charge_proof(&attempt, 7).unwrap();
+    ledger.charge_material(&attempt, &first_material, 4).unwrap();
+    let cut = serde_json::json!({"record_id": "original"});
+    let target =
+        serde_json::to_vec(&(cut.clone(), serde_json::json!({"original_record": true}))).unwrap();
+    let roots = "ef".repeat(32);
+    ledger.bind_verified_target(&attempt, &target).unwrap();
+    ledger.begin_publication(&attempt, &cut, &roots).unwrap();
+
+    // A pending publication may already have had an external effect. Neither
+    // new proof/material work nor a repeated prior material may advance its
+    // original budget after this point, including after acknowledgement.
+    for completed in [false, true] {
+        let before = ledger.snapshot().clone();
+        for result in [
+            ledger.charge_proof(&attempt, 1),
+            ledger.charge_material(&attempt, &other_material, 1),
+            ledger.charge_material(&attempt, &first_material, 4),
+        ] {
+            let error = result.unwrap_err();
+            assert!(
+                error.contains("publication has already started"),
+                "completed={completed}: {error}"
+            );
+        }
+        assert_eq!(ledger.snapshot(), &before);
+        if !completed {
+            ledger.complete_publication(&attempt, &cut, &roots).unwrap();
+        }
+    }
+    ledger.finish_attempt(&attempt).unwrap();
+    let completed = ledger.snapshot().clone();
+    assert_eq!(completed.proof_pages, 1);
+    assert_eq!(completed.proof_bytes, 7);
+    assert_eq!(completed.material_bytes, 4);
+    drop(ledger);
+    let reopened = Ledger::open(&path, &identity, &policy, 16).unwrap();
+    assert_eq!(reopened.snapshot(), &completed);
+}
+
+#[test]
 fn publication_acknowledgement_is_durable_but_not_install_authority() {
     let temp = TestDir::new();
     let path = temp.path().join("operation.json");
