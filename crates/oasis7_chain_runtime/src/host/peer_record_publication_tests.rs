@@ -97,7 +97,7 @@ fn default_peer_record_publication_stays_legacy_without_explicit_opt_in() {
 #[test]
 #[cfg(unix)]
 fn durable_peer_record_publication_is_opt_in_and_bound_to_runtime_root() {
-    use oasis7::development_node_config::DevelopmentPeerRecordPublicationModeV1;
+    use oasis7_client_api::development_node_config::DevelopmentPeerRecordPublicationModeV1;
 
     let listener_reservation =
         TcpListener::bind(("127.0.0.1", 0)).expect("reserve host listener port");
@@ -339,7 +339,7 @@ fn publisher_cleanup_requires_released_original_claim() {
 #[test]
 #[cfg(unix)]
 fn durable_peer_record_initializer_and_normal_start_share_manifest_world_binding() {
-    use oasis7::development_node_config::DevelopmentPeerRecordPublicationModeV1;
+    use oasis7_client_api::development_node_config::DevelopmentPeerRecordPublicationModeV1;
 
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -409,7 +409,7 @@ fn durable_peer_record_initializer_and_normal_start_share_manifest_world_binding
 #[cfg(not(unix))]
 #[test]
 fn durable_peer_record_publication_explicit_initialization_is_unsupported() {
-    use oasis7::development_node_config::DevelopmentPeerRecordPublicationModeV1;
+    use oasis7_client_api::development_node_config::DevelopmentPeerRecordPublicationModeV1;
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("system time")
@@ -450,7 +450,7 @@ fn durable_peer_record_publication_explicit_initialization_is_unsupported() {
 
 #[test]
 fn durable_peer_record_publication_setup_failure_is_returned_from_node_adapter() {
-    use oasis7::development_node_config::DevelopmentPeerRecordPublicationModeV1;
+    use oasis7_client_api::development_node_config::DevelopmentPeerRecordPublicationModeV1;
 
     let nonce = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

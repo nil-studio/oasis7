@@ -7,7 +7,7 @@ use ed25519_dalek::SigningKey;
 use oasis7::consensus_action_payload::{
     ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
 };
-use oasis7::geometry::GeoPos;
+use oasis7_agent_api::world_action::GeoPos;
 use oasis7_node::{
     BftTimeoutsV1, NodeBftConfigV1, NodeConfig, NodeExecutionHook, NodeReplicationConfig, NodeRole,
     NodeRuntime,

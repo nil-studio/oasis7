@@ -10,7 +10,7 @@ use super::super::{
     model::{ChainAnchor, ChainConfig, CompatibilityChainAnchor, IdentityBinding, NodeConfig},
 };
 use super::{LOCAL_NATIVE_PROFILE, LocalNativePackageArtifactV1, PackageUpgradeV1};
-use oasis7::network_tier_manifest::LoadedNetworkTierManifest;
+use oasis7_client_api::network_tier_manifest::LoadedNetworkTierManifest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{

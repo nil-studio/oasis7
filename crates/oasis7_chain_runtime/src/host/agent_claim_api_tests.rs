@@ -3,7 +3,7 @@ use super::{
     reset_agent_claim_api_state_for_tests,
 };
 use crate::cli::DEFAULT_NODE_ID;
-use oasis7::geometry::GeoPos;
+use oasis7_agent_api::world_action::GeoPos;
 use oasis7_node::{
     NodeConfig, NodeExecutionCommitContext, NodeExecutionCommitResult, NodeExecutionHook, NodeRole,
     NodeRuntime,

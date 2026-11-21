@@ -3,7 +3,7 @@ use super::peer_record_publication_tests::wait_for_publisher_release;
 use super::{
     CliOptions, build_default_replication_network_config, node_keypair_config, parse_options,
 };
-use oasis7::development_node_config::{
+use oasis7_client_api::development_node_config::{
     DevelopmentPeerRecordPublicationModeV1, DevelopmentPeerRecordReceptionModeV1,
 };
 use oasis7_node::{Libp2pReplicationNetwork, PeerRecordPublicationTransition};
