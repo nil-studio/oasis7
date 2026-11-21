@@ -24,7 +24,7 @@ fn ordinary_same_transaction_creates_changes_reads_and_independently_receives() 
     let mut pages = Pages {
         nodes: Rc::new(RefCell::new(BTreeMap::new())),
     };
-    let (roots, _) = seed(&memory, &mut pages);
+    let (roots, recorded_keys) = seed(&memory, &mut pages);
     let (family, initial) = family_in_pool(&roots, &pages, &memory, MemoryClass::Ordinary).unwrap();
     let json_address = ArtifactConfigAddressV1 {
         section: "subscriptions",
@@ -101,6 +101,61 @@ fn ordinary_same_transaction_creates_changes_reads_and_independently_receives() 
         take_state_error: || state_error.borrow_mut().take(),
         cancelled: || false,
     };
+    // L2 Current Registry point readers must consume the exact original
+    // authenticated member rows, not caller-supplied keys or selected IDs.
+    let entry = |field: ArtifactConfigFieldV1| {
+        recorded_keys
+            .keys()
+            .find(|raw| {
+                let key = crate::incremental_world_field_key::WorldFieldKeyV1::from_bytes(raw)
+                    .expect("genesis original key");
+                key.name == field.name()
+                    && key.kind
+                        == crate::incremental_world_field_key::WorldFieldRecordKindV1::Entry
+            })
+            .expect("genesis original registry member")
+            .clone()
+    };
+    let active_key = entry(ArtifactConfigFieldV1::RegistryActive);
+    let record_key = entry(ArtifactConfigFieldV1::RegistryManifest);
+    let guard = overlay.transaction.guard();
+    let active = read_current_registry_active_id_v1(
+        &family,
+        &active_key,
+        &mut overlay,
+        128,
+        &guard,
+        &live,
+    )
+    .unwrap();
+    assert_eq!(active.as_str(), "unrelated id");
+    assert!(active.uses_budget(&memory));
+    let guard = overlay.transaction.guard();
+    let record = read_current_registry_record_id_v1(
+        &family,
+        &record_key,
+        &mut overlay,
+        128,
+        &guard,
+        &live,
+    )
+    .unwrap();
+    assert_eq!(record.as_str(), "raw external key");
+    assert!(record.uses_budget(&memory));
+    // Active key may not be laundered into the module-record namespace.
+    let guard = overlay.transaction.guard();
+    assert!(read_current_registry_record_id_v1(
+        &family,
+        &active_key,
+        &mut overlay,
+        128,
+        &guard,
+        &live,
+    )
+    .is_err());
+    // Entry ID must remain valid when the normal transaction resumes.
+    drop(record);
+    drop(active);
     let mut write = MemberRecordWriteContext {
         sink: &mut pages,
         memory: &memory,
