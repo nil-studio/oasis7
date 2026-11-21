@@ -59,6 +59,11 @@ docker run --rm --platform linux/amd64 "$image" bash -ec '
   ldconfig -p | grep libwayland-client.so.0
   dpkg-query -W
 '
+if [[ "$target" == runtime ]]; then
+  docker run --rm --platform linux/amd64 --network none --user 65534:65534 \
+    "$image" bash -ec 'jq -e ".ready == true" <<< "{\"ready\":true}" >/dev/null'
+fi
+
 if [[ "$target" == build ]]; then
   docker run --rm --platform linux/amd64 "$image" bash -ec '
     gcc --version
