@@ -11,7 +11,7 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueReadContext, ValueTreeError},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
-use oasis7_runtime::{
+use oasis7_world_state::{
     incremental_field_member::*, incremental_inventory_read::*, types::MaterialLedgerId,
 };
 use std::cell::Cell;
@@ -501,7 +501,7 @@ fn shared_point_budget_exhaustion_remains_a_typed_error_after_successful_reads()
 
 #[test]
 fn large_typed_ledger_query_keeps_request_charged_and_uses_only_recovery_headroom() {
-    use oasis7_runtime::WorldState;
+    use oasis7_world_state::WorldState;
     use std::collections::BTreeMap;
     for compression in [PageCompression::Raw, PageCompression::Zstd] {
         let directory = Directory::new();

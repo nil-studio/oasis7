@@ -74,6 +74,41 @@ class BftDiagnosticsTests(unittest.TestCase):
         self.assertNotIn("DO_NOT_COPY",json.dumps(result))
         self.assertTrue(self.project(value,"file")["replay"])
 
+    def test_applied_height_cannot_exceed_observed_head(self):
+        # No worker may have applied a block beyond its own reported head.
+        # Reject internally impossible diagnostics before projecting receipt facts.
+        for source in ("http", "file"):
+            status = bft_fixture()
+            status["observation"]["last_applied_height"] = 11
+            result = self.project(status, source)
+            self.assertEqual(result["status"], "unknown")
+            self.assertEqual(result["reason"], "invalid_bft_window_or_applied")
+            self.assertFalse(result["can_propose"])
+            self.assertNotIn("last_applied_height", result)
+
+            status["observation"]["last_applied_height"] = 10
+            recovered = self.project(status, source)
+            self.assertEqual(recovered["last_applied_height"], 10)
+            self.assertEqual(recovered["reason"], "bft_qualification_not_observed")
+            self.assertFalse(recovered["can_propose"])
+
+    def test_committed_window_count_cannot_exceed_height_span(self):
+        # Worker history counts committed heights beginning at the pinned
+        # initial schedule; it cannot include commits beyond the next height.
+        for source in ("http", "file"):
+            status = bft_fixture()
+            status["observation"]["committed_window_heights"] = 2
+            result = self.project(status, source)
+            self.assertEqual(result["status"], "unknown")
+            self.assertEqual(result["reason"], "invalid_bft_window_or_applied")
+            self.assertFalse(result["can_propose"])
+
+            status["observation"]["committed_window_heights"] = 1
+            recovered = self.project(status, source)
+            self.assertEqual(recovered["reason"], "bft_qualification_not_observed")
+            self.assertEqual(recovered["committed_window_heights"], 1)
+            self.assertFalse(recovered["can_propose"])
+
     def test_missing_blocker_is_unknown_not_an_unblocked_observation(self):
         for source in ("http", "file"):
             status = bft_fixture()

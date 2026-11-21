@@ -1,13 +1,13 @@
 //! Atomic World transaction for installing a host context and executing one
 //! trusted provider command.
 
-use super::super::capability_authorization::{
+use crate::capability_authorization::{
     CapabilityAuthorizationAuditReceipt, CapabilityInvocationContext,
 };
-use super::super::{CapabilityAuthorizationEvent, WorldError, WorldEventBody};
+use crate::{CapabilityAuthorizationEvent, WorldError, WorldEventBody};
 use super::World;
 use super::capability_authorization::{deny, validate_invocation_context};
-use super::capability_authorization_events::capability_invocation_context_key;
+use super::super::capability_authorization_events::capability_invocation_context_key;
 use oasis7_wasm_abi::{
     AgentCommandResponse, CapabilityCatalogSnapshot, CapabilityGrantV2, ModuleSandbox,
 };

@@ -261,6 +261,9 @@ def plan(args):
         elif path in WASM_CANDIDATE_INPUTS:
             add('python-repo', path)
             add('rust-repo', path)
+        elif path == 'tools/scenario_test_runner/scenarios/triad_p2p.yaml':
+            # Exact data fixture read by the Rust scenario runner, not Actions YAML.
+            add('rust-repo', path)
         elif path in WORKERS_POLICY_INPUTS:
             add('javascript-repo', path)
             add('rust-repo', path)

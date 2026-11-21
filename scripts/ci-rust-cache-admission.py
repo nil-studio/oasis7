@@ -35,6 +35,14 @@ FAMILIES = {
     'rust-image-native': ('ci-rust-build-0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3',
                           '.github/workflows/rust-cache.yml',
                           'rust-image-native-cache'),
+    'rust-image-components': ('ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f',
+                             '.github/workflows/rust-cache.yml', 'rust-image-component-cache'),
+    'rust-image-net': ('ci-rust-wasm-build-57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6',
+                      '.github/workflows/rust-cache.yml', 'rust-image-component-cache'),
+    'rust-image-launcher': ('ci-rust-build-cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6',
+                           '.github/workflows/rust-cache.yml', 'rust-image-component-cache'),
+    'rust-image-tooling': ('ci-rust-build-d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc',
+                          '.github/workflows/rust-cache.yml', 'rust-image-component-cache'),
     'shared-native': ('ci-shared-native-trusted-v4', '.github/workflows/rust-cache.yml', 'shared-native-cache'),
     'formal-debug': ('ci-formal-debug-deps-trusted-v1', '.github/workflows/rust.yml', 'formal-debug-build-trusted'),
     'formal-endpoint': ('ci-formal-endpoint-deps-trusted-v1', '.github/workflows/rust.yml', 'formal-endpoint-build-trusted'),
@@ -45,6 +53,8 @@ FAMILIES = {
     'release-macos': ('release-packages-package-native-macOS-x86_64-apple-darwin-trusted-v2', '.github/workflows/release-packages.yml', 'package-native'),
     'testnet-linux': ('oasis7-package-native-Linux-native-packaging-trusted-v2', '.github/workflows/testnet-packages.yml', 'package-native-trusted'),
 }
+COMPONENT_IMAGE_FAMILIES = frozenset(('rust-image-components', 'rust-image-net',
+                                    'rust-image-launcher', 'rust-image-tooling'))
 PLATFORMS = {name: (('Linux', 'X64'),) for name in FAMILIES}
 PLATFORMS['release-windows'] = (('Windows', 'X64'),)
 PLATFORMS['release-macos'] = (('macOS', 'ARM64'), ('macOS', 'X64'))
@@ -121,7 +131,8 @@ def trusted_writer(environment, api):
     sha, event, run_id = (environment.get(name, '') for name in
                          ('GITHUB_SHA', 'GITHUB_EVENT_NAME', 'GITHUB_RUN_ID'))
     rust_full = family in ('shared-native', 'formal-debug', 'formal-endpoint', 'release-web')
-    events = ('schedule', 'workflow_dispatch') if rust_full else ('workflow_dispatch',)
+    component_image = family in COMPONENT_IMAGE_FAMILIES
+    events = ('schedule', 'workflow_dispatch') if rust_full or component_image else ('workflow_dispatch',)
     if (environment.get('GITHUB_ACTIONS') != 'true'
             or (environment.get('RUNNER_OS'), environment.get('RUNNER_ARCH')) not in PLATFORMS[family]
             or environment.get('GITHUB_REF') != maintenance.MAIN_REF
@@ -132,20 +143,21 @@ def trusted_writer(environment, api):
             or environment.get('GITHUB_WORKFLOW_REF') != f'{api.repository}/{workflow}@refs/heads/main'
             or not re.fullmatch(r'[0-9a-f]{40}', sha) or not re.fullmatch(r'[1-9][0-9]*', run_id)):
         raise AdmissionError('dependency upload requires the current trusted main writer identity')
-    if (rust_full or family == 'rust-image-native') and event == 'workflow_dispatch':
-        mode = 'image-native' if family == 'rust-image-native' else 'full'
+    if (rust_full or component_image or family == 'rust-image-native') and event == 'workflow_dispatch':
+        modes = (('full', 'image-native') if component_image else
+                 ('image-native',) if family == 'rust-image-native' else ('full',))
         try:
             payload = json.loads(Path(environment.get('GITHUB_EVENT_PATH', '')).read_text())
-            selected = payload.get('inputs', {}).get('run_mode') == mode
+            selected = payload.get('inputs', {}).get('run_mode') in modes
         except (OSError, ValueError, AttributeError):
             selected = False
         if not selected:
-            raise AdmissionError(f'manual dependency upload requires run_mode={mode}')
+            raise AdmissionError('manual dependency upload requires run_mode=' + '|'.join(modes))
     if family.startswith('release-') or family == 'testnet-linux':
         if (environment.get('OASIS7_DEPENDENCY_CACHE_SOURCE_SHA') != sha
                 or environment.get('INPUT_CACHE-PROVIDER') != 'github'):
             raise AdmissionError('package dependency upload requires the matching planned main source and GitHub provider')
-    if family in ('shared-native', 'rust-image-native', 'testnet-linux') or family.startswith('release-'):
+    if component_image or family in ('shared-native', 'rust-image-native', 'testnet-linux') or family.startswith('release-'):
         try:
             # The plan must still describe the actual checkout after the build.
             git_environment = {key: value for key, value in environment.items()

@@ -266,12 +266,25 @@ jobs:
             --output "$RUNNER_TEMP/codeql-rust-production-tools/bundle.tar.zst"
           echo "1c2f867094b80e43c9a0e511090e57e0ea3bf107600b4b3763c52b9020b4ec4b  $RUNNER_TEMP/codeql-rust-production-tools/bundle.tar.zst" | sha256sum --check
           echo "tools_path=$RUNNER_TEMP/codeql-rust-production-tools/bundle.tar.zst" >> "$GITHUB_OUTPUT"
+      - id: actions_tools
+        name: Verify the pinned Actions query-compatible CodeQL bundle
+        if: matrix.language == 'actions'
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/codeql-actions-tools"
+          curl --fail --location --retry 3 --connect-timeout 20 --max-time 240 \
+            https://github.com/github/codeql-action/releases/download/codeql-bundle-v2.27.4/codeql-bundle-actions-linux64.tar.zst \
+            --output "$RUNNER_TEMP/codeql-actions-tools/bundle.tar.zst"
+          echo "f12b84c1ed3540c54691257ddea1b72b62f785c8bb3eca907562c6a8a2361d32  $RUNNER_TEMP/codeql-actions-tools/bundle.tar.zst" | sha256sum --check
+          echo "tools_path=$RUNNER_TEMP/codeql-actions-tools/bundle.tar.zst" >> "$GITHUB_OUTPUT"
       - id: init
         uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4, official tag resolved 2026-10-01
         env:
           CODEQL_OVERLAY_DATABASE_MODE: ${{ steps.rust_tools.outcome == 'success' && 'none' || '' }}
         with:
-          tools: ${{ steps.rust_tools.outputs.tools_path }}
+          tools: ${{ matrix.language == 'actions' && steps.actions_tools.outputs.tools_path || steps.rust_tools.outputs.tools_path }}
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build_mode }}
           db-location: ${{ runner.temp }}/codeql_databases

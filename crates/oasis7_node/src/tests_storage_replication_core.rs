@@ -686,32 +686,59 @@ fn latest_persisted_height_does_not_read_unrelated_historical_payloads() {
     let historical = dir
         .join("replication_commit_messages")
         .join("00000000000000000001.json");
-    let permissions = fs::metadata(&historical).expect("metadata").permissions();
-    fs::set_permissions(&historical, fs::Permissions::from_mode(0o0)).expect("deny old payload read");
-    // Root bypasses Unix file permissions; this fixture requires an unprivileged runner.
-    if fs::read(&historical).is_ok() {
-        fs::set_permissions(&historical, permissions).expect("restore permissions");
-        let _ = fs::remove_dir_all(&dir);
-        return;
-    }
-    let latest = runtime.latest_persisted_commit_height(world_id);
-    fs::set_permissions(&historical, permissions).expect("restore permissions");
-    assert_eq!(
-        latest.expect("latest height must not inspect unrelated payloads"),
-        2
-    );
     let newest = dir
         .join("replication_commit_messages")
         .join("00000000000000000002.json");
-    let permissions = fs::metadata(&newest)
-        .expect("newest metadata")
-        .permissions();
-    fs::set_permissions(&newest, fs::Permissions::from_mode(0o0)).expect("deny newest read");
-    let inaccessible_head = runtime.latest_persisted_commit_height(world_id);
-    fs::set_permissions(&newest, permissions).expect("restore newest permissions");
+
+    // Malformed regular files stay visible to height discovery and exercise
+    // both decisions even when elevated users bypass Unix file permissions.
+    let historical_bytes = fs::read(&historical).expect("read valid history");
+    fs::write(&historical, b"{").expect("corrupt old payload");
+    let historical_decode = runtime.load_commit_message_by_height(world_id, 1);
+    let latest_with_corrupt_history = runtime.latest_persisted_commit_height(world_id);
+    fs::write(&historical, historical_bytes).expect("restore old payload");
+
+    let newest_bytes = fs::read(&newest).expect("read valid head");
+    fs::write(&newest, b"{").expect("corrupt newest payload");
+    let corrupt_head = runtime.latest_persisted_commit_height(world_id);
+    fs::write(&newest, newest_bytes).expect("restore newest payload");
+
+    // Keep the actual read-denial assertions on runners that enforce chmod.
+    let permissions = fs::metadata(&historical).expect("metadata").permissions();
+    fs::set_permissions(&historical, fs::Permissions::from_mode(0o0)).expect("deny old payload read");
+    let read_denied = fs::read(&historical)
+        .is_err_and(|err| err.kind() == std::io::ErrorKind::PermissionDenied);
+    let latest_with_unreadable_history =
+        read_denied.then(|| runtime.latest_persisted_commit_height(world_id));
+    fs::set_permissions(&historical, permissions).expect("restore permissions");
+
+    let inaccessible_head = if read_denied {
+        let permissions = fs::metadata(&newest)
+            .expect("newest metadata")
+            .permissions();
+        fs::set_permissions(&newest, fs::Permissions::from_mode(0o0)).expect("deny newest read");
+        let result = runtime.latest_persisted_commit_height(world_id);
+        fs::set_permissions(&newest, permissions).expect("restore newest permissions");
+        Some(result)
+    } else {
+        None
+    };
     let _ = fs::remove_dir_all(&dir);
-    assert!(
-        inaccessible_head.is_err(),
-        "the selected head must still be readable and validated"
+
+    assert!(historical_decode.is_err(), "history fixture must be invalid");
+    assert_eq!(
+        latest_with_corrupt_history.expect("latest height must not decode unrelated payloads"),
+        2
     );
+    assert!(corrupt_head.is_err(), "the selected head must still be validated");
+    if let Some(latest) = latest_with_unreadable_history {
+        assert_eq!(
+            latest.expect("latest height must not read unrelated historical payloads"),
+            2
+        );
+        assert!(
+            inaccessible_head.expect("head permissions were tested").is_err(),
+            "the selected head must still be readable"
+        );
+    }
 }

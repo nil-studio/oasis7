@@ -17,8 +17,10 @@ pub mod node_consensus_message;
 pub mod node_consensus_signature;
 #[path = "node_pos.rs"]
 mod node_pos_core;
+pub mod normal_tick_input;
 mod pos;
 mod quorum;
+pub mod replicated_execution_input;
 mod sequencer_mainloop;
 mod signature;
 pub mod tendermint_v1;
