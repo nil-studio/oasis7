@@ -3189,7 +3189,7 @@ jobs:
               raise SystemExit(0)
           if helper.is_symlink() or not helper.is_file() or not helper.stat().st_size:
               raise SystemExit('Worker cache helper must be a nonempty regular file.')
-          os.execv(sys.executable, [sys.executable, str(helper), 'metadata', '--github-output', os.environ['GITHUB_OUTPUT']])
+          os.execv(sys.executable, [sys.executable, str(helper), 'metadata', '--root', '/home/runner/.cache/oasis7/worker-build/0.7.5', '--github-output', os.environ['GITHUB_OUTPUT']])
           PY
       - name: Restore exact image Worker build tool
         id: worker-image-cache
@@ -3203,12 +3203,13 @@ jobs:
         shell: bash
         timeout-minutes: 11
         env:
+          WORKER_TOOL_ROOT: ${{ steps.worker-image-meta.outputs.root }}
           TOOL_CACHE_HIT: ${{ steps.worker-image-cache.outputs.cache-hit }}
         run: |
           if [[ "$TOOL_CACHE_HIT" == true ]]; then
-            python3 scripts/ci-worker-build.py check
+            python3 scripts/ci-worker-build.py check --root "$WORKER_TOOL_ROOT"
           else
-            python3 scripts/ci-worker-build.py ensure
+            python3 scripts/ci-worker-build.py ensure --root "$WORKER_TOOL_ROOT"
           fi
       - name: Observe support capacity after cache
         shell: bash

@@ -5848,11 +5848,42 @@ class WorkerToolCache(unittest.TestCase):
                     self.assertFalse(effective_job_condition(expr, values, ['failure']))
         self.assertIn('python3 scripts/ci-worker-build.py check', verify)
         self.assertIn('python3 scripts/ci-worker-build.py ensure', verify)
+        self.assertIn('check --root "$WORKER_TOOL_ROOT"', verify)
+        self.assertIn('ensure --root "$WORKER_TOOL_ROOT"', verify)
+        self.assertIn('WORKER_TOOL_ROOT: ${{ steps.worker-image-meta.outputs.root }}', verify)
         self.assertIn('timeout-minutes: 11', verify)
         execute = workflow_step_script(job, 'Execute selected group')
         self.assertIn('export PATH="$WORKER_TOOL_ROOT/bin:$PATH"', execute)
         self.assertLess(job.index('Prepare verified image Worker build tool'),
                         job.index('Execute selected group'))
+
+    @unittest.skipUnless(sys.platform == "linux", "Linux cache paths reject macOS /home symlink")
+    def test_image_worker_cache_identity_matches_real_host_metadata(self):
+        helper = ROOT / 'scripts/ci-worker-build.py'
+        environment = dict(os.environ)
+        environment.pop('XDG_CACHE_HOME', None)
+        host = subprocess.run([sys.executable, str(helper), 'metadata'],
+            env=dict(environment, HOME='/home/runner'), text=True,
+            capture_output=True, check=True)
+        script = workflow_step_script(JOBS['workspace-support-other'],
+                                      'Identify pinned image Worker build tool')
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'selection.json').write_text(json.dumps(dict(
+                scope='targeted', workspace_support_profile_version=1,
+                workspace_support_profiles=['oasis7_dev_test_worker'])))
+            output = root / 'output'
+            result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
+                cwd=ROOT, env=dict(environment, HOME='/github/home',
+                    XDG_CACHE_HOME='/github/home/.cache',
+                    RUNNER_TEMP=str(root), GITHUB_OUTPUT=str(output)),
+                text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            image_metadata = dict(line.split('=', 1)
+                                  for line in output.read_text().splitlines())
+            host_metadata = json.loads(host.stdout)
+            for field in ('root', 'bin', 'version', 'definition_sha'):
+                self.assertEqual(image_metadata[field], host_metadata[field])
 
     def test_image_support_worker_metadata_cold_and_selected(self):
         script = workflow_step_script(JOBS['workspace-support-other'],
@@ -5863,7 +5894,7 @@ class WorkerToolCache(unittest.TestCase):
             helper.parent.mkdir()
             output = root / 'output'
             helper.write_text('import os, pathlib, sys\n'
-                'assert sys.argv[1:] == ["metadata", "--github-output", os.environ["GITHUB_OUTPUT"]]\n'
+                'assert sys.argv[1:] == ["metadata", "--root", "/home/runner/.cache/oasis7/worker-build/0.7.5", "--github-output", os.environ["GITHUB_OUTPUT"]]\n'
                 'pathlib.Path(os.environ["GITHUB_OUTPUT"]).write_text("root=/fixture/tool\\n")\n')
             for profile, selected in (('oasis7_dev_test_worker', True),
                                       ('oasis7_context', False)):
