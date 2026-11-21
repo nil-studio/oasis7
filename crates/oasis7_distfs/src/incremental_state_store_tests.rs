@@ -572,11 +572,7 @@ fn caller_owned_state_session_uses_real_transaction_pages_and_never_debits_pre_c
     let caller = AtomicBool::new(true);
     let prior_charge = memory.used();
     assert!(matches!(
-        store.state_session_with_cancelled(
-            physical_io(),
-            MemoryClass::Ordinary,
-            &caller
-        ),
+        store.state_session_with_cancelled(physical_io(), MemoryClass::Ordinary, &caller),
         Err(PageStoreError::Cancelled)
     ));
     assert_eq!(memory.used(), prior_charge);
