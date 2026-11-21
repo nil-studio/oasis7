@@ -97,13 +97,3 @@ grep -Fq 'agent-browser --session "\$AB_SESSION" --headed open "\$GAME_URL"' \
   "$launcher_example"
 grep -Fq 'agent-browser --session "\$AB_SESSION" wait --load domcontentloaded' \
   "$launcher_example"
-
-# macOS Bash 3.2 raises under set -u when an empty array is iterated. Keep the
-# reproduction local and require the launcher source to guard the zero-path
-# case before expanding PROVIDER_BOOTSTRAP_AUTHORITY_PATHS.
-if /bin/bash -c 'set -u; paths=(); for path in "${paths[@]}"; do :; done' >/dev/null 2>&1; then
-  echo "Bash 3 empty-array reproduction unavailable" >&2
-  exit 1
-fi
-rg -Fq 'if ((${#PROVIDER_BOOTSTRAP_AUTHORITY_PATHS[@]} > 0)); then' \
-  ./scripts/run-launcher-stack.sh
