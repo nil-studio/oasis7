@@ -1,4 +1,7 @@
 #![cfg(all(unix, not(target_arch = "wasm32")))]
+use oasis7_agent_api::world_action::{
+    OrganizationEstateRightV1 as Right, OrganizationEstateScopeV1 as Scope,
+};
 use oasis7_distfs::incremental_page_store::{
     IncrementalPageStore, PageCompression, PageIoBudget, PageStoreError,
 };
@@ -11,18 +14,24 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueReadContext, ValueTreeError, write_value},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
-use oasis7_runtime::{
-    CrisisState, CrisisStatus, WorldState,
+use oasis7_world_state::{
+    WorldState,
     incremental_field_member::*,
     incremental_field_read::WorldFieldReadContextV1,
     incremental_world_rule_effects::*,
-    incremental_world_rule_supply_root::*,
-    world_rules::{SupplyAuthorizationV1, SupplyBatchV1, SupplyLineageV1, WorldRulesStateV1},
+    incremental_world_rule_organization::root::*,
+    world_rules::{
+        OrganizationCaseV1, OrganizationDispositionPhaseV1 as Disposition,
+        OrganizationEstateDepositV1, OrganizationGrantV1, OrganizationProtectionPhaseV1 as Phase,
+        OrganizationRecoveryRequestV1, WorldRulesStateV1,
+    },
 };
 #[allow(dead_code)]
 #[path = "support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, logical};
+// The rich owner fixture has55 original leaves and at most19 fixed query paths.
+// Choose finite fixture operations up front; retain the existing byte caps.
 fn physical() -> PageIoBudget {
     PageIoBudget {
         reads_remaining: 1_000_000,
@@ -33,17 +42,77 @@ fn physical() -> PageIoBudget {
 #[path = "support/incremental_world_rules_fixture.rs"]
 mod rules_fixture;
 use rules_fixture::*;
-const KEY: &str = "outer-record\0é";
-const OLD: &str = "old-member\0é";
-#[path = "support/incremental_world_rule_supply_fixture.rs"]
-mod supply_fixture;
-use supply_fixture::{authorization, batch};
+const CASE: &str = " outer-case\0\u{e9} ";
+const ESTATE: &str = "estate-key\0\u{e9}";
+const GRANT: &str = "grant\0outer";
+const REQUEST: &str = "request\0outer";
+fn scope(object_id: &str, right: Right) -> Scope {
+    Scope {
+        object_id: object_id.into(),
+        right,
+    }
+}
+fn grant() -> OrganizationGrantV1 {
+    OrganizationGrantV1 {
+        id: "grant-inner".into(),
+        delegate_id: "delegate".into(),
+        scopes: [
+            scope("", Right::Preserve),
+            scope("return\0\u{e9}", Right::ReturnTrust),
+            scope("residual", Right::DistributeResidual),
+            scope("finalize", Right::FinalizeCase),
+            scope("advance", Right::AdvanceCase),
+        ]
+        .into(),
+        revision: 0,
+        expires_at: u64::MAX,
+        source_proposal: String::new(),
+        replaces: Some(String::new()),
+    }
+}
+fn recovery() -> OrganizationRecoveryRequestV1 {
+    OrganizationRecoveryRequestV1 {
+        requester_id: "requester-inner".into(),
+        appeal: true,
+        approved: Some(false),
+        resolved_by: Some(String::new()),
+    }
+}
+fn case() -> OrganizationCaseV1 {
+    OrganizationCaseV1 {
+        id: "case-inner".into(),
+        organization_id: "org\0\u{e9}".into(),
+        founder_id: String::new(),
+        members: [String::new(), "member\0\u{e9}".into()].into(),
+        policy_version: u32::MAX,
+        revision: u64::MAX,
+        phase: Phase::Protected,
+        disposition: Disposition::Obligations,
+        notified_at: None,
+        protected_at: Some(0),
+        grants: [(GRANT.into(), grant())].into(),
+        requests: [(REQUEST.into(), recovery())].into(),
+        stage_receipts: vec![String::new(), "repeat".into(), "repeat".into()],
+    }
+}
+fn estate() -> OrganizationEstateDepositV1 {
+    OrganizationEstateDepositV1 {
+        id: "estate-inner".into(),
+        organization_id: "different-org".into(),
+        contributor_id: "contributor".into(),
+        material: String::new(),
+        amount: i64::MIN,
+        held_in_trust: true,
+        disposed: false,
+        effect_receipt: Some(String::new()),
+    }
+}
 fn source() -> WorldState {
     WorldState {
         world_rules: Some(WorldRulesStateV1 {
             governance_effects: [("p".into(), "original".into())].into(),
-            supply_authorizations: [(KEY.into(), authorization())].into(),
-            supply_batches: [(KEY.into(), batch())].into(),
+            organization_cases: [(CASE.into(), case())].into(),
+            organization_estate: [(ESTATE.into(), estate())].into(),
             ..WorldRulesStateV1::default()
         }),
         ..WorldState::default()
@@ -51,13 +120,13 @@ fn source() -> WorldState {
 }
 fn scan() -> StateScanBudget {
     StateScanBudget {
-        nodes_remaining: 100000,
-        leaves_remaining: 100000,
+        nodes_remaining: 1_000_000,
+        leaves_remaining: 1_000_000,
         read_bytes_remaining: 256 << 20,
     }
 }
 fn roots(root: &StateRootV1) -> RootSetV1 {
-    let mut roots = RootSetV1::empty("supply-pages".into(), [3; 32]).unwrap();
+    let mut roots = RootSetV1::empty("organization-relative-oracle".into(), [3; 32]).unwrap();
     *roots
         .state
         .iter_mut()
@@ -67,7 +136,10 @@ fn roots(root: &StateRootV1) -> RootSetV1 {
 }
 fn produce_all(store: &IncrementalPageStore, memory: &MemoryBudget, source: &WorldState) -> Rows {
     let mut rows = produce(store, memory, source);
-    let counts = prepare_supply_root_genesis_v1(
+    let mut remaining = 128;
+    let mut bounds = limits();
+    bounds.payload_bytes = 165;
+    let counts = prepare_qualified_organization_genesis_v1(
         source,
         &mut MemberRecordWriteContext {
             sink: &mut store.value_session(physical()),
@@ -76,31 +148,30 @@ fn produce_all(store: &IncrementalPageStore, memory: &MemoryBudget, source: &Wor
             key_work: &mut SemanticKeyBudget {
                 bytes_remaining: 1 << 20,
             },
-            limits: MemberRecordLimitsV1 {
-                payload_bytes: 165,
-                ..limits()
-            },
+            limits: bounds,
             cancelled: || false,
         },
-        &mut 128,
+        &mut remaining,
         4 << 20,
         &mut |row| {
+            assert_eq!(row.namespace, Ns::Authorization);
+            assert_eq!(row.mutation.before, None);
             rows.push((row.mutation.key.clone(), row.mutation.after.unwrap()));
             Ok(())
         },
     )
     .unwrap();
     assert_eq!(
-        counts,
-        SupplyRootGenesisCountsV1 {
-            authorizations: 1,
-            batches: 1
-        }
+        (counts.cases, counts.estate, counts.grants, counts.recovery),
+        (1, 1, 1, 1)
     );
+    assert_eq!(remaining, 74, "52 relative cells and two outer references");
+    assert_eq!(rows.len(), 5);
     rows
 }
+
 #[test]
-fn supply_typed_pages_transfer_and_cold_reopen_preserve_nested_records() {
+fn organization_typed_pages_transfer_and_cold_reopen_preserve_nested_records() {
     for compression in [PageCompression::Raw, PageCompression::Zstd] {
         let original = Directory::new();
         let destination = Directory::new();
@@ -149,7 +220,7 @@ fn supply_typed_pages_transfer_and_cold_reopen_preserve_nested_records() {
             let mut cells = 1_000_000;
             let mut outer = scan();
             let mut inner = scan();
-            let mut work = SupplyPagesWorkV1 {
+            let mut work = OrganizationPagesWorkV1 {
                 outer_scan: &mut outer,
                 inner_scan: &mut inner,
                 cells: &mut cells,
@@ -157,14 +228,15 @@ fn supply_typed_pages_transfer_and_cold_reopen_preserve_nested_records() {
                 max_pages: 0,
             };
             assert!(matches!(
-                mark_supply_family_pages_v1(&roots, &mut context, &mut work),
-                Err(ValueTreeError::ResourceLimited("supply marked pages"))
+                mark_organization_family_pages_v1(&roots, &mut context, &mut work),
+                Err(ValueTreeError::ResourceLimited("organization marked pages"))
             ));
             // Continue the same finite read/work budgets after the failed mark.
             work.max_pages = 32_768;
             let mut sink = target.value_session(physical());
-            let pages = transfer_supply_family_pages_v1(&roots, &mut context, &mut work, &mut sink)
-                .unwrap();
+            let pages =
+                transfer_organization_family_pages_v1(&roots, &mut context, &mut work, &mut sink)
+                    .unwrap();
             assert_eq!(pages.qualification().record_counts(), [1, 1]);
             pages
                 .qualification()
@@ -230,7 +302,7 @@ fn supply_typed_pages_transfer_and_cold_reopen_preserve_nested_records() {
             take_state_error: || state.take_read_error().map(state_error),
             cancelled: || false,
         };
-        let family = qualify_supply_family_v1(
+        let family = qualify_organization_family_v1(
             &roots,
             &mut context,
             &mut scan(),
@@ -262,7 +334,7 @@ impl<W: ValueNodeWriter> ValueNodeWriter for FaultSink<'_, W> {
     ) -> Result<(), ValueTreeError> {
         if self.fail && self.written.get() == 3 {
             return Err(ValueTreeError::Io(std::io::Error::other(
-                "injected supply sink failure",
+                "injected organization sink failure",
             )));
         }
         self.sink.put_node(id, bytes)?;
@@ -293,7 +365,7 @@ impl<M: MerkleNodeReader> MerkleNodeReader for MissingChild<'_, M> {
 }
 
 #[test]
-fn supply_page_failures_never_return_a_completed_family() {
+fn organization_page_failures_never_return_a_completed_family() {
     let original = Directory::new();
     let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
     let _source_admission = memory.reserve(1 << 20, MemoryClass::Ordinary).unwrap();
@@ -324,7 +396,7 @@ fn supply_page_failures_never_return_a_completed_family() {
     let mut outer = scan();
     let mut inner = scan();
     let mut cells = 1_000_000;
-    let mut work = SupplyPagesWorkV1 {
+    let mut work = OrganizationPagesWorkV1 {
         outer_scan: &mut outer,
         inner_scan: &mut inner,
         cells: &mut cells,
@@ -368,7 +440,7 @@ fn supply_page_failures_never_return_a_completed_family() {
                 fail,
             };
             let result =
-                transfer_supply_family_pages_v1(&roots, &mut context, &mut work, &mut sink);
+                transfer_organization_family_pages_v1(&roots, &mut context, &mut work, &mut sink);
             if fail {
                 assert!(matches!(result, Err(ValueTreeError::Io(_))));
             } else {
@@ -388,7 +460,7 @@ fn supply_page_failures_never_return_a_completed_family() {
             );
         }
         cancel.set(false);
-        inspect_supply_root_v1(SupplyRootKeyV1::Authorization(KEY), &mut context)
+        inspect_organization_root_v1(OrganizationRootKeyV1::Case(CASE), &mut context)
             .unwrap()
             .expect("actual authenticated child reference")
     };
@@ -413,11 +485,172 @@ fn supply_page_failures_never_return_a_completed_family() {
         cancelled: || false,
     };
     assert!(matches!(
-        mark_supply_family_pages_v1(&roots, &mut context, &mut work),
+        mark_organization_family_pages_v1(&roots, &mut context, &mut work),
         Err(ValueTreeError::Invalid(_))
     ));
     assert!(
         missing.reached.get(),
         "the actual typed child edge was traversed"
+    );
+}
+
+#[test]
+fn recovery_organization_qualifications_require_ordinary_readmission() {
+    let directory = Directory::new();
+    let memory = MemoryBudget::new(64 << 20, 8 << 20).unwrap();
+    let store = IncrementalPageStore::create(
+        &directory.0.join("qualification-class"),
+        memory.clone(),
+        PageCompression::Raw,
+    )
+    .unwrap();
+    let roots = roots(&build(
+        &store,
+        &memory,
+        &produce_all(&store, &memory, &source()),
+    ));
+    let auth_root = roots
+        .state
+        .iter()
+        .find(|root| root.namespace == Ns::Authorization)
+        .unwrap();
+    let values = store.value_session(physical());
+    let recovery_state = store
+        .state_session(physical(), MemoryClass::Recovery)
+        .unwrap();
+    let mut recovery_io = logical();
+    let mut recovery_keys = SemanticKeyBudget {
+        bytes_remaining: 1 << 20,
+    };
+    let mut recovery = WorldFieldReadContextV1 {
+        root: auth_root,
+        state: &recovery_state,
+        values: ValueReadContext {
+            source: &values,
+            memory: &memory,
+            class: MemoryClass::Recovery,
+            io: &mut recovery_io,
+        },
+        key_work: &mut recovery_keys,
+        semantic_bytes: 1024,
+        record_bytes: 8192,
+        take_state_error: || recovery_state.take_read_error().map(state_error),
+        cancelled: || false,
+    };
+    let recovery_family = qualify_organization_family_v1(
+        &roots,
+        &mut recovery,
+        &mut scan(),
+        &mut scan(),
+        &mut 1_000_000,
+        165,
+    )
+    .unwrap();
+    let recovery_record = open_qualified_organization_record_v1(
+        OrganizationRootKeyV1::Case(CASE),
+        &roots,
+        &recovery_family,
+        &mut recovery,
+    )
+    .unwrap()
+    .unwrap();
+
+    let ordinary_state = store
+        .state_session(physical(), MemoryClass::Ordinary)
+        .unwrap();
+    let mut ordinary_io = logical();
+    let mut ordinary_keys = SemanticKeyBudget {
+        bytes_remaining: 1 << 20,
+    };
+    let mut ordinary = WorldFieldReadContextV1 {
+        root: auth_root,
+        state: &ordinary_state,
+        values: ValueReadContext {
+            source: &values,
+            memory: &memory,
+            class: MemoryClass::Ordinary,
+            io: &mut ordinary_io,
+        },
+        key_work: &mut ordinary_keys,
+        semantic_bytes: 1024,
+        record_bytes: 8192,
+        take_state_error: || ordinary_state.take_read_error().map(state_error),
+        cancelled: || false,
+    };
+    assert!(matches!(
+        open_qualified_organization_record_v1(
+            OrganizationRootKeyV1::Case(CASE),
+            &roots,
+            &recovery_family,
+            &mut ordinary,
+        ),
+        Err(ValueTreeError::Invalid(_))
+    ));
+    let cross_class_field = read_qualified_organization_field_v1(
+        OrganizationFieldRequestV1 {
+            owner: OrganizationRootKeyV1::Case(CASE),
+            record: OrganizationRelativeRecordV1::Case,
+            field: OrganizationScalarFieldV1::PolicyVersion,
+            qualification: &recovery_record,
+        },
+        &mut ordinary,
+        165,
+        &mut std::io::sink(),
+    );
+    assert!(matches!(cross_class_field, Err(ValueTreeError::Invalid(_))));
+
+    let family_other_pool = MemoryBudget::new(64 << 20, 8 << 20).unwrap();
+    assert!(matches!(
+        readmit_organization_family_ordinary_v1(&recovery_family, &family_other_pool),
+        Err(ValueTreeError::Invalid(_))
+    ));
+    let ordinary_family =
+        readmit_organization_family_ordinary_v1(&recovery_family, &memory).unwrap();
+    let ordinary_record = open_qualified_organization_record_v1(
+        OrganizationRootKeyV1::Case(CASE),
+        &roots,
+        &ordinary_family,
+        &mut ordinary,
+    )
+    .unwrap()
+    .unwrap();
+    ordinary.root = ordinary_record.root();
+    assert_eq!(
+        read_qualified_organization_field_v1(
+            OrganizationFieldRequestV1 {
+                owner: OrganizationRootKeyV1::Case(CASE),
+                record: OrganizationRelativeRecordV1::Case,
+                field: OrganizationScalarFieldV1::PolicyVersion,
+                qualification: &ordinary_record,
+            },
+            &mut ordinary,
+            165,
+            &mut std::io::sink(),
+        )
+        .unwrap(),
+        OrganizationFieldReadV1::Value(OrganizationFieldValueV1::U32(u32::MAX))
+    );
+
+    let record_other_pool = MemoryBudget::new(64 << 20, 8 << 20).unwrap();
+    assert!(matches!(
+        readmit_organization_record_ordinary_v1(&recovery_record, &record_other_pool),
+        Err(ValueTreeError::Invalid(_))
+    ));
+    let ordinary_record =
+        readmit_organization_record_ordinary_v1(&recovery_record, &memory).unwrap();
+    assert_eq!(
+        read_qualified_organization_field_v1(
+            OrganizationFieldRequestV1 {
+                owner: OrganizationRootKeyV1::Case(CASE),
+                record: OrganizationRelativeRecordV1::Case,
+                field: OrganizationScalarFieldV1::PolicyVersion,
+                qualification: &ordinary_record,
+            },
+            &mut ordinary,
+            165,
+            &mut std::io::sink(),
+        )
+        .unwrap(),
+        OrganizationFieldReadV1::Value(OrganizationFieldValueV1::U32(u32::MAX))
     );
 }

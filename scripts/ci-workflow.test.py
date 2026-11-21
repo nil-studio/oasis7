@@ -6164,10 +6164,41 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'fleet-health': 15,
                 'doc-checker-contracts': 15,
                 'workflow-governance': 20,
+                'consensus': 20,
+                'net': 20,
+                'node': 20,
+                'pixel-world-bridge': 20,
+                'distfs': 30,
+                'rust-baseline': 30,
+                'launcher-web': 30,
+                'viewer-js-required': 30,
+                'viewer-performance-report': 30,
+                'newapi-bridge-package': 30,
             },
             '.github/workflows/wasm-determinism-gate.yml': {
                 'plan-wasm-determinism-scope': 10,
                 'verify-wasm-determinism': 10,
+            },
+            '.github/workflows/command-center.yml': {
+                'desktop': 30,
+            },
+            '.github/workflows/compile-metrics.yml': {
+                'summarize': 10,
+            },
+            '.github/workflows/daily-github-release.yml': {
+                'create-release': 10,
+            },
+            '.github/workflows/pages.yml': {
+                'deploy': 15,
+            },
+            '.github/workflows/ecs-packages.yml': {
+                'package': 20,
+            },
+            '.github/workflows/newapi-bridge-service-package.yml': {
+                'package-linux-x86-64': 30,
+            },
+            '.github/workflows/hosted-login-linux-build.yml': {
+                'build-linux-x86-64': 45,
             },
         }
         for rel_path, limits in expected_limits.items():
@@ -6175,6 +6206,58 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
             for job_name, max_minutes in limits.items():
                 with self.subTest(workflow=rel_path, job=job_name):
                     self.assertIn(job_name, jobs)
+                    match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', jobs[job_name], re.M)
+                    self.assertIsNotNone(match, f'{rel_path}:{job_name} must declare explicit timeout-minutes')
+                    actual = int(match.group(1))
+                    self.assertGreater(actual, 0)
+                    self.assertLessEqual(actual, max_minutes)
+
+
+class ReleasePackagingJobTimeoutContractTests(unittest.TestCase):
+    def test_release_packaging_workflows_declare_bounded_timeout_minutes_for_all_jobs(self):
+        expected_limits = {
+            '.github/workflows/testnet-packages.yml': {
+                'full-regression-qualification': 10,
+                'plan': 10,
+                'build-web-dist': 60,
+                'package-native': 180,
+                'package-native-trusted': 180,
+                'package-installers': 120,
+            },
+            '.github/workflows/mainnet-packages.yml': {
+                'full-regression-qualification': 10,
+                'plan': 10,
+                'release_gate_runtime_core': 60,
+                'release_gate_runtime_support': 60,
+                'release_gate_runtime_sync': 60,
+                'release_gate_web': 60,
+                'release_gate_soak': 90,
+                'release_gate': 10,
+                'build-web-dist': 60,
+                'package-native': 180,
+                'package-index': 15,
+            },
+            '.github/workflows/release-packages.yml': {
+                'full-regression-qualification': 10,
+                'cache-bootstrap-maintenance': 5,
+                'cache-maintenance': 5,
+                'plan': 10,
+                'release_gate_runtime_core': 60,
+                'release_gate_runtime_support': 60,
+                'release_gate_runtime_sync': 60,
+                'release_gate_web': 60,
+                'release_gate_soak': 90,
+                'release_gate': 10,
+                'build-web-dist': 60,
+                'package-native': 180,
+                'publish-release': 20,
+            },
+        }
+        for rel_path, limits in expected_limits.items():
+            jobs = workflow_jobs((ROOT / rel_path).read_text())
+            self.assertEqual(set(jobs.keys()), set(limits.keys()), rel_path)
+            for job_name, max_minutes in limits.items():
+                with self.subTest(workflow=rel_path, job=job_name):
                     match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', jobs[job_name], re.M)
                     self.assertIsNotNone(match, f'{rel_path}:{job_name} must declare explicit timeout-minutes')
                     actual = int(match.group(1))
