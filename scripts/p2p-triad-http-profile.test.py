@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import signal
 from pathlib import Path
 import shutil
 import subprocess
@@ -420,6 +421,51 @@ sys.stdout.buffer.write(b"X" * %d)
         self.assertLess(elapsed, 7.0, "timeout cleanup must not wait for the child to exit")
 
         # A later healthy child must still return an unmodified bounded result.
+        recovered, status = child.run_controlled_bounded(
+            [sys.executable, "-c", "import sys; sys.stdin.read(); print('ok')"],
+            b"{}", 4.0,
+        )
+        self.assertEqual((recovered, status), (b"ok\n", "success"))
+
+    @unittest.skipUnless(os.name == "posix", "detached process fixture needs POSIX sessions")
+    def test_controlled_verifier_detached_stdout_does_not_extend_timeout(self):
+        # The grandchild starts a DIFFERENT session. Killing the verifier's
+        # process group cannot close the inherited stdout pipe.
+        child = load("controlled_detached_reader", "p2p-triad-http-profile.py")
+        marker = self.fixture.root / "detached-verifier-child-pid"
+        detached = (
+            "import os,sys,time\n"
+            "from pathlib import Path\n"
+            "Path(sys.argv[1]).write_text(str(os.getpid()))\n"
+            "time.sleep(12)\n"
+        )
+        verifier = (
+            "import os,subprocess,sys,time\n"
+            f"subprocess.Popen([sys.executable, '-c', {detached!r}, sys.argv[1]], "
+            "start_new_session=True)\n"
+            "for _ in range(200):\n"
+            "    if os.path.exists(sys.argv[1]): break\n"
+            "    time.sleep(.01)\n"
+            "print('parent exited', flush=True)\n"
+        )
+        started = time.monotonic()
+        try:
+            output, status = child.run_controlled_bounded(
+                [sys.executable, "-c", verifier, str(marker)], b"{}", 2.0
+            )
+            elapsed = time.monotonic() - started
+            self.assertTrue(marker.is_file(), "fixture must detach before timeout")
+            self.assertEqual((output, status), (None, "timeout"))
+            self.assertLess(elapsed, 5.0, "cleanup cannot wait for detached child EOF")
+        finally:
+            # Unlike the verified same-session case, a detached child is
+            # intentionally outside our process group; test must reap it.
+            if marker.is_file():
+                try:
+                    os.kill(int(marker.read_text()), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
         recovered, status = child.run_controlled_bounded(
             [sys.executable, "-c", "import sys; sys.stdin.read(); print('ok')"],
             b"{}", 4.0,
