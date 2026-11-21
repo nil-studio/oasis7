@@ -110,8 +110,7 @@ fn ordinary_same_transaction_creates_changes_reads_and_independently_receives() 
                 let key = crate::incremental_world_field_key::WorldFieldKeyV1::from_bytes(raw)
                     .expect("genesis original key");
                 key.name == field.name()
-                    && key.kind
-                        == crate::incremental_world_field_key::WorldFieldRecordKindV1::Entry
+                    && key.kind == crate::incremental_world_field_key::WorldFieldRecordKindV1::Entry
             })
             .expect("genesis original registry member")
             .clone()
@@ -119,27 +118,15 @@ fn ordinary_same_transaction_creates_changes_reads_and_independently_receives() 
     let active_key = entry(ArtifactConfigFieldV1::RegistryActive);
     let record_key = entry(ArtifactConfigFieldV1::RegistryManifest);
     let guard = overlay.transaction.guard();
-    let active = read_current_registry_active_id_v1(
-        &family,
-        &active_key,
-        &mut overlay,
-        128,
-        &guard,
-        &live,
-    )
-    .unwrap();
+    let active =
+        read_current_registry_active_id_v1(&family, &active_key, &mut overlay, 128, &guard, &live)
+            .unwrap();
     assert_eq!(active.as_str(), "unrelated id");
     assert!(active.uses_budget(&memory));
     let guard = overlay.transaction.guard();
-    let record = read_current_registry_record_id_v1(
-        &family,
-        &record_key,
-        &mut overlay,
-        128,
-        &guard,
-        &live,
-    )
-    .unwrap();
+    let record =
+        read_current_registry_record_id_v1(&family, &record_key, &mut overlay, 128, &guard, &live)
+            .unwrap();
     assert_eq!(record.as_str(), "raw external key");
     assert!(record.uses_budget(&memory));
     // Negative cross-field reads belong in an isolated transaction: a failed
