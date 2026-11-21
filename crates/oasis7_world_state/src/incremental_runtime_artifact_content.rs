@@ -294,12 +294,7 @@ mod prepaid_borrowed_original_tests {
         assert_eq!(work.bytes_remaining, 0);
         assert_eq!(
             calls.into_inner(),
-            vec![
-                (1, 8192),
-                (1, VALUE_CHUNK_BYTES as u64),
-                (1, 7),
-                (1, 40),
-            ]
+            vec![(1, 8192), (1, VALUE_CHUNK_BYTES as u64), (1, 7), (1, 40),]
         );
     }
 
