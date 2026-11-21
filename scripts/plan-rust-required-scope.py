@@ -48,7 +48,7 @@ CUSTODY_NODE_SHARDS = (0, 1, 2, 3)
 FORMAL_SUITES = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery', 'lifecycle-cli')
 SUPPORT_PROFILES = (
     'oasis7_agent_api', 'oasis7_agent_harness', 'oasis7_browser_game_client', 'oasis7_client_api', 'oasis7_game_client', 'oasis7_model_provider',
-    'oasis7_client_storage', 'oasis7_signer_protocol',
+    'oasis7_client_storage', 'oasis7_domain_types', 'oasis7_signer_protocol',
     'oasis7_custody_core', 'oasis7_custody_worker', 'oasis7_dev_test_worker',
     'oasis7_local_signer', 'oasis7_launcher_ui', 'oasis7_proto',
     'oasis7_wasm_abi', 'oasis7_wasm_build', 'oasis7_wasm_router',

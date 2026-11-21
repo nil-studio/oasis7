@@ -1729,6 +1729,7 @@
       "group": "workflow_governance",
       "tests": [
         "scripts/ci-fast-preview.test.py",
+        "scripts/ci-rust-cache-build.test.py",
         "scripts/ci-support-profiles.test.py",
         "scripts/ci-workflow.test.py",
         "scripts/plan-rust-required-scope.test.py"

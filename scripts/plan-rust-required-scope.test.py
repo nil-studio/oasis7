@@ -1900,6 +1900,25 @@ class Selection(unittest.TestCase):
             Path(paths[1]).unlink()
             self.assertIn(worker, selector.select(config, base, self.commit())['workspace_support_profiles'])
 
+    def test_domain_types_selects_its_own_support_profile(self):
+        package = 'oasis7_domain_types'
+        config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        manifest = f'[package]\nname="{package}"\nversion="0.1.0"\n'
+        self.write(f'crates/{package}/Cargo.toml', manifest)
+        self.write(f'crates/{package}/src/lib.rs', 'pub fn marker() {}\n')
+        base = self.commit()
+        self.write(f'crates/{package}/src/lib.rs', 'pub fn changed() {}\n')
+        head = self.commit()
+
+        plan = selector.select(config, base, head)
+        self.assertEqual(plan['workspace_support_profiles'], [package])
+        self.assertEqual(selector.support_partitions(plan['workspace_support_profiles']), ['other'])
+        full = selector.full_plan(config, 'candidate-full', head)
+        self.assertIn(package, full['workspace_support_profiles'])
+        self.write('doc/readme.md', 'unrelated documentation\n')
+        docs = selector.select(config, head, self.commit())
+        self.assertNotIn(package, docs['workspace_support_profiles'])
+
     def test_profile_path_mapping_is_additive_and_does_not_bypass_full_or_ownership(self):
         config = json.loads(json.dumps(self.config))
         config['groups'].append('workspace_support')
