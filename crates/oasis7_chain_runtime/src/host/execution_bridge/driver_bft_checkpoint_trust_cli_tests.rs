@@ -287,6 +287,11 @@ pub(super) fn check_preparation(
     let mut touching = value["policy"].clone();
     touching["root_authorized_at_unix_ms"] = serde_json::json!(99);
     touching["root_not_before_unix_ms"] = serde_json::json!(99);
+    // Keep the independent security bound live for this legitimate one-ms
+    // root/policy boundary; the unmodified fixture expires it at 90.
+    touching["security_policy"]["absolute_safe_until_unix_ms"] = serde_json::json!(100);
+    touching["security_assumptions_digest"] =
+        serde_json::json!(digest("security-policy", &touching["security_policy"]));
     let touching: BftCheckpointTrustPolicyV1 =
         serde_json::from_value(touching).unwrap();
     touching.validate_configuration().unwrap();
