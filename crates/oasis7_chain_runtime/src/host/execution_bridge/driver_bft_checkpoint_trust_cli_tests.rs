@@ -290,6 +290,57 @@ pub(super) fn check_preparation(
     let touching: BftCheckpointTrustPolicyV1 =
         serde_json::from_value(touching).unwrap();
     touching.validate_configuration().unwrap();
+    // Having enough issuer keys in the policy is not sufficient when their
+    // half-open validity windows cannot satisfy the threshold simultaneously.
+    // The original root/policy limits also restrict the possible quorum time.
+    let mut quorum_policy = value["policy"].clone();
+    quorum_policy["issuer_keys"][0]["expires_at_unix_ms"] = serde_json::json!(40);
+    quorum_policy["issuer_keys"].as_array_mut().unwrap().push(serde_json::json!({
+        "issuer_id":"issuer-two",
+        "key_id":"issuer-key-two",
+        "public_key":hex::encode(fixtures::key(116).verifying_key().to_bytes()),
+        "issuer_generation":1,
+        "not_before_unix_ms":40,
+        "expires_at_unix_ms":90
+    }));
+    quorum_policy["max_issuer_keys"] = serde_json::json!(2);
+    quorum_policy["threshold"] = serde_json::json!(2);
+    let impossible: BftCheckpointTrustPolicyV1 =
+        serde_json::from_value(quorum_policy.clone()).unwrap();
+    let err = impossible.validate_configuration().unwrap_err();
+    assert!(err.contains("no common authorization window"), "{err}");
+    assert!(BftCheckpointTrustPolicyV1::decode_canonical(&canonical(&impossible)).is_err());
+
+    // A one-millisecond shared interval [39,40) must be accepted. Preserve
+    // all original independent config pins when taking the SDK preparation
+    // path; the valid fixture is not promoted into current signer authority.
+    quorum_policy["issuer_keys"][1]["not_before_unix_ms"] = serde_json::json!(39);
+    let overlapping: BftCheckpointTrustPolicyV1 =
+        serde_json::from_value(quorum_policy.clone()).unwrap();
+    overlapping.validate_configuration().unwrap();
+    let mut with_quorum = value.clone();
+    with_quorum["policy"] = quorum_policy.clone();
+    let changed_pin = digest("policy", &quorum_policy);
+    with_quorum["policy_digest"] = serde_json::json!(changed_pin);
+    let with_quorum: BftCheckpointTrustConfigV1 =
+        serde_json::from_value(with_quorum).unwrap();
+    BftCheckpointTrustConfigV1::decode_and_prepare(
+        &canonical(&with_quorum),
+        &changed_pin,
+        &pin,
+        &c0_pin,
+    )
+    .expect("one-millisecond common issuer quorum window is valid");
+
+    // Both issuer keys can overlap each other but only before root policy
+    // authorization; the independently pinned root must not be bypassed.
+    quorum_policy["root_not_before_unix_ms"] = serde_json::json!(40);
+    quorum_policy["root_authorized_at_unix_ms"] = serde_json::json!(40);
+    let outside_root: BftCheckpointTrustPolicyV1 =
+        serde_json::from_value(quorum_policy).unwrap();
+    let err = outside_root.validate_configuration().unwrap_err();
+    assert!(err.contains("no common authorization window"), "{err}");
+
     // All three roles are independently pinned in a valid original policy.
     // A signer reused across roles can manufacture both source evidence and
     // the purported independent root revocation or UTC time observation.

@@ -229,6 +229,19 @@ pub(super) fn parse_http_headers(header: &[u8]) -> Result<(String, String, usize
     let mut content_length = None;
     for line in lines {
         let (name, value) = line.split_once(':').ok_or("malformed HTTP header")?;
+        // Never let whitespace before ':' hide Content-Length or
+        // Transfer-Encoding as an unrelated field. Reject control bytes in
+        // values before dispatching any signed status or mutation request.
+        if name.is_empty()
+            || !name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+            || !value
+                .bytes()
+                .all(|b| b == b'\t' || (b >= 0x20 && b != 0x7f))
+        {
+            return Err("malformed HTTP header field".into());
+        }
         if name.eq_ignore_ascii_case("transfer-encoding") {
             return Err("transfer encoding is unsupported".into());
         }
@@ -296,5 +309,55 @@ impl FormalHttpServer {
 impl Drop for FormalHttpServer {
     fn drop(&mut self) {
         let _ = self.stop();
+    }
+}
+
+#[cfg(test)]
+mod framing_tests {
+    use super::{parse_http_headers, read_http_request};
+    use std::{
+        io::Write,
+        net::{Shutdown, TcpListener, TcpStream},
+        time::{Duration, Instant},
+    };
+
+    // Exercise the production bounded TCP reader, not only its parser helper.
+    fn receive(raw: &[u8]) -> Result<(String, String, Vec<u8>), String> {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        client.write_all(raw).unwrap();
+        client.shutdown(Shutdown::Write).unwrap();
+        let (mut server, _) = listener.accept().unwrap();
+        read_http_request(&mut server, Instant::now() + Duration::from_secs(2))
+    }
+
+    #[test]
+    fn signed_formal_http_rejects_ambiguous_framing_before_dispatch() {
+        for malformed in [
+            b"GET /v1/chain/status HTTP/1.1\r\nTransfer-Encoding : chunked\r\n\r\n".as_slice(),
+            b"POST /v1/world/submit HTTP/1.1\r\nContent-Length: 2\r\nContent-Length : 9\r\n\r\n{}".as_slice(),
+            b"GET /v1/chain/status HTTP/1.1\r\nX-Probe: bad\0value\r\n\r\n".as_slice(),
+            b"GET /v1/chain/status HTTP/1.1\r\nX-Probe: bad\nvalue\r\n\r\n".as_slice(),
+            b"GET /v1/chain/status HTTP/1.1\r\nX-Bad Name: value\r\n\r\n".as_slice(),
+        ] {
+            assert!(
+                receive(malformed).is_err(),
+                "accepted malformed request: {malformed:?}"
+            );
+        }
+        let (method, path, body) = receive(
+            b"POST /v1/world/submit HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\nX-Probe: hi\tthere\r\n\r\n{}",
+        )
+        .expect("valid bounded formal HTTP request");
+        assert_eq!(method, "POST");
+        assert_eq!(path, "/v1/world/submit");
+        assert_eq!(body, b"{}");
+        assert!(parse_http_headers(b"GET /v1/chain/status HTTP/1.1\r\nContent-Length: 0").is_ok());
+        // Valid UTF-8 observations are preserved; only C0/DEL control bytes
+        // and ambiguous field names are rejected.
+        assert!(parse_http_headers(
+            "GET /v1/chain/status HTTP/1.1\r\nX-Note: café".as_bytes()
+        )
+        .is_ok());
     }
 }

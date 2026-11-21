@@ -9,6 +9,7 @@ libxi-dev
 libxinerama-dev
 libxkbcommon-dev
 libxrandr-dev
+lsof
 pkg-config
 procps
 wayland-protocols

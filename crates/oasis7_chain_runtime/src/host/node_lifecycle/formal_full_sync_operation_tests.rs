@@ -176,6 +176,62 @@ fn elapsed_admission_persistence_does_not_renew_attempt_or_refund_its_slot() {
 }
 
 #[test]
+fn exchange_persisted_after_deadline_cannot_issue_a_new_io_permit() {
+    let temp = TestDir::new();
+    let path = temp.path().join("operation.json");
+    let policy = policy();
+    let identity = identity(&policy);
+    let mut ledger = Ledger::create(&path, identity.clone(), policy.clone()).unwrap();
+    let attempt = ledger.begin_attempt().unwrap();
+
+    // A deterministic post-write deadline observation models slow fsync
+    // without sleeping or depending on scheduler latency.
+    let error = ledger
+        .begin_exchange_with_finished_at(&attempt, 32, 32, || attempt.deadline())
+        .err()
+        .unwrap();
+    assert_eq!(error, "attempt_expired");
+    let spent = ledger.snapshot().clone();
+    assert_eq!(spent.exchanges_started, 1);
+    assert_eq!(spent.active_request, Some((1, 1)));
+    assert_eq!(spent.tx_credit, 32);
+    assert_eq!(spent.rx_credit, 32);
+    assert!(ledger.begin_exchange(&attempt, 1, 1).is_err());
+    drop(ledger);
+
+    let reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
+    assert_eq!(reopened.snapshot(), &spent);
+}
+
+#[test]
+fn reserved_body_window_persisted_after_deadline_never_returns_token() {
+    let temp = TestDir::new();
+    let path = temp.path().join("operation.json");
+    let policy = policy();
+    let identity = identity(&policy);
+    let mut ledger = Ledger::create(&path, identity.clone(), policy.clone()).unwrap();
+    let attempt = ledger.begin_attempt().unwrap();
+    let request = ledger.begin_exchange(&attempt, 32, 32).unwrap();
+    let paid_before = ledger.snapshot().charged().unwrap();
+
+    let error = ledger
+        .reserve_with_finished_at(&attempt, &request, Direction::Rx, 20, || attempt.deadline())
+        .err()
+        .unwrap();
+    assert_eq!(error, "attempt_expired");
+    let spent = ledger.snapshot().clone();
+    assert_eq!(spent.window_seq, 1);
+    assert_eq!(spent.reservation.as_ref().unwrap().bytes, 20);
+    assert_eq!(spent.charged().unwrap(), paid_before);
+    assert!(ledger.reserve(&attempt, &request, Direction::Rx, 1).is_err());
+    drop(ledger);
+
+    let reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
+    assert_eq!(reopened.snapshot(), &spent);
+    assert_eq!(reopened.snapshot().charged().unwrap(), paid_before);
+}
+
+#[test]
 fn real_tcp_body_accounting_survives_original_identity_reopen() {
     let temp = TestDir::new();
     let path = temp.path().join("operation.json");

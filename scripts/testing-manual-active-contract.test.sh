@@ -43,14 +43,12 @@ if ! grep -Fq 'docs-only 同时执行命中的 contract / planner 样例' "$MANU
   failed=1
 fi
 
-for required_ci_policy in \
-  '普通 PR 使用 impact-scoped `required-gate` 作为 premerge 最小阻断集' \
-  '缺陷拦截优先、速度优化其次' \
-  '`full` 只用于发布、高风险、历史/信号升级与定时回归' \
-  '性能在被选择的 surface 必须采集' \
-  '稳定可复现的环境特定样本、阈值、原始复现与 waiver 生命周期建立前保持 report/watch'; do
-  if ! grep -Fq "$required_ci_policy" "$CI_TIER_PRD"; then
-    echo "ci-tiered-execution PRD missing canonical CI policy: $required_ci_policy" >&2
+# The PRD owns these policies. Check the manual's live pointers instead of
+# requiring the PRD to retain a second copy of the manual's wording.
+for anchor in ci-fast-pr-periodic-full ci-pr-fast-selection; do
+  if ! grep -Fq "doc/testing/ci/ci-tiered-execution.prd.md#$anchor)" "$MANUAL" \
+    || ! grep -Fxq "<a id=\"$anchor\"></a>" "$CI_TIER_PRD"; then
+    echo "testing-manual must link to the active CI policy anchor: $anchor" >&2
     failed=1
   fi
 done
@@ -67,15 +65,15 @@ for required_manual_policy in \
   fi
 done
 
-if ! grep -Fqx '| `scripts/run-viewer-web.sh` | S0 + JS-required + S6（JS-browser） | S8（JS-full） | 只有触达 `pixel_world_bridge` 或真实 bridge Rust/wasm 构建依赖时追加 S5；涉及 software_safe 静态入口、构建 freshness 或浏览器自动化契约时追加对应 smoke 与 bundle 验证 |' "$MANUAL"; then
-  echo "testing-manual viewer web runner must keep JS and Pixel World tiers separated:" >&2
-  failed=1
-fi
-
-if ! grep -Fqx '| `crates/oasis7_viewer/**` | S0 + JS-required；可见输出追加 S6（JS-browser） | S2 + S8（JS-full） | 只有触达 `pixel_world_bridge` 或真实 bridge Rust/wasm 构建依赖时追加 S5；若影响 live bridge 协议，追加 S3 |' "$MANUAL"; then
-  echo "testing-manual generic Viewer paths must not require S5:" >&2
-  failed=1
-fi
+# Inspect the active selection rule, not the retired duplicated table rows.
+viewer_selection="$(grep -F '3. Viewer / Web / 可见 UI：' "$MANUAL" || true)"
+case "$viewer_selection" in
+  *"crates/oasis7_viewer/**"*"JS-required"*"S6 JS-browser"*"只有触达"*"crates/pixel_world_bridge/**"*"S5"*) ;;
+  *)
+    echo "testing-manual Viewer selection must separate JS checks, browser checks, and bridge-only S5:" >&2
+    failed=1
+    ;;
+esac
 
 for required_viewer_contract in \
   '### S5：Pixel World Bridge（Bevy）单测与 wasm 编译套件（L4A 前置）' \
@@ -93,9 +91,10 @@ for required_viewer_contract in \
   fi
 done
 
-if grep -Eq 'cargo (check|test|build) -p oasis7_viewer' "$MANUAL"; then
+obsolete_viewer_package='cargo (check|test|build).* (-p|--package)[[:space:]=]+oasis7_viewer([[:space:]`]|$)'
+if grep -Eq "$obsolete_viewer_package" "$MANUAL"; then
   echo "testing-manual must not name oasis7_viewer as the Rust Viewer/Bevy target:" >&2
-  grep -En 'cargo (check|test|build) -p oasis7_viewer' "$MANUAL" >&2
+  grep -En "$obsolete_viewer_package" "$MANUAL" >&2
   failed=1
 fi
 

@@ -3,6 +3,7 @@ ca-certificates
 curl
 gdb
 git
+jq
 libasound2t64
 libudev1
 libwayland-client0
