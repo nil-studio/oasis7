@@ -166,7 +166,13 @@ run_cargo() {
 }
 
 run_cargo_clippy() {
-  if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then
+  # The required (all) artifact consumer must not rewrite Cargo.lock
+  # after the verified provider checkout was sealed. Limit the extra lock to
+  # that job; preserve the pre-existing CLI shape for other CI groups and
+  # trusted-baseline command-contract fixtures.
+  if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ||
+        ( "${GITHUB_ACTIONS:-}" == true && "${GITHUB_JOB:-}" == "oasis7-required" &&
+          "${ordinary_partition:-}" == all ) ]]; then
     local argument locked=0
     for argument in "$@"; do
       [[ "$argument" != -- ]] || break
