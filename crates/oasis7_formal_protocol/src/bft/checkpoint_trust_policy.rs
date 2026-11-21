@@ -187,6 +187,14 @@ impl BftCheckpointOriginV1 {
         ] {
             nonempty(id)?;
         }
+        // A qualified formal H can only hand off to its own world and chain.
+        // Enforce that identity on the portable policy path too, before a
+        // separately decoded policy can be treated as a coherent origin.
+        if self.formal_world.world_id != self.bft_scope.world_id
+            || self.formal_world.chain_id != self.bft_scope.chain_id
+        {
+            return Err("checkpoint renewal origin world/chain mismatch".into());
+        }
         // The two genesis fields retain their different protocol meanings.
         for hash in [
             &self.formal_world.genesis_digest,
