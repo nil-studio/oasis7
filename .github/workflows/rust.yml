@@ -3116,7 +3116,7 @@ jobs:
       contents: read
       packages: read
     container:
-      image: ${{ matrix.execution == 'image' && 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:6ea7e7ebeb0abeefc7aa2cba6c48627ad76b3c8551d5f7c400c661c783ada51a' || '' }}
+      image: ${{ matrix.execution == 'image' && 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2' || '' }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ github.token }}
@@ -3170,6 +3170,7 @@ jobs:
         if: matrix.execution == 'image'
         run: |
           set -euo pipefail
+          zstd --version
           ps -o pid= -p "$$"
           rustc +"$RUST_TOOLCHAIN" -vV
           rustc +"$OASIS7_WASM_TOOLCHAIN" -vV
@@ -3197,7 +3198,7 @@ jobs:
         if: matrix.execution == 'image'
         with:
           save-if: false
-          shared-key: ci-rust-build-6ea7e7ebeb0abeefc7aa2cba6c48627ad76b3c8551d5f7c400c661c783ada51a
+          shared-key: ci-rust-build-822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
