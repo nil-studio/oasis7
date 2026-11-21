@@ -48,6 +48,7 @@ jobs:
   plan:
     name: plan-testnet-package-scope
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       checkoutSha: ${{ steps.source.outputs.checkoutSha }}
       resolvedRef: ${{ steps.source.outputs.resolvedRef }}
@@ -123,6 +124,7 @@ jobs:
     name: build-web-dist
     needs: plan
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       # Use the executing workflow tools before restoring the complete source checkout.
       - name: Check out workflow linker setup
@@ -229,6 +231,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
     steps: &testnet-native-steps
       # Use the executing workflow tools before restoring the complete source checkout.
       - name: Check out workflow linker setup
@@ -376,6 +379,7 @@ jobs:
       inputs.package_scope == 'linux_only' && inputs.build_profile == 'packaging'
     strategy: *testnet-native-strategy
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
     steps: *testnet-native-steps
 
   package-installers:
@@ -392,6 +396,7 @@ jobs:
        (needs.package-native.result == 'skipped' && needs.package-native-trusted.result == 'success'))
     strategy: *testnet-native-strategy
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
