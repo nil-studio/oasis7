@@ -817,6 +817,7 @@ jobs:
       (needs.select.outputs.run_rust_baseline == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: read
@@ -2334,6 +2335,7 @@ jobs:
       (needs.select.outputs.run_consensus == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: read
@@ -2392,6 +2394,7 @@ jobs:
       (needs.select.outputs.run_distfs == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: read
@@ -2472,6 +2475,7 @@ jobs:
       (needs.select.outputs.run_node == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: read
@@ -2539,6 +2543,7 @@ jobs:
       (needs.select.outputs.run_net == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: read
@@ -2610,6 +2615,7 @@ jobs:
       (needs.select.outputs.run_viewer_js_required == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - *linux-mold-tools-checkout
       - name: Configure mold for Linux host linking
@@ -2716,6 +2722,7 @@ jobs:
       (needs.select.outputs.run_viewer_performance_report == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - *linux-mold-tools-checkout
       - name: Configure mold for Linux host linking
@@ -2815,6 +2822,7 @@ jobs:
       (needs.select.outputs.run_pixel_world_bridge == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: read
@@ -2875,6 +2883,7 @@ jobs:
       (needs.select.outputs.run_launcher_web == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: read
@@ -4753,6 +4762,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.run_mode == 'newapi_bridge_package'
     name: newapi-bridge-linux-x86-64
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: read
