@@ -166,15 +166,20 @@ run_cargo() {
 }
 
 run_cargo_clippy() {
-  # A Cargo.lock rewrite after the producer artifacts are sealed invalidates
-  # the exact-checkout identity in the downstream required consumer. Clippy
-  # must enforce the repository lockfile in CI as well as local checks.
-  local argument locked=0
-  for argument in "$@"; do
-    [[ "$argument" != -- ]] || break
-    if [[ "$argument" == --locked ]]; then locked=1; fi
-  done
-  if [[ "$locked" == 0 ]]; then set -- --locked "$@"; fi
+  # The required (all) artifact consumer must not rewrite Cargo.lock
+  # after the verified provider checkout was sealed. Limit the extra lock to
+  # that job; preserve the pre-existing CLI shape for other CI groups and
+  # trusted-baseline command-contract fixtures.
+  if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ||
+        ( "${GITHUB_ACTIONS:-}" == true && "${GITHUB_JOB:-}" == "oasis7-required" &&
+          "${ordinary_partition:-}" == all ) ]]; then
+    local argument locked=0
+    for argument in "$@"; do
+      [[ "$argument" != -- ]] || break
+      if [[ "$argument" == --locked ]]; then locked=1; fi
+    done
+    if [[ "$locked" == 0 ]]; then set -- --locked "$@"; fi
+  fi
   local lint_flags=(
     -D warnings
     -D clippy::correctness
