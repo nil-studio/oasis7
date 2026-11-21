@@ -249,7 +249,7 @@ fn changes_context(
             emit_count: 0,
         }),
     };
-    let projection = WorldServiceProjection {
+    let projection = WorldServiceProjection::from(oasis7_world_projection::WorldServiceProjectionData {
         world_rule_status: None,
         native_delegation_authorizations: Vec::new(),
         formal_commit_header: Some(header),
@@ -265,7 +265,7 @@ fn changes_context(
         continuations: Vec::new(),
         cognition_leases: Vec::new(),
         continuation_contexts: Default::default(),
-    };
+    });
     let target_view = ReadWorldViewResponse {
         formal_profile: Some(FormalReadProfileV1::controlled()),
         formal_proof: Some(FormalReadSidecarV1 {
