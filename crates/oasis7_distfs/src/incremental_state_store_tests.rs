@@ -559,6 +559,9 @@ fn full_six_namespace_state_and_value_scan_after_real_store_reopen() {
 
 #[test]
 fn caller_owned_state_session_uses_real_transaction_pages_and_never_debits_pre_cancelled_io() {
+    // The original fixed 4096-byte session reservation still covers the
+    // caller-owned borrowed flag and both live cancellation boundaries.
+    assert!(std::mem::size_of::<StatePageSession<'_>>() <= 4096);
     let fixture = Fixture::new();
     let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
     let store =
