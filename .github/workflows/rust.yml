@@ -184,6 +184,7 @@ jobs:
       (github.event_name != 'schedule' ||
        (needs.periodic-admission.result == 'success' && needs.periodic-admission.outputs.run_full == 'true'))
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       plan: ${{ steps.workflow-plan.outputs.plan }}
       selection_artifact: ${{ steps.selection-artifacts.outputs.selection_artifact }}
@@ -576,6 +577,7 @@ jobs:
   pr-fast-preview-plan:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
@@ -608,7 +610,8 @@ jobs:
         run: |
           printf '%s\n' '## Candidate fast-profile preview' \
             'Diagnostic only: candidate policy and a synthetic Rust-only diff; the trusted-BASE required gate remains independent.' \
-            'Every selected real group runs in parallel without restoring caches. These diagnostics do not establish a ten-minute P95.' \
+            'Cold matrix execution is opt-in via the PR label "ci-fast-preview" to avoid starving the shared runner pool on routine CI PRs.' \
+            'Every selected real group runs in parallel without restoring caches when opted in. These diagnostics do not establish a ten-minute P95.' \
             'Each sample is measured from workflow creation to its last selected group completion; per-group artifacts report runner time only.' >> "$GITHUB_STEP_SUMMARY"
           for metadata in "$RUNNER_TEMP"/previews/*/selection.json.metadata.json; do
             cat "$metadata" >> "$GITHUB_STEP_SUMMARY"
@@ -624,7 +627,11 @@ jobs:
   pr-fast-preview:
     name: pr-fast-preview (${{ matrix.sample }}, ${{ matrix.group }}, ${{ matrix.partition }})
     needs: pr-fast-preview-plan
-    if: needs.pr-fast-preview-plan.result == 'success' && needs.pr-fast-preview-plan.outputs.enabled == 'true'
+    if: >-
+      needs.pr-fast-preview-plan.result == 'success' &&
+      needs.pr-fast-preview-plan.outputs.enabled == 'true' &&
+      github.event.action != 'opened' &&
+      contains(github.event.pull_request.labels.*.name, 'ci-fast-preview')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -772,6 +779,7 @@ jobs:
       (needs.select.outputs.run_baseline == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -814,6 +822,7 @@ jobs:
       (needs.select.outputs.run_rust_baseline == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: read
@@ -939,6 +948,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - *linux-mold-tools-checkout
       - &ordinary-configure-linux-mold
@@ -1183,6 +1193,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - &linux-mold-event-tools-checkout
         name: Check out workflow linker setup
@@ -1235,6 +1246,7 @@ jobs:
        fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - name: Require exactly one successful ordinary producer
         env:
@@ -1271,6 +1283,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - *linux-mold-tools-checkout
       - &formal-debug-configure-linux-mold
@@ -1494,6 +1507,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - *linux-mold-event-tools-checkout
       - *formal-debug-configure-linux-mold
@@ -1552,6 +1566,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - *linux-mold-tools-checkout
       - &formal-endpoint-configure-linux-mold
@@ -1775,6 +1790,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - *linux-mold-event-tools-checkout
       - *formal-endpoint-configure-linux-mold
@@ -1829,6 +1845,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps: &formal-merge-steps
       - *linux-mold-tools-checkout
       - name: Configure mold for Linux host linking
@@ -1960,6 +1977,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps: *formal-merge-steps
 
   cache-maintenance:
@@ -2036,6 +2054,7 @@ jobs:
       (needs.select.outputs.run_oasis7_required == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -2310,6 +2329,7 @@ jobs:
     needs: [select, formal-test-build, formal-test-build-trusted, formal-process-tests]
     if: always() && needs.select.result != 'skipped' && (github.event_name != 'workflow_dispatch' || inputs.run_mode == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -2329,6 +2349,7 @@ jobs:
       (needs.select.outputs.run_consensus == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: read
@@ -2387,6 +2408,7 @@ jobs:
       (needs.select.outputs.run_distfs == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: read
@@ -2467,6 +2489,7 @@ jobs:
       (needs.select.outputs.run_node == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: read
@@ -2534,6 +2557,7 @@ jobs:
       (needs.select.outputs.run_net == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: read
@@ -2605,6 +2629,7 @@ jobs:
       (needs.select.outputs.run_viewer_js_required == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - *linux-mold-tools-checkout
       - name: Configure mold for Linux host linking
@@ -2711,6 +2736,7 @@ jobs:
       (needs.select.outputs.run_viewer_performance_report == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - *linux-mold-tools-checkout
       - name: Configure mold for Linux host linking
@@ -2810,6 +2836,7 @@ jobs:
       (needs.select.outputs.run_pixel_world_bridge == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: read
@@ -2870,6 +2897,7 @@ jobs:
       (needs.select.outputs.run_launcher_web == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: read
@@ -2948,6 +2976,7 @@ jobs:
       (needs.select.outputs.run_workspace_support == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -3082,6 +3111,7 @@ jobs:
       matrix:
         execution: ${{ fromJSON(needs.select.outputs.workspace_support_host != 'false' && '["host","image"]' || '["image"]') }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: read
@@ -3675,6 +3705,7 @@ jobs:
       (needs.select.result != 'success' || needs.select.outputs.run_workspace_support == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - name: Require successful support planning
         env:
@@ -3721,6 +3752,7 @@ jobs:
       (needs.select.outputs.run_scenario_regression == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
       packages: read
@@ -3790,6 +3822,7 @@ jobs:
       (needs.select.outputs.run_operational_contracts == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -3814,6 +3847,7 @@ jobs:
       (needs.select.outputs.run_packaging_contracts == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
       packages: read
@@ -3866,6 +3900,7 @@ jobs:
       contents: read
       actions: read
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - *linux-mold-tools-checkout
       - name: Configure mold for Linux host linking
@@ -3975,15 +4010,23 @@ jobs:
       (needs.select.outputs.run_codex_agent_config_validation == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-runtime@sha256:14ef7ecc92a75d99af0723dbb0fa131b24c40ac2f83eed748fde1698c35c4258
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        with:
-          python-version: '3.12'
+      - name: Verify the preinstalled Python
+        run: python3 -c 'import sys, tomllib; assert sys.version_info[:2] == (3, 12)'
       - name: Execute selected group
         shell: bash
         env:
@@ -3999,6 +4042,7 @@ jobs:
       (needs.select.outputs.run_compile_metrics == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
       packages: read
@@ -4047,6 +4091,7 @@ jobs:
       (needs.select.outputs.run_site_quality == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
       packages: read
@@ -4098,17 +4143,32 @@ jobs:
       (needs.select.outputs.run_doc_checker_contracts == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-runtime@sha256:14ef7ecc92a75d99af0723dbb0fa131b24c40ac2f83eed748fde1698c35c4258
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        with:
-          python-version: '3.12'
-      - name: Install Markdown runtime
-        run: python3 -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
+      - name: Trust the checked-out workspace path in the job container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Prepare the Markdown runtime with preinstalled Python
+        run: |
+          python3 -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          python3 -m venv "$RUNNER_TEMP/doc-checker-venv"
+          "$RUNNER_TEMP/doc-checker-venv/bin/python3" -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
+          printf '%s\n' "$RUNNER_TEMP/doc-checker-venv/bin" >> "$GITHUB_PATH"
       - name: Execute selected group
         shell: bash
         env:
@@ -4124,6 +4184,7 @@ jobs:
       (needs.select.outputs.run_cargo_tooling_contracts == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: read
       packages: read
@@ -4184,6 +4245,7 @@ jobs:
       (needs.select.outputs.run_windows_rollout == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: windows-2022
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -4206,6 +4268,7 @@ jobs:
       (needs.select.outputs.run_macos_package_contract == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -4227,6 +4290,7 @@ jobs:
        fromJSON(needs.select.outputs.plan).scope == 'full')
     name: fleet-health (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -4294,6 +4358,7 @@ jobs:
     name: required-gate
     if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     needs: [select, command-center, baseline, rust-baseline, oasis7-required, formal-process, consensus, distfs, node, net, viewer-js-required, viewer-performance-report, pixel-world-bridge, launcher-web, workspace-support, scenario-regression, operational-contracts, packaging-contracts, workflow-governance, codex-agent-config-validation, compile-metrics, site-quality, doc-checker-contracts, cargo-tooling-contracts, windows-rollout, macos-package-contract, fleet-health]
     steps:
       - name: Require successful scope planning
@@ -4710,6 +4775,7 @@ jobs:
       (github.event_name == 'schedule' ||
        (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     needs: [select, command-center, baseline, rust-baseline, oasis7-required, formal-process, consensus, distfs, node, net, viewer-js-required, viewer-performance-report, pixel-world-bridge, launcher-web, workspace-support, scenario-regression, operational-contracts, packaging-contracts, workflow-governance, codex-agent-config-validation, compile-metrics, site-quality, doc-checker-contracts, cargo-tooling-contracts, windows-rollout, macos-package-contract, fleet-health, oasis7-test-build, full-regression, candidate-full-regression]
     steps:
       - name: Require successful full planning
@@ -4778,6 +4844,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.run_mode == 'newapi_bridge_package'
     name: newapi-bridge-linux-x86-64
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: read

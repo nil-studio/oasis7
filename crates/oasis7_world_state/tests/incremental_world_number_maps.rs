@@ -8,7 +8,7 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueReadContext, ValueTreeError},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
-use oasis7_runtime::{
+use oasis7_world_state::{
     WorldState, incremental_field_member::*, incremental_field_read::*,
     incremental_world_number_maps::*,
 };
@@ -426,7 +426,7 @@ fn numeric_maps_keep_original_key_value_types_and_absence_after_reopen() {
                 TransactionLimits, TransitionVerifier,
             };
             use oasis7_formal_protocol::incremental_value::ValueNodeWriter;
-            use oasis7_runtime::incremental_field_overlay::WorldFieldOverlayContextV1;
+            use oasis7_world_state::incremental_field_overlay::WorldFieldOverlayContextV1;
             let memory = MemoryBudget::new(32 << 20, 1 << 20).unwrap();
             let store = IncrementalPageStore::open(
                 &path,
@@ -790,7 +790,7 @@ fn numeric_maps_keep_original_key_value_types_and_absence_after_reopen() {
                         &guard,
                         &live,
                     );
-                    use oasis7_runtime::incremental_field_overlay::WorldFieldOverlayErrorV1 as Error;
+                    use oasis7_world_state::incremental_field_overlay::WorldFieldOverlayErrorV1 as Error;
                     assert!(
                         matches!(result,Err(Error::Value(ValueTreeError::Invalid(actual)))if actual==reason)
                     );

@@ -187,6 +187,7 @@ impl Snapshot {
                         || r.bytes > MAX_WINDOW
                         || r.nonce.len() != 32
                         || !r.nonce.bytes().all(|c| c.is_ascii_hexdigit())
+                        || r.window_seq == 0
                         || r.window_seq > self.window_seq
                 })
             {
@@ -256,6 +257,18 @@ impl Snapshot {
                 .is_some_and(|v| v.len() != 32 || !v.bytes().all(|c| c.is_ascii_hexdigit()))
             || self.proof_pages > self.policy.max_proof_pages
             || self.proof_bytes > self.policy.max_proof_bytes
+            // charge_proof accepts a nonzero byte count and atomically
+            // increments both counters; cold replay cannot invent an
+            // unmatched page or charge without its original page.
+            || self.proof_bytes < self.proof_pages
+            || (self.proof_pages == 0) != (self.proof_bytes == 0)
+            // Every settled encoded byte and window sequence is downstream
+            // of a durably admitted exchange, not just of an attempt.
+            || (self.exchanges_started == 0
+                && (self.window_seq != 0
+                    || self.encoded_tx_actual != 0
+                    || self.encoded_rx_actual != 0
+                    || self.unknown_final_charged != 0))
             || self.verified_target_json.as_ref().is_some_and(|v| {
                 v.is_empty()
                     || v.len() > 64 * 1024
@@ -294,6 +307,7 @@ impl Snapshot {
                 || !r.nonce.bytes().all(|c| c.is_ascii_hexdigit())
                 || Some((r.attempt_no, r.request_seq)) != self.active_request
                 || self.active_request_nonce.as_ref() != Some(&r.request_nonce)
+                || r.window_seq == 0
                 || r.window_seq != self.window_seq
                 || r.bytes == 0
                 || r.bytes > MAX_WINDOW)
@@ -303,3 +317,7 @@ impl Snapshot {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "formal_full_sync_operation_snapshot_tests.rs"]
+mod tests;

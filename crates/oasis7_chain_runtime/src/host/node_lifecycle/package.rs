@@ -5,7 +5,7 @@
 //! and rollback; this adapter binds those effects to the local lifecycle's
 //! exact incarnation/generation receipts. It deliberately has no SSH path.
 use super::{LocalActionRecord, LocalInstance, actions, local_io as io};
-use oasis7::network_tier_manifest::LoadedNetworkTierManifest;
+use oasis7_client_api::network_tier_manifest::LoadedNetworkTierManifest;
 #[path = "package_artifact.rs"]
 mod artifact;
 use artifact::{

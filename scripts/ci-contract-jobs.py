@@ -18,10 +18,16 @@ MANAGED_GROUPS = ("operational_contracts", "packaging_contracts")
 
 # Linux mold linker setup required for native host Cargo linking in packaging contracts.
 GROUPS_WITH_MOLD = {"packaging_contracts"}
+GROUP_TIMEOUT_MINUTES = {"operational_contracts": 60, "packaging_contracts": 10}
 
 
 def render_job(group: str) -> str:
     job_id = group.replace("_", "-")
+    timeout_line = (
+        f"    timeout-minutes: {GROUP_TIMEOUT_MINUTES[group]}\n"
+        if group in GROUP_TIMEOUT_MINUTES
+        else ""
+    )
     mold_prefix = ""
     source_checkout_condition = ""
     if group in GROUPS_WITH_MOLD:
@@ -71,6 +77,7 @@ def render_job(group: str) -> str:
         f"      (needs.select.outputs.run_{group} == 'true' ||\n"
         f"       fromJSON(needs.select.outputs.plan).scope == 'full')\n"
         f"    runs-on: ubuntu-24.04\n"
+        f"{timeout_line}"
         f"{container}"
         f"    steps:\n"
         f"{mold_prefix}"

@@ -3,7 +3,7 @@ use super::{CliOptions, SigningKey, node_keypair_config, unused_loopback_tcp_add
 
 #[test]
 fn typed_resource_budget_reaches_live_host_replication_status_and_rejects_invalid_limits() {
-    use oasis7::development_node_config::P2pResourceBudget;
+    use oasis7_client_api::development_node_config::P2pResourceBudget;
 
     let mut input = development_runtime::from_options(&CliOptions::default()).unwrap();
     let raw_profile = r#"{"profile":"v1-discovery-resource-budget-1",
@@ -109,7 +109,7 @@ fn normal_config_file_rejects_invalid_resource_budget_before_start() {
 
 fn read_fixture_config(
     bytes: &[u8],
-) -> Result<oasis7::development_node_config::DevelopmentNodeConfigV1, String> {
+) -> Result<oasis7_client_api::development_node_config::DevelopmentNodeConfigV1, String> {
     use std::io::Write;
 
     let mut nonce = [0_u8; 16];
