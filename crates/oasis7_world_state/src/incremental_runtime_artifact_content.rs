@@ -280,19 +280,27 @@ mod prepaid_borrowed_original_tests {
         let mut stop = || false;
         let before = memory.used();
         let actual = prepare_borrowed_original_with_work_v1(
-            &original, &memory, &mut work, &mut stop, Some(&debit)
-        ).unwrap();
+            &original,
+            &memory,
+            &mut work,
+            &mut stop,
+            Some(&debit),
+        )
+        .unwrap();
         assert_eq!(actual.byte_len, original.len() as u64);
         assert_eq!(actual.id, *blake3::hash(&original).as_bytes());
         assert_eq!(memory.used(), before);
         assert_eq!(work.objects_remaining, 0);
         assert_eq!(work.bytes_remaining, 0);
-        assert_eq!(calls.into_inner(), vec![
-            (1, 8192),
-            (1, VALUE_CHUNK_BYTES as u64),
-            (1, 7),
-            (1, 40),
-        ]);
+        assert_eq!(
+            calls.into_inner(),
+            vec![
+                (1, 8192),
+                (1, VALUE_CHUNK_BYTES as u64),
+                (1, 7),
+                (1, 40),
+            ]
+        );
     }
 
     #[test]
@@ -305,7 +313,11 @@ mod prepaid_borrowed_original_tests {
         let debit = |_, _| Err(ValueTreeError::ResourceLimited("paid work"));
         assert!(matches!(
             prepare_borrowed_original_with_work_v1(
-                &data, &memory, &mut work, &mut stop, Some(&debit)
+                &data,
+                &memory,
+                &mut work,
+                &mut stop,
+                Some(&debit),
             ),
             Err(ValueTreeError::ResourceLimited("paid work"))
         ));
