@@ -146,6 +146,11 @@ impl Snapshot {
         if let Some(publication) = &self.publication
             && (self.publication_journal_version != Some(1)
                 || self.verified_target_json.is_none()
+                // Publication is written only once the preceding request and
+                // reservation have ended; a cold ledger must preserve that
+                // ordering rather than admitting an invented later exchange.
+                || self.active_request.is_some()
+                || self.reservation.is_some()
                 || publication.attempt_no == 0
                 || publication.attempt_no > self.attempts_used
                 || publication.intent_digest.len() != 64

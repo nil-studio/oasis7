@@ -492,6 +492,76 @@ fn publication_intent_is_exact_and_unknown_reopen_cannot_replay() {
 }
 
 #[test]
+fn publication_intent_and_ack_block_new_real_http_exchange() {
+    let temp = TestDir::new();
+    let path = temp.path().join("operation.json");
+    let policy = policy();
+    let identity = identity(&policy);
+    let mut ledger = Ledger::create(&path, identity.clone(), policy.clone()).unwrap();
+    let attempt = ledger.begin_attempt().unwrap();
+    let cut = serde_json::json!({"record_id": "original"});
+    let target =
+        serde_json::to_vec(&(cut.clone(), serde_json::json!({"original_record":true}))).unwrap();
+    let roots = "ab".repeat(32);
+    ledger.bind_verified_target(&attempt, &target).unwrap();
+    ledger.begin_publication(&attempt, &cut, &roots).unwrap();
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    // Exercise the real controlled HTTP consumer, not only Ledger's public
+    // method. Neither an unknown intent nor an acknowledged publication
+    // authorizes another network request on the original operation.
+    for acknowledged in [false, true] {
+        let before = ledger.snapshot().clone();
+        let error = direct_http::post(
+            direct_http::Request {
+                address: listener.local_addr().unwrap(),
+                path: "/read",
+                body: b"{}",
+                response_bound: 16,
+                request_timeout: Duration::from_secs(1),
+            },
+            &mut ledger,
+            &attempt,
+            Instant::now() + Duration::from_secs(2),
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("publication has already started"),
+            "acknowledged={acknowledged}: {error}"
+        );
+        assert_eq!(ledger.snapshot(), &before);
+        assert_eq!(ledger.snapshot().exchanges_started, 0);
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+        if !acknowledged {
+            ledger.complete_publication(&attempt, &cut, &roots).unwrap();
+        }
+    }
+    ledger.finish_attempt(&attempt).unwrap();
+    let finished = ledger.snapshot().clone();
+    drop(ledger);
+
+    // A forged durable exchange after publication must also be refused on
+    // cold read, even when all other counters and original pins are valid.
+    let mut forged = finished.clone();
+    forged.exchanges_started = 1;
+    forged.active_attempt_nonce = Some("ab".repeat(16));
+    forged.active_request = Some((1, 1));
+    forged.active_request_nonce = Some("cd".repeat(16));
+    forged.tx_credit = 1;
+    assert!(forged.validate().is_err());
+    local_io::write(&path, &forged).unwrap();
+    assert!(Ledger::open(&path, &identity, &policy, 0).is_err());
+
+    local_io::write(&path, &finished).unwrap();
+    let reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
+    assert_eq!(reopened.snapshot(), &finished);
+}
+
+#[test]
 fn publication_acknowledgement_is_durable_but_not_install_authority() {
     let temp = TestDir::new();
     let path = temp.path().join("operation.json");
