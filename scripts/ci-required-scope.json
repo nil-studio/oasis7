@@ -2237,7 +2237,9 @@
     {
       "match": [
         "scripts/release-web-fixture-lib.sh",
-        "scripts/run-launcher-stack.sh"
+        "scripts/run-launcher-stack.sh",
+        "scripts/run-launcher-stack-hosted-local-mock-funding.test.sh",
+        "scripts/run-launcher-stack-local-mock-lane.test.sh"
       ],
       "groups": [
         "launcher_web",
@@ -2358,7 +2360,8 @@
         "scripts/resolve-product-doc-ci-range.py",
         "scripts/resolve-product-doc-ci-range.test.py",
         "scripts/system-design-traceability*",
-        "scripts/find-python-with-module*"
+        "scripts/find-python-with-module*",
+        "scripts/testing-manual-active-contract.test.sh"
       ],
       "groups": [
         "doc_checker_contracts"
