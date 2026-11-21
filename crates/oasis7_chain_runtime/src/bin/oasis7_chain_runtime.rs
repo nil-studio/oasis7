@@ -1,7 +1,7 @@
 //! Process adapter for the reusable chain runtime library.
 
 fn main() -> std::process::ExitCode {
-    oasis7_observability::init_tracing("oasis7_chain_runtime");
+    oasis7::observability::init_tracing("oasis7_chain_runtime");
     let args: Vec<String> = std::env::args().skip(1).collect();
     let owner_worker = is_owner_worker(&args);
     match oasis7_chain_runtime::run_cli(args) {
