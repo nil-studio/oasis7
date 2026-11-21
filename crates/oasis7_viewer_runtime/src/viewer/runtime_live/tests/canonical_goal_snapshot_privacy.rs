@@ -129,6 +129,7 @@ fn canonical_goal_full_observer_public_snapshot_omits_raw_signed_input() {
         projection::from_authenticated_world(&server.world, Some("owner-agent"), &public)
             .unwrap()
             .canonical_agent_chat
+            .clone()
             .unwrap();
     let snapshot = server.compat_snapshot(None);
     assert!(
@@ -181,6 +182,7 @@ fn canonical_goal_full_observer_public_snapshot_omits_raw_signed_input() {
         projection::from_authenticated_world(&server.world, Some("owner-agent"), &public)
             .unwrap()
             .canonical_agent_chat
+            .clone()
             .unwrap();
     assert_eq!(owner_before, owner_after);
     assert_eq!(
