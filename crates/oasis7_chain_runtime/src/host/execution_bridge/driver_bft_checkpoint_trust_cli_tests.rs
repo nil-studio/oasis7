@@ -262,9 +262,8 @@ pub(super) fn check_preparation(
     // An original root-signed status has to fit both the root authorization
     // window and the immutable policy window. A valid signature and fresh
     // independent policy digest cannot rescue disjoint half-open intervals.
-    for (root_start, root_end, policy_start, policy_end) in
-        [(100u64, 200u64, 10u64, 100u64), (10, 100, 100, 200)]
-    {
+    let disjoint_windows = [(100u64, 200u64, 10u64, 100u64), (10, 100, 100, 200)];
+    for (root_start, root_end, policy_start, policy_end) in disjoint_windows {
         let mut disjoint = value["policy"].clone();
         disjoint["root_not_before_unix_ms"] = serde_json::json!(root_start);
         disjoint["root_authorized_at_unix_ms"] = serde_json::json!(root_start);
