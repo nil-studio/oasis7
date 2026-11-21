@@ -305,9 +305,7 @@ mod tests {
             stream
                 .set_read_timeout(Some(Duration::from_secs(2)))
                 .unwrap();
-            let raw = format!(
-                "GET /v1/bft/status HTTP/1.1\r\nHost: {address}\r\n{headers}\r\n"
-            );
+            let raw = format!("GET /v1/bft/status HTTP/1.1\r\nHost: {address}\r\n{headers}\r\n");
             stream.write_all(raw.as_bytes()).unwrap();
             stream.shutdown(Shutdown::Write).unwrap();
             listener.poll(&runtime);
