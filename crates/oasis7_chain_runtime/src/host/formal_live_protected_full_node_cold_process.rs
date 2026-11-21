@@ -165,7 +165,7 @@ fn validate(input: &Input, receipt: &Receipt, child: u32, stage: &str) -> Result
         || receipt.typed != input.typed
         || receipt.result != input.result
         || receipt.effect != input.effect
-        || receipt.emits != input.emits
+        || (stage == "ready" && receipt.emits != input.emits)
         || receipt.ready_node_running
         || (stage == "ready" && receipt.final_position != input.fixed_position)
         || (stage == "done" && receipt.final_position <= input.fixed_position)
@@ -399,6 +399,9 @@ fn cold_writer_receipt_rejects_pid_nonce_and_actual_read_mismatches() {
         ready_node_running: false,
     };
     validate(&input, &receipt, child, "ready").unwrap();
+    receipt.emits += 1;
+    assert!(validate(&input, &receipt, child, "ready").is_err());
+    receipt.emits = input.emits;
     receipt.child_pid = std::process::id();
     assert!(validate(&input, &receipt, child, "ready").is_err());
     receipt.child_pid = child;
@@ -415,6 +418,7 @@ fn cold_writer_receipt_rejects_pid_nonce_and_actual_read_mismatches() {
     receipt.original_commit = Some(input.original_commit.clone());
     assert!(validate(&input, &receipt, child, "done").is_err());
     receipt.final_position = 2;
+    receipt.emits += 1; // An unrelated background tick can publish after ready.
     validate(&input, &receipt, child, "done").unwrap();
     receipt.authority = "other".into();
     assert!(validate(&input, &receipt, child, "done").is_err());
