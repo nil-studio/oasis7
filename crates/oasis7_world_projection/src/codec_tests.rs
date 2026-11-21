@@ -59,23 +59,45 @@ fn concrete_codecs_preserve_legacy_bytes_and_optional_field_defaults() {
 
 #[test]
 fn concrete_codecs_preserve_duplicate_missing_and_malformed_errors() {
-    let json = projection_to_json(&projection()).unwrap();
-    let source = std::str::from_utf8(&json).unwrap();
-    let duplicate = format!("{{\"state\":{{}},{rest}", rest = &source[1..]);
-    for invalid in [b"null".as_slice(), b"{}", b"{", duplicate.as_bytes()] {
-        let actual = projection_from_json(invalid).unwrap_err().to_string();
-        let legacy = serde_json::from_slice::<WorldServiceProjection>(invalid)
-            .unwrap_err()
-            .to_string();
-        assert_eq!(actual, legacy);
+    use serde_json::error::Category;
+
+    // Use the pre-split fixture, not the current encoder, as the wire input.
+    let historical = include_str!("../fixtures/public.json");
+    assert!(projection_from_json(historical.as_bytes()).is_ok());
+    let body = historical.trim_end().strip_suffix('}').unwrap();
+    let duplicate = format!(r#"{body},"state":null}}"#);
+
+    for (case, invalid, expected, reason) in [
+        (
+            "wrong shape",
+            b"null".as_slice(),
+            Category::Data,
+            "invalid type",
+        ),
+        ("missing field", b"{}", Category::Data, "missing field"),
+        ("truncated object", b"{", Category::Eof, "EOF"),
+        (
+            "duplicate state",
+            duplicate.as_bytes(),
+            Category::Data,
+            "duplicate field `state`",
+        ),
+    ] {
+        let actual = projection_from_json(invalid).unwrap_err();
+        assert_eq!(actual.classify(), expected, "{case}: {actual}");
+        assert!(actual.to_string().contains(reason), "{case}: {actual}");
+        let legacy = serde_json::from_slice::<WorldServiceProjection>(invalid).unwrap_err();
+        assert_eq!(actual.to_string(), legacy.to_string(), "{case}");
     }
-    for invalid in [b"".as_slice(), &[0xff], &[0xa1, 0x65, b's']] {
-        assert_eq!(
-            projection_from_cbor(invalid).unwrap_err().to_string(),
-            serde_cbor::from_slice::<WorldServiceProjection>(invalid)
-                .unwrap_err()
-                .to_string()
-        );
+    for (case, invalid, truncated) in [
+        ("empty input", b"".as_slice(), true),
+        ("unexpected break", &[0xff], false),
+        ("truncated map key", &[0xa1, 0x65, b's'], true),
+    ] {
+        let actual = projection_from_cbor(invalid).unwrap_err();
+        assert_eq!(actual.is_eof(), truncated, "{case}: {actual}");
+        let legacy = serde_cbor::from_slice::<WorldServiceProjection>(invalid).unwrap_err();
+        assert_eq!(actual.to_string(), legacy.to_string(), "{case}");
     }
 }
 
