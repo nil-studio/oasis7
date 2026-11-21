@@ -6384,5 +6384,46 @@ class HeavyPrJobTimeoutContractTests(unittest.TestCase):
                     self.assertLessEqual(actual, max_minutes)
 
 
+class PriorityRunnerRoutingContractTests(unittest.TestCase):
+    def test_ci_priority_label_routes_same_repo_pr_required_jobs_only(self):
+        expected_expr = (
+            "runs-on: ${{ github.event_name == 'pull_request' && "
+            "github.event.pull_request.head.repo.full_name == github.repository && "
+            "contains(github.event.pull_request.labels.*.name, 'ci-priority') && "
+            "'oasis7-priority-linux' || 'ubuntu-24.04' }}"
+        )
+        priority_jobs = {
+            'select', 'baseline', 'rust-baseline',
+            'oasis7-test-build-candidate', 'oasis7-test-build',
+            'formal-debug-build', 'formal-endpoint-build', 'formal-test-build',
+            'oasis7-required', 'formal-process-tests', 'formal-process',
+            'consensus', 'distfs', 'node', 'net',
+            'viewer-js-required', 'viewer-performance-report', 'pixel-world-bridge',
+            'launcher-web', 'workspace-support-other',
+            'custody-native-contracts', 'custody-native',
+            'custody-wasm-production', 'custody-wasm-approval',
+            'custody-wasm-contracts', 'custody-node', 'workspace-support',
+            'scenario-regression', 'operational-contracts', 'packaging-contracts',
+            'workflow-governance', 'codex-agent-config-validation',
+            'compile-metrics', 'site-quality', 'doc-checker-contracts',
+            'cargo-tooling-contracts', 'macos-package-contract', 'required-gate',
+        }
+        excluded_jobs = {
+            'pr-fast-preview-plan', 'pr-fast-preview',
+            'pr-governance-preview', 'pr-ordinary-delivery-preview',
+            'periodic-admission', 'cache-bootstrap-maintenance', 'cache-maintenance',
+            'oasis7-test-build-trusted', 'formal-debug-build-trusted',
+            'formal-endpoint-build-trusted', 'formal-test-build-trusted',
+            'full-regression', 'candidate-full-regression', 'explicit-full-gate',
+            'workspace-support-legacy',
+        }
+        for name in priority_jobs:
+            with self.subTest(priority_job=name):
+                self.assertIn(expected_expr, JOBS[name])
+        for name in excluded_jobs:
+            with self.subTest(excluded_job=name):
+                self.assertNotIn('oasis7-priority-linux', JOBS[name])
+
+
 if __name__ == '__main__':
     unittest.main()
