@@ -322,6 +322,8 @@ pub(super) fn check_preparation(
     with_quorum["policy"] = quorum_policy.clone();
     let changed_pin = digest("policy", &quorum_policy);
     with_quorum["policy_digest"] = serde_json::json!(changed_pin);
+    let with_quorum: BftCheckpointTrustConfigV1 =
+        serde_json::from_value(with_quorum).unwrap();
     BftCheckpointTrustConfigV1::decode_and_prepare(
         &canonical(&with_quorum),
         &changed_pin,
