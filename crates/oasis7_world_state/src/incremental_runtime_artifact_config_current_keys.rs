@@ -206,37 +206,43 @@ mod tests {
             Some([7; 32]),
         )
         .unwrap();
-        assert!(require_registry_entry_key_v1(
-            ArtifactConfigFieldV1::RegistryActive,
-            active.as_bytes()
-        ).is_ok());
-        assert!(require_registry_entry_key_v1(
-            ArtifactConfigFieldV1::RegistryManifest,
-            record.as_bytes()
-        ).is_ok());
-        assert!(require_registry_entry_key_v1(
-            ArtifactConfigFieldV1::RegistryManifest,
-            active.as_bytes()
-        ).is_err());
-        assert!(require_registry_entry_key_v1(
-            ArtifactConfigFieldV1::RegistryActive,
-            record.as_bytes()
-        ).is_err());
+        assert!(
+            require_registry_entry_key_v1(ArtifactConfigFieldV1::RegistryActive, active.as_bytes())
+                .is_ok()
+        );
+        assert!(
+            require_registry_entry_key_v1(
+                ArtifactConfigFieldV1::RegistryManifest,
+                record.as_bytes()
+            )
+            .is_ok()
+        );
+        assert!(
+            require_registry_entry_key_v1(
+                ArtifactConfigFieldV1::RegistryManifest,
+                active.as_bytes()
+            )
+            .is_err()
+        );
+        assert!(
+            require_registry_entry_key_v1(ArtifactConfigFieldV1::RegistryActive, record.as_bytes())
+                .is_err()
+        );
         let meta = WorldFieldKeyV1::new(
             ArtifactConfigFieldV1::RegistryActive.descriptor(),
             WorldFieldRecordKindV1::Metadata,
             None,
         )
         .unwrap();
-        assert!(require_registry_entry_key_v1(
-            ArtifactConfigFieldV1::RegistryActive,
-            meta.as_bytes()
-        ).is_err());
+        assert!(
+            require_registry_entry_key_v1(ArtifactConfigFieldV1::RegistryActive, meta.as_bytes())
+                .is_err()
+        );
         let mut malformed = active.as_bytes().to_vec();
         malformed.push(0);
-        assert!(require_registry_entry_key_v1(
-            ArtifactConfigFieldV1::RegistryActive,
-            &malformed
-        ).is_err());
+        assert!(
+            require_registry_entry_key_v1(ArtifactConfigFieldV1::RegistryActive, &malformed)
+                .is_err()
+        );
     }
 }
