@@ -36,6 +36,8 @@ fn run(path: &Path) -> Result<(), String> {
         complete: true,
         requested: input.requested,
         completed_commits: input.requested,
+        // Physical directory inventory is owned by the parent fixture.
+        inventory_entries: 5_000_000,
     };
     // A fresh address space opens persisted config; no parent World/Arc or
     // process-global restore/proof cache can be present in this worker.
