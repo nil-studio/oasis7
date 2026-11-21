@@ -3306,7 +3306,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 if kind == 'empty':
                     self.assertIn('no wasm-opt contract tests', result.stderr)
 
-    def test_engineering_telemetry_entry_requires_each_suite_to_execute(self):
+    def test_engineering_telemetry_entry_requires_complete_nonempty_suites(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         function = re.search(r'^run_engineering_telemetry_contract_tests\(\) \{\n.*?^\}', driver, re.M | re.S)
         self.assertIsNotNone(function)
@@ -3376,11 +3376,11 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 if kind in ('complete', 'failing'):
                     for path in paths[-2:]:
                         self.assertTrue((root / (Path(path).name + '.ran')).is_file(), result.stderr)
-                    self.assertEqual(result.stderr.count('Ran 1 test'), 2)
+                    self.assertIn('Ran 2 tests', result.stderr)
                 if kind == 'empty':
                     self.assertIn('no tests in', result.stderr)
                 if kind == 'some-skipped':
-                    self.assertEqual(result.stderr.count('skipped=1'), 2)
+                    self.assertIn('skipped=2', result.stderr)
                 if kind in ('skipped', 'all-skipped'):
                     for path in ((changed,) if changed else paths[-2:]):
                         self.assertIn('no passing tests in ' + Path(path).name, result.stderr)

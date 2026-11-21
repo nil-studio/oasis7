@@ -795,26 +795,37 @@ import unittest
 import sys
 
 class ContractResult(unittest.TextTestResult):
-    passed_case = False
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.passed_suites = set()
+        self.current_suite = None
 
     def addSuccess(self, test):
         super().addSuccess(test)
-        self.passed_case = True
+        self.passed_suites.add(self.current_suite)
 
-suites = {}
-for name in ('test_engineering_telemetry.py', 'test_engineering_telemetry_adapters.py'):
+class ContractSuite(unittest.TestSuite):
+    def __init__(self, name, tests):
+        super().__init__([tests])
+        self.name = name
+
+    def run(self, result, debug=False):
+        result.current_suite = self.name
+        return super().run(result, debug)
+
+names = ('test_engineering_telemetry.py', 'test_engineering_telemetry_adapters.py')
+suite = unittest.TestSuite()
+for name in names:
     tests = unittest.defaultTestLoader.discover('scripts/tests', pattern=name)
     if tests.countTestCases() == 0:
         raise SystemExit('engineering telemetry: no tests in ' + name)
-    suites[name] = tests
+    suite.addTest(ContractSuite(name, tests))
 
-ok = True
-for name, tests in suites.items():
-    result = unittest.TextTestRunner(verbosity=2, resultclass=ContractResult).run(tests)
-    if not result.passed_case:
-        print('engineering telemetry: no passing tests in ' + name, file=sys.stderr)
-    ok = result.wasSuccessful() and result.passed_case and ok
-raise SystemExit(not ok)
+result = unittest.TextTestRunner(verbosity=2, resultclass=ContractResult).run(suite)
+missing = [name for name in names if name not in result.passed_suites]
+for name in missing:
+    print('engineering telemetry: no passing tests in ' + name, file=sys.stderr)
+raise SystemExit(bool(missing) or not result.wasSuccessful())
 PY_TELEMETRY
 }
 
