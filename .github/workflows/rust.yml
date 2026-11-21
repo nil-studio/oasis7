@@ -3811,8 +3811,8 @@ jobs:
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
         run: |
-          # Hardlink fixtures need a temporary path on the workspace mount.
-          TMPDIR="$(mktemp -d "$GITHUB_WORKSPACE/.operational-contracts.XXXXXX")"
+          # Fixtures need an external temporary path on the workspace mount.
+          TMPDIR="$(mktemp -d "$(dirname -- "$GITHUB_WORKSPACE")/.op.XXXXXX")"
           export TMPDIR
           trap 'rm -rf -- "$TMPDIR"' EXIT
           bash ./scripts/ci-tests.sh required --group "operational_contracts" --repo-root "$GITHUB_WORKSPACE"

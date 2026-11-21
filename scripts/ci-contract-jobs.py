@@ -69,8 +69,8 @@ def render_job(group: str) -> str:
     if group == "operational_contracts":
         run_step = (
             "        run: |\n"
-            '          # Hardlink fixtures need a temporary path on the workspace mount.\n'
-            '          TMPDIR="$(mktemp -d "$GITHUB_WORKSPACE/.operational-contracts.XXXXXX")"\n'
+            '          # Fixtures need an external temporary path on the workspace mount.\n'
+            '          TMPDIR="$(mktemp -d "$(dirname -- "$GITHUB_WORKSPACE")/.op.XXXXXX")"\n'
             "          export TMPDIR\n"
             "          trap 'rm -rf -- \"$TMPDIR\"' EXIT\n"
             f"          {execute}"
