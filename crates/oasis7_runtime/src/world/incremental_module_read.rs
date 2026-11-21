@@ -30,6 +30,99 @@ pub struct PreparedModuleInstanceFields {
     fields: [ReservedValue<Vec<u8>>; 8],
 }
 impl PreparedModuleInstanceFields {
+    /// Clone only this actual eight-column source after admitting its exact
+    /// owned text graph. The result is DATA, never an instance permission.
+    // Only the future scheduled-invocation consumer can exercise this staged
+    // read-only DATA prerequisite; unit tests exercise it until that split lands.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "scheduled invocation remains in a separate L2 slice")
+    )]
+    pub(in crate::world) fn snapshot_paid_v1(
+        &self,
+        common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
+    ) -> Result<ReservedValue<oasis7_world_state::ModuleInstanceState>, BodyMutationError> {
+        use oasis7_world_state::incremental_module_instance_fields::ModuleInstallTargetRefV1 as T;
+        if self
+            .fields
+            .iter()
+            .any(|field| !field.uses_budget(common.memory()))
+        {
+            return Err(BodyMutationError::Invalid("instance clone source pool"));
+        }
+        fn text(source: &PreparedModuleInstanceFields, field: Field) -> &str {
+            match source.field(field) {
+                Scalar::Text(value) => value,
+                _ => unreachable!("closed instance text"),
+            }
+        }
+        let target = match self.field(Field::Target) {
+            Scalar::Target(value) => value,
+            _ => unreachable!("closed instance target"),
+        };
+        let mut heap = std::mem::size_of::<oasis7_world_state::ModuleInstanceState>();
+        for field in [
+            Field::InstanceId,
+            Field::ModuleId,
+            Field::Version,
+            Field::WasmHash,
+            Field::Owner,
+        ] {
+            heap = heap
+                .checked_add(text(self, field).len())
+                .ok_or(BodyMutationError::Invalid("instance clone layout"))?;
+        }
+        if let T::LocationInfrastructure(value) = target {
+            heap = heap
+                .checked_add(value.len())
+                .ok_or(BodyMutationError::Invalid("instance target clone layout"))?;
+        }
+        common
+            .charge(
+                u64::try_from(
+                    heap.checked_mul(3)
+                        .and_then(|n| n.checked_add(512))
+                        .ok_or(BodyMutationError::Invalid("instance clone work"))?,
+                )
+                .map_err(|_| BodyMutationError::Invalid("instance clone width"))?,
+                u64::try_from(
+                    heap.checked_mul(3)
+                        .ok_or(BodyMutationError::Invalid("instance clone work"))?,
+                )
+                .map_err(|_| BodyMutationError::Invalid("instance clone width"))?,
+            )
+            .map_err(|e| BodyMutationError::Original(Box::new(e)))?;
+        let fee = common
+            .memory()
+            .reserve(heap, MemoryClass::Ordinary)
+            .map_err(ValueTreeError::Memory)?;
+        let install_target = match target {
+            T::SelfAgent => oasis7_agent_api::world_action::ModuleInstallTarget::SelfAgent,
+            T::LocationInfrastructure(value) => {
+                oasis7_agent_api::world_action::ModuleInstallTarget::LocationInfrastructure {
+                    location_id: value.to_owned(),
+                }
+            }
+        };
+        let active = match self.field(Field::Active) {
+            Scalar::Bool(value) => value,
+            _ => unreachable!("closed instance active"),
+        };
+        let installed_at = match self.field(Field::InstalledAt) {
+            Scalar::U64(value) => value,
+            _ => unreachable!("closed instance time"),
+        };
+        Ok(fee.retain(oasis7_world_state::ModuleInstanceState {
+            instance_id: text(self, Field::InstanceId).to_owned(),
+            module_id: text(self, Field::ModuleId).to_owned(),
+            module_version: text(self, Field::Version).to_owned(),
+            wasm_hash: text(self, Field::WasmHash).to_owned(),
+            owner_agent_id: text(self, Field::Owner).to_owned(),
+            install_target,
+            active,
+            installed_at,
+        }))
+    }
     pub fn field(&self, field: Field) -> Scalar<'_> {
         Scalar::from_canonical_bytes(&self.fields[field as usize - 1], field)
             .expect("immutable validated module field")
@@ -199,5 +292,99 @@ impl<V: ValueNodeReader, C: FnMut() -> bool> ModuleReadContext<'_, V, C> {
             self.check(txn)?;
             Ok(Some(charge.retain(PreparedModuleInstanceFields { fields })))
         })
+    }
+}
+
+#[cfg(test)]
+mod paid_snapshot_tests {
+    use super::*;
+    use oasis7_formal_protocol::controlled_authority::formal::bounded_context::{
+        FormalBoundedContextV1, FormalBoundedWorkV1,
+    };
+    use oasis7_world_state::incremental_module_instance_fields::ModuleInstallTargetRefV1 as Target;
+
+    fn fields(memory: &MemoryBudget, location: bool) -> PreparedModuleInstanceFields {
+        let rows = [
+            Scalar::Text("instance-a"),
+            Scalar::Text("module-a"),
+            Scalar::Text("1.0"),
+            Scalar::Text("verified-wasm"),
+            Scalar::Text("owner-a"),
+            Scalar::Target(if location {
+                Target::LocationInfrastructure("site-a")
+            } else {
+                Target::SelfAgent
+            }),
+            Scalar::Bool(true),
+            Scalar::U64(42),
+        ];
+        PreparedModuleInstanceFields {
+            fields: std::array::from_fn(|i| {
+                let field = Field::ALL[i];
+                let mut encoded = Vec::new();
+                rows[i].write_to(field, &mut encoded).unwrap();
+                memory
+                    .reserve(encoded.len() + 128, MemoryClass::Ordinary)
+                    .unwrap()
+                    .retain(encoded)
+            }),
+        }
+    }
+
+    #[test]
+    fn snapshot_retains_charged_typed_data_and_original_field_values() {
+        for location in [false, true] {
+            let memory = MemoryBudget::new(1 << 20, 0).unwrap();
+            let source = fields(&memory, location);
+            let before = memory.used();
+            let work = FormalBoundedWorkV1::new(1_000_000, 1_000_000).unwrap();
+            let mut stop = || false;
+            let mut common = FormalBoundedContextV1::new(&memory, &work, &mut stop);
+            let snapshot = source.snapshot_paid_v1(&mut common).unwrap();
+            assert!(snapshot.uses_budget(&memory));
+            assert!(memory.used() > before);
+            assert_eq!(snapshot.instance_id, "instance-a");
+            assert_eq!(snapshot.module_id, "module-a");
+            assert_eq!(snapshot.module_version, "1.0");
+            assert_eq!(snapshot.wasm_hash, "verified-wasm");
+            assert_eq!(snapshot.owner_agent_id, "owner-a");
+            assert!(snapshot.active);
+            assert_eq!(snapshot.installed_at, 42);
+            assert_eq!(
+                snapshot.install_target,
+                if location {
+                    oasis7_agent_api::world_action::ModuleInstallTarget::LocationInfrastructure {
+                        location_id: "site-a".into()
+                    }
+                } else {
+                    oasis7_agent_api::world_action::ModuleInstallTarget::SelfAgent
+                }
+            );
+            drop(snapshot);
+            assert_eq!(memory.used(), before);
+        }
+    }
+
+    #[test]
+    fn cross_pool_and_cancellation_fail_before_cloning() {
+        let source_pool = MemoryBudget::new(1 << 20, 0).unwrap();
+        let other_pool = MemoryBudget::new(1 << 20, 0).unwrap();
+        let source = fields(&source_pool, false);
+        let work = FormalBoundedWorkV1::new(1_000_000, 1_000_000).unwrap();
+        let mut stop = || false;
+        let mut other = FormalBoundedContextV1::new(&other_pool, &work, &mut stop);
+        assert!(matches!(
+            source.snapshot_paid_v1(&mut other),
+            Err(BodyMutationError::Invalid("instance clone source pool"))
+        ));
+        assert_eq!(other_pool.used(), 0);
+
+        let before = source_pool.used();
+        let cancelled_work = FormalBoundedWorkV1::new(1_000_000, 1_000_000).unwrap();
+        let mut cancelled = || true;
+        let mut context =
+            FormalBoundedContextV1::new(&source_pool, &cancelled_work, &mut cancelled);
+        assert!(source.snapshot_paid_v1(&mut context).is_err());
+        assert_eq!(source_pool.used(), before);
     }
 }
