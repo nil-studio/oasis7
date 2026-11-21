@@ -1,0 +1,33 @@
+name: CI fork image pull probe
+
+on:
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/ci-fork-image-probe.yml']
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  pull:
+    if: github.event.pull_request.head.repo.full_name != github.repository
+    name: Pull ${{ matrix.target }} from a fork PR
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: runtime-doc-checker
+            image: ghcr.io/nil-studio/oasis7/ci-runtime@sha256:14ef7ecc92a75d99af0723dbb0fa131b24c40ac2f83eed748fde1698c35c4258
+    container:
+      image: ${{ matrix.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    steps:
+      - name: Confirm the container started
+        env:
+          PROBE_IMAGE: ${{ matrix.image }}
+        run: printf 'Started %s with the fork pull_request token\n' "$PROBE_IMAGE"
