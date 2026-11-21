@@ -6198,7 +6198,7 @@ class LocalCheckDriverContract(unittest.TestCase):
                                      ['test', *lock, '-p', 'fixture', '--', '--ignored'])
                     self.assertEqual(rows[1], cargo_prefix + verbose_args +
                                      ['test', '--locked', '-p', 'fixture', '--', '--locked'])
-                    self.assertEqual(rows[2], cargo_prefix + ['clippy', *verbose_args, '--locked',
+                    self.assertEqual(rows[2], cargo_prefix + ['clippy', *verbose_args, *lock,
                                      '-p', 'fixture', '--', '-D', 'warnings', '-D',
                                      'clippy::correctness', '-D', 'clippy::suspicious'])
                     self.assertEqual(rows[3], cargo_prefix + verbose_args + ['fmt', '--all', '--', '--check'])
