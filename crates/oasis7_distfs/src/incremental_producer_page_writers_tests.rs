@@ -277,3 +277,52 @@ fn external_state_batch_cancellation_has_no_success_and_retains_original_roots()
         assert_eq!(state.after.get(b"alice", &source).unwrap(), Some([7; 32]));
     }
 }
+
+#[test]
+fn caller_owned_cancellation_fences_both_typed_producers_before_physical_debit() {
+    let fixture = Fixture::new();
+    let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
+    let store =
+        IncrementalPageStore::create(&fixture.store(), memory.clone(), PageCompression::Raw)
+            .unwrap();
+    let (state, schedule) = deltas(&store, &memory);
+    let caller = AtomicBool::new(true);
+    let mut writer = store.value_session_with_cancelled(physical_io(), &caller);
+    let before = writer.remaining_io().unwrap();
+    assert!(matches!(
+        writer.put_state_pages(&state, &memory),
+        Err(ValueTreeError::Cancelled)
+    ));
+    assert!(matches!(
+        writer.put_state_pages_cancelled(&state, &memory, &mut || false),
+        Err(ValueTreeError::Cancelled)
+    ));
+    assert!(matches!(
+        writer.put_schedule_pages(&schedule, &memory),
+        Err(ValueTreeError::Cancelled)
+    ));
+    let after = writer.remaining_io().unwrap();
+    assert_eq!(after.writes_remaining, before.writes_remaining);
+    assert_eq!(after.write_bytes_remaining, before.write_bytes_remaining);
+
+    caller.store(false, Ordering::Release);
+    writer.put_state_pages(&state, &memory).unwrap();
+    writer.put_schedule_pages(&schedule, &memory).unwrap();
+    let after_success = writer.remaining_io().unwrap();
+    assert!(after_success.writes_remaining < before.writes_remaining);
+    writer.cancelled.store(true, Ordering::Release);
+    assert!(matches!(
+        writer.put_state_pages(&state, &memory),
+        Err(ValueTreeError::Cancelled)
+    ));
+    assert!(matches!(
+        writer.put_schedule_pages(&schedule, &memory),
+        Err(ValueTreeError::Cancelled)
+    ));
+    let final_io = writer.remaining_io().unwrap();
+    assert_eq!(after_success.writes_remaining, final_io.writes_remaining);
+    assert_eq!(
+        after_success.write_bytes_remaining,
+        final_io.write_bytes_remaining
+    );
+}
