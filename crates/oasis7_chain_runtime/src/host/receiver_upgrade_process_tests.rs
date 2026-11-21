@@ -14,6 +14,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+const STATE_TEMP_FILE_NAME: &str = "peer-record-receiver-v2.state.cbor.tmp";
+
 fn receiver_files(directory: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
     fs::read_dir(directory)
         .unwrap()
@@ -23,6 +25,57 @@ fn receiver_files(directory: &Path) -> std::collections::BTreeMap<String, Vec<u8
             (entry.file_name().into_string().unwrap(), fs::read(entry.path()).unwrap())
         })
         .collect()
+}
+
+/// Snapshot receiver files while a live holder process is running.
+///
+/// The live receiver periodically persists `peer-record-receiver-v2.state.cbor`
+/// via atomic rename from `STATE_TEMP_FILE_NAME`, so skip that single in-flight
+/// staging file before inspecting metadata or reading bytes. Quiescent checks
+/// continue to use `receiver_files` so leaked temp files still fail.
+fn live_receiver_files(directory: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+    fs::read_dir(directory)
+        .unwrap()
+        .filter_map(|entry| {
+            let entry = entry.unwrap();
+            let name = entry.file_name().into_string().unwrap();
+            if name == STATE_TEMP_FILE_NAME {
+                return None;
+            }
+            assert!(entry.file_type().unwrap().is_file());
+            Some((name, fs::read(entry.path()).unwrap()))
+        })
+        .collect()
+}
+
+#[test]
+fn live_receiver_files_skips_only_in_flight_state_temp_file() {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir()
+        .join(format!("live-receiver-files-{}-{nonce}", std::process::id()));
+    fs::create_dir(&dir).unwrap();
+    fs::write(dir.join("peer-record-receiver-v2.lock"), b"").unwrap();
+    fs::write(dir.join("peer-record-receiver-v2.ready"), b"ready").unwrap();
+    fs::write(dir.join("peer-record-receiver-v2.state.cbor"), b"state").unwrap();
+    fs::write(dir.join(STATE_TEMP_FILE_NAME), b"in-flight").unwrap();
+    fs::write(dir.join("unexpected.tmp"), b"leaked").unwrap();
+
+    let live = live_receiver_files(&dir);
+    assert_eq!(
+        live.keys().collect::<Vec<_>>(),
+        vec![
+            "peer-record-receiver-v2.lock",
+            "peer-record-receiver-v2.ready",
+            "peer-record-receiver-v2.state.cbor",
+            "unexpected.tmp",
+        ]
+    );
+    let quiescent = receiver_files(&dir);
+    assert!(quiescent.contains_key(STATE_TEMP_FILE_NAME));
+    fs::remove_dir_all(dir).unwrap();
 }
 
 const CHILD_ENV: &str = "OASIS7_TEST_RECEIVER_UPGRADE_PROCESS";
@@ -205,7 +258,7 @@ fn receiver_upgrade_rejects_live_process_then_cold_reopens_v2() {
         assert!(Instant::now() < deadline, "writer did not hold receiver");
         std::thread::sleep(Duration::from_millis(20));
     }
-    let locked_files = receiver_files(receiver_directory);
+    let locked_files = live_receiver_files(receiver_directory);
     assert_eq!(
         original_files.keys().collect::<Vec<_>>(),
         locked_files.keys().collect::<Vec<_>>()
@@ -223,7 +276,7 @@ fn receiver_upgrade_rejects_live_process_then_cold_reopens_v2() {
     }
     spawn(&root, "reject-locked").wait();
     assert!(root.join("done-reject-locked").exists());
-    let post_reject_files = receiver_files(receiver_directory);
+    let post_reject_files = live_receiver_files(receiver_directory);
     assert_eq!(
         locked_files.keys().collect::<Vec<_>>(),
         post_reject_files.keys().collect::<Vec<_>>()
