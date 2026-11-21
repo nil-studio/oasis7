@@ -314,6 +314,115 @@ jobs:
           env -u RUSTC_WRAPPER cargo test --locked -p pixel_world_bridge --lib --no-run
           env -u RUSTC_WRAPPER cargo check --locked -p pixel_world_bridge --target wasm32-unknown-unknown
 
+  rust-image-component-cache:
+    cache-mode: write
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    if: >-
+      github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
+      (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' &&
+       (inputs.run_mode == 'full' || inputs.run_mode == 'image-native')))
+    strategy:
+      fail-fast: false
+      # Observe the repository budget after each image archive, without adding
+      # simultaneous matrix uploads. Other writers retain their own admission.
+      max-parallel: 1
+      matrix:
+        include:
+          - profile: native
+            family: rust-image-components
+            image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f
+            namespace: ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f
+            options: ''
+            mold-dir: ''
+          - profile: node
+            family: rust-image-components
+            image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f
+            namespace: ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f
+            options: --user 1001:1001
+            mold-dir: oasis7-node-mold
+          - profile: net
+            family: rust-image-net
+            image: ghcr.io/nil-studio/oasis7/ci-rust-wasm-build@sha256:57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6
+            namespace: ci-rust-wasm-build-57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6
+            options: --user 1001:1001
+            mold-dir: oasis7-net-mold
+          - profile: launcher
+            family: rust-image-launcher
+            image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6
+            namespace: ci-rust-build-cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6
+            options: ''
+            mold-dir: ''
+          - profile: tooling
+            family: rust-image-tooling
+            image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc
+            namespace: ci-rust-build-d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc
+            options: ''
+            mold-dir: ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    container:
+      image: ${{ matrix.image }}
+      options: ${{ matrix.options }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Trust the checked-out workspace path in the job container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Verify current main cache source
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/main
+          test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
+        with:
+          install-dir: ${{ matrix.mold-dir != '' && format('{0}/{1}', runner.temp, matrix.mold-dir) || '' }}
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - name: Verify the preinstalled Rust toolchains
+        run: |
+          set -euo pipefail
+          rustc +"$RUST_TOOLCHAIN" -vV
+          rustc +"$OASIS7_WASM_TOOLCHAIN" -vV
+          cargo +"$RUST_TOOLCHAIN" clippy --version
+          rustup target list --installed --toolchain "$OASIS7_WASM_TOOLCHAIN" | grep -Fx "$OASIS7_WASM_TARGET"
+      - name: Stabilize Rust cache toolchains
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
+      - name: Install dependency cache admission
+        id: dependency-cache-tools
+        run: python3 scripts/ci-rust-cache-admission.py install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        id: image-cache
+        env:
+          PATH: ${{ steps.dependency-cache-tools.outputs.path }}
+          OASIS7_DEPENDENCY_CACHE_FAMILY: ${{ matrix.family }}
+          OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
+          GH_TOKEN: ${{ github.token }}
+        with:
+          shared-key: ${{ matrix.namespace }}
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
+          save-if: ${{ job.status == 'success' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}
+          cache-on-failure: false
+      - name: Warm the exact component dependency contexts
+        if: steps.image-cache.outputs.cache-hit != 'true'
+        env:
+          IMAGE_CACHE_PROFILE: ${{ matrix.profile }}
+        run: python3 scripts/ci-image-cache.py --profile "$IMAGE_CACHE_PROFILE"
+
   web-wasm-cache:
     cache-mode: write
     permissions:
