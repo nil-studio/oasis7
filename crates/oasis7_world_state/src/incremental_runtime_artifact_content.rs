@@ -198,7 +198,7 @@ fn prepare_borrowed_original<C: FnMut() -> bool>(
     prepare_borrowed_original_with_work_v1(bytes, memory, work, cancelled, None)
 }
 
-fn prepare_borrowed_original_with_work<C: FnMut() -> bool>(
+fn prepare_borrowed_original_with_work_v1<C: FnMut() -> bool>(
     bytes: &[u8],
     memory: &MemoryBudget,
     work: &mut RuntimeArtifactOriginalWorkV1,
