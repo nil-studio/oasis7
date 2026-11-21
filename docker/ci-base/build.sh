@@ -48,6 +48,14 @@ docker build "${options[@]}" --platform linux/amd64 --target "$target" \
 docker run --rm --platform linux/amd64 "$image" bash -ec '
   git --version
   gdb --version
+  zstd --version
+  smoke=$(mktemp -d)
+  printf "cache archive smoke\n" >"$smoke/input"
+  tar --posix --zstd -cf "$smoke/cache.tar.zst" -C "$smoke" input
+  mkdir "$smoke/restored"
+  tar --zstd -xf "$smoke/cache.tar.zst" -C "$smoke/restored"
+  cmp "$smoke/input" "$smoke/restored/input"
+  rm -rf "$smoke"
   ldconfig -p | grep libwayland-client.so.0
   dpkg-query -W
 '
