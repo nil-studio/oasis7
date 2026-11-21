@@ -139,12 +139,45 @@ fn open_checked_regular_with(path: &Path, after_preflight: impl FnOnce()) -> Res
     Ok(file)
 }
 
+const MAX_ATOMIC_READ_ATTEMPTS: usize = 4;
+
 pub(crate) fn read<T: DeserializeOwned>(path: &Path) -> Result<T, String> {
     read_bounded_json(path, MAX_JSON)
 }
+/// Read a JSON file that a concurrent writer may replace via atomic rename.
+/// Each retry re-runs the full symlink, regular-file, and inode preflight from
+/// scratch; symlink/FIFO/permission failures fail closed immediately without
+/// retrying, and sustained replacement fails closed after the attempt bound.
+pub(super) fn read_atomic<T: DeserializeOwned>(path: &Path) -> Result<T, String> {
+    read_atomic_bounded_json_with(path, MAX_JSON, |_| {})
+}
+fn read_atomic_bounded_json_with<T: DeserializeOwned>(
+    path: &Path,
+    limit: u64,
+    mut after_preflight: impl FnMut(usize),
+) -> Result<T, String> {
+    let mut attempt = 0;
+    loop {
+        match open_checked_regular_with(path, || after_preflight(attempt)) {
+            Ok(file) => return read_bounded_json_from_file(file, limit),
+            Err(error)
+                if attempt + 1 < MAX_ATOMIC_READ_ATTEMPTS
+                    && error.starts_with("node metadata changed during open:") =>
+            {
+                attempt += 1;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
 pub(super) fn read_bounded_json<T: DeserializeOwned>(path: &Path, limit: u64) -> Result<T, String> {
-    let limit_plus_probe = limit.checked_add(1).ok_or("invalid node metadata size limit")?;
     let file = open_checked_regular(path)?;
+    read_bounded_json_from_file(file, limit)
+}
+fn read_bounded_json_from_file<T: DeserializeOwned>(file: File, limit: u64) -> Result<T, String> {
+    let limit_plus_probe = limit
+        .checked_add(1)
+        .ok_or("invalid node metadata size limit")?;
     if file.metadata().map_err(|e| e.to_string())?.len() > limit {
         return Err("node metadata size limit".into());
     }
@@ -342,4 +375,69 @@ mod regular_open_tests {
         private_file(&original).unwrap();
     }
 
+    #[test]
+    fn atomic_read_retries_benign_regular_rename_and_rejects_sustained_or_unsafe_swaps() {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root =
+            std::env::temp_dir().join(format!("oasis7-atomic-read-{}-{nonce}", std::process::id()));
+        fs::create_dir(&root).unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let target = root.join("instance.json");
+        let replacement = root.join("replacement.json");
+        fs::write(&target, b"{\"state\":\"running\"}").unwrap();
+        fs::write(&replacement, b"{\"state\":\"stopped\"}").unwrap();
+
+        let mut attempts = 0;
+        let value: serde_json::Value =
+            read_atomic_bounded_json_with(&target, MAX_JSON, |attempt| {
+                attempts += 1;
+                if attempt == 0 {
+                    fs::rename(&replacement, &target).unwrap();
+                }
+            })
+            .expect("a single legitimate atomic rename should succeed on full-preflight retry");
+        assert_eq!(attempts, 2);
+        assert_eq!(value["state"], "stopped");
+
+        // A symlink substitution fails closed immediately without retrying.
+        let mut symlink_attempts = 0;
+        fs::write(&replacement, b"{\"state\":\"untrusted\"}").unwrap();
+        let err = read_atomic_bounded_json_with::<serde_json::Value>(&target, MAX_JSON, |_| {
+            symlink_attempts += 1;
+            fs::remove_file(&target).unwrap();
+            symlink(&replacement, &target).unwrap();
+        })
+        .expect_err("a substituted symlink must fail closed immediately");
+        assert_eq!(symlink_attempts, 1);
+        assert!(
+            err.contains("symbolic") || err.contains("symlink") || err.contains("Too many levels"),
+            "unexpected error: {err}"
+        );
+
+        // Sustained replacement across every attempt still fails closed.
+        fs::remove_file(&target).unwrap();
+        fs::write(&target, b"{\"state\":\"v0\"}").unwrap();
+        let mut sustained_attempts = 0;
+        let err = read_atomic_bounded_json_with::<serde_json::Value>(&target, MAX_JSON, |i| {
+            sustained_attempts += 1;
+            let next = root.join(format!("next-{i}.json"));
+            fs::write(&next, b"{\"state\":\"churn\"}").unwrap();
+            fs::rename(&next, &target).unwrap();
+        })
+        .expect_err("sustained inode churn must fail closed after attempt bound");
+        assert_eq!(sustained_attempts, MAX_ATOMIC_READ_ATTEMPTS);
+        assert!(
+            err.contains("node metadata changed during open"),
+            "unexpected error: {err}"
+        );
+    }
 }
