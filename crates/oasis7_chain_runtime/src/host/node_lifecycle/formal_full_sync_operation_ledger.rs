@@ -334,10 +334,19 @@ impl Ledger {
         if Instant::now() >= deadline {
             return Err("operation_reopen_expired".into());
         }
+        // Freeze this new attempt's original deadline before the durable
+        // recovery transition. A slow fsync must not buy additional runtime.
+        let attempt_deadline = Instant::now()
+            .checked_add(Duration::from_millis(self.state.policy.attempt_timeout_ms))
+            .ok_or("attempt deadline overflow")?;
         self.save_exact(next)?;
         if Instant::now() >= deadline {
             self.poisoned = true;
             return Err("operation_reopen_expired".into());
+        }
+        if Instant::now() >= attempt_deadline {
+            self.poisoned = true;
+            return Err("attempt_expired".into());
         }
         self.recovered = false;
         self.reopen_deadline = None;
@@ -345,13 +354,17 @@ impl Ledger {
             identity: self.state.identity.clone(),
             number: self.state.attempts_used,
             nonce,
-            deadline: Instant::now()
-                .checked_add(Duration::from_millis(self.state.policy.attempt_timeout_ms))
-                .ok_or("attempt deadline overflow")?,
+            deadline: attempt_deadline,
         })
     }
 
     pub fn begin_attempt(&mut self) -> Result<AttemptPermit, String> {
+        self.begin_attempt_from(Instant::now())
+    }
+
+    /// The source instant is captured before any durable attempt admission.
+    /// Used by the native regression to deterministically model a slow fsync.
+    pub(super) fn begin_attempt_from(&mut self, started: Instant) -> Result<AttemptPermit, String> {
         if self.recovered
             || self.state.publication_journal_version != Some(1)
             || self.state.publication.is_some()
@@ -370,10 +383,16 @@ impl Ledger {
         next.attempts_used += 1;
         let nonce = local_io::random_id()?;
         next.active_attempt_nonce = Some(nonce.clone());
-        self.save(next)?;
-        let deadline = Instant::now()
+        let deadline = started
             .checked_add(Duration::from_millis(self.state.policy.attempt_timeout_ms))
             .ok_or("attempt deadline overflow")?;
+        self.save(next)?;
+        if Instant::now() >= deadline {
+            // The attempted transition is already durable. Preserve its spent
+            // slot for fenced recovery, never grant a fresh transport permit.
+            self.poisoned = true;
+            return Err("attempt_expired".into());
+        }
         Ok(AttemptPermit {
             identity: self.state.identity.clone(),
             number: self.state.attempts_used,

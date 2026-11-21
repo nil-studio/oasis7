@@ -182,7 +182,7 @@ fn export_fixture_kind(root: &Path, with_simulator_action: bool) {
     staged.step().unwrap();
     staged.submit_action(Action::RegisterAgent {
         agent_id: "pending-after-cut".into(),
-        pos: oasis7::geometry::GeoPos::new(1, 2, 3),
+        pos: oasis7_agent_api::world_action::GeoPos::new(1, 2, 3),
     });
     let feedback = oasis7_agent_api::FeedbackEnvelopeV1 {
         feedback_id: "retained-feedback".into(),

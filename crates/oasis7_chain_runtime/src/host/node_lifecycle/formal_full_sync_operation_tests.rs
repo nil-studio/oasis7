@@ -145,6 +145,37 @@ fn cold_open_rejects_zero_exchange_sequence_but_keeps_real_exchange() {
 }
 
 #[test]
+fn elapsed_admission_persistence_does_not_renew_attempt_or_refund_its_slot() {
+    let temp = TestDir::new();
+    let path = temp.path().join("operation.json");
+    let mut policy = policy();
+    policy.attempt_timeout_ms = 100;
+    let identity = identity(&policy);
+    let mut ledger = Ledger::create(&path, identity.clone(), policy.clone()).unwrap();
+
+    // Deterministically model a filesystem operation that finishes after the
+    // original 100ms admission window. No sleep or transport timing is needed.
+    let started = Instant::now()
+        .checked_sub(Duration::from_millis(200))
+        .unwrap();
+    assert_eq!(
+        ledger.begin_attempt_from(started).err().as_deref(),
+        Some("attempt_expired")
+    );
+    // Commit was durable; the original first attempt is spent, not refunded or
+    // reissued with a new deadline after the slow persistence completes.
+    let spent = ledger.snapshot().clone();
+    assert_eq!(spent.attempts_used, 1);
+    assert!(spent.active_attempt_nonce.is_some());
+    assert!(ledger.begin_attempt().is_err());
+    drop(ledger);
+
+    // Only the original ledger can be reopened for explicit fenced recovery.
+    let reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
+    assert_eq!(reopened.snapshot(), &spent);
+}
+
+#[test]
 fn real_tcp_body_accounting_survives_original_identity_reopen() {
     let temp = TestDir::new();
     let path = temp.path().join("operation.json");

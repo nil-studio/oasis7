@@ -142,6 +142,7 @@ jobs:
           - runner_os: ubuntu-24.04
             runner_label: linux-x86_64
     runs-on: ${{ matrix.runner_os }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Configure mold for Linux host linking
