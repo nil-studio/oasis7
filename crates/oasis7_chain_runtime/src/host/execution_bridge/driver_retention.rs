@@ -60,7 +60,7 @@ impl NodeRuntimeExecutionDriver {
             if let Err(marker_err) =
                 fail_execution_bridge_retention_transaction(self.records_dir.as_path())
             {
-                oasis7::observability::emit_stderr_or_event(
+                oasis7_observability::emit_stderr_or_event(
                     tracing::Level::ERROR,
                     format!(
                         "execution driver failed to publish retention degradation at height {}: {}",
@@ -70,7 +70,7 @@ impl NodeRuntimeExecutionDriver {
                     "execution bridge retention degradation publication failed",
                 );
             }
-            oasis7::observability::emit_stderr_or_event(
+            oasis7_observability::emit_stderr_or_event(
                 tracing::Level::WARN,
                 format!(
                     "execution driver retention pin-set sync failed at height {}: {}",

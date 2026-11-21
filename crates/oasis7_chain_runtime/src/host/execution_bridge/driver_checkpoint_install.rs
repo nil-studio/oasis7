@@ -220,7 +220,7 @@ impl CheckpointInstallTransaction {
 
     fn finalize_committed_best_effort(&self, driver: &NodeRuntimeExecutionDriver) {
         if let Err(err) = remove_checkpoint_install_transaction(driver.records_dir.as_path()) {
-            oasis7::observability::emit_stderr_or_event(
+            oasis7_observability::emit_stderr_or_event(
                 tracing::Level::ERROR,
                 format!("checkpoint install committed marker cleanup failed: {err}").as_str(),
                 "checkpoint install committed marker cleanup failed",
@@ -234,7 +234,7 @@ impl CheckpointInstallTransaction {
             match path {
                 Ok(path) if path.exists() => {
                     if let Err(err) = remove_dir_all_durable(path.as_path()) {
-                        oasis7::observability::emit_stderr_or_event(
+                        oasis7_observability::emit_stderr_or_event(
                             tracing::Level::WARN,
                             format!("checkpoint install post-commit world cleanup failed: {err}")
                                 .as_str(),
@@ -243,7 +243,7 @@ impl CheckpointInstallTransaction {
                     }
                 }
                 Ok(_) => {}
-                Err(err) => oasis7::observability::emit_stderr_or_event(
+                Err(err) => oasis7_observability::emit_stderr_or_event(
                     tracing::Level::WARN,
                     format!("checkpoint install post-commit path validation failed: {err}")
                         .as_str(),
@@ -822,7 +822,7 @@ pub(super) fn install_checkpoint_bundle(
         if let Err(marker_err) =
             fail_execution_bridge_retention_transaction(driver.records_dir.as_path())
         {
-            oasis7::observability::emit_stderr_or_event(
+            oasis7_observability::emit_stderr_or_event(
                 tracing::Level::ERROR,
                 format!(
                     "checkpoint install retention degradation publication failed: {marker_err}"
@@ -831,7 +831,7 @@ pub(super) fn install_checkpoint_bundle(
                 "checkpoint install retention degradation publication failed",
             );
         }
-        oasis7::observability::emit_stderr_or_event(
+        oasis7_observability::emit_stderr_or_event(
             tracing::Level::WARN,
             format!(
                 "checkpoint install retention maintenance failed at height {}: {err}",

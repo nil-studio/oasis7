@@ -200,7 +200,7 @@ fn bridge_committed_heights_with_policy(
                     )
                 })
         {
-            oasis7::observability::emit_stderr_or_event(
+            oasis7_observability::emit_stderr_or_event(
                 tracing::Level::WARN,
                 format!(
                     "execution bridge incremental retention failed after replay height {}: {}",
