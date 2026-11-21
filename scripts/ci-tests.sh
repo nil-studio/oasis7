@@ -166,14 +166,15 @@ run_cargo() {
 }
 
 run_cargo_clippy() {
-  if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then
-    local argument locked=0
-    for argument in "$@"; do
-      [[ "$argument" != -- ]] || break
-      if [[ "$argument" == --locked ]]; then locked=1; fi
-    done
-    if [[ "$locked" == 0 ]]; then set -- --locked "$@"; fi
-  fi
+  # A Cargo.lock rewrite after the producer artifacts are sealed invalidates
+  # the exact-checkout identity in the downstream required consumer. Clippy
+  # must enforce the repository lockfile in CI as well as local checks.
+  local argument locked=0
+  for argument in "$@"; do
+    [[ "$argument" != -- ]] || break
+    if [[ "$argument" == --locked ]]; then locked=1; fi
+  done
+  if [[ "$locked" == 0 ]]; then set -- --locked "$@"; fi
   local lint_flags=(
     -D warnings
     -D clippy::correctness
