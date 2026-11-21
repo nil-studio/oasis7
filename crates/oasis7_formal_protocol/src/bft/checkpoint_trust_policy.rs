@@ -288,6 +288,33 @@ impl BftCheckpointTrustPolicyV1 {
             }
             window(key.not_before_unix_ms, key.expires_at_unix_ms)?;
         }
+        // A policy may have enough distinct issuer keys in total but never
+        // have enough keys authorized at the same instant. Every threshold
+        // signature set must fit the original root and policy windows as well
+        // as each issuer key's half-open validity interval. Candidate issuer
+        // starts suffice: the active set only shrinks between start points.
+        let status_start = self
+            .root_not_before_unix_ms
+            .max(self.policy_not_before_unix_ms);
+        let status_end = self
+            .root_expires_at_unix_ms
+            .min(self.policy_expires_at_unix_ms);
+        let threshold = self.threshold as usize;
+        if !self.issuer_keys.iter().any(|candidate| {
+            let instant = candidate.not_before_unix_ms.max(status_start);
+            instant < status_end
+                && self
+                    .issuer_keys
+                    .iter()
+                    .filter(|key| {
+                        key.not_before_unix_ms <= instant && instant < key.expires_at_unix_ms
+                    })
+                    .take(threshold)
+                    .count()
+                    == threshold
+        }) {
+            return Err("checkpoint issuer threshold has no common authorization window".into());
+        }
         for duration in [
             self.max_root_revocation_staleness_ms,
             self.max_checkpoint_validity_ms,
