@@ -4,8 +4,6 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-grep -Fq 'SOURCE_BUILD_ARGS+=(--features test_tier_required)' scripts/run-launcher-stack.sh
-
 tmp_dir="${TMPDIR:-/tmp}/oasis7-run-launcher-stack-hosted-local-mock-funding-$$"
 mkdir -p "$tmp_dir"
 trap 'rm -rf "$tmp_dir"' EXIT
@@ -132,5 +130,75 @@ payload = json.loads(Path(sys.argv[1]).read_text())
 assert payload["agent_decision_source"] == "builtin_llm"
 assert payload["local_test_provider_admission"] == "builtin_llm_dev_local"
 PY
+
+# Exercise the real source-mode launcher up to its Cargo call. The fake build
+# records argv and stops before any binaries or services are started.
+mkdir -p "$tmp_dir/fake-bin" "$tmp_dir/static"
+cat >"$tmp_dir/fake-bin/cargo" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  metadata) python3 -c 'import json, os; print(json.dumps({"target_directory": os.environ["FIXTURE_TARGET_DIR"]}))' ;;
+  build) printf '%s\0' "$@" >"$FIXTURE_CARGO_ARGS"; exit 47 ;;
+  *) exit 48 ;;
+esac
+SH
+# No listener will be started; avoid depending on host port availability.
+printf '#!/bin/sh\nexit 1\n' >"$tmp_dir/fake-bin/lsof"
+chmod +x "$tmp_dir/fake-bin/"*
+
+capture_build() {
+  local label="$1" launcher_bash="$2" expectation="$3" status=0
+  shift 3
+  local args_file="$tmp_dir/$label.cargo-args"
+  PATH="$tmp_dir/fake-bin:$PATH" \
+    OASIS7_FORCE_RAW_CARGO=1 \
+    OASIS7_RUN_LAUNCHER_STACK_SKIP_SOURCE_BUILD=0 \
+    OASIS7_AGENT_PROVIDER_BACKEND=provider_local_mock \
+    OASIS7_AGENT_PROVIDER_CONTRACT=worldsim_provider_v1 \
+    FIXTURE_TARGET_DIR="$tmp_dir/target" FIXTURE_CARGO_ARGS="$args_file" \
+    "$launcher_bash" ./scripts/run-launcher-stack.sh \
+      --viewer-static-dir "$tmp_dir/static" --output-dir "$tmp_dir/$label" \
+      "$@" >"$tmp_dir/$label.stdout" 2>"$tmp_dir/$label.stderr" || status=$?
+  if [[ "$status" != 47 || ! -s "$args_file" ]]; then
+    cat "$tmp_dir/$label.stderr" >&2
+    echo "expected $label to reach the fake source-mode Cargo build, got $status" >&2
+    return 1
+  fi
+  python3 - "$args_file" "$expectation" <<'PYBUILD'
+import sys
+from pathlib import Path
+
+raw = Path(sys.argv[1]).read_bytes()
+assert raw.endswith(b"\0"), raw
+args = raw[:-1].split(b"\0")
+assert args[0] == b"build", args
+positions = [i for i, arg in enumerate(args) if arg == b"--features"]
+if sys.argv[2] == "test-tier":
+    assert len(positions) == 1, args
+    assert args[positions[0] + 1] == b"test_tier_required", args
+else:
+    assert not positions and b"test_tier_required" not in args, args
+PYBUILD
+}
+
+hosted_build_args=()
+for arg in "${base_args[@]}"; do
+  [[ "$arg" == "--print-agent-provider-config" ]] || hosted_build_args+=("$arg")
+done
+capture_build hosted-test-tier "$BASH" test-tier "${hosted_build_args[@]}"
+
+# No provider authority arguments in this ordinary source-mode case. Running
+# the real path (rather than demanding that the shell itself fails an empty
+# array reproducer) also protects Bash 3.2 on macOS.
+ordinary_build_args=(
+  --deployment-mode trusted_local_only
+  --allow-trusted-local-playtest
+  --chain-disable
+  --agent-decision-source builtin_llm
+)
+capture_build ordinary "$BASH" ordinary "${ordinary_build_args[@]}"
+if [[ "$OSTYPE" == darwin* && "$BASH" != /bin/bash ]]; then
+  capture_build ordinary-macos-system-bash /bin/bash ordinary "${ordinary_build_args[@]}"
+fi
 
 echo "run-launcher-stack Hosted local-mock funding contract: passed"

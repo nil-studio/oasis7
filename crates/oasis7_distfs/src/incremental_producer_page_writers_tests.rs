@@ -277,3 +277,91 @@ fn external_state_batch_cancellation_has_no_success_and_retains_original_roots()
         assert_eq!(state.after.get(b"alice", &source).unwrap(), Some([7; 32]));
     }
 }
+
+#[test]
+fn caller_owned_producer_batch_cancellation_keeps_original_roots_and_io_allowance() {
+    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+        let fixture = Fixture::new();
+        let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
+        let store =
+            IncrementalPageStore::create(&fixture.store(), memory.clone(), compression).unwrap();
+        let (state, schedule) = deltas(&store, &memory);
+        let caller = AtomicBool::new(true);
+        let mut writer = store.value_session_with_cancelled(physical_io(), &caller);
+        let before = writer.remaining_io().unwrap();
+        assert!(matches!(
+            writer.put_state_pages(&state, &memory),
+            Err(ValueTreeError::Cancelled)
+        ));
+        assert!(matches!(
+            writer.put_state_pages_cancelled(&state, &memory, &mut || false),
+            Err(ValueTreeError::Cancelled)
+        ));
+        assert!(matches!(
+            writer.put_schedule_pages(&schedule, &memory),
+            Err(ValueTreeError::Cancelled)
+        ));
+        let after = writer.remaining_io().unwrap();
+        assert_eq!(after.writes_remaining, before.writes_remaining);
+        assert_eq!(after.write_bytes_remaining, before.write_bytes_remaining);
+
+        // The same session and memory pool remain valid once the owner
+        // removes its cancellation; both original roots must be readable.
+        caller.store(false, Ordering::Release);
+        writer.put_state_pages(&state, &memory).unwrap();
+        writer.put_schedule_pages(&schedule, &memory).unwrap();
+        let source = store
+            .state_session(physical_io(), MemoryClass::Ordinary)
+            .unwrap();
+        assert_eq!(state.after.get(b"alice", &source).unwrap(), Some([7; 32]));
+        assert!(schedule.after.contains(9, "module\0雪", &source).unwrap());
+
+        // The local session boundary is still independently authoritative.
+        writer.cancelled.store(true, Ordering::Release);
+        let before_local = writer.remaining_io().unwrap();
+        assert!(matches!(
+            writer.put_state_pages(&state, &memory),
+            Err(ValueTreeError::Cancelled)
+        ));
+        assert!(matches!(
+            writer.put_schedule_pages(&schedule, &memory),
+            Err(ValueTreeError::Cancelled)
+        ));
+        assert_eq!(
+            writer.remaining_io().unwrap().writes_remaining,
+            before_local.writes_remaining
+        );
+    }
+}
+
+#[test]
+fn caller_cancel_at_real_recipe_sync_rejects_success_after_physical_batch_write() {
+    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+        let fixture = Fixture::new();
+        let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
+        let store =
+            IncrementalPageStore::create(&fixture.store(), memory.clone(), compression).unwrap();
+        let (state, _) = deltas(&store, &memory);
+        let caller = std::sync::Arc::new(AtomicBool::new(false));
+        let mut writer = store.value_session_with_cancelled(physical_io(), caller.as_ref());
+        let before = writer.remaining_io().unwrap();
+
+        // This hook trips at the real recipes-directory durability barrier.
+        // The existing physical writer may have published some pages already,
+        // but its caller must not observe a successful producer operation.
+        files::cancel_after_sync(store.root().join("recipes"), caller.clone(), 1);
+        assert!(matches!(
+            writer.put_state_pages(&state, &memory),
+            Err(ValueTreeError::Cancelled)
+        ));
+        assert!(caller.load(Ordering::Acquire));
+        assert!(writer.remaining_io().unwrap().writes_remaining < before.writes_remaining);
+
+        caller.store(false, Ordering::Release);
+        writer.put_state_pages(&state, &memory).unwrap();
+        let source = store
+            .state_session(physical_io(), MemoryClass::Ordinary)
+            .unwrap();
+        assert_eq!(state.after.get(b"alice", &source).unwrap(), Some([7; 32]));
+    }
+}

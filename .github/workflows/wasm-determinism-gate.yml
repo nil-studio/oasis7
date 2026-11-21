@@ -3,6 +3,48 @@ name: Wasm Determinism Gate
 on:
   pull_request:
     branches: ["main"]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - crates/oasis7_runtime/src/world/artifacts/builtin_wasm_candidate_baseline.v1.json
+      - crates/oasis7_runtime/src/world/artifacts/builtin_module_manifest_map.txt
+      - crates/oasis7_runtime/src/world/artifacts/m1_*
+      - crates/oasis7_runtime/src/world/artifacts/m4_*
+      - crates/oasis7_runtime/src/world/artifacts/m5_*
+      - crates/oasis7_builtin_wasm_modules/m1_*
+      - crates/oasis7_builtin_wasm_modules/m1_*/**
+      - crates/oasis7_builtin_wasm_modules/m4_*
+      - crates/oasis7_builtin_wasm_modules/m4_*/**
+      - crates/oasis7_builtin_wasm_modules/_templates/m4_*
+      - crates/oasis7_builtin_wasm_modules/m5_*
+      - crates/oasis7_builtin_wasm_modules/m5_*/**
+      - crates/oasis7_wasm_build/**
+      - crates/oasis7_wasm_sdk/**
+      - crates/oasis7_wasm_abi/**
+      - crates/oasis7_distfs/src/bin/sync_builtin_wasm_identity.rs
+      - docker/wasm-builder/**
+      - tools/wasm_build_suite/**
+      - rust-toolchain.toml
+      - .dockerignore
+      - .github/actions/setup-linux-mold/setup.py
+      - .github/workflows/wasm-determinism-gate.yml
+      - scripts/plan-wasm-determinism-scope.sh
+      - scripts/build-builtin-wasm-modules.sh
+      - scripts/build-builtin-wasm-candidate-batch-lib.sh
+      - scripts/build-wasm-module.sh
+      - scripts/ci-m1-wasm-summary.sh
+      - scripts/ci-verify-m1-wasm-summaries.py
+      - scripts/dispatch-wasm-determinism-gate.sh
+      - scripts/module-release-node-attestation-flow.sh
+      - scripts/module-release-node-acceptance.sh
+      - scripts/package-module-release-attestation-proof.sh
+      - scripts/package-wasm-summary-bundle.sh
+      - scripts/stage-wasm-summary-imports.sh
+      - scripts/submit-module-release-attestation.sh
+      - scripts/sync-m1-builtin-wasm-artifacts.sh
+      - scripts/sync-m4-builtin-wasm-artifacts.sh
+      - scripts/sync-m5-builtin-wasm-artifacts.sh
+      - scripts/wasm-release-evidence-report.sh
+      - scripts/wasm-summary-bundle-smoke.sh
   workflow_dispatch:
     inputs:
       external_summary_bundle_url:
@@ -35,6 +77,7 @@ cache-mode: read
 
 jobs:
   plan-wasm-determinism-scope:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
@@ -99,6 +142,7 @@ jobs:
           - runner_os: ubuntu-24.04
             runner_label: linux-x86_64
     runs-on: ${{ matrix.runner_os }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Configure mold for Linux host linking

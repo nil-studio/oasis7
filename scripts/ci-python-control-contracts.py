@@ -6,6 +6,7 @@ candidate test file as the authority for a narrowed CI-control change.
 """
 import argparse
 import ast
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import copy
 import hashlib
 import importlib.machinery
@@ -18,6 +19,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import types
 import unittest
@@ -452,8 +454,35 @@ def run_worker(request_path, witness_path):
     witness_path.write_text(json.dumps(report))
 
 
+def contract_workers(task_count):
+    configured = os.environ.get('OASIS7_PYTHON_CONTRACT_JOBS')
+    if configured is not None and configured != '':
+        try:
+            requested = int(configured)
+        except ValueError as error:
+            raise ValueError('invalid OASIS7_PYTHON_CONTRACT_JOBS: ' + configured) from error
+        if requested < 1:
+            raise ValueError('invalid OASIS7_PYTHON_CONTRACT_JOBS: ' + configured)
+        return min(requested, max(1, task_count))
+    return min(4, max(1, os.cpu_count() or 1), max(1, task_count))
+
+
+_HEAVY_CONTRACT_ORDER = {
+    PLANNER_TEST: 0,
+    'scripts/ci-formal-process.test.py': 1,
+    'scripts/ci-workflow.test.py': 2,
+    'scripts/ci-cache-maintenance.test.py': 3,
+    'scripts/ci-local-check.test.py': 4,
+}
+
+
+_OUTPUT_LOCK = threading.Lock()
+_BATCH_STATE = threading.local()
+
+
 def run_contract(root, snapshot, path, identifiers=None, *, retain_candidate=False, origin='trusted-baseline'):
     started = time.monotonic()
+    buffered = bool(getattr(_BATCH_STATE, 'buffered', False))
     source = (snapshot / path).read_text()
     kind, inventory = test_inventory(source)
     selected = inventory if identifiers is None else identifiers
@@ -471,12 +500,21 @@ def run_contract(root, snapshot, path, identifiers=None, *, retain_candidate=Fal
         request.write_text(json.dumps(dict(root=str(root), snapshot=str(snapshot), path=path,
                                           kind=kind, ids=selected)))
         result = subprocess.run([sys.executable, str(Path(__file__).resolve()), '_worker',
-                                 '--request', str(request), '--witness', str(witness)], cwd=root)
+                                 '--request', str(request), '--witness', str(witness)],
+                                cwd=root, capture_output=buffered, text=buffered)
         report = json.loads(witness.read_text()) if witness.is_file() else {}
         if (result.returncode or report.get('complete') is not True or report.get('passed') is not True
                 or report.get('count') != len(selected) or report.get('skipped') != 0
                 or sorted(report.get('completed', [])) != sorted(selected)
                 or sorted(report.get('successes', [])) != sorted(selected)):
+            if buffered:
+                with _OUTPUT_LOCK:
+                    if result.stdout:
+                        sys.stdout.write(result.stdout)
+                        sys.stdout.flush()
+                    if result.stderr:
+                        sys.stderr.write(result.stderr)
+                        sys.stderr.flush()
             evidence = dict(exit_code=result.returncode, complete=report.get('complete'),
                             count=report.get('count'), expected_count=len(selected),
                             skipped=report.get('skipped'), passed=report.get('passed'),
@@ -485,9 +523,54 @@ def run_contract(root, snapshot, path, identifiers=None, *, retain_candidate=Fal
                              + json.dumps(evidence, sort_keys=True))
     counts = (f'cases={len(selected)}' if kind == 'unittest' else
               f'entrypoints=1 scenarios={len(selected) - 1} assertions={report["assertions"]}')
-    print(f'python_control_contract={path} {counts} source={origin} '
-          f'elapsed_seconds={time.monotonic() - started:.3f}', flush=True)
+    summary = (f'python_control_contract={path} {counts} source={origin} '
+               f'elapsed_seconds={time.monotonic() - started:.3f}')
+    if buffered:
+        with _OUTPUT_LOCK:
+            if result.stdout:
+                sys.stdout.write(result.stdout)
+            if result.stderr:
+                sys.stderr.write(result.stderr)
+                sys.stderr.flush()
+            print(summary, flush=True)
+    else:
+        print(summary, flush=True)
     return len(selected)
+
+
+def run_contract_batch(root, snapshot, tasks, *, retain=(), origin='trusted-baseline'):
+    items = list(tasks.items())
+    if not items:
+        return 0
+    workers = contract_workers(len(items))
+    if workers <= 1:
+        return sum(run_contract(root, snapshot, path, identifiers,
+                                retain_candidate=path in retain, origin=origin)
+                   for path, identifiers in items)
+    # Schedule the longest Python suites first so they do not tail-drag behind short files.
+    ordered = sorted(items, key=lambda item: (_HEAVY_CONTRACT_ORDER.get(item[0], 100), item[0]))
+
+    def invoke(path, identifiers):
+        _BATCH_STATE.buffered = True
+        try:
+            return run_contract(root, snapshot, path, identifiers,
+                                retain_candidate=path in retain, origin=origin)
+        finally:
+            _BATCH_STATE.buffered = False
+
+    total = 0
+    first_error = None
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(invoke, path, identifiers) for path, identifiers in ordered]
+        for future in as_completed(futures):
+            try:
+                total += future.result()
+            except BaseException as error:
+                if first_error is None:
+                    first_error = error
+    if first_error is not None:
+        raise first_error
+    return total
 
 
 def local_contract(root, path):
@@ -595,10 +678,8 @@ def run_contracts(root, policy_sha, plan, *, governance=False):
             # safety, selected non-governance contracts, and newly added cases.
             candidate_tasks = {path: None for path in sorted(governed | set(selected) | set(FIXED_TESTS))}
         cases = 0
-        for path, identifiers in baseline_tasks.items():
-            cases += run_contract(root, snapshot, path, identifiers, retain_candidate=path in retain)
-        for path, identifiers in candidate_tasks.items():
-            cases += run_contract(root, candidate_snapshot, path, identifiers, origin='candidate')
+        cases += run_contract_batch(root, snapshot, baseline_tasks, retain=retain)
+        cases += run_contract_batch(root, candidate_snapshot, candidate_tasks, origin='candidate')
         run_rust_fixture(root, config)
     if governance:
         run_governance_remaining(root)

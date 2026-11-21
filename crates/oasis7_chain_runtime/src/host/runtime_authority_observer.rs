@@ -1,4 +1,4 @@
-use oasis7::network_tier_manifest::LoadedNetworkTierManifest;
+use oasis7_client_api::network_tier_manifest::LoadedNetworkTierManifest;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Component, Path};

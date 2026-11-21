@@ -425,6 +425,7 @@ run_oasis7_node_clippy() {
 }
 
 run_oasis7_net_tests() {
+  # Cargo defaults already enable the libp2p transport and its self-tests.
   run_cargo test -p oasis7_net --lib
 }
 
@@ -443,7 +444,11 @@ run_oasis7_net_libp2p_tests() {
   run python3 ./scripts/libp2p-compat.test.py
   run_cargo test --locked --manifest-path ./vendor-libp2p-rendezvous-0.18.1/Cargo.toml \
     --target-dir ./target --lib -- --test-threads=1
-  run_cargo test -p oasis7_net --features libp2p --lib
+  # Preserve the standalone warm-contract reader; real groups already ran
+  # the equivalent native library with default features.
+  if [[ "${1:-}" != --skip-native ]]; then
+    run_cargo test -p oasis7_net --features libp2p --lib
+  fi
   if [[ "${GITHUB_ACTIONS:-}" == true && "${RUNNER_OS:-}" == Linux ]]; then
     CC_wasm32_unknown_unknown=clang AR_wasm32_unknown_unknown=llvm-ar run_cargo check -p oasis7_net --no-default-features --target wasm32-unknown-unknown --locked
     run env -u RUSTC_WRAPPER CC_wasm32_unknown_unknown=clang AR_wasm32_unknown_unknown=llvm-ar \
@@ -451,6 +456,8 @@ run_oasis7_net_libp2p_tests() {
   fi
 }
 
+# The trusted image-cache contract still verifies this explicit warm tuple.
+# Real groups compile the same default-feature library only once.
 run_oasis7_net_libp2p_clippy() {
   run_cargo_clippy -p oasis7_net --features libp2p --lib
 }
@@ -792,13 +799,40 @@ run_engineering_telemetry_contract_tests() {
   run python3 - <<'PY_TELEMETRY'
 import unittest
 
+import sys
+
+class ContractResult(unittest.TextTestResult):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.passed_suites = set()
+        self.current_suite = None
+
+    def addSuccess(self, test):
+        super().addSuccess(test)
+        self.passed_suites.add(self.current_suite)
+
+class ContractSuite(unittest.TestSuite):
+    def __init__(self, name, tests):
+        super().__init__([tests])
+        self.name = name
+
+    def run(self, result, debug=False):
+        result.current_suite = self.name
+        return super().run(result, debug)
+
+names = ('test_engineering_telemetry.py', 'test_engineering_telemetry_adapters.py')
 suite = unittest.TestSuite()
-for name in ('test_engineering_telemetry.py', 'test_engineering_telemetry_adapters.py'):
+for name in names:
     tests = unittest.defaultTestLoader.discover('scripts/tests', pattern=name)
     if tests.countTestCases() == 0:
         raise SystemExit('engineering telemetry: no tests in ' + name)
-    suite.addTests(tests)
-raise SystemExit(not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful())
+    suite.addTest(ContractSuite(name, tests))
+
+result = unittest.TextTestRunner(verbosity=2, resultclass=ContractResult).run(suite)
+missing = [name for name in names if name not in result.passed_suites]
+for name in missing:
+    print('engineering telemetry: no passing tests in ' + name, file=sys.stderr)
+raise SystemExit(bool(missing) or not result.wasSuccessful())
 PY_TELEMETRY
 }
 
@@ -1343,7 +1377,7 @@ run_full_support_tier_tests() {
   run_oasis7_distfs_tests
   run_oasis7_node_tests
   run_oasis7_net_tests
-  run_oasis7_net_libp2p_tests
+  run_oasis7_net_libp2p_tests --skip-native
   run_oasis7_workspace_support_crate_tests
   run_oasis7_llm_baseline_fixture_smoke
   run_oasis7_viewer_software_safe_feedback_contract_tests
@@ -1373,9 +1407,8 @@ run_full_required_superset() {
   run_oasis7_node_clippy
   run_oasis7_node_tests
   run_oasis7_net_clippy
-  run_oasis7_net_libp2p_clippy
   run_oasis7_net_tests
-  run_oasis7_net_libp2p_tests
+  run_oasis7_net_libp2p_tests --skip-native
   run_oasis7_viewer_software_safe_feedback_contract_tests --source-only
   run_oasis7_viewer_software_safe_build --with-ui
   run node crates/oasis7_viewer/scripts/viewer-auth-browser-security-smoke.mjs
@@ -1498,7 +1531,7 @@ run_group() {
     consensus) run_oasis7_consensus_clippy; run_oasis7_consensus_tests ;;
     distfs) run_oasis7_distfs_clippy; run_oasis7_distfs_tests ;;
     node) run_oasis7_node_clippy; run_oasis7_node_tests ;;
-    net) run_oasis7_net_clippy; run_oasis7_net_libp2p_clippy; run_oasis7_net_tests; run_oasis7_net_libp2p_tests ;;
+    net) run_oasis7_net_clippy; run_oasis7_net_tests; run_oasis7_net_libp2p_tests --skip-native ;;
     viewer_js_required) run_oasis7_viewer_software_safe_feedback_contract_tests --source-only; run_oasis7_viewer_software_safe_build --with-ui; run_oasis7_viewer_browser_functional_regression; run node crates/oasis7_viewer/scripts/viewer-auth-browser-security-smoke.mjs ;;
     viewer_performance_report) run bash ./scripts/viewer-performance-report-only-contract.test.sh; run_oasis7_viewer_software_safe_build; run_oasis7_viewer_visual_test_build; run_oasis7_viewer_performance_smoke_report_only ;;
     pixel_world_bridge) run_pixel_world_bridge_lib_tests; run_pixel_world_bridge_wasm_check ;;

@@ -315,12 +315,11 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
   - provider remote-HTTPS、P2P/testnet、state-sync、S10 与 release-preflight contract 只在 planner 选择 `operational_contracts` 时运行；对应跨平台 workflow jobs 未命中时直接 skip，保留 stable context 的同时避免 docs-only 或不相关 PR 分配 runner 执行跨域 operational work。
 - `full`：
   - 调用 `run_full_required_superset`、`rust_baseline` 及 full 扩展，另加 `formal_process`；`full-standard` 保留普通与扩展部分。
-  - 已补齐 `oasis7` / consensus / distfs / node / net / net-libp2p 的组级 Clippy、默认 snapshot 回归，以及依赖本轮实际构建的 `viewer-auth-browser-security-smoke.mjs`；workspace-support 的原检查保留。
+  - 已补齐 `oasis7` / consensus / distfs / node / net 的组级 Clippy（net 默认启用 libp2p）、默认 snapshot 回归，以及依赖本轮实际构建的 `viewer-auth-browser-security-smoke.mjs`；workspace-support 的原检查保留。
   - hosted 完整覆盖由全部配置组、平台矩阵和 full 扩展共同提供，不能仅凭本地函数名或单个 `full` 命令通过推断跨平台完整结果。
   - `cargo test -p oasis7 -p oasis7_viewer_runtime --tests --features test_tier_full,wasmtime,viewer_live_integration`
   - `cargo test -p oasis7_node --lib`
-  - `cargo test -p oasis7_net --lib`
-  - `cargo test -p oasis7_net --features libp2p --lib`
+  - `cargo test -p oasis7_net --lib`（默认启用 `libp2p` 和 `self_tests`）；libp2p 兼容、vendor 及 WASM 检查保留为独立命令。
   - `./scripts/llm-baseline-fixture-smoke.sh`
   - `run_workspace_support_full_feature_tests` 按实际 manifest 对适用 support 包执行 required/full/wasmtime/viewer 等完整 feature 并集和 `--all-targets`，与原 profile 共同保留首次 PR 之后的周期覆盖。
   - 构建真实生产 `oasis7_chain_runtime` / `oasis7_game_launcher`：Chain 所属包启用 `wasmtime`，Launcher 使用 `oasis7_launcher_backend` 的默认 features，两者均不含 test-tier feature。`scripts/hosted-local-mock-production-guard.py` 按所属包核对 Cargo artifact 清单中的 manifest、bin target、非 test harness 与各自的 feature 要求，再分别启动并核对 Hosted local-mock funding 参数被生产 guard 精确拒绝；不以其他启动错误代替拒绝结果。

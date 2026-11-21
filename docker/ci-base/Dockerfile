@@ -42,7 +42,7 @@ RUN curl -fsSL --retry 3 https://www.kernel.org/pub/software/scm/git/git-2.56.1.
 FROM build AS rust-build
 COPY --from=node-tools /usr/local/bin/node /usr/local/bin/node
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends jq ruby \
+    && apt-get install -y --no-install-recommends ruby \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=git-tools /tmp/git-install/usr/local/ /usr/local/
 ARG RUST_TOOLCHAIN

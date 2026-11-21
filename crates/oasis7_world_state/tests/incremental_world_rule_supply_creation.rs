@@ -14,7 +14,7 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueReadContext, ValueTreeError, write_value},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
-use oasis7_runtime::{
+use oasis7_world_state::{
     WorldState, incremental_field_member::*, incremental_field_overlay::WorldFieldOverlayContextV1,
     incremental_field_read::WorldFieldReadContextV1, incremental_world_rule_effects::*,
     incremental_world_rule_supply_root::*, world_rules::WorldRulesStateV1,
@@ -256,7 +256,10 @@ fn audit(kind: Kind) {
     let error = read
         .transaction
         .contribute(
-            |_| -> Result<_, oasis7_runtime::incremental_field_overlay::WorldFieldOverlayErrorV1> {
+            |_| -> Result<
+                _,
+                oasis7_world_state::incremental_field_overlay::WorldFieldOverlayErrorV1,
+            > {
                 let root = parent
                     .roots
                     .state
@@ -306,7 +309,7 @@ fn audit(kind: Kind) {
     assert!(
         matches!(
             error,
-            oasis7_runtime::incremental_field_overlay::WorldFieldOverlayErrorV1::Value(
+            oasis7_world_state::incremental_field_overlay::WorldFieldOverlayErrorV1::Value(
                 ValueTreeError::Invalid("supply flat orphan descendant")
             )
         ),

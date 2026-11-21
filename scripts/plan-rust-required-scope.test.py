@@ -722,6 +722,33 @@ class Selection(unittest.TestCase):
                 selector.select(trusted, self.base, self.commit())
             self.assertIn(unknown, str(neighbor.exception))
 
+    def test_existing_manual_and_launcher_audit_inputs_have_exact_owners(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        manual = {'baseline', 'doc_checker_contracts'}
+        launcher = {'baseline', 'launcher_web', 'operational_contracts', 'windows_rollout', 'fleet_health'}
+        expected = {
+            'scripts/testing-manual-active-contract.test.sh': manual,
+            'scripts/run-launcher-stack-hosted-local-mock-funding.test.sh': launcher,
+            'scripts/run-launcher-stack-local-mock-lane.test.sh': launcher,
+        }
+        for path, groups in expected.items():
+            with self.subTest(path=path):
+                self.write(path, '# Existing shell test input')
+                base = self.base
+                self.base = self.commit()
+                plan = selector.select(self.config, base, self.base)
+                self.assertEqual(plan['scope'], 'targeted')
+                self.assertEqual(set(plan['groups']), groups)
+        for path in ('scripts/testing-manual-unregistered.test.sh',
+                     'scripts/run-launcher-stack-unknown.test.sh'):
+            with self.subTest(path=path):
+                self.write(path, '# New unregistered sibling')
+                head = self.commit()
+                with self.assertRaises(selector.UnknownInputsError) as error:
+                    selector.select(self.config, self.base, head)
+                self.assertIn(json.dumps([path]), str(error.exception))
+                self.base = head
+
     def test_hosted_passkey_browser_smoke_has_launcher_and_viewer_owners(self):
         self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
         self.write('scripts/hosted-passkey-virtual-authenticator-smoke.mjs', '// changed browser smoke')

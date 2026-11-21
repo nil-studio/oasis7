@@ -3,6 +3,7 @@ ca-certificates
 curl
 gdb
 git
+jq
 libasound2t64
 libudev1
 libwayland-client0
@@ -15,3 +16,4 @@ libxrandr2
 python3
 python3-venv
 sudo
+zstd

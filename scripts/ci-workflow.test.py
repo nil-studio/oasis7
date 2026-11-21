@@ -332,6 +332,9 @@ def component_image_cache_writer(job, families, readers=JOBS):
         'launcher': (('launcher-web',), 'rust-image-launcher'),
         'tooling': (('cargo-tooling-contracts',), 'rust-image-tooling'),
     }
+    support_family = 'rust-image-support'
+    if 'support' in rows or support_family in families:
+        expected['support'] = (('workspace-support-other',), support_family)
     assert len(records) == len(rows) == len(expected) and set(rows) == set(expected)
     for profile, (names, family) in expected.items():
         row = rows[profile]
@@ -341,9 +344,15 @@ def component_image_cache_writer(job, families, readers=JOBS):
                                         'rust-image-component-cache')
         for name in names:
             reader = readers[name]
-            assert 'image: ' + row['image'] + '\n' in reader
             assert re.fullmatch(r'ghcr.io/nil-studio/oasis7/ci-rust-(?:wasm-)?build@sha256:[0-9a-f]{64}', row['image'])
             assert row['namespace'] == row['image'].rsplit('/', 1)[1].replace('@sha256:', '-')
+            if name == 'workspace-support-other':
+                assert workspace_support_image_matrix(reader) == row['namespace']
+                assert row['options'] == row['mold-dir'] == ''
+                assert not re.search(r'^      options:', reader, re.M)
+                assert 'uses: ./.github/actions/setup-linux-mold\n      - ' in reader
+                continue
+            assert 'image: ' + row['image'] + '\n' in reader
             caches = rust_cache_steps(reader)
             assert len(caches) == 1 and 'shared-key: ' + row['namespace'] + '\n' in caches[0]
             assert 'save-if: false\n' in caches[0]
@@ -426,7 +435,7 @@ def web_cache_layout(cache_workflow, release_workflow, admission_source):
         tool_jobs.add(component_writer)
     else:
         assert not {'rust-image-components', 'rust-image-net', 'rust-image-launcher',
-                    'rust-image-tooling'}.intersection(families)
+                    'rust-image-tooling', 'rust-image-support'}.intersection(families)
     assert set(cache_jobs) == (({'shared-native-cache', 'web-wasm-cache'} if migrated
                                else {'shared-native-cache'}) | tool_jobs), 'incomplete cache producer layout'
     active = []
@@ -989,8 +998,12 @@ class Workflow(unittest.TestCase):
         families = ast.literal_eval(next(node.value for node in source.body
             if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name)
                 and target.id == 'FAMILIES' for target in node.targets)))
-        self.assertEqual(set(component_image_cache_writer(job, families)),
-                         {'native', 'node', 'net', 'launcher', 'tooling'})
+        expected_profiles = {'native', 'node', 'net', 'launcher', 'tooling'}
+        image_families = {'rust-image-components', 'rust-image-net', 'rust-image-launcher', 'rust-image-tooling'}
+        if 'rust-image-support' in families:
+            expected_profiles.add('support')
+            image_families.add('rust-image-support')
+        self.assertEqual(set(component_image_cache_writer(job, families)), expected_profiles)
         # These global values enter the upstream Rust environment hash. The
         # matrix must not create a different identity before any Cargo runs.
         def cache_environment(text):
@@ -1019,7 +1032,7 @@ class Workflow(unittest.TestCase):
             with self.subTest(change=changed):
                 with self.assertRaises(AssertionError):
                     component_image_cache_writer(changed, families)
-        for family in ('rust-image-components', 'rust-image-net', 'rust-image-launcher', 'rust-image-tooling'):
+        for family in sorted(image_families):
             with self.subTest(missing=family), self.assertRaises(AssertionError):
                 component_image_cache_writer(job, {key: value for key, value in families.items() if key != family})
         changed_reader = dict(JOBS, node=JOBS['node'].replace('oasis7-node-mold', 'different-node-mold'))
@@ -2577,6 +2590,23 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertIn('--source-ref "$SOURCE_SHA"', planner)
         self.assertIn('artifact: pr-fast-preview-plan-${{ github.run_id }}-${{ github.run_attempt }}', planner)
         self.assertIn('name: ${{ needs.pr-fast-preview-plan.outputs.artifact }}', preview)
+        self.assertIn("needs.pr-fast-preview-plan.result == 'success'", preview)
+        self.assertIn("needs.pr-fast-preview-plan.outputs.enabled == 'true'", preview)
+        self.assertIn("github.event.action != 'opened'", preview)
+        self.assertIn("contains(github.event.pull_request.labels.*.name, 'ci-fast-preview')", preview)
+        label_workflow = (ROOT / '.github/workflows/pr-fast-preview.yml').read_text()
+        label_jobs = workflow_jobs(label_workflow)
+        self.assertIn('types: [labeled]', label_workflow)
+        self.assertIn("github.event.label.name == 'ci-fast-preview'", label_jobs['pr-fast-preview-plan'])
+        self.assertIn("needs.pr-fast-preview-plan.result == 'success' && needs.pr-fast-preview-plan.outputs.enabled == 'true'",
+                      label_jobs['pr-fast-preview'])
+        for name, job in label_jobs.items():
+            with self.subTest(label_workflow_job=name):
+                self.assertIn('contents: read', job)
+                self.assertIn('persist-credentials: false', job)
+                for forbidden in ('contents: write', 'actions: write', 'cache-mode: write', 'continue-on-error:',
+                                  'rust-cache@', 'actions/cache/', 'ci-full-result.py', 'ci-required-result.py'):
+                    self.assertNotIn(forbidden, job)
         self.assertIn('matrix: ${{ steps.preview.outputs.matrix }}', planner)
         self.assertIn('matrix: ${{ fromJSON(needs.pr-fast-preview-plan.outputs.matrix) }}', preview)
         self.assertIn('PREVIEW_SAMPLE: ${{ matrix.sample }}', preview)
@@ -3320,9 +3350,10 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             'scripts/tests/test_engineering_telemetry.py',
             'scripts/tests/test_engineering_telemetry_adapters.py',
         )
-        cases = [('absent', None), ('complete', None)]
+        cases = [('absent', None), ('complete', None), ('all-skipped', None),
+                 ('some-skipped', None)]
         cases += [(kind, path) for kind in ('missing', 'directory', 'symlink') for path in paths]
-        cases += [(kind, path) for kind in ('empty', 'failing') for path in paths[-2:]]
+        cases += [(kind, path) for kind in ('empty', 'failing', 'skipped') for path in paths[-2:]]
         for kind, changed in cases:
             with self.subTest(kind=kind, path=changed), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
@@ -3349,6 +3380,11 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                                        "        Path(%r).write_text('once')\n"
                                        "        self.assertTrue(%r)\n" %
                                        (target.name + '.ran', not (path == changed and kind == 'failing')))
+                            if kind == 'all-skipped' or (kind == 'skipped' and path == changed):
+                                content = content.replace('    def test_runs', '    @unittest.skip("fixture only")\n    def test_runs')
+                            if kind == 'some-skipped':
+                                content += ('    @unittest.skip("platform unavailable")\n'
+                                            '    def test_platform_specific(self): pass\n')
                         target.write_text(content)
                 shell = ('set -euo pipefail\nrun() { "$@"; }\n'
                          'run_ci_wasm_opt_contract_tests() { :; }\n'
@@ -3357,7 +3393,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                          + function.group() + '\n' + governance.group()
                          + '\nrun_workflow_governance_remaining_contract_tests\n')
                 result = subprocess.run(['bash', '-c', shell], cwd=root, capture_output=True, text=True)
-                if kind in ('absent', 'complete'):
+                if kind in ('absent', 'complete', 'some-skipped'):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(result.stdout.splitlines()[-2:],
                                      ['governance-baseline', 'governance-operational'])
@@ -3373,6 +3409,11 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                     self.assertIn('Ran 2 tests', result.stderr)
                 if kind == 'empty':
                     self.assertIn('no tests in', result.stderr)
+                if kind == 'some-skipped':
+                    self.assertIn('skipped=2', result.stderr)
+                if kind in ('skipped', 'all-skipped'):
+                    for path in ((changed,) if changed else paths[-2:]):
+                        self.assertIn('no passing tests in ' + Path(path).name, result.stderr)
 
     def test_dot_todo_entry_requires_pair_and_propagates_failure(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
@@ -3458,11 +3499,67 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         ])
         self.assertIn("needs.collect-wasm-summaries.result == 'success'", jobs['verify-wasm-determinism'])
         self.assertNotIn('continue-on-error:', workflow)
-        for filename in ('wasm-determinism-gate.yml',):
+        for filename in ('wasm-determinism-gate.yml', 'ci-base-images.yml'):
             workflow = (ROOT / '.github/workflows' / filename).read_text()
             self.assertNotRegex(workflow, r'(?m)^  push:')
             self.assertIn("group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}", workflow)
             self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", workflow)
+            self.assertIn('types: [opened, synchronize, reopened, ready_for_review]', workflow)
+
+    def test_pr_auxiliary_workflows_scope_triggers_and_skip_drafts(self):
+        ci_base = (ROOT / '.github/workflows/ci-base-images.yml').read_text()
+        ci_base_pr = ci_base.split('  pull_request:\n', 1)[1].split('  workflow_dispatch:\n', 1)[0]
+        self.assertNotIn('.github/workflows/rust.yml', ci_base_pr)
+        self.assertIn(
+            "if: (github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.ref == 'refs/heads/main'",
+            ci_base,
+        )
+
+        wasm_wf = (ROOT / '.github/workflows/wasm-determinism-gate.yml').read_text()
+        wasm_pr = wasm_wf.split('  pull_request:\n', 1)[1].split('  workflow_dispatch:\n', 1)[0]
+        wf_paths = re.findall(r'^      - (.+)$', wasm_pr, re.M)
+        self.assertTrue(wf_paths)
+        self.assertIn(
+            "if: github.event_name != 'pull_request' || !github.event.pull_request.draft",
+            wasm_wf,
+        )
+        planner = (ROOT / 'scripts/plan-wasm-determinism-scope.sh').read_text()
+        classify_body = planner.split('classify_changed_path() {', 1)[1].split('\n}', 1)[0]
+        # Extract every pattern branch from classify_changed_path() and ensure the workflow paths cover it.
+        raw_patterns = re.findall(r'^\s+([^\s#][^\n]*?)(?:\|\\|\))', classify_body, re.M)
+        planner_patterns = []
+        for line in raw_patterns:
+            for item in line.split('|'):
+                item = item.strip()
+                if item and item != 'case "$path" in':
+                    planner_patterns.append(item)
+        self.assertTrue(planner_patterns)
+        for pattern in planner_patterns:
+            # Strip trailing /* or /** to compare directory prefixes cleanly against workflow globs.
+            normalized = pattern
+            if normalized in (
+                'crates/oasis7_wasm_build',
+                'crates/oasis7_wasm_build/*',
+                'crates/oasis7_wasm_build/**/*',
+            ):
+                normalized = 'crates/oasis7_wasm_build/**'
+            elif normalized in (
+                'crates/oasis7_wasm_sdk',
+                'crates/oasis7_wasm_sdk/*',
+                'crates/oasis7_wasm_sdk/**/*',
+            ):
+                normalized = 'crates/oasis7_wasm_sdk/**'
+            elif normalized in (
+                'crates/oasis7_wasm_abi',
+                'crates/oasis7_wasm_abi/*',
+                'crates/oasis7_wasm_abi/**/*',
+            ):
+                normalized = 'crates/oasis7_wasm_abi/**'
+            elif normalized == 'docker/wasm-builder/*':
+                normalized = 'docker/wasm-builder/**'
+            elif normalized in ('tools/wasm_build_suite/*', 'tools/wasm_build_suite/**/*'):
+                normalized = 'tools/wasm_build_suite/**'
+            self.assertIn(normalized, wf_paths, f'wasm-determinism-gate.yml paths missing {pattern}')
 
     def test_group_commands_execute_once_and_propagate_failure(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
@@ -5815,6 +5912,157 @@ class WorkerToolCache(unittest.TestCase):
                                          result.stdout + result.stderr)
                         self.assertEqual(output.exists(), kind == 'regular' and selected)
 
+    def test_image_support_exact_readonly_worker_tool_reader(self):
+        job = JOBS['workspace-support-other']
+        steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+        selected = [step for step in steps if ('Identify pinned image Worker build tool' in step
+                    or 'id: worker-image-cache' in step
+                    or 'Prepare verified image Worker build tool' in step)]
+        self.assertEqual(len(selected), 3)
+        identity, restore, verify = selected
+        self.assertIn("if: matrix.execution == 'image'", identity)
+        for text in ('selection.json', 'workspace_support_profile_version',
+                     'oasis7_dev_test_worker', 'helper.is_symlink()',
+                     'os.execv(sys.executable'):
+            self.assertIn(text, identity)
+        writer = workflow_jobs((ROOT / '.github/workflows/rust-cache.yml').read_text())['worker-build-cache']
+        worker_tool_cache_writer(writer)
+        key = re.search(r'^          key: (worker-build-cli-v1-.*)$', writer, re.M)[1]
+        self.assertIn(key.replace('steps.worker-meta.outputs', 'steps.worker-image-meta.outputs'), restore)
+        self.assertIn('steps.worker-image-meta.outputs.root', restore)
+        self.assertNotIn('restore-keys:', restore)
+        self.assertNotIn('actions/cache/save@', job)
+        self.assertNotIn('GH_TOKEN:', job)
+        for step in selected:
+            self.assertNotIn('continue-on-error:', step)
+        for step in (restore, verify):
+            expr = re.search(r'^        if: (.*)$', step, re.M)[1]
+            for mode in ('host', 'image'):
+                for root in ('', '/fixture/tool'):
+                    values = {'matrix.execution': mode, 'steps.worker-image-meta.outputs.root': root}
+                    self.assertEqual(effective_job_condition(expr, values, ['success']),
+                                     mode == 'image' and bool(root))
+                    self.assertFalse(effective_job_condition(expr, values, ['failure']))
+        self.assertIn('python3 scripts/ci-worker-build.py check', verify)
+        self.assertIn('python3 scripts/ci-worker-build.py ensure', verify)
+        self.assertIn('check --root "$WORKER_TOOL_ROOT"', verify)
+        self.assertIn('ensure --root "$WORKER_TOOL_ROOT"', verify)
+        self.assertIn('WORKER_TOOL_ROOT: ${{ steps.worker-image-meta.outputs.restored_root }}', verify)
+        self.assertIn('timeout-minutes: 11', verify)
+        execute = workflow_step_script(job, 'Execute selected group')
+        self.assertIn('export PATH="$WORKER_TOOL_ROOT/bin:$PATH"', execute)
+        self.assertLess(job.index('Prepare verified image Worker build tool'),
+                        job.index('Execute selected group'))
+
+    @unittest.skipUnless(sys.platform == "linux", "Linux cache paths reject macOS /home symlink")
+    def test_image_worker_cache_identity_matches_real_host_metadata(self):
+        helper = ROOT / 'scripts/ci-worker-build.py'
+        environment = dict(os.environ)
+        environment.pop('XDG_CACHE_HOME', None)
+        host = subprocess.run([sys.executable, str(helper), 'metadata'],
+            env=dict(environment, HOME='/home/runner'), text=True,
+            capture_output=True, check=True)
+        script = workflow_step_script(JOBS['workspace-support-other'],
+                                      'Identify pinned image Worker build tool')
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'selection.json').write_text(json.dumps(dict(
+                scope='targeted', workspace_support_profile_version=1,
+                workspace_support_profiles=['oasis7_dev_test_worker'])))
+            output = root / 'output'
+            result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
+                cwd=ROOT, env=dict(environment, HOME='/github/home',
+                    XDG_CACHE_HOME='/github/home/.cache',
+                    RUNNER_TEMP=str(root), GITHUB_WORKSPACE='/__w/oasis7/oasis7', GITHUB_OUTPUT=str(output)),
+                text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            image_metadata = dict(line.split('=', 1)
+                                  for line in output.read_text().splitlines())
+            host_metadata = json.loads(host.stdout)
+            for field in ('root', 'bin', 'version', 'definition_sha'):
+                self.assertEqual(image_metadata[field], host_metadata[field])
+
+    def test_worker_archive_relative_names_restore_at_the_consumed_root(self):
+        # Same layout and ../../../ member names as the host writer; extraction
+        # uses the container checkout. A matching cache key does not remap tar.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            host = root / 'host/home/runner'
+            writer = host / 'work/oasis7/oasis7'
+            source = host / '.cache/oasis7/worker-build/0.7.5'
+            writer.mkdir(parents=True)
+            (source / 'bin').mkdir(parents=True)
+            (source / 'bin/worker-build').write_text('archive payload')
+            container = root / 'container'
+            reader = container / '__w/oasis7/oasis7'
+            reader.mkdir(parents=True)
+            archive = root / 'cache.tar'
+            member = os.path.relpath(source, writer)
+            self.assertEqual(member, '../../../.cache/oasis7/worker-build/0.7.5')
+            subprocess.run(['tar', '-cPf', str(archive), '-C', str(writer), member], check=True)
+            subprocess.run(['tar', '-xPf', str(archive), '-C', str(reader)], check=True)
+            actual = container / '.cache/oasis7/worker-build/0.7.5'
+            self.assertEqual((actual / 'bin/worker-build').read_text(), 'archive payload')
+            self.assertFalse((container / 'home/runner/.cache/oasis7/worker-build/0.7.5').exists())
+            job = JOBS['workspace-support-other']
+            self.assertEqual(job.count('WORKER_TOOL_ROOT: ${{ steps.worker-image-meta.outputs.restored_root }}'), 2)
+            script = workflow_step_script(job, 'Identify pinned image Worker build tool')
+            self.assertIn('os.path.normpath(os.path.join(', script)
+            self.assertIn("writer_workspace = '/home/runner/work/oasis7/oasis7'", script)
+            self.assertIn("os.environ['GITHUB_WORKSPACE'] != '/__w/oasis7/oasis7'", script)
+            (root / 'scripts').mkdir()
+            (root / 'scripts/ci-worker-build.py').write_text(
+                'import os\nwith open(os.environ["GITHUB_OUTPUT"], "a") as output:\n'
+                '    output.write("root=/home/runner/.cache/oasis7/worker-build/0.7.5\\n")\n')
+            (root / 'selection.json').write_text('{"scope":"full"}')
+            output = root / 'metadata'
+            environment = dict(os.environ, RUNNER_TEMP=str(root),
+                               GITHUB_WORKSPACE='/__w/oasis7/oasis7', GITHUB_OUTPUT=str(output))
+            result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
+                                    cwd=root, env=environment, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            metadata = dict(line.split('=', 1) for line in output.read_text().splitlines())
+            self.assertEqual(metadata['root'], '/home/runner/.cache/oasis7/worker-build/0.7.5')
+            self.assertEqual(container / metadata['restored_root'].lstrip('/'), actual)
+            output.unlink()
+            result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
+                cwd=root, env=environment | {'GITHUB_WORKSPACE': '/unexpected/layout'},
+                text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(output.exists())
+
+    def test_image_support_worker_metadata_cold_and_selected(self):
+        script = workflow_step_script(JOBS['workspace-support-other'],
+                                      'Identify pinned image Worker build tool')
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            helper = root / 'scripts/ci-worker-build.py'
+            helper.parent.mkdir()
+            output = root / 'output'
+            helper.write_text('import os, pathlib, sys\n'
+                'assert sys.argv[1:] == ["metadata", "--root", "/home/runner/.cache/oasis7/worker-build/0.7.5", "--github-output", os.environ["GITHUB_OUTPUT"]]\n'
+                'pathlib.Path(os.environ["GITHUB_OUTPUT"]).write_text("root=/fixture/tool\\n")\n')
+            for profile, selected in (('oasis7_dev_test_worker', True),
+                                      ('oasis7_context', False)):
+                (root / 'selection.json').write_text(json.dumps(dict(
+                    scope='targeted', workspace_support_profile_version=1,
+                    workspace_support_profiles=[profile])))
+                output.unlink(missing_ok=True)
+                result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
+                    cwd=root, env=dict(os.environ, GITHUB_OUTPUT=str(output),
+                                       RUNNER_TEMP=str(root), GITHUB_WORKSPACE='/__w/oasis7/oasis7'), capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(output.exists(), selected)
+            helper.unlink()
+            helper.symlink_to(root / 'missing')
+            (root / 'selection.json').write_text(json.dumps(dict(
+                scope='full', workspace_support_profile_version=1,
+                workspace_support_profiles=['oasis7_context'])))
+            result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
+                cwd=root, env=dict(os.environ, GITHUB_OUTPUT=str(output),
+                                   RUNNER_TEMP=str(root), GITHUB_WORKSPACE='/__w/oasis7/oasis7'), capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+
     def test_exact_readers_and_sole_trusted_writer(self):
         cache_jobs = workflow_jobs((ROOT / '.github/workflows/rust-cache.yml').read_text())
         writer = cache_jobs['worker-build-cache']
@@ -6164,10 +6412,126 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'fleet-health': 15,
                 'doc-checker-contracts': 15,
                 'workflow-governance': 20,
+                'consensus': 20,
+                'net': 20,
+                'node': 20,
+                'pixel-world-bridge': 20,
+                'distfs': 30,
+                'rust-baseline': 30,
+                'launcher-web': 30,
+                'viewer-js-required': 30,
+                'viewer-performance-report': 30,
+                'newapi-bridge-package': 30,
             },
             '.github/workflows/wasm-determinism-gate.yml': {
                 'plan-wasm-determinism-scope': 10,
                 'verify-wasm-determinism': 10,
+            },
+            '.github/workflows/command-center.yml': {
+                'desktop': 30,
+            },
+            '.github/workflows/compile-metrics.yml': {
+                'summarize': 10,
+            },
+            '.github/workflows/daily-github-release.yml': {
+                'create-release': 10,
+            },
+            '.github/workflows/pages.yml': {
+                'deploy': 15,
+            },
+            '.github/workflows/ecs-packages.yml': {
+                'package': 20,
+            },
+            '.github/workflows/newapi-bridge-service-package.yml': {
+                'package-linux-x86-64': 30,
+            },
+            '.github/workflows/hosted-login-linux-build.yml': {
+                'build-linux-x86-64': 45,
+            },
+        }
+        for rel_path, limits in expected_limits.items():
+            jobs = workflow_jobs((ROOT / rel_path).read_text())
+            for job_name, max_minutes in limits.items():
+                with self.subTest(workflow=rel_path, job=job_name):
+                    self.assertIn(job_name, jobs)
+                    match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', jobs[job_name], re.M)
+                    self.assertIsNotNone(match, f'{rel_path}:{job_name} must declare explicit timeout-minutes')
+                    actual = int(match.group(1))
+                    self.assertGreater(actual, 0)
+                    self.assertLessEqual(actual, max_minutes)
+
+
+class ReleasePackagingJobTimeoutContractTests(unittest.TestCase):
+    def test_release_packaging_workflows_declare_bounded_timeout_minutes_for_all_jobs(self):
+        expected_limits = {
+            '.github/workflows/testnet-packages.yml': {
+                'full-regression-qualification': 10,
+                'plan': 10,
+                'build-web-dist': 60,
+                'package-native': 180,
+                'package-native-trusted': 180,
+                'package-installers': 120,
+            },
+            '.github/workflows/mainnet-packages.yml': {
+                'full-regression-qualification': 10,
+                'plan': 10,
+                'release_gate_runtime_core': 60,
+                'release_gate_runtime_support': 60,
+                'release_gate_runtime_sync': 60,
+                'release_gate_web': 60,
+                'release_gate_soak': 90,
+                'release_gate': 10,
+                'build-web-dist': 60,
+                'package-native': 180,
+                'package-index': 15,
+            },
+            '.github/workflows/release-packages.yml': {
+                'full-regression-qualification': 10,
+                'cache-bootstrap-maintenance': 5,
+                'cache-maintenance': 5,
+                'plan': 10,
+                'release_gate_runtime_core': 60,
+                'release_gate_runtime_support': 60,
+                'release_gate_runtime_sync': 60,
+                'release_gate_web': 60,
+                'release_gate_soak': 90,
+                'release_gate': 10,
+                'build-web-dist': 60,
+                'package-native': 180,
+                'publish-release': 20,
+            },
+        }
+        for rel_path, limits in expected_limits.items():
+            jobs = workflow_jobs((ROOT / rel_path).read_text())
+            self.assertEqual(set(jobs.keys()), set(limits.keys()), rel_path)
+            for job_name, max_minutes in limits.items():
+                with self.subTest(workflow=rel_path, job=job_name):
+                    match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', jobs[job_name], re.M)
+                    self.assertIsNotNone(match, f'{rel_path}:{job_name} must declare explicit timeout-minutes')
+                    actual = int(match.group(1))
+                    self.assertGreater(actual, 0)
+                    self.assertLessEqual(actual, max_minutes)
+
+
+class HeavyPrJobTimeoutContractTests(unittest.TestCase):
+    def test_heavy_pr_jobs_declare_bounded_fallback_timeout_minutes(self):
+        expected_limits = {
+            '.github/workflows/rust.yml': {
+                'oasis7-test-build-candidate': 60,
+                'oasis7-test-build-trusted': 60,
+                'formal-debug-build': 60,
+                'formal-debug-build-trusted': 60,
+                'formal-endpoint-build': 60,
+                'formal-endpoint-build-trusted': 60,
+                'formal-test-build': 60,
+                'formal-test-build-trusted': 60,
+                'oasis7-required': 60,
+                'workspace-support-legacy': 60,
+                'workspace-support-other': 60,
+                'operational-contracts': 60,
+            },
+            '.github/workflows/wasm-determinism-gate.yml': {
+                'collect-wasm-summaries': 60,
             },
         }
         for rel_path, limits in expected_limits.items():

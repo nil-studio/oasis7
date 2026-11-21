@@ -2,7 +2,7 @@ use super::{
     CliOptions, DEFAULT_WORLD_ID, build_default_replication_network_config,
     create_default_replication_network, node_keypair_config, parse_options,
 };
-use oasis7::development_node_config::DevelopmentPeerRecordReceptionModeV1;
+use oasis7_client_api::development_node_config::DevelopmentPeerRecordReceptionModeV1;
 use oasis7_node::PeerRecordReceiverMode;
 #[cfg(unix)]
 use std::path::Path;
@@ -102,7 +102,7 @@ fn v2_only_receiver_requires_v2_publisher_for_start_but_allows_receiver_only_ini
     assert!(receiver_init.initialize_peer_record_receiver);
     assert_eq!(
         receiver_init.p2p_peer_record_publication,
-        oasis7::development_node_config::DevelopmentPeerRecordPublicationModeV1::V1Legacy
+        oasis7_client_api::development_node_config::DevelopmentPeerRecordPublicationModeV1::V1Legacy
     );
 }
 
@@ -174,7 +174,7 @@ fn host_network_keeps_receiver_policy_independent_and_uses_stable_runtime_path()
     };
     let mut options = CliOptions {
         p2p_peer_record_publication:
-            oasis7::development_node_config::DevelopmentPeerRecordPublicationModeV1::V2Durable,
+            oasis7_client_api::development_node_config::DevelopmentPeerRecordPublicationModeV1::V2Durable,
         p2p_peer_record_reception: DevelopmentPeerRecordReceptionModeV1::V2DurableCompatible,
         runtime_root: Some(std::env::temp_dir().join("receiver-config-root")),
         ..CliOptions::default()
@@ -194,7 +194,7 @@ fn host_network_keeps_receiver_policy_independent_and_uses_stable_runtime_path()
     );
 
     options.p2p_peer_record_publication =
-        oasis7::development_node_config::DevelopmentPeerRecordPublicationModeV1::V1Legacy;
+        oasis7_client_api::development_node_config::DevelopmentPeerRecordPublicationModeV1::V1Legacy;
     options.p2p_peer_record_reception = DevelopmentPeerRecordReceptionModeV1::LegacyCompatible;
     let legacy = build_default_replication_network_config(&options, &keypair, &paths)
         .expect("legacy network should retain a receiver path for downgrade detection");
@@ -374,7 +374,7 @@ fn compatible_receiver_policy_remains_independent_from_legacy_publisher() {
     );
     assert_eq!(
         options.p2p_peer_record_publication,
-        oasis7::development_node_config::DevelopmentPeerRecordPublicationModeV1::V1Legacy
+        oasis7_client_api::development_node_config::DevelopmentPeerRecordPublicationModeV1::V1Legacy
     );
     assert_eq!(options.world_id, DEFAULT_WORLD_ID);
 }

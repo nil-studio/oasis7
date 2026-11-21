@@ -123,3 +123,68 @@ fn cold_open_rejects_orphan_windows_and_settled_bytes_without_exchange() {
     let reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
     assert_eq!(reopened.snapshot(), &original);
 }
+
+#[test]
+fn cold_open_rejects_zero_sequence_reservations_in_active_and_interrupted_attempts() {
+    let temp = TestDir::new();
+    let path = temp.ledger_path();
+    let policy = policy();
+    let identity = identity(&policy);
+    let mut ledger = Ledger::create(&path, identity.clone(), policy.clone()).unwrap();
+    let attempt = ledger.begin_attempt().unwrap();
+    let exchange = ledger.begin_exchange(&attempt, 2, 2).unwrap();
+    let token = ledger
+        .reserve(&attempt, &exchange, Direction::Rx, 1)
+        .unwrap();
+    let live = ledger.snapshot().clone();
+    assert_eq!(token.window_seq, 1);
+    assert_eq!(live.window_seq, 1);
+    drop(ledger);
+
+    // A real reserve always increments its window sequence before persisting
+    // the token. Forging both the token and the global counter to zero used to
+    // pass structural validation; neither can be minted by the producer.
+    let mut bad_live = live.clone();
+    bad_live.window_seq = 0;
+    bad_live.reservation.as_mut().unwrap().window_seq = 0;
+    reject_then_restore(&path, &live, &bad_live);
+    local_io::write(&path, &bad_live).unwrap();
+    assert!(Ledger::open(&path, &identity, &policy, 0).is_err());
+
+    // Represent the exact old attempt fields carried into a successor attempt
+    // after an interrupted owner. The reservation comes from the real writer,
+    // rather than a fabricated token; no protected takeover is claimed here.
+    let mut interrupted = live.clone();
+    let old_nonce = interrupted.active_attempt_nonce.take().unwrap();
+    let old_request = interrupted.active_request.take();
+    let old_request_nonce = interrupted.active_request_nonce.take();
+    let old_reservation = interrupted.reservation.take();
+    let tx_credit = std::mem::take(&mut interrupted.tx_credit);
+    let rx_credit = std::mem::take(&mut interrupted.rx_credit);
+    interrupted.interrupted_attempts.push(InterruptedAttempt {
+        attempt_no: interrupted.attempts_used,
+        attempt_nonce: old_nonce,
+        request: old_request,
+        request_nonce: old_request_nonce,
+        tx_credit,
+        rx_credit,
+        reservation: old_reservation,
+    });
+    interrupted.attempts_used += 1;
+    interrupted.active_attempt_nonce = Some("ab".repeat(16));
+    assert!(interrupted.validate().is_ok());
+
+    let mut bad_interrupted = interrupted.clone();
+    bad_interrupted.window_seq = 0;
+    bad_interrupted.interrupted_attempts[0]
+        .reservation
+        .as_mut()
+        .unwrap()
+        .window_seq = 0;
+    reject_then_restore(&path, &interrupted, &bad_interrupted);
+    local_io::write(&path, &bad_interrupted).unwrap();
+    assert!(Ledger::open(&path, &identity, &policy, 0).is_err());
+    local_io::write(&path, &interrupted).unwrap();
+    let reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
+    assert_eq!(reopened.snapshot(), &interrupted);
+}

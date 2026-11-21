@@ -6,6 +6,7 @@ license = "MIT"
 
 [dependencies]
 oasis7_agent_api = { path = "../oasis7_agent_api" }
+oasis7_domain_types = { path = "../oasis7_domain_types" }
 oasis7_wasm_abi = { path = "../oasis7_wasm_abi" }
 serde = { workspace = true }
 serde_json = { workspace = true }

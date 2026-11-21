@@ -334,10 +334,19 @@ impl Ledger {
         if Instant::now() >= deadline {
             return Err("operation_reopen_expired".into());
         }
+        // Freeze this new attempt's original deadline before the durable
+        // recovery transition. A slow fsync must not buy additional runtime.
+        let attempt_deadline = Instant::now()
+            .checked_add(Duration::from_millis(self.state.policy.attempt_timeout_ms))
+            .ok_or("attempt deadline overflow")?;
         self.save_exact(next)?;
         if Instant::now() >= deadline {
             self.poisoned = true;
             return Err("operation_reopen_expired".into());
+        }
+        if Instant::now() >= attempt_deadline {
+            self.poisoned = true;
+            return Err("attempt_expired".into());
         }
         self.recovered = false;
         self.reopen_deadline = None;
@@ -345,13 +354,17 @@ impl Ledger {
             identity: self.state.identity.clone(),
             number: self.state.attempts_used,
             nonce,
-            deadline: Instant::now()
-                .checked_add(Duration::from_millis(self.state.policy.attempt_timeout_ms))
-                .ok_or("attempt deadline overflow")?,
+            deadline: attempt_deadline,
         })
     }
 
     pub fn begin_attempt(&mut self) -> Result<AttemptPermit, String> {
+        self.begin_attempt_from(Instant::now())
+    }
+
+    /// The source instant is captured before any durable attempt admission.
+    /// Used by the native regression to deterministically model a slow fsync.
+    pub(super) fn begin_attempt_from(&mut self, started: Instant) -> Result<AttemptPermit, String> {
         if self.recovered
             || self.state.publication_journal_version != Some(1)
             || self.state.publication.is_some()
@@ -370,10 +383,16 @@ impl Ledger {
         next.attempts_used += 1;
         let nonce = local_io::random_id()?;
         next.active_attempt_nonce = Some(nonce.clone());
-        self.save(next)?;
-        let deadline = Instant::now()
+        let deadline = started
             .checked_add(Duration::from_millis(self.state.policy.attempt_timeout_ms))
             .ok_or("attempt deadline overflow")?;
+        self.save(next)?;
+        if Instant::now() >= deadline {
+            // The attempted transition is already durable. Preserve its spent
+            // slot for fenced recovery, never grant a fresh transport permit.
+            self.poisoned = true;
+            return Err("attempt_expired".into());
+        }
         Ok(AttemptPermit {
             identity: self.state.identity.clone(),
             number: self.state.attempts_used,
@@ -450,6 +469,18 @@ impl Ledger {
         cut: &serde_json::Value,
         roots_digest: &str,
     ) -> Result<(), String> {
+        self.begin_publication_with_finished_at(permit, cut, roots_digest, Instant::now)
+    }
+
+    // The real caller publishes external pins immediately after this returns.
+    // Freeze the original attempt deadline across the durable intent write.
+    pub(super) fn begin_publication_with_finished_at(
+        &mut self,
+        permit: &AttemptPermit,
+        cut: &serde_json::Value,
+        roots_digest: &str,
+        finished_at: impl FnOnce() -> Instant,
+    ) -> Result<(), String> {
         self.check_attempt(permit)?;
         if self.state.publication_journal_version != Some(1)
             || self.state.publication.is_some()
@@ -479,7 +510,15 @@ impl Ledger {
             attempt_no: permit.number,
             completed: false,
         });
-        self.save(next)
+        self.save(next)?;
+        if finished_at() >= permit.deadline {
+            // An intent may now be durable while the original attempt has
+            // expired. Never authorize the external pin CAS with late fsync.
+            // Preserve unknown/pending state for explicit fenced recovery.
+            self.poisoned = true;
+            return Err("attempt_expired".into());
+        }
+        Ok(())
     }
 
     /// Only the same live attempt may record a positively acknowledged pin
@@ -575,6 +614,18 @@ impl Ledger {
         tx_credit: u64,
         rx_credit: u64,
     ) -> Result<ExchangePermit, String> {
+        self.begin_exchange_with_finished_at(permit, tx_credit, rx_credit, Instant::now)
+    }
+
+    // Inject only the post-persistence observation time in native regression.
+    // Production uses Instant::now after the durable ledger write/readback.
+    pub(super) fn begin_exchange_with_finished_at(
+        &mut self,
+        permit: &AttemptPermit,
+        tx_credit: u64,
+        rx_credit: u64,
+        finished_at: impl FnOnce() -> Instant,
+    ) -> Result<ExchangePermit, String> {
         self.check_attempt(permit)?;
         let attempt_no = permit.number;
         // The original selected cut has entered the local publication CAS.
@@ -636,6 +687,12 @@ impl Ledger {
         next.tx_credit = tx_credit;
         next.rx_credit = rx_credit;
         self.save(next)?;
+        if finished_at() >= permit.deadline {
+            // Admission is already durable, but no I/O permit escaped. Retain
+            // the paid original request and require explicit fenced recovery.
+            self.poisoned = true;
+            return Err("attempt_expired".into());
+        }
         Ok(ExchangePermit {
             identity: self.state.identity.clone(),
             attempt_nonce: permit.nonce.clone(),
@@ -672,6 +729,17 @@ impl Ledger {
         request: &ExchangePermit,
         direction: Direction,
         bytes: u64,
+    ) -> Result<Reservation, String> {
+        self.reserve_with_finished_at(permit, request, direction, bytes, Instant::now)
+    }
+
+    pub(super) fn reserve_with_finished_at(
+        &mut self,
+        permit: &AttemptPermit,
+        request: &ExchangePermit,
+        direction: Direction,
+        bytes: u64,
+        finished_at: impl FnOnce() -> Instant,
     ) -> Result<Reservation, String> {
         self.check_attempt(permit)?;
         let attempt = permit.number;
@@ -719,6 +787,12 @@ impl Ledger {
         };
         next.reservation = Some(token.clone());
         self.save(next)?;
+        if finished_at() >= permit.deadline {
+            // The original reservation is not refunded on unknown or late
+            // persistence; no token is returned to authorize transport I/O.
+            self.poisoned = true;
+            return Err("attempt_expired".into());
+        }
         Ok(token)
     }
 

@@ -3,7 +3,7 @@ use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use oasis7::network_tier_manifest::LoadedNetworkTierManifest;
+use oasis7_client_api::network_tier_manifest::LoadedNetworkTierManifest;
 use oasis7_node::{
     NodeConsensusProgressObserver, NodeConsensusProgressObserverError, NodeConsensusSnapshot,
     NodeRole, NodeSnapshot, ObserverLifecycleAuthority,

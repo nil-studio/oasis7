@@ -556,3 +556,100 @@ fn full_six_namespace_state_and_value_scan_after_real_store_reopen() {
     assert_eq!(logical.write_bytes_remaining, 0);
     assert_eq!(memory.used(), before);
 }
+
+#[test]
+fn caller_owned_state_session_uses_real_transaction_pages_and_never_debits_pre_cancelled_io() {
+    // The original fixed 4096-byte session reservation still covers the
+    // caller-owned borrowed flag and both live cancellation boundaries.
+    assert!(std::mem::size_of::<StatePageSession<'_>>() <= 4096);
+    let fixture = Fixture::new();
+    let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
+    let store =
+        IncrementalPageStore::create(&fixture.store(), memory.clone(), PageCompression::Raw)
+            .unwrap();
+    let (_, prepared) = first_transition(&store, &memory);
+    let root = &prepared.record.after.state[0].node_root;
+    let caller = AtomicBool::new(true);
+    let prior_charge = memory.used();
+    assert!(matches!(
+        store.state_session_with_cancelled(physical_io(), MemoryClass::Ordinary, &caller),
+        Err(PageStoreError::Cancelled)
+    ));
+    assert_eq!(memory.used(), prior_charge);
+
+    caller.store(false, Ordering::Release);
+    let mut session = store
+        .state_session_with_cancelled(physical_io(), MemoryClass::Ordinary, &caller)
+        .unwrap();
+    let before = session.remaining_io().unwrap();
+    caller.store(true, Ordering::Release);
+    assert!(matches!(
+        session.persist_transition_pages(&prepared),
+        Err(PageStoreError::Cancelled)
+    ));
+    assert!(session.read_node(root, STATE_MAX_PAGE_BYTES).is_err());
+    assert!(matches!(
+        session.take_read_error(),
+        Some(PageStoreError::Cancelled)
+    ));
+    let after = session.remaining_io().unwrap();
+    assert_eq!(after.reads_remaining, before.reads_remaining);
+    assert_eq!(after.writes_remaining, before.writes_remaining);
+    assert_eq!(after.write_bytes_remaining, before.write_bytes_remaining);
+
+    // The exact original paid transaction carrier, page store and memory
+    // budget stay usable after the caller clears its own cancellation.
+    caller.store(false, Ordering::Release);
+    session.persist_transition_pages(&prepared).unwrap();
+    let page = session
+        .read_node(root, STATE_MAX_PAGE_BYTES)
+        .unwrap()
+        .unwrap();
+    assert!(!page.as_ref().is_empty());
+    drop(page);
+
+    session.cancelled.store(true, Ordering::Release);
+    assert!(matches!(
+        session.persist_transition_pages(&prepared),
+        Err(PageStoreError::Cancelled)
+    ));
+    assert!(session.read_node(root, STATE_MAX_PAGE_BYTES).is_err());
+    assert!(matches!(
+        session.take_read_error(),
+        Some(PageStoreError::Cancelled)
+    ));
+}
+
+#[test]
+fn caller_cancel_at_real_state_recipe_fsync_never_reports_durable_success() {
+    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+        let fixture = Fixture::new();
+        let memory = MemoryBudget::new(32 << 20, 4 << 20).unwrap();
+        let store =
+            IncrementalPageStore::create(&fixture.store(), memory.clone(), compression).unwrap();
+        let (_, prepared) = first_transition(&store, &memory);
+        let root = &prepared.record.after.state[0].node_root;
+        let caller = std::sync::Arc::new(AtomicBool::new(false));
+        let mut session = store
+            .state_session_with_cancelled(physical_io(), MemoryClass::Ordinary, caller.as_ref())
+            .unwrap();
+        let before = session.remaining_io().unwrap();
+        // Real pack recipe-directory fsync, not a synthetic writer callback.
+        files::cancel_after_sync(store.root().join("recipes"), caller.clone(), 1);
+        assert!(matches!(
+            session.persist_transition_pages(&prepared),
+            Err(PageStoreError::Cancelled)
+        ));
+        assert!(caller.load(Ordering::Acquire));
+        assert!(session.remaining_io().unwrap().writes_remaining < before.writes_remaining);
+
+        caller.store(false, Ordering::Release);
+        session.persist_transition_pages(&prepared).unwrap();
+        assert!(
+            session
+                .read_node(root, STATE_MAX_PAGE_BYTES)
+                .unwrap()
+                .is_some()
+        );
+    }
+}
