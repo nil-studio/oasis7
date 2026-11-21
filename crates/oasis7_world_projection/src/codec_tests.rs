@@ -217,7 +217,7 @@ fn transparent_adapter_preserves_shared_data_layout_and_commitments() {
         std::mem::align_of::<WorldServiceProjection>(),
         std::mem::align_of::<WorldServiceProjectionData>()
     );
-    type Column = current_commitment::ProjectionColumnDataV1;
+    type Column = serde_json::Value;
     assert_eq!(
         std::mem::size_of::<WorldServiceProjection<Column>>(),
         std::mem::size_of::<WorldServiceProjectionData<Column>>()
