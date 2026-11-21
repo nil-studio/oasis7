@@ -109,23 +109,25 @@ fn fresh_resume_leaves_past_schedule_tick_for_runtime_derivation() {
         "initial_priority": 0, "wake_seq": 1, "retry_seq": 0, "status": "pending",
         "pending_reason": "capacity_available"
     })).unwrap();
-    let mut projection = oasis7_world_projection::WorldServiceProjection {
-        world_rule_status: None,
-        formal_commit_header: None,
-        canonical_agent_owner: None,
-        canonical_agent_chat: None,
-        game_task_control: None,
-        native_delegation_authorizations: Vec::new(),
-        state: world.state().clone(),
-        events: vec![],
-        runtime_binding: None,
-        agent_context: None,
-        feedback_history: None,
-        scheduler_wakes: vec![wake.clone()],
-        continuations: vec![continuation.clone()],
-        cognition_leases: vec![],
-        continuation_contexts: BTreeMap::new(),
-    };
+    let mut projection = oasis7_world_projection::WorldServiceProjection::from(
+        oasis7_world_projection::WorldServiceProjectionData {
+            world_rule_status: None,
+            formal_commit_header: None,
+            canonical_agent_owner: None,
+            canonical_agent_chat: None,
+            game_task_control: None,
+            native_delegation_authorizations: Vec::new(),
+            state: world.state().clone(),
+            events: vec![],
+            runtime_binding: None,
+            agent_context: None,
+            feedback_history: None,
+            scheduler_wakes: vec![wake.clone()],
+            continuations: vec![continuation.clone()],
+            cognition_leases: vec![],
+            continuation_contexts: BTreeMap::new(),
+        },
+    );
     projection.state.time = 9;
     projection.continuation_contexts.insert(
         continuation.continuation_id.clone(),
