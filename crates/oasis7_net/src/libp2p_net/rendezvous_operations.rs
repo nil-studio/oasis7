@@ -43,6 +43,7 @@ pub(super) fn handle_client_event(event: rendezvous::client::Event, ctx: ClientE
         rendezvous::client::Event::Registered {
             request_id,
             rendezvous_node,
+            ttl,
             ..
         } => {
             finish_register_event(
@@ -50,6 +51,7 @@ pub(super) fn handle_client_event(event: rendezvous::client::Event, ctx: ClientE
                 request_id,
                 rendezvous_node,
                 true,
+                Some(ttl),
                 ctx.pending_registers,
                 ctx.registered_nodes,
             );
@@ -65,6 +67,7 @@ pub(super) fn handle_client_event(event: rendezvous::client::Event, ctx: ClientE
                 request_id,
                 rendezvous_node,
                 false,
+                None,
                 ctx.pending_registers,
                 ctx.registered_nodes,
             ) {
@@ -247,6 +250,7 @@ pub(super) fn finish_rendezvous_terminal(
     kind: RendezvousOperationKind,
     peer_id: PeerId,
     succeeded: bool,
+    registered_ttl_secs: Option<u64>,
 ) -> bool {
     let current_addresses = if kind == RendezvousOperationKind::Register {
         current_external_addresses_digest(swarm).ok()
@@ -259,6 +263,7 @@ pub(super) fn finish_rendezvous_terminal(
         peer_id,
         current_addresses,
         succeeded,
+        registered_ttl_secs,
     )
 }
 
@@ -267,6 +272,7 @@ pub(super) fn finish_register_event(
     request_id: libp2p::request_response::OutboundRequestId,
     peer_id: PeerId,
     succeeded: bool,
+    registered_ttl_secs: Option<u64>,
     pending: &mut HashSet<PeerId>,
     registered: &mut HashSet<PeerId>,
 ) -> bool {
@@ -276,6 +282,7 @@ pub(super) fn finish_register_event(
         RendezvousOperationKind::Register,
         peer_id,
         succeeded,
+        registered_ttl_secs,
     ) {
         return false;
     }
@@ -301,6 +308,7 @@ pub(super) fn finish_discover_event(
         RendezvousOperationKind::Discover,
         peer_id,
         succeeded,
+        None,
     ) {
         pending.remove(&peer_id);
         true
