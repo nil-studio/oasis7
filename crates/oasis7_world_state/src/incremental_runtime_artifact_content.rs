@@ -185,11 +185,25 @@ mod family_tests;
 mod receiver;
 pub use receiver::*;
 
+/// Borrowed synchronous work admission; it owns no source or allowance.
+pub type RuntimeArtifactOriginalWorkDebitV1<'a> =
+    dyn Fn(u64, u64) -> Result<(), ValueTreeError> + 'a;
+
 fn prepare_borrowed_original<C: FnMut() -> bool>(
     bytes: &[u8],
     memory: &MemoryBudget,
     work: &mut RuntimeArtifactOriginalWorkV1,
     cancelled: &mut C,
+) -> Result<OriginalArtifactRefV1, ValueTreeError> {
+    prepare_borrowed_original_with_work_v1(bytes, memory, work, cancelled, None)
+}
+
+fn prepare_borrowed_original_with_work_v1<C: FnMut() -> bool>(
+    bytes: &[u8],
+    memory: &MemoryBudget,
+    work: &mut RuntimeArtifactOriginalWorkV1,
+    cancelled: &mut C,
+    debit: Option<&RuntimeArtifactOriginalWorkDebitV1<'_>>,
 ) -> Result<OriginalArtifactRefV1, ValueTreeError> {
     if cancelled() {
         return Err(ValueTreeError::Cancelled);
@@ -203,6 +217,11 @@ fn prepare_borrowed_original<C: FnMut() -> bool>(
             "Runtime artifact new original allowance",
         ));
     }
+    // Admit the fixed hash state and finalization before the original scratch
+    // and source debit. This hook adds work, not a second memory reservation.
+    if let Some(debit) = debit {
+        debit(1, 8192)?;
+    }
     let _scratch = memory.reserve(8192, MemoryClass::Ordinary)?;
     work.objects_remaining -= 1;
     work.bytes_remaining -= length;
@@ -211,10 +230,16 @@ fn prepare_borrowed_original<C: FnMut() -> bool>(
         if cancelled() {
             return Err(ValueTreeError::Cancelled);
         }
+        if let Some(debit) = debit {
+            debit(1, chunk.len() as u64)?;
+        }
         hash.update(chunk);
     }
     if cancelled() {
         return Err(ValueTreeError::Cancelled);
+    }
+    if let Some(debit) = debit {
+        debit(1, 40)?;
     }
     Ok(OriginalArtifactRefV1 {
         id: *hash.finalize().as_bytes(),
@@ -228,3 +253,71 @@ pub use overlay::*;
 #[path = "incremental_runtime_artifact_content_pages.rs"]
 mod pages;
 pub use pages::*;
+
+#[cfg(test)]
+mod prepaid_borrowed_original_tests {
+    use super::*;
+    use std::cell::RefCell;
+
+    fn allowance(bytes: usize) -> RuntimeArtifactOriginalWorkV1 {
+        RuntimeArtifactOriginalWorkV1 {
+            objects_remaining: 1,
+            bytes_remaining: bytes as u64,
+            max_object_bytes: bytes as u64,
+        }
+    }
+
+    #[test]
+    fn original_borrowed_hash_retains_exact_identity_and_work_debits() {
+        let original = vec![0x5a; VALUE_CHUNK_BYTES + 7];
+        let memory = MemoryBudget::new(1 << 20, 0).unwrap();
+        let mut work = allowance(original.len());
+        let calls = RefCell::new(Vec::new());
+        let debit = |steps, bytes| {
+            calls.borrow_mut().push((steps, bytes));
+            Ok(())
+        };
+        let mut stop = || false;
+        let before = memory.used();
+        let actual = prepare_borrowed_original_with_work_v1(
+            &original,
+            &memory,
+            &mut work,
+            &mut stop,
+            Some(&debit),
+        )
+        .unwrap();
+        assert_eq!(actual.byte_len, original.len() as u64);
+        assert_eq!(actual.id, *blake3::hash(&original).as_bytes());
+        assert_eq!(memory.used(), before);
+        assert_eq!(work.objects_remaining, 0);
+        assert_eq!(work.bytes_remaining, 0);
+        assert_eq!(
+            calls.into_inner(),
+            vec![(1, 8192), (1, VALUE_CHUNK_BYTES as u64), (1, 7), (1, 40),]
+        );
+    }
+
+    #[test]
+    fn preflight_rejection_does_not_consume_original_or_scratch() {
+        let data = vec![42u8; 16];
+        let memory = MemoryBudget::new(1 << 20, 0).unwrap();
+        let mut work = allowance(data.len());
+        let before = memory.used();
+        let mut stop = || false;
+        let debit = |_, _| Err(ValueTreeError::ResourceLimited("paid work"));
+        assert!(matches!(
+            prepare_borrowed_original_with_work_v1(
+                &data,
+                &memory,
+                &mut work,
+                &mut stop,
+                Some(&debit),
+            ),
+            Err(ValueTreeError::ResourceLimited("paid work"))
+        ));
+        assert_eq!(work.objects_remaining, 1);
+        assert_eq!(work.bytes_remaining, data.len() as u64);
+        assert_eq!(memory.used(), before);
+    }
+}
