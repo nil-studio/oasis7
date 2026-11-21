@@ -332,6 +332,9 @@ def component_image_cache_writer(job, families, readers=JOBS):
         'launcher': (('launcher-web',), 'rust-image-launcher'),
         'tooling': (('cargo-tooling-contracts',), 'rust-image-tooling'),
     }
+    support_family = 'rust-image-support'
+    if 'support' in rows or support_family in families:
+        expected['support'] = (('workspace-support-other',), support_family)
     assert len(records) == len(rows) == len(expected) and set(rows) == set(expected)
     for profile, (names, family) in expected.items():
         row = rows[profile]
@@ -341,9 +344,15 @@ def component_image_cache_writer(job, families, readers=JOBS):
                                         'rust-image-component-cache')
         for name in names:
             reader = readers[name]
-            assert 'image: ' + row['image'] + '\n' in reader
             assert re.fullmatch(r'ghcr.io/nil-studio/oasis7/ci-rust-(?:wasm-)?build@sha256:[0-9a-f]{64}', row['image'])
             assert row['namespace'] == row['image'].rsplit('/', 1)[1].replace('@sha256:', '-')
+            if name == 'workspace-support-other':
+                assert workspace_support_image_matrix(reader) == row['namespace']
+                assert row['options'] == row['mold-dir'] == ''
+                assert not re.search(r'^      options:', reader, re.M)
+                assert 'uses: ./.github/actions/setup-linux-mold\n      - ' in reader
+                continue
+            assert 'image: ' + row['image'] + '\n' in reader
             caches = rust_cache_steps(reader)
             assert len(caches) == 1 and 'shared-key: ' + row['namespace'] + '\n' in caches[0]
             assert 'save-if: false\n' in caches[0]
@@ -426,7 +435,7 @@ def web_cache_layout(cache_workflow, release_workflow, admission_source):
         tool_jobs.add(component_writer)
     else:
         assert not {'rust-image-components', 'rust-image-net', 'rust-image-launcher',
-                    'rust-image-tooling'}.intersection(families)
+                    'rust-image-tooling', 'rust-image-support'}.intersection(families)
     assert set(cache_jobs) == (({'shared-native-cache', 'web-wasm-cache'} if migrated
                                else {'shared-native-cache'}) | tool_jobs), 'incomplete cache producer layout'
     active = []
@@ -989,8 +998,12 @@ class Workflow(unittest.TestCase):
         families = ast.literal_eval(next(node.value for node in source.body
             if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name)
                 and target.id == 'FAMILIES' for target in node.targets)))
-        self.assertEqual(set(component_image_cache_writer(job, families)),
-                         {'native', 'node', 'net', 'launcher', 'tooling'})
+        expected_profiles = {'native', 'node', 'net', 'launcher', 'tooling'}
+        image_families = {'rust-image-components', 'rust-image-net', 'rust-image-launcher', 'rust-image-tooling'}
+        if 'rust-image-support' in families:
+            expected_profiles.add('support')
+            image_families.add('rust-image-support')
+        self.assertEqual(set(component_image_cache_writer(job, families)), expected_profiles)
         # These global values enter the upstream Rust environment hash. The
         # matrix must not create a different identity before any Cargo runs.
         def cache_environment(text):
@@ -1019,7 +1032,7 @@ class Workflow(unittest.TestCase):
             with self.subTest(change=changed):
                 with self.assertRaises(AssertionError):
                     component_image_cache_writer(changed, families)
-        for family in ('rust-image-components', 'rust-image-net', 'rust-image-launcher', 'rust-image-tooling'):
+        for family in sorted(image_families):
             with self.subTest(missing=family), self.assertRaises(AssertionError):
                 component_image_cache_writer(job, {key: value for key, value in families.items() if key != family})
         changed_reader = dict(JOBS, node=JOBS['node'].replace('oasis7-node-mold', 'different-node-mold'))
@@ -2577,6 +2590,23 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertIn('--source-ref "$SOURCE_SHA"', planner)
         self.assertIn('artifact: pr-fast-preview-plan-${{ github.run_id }}-${{ github.run_attempt }}', planner)
         self.assertIn('name: ${{ needs.pr-fast-preview-plan.outputs.artifact }}', preview)
+        self.assertIn("needs.pr-fast-preview-plan.result == 'success'", preview)
+        self.assertIn("needs.pr-fast-preview-plan.outputs.enabled == 'true'", preview)
+        self.assertIn("github.event.action != 'opened'", preview)
+        self.assertIn("contains(github.event.pull_request.labels.*.name, 'ci-fast-preview')", preview)
+        label_workflow = (ROOT / '.github/workflows/pr-fast-preview.yml').read_text()
+        label_jobs = workflow_jobs(label_workflow)
+        self.assertIn('types: [labeled]', label_workflow)
+        self.assertIn("github.event.label.name == 'ci-fast-preview'", label_jobs['pr-fast-preview-plan'])
+        self.assertIn("needs.pr-fast-preview-plan.result == 'success' && needs.pr-fast-preview-plan.outputs.enabled == 'true'",
+                      label_jobs['pr-fast-preview'])
+        for name, job in label_jobs.items():
+            with self.subTest(label_workflow_job=name):
+                self.assertIn('contents: read', job)
+                self.assertIn('persist-credentials: false', job)
+                for forbidden in ('contents: write', 'actions: write', 'cache-mode: write', 'continue-on-error:',
+                                  'rust-cache@', 'actions/cache/', 'ci-full-result.py', 'ci-required-result.py'):
+                    self.assertNotIn(forbidden, job)
         self.assertIn('matrix: ${{ steps.preview.outputs.matrix }}', planner)
         self.assertIn('matrix: ${{ fromJSON(needs.pr-fast-preview-plan.outputs.matrix) }}', preview)
         self.assertIn('PREVIEW_SAMPLE: ${{ matrix.sample }}', preview)
@@ -6314,6 +6344,39 @@ class ReleasePackagingJobTimeoutContractTests(unittest.TestCase):
             self.assertEqual(set(jobs.keys()), set(limits.keys()), rel_path)
             for job_name, max_minutes in limits.items():
                 with self.subTest(workflow=rel_path, job=job_name):
+                    match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', jobs[job_name], re.M)
+                    self.assertIsNotNone(match, f'{rel_path}:{job_name} must declare explicit timeout-minutes')
+                    actual = int(match.group(1))
+                    self.assertGreater(actual, 0)
+                    self.assertLessEqual(actual, max_minutes)
+
+
+class HeavyPrJobTimeoutContractTests(unittest.TestCase):
+    def test_heavy_pr_jobs_declare_bounded_fallback_timeout_minutes(self):
+        expected_limits = {
+            '.github/workflows/rust.yml': {
+                'oasis7-test-build-candidate': 60,
+                'oasis7-test-build-trusted': 60,
+                'formal-debug-build': 60,
+                'formal-debug-build-trusted': 60,
+                'formal-endpoint-build': 60,
+                'formal-endpoint-build-trusted': 60,
+                'formal-test-build': 60,
+                'formal-test-build-trusted': 60,
+                'oasis7-required': 60,
+                'workspace-support-legacy': 60,
+                'workspace-support-other': 60,
+                'operational-contracts': 60,
+            },
+            '.github/workflows/wasm-determinism-gate.yml': {
+                'collect-wasm-summaries': 60,
+            },
+        }
+        for rel_path, limits in expected_limits.items():
+            jobs = workflow_jobs((ROOT / rel_path).read_text())
+            for job_name, max_minutes in limits.items():
+                with self.subTest(workflow=rel_path, job=job_name):
+                    self.assertIn(job_name, jobs)
                     match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', jobs[job_name], re.M)
                     self.assertIsNotNone(match, f'{rel_path}:{job_name} must declare explicit timeout-minutes')
                     actual = int(match.group(1))

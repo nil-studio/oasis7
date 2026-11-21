@@ -29,7 +29,7 @@ fn header_identity_case() {
     let private_action_cbor = encode_consensus_action_payload(
         &ConsensusActionPayloadEnvelope::from_runtime_action(Action::RegisterAgent {
             agent_id: PRIVATE_CANARY.into(),
-            pos: oasis7::geometry::GeoPos::new(7, 8, 9),
+            pos: oasis7_agent_api::world_action::GeoPos::new(7, 8, 9),
         }),
     )
     .unwrap();

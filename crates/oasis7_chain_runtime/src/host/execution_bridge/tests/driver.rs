@@ -27,7 +27,7 @@ fn chain_runtime_persistence_recovery_roundtrip() {
     let mut world = oasis7::runtime_host::world::new();
     world.submit_action(RuntimeAction::RegisterAgent {
         agent_id: "recovery-agent".to_string(),
-        pos: oasis7::geometry::GeoPos::new(1, 2, 3),
+        pos: oasis7_agent_api::world_action::GeoPos::new(1, 2, 3),
     });
     world.step().expect("commit pre-recovery action");
 
@@ -42,7 +42,7 @@ fn chain_runtime_persistence_recovery_roundtrip() {
 
     recovered.submit_action(RuntimeAction::RegisterAgent {
         agent_id: "post-recovery-agent".to_string(),
-        pos: oasis7::geometry::GeoPos::new(4, 5, 6),
+        pos: oasis7_agent_api::world_action::GeoPos::new(4, 5, 6),
     });
     recovered.step().expect("continue recovered runtime");
     assert!(recovered.state().agents.contains_key("post-recovery-agent"));
@@ -511,7 +511,7 @@ fn node_runtime_execution_driver_commit_routes_modules_via_step_with_modules() {
         .expect("bind test module signer");
     world.submit_action(RuntimeAction::RegisterAgent {
         agent_id: "agent-0".to_string(),
-        pos: oasis7::geometry::GeoPos::new(0, 0, 0),
+        pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
     });
     world.step().expect("register");
     world
@@ -960,7 +960,7 @@ fn committed_recipe_origin_preserves_exact_consensus_context_and_runtime_id_allo
     for index in 0..4 {
         world.submit_action(RuntimeAction::RegisterAgent {
             agent_id: format!("queued-{index}"),
-            pos: oasis7::geometry::GeoPos::new(0, 0, 0),
+            pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
         });
     }
     assert_eq!(

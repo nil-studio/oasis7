@@ -18,7 +18,7 @@ MANAGED_GROUPS = ("operational_contracts", "packaging_contracts")
 
 # Linux mold linker setup required for native host Cargo linking in packaging contracts.
 GROUPS_WITH_MOLD = {"packaging_contracts"}
-GROUP_TIMEOUT_MINUTES = {"packaging_contracts": 10}
+GROUP_TIMEOUT_MINUTES = {"operational_contracts": 60, "packaging_contracts": 10}
 
 
 def render_job(group: str) -> str:
@@ -65,7 +65,7 @@ def render_job(group: str) -> str:
         '        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"\n'
     )
     execute = f'bash ./scripts/ci-tests.sh required --group "{group}" --repo-root "$GITHUB_WORKSPACE"'
-    run_step = f"        run: {execute}\n"
+    run_step = f"        run: {execute}"
     if group == "operational_contracts":
         run_step = (
             "        run: |\n"
@@ -73,7 +73,7 @@ def render_job(group: str) -> str:
             '          TMPDIR="$(mktemp -d "$GITHUB_WORKSPACE/.operational-contracts.XXXXXX")"\n'
             "          export TMPDIR\n"
             "          trap 'rm -rf -- \"$TMPDIR\"' EXIT\n"
-            f"          {execute}\n"
+            f"          {execute}"
         )
         python_setup = (
             "      - name: Verify preinstalled operational contract tools\n"

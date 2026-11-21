@@ -610,7 +610,8 @@ jobs:
         run: |
           printf '%s\n' '## Candidate fast-profile preview' \
             'Diagnostic only: candidate policy and a synthetic Rust-only diff; the trusted-BASE required gate remains independent.' \
-            'Every selected real group runs in parallel without restoring caches. These diagnostics do not establish a ten-minute P95.' \
+            'Cold matrix execution is opt-in via the PR label "ci-fast-preview" to avoid starving the shared runner pool on routine CI PRs.' \
+            'Every selected real group runs in parallel without restoring caches when opted in. These diagnostics do not establish a ten-minute P95.' \
             'Each sample is measured from workflow creation to its last selected group completion; per-group artifacts report runner time only.' >> "$GITHUB_STEP_SUMMARY"
           for metadata in "$RUNNER_TEMP"/previews/*/selection.json.metadata.json; do
             cat "$metadata" >> "$GITHUB_STEP_SUMMARY"
@@ -626,7 +627,11 @@ jobs:
   pr-fast-preview:
     name: pr-fast-preview (${{ matrix.sample }}, ${{ matrix.group }}, ${{ matrix.partition }})
     needs: pr-fast-preview-plan
-    if: needs.pr-fast-preview-plan.result == 'success' && needs.pr-fast-preview-plan.outputs.enabled == 'true'
+    if: >-
+      needs.pr-fast-preview-plan.result == 'success' &&
+      needs.pr-fast-preview-plan.outputs.enabled == 'true' &&
+      github.event.action != 'opened' &&
+      contains(github.event.pull_request.labels.*.name, 'ci-fast-preview')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -943,6 +948,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - *linux-mold-tools-checkout
       - &ordinary-configure-linux-mold
@@ -1187,6 +1193,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - &linux-mold-event-tools-checkout
         name: Check out workflow linker setup
@@ -1276,6 +1283,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - *linux-mold-tools-checkout
       - &formal-debug-configure-linux-mold
@@ -1499,6 +1507,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - *linux-mold-event-tools-checkout
       - *formal-debug-configure-linux-mold
@@ -1557,6 +1566,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - *linux-mold-tools-checkout
       - &formal-endpoint-configure-linux-mold
@@ -1780,6 +1790,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       - *linux-mold-event-tools-checkout
       - *formal-endpoint-configure-linux-mold
@@ -1834,6 +1845,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps: &formal-merge-steps
       - *linux-mold-tools-checkout
       - name: Configure mold for Linux host linking
@@ -1965,6 +1977,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps: *formal-merge-steps
 
   cache-maintenance:
@@ -2041,6 +2054,7 @@ jobs:
       (needs.select.outputs.run_oasis7_required == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -2962,6 +2976,7 @@ jobs:
       (needs.select.outputs.run_workspace_support == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -3096,6 +3111,7 @@ jobs:
       matrix:
         execution: ${{ fromJSON(needs.select.outputs.workspace_support_host != 'false' && '["host","image"]' || '["image"]') }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: read
@@ -3762,6 +3778,7 @@ jobs:
       (needs.select.outputs.run_operational_contracts == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: read
@@ -3799,7 +3816,6 @@ jobs:
           export TMPDIR
           trap 'rm -rf -- "$TMPDIR"' EXIT
           bash ./scripts/ci-tests.sh required --group "operational_contracts" --repo-root "$GITHUB_WORKSPACE"
-
 
   packaging-contracts:
     needs: select
@@ -3849,7 +3865,6 @@ jobs:
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
         run: bash ./scripts/ci-tests.sh required --group "packaging_contracts" --repo-root "$GITHUB_WORKSPACE"
-
   # END GENERATED contract-jobs-v1
 
   workflow-governance:
