@@ -12,7 +12,7 @@ import subprocess
 
 
 ROOT = Path(__file__).resolve().parent.parent
-PROFILES = ('native', 'node', 'net', 'launcher', 'tooling')
+PROFILES = ('native', 'node', 'net', 'launcher', 'tooling', 'support')
 
 
 def build_variants(root, profile):
@@ -58,6 +58,12 @@ def build_variants(root, profile):
         # build uses the root workspace target and the same stable WASM target.
         cargo('launcher-wasm-release', 'build', ['-p', 'oasis7_client_launcher',
               '--bin', 'oasis7_client_launcher', '--release', '--target', 'wasm32-unknown-unknown'])
+    elif profile == 'support':
+        # Use the image lane's baseline feature contexts. The host-only game
+        # client and local signer stay in their existing host cache family.
+        cargo('context-test', 'test', ['-p', 'oasis7_context', '--all-targets'])
+        cargo('wasm-executor-lib-test', 'test', ['-p', 'oasis7_wasm_executor', '--features', 'wasmtime', '--lib'])
+        cargo('wasm-executor-all-test', 'test', ['-p', 'oasis7_wasm_executor', '--features', 'wasmtime', '--all-targets'])
     else:
         # Tooling's real repository work resolves the standalone lockfiles.
         # Its temporary Rust fixtures are local and do not share root targets.
