@@ -792,13 +792,29 @@ run_engineering_telemetry_contract_tests() {
   run python3 - <<'PY_TELEMETRY'
 import unittest
 
-suite = unittest.TestSuite()
+import sys
+
+class ContractResult(unittest.TextTestResult):
+    passed_case = False
+
+    def addSuccess(self, test):
+        super().addSuccess(test)
+        self.passed_case = True
+
+suites = {}
 for name in ('test_engineering_telemetry.py', 'test_engineering_telemetry_adapters.py'):
     tests = unittest.defaultTestLoader.discover('scripts/tests', pattern=name)
     if tests.countTestCases() == 0:
         raise SystemExit('engineering telemetry: no tests in ' + name)
-    suite.addTests(tests)
-raise SystemExit(not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful())
+    suites[name] = tests
+
+ok = True
+for name, tests in suites.items():
+    result = unittest.TextTestRunner(verbosity=2, resultclass=ContractResult).run(tests)
+    if not result.passed_case:
+        print('engineering telemetry: no passing tests in ' + name, file=sys.stderr)
+    ok = result.wasSuccessful() and result.passed_case and ok
+raise SystemExit(not ok)
 PY_TELEMETRY
 }
 

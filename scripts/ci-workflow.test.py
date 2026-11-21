@@ -3306,7 +3306,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 if kind == 'empty':
                     self.assertIn('no wasm-opt contract tests', result.stderr)
 
-    def test_engineering_telemetry_entry_requires_complete_nonempty_suites(self):
+    def test_engineering_telemetry_entry_requires_each_suite_to_execute(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         function = re.search(r'^run_engineering_telemetry_contract_tests\(\) \{\n.*?^\}', driver, re.M | re.S)
         self.assertIsNotNone(function)
@@ -3320,9 +3320,10 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             'scripts/tests/test_engineering_telemetry.py',
             'scripts/tests/test_engineering_telemetry_adapters.py',
         )
-        cases = [('absent', None), ('complete', None)]
+        cases = [('absent', None), ('complete', None), ('all-skipped', None),
+                 ('some-skipped', None)]
         cases += [(kind, path) for kind in ('missing', 'directory', 'symlink') for path in paths]
-        cases += [(kind, path) for kind in ('empty', 'failing') for path in paths[-2:]]
+        cases += [(kind, path) for kind in ('empty', 'failing', 'skipped') for path in paths[-2:]]
         for kind, changed in cases:
             with self.subTest(kind=kind, path=changed), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
@@ -3349,6 +3350,11 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                                        "        Path(%r).write_text('once')\n"
                                        "        self.assertTrue(%r)\n" %
                                        (target.name + '.ran', not (path == changed and kind == 'failing')))
+                            if kind == 'all-skipped' or (kind == 'skipped' and path == changed):
+                                content = content.replace('    def test_runs', '    @unittest.skip("fixture only")\n    def test_runs')
+                            if kind == 'some-skipped':
+                                content += ('    @unittest.skip("platform unavailable")\n'
+                                            '    def test_platform_specific(self): pass\n')
                         target.write_text(content)
                 shell = ('set -euo pipefail\nrun() { "$@"; }\n'
                          'run_ci_wasm_opt_contract_tests() { :; }\n'
@@ -3357,7 +3363,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                          + function.group() + '\n' + governance.group()
                          + '\nrun_workflow_governance_remaining_contract_tests\n')
                 result = subprocess.run(['bash', '-c', shell], cwd=root, capture_output=True, text=True)
-                if kind in ('absent', 'complete'):
+                if kind in ('absent', 'complete', 'some-skipped'):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(result.stdout.splitlines()[-2:],
                                      ['governance-baseline', 'governance-operational'])
@@ -3370,9 +3376,14 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 if kind in ('complete', 'failing'):
                     for path in paths[-2:]:
                         self.assertTrue((root / (Path(path).name + '.ran')).is_file(), result.stderr)
-                    self.assertIn('Ran 2 tests', result.stderr)
+                    self.assertEqual(result.stderr.count('Ran 1 test'), 2)
                 if kind == 'empty':
                     self.assertIn('no tests in', result.stderr)
+                if kind == 'some-skipped':
+                    self.assertEqual(result.stderr.count('skipped=1'), 2)
+                if kind in ('skipped', 'all-skipped'):
+                    for path in ((changed,) if changed else paths[-2:]):
+                        self.assertIn('no passing tests in ' + Path(path).name, result.stderr)
 
     def test_dot_todo_entry_requires_pair_and_propagates_failure(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
