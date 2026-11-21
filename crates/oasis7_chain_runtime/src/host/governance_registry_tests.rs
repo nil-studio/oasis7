@@ -1,7 +1,7 @@
 use super::{
     apply_world_governance_registry_overrides, ensure_world_governance_validator_registry,
 };
-use oasis7::network_tier_manifest::{
+use oasis7_client_api::network_tier_manifest::{
     LoadedNetworkTierManifest, NETWORK_TIER_MANIFEST_SCHEMA_V1, NetworkTierClaimsPolicy,
     NetworkTierEndpointPolicy, NetworkTierManifest, NetworkTierPromotionPolicy,
     NetworkTierRuntimeRefs, NetworkTierTokenPolicy, NetworkTierValidatorPolicy,

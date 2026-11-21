@@ -9,8 +9,8 @@ use super::runtime_status_util::{consensus_status_to_string, now_unix_ms};
 use super::storage_metrics;
 use super::traffic_status::ChainTrafficStatus;
 use super::wasm_status::ChainWasmStatus;
-use oasis7::network_tier_manifest::LoadedNetworkTierManifest;
 use oasis7::simulator::RuntimePerfSnapshot;
+use oasis7_client_api::network_tier_manifest::LoadedNetworkTierManifest;
 use oasis7_node::{
     Libp2pReachabilitySnapshot, NodeNetworkPolicy, NodeReachabilityAutoDetection, NodeSnapshot,
     NodeUserModeRecommendation,
