@@ -113,9 +113,10 @@ impl oasis7_formal_protocol::incremental_state::StatePageWriter for ValuePageSes
         )
         .map_err(value_error);
         if result.is_ok() {
-            if cancelled() {
-                return Err(ValueTreeError::Cancelled);
-            }
+            // persist_nodes_profile_cancelled already polls the cooperative
+            // callback at its final physical checkpoint. Do not poll it a
+            // second time: callers rely on the original exact callback trace.
+            // The local and caller-owned atomics remain checked here.
             self.check_cancelled().map_err(value_error)?;
         }
         result
