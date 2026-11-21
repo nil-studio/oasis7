@@ -310,12 +310,7 @@ fn caller_owned_producer_batch_cancellation_keeps_original_roots_and_io_allowanc
             .state_session(physical_io(), MemoryClass::Ordinary)
             .unwrap();
         assert_eq!(state.after.get(b"alice", &source).unwrap(), Some([7; 32]));
-        assert!(
-            schedule
-                .after
-                .contains(9, "module\\0雪", &source)
-                .unwrap()
-        );
+        assert!(schedule.after.contains(9, "module\0雪", &source).unwrap());
 
         // The local session boundary is still independently authoritative.
         writer.cancelled.store(true, Ordering::Release);
