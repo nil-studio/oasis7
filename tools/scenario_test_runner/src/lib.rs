@@ -85,6 +85,30 @@ pub struct Expectations {
     pub agent_locations: BTreeMap<String, String>,
 }
 
+impl Expectations {
+    fn is_empty(&self) -> bool {
+        let Self {
+            agents,
+            locations,
+            require_locations,
+            require_agents,
+            require_power_plants,
+            require_power_storages,
+            expect_asteroid_fragment,
+            agent_locations,
+        } = self;
+
+        agents.is_none()
+            && locations.is_none()
+            && require_locations.is_empty()
+            && require_agents.is_empty()
+            && require_power_plants.is_empty()
+            && require_power_storages.is_empty()
+            && expect_asteroid_fragment.is_none()
+            && agent_locations.is_empty()
+    }
+}
+
 #[derive(Debug)]
 pub struct ScenarioOutcome {
     pub name: String,
@@ -110,6 +134,12 @@ pub fn run_loaded_scenario(
     if scenario.scenario.is_some() && scenario.init.is_some() {
         return Err(ScenarioError::InvalidScenario {
             message: "scenario and init are mutually exclusive".to_string(),
+        });
+    }
+
+    if scenario.expect.is_empty() {
+        return Err(ScenarioError::InvalidScenario {
+            message: "expect must contain at least one assertion".to_string(),
         });
     }
 
@@ -283,22 +313,52 @@ mod tests {
     use super::*;
 
     #[test]
-    fn yaml_fixture_keeps_scenario_and_expectations() {
+    fn triad_yaml_fixture_runs_with_its_declared_expectations() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("scenarios/triad_p2p.yaml");
-        let scenario = load_scenario_file(&path).expect("parse existing YAML fixture");
-        assert_eq!(scenario.scenario.as_deref(), Some("triad_p2p_bootstrap"));
-        assert_eq!(scenario.seed, Some(7));
-        assert_eq!(scenario.expect.agents, Some(3));
-        assert_eq!(
-            scenario.expect.require_locations,
-            ["node-a", "node-b", "node-c"]
-        );
-        assert_eq!(scenario.expect.agent_locations["agent-0"], "node-a");
-        let minimal: ScenarioFile = serde_saphyr::from_str(
-            "version: 1\nname: yaml-minimal\nscenario: minimal\nexpect:\n  agents: 1\n  locations: 1\n  require_locations: [origin]\n",
-        ).expect("parse runnable YAML scenario");
-        let outcome = run_loaded_scenario(&minimal, "yaml-minimal").expect("run YAML scenario");
-        assert!(outcome.passed, "{:?}", outcome.failures);
+        let outcome = run_scenario_file(&path).expect("load and run checked-in YAML fixture");
+        assert!(outcome.passed, "{:#?}", outcome.failures);
+    }
+
+    #[test]
+    fn yaml_and_json_reject_empty_expectations() {
+        let yaml = "version: 1\nname: minimal\nscenario: minimal\nexpect: {}\n";
+        let json = r#"{"version":1,"name":"minimal","scenario":"minimal","expect":{}}"#;
+        let empty_lists = r#"{"version":1,"name":"minimal","scenario":"minimal","expect":{"require_agents":[],"agent_locations":{}}}"#;
+        let cases: [ScenarioFile; 3] = [
+            serde_saphyr::from_str(yaml).expect("parse YAML"),
+            serde_json::from_str(json).expect("parse JSON"),
+            serde_json::from_str(empty_lists).expect("parse JSON with empty collections"),
+        ];
+
+        for scenario in cases {
+            let err = run_loaded_scenario(&scenario, "memory")
+                .expect_err("a scenario without assertions must not pass");
+            assert!(matches!(
+                err,
+                ScenarioError::InvalidScenario { message }
+                    if message == "expect must contain at least one assertion"
+            ));
+        }
+    }
+
+    #[test]
+    fn zero_and_false_are_nonempty_expectations() {
+        let zero: ScenarioFile = serde_saphyr::from_str(
+            "version: 1\nname: minimal\nscenario: minimal\nexpect:\n  agents: 0\n",
+        )
+        .expect("parse YAML");
+        let outcome = run_loaded_scenario(&zero, "memory").expect("evaluate zero as an assertion");
+        assert!(!outcome.passed);
+        assert_eq!(outcome.failures.len(), 1);
+        assert!(outcome.failures[0].contains("agents mismatch"));
+
+        let disabled: ScenarioFile = serde_saphyr::from_str(
+            "version: 1\nname: minimal\nscenario: minimal\nexpect:\n  expect_asteroid_fragment: false\n",
+        )
+        .expect("parse YAML");
+        let outcome =
+            run_loaded_scenario(&disabled, "memory").expect("evaluate false as an assertion");
+        assert!(outcome.passed, "{:#?}", outcome.failures);
     }
 
     #[test]
@@ -318,7 +378,7 @@ mod tests {
                 require_power_plants: Vec::new(),
                 require_power_storages: Vec::new(),
                 expect_asteroid_fragment: Some(false),
-                agent_locations: BTreeMap::new(),
+                agent_locations: BTreeMap::from([("agent-0".to_string(), "origin".to_string())]),
             },
         };
 

@@ -1272,6 +1272,8 @@
     "scripts/ci-rust-cache-admission.py": ["workflow_governance"],
     "scripts/ci-rust-cache-admission.test.py": ["workflow_governance"],
     "scripts/ci-rust-cache-build.test.py": ["workflow_governance"],
+    "scripts/ci-image-cache.py": ["workflow_governance"],
+    "scripts/ci-image-cache.test.py": ["workflow_governance"],
     "scripts/ci-rust-cache-toolchains.py": ["workflow_governance"],
     "scripts/ci-rust-cache-toolchains.test.py": ["workflow_governance"],
     "scripts/ci-shared-native-cache.py": ["workflow_governance"],
@@ -1311,6 +1313,7 @@
     "scripts/ci-rust-cache-toolchains.test.py",
     "scripts/ci-rust-cache-admission.test.py",
     "scripts/ci-rust-cache-build.test.py",
+    "scripts/ci-image-cache.test.py",
     "scripts/ci-support-profiles.test.py",
     "scripts/ci-custody-platform.test.py",
     "scripts/ci-custody-workerd-capture.test.py",
@@ -1616,6 +1619,14 @@
       "tests": [
         "scripts/ci-rust-cache-build.test.py"
       ]
+    },
+    "scripts/ci-image-cache.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-image-cache.test.py", "scripts/ci-workflow.test.py"]
+    },
+    "scripts/ci-image-cache.test.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-image-cache.test.py"]
     },
     "scripts/ci-rust-cache-toolchains.py": {
       "group": "workflow_governance",

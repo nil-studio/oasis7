@@ -30,13 +30,9 @@ config: {} # 可选，等同 WorldConfig（不写则默认）
 expect:
   agents: 3
   locations: 3
-  require_locations: ["node-a", "node-b", "node-c"]
+  require_locations: ["node-0", "node-1", "node-2"]
   require_agents: ["agent-0", "agent-1", "agent-2"]
   expect_asteroid_fragment: false
-  agent_locations:
-    agent-0: "node-a"
-    agent-1: "node-b"
-    agent-2: "node-c"
 ```
 
 - `scenario` 与 `init` 二选一：
@@ -44,7 +40,7 @@ expect:
   - `init`：显式 `WorldInitConfig`（完全自定义）。
 - `seed`：若提供，覆盖初始化的 `seed`。
 - `config`：可选 `WorldConfig`，缺省则 `WorldConfig::default()`。
-- 顶层字段与 `expect` 字段均采用严格解析；未知字段会直接解析失败，避免断言拼写错误被静默忽略。
+- 顶层字段与 `expect` 字段均采用严格解析；未知字段会直接解析失败，避免断言拼写错误被静默忽略。执行场景时，`expect` 至少包含一项断言，不能以空对象或仅含空列表的对象通过。
 
 ### CLI 入口
 - 单文件：`env -u RUSTC_WRAPPER cargo run -- --scenario path/to/file.yaml`
