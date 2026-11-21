@@ -152,6 +152,19 @@ fn request_bytes_valid(bytes: &[u8], authority: &str) -> bool {
         let Some((name, value)) = line.split_once(':') else {
             return false;
         };
+        // A space before ':' must not turn forbidden request framing or Origin
+        // into an unknown header. Only RFC token bytes are valid header names;
+        // control characters are never valid in a status request's values.
+        if name.is_empty()
+            || !name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+            || !value
+                .bytes()
+                .all(|b| b == b'\t' || (0x20..=0x7e).contains(&b))
+        {
+            return false;
+        }
         if name.eq_ignore_ascii_case("host") {
             if host_seen || value.trim() != authority {
                 return false;
@@ -269,6 +282,56 @@ mod tests {
         assert!(value["observation"].is_null());
         drop(listener);
         assert!(TcpStream::connect(address).is_err());
+    }
+
+    #[test]
+    fn live_listener_rejects_malformed_headers_and_recovers() {
+        use std::net::Shutdown;
+
+        let socket = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = socket.local_addr().unwrap();
+        socket.set_nonblocking(true).unwrap();
+        let listener = Listener {
+            socket,
+            incarnation: "a".repeat(64),
+            authority: address.to_string(),
+        };
+        let runtime = NodeRuntime::new(
+            oasis7_node::NodeConfig::new("diagnostic", "world", oasis7_node::NodeRole::Sequencer)
+                .unwrap(),
+        );
+        let send = |headers: &str| {
+            let mut stream = TcpStream::connect(address).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let raw = format!(
+                "GET /v1/bft/status HTTP/1.1\r\nHost: {address}\r\n{headers}\r\n"
+            );
+            stream.write_all(raw.as_bytes()).unwrap();
+            stream.shutdown(Shutdown::Write).unwrap();
+            listener.poll(&runtime);
+            let mut response = Vec::new();
+            stream.read_to_end(&mut response).unwrap();
+            response
+        };
+
+        // Each of these previously passed as an unrelated header, allowing a
+        // read-only status response to malformed or ambiguously framed input.
+        for malformed in [
+            "Content-Length : 9\r\n",
+            "Transfer-Encoding : chunked\r\n",
+            "Origin : https://untrusted.invalid\r\n",
+            "X-Probe: bad\0value\r\n",
+            "X-Probe: bad\nvalue\r\n",
+        ] {
+            assert!(send(malformed).is_empty(), "accepted {malformed:?}");
+        }
+        let valid = send("Accept: application/json\r\n");
+        assert!(valid.starts_with(b"HTTP/1.1 200 OK\r\n"));
+        let response = String::from_utf8(valid).unwrap();
+        assert!(response.contains(r#""qualification":"unknown""#));
+        assert!(response.contains(r#""can_propose":false"#));
     }
 
     #[test]
