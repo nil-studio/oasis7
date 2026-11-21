@@ -36,6 +36,7 @@ cache-mode: read
 jobs:
   plan-wasm-determinism-scope:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       scope: ${{ steps.scope.outputs.scope }}
       run_all: ${{ steps.scope.outputs.run_all }}
@@ -152,6 +153,7 @@ jobs:
       matrix:
         module_set: ${{ fromJSON(needs.plan-wasm-determinism-scope.outputs.selected_module_sets_json) }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Download ${{ matrix.module_set }} summary artifacts
