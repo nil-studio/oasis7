@@ -235,6 +235,45 @@ pub(super) fn check_preparation(
             .is_err()
         );
     }
+    // All three roles are independently pinned in a valid original policy.
+    // A signer reused across roles can manufacture both source evidence and
+    // the purported independent root revocation or UTC time observation.
+    for collision in ["root_issuer", "root_clock", "issuer_clock"] {
+        let mut bad = value.clone();
+        match collision {
+            "root_issuer" => {
+                bad["policy"]["issuer_keys"][0]["public_key"] =
+                    bad["policy"]["renewal_root_public_key"].clone();
+            }
+            "root_clock" => {
+                bad["policy"]["clock_profile"]["time_public_key"] =
+                    bad["policy"]["renewal_root_public_key"].clone();
+            }
+            "issuer_clock" => {
+                bad["policy"]["clock_profile"]["time_public_key"] =
+                    bad["policy"]["issuer_keys"][0]["public_key"].clone();
+            }
+            _ => unreachable!(),
+        }
+        // Recompute all policy-local pins, so the negative case cannot pass
+        // accidentally due to an unrelated stale digest.
+        bad["policy"]["clock_profile_digest"] =
+            serde_json::json!(digest("clock-profile", &bad["policy"]["clock_profile"]));
+        let changed_pin = digest("policy", &bad["policy"]);
+        bad["policy_digest"] = serde_json::json!(changed_pin);
+        let failure = BftCheckpointTrustConfigV1::decode_and_prepare(
+            &canonical(&bad),
+            &changed_pin,
+            &pin,
+            &c0_pin,
+        )
+        .err()
+        .expect("colliding renewal roles must be rejected");
+        assert!(
+            failure.contains("root, issuer, and time signing keys must be distinct"),
+            "{collision}: {failure}"
+        );
+    }
     let mut bad = value.clone();
     bad["initial_anchor"]["initial_schedule_digest"] = serde_json::json!(fixtures::h(46));
     private_file(&path, &canonical(&bad));
