@@ -10,7 +10,7 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueReadContext, ValueTreeError},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
-use oasis7_runtime::{
+use oasis7_world_state::{
     WorldState, incremental_field_member::*, incremental_field_read::*, incremental_world_u64::*,
 };
 #[allow(dead_code)]
@@ -251,7 +251,7 @@ fn required_unsigned_fields_reopen_in_their_original_namespaces_and_read_classes
                 AuthorityBinding, ExecutionParent, ExecutionTransaction, RootSetV1,
                 TransactionLimits,
             };
-            use oasis7_runtime::incremental_field_overlay::WorldFieldOverlayContextV1;
+            use oasis7_world_state::incremental_field_overlay::WorldFieldOverlayContextV1;
             let memory = MemoryBudget::new(32 << 20, 1 << 20).unwrap();
             let store = IncrementalPageStore::open(
                 &path,
@@ -593,7 +593,7 @@ fn required_unsigned_fields_reopen_in_their_original_namespaces_and_read_classes
                     &live,
                 );
                 use oasis7_formal_protocol::incremental_execution::ExecutionError;
-                use oasis7_runtime::incremental_field_overlay::WorldFieldOverlayErrorV1 as Error;
+                use oasis7_world_state::incremental_field_overlay::WorldFieldOverlayErrorV1 as Error;
                 match (case, result) {
                     (0, Err(Error::Value(ValueTreeError::Invalid("world u64 expected value"))))
                     | (1, Err(Error::Value(ValueTreeError::Cancelled)))
