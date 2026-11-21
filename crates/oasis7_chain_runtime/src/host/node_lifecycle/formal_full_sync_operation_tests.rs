@@ -84,7 +84,10 @@ fn zero_attempt_ledger_rejects_forged_activity_on_cold_open() {
             _ => serde_json::json!(1),
         };
         if field == "material_bytes" {
-            forged["materials"]["ab".repeat(32)] = serde_json::json!(1);
+            forged["materials"]
+                .as_object_mut()
+                .unwrap()
+                .insert("ab".repeat(32), serde_json::json!(1));
         }
         let forged: super::operation_snapshot::Snapshot =
             serde_json::from_value(forged).unwrap();
