@@ -305,7 +305,7 @@ def fresh_writer_passed(report):
     def digest(value):
         return isinstance(value, str) and len(value) == 64 and all(c in '0123456789abcdef' for c in value)
     for receipt, stage in ((ready, 'ready'), (done, 'done')):
-        if not (type(receipt.get('schema')) is int and receipt['schema'] == 1
+        if not (type(receipt.get('schema')) is int and receipt['schema'] in (1, 2)
                 and receipt.get('stage') == stage and digest(receipt.get('nonce'))
                 and all(type(receipt.get(key)) is int and 0 < receipt[key] <= 4294967295
                         for key in ('parent_pid', 'child_pid'))
@@ -319,8 +319,20 @@ def fresh_writer_passed(report):
             return False
     original = report.get('original_commit_ref')
     position = report.get('fixed_head_position')
-    return (all(ready[key] == done[key] for key in
-                ('nonce', 'parent_pid', 'child_pid', 'result', 'effect', 'emits'))
+    if ready['schema'] != done['schema']:
+        return False
+    if ready['schema'] == 1:
+        emission_evidence = (ready['emits'] == done['emits']
+                             and 'continuation_commit' not in ready and 'continuation_commit' not in done)
+    else:
+        continuation = done.get('continuation_commit')
+        emission_evidence = (ready.get('continuation_commit') is None and isinstance(continuation, dict)
+                             and type(continuation.get('position')) is int and type(position) is int
+                             and type(done.get('final_position')) is int
+                             and position < continuation['position'] <= done['final_position']
+                             and digest(continuation.get('execution_block_hash')))
+    return (emission_evidence and all(ready[key] == done[key] for key in
+                ('nonce', 'parent_pid', 'child_pid', 'result', 'effect'))
             and type(position) is int and ready.get('final_position') == position
             and ready.get('continuation_completed') is False and ready.get('original_commit') is None
             and type(done.get('final_position')) is int and done['final_position'] > position
