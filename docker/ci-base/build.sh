@@ -101,6 +101,20 @@ if [[ "$target" == rust-build || "$target" == rust-wasm-build ]]; then
       rustfmt +"$RUST_TOOLCHAIN" --version
       node -e "if (!process.version.startsWith(\"v24.\")) process.exit(1)"
       jq -e ".ready == true" <<< "{\"ready\":true}" >/dev/null
+      python3 - <<PY
+import socket
+import subprocess
+
+with socket.socket() as listener:
+    listener.bind(("127.0.0.1", 0))
+    listener.listen()
+    port = listener.getsockname()[1]
+    subprocess.run(
+        ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN"],
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+PY
       test "$(ruby -ryaml -rjson -e "puts JSON.generate(YAML.safe_load(File.read(%q{/dev/stdin})))" <<< "ready: true")" = "{\"ready\":true}"
       rustup component list --installed --toolchain "$OASIS7_WASM_TOOLCHAIN" | grep -Fx rust-src
       printf "pub fn smoke() {}\n" >/tmp/smoke.rs
