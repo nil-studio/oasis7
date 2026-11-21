@@ -276,6 +276,9 @@ impl Snapshot {
             && (attempt == 0
                 || attempt != self.attempts_used
                 || self.active_attempt_nonce.is_none()
+                // begin_exchange assigns one-based sequence numbers. An
+                // invented request #0 must not survive durable cold reopen.
+                || request == 0
                 || request != self.exchanges_started)
         {
             return Err("invalid active exchange identity".into());
