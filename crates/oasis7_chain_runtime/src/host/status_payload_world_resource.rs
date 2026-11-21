@@ -462,8 +462,8 @@ fn delta_has_nonzero_resource_effect(delta: &ChainResourceDelta) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oasis7::geometry::GeoPos;
     use oasis7::simulator::WorldKernel;
+    use oasis7_agent_api::world_action::GeoPos;
     use oasis7_node::{NodeConsensusSnapshot, NodeRole};
     use oasis7_runtime::{Action, BlobStore, ChainResourceDerivationContext, LocalCasStore};
     use std::fs;

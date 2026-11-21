@@ -41,7 +41,7 @@ pub(super) fn private_actions() -> Vec<u8> {
         &oasis7::consensus_action_payload::ConsensusActionPayloadEnvelope::from_runtime_action(
             oasis7_runtime::Action::RegisterAgent {
                 agent_id: EXECUTION_CANARY.into(),
-                pos: oasis7::geometry::GeoPos::new(7, 8, 9),
+                pos: oasis7_agent_api::world_action::GeoPos::new(7, 8, 9),
             },
         ),
     )

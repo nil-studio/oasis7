@@ -11,12 +11,12 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use oasis7::observability::emit_stderr_or_event;
 use oasis7_client_api::network_tier_manifest::LoadedNetworkTierManifest;
 use oasis7_node::{
     Libp2pReplicationNetwork, NodeConfig, NodeConsensusSlashingReceiptSnapshot, NodeNetworkPolicy,
     NodePosConfig, NodeReplicationConfig, NodeRole, NodeRuntime, PosConsensusStatus, PosValidator,
 };
-use oasis7_observability::emit_stderr_or_event;
 use oasis7_proto::storage_profile::{StorageProfile, StorageProfileConfig};
 use oasis7_runtime::{
     NodeAssetBalance, NodeRewardMintRecord, ReleaseSecurityPolicy, RewardAssetConfig,
@@ -477,7 +477,7 @@ fn run_chain_runtime(options: CliOptions) -> Result<(), String> {
     apply_network_tier_manifest_defaults(&mut options);
     cli::validate_local_participant_options(&options)?;
     let mut participant_control = cli::devlocal_participant_config(&options)?;
-    let trace_session_id = oasis7_observability::resolve_trace_session_id("oasis7_chain_runtime");
+    let trace_session_id = oasis7::observability::resolve_trace_session_id("oasis7_chain_runtime");
     info!(
         trace_session_id = %trace_session_id,
         node_id = %options.node_id,

@@ -84,7 +84,7 @@ fn runtime_action() -> NodeConsensusAction {
     let envelope =
         ConsensusActionPayloadEnvelope::from_runtime_action(RuntimeAction::RegisterAgent {
             agent_id: "bft-agent".into(),
-            pos: oasis7::geometry::GeoPos::new(1, 2, 3),
+            pos: oasis7_agent_api::world_action::GeoPos::new(1, 2, 3),
         });
     let payload = encode_consensus_action_payload(&envelope).expect("encode runtime action");
     NodeConsensusAction::from_payload(1, "v0", payload).expect("build consensus action")

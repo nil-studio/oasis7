@@ -4,7 +4,7 @@ use super::*;
 use oasis7::consensus_action_payload::{
     ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
 };
-use oasis7::geometry::GeoPos;
+use oasis7_agent_api::world_action::GeoPos;
 use oasis7_node::{
     NodeConfig, NodeConsensusAction, NodeExecutionCommitContext, NodeExecutionHook,
     NodeReplicatedExecutionInputV1, NodeRole, NodeRuntime,
