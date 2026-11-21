@@ -5947,7 +5947,7 @@ class WorkerToolCache(unittest.TestCase):
         self.assertIn('python3 scripts/ci-worker-build.py ensure', verify)
         self.assertIn('check --root "$WORKER_TOOL_ROOT"', verify)
         self.assertIn('ensure --root "$WORKER_TOOL_ROOT"', verify)
-        self.assertIn('WORKER_TOOL_ROOT: ${{ steps.worker-image-meta.outputs.root }}', verify)
+        self.assertIn('WORKER_TOOL_ROOT: ${{ steps.worker-image-meta.outputs.restored_root }}', verify)
         self.assertIn('timeout-minutes: 11', verify)
         execute = workflow_step_script(job, 'Execute selected group')
         self.assertIn('export PATH="$WORKER_TOOL_ROOT/bin:$PATH"', execute)
@@ -5973,7 +5973,7 @@ class WorkerToolCache(unittest.TestCase):
             result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
                 cwd=ROOT, env=dict(environment, HOME='/github/home',
                     XDG_CACHE_HOME='/github/home/.cache',
-                    RUNNER_TEMP=str(root), GITHUB_OUTPUT=str(output)),
+                    RUNNER_TEMP=str(root), GITHUB_WORKSPACE='/__w/oasis7/oasis7', GITHUB_OUTPUT=str(output)),
                 text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             image_metadata = dict(line.split('=', 1)
@@ -5981,6 +5981,55 @@ class WorkerToolCache(unittest.TestCase):
             host_metadata = json.loads(host.stdout)
             for field in ('root', 'bin', 'version', 'definition_sha'):
                 self.assertEqual(image_metadata[field], host_metadata[field])
+
+    def test_worker_archive_relative_names_restore_at_the_consumed_root(self):
+        # Same layout and ../../../ member names as the host writer; extraction
+        # uses the container checkout. A matching cache key does not remap tar.
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            host = root / 'host/home/runner'
+            writer = host / 'work/oasis7/oasis7'
+            source = host / '.cache/oasis7/worker-build/0.7.5'
+            writer.mkdir(parents=True)
+            (source / 'bin').mkdir(parents=True)
+            (source / 'bin/worker-build').write_text('archive payload')
+            container = root / 'container'
+            reader = container / '__w/oasis7/oasis7'
+            reader.mkdir(parents=True)
+            archive = root / 'cache.tar'
+            member = os.path.relpath(source, writer)
+            self.assertEqual(member, '../../../.cache/oasis7/worker-build/0.7.5')
+            subprocess.run(['tar', '-cPf', str(archive), '-C', str(writer), member], check=True)
+            subprocess.run(['tar', '-xPf', str(archive), '-C', str(reader)], check=True)
+            actual = container / '.cache/oasis7/worker-build/0.7.5'
+            self.assertEqual((actual / 'bin/worker-build').read_text(), 'archive payload')
+            self.assertFalse((container / 'home/runner/.cache/oasis7/worker-build/0.7.5').exists())
+            job = JOBS['workspace-support-other']
+            self.assertEqual(job.count('WORKER_TOOL_ROOT: ${{ steps.worker-image-meta.outputs.restored_root }}'), 2)
+            script = workflow_step_script(job, 'Identify pinned image Worker build tool')
+            self.assertIn('os.path.normpath(os.path.join(', script)
+            self.assertIn("writer_workspace = '/home/runner/work/oasis7/oasis7'", script)
+            self.assertIn("os.environ['GITHUB_WORKSPACE'] != '/__w/oasis7/oasis7'", script)
+            (root / 'scripts').mkdir()
+            (root / 'scripts/ci-worker-build.py').write_text(
+                'import os\nwith open(os.environ["GITHUB_OUTPUT"], "a") as output:\n'
+                '    output.write("root=/home/runner/.cache/oasis7/worker-build/0.7.5\\n")\n')
+            (root / 'selection.json').write_text('{"scope":"full"}')
+            output = root / 'metadata'
+            environment = dict(os.environ, RUNNER_TEMP=str(root),
+                               GITHUB_WORKSPACE='/__w/oasis7/oasis7', GITHUB_OUTPUT=str(output))
+            result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
+                                    cwd=root, env=environment, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            metadata = dict(line.split('=', 1) for line in output.read_text().splitlines())
+            self.assertEqual(metadata['root'], '/home/runner/.cache/oasis7/worker-build/0.7.5')
+            self.assertEqual(container / metadata['restored_root'].lstrip('/'), actual)
+            output.unlink()
+            result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
+                cwd=root, env=environment | {'GITHUB_WORKSPACE': '/unexpected/layout'},
+                text=True, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(output.exists())
 
     def test_image_support_worker_metadata_cold_and_selected(self):
         script = workflow_step_script(JOBS['workspace-support-other'],
@@ -6001,7 +6050,7 @@ class WorkerToolCache(unittest.TestCase):
                 output.unlink(missing_ok=True)
                 result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
                     cwd=root, env=dict(os.environ, GITHUB_OUTPUT=str(output),
-                                       RUNNER_TEMP=str(root)), capture_output=True, text=True)
+                                       RUNNER_TEMP=str(root), GITHUB_WORKSPACE='/__w/oasis7/oasis7'), capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(output.exists(), selected)
             helper.unlink()
@@ -6011,7 +6060,7 @@ class WorkerToolCache(unittest.TestCase):
                 workspace_support_profiles=['oasis7_context'])))
             result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
                 cwd=root, env=dict(os.environ, GITHUB_OUTPUT=str(output),
-                                   RUNNER_TEMP=str(root)), capture_output=True, text=True)
+                                   RUNNER_TEMP=str(root), GITHUB_WORKSPACE='/__w/oasis7/oasis7'), capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
 
     def test_exact_readers_and_sole_trusted_writer(self):
