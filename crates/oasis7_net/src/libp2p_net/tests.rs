@@ -1043,7 +1043,7 @@ fn active_transport_path_from_endpoint_keeps_hole_punch_kind_when_known() {
 }
 
 #[test]
-fn active_transport_path_from_endpoint_maps_inbound_ephemeral_tcp_port_to_known_direct_path() {
+fn active_transport_path_from_endpoint_keeps_unsigned_ephemeral_tcp_port_distinct() {
     let peer_id = PeerId::random();
     let signed = sign_peer_record(
         &PeerRecord {
@@ -1083,10 +1083,13 @@ fn active_transport_path_from_endpoint_maps_inbound_ephemeral_tcp_port_to_known_
 
     assert_eq!(
         mapped_path.addr.to_string(),
-        format!("/ip4/39.104.205.67/tcp/5612/p2p/{peer_id}")
+        format!("/ip4/39.104.205.67/tcp/60900/p2p/{peer_id}")
     );
     assert_eq!(mapped_path.kind, TransportPathKind::Direct);
     assert_eq!(mapped_path.flavor, TransportSessionFlavor::TcpNoiseYamux);
+    // The authenticated connection does not authenticate the different signed
+    // listener port, so no original-record lease may be inherited.
+    assert!(mapped_path.record_lease.is_none());
 }
 
 #[test]
