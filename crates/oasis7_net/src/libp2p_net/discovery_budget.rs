@@ -349,8 +349,15 @@ mod tests {
             }
         };
         budget.remember_rendezvous_registration(newcomer, digest, 0);
-        assert_eq!(budget.registered_rendezvous_addresses.len(), MAX_REGISTERED_RENDEZVOUS_NODES);
-        assert!(!budget.registered_rendezvous_addresses.contains_key(&newcomer));
+        assert_eq!(
+            budget.registered_rendezvous_addresses.len(),
+            MAX_REGISTERED_RENDEZVOUS_NODES
+        );
+        assert!(
+            !budget
+                .registered_rendezvous_addresses
+                .contains_key(&newcomer)
+        );
         assert!(budget.rendezvous_registration_matches(victim, Some(digest)));
         budget.remember_rendezvous_registration(newcomer, digest, 7_200);
         assert_eq!(
@@ -385,8 +392,11 @@ mod tests {
         assert!(budget.rendezvous_registration_matches(peer, Some(digest)));
         // Model a previously successful registration whose remote TTL may
         // have elapsed. It must not suppress a fresh network registration.
-        budget.registered_rendezvous_addresses.get_mut(&peer).unwrap().1 =
-            Instant::now() - Duration::from_secs(1);
+        budget
+            .registered_rendezvous_addresses
+            .get_mut(&peer)
+            .unwrap()
+            .1 = Instant::now() - Duration::from_secs(1);
         assert!(!budget.rendezvous_registration_matches(peer, Some(digest)));
         budget.remember_rendezvous_registration(peer, digest, 7_200);
         assert!(budget.rendezvous_registration_matches(peer, Some(digest)));
