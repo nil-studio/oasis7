@@ -76,6 +76,13 @@ pub(super) fn digest<T: serde::Serialize>(value: &T) -> Result<String, String> {
 pub(super) fn inventory(root: &Path, budget: &Budget) -> Result<Value, String> {
     let maximum_entries = budget.inventory_entries;
     let deadline = Some(budget.started + budget.maximum);
+    let check_deadline = || {
+        if Instant::now() >= budget.started + budget.maximum {
+            Err("full-node whole-case budget exhausted during inventory attribution".to_string())
+        } else {
+            Ok(())
+        }
+    };
     let scan = |path: &Path| -> Result<_, String> {
         let result = inventory_storage_with_limits(path, maximum_entries, deadline);
         if !result.complete {
@@ -99,7 +106,15 @@ pub(super) fn inventory(root: &Path, budget: &Budget) -> Result<Value, String> {
         let path = root.join(name);
         let value = scan(&path)?;
         let mut categories = BTreeMap::new();
-        for entry in fs::read_dir(&path).map_err(|e| e.to_string())? {
+        check_deadline()?;
+        let mut entries = fs::read_dir(&path).map_err(|e| e.to_string())?;
+        loop {
+            check_deadline()?;
+            let entry = entries.next();
+            check_deadline()?;
+            let Some(entry) = entry else {
+                break;
+            };
             let entry = entry.map_err(|e| e.to_string())?;
             let value = scan(&entry.path())?;
             categories.insert(entry.file_name().to_string_lossy().to_string(), value);
