@@ -220,6 +220,14 @@ impl DiscoveryWorkBudget {
         digest: [u8; 32],
         registered_ttl_secs: u64,
     ) {
+        let refresh_secs =
+            (registered_ttl_secs / 2).min(RENDEZVOUS_MAX_REGISTRATION_REFRESH_SECS);
+        // A zero/one-second TTL cannot yield a useful cached match. Do not
+        // evict a valid registration merely to store an already-expired one.
+        if refresh_secs == 0 {
+            self.registered_rendezvous_addresses.remove(&peer_id);
+            return;
+        }
         // Updating an existing entry must not evict an unrelated peer. New
         // entries evict only an advisory registration; a later live connection
         // can re-register because rendezvous_registration_matches returns false.
@@ -233,11 +241,10 @@ impl DiscoveryWorkBudget {
         {
             self.registered_rendezvous_addresses.remove(&victim);
         }
-        let refresh = Duration::from_secs(
-            (registered_ttl_secs / 2).min(RENDEZVOUS_MAX_REGISTRATION_REFRESH_SECS),
+        self.registered_rendezvous_addresses.insert(
+            peer_id,
+            (digest, Instant::now() + Duration::from_secs(refresh_secs)),
         );
-        self.registered_rendezvous_addresses
-            .insert(peer_id, (digest, Instant::now() + refresh));
     }
 
     pub(super) fn rendezvous_registration_matches(
@@ -342,6 +349,12 @@ mod tests {
                 break candidate;
             }
         };
+        budget.remember_rendezvous_registration(newcomer, digest, 0);
+        assert_eq!(budget.registered_rendezvous_addresses.len(), MAX_REGISTERED_RENDEZVOUS_NODES);
+        assert!(!budget.registered_rendezvous_addresses.contains_key(&newcomer));
+        assert!(peers.iter().all(|peer| {
+            budget.rendezvous_registration_matches(*peer, Some(digest))
+        }));
         budget.remember_rendezvous_registration(newcomer, digest, 7_200);
         assert_eq!(
             budget.registered_rendezvous_addresses.len(),
@@ -395,7 +408,7 @@ mod tests {
         assert!(refresh > Instant::now() + Duration::from_secs(145));
         budget.remember_rendezvous_registration(peer, digest, 0);
         assert!(!budget.rendezvous_registration_matches(peer, Some(digest)));
-        assert_eq!(budget.registered_rendezvous_addresses.len(), 1);
+        assert_eq!(budget.registered_rendezvous_addresses.len(), 0);
     }
 
     #[test]
