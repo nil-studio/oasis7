@@ -1,4 +1,4 @@
-use oasis7::geometry::GeoPos;
+use oasis7_agent_api::world_action::GeoPos;
 use oasis7_node::{
     NodeConsensusMisbehaviorEvidenceSnapshot, NodeConsensusSlashingIntentSnapshot,
     NodeConsensusSlashingReceiptSnapshot, NodeConsensusSnapshot, NodeRole, NodeSnapshot,

@@ -34,7 +34,7 @@ fn action_case() {
         encode_consensus_action_payload(&ConsensusActionPayloadEnvelope::from_runtime_action(
             Action::RegisterAgent {
                 agent_id: "original-input-cannot-be-declassified-by-projection".into(),
-                pos: oasis7::geometry::GeoPos::new(1, 2, 3),
+                pos: oasis7_agent_api::world_action::GeoPos::new(1, 2, 3),
             },
         ))
         .unwrap(),

@@ -3,7 +3,7 @@ use oasis7::consensus_action_payload::{
     ConsensusActionAuthEnvelope, ConsensusActionPayloadBody, ConsensusActionPayloadEnvelope,
     encode_consensus_action_payload,
 };
-use oasis7::geometry::GeoPos;
+use oasis7_agent_api::world_action::GeoPos;
 use oasis7_consensus::tendermint_v2::{
     BftHeightProposerScheduleV2, BftSchedulePolicyV2, verify_commit_certificate_token_v2,
 };
