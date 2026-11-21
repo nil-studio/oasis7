@@ -100,7 +100,7 @@ jobs:
   release_gate_runtime_core:
     cache-mode: read
     name: release-gate-runtime-core
-    needs: plan
+    needs: [plan, full-regression-qualification]
     runs-on: ubuntu-24.04
     env:
       OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
@@ -177,7 +177,7 @@ jobs:
   release_gate_runtime_support:
     cache-mode: read
     name: release-gate-runtime-support
-    needs: plan
+    needs: [plan, full-regression-qualification]
     runs-on: ubuntu-24.04
     env:
       OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
@@ -254,7 +254,7 @@ jobs:
   release_gate_runtime_sync:
     cache-mode: read
     name: release-gate-runtime-sync
-    needs: plan
+    needs: [plan, full-regression-qualification]
     runs-on: ubuntu-24.04
     env:
       OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
@@ -327,7 +327,7 @@ jobs:
   release_gate_web:
     cache-mode: read
     name: release-gate-web
-    needs: plan
+    needs: [plan, full-regression-qualification]
     runs-on: ubuntu-24.04
     steps:
       # Use the executing workflow tools before restoring the complete source checkout.
@@ -411,7 +411,7 @@ jobs:
   release_gate_soak:
     cache-mode: read
     name: release-gate-soak
-    needs: plan
+    needs: [plan, full-regression-qualification]
     runs-on: ubuntu-24.04
     env:
       OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
