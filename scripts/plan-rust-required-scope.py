@@ -3664,6 +3664,15 @@ def custody_source_supports_compile_proof(plan, *, field='custody_compile_proof_
     return True
 
 
+WORKSPACE_SUPPORT_HOST_PROFILES = frozenset({'oasis7_game_client', 'oasis7_local_signer'})
+
+
+def workspace_support_requires_host(plan):
+    """Keep non-root native contracts and the full-profile fallback."""
+    return (plan.get('scope') == 'full'
+            or bool(WORKSPACE_SUPPORT_HOST_PROFILES.intersection(plan.get('workspace_support_profiles', ()))))
+
+
 def support_partitions(profiles):
     return sorted({'custody' if profile == 'oasis7_custody_worker' else 'other' for profile in profiles})
 
@@ -4460,6 +4469,7 @@ def main():
             if args.profile:
                 output.write('ordinary_partitions=' + json.dumps(plan.get('ordinary_partitions', ['all']), separators=(',', ':')) + '\n')
                 output.write('workspace_support_partitions=' + json.dumps(plan.get('workspace_support_partitions', ['all']), separators=(',', ':')) + '\n')
+                output.write('workspace_support_host=' + str(workspace_support_requires_host(plan)).lower() + '\n')
                 output.write('formal_shards=' + json.dumps(plan['formal_shards'], separators=(',', ':')) + '\n')
                 output.write('command_center_package=' + str(plan['command_center_package']).lower() + '\n')
     print(encoded)

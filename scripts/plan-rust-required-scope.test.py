@@ -49,6 +49,17 @@ RETIREMENT_INPUT_CONTRACTS = {
 
 
 class Selection(unittest.TestCase):
+    def test_workspace_support_host_schedule_preserves_targeted_game_client_and_full(self):
+        for scope, profiles, expected in (
+            ('targeted', ['oasis7_game_client'], True),
+            ('targeted', ['oasis7_local_signer'], True),
+            ('targeted', ['oasis7_context'], False),
+            ('full', ['oasis7_context'], True),
+        ):
+            with self.subTest(scope=scope, profiles=profiles):
+                self.assertIs(selector.workspace_support_requires_host(
+                    {'scope': scope, 'workspace_support_profiles': profiles}), expected)
+
     def test_retirement_input_exact_ownership_covers_add_modify_delete_and_rename(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
         with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
