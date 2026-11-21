@@ -1,0 +1,87 @@
+name: Operational CI A-B Probe
+
+on:
+  pull_request:
+    branches: [codex/engineering-operational-ab-base]
+    paths: [.github/workflows/operational-ci-ab-probe.yml]
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_SHA: b3bd6e2c8daffc7fbd6988d4a3fa229f2f7812f6
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  PYTHONDONTWRITEBYTECODE: "1"
+  CARGO_NET_RETRY: 10
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+  RUST_TOOLCHAIN: 1.96.0
+  TRUNK_VERSION: 0.21.14
+  OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
+  OASIS7_WASM_TARGET: wasm32-unknown-unknown
+  OASIS7_WASM_BUILD_STD: "1"
+  OASIS7_WASM_BUILD_STD_COMPONENTS: std,panic_abort
+  OASIS7_PRODUCT_DOC_BASE: fc084eb08860b1d98ea8eb64e7e192c0c47388fb
+  OASIS7_PRODUCT_DOC_HEAD: b3bd6e2c8daffc7fbd6988d4a3fa229f2f7812f6
+  CI_VERBOSE: "1"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  host:
+    name: Operational contracts (host)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - &checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.SOURCE_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
+        with:
+          python-version: '3.12'
+      - &check
+        name: Verify exact workload and record tool versions
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          tested_sha="$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD)"
+          test "$tested_sha" = "$SOURCE_SHA"
+          test "$(id -u)" -ne 0
+          printf 'Tested OID: %s\nSelected group: operational_contracts\n' "$tested_sha"
+          python3 -c 'import sys, tomllib; assert sys.version_info[:2] == (3, 12); print(sys.version)'
+          cargo --version
+          node --version
+          jq --version
+          command -v lsof
+          dpkg-deb --version
+      - &execute
+        name: Execute selected group
+        run: |
+          TMPDIR="$(mktemp -d "$(dirname -- "$GITHUB_WORKSPACE")/.op-ab.XXXXXX")"
+          export TMPDIR
+          trap 'rm -rf -- "$TMPDIR"' EXIT
+          bash ./scripts/ci-tests.sh required --group operational_contracts --repo-root "$GITHUB_WORKSPACE"
+
+  image:
+    name: Operational contracts (image)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb
+      options: --user 1001:1001
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    steps:
+      - *checkout
+      - *check
+      - *execute
