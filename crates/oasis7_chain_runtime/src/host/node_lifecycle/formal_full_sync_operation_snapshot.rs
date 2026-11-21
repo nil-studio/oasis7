@@ -225,6 +225,9 @@ impl Snapshot {
             // an invented live nonce, exchange, material or proof progress.
             || (self.attempts_used == 0
                 && (self.active_attempt_nonce.is_some()
+                    || self.encoded_tx_actual != 0
+                    || self.encoded_rx_actual != 0
+                    || self.unknown_final_charged != 0
                     || self.exchanges_started != 0
                     || self.window_seq != 0
                     || self.proof_pages != 0
