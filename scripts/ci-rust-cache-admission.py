@@ -43,6 +43,8 @@ FAMILIES = {
                            '.github/workflows/rust-cache.yml', 'rust-image-component-cache'),
     'rust-image-tooling': ('ci-rust-build-d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc',
                           '.github/workflows/rust-cache.yml', 'rust-image-component-cache'),
+    'rust-image-support': ('ci-rust-build-822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2',
+                           '.github/workflows/rust-cache.yml', 'rust-image-component-cache'),
     'shared-native': ('ci-shared-native-trusted-v4', '.github/workflows/rust-cache.yml', 'shared-native-cache'),
     'formal-debug': ('ci-formal-debug-deps-trusted-v1', '.github/workflows/rust.yml', 'formal-debug-build-trusted'),
     'formal-endpoint': ('ci-formal-endpoint-deps-trusted-v1', '.github/workflows/rust.yml', 'formal-endpoint-build-trusted'),
@@ -54,7 +56,7 @@ FAMILIES = {
     'testnet-linux': ('oasis7-package-native-Linux-native-packaging-trusted-v2', '.github/workflows/testnet-packages.yml', 'package-native-trusted'),
 }
 COMPONENT_IMAGE_FAMILIES = frozenset(('rust-image-components', 'rust-image-net',
-                                    'rust-image-launcher', 'rust-image-tooling'))
+                                    'rust-image-launcher', 'rust-image-tooling', 'rust-image-support'))
 PLATFORMS = {name: (('Linux', 'X64'),) for name in FAMILIES}
 PLATFORMS['release-windows'] = (('Windows', 'X64'),)
 PLATFORMS['release-macos'] = (('macOS', 'ARM64'), ('macOS', 'X64'))
