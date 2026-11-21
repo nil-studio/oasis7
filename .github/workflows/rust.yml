@@ -3116,7 +3116,7 @@ jobs:
       contents: read
       packages: read
     container:
-      image: ${{ matrix.execution == 'image' && 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:6ea7e7ebeb0abeefc7aa2cba6c48627ad76b3c8551d5f7c400c661c783ada51a' || '' }}
+      image: ${{ matrix.execution == 'image' && 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2' || '' }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ github.token }}
@@ -3170,6 +3170,7 @@ jobs:
         if: matrix.execution == 'image'
         run: |
           set -euo pipefail
+          zstd --version
           ps -o pid= -p "$$"
           rustc +"$RUST_TOOLCHAIN" -vV
           rustc +"$OASIS7_WASM_TOOLCHAIN" -vV
@@ -3197,10 +3198,50 @@ jobs:
         if: matrix.execution == 'image'
         with:
           save-if: false
-          shared-key: ci-rust-build-6ea7e7ebeb0abeefc7aa2cba6c48627ad76b3c8551d5f7c400c661c783ada51a
+          shared-key: ci-rust-build-822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
+      - name: Identify pinned image Worker build tool
+        id: worker-image-meta
+        if: matrix.execution == 'image'
+        shell: bash
+        run: |
+          python3 - "$RUNNER_TEMP/selection.json" <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          plan = json.loads(Path(sys.argv[1]).read_text())
+          if not (plan.get('scope') == 'full' or 'workspace_support_profile_version' not in plan
+                  or 'oasis7_dev_test_worker' in plan.get('workspace_support_profiles', [])):
+              raise SystemExit(0)
+          helper = Path('scripts/ci-worker-build.py')
+          if not helper.exists() and not helper.is_symlink():
+              print('Historical source has no Worker cache helper; retaining the original verifier.')
+              raise SystemExit(0)
+          if helper.is_symlink() or not helper.is_file() or not helper.stat().st_size:
+              raise SystemExit('Worker cache helper must be a nonempty regular file.')
+          os.execv(sys.executable, [sys.executable, str(helper), 'metadata', '--root', '/home/runner/.cache/oasis7/worker-build/0.7.5', '--github-output', os.environ['GITHUB_OUTPUT']])
+          PY
+      - name: Restore exact image Worker build tool
+        id: worker-image-cache
+        if: matrix.execution == 'image' && steps.worker-image-meta.outputs.root != ''
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.worker-image-meta.outputs.root }}
+          key: worker-build-cli-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_TOOLCHAIN }}-0.7.5-${{ steps.worker-image-meta.outputs.definition_sha }}
+      - name: Prepare verified image Worker build tool
+        if: matrix.execution == 'image' && steps.worker-image-meta.outputs.root != ''
+        shell: bash
+        timeout-minutes: 11
+        env:
+          WORKER_TOOL_ROOT: ${{ steps.worker-image-meta.outputs.root }}
+          TOOL_CACHE_HIT: ${{ steps.worker-image-cache.outputs.cache-hit }}
+        run: |
+          if [[ "$TOOL_CACHE_HIT" == true ]]; then
+            python3 scripts/ci-worker-build.py check --root "$WORKER_TOOL_ROOT"
+          else
+            python3 scripts/ci-worker-build.py ensure --root "$WORKER_TOOL_ROOT"
+          fi
       - name: Observe support capacity after cache
         shell: bash
         run: |
@@ -3220,10 +3261,14 @@ jobs:
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
           SUPPORT_PARTITION: other
           SUPPORT_EXECUTION: ${{ matrix.execution }}
+          WORKER_TOOL_ROOT: ${{ steps.worker-image-meta.outputs.root }}
         run: |
           source scripts/ci-tests.sh
           if [[ "$SUPPORT_EXECUTION" == image ]]; then
             export PATH="$PATH:${CARGO_HOME:-$HOME/.cargo}/bin"
+            if [[ -n "${WORKER_TOOL_ROOT:-}" ]]; then
+              export PATH="$WORKER_TOOL_ROOT/bin:$PATH"
+            fi
           fi
           support_capacity_snapshot after-native-libraries
           bash ./scripts/ci-tests.sh required --group "workspace_support" --repo-root "$GITHUB_WORKSPACE" --support-plan-file "$RUNNER_TEMP/selection.json" --support-partition "$SUPPORT_PARTITION" --support-execution "$SUPPORT_EXECUTION"

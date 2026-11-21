@@ -3350,9 +3350,10 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             'scripts/tests/test_engineering_telemetry.py',
             'scripts/tests/test_engineering_telemetry_adapters.py',
         )
-        cases = [('absent', None), ('complete', None)]
+        cases = [('absent', None), ('complete', None), ('all-skipped', None),
+                 ('some-skipped', None)]
         cases += [(kind, path) for kind in ('missing', 'directory', 'symlink') for path in paths]
-        cases += [(kind, path) for kind in ('empty', 'failing') for path in paths[-2:]]
+        cases += [(kind, path) for kind in ('empty', 'failing', 'skipped') for path in paths[-2:]]
         for kind, changed in cases:
             with self.subTest(kind=kind, path=changed), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
@@ -3379,6 +3380,11 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                                        "        Path(%r).write_text('once')\n"
                                        "        self.assertTrue(%r)\n" %
                                        (target.name + '.ran', not (path == changed and kind == 'failing')))
+                            if kind == 'all-skipped' or (kind == 'skipped' and path == changed):
+                                content = content.replace('    def test_runs', '    @unittest.skip("fixture only")\n    def test_runs')
+                            if kind == 'some-skipped':
+                                content += ('    @unittest.skip("platform unavailable")\n'
+                                            '    def test_platform_specific(self): pass\n')
                         target.write_text(content)
                 shell = ('set -euo pipefail\nrun() { "$@"; }\n'
                          'run_ci_wasm_opt_contract_tests() { :; }\n'
@@ -3387,7 +3393,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                          + function.group() + '\n' + governance.group()
                          + '\nrun_workflow_governance_remaining_contract_tests\n')
                 result = subprocess.run(['bash', '-c', shell], cwd=root, capture_output=True, text=True)
-                if kind in ('absent', 'complete'):
+                if kind in ('absent', 'complete', 'some-skipped'):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(result.stdout.splitlines()[-2:],
                                      ['governance-baseline', 'governance-operational'])
@@ -3403,6 +3409,11 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                     self.assertIn('Ran 2 tests', result.stderr)
                 if kind == 'empty':
                     self.assertIn('no tests in', result.stderr)
+                if kind == 'some-skipped':
+                    self.assertIn('skipped=2', result.stderr)
+                if kind in ('skipped', 'all-skipped'):
+                    for path in ((changed,) if changed else paths[-2:]):
+                        self.assertIn('no passing tests in ' + Path(path).name, result.stderr)
 
     def test_dot_todo_entry_requires_pair_and_propagates_failure(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
@@ -5900,6 +5911,108 @@ class WorkerToolCache(unittest.TestCase):
                         self.assertEqual(result.returncode, expected if selected else 0,
                                          result.stdout + result.stderr)
                         self.assertEqual(output.exists(), kind == 'regular' and selected)
+
+    def test_image_support_exact_readonly_worker_tool_reader(self):
+        job = JOBS['workspace-support-other']
+        steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+        selected = [step for step in steps if ('Identify pinned image Worker build tool' in step
+                    or 'id: worker-image-cache' in step
+                    or 'Prepare verified image Worker build tool' in step)]
+        self.assertEqual(len(selected), 3)
+        identity, restore, verify = selected
+        self.assertIn("if: matrix.execution == 'image'", identity)
+        for text in ('selection.json', 'workspace_support_profile_version',
+                     'oasis7_dev_test_worker', 'helper.is_symlink()',
+                     'os.execv(sys.executable'):
+            self.assertIn(text, identity)
+        writer = workflow_jobs((ROOT / '.github/workflows/rust-cache.yml').read_text())['worker-build-cache']
+        worker_tool_cache_writer(writer)
+        key = re.search(r'^          key: (worker-build-cli-v1-.*)$', writer, re.M)[1]
+        self.assertIn(key.replace('steps.worker-meta.outputs', 'steps.worker-image-meta.outputs'), restore)
+        self.assertIn('steps.worker-image-meta.outputs.root', restore)
+        self.assertNotIn('restore-keys:', restore)
+        self.assertNotIn('actions/cache/save@', job)
+        self.assertNotIn('GH_TOKEN:', job)
+        for step in selected:
+            self.assertNotIn('continue-on-error:', step)
+        for step in (restore, verify):
+            expr = re.search(r'^        if: (.*)$', step, re.M)[1]
+            for mode in ('host', 'image'):
+                for root in ('', '/fixture/tool'):
+                    values = {'matrix.execution': mode, 'steps.worker-image-meta.outputs.root': root}
+                    self.assertEqual(effective_job_condition(expr, values, ['success']),
+                                     mode == 'image' and bool(root))
+                    self.assertFalse(effective_job_condition(expr, values, ['failure']))
+        self.assertIn('python3 scripts/ci-worker-build.py check', verify)
+        self.assertIn('python3 scripts/ci-worker-build.py ensure', verify)
+        self.assertIn('check --root "$WORKER_TOOL_ROOT"', verify)
+        self.assertIn('ensure --root "$WORKER_TOOL_ROOT"', verify)
+        self.assertIn('WORKER_TOOL_ROOT: ${{ steps.worker-image-meta.outputs.root }}', verify)
+        self.assertIn('timeout-minutes: 11', verify)
+        execute = workflow_step_script(job, 'Execute selected group')
+        self.assertIn('export PATH="$WORKER_TOOL_ROOT/bin:$PATH"', execute)
+        self.assertLess(job.index('Prepare verified image Worker build tool'),
+                        job.index('Execute selected group'))
+
+    @unittest.skipUnless(sys.platform == "linux", "Linux cache paths reject macOS /home symlink")
+    def test_image_worker_cache_identity_matches_real_host_metadata(self):
+        helper = ROOT / 'scripts/ci-worker-build.py'
+        environment = dict(os.environ)
+        environment.pop('XDG_CACHE_HOME', None)
+        host = subprocess.run([sys.executable, str(helper), 'metadata'],
+            env=dict(environment, HOME='/home/runner'), text=True,
+            capture_output=True, check=True)
+        script = workflow_step_script(JOBS['workspace-support-other'],
+                                      'Identify pinned image Worker build tool')
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / 'selection.json').write_text(json.dumps(dict(
+                scope='targeted', workspace_support_profile_version=1,
+                workspace_support_profiles=['oasis7_dev_test_worker'])))
+            output = root / 'output'
+            result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
+                cwd=ROOT, env=dict(environment, HOME='/github/home',
+                    XDG_CACHE_HOME='/github/home/.cache',
+                    RUNNER_TEMP=str(root), GITHUB_OUTPUT=str(output)),
+                text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            image_metadata = dict(line.split('=', 1)
+                                  for line in output.read_text().splitlines())
+            host_metadata = json.loads(host.stdout)
+            for field in ('root', 'bin', 'version', 'definition_sha'):
+                self.assertEqual(image_metadata[field], host_metadata[field])
+
+    def test_image_support_worker_metadata_cold_and_selected(self):
+        script = workflow_step_script(JOBS['workspace-support-other'],
+                                      'Identify pinned image Worker build tool')
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            helper = root / 'scripts/ci-worker-build.py'
+            helper.parent.mkdir()
+            output = root / 'output'
+            helper.write_text('import os, pathlib, sys\n'
+                'assert sys.argv[1:] == ["metadata", "--root", "/home/runner/.cache/oasis7/worker-build/0.7.5", "--github-output", os.environ["GITHUB_OUTPUT"]]\n'
+                'pathlib.Path(os.environ["GITHUB_OUTPUT"]).write_text("root=/fixture/tool\\n")\n')
+            for profile, selected in (('oasis7_dev_test_worker', True),
+                                      ('oasis7_context', False)):
+                (root / 'selection.json').write_text(json.dumps(dict(
+                    scope='targeted', workspace_support_profile_version=1,
+                    workspace_support_profiles=[profile])))
+                output.unlink(missing_ok=True)
+                result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
+                    cwd=root, env=dict(os.environ, GITHUB_OUTPUT=str(output),
+                                       RUNNER_TEMP=str(root)), capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(output.exists(), selected)
+            helper.unlink()
+            helper.symlink_to(root / 'missing')
+            (root / 'selection.json').write_text(json.dumps(dict(
+                scope='full', workspace_support_profile_version=1,
+                workspace_support_profiles=['oasis7_context'])))
+            result = subprocess.run(['bash', '-euo', 'pipefail', '-c', script],
+                cwd=root, env=dict(os.environ, GITHUB_OUTPUT=str(output),
+                                   RUNNER_TEMP=str(root)), capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
 
     def test_exact_readers_and_sole_trusted_writer(self):
         cache_jobs = workflow_jobs((ROOT / '.github/workflows/rust-cache.yml').read_text())
