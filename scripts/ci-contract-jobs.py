@@ -39,26 +39,40 @@ def render_job(group: str) -> str:
         source_checkout_condition = (
             "        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}\n"
         )
-    container = ""
-    trust_checkout = ""
-    rust_setup = ""
-    if group == "packaging_contracts":
-        container = (
-            "    permissions:\n"
-            "      contents: read\n"
-            "      packages: read\n"
-            "    container:\n"
-            "      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:6ea7e7ebeb0abeefc7aa2cba6c48627ad76b3c8551d5f7c400c661c783ada51a\n"
-            "      credentials:\n"
-            "        username: ${{ github.actor }}\n"
-            "        password: ${{ github.token }}\n"
-            "    defaults:\n"
-            "      run:\n"
-            "        shell: bash\n"
+    image = {
+        "operational_contracts": "ci-runtime@sha256:14ef7ecc92a75d99af0723dbb0fa131b24c40ac2f83eed748fde1698c35c4258",
+        "packaging_contracts": "ci-rust-build@sha256:6ea7e7ebeb0abeefc7aa2cba6c48627ad76b3c8551d5f7c400c661c783ada51a",
+    }[group]
+    container = (
+        "    permissions:\n"
+        "      contents: read\n"
+        "      packages: read\n"
+        "    container:\n"
+        f"      image: ghcr.io/nil-studio/oasis7/{image}\n"
+        "      credentials:\n"
+        "        username: ${{ github.actor }}\n"
+        "        password: ${{ github.token }}\n"
+        "    defaults:\n"
+        "      run:\n"
+        "        shell: bash\n"
+    )
+    trust_checkout = (
+        '      - name: Trust the checked-out workspace path in the job container\n'
+        '        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"\n'
+    )
+    if group == "operational_contracts":
+        python_setup = (
+            "      - name: Verify preinstalled operational contract tools\n"
+            "        run: |\n"
+            "          python3 -c 'import sys, tomllib; assert sys.version_info[:2] == (3, 12)'\n"
+            "          dpkg-deb --version\n"
         )
-        trust_checkout = (
-            '      - name: Trust the checked-out workspace path in the job container\n'
-            '        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"\n'
+        rust_setup = ""
+    else:
+        python_setup = (
+            "      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7\n"
+            "        with:\n"
+            "          python-version: '3.12'\n"
         )
         rust_setup = (
             '      - name: Verify preinstalled Rust for packaging contract fixtures\n'
@@ -88,9 +102,7 @@ def render_job(group: str) -> str:
         f"          fetch-depth: 0\n"
         f"          persist-credentials: false\n"
         f"{trust_checkout}"
-        f"      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7\n"
-        f"        with:\n"
-        f"          python-version: '3.12'\n"
+        f"{python_setup}"
         f"{rust_setup}"
         f"      - name: Execute selected group\n"
         f"        shell: bash\n"
