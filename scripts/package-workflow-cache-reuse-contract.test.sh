@@ -272,8 +272,16 @@ def cache_identity(workflow: str, name: str, non_linux: bool = False) -> dict:
         default = env["RUST_TOOLCHAIN"]
         toolchains.add(default)
     assert toolchains and default, f"{name}: verify a pinned toolchain before restoring cache"
+    runner = values(body, 4)["runs-on"]
+    if runner == (
+        "${{ github.event_name == 'pull_request' && "
+        "github.event.pull_request.head.repo.full_name == github.repository && "
+        "contains(github.event.pull_request.labels.*.name, 'ci-priority') && "
+        "'oasis7-priority-linux' || 'ubuntu-24.04' }}"
+    ):
+        runner = "ubuntu-24.04"
     return {
-        "action": cache[1], "runner": values(body, 4)["runs-on"],
+        "action": cache[1], "runner": runner,
         "image": image[1] if image else None,
         "prefix": inputs.get("prefix-key", "v0-rust"),
         "shared-key": inputs.get("shared-key"),

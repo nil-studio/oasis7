@@ -414,6 +414,15 @@ Trace refs: O7-REQ-45815c91-fc25-43b0-b91b-e0ec221b6a20；本节落实[语言与
 
 合入操作必须绑定已检查的预期 source HEAD，防止新 push 在检查后替换候选内容。源版本变化后重新检查受影响的验证和评审。自动合入仅在实际配置支持且其保护条件满足时使用，不假设存在 merge queue 或已启用 auto-merge。
 
+<a id="ci-priority-label"></a>
+### 4.3 高优 CI 快车道标签（`ci-priority`）
+
+`.github/workflows/rust.yml` 为同仓库（`head.repo.full_name == github.repository`，排除外部 fork）PR 提供 `ci-priority` 标签路由：
+
+- **机制：** 带有 `ci-priority` 标签的同仓库 PR 会将 `required-gate` 依赖路径上的 Linux job 调度到组织付费 GitHub-hosted Larger Runner（`oasis7-priority-linux`，镜像需保持为 Ubuntu 24.04），与免费 `ubuntu-24.04` 队列隔离；诊断预览类（如 `pr-fast-preview` 16 路冷编译矩阵）、非 PR/trusted 任务及跨平台 job 仍保持原 runner。未带该标签的 PR 默认走免费 `ubuntu-24.04`。
+- **用法：** 仅用于明确紧急或解除主干/CI 阻塞的高优 PR。由于 `gh pr create --label ci-priority` 会先触发 `opened`（此时标签列表为空）再补打标签，且 `gh run rerun` 不会刷新旧事件的标签 payload，补打标签后须通过新 push（`synchronize`）、转 Ready 或重开 PR 触发新 run 才会切入快车道。
+- **授权约束：** `ci-priority` 会消耗组织付费 Larger Runner 额度与预算（公开仓库同样计费）。**未经用户或维护者明确授权，任何开发会话、Agent 或贡献者不得擅自为 PR 添加或使用 `ci-priority` 标签**，也不得以普通排队慢或常规自测提速为由自行启用。
+
 ## 5. 交付、状态与清理
 
 按本次约定的交付终点报告结果。仅要求分析、方案或可评审 PR 时，交付相应成果即可完成本轮请求，并如实注明代码是否已合入；不由此宣称代码交付或父目标全部完成。代码任务在验收满足且实际 PR 已合入后完成代码交付，须确认真实 merge 状态和对应提交。报告重要限制，不另建准备完成、任务完成和终态完成的证明链。
