@@ -1,5 +1,5 @@
-use oasis7_client_api::network_tier_manifest::LoadedNetworkTierManifest;
 use oasis7::simulator::WorldSnapshot as SimulatorSnapshot;
+use oasis7_client_api::network_tier_manifest::LoadedNetworkTierManifest;
 use oasis7_node::NodeSnapshot;
 use oasis7_runtime::{
     CHAIN_RESOURCE_DELTA_SCHEMA_V1, CHAIN_RESOURCE_MANIFEST_SCHEMA_V1, CHUNK_GENERATION_SCHEMA_V1,
