@@ -157,8 +157,8 @@ case "$PLATFORM" in
     require_path "$BUNDLE_DIR/oasis7 Client Launcher.app/Contents/Info.plist" file
     require_path "$BUNDLE_DIR/oasis7 Client Launcher.app/Contents/MacOS/oasis7-client-launcher" executable
     if [[ "$PLATFORM" == "macos-arm64" ]]; then
-      runtime_architecture="$(file "$BUNDLE_DIR/bin/oasis7_chain_runtime")"
-      if [[ "$runtime_architecture" != *"Mach-O"* || "$runtime_architecture" != *"arm64"* ]]; then
+      runtime_architecture="$(file -b "$BUNDLE_DIR/bin/oasis7_chain_runtime")"
+      if [[ "$runtime_architecture" != *Mach-O*arm64* ]]; then
         echo "error: macos-arm64 runtime is not Mach-O arm64: $runtime_architecture" >&2
         exit 1
       fi
