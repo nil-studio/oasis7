@@ -3122,6 +3122,84 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 for test in tests:
                     self.assertEqual(result.stdout.count('./scripts/' + test), 1, result.stdout)
 
+    def test_operational_contracts_parallel_pool_and_adapter_shards(self):
+        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
+        names = ('run_operational_identity_contract_tests', 'run_operational_node_contract_tests',
+                 'run_operational_contract_tests')
+        functions = '\n'.join(re.search(r'^' + name + r'\(\) \{\n.*?^\}', driver, re.M | re.S).group()
+                              for name in names)
+        with tempfile.TemporaryDirectory() as temporary:
+            active_dir = Path(temporary) / 'active'
+            active_dir.mkdir()
+            max_seen = Path(temporary) / 'max_seen'
+            setup = (
+                'set -euo pipefail\n'
+                'run_provider_remote_https_smoke() { run ./scripts/smoke-a.test.sh; }\n'
+                f'run() {{\n'
+                f'  local marker="{active_dir}/$$.$BASHPID"\n'
+                f'  : >"$marker"\n'
+                f'  local count\n'
+                f'  count=$(ls -1 "{active_dir}" | wc -l)\n'
+                f'  printf "%s\\n" "$count" >>"{max_seen}"\n'
+                f'  sleep 0.05\n'
+                f'  rm -f "$marker"\n'
+                f'  echo "OUT:$*"\n'
+                f'  echo "ERR:$*" >&2\n'
+                f'  if [[ -n "${{FAIL_TEST:-}}" && "$*" == *"$FAIL_TEST"* ]]; then return 41; fi\n'
+                f'}}\n'
+            )
+            ok = subprocess.run(
+                ['bash', '-c', setup + functions + '\nrun_operational_contract_tests\n'],
+                text=True, capture_output=True,
+                env=dict(os.environ, OASIS7_OPERATIONAL_CONTRACT_JOBS='4', FAIL_TEST=''),
+            )
+            self.assertEqual(ok.returncode, 0, ok.stderr)
+            peaks = [int(line.strip()) for line in max_seen.read_text().splitlines() if line.strip()]
+            self.assertGreaterEqual(max(peaks), 2)
+            for shard in range(4):
+                self.assertIn(
+                    f'OUT:python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter.test.py --shard {shard}/4',
+                    ok.stdout,
+                )
+            self.assertIn('OUT:./scripts/smoke-a.test.sh', ok.stdout)
+            self.assertIn('ERR:./scripts/smoke-a.test.sh', ok.stderr)
+
+            failed = subprocess.run(
+                ['bash', '-c', setup + functions + '\nrun_operational_contract_tests\necho never\n'],
+                text=True, capture_output=True,
+                env=dict(os.environ, OASIS7_OPERATIONAL_CONTRACT_JOBS='4',
+                         FAIL_TEST='local-letai-provider-bridge.test.sh'),
+            )
+            self.assertEqual(failed.returncode, 41, failed.stdout + failed.stderr)
+            self.assertNotIn('never', failed.stdout)
+
+            max_seen.write_text('')
+            serial = subprocess.run(
+                ['bash', '-c', setup + functions + '\nrun_operational_contract_tests\n'],
+                text=True, capture_output=True,
+                env={k: v for k, v in dict(os.environ, OASIS7_LOCAL_CHECK='1', FAIL_TEST='').items()
+                     if k != 'OASIS7_OPERATIONAL_CONTRACT_JOBS'},
+            )
+            self.assertEqual(serial.returncode, 0, serial.stderr)
+            serial_peaks = [int(line.strip()) for line in max_seen.read_text().splitlines() if line.strip()]
+            self.assertEqual(max(serial_peaks), 1)
+
+        import importlib.util
+        adapter_test_path = ROOT / 'scripts/p2p-public-testnet-full-network-clean-room-adapter.test.py'
+        spec = importlib.util.spec_from_file_location('clean_room_adapter_test_mod', adapter_test_path)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules['clean_room_adapter_test_mod'] = mod
+        try:
+            spec.loader.exec_module(mod)
+            loaded = unittest.defaultTestLoader.loadTestsFromModule(mod)
+            all_ids = sorted(case.id() for case in mod._flatten_suite(loaded))
+        finally:
+            sys.modules.pop('clean_room_adapter_test_mod', None)
+        shards = [all_ids[index::4] for index in range(4)]
+        self.assertTrue(all(shards))
+        self.assertEqual(sum(len(shard) for shard in shards), len(all_ids))
+        self.assertEqual(sorted(item for shard in shards for item in shard), all_ids)
+
     def test_local_public_testnet_build_uses_selected_repo_in_dev_and_ci(self):
         with tempfile.TemporaryDirectory() as directory:
             temporary = Path(directory)

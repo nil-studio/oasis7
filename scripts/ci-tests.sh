@@ -882,10 +882,13 @@ run_packaging_contract_tests() {
 }
 
 run_operational_identity_contract_tests() {
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter.test.py --shard 0/4
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter.test.py --shard 1/4
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter.test.py --shard 2/4
+  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter.test.py --shard 3/4
   run python3 ./scripts/p2p-public-testnet-full-network-clean-room.test.py
-  run python3 ./scripts/p2p-public-testnet-full-network-clean-room-adapter.test.py
-  run python3 ./scripts/p2p-public-testnet-identity-v2-signing-tool.test.py
   run python3 ./scripts/p2p-public-testnet-identity-v2-cli-bridge.test.py
+  run python3 ./scripts/p2p-public-testnet-identity-v2-signing-tool.test.py
   run python3 ./scripts/p2p-public-testnet-identity-v2-evidence-aggregate.test.py
   run python3 ./scripts/p2p-public-testnet-peer-registry.test.py
 }
@@ -918,10 +921,114 @@ run_operational_node_contract_tests() {
 }
 
 run_operational_contract_tests() {
-  run python3 ./scripts/oasis7-runtime-finality-baseline.test.py
+  local max_jobs="${OASIS7_OPERATIONAL_CONTRACT_JOBS:-}"
+  if [[ -z "$max_jobs" ]]; then
+    if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then
+      max_jobs=1
+    else
+      max_jobs="$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)"
+      if [[ "$max_jobs" =~ ^[0-9]+$ ]] && (( max_jobs > 4 )); then
+        max_jobs=4
+      fi
+    fi
+  fi
+  if [[ ! "$max_jobs" =~ ^[0-9]+$ ]] || (( max_jobs < 1 )); then
+    echo "invalid OASIS7_OPERATIONAL_CONTRACT_JOBS: $max_jobs" >&2
+    return 2
+  fi
+  if (( max_jobs == 1 )); then
+    run python3 ./scripts/oasis7-runtime-finality-baseline.test.py
+    run_operational_identity_contract_tests
+    run_operational_node_contract_tests
+    return 0
+  fi
+
+  local op_tmp orig_run_def op_total=0 worker_count w i rc first_rc=0 next_flush=0 alive
+  local -a worker_pids=()
+  op_tmp="$(mktemp -d "${TMPDIR:-/tmp}/oasis7-op-contracts.XXXXXX")"
+  orig_run_def="$(declare -f run)"
+  run() {
+    printf '%s\0' "$@" >"$op_tmp/cmd-$op_total"
+    op_total=$((op_total + 1))
+  }
   run_operational_identity_contract_tests
+  run python3 ./scripts/oasis7-runtime-finality-baseline.test.py
   run_operational_node_contract_tests
+  eval "$orig_run_def"
+
+  worker_count="$max_jobs"
+  if (( op_total < worker_count )); then
+    worker_count="$op_total"
+  fi
+  for (( w = 0; w < worker_count; w++ )); do
+    (
+      set +e
+      local idx task_rc arg
+      local -a cmd_args
+      for (( idx = 0; idx < op_total; idx++ )); do
+        [[ ! -f "$op_tmp/stop" ]] || exit 0
+        mkdir "$op_tmp/claim-$idx" 2>/dev/null || continue
+        cmd_args=()
+        while IFS= read -r -d '' arg; do
+          cmd_args+=("$arg")
+        done <"$op_tmp/cmd-$idx"
+        (
+          set -euo pipefail
+          run "${cmd_args[@]}"
+        ) >"$op_tmp/out-$idx" 2>"$op_tmp/err-$idx"
+        task_rc=$?
+        printf '%s\n' "$task_rc" >"$op_tmp/rc-$idx.tmp"
+        mv "$op_tmp/rc-$idx.tmp" "$op_tmp/rc-$idx"
+        if (( task_rc != 0 )); then
+          : >"$op_tmp/stop"
+          exit 0
+        fi
+      done
+    ) &
+    worker_pids+=("$!")
+  done
+
+  while (( next_flush < op_total )); do
+    while (( next_flush < op_total )) && [[ -f "$op_tmp/rc-$next_flush" ]]; do
+      cat "$op_tmp/out-$next_flush"
+      cat "$op_tmp/err-$next_flush" >&2
+      next_flush=$((next_flush + 1))
+    done
+    alive=0
+    for pid in "${worker_pids[@]}"; do
+      if kill -0 "$pid" 2>/dev/null; then
+        alive=1
+        break
+      fi
+    done
+    (( alive == 1 )) || break
+    sleep 0.05
+  done
+
+  for pid in "${worker_pids[@]}"; do
+    wait "$pid" || first_rc=$?
+  done
+
+  for (( i = 0; i < op_total; i++ )); do
+    if [[ -f "$op_tmp/rc-$i" ]]; then
+      if (( i >= next_flush )); then
+        cat "$op_tmp/out-$i"
+        cat "$op_tmp/err-$i" >&2
+      fi
+      rc="$(<"$op_tmp/rc-$i")"
+      if (( rc != 0 && first_rc == 0 )); then
+        first_rc="$rc"
+      fi
+    elif (( first_rc == 0 )); then
+      echo "missing operational contract result for task $i" >&2
+      first_rc=1
+    fi
+  done
+
+  rm -rf "$op_tmp"
+  return "$first_rc"
 }
+
 
 
 run_all_required_gate_capability_contract_tests() {

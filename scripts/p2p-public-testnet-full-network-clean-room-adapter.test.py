@@ -8142,5 +8142,43 @@ class StorageFirstExactHeadFindingTests(unittest.TestCase):
             self.adapter._storage_first_validate_ledger_readback(ledger)
 
 
-if __name__ == "__main__":
+def _flatten_suite(suite: unittest.TestSuite) -> list[unittest.TestCase]:
+    cases: list[unittest.TestCase] = []
+    for item in suite:
+        if isinstance(item, unittest.TestSuite):
+            cases.extend(_flatten_suite(item))
+        else:
+            cases.append(item)
+    return cases
+
+
+def _run_cli() -> None:
+    if len(sys.argv) == 3 and sys.argv[1] == "--shard":
+        raw = sys.argv[2]
+        parts = raw.split("/")
+        if len(parts) != 2 or not all(part.isdigit() for part in parts):
+            raise SystemExit(f"invalid --shard specification: {raw!r}")
+        index, total = int(parts[0]), int(parts[1])
+        if total < 1 or total > 64 or not (0 <= index < total):
+            raise SystemExit(f"out-of-range --shard specification: {raw!r}")
+        loaded = unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__])
+        if unittest.defaultTestLoader.errors:
+            for error in unittest.defaultTestLoader.errors:
+                sys.stderr.write(f"{error}\n")
+            raise SystemExit(1)
+        all_cases = sorted(_flatten_suite(loaded), key=lambda case: case.id())
+        if any(case.__class__.__name__ == "_FailedTest" for case in all_cases):
+            raise SystemExit("failed to discover clean-room adapter tests")
+        if len(all_cases) < total:
+            raise SystemExit(f"shard count {total} exceeds discovered tests {len(all_cases)}")
+        selected = all_cases[index::total]
+        runner = unittest.TextTestRunner(verbosity=1)
+        result = runner.run(unittest.TestSuite(selected))
+        if not result.wasSuccessful() or result.testsRun != len(selected):
+            raise SystemExit(1)
+        return
     unittest.main()
+
+
+if __name__ == "__main__":
+    _run_cli()
