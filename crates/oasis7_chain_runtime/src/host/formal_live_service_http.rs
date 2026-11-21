@@ -215,11 +215,19 @@ pub(super) fn parse_http_headers(header: &[u8]) -> Result<(String, String, usize
     let header = std::str::from_utf8(header).map_err(|_| "HTTP headers are not UTF-8")?;
     let mut lines = header.split("\r\n");
     let request_line = lines.next().ok_or("HTTP request line missing")?;
-    let mut request = request_line.split_ascii_whitespace();
+    // This is a signed, mutation-facing service. Require the original HTTP
+    // request line's exact SP delimiters instead of normalizing tabs or
+    // repeated whitespace into an apparently canonical route.
+    if request_line.bytes().any(|byte| byte.is_ascii_control()) {
+        return Err("unsupported HTTP request line".into());
+    }
+    let mut request = request_line.split(' ');
     let method = request.next().ok_or("HTTP method missing")?;
     let path = request.next().ok_or("HTTP path missing")?;
     let version = request.next().ok_or("HTTP version missing")?;
-    if request.next().is_some()
+    if method.is_empty()
+        || path.is_empty()
+        || request.next().is_some()
         || !matches!(version, "HTTP/1.0" | "HTTP/1.1")
         || path.contains('?')
         || path.contains('#')
@@ -359,5 +367,28 @@ mod framing_tests {
             "GET /v1/chain/status HTTP/1.1\r\nX-Note: café".as_bytes()
         )
         .is_ok());
+    }
+
+    #[test]
+    fn signed_formal_http_rejects_noncanonical_request_line_before_dispatch() {
+        for malformed in [
+            b"GET\t/v1/chain/status HTTP/1.1\r\nHost: localhost\r\n\r\n".as_slice(),
+            b"GET  /v1/chain/status HTTP/1.1\r\nHost: localhost\r\n\r\n".as_slice(),
+            b"GET /v1/chain/status\tHTTP/1.1\r\nHost: localhost\r\n\r\n".as_slice(),
+            b"POST /v1/world/submit  HTTP/1.1\r\nContent-Length: 2\r\n\r\n{}".as_slice(),
+            b"GET /v1/chain/status\0 HTTP/1.1\r\nHost: localhost\r\n\r\n".as_slice(),
+        ] {
+            assert!(
+                receive(malformed).is_err(),
+                "accepted noncanonical request line: {malformed:?}"
+            );
+        }
+
+        let (method, path, body) =
+            receive(b"GET /v1/chain/status HTTP/1.1\r\nHost: localhost\r\n\r\n")
+                .expect("canonical HTTP request line");
+        assert_eq!(method, "GET");
+        assert_eq!(path, "/v1/chain/status");
+        assert!(body.is_empty());
     }
 }
