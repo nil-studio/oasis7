@@ -257,9 +257,16 @@ pub(super) fn parse_http_headers(header: &[u8]) -> Result<(String, String, usize
             if content_length.is_some() {
                 return Err("duplicate HTTP content length".into());
             }
+            // HTTP Content-Length is an ASCII decimal, with only SP/HTAB
+            // allowed as field OWS. Rust's usize parser accepts a leading '+',
+            // and Unicode trim would erase non-HTTP whitespace. Neither form
+            // is safe to normalize on a signed mutation-facing service.
+            let decimal = value.trim_matches(|ch: char| ch == ' ' || ch == '\t');
+            if decimal.is_empty() || !decimal.bytes().all(|byte| byte.is_ascii_digit()) {
+                return Err("invalid HTTP content length".into());
+            }
             content_length = Some(
-                value
-                    .trim()
+                decimal
                     .parse::<usize>()
                     .map_err(|_| "invalid HTTP content length")?,
             );
@@ -367,6 +374,31 @@ mod framing_tests {
             "GET /v1/chain/status HTTP/1.1\r\nX-Note: café".as_bytes()
         )
         .is_ok());
+    }
+
+    #[test]
+    fn signed_formal_http_requires_ascii_decimal_content_length_on_real_tcp() {
+        // Content-Length must not acquire an alternative framing meaning
+        // through Rust numeric parsing or Unicode whitespace normalization.
+        for malformed in [
+            b"POST /v1/world/submit HTTP/1.1\r\nContent-Length: +2\r\n\r\n{}".as_slice(),
+            b"POST /v1/world/submit HTTP/1.1\r\nContent-Length: \xc2\xa02\r\n\r\n{}".as_slice(),
+            b"POST /v1/world/submit HTTP/1.1\r\nContent-Length: 2\xc2\xa0\r\n\r\n{}".as_slice(),
+            b"POST /v1/world/submit HTTP/1.1\r\nContent-Length: \t+2\r\n\r\n{}".as_slice(),
+            b"POST /v1/world/submit HTTP/1.1\r\nContent-Length: 2 2\r\n\r\n{}".as_slice(),
+        ] {
+            assert!(
+                receive(malformed).is_err(),
+                "accepted non-decimal HTTP length: {malformed:?}"
+            );
+        }
+        // Legal HTTP OWS and leading zeroes retain the same exact framing.
+        let (method, path, body) =
+            receive(b"POST /v1/world/submit HTTP/1.1\r\nContent-Length:\t002 \t\r\n\r\n{}")
+                .expect("ASCII decimal with legal OWS");
+        assert_eq!(method, "POST");
+        assert_eq!(path, "/v1/world/submit");
+        assert_eq!(body, b"{}");
     }
 
     #[test]
