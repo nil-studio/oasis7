@@ -13,6 +13,9 @@ pub(super) const MAX_PROXY_ATTEMPTS: usize = 4;
 const MAX_INFLIGHT: usize = 32;
 const MAX_WINDOW_STARTS: usize = 128;
 pub(super) const MAX_COOLDOWN_ENTRIES: usize = 1024;
+// Successful Rendezvous registrations are advisory and can be retried when
+// their cached digest is evicted. Do not retain an unbounded peer history.
+const MAX_REGISTERED_RENDEZVOUS_NODES: usize = 1024;
 const WINDOW: Duration = Duration::from_secs(60);
 const MAX_RENDEZVOUS_ADDRESSES: usize = 128;
 const MAX_RENDEZVOUS_ADDRESS_BYTES: usize = 64 * 1024;
@@ -192,8 +195,7 @@ impl DiscoveryWorkBudget {
         if kind == RendezvousOperationKind::Register {
             match (succeeded, operation.external_addresses_digest) {
                 (true, Some(expected)) if Some(expected) == current_external_addresses_digest => {
-                    self.registered_rendezvous_addresses
-                        .insert(peer_id, expected);
+                    self.remember_rendezvous_registration(peer_id, expected);
                 }
                 _ => {
                     self.registered_rendezvous_addresses.remove(&peer_id);
@@ -203,6 +205,23 @@ impl DiscoveryWorkBudget {
         self.finish_unscheduled();
         true
     }
+    fn remember_rendezvous_registration(&mut self, peer_id: PeerId, digest: [u8; 32]) {
+        // Updating an existing entry must not evict an unrelated peer. New
+        // entries evict only an advisory registration; a later live connection
+        // can re-register because rendezvous_registration_matches returns false.
+        if !self.registered_rendezvous_addresses.contains_key(&peer_id)
+            && self.registered_rendezvous_addresses.len() >= MAX_REGISTERED_RENDEZVOUS_NODES
+            && let Some(victim) = self
+                .registered_rendezvous_addresses
+                .keys()
+                .min_by_key(|peer| peer.to_bytes())
+                .copied()
+        {
+            self.registered_rendezvous_addresses.remove(&victim);
+        }
+        self.registered_rendezvous_addresses.insert(peer_id, digest);
+    }
+
     pub(super) fn rendezvous_registration_matches(
         &self,
         peer_id: PeerId,
@@ -279,6 +298,52 @@ mod rendezvous_budget_callsite_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn rendezvous_registration_cache_is_bounded_and_evicted_peers_can_register_again() {
+        let mut budget = DiscoveryWorkBudget::default();
+        let mut peers = std::collections::HashSet::new();
+        while peers.len() < MAX_REGISTERED_RENDEZVOUS_NODES {
+            peers.insert(PeerId::random());
+        }
+        let digest = [7; 32];
+        for peer in &peers {
+            budget.remember_rendezvous_registration(*peer, digest);
+        }
+        assert_eq!(
+            budget.registered_rendezvous_addresses.len(),
+            MAX_REGISTERED_RENDEZVOUS_NODES
+        );
+        let victim = *peers.iter().min_by_key(|peer| peer.to_bytes()).unwrap();
+        let newcomer = loop {
+            let candidate = PeerId::random();
+            if !peers.contains(&candidate) {
+                break candidate;
+            }
+        };
+        budget.remember_rendezvous_registration(newcomer, digest);
+        assert_eq!(
+            budget.registered_rendezvous_addresses.len(),
+            MAX_REGISTERED_RENDEZVOUS_NODES
+        );
+        assert!(!budget.rendezvous_registration_matches(victim, Some(digest)));
+        assert!(budget.rendezvous_registration_matches(newcomer, Some(digest)));
+        // A repeated success for the same peer refreshes its digest without
+        // discarding any other entry; the evicted server must do fresh work.
+        budget.remember_rendezvous_registration(newcomer, [9; 32]);
+        assert!(budget.rendezvous_registration_matches(newcomer, Some([9; 32])));
+        assert!(!budget.rendezvous_registration_matches(newcomer, Some(digest)));
+        assert_eq!(
+            budget.registered_rendezvous_addresses.len(),
+            MAX_REGISTERED_RENDEZVOUS_NODES
+        );
+        budget.remember_rendezvous_registration(victim, digest);
+        assert!(budget.rendezvous_registration_matches(victim, Some(digest)));
+        assert_eq!(
+            budget.registered_rendezvous_addresses.len(),
+            MAX_REGISTERED_RENDEZVOUS_NODES
+        );
+    }
+
     #[test]
     fn sliding_window_survives_terminal_release_and_source_switching() {
         let now = Instant::now();

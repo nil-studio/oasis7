@@ -7,6 +7,7 @@
 mod governance_candidate_projection;
 mod governance_membership;
 mod governance_projection;
+mod governance_quote;
 
 pub use governance_candidate_projection::WorldGovernanceCandidateRegistryProjectionV2;
 pub use governance_membership::{

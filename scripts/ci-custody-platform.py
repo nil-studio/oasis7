@@ -92,13 +92,25 @@ def load(path):
 
 def enabled(plan):
     version = plan.get('custody_execution_version')
+    policy_tests = 'custody_policy_tests_version' in plan
+    if policy_tests:
+        if (type(plan['custody_policy_tests_version']) is not int
+                or plan['custody_policy_tests_version'] != 1
+                or type(plan.get('custody_compile_proof_version')) is not int
+                or plan['custody_compile_proof_version'] != 1
+                or type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1
+                or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
+                or plan.get('test_policy_changed') is not True):
+            raise ValueError('invalid custody policy tests plan')
+    elif version is not None and plan.get('test_policy_changed') is True:
+        raise ValueError('custody policy tests require an explicit capability')
     if 'custody_compile_proof_version' in plan:
         if (type(plan['custody_compile_proof_version']) is not int
                 or plan['custody_compile_proof_version'] != 1
                 or type(version) is not int or version != 1
                 or type(plan.get('workspace_support_profile_version')) is not int
                 or type(plan.get('workspace_support_partition_version')) is not int
-                or plan.get('test_policy_changed') is not False):
+                or not (plan.get('test_policy_changed') is False or policy_tests)):
             raise ValueError('invalid custody compile proof plan')
     if version is None:
         return False
@@ -145,6 +157,24 @@ def build_stage(root, plan, component, run_id, attempt, expected_identity):
     if component == 'wasm-approval' and proof:
         return 'wasm-approval-artifacts'
     return component
+
+
+def policy_test_command(root, plan):
+    """The original support driver's complete Worker policy-expansion tail."""
+    if not enabled(plan) or plan.get('custody_policy_tests_version') != 1:
+        raise ValueError('custody policy tests are not selected')
+    spec = importlib.util.spec_from_file_location('custody_artifacts', Path(__file__).with_name('ci-test-artifacts.py'))
+    artifacts = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(artifacts)
+    artifacts.ROOT = root
+    # Same manifest-owned tiers and risk features as run_selected_workspace_support;
+    # new targets must execute even when this package declares no tier features.
+    features = artifacts.package_features(['oasis7_custody_worker'], include_full=True)
+    command = ['env', '-u', 'RUSTC_WRAPPER', 'cargo']
+    if os.environ.get('CI_VERBOSE') == '1':
+        command.append('--verbose')
+    command += ['test', '-p', 'oasis7_custody_worker', '--all-targets']
+    return command + (['--features', ','.join(features)] if features else [])
 
 
 def inventory(root):
@@ -424,7 +454,7 @@ def validate_jobs(plan, needs):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=('stage', 'pack', 'restore', 'run', 'validate'))
+    parser.add_argument('action', choices=('stage', 'policy-tests', 'pack', 'restore', 'run', 'validate'))
     parser.add_argument('--repo-root', type=Path, default=Path.cwd())
     parser.add_argument('--plan', type=Path, required=True)
     parser.add_argument('--run-id', default=os.environ.get('GITHUB_RUN_ID', ''))
@@ -443,13 +473,20 @@ def main():
     actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip()
     if actual != plan.get('tested_sha'):
         raise ValueError('custody checkout is not the selected tested commit')
-    if args.action == 'stage':
+    if args.action in ('stage', 'policy-tests'):
         expected_digest = os.environ.get('CUSTODY_SELECTION_SHA256', '')
         if not re.fullmatch(r'[0-9a-f]{64}', expected_digest) or digest(args.plan) != expected_digest:
             raise ValueError('custody selection does not match its scheduling digest')
         expected_identity = {key: os.environ.get('OASIS7_SUPPORT_' + key.upper())
                              for key in ('source_sha', 'tested_sha', 'policy_sha')}
-        print(build_stage(root, plan, args.component, args.run_id, args.attempt, expected_identity))
+        stage = build_stage(root, plan, args.component if args.action == 'stage' else 'native',
+                            args.run_id, args.attempt, expected_identity)
+        if args.action == 'stage':
+            print(stage)
+        else:
+            # Remains part of the required native-contract job, independent of
+            # artifact consumers. Never mask the real Cargo failure.
+            subprocess.run(policy_test_command(root, plan), cwd=root, check=True)
     elif args.action == 'pack':
         if args.component not in COMPONENTS or args.bundle is None:
             parser.error('pack needs --component and --bundle')

@@ -1111,6 +1111,12 @@ def validate_config(config):
                 or type(config.get('workspace_support_partition_version')) is not int
                 or config['workspace_support_partition_version'] != 1):
             raise ValueError('invalid custody compile proof capability')
+    if 'custody_policy_tests_version' in config:
+        if (type(config['custody_policy_tests_version']) is not int
+                or config['custody_policy_tests_version'] != 1
+                or type(config.get('custody_compile_proof_version')) is not int
+                or config['custody_compile_proof_version'] != CUSTODY_COMPILE_PROOF_VERSION):
+            raise ValueError('invalid custody policy tests capability')
     if 'ordinary_artifact_partition_version' in config:
         if (type(config['ordinary_artifact_partition_version']) is not int
                 or config['ordinary_artifact_partition_version'] not in (1, 2)
@@ -3608,13 +3614,21 @@ def complete_ordinary_partitions(config, plan):
     if config.get('workspace_support_partition_version') == 1 and 'workspace_support' in plan['groups']:
         plan.update(workspace_support_partition_version=1,
                     workspace_support_partitions=support_partitions(plan['workspace_support_profiles']))
+        policy_tests = (config.get('custody_policy_tests_version') == 1
+                        and plan.get('test_policy_changed') is True
+                        and type(plan.get('fast_plan_version')) is int and plan['fast_plan_version'] == 1
+                        and plan.get('execution_profile') in ('pr-fast', 'main-fast')
+                        and 'oasis7_custody_worker' in plan['workspace_support_profiles']
+                        and custody_source_supports_compile_proof(plan, field='custody_policy_tests_version'))
         if (config.get('custody_execution_version') == CUSTODY_EXECUTION_VERSION
                 and 'oasis7_custody_worker' in plan['workspace_support_profiles']
-                and plan.get('test_policy_changed') is False):
-            # Policy edits keep the legacy support driver's expanded-feature
-            # --all-targets tail; the split build contract does not replace it.
+                and (plan.get('test_policy_changed') is False or policy_tests)):
+            # Policy edits only split when a trusted, source-supported native
+            # contract owner also runs the complete expanded --all-targets tail.
             plan.update(custody_execution_version=CUSTODY_EXECUTION_VERSION,
                         custody_node_shards=list(CUSTODY_NODE_SHARDS))
+            if policy_tests:
+                plan['custody_policy_tests_version'] = 1
             if config.get('custody_compile_proof_version') == CUSTODY_COMPILE_PROOF_VERSION:
                 if custody_source_supports_compile_proof(plan):
                     plan['custody_compile_proof_version'] = CUSTODY_COMPILE_PROOF_VERSION
@@ -3622,7 +3636,7 @@ def complete_ordinary_partitions(config, plan):
                     plan['reasons'].append('tested source retains complete legacy custody approval proofs')
 
 
-def custody_source_supports_compile_proof(plan):
+def custody_source_supports_compile_proof(plan, *, field='custody_compile_proof_version'):
     # A trusted workflow can validate a historical source whose helper and
     # verifier predate this optional protocol. Source declarations can only
     # withhold trusted authority, never grant it. The same rule applies to fast
@@ -3636,16 +3650,27 @@ def custody_source_supports_compile_proof(plan):
         raise ValueError('cannot read tested custody protocol configuration') from error
     if not isinstance(source_config, dict):
         raise ValueError('invalid tested custody protocol configuration')
-    field = 'custody_compile_proof_version'
     if field not in source_config:
         return False
     if (type(source_config[field]) is not int or source_config[field] != CUSTODY_COMPILE_PROOF_VERSION
             or type(source_config.get('custody_execution_version')) is not int
             or source_config['custody_execution_version'] != CUSTODY_EXECUTION_VERSION
             or type(source_config.get('workspace_support_partition_version')) is not int
-            or source_config['workspace_support_partition_version'] != 1):
-        raise ValueError('invalid tested custody compile proof capability')
+            or source_config['workspace_support_partition_version'] != 1
+            or field == 'custody_policy_tests_version' and (
+                type(source_config.get('custody_compile_proof_version')) is not int
+                or source_config['custody_compile_proof_version'] != CUSTODY_COMPILE_PROOF_VERSION)):
+        raise ValueError('invalid tested custody capability: ' + field)
     return True
+
+
+WORKSPACE_SUPPORT_HOST_PROFILES = frozenset({'oasis7_game_client', 'oasis7_local_signer'})
+
+
+def workspace_support_requires_host(plan):
+    """Keep non-root native contracts and the full-profile fallback."""
+    return (plan.get('scope') == 'full'
+            or bool(WORKSPACE_SUPPORT_HOST_PROFILES.intersection(plan.get('workspace_support_profiles', ()))))
 
 
 def support_partitions(profiles):
@@ -4444,6 +4469,7 @@ def main():
             if args.profile:
                 output.write('ordinary_partitions=' + json.dumps(plan.get('ordinary_partitions', ['all']), separators=(',', ':')) + '\n')
                 output.write('workspace_support_partitions=' + json.dumps(plan.get('workspace_support_partitions', ['all']), separators=(',', ':')) + '\n')
+                output.write('workspace_support_host=' + str(workspace_support_requires_host(plan)).lower() + '\n')
                 output.write('formal_shards=' + json.dumps(plan['formal_shards'], separators=(',', ':')) + '\n')
                 output.write('command_center_package=' + str(plan['command_center_package']).lower() + '\n')
     print(encoded)

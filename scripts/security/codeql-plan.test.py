@@ -49,6 +49,37 @@ class PlannerTests(unittest.TestCase):
         args.update(kw)
         return planner.plan(SimpleNamespace(**args))
 
+    def test_triad_fixture_add_modify_delete_routes_only_rust(self):
+        path = 'tools/scenario_test_runner/scenarios/triad_p2p.yaml'
+        for value in ('name: before', 'name: after', None):
+            with self.subTest(value=value):
+                self.base = self.git('rev-parse', 'HEAD')
+                if value is None:
+                    (self.root / path).unlink()
+                else:
+                    self.write(path, value)
+                self.commit()
+                result = self.run_plan()
+                self.assertEqual(result['completeness']['diff_paths'], [path])
+                self.assertEqual(result['candidate_units'], ['rust-repo'])
+                self.assertEqual(result['selected_units'], ['rust-repo'])
+                self.assertEqual(result['reasons']['rust-repo'], [path])
+                self.assertEqual(self.run_plan(batch_modes='{}')['selected_units'], [])
+
+    def test_triad_yaml_neighbors_still_fail_closed(self):
+        for path in ('tools/scenario_test_runner/scenarios/other.yaml',
+                     'tools/scenario_test_runner/scenarios/triad_p2p.yml',
+                     'other/triad_p2p.yaml'):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, 'name: unregistered')
+                self.commit()
+                for full in (False, True):
+                    with self.assertRaisesRegex(ValueError, 'unregistered input: ' + path):
+                        self.run_plan(full=full)
+                (self.root / path).unlink()
+                self.commit()
+
     def test_root_deny_policy_add_modify_delete_routes_actions(self):
         for value in ('[advisories]\nignore=[]\n', '[advisories]\nignore=["fixture"]\n'):
             self.base = self.git('rev-parse', 'HEAD')

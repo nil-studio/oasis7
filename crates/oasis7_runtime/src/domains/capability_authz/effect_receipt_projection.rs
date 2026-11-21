@@ -2,25 +2,25 @@
 
 use std::collections::BTreeMap;
 
-use super::super::{
+use crate::{
     CapabilityAuthorizationAuditReceipt, CapabilityAuthorizationEvent, CapabilityEffectReceiptLink,
 };
-use super::World;
+use crate::world::World;
 
-pub(super) struct PreparedCapabilityEffectReceipt {
-    pub(super) event: CapabilityAuthorizationEvent,
-    pub(super) capability_authorization_receipts:
+pub(in crate::world) struct PreparedCapabilityEffectReceipt {
+    pub(in crate::world) event: CapabilityAuthorizationEvent,
+    pub(in crate::world) capability_authorization_receipts:
         BTreeMap<String, CapabilityAuthorizationAuditReceipt>,
-    pub(super) capability_effect_receipt_links: BTreeMap<String, CapabilityEffectReceiptLink>,
-    pub(super) capability_authorization_root: String,
+    pub(in crate::world) capability_effect_receipt_links: BTreeMap<String, CapabilityEffectReceiptLink>,
+    pub(in crate::world) capability_authorization_root: String,
 }
 
 impl PreparedCapabilityEffectReceipt {
-    pub(super) fn matches_event(&self, event: &CapabilityAuthorizationEvent) -> bool {
+    pub(in crate::world) fn matches_event(&self, event: &CapabilityAuthorizationEvent) -> bool {
         &self.event == event
     }
 
-    pub(super) fn install(self, world: &mut World) {
+    pub(in crate::world) fn install(self, world: &mut World) {
         world.capability_authorization_receipts = self.capability_authorization_receipts;
         world.capability_effect_receipt_links = self.capability_effect_receipt_links;
         world.capability_authorization_root = self.capability_authorization_root;

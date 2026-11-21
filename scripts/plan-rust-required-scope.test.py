@@ -49,6 +49,17 @@ RETIREMENT_INPUT_CONTRACTS = {
 
 
 class Selection(unittest.TestCase):
+    def test_workspace_support_host_schedule_preserves_targeted_game_client_and_full(self):
+        for scope, profiles, expected in (
+            ('targeted', ['oasis7_game_client'], True),
+            ('targeted', ['oasis7_local_signer'], True),
+            ('targeted', ['oasis7_context'], False),
+            ('full', ['oasis7_context'], True),
+        ):
+            with self.subTest(scope=scope, profiles=profiles):
+                self.assertIs(selector.workspace_support_requires_host(
+                    {'scope': scope, 'workspace_support_profiles': profiles}), expected)
+
     def test_retirement_input_exact_ownership_covers_add_modify_delete_and_rename(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
         with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
@@ -5051,6 +5062,76 @@ class CustodyExecutionPlans(unittest.TestCase):
         self.write('scripts/ci-required-scope.json', json.dumps(self.config))
         self.base = self.commit()
 
+    def test_policy_migration_partitions_preserve_the_complete_legacy_plan(self):
+        config = self.config | {'custody_policy_tests_version': 1}
+        self.write('scripts/ci-required-scope.json', json.dumps(config))
+        self.write('doc/custody-policy-base.md', 'complete policy fixture\n')
+        base = self.commit()
+        self.write('crates/oasis7_custody_worker/src/lib.rs',
+                   '#[cfg(feature="test_tier_full")] #[test] fn expanded_worker_case() {}\n')
+        head = self.commit()
+        old = {key: value for key, value in config.items() if key != 'custody_policy_tests_version'}
+        for profile in ('pr-fast', 'main-fast'):
+            with self.subTest(profile=profile):
+                before = selector.select(old, base, head, profile=profile)
+                after = selector.select(config, base, head, profile=profile)
+                self.assertIs(before['test_policy_changed'], True)
+                self.assertNotIn('custody_execution_version', before)
+                self.assertEqual(after['custody_policy_tests_version'], 1)
+                self.assertEqual(after['custody_compile_proof_version'], 1)
+                self.assertEqual(after['custody_node_shards'], [0, 1, 2, 3])
+                for field in ('custody_execution_version', 'custody_node_shards',
+                              'custody_compile_proof_version', 'custody_policy_tests_version'):
+                    after.pop(field)
+                self.assertEqual(after, before)
+
+    def test_policy_partition_requires_trusted_and_fixed_tested_capabilities(self):
+        field = 'custody_policy_tests_version'
+        config = self.config | {field: 1}
+        old = {key: value for key, value in config.items() if key != field}
+        self.write('scripts/ci-required-scope.json', json.dumps(old))
+        self.write('doc/custody-policy-base.md', 'historical policy fixture\n')
+        base = self.commit()
+        self.write('crates/oasis7_custody_worker/src/lib.rs', '#[test] fn new_worker_case() {}\n')
+        source = self.commit()
+        self.write('scripts/ci-required-scope.json', json.dumps(config))
+        policy = self.commit()
+        for profile in ('pr-fast', 'main-fast'):
+            for trusted, tested in ((old, policy), (config, source)):
+                with self.subTest(profile=profile, tested=tested):
+                    plan = selector.select(trusted, base, source, test_head=tested,
+                                           profile=profile, policy_ref=policy)
+                    self.assertIs(plan['test_policy_changed'], True)
+                    self.assertNotIn('custody_execution_version', plan)
+                    self.assertNotIn(field, plan)
+            plan = selector.select(config, base, source, test_head=policy,
+                                   profile=profile, policy_ref=policy)
+            self.assertEqual(plan[field], 1)
+
+    def test_policy_partition_capability_requires_strict_versions_and_complete_parents(self):
+        field = 'custody_policy_tests_version'
+        config = self.config | {field: 1}
+        for key in (field, 'custody_compile_proof_version'):
+            for invalid in (None, False, True, 0, 2, 1.0, '1', 'missing'):
+                changed = config | {key: invalid}
+                if invalid == 'missing':
+                    del changed[key]
+                    if key == field:
+                        continue
+                with self.subTest(key=key, invalid=invalid), self.assertRaises(ValueError):
+                    selector.validate_config(changed)
+
+    def test_policy_partition_rejects_invalid_fixed_tested_declarations(self):
+        field = 'custody_policy_tests_version'
+        for key in (field, 'custody_compile_proof_version'):
+            for value in (None, False, True, 0, 2, 1.0, '1'):
+                self.git('checkout', '-q', self.base)
+                self.write('crates/oasis7_custody_worker/src/lib.rs', '#[test] fn new_worker_case() {}\n')
+                self.write('scripts/ci-required-scope.json', json.dumps(self.config | {key: value}))
+                source = self.commit()
+                with self.subTest(key=key, value=value), self.assertRaisesRegex(ValueError, 'tested custody'):
+                    selector.select(self.config, self.base, source, profile='pr-fast')
+
     def test_worker_plan_contains_complete_fixed_shards_in_fast_and_full_profiles(self):
         self.write('crates/oasis7_custody_worker/tests/platform.test.mjs', '// complete platform case\n')
         head = self.commit()
@@ -5080,6 +5161,7 @@ class CustodyExecutionPlans(unittest.TestCase):
         old = copy.deepcopy(self.config)
         old.pop('custody_execution_version')
         old.pop('custody_compile_proof_version')
+        old.pop('custody_policy_tests_version')
         self.write('scripts/ci-required-scope.json', json.dumps(old))
         self.base = self.commit()
         self.write('crates/oasis7_custody_worker/tests/platform.test.mjs', '// worker case\n')
@@ -5098,6 +5180,7 @@ class CustodyExecutionPlans(unittest.TestCase):
     def test_missing_baseline_proof_capability_preserves_old_approval_and_cannot_self_enroll(self):
         old = copy.deepcopy(self.config)
         del old['custody_compile_proof_version']
+        del old['custody_policy_tests_version']
         self.write('scripts/ci-required-scope.json', json.dumps(old))
         base = self.commit()
         self.write('crates/oasis7_custody_worker/tests/platform.test.mjs', '// complete old custody case\n')
@@ -5125,6 +5208,7 @@ class CustodyExecutionPlans(unittest.TestCase):
     def test_current_policy_preserves_historical_source_protocol_in_fast_and_full_plans(self):
         old = copy.deepcopy(self.config)
         del old['custody_compile_proof_version']
+        del old['custody_policy_tests_version']
         self.write('scripts/ci-required-scope.json', json.dumps(old))
         self.write('crates/oasis7_custody_worker/tests/platform.test.mjs', '// old protocol inventory\n')
         source = self.commit()
@@ -5181,9 +5265,10 @@ class CustodyExecutionPlans(unittest.TestCase):
             selector.validate_config(old)
 
     def test_worker_test_tier_edit_retains_legacy_expanded_feature_execution(self):
+        old = {key: value for key, value in self.config.items() if key != 'custody_policy_tests_version'}
         self.write('crates/oasis7_custody_worker/src/lib.rs',
                    '#[cfg(feature="test_tier_full")] #[test] fn expanded_worker_case() {}\n')
-        plan = selector.select(self.config, self.base, self.commit(), profile='pr-fast')
+        plan = selector.select(old, self.base, self.commit(), profile='pr-fast')
         self.assertIs(plan['test_policy_changed'], True)
         self.assertIn('oasis7_custody_worker', plan['workspace_support_profiles'])
         self.assertIn('custody', plan['workspace_support_partitions'])

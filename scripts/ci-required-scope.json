@@ -77,7 +77,7 @@
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_agent_genesis", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 807},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_agent_subtree", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 43249},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_authenticated_nonces", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 11813},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_authorization_mapsets", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 14615},
+      {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_authorization_mapsets", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 14615},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_cognition_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 127494},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_delivery_cursor", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2208},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_diplomacy_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 56482},
@@ -93,7 +93,7 @@
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_installed_module_targets", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 7209},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_inventory_change", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 4613},
       {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_inventory_genesis", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 3809},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_inventory_read", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 4609},
+      {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_inventory_read", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 4609},
       {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_json_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 805},
       {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_ledger_value", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 1808},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_logistics_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 21831},
@@ -109,11 +109,11 @@
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_governance_controls", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2808},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_scheduler_controls", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 31039},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_balances", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 10212},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_id_sets", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 6211},
+      {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_world_id_sets", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 6211},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_number_maps", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 20418},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_authorizations", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 3011},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_batches", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2811},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_effects", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 7810},
+      {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_world_rule_effects", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 7810},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_lineages", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 30627},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_organization_pages", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 31624},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_organization_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 118688},
@@ -126,7 +126,7 @@
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_genesis", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 18020},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_pages", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 54634},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_roots", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 16617},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_text_maps", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 17219},
+      {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_world_text_maps", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 17219},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_u64", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 6610},
       {"package": "oasis7_runtime", "target_kind": "test", "target_name": "module_input_cbor", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
       {"package": "oasis7_runtime", "target_kind": "test", "target_name": "module_lifecycle", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
@@ -189,6 +189,7 @@
   "workspace_support_partition_version": 1,
   "custody_execution_version": 1,
   "custody_compile_proof_version": 1,
+  "custody_policy_tests_version": 1,
   "distfs_clippy_contract_version": 1,
   "architecture_build_policy_version": 1,
   "additive_governance_registration_version": 1,
@@ -1271,6 +1272,8 @@
     "scripts/ci-rust-cache-admission.py": ["workflow_governance"],
     "scripts/ci-rust-cache-admission.test.py": ["workflow_governance"],
     "scripts/ci-rust-cache-build.test.py": ["workflow_governance"],
+    "scripts/ci-image-cache.py": ["workflow_governance"],
+    "scripts/ci-image-cache.test.py": ["workflow_governance"],
     "scripts/ci-rust-cache-toolchains.py": ["workflow_governance"],
     "scripts/ci-rust-cache-toolchains.test.py": ["workflow_governance"],
     "scripts/ci-shared-native-cache.py": ["workflow_governance"],
@@ -1310,6 +1313,7 @@
     "scripts/ci-rust-cache-toolchains.test.py",
     "scripts/ci-rust-cache-admission.test.py",
     "scripts/ci-rust-cache-build.test.py",
+    "scripts/ci-image-cache.test.py",
     "scripts/ci-support-profiles.test.py",
     "scripts/ci-custody-platform.test.py",
     "scripts/ci-custody-workerd-capture.test.py",
@@ -1615,6 +1619,14 @@
       "tests": [
         "scripts/ci-rust-cache-build.test.py"
       ]
+    },
+    "scripts/ci-image-cache.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-image-cache.test.py", "scripts/ci-workflow.test.py"]
+    },
+    "scripts/ci-image-cache.test.py": {
+      "group": "workflow_governance",
+      "tests": ["scripts/ci-image-cache.test.py"]
     },
     "scripts/ci-rust-cache-toolchains.py": {
       "group": "workflow_governance",

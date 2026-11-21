@@ -93,6 +93,9 @@ fn opposite_pending_lanes_share_capacity_and_authentication_preserves_occupancy(
     assert_eq!(occupancy(&budget, peer), (0, [0, 0], 0));
 }
 
+#[path = "connection_budget_authentication_tests.rs"]
+mod authentication_tests;
+
 fn swarm(key: &Keypair, budget: Option<ConnectionBudget>) -> Swarm<Behaviour> {
     build_swarm_with_receiver(
         key,

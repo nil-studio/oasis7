@@ -174,6 +174,55 @@ class AdmissionTests(unittest.TestCase):
         mode.write_text(json.dumps({'inputs': {'run_mode': 'full'}}))
         self.assertFalse(admission.check_archive(self.archive, environment, self.api)['allowed'])
 
+    def test_component_image_writers_keep_main_source_namespace_and_capacity_boundaries(self):
+        images = {
+            'rust-image-components': 'ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f',
+            'rust-image-net': 'ci-rust-wasm-build-57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6',
+            'rust-image-launcher': 'ci-rust-build-cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6',
+            'rust-image-tooling': 'ci-rust-build-d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc',
+        }
+        event = self.root / 'component-image-event.json'
+        for family, namespace in images.items():
+            with self.subTest(family=family):
+                environment = self.environment | {
+                    'OASIS7_DEPENDENCY_CACHE_FAMILY': family,
+                    'INPUT_SHARED-KEY': namespace, 'GITHUB_JOB': 'rust-image-component-cache',
+                }
+                self.run['event'] = 'schedule'
+                self.assertTrue(admission.check_archive(self.archive, environment, self.api)['allowed'])
+                self.assertIn(namespace, admission.maintenance.DEPENDENCY_NAMESPACES)
+                for change in ({'GITHUB_REF': 'refs/pull/1/merge'}, {'GITHUB_EVENT_NAME': 'pull_request'},
+                               {'INPUT_SHARED-KEY': 'ci-shared-native-trusted-v4'},
+                               {'INPUT_SHARED-KEY': admission.maintenance.RUST_IMAGE_DEPENDENCY_NAMESPACE},
+                               {'GITHUB_JOB': 'rust-image-native-cache'}, {'GITHUB_WORKFLOW_SHA': 'a' * 40},
+                               {'RUNNER_OS': 'Windows'}, {'RUNNER_ARCH': 'ARM64'}):
+                    with self.subTest(change=change):
+                        self.assertFalse(admission.check_archive(self.archive, environment | change, self.api)['allowed'])
+                self.run['event'] = 'workflow_dispatch'
+                manual = environment | {'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_EVENT_PATH': str(event)}
+                for mode in ('full', 'image-native', 'pr-fast', '', None):
+                    event.write_text(json.dumps({'inputs': {'run_mode': mode}}))
+                    self.assertEqual(admission.check_archive(self.archive, manual, self.api)['allowed'],
+                                     mode in ('full', 'image-native'))
+                self.run['event'] = 'schedule'
+                self.api.list_caches.return_value = [self.entry(901)]
+                self.assertFalse(admission.check_archive(self.archive, environment, self.api)['allowed'])
+                self.api.list_caches.return_value = []
+        self.api.delete_cache.assert_not_called()
+
+    def test_component_image_writer_rejects_a_different_actual_checkout(self):
+        family = 'rust-image-components'
+        namespace = 'ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f'
+        environment = self.environment | {'OASIS7_DEPENDENCY_CACHE_FAMILY': family,
+            'INPUT_SHARED-KEY': namespace, 'GITHUB_JOB': 'rust-image-component-cache'}
+        self.assertTrue(admission.check_archive(self.archive, environment, self.api)['allowed'])
+        subprocess.run(['git', '-C', str(self.workspace), '-c', 'user.name=CI fixture',
+                        '-c', 'user.email=ci-fixture@example.invalid', 'commit', '-q',
+                        '--allow-empty', '-m', 'untrusted changed source'], check=True)
+        self.api.list_caches.reset_mock()
+        self.assertFalse(admission.check_archive(self.archive, environment, self.api)['allowed'])
+        self.api.list_caches.assert_not_called()
+
     def test_archive_growth_during_inventory_cannot_reuse_admission(self):
         def changed():
             self.archive.write_bytes(b'x' * 101)

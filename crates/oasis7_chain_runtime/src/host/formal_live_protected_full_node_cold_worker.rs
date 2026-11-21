@@ -124,12 +124,22 @@ fn run(path: &Path) -> Result<(), String> {
         .map_err(|e| e.to_string())?
         .try_into()
         .map_err(|_| "cold owner key length")?;
-    submit_change_owned(
+    let continuation = submit_change_owned(
         &owner_config,
         &input.identity,
         &SigningKey::from_bytes(&key),
         &runtime,
         input.requested,
+    )?;
+    let continuation_commit = lookup_original_commit(&owner, &continuation)?;
+    if continuation_commit.position <= fixed_position {
+        return Err("cold writer continuation did not advance the fixed head".into());
+    }
+    // Background ticks may publish separately; inspect the exact delegation
+    // publication to detect any emissions caused by administrative execution.
+    assert_admin_commit_did_not_emit_wasm(
+        &runtime.validated.config.writer_directory,
+        &continuation_commit,
     )?;
     let duplicate_commit = lookup_original_commit(&owner, &input.original)?;
     stop_owned_protected_runtime(
@@ -149,12 +159,15 @@ fn run(path: &Path) -> Result<(), String> {
     )?;
     receipt.emits = wasm_emit_count(&final_cut.world);
     receipt.final_position = final_cut.anchor.head().record().position;
-    if receipt.result != input.result
-        || receipt.effect != input.effect
-        || receipt.emits != input.emits
-        || receipt.final_position <= fixed_position
-    {
-        return Err("fresh writer continuation changed original unique effect/result".into());
+    let result_matches = receipt.result == input.result;
+    let effect_matches = receipt.effect == input.effect;
+    if !result_matches || !effect_matches || receipt.final_position < continuation_commit.position {
+        return Err(format!(
+            "fresh writer continuation changed original unique effect/result: \
+             result_matches={result_matches}, effect_matches={effect_matches}, \
+             emits_expected={}, emits_observed={}, fixed_position={fixed_position}, final_position={}",
+            input.emits, receipt.emits, receipt.final_position
+        ));
     }
     receipt.original_commit = Some(duplicate_commit);
     if receipt.original_commit.as_ref() != Some(&input.original_commit) {

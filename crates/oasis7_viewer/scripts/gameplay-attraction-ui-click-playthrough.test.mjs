@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 
-const scriptPath = "scripts/viewer-gameplay-attraction-ui-click-playthrough.sh";
+const scriptPath = new URL("../../../scripts/viewer-gameplay-attraction-ui-click-playthrough.sh", import.meta.url);
 const source = readFileSync(scriptPath, "utf8");
 
 assert.match(source, /find_testid_click\(\)/, "UI-click runner must click player-visible controls by test id");
@@ -17,7 +17,10 @@ assert.doesNotMatch(
   "__AW_TEST__ may be used for assertions/evidence only, not for gameplay progression in the UI-click runner",
 );
 
-const automationSource = readFileSync("scripts/verify-gameplay-attraction-automation.sh", "utf8");
+const automationSource = readFileSync(
+  new URL("../../../scripts/verify-gameplay-attraction-automation.sh", import.meta.url),
+  "utf8",
+);
 assert.match(
   automationSource,
   /live_browser_30m_ui_click_playthrough/,
