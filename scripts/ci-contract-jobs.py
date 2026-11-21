@@ -40,7 +40,7 @@ def render_job(group: str) -> str:
             "        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}\n"
         )
     image = {
-        "operational_contracts": "ci-runtime@sha256:14ef7ecc92a75d99af0723dbb0fa131b24c40ac2f83eed748fde1698c35c4258",
+        "operational_contracts": "ci-runtime@sha256:bef047768561df9a1d497a7dcccac46820e41af654f9e0db50fddd97d54bdb2a",
         "packaging_contracts": "ci-rust-build@sha256:6ea7e7ebeb0abeefc7aa2cba6c48627ad76b3c8551d5f7c400c661c783ada51a",
     }[group]
     container_options = ""
