@@ -222,7 +222,7 @@ def inventory_entry_limit(value):
 
 
 def execute(args):
-    entry_limit = inventory_entry_limit(args.inventory_entry_limit)
+    entry_limit = inventory_entry_limit(getattr(args, 'inventory_entry_limit', 5_000_000))
     bundle, directory = args.bundle.resolve(), args.results_dir.resolve()
     directory.mkdir(parents=True, exist_ok=False)
     manifest, env = artifacts.load(bundle)
@@ -293,7 +293,9 @@ def execute(args):
                     if args.group == 'full-node':
                         reports = [json.loads(line.split('STORAGE_FULL_NODE_REPORT=', 1)[1])
                                    for line in log.read_text().splitlines() if 'STORAGE_FULL_NODE_REPORT=' in line]
-                        if len(reports) != 1 or not full_node_passed(reports[0], args.capacity_scale, entry_limit):
+                        if (len(reports) != 1
+                                or not full_node_inventory_budget_passed(reports[0], entry_limit)
+                                or not full_node_passed(reports[0], args.capacity_scale)):
                             raise ValueError('missing, partial or wrong-scale full-node report')
                         summary['full_node_reports'].extend(reports)
                     if result.get('cancelled'):
@@ -354,7 +356,8 @@ def fresh_writer_passed(report):
             and done.get('original_commit') == original)
 
 
-def full_node_passed(report, scale, entry_limit=5_000_000):
+def full_node_inventory_budget_passed(report, entry_limit):
+    """Additional mandatory budget contract for execution and aggregation."""
     if not isinstance(report, dict):
         return False
     if type(entry_limit) is not int or not 1 <= entry_limit <= 10_000_000:
@@ -371,6 +374,13 @@ def full_node_passed(report, scale, entry_limit=5_000_000):
                 or inventory.get('entry_count_budget_per_inventory') != entry_limit
                 or inventory.get('whole_case_time_budget_seconds') != seconds):
             return False
+    return True
+
+
+def full_node_passed(report, scale):
+    """Existing structural/history contract; budgets are checked separately."""
+    if not isinstance(report, dict):
+        return False
     logical = report.get('logical_before')
     typed = report.get('typed_history_before')
     published = report.get('published_before')
@@ -439,7 +449,8 @@ def summarize(directory, expected, needs=None):
                     or report['capacity_reports'][0].get('status') != 'passed'
                     or report['capacity_reports'][0].get('executed_heights') != report.get('capacity_scale')))
                 or (report['group'] == 'full-node' and (len(report.get('full_node_reports', [])) != 1
-                    or not full_node_passed(report['full_node_reports'][0], report.get('capacity_scale'), report.get('inventory_entry_limit'))))):
+                    or not full_node_inventory_budget_passed(report['full_node_reports'][0], report.get('inventory_entry_limit'))
+                    or not full_node_passed(report['full_node_reports'][0], report.get('capacity_scale'))))):
             raise ValueError('incomplete or failed acceptance result: ' + report['label'])
     return dict(passed=True, identity=list(next(iter(identities))), groups=sorted(labels),
                 observations=[dict(label=report['label'], cases=report['expected_cases'],

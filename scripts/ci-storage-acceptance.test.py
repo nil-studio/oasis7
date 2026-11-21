@@ -71,10 +71,12 @@ class Contracts(unittest.TestCase):
                 repeat_faults=1, label='full-node', timeout_seconds=5)
             with patch.object(acceptance.artifacts, 'load', return_value=(manifest, dict(os.environ))), \
                  patch.object(acceptance, 'select', return_value=[dict(binary='test', batch=True, count=1)]), \
-                 patch.object(acceptance.shutil, 'disk_usage', return_value=argparse.Namespace(total=20*1024**3, used=1*1024**3, free=10*1024**3)):
+                 patch.object(acceptance.shutil, 'disk_usage', return_value=argparse.Namespace(total=20*1024**3, used=1*1024**3, free=10*1024**3)), \
+                 patch.object(acceptance, 'full_node_inventory_budget_passed', wraps=acceptance.full_node_inventory_budget_passed) as budget_check:
                 with self.assertRaisesRegex(ValueError, 'partial'):
                     acceptance.execute(args)
             report = json.loads((args.results_dir / 'summary.json').read_text())
+            budget_check.assert_called_once_with(dict(status='partial'), 10_000_000)
             self.assertEqual(report['inventory_entry_limit'], 10_000_000)
             self.assertFalse(report['passed'])
             self.assertIn('OBSERVED_LIMIT=10000000', (args.results_dir / report['results'][0]['log']).read_text())
@@ -445,13 +447,35 @@ class Contracts(unittest.TestCase):
                     final_position=1004, continuation_completed=True)
         report['cold_writer_done'] = done
         self.assertTrue(acceptance.full_node_passed(report, 1000))
+        self.assertTrue(acceptance.full_node_inventory_budget_passed(report, 5_000_000))
+        legacy = copy.deepcopy(report)
+        del legacy['inventory_entry_limit']
+        del legacy['whole_case_time_budget_seconds']
+        for field in ('initial', 'before', 'after_maintenance', 'after_cold_restore'):
+            del legacy[field]['entry_count_budget_per_inventory']
+            del legacy[field]['whole_case_time_budget_seconds']
+        self.assertTrue(acceptance.full_node_passed(legacy, 1000))
+        self.assertFalse(acceptance.full_node_inventory_budget_passed(legacy, 5_000_000))
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            summary = self.report('full-node')
+            summary.update(group='full-node', capacity_scale=1000,
+                           inventory_entry_limit=5_000_000, full_node_reports=[report])
+            path = directory / 'summary.json'
+            path.write_text(json.dumps(summary))
+            self.assertTrue(acceptance.summarize(directory, ['full-node'])['passed'])
+            summary['full_node_reports'] = [legacy]
+            path.write_text(json.dumps(summary))
+            with self.assertRaisesRegex(ValueError, 'incomplete'):
+                acceptance.summarize(directory, ['full-node'])
+
         self.assertFalse(acceptance.full_node_passed(report, 10000))
-        self.assertFalse(acceptance.full_node_passed(report, 1000, 10_000_000))
+        self.assertFalse(acceptance.full_node_inventory_budget_passed(report, 10_000_000))
         for field in ('initial', 'before', 'after_maintenance', 'after_cold_restore'):
             for key in ('entry_count_budget_per_inventory', 'whole_case_time_budget_seconds'):
                 changed = copy.deepcopy(report)
                 del changed[field][key]
-                self.assertFalse(acceptance.full_node_passed(changed, 1000), (field, key))
+                self.assertFalse(acceptance.full_node_inventory_budget_passed(changed, 5_000_000), (field, key))
         exact = copy.deepcopy(report)
         exact['cold_writer_ready'].update(schema=2, continuation_commit=None)
         exact['cold_writer_done'].update(
