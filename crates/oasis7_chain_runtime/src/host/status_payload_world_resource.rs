@@ -1,4 +1,4 @@
-use oasis7::network_tier_manifest::LoadedNetworkTierManifest;
+use oasis7_client_api::network_tier_manifest::LoadedNetworkTierManifest;
 use oasis7::simulator::WorldSnapshot as SimulatorSnapshot;
 use oasis7_node::NodeSnapshot;
 use oasis7_runtime::{
