@@ -332,6 +332,9 @@ def component_image_cache_writer(job, families, readers=JOBS):
         'launcher': (('launcher-web',), 'rust-image-launcher'),
         'tooling': (('cargo-tooling-contracts',), 'rust-image-tooling'),
     }
+    support_family = 'rust-image-support'
+    if 'support' in rows or support_family in families:
+        expected['support'] = (('workspace-support-other',), support_family)
     assert len(records) == len(rows) == len(expected) and set(rows) == set(expected)
     for profile, (names, family) in expected.items():
         row = rows[profile]
@@ -341,9 +344,15 @@ def component_image_cache_writer(job, families, readers=JOBS):
                                         'rust-image-component-cache')
         for name in names:
             reader = readers[name]
-            assert 'image: ' + row['image'] + '\n' in reader
             assert re.fullmatch(r'ghcr.io/nil-studio/oasis7/ci-rust-(?:wasm-)?build@sha256:[0-9a-f]{64}', row['image'])
             assert row['namespace'] == row['image'].rsplit('/', 1)[1].replace('@sha256:', '-')
+            if name == 'workspace-support-other':
+                assert workspace_support_image_matrix(reader) == row['namespace']
+                assert row['options'] == row['mold-dir'] == ''
+                assert not re.search(r'^      options:', reader, re.M)
+                assert 'uses: ./.github/actions/setup-linux-mold\n      - ' in reader
+                continue
+            assert 'image: ' + row['image'] + '\n' in reader
             caches = rust_cache_steps(reader)
             assert len(caches) == 1 and 'shared-key: ' + row['namespace'] + '\n' in caches[0]
             assert 'save-if: false\n' in caches[0]
@@ -426,7 +435,7 @@ def web_cache_layout(cache_workflow, release_workflow, admission_source):
         tool_jobs.add(component_writer)
     else:
         assert not {'rust-image-components', 'rust-image-net', 'rust-image-launcher',
-                    'rust-image-tooling'}.intersection(families)
+                    'rust-image-tooling', 'rust-image-support'}.intersection(families)
     assert set(cache_jobs) == (({'shared-native-cache', 'web-wasm-cache'} if migrated
                                else {'shared-native-cache'}) | tool_jobs), 'incomplete cache producer layout'
     active = []
@@ -989,8 +998,12 @@ class Workflow(unittest.TestCase):
         families = ast.literal_eval(next(node.value for node in source.body
             if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name)
                 and target.id == 'FAMILIES' for target in node.targets)))
-        self.assertEqual(set(component_image_cache_writer(job, families)),
-                         {'native', 'node', 'net', 'launcher', 'tooling'})
+        expected_profiles = {'native', 'node', 'net', 'launcher', 'tooling'}
+        image_families = {'rust-image-components', 'rust-image-net', 'rust-image-launcher', 'rust-image-tooling'}
+        if 'rust-image-support' in families:
+            expected_profiles.add('support')
+            image_families.add('rust-image-support')
+        self.assertEqual(set(component_image_cache_writer(job, families)), expected_profiles)
         # These global values enter the upstream Rust environment hash. The
         # matrix must not create a different identity before any Cargo runs.
         def cache_environment(text):
@@ -1019,7 +1032,7 @@ class Workflow(unittest.TestCase):
             with self.subTest(change=changed):
                 with self.assertRaises(AssertionError):
                     component_image_cache_writer(changed, families)
-        for family in ('rust-image-components', 'rust-image-net', 'rust-image-launcher', 'rust-image-tooling'):
+        for family in sorted(image_families):
             with self.subTest(missing=family), self.assertRaises(AssertionError):
                 component_image_cache_writer(job, {key: value for key, value in families.items() if key != family})
         changed_reader = dict(JOBS, node=JOBS['node'].replace('oasis7-node-mold', 'different-node-mold'))
