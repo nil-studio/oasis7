@@ -377,6 +377,17 @@ class Contracts(unittest.TestCase):
         report['cold_writer_done'] = done
         self.assertTrue(acceptance.full_node_passed(report, 1000))
         self.assertFalse(acceptance.full_node_passed(report, 10000))
+        exact = copy.deepcopy(report)
+        exact['cold_writer_ready'].update(schema=2, continuation_commit=None)
+        exact['cold_writer_done'].update(
+            schema=2, emits=2, continuation_commit=dict(position=1003, execution_block_hash='b'*64))
+        self.assertTrue(acceptance.full_node_passed(exact, 1000))
+        for bad_commit in (None, dict(position=1002, execution_block_hash='b'*64),
+                           dict(position=1005, execution_block_hash='b'*64),
+                           dict(position=1003, execution_block_hash='wrong')):
+            changed = copy.deepcopy(exact)
+            changed['cold_writer_done']['continuation_commit'] = bad_commit
+            self.assertFalse(acceptance.full_node_passed(changed, 1000), bad_commit)
         for missing in ('cold_writer_ready', 'cold_writer_done', 'original_commit_ref'):
             changed = copy.deepcopy(report)
             del changed[missing]

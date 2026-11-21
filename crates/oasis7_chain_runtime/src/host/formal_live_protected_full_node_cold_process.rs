@@ -148,12 +148,13 @@ pub(super) struct Receipt {
     effect: String,
     emits: usize,
     original_commit: Option<oasis7_client_api::world_service::CommitRef>,
+    continuation_commit: Option<oasis7_client_api::world_service::CommitRef>,
     final_position: u64,
     continuation_completed: bool,
     ready_node_running: bool,
 }
 fn validate(input: &Input, receipt: &Receipt, child: u32, stage: &str) -> Result<(), String> {
-    if receipt.schema != 1
+    if receipt.schema != 2
         || receipt.nonce != input.nonce
         || receipt.parent_pid != input.parent_pid
         || receipt.parent_pid != std::process::id()
@@ -170,10 +171,16 @@ fn validate(input: &Input, receipt: &Receipt, child: u32, stage: &str) -> Result
         || (stage == "ready" && receipt.final_position != input.fixed_position)
         || (stage == "done" && receipt.final_position <= input.fixed_position)
         || (stage == "ready"
-            && (receipt.continuation_completed || receipt.original_commit.is_some()))
+            && (receipt.continuation_completed
+                || receipt.original_commit.is_some()
+                || receipt.continuation_commit.is_some()))
         || (stage == "done"
             && (!receipt.continuation_completed
-                || receipt.original_commit.as_ref() != Some(&input.original_commit)))
+                || receipt.original_commit.as_ref() != Some(&input.original_commit)
+                || !receipt.continuation_commit.as_ref().is_some_and(|commit| {
+                    input.fixed_position < commit.position
+                        && commit.position <= receipt.final_position
+                })))
     {
         return Err("fresh writer receipt PID/nonce/stage/original-read binding mismatch".into());
     }
@@ -382,7 +389,7 @@ fn cold_writer_receipt_rejects_pid_nonce_and_actual_read_mismatches() {
     let input = test_input();
     let child = std::process::id().checked_add(1).unwrap();
     let mut receipt = Receipt {
-        schema: 1,
+        schema: 2,
         nonce: input.nonce.clone(),
         parent_pid: input.parent_pid,
         child_pid: child,
@@ -394,6 +401,7 @@ fn cold_writer_receipt_rejects_pid_nonce_and_actual_read_mismatches() {
         effect: input.effect.clone(),
         emits: input.emits,
         original_commit: None,
+        continuation_commit: None,
         final_position: 1,
         continuation_completed: false,
         ready_node_running: false,
@@ -418,6 +426,10 @@ fn cold_writer_receipt_rejects_pid_nonce_and_actual_read_mismatches() {
     receipt.original_commit = Some(input.original_commit.clone());
     assert!(validate(&input, &receipt, child, "done").is_err());
     receipt.final_position = 2;
+    assert!(validate(&input, &receipt, child, "done").is_err());
+    let mut continuation = input.original_commit.clone();
+    continuation.position = 2;
+    receipt.continuation_commit = Some(continuation);
     receipt.emits += 1; // An unrelated background tick can publish after ready.
     validate(&input, &receipt, child, "done").unwrap();
     receipt.authority = "other".into();

@@ -44,7 +44,7 @@ fn run(path: &Path) -> Result<(), String> {
     let original_key =
         correlation::key_digest(&input.original.correlation.key).map_err(|e| e.to_string())?;
     let mut receipt = Receipt {
-        schema: 1,
+        schema: 2,
         nonce: input.nonce.clone(),
         parent_pid: actual_parent,
         child_pid: std::process::id(),
@@ -61,6 +61,7 @@ fn run(path: &Path) -> Result<(), String> {
         )?,
         emits: wasm_emit_count(&current.world),
         original_commit: None,
+        continuation_commit: None,
         final_position: current.anchor.head().record().position,
         continuation_completed: false,
         ready_node_running: runtime
@@ -173,6 +174,7 @@ fn run(path: &Path) -> Result<(), String> {
     if receipt.original_commit.as_ref() != Some(&input.original_commit) {
         return Err("fresh final original CommitRef changed".into());
     }
+    receipt.continuation_commit = Some(continuation_commit);
     receipt.stage = "done".into();
     receipt.continuation_completed = true;
     drop(final_cut);
