@@ -294,6 +294,10 @@ fn caller_owned_producer_batch_cancellation_keeps_original_roots_and_io_allowanc
             Err(ValueTreeError::Cancelled)
         ));
         assert!(matches!(
+            writer.put_state_pages_cancelled(&state, &memory, &mut || false),
+            Err(ValueTreeError::Cancelled)
+        ));
+        assert!(matches!(
             writer.put_schedule_pages(&schedule, &memory),
             Err(ValueTreeError::Cancelled)
         ));
