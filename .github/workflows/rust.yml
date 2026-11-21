@@ -610,7 +610,8 @@ jobs:
         run: |
           printf '%s\n' '## Candidate fast-profile preview' \
             'Diagnostic only: candidate policy and a synthetic Rust-only diff; the trusted-BASE required gate remains independent.' \
-            'Every selected real group runs in parallel without restoring caches. These diagnostics do not establish a ten-minute P95.' \
+            'Cold matrix execution is opt-in via the PR label "ci-fast-preview" to avoid starving the shared runner pool on routine CI PRs.' \
+            'Every selected real group runs in parallel without restoring caches when opted in. These diagnostics do not establish a ten-minute P95.' \
             'Each sample is measured from workflow creation to its last selected group completion; per-group artifacts report runner time only.' >> "$GITHUB_STEP_SUMMARY"
           for metadata in "$RUNNER_TEMP"/previews/*/selection.json.metadata.json; do
             cat "$metadata" >> "$GITHUB_STEP_SUMMARY"
@@ -626,7 +627,10 @@ jobs:
   pr-fast-preview:
     name: pr-fast-preview (${{ matrix.sample }}, ${{ matrix.group }}, ${{ matrix.partition }})
     needs: pr-fast-preview-plan
-    if: needs.pr-fast-preview-plan.result == 'success' && needs.pr-fast-preview-plan.outputs.enabled == 'true'
+    if: >-
+      needs.pr-fast-preview-plan.result == 'success' &&
+      needs.pr-fast-preview-plan.outputs.enabled == 'true' &&
+      contains(github.event.pull_request.labels.*.name, 'ci-fast-preview')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
