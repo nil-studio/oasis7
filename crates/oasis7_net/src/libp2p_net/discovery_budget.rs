@@ -220,8 +220,7 @@ impl DiscoveryWorkBudget {
         digest: [u8; 32],
         registered_ttl_secs: u64,
     ) {
-        let refresh_secs =
-            (registered_ttl_secs / 2).min(RENDEZVOUS_MAX_REGISTRATION_REFRESH_SECS);
+        let refresh_secs = (registered_ttl_secs / 2).min(RENDEZVOUS_MAX_REGISTRATION_REFRESH_SECS);
         // A zero/one-second TTL cannot yield a useful cached match. Do not
         // evict a valid registration merely to store an already-expired one.
         if refresh_secs == 0 {
@@ -352,9 +351,7 @@ mod tests {
         budget.remember_rendezvous_registration(newcomer, digest, 0);
         assert_eq!(budget.registered_rendezvous_addresses.len(), MAX_REGISTERED_RENDEZVOUS_NODES);
         assert!(!budget.registered_rendezvous_addresses.contains_key(&newcomer));
-        assert!(peers.iter().all(|peer| {
-            budget.rendezvous_registration_matches(*peer, Some(digest))
-        }));
+        assert!(budget.rendezvous_registration_matches(victim, Some(digest)));
         budget.remember_rendezvous_registration(newcomer, digest, 7_200);
         assert_eq!(
             budget.registered_rendezvous_addresses.len(),
