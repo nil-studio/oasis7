@@ -169,6 +169,7 @@ fn submit_change(case: &Case, runtime: &FormalLiveRuntime, ordinal: u64) -> Resu
         runtime,
         ordinal,
     )
+    .map(|_| ())
 }
 fn submit_change_owned(
     owner_config: &WorldServiceClientConfig,
@@ -176,7 +177,7 @@ fn submit_change_owned(
     owner_key: &SigningKey,
     runtime: &FormalLiveRuntime,
     ordinal: u64,
-) -> Result<(), String> {
+) -> Result<SubmitIntentRequest<WorldServicePayloadV1>, String> {
     let owner = RemoteWorldServiceClient::new(owner_config.clone()).map_err(|e| e.to_string())?;
     let current = runtime.published.current()?;
     let binding = current
@@ -247,7 +248,7 @@ fn submit_change_owned(
     {
         return Err("full-node exact delegation did not execute".into());
     }
-    Ok(())
+    Ok(request)
 }
 /// Cold retry is a full-node intent, with the same finite 120s action budget
 /// as the workload, not the unrelated generic 20s publication observer. A fresh
