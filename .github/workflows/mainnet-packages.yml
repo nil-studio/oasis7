@@ -32,6 +32,7 @@ jobs:
   plan:
     name: plan-mainnet-package
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       checkoutSha: ${{ steps.source.outputs.checkoutSha }}
       resolvedRef: ${{ steps.source.outputs.resolvedRef }}
@@ -84,6 +85,7 @@ jobs:
     name: release-gate-runtime-core
     needs: [plan, full-regression-qualification]
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     env:
       OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
       OASIS7_WASM_TARGET: wasm32-unknown-unknown
@@ -173,6 +175,7 @@ jobs:
     name: release-gate-runtime-support
     needs: [plan, full-regression-qualification]
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     env:
       OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
       OASIS7_WASM_TARGET: wasm32-unknown-unknown
@@ -260,6 +263,7 @@ jobs:
     name: release-gate-runtime-sync
     needs: [plan, full-regression-qualification]
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     env:
       OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
       OASIS7_WASM_TARGET: wasm32-unknown-unknown
@@ -344,6 +348,7 @@ jobs:
     name: release-gate-web
     needs: [plan, full-regression-qualification]
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       # Use the executing workflow tools before restoring the complete source checkout.
       - name: Check out workflow linker setup
@@ -427,6 +432,7 @@ jobs:
     name: release-gate-soak
     needs: [plan, full-regression-qualification]
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     env:
       OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
       OASIS7_WASM_TARGET: wasm32-unknown-unknown
@@ -520,6 +526,7 @@ jobs:
       - release_gate_web
       - release_gate_soak
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - name: Assert all release gates passed
         env:
@@ -550,6 +557,7 @@ jobs:
       - plan
       - release_gate
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       # Use the executing workflow tools before restoring the complete source checkout.
       - name: Check out workflow linker setup
@@ -633,6 +641,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
     steps:
       # Use the executing workflow tools before restoring the complete source checkout.
       - name: Check out workflow linker setup
@@ -860,6 +869,7 @@ jobs:
       - build-web-dist
       - full-regression-qualification
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - name: Download mainnet package artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2

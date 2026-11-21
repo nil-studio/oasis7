@@ -34,6 +34,7 @@ env:
 jobs:
   plan:
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       checkoutSha: ${{ steps.source.outputs.checkoutSha }}
       version: ${{ steps.source.outputs.version }}
@@ -102,6 +103,7 @@ jobs:
     name: release-gate-runtime-core
     needs: [plan, full-regression-qualification]
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     env:
       OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
       OASIS7_WASM_TARGET: wasm32-unknown-unknown
@@ -179,6 +181,7 @@ jobs:
     name: release-gate-runtime-support
     needs: [plan, full-regression-qualification]
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     env:
       OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
       OASIS7_WASM_TARGET: wasm32-unknown-unknown
@@ -256,6 +259,7 @@ jobs:
     name: release-gate-runtime-sync
     needs: [plan, full-regression-qualification]
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     env:
       OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
       OASIS7_WASM_TARGET: wasm32-unknown-unknown
@@ -329,6 +333,7 @@ jobs:
     name: release-gate-web
     needs: [plan, full-regression-qualification]
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       # Use the executing workflow tools before restoring the complete source checkout.
       - name: Check out workflow linker setup
@@ -413,6 +418,7 @@ jobs:
     name: release-gate-soak
     needs: [plan, full-regression-qualification]
     runs-on: ubuntu-24.04
+    timeout-minutes: 90
     env:
       OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
       OASIS7_WASM_TARGET: wasm32-unknown-unknown
@@ -506,6 +512,7 @@ jobs:
       - release_gate_web
       - release_gate_soak
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - name: Assert all release gates passed
         env:
@@ -540,6 +547,7 @@ jobs:
       contents: read
       actions: read
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     steps:
       # Use the executing workflow tools before restoring the complete source checkout.
       - name: Check out workflow linker setup
@@ -661,6 +669,7 @@ jobs:
             asset_name: oasis7-windows-x64.exe
             target_triple: native
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
     steps:
       # Use the executing workflow tools before restoring the complete source checkout.
       - name: Check out workflow linker setup
@@ -908,6 +917,7 @@ jobs:
       needs.package-native.result == 'success' && needs.full-regression-qualification.result == 'success'
     cache-mode: none
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
