@@ -89,9 +89,15 @@ where
 }
 
 /// Compute SHA256 hash of a serializable value.
+#[path = "util_json_hash_work.rs"]
+mod json_hash_work;
+pub use json_hash_work::{JsonHashWorkErrorV1, hash_json_with_work_v1, measure_json_with_work_v1};
 pub fn hash_json<T: Serialize>(value: &T) -> Result<String, WorldError> {
-    let bytes = serde_json::to_vec(value)?;
-    Ok(sha256_hex(&bytes))
+    match hash_json_with_work_v1(value, &mut |_, _| Ok::<(), std::convert::Infallible>(())) {
+        Ok(value) => Ok(value),
+        Err(JsonHashWorkErrorV1::Codec(error)) => Err(error.into()),
+        Err(JsonHashWorkErrorV1::Work(never)) => match never {},
+    }
 }
 
 /// Serialize a value into canonical CBOR bytes using deterministic ordering.
