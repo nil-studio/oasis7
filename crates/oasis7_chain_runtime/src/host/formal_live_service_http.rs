@@ -238,7 +238,7 @@ pub(super) fn parse_http_headers(header: &[u8]) -> Result<(String, String, usize
                 .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
             || !value
                 .bytes()
-                .all(|b| b == b'\t' || (0x20..=0x7e).contains(&b))
+                .all(|b| b == b'\t' || (b >= 0x20 && b != 0x7f))
         {
             return Err("malformed HTTP header field".into());
         }
@@ -353,5 +353,11 @@ mod framing_tests {
         assert_eq!(path, "/v1/world/submit");
         assert_eq!(body, b"{}");
         assert!(parse_http_headers(b"GET /v1/chain/status HTTP/1.1\r\nContent-Length: 0").is_ok());
+        // Valid UTF-8 observations are preserved; only C0/DEL control bytes
+        // and ambiguous field names are rejected.
+        assert!(parse_http_headers(
+            "GET /v1/chain/status HTTP/1.1\r\nX-Note: café".as_bytes()
+        )
+        .is_ok());
     }
 }
