@@ -256,7 +256,10 @@ fn audit(kind: Kind) {
     let error = read
         .transaction
         .contribute(
-            |_| -> Result<_, oasis7_world_state::incremental_field_overlay::WorldFieldOverlayErrorV1> {
+            |_| -> Result<
+                _,
+                oasis7_world_state::incremental_field_overlay::WorldFieldOverlayErrorV1,
+            > {
                 let root = parent
                     .roots
                     .state
