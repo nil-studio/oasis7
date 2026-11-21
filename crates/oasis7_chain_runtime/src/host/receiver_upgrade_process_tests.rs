@@ -1,7 +1,7 @@
 //! OS-process coverage of the real CLI dispatcher and development network.
 //! This is not a test of an installed release executable or public networking.
 use super::*;
-use oasis7::development_node_config::{
+use oasis7_client_api::development_node_config::{
     DevelopmentPeerRecordPublicationModeV1, DevelopmentPeerRecordReceptionModeV1,
 };
 use oasis7_proto::distributed_dht::{

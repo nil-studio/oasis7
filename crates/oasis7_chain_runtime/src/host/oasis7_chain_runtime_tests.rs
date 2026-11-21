@@ -57,7 +57,7 @@ fn parse_options_defaults() {
     assert_eq!(options.p2p_user_mode, NodeUserMode::AutoJoin);
     assert_eq!(
         options.p2p_peer_record_publication,
-        oasis7::development_node_config::DevelopmentPeerRecordPublicationModeV1::V1Legacy
+        oasis7_client_api::development_node_config::DevelopmentPeerRecordPublicationModeV1::V1Legacy
     );
     assert!(!options.initialize_peer_record_publication);
     assert!(!options.p2p_accept_public_entry);
@@ -76,7 +76,7 @@ fn parse_options_defaults() {
     assert!(options.node_validators.is_empty());
     assert!(options.reward_runtime_enabled);
     assert!(options.reward_runtime_epoch_duration_secs.is_none());
-    let pos_defaults = oasis7::chain_pos_defaults::defaults();
+    let pos_defaults = oasis7_client_api::chain_pos_defaults::defaults();
     assert_eq!(options.pos_slot_duration_ms, pos_defaults.slot_duration_ms);
     assert_eq!(options.pos_ticks_per_slot, pos_defaults.ticks_per_slot);
     assert_eq!(

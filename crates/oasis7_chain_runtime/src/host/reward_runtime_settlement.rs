@@ -1,4 +1,4 @@
-use oasis7::geometry::GeoPos;
+use oasis7_agent_api::world_action::GeoPos;
 use oasis7::observability::emit_stderr_or_event;
 use oasis7_runtime::{
     Action as RuntimeAction, EpochSettlementReport, NodeRewardMintRecord, World as RuntimeWorld,

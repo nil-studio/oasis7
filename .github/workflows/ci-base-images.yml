@@ -2,22 +2,26 @@ name: CI Base Images
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - docker/ci-base/**
       - scripts/ci-browser-tools/package.json
       - scripts/ci-browser-tools/package-lock.json
       - .github/workflows/ci-base-images.yml
-      - .github/workflows/rust.yml
   workflow_dispatch:
   schedule:
     - cron: "17 3 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
   build:
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    if: (github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 55
     permissions:

@@ -131,7 +131,7 @@ fn collect_data_world_dir(
     let mut world = oasis7::runtime_host::world::new();
     world.submit_action(Action::RegisterAgent {
         agent_id: agent_id.to_string(),
-        pos: oasis7::geometry::GeoPos {
+        pos: oasis7_agent_api::world_action::GeoPos {
             x_cm: 0,
             y_cm: 0,
             z_cm: 0,

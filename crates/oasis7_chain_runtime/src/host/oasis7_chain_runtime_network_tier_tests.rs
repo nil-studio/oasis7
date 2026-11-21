@@ -2,7 +2,7 @@
 
 use super::build_chain_status_payload;
 use super::cli::parse_options;
-use oasis7::network_tier_manifest::{LoadedNetworkTierManifest, NETWORK_TIER_MANIFEST_SCHEMA_V1};
+use oasis7_client_api::network_tier_manifest::{LoadedNetworkTierManifest, NETWORK_TIER_MANIFEST_SCHEMA_V1};
 use oasis7_node::{
     Libp2pReachabilitySnapshot, NodeConsensusSnapshot, NodeNetworkPolicy, NodePeerCommittedHead,
     NodeReachabilityAutoDetection, NodeRole, NodeSnapshot, NodeUserMode,
