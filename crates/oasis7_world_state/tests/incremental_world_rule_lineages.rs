@@ -10,7 +10,7 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueNodeWriter, ValueReadContext, ValueTreeError, write_value},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
-use oasis7_runtime::{
+use oasis7_world_state::{
     WorldState,
     incremental_field_member::*,
     incremental_field_read::*,
