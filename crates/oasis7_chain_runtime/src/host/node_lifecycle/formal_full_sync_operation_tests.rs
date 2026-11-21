@@ -52,6 +52,47 @@ fn identity(policy: &Policy) -> Identity {
 }
 
 #[test]
+fn zero_attempt_ledger_rejects_forged_activity_on_cold_open() {
+    let temp = TestDir::new();
+    let path = temp.path().join("operation.json");
+    let policy = policy();
+    let identity = identity(&policy);
+    let ledger = Ledger::create(&path, identity.clone(), policy.clone()).unwrap();
+    let pristine = ledger.snapshot().clone();
+    assert_eq!(pristine.attempts_used, 0);
+    drop(ledger);
+
+    // These fields can only be populated after a durable begin_attempt.
+    // Test each independently without changing the fixed identity or policy.
+    for field in [
+        "active_attempt_nonce",
+        "exchanges_started",
+        "window_seq",
+        "proof_pages",
+        "proof_bytes",
+        "material_bytes",
+        "verified_target_json",
+    ] {
+        let mut forged = serde_json::to_value(&pristine).unwrap();
+        forged[field] = match field {
+            "active_attempt_nonce" => serde_json::json!("ab".repeat(16)),
+            "verified_target_json" => serde_json::json!([91, 93]),
+            _ => serde_json::json!(1),
+        };
+        let forged: super::operation_snapshot::Snapshot =
+            serde_json::from_value(forged).unwrap();
+        // Structural validation is performed before attaching a recovered
+        // owner, so a fabricated operation cannot be resumed as original.
+        assert!(forged.validate().is_err(), "{field}");
+        local_io::write(&path, &forged).unwrap();
+        assert!(Ledger::open(&path, &identity, &policy, 0).is_err(), "{field}");
+    }
+    local_io::write(&path, &pristine).unwrap();
+    let reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
+    assert_eq!(reopened.snapshot(), &pristine);
+}
+
+#[test]
 fn real_tcp_body_accounting_survives_original_identity_reopen() {
     let temp = TestDir::new();
     let path = temp.path().join("operation.json");
