@@ -220,6 +220,17 @@ impl Snapshot {
             || !(1..=8 * 1024 * 1024 * 1024).contains(&self.policy.max_encoded_io_bytes)
             || !(1..=262_660).contains(&self.policy.max_exchanges)
             || self.attempts_used > self.policy.max_attempts
+            // All charged or in-flight work is admitted by an attempt first.
+            // In particular, a cold ledger with attempts_used=0 cannot have
+            // an invented live nonce, exchange, material or proof progress.
+            || (self.attempts_used == 0
+                && (self.active_attempt_nonce.is_some()
+                    || self.exchanges_started != 0
+                    || self.window_seq != 0
+                    || self.proof_pages != 0
+                    || self.proof_bytes != 0
+                    || self.material_bytes != 0
+                    || self.verified_target_json.is_some()))
             || self
                 .active_attempt_nonce
                 .as_ref()
