@@ -1,5 +1,5 @@
 use super::local_io as io;
-use oasis7::network_tier_manifest::LoadedNetworkTierManifest;
+use oasis7_client_api::network_tier_manifest::LoadedNetworkTierManifest;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::net::SocketAddr;

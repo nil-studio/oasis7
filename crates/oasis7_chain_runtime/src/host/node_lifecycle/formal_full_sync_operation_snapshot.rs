@@ -187,6 +187,7 @@ impl Snapshot {
                         || r.bytes > MAX_WINDOW
                         || r.nonce.len() != 32
                         || !r.nonce.bytes().all(|c| c.is_ascii_hexdigit())
+                        || r.window_seq == 0
                         || r.window_seq > self.window_seq
                 })
             {
@@ -306,6 +307,7 @@ impl Snapshot {
                 || !r.nonce.bytes().all(|c| c.is_ascii_hexdigit())
                 || Some((r.attempt_no, r.request_seq)) != self.active_request
                 || self.active_request_nonce.as_ref() != Some(&r.request_nonce)
+                || r.window_seq == 0
                 || r.window_seq != self.window_seq
                 || r.bytes == 0
                 || r.bytes > MAX_WINDOW)

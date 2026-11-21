@@ -259,6 +259,37 @@ pub(super) fn check_preparation(
             "{field}: portable canonical decode must also reject"
         );
     }
+    // An original root-signed status has to fit both the root authorization
+    // window and the immutable policy window. A valid signature and fresh
+    // independent policy digest cannot rescue disjoint half-open intervals.
+    let disjoint_windows = [(100u64, 200u64, 10u64, 100u64), (10, 100, 100, 200)];
+    for (root_start, root_end, policy_start, policy_end) in disjoint_windows {
+        let mut disjoint = value["policy"].clone();
+        disjoint["root_not_before_unix_ms"] = serde_json::json!(root_start);
+        disjoint["root_authorized_at_unix_ms"] = serde_json::json!(root_start);
+        disjoint["root_expires_at_unix_ms"] = serde_json::json!(root_end);
+        disjoint["max_root_revocation_staleness_ms"] =
+            serde_json::json!(root_end - root_start);
+        disjoint["policy_not_before_unix_ms"] = serde_json::json!(policy_start);
+        disjoint["policy_expires_at_unix_ms"] = serde_json::json!(policy_end);
+        let policy: BftCheckpointTrustPolicyV1 =
+            serde_json::from_value(disjoint).unwrap();
+        let error = policy.validate_configuration().unwrap_err();
+        assert!(error.contains("status windows do not overlap"), "{error}");
+        assert!(
+            BftCheckpointTrustPolicyV1::decode_canonical(&canonical(&policy)).is_err(),
+            "portable decode must reject disjoint root/policy status windows"
+        );
+    }
+    // One millisecond of overlap is still a legitimate half-open interval;
+    // expiration is exclusive rather than treating a touching boundary as
+    // an authority extension.
+    let mut touching = value["policy"].clone();
+    touching["root_authorized_at_unix_ms"] = serde_json::json!(99);
+    touching["root_not_before_unix_ms"] = serde_json::json!(99);
+    let touching: BftCheckpointTrustPolicyV1 =
+        serde_json::from_value(touching).unwrap();
+    touching.validate_configuration().unwrap();
     // All three roles are independently pinned in a valid original policy.
     // A signer reused across roles can manufacture both source evidence and
     // the purported independent root revocation or UTC time observation.

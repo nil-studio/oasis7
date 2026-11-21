@@ -281,7 +281,7 @@ fn module_world() -> RuntimeWorld {
         .unwrap();
     world.submit_action(Action::RegisterAgent {
         agent_id: "agent-0".into(),
-        pos: oasis7::geometry::GeoPos::new(0, 0, 0),
+        pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
     });
     world.step().unwrap();
     world
@@ -860,7 +860,7 @@ fn controlled_history_first_intent_write_retains_original_preparation_on_reopen(
     let mut staged = world.clone();
     staged.submit_action(Action::RegisterAgent {
         agent_id: "staged-test-agent".into(),
-        pos: oasis7::geometry::GeoPos::new(0, 0, 0),
+        pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
     });
     staged.step().unwrap();
     super::super::product_validation_intent::persist_product_validation_intent_for_staged_world(
