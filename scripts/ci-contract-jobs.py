@@ -40,7 +40,7 @@ def render_job(group: str) -> str:
             "        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}\n"
         )
     image = {
-        "operational_contracts": "ci-rust-build@sha256:c50e12279510a020655c02caa416c7709b4d63dc78f9b2bbe09152e15ef0e5d5",
+        "operational_contracts": "ci-rust-build@sha256:068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb",
         "packaging_contracts": "ci-rust-build@sha256:6ea7e7ebeb0abeefc7aa2cba6c48627ad76b3c8551d5f7c400c661c783ada51a",
     }[group]
     container_options = ""
@@ -80,6 +80,7 @@ def render_job(group: str) -> str:
             "        run: |\n"
             "          python3 -c 'import sys, tomllib; assert sys.version_info[:2] == (3, 12)'\n"
             "          dpkg-deb --version\n"
+            "          command -v lsof\n"
             '          cargo +"$RUST_TOOLCHAIN" --version\n'
             '          test "$(id -u)" -ne 0\n'
         )

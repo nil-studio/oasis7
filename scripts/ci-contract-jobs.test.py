@@ -292,6 +292,7 @@ class TestContractJobs(unittest.TestCase):
         self.assertIn('test "$(id -u)" -ne 0', op_section)
         self.assertIn('mktemp -d "$(dirname -- "$GITHUB_WORKSPACE")/.op.XXXXXX"', op_section)
         self.assertIn("dpkg-deb --version", op_section)
+        self.assertIn("command -v lsof", op_section)
         self.assertNotIn("actions/setup-python", op_section)
         self.assertIn("setup-linux-mold", pkg_section)
         self.assertIn("*linux-mold-tools-checkout", pkg_section)
