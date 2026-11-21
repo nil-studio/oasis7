@@ -142,18 +142,10 @@ fn ordinary_same_transaction_creates_changes_reads_and_independently_receives() 
     .unwrap();
     assert_eq!(record.as_str(), "raw external key");
     assert!(record.uses_budget(&memory));
-    // Active key may not be laundered into the module-record namespace.
-    let guard = overlay.transaction.guard();
-    assert!(read_current_registry_record_id_v1(
-        &family,
-        &active_key,
-        &mut overlay,
-        128,
-        &guard,
-        &live,
-    )
-    .is_err());
-    // Entry ID must remain valid when the normal transaction resumes.
+    // Negative cross-field reads belong in an isolated transaction: a failed
+    // contribute permanently aborts this one. The pure key-binding regression
+    // in current_keys::tests asserts that Active cannot select Manifest.
+    // Retain this live transaction to exercise the subsequent write/commit.
     drop(record);
     drop(active);
     let mut write = MemberRecordWriteContext {
