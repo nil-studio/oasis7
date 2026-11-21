@@ -109,7 +109,7 @@ fn cold_open_rejects_zero_exchange_sequence_but_keeps_real_exchange() {
     let policy = policy();
     let identity = identity(&policy);
     let mut ledger = Ledger::create(&path, identity.clone(), policy.clone()).unwrap();
-    let attempt = ledger.begin_attempt().unwrap();
+    let _attempt = ledger.begin_attempt().unwrap();
     let pristine = ledger.snapshot().clone();
     assert_eq!(pristine.attempts_used, 1);
     assert_eq!(pristine.exchanges_started, 0);
