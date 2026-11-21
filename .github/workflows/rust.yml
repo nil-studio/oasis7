@@ -196,6 +196,7 @@ jobs:
       formal_shards: ${{ steps.select.outputs.formal_shards || '["runtime-protocol","world-history","healthy-set","storage-recovery","lifecycle-cli"]' }}
       ordinary_partitions: ${{ steps.select.outputs.ordinary_partitions || '["all"]' }}
       workspace_support_partitions: ${{ steps.select.outputs.workspace_support_partitions || '["all"]' }}
+      workspace_support_host: ${{ steps.select.outputs.workspace_support_host }}
       command_center_package: ${{ steps.select.outputs.command_center_package || 'true' }}
       run_baseline: ${{ steps.select.outputs.run_baseline }}
       run_command_center: ${{ steps.select.outputs.run_command_center }}
@@ -3076,7 +3077,22 @@ jobs:
       always() && !cancelled() && needs.select.result == 'success' &&
       fromJSON(needs.select.outputs.plan).custody_execution_version == 1 &&
       contains(fromJSON(needs.select.outputs.workspace_support_partitions), 'other')
+    strategy:
+      fail-fast: false
+      matrix:
+        execution: ${{ fromJSON(needs.select.outputs.workspace_support_host != 'false' && '["host","image"]' || '["image"]') }}
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ${{ matrix.execution == 'image' && 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:6ea7e7ebeb0abeefc7aa2cba6c48627ad76b3c8551d5f7c400c661c783ada51a' || '' }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
     env:
       OASIS7_SUPPORT_CAPACITY: "1"
       OASIS7_SUPPORT_SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
@@ -3093,6 +3109,14 @@ jobs:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Trust the checked-out workspace path in the job container
+        if: matrix.execution == 'image'
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Verify the host process identity
+        if: matrix.execution == 'host'
+        run: |
+          test "$(id -u)" -ne 0
+          sudo -n true
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.select.outputs.selection_artifact }}
@@ -3104,6 +3128,7 @@ jobs:
         with:
           node-version: '22'
       - name: Install pinned Rust toolchains
+        if: matrix.execution == 'host'
         shell: bash
         run: |
           rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
@@ -3111,6 +3136,17 @@ jobs:
           rustup toolchain install "$OASIS7_WASM_TOOLCHAIN" --profile minimal --component rust-src
           rustup target add "$OASIS7_WASM_TARGET" --toolchain "$OASIS7_WASM_TOOLCHAIN"
           rustup target add wasm32-unknown-unknown
+      - name: Verify the preinstalled Rust toolchains
+        if: matrix.execution == 'image'
+        run: |
+          set -euo pipefail
+          ps -o pid= -p "$$"
+          rustc +"$RUST_TOOLCHAIN" -vV
+          rustc +"$OASIS7_WASM_TOOLCHAIN" -vV
+          cargo +"$RUST_TOOLCHAIN" clippy --version
+          cargo +"$RUST_TOOLCHAIN" fmt --version
+          rustup target list --installed --toolchain "$RUST_TOOLCHAIN" | grep -Fx wasm32-unknown-unknown
+          rustup target list --installed --toolchain "$OASIS7_WASM_TOOLCHAIN" | grep -Fx "$OASIS7_WASM_TARGET"
       - name: Stabilize Rust cache toolchains
         shell: bash
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
@@ -3120,9 +3156,18 @@ jobs:
           source scripts/ci-tests.sh
           support_capacity_snapshot before-cache
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        if: matrix.execution == 'host'
         with:
           save-if: false
           shared-key: ci-shared-native-trusted-v4
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
+          cache-on-failure: false
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        if: matrix.execution == 'image'
+        with:
+          save-if: false
+          shared-key: ci-rust-build-6ea7e7ebeb0abeefc7aa2cba6c48627ad76b3c8551d5f7c400c661c783ada51a
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
@@ -3132,6 +3177,7 @@ jobs:
           source scripts/ci-tests.sh
           support_capacity_snapshot after-cache
       - name: Install native libraries
+        if: matrix.execution == 'host'
         shell: bash
         timeout-minutes: 11
         run: |
@@ -3143,10 +3189,14 @@ jobs:
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
           SUPPORT_PARTITION: other
+          SUPPORT_EXECUTION: ${{ matrix.execution }}
         run: |
           source scripts/ci-tests.sh
+          if [[ "$SUPPORT_EXECUTION" == image ]]; then
+            export PATH="$PATH:${CARGO_HOME:-$HOME/.cargo}/bin"
+          fi
           support_capacity_snapshot after-native-libraries
-          bash ./scripts/ci-tests.sh required --group "workspace_support" --repo-root "$GITHUB_WORKSPACE" --support-plan-file "$RUNNER_TEMP/selection.json" --support-partition "$SUPPORT_PARTITION"
+          bash ./scripts/ci-tests.sh required --group "workspace_support" --repo-root "$GITHUB_WORKSPACE" --support-plan-file "$RUNNER_TEMP/selection.json" --support-partition "$SUPPORT_PARTITION" --support-execution "$SUPPORT_EXECUTION"
       - name: Observe support capacity on job exit
         if: always()
         shell: bash
