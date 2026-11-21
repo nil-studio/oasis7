@@ -634,6 +634,39 @@ describe("pixel world host", () => {
     expect(document.querySelector("#pixel-world-embedded-runtime-canvas")).toBeTruthy();
   }, HEAVY_UI_TEST_TIMEOUT_MS);
 
+  it("retains the last action receipt during a recoverable renderer failure until retry", async () => {
+    const receiptTitle = "Receipt observed before renderer failure";
+    runtimeMock.deriveRenderState = vi.fn((input) => {
+      const state = buildTestRustRenderState(input);
+      state.commercial_surface.action_receipt = {
+        present: true, state: "rejected", confidence: "none", title: receiptTitle,
+        summary: "No world change was applied.", target_agent_id: null,
+      };
+      return state;
+    });
+    const { core } = await renderPixelWorldHost(sampleSnapshot());
+    await waitFor(() => {
+      expect(core.state.pixelWorldRuntimeStatus).toBe("ready");
+      expect(document.querySelector("#viewer-action-receipt")).toHaveTextContent(receiptTitle);
+    });
+    const initialMounts = runtimeMock.mountCalls;
+
+    screen.getByText("Renderer Diagnostics").closest("details").open = true;
+    fireEvent.click(screen.getByRole("button", { name: "Simulate Renderer Fatal" }));
+    await waitFor(() => {
+      expect(core.state.pixelWorldRuntimeStatus).toBe("unavailable");
+      const fallback = document.querySelector('[data-viewer-overlay="renderer-unavailable"]');
+      expect(fallback?.querySelector('[data-viewer-overlay="receipt"]')).toHaveTextContent(receiptTitle);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry Renderer" }));
+    await waitFor(() => {
+      expect(core.state.pixelWorldRuntimeStatus).toBe("ready");
+      expect(runtimeMock.mountCalls).toBe(initialMounts + 1);
+      expect(document.querySelector('[data-viewer-overlay="renderer-unavailable"]')).not.toBeInTheDocument();
+    });
+  }, HEAVY_UI_TEST_TIMEOUT_MS);
+
   it("auto-attaches the embedded renderer for test_api pages unless deferral is explicit", async () => {
     const { core } = await renderPixelWorldHost();
 

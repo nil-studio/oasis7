@@ -344,7 +344,7 @@ fn payload(id: &str) -> Vec<u8> {
         &oasis7::consensus_action_payload::ConsensusActionPayloadEnvelope::from_runtime_action(
             Action::RegisterAgent {
                 agent_id: id.into(),
-                pos: oasis7::geometry::GeoPos::new(4, 5, 6),
+                pos: oasis7_agent_api::world_action::GeoPos::new(4, 5, 6),
             },
         ),
     )

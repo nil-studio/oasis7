@@ -245,6 +245,18 @@ impl BftCheckpointTrustPolicyV1 {
             self.policy_not_before_unix_ms,
             self.policy_expires_at_unix_ms,
         )?;
+        // Root-signed issuer status must fit both original windows. Reject a
+        // configuration with no common instant at preparation time: it cannot
+        // produce any valid status regardless of its signature or issuer set.
+        if self
+            .root_not_before_unix_ms
+            .max(self.policy_not_before_unix_ms)
+            >= self
+                .root_expires_at_unix_ms
+                .min(self.policy_expires_at_unix_ms)
+        {
+            return Err("checkpoint root and policy status windows do not overlap".into());
+        }
         if self.root_authorized_at_unix_ms > self.root_not_before_unix_ms
             || self
                 .root_expires_at_unix_ms

@@ -1,4 +1,4 @@
-use oasis7::development_node_config::{
+use oasis7_client_api::development_node_config::{
     DevelopmentPeerRecordPublicationModeV1, DevelopmentPeerRecordReceptionModeV1,
 };
 

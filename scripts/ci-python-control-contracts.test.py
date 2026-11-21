@@ -725,6 +725,55 @@ class GovernanceOwnership(unittest.TestCase):
             with self.subTest(paths=paths), self.assertRaises(ValueError):
                 controls.governance_tests(dict(workflow_governance_python_tests=paths))
 
+    def test_contract_batch_runs_concurrently_counts_accurately_and_propagates_failure(self):
+        import os
+        import threading
+        from unittest import mock
+
+        for invalid in ('0', '-1', 'abc'):
+            with mock.patch.dict(os.environ, {'OASIS7_PYTHON_CONTRACT_JOBS': invalid}):
+                with self.assertRaisesRegex(ValueError, 'OASIS7_PYTHON_CONTRACT_JOBS'):
+                    controls.contract_workers(2)
+
+        entered = threading.Barrier(2)
+        lock = threading.Lock()
+        active = [0, 0]
+        seen = []
+
+        def fake_run(root, snapshot, path, identifiers=None, *, retain_candidate=False,
+                     origin='trusted-baseline'):
+            self.assertTrue(getattr(controls._BATCH_STATE, 'buffered', False))
+            with lock:
+                active[0] += 1
+                active[1] = max(active)
+                seen.append(path)
+            try:
+                if len(seen) <= 2:
+                    entered.wait(timeout=2)
+                return 3
+            finally:
+                with lock:
+                    active[0] -= 1
+
+        tasks = {'scripts/a.test.py': None, 'scripts/b.test.py': None, 'scripts/c.test.py': None}
+        with mock.patch.dict(os.environ, {'OASIS7_PYTHON_CONTRACT_JOBS': '2'}), \
+                mock.patch.object(controls, 'run_contract', side_effect=fake_run):
+            total = controls.run_contract_batch(self.root, self.root, tasks, origin='candidate')
+        self.assertEqual(total, 9)
+        self.assertEqual(active[1], 2)
+        self.assertEqual(sorted(seen), sorted(tasks))
+
+        def failing_run(root, snapshot, path, identifiers=None, *, retain_candidate=False,
+                        origin='trusted-baseline'):
+            if path == 'scripts/b.test.py':
+                raise ValueError('simulated contract failure')
+            return 2
+
+        with mock.patch.dict(os.environ, {'OASIS7_PYTHON_CONTRACT_JOBS': '2'}), \
+                mock.patch.object(controls, 'run_contract', side_effect=failing_run):
+            with self.assertRaisesRegex(ValueError, 'simulated contract failure'):
+                controls.run_contract_batch(self.root, self.root, tasks, origin='candidate')
+
 
 if __name__ == '__main__':
     unittest.main()

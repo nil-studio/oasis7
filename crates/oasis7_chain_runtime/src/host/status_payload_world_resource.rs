@@ -1,5 +1,5 @@
-use oasis7::network_tier_manifest::LoadedNetworkTierManifest;
 use oasis7::simulator::WorldSnapshot as SimulatorSnapshot;
+use oasis7_client_api::network_tier_manifest::LoadedNetworkTierManifest;
 use oasis7_node::NodeSnapshot;
 use oasis7_runtime::{
     CHAIN_RESOURCE_DELTA_SCHEMA_V1, CHAIN_RESOURCE_MANIFEST_SCHEMA_V1, CHUNK_GENERATION_SCHEMA_V1,
@@ -462,8 +462,8 @@ fn delta_has_nonzero_resource_effect(delta: &ChainResourceDelta) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oasis7::geometry::GeoPos;
     use oasis7::simulator::WorldKernel;
+    use oasis7_agent_api::world_action::GeoPos;
     use oasis7_node::{NodeConsensusSnapshot, NodeRole};
     use oasis7_runtime::{Action, BlobStore, ChainResourceDerivationContext, LocalCasStore};
     use std::fs;

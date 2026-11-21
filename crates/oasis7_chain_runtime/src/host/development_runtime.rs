@@ -4,7 +4,7 @@ use super::{
     CliOptions,
     cli::{TrafficProfile, default_p2p_node_role, validate_effective_options},
 };
-use oasis7::development_node_config::*;
+use oasis7_client_api::development_node_config::*;
 use oasis7_node::{NodeHolePunchViability, NodeRole, NodeUserMode, PosValidator};
 use std::{
     collections::BTreeSet,
@@ -667,7 +667,7 @@ mod tests {
 
     #[test]
     fn peer_record_reception_modes_are_independent_and_roundtrip_through_host_config() {
-        use oasis7::development_node_config::DevelopmentPeerRecordReceptionModeV1;
+        use oasis7_client_api::development_node_config::DevelopmentPeerRecordReceptionModeV1;
 
         for (mode, spelling) in [
             (
@@ -719,7 +719,7 @@ mod tests {
 
     #[test]
     fn old_typed_config_defaults_receiver_to_legacy_and_omits_default_field() {
-        use oasis7::development_node_config::DevelopmentPeerRecordReceptionModeV1;
+        use oasis7_client_api::development_node_config::DevelopmentPeerRecordReceptionModeV1;
 
         let working_directory = std::env::current_dir().expect("current directory");
         let legacy_value = serde_json::json!({

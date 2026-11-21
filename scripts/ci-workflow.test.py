@@ -3458,11 +3458,67 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         ])
         self.assertIn("needs.collect-wasm-summaries.result == 'success'", jobs['verify-wasm-determinism'])
         self.assertNotIn('continue-on-error:', workflow)
-        for filename in ('wasm-determinism-gate.yml',):
+        for filename in ('wasm-determinism-gate.yml', 'ci-base-images.yml'):
             workflow = (ROOT / '.github/workflows' / filename).read_text()
             self.assertNotRegex(workflow, r'(?m)^  push:')
             self.assertIn("group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}", workflow)
             self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", workflow)
+            self.assertIn('types: [opened, synchronize, reopened, ready_for_review]', workflow)
+
+    def test_pr_auxiliary_workflows_scope_triggers_and_skip_drafts(self):
+        ci_base = (ROOT / '.github/workflows/ci-base-images.yml').read_text()
+        ci_base_pr = ci_base.split('  pull_request:\n', 1)[1].split('  workflow_dispatch:\n', 1)[0]
+        self.assertNotIn('.github/workflows/rust.yml', ci_base_pr)
+        self.assertIn(
+            "if: (github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.ref == 'refs/heads/main'",
+            ci_base,
+        )
+
+        wasm_wf = (ROOT / '.github/workflows/wasm-determinism-gate.yml').read_text()
+        wasm_pr = wasm_wf.split('  pull_request:\n', 1)[1].split('  workflow_dispatch:\n', 1)[0]
+        wf_paths = re.findall(r'^      - (.+)$', wasm_pr, re.M)
+        self.assertTrue(wf_paths)
+        self.assertIn(
+            "if: github.event_name != 'pull_request' || !github.event.pull_request.draft",
+            wasm_wf,
+        )
+        planner = (ROOT / 'scripts/plan-wasm-determinism-scope.sh').read_text()
+        classify_body = planner.split('classify_changed_path() {', 1)[1].split('\n}', 1)[0]
+        # Extract every pattern branch from classify_changed_path() and ensure the workflow paths cover it.
+        raw_patterns = re.findall(r'^\s+([^\s#][^\n]*?)(?:\|\\|\))', classify_body, re.M)
+        planner_patterns = []
+        for line in raw_patterns:
+            for item in line.split('|'):
+                item = item.strip()
+                if item and item != 'case "$path" in':
+                    planner_patterns.append(item)
+        self.assertTrue(planner_patterns)
+        for pattern in planner_patterns:
+            # Strip trailing /* or /** to compare directory prefixes cleanly against workflow globs.
+            normalized = pattern
+            if normalized in (
+                'crates/oasis7_wasm_build',
+                'crates/oasis7_wasm_build/*',
+                'crates/oasis7_wasm_build/**/*',
+            ):
+                normalized = 'crates/oasis7_wasm_build/**'
+            elif normalized in (
+                'crates/oasis7_wasm_sdk',
+                'crates/oasis7_wasm_sdk/*',
+                'crates/oasis7_wasm_sdk/**/*',
+            ):
+                normalized = 'crates/oasis7_wasm_sdk/**'
+            elif normalized in (
+                'crates/oasis7_wasm_abi',
+                'crates/oasis7_wasm_abi/*',
+                'crates/oasis7_wasm_abi/**/*',
+            ):
+                normalized = 'crates/oasis7_wasm_abi/**'
+            elif normalized == 'docker/wasm-builder/*':
+                normalized = 'docker/wasm-builder/**'
+            elif normalized in ('tools/wasm_build_suite/*', 'tools/wasm_build_suite/**/*'):
+                normalized = 'tools/wasm_build_suite/**'
+            self.assertIn(normalized, wf_paths, f'wasm-determinism-gate.yml paths missing {pattern}')
 
     def test_group_commands_execute_once_and_propagate_failure(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
@@ -6164,10 +6220,41 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'fleet-health': 15,
                 'doc-checker-contracts': 15,
                 'workflow-governance': 20,
+                'consensus': 20,
+                'net': 20,
+                'node': 20,
+                'pixel-world-bridge': 20,
+                'distfs': 30,
+                'rust-baseline': 30,
+                'launcher-web': 30,
+                'viewer-js-required': 30,
+                'viewer-performance-report': 30,
+                'newapi-bridge-package': 30,
             },
             '.github/workflows/wasm-determinism-gate.yml': {
                 'plan-wasm-determinism-scope': 10,
                 'verify-wasm-determinism': 10,
+            },
+            '.github/workflows/command-center.yml': {
+                'desktop': 30,
+            },
+            '.github/workflows/compile-metrics.yml': {
+                'summarize': 10,
+            },
+            '.github/workflows/daily-github-release.yml': {
+                'create-release': 10,
+            },
+            '.github/workflows/pages.yml': {
+                'deploy': 15,
+            },
+            '.github/workflows/ecs-packages.yml': {
+                'package': 20,
+            },
+            '.github/workflows/newapi-bridge-service-package.yml': {
+                'package-linux-x86-64': 30,
+            },
+            '.github/workflows/hosted-login-linux-build.yml': {
+                'build-linux-x86-64': 45,
             },
         }
         for rel_path, limits in expected_limits.items():
@@ -6175,6 +6262,58 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
             for job_name, max_minutes in limits.items():
                 with self.subTest(workflow=rel_path, job=job_name):
                     self.assertIn(job_name, jobs)
+                    match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', jobs[job_name], re.M)
+                    self.assertIsNotNone(match, f'{rel_path}:{job_name} must declare explicit timeout-minutes')
+                    actual = int(match.group(1))
+                    self.assertGreater(actual, 0)
+                    self.assertLessEqual(actual, max_minutes)
+
+
+class ReleasePackagingJobTimeoutContractTests(unittest.TestCase):
+    def test_release_packaging_workflows_declare_bounded_timeout_minutes_for_all_jobs(self):
+        expected_limits = {
+            '.github/workflows/testnet-packages.yml': {
+                'full-regression-qualification': 10,
+                'plan': 10,
+                'build-web-dist': 60,
+                'package-native': 180,
+                'package-native-trusted': 180,
+                'package-installers': 120,
+            },
+            '.github/workflows/mainnet-packages.yml': {
+                'full-regression-qualification': 10,
+                'plan': 10,
+                'release_gate_runtime_core': 60,
+                'release_gate_runtime_support': 60,
+                'release_gate_runtime_sync': 60,
+                'release_gate_web': 60,
+                'release_gate_soak': 90,
+                'release_gate': 10,
+                'build-web-dist': 60,
+                'package-native': 180,
+                'package-index': 15,
+            },
+            '.github/workflows/release-packages.yml': {
+                'full-regression-qualification': 10,
+                'cache-bootstrap-maintenance': 5,
+                'cache-maintenance': 5,
+                'plan': 10,
+                'release_gate_runtime_core': 60,
+                'release_gate_runtime_support': 60,
+                'release_gate_runtime_sync': 60,
+                'release_gate_web': 60,
+                'release_gate_soak': 90,
+                'release_gate': 10,
+                'build-web-dist': 60,
+                'package-native': 180,
+                'publish-release': 20,
+            },
+        }
+        for rel_path, limits in expected_limits.items():
+            jobs = workflow_jobs((ROOT / rel_path).read_text())
+            self.assertEqual(set(jobs.keys()), set(limits.keys()), rel_path)
+            for job_name, max_minutes in limits.items():
+                with self.subTest(workflow=rel_path, job=job_name):
                     match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', jobs[job_name], re.M)
                     self.assertIsNotNone(match, f'{rel_path}:{job_name} must declare explicit timeout-minutes')
                     actual = int(match.group(1))

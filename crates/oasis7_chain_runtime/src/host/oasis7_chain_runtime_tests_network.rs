@@ -1,4 +1,4 @@
-use oasis7::network_tier_manifest::{
+use oasis7_client_api::network_tier_manifest::{
     LoadedNetworkTierManifest, NETWORK_TIER_MANIFEST_SCHEMA_V1, NetworkTierClaimsPolicy,
     NetworkTierEndpointPolicy, NetworkTierManifest, NetworkTierPromotionPolicy,
     NetworkTierRuntimeRefs, NetworkTierTokenPolicy, NetworkTierValidatorPolicy,
