@@ -754,3 +754,107 @@ fn reopening_finishes_control_file_durability_before_serving_pages() {
         drop(store);
     }
 }
+
+#[test]
+fn borrowed_page_writer_retains_caller_original_and_durable_readback() {
+    let fixture = Fixture::new();
+    let memory = MemoryBudget::new(8 << 20, 0).unwrap();
+    let store =
+        IncrementalPageStore::create(&fixture.store(), memory.clone(), PageCompression::Raw)
+            .unwrap();
+    let bytes = memory
+        .reserve(8192, MemoryClass::Ordinary)
+        .unwrap()
+        .retain(vec![0x5a; 8192]);
+    let id = *blake3::hash(bytes.as_slice()).as_bytes();
+    let usage = memory.used();
+    let mut writer = store.value_session(physical_io());
+    writer.put_node_borrowed(id, &bytes).unwrap();
+    assert_eq!(bytes.len(), 8192);
+    assert_eq!(memory.used(), usage);
+    let value = writer
+        .read_node(&id, 8192, &memory, MemoryClass::Ordinary)
+        .unwrap();
+    assert_eq!(value.as_slice(), bytes.as_slice());
+}
+
+#[test]
+fn external_and_local_cancellation_preserve_real_session_budget() {
+    let fixture = Fixture::new();
+    let memory = MemoryBudget::new(8 << 20, 0).unwrap();
+    let store =
+        IncrementalPageStore::create(&fixture.store(), memory.clone(), PageCompression::Raw)
+            .unwrap();
+    let data = memory
+        .reserve(4096, MemoryClass::Ordinary)
+        .unwrap()
+        .retain(vec![0x33; 4096]);
+    let id = *blake3::hash(data.as_slice()).as_bytes();
+    let shared = AtomicBool::new(true);
+    let mut session = store.value_session_with_cancelled(physical_io(), &shared);
+    let before = session.remaining_io().unwrap();
+    assert!(matches!(
+        session.put_node_borrowed(id, &data),
+        Err(ValueTreeError::Cancelled)
+    ));
+    assert!(matches!(
+        session.read_node(&id, 4096, &memory, MemoryClass::Ordinary),
+        Err(ValueTreeError::Cancelled)
+    ));
+    assert_eq!(
+        session.remaining_io().unwrap().reads_remaining,
+        before.reads_remaining
+    );
+    assert_eq!(
+        session.remaining_io().unwrap().writes_remaining,
+        before.writes_remaining
+    );
+
+    shared.store(false, Ordering::Release);
+    session.put_node_borrowed(id, &data).unwrap();
+    assert_eq!(
+        session
+            .read_node(&id, 4096, &memory, MemoryClass::Ordinary)
+            .unwrap()
+            .as_slice(),
+        data.as_slice()
+    );
+    session.cancelled.store(true, Ordering::Release);
+    assert!(matches!(
+        session.read_node(&id, 4096, &memory, MemoryClass::Ordinary),
+        Err(ValueTreeError::Cancelled)
+    ));
+    assert!(matches!(
+        session.put_node_borrowed(id, &data),
+        Err(ValueTreeError::Cancelled)
+    ));
+}
+
+#[test]
+fn caller_cancel_during_real_recipe_fsync_cannot_return_success() {
+    let fixture = Fixture::new();
+    let memory = MemoryBudget::new(8 << 20, 0).unwrap();
+    let store =
+        IncrementalPageStore::create(&fixture.store(), memory.clone(), PageCompression::Raw)
+            .unwrap();
+    let original = memory
+        .reserve(4096, MemoryClass::Ordinary)
+        .unwrap()
+        .retain(vec![0x63; 4096]);
+    let id = *blake3::hash(original.as_slice()).as_bytes();
+    let shared = Arc::new(AtomicBool::new(false));
+    let mut writer = store.value_session_with_cancelled(physical_io(), &shared);
+    // The actual on-disk recipe directory fsync occurs before the physical
+    // page closure can be reported durable. Cancellation at this point must
+    // reject success, even if the file link itself was already published.
+    files::cancel_after_sync(store.root().join("recipes"), shared.clone(), 1);
+    assert!(matches!(
+        writer.put_node_borrowed(id, &original),
+        Err(ValueTreeError::Cancelled)
+    ));
+    assert!(shared.load(Ordering::Acquire));
+    assert!(matches!(
+        writer.read_node(&id, 4096, &memory, MemoryClass::Ordinary),
+        Err(ValueTreeError::Cancelled)
+    ));
+}
