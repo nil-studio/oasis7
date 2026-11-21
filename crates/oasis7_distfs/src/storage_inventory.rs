@@ -29,7 +29,9 @@ pub fn inventory_storage(root: &Path) -> StorageInventory {
     inventory_storage_with_entry_limit(root, usize::MAX)
 }
 
-/// Bound metadata traversal and queued paths. Exhaustion is an incomplete
+/// Bound metadata traversal. Directory entries are streamed depth first rather
+/// than queued by width; open directory iterators scale with depth, and inode
+/// deduplication still scales with unique entries. Exhaustion is an incomplete
 /// inventory, never a complete capacity baseline.
 pub fn inventory_storage_with_entry_limit(root: &Path, maximum_entries: usize) -> StorageInventory {
     let mut result = StorageInventory {
@@ -41,10 +43,13 @@ pub fn inventory_storage_with_entry_limit(root: &Path, maximum_entries: usize) -
     result
         .errors
         .push("device/inode and allocated bytes unavailable on this platform".into());
-    let mut pending = vec![PathBuf::from(root)];
+    let mut pending = InventoryPaths {
+        root: Some(root.to_path_buf()),
+        directories: Vec::new(),
+    };
     let mut seen = BTreeSet::new();
     let mut visited = 0usize;
-    'walk: while let Some(path) = pending.pop() {
+    while let Some(entry) = pending.next() {
         if visited >= maximum_entries {
             result.errors.push(format!(
                 "inventory entry budget exhausted: {maximum_entries}"
@@ -52,6 +57,13 @@ pub fn inventory_storage_with_entry_limit(root: &Path, maximum_entries: usize) -
             break;
         }
         visited += 1;
+        let path = match entry {
+            Ok(path) => path,
+            Err(error) => {
+                result.errors.push(error);
+                continue;
+            }
+        };
         let metadata = match fs::symlink_metadata(&path) {
             Ok(metadata) => metadata,
             Err(error) => {
@@ -95,31 +107,7 @@ pub fn inventory_storage_with_entry_limit(root: &Path, maximum_entries: usize) -
         if metadata.is_dir() && first {
             result.directories += 1;
             match fs::read_dir(&path) {
-                Ok(entries) => {
-                    for entry in entries {
-                        match entry {
-                            Ok(entry) => {
-                                if visited.saturating_add(pending.len()) >= maximum_entries {
-                                    result.errors.push(format!(
-                                        "inventory entry budget exhausted: {maximum_entries}"
-                                    ));
-                                    break 'walk;
-                                }
-                                pending.push(entry.path());
-                            }
-                            Err(error) => {
-                                if visited.saturating_add(pending.len()) >= maximum_entries {
-                                    result.errors.push(format!(
-                                        "inventory entry budget exhausted: {maximum_entries}"
-                                    ));
-                                    break 'walk;
-                                }
-                                visited += 1;
-                                result.errors.push(format!("{}: {error}", path.display()))
-                            }
-                        }
-                    }
-                }
+                Ok(entries) => pending.directories.push((path, entries)),
                 Err(error) => result.errors.push(format!("{}: {error}", path.display())),
             }
         }
@@ -127,6 +115,31 @@ pub fn inventory_storage_with_entry_limit(root: &Path, maximum_entries: usize) -
     result.errors.sort();
     result.complete = result.errors.is_empty();
     result
+}
+
+// Keep only active ancestors, never all sibling paths from a wide directory.
+struct InventoryPaths {
+    root: Option<PathBuf>,
+    directories: Vec<(PathBuf, fs::ReadDir)>,
+}
+impl Iterator for InventoryPaths {
+    type Item = Result<PathBuf, String>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(root) = self.root.take() {
+            return Some(Ok(root));
+        }
+        while let Some((path, entries)) = self.directories.last_mut() {
+            if let Some(entry) = entries.next() {
+                return Some(
+                    entry
+                        .map(|entry| entry.path())
+                        .map_err(|error| format!("{}: {error}", path.display())),
+                );
+            }
+            self.directories.pop();
+        }
+        None
+    }
 }
 
 #[cfg(test)]
@@ -150,6 +163,42 @@ mod tests {
         fn drop(&mut self) {
             fs::remove_dir_all(&self.0).unwrap();
         }
+    }
+    #[test]
+    fn wide_nested_tree_preserves_exact_entry_boundary() {
+        let fixture = Fixture::new();
+        let nested = fixture.0.join("nested");
+        fs::create_dir(&nested).unwrap();
+        for index in 0..1024 {
+            fs::write(fixture.0.join(format!("wide-{index}")), b"a").unwrap();
+            fs::write(nested.join(format!("nested-{index}")), b"bc").unwrap();
+        }
+        // Root + nested directory + every name in both directories.
+        let exact_entries = 2050;
+        let exact = inventory_storage_with_entry_limit(&fixture.0, exact_entries);
+        assert!(exact.complete, "{:?}", exact.errors);
+        assert_eq!(exact.directories, 2);
+        assert_eq!(exact.file_paths, 2048);
+        assert_eq!(exact.unique_files, 2048);
+        assert_eq!(exact.apparent_bytes, 3072);
+        assert_eq!(exact.unique_apparent_bytes, 3072);
+        let partial = inventory_storage_with_entry_limit(&fixture.0, exact_entries - 1);
+        assert!(!partial.complete);
+        assert_eq!(partial.file_paths + partial.directories, 2049);
+        assert!(
+            partial
+                .errors
+                .iter()
+                .any(|error| error.contains("budget exhausted"))
+        );
+    }
+    #[test]
+    fn empty_directory_uses_one_entry() {
+        let fixture = Fixture::new();
+        let result = inventory_storage_with_entry_limit(&fixture.0, 1);
+        assert!(result.complete, "{:?}", result.errors);
+        assert_eq!(result.directories, 1);
+        assert_eq!(result.file_paths, 0);
     }
     #[test]
     fn missing_root_is_incomplete() {
@@ -198,6 +247,29 @@ mod tests {
         // A second domain is measured independently even if its fixture aliases
         // the same inode. This does not attest that the domains are independent.
         assert_eq!(inventory_storage(&path).unique_files, 1);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn hardlinks_across_nested_directories_keep_every_name() {
+        let fixture = Fixture::new();
+        let left = fixture.0.join("left");
+        let right = fixture.0.join("right");
+        fs::create_dir(&left).unwrap();
+        fs::create_dir(&right).unwrap();
+        fs::write(left.join("original"), b"original").unwrap();
+        fs::hard_link(left.join("original"), right.join("alias")).unwrap();
+        let result = inventory_storage_with_entry_limit(&fixture.0, 5);
+        assert!(result.complete, "{:?}", result.errors);
+        assert_eq!(result.directories, 3);
+        assert_eq!(result.file_paths, 2);
+        assert_eq!(result.unique_files, 1);
+        assert_eq!(result.apparent_bytes, 16);
+        assert_eq!(result.unique_apparent_bytes, 8);
+        let expected = [&fixture.0, &left, &right, &left.join("original")]
+            .into_iter()
+            .map(|path| fs::metadata(path).unwrap().blocks() * 512)
+            .sum();
+        assert_eq!(result.allocated_bytes, Some(expected));
     }
     #[cfg(unix)]
     #[test]
