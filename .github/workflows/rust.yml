@@ -630,6 +630,7 @@ jobs:
     if: >-
       needs.pr-fast-preview-plan.result == 'success' &&
       needs.pr-fast-preview-plan.outputs.enabled == 'true' &&
+      github.event.action != 'opened' &&
       contains(github.event.pull_request.labels.*.name, 'ci-fast-preview')
     runs-on: ubuntu-24.04
     timeout-minutes: 30

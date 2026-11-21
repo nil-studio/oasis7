@@ -2579,7 +2579,21 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertIn('name: ${{ needs.pr-fast-preview-plan.outputs.artifact }}', preview)
         self.assertIn("needs.pr-fast-preview-plan.result == 'success'", preview)
         self.assertIn("needs.pr-fast-preview-plan.outputs.enabled == 'true'", preview)
+        self.assertIn("github.event.action != 'opened'", preview)
         self.assertIn("contains(github.event.pull_request.labels.*.name, 'ci-fast-preview')", preview)
+        label_workflow = (ROOT / '.github/workflows/pr-fast-preview.yml').read_text()
+        label_jobs = workflow_jobs(label_workflow)
+        self.assertIn('types: [labeled]', label_workflow)
+        self.assertIn("github.event.label.name == 'ci-fast-preview'", label_jobs['pr-fast-preview-plan'])
+        self.assertIn("needs.pr-fast-preview-plan.result == 'success' && needs.pr-fast-preview-plan.outputs.enabled == 'true'",
+                      label_jobs['pr-fast-preview'])
+        for name, job in label_jobs.items():
+            with self.subTest(label_workflow_job=name):
+                self.assertIn('contents: read', job)
+                self.assertIn('persist-credentials: false', job)
+                for forbidden in ('contents: write', 'actions: write', 'cache-mode: write', 'continue-on-error:',
+                                  'rust-cache@', 'actions/cache/', 'ci-full-result.py', 'ci-required-result.py'):
+                    self.assertNotIn(forbidden, job)
         self.assertIn('matrix: ${{ steps.preview.outputs.matrix }}', planner)
         self.assertIn('matrix: ${{ fromJSON(needs.pr-fast-preview-plan.outputs.matrix) }}', preview)
         self.assertIn('PREVIEW_SAMPLE: ${{ matrix.sample }}', preview)
