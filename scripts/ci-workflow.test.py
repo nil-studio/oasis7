@@ -6164,10 +6164,41 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'fleet-health': 15,
                 'doc-checker-contracts': 15,
                 'workflow-governance': 20,
+                'consensus': 20,
+                'net': 20,
+                'node': 20,
+                'pixel-world-bridge': 20,
+                'distfs': 30,
+                'rust-baseline': 30,
+                'launcher-web': 30,
+                'viewer-js-required': 30,
+                'viewer-performance-report': 30,
+                'newapi-bridge-package': 30,
             },
             '.github/workflows/wasm-determinism-gate.yml': {
                 'plan-wasm-determinism-scope': 10,
                 'verify-wasm-determinism': 10,
+            },
+            '.github/workflows/command-center.yml': {
+                'desktop': 30,
+            },
+            '.github/workflows/compile-metrics.yml': {
+                'summarize': 10,
+            },
+            '.github/workflows/daily-github-release.yml': {
+                'create-release': 10,
+            },
+            '.github/workflows/pages.yml': {
+                'deploy': 15,
+            },
+            '.github/workflows/ecs-packages.yml': {
+                'package': 20,
+            },
+            '.github/workflows/newapi-bridge-service-package.yml': {
+                'package-linux-x86-64': 30,
+            },
+            '.github/workflows/hosted-login-linux-build.yml': {
+                'build-linux-x86-64': 45,
             },
         }
         for rel_path, limits in expected_limits.items():
