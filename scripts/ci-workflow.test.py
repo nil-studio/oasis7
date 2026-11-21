@@ -6265,5 +6265,38 @@ class ReleasePackagingJobTimeoutContractTests(unittest.TestCase):
                     self.assertLessEqual(actual, max_minutes)
 
 
+class HeavyPrJobTimeoutContractTests(unittest.TestCase):
+    def test_heavy_pr_jobs_declare_bounded_fallback_timeout_minutes(self):
+        expected_limits = {
+            '.github/workflows/rust.yml': {
+                'oasis7-test-build-candidate': 60,
+                'oasis7-test-build-trusted': 60,
+                'formal-debug-build': 60,
+                'formal-debug-build-trusted': 60,
+                'formal-endpoint-build': 60,
+                'formal-endpoint-build-trusted': 60,
+                'formal-test-build': 60,
+                'formal-test-build-trusted': 60,
+                'oasis7-required': 60,
+                'workspace-support-legacy': 60,
+                'workspace-support-other': 60,
+                'operational-contracts': 60,
+            },
+            '.github/workflows/wasm-determinism-gate.yml': {
+                'collect-wasm-summaries': 60,
+            },
+        }
+        for rel_path, limits in expected_limits.items():
+            jobs = workflow_jobs((ROOT / rel_path).read_text())
+            for job_name, max_minutes in limits.items():
+                with self.subTest(workflow=rel_path, job=job_name):
+                    self.assertIn(job_name, jobs)
+                    match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', jobs[job_name], re.M)
+                    self.assertIsNotNone(match, f'{rel_path}:{job_name} must declare explicit timeout-minutes')
+                    actual = int(match.group(1))
+                    self.assertGreater(actual, 0)
+                    self.assertLessEqual(actual, max_minutes)
+
+
 if __name__ == '__main__':
     unittest.main()
