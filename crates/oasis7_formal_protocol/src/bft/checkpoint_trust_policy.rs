@@ -327,6 +327,18 @@ impl BftCheckpointTrustPolicyV1 {
         if self.clock_profile_digest != digest("clock-profile", clock)? {
             return Err("renewal clock profile digest mismatch".into());
         }
+        // A root key reused as an issuer could forge root-signed revocations;
+        // an issuer reused as the clock could manufacture time observations.
+        // Independent fault domains still require deployment evidence, but
+        // the fixed policy must not explicitly collapse these roles.
+        if clock.time_public_key == self.renewal_root_public_key
+            || self.issuer_keys.iter().any(|key| {
+                key.public_key == self.renewal_root_public_key
+                    || key.public_key == clock.time_public_key
+            })
+        {
+            return Err("checkpoint root, issuer, and time signing keys must be distinct".into());
+        }
         Ok(())
     }
 
