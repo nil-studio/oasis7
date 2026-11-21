@@ -168,7 +168,8 @@ fn established_endpoint_cannot_borrow_a_signed_record_lease_from_another_port() 
         .check_at(&signed.record, 1_000, Instant::now())
         .unwrap();
 
-    let mut signed_path = active_transport_path_from_endpoint(&HashMap::new(), peer_id, &advertised);
+    let mut signed_path =
+        active_transport_path_from_endpoint(&HashMap::new(), peer_id, &advertised);
     signed_path.record_lease = Some(lease);
     let known = HashMap::from([(peer_id, vec![signed_path])]);
     let mut active = HashMap::new();
