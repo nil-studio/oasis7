@@ -60,6 +60,30 @@ class Contracts(unittest.TestCase):
         self.assertIn(variable + ": ${{ matrix.group == 'full-node' && '1' || '' }}", step)
         self.assertIn('python3 scripts/ci-storage-acceptance.py run', step)
 
+    def test_build_components_reads_warmed_shared_image_cache_namespace(self):
+        workflow = (HERE.parent / '.github/workflows/storage-acceptance.yml').read_text()
+        digest = re.search(
+            r'STORAGE_BUILD_IMAGE:\s*&storage-build-image\s+ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:([0-9a-f]{64})',
+            workflow,
+        )
+        self.assertIsNotNone(digest)
+        namespace = 'ci-rust-build-' + digest.group(1)
+        build_job = re.search(
+            r'^  build-components:\n(.*?)(?=^  [a-z][a-z0-9-]*:\n|\Z)',
+            workflow.split('\njobs:\n', 1)[1],
+            re.MULTILINE | re.DOTALL,
+        )
+        self.assertIsNotNone(build_job)
+        body = build_job.group(1)
+        self.assertIn('python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"', body)
+        self.assertIn('save-if: false', body)
+        self.assertIn(f'shared-key: {namespace}\n', body)
+        self.assertIn('add-rust-environment-hash-key: true', body)
+        self.assertIn('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM', body)
+        self.assertIn('cache-on-failure: false', body)
+        rust_cache = (HERE.parent / '.github/workflows/rust-cache.yml').read_text()
+        self.assertIn(f'namespace: {namespace}\n', rust_cache)
+
     def test_storage_components_preserve_every_exact_build_variant_and_profile(self):
         native = acceptance.artifacts
         components = native.STORAGE_COMPONENTS
