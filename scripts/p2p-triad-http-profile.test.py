@@ -395,6 +395,38 @@ sys.stdout.buffer.write(b"X" * %d)
         self.assertEqual(recovered["profile_readiness"]["committed_position"], 8)
         self.assertFalse(recovered["profile_readiness"]["can_propose"])
 
+    @unittest.skipUnless(os.name == "posix", "process-group cleanup uses POSIX sessions")
+    def test_controlled_verifier_timeout_reaps_descendant_holding_stdout_and_recovers(self):
+        # The verifier exits but its ordinary child inherits the stdout pipe.
+        # Without group termination, the collector's timeout is extended
+        # until that child exits even though the direct verifier has gone.
+        child = load("controlled_descendant_reader", "p2p-triad-http-profile.py")
+        marker = self.fixture.root / "verifier-descendant-started"
+        verifier = (
+            "import subprocess, sys\n"
+            "from pathlib import Path\n"
+            "subprocess.Popen([sys.executable, '-c', "
+            "'import time;time.sleep(12)'])\n"
+            "Path(sys.argv[1]).write_text('spawned')\n"
+            "print('parent exited', flush=True)\n"
+        )
+        started = time.monotonic()
+        output, status = child.run_controlled_bounded(
+            [sys.executable, "-c", verifier, str(marker)], b"{}", 3.0
+        )
+        elapsed = time.monotonic() - started
+        self.assertTrue(marker.is_file(), "fixture must spawn the inheriting child before timeout")
+        self.assertEqual((output, status), (None, "timeout"))
+        self.assertLess(elapsed, 7.0, "timeout cleanup must not wait for the child to exit")
+
+        # A later healthy child must still return an unmodified bounded result.
+        recovered, status = child.run_controlled_bounded(
+            [sys.executable, "-c", "import sys; sys.stdin.read(); print('ok')"],
+            b"{}", 4.0,
+        )
+        self.assertEqual((recovered, status), (b"ok\n", "success"))
+
+
     def test_controlled_owner_observation_keeps_its_original_sample_time(self):
         inventory = self.controlled_inventory_fixture()
         config = self.fixture.root / "owner-private-config"

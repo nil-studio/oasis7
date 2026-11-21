@@ -13,6 +13,7 @@ import json
 import math
 import os
 import re
+import signal
 from pathlib import Path
 import stat
 import subprocess
@@ -174,6 +175,7 @@ async def _bounded_controlled_output(args, payload):
     process = await asyncio.create_subprocess_exec(
         *args, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL, limit=CONTROLLED_OUTPUT_CAP,
+        start_new_session=(os.name == "posix"),
     )
 
     async def send_request():
@@ -186,6 +188,7 @@ async def _bounded_controlled_output(args, payload):
             process.stdin.close()
 
     sender = asyncio.create_task(send_request())
+    stdout_complete = False
     try:
         output = bytearray()
         while True:
@@ -193,6 +196,7 @@ async def _bounded_controlled_output(args, payload):
             # stdout. asyncio pauses its pipe transport at the bounded limit.
             chunk = await process.stdout.read(min(8192, CONTROLLED_OUTPUT_CAP + 1 - len(output)))
             if not chunk:
+                stdout_complete = True
                 break
             output.extend(chunk)
             if len(output) > CONTROLLED_OUTPUT_CAP:
@@ -203,7 +207,16 @@ async def _bounded_controlled_output(args, payload):
         return bytes(output), "success"
     finally:
         sender.cancel()
-        if process.returncode is None:
+        # A verifier may exit while a child retains stdout. Terminate its
+        # isolated POSIX group while this pipe is incomplete, even if the
+        # launcher has already exited. After EOF the group might be gone and
+        # its numeric identifier could eventually be reused.
+        if not stdout_complete and os.name == "posix":
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        elif process.returncode is None:
             process.kill()
         # A StreamReader may pause its subprocess pipe at the high-water
         # mark. Drain and discard after killing the exact child so wait()
