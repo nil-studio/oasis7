@@ -2000,7 +2000,8 @@ class CompleteArtifactPartitions(unittest.TestCase):
             self.assertEqual(pool.call_args.args[0][0]['suite'], 'runtime-protocol')
         with tempfile.TemporaryDirectory() as temporary, \
              patch.object(artifacts, 'load', return_value=(manifest, {'OASIS7_FORMAL_TEST': 'must-be-removed'})) as load, \
-             patch('ci_process_runner.run', return_value=dict(passed=False, cleanup_result='clean')) as runner:
+             patch('ci_process_runner.run', side_effect=lambda command, cwd, env, suite, name, results, expected_count=None, **kwargs:
+                   ParallelNativeExecution.receipt(suite, name, results, expected_count, passed=False, exit_code=101, count_ok=False)) as runner:
             with self.assertRaises(RuntimeError):
                 artifacts.execute(Path(temporary), 'ordinary', Path(temporary) / 'results', plan=selected, ordinary_partition='runtime')
             self.assertEqual(runner.call_count, 1)
@@ -2231,6 +2232,36 @@ class OrdinaryArtifactDelivery(unittest.TestCase):
             with self.subTest(damage=damage), self.assertRaises(ValueError):
                 self.unpack('runtime', payload=damaged)
         self.assertFalse((self.root / 'outside').exists())
+
+    def test_pack_ordinary_delivery_compresses_archives_concurrently_and_preserves_order(self):
+        entered = threading.Barrier(2)
+        lock = threading.Lock()
+        active = [0, 0]
+        original_write = artifacts.write_artifact_archive
+
+        def tracked_write(bundle, archive_path, metadata_files, files):
+            with lock:
+                active[0] += 1
+                active[1] = max(active)
+            try:
+                if active[0] <= 2:
+                    try:
+                        entered.wait(timeout=1.5)
+                    except threading.BrokenBarrierError:
+                        pass
+                return original_write(bundle, archive_path, metadata_files, files)
+            finally:
+                with lock:
+                    active[0] -= 1
+
+        with patch.object(artifacts, 'native_cpu_budget', return_value=4), \
+                patch.object(artifacts, 'write_artifact_archive', side_effect=tracked_write):
+            report = self.pack()
+        self.assertGreaterEqual(active[1], 2)
+        expected_owners = ['common', *artifacts.ordinary_partitions(self.plan)[1:]]
+        self.assertEqual(list(report['archives'].keys()), expected_owners)
+        for owner in expected_owners[1:]:
+            self.unpack(owner)
 
     def test_load_keeps_real_inventory_executable_source_and_complete_parent_checks(self):
         self.pack()
@@ -2470,7 +2501,11 @@ class OrdinaryExclusiveExecution(unittest.TestCase):
                     self.assertIn(name, self.cases)
                     self.assertEqual(command[1:], ['--exact', name, '--test-threads=1'])
                     self.assertEqual(expected_count, 1)
-                return dict(passed=not (fail and name == self.cases[0]), cleanup_result='clean')
+                passed = not (fail and name == self.cases[0])
+                return ParallelNativeExecution.receipt(
+                    suite, name, results, expected_count,
+                    passed=passed, exit_code=0 if passed else 101, count_ok=passed,
+                )
             with tempfile.TemporaryDirectory() as temporary, \
                  patch.object(artifacts, 'load', return_value=(manifest, {'OASIS7_FORMAL_TEST': 'remove'})), \
                  patch('ci_process_runner.run', side_effect=invoke) as runner:
@@ -3332,6 +3367,56 @@ pub fn mark(name: &str) {
                 self.assertTrue(all(threads == '2' for _, threads in calls))
                 self.assertEqual(len(records), len(calls))
                 self.assertTrue(all(record['passed'] for record in records))
+
+    def test_v1_component_libs_partition_runs_largest_first_with_bounded_concurrency(self):
+        selected = CompleteArtifactPartitions().selection()
+        manifest = CompleteArtifactPartitions().manifest(selected)
+        manifest['binaries'].update({
+            'alpha-small-lib': dict(
+                package='oasis7_cas', target='oasis7_cas', target_kind=['lib'],
+                variant='required', ordinary=True, path='alpha-small-lib', cwd='.',
+                tests=['s_0'], ignored_tests=[],
+            ),
+            'omega-large-lib': dict(
+                package='oasis7_world_state', target='oasis7_world_state', target_kind=['lib'],
+                variant='required', ordinary=True, path='omega-large-lib', cwd='.',
+                tests=[f'w_{index}' for index in range(20)], ignored_tests=[],
+            ),
+            'zeta-medium-lib': dict(
+                package='oasis7_runtime', target='oasis7_runtime', target_kind=['lib'],
+                variant='required', ordinary=True, path='zeta-medium-lib', cwd='.',
+                tests=[f'r_{index}' for index in range(15)], ignored_tests=[],
+            ),
+        })
+        entered = threading.Barrier(2)
+        lock = threading.Lock()
+        calls, active = [], [0, 0]
+
+        def invoke(command, cwd, env, suite, name, results, expected_count=None, **kwargs):
+            with lock:
+                active[0] += 1
+                active[1] = max(active)
+                calls.append((name, expected_count, env.get('RUST_TEST_THREADS')))
+            try:
+                if len(calls) <= 2:
+                    entered.wait(timeout=2)
+                return ParallelNativeExecution.receipt(suite, name, results, expected_count)
+            finally:
+                with lock:
+                    active[0] -= 1
+
+        with tempfile.TemporaryDirectory() as temporary, \
+                patch.object(artifacts, 'load', return_value=(manifest, {})), \
+                patch.object(artifacts, 'native_cpu_budget', return_value=4), \
+                patch('ci_process_runner.run', side_effect=invoke):
+            receipts = Path(temporary) / 'results.jsonl'
+            artifacts.execute(Path(temporary), 'ordinary', receipts, plan=selected,
+                              ordinary_partition='component-libs')
+            records = [json.loads(line) for line in receipts.read_text().splitlines()]
+        self.assertEqual(active[1], 2)
+        self.assertEqual({name for name, _, _ in calls[:2]}, {'omega-large-lib', 'zeta-medium-lib'})
+        self.assertTrue(all(threads == '2' for _, _, threads in calls))
+        self.assertEqual(len(records), len(calls))
 
 
 class NativePackagePartitions(unittest.TestCase):
