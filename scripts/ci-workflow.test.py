@@ -6141,5 +6141,46 @@ class RustGovernanceReportContract(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
+class StablePrJobTimeoutContractTests(unittest.TestCase):
+    def test_stable_pr_jobs_declare_bounded_timeout_minutes(self):
+        expected_limits = {
+            '.github/workflows/rust.yml': {
+                'oasis7-test-build': 5,
+                'formal-process': 5,
+                'workspace-support': 5,
+                'required-gate': 5,
+                'explicit-full-gate': 5,
+                'select': 10,
+                'pr-fast-preview-plan': 10,
+                'baseline': 10,
+                'codex-agent-config-validation': 10,
+                'macos-package-contract': 10,
+                'site-quality': 10,
+                'packaging-contracts': 10,
+                'scenario-regression': 10,
+                'compile-metrics': 10,
+                'cargo-tooling-contracts': 10,
+                'windows-rollout': 10,
+                'fleet-health': 15,
+                'doc-checker-contracts': 15,
+                'workflow-governance': 20,
+            },
+            '.github/workflows/wasm-determinism-gate.yml': {
+                'plan-wasm-determinism-scope': 10,
+                'verify-wasm-determinism': 10,
+            },
+        }
+        for rel_path, limits in expected_limits.items():
+            jobs = workflow_jobs((ROOT / rel_path).read_text())
+            for job_name, max_minutes in limits.items():
+                with self.subTest(workflow=rel_path, job=job_name):
+                    self.assertIn(job_name, jobs)
+                    match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', jobs[job_name], re.M)
+                    self.assertIsNotNone(match, f'{rel_path}:{job_name} must declare explicit timeout-minutes')
+                    actual = int(match.group(1))
+                    self.assertGreater(actual, 0)
+                    self.assertLessEqual(actual, max_minutes)
+
+
 if __name__ == '__main__':
     unittest.main()
