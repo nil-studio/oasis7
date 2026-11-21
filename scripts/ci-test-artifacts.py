@@ -2227,15 +2227,26 @@ def pack_ordinary_delivery(bundle, directory, plan, *, diagnostic=False):
     if {name: sha for values in files.values() for name, sha in values.items()} != dict(original_files):
         raise ValueError('ordinary delivery changes the original file closure')
     parent = (json.dumps(manifest, indent=2) + '\n').encode()
-    reports = {}
-    for owner, names in layout.items():
+    directory.mkdir(parents=True, exist_ok=True)
+
+    def pack_one(owner):
+        names = layout[owner]
         metadata = {'manifest.json': parent} if owner == 'common' else {}
         receipt_name = ORDINARY_DELIVERY_RECEIPTS[0 if owner == 'common' else 1]
         receipt = delivery_receipt(parent, owner, names, diagnostic)
         metadata[receipt_name] = (json.dumps(receipt, indent=2) + '\n').encode()
-        reports[owner] = write_artifact_archive(bundle, directory / (owner + '.tar.gz'), metadata,
-                                               list(files[owner].items()))
-        reports[owner].update(receipt, binaries=artifact_binary_sizes(bundle, manifest, names))
+        row = write_artifact_archive(bundle, directory / (owner + '.tar.gz'), metadata,
+                                     list(files[owner].items()))
+        row.update(receipt, binaries=artifact_binary_sizes(bundle, manifest, names))
+        return row
+
+    workers = min(len(layout), max(1, native_cpu_budget()))
+    if workers <= 1:
+        reports = {owner: pack_one(owner) for owner in layout}
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {owner: pool.submit(pack_one, owner) for owner in layout}
+            reports = {owner: futures[owner].result() for owner in layout}
     report = dict(schema_version=1, diagnostic_only=diagnostic,
                   parent_manifest_sha256=hashlib.sha256(parent).hexdigest(),
                   source_sha=manifest['source_sha'], tested_sha=manifest['tested_sha'],
@@ -3516,11 +3527,18 @@ def execute(bundle, suite, results, shard=None, plan=None, ordinary_partition=No
         if (entry.get('binary'), name) in resources:
             job['cpu_weight'] = resources[(entry['binary'], name)]
         jobs.append(job)
-    native_artifact_partition = artifact_partition and plan.get('ordinary_artifact_partition_version') == 2
-    if formal or inline or native_artifact_partition:
+    parallel_artifact_partition = artifact_partition and (
+        plan.get('ordinary_artifact_partition_version') == 2
+        or ordinary_partition in ('component-libs', 'integrations-0', 'integrations-1')
+    )
+    if parallel_artifact_partition and plan.get('ordinary_artifact_partition_version') == 1:
+        # Start the largest libraries/suites first so long-running crates do not
+        # trail behind short targets at the end of a v1 partition.
+        jobs.sort(key=lambda item: -(item['count'] or 0))
+    if formal or inline or parallel_artifact_partition:
         execute_inline_jobs(jobs, results, formal=formal, shard=shard,
                             ordinary_partition=manifest.get('ordinary_partition'),
-                            artifact_partition=native_artifact_partition)
+                            artifact_partition=parallel_artifact_partition)
         return
     failed = False
     for job in jobs:
