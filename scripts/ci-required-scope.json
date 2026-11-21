@@ -121,7 +121,7 @@
       {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_world_rule_shipments", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 27622},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_bad_roots", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 47436},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_cold_point", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 6413},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_creation", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 806},
+      {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_world_rule_supply_creation", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 806},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_failures", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 9015},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_genesis", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 18020},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_pages", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 54634},
