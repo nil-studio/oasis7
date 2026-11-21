@@ -535,6 +535,44 @@ fn original_request_cannot_be_backfilled_after_attempt_start() {
 }
 
 #[test]
+fn late_publication_intent_persistence_never_authorizes_external_pin_cas() {
+    let temp = TestDir::new();
+    let path = temp.path().join("operation.json");
+    let policy = policy();
+    let identity = identity(&policy);
+    let mut ledger = Ledger::create(&path, identity.clone(), policy.clone()).unwrap();
+    let attempt = ledger.begin_attempt().unwrap();
+    let cut = serde_json::json!({"record_id": "original"});
+    let target =
+        serde_json::to_vec(&(cut.clone(), serde_json::json!({"original_record": true}))).unwrap();
+    let roots = "ab".repeat(32);
+    ledger.bind_verified_target(&attempt, &target).unwrap();
+
+    // A slow durable intent write reaches the exclusive attempt deadline.
+    // The caller must NOT receive success and start external root publication.
+    let error = ledger
+        .begin_publication_with_finished_at(&attempt, &cut, &roots, || attempt.deadline())
+        .unwrap_err();
+    assert_eq!(error, "attempt_expired");
+    let pending = ledger.snapshot().clone();
+    assert_eq!(
+        pending.publication.as_ref().map(|journal| journal.completed),
+        Some(false)
+    );
+    assert!(ledger.check_attempt(&attempt).is_err());
+    assert!(ledger.complete_publication(&attempt, &cut, &roots).is_err());
+    assert!(ledger.begin_publication(&attempt, &cut, &roots).is_err());
+    drop(ledger);
+
+    // The exact pending intent survives cold observation; no fabricated
+    // acknowledgement or replay permission may appear on the reopened handle.
+    let mut reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
+    assert_eq!(reopened.snapshot(), &pending);
+    assert!(reopened.complete_publication(&attempt, &cut, &roots).is_err());
+    assert_eq!(reopened.snapshot(), &pending);
+}
+
+#[test]
 fn publication_intent_is_exact_and_unknown_reopen_cannot_replay() {
     let temp = TestDir::new();
     let path = temp.path().join("operation.json");

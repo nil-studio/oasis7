@@ -469,6 +469,18 @@ impl Ledger {
         cut: &serde_json::Value,
         roots_digest: &str,
     ) -> Result<(), String> {
+        self.begin_publication_with_finished_at(permit, cut, roots_digest, Instant::now)
+    }
+
+    // The real caller publishes external pins immediately after this returns.
+    // Freeze the original attempt deadline across the durable intent write.
+    pub(super) fn begin_publication_with_finished_at(
+        &mut self,
+        permit: &AttemptPermit,
+        cut: &serde_json::Value,
+        roots_digest: &str,
+        finished_at: impl FnOnce() -> Instant,
+    ) -> Result<(), String> {
         self.check_attempt(permit)?;
         if self.state.publication_journal_version != Some(1)
             || self.state.publication.is_some()
@@ -498,7 +510,15 @@ impl Ledger {
             attempt_no: permit.number,
             completed: false,
         });
-        self.save(next)
+        self.save(next)?;
+        if finished_at() >= permit.deadline {
+            // An intent may now be durable while the original attempt has
+            // expired. Never authorize the external pin CAS with late fsync.
+            // Preserve unknown/pending state for explicit fenced recovery.
+            self.poisoned = true;
+            return Err("attempt_expired".into());
+        }
+        Ok(())
     }
 
     /// Only the same live attempt may record a positively acknowledged pin
