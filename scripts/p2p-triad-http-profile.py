@@ -13,6 +13,7 @@ import json
 import math
 import os
 import re
+import signal
 from pathlib import Path
 import stat
 import subprocess
@@ -174,6 +175,7 @@ async def _bounded_controlled_output(args, payload):
     process = await asyncio.create_subprocess_exec(
         *args, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL, limit=CONTROLLED_OUTPUT_CAP,
+        start_new_session=(os.name == "posix"),
     )
 
     async def send_request():
@@ -186,6 +188,7 @@ async def _bounded_controlled_output(args, payload):
             process.stdin.close()
 
     sender = asyncio.create_task(send_request())
+    finished_normally = False
     try:
         output = bytearray()
         while True:
@@ -200,10 +203,20 @@ async def _bounded_controlled_output(args, payload):
         await sender
         if await process.wait() != 0:
             return None, "controlled_observation_failed"
+        finished_normally = True
         return bytes(output), "success"
     finally:
         sender.cancel()
-        if process.returncode is None:
+        # A verifier can exit while its descendants still hold stdout open.
+        # Killing only the direct child on cancellation would make the drain
+        # below wait past the original deadline. Terminate its isolated POSIX
+        # process group for failed/cancelled probes, including exited parents.
+        if not finished_normally and os.name == "posix":
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        elif process.returncode is None:
             process.kill()
         # A StreamReader may pause its subprocess pipe at the high-water
         # mark. Drain and discard after killing the exact child so wait()
