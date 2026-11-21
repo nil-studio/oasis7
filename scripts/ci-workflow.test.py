@@ -3466,8 +3466,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
 
     def test_group_commands_execute_once_and_propagate_failure(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
-        network = re.search(r'^run_oasis7_net_libp2p_tests\(\) \{\n.*?^\}', driver, re.M | re.S).group()
-        script = "set -euo pipefail\nrun() { printf '%s\\n' \"$*\"; }\nrun_cargo() { run cargo \"$@\"; }\n" + network + "\nrun_oasis7_net_libp2p_tests\n"
+        network = re.search(r'^run_oasis7_net_libp2p_contract_tests\(\) \{\n.*?^\}', driver, re.M | re.S).group()
+        script = "set -euo pipefail\nrun() { printf '%s\\n' \"$*\"; }\nrun_cargo() { run cargo \"$@\"; }\n" + network + "\nrun_oasis7_net_libp2p_contract_tests\n"
         result = subprocess.run(['bash', '-c', script], text=True, capture_output=True, env=dict(os.environ, GITHUB_ACTIONS='true', RUNNER_OS='Linux'))
         self.assertEqual(result.returncode, 0, result.stderr)
         for command in ('libp2p-security-source.test.py', 'libp2p-compat.test.py',

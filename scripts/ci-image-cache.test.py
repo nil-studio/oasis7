@@ -9,6 +9,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import tomllib
 import unittest
 from unittest.mock import patch
 
@@ -73,8 +74,8 @@ class CompileContexts(unittest.TestCase):
             'native': ['run_oasis7_consensus_clippy', 'run_oasis7_consensus_tests',
                        'run_oasis7_distfs_clippy', 'run_oasis7_distfs_tests'],
             'node': ['run_oasis7_node_clippy', 'run_oasis7_node_tests'],
-            'net': ['run_oasis7_net_clippy', 'run_oasis7_net_libp2p_clippy',
-                    'run_oasis7_net_tests', 'run_oasis7_net_libp2p_tests'],
+            'net': ['run_oasis7_net_clippy', 'run_oasis7_net_tests',
+                    'run_oasis7_net_libp2p_contract_tests'],
         }
         for profile, functions in readers.items():
             with self.subTest(profile=profile):
@@ -86,6 +87,23 @@ class CompileContexts(unittest.TestCase):
                     if command[1] == 'test':
                         self.assertIn('--no-run', command)
                     self.assertNotIn('--', command, 'warming must not contain runtime test arguments')
+
+    def test_net_group_runs_one_native_library_tuple_with_libp2p_defaults(self):
+        manifest = ROOT / 'crates/oasis7_net/Cargo.toml'
+        with manifest.open('rb') as source:
+            defaults = set(tomllib.load(source)['features']['default'])
+        self.assertTrue({'libp2p', 'self_tests'} <= defaults, defaults)
+
+        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
+        [group] = [line for line in driver.splitlines() if line.startswith('    net) ')]
+        commands = self.consumer_commands([group.removeprefix('    net) ').removesuffix(' ;;')])
+        native_net = Counter({command: count for command, count in commands.items()
+                              if '-p' in command[0] and 'oasis7_net' in command[0]
+                              and command[0][1] in ('test', 'check') and '--target' not in command[0]})
+        self.assertEqual(native_net, Counter({
+            normalized(['cargo', 'test', '-p', 'oasis7_net', '--lib']): 1,
+            normalized(['cargo', 'clippy', '-p', 'oasis7_net', '--lib']): 1,
+        }))
 
     def test_launcher_warms_the_bin_and_default_features_selected_by_trunk(self):
         html = (ROOT / 'crates/oasis7_client_launcher/index.html').read_text()

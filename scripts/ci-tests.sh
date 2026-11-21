@@ -425,6 +425,7 @@ run_oasis7_node_clippy() {
 }
 
 run_oasis7_net_tests() {
+  # Cargo defaults already enable the libp2p transport and its self-tests.
   run_cargo test -p oasis7_net --lib
 }
 
@@ -432,7 +433,7 @@ run_oasis7_net_clippy() {
   run_cargo_clippy -p oasis7_net --lib
 }
 
-run_oasis7_net_libp2p_tests() {
+run_oasis7_net_libp2p_contract_tests() {
   run python3 ./scripts/libp2p-security-source.test.py
   if [[ "$(uname -s)" == Linux ]]; then
     # Unit tests avoid the upstream cdylib's un-hashed libif_watch.rlib
@@ -443,16 +444,11 @@ run_oasis7_net_libp2p_tests() {
   run python3 ./scripts/libp2p-compat.test.py
   run_cargo test --locked --manifest-path ./vendor-libp2p-rendezvous-0.18.1/Cargo.toml \
     --target-dir ./target --lib -- --test-threads=1
-  run_cargo test -p oasis7_net --features libp2p --lib
   if [[ "${GITHUB_ACTIONS:-}" == true && "${RUNNER_OS:-}" == Linux ]]; then
     CC_wasm32_unknown_unknown=clang AR_wasm32_unknown_unknown=llvm-ar run_cargo check -p oasis7_net --no-default-features --target wasm32-unknown-unknown --locked
     run env -u RUSTC_WRAPPER CC_wasm32_unknown_unknown=clang AR_wasm32_unknown_unknown=llvm-ar \
       cargo check -p oasis7_node --features libp2p --target wasm32-unknown-unknown --locked
   fi
-}
-
-run_oasis7_net_libp2p_clippy() {
-  run_cargo_clippy -p oasis7_net --features libp2p --lib
 }
 
 run_signed_read_protocol_contract_tests() {
@@ -1343,7 +1339,7 @@ run_full_support_tier_tests() {
   run_oasis7_distfs_tests
   run_oasis7_node_tests
   run_oasis7_net_tests
-  run_oasis7_net_libp2p_tests
+  run_oasis7_net_libp2p_contract_tests
   run_oasis7_workspace_support_crate_tests
   run_oasis7_llm_baseline_fixture_smoke
   run_oasis7_viewer_software_safe_feedback_contract_tests
@@ -1373,9 +1369,8 @@ run_full_required_superset() {
   run_oasis7_node_clippy
   run_oasis7_node_tests
   run_oasis7_net_clippy
-  run_oasis7_net_libp2p_clippy
   run_oasis7_net_tests
-  run_oasis7_net_libp2p_tests
+  run_oasis7_net_libp2p_contract_tests
   run_oasis7_viewer_software_safe_feedback_contract_tests --source-only
   run_oasis7_viewer_software_safe_build --with-ui
   run node crates/oasis7_viewer/scripts/viewer-auth-browser-security-smoke.mjs
@@ -1498,7 +1493,7 @@ run_group() {
     consensus) run_oasis7_consensus_clippy; run_oasis7_consensus_tests ;;
     distfs) run_oasis7_distfs_clippy; run_oasis7_distfs_tests ;;
     node) run_oasis7_node_clippy; run_oasis7_node_tests ;;
-    net) run_oasis7_net_clippy; run_oasis7_net_libp2p_clippy; run_oasis7_net_tests; run_oasis7_net_libp2p_tests ;;
+    net) run_oasis7_net_clippy; run_oasis7_net_tests; run_oasis7_net_libp2p_contract_tests ;;
     viewer_js_required) run_oasis7_viewer_software_safe_feedback_contract_tests --source-only; run_oasis7_viewer_software_safe_build --with-ui; run_oasis7_viewer_browser_functional_regression; run node crates/oasis7_viewer/scripts/viewer-auth-browser-security-smoke.mjs ;;
     viewer_performance_report) run bash ./scripts/viewer-performance-report-only-contract.test.sh; run_oasis7_viewer_software_safe_build; run_oasis7_viewer_visual_test_build; run_oasis7_viewer_performance_smoke_report_only ;;
     pixel_world_bridge) run_pixel_world_bridge_lib_tests; run_pixel_world_bridge_wasm_check ;;
