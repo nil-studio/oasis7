@@ -5979,5 +5979,14 @@ run_required_gate_checks
                 self.assertEqual(self.identity(repo), before)
 
 
+class RustGovernanceReportContract(unittest.TestCase):
+    def test_governance_report_uses_real_entry_point(self):
+        result = subprocess.run(
+            ['bash', str(ROOT / 'scripts/ci-rust-governance-report.test.sh')],
+            cwd=ROOT, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
 if __name__ == '__main__':
     unittest.main()
