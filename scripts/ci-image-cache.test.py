@@ -74,8 +74,8 @@ class CompileContexts(unittest.TestCase):
             'native': ['run_oasis7_consensus_clippy', 'run_oasis7_consensus_tests',
                        'run_oasis7_distfs_clippy', 'run_oasis7_distfs_tests'],
             'node': ['run_oasis7_node_clippy', 'run_oasis7_node_tests'],
-            'net': ['run_oasis7_net_clippy', 'run_oasis7_net_tests',
-                    'run_oasis7_net_libp2p_contract_tests'],
+            'net': ['run_oasis7_net_clippy', 'run_oasis7_net_libp2p_clippy',
+                    'run_oasis7_net_tests', 'run_oasis7_net_libp2p_tests'],
         }
         for profile, functions in readers.items():
             with self.subTest(profile=profile):
@@ -94,9 +94,7 @@ class CompileContexts(unittest.TestCase):
             defaults = set(tomllib.load(source)['features']['default'])
         self.assertTrue({'libp2p', 'self_tests'} <= defaults, defaults)
 
-        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
-        [group] = [line for line in driver.splitlines() if line.startswith('    net) ')]
-        commands = self.consumer_commands([group.removeprefix('    net) ').removesuffix(' ;;')])
+        commands = self.consumer_commands(['run_group net'])
         native_net = Counter({command: count for command, count in commands.items()
                               if '-p' in command[0] and 'oasis7_net' in command[0]
                               and command[0][1] in ('test', 'check') and '--target' not in command[0]})
