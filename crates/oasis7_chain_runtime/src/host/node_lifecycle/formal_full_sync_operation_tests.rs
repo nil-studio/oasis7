@@ -543,6 +543,20 @@ fn publication_intent_and_ack_block_new_real_http_exchange() {
     ledger.finish_attempt(&attempt).unwrap();
     let finished = ledger.snapshot().clone();
     drop(ledger);
+
+    // A forged durable exchange after publication must also be refused on
+    // cold read, even when all other counters and original pins are valid.
+    let mut forged = finished.clone();
+    forged.exchanges_started = 1;
+    forged.active_attempt_nonce = Some("ab".repeat(16));
+    forged.active_request = Some((1, 1));
+    forged.active_request_nonce = Some("cd".repeat(16));
+    forged.tx_credit = 1;
+    assert!(forged.validate().is_err());
+    local_io::write(&path, &forged).unwrap();
+    assert!(Ledger::open(&path, &identity, &policy, 0).is_err());
+
+    local_io::write(&path, &finished).unwrap();
     let reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
     assert_eq!(reopened.snapshot(), &finished);
 }
