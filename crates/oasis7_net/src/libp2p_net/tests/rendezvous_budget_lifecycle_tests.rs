@@ -392,6 +392,60 @@ fn all_rendezvous_terminal_events_match_exact_kind_and_request_id() {
 }
 
 #[test]
+fn acknowledged_zero_ttl_does_not_suppress_live_reregistration() {
+    super::super::runtime_support::run_on_libp2p_test_runtime(|| {
+        let keypair = libp2p::identity::Keypair::generate_ed25519();
+        let local_peer_id = PeerId::from(keypair.public());
+        let remote_peer_id = PeerId::random();
+        let template = signed_template(&keypair);
+        let mut swarm = make_swarm(&keypair);
+        swarm.add_external_address("/ip4/127.0.0.1/tcp/43106".parse().unwrap());
+        let mut pending_registers = HashSet::new();
+        let mut registered_nodes = HashSet::new();
+        let old_id = schedule_register(
+            &mut swarm,
+            &mut pending_registers,
+            &registered_nodes,
+            remote_peer_id,
+            local_peer_id,
+            &template,
+        );
+        handle_client_event(
+            &mut swarm,
+            rendezvous::client::Event::Registered {
+                request_id: old_id,
+                rendezvous_node: remote_peer_id,
+                ttl: 0,
+                namespace: rendezvous::Namespace::from_static("oasis7-budget-test"),
+            },
+            &mut pending_registers,
+            &mut registered_nodes,
+            &mut HashSet::new(),
+            local_peer_id,
+        );
+        assert!(pending_registers.is_empty());
+        assert!(
+            !super::super::rendezvous_operations::rendezvous_registration_is_current(
+                &swarm,
+                remote_peer_id,
+            )
+        );
+        assert!(!registered_nodes.contains(&remote_peer_id));
+        assert_eq!(swarm.behaviour().discovery_budget.snapshot().inflight, 0);
+        let new_id = schedule_register(
+            &mut swarm,
+            &mut pending_registers,
+            &registered_nodes,
+            remote_peer_id,
+            local_peer_id,
+            &template,
+        );
+        assert_ne!(new_id, old_id);
+        assert_eq!(swarm.behaviour().discovery_budget.snapshot().inflight, 1);
+    });
+}
+
+#[test]
 fn synchronous_register_errors_release_inflight_but_keep_window_charge() {
     super::super::runtime_support::run_on_libp2p_test_runtime(|| {
         let keypair = libp2p::identity::Keypair::generate_ed25519();
