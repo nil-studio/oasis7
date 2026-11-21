@@ -26,15 +26,20 @@ struct Tee<'a> {
 }
 impl Write for Tee<'_> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        let n = self.hash.write(bytes)?;
-        if n > bytes.len()
-            || self
-                .bytes
-                .len()
-                .checked_add(n)
-                .is_none_or(|n| n > self.limit)
+        // Reject an oversized attempted chunk before the hash/work sink sees
+        // any bytes. Streaming readers must never debit work or hash bytes
+        // that cannot belong to the selected original.
+        if self
+            .bytes
+            .len()
+            .checked_add(bytes.len())
+            .is_none_or(|n| n > self.limit)
         {
             return Err(io::Error::other("selected WASM capture bound"));
+        }
+        let n = self.hash.write(bytes)?;
+        if n > bytes.len() {
+            return Err(io::Error::other("selected WASM hash writer length"));
         }
         self.bytes.extend_from_slice(&bytes[..n]);
         Ok(n)
@@ -121,4 +126,66 @@ pub(super) fn selected_original<O: OriginalObjectStreamReader, C: FnMut() -> boo
         return Err(ValueTreeError::Cancelled.into());
     }
     Ok((bytes, charge))
+}
+
+#[cfg(test)]
+mod capture_bounds_tests {
+    use super::*;
+
+    struct MeteredHash {
+        attempts: usize,
+        bytes: Vec<u8>,
+    }
+    impl Write for MeteredHash {
+        fn write(&mut self, b: &[u8]) -> io::Result<usize> {
+            self.attempts += 1;
+            self.bytes.extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn oversized_chunk_fails_before_hash_or_work_sink() {
+        let mut hash = MeteredHash {
+            attempts: 0,
+            bytes: Vec::new(),
+        };
+        let mut captured = Vec::new();
+        {
+            let mut tee = Tee {
+                hash: &mut hash,
+                bytes: &mut captured,
+                limit: 4,
+            };
+            assert_eq!(tee.write(b"ab").unwrap(), 2);
+            assert!(tee.write(b"cde").is_err());
+        }
+        assert_eq!(captured, b"ab");
+        assert_eq!(hash.bytes, b"ab");
+        assert_eq!(hash.attempts, 1);
+    }
+
+    #[test]
+    fn exact_boundary_is_forwarded_once() {
+        let mut hash = MeteredHash {
+            attempts: 0,
+            bytes: Vec::new(),
+        };
+        let mut captured = Vec::new();
+        {
+            let mut tee = Tee {
+                hash: &mut hash,
+                bytes: &mut captured,
+                limit: 4,
+            };
+            assert_eq!(tee.write(b"abcd").unwrap(), 4);
+            assert!(tee.write(b"e").is_err());
+        }
+        assert_eq!(captured, b"abcd");
+        assert_eq!(hash.bytes, b"abcd");
+        assert_eq!(hash.attempts, 1);
+    }
 }
