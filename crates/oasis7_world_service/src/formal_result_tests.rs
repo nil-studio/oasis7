@@ -249,7 +249,7 @@ fn changes_context(
             emit_count: 0,
         }),
     };
-    let projection=
+    let projection =
         WorldServiceProjection::from(oasis7_world_projection::WorldServiceProjectionData {
             world_rule_status: None,
             native_delegation_authorizations: Vec::new(),
