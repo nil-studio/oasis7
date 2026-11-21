@@ -11,29 +11,35 @@ impl oasis7_formal_protocol::incremental_schedule::SchedulePageWriter for ValueP
         if !self.store.memory.same_pool(memory) || !delta.uses_budget(memory) {
             return Err(ValueTreeError::Invalid("schedule producer pool"));
         }
-        check_cancelled(&self.cancelled).map_err(value_error)?;
+        self.check_cancelled().map_err(value_error)?;
         {
             // Validation finishes before the separate pack-metadata phase.
             let _validation = memory.reserve(64 * 1024, MemoryClass::Ordinary)?;
             for page in &delta.new_nodes {
-                check_cancelled(&self.cancelled).map_err(value_error)?;
+                self.check_cancelled().map_err(value_error)?;
                 page.verified_links()
                     .map_err(|_| ValueTreeError::Invalid("schedule producer page"))?;
             }
         }
+        // Keep the caller flag on the physical I/O path. The session-local
+        // flag remains an independent stop, including after publication.
+        let physical_cancelled = self.caller_cancelled.unwrap_or(&self.cancelled);
+        let local_cancelled = &self.cancelled;
         let io = self
             .io
             .get_mut()
             .map_err(|_| ValueTreeError::Invalid("physical session poisoned"))?;
-        persist_nodes(
+        persist_nodes_profile_cancelled(
             self.store,
             MemoryClass::Ordinary,
             io,
-            &self.cancelled,
+            physical_cancelled,
             delta
                 .new_nodes
                 .iter()
                 .map(|n| (n.digest.as_str(), n.bytes.as_slice())),
+            self.store.compression,
+            &mut || local_cancelled.load(Ordering::Acquire),
         )
         .map_err(value_error)
     }
@@ -65,18 +71,20 @@ impl oasis7_formal_protocol::incremental_state::StatePageWriter for ValuePageSes
         if cancelled() {
             return Err(ValueTreeError::Cancelled);
         }
-        check_cancelled(&self.cancelled).map_err(value_error)?;
+        self.check_cancelled().map_err(value_error)?;
         {
             let _validation = memory.reserve(64 * 1024, MemoryClass::Ordinary)?;
             for page in &delta.new_nodes {
                 if cancelled() {
                     return Err(ValueTreeError::Cancelled);
                 }
-                check_cancelled(&self.cancelled).map_err(value_error)?;
+                self.check_cancelled().map_err(value_error)?;
                 page.verified_links()
                     .map_err(|_| ValueTreeError::Invalid("state producer page"))?;
             }
         }
+        let physical_cancelled = self.caller_cancelled.unwrap_or(&self.cancelled);
+        let local_cancelled = &self.cancelled;
         let io = self
             .io
             .get_mut()
@@ -85,13 +93,13 @@ impl oasis7_formal_protocol::incremental_state::StatePageWriter for ValuePageSes
             self.store,
             MemoryClass::Ordinary,
             io,
-            &self.cancelled,
+            physical_cancelled,
             delta
                 .new_nodes
                 .iter()
                 .map(|n| (n.digest.as_str(), n.bytes.as_slice())),
             self.store.compression,
-            cancelled,
+            &mut || cancelled() || local_cancelled.load(Ordering::Acquire),
         )
         .map_err(value_error)
     }
