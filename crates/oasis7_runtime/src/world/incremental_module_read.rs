@@ -32,6 +32,12 @@ pub struct PreparedModuleInstanceFields {
 impl PreparedModuleInstanceFields {
     /// Clone only this actual eight-column source after admitting its exact
     /// owned text graph. The result is DATA, never an instance permission.
+    // Only the future scheduled-invocation consumer can exercise this staged
+    // read-only DATA prerequisite; unit tests exercise it until that split lands.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "scheduled invocation remains in a separate L2 slice")
+    )]
     pub(in crate::world) fn snapshot_paid_v1(
         &self,
         common: &mut oasis7_formal_protocol::controlled_authority::formal::bounded_context::FormalBoundedContextV1<'_>,
