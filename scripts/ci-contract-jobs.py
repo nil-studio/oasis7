@@ -43,12 +43,16 @@ def render_job(group: str) -> str:
         "operational_contracts": "ci-runtime@sha256:14ef7ecc92a75d99af0723dbb0fa131b24c40ac2f83eed748fde1698c35c4258",
         "packaging_contracts": "ci-rust-build@sha256:6ea7e7ebeb0abeefc7aa2cba6c48627ad76b3c8551d5f7c400c661c783ada51a",
     }[group]
+    container_options = ""
+    if group == "operational_contracts":
+        container_options = "      options: --user 1001:1001\n"
     container = (
         "    permissions:\n"
         "      contents: read\n"
         "      packages: read\n"
         "    container:\n"
         f"      image: ghcr.io/nil-studio/oasis7/{image}\n"
+        f"{container_options}"
         "      credentials:\n"
         "        username: ${{ github.actor }}\n"
         "        password: ${{ github.token }}\n"
@@ -60,12 +64,23 @@ def render_job(group: str) -> str:
         '      - name: Trust the checked-out workspace path in the job container\n'
         '        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"\n'
     )
+    execute = f'bash ./scripts/ci-tests.sh required --group "{group}" --repo-root "$GITHUB_WORKSPACE"'
+    run_step = f"        run: {execute}\n"
     if group == "operational_contracts":
+        run_step = (
+            "        run: |\n"
+            '          # Hardlink fixtures need a temporary path on the workspace mount.\n'
+            '          TMPDIR="$(mktemp -d "$GITHUB_WORKSPACE/.operational-contracts.XXXXXX")"\n'
+            "          export TMPDIR\n"
+            "          trap 'rm -rf -- \"$TMPDIR\"' EXIT\n"
+            f"          {execute}\n"
+        )
         python_setup = (
             "      - name: Verify preinstalled operational contract tools\n"
             "        run: |\n"
             "          python3 -c 'import sys, tomllib; assert sys.version_info[:2] == (3, 12)'\n"
             "          dpkg-deb --version\n"
+            '          test "$(id -u)" -ne 0\n'
         )
         rust_setup = ""
     else:
@@ -110,7 +125,7 @@ def render_job(group: str) -> str:
         f"          CI_VERBOSE: \"1\"\n"
         f"          OASIS7_PRODUCT_DOC_BASE: ${{{{ needs.select.outputs.range_base }}}}\n"
         f"          OASIS7_PRODUCT_DOC_HEAD: ${{{{ needs.select.outputs.tested_sha }}}}\n"
-        f"        run: bash ./scripts/ci-tests.sh required --group \"{group}\" --repo-root \"$GITHUB_WORKSPACE\""
+        f"{run_step}"
     )
 
 
