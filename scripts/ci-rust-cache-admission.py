@@ -43,7 +43,7 @@ FAMILIES = {
                            '.github/workflows/rust-cache.yml', 'rust-image-component-cache'),
     'rust-image-tooling': ('ci-rust-build-d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc',
                           '.github/workflows/rust-cache.yml', 'rust-image-component-cache'),
-    'rust-image-support': ('ci-rust-build-6ea7e7ebeb0abeefc7aa2cba6c48627ad76b3c8551d5f7c400c661c783ada51a',
+    'rust-image-support': ('ci-rust-build-822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2',
                            '.github/workflows/rust-cache.yml', 'rust-image-component-cache'),
     'shared-native': ('ci-shared-native-trusted-v4', '.github/workflows/rust-cache.yml', 'shared-native-cache'),
     'formal-debug': ('ci-formal-debug-deps-trusted-v1', '.github/workflows/rust.yml', 'formal-debug-build-trusted'),

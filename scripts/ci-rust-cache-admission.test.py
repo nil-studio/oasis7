@@ -179,7 +179,7 @@ class AdmissionTests(unittest.TestCase):
             'rust-image-components': 'ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f',
             'rust-image-net': 'ci-rust-wasm-build-57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6',
             'rust-image-launcher': 'ci-rust-build-cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6',
-            'rust-image-support': 'ci-rust-build-6ea7e7ebeb0abeefc7aa2cba6c48627ad76b3c8551d5f7c400c661c783ada51a',
+            'rust-image-support': 'ci-rust-build-822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2',
             'rust-image-tooling': 'ci-rust-build-d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc',
         }
         event = self.root / 'component-image-event.json'
