@@ -604,6 +604,7 @@ fn full_node_published_receipt_detects_original_mutation_and_missing_head() {
         complete: true,
         requested: 10,
         completed_commits: 10,
+        inventory_entries: 5_000_000,
     };
     let before = io::published_receipt(root.path(), 1, 2, &mut budget).unwrap();
     std::fs::write(&original, b"changed original writer bytes").unwrap();

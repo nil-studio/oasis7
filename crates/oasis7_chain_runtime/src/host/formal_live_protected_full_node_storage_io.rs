@@ -34,19 +34,10 @@ fn full_node_inventory_budget_rejects_invalid_bounds() {
 
 #[test]
 fn full_node_inventory_uses_frozen_limits_and_reports_actual_budget() {
-    struct Directory(PathBuf);
-    impl Drop for Directory {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
-    let directory = Directory(std::env::temp_dir().join(format!(
-        "full-node-inventory-{}",
-        crate::node_lifecycle::local_io::random_id().unwrap()
-    )));
+    let directory = oracle_support::PrivateRoot::new().unwrap();
     for name in ["primary-data", "replica-data", "formal-writer"] {
-        fs::create_dir_all(directory.0.join(name)).unwrap();
-        fs::write(directory.0.join(name).join("retained"), b"retained").unwrap();
+        fs::create_dir_all(directory.path().join(name)).unwrap();
+        fs::write(directory.path().join(name).join("retained"), b"retained").unwrap();
     }
     let mut budget = Budget {
         started: Instant::now(),
@@ -57,21 +48,21 @@ fn full_node_inventory_uses_frozen_limits_and_reports_actual_budget() {
         completed_commits: 0,
         inventory_entries: 7,
     };
-    let report = inventory(&directory.0, &budget).unwrap();
+    let report = inventory(directory.path(), &budget).unwrap();
     assert_eq!(report["entry_count_budget_per_inventory"], 7);
     assert_eq!(report["whole_case_time_budget_seconds"], 60);
     assert_eq!(report["total"]["file_paths"], 3);
     assert_eq!(report["total"]["directories"], 4);
     budget.inventory_entries = 6;
     assert!(
-        inventory(&directory.0, &budget)
+        inventory(directory.path(), &budget)
             .unwrap_err()
             .contains("entry budget")
     );
     budget.inventory_entries = 7;
     budget.started = Instant::now() - Duration::from_secs(61);
     assert!(
-        inventory(&directory.0, &budget)
+        inventory(directory.path(), &budget)
             .unwrap_err()
             .contains("walltime")
     );
