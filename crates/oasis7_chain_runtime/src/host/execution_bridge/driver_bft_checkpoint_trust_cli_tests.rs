@@ -290,6 +290,56 @@ pub(super) fn check_preparation(
     let touching: BftCheckpointTrustPolicyV1 =
         serde_json::from_value(touching).unwrap();
     touching.validate_configuration().unwrap();
+    // An independently pinned security bound disjoint from the root/policy
+    // status window cannot authorize any checkpoint, regardless of the
+    // signature or re-pinned policy digest. Exercise both directions through
+    // the portable decoder and the actual SDK preparation consumer.
+    for (safe_start, safe_end) in [(100u64, 110u64), (1, 10)] {
+        let mut disjoint = value.clone();
+        disjoint["policy"]["security_policy"]["security_not_before_unix_ms"] =
+            serde_json::json!(safe_start);
+        disjoint["policy"]["security_policy"]["absolute_safe_until_unix_ms"] =
+            serde_json::json!(safe_end);
+        disjoint["policy"]["security_assumptions_digest"] =
+            serde_json::json!(digest("security-policy", &disjoint["policy"]["security_policy"]));
+        let updated_pin = digest("policy", &disjoint["policy"]);
+        disjoint["policy_digest"] = serde_json::json!(updated_pin);
+        let policy: BftCheckpointTrustPolicyV1 =
+            serde_json::from_value(disjoint["policy"].clone()).unwrap();
+        let error = policy.validate_configuration().unwrap_err();
+        assert!(
+            error.contains("security and authorization windows do not overlap"),
+            "{error}"
+        );
+        assert!(
+            BftCheckpointTrustPolicyV1::decode_canonical(&canonical(&policy)).is_err(),
+            "portable decoder accepted a disjoint security window"
+        );
+        let error = match BftCheckpointTrustConfigV1::decode_and_prepare(
+            &canonical(&disjoint),
+            &updated_pin,
+            &pin,
+            &c0_pin,
+        ) {
+            Ok(_) => panic!("SDK accepted a disjoint independently pinned security window"),
+            Err(error) => error,
+        };
+        assert!(
+            error.contains("security and authorization windows do not overlap"),
+            "{error}"
+        );
+    }
+    // One millisecond of actual overlap is valid for portable preparation.
+    let mut edge_security = value["policy"].clone();
+    edge_security["security_policy"]["security_not_before_unix_ms"] = serde_json::json!(99);
+    edge_security["security_policy"]["absolute_safe_until_unix_ms"] = serde_json::json!(100);
+    edge_security["security_assumptions_digest"] =
+        serde_json::json!(digest("security-policy", &edge_security["security_policy"]));
+    let edge_security: BftCheckpointTrustPolicyV1 =
+        serde_json::from_value(edge_security).unwrap();
+    edge_security.validate_configuration().unwrap();
+    BftCheckpointTrustPolicyV1::decode_canonical(&canonical(&edge_security)).unwrap();
+
     // Having enough issuer keys in the policy is not sufficient when their
     // half-open validity windows cannot satisfy the threshold simultaneously.
     // The original root/policy limits also restrict the possible quorum time.
