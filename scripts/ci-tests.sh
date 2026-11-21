@@ -799,13 +799,40 @@ run_engineering_telemetry_contract_tests() {
   run python3 - <<'PY_TELEMETRY'
 import unittest
 
+import sys
+
+class ContractResult(unittest.TextTestResult):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.passed_suites = set()
+        self.current_suite = None
+
+    def addSuccess(self, test):
+        super().addSuccess(test)
+        self.passed_suites.add(self.current_suite)
+
+class ContractSuite(unittest.TestSuite):
+    def __init__(self, name, tests):
+        super().__init__([tests])
+        self.name = name
+
+    def run(self, result, debug=False):
+        result.current_suite = self.name
+        return super().run(result, debug)
+
+names = ('test_engineering_telemetry.py', 'test_engineering_telemetry_adapters.py')
 suite = unittest.TestSuite()
-for name in ('test_engineering_telemetry.py', 'test_engineering_telemetry_adapters.py'):
+for name in names:
     tests = unittest.defaultTestLoader.discover('scripts/tests', pattern=name)
     if tests.countTestCases() == 0:
         raise SystemExit('engineering telemetry: no tests in ' + name)
-    suite.addTests(tests)
-raise SystemExit(not unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful())
+    suite.addTest(ContractSuite(name, tests))
+
+result = unittest.TextTestRunner(verbosity=2, resultclass=ContractResult).run(suite)
+missing = [name for name in names if name not in result.passed_suites]
+for name in missing:
+    print('engineering telemetry: no passing tests in ' + name, file=sys.stderr)
+raise SystemExit(bool(missing) or not result.wasSuccessful())
 PY_TELEMETRY
 }
 
