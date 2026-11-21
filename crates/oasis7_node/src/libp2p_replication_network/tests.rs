@@ -359,50 +359,64 @@ fn filtered_request_peers_skips_zero_score_peer_when_positive_candidates_exist()
 #[test]
 fn filtered_request_peers_retries_protocol_retry_cooldown_peer_after_retry_window() {
     let network = Libp2pReplicationNetwork::new(Libp2pReplicationNetworkConfig {
-        protocol_retry_cooldown_after: Duration::from_millis(5),
+        protocol_retry_cooldown_after: Duration::from_secs(60),
         ..Libp2pReplicationNetworkConfig::default()
     });
-    let sequencer_peer = PeerId::random();
-    network.mark_peer_for_protocol_retry_cooldown(
-        "/aw/node/replication/fetch-commit/1.0.0",
-        sequencer_peer,
+    let protocol = "/aw/node/replication/fetch-commit/1.0.0";
+    let cooled_peer = PeerId::random();
+    let healthy_peer = PeerId::random();
+    let candidates = vec![cooled_peer, healthy_peer];
+    network.mark_peer_for_protocol_retry_cooldown(protocol, cooled_peer);
+
+    assert_eq!(
+        network.filtered_request_peers(protocol, candidates.clone()),
+        vec![healthy_peer]
     );
 
-    let filtered_initial = network.filtered_request_peers(
-        "/aw/node/replication/fetch-commit/1.0.0",
-        vec![sequencer_peer],
-    );
-    assert_eq!(filtered_initial, vec![sequencer_peer]);
+    // Expire the registered deadline without depending on runner scheduling.
+    *network
+        .protocol_retry_cooldown_peers
+        .lock()
+        .expect("lock protocol cooldowns")
+        .get_mut(protocol)
+        .expect("tracked protocol")
+        .get_mut(&cooled_peer)
+        .expect("tracked peer") = Instant::now();
 
-    std::thread::sleep(Duration::from_millis(15));
-
-    let filtered_after_retry_window = network.filtered_request_peers(
-        "/aw/node/replication/fetch-commit/1.0.0",
-        vec![sequencer_peer],
+    assert_eq!(
+        network.filtered_request_peers(protocol, candidates.clone()),
+        candidates
     );
-    assert_eq!(filtered_after_retry_window, vec![sequencer_peer]);
 }
 
 #[test]
 fn filtered_request_peers_retries_transport_retry_cooldown_peer_after_retry_window() {
     let network = Libp2pReplicationNetwork::new(Libp2pReplicationNetworkConfig {
-        protocol_retry_cooldown_after: Duration::from_millis(5),
+        protocol_retry_cooldown_after: Duration::from_secs(60),
         ..Libp2pReplicationNetworkConfig::default()
     });
-    let sequencer_peer = PeerId::random();
-    network.mark_peer_for_transport_retry_cooldown(sequencer_peer);
+    let protocol = "/aw/node/replication/fetch-commit/1.0.0";
+    let cooled_peer = PeerId::random();
+    let healthy_peer = PeerId::random();
+    let candidates = vec![cooled_peer, healthy_peer];
+    network.mark_peer_for_transport_retry_cooldown(cooled_peer);
 
-    let filtered_initial = network.filtered_request_peers(
-        "/aw/node/replication/fetch-commit/1.0.0",
-        vec![sequencer_peer],
+    assert_eq!(
+        network.filtered_request_peers(protocol, candidates.clone()),
+        vec![healthy_peer]
     );
-    assert_eq!(filtered_initial, vec![sequencer_peer]);
 
-    std::thread::sleep(Duration::from_millis(15));
+    *network
+        .transport_retry_cooldown_peers
+        .lock()
+        .expect("lock transport cooldowns")
+        .get_mut(&cooled_peer)
+        .expect("tracked peer") = Instant::now();
 
-    let filtered_after_retry_window =
-        network.filtered_request_peers("/aw/node/replication/ping", vec![sequencer_peer]);
-    assert_eq!(filtered_after_retry_window, vec![sequencer_peer]);
+    assert_eq!(
+        network.filtered_request_peers(protocol, candidates.clone()),
+        candidates
+    );
 }
 
 #[test]
