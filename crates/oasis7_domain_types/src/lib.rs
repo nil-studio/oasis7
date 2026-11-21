@@ -5,6 +5,7 @@
 //! never depend on L1-L4 workspace crates, API/service facades, or runtime I/O.
 
 pub mod canonical_digest;
+pub mod chain_resource_hash;
 pub mod formal_projection;
 pub mod geometry;
 pub mod ledger;
