@@ -153,3 +153,55 @@ fn refresh_active_transport_path_after_partial_close_promotes_remaining_known_pa
         relay_addr
     );
 }
+
+#[test]
+fn established_endpoint_cannot_borrow_a_signed_record_lease_from_another_port() {
+    let signed = signed_discovery_peer_record(&Keypair::generate_ed25519(), vec![], 1_000);
+    let peer_id: PeerId = signed.record.peer_id.parse().unwrap();
+    let advertised: Multiaddr = format!("/ip4/127.0.0.1/udp/4103/quic-v1/p2p/{peer_id}")
+        .parse()
+        .unwrap();
+    let established: Multiaddr = format!("/ip4/127.0.0.1/udp/4104/quic-v1/p2p/{peer_id}")
+        .parse()
+        .unwrap();
+    let lease = super::super::peer_record_time::DiscoveryClock::default()
+        .check_at(&signed.record, 1_000, Instant::now())
+        .unwrap();
+
+    let mut signed_path = active_transport_path_from_endpoint(&HashMap::new(), peer_id, &advertised);
+    signed_path.record_lease = Some(lease);
+    let known = HashMap::from([(peer_id, vec![signed_path])]);
+    let mut active = HashMap::new();
+    let mut dialed = HashMap::new();
+    let mut failed = HashSet::from([advertised.to_string()]);
+
+    // A successful, authenticated connection on the same IP and transport
+    // family but a different UDP port cannot prove that the advertised signed
+    // endpoint was established, clear its failure, or inherit its lease.
+    let unrelated = super::super::transport_paths::note_established_transport_path(
+        &known,
+        &mut active,
+        &mut dialed,
+        &mut failed,
+        peer_id,
+        &established,
+    );
+    assert_eq!(unrelated.addr, established);
+    assert!(unrelated.record_lease.is_none());
+    assert!(failed.contains(&advertised.to_string()));
+    assert_eq!(active.get(&peer_id).unwrap().addr, established);
+
+    // An exact endpoint really can reuse the original signed lease; clearing
+    // the failed label is reserved for this actual address only.
+    let exact = super::super::transport_paths::note_established_transport_path(
+        &known,
+        &mut active,
+        &mut dialed,
+        &mut failed,
+        peer_id,
+        &advertised,
+    );
+    assert_eq!(exact.addr, advertised);
+    assert!(exact.record_lease.is_some());
+    assert!(!failed.contains(&advertised.to_string()));
+}
