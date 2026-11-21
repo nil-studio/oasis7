@@ -24,11 +24,14 @@ impl oasis7_formal_protocol::incremental_schedule::SchedulePageWriter for ValueP
         // The same caller-owned flag used by physical value reads must guard
         // production schedule page publication as well as put_node.
         let physical = self.caller_cancelled.unwrap_or(&self.cancelled);
+        let local_cancelled = &self.cancelled;
         let io = self
             .io
             .get_mut()
             .map_err(|_| ValueTreeError::Invalid("physical session poisoned"))?;
-        let result = persist_nodes(
+        // The caller's atomic flag and the local session stop both retain
+        // physical I/O authority, not only a post-publication success check.
+        let result = persist_nodes_profile_cancelled(
             self.store,
             MemoryClass::Ordinary,
             io,
@@ -37,6 +40,8 @@ impl oasis7_formal_protocol::incremental_schedule::SchedulePageWriter for ValueP
                 .new_nodes
                 .iter()
                 .map(|n| (n.digest.as_str(), n.bytes.as_slice())),
+            self.store.compression,
+            &mut || local_cancelled.load(Ordering::Acquire),
         )
         .map_err(value_error);
         // Do not turn a physical failure into a cancellation result. But never
@@ -89,6 +94,7 @@ impl oasis7_formal_protocol::incremental_state::StatePageWriter for ValuePageSes
         // Preserve both cancellation boundaries: the state producer's
         // cooperative callback and the physical session's caller-owned flag.
         let physical = self.caller_cancelled.unwrap_or(&self.cancelled);
+        let local_cancelled = &self.cancelled;
         let io = self
             .io
             .get_mut()
@@ -103,7 +109,7 @@ impl oasis7_formal_protocol::incremental_state::StatePageWriter for ValuePageSes
                 .iter()
                 .map(|n| (n.digest.as_str(), n.bytes.as_slice())),
             self.store.compression,
-            cancelled,
+            &mut || cancelled() || local_cancelled.load(Ordering::Acquire),
         )
         .map_err(value_error);
         if result.is_ok() {
