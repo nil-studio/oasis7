@@ -346,7 +346,6 @@ mod framing_tests {
         read_http_request(&mut server, Instant::now() + Duration::from_secs(2))
     }
 
-
     #[test]
     fn formal_http_replies_disable_caching_even_for_degraded_status() {
         // Use the production TCP response writer, not a synthetic header
