@@ -4,19 +4,8 @@ use oasis7_agent_api::world_geometry::{DEFAULT_CLOUD_DEPTH_CM, DEFAULT_CLOUD_HEI
 use oasis7_agent_api::world_action::ResourceKind;
 use oasis7_agent_api::world_geometry::{ChunkCoord, chunk_coord_of, chunk_seed};
 use oasis7_agent_api::world_resource::*;
-use serde::Serialize;
-use sha2::{Digest, Sha256};
+use oasis7_domain_types::chain_resource_hash::{hash_json, sha256_hex};
 use std::collections::BTreeMap;
-fn hash_json<T: Serialize>(value: &T) -> Result<String, serde_json::Error> {
-    let bytes = serde_json::to_vec(value)?;
-    Ok(sha256_hex(&bytes))
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    hex::encode(hasher.finalize())
-}
 
 pub fn from_runtime_state(
     context: ChainResourceDerivationContext<'_>,
