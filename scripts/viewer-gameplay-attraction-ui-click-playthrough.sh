@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-cd "$repo_root"
-source "$repo_root/scripts/cargo-dev-lib.sh"
-source "$repo_root/scripts/agent-browser-lib.sh"
-
 usage() {
   cat <<'USAGE'
 Usage: ./scripts/viewer-gameplay-attraction-ui-click-playthrough.sh [options] [run-launcher-stack options...]
@@ -160,15 +155,15 @@ wait_for_js_true() {
 find_testid_click() {
   local testid=$1
   local selector="[data-testid=\"${testid}\"]"
-  ab_cmd "$session" scrollintoview "$selector" >>"$ab_log" 2>&1
-  ab_cmd "$session" click "$selector" >>"$ab_log" 2>&1
+  ab_cmd "$session" scrollintoview "$selector" >>"$ab_log" 2>&1 || return
+  ab_cmd "$session" click "$selector" >>"$ab_log" 2>&1 || return
   sleep_ms 500
 }
 
 find_selector_click() {
   local selector=$1
-  ab_cmd "$session" scrollintoview "$selector" >>"$ab_log" 2>&1
-  ab_cmd "$session" click "$selector" >>"$ab_log" 2>&1
+  ab_cmd "$session" scrollintoview "$selector" >>"$ab_log" 2>&1 || return
+  ab_cmd "$session" click "$selector" >>"$ab_log" 2>&1 || return
   sleep_ms 500
 }
 
@@ -180,6 +175,71 @@ state_connection() { json_path "$1" connectionStatus; }
 state_last_error() { json_path "$1" lastError; }
 state_logical_time() { json_path "$1" logicalTime; }
 state_event_seq() { json_path "$1" eventSeq; }
+
+click_targets() {
+  local csv=$1
+  local IFS=,
+  local target
+  for target in $csv; do
+    [[ -n "$target" ]] || continue
+    case "$target" in
+      agent:$AGENT_ID)
+        find_selector_click "[data-select-kind=\"agent\"][data-select-id=\"${AGENT_ID}\"]" || return
+        ;;
+      maybe:viewer-playthrough-action-recommended)
+        if [[ "$(recommended_action_disabled)" == "true" ]]; then
+          sleep_ms 500
+        else
+          find_testid_click "viewer-playthrough-action-recommended" || return
+        fi
+        ;;
+      testid:*)
+        find_testid_click "${target#testid:}" || return
+        ;;
+      *)
+        find_testid_click "$target" || return
+        ;;
+    esac
+  done
+}
+
+run_click_beat() {
+  local time_label=$1
+  local beat_id=$2
+  local action_label=$3
+  local clicked_testids=$4
+  local assertion_label=$5
+  local assertion_js=$6
+  log_note "beat_${time_label}_${beat_id}"
+  if ! click_targets "$clicked_testids"; then
+    local failed_state_file
+    failed_state_file=$(capture_state "${time_label}-${beat_id}")
+    record_beat "$beat_id" "$time_label" "$action_label" "$assertion_label" "fail" "ui click failed" "$failed_state_file" "$clicked_testids"
+    return 1
+  fi
+  local ok="false"
+  if wait_for_js_true "$assertion_js" "$BEAT_TIMEOUT_MS"; then
+    ok="true"
+  fi
+  local state_file
+  state_file=$(capture_state "${time_label}-${beat_id}")
+  if [[ "$ok" == "true" ]]; then
+    record_beat "$beat_id" "$time_label" "$action_label" "$assertion_label" "pass" "" "$state_file" "$clicked_testids"
+    return 0
+  fi
+  record_beat "$beat_id" "$time_label" "$action_label" "$assertion_label" "fail" "assertion timed out" "$state_file" "$clicked_testids"
+  return 1
+}
+
+# Sourcing loads the same beat implementation without starting a browser.
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+  return 0
+fi
+
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$repo_root"
+source "$repo_root/scripts/cargo-dev-lib.sh"
+source "$repo_root/scripts/agent-browser-lib.sh"
 
 GAME_URL=""
 OUT_ROOT="output/playwright/gameplay-attraction-ui-click-playthrough"
@@ -309,61 +369,6 @@ capture_state() {
   raw=$(ab_state)
   write_json_file "$raw" "$path"
   printf '%s\n' "$path"
-}
-
-click_targets() {
-  local csv=$1
-  local IFS=,
-  local target
-  for target in $csv; do
-    [[ -n "$target" ]] || continue
-    case "$target" in
-      agent:$AGENT_ID)
-        find_selector_click "[data-select-kind=\"agent\"][data-select-id=\"${AGENT_ID}\"]"
-        ;;
-      maybe:viewer-playthrough-action-recommended)
-        if [[ "$(recommended_action_disabled)" == "true" ]]; then
-          sleep_ms 500
-        else
-          find_testid_click "viewer-playthrough-action-recommended"
-        fi
-        ;;
-      testid:*)
-        find_testid_click "${target#testid:}"
-        ;;
-      *)
-        find_testid_click "$target"
-        ;;
-    esac
-  done
-}
-
-run_click_beat() {
-  local time_label=$1
-  local beat_id=$2
-  local action_label=$3
-  local clicked_testids=$4
-  local assertion_label=$5
-  local assertion_js=$6
-  log_note "beat_${time_label}_${beat_id}"
-  if ! click_targets "$clicked_testids"; then
-    local failed_state_file
-    failed_state_file=$(capture_state "${time_label}-${beat_id}")
-    record_beat "$beat_id" "$time_label" "$action_label" "$assertion_label" "fail" "ui click failed" "$failed_state_file" "$clicked_testids"
-    return 1
-  fi
-  local ok="false"
-  if wait_for_js_true "$assertion_js" "$BEAT_TIMEOUT_MS"; then
-    ok="true"
-  fi
-  local state_file
-  state_file=$(capture_state "${time_label}-${beat_id}")
-  if [[ "$ok" == "true" ]]; then
-    record_beat "$beat_id" "$time_label" "$action_label" "$assertion_label" "pass" "" "$state_file" "$clicked_testids"
-    return 0
-  fi
-  record_beat "$beat_id" "$time_label" "$action_label" "$assertion_label" "fail" "assertion timed out" "$state_file" "$clicked_testids"
-  return 1
 }
 
 if [[ -z "$GAME_URL" ]]; then
