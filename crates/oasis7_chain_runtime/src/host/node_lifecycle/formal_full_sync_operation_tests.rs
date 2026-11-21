@@ -57,7 +57,8 @@ fn zero_attempt_ledger_rejects_forged_activity_on_cold_open() {
     let path = temp.path().join("operation.json");
     let policy = policy();
     let identity = identity(&policy);
-    let ledger = Ledger::create(&path, identity.clone(), policy.clone()).unwrap();
+    let ledger =
+        Ledger::create_with_material_limit(&path, identity.clone(), policy.clone(), 10).unwrap();
     let pristine = ledger.snapshot().clone();
     assert_eq!(pristine.attempts_used, 0);
     drop(ledger);
@@ -79,16 +80,19 @@ fn zero_attempt_ledger_rejects_forged_activity_on_cold_open() {
             "verified_target_json" => serde_json::json!([91, 93]),
             _ => serde_json::json!(1),
         };
+        if field == "material_bytes" {
+            forged["materials"]["ab".repeat(32)] = serde_json::json!(1);
+        }
         let forged: super::operation_snapshot::Snapshot =
             serde_json::from_value(forged).unwrap();
         // Structural validation is performed before attaching a recovered
         // owner, so a fabricated operation cannot be resumed as original.
         assert!(forged.validate().is_err(), "{field}");
         local_io::write(&path, &forged).unwrap();
-        assert!(Ledger::open(&path, &identity, &policy, 0).is_err(), "{field}");
+        assert!(Ledger::open(&path, &identity, &policy, 10).is_err(), "{field}");
     }
     local_io::write(&path, &pristine).unwrap();
-    let reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
+    let reopened = Ledger::open(&path, &identity, &policy, 10).unwrap();
     assert_eq!(reopened.snapshot(), &pristine);
 }
 
