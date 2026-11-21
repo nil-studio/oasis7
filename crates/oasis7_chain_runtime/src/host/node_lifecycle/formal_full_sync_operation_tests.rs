@@ -500,11 +500,8 @@ fn publication_intent_and_ack_block_new_real_http_exchange() {
     let mut ledger = Ledger::create(&path, identity.clone(), policy.clone()).unwrap();
     let attempt = ledger.begin_attempt().unwrap();
     let cut = serde_json::json!({"record_id": "original"});
-    let target = serde_json::to_vec(&(
-        cut.clone(),
-        serde_json::json!({"original_record": true}),
-    ))
-    .unwrap();
+    let target =
+        serde_json::to_vec(&(cut.clone(), serde_json::json!({"original_record":true}))).unwrap();
     let roots = "ab".repeat(32);
     ledger.bind_verified_target(&attempt, &target).unwrap();
     ledger.begin_publication(&attempt, &cut, &roots).unwrap();
