@@ -307,6 +307,7 @@ fn canonical_owner_chat_driver_dedup_restart_rejection_and_replacement() {
             .as_ref()
             .unwrap()
             .goal
+            .as_ref()
             .unwrap()
             .message,
         "private canonical goal 1"
