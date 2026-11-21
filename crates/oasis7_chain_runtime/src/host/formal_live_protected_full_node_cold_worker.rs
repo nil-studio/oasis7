@@ -108,17 +108,22 @@ fn run(path: &Path) -> Result<(), String> {
         return Err("cold original CommitRef changed".into());
     }
     let after = retry_original_at_exact_publication(&input.original, &runtime, &owner, &budget)?;
-    if lookup_original_commit(&owner, &input.original)? != input.original_commit
-        || io::digest(&retained_result_from_hot_or_cold(
-            &after.world,
-            &original_key,
-        )?)? != input.result
-        || io::digest(
-            &game_task::current_control(&after.world, "agent").map_err(|e| e.to_string())?,
-        )? != input.effect
-        || wasm_emit_count(&after.world) != input.emits
-    {
-        return Err("fresh cold original retry changed original result or effect".into());
+    let commit_matches = lookup_original_commit(&owner, &input.original)? == input.original_commit;
+    let result_matches = io::digest(&retained_result_from_hot_or_cold(
+        &after.world,
+        &original_key,
+    )?)? == input.result;
+    let effect_matches =
+        io::digest(&game_task::current_control(&after.world, "agent").map_err(|e| e.to_string())?)?
+            == input.effect;
+    let retry_emits = wasm_emit_count(&after.world);
+    if !commit_matches || !result_matches || !effect_matches || retry_emits != input.emits {
+        return Err(format!(
+            "fresh cold original retry changed original result or effect: \
+             commit_matches={commit_matches}, result_matches={result_matches}, \
+             effect_matches={effect_matches}, emits_expected={}, emits_observed={retry_emits}",
+            input.emits
+        ));
     }
     drop(after);
     let key: [u8; 32] = hex::decode(&input.owner_key)
