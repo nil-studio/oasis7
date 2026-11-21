@@ -398,6 +398,13 @@ for name in native_gates:
     assert cache_identity(release, name)["shared-key"] == "ci-shared-native-trusted-v4", name
 for name in ("release_gate_runtime_core", "release_gate_runtime_support", "release_gate_runtime_sync",
              "release_gate_soak", "release_gate_web", "build-web-dist"):
+    if name != "build-web-dist":
+        assert "    needs: [plan, full-regression-qualification]\n" in job_body(release, name), (
+            f"release-packages.yml {name} must wait for full-regression-qualification to fail fast"
+        )
+        assert "    needs: [plan, full-regression-qualification]\n" in job_body(mainnet, name), (
+            f"mainnet-packages.yml {name} must wait for full-regression-qualification to fail fast"
+        )
     expected = cache_identity(release, name)
     actual = cache_identity(mainnet, name)
     assert actual == expected, (name, "Mainnet cache identity differs from Release", actual, expected)
