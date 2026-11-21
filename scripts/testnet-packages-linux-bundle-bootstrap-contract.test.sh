@@ -74,9 +74,14 @@ printf '{"opsToolsSchemaVersion":1}\n' >"$bundle/.oasis7-ops-tools-manifest.json
   shasum -a 256 "${files[@]}" > SHA256SUMS
   shasum -a 256 -c SHA256SUMS >/dev/null
 )
-tar -C "$TMP_DIR" -czf "$TMP_DIR/oasis7-linux-x64-ops-tools.tar.gz" oasis7-linux-x64-ops-tools
-tar -tzf "$TMP_DIR/oasis7-linux-x64-ops-tools.tar.gz" | grep -Fxq 'oasis7-linux-x64-ops-tools/.oasis7-ops-tools-manifest.json'
-tar -tzf "$TMP_DIR/oasis7-linux-x64-ops-tools.tar.gz" | grep -Fxq 'oasis7-linux-x64-ops-tools/SHA256SUMS'
+archive="$TMP_DIR/oasis7-linux-x64-ops-tools.tar.gz"
+members="$TMP_DIR/ops-archive-members.txt"
+tar -C "$TMP_DIR" -czf "$archive" oasis7-linux-x64-ops-tools
+# Under pipefail, grep -q closes early and can make a still-writing tar fail with SIGPIPE.
+# Verify the full archive exactly once, then check the required members from that file.
+tar -tzf "$archive" >"$members"
+grep -Fxq 'oasis7-linux-x64-ops-tools/.oasis7-ops-tools-manifest.json' "$members"
+grep -Fxq 'oasis7-linux-x64-ops-tools/SHA256SUMS' "$members"
 
 if command -v dpkg-deb >/dev/null 2>&1; then
   deb_root="$TMP_DIR/deb-root"
