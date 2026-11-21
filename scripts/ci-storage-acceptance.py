@@ -360,12 +360,14 @@ def full_node_passed(report, scale, entry_limit=5_000_000):
     if type(entry_limit) is not int or not 1 <= entry_limit <= 10_000_000:
         return False
     seconds = report.get('whole_case_time_budget_seconds')
-    if (report.get('inventory_entry_limit') != entry_limit
+    if (type(report.get('inventory_entry_limit')) is not int
+            or report.get('inventory_entry_limit') != entry_limit
             or type(seconds) is not int or not 1 <= seconds <= 21600):
         return False
     for name in ('initial', 'before', 'after_maintenance', 'after_cold_restore'):
         inventory = report.get(name)
         if (not isinstance(inventory, dict)
+                or type(inventory.get('entry_count_budget_per_inventory')) is not int
                 or inventory.get('entry_count_budget_per_inventory') != entry_limit
                 or inventory.get('whole_case_time_budget_seconds') != seconds):
             return False

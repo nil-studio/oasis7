@@ -23,13 +23,58 @@ pub(super) fn inventory_entry_limit(value: &str) -> Result<usize, String> {
 }
 
 #[test]
-fn inventory_entry_budget_rejects_invalid_bounds() {
+fn full_node_inventory_budget_rejects_invalid_bounds() {
     for value in ["0", "10000001", "-1", "invalid", "18446744073709551616"] {
         assert!(inventory_entry_limit(value).is_err(), "{value}");
     }
     for value in ["1", "5000000", "10000000"] {
         assert_eq!(inventory_entry_limit(value).unwrap().to_string(), value);
     }
+}
+
+#[test]
+fn full_node_inventory_uses_frozen_limits_and_reports_actual_budget() {
+    struct Directory(PathBuf);
+    impl Drop for Directory {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let directory = Directory(std::env::temp_dir().join(format!(
+        "full-node-inventory-{}",
+        crate::node_lifecycle::local_io::random_id().unwrap()
+    )));
+    for name in ["primary-data", "replica-data", "formal-writer"] {
+        fs::create_dir_all(directory.0.join(name)).unwrap();
+        fs::write(directory.0.join(name).join("retained"), b"retained").unwrap();
+    }
+    let mut budget = Budget {
+        started: Instant::now(),
+        maximum: Duration::from_secs(60),
+        progress: None,
+        complete: true,
+        requested: 10,
+        completed_commits: 0,
+        inventory_entries: 7,
+    };
+    let report = inventory(&directory.0, &budget).unwrap();
+    assert_eq!(report["entry_count_budget_per_inventory"], 7);
+    assert_eq!(report["whole_case_time_budget_seconds"], 60);
+    assert_eq!(report["total"]["file_paths"], 3);
+    assert_eq!(report["total"]["directories"], 4);
+    budget.inventory_entries = 6;
+    assert!(
+        inventory(&directory.0, &budget)
+            .unwrap_err()
+            .contains("entry budget")
+    );
+    budget.inventory_entries = 7;
+    budget.started = Instant::now() - Duration::from_secs(61);
+    assert!(
+        inventory(&directory.0, &budget)
+            .unwrap_err()
+            .contains("walltime")
+    );
 }
 
 pub(super) fn digest<T: serde::Serialize>(value: &T) -> Result<String, String> {
