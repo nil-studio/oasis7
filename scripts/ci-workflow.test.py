@@ -3458,11 +3458,67 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         ])
         self.assertIn("needs.collect-wasm-summaries.result == 'success'", jobs['verify-wasm-determinism'])
         self.assertNotIn('continue-on-error:', workflow)
-        for filename in ('wasm-determinism-gate.yml',):
+        for filename in ('wasm-determinism-gate.yml', 'ci-base-images.yml'):
             workflow = (ROOT / '.github/workflows' / filename).read_text()
             self.assertNotRegex(workflow, r'(?m)^  push:')
             self.assertIn("group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}", workflow)
             self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", workflow)
+            self.assertIn('types: [opened, synchronize, reopened, ready_for_review]', workflow)
+
+    def test_pr_auxiliary_workflows_scope_triggers_and_skip_drafts(self):
+        ci_base = (ROOT / '.github/workflows/ci-base-images.yml').read_text()
+        ci_base_pr = ci_base.split('  pull_request:\n', 1)[1].split('  workflow_dispatch:\n', 1)[0]
+        self.assertNotIn('.github/workflows/rust.yml', ci_base_pr)
+        self.assertIn(
+            "if: (github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.ref == 'refs/heads/main'",
+            ci_base,
+        )
+
+        wasm_wf = (ROOT / '.github/workflows/wasm-determinism-gate.yml').read_text()
+        wasm_pr = wasm_wf.split('  pull_request:\n', 1)[1].split('  workflow_dispatch:\n', 1)[0]
+        wf_paths = re.findall(r'^      - (.+)$', wasm_pr, re.M)
+        self.assertTrue(wf_paths)
+        self.assertIn(
+            "if: github.event_name != 'pull_request' || !github.event.pull_request.draft",
+            wasm_wf,
+        )
+        planner = (ROOT / 'scripts/plan-wasm-determinism-scope.sh').read_text()
+        classify_body = planner.split('classify_changed_path() {', 1)[1].split('\n}', 1)[0]
+        # Extract every pattern branch from classify_changed_path() and ensure the workflow paths cover it.
+        raw_patterns = re.findall(r'^\s+([^\s#][^\n]*?)(?:\|\\|\))', classify_body, re.M)
+        planner_patterns = []
+        for line in raw_patterns:
+            for item in line.split('|'):
+                item = item.strip()
+                if item and item != 'case "$path" in':
+                    planner_patterns.append(item)
+        self.assertTrue(planner_patterns)
+        for pattern in planner_patterns:
+            # Strip trailing /* or /** to compare directory prefixes cleanly against workflow globs.
+            normalized = pattern
+            if normalized in (
+                'crates/oasis7_wasm_build',
+                'crates/oasis7_wasm_build/*',
+                'crates/oasis7_wasm_build/**/*',
+            ):
+                normalized = 'crates/oasis7_wasm_build/**'
+            elif normalized in (
+                'crates/oasis7_wasm_sdk',
+                'crates/oasis7_wasm_sdk/*',
+                'crates/oasis7_wasm_sdk/**/*',
+            ):
+                normalized = 'crates/oasis7_wasm_sdk/**'
+            elif normalized in (
+                'crates/oasis7_wasm_abi',
+                'crates/oasis7_wasm_abi/*',
+                'crates/oasis7_wasm_abi/**/*',
+            ):
+                normalized = 'crates/oasis7_wasm_abi/**'
+            elif normalized == 'docker/wasm-builder/*':
+                normalized = 'docker/wasm-builder/**'
+            elif normalized in ('tools/wasm_build_suite/*', 'tools/wasm_build_suite/**/*'):
+                normalized = 'tools/wasm_build_suite/**'
+            self.assertIn(normalized, wf_paths, f'wasm-determinism-gate.yml paths missing {pattern}')
 
     def test_group_commands_execute_once_and_propagate_failure(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
