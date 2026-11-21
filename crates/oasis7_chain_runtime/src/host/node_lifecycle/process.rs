@@ -141,7 +141,7 @@ pub(super) fn read_instance(data: &Path) -> Result<Option<Instance>, String> {
         io::reject_symlinks(&path)?;
         return Ok(None);
     }
-    let record: Instance = io::read(&path)?;
+    let record: Instance = io::read_atomic(&path)?;
     if record.api_version != "oasis7.local-node-instance/v1"
         || record.generation == 0
         || record.incarnation.len() != 32
