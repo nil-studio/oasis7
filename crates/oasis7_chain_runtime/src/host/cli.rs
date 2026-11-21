@@ -16,8 +16,8 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use oasis7::chain_pos_defaults;
-use oasis7::development_node_config::{
+use oasis7_client_api::chain_pos_defaults;
+use oasis7_client_api::development_node_config::{
     DevelopmentPeerRecordPublicationModeV1, DevelopmentPeerRecordReceptionModeV1, P2pResourceBudget,
 };
 use oasis7::network_tier_manifest::LoadedNetworkTierManifest;
