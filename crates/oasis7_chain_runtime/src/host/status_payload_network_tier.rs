@@ -17,11 +17,11 @@ pub(crate) struct ChainNetworkTierStatus {
     pub(crate) faucet_mode: String,
     pub(crate) reset_policy: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) release_policy: Option<oasis7::network_tier_manifest::NetworkTierReleasePolicy>,
+    pub(crate) release_policy: Option<oasis7_client_api::network_tier_manifest::NetworkTierReleasePolicy>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) world_policy: Option<oasis7::network_tier_manifest::NetworkTierWorldPolicy>,
+    pub(crate) world_policy: Option<oasis7_client_api::network_tier_manifest::NetworkTierWorldPolicy>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) authority_policy: Option<oasis7::network_tier_manifest::NetworkTierAuthorityPolicy>,
+    pub(crate) authority_policy: Option<oasis7_client_api::network_tier_manifest::NetworkTierAuthorityPolicy>,
     pub(crate) runtime_supported: bool,
     pub(crate) value_semantics: String,
     pub(crate) rpc_ref: String,
@@ -33,7 +33,7 @@ pub(crate) struct ChainNetworkTierStatus {
 }
 
 pub(super) fn build_network_tier_status(
-    loaded: &oasis7::network_tier_manifest::LoadedNetworkTierManifest,
+    loaded: &oasis7_client_api::network_tier_manifest::LoadedNetworkTierManifest,
 ) -> ChainNetworkTierStatus {
     ChainNetworkTierStatus {
         source_path: loaded.source_path.clone(),
