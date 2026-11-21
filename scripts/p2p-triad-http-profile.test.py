@@ -403,12 +403,12 @@ sys.stdout.buffer.write(b"X" * %d)
         child = load("controlled_descendant_reader", "p2p-triad-http-profile.py")
         marker = self.fixture.root / "verifier-descendant-started"
         verifier = (
-            "import subprocess, sys\\n"
-            "from pathlib import Path\\n"
+            "import subprocess, sys\n"
+            "from pathlib import Path\n"
             "subprocess.Popen([sys.executable, '-c', "
-            "'import time;time.sleep(12)'])\\n"
-            "Path(sys.argv[1]).write_text('spawned')\\n"
-            "print('parent exited', flush=True)\\n"
+            "'import time;time.sleep(12)'])\n"
+            "Path(sys.argv[1]).write_text('spawned')\n"
+            "print('parent exited', flush=True)\n"
         )
         started = time.monotonic()
         output, status = child.run_controlled_bounded(
@@ -424,7 +424,7 @@ sys.stdout.buffer.write(b"X" * %d)
             [sys.executable, "-c", "import sys; sys.stdin.read(); print('ok')"],
             b"{}", 4.0,
         )
-        self.assertEqual((recovered, status), (b"ok\\n", "success"))
+        self.assertEqual((recovered, status), (b"ok\n", "success"))
 
 
     def test_controlled_owner_observation_keeps_its_original_sample_time(self):
