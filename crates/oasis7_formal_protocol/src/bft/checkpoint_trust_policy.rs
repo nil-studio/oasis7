@@ -354,6 +354,15 @@ impl BftCheckpointTrustPolicyV1 {
             security.security_not_before_unix_ms,
             security.absolute_safe_until_unix_ms,
         )?;
+        // A checkpoint cannot be authorized without both a live root/policy
+        // status and the original independent safety bound. Reject a policy
+        // for which those half-open intervals have no common instant, before
+        // it can be accepted by the portable decoder or host preparation.
+        if security.security_not_before_unix_ms.max(status_start)
+            >= security.absolute_safe_until_unix_ms.min(status_end)
+        {
+            return Err("checkpoint security and authorization windows do not overlap".into());
+        }
         if self.security_assumptions_digest != digest("security-policy", security)? {
             return Err("renewal security policy digest mismatch".into());
         }
