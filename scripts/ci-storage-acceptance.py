@@ -212,7 +212,17 @@ def validate_result(result):
             and result.get('exit_code') == 0 and not result.get('timeout') and not result.get('cancelled'))
 
 
+def inventory_entry_limit(value):
+    if not str(value).isascii() or not str(value).isdecimal():
+        raise argparse.ArgumentTypeError('inventory entry limit must be an integer in 1..10000000')
+    entries = int(value)
+    if not 1 <= entries <= 10_000_000:
+        raise argparse.ArgumentTypeError('inventory entry limit must be in 1..10000000')
+    return entries
+
+
 def execute(args):
+    entry_limit = inventory_entry_limit(args.inventory_entry_limit)
     bundle, directory = args.bundle.resolve(), args.results_dir.resolve()
     directory.mkdir(parents=True, exist_ok=False)
     manifest, env = artifacts.load(bundle)
@@ -226,6 +236,7 @@ def execute(args):
                    runner_image=manifest['runner_image'], rustc_version=manifest['rustc_version'],
                    host=host_observation(directory),
                    capacity_scale=args.capacity_scale, repeat_faults=args.repeat_faults,
+                   inventory_entry_limit=entry_limit if args.group == 'full-node' else None,
                    selected_inventory=selected, artifact_manifest=manifest, expected_cases=len(entries) * (args.repeat_faults if args.group == 'network' else 1),
                    passed=False, results=[], capacity_reports=[], full_node_reports=[])
     (directory / 'selected-inventory.json').write_text(json.dumps(summary, indent=2) + '\n')
@@ -237,6 +248,8 @@ def execute(args):
         env.setdefault('OASIS7_STORAGE_MAX_LOGICAL_BYTES', str(4 * 1024 ** 3))
         env.setdefault('OASIS7_STORAGE_MAX_SECONDS', '18000')
         env.setdefault('OASIS7_STORAGE_PROGRESS_INTERVAL', '100')
+    if args.group == 'full-node':
+        env['OASIS7_STORAGE_INVENTORY_ENTRY_LIMIT'] = str(entry_limit)
     marker = uuid.uuid4().hex
     env['OASIS7_STORAGE_SAMPLE_OWNER'] = marker
     try:
@@ -280,7 +293,7 @@ def execute(args):
                     if args.group == 'full-node':
                         reports = [json.loads(line.split('STORAGE_FULL_NODE_REPORT=', 1)[1])
                                    for line in log.read_text().splitlines() if 'STORAGE_FULL_NODE_REPORT=' in line]
-                        if len(reports) != 1 or not full_node_passed(reports[0], args.capacity_scale):
+                        if len(reports) != 1 or not full_node_passed(reports[0], args.capacity_scale, entry_limit):
                             raise ValueError('missing, partial or wrong-scale full-node report')
                         summary['full_node_reports'].extend(reports)
                     if result.get('cancelled'):
@@ -341,9 +354,21 @@ def fresh_writer_passed(report):
             and done.get('original_commit') == original)
 
 
-def full_node_passed(report, scale):
+def full_node_passed(report, scale, entry_limit=5_000_000):
     if not isinstance(report, dict):
         return False
+    if type(entry_limit) is not int or not 1 <= entry_limit <= 10_000_000:
+        return False
+    seconds = report.get('whole_case_time_budget_seconds')
+    if (report.get('inventory_entry_limit') != entry_limit
+            or type(seconds) is not int or not 1 <= seconds <= 21600):
+        return False
+    for name in ('initial', 'before', 'after_maintenance', 'after_cold_restore'):
+        inventory = report.get(name)
+        if (not isinstance(inventory, dict)
+                or inventory.get('entry_count_budget_per_inventory') != entry_limit
+                or inventory.get('whole_case_time_budget_seconds') != seconds):
+            return False
     logical = report.get('logical_before')
     typed = report.get('typed_history_before')
     published = report.get('published_before')
@@ -412,7 +437,7 @@ def summarize(directory, expected, needs=None):
                     or report['capacity_reports'][0].get('status') != 'passed'
                     or report['capacity_reports'][0].get('executed_heights') != report.get('capacity_scale')))
                 or (report['group'] == 'full-node' and (len(report.get('full_node_reports', [])) != 1
-                    or not full_node_passed(report['full_node_reports'][0], report.get('capacity_scale'))))):
+                    or not full_node_passed(report['full_node_reports'][0], report.get('capacity_scale'), report.get('inventory_entry_limit'))))):
             raise ValueError('incomplete or failed acceptance result: ' + report['label'])
     return dict(passed=True, identity=list(next(iter(identities))), groups=sorted(labels),
                 observations=[dict(label=report['label'], cases=report['expected_cases'],
@@ -439,6 +464,7 @@ def main():
     parser.add_argument('--label')
     parser.add_argument('--timeout-seconds', type=int)
     parser.add_argument('--capacity-scale', type=int, choices=(10, 1000, 10000), default=10)
+    parser.add_argument('--inventory-entry-limit', type=inventory_entry_limit, default=5_000_000)
     parser.add_argument('--repeat-faults', type=int, choices=(1, 2, 3), default=1)
     parser.add_argument('--expected', action='append', default=[])
     parser.add_argument('--needs-json', type=Path)

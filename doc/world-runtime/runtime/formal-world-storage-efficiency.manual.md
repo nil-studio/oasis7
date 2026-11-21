@@ -49,6 +49,8 @@ gh workflow run storage-acceptance.yml --repo nil-studio/oasis7 --ref main \
 
 `repeat_faults=1/2/3` 只改变每档网络故障子集的重复次数；每个结果均保留，失败后不自动重试覆盖。`capacity_scale=1000/10000` 在默认组外增加该真实高度长跑；默认 10 不意味着已覆盖更大规模。`full_node_scale=1000/10000` 独立增加正式 writer 完整目录长跑，与对象命名空间的 capacity 长跑分开选择和报告。仅 full-node 消费者启用现有 `OASIS7_FORMAL_EXECUTION_TIMING=1`，原始日志保留 writer 阶段 begin/end/error 及耗时，用于区分执行、双端资格、维护与发布等待；它不改变业务行为、截止或通过条件。为兼容 Ubuntu 24.04 的 iproute2，网络模型不设置新版工具的 PRNG seed；固定的是故障参数，重复运行不保证同一包序列，须保留实际 kernel/计数及原始失败；loopback 注入不是生产网络性能基准，参见 [netem 手册](https://man7.org/linux/man-pages/man8/tc-netem.8.html)。
 
+full-node 清点可通过 dispatch `inventory_entry_limit` 或 Python 入口 `--inventory-entry-limit` 固定每次扫描的路径上限，默认 5,000,000，合法范围 1..10,000,000；Rust fixture 对应 `OASIS7_STORAGE_INVENTORY_ENTRY_LIMIT`。只有 full-node 用例接收该环境配置，summary 和四次清点报告记录并核对实际值。total、domain、category 共享 `OASIS7_STORAGE_MAX_SECONDS` 冻结的整场绝对截止，遍历不会延长截止；同步文件系统调用不能中途抢占，晚返判 incomplete。预算耗尽保留 partial 并失败。10,000,000 只限定本轮资源风险，不能保证任何所选长跑完成；新预算需在新 run 开始前固定，不把既有失败改判成功。
+
 固定预算：矩阵最多并行 3 组；普通消费者最长 150 分钟；可选容量 job 最长 360 分钟，内部执行预算 18,000 秒、外层 case 截止 19,000 秒。默认消费者及 10 高度校准的容量源语料每域逻辑上限仍为 4GiB；仅可选 `capacity-long` job（1,000/10,000 高度）覆盖为每域 16GiB（17,179,869,184 bytes），不改变正式 writer 的 full-node job 或通用默认值。shadow 每步默认 64MiB，保留产品 1GiB 单步硬限制；磁盘可用空间下限仍为 3GiB。逻辑上限不是磁盘预留，fixture、原始表示、优化表示和元数据的实际占用可能先触达磁盘预算；必须核对该次 CI 主机的真实可用资源，不能从 runner 标签推定足够。16GiB 仍可能不足以完成 10,000 高度，1k/10k 也不保证在 hosted runner 的 6 小时内完成；任何预算耗尽必须保留 partial 进度并使本次失败，不能把较小高度结果改为目标规模通过。
 
 受保护进程 fixture 的正常停止沿用正式 pending 合同：保留同一 runtime/stop worker，在一次固定总截止内继续等待，停止完成前不释放所有权或重开。C02、C06、survivor 与长历史的正常停止总预算为 120 秒，每次等待最多 10 秒；effect 场景保留 30 秒总预算，已有整场景截止的 healthy fixture 继续受原截止约束。只继续等待准确的 stop-pending 状态，其他错误或总截止耗尽仍失败；这些验收等待界不是产品停止时延 SLO。

@@ -6,6 +6,7 @@ use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 #[derive(Debug, Default, Serialize)]
 pub struct StorageInventory {
@@ -34,6 +35,26 @@ pub fn inventory_storage(root: &Path) -> StorageInventory {
 /// deduplication still scales with unique entries. Exhaustion is an incomplete
 /// inventory, never a complete capacity baseline.
 pub fn inventory_storage_with_entry_limit(root: &Path, maximum_entries: usize) -> StorageInventory {
+    inventory_storage_with_limits(root, maximum_entries, None)
+}
+
+/// Apply one caller-owned absolute deadline as well as the entry limit.
+/// Checks are cooperative between synchronous filesystem operations; a blocked
+/// filesystem call cannot be preempted, and a late return remains incomplete.
+pub fn inventory_storage_with_limits(
+    root: &Path,
+    maximum_entries: usize,
+    deadline: Option<Instant>,
+) -> StorageInventory {
+    inventory_storage_with_clock(root, maximum_entries, deadline, Instant::now)
+}
+
+fn inventory_storage_with_clock(
+    root: &Path,
+    maximum_entries: usize,
+    deadline: Option<Instant>,
+    mut now: impl FnMut() -> Instant,
+) -> StorageInventory {
     let mut result = StorageInventory {
         complete: true,
         allocated_bytes: cfg!(unix).then_some(0),
@@ -49,7 +70,23 @@ pub fn inventory_storage_with_entry_limit(root: &Path, maximum_entries: usize) -
     };
     let mut seen = BTreeSet::new();
     let mut visited = 0usize;
-    while let Some(entry) = pending.next() {
+    loop {
+        if deadline.is_some_and(|deadline| now() >= deadline) {
+            result
+                .errors
+                .push("inventory walltime budget exhausted".into());
+            break;
+        }
+        let entry = pending.next();
+        if deadline.is_some_and(|deadline| now() >= deadline) {
+            result
+                .errors
+                .push("inventory walltime budget exhausted".into());
+            break;
+        }
+        let Some(entry) = entry else {
+            break;
+        };
         if visited >= maximum_entries {
             result.errors.push(format!(
                 "inventory entry budget exhausted: {maximum_entries}"
@@ -113,6 +150,13 @@ pub fn inventory_storage_with_entry_limit(root: &Path, maximum_entries: usize) -
         }
     }
     result.errors.sort();
+    if deadline.is_some_and(|deadline| now() >= deadline)
+        && !result.errors.iter().any(|error| error.contains("walltime"))
+    {
+        result
+            .errors
+            .push("inventory walltime budget exhausted".into());
+    }
     result.complete = result.errors.is_empty();
     result
 }
@@ -163,6 +207,45 @@ mod tests {
         fn drop(&mut self) {
             fs::remove_dir_all(&self.0).unwrap();
         }
+    }
+    #[test]
+    fn deadline_exhaustion_never_produces_complete_inventory() {
+        let fixture = Fixture::new();
+        fs::write(fixture.0.join("retained"), b"retained").unwrap();
+        let expired = inventory_storage_with_limits(&fixture.0, 10, Some(Instant::now()));
+        assert!(!expired.complete);
+        assert_eq!(expired.file_paths, 0);
+        assert!(
+            expired
+                .errors
+                .iter()
+                .any(|error| error.contains("walltime"))
+        );
+        let complete = inventory_storage_with_limits(
+            &fixture.0,
+            2,
+            Some(Instant::now() + std::time::Duration::from_secs(60)),
+        );
+        assert!(complete.complete, "{:?}", complete.errors);
+        assert_eq!(complete.file_paths, 1);
+        assert!(!inventory_storage_with_limits(&fixture.0, 1, None).complete);
+    }
+    #[test]
+    fn deadline_during_traversal_keeps_partial_counters() {
+        let fixture = Fixture::new();
+        fs::write(fixture.0.join("first"), b"first").unwrap();
+        fs::write(fixture.0.join("second"), b"second").unwrap();
+        let before = Instant::now();
+        let expired = before + std::time::Duration::from_secs(1);
+        let mut checks = 0;
+        let result = inventory_storage_with_clock(&fixture.0, 3, Some(expired), || {
+            checks += 1;
+            if checks <= 4 { before } else { expired }
+        });
+        assert!(!result.complete);
+        assert_eq!(result.directories, 1);
+        assert_eq!(result.file_paths, 1);
+        assert!(result.errors.iter().any(|error| error.contains("walltime")));
     }
     #[test]
     fn wide_nested_tree_preserves_exact_entry_boundary() {
