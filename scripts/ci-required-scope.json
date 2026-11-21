@@ -110,7 +110,7 @@
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_scheduler_controls", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 31039},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_balances", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 10212},
       {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_world_id_sets", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 6211},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_number_maps", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 20418},
+      {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_world_number_maps", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 20418},
       {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_world_rule_authorizations", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 3011},
       {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_world_rule_batches", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2811},
       {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_world_rule_effects", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 7810},
