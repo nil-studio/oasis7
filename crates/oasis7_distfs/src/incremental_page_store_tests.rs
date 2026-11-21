@@ -759,8 +759,9 @@ fn reopening_finishes_control_file_durability_before_serving_pages() {
 fn borrowed_page_writer_retains_caller_original_and_durable_readback() {
     let fixture = Fixture::new();
     let memory = MemoryBudget::new(8 << 20, 0).unwrap();
-    let store = IncrementalPageStore::create(&fixture.store(), memory.clone(), PageCompression::Raw)
-        .unwrap();
+    let store =
+        IncrementalPageStore::create(&fixture.store(), memory.clone(), PageCompression::Raw)
+            .unwrap();
     let bytes = memory
         .reserve(8192, MemoryClass::Ordinary)
         .unwrap()
@@ -781,8 +782,9 @@ fn borrowed_page_writer_retains_caller_original_and_durable_readback() {
 fn external_and_local_cancellation_preserve_real_session_budget() {
     let fixture = Fixture::new();
     let memory = MemoryBudget::new(8 << 20, 0).unwrap();
-    let store = IncrementalPageStore::create(&fixture.store(), memory.clone(), PageCompression::Raw)
-        .unwrap();
+    let store =
+        IncrementalPageStore::create(&fixture.store(), memory.clone(), PageCompression::Raw)
+            .unwrap();
     let data = memory
         .reserve(4096, MemoryClass::Ordinary)
         .unwrap()
@@ -799,8 +801,14 @@ fn external_and_local_cancellation_preserve_real_session_budget() {
         session.read_node(&id, 4096, &memory, MemoryClass::Ordinary),
         Err(ValueTreeError::Cancelled)
     ));
-    assert_eq!(session.remaining_io().unwrap().reads_remaining, before.reads_remaining);
-    assert_eq!(session.remaining_io().unwrap().writes_remaining, before.writes_remaining);
+    assert_eq!(
+        session.remaining_io().unwrap().reads_remaining,
+        before.reads_remaining
+    );
+    assert_eq!(
+        session.remaining_io().unwrap().writes_remaining,
+        before.writes_remaining
+    );
 
     shared.store(false, Ordering::Release);
     session.put_node_borrowed(id, &data).unwrap();
