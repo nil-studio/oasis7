@@ -16,10 +16,10 @@ pub(super) const MAX_COOLDOWN_ENTRIES: usize = 1024;
 // Successful Rendezvous registrations are advisory and can be retried when
 // their cached digest is evicted. Do not retain an unbounded peer history.
 const MAX_REGISTERED_RENDEZVOUS_NODES: usize = 1024;
-// Default server registration TTL is two hours. Refresh before expiry even
-// when the announced address set remains unchanged; this cache is advisory,
-// not evidence that the remote server still retains our registration.
-const RENDEZVOUS_REGISTRATION_REFRESH: Duration = Duration::from_secs(60 * 60);
+// Refresh at no more than half the server-advertised TTL, capped at one
+// hour. Servers may grant substantially less than the protocol's two-hour
+// default, so a fixed local one-hour cache could outlive a real lease.
+const RENDEZVOUS_MAX_REGISTRATION_REFRESH_SECS: u64 = 60 * 60;
 const WINDOW: Duration = Duration::from_secs(60);
 const MAX_RENDEZVOUS_ADDRESSES: usize = 128;
 const MAX_RENDEZVOUS_ADDRESS_BYTES: usize = 64 * 1024;
@@ -181,6 +181,7 @@ impl DiscoveryWorkBudget {
         peer_id: PeerId,
         current_external_addresses_digest: Option<[u8; 32]>,
         succeeded: bool,
+        registered_ttl_secs: Option<u64>,
     ) -> bool {
         let Some(operations) = self.rendezvous_by_request.get_mut(&id) else {
             return false;
@@ -199,7 +200,11 @@ impl DiscoveryWorkBudget {
         if kind == RendezvousOperationKind::Register {
             match (succeeded, operation.external_addresses_digest) {
                 (true, Some(expected)) if Some(expected) == current_external_addresses_digest => {
-                    self.remember_rendezvous_registration(peer_id, expected);
+                    self.remember_rendezvous_registration(
+                        peer_id,
+                        expected,
+                        registered_ttl_secs.unwrap_or(0),
+                    );
                 }
                 _ => {
                     self.registered_rendezvous_addresses.remove(&peer_id);
@@ -209,7 +214,12 @@ impl DiscoveryWorkBudget {
         self.finish_unscheduled();
         true
     }
-    fn remember_rendezvous_registration(&mut self, peer_id: PeerId, digest: [u8; 32]) {
+    fn remember_rendezvous_registration(
+        &mut self,
+        peer_id: PeerId,
+        digest: [u8; 32],
+        registered_ttl_secs: u64,
+    ) {
         // Updating an existing entry must not evict an unrelated peer. New
         // entries evict only an advisory registration; a later live connection
         // can re-register because rendezvous_registration_matches returns false.
@@ -223,10 +233,11 @@ impl DiscoveryWorkBudget {
         {
             self.registered_rendezvous_addresses.remove(&victim);
         }
-        self.registered_rendezvous_addresses.insert(
-            peer_id,
-            (digest, Instant::now() + RENDEZVOUS_REGISTRATION_REFRESH),
+        let refresh = Duration::from_secs(
+            (registered_ttl_secs / 2).min(RENDEZVOUS_MAX_REGISTRATION_REFRESH_SECS),
         );
+        self.registered_rendezvous_addresses
+            .insert(peer_id, (digest, Instant::now() + refresh));
     }
 
     pub(super) fn rendezvous_registration_matches(
@@ -318,7 +329,7 @@ mod tests {
         }
         let digest = [7; 32];
         for peer in &peers {
-            budget.remember_rendezvous_registration(*peer, digest);
+            budget.remember_rendezvous_registration(*peer, digest, 7_200);
         }
         assert_eq!(
             budget.registered_rendezvous_addresses.len(),
@@ -331,7 +342,7 @@ mod tests {
                 break candidate;
             }
         };
-        budget.remember_rendezvous_registration(newcomer, digest);
+        budget.remember_rendezvous_registration(newcomer, digest, 7_200);
         assert_eq!(
             budget.registered_rendezvous_addresses.len(),
             MAX_REGISTERED_RENDEZVOUS_NODES
@@ -340,14 +351,14 @@ mod tests {
         assert!(budget.rendezvous_registration_matches(newcomer, Some(digest)));
         // A repeated success for the same peer refreshes its digest without
         // discarding any other entry; the evicted server must do fresh work.
-        budget.remember_rendezvous_registration(newcomer, [9; 32]);
+        budget.remember_rendezvous_registration(newcomer, [9; 32], 7_200);
         assert!(budget.rendezvous_registration_matches(newcomer, Some([9; 32])));
         assert!(!budget.rendezvous_registration_matches(newcomer, Some(digest)));
         assert_eq!(
             budget.registered_rendezvous_addresses.len(),
             MAX_REGISTERED_RENDEZVOUS_NODES
         );
-        budget.remember_rendezvous_registration(victim, digest);
+        budget.remember_rendezvous_registration(victim, digest, 7_200);
         assert!(budget.rendezvous_registration_matches(victim, Some(digest)));
         assert_eq!(
             budget.registered_rendezvous_addresses.len(),
@@ -360,7 +371,7 @@ mod tests {
         let mut budget = DiscoveryWorkBudget::default();
         let peer = PeerId::random();
         let digest = [42; 32];
-        budget.remember_rendezvous_registration(peer, digest);
+        budget.remember_rendezvous_registration(peer, digest, 7_200);
         assert!(budget.rendezvous_registration_matches(peer, Some(digest)));
         // Model a previously successful registration whose remote TTL may
         // have elapsed. It must not suppress a fresh network registration.
@@ -369,6 +380,21 @@ mod tests {
         assert!(!budget.rendezvous_registration_matches(peer, Some(digest)));
         budget.remember_rendezvous_registration(peer, digest);
         assert!(budget.rendezvous_registration_matches(peer, Some(digest)));
+        assert_eq!(budget.registered_rendezvous_addresses.len(), 1);
+    }
+
+    #[test]
+    fn rendezvous_cache_honors_short_server_ttl_and_never_caches_zero_ttl() {
+        let mut budget = DiscoveryWorkBudget::default();
+        let peer = PeerId::random();
+        let digest = [11; 32];
+        budget.remember_rendezvous_registration(peer, digest, 300);
+        assert!(budget.rendezvous_registration_matches(peer, Some(digest)));
+        let refresh = budget.registered_rendezvous_addresses[&peer].1;
+        assert!(refresh <= Instant::now() + Duration::from_secs(150));
+        assert!(refresh > Instant::now() + Duration::from_secs(145));
+        budget.remember_rendezvous_registration(peer, digest, 0);
+        assert!(!budget.rendezvous_registration_matches(peer, Some(digest)));
         assert_eq!(budget.registered_rendezvous_addresses.len(), 1);
     }
 
