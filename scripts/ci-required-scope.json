@@ -77,7 +77,7 @@
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_agent_subtree", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 107084},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_authenticated_nonces", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 17633},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_cognition_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 174035},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_delivery_cursor", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2813},
+      {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_delivery_cursor", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2813},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_diplomacy_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 132522},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_due_module_batch", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 4808},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_factory_authority_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 111722},
@@ -101,12 +101,6 @@
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_effect_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 147952},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_governance_controls", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 3413},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_scheduler_controls", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 29829},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_balances", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 20826},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_organization_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 72481},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_bad_roots", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 66669},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_cold_point", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 8014},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_failures", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 13223},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_genesis", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 10216},
       {"package": "oasis7_cas", "target_kind": "lib", "target_name": "oasis7_cas", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 805},
       {"package": "oasis7_chain_runtime", "target_kind": "bin", "target_name": "oasis7_chain_runtime", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
       {"package": "oasis7_chain_runtime", "target_kind": "test", "target_name": "host_api", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 207},
@@ -2231,7 +2225,6 @@
     {
       "match": [
         "deny.toml",
-        "scripts/rustsec-ignore-direct-dependency-baseline.json",
         "scripts/check-rustsec-ignore-baseline.sh",
         "scripts/check-rustsec-ignore-baseline.test.sh"
       ],
@@ -2288,7 +2281,7 @@
       "match": [
         "doc/world-simulator/scenario/**",
         "crates/oasis7_simulator/scenarios/**",
-        "crates/oasis7/src/simulator/scenario.rs",
+        "crates/oasis7_simulator/src/scenario.rs",
         "crates/oasis7_simulator/tests/oasis7_init_demo.rs"
       ],
       "groups": [

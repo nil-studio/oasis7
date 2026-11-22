@@ -241,6 +241,7 @@ class Contracts(unittest.TestCase):
             binary = bundle / 'test'
             binary.write_text('#!' + sys.executable + '\nimport os\n'
                               'print("OBSERVED_LIMIT=" + os.environ["OASIS7_STORAGE_INVENTORY_ENTRY_LIMIT"])\n'
+                              'print("OBSERVED_CLOSURE=" + os.environ["OASIS7_FORMAL_CLOSURE_DIAGNOSTICS"])\n'
                               "print('STORAGE_FULL_NODE_REPORT={\"status\":\"partial\"}')\n"
                               'print("test result: ok. 1 passed; 0 failed; 0 ignored;")\n')
             binary.chmod(0o755)
@@ -261,6 +262,7 @@ class Contracts(unittest.TestCase):
             self.assertEqual(report['inventory_entry_limit'], 10_000_000)
             self.assertFalse(report['passed'])
             self.assertIn('OBSERVED_LIMIT=10000000', (args.results_dir / report['results'][0]['log']).read_text())
+            self.assertIn('OBSERVED_CLOSURE=1', (args.results_dir / report['results'][0]['log']).read_text())
 
     def test_only_capacity_long_overrides_logical_budget(self):
         workflow = (HERE.parent / '.github/workflows/storage-acceptance.yml').read_text()
@@ -308,7 +310,16 @@ class Contracts(unittest.TestCase):
         self.assertIn('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM', body)
         self.assertIn('cache-on-failure: false', body)
         rust_cache = (HERE.parent / '.github/workflows/rust-cache.yml').read_text()
-        self.assertIn(f'namespace: {namespace}\n', rust_cache)
+        if '\n  plan-image-component-cache:\n' in rust_cache:
+            planner = rust_cache.split('\n  plan-image-component-cache:\n', 1)[1].split(
+                '\n  rust-image-component-cache:\n', 1)[0]
+            rows = json.loads(planner.split("<<'JSON'\n", 1)[1].split('          JSON\n', 1)[0])
+            native = [row for row in rows if row['profile'] == 'native']
+            self.assertEqual(len(native), 1)
+            self.assertEqual(native[0]['namespace'], namespace)
+            self.assertEqual(native[0]['image'], 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + digest.group(1))
+        else:
+            self.assertIn(f'namespace: {namespace}\n', rust_cache)
 
     def test_storage_components_preserve_every_exact_build_variant_and_profile(self):
         native = acceptance.artifacts

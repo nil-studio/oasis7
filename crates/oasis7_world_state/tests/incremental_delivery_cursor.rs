@@ -8,7 +8,7 @@ use oasis7_formal_protocol::{
     incremental_value::ValueReadContext,
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
-use oasis7_runtime::{
+use oasis7_world_state::{
     ProductValidationDeliveryCursor, incremental_delivery_cursor::*, incremental_field_member::*,
     incremental_field_read::*,
 };
@@ -146,7 +146,7 @@ fn era_and_event_cursor_survive_real_cold_root_reads() {
                 TransactionLimits, TransitionVerifier,
             };
             use oasis7_formal_protocol::incremental_value::ValueNodeWriter;
-            use oasis7_runtime::incremental_field_overlay::WorldFieldOverlayContextV1;
+            use oasis7_world_state::incremental_field_overlay::WorldFieldOverlayContextV1;
             let memory = MemoryBudget::new(32 << 20, 1 << 20).unwrap();
             let store = IncrementalPageStore::open(
                 &path,
@@ -342,7 +342,7 @@ fn era_and_event_cursor_survive_real_cold_root_reads() {
                         &guard,
                         &live,
                     );
-                    assert!(matches!(result, Err(oasis7_runtime::incremental_field_overlay::WorldFieldOverlayErrorV1::Value(
+                    assert!(matches!(result, Err(oasis7_world_state::incremental_field_overlay::WorldFieldOverlayErrorV1::Value(
                         oasis7_formal_protocol::incremental_value::ValueTreeError::Invalid("delivery cursor expected value")))));
                 }
                 let guard = transaction.guard();

@@ -39,7 +39,7 @@ Trace refs: O7-REQ-f1388c2b-6f64-4ebd-886e-0b741bfe176c
 先检查暂停、已有开发会话、Issue 和 PR，再领取唯一 type:code 且 implementation:ready、设计/bug依据和授权完整的代码实现任务。
 父项可先由协调者接手拆分；每个拆出的开发任务创建或复用 type:code Issue，建立并回读 GitHub 原生父子关系后，按具体子 Issue 自身的 ready 与领取情况派发。已 active 的父项复用原认领与分工，但不替代子项认领；共享文件和接口明确唯一写入者。
 
-派发、归并和收回成果时按[代码任务规模建议](../../doc/engineering/workflow/source-of-truth.md#code-task-file-limit)与[小而完整的 PR](../../doc/engineering/workflow/source-of-truth.md#small-complete-pr)复核预计及实际范围：尽量不超过 30 个代码文件，同任务跨 PR 累计观察；建议规模内的子任务默认单 PR 完整收口，触达同一 CI 受影响范围的同构迁移、同源边界修复或同类配置先归并成批，仅在解除下游阻塞、规模明显超限、分步契约或共享入口隔离时拆多 PR；保留较大任务时在原说明中写清原因，不因文件数量单独阻断派发或归并。
+派发、归并和收回成果时按 doc/engineering/workflow/source-of-truth.md#code-task-file-limit 与 #small-complete-pr 复核预计及实际范围：尽量不超过 30 个代码文件，同任务跨 PR 累计观察；建议规模内的子任务默认单 PR 完整收口，触达同一 CI 受影响范围的同构迁移、同源边界修复或同类配置先归并成批，仅在解除下游阻塞、规模明显超限、分步契约或共享入口隔离时拆多 PR；保留较大任务时在原说明中写清原因，不因文件数量单独阻断派发或归并。
 使用已获准的独立开发会话承接就绪子 Issue，不默认派发嵌套 subagent；每个子任务默认只保持一个在途开放 PR（含触发主 CI 的 Draft PR，解阻前置除外），高扇出共享 crate 批次串行或归并，CI 排队拥堵时暂停新开非关键路径的细碎 PR；同一子任务的 CI、评审和测试反馈继续交给原会话。
 活跃工作期间约每 5 分钟检查一次队列，有结果或用户指令时及时处理。
 结果不明确先查询，不重复创建；暂停后停止新派工并核对在途执行。

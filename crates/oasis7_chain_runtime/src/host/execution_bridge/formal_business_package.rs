@@ -1,6 +1,6 @@
 //! Runtime interpretation of the shared profile-2 business envelope.
 use super::controlled_capture as capture;
-use oasis7::world_service::formal_result::FormalBusinessResultTreeV1;
+use oasis7_world_service::formal_result::FormalBusinessResultTreeV1;
 use oasis7_distfs::controlled_authority::{
     formal::{
         CanonicalRecordV1, business_index::BusinessIndexNodeReader,

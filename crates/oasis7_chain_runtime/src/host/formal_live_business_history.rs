@@ -1,7 +1,7 @@
 //! Permanent result lookup with current-root delegation of the original cut.
 use super::*;
-use oasis7::world_service::formal_read::FormalReadHistoryPageV1;
-use oasis7::world_service::formal_result::{
+use oasis7_world_service::formal_read::FormalReadHistoryPageV1;
+use oasis7_world_service::formal_result::{
     FormalBusinessResultPublication, FormalBusinessResultTreeV1,
     FormalHistoricalBusinessPublicationV1,
 };

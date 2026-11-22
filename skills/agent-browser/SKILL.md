@@ -56,7 +56,7 @@ Do not use this skill when:
 ## Guardrails
 
 - Keep this entrypoint concise; move heavy examples or catalog material to supporting files.
-- Do not bypass oasis7 task/worktree truth or professional role ownership when the workflow requires it.
+- Follow `doc/engineering/workflow/source-of-truth.md` for branch/worktree isolation, user authorization, and verification evidence; do not add separate task or role gates.
 - Do not present reference material as verified project behavior without checking the current repo state.
 - Do not use unversioned `npx agent-browser`, the unnamed/default session, the legacy session-name alias, or the close command's global all-sessions option.
 - Persistence uses `--restore --restore-save auto` with an explicit restore check when possible; legacy JSON state-file snippets are compatibility-only and must not be the main workflow.
