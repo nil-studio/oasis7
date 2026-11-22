@@ -6205,6 +6205,7 @@ dependencies = [
  "oasis7_executable_image",
  "oasis7_formal_protocol",
  "oasis7_game_client",
+ "oasis7_hosted_access",
  "oasis7_net",
  "oasis7_node",
  "oasis7_observability",

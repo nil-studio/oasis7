@@ -194,8 +194,8 @@ pub(super) fn operation_lock(destination: &Path, id: &str) -> Result<OperationWr
 
 pub(super) fn world_fence(
     world: &Path,
-) -> Result<oasis7::runtime_host::auth_storage::ExclusiveDirectoryTransactionLock, String> {
-    oasis7::runtime_host::auth_storage::ExclusiveDirectoryTransactionLock::try_acquire(world)
+) -> Result<oasis7_hosted_access::auth_storage::ExclusiveDirectoryTransactionLock, String> {
+    oasis7_hosted_access::auth_storage::ExclusiveDirectoryTransactionLock::try_acquire(world)
         .map_err(|error| {
             format!(
                 "acquire migration execution world writer lock for {} failed: {error}",
