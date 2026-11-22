@@ -90,7 +90,7 @@
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_full_scales", "variant": "required-risk-0", "mode": "batch", "selector": "", "elapsed_ms": 254638},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_governance_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 200584},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_installed_module_targets", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 14816},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_inventory_change", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 8613},
+      {"package": "oasis7_runtime", "target_kind": "test", "target_name": "incremental_inventory_change", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 8613},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_logistics_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 35235},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_main_token_policy_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 234627},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_material_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 89883},
