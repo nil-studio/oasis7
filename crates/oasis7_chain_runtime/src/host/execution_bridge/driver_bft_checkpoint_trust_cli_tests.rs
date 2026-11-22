@@ -466,7 +466,9 @@ pub(super) fn check_preparation(
         renewal_after_h["policy_digest"] = serde_json::json!(updated_pin);
         let policy: BftCheckpointTrustPolicyV1 =
             serde_json::from_value(renewal_after_h["policy"].clone()).unwrap();
-        policy.validate_configuration().expect("independent renewal still has a common authorization window");
+        policy
+            .validate_configuration()
+            .expect("independent renewal still has a common authorization window");
         let prepared = BftCheckpointTrustConfigV1::decode_and_prepare(
             &canonical(&renewal_after_h),
             &updated_pin,
