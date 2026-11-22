@@ -100,7 +100,9 @@ fn caller_cancellation_invalidates_memo_hit_before_avoiding_physical_io() {
     let id = *blake3::hash(&bytes).as_bytes();
     let name = hex::encode(id);
     let caller = AtomicBool::new(false);
-    store.put_page(id, &bytes, &mut physical_io(), &caller).unwrap();
+    store
+        .put_page(id, &bytes, &mut physical_io(), &caller)
+        .unwrap();
     drop(bytes);
     let session = store
         .state_session_with_cancelled(physical_io(), MemoryClass::Ordinary, &caller)
@@ -111,12 +113,18 @@ fn caller_cancellation_invalidates_memo_hit_before_avoiding_physical_io() {
     let after_first = session.remaining_io().unwrap();
     caller.store(true, Ordering::Release);
     assert!(session.read_node(&name, 1024).is_err());
-    assert!(matches!(session.take_read_error(), Some(PageStoreError::Cancelled)));
+    assert!(matches!(
+        session.take_read_error(),
+        Some(PageStoreError::Cancelled)
+    ));
     caller.store(false, Ordering::Release);
     assert!(session.read_node(&name, 1024).unwrap().is_some());
     let after_hit = session.remaining_io().unwrap();
     assert_eq!(after_hit.reads_remaining, after_first.reads_remaining);
-    assert_eq!(after_hit.read_bytes_remaining, after_first.read_bytes_remaining);
+    assert_eq!(
+        after_hit.read_bytes_remaining,
+        after_first.read_bytes_remaining
+    );
     let stats = session.read_memo_stats().unwrap().unwrap();
     assert_eq!((stats.hits, stats.misses), (1, 1));
 }
