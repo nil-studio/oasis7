@@ -594,9 +594,10 @@ fn run_recovery(consecutive: bool) {
     );
     let next = coordinator.submit(next_candidate.clone()).unwrap();
     assert_eq!(next.decision.record.position, verified.head().position + 1);
+    // Fresh Normal writes belong to the successor authority, never the
+    // predecessor's one-time CompletePrepared recovery authorization.
     let next_verified =
-        verify_formal_qualified(&next, &fixture.authority, Some(&verified), Some(&recovery))
-            .unwrap();
+        verify_formal_qualified(&next, recovery.successor(), Some(&verified), None).unwrap();
     assert_eq!(coordinator.submit(next_candidate).unwrap(), next);
     drop(coordinator);
     p2.kill().unwrap();
