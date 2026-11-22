@@ -684,7 +684,12 @@ mod tests {
             pages: &pages,
             root: Cell::new(None),
         };
-        let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
+        // The full record retains the original 1-MiB registered_by plus
+        // independently charged manifest/JSON and bounded decode workspace.
+        // MemoryBudget's second argument reserves Recovery headroom; use an
+        // ordinary allowance that really covers the two simultaneously
+        // admitted 2-MiB decoding phases, not an uncharged test shortcut.
+        let memory = MemoryBudget::new(24 << 20, 4 << 20).unwrap();
         let mut state_io = body_tests::io();
         let state_io = RefCell::new(&mut state_io);
         let mut stop = || false;
@@ -766,5 +771,113 @@ mod tests {
         );
         assert_eq!(selected.root(), &root);
         assert!(selected.uses_budget(&memory));
+        assert!(selected.admitted_json_bytes_v1().unwrap() > 0);
+
+        // Reusing the same original qualified body, read the complete
+        // ModuleRecord rather than treating its manifest as registry identity.
+        // The original fixture's 1-MiB registered_by was intentionally never
+        // touched by the manifest-only reader above.
+        drop(selected);
+        source.root.set(None);
+        let selected_record = read_selected_module_record_v1(
+            &body,
+            &mut ctx,
+            &mut work,
+            &mut scan,
+            &SelectedModuleManifestLimitsV1 {
+                heap_bytes: 2 << 20,
+                json_heap_bytes: 128 << 10,
+                max_collection_items: 1000,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_vec(selected_record.manifest()).unwrap(),
+            expected
+        );
+        assert_eq!(selected_record.registered_at(), u64::MAX);
+        assert_eq!(selected_record.registered_by().len(), 1 << 20);
+        assert_eq!(selected_record.audit_event_id(), Some(0));
+        assert!(selected_record.uses_budget(&memory));
+        assert!(selected_record.additional_graph_fee_bytes_v1().unwrap() > 0);
     }
+}
+
+#[path = "incremental_runtime_artifact_config_module_clone.rs"]
+mod clone_admission;
+
+/// Complete original ModuleRecord DATA, including metadata that participates
+/// in canonical_hash(ModuleRegistry). A selected manifest alone is insufficient.
+pub struct SelectedModuleRecordV1 {
+    manifest: ReservedValue<SelectedModuleManifestV1>,
+    registered_at: u64,
+    registered_by: String,
+    audit_event_id: Option<u64>,
+    _json: Vec<MemoryReservation>,
+}
+impl SelectedModuleRecordV1 {
+    pub fn manifest(&self) -> &ModuleManifest {
+        self.manifest.manifest()
+    }
+    pub fn registered_at(&self) -> u64 {
+        self.registered_at
+    }
+    pub fn registered_by(&self) -> &str {
+        &self.registered_by
+    }
+    pub fn audit_event_id(&self) -> Option<u64> {
+        self.audit_event_id
+    }
+    /// Actual retained typed-output charges, excluding caller's outer charge.
+    /// This is a clone-peak bound only; it grants no Current/source permission.
+    pub fn additional_graph_fee_bytes_v1(&self) -> Option<usize> {
+        self.manifest
+            ._json
+            .iter()
+            .chain(self._json.iter())
+            .try_fold(self.manifest.reserved_bytes(), |n, fee| {
+                n.checked_add(fee.bytes())
+            })
+    }
+}
+#[allow(clippy::too_many_arguments)]
+pub fn read_selected_module_record_v1<M, R, E, C>(
+    body: &ReservedValue<ArtifactConfigBodyQualificationV1>,
+    ctx: &mut WorldFieldReadContextV1<'_, M, R, E, C>,
+    work: &mut ArtifactConfigReadWorkV1,
+    scan: &mut StateScanBudget,
+    limits: &SelectedModuleManifestLimitsV1,
+) -> Result<ReservedValue<SelectedModuleRecordV1>, ValueTreeError>
+where
+    M: MerkleNodeReader,
+    R: ValueNodeReader,
+    E: FnMut() -> Option<ValueTreeError>,
+    C: FnMut() -> bool,
+{
+    let manifest = read_selected_module_manifest_v1(body, ctx, work, scan, limits)?;
+    let fee = ctx
+        .values
+        .memory
+        .reserve(limits.heap_bytes, MemoryClass::Ordinary)?;
+    let mut d = Decoder {
+        body,
+        ctx,
+        work,
+        heap: limits.heap_bytes,
+        limit: limits,
+        json: Vec::new(),
+        known: BTreeSet::new(),
+    };
+    spend(&mut d.heap, std::mem::size_of::<SelectedModuleRecordV1>())?;
+    let registered_at = d.uint(address("record", None, None, "registered_at"))?;
+    let registered_by = d.text(address("record", None, None, "registered_by"))?;
+    let audit_event_id = d.optional_uint(address("record", None, None, "audit_event_id"))?;
+    d.ctx.check()?;
+    Ok(fee.retain(SelectedModuleRecordV1 {
+        manifest,
+        registered_at,
+        registered_by,
+        audit_event_id,
+        _json: d.json,
+    }))
 }

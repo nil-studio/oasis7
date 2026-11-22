@@ -4335,6 +4335,14 @@ jobs:
       - name: Verify preinstalled Python
         shell: bash
         run: python3 -c 'import sys; sys.exit(sys.version_info[:2] != (3, 12))'
+      - name: Ensure real file(1) Mach-O validation prerequisite
+        shell: bash
+        run: |
+          if ! command -v file >/dev/null 2>&1; then
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends file
+          fi
+          file --version
       - name: Execute selected group
         shell: bash
         run: bash ./scripts/testnet-packages-macos-arm64-contract.test.sh
