@@ -553,6 +553,11 @@ mod tests {
             Err,
         );
         assert!(!accepted);
+        {
+            let traffic = metrics.lock().unwrap();
+            assert_eq!(traffic.response.outbound.messages, 0);
+            assert_eq!(traffic.response.outbound.payload_bytes, 0);
+        }
 
         let accepted = send_charged_response(
             &mut budget,
@@ -567,6 +572,14 @@ mod tests {
             },
         );
         assert!(accepted);
+        {
+            let traffic = metrics.lock().unwrap();
+            assert_eq!(traffic.response.outbound.messages, 1);
+            assert_eq!(
+                traffic.response.outbound.payload_bytes,
+                FETCH_BLOB_RESPONSE_BYTES_PER_WINDOW as u64
+            );
+        }
         let accepted = send_charged_response(
             &mut budget,
             peer,
