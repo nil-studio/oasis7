@@ -66,7 +66,6 @@ Rejected as defaults:
 - role owner for professional conclusions: `.agents/roles/game_visual_interaction_designer.md`
 - implementation handoff owner: `.agents/roles/viewer_engineer.md`
 - verification handoff owner: `.agents/roles/qa_engineer.md`
-- visual companion skill: `skills/gpt-image-2/SKILL.md`
 - browser evidence skill: `skills/agent-browser/SKILL.md`
 - workflow evidence sink: the actual PR or existing Task, following `doc/engineering/workflow/source-of-truth.md`; Issue and Project are optional
 

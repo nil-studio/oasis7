@@ -92,7 +92,6 @@ Rejected as defaults:
 - implementation handoff owner: `.agents/roles/viewer_engineer.md`
 - verification handoff owner: `.agents/roles/qa_engineer.md`
 - browser loop skill: `skills/agent-browser/SKILL.md`
-- visual companion skill: `skills/gpt-image-2/SKILL.md`
 - workflow evidence sink: the actual PR or existing Task, following `doc/engineering/workflow/source-of-truth.md`; Issue and Project are optional
 
 ## Known Failure Modes

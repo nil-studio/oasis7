@@ -28,7 +28,6 @@ Current library entries:
   screenshot review.
 - `gameplay-mechanics`: mechanics, combat, economy, progression, movement, and
   balance iteration.
-- `gpt-image-2`: GPT Image 2 visual companion workflow.
 - `humanizer-zh`: Chinese text naturalization and AI-pattern reduction.
 - `level-design`: level pacing, spatial flow, encounters, and traversal.
 - `memory-management`: memory, pooling, allocation, and asset streaming.
@@ -43,3 +42,5 @@ Current library entries:
   multiplayer state consistency.
 - `xiaohongshu-note-analyzer`: XiaoHongShu / RedNote note analysis reference
   for explicit LiveOps or readme-governance opt-in work.
+
+本仓库不提供图像生成技能或脚本。
