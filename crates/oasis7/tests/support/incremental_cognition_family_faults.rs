@@ -160,7 +160,10 @@ pub fn qualify_ordinary(
         },
         &mut oasis7_runtime::incremental_json_records::JsonReadWorkV1 {
             cells_remaining: 4096,
-            json_nodes_remaining: 512,
+            // The all-optional GEN fixture qualifies every original JSON body
+            // in one continuous finite read scope; 512 nodes was insufficient
+            // for that aggregate, rather than a Cognition schema rejection.
+            json_nodes_remaining: 4096,
             max_depth: 4,
             max_payload_bytes: 4096,
         },
