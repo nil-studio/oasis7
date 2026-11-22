@@ -12,7 +12,7 @@ use oasis7_runtime::{
     incremental_runtime_capability_records::*,
 };
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../../oasis7/tests/support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, logical};
 use oasis7_wasm_abi::CapabilitySubject;
