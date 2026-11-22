@@ -427,3 +427,6 @@ pub use pages::{
     MainTokenPolicyFamilyPagesV1, MainTokenPolicyPagesWorkV1,
     mark_main_token_policy_family_pages_v1, transfer_main_token_policy_family_pages_v1,
 };
+#[path = "incremental_main_token_policy_grant_current.rs"]
+mod current_grant;
+pub use current_grant::{CurrentRestrictedClaimGrantV1, read_current_restricted_claim_grant_v1};
