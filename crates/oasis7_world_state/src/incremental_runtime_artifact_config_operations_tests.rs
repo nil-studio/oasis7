@@ -583,3 +583,132 @@ fn ordinary_same_transaction_creates_changes_reads_and_independently_receives() 
     );
     assert_eq!(actual.root(), &expected);
 }
+
+#[test]
+fn module_lifecycle_original_current_rejects_stale_guard_and_cannot_seal() {
+    use oasis7_formal_protocol::incremental_execution::ExecutionError;
+    let memory = MemoryBudget::new(192 << 20, 0).unwrap();
+    let _index = memory.reserve(32 << 20, MemoryClass::Ordinary).unwrap();
+    let mut pages = Pages {
+        nodes: Rc::new(RefCell::new(BTreeMap::new())),
+    };
+    let (roots, _) = seed(&memory, &mut pages);
+    let (family, _) = family_in_pool(&roots, &pages, &memory, MemoryClass::Ordinary).unwrap();
+    let parent = ExecutionParent {
+        commit: [7; 32],
+        roots,
+        authority: AuthorityBinding {
+            token: [9; 32],
+            epoch: 3,
+        },
+    };
+    let live = parent.fence().unwrap();
+    let source = pages.clone();
+    let mut state_io = io();
+    let state_io = RefCell::new(&mut state_io);
+    let mut state_cancel = || false;
+    let state_cancel = RefCell::new(&mut state_cancel);
+    let state_error = RefCell::new(None);
+    let state = tree::Source {
+        source: &source,
+        memory: &memory,
+        class: MemoryClass::Ordinary,
+        io: &state_io,
+        cancelled: &state_cancel,
+        error: &state_error,
+        labels: genesis::LABELS,
+    };
+    let mut tx = ExecutionTransaction::begin(
+        parent,
+        [4; 32],
+        &state,
+        &memory,
+        TransactionLimits {
+            max_reads: 4096,
+            max_writes: 64,
+            max_facts: 16,
+            max_pending_node_bytes: 8 << 20,
+        },
+    )
+    .unwrap();
+    let mut value_io = io();
+    let mut write_io = io();
+    let mut keys = SemanticKeyBudget {
+        bytes_remaining: 8 << 20,
+    };
+    let mut write_keys = SemanticKeyBudget {
+        bytes_remaining: 8 << 20,
+    };
+    let mut overlay = WorldFieldOverlayContextV1 {
+        transaction: &mut tx,
+        values: ValueReadContext {
+            source: &source,
+            memory: &memory,
+            class: MemoryClass::Ordinary,
+            io: &mut value_io,
+        },
+        key_work: &mut keys,
+        semantic_bytes: 1 << 20,
+        record_bytes: 2 << 20,
+        take_state_error: || state_error.borrow_mut().take(),
+        cancelled: || false,
+    };
+    let mut write = MemberRecordWriteContext {
+        sink: &mut pages,
+        memory: &memory,
+        io: &mut write_io,
+        key_work: &mut write_keys,
+        limits: MemberRecordLimitsV1 {
+            semantic_bytes: 1 << 20,
+            payload_bytes: 1 << 20,
+            record_bytes: 2 << 20,
+        },
+        cancelled: || false,
+    };
+    let stale = overlay.transaction.guard();
+    let original = replace_current_module_lifecycle_artifact_config_v1(
+        ModuleLifecycleArtifactConfigEditV1::Active {
+            module_id: "new native active",
+            after: Some("genuine artifact digest"),
+        },
+        &family,
+        None,
+        &mut overlay,
+        &mut write,
+        &mut write_work(),
+        &stale,
+        &live,
+    )
+    .unwrap()
+    .expect("a new original Current active member must be qualified");
+    assert!(original.uses_budget(&memory));
+    let guard = overlay.transaction.guard();
+    let current = read_current_registry_active_count_v1(
+        &family,
+        &mut overlay,
+        &mut 1024,
+        &guard,
+        &live,
+    )
+    .unwrap();
+    assert_eq!(current, family.registry_active_count() + 1);
+    let result = replace_current_module_lifecycle_artifact_config_v1(
+        ModuleLifecycleArtifactConfigEditV1::Active {
+            module_id: "new native active",
+            after: None,
+        },
+        &family,
+        Some(&original),
+        &mut overlay,
+        &mut write,
+        &mut write_work(),
+        &stale,
+        &live,
+    );
+    assert!(result.is_err(), "stale original guard must never authorize deletion");
+    let final_guard = overlay.transaction.guard();
+    assert!(matches!(
+        overlay.transaction.seal(&final_guard, &live, 0),
+        Err(ExecutionError::Aborted)
+    ));
+}
