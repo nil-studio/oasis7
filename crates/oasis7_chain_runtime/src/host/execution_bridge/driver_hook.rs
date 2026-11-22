@@ -693,7 +693,7 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
                 // publish failure remains recoverable through startup head
                 // restoration, so do not turn an accepted commit into a
                 // retry that could duplicate its durable record.
-                oasis7::observability::emit_stderr_or_event(
+                oasis7_observability::emit_stderr_or_event(
                     tracing::Level::WARN,
                     format!(
                         "execution driver local bootstrap cache publish failed at height {}: {}",
@@ -712,7 +712,7 @@ impl NodeExecutionHook for NodeRuntimeExecutionDriver {
                 // The authoritative record and bridge state are already
                 // durable. A stale marker is harmless: startup removes it
                 // once it observes that its height is settled.
-                oasis7::observability::emit_stderr_or_event(
+                oasis7_observability::emit_stderr_or_event(
                     tracing::Level::WARN,
                     format!(
                         "execution driver could not clear settled product validation intent at height {}: {}",
