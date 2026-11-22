@@ -6640,5 +6640,38 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
                 self.assertNotIn('oasis7-priority-linux', JOBS[name])
 
 
+class AllWorkflowJobsTimeoutGuardTests(unittest.TestCase):
+    def test_every_executable_workflow_job_declares_timeout_minutes(self):
+        workflow_dir = ROOT / '.github/workflows'
+        workflow_paths = sorted(
+            path for path in workflow_dir.iterdir()
+            if path.is_file() and path.suffix in ('.yml', '.yaml')
+        )
+        self.assertGreater(len(workflow_paths), 0)
+        checked_jobs = 0
+        for path in workflow_paths:
+            rel_path = path.relative_to(ROOT).as_posix()
+            jobs = workflow_jobs(path.read_text())
+            self.assertGreater(len(jobs), 0, f'{rel_path} must declare at least one job')
+            for job_name, body in jobs.items():
+                if re.search(r'^    uses:\s*\S+', body, re.M):
+                    continue
+                checked_jobs += 1
+                with self.subTest(workflow=rel_path, job=job_name):
+                    match = re.search(r'^    timeout-minutes:\s*(.+?)\s*$', body, re.M)
+                    self.assertIsNotNone(
+                        match,
+                        f'{rel_path}:{job_name} must declare explicit timeout-minutes',
+                    )
+                    value = match.group(1)
+                    if value.isdigit():
+                        minutes = int(value)
+                        self.assertGreater(minutes, 0)
+                        self.assertLessEqual(minutes, 360)
+                    else:
+                        self.assertRegex(value, r'^\$\{\{.+\}\}$')
+        self.assertGreater(checked_jobs, 0)
+
+
 if __name__ == '__main__':
     unittest.main()
