@@ -320,7 +320,10 @@ fn ordinary_same_transaction_creates_changes_reads_and_independently_receives() 
         &live,
     )
     .unwrap();
-    assert!(deleted.is_none(), "qualified current deletion must not mint an entry");
+    assert!(
+        deleted.is_none(),
+        "qualified current deletion must not mint an entry"
+    );
     let guard = overlay.transaction.guard();
     assert_eq!(
         read_current_registry_active_count_v1(
@@ -683,14 +686,9 @@ fn module_lifecycle_original_current_rejects_stale_guard_and_cannot_seal() {
     .expect("a new original Current active member must be qualified");
     assert!(original.uses_budget(&memory));
     let guard = overlay.transaction.guard();
-    let current = read_current_registry_active_count_v1(
-        &family,
-        &mut overlay,
-        &mut 1024,
-        &guard,
-        &live,
-    )
-    .unwrap();
+    let current =
+        read_current_registry_active_count_v1(&family, &mut overlay, &mut 1024, &guard, &live)
+            .unwrap();
     assert_eq!(current, family.registry_active_count() + 1);
     let result = replace_current_module_lifecycle_artifact_config_v1(
         ModuleLifecycleArtifactConfigEditV1::Active {
@@ -705,7 +703,10 @@ fn module_lifecycle_original_current_rejects_stale_guard_and_cannot_seal() {
         &stale,
         &live,
     );
-    assert!(result.is_err(), "stale original guard must never authorize deletion");
+    assert!(
+        result.is_err(),
+        "stale original guard must never authorize deletion"
+    );
     let final_guard = overlay.transaction.guard();
     assert!(matches!(
         overlay.transaction.seal(&final_guard, &live, 0),
