@@ -14,6 +14,10 @@ use oasis7_proto::memory_budget::{MemoryClass, ReservedValue};
 
 /// Authenticate the actual outer edge and qualify precisely its current body.
 /// The bounded body scan is over this selected record, never the family or H.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Family, original state, one transaction, caller-owned finite work and explicit guard/fence are independent safety controls."
+)]
 pub fn open_agent_authority_body_overlay_v1<M, P, R, E, C>(
     key: AgentAuthorityRecordKeyV1<'_>,
     family: &ReservedValue<AgentAuthorityFamilyQualificationV1>,
