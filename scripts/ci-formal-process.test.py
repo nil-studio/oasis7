@@ -7389,6 +7389,14 @@ mod family {
             [(name, a, f, None) for name, a, f in single],
         )
 
+    def test_snapshot_profiles_reject_leaked_test_tier_features(self):
+        for logical in ('snapshot-tests', 'viewer-snapshot-tests'):
+            artifacts.validate_profile(logical, {'features': ['default']}, 'ordinary')
+            for leaked in ('test_tier_required', 'test_tier_full'):
+                with self.subTest(logical=logical, leaked=leaked):
+                    with self.assertRaisesRegex(ValueError, 'default-only features'):
+                        artifacts.validate_profile(logical, {'features': ['default', leaked]}, 'ordinary')
+
 
 if __name__ == '__main__':
     unittest.main()

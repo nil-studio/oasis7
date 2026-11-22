@@ -1353,6 +1353,10 @@ def validate_profile(logical, binary, scope=None):
                 or profile.get('overflow_checks') is not True):
             policy = 'optimized storage' if scope == 'storage' else 'unoptimized ' + scope
             raise ValueError('expected ' + policy + ' artifact with assertions and overflow checks')
+    if logical in ('snapshot-tests', 'viewer-snapshot-tests'):
+        leaked = {'test_tier_required', 'test_tier_full'}.intersection(binary.get('features') or ())
+        if leaked:
+            raise ValueError(f'{logical} must keep default-only features without {sorted(leaked)}')
 
 
 class BuildObservation:
@@ -1547,7 +1551,7 @@ def shared_incremental_duplicate(manifest):
 
 
 def coalesce_build_invocations(variants):
-    """Merge identical default-feature snapshot lib builds into one Cargo call."""
+    """Legacy helper retained temporarily for trusted-baseline test compatibility; unused by build()."""
     snapshot_specs = {
         'snapshot-tests': ['test', '-p', 'oasis7', '--lib', '--no-run'],
         'viewer-snapshot-tests': ['test', '-p', 'oasis7_viewer_runtime', '--lib', '--no-run'],
@@ -1621,7 +1625,10 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
                                 ('required-full-fast-', ordinary_full_fast_targets(plan)),
                                 ('required-risk-', ordinary_risk_supplements(plan))):
             target_specs.update({prefix + str(index): target for index, target in enumerate(targets or [])})
-    for variant, args, features, package_variants in coalesce_build_invocations(variants):
+    # Keep each snapshot variant in its own Cargo invocation so dev-dependencies
+    # (such as oasis7_viewer_runtime -> oasis7/test_tier_required) cannot unify
+    # test_tier_required into the default-only oasis7 snapshot harness.
+    for variant, args, features in variants:
         members = {variant: target_specs[variant]} if variant in target_specs else {}
         if (members and scope == 'ordinary' and plan is not None
                 and plan.get('fast_execution_version') == 1):
@@ -1672,11 +1679,7 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
                 manifest = Path(artifact['manifest_path'])
                 package = tomllib.loads(manifest.read_text())['package']['name']
                 artifact_variant = variant
-                if package_variants and test:
-                    if package not in package_variants:
-                        raise ValueError('unexpected snapshot package in Cargo build: ' + package)
-                    artifact_variant = package_variants[package]
-                elif members and test:
+                if members and test:
                     matching = [name for name, spec in members.items()
                                 if (spec['package'], [spec['target_kind']], spec['target_name']) ==
                                    (package, target['kind'], target['name'])]
@@ -1716,8 +1719,6 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
                             dependency_rebuilt=dependency_units - dependency_fresh))
         if len(members) > 1:
             timings[-1]['target_variants'] = list(members)
-        elif package_variants:
-            timings[-1]['target_variants'] = list(package_variants.values())
         print('native_build=' + json.dumps(timings[-1]), flush=True)
     manifest = dict(schema_version=2, scope=scope, tested_sha=output(['git', 'rev-parse', 'HEAD']),
         source_sha=os.environ.get('SOURCE_SHA', output(['git', 'rev-parse', 'HEAD'])),
