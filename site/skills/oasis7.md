@@ -176,7 +176,7 @@ LLM. It cannot supply real LLM, gameplay, or player-parity evidence.
 ### 5. Release bundle and advanced manual launcher path
 
 For bundle-first operators, obtain the installer asset for the intended tag and
-platform from `https://github.com/eng-cc/oasis7/releases`, then install/extract it.
+platform from `https://github.com/nil-studio/oasis7/releases`, then install/extract it.
 Verify that the chosen bundle contains `run-game.sh`. Do not treat `latest`, an
 asset name, or these instructions as proof of a usable build for every platform.
 The bundle is an alternative launcher entry, not a prerequisite of section 2.
