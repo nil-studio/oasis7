@@ -7,11 +7,13 @@ use oasis7_formal_protocol::{
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use std::{cell::RefCell, collections::BTreeMap, sync::Arc};
 
+type OriginalPageNodeMap = BTreeMap<[u8; 32], Arc<ReservedValue<Vec<u8>>>>;
+
 /// Scoped in-memory producer and reader for this test module. The previous
 /// root-level test-support import does not exist in the extracted crate.
 pub(super) struct Pages {
     memory: MemoryBudget,
-    nodes: RefCell<BTreeMap<[u8; 32], Arc<ReservedValue<Vec<u8>>>>>,
+    nodes: RefCell<OriginalPageNodeMap>,
     limit: usize,
 }
 impl Pages {
@@ -255,6 +257,10 @@ pub(super) fn qualify(
     )
 }
 
+#[allow(
+    dead_code,
+    reason = "Shared test fixture method for independent receiver scenarios"
+)]
 pub(super) fn rewrite<K: crate::incremental_semantic_key::SemanticKeyV1 + ?Sized>(
     memory: &MemoryBudget,
     pages: &Pages,
@@ -333,6 +339,10 @@ pub(super) fn rewrite<K: crate::incremental_semantic_key::SemanticKeyV1 + ?Sized
     )
     .unwrap()
 }
+#[allow(
+    dead_code,
+    reason = "Shared test fixture method for independent receiver scenarios"
+)]
 pub(super) fn root_ref<K: crate::incremental_semantic_key::SemanticKeyV1 + ?Sized>(
     schema: [u8; 32],
     key: &K,
