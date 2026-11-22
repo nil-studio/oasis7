@@ -11,7 +11,7 @@ use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use std::collections::BTreeMap;
 use oasis7_formal_protocol::incremental_state::{MerkleNodeReader, StatePageWriter};
 use oasis7_formal_protocol::incremental_value::{ValueNodeReader, ValueNodeWriter};
-use std::{cell::RefCell, collections::BTreeMap, sync::Arc};
+use std::{cell::RefCell, sync::Arc};
 
 /// Scoped in-memory producer and reader for this test module. The previous
 /// root-level test-support import does not exist in the extracted crate.
