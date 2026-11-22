@@ -2,7 +2,6 @@ use super::*;
 use crate::{
     incremental_field_member::*,
     incremental_semantic_key::SemanticKeyBudget,
-    incremental_typed_record_test_support::{Pages, Writer},
 };
 use oasis7_agent_api::world_resource::{ChainResourceDelta, ChainResourceManifest};
 use oasis7_formal_protocol::{
@@ -10,6 +9,89 @@ use oasis7_formal_protocol::{
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
 use std::collections::BTreeMap;
+use oasis7_formal_protocol::incremental_state::{MerkleNodeReader, StatePageWriter};
+use oasis7_formal_protocol::incremental_value::{ValueNodeReader, ValueNodeWriter};
+use std::{cell::RefCell, collections::BTreeMap, sync::Arc};
+
+/// Scoped in-memory producer and reader for this test module. The previous
+/// root-level test-support import does not exist in the extracted crate.
+pub(super) struct Pages {
+    memory: MemoryBudget,
+    nodes: RefCell<BTreeMap<[u8; 32], Arc<ReservedValue<Vec<u8>>>>>,
+    limit: usize,
+}
+impl Pages {
+    pub(super) fn with_limit(memory: &MemoryBudget, limit: usize) -> Self {
+        Self {
+            memory: memory.clone(),
+            nodes: RefCell::new(BTreeMap::new()),
+            limit,
+        }
+    }
+}
+pub(super) struct Writer<'a>(pub(super) &'a Pages);
+impl ValueNodeWriter for Writer<'_> {
+    fn put_node(
+        &mut self,
+        id: [u8; 32],
+        value: ReservedValue<Vec<u8>>,
+    ) -> Result<(), ValueTreeError> {
+        if !value.uses_budget(&self.0.memory)
+            || *blake3::hash(&value).as_bytes() != id
+        {
+            return Err(ValueTreeError::Invalid("runtime artifact test original page"));
+        }
+        let mut nodes = self.0.nodes.borrow_mut();
+        if nodes.len() >= self.0.limit && !nodes.contains_key(&id) {
+            return Err(ValueTreeError::Invalid("runtime artifact test page limit"));
+        }
+        nodes.insert(id, Arc::new(value));
+        Ok(())
+    }
+}
+impl StatePageWriter for Writer<'_> {}
+impl ValueNodeReader for Pages {
+    fn read_node(
+        &self,
+        id: &[u8; 32],
+        max_bytes: usize,
+        memory: &MemoryBudget,
+        class: MemoryClass,
+    ) -> Result<Arc<ReservedValue<Vec<u8>>>, ValueTreeError> {
+        let nodes = self.nodes.borrow();
+        let page = nodes
+            .get(id)
+            .ok_or_else(|| ValueTreeError::Io(std::io::ErrorKind::NotFound.into()))?;
+        if page.len() > max_bytes {
+            return Err(ValueTreeError::Invalid("runtime artifact test value bound"));
+        }
+        Ok(Arc::new(
+            memory.reserve(page.len(), class)?.retain(page.to_vec()),
+        ))
+    }
+}
+impl MerkleNodeReader for Pages {
+    type Node = Vec<u8>;
+    fn allocation_class(&self) -> Option<MemoryClass> {
+        Some(MemoryClass::Ordinary)
+    }
+    fn allocation_budget(&self) -> Option<&MemoryBudget> {
+        Some(&self.memory)
+    }
+    fn read_node(&self, digest: &str, max_bytes: usize) -> Result<Option<Self::Node>, String> {
+        let id = *blake3::Hash::from_hex(digest)
+            .map_err(|_| "runtime artifact test state digest")?
+            .as_bytes();
+        let nodes = self.nodes.borrow();
+        let Some(page) = nodes.get(&id) else {
+            return Ok(None);
+        };
+        if page.len() > max_bytes {
+            return Err("runtime artifact test state bound".into());
+        }
+        Ok(Some(page.to_vec()))
+    }
+}
 pub(super) fn io() -> ValueIoBudget {
     ValueIoBudget {
         nodes_remaining: 2_000_000,
