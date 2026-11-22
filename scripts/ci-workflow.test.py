@@ -1139,9 +1139,13 @@ class Workflow(unittest.TestCase):
         workflow, _ = self.shared_cache_workflow()
         jobs = workflow_jobs(workflow)
         planner = jobs.get('plan-image-component-cache')
-        if planner is None:
-            self.skipTest('static matrix has no manual profile planner')
         writer = jobs['rust-image-component-cache']
+        if planner is None:
+            self.assertNotIn('image-support', workflow.split('jobs:', 1)[0])
+            self.assertIn('matrix:\n        include:\n', writer)
+            self.assertEqual(re.findall(r'^          - profile: ([a-z]+)$', writer, re.M),
+                             ['native', 'node', 'net', 'launcher', 'tooling', 'support'])
+            return
         predicate = lambda job: ' '.join(job.split('    if: >-\n', 1)[1].split('\n    ', 1)[0].split())
         self.assertEqual(predicate(planner), predicate(writer))
         script = textwrap.dedent(planner.split('        run: |\n', 1)[1]).strip()
