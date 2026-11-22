@@ -17,7 +17,7 @@ description: Use when implementing and finishing an authorized oasis7 change.
 
 新增或实质修改的跨层要求按[要求追踪规范](../../../doc/engineering/doc-governance/cross-layer-requirements-traceability.design.md)处理：先查原文声明，沿用同一要求的 Trace ID，在适用设计和当前 PR 等已有任务说明中写 Trace refs，并链接具体条款、说明本次范围与验证。追踪可直接引用 PR，不另领要求 ID；是否建立父子 Issue 按任务拆分规则执行。未形成或不适用的层级如实说明。只更新本次涉及的关系，不全仓回填，不把 ID 或找到关联记录当作实现、验证或合入证明。
 
-接手已有代码或文档 Issue 开始实施前，按[日常开发](../../../doc/engineering/workflow/source-of-truth.md#2-日常开发)检查已有认领和暂停，在原 Issue 发布开工 comment 并回读确认；已有执行或状态不明时先核对交接，避免重复认领。采用代码队列时，按[领取与状态维护](../../../doc/engineering/workflow/source-of-truth.md#coding-agent-task-claim)更新实现标签并处理写入失败。续做同一范围及已有 TPM 记录按通用规范复用，不重复留言。
+接手已有代码或文档 Issue 开始实施前，按[日常开发](../../../doc/engineering/workflow/source-of-truth.md#2-日常开发)检查已有认领和暂停，在原 Issue 发布开工 comment 并回读确认；已有执行或状态不明时先核对交接，避免重复认领。直接独立会话（无 TPM 协调时）触碰高扇出底层 crate、`Cargo.lock` 或共享工作流入口，以及准备新开 PR 前，先查看当前在途开放 PR（如 `gh pr list`）与队列情况：同子任务默认只保持一个在途开放 PR，遇到同热点范围在途改动或队列明显拥堵时，优先协调归并或在本地完成完整批次准备后再提交，避免并发撞车反复变基。采用代码队列时，按[领取与状态维护](../../../doc/engineering/workflow/source-of-truth.md#coding-agent-task-claim)更新实现标签并处理写入失败。续做同一范围及已有 TPM 记录按通用规范复用，不重复留言。
 
 修改前按开发规范检查 `git worktree list --porcelain`、工作区状态和使用情况，优先复用固定开发路径；聊天附件只用于识别附件，不能据此认定没有可复用工作区。需要新增时执行 `scripts/new-task-worktree.sh`，遵循仓库根目录配置，不以 App 创建、worktree fork 或 handoff 代替。用户明确要求其他入口时遵从用户要求。Cargo 默认使用各 worktree 的本地 `target/`，无需准备链接；日常反馈使用 wrapper，正式验收保留 canonical 命令。已有 target 不擅自删除。
 
