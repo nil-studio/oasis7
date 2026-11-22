@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-// Preserve every required assertion; identify the failing silent grep/[[
-// in the actual CI environment rather than reporting only exit status 1.
+# Preserve every required assertion; identify the failing silent grep/[[
+# in the actual CI environment rather than reporting only exit status 1.
 report_contract_failure() {
   local status="$1" line="$2" command="$3"
   printf 'product-doc-content-callers.test: failed at line %s (exit %s): %s\n' \
