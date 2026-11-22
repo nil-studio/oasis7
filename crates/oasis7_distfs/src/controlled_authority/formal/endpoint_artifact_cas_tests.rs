@@ -445,9 +445,21 @@ fn published_closure_real_sparse_tree_pages_preserve_exact_receipt() {
         job.append_test_root(delta.new.clone());
         let mut pages = 0;
         let mut elapsed_us = Vec::new();
+        let mut previous = job.progress_for_test().1;
+        let mut phases = std::collections::BTreeSet::new();
         loop {
             let started = std::time::Instant::now();
             let result = job.advance(&primary.store, &h(240)).unwrap();
+            let (phase, progress) = job.progress_for_test();
+            assert_eq!(progress[0], previous[0] + 1);
+            assert!(
+                progress
+                    .iter()
+                    .zip(previous)
+                    .all(|(next, old)| *next >= old)
+            );
+            phases.insert(phase);
+            previous = progress;
             let elapsed = started.elapsed();
             elapsed_us.push(elapsed.as_micros());
             assert!(
@@ -458,6 +470,11 @@ fn published_closure_real_sparse_tree_pages_preserve_exact_receipt() {
             assert!(pages < 2000, "finite real tree must converge");
             if let Some(receipt) = result {
                 assert!(receipt.logical_objects > 5000);
+                assert!(phases.contains("rootwalk"));
+                assert!(phases.contains("retiring"));
+                assert!(phases.contains("complete"));
+                assert_eq!(progress[1], delta.node_writes.len() as u64);
+                assert_eq!(progress[5], receipt.logical_objects);
                 elapsed_us.sort_unstable();
                 eprintln!(
                     "published_closure_real_tree tree_nodes={} pages={pages} p50_page_us={} max_page_us={} objects={} bytes={}",
