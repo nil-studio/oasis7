@@ -435,17 +435,26 @@ fn send_charged_response(
 ) -> bool {
     // Only positive successful FetchBlob bytes can mutate the ledger. The
     // bounded 256-peer clone is not needed for ordinary/control/error paths.
-    let (response, proposed) = if protocol == FETCH_BLOB_PROTOCOL
-        && reply.as_ref().is_ok_and(|bytes| !bytes.is_empty())
-    {
-        let mut proposed = budget.clone();
-        (
-            response(&mut proposed, peer, protocol, reply, now_ms, traffic_metrics),
-            Some(proposed),
-        )
-    } else {
-        (response(budget, peer, protocol, reply, now_ms, traffic_metrics), None)
-    };
+    let (response, proposed) =
+        if protocol == FETCH_BLOB_PROTOCOL && reply.as_ref().is_ok_and(|bytes| !bytes.is_empty()) {
+            let mut proposed = budget.clone();
+            (
+                response(
+                    &mut proposed,
+                    peer,
+                    protocol,
+                    reply,
+                    now_ms,
+                    traffic_metrics,
+                ),
+                Some(proposed),
+            )
+        } else {
+            (
+                response(budget, peer, protocol, reply, now_ms, traffic_metrics),
+                None,
+            )
+        };
     let size = response.payload.len();
     if send(response).is_err() {
         return false;
