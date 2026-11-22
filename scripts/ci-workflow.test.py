@@ -4529,7 +4529,7 @@ run_cargo() {
         if '    container:' in job:
             self.assertRegex(job, r'(?m)^    container:\n'
                                   r'      image: ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:[0-9a-f]{64}$')
-            self.assertIn('      options: --user 1001:1001\n', job)
+            self.assertRegex(job, r'(?m)^      options: --user 1001:1001(?: --init)?$')
             permissions = re.search(r'(?m)^    permissions:\n((?:      [^\n]+\n)+)', job)
             self.assertIsNotNone(permissions)
             self.assertCountEqual(permissions[1].splitlines(), [
