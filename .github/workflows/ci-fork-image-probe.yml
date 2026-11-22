@@ -1,0 +1,46 @@
+name: CI fork image pull probe
+
+on:
+  pull_request:
+    branches: [codex/fork-zstd-lsof-base-20261122]
+    paths: ['.github/workflows/ci-fork-image-probe.yml']
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  pull:
+    if: github.event.pull_request.head.repo.full_name == 'eng-cc/oasis7-ci-validation'
+    name: Pull ${{ matrix.target }} from a fork PR
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: rust-build-support
+            image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2
+          - target: rust-build-operational
+            image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb
+    container:
+      image: ${{ matrix.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    steps:
+      - name: Verify the container and its required tools
+        shell: bash
+        env:
+          PROBE_IMAGE: ${{ matrix.image }}
+          PROBE_TARGET: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          zstd --version
+          node --version
+          cargo --version
+          jq --version
+          if [[ "$PROBE_TARGET" == rust-build-operational ]]; then
+            command -v lsof
+          fi
+          printf 'Started %s with the fork pull_request token\n' "$PROBE_IMAGE"
