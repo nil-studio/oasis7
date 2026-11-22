@@ -594,13 +594,9 @@ fn run_recovery(consecutive: bool) {
     );
     let next = coordinator.submit(next_candidate.clone()).unwrap();
     assert_eq!(next.decision.record.position, verified.head().position + 1);
-    let next_verified = verify_formal_qualified(
-        &next,
-        &fixture.authority,
-        Some(&verified),
-        Some(&recovery),
-    )
-    .unwrap();
+    let next_verified =
+        verify_formal_qualified(&next, &fixture.authority, Some(&verified), Some(&recovery))
+            .unwrap();
     assert_eq!(coordinator.submit(next_candidate).unwrap(), next);
     drop(coordinator);
     p2.kill().unwrap();
