@@ -127,11 +127,19 @@ pub fn qualify_ordinary(
 ) -> oasis7_proto::memory_budget::ReservedValue<
     oasis7_runtime::incremental_cognition_family::CognitionCurrentStateQualificationV1,
 > {
+    // Match the bounded, all-optional GEN cold-read fixture: this shared
+    // family qualification reads every original Cognition JSON body, not just
+    // the selected DelegationGrants child.
+    let bounded_physical = oasis7_distfs::incremental_page_store::PageIoBudget {
+        reads_remaining: 3_000_000,
+        ..physical()
+    };
     let state = store
-        .state_session(physical(), MemoryClass::Ordinary)
+        .state_session(bounded_physical.clone(), MemoryClass::Ordinary)
         .unwrap();
-    let values = store.value_session(physical());
+    let values = store.value_session(bounded_physical);
     let mut io = fixture::logical();
+    io.nodes_remaining = 200_000;
     let mut keys = SemanticKeyBudget {
         bytes_remaining: 16 << 20,
     };
@@ -160,10 +168,7 @@ pub fn qualify_ordinary(
         },
         &mut oasis7_runtime::incremental_json_records::JsonReadWorkV1 {
             cells_remaining: 4096,
-            // The all-optional GEN fixture qualifies every original JSON body
-            // in one continuous finite read scope; 512 nodes was insufficient
-            // for that aggregate, rather than a Cognition schema rejection.
-            json_nodes_remaining: 4096,
+            json_nodes_remaining: 512,
             max_depth: 4,
             max_payload_bytes: 4096,
         },
