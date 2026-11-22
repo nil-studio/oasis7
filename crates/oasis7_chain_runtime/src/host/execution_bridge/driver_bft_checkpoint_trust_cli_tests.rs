@@ -408,6 +408,46 @@ pub(super) fn check_preparation(
     )
     .expect("one millisecond of a common issuer/root/policy/safety interval is valid");
 
+    // The original clock key and issuer quorum can each overlap root/policy
+    // independently yet have no common instant inside the safety interval.
+    // Re-pin the entire clock and policy after modification so failure comes
+    // from the joint temporal check, not a stale digest.
+    for (clock_start, clock_end) in [(90u64, 100u64), (1, 10)] {
+        let mut disjoint = value.clone();
+        disjoint["policy"]["clock_profile"]["time_key_not_before_unix_ms"] =
+            serde_json::json!(clock_start);
+        disjoint["policy"]["clock_profile"]["time_key_expires_at_unix_ms"] =
+            serde_json::json!(clock_end);
+        disjoint["policy"]["clock_profile_digest"] =
+            serde_json::json!(digest("clock-profile", &disjoint["policy"]["clock_profile"]));
+        let updated_pin = digest("policy", &disjoint["policy"]);
+        disjoint["policy_digest"] = serde_json::json!(updated_pin);
+        let policy: BftCheckpointTrustPolicyV1 =
+            serde_json::from_value(disjoint["policy"].clone()).unwrap();
+        let error = policy.validate_configuration().unwrap_err();
+        assert!(error.contains("no common authorization window"), "{error}");
+        assert!(BftCheckpointTrustPolicyV1::decode_canonical(&canonical(&policy)).is_err());
+        let error = BftCheckpointTrustConfigV1::decode_and_prepare(
+            &canonical(&disjoint),
+            &updated_pin,
+            &pin,
+            &c0_pin,
+        )
+        .err()
+        .expect("SDK accepted a clock signer disjoint from the issuer quorum");
+        assert!(error.contains("no common authorization window"), "{error}");
+    }
+    // Half-open clock validity meeting safety only on [89,90) remains a
+    // legitimate portable preflight; no current UTC/custody is inferred.
+    let mut clock_edge = value["policy"].clone();
+    clock_edge["clock_profile"]["time_key_not_before_unix_ms"] = serde_json::json!(89);
+    clock_edge["clock_profile"]["time_key_expires_at_unix_ms"] = serde_json::json!(100);
+    clock_edge["clock_profile_digest"] =
+        serde_json::json!(digest("clock-profile", &clock_edge["clock_profile"]));
+    let clock_edge: BftCheckpointTrustPolicyV1 = serde_json::from_value(clock_edge).unwrap();
+    clock_edge.validate_configuration().unwrap();
+    BftCheckpointTrustPolicyV1::decode_canonical(&canonical(&clock_edge)).unwrap();
+
     // Having enough issuer keys in the policy is not sufficient when their
     // half-open validity windows cannot satisfy the threshold simultaneously.
     // The original root/policy limits also restrict the possible quorum time.
