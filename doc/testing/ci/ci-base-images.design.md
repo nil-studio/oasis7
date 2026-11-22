@@ -56,4 +56,7 @@ Actions 工具归档的兼容性还包含实际 archive path 和压缩方式；�
 
 启动原四阶段故障前，真实检查硬链接 inode/nlink、文件与目录 fsync、跨进程 flock、同 UID 的 proc marker/父子 PID namespace 和 SIGKILL/wait；再执行同一完整归档中既有 native original-loaded-bytes 测试，验证实际加载闭包及原字节。任何预检失败均拒绝进入验收，保存预检与失败 summary；不放宽 map_files/原路径的 device/inode 匹配，不通过增加 ptrace 权限绕过。原四阶段、P/R 与 pin 释放、writer kill 清理和默认 12 分片及汇总合同保持不变。
 
+proc 预检必须先等待子进程完成 exec 后发出的显式 ready 字节（最多 10 秒），再读取同 UID、原 marker、PID namespace、PPid 和 RSS；Popen 返回本身不代替 exec 后就绪。ready 缺失、EOF、超时或任何身份检查失败仍拒绝验收，并真实 kill/wait 清理子进程。
+
+
 dispatch 的 attempt_release_host_reference 默认 false；启用时新增同源、同 run、同完整 bundle 的宿主参考分片，汇总必须额外验证该结果与其 job 成功，未启用时必须 skipped，默认 12 组不变。只增加一次宿主 case，复用原三分区 producer，不另起生产或改写归档身份。镜像冷拉取、预检、原 case 和总耗时分别记录。同源 host/image 对照必须消费各自身份校验通过的完整归档；新 workflow 提交不得冒用旧 source/run 的 bundle。capacity、full-node 与内核故障消费者的迁移仍需各自真实验收，不由本分片通过代签。
