@@ -58,6 +58,8 @@ mod game_client_conformance;
 #[cfg(test)]
 pub(crate) mod formal_read_response_fixture;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod ordinary_starter;
 pub mod participant;
 
 pub mod starter;
