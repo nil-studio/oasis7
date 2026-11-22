@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Preserve every required assertion; identify the failing silent grep/[[
+# in the actual CI environment rather than reporting only exit status 1.
+report_contract_failure() {
+  local status="$1" line="$2" command="$3"
+  printf 'product-doc-content-callers.test: failed at line %s (exit %s): %s\n' \
+    "$line" "$status" "$command" >&2
+  exit "$status"
+}
+trap 'report_contract_failure "$?" "$LINENO" "$BASH_COMMAND"' ERR
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
@@ -14,7 +24,12 @@ if ! python3 ./scripts/product-doc-content-check.py --repo-root "$PWD" --full-co
   cat "$tmp_dir/full-corpus.out" >&2
   exit 1
 fi
-grep -Fq 'product-doc-content: OK (full-corpus checked ' "$tmp_dir/full-corpus.out"
+# Full-corpus integrity failures already fail above. Advisory-only findings are
+# deliberately exit 0 but report WARN rather than falsely claiming conformance.
+# Preserve that distinction while requiring explicit full-corpus output.
+if ! grep -Fq 'product-doc-content: OK (full-corpus checked ' "$tmp_dir/full-corpus.out"; then
+  grep -Eq '^document-content: WARN \([1-9][0-9]* finding\(s\); advisory, not proof of conformance\)$' "$tmp_dir/full-corpus.out"
+fi
 
 if (unset OASIS7_PRODUCT_DOC_BASE OASIS7_PRODUCT_DOC_HEAD; OASIS7_PRODUCT_DOC_BASE="$base_oid" ./scripts/doc-governance-check.sh) >"$tmp_dir/partial.out" 2>&1; then
   echo "product-doc-content-callers.test: partial local base/head unexpectedly passed" >&2
