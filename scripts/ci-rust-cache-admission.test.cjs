@@ -64,6 +64,18 @@ function runModuleFixture(t, options = {}) {
     'cache-Dl81DHPs.js': "import * as fs from 'node:fs'; import {value} from './state-cjs-CkvFUaNy.js'; export function check() { console.log(value, fs.statSync(process.env.FIXTURE_ARCHIVE).size); }",
     'state-cjs-CkvFUaNy.js': "export const value = 'VERIFIED-DEPENDENCY';",
   };
+  if (options.absoluteTar) {
+    sources['cache-Dl81DHPs.js'] = `
+      import * as fs from 'node:fs';
+      import {execFileSync} from 'node:child_process';
+      import path from 'node:path';
+      export function check() {
+        const archive = process.env.FIXTURE_ARCHIVE;
+        execFileSync('/usr/bin/tar', ['-cf', archive, '-C', path.dirname(archive), 'manifest.txt']);
+        const size = fs.statSync(archive).size;
+        console.log('RESERVE', size);
+      }`;
+  }
   if (options.unknownDependency) {
     sources['state-cjs-CkvFUaNy.js'] = "import './unreviewed.js'; export const value = 'VERIFIED-DEPENDENCY';";
     fs.writeFileSync(path.join(f.action, 'unreviewed.js'), "console.log('UNREVIEWED-EXECUTED');");
@@ -84,7 +96,10 @@ function runModuleFixture(t, options = {}) {
     const config = JSON.parse(fs.readFileSync(process.env.FIXTURE_CONFIG, 'utf8'));
     const guard = require(process.env.FIXTURE_GUARD);
     if (config.changeBefore) fs.appendFileSync(config.entry, '\\nconsole.log("UNVERIFIED");');
-    const installed = guard.installGuard({...config, checkArchive: () => console.log('ADMITTED')});
+    const installed = guard.installGuard({...config, checkArchive: () => {
+      if (config.denyAdmission) throw new Error('FIXTURE ADMISSION DENIED');
+      console.log('ADMITTED');
+    }});
     if (config.replaceAfter) {
       for (const name of Object.keys(config.hashes)) {
         const file = path.join(path.dirname(config.entry), name);
@@ -96,7 +111,8 @@ function runModuleFixture(t, options = {}) {
     if (config.restore) { installed.restore(); installed.restore(); }
   `);
   return childProcess.spawnSync(process.execPath, ['--require', preload, entry], {
-    env: {...process.env, NODE_OPTIONS: '', FIXTURE_CONFIG: config,
+    env: {...process.env, ...(options.absoluteTar ? {PATH: '/usr/bin:/bin'} : {}),
+      NODE_OPTIONS: '', FIXTURE_CONFIG: config,
       FIXTURE_GUARD: path.join(__dirname, 'ci-rust-cache-admission-hook.cjs'), FIXTURE_ARCHIVE: f.archive},
     shell: false, encoding: 'utf8', timeout: 10000, maxBuffer: 1024 * 1024,
   });
@@ -111,6 +127,18 @@ test('the real ESM entry and dynamic dependency chain execute verified snapshots
     assert.doesNotMatch(result.stdout, /UNVERIFIED/);
     assert.equal(result.stdout.includes('ADMITTED'), entry === 'save.js');
   }
+});
+
+test('post save admits the completed absolute-tar archive with container PATH', {
+  skip: process.platform === 'win32' || !fs.existsSync('/usr/bin/tar'),
+}, t => {
+  const granted = runModuleFixture(t, {absoluteTar: true});
+  assert.equal(granted.status, 0, granted.stderr);
+  assert.match(granted.stdout, /^ADMITTED\nRESERVE [1-9][0-9]*\nVERIFIED-ENTRY/m);
+  const denied = runModuleFixture(t, {absoluteTar: true, denyAdmission: true});
+  assert.notEqual(denied.status, 0);
+  assert.match(denied.stderr, /FIXTURE ADMISSION DENIED/);
+  assert.doesNotMatch(denied.stdout, /RESERVE|VERIFIED-ENTRY/);
 });
 
 test('unverified bytes and dependencies stop before entry code executes', t => {
