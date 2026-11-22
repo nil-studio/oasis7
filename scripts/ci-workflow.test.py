@@ -6583,9 +6583,9 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'custody-wasm-approval': 25,
                 'distfs': 20,
                 'rust-baseline': 30,
-                'launcher-web': 30,
-                'viewer-js-required': 30,
-                'viewer-performance-report': 30,
+                'launcher-web': 15,
+                'viewer-js-required': 20,
+                'viewer-performance-report': 15,
                 'newapi-bridge-package': 30,
             },
             '.github/workflows/wasm-determinism-gate.yml': {

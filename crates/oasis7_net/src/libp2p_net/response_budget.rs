@@ -15,9 +15,9 @@ use crate::util::to_canonical_cbor;
 
 use super::error_mapping::error_response_from_world_error;
 
-const FETCH_BLOB_PROTOCOL: &str = "/aw/node/replication/fetch-blob/1.0.0";
+pub(super) const FETCH_BLOB_PROTOCOL: &str = "/aw/node/replication/fetch-blob/1.0.0";
 const RESPONSE_WINDOW: Duration = Duration::from_millis(FETCH_BLOB_RESPONSE_WINDOW_MS as u64);
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct FetchBlobResponseBudget {
     by_peer: HashMap<PeerId, ResponseWindow>,
     global: Option<ResponseWindow>,
@@ -47,7 +47,7 @@ impl FetchBlobResponseBudget {
 
         // Expire old windows first, but do not evict an active peer merely
         // because a different peer proposed a response that will be rejected.
-        self.evict_stale_and_over_capacity(now, None);
+        self.prune_stale(now);
 
         {
             let global = self.global.get_or_insert(ResponseWindow {
@@ -92,9 +92,20 @@ impl FetchBlobResponseBudget {
                 retryable: true,
             });
         }
-        // Only a response that passed both global and per-peer checks may
-        // displace the deterministic oldest peer at the bounded table cap.
-        self.evict_stale_and_over_capacity(now, Some(peer));
+        // Evicting a still-charged peer would silently reset its per-peer
+        // 60-second allowance. Fail closed at the bounded table cap instead;
+        // an existing peer retains its own window, and an expired peer can
+        // be pruned normally on the next admission.
+        if !self.by_peer.contains_key(&peer)
+            && self.by_peer.len() >= FETCH_BLOB_RESPONSE_BUDGET_MAX_PEERS
+        {
+            return Err(WorldError::NetworkRequestFailed {
+                code: DistributedErrorCode::ErrRateLimited,
+                message: "fetch-blob response peer budget table full; retry after window reset"
+                    .to_string(),
+                retryable: true,
+            });
+        }
         let window = self.by_peer.entry(peer).or_insert(ResponseWindow {
             started_at: now,
             bytes: 0,
@@ -122,22 +133,9 @@ impl FetchBlobResponseBudget {
         Ok(())
     }
 
-    fn evict_stale_and_over_capacity(&mut self, now: Instant, incoming_peer: Option<PeerId>) {
+    fn prune_stale(&mut self, now: Instant) {
         self.by_peer
             .retain(|_, window| now.saturating_duration_since(window.started_at) < RESPONSE_WINDOW);
-        while self.by_peer.len() >= FETCH_BLOB_RESPONSE_BUDGET_MAX_PEERS
-            && incoming_peer.is_some_and(|peer| !self.by_peer.contains_key(&peer))
-        {
-            let Some(evicted_peer) = self
-                .by_peer
-                .iter()
-                .min_by_key(|(peer, window)| (window.started_at, peer.to_bytes()))
-                .map(|(peer, _)| *peer)
-            else {
-                break;
-            };
-            self.by_peer.remove(&evicted_peer);
-        }
     }
 }
 
@@ -253,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn fetch_blob_budget_bounds_peers_evicts_stale_entries_and_ignores_rejections() {
+    fn fetch_blob_budget_bounds_peers_preserves_paid_windows_and_ignores_rejections() {
         let mut budget = FetchBlobResponseBudget::default();
         let now = Instant::now();
         for _ in 0..FETCH_BLOB_RESPONSE_BUDGET_MAX_PEERS {
@@ -267,11 +265,14 @@ mod tests {
             .min_by_key(|peer| peer.to_bytes())
             .copied()
             .expect("oldest deterministic peer");
-        budget
-            .admit(PeerId::random(), FETCH_BLOB_PROTOCOL, 1, now)
-            .expect("over-cap entry evicts deterministically");
+        assert!(
+            budget
+                .admit(PeerId::random(), FETCH_BLOB_PROTOCOL, 1, now)
+                .is_err(),
+            "new peer must not evict an unexpired charged window"
+        );
         assert_eq!(budget.by_peer.len(), FETCH_BLOB_RESPONSE_BUDGET_MAX_PEERS);
-        assert!(!budget.by_peer.contains_key(&retained));
+        assert!(budget.by_peer.contains_key(&retained));
 
         let rejected_peer = PeerId::random();
         let _ = budgeted_response_bytes(
@@ -342,17 +343,18 @@ mod tests {
         assert_eq!(budget.by_peer.len(), FETCH_BLOB_RESPONSE_BUDGET_MAX_PEERS);
         assert!(budget.admit(victim, FETCH_BLOB_PROTOCOL, 1, now).is_err());
 
-        // Legitimately admitted new peers can still displace the oldest
-        // window under the original bounded-cap policy.
-        budget
-            .admit(newcomer, FETCH_BLOB_PROTOCOL, 1, now)
-            .expect("valid new response can use bounded capacity");
+        // Even a small valid new response cannot evict an in-window peer
+        // and grant that same peer a second full response allowance.
+        assert!(budget.admit(newcomer, FETCH_BLOB_PROTOCOL, 1, now).is_err());
         assert_eq!(budget.by_peer.len(), FETCH_BLOB_RESPONSE_BUDGET_MAX_PEERS);
-        assert!(!budget.by_peer.contains_key(&victim));
-        assert!(budget.by_peer.contains_key(&newcomer));
+        assert!(budget.by_peer.contains_key(&victim));
+        assert!(!budget.by_peer.contains_key(&newcomer));
+        assert!(budget.admit(victim, FETCH_BLOB_PROTOCOL, 1, now).is_err());
         budget
-            .admit(victim, FETCH_BLOB_PROTOCOL, 1, now + RESPONSE_WINDOW)
-            .expect("expired original window admits a new response");
+            .admit(newcomer, FETCH_BLOB_PROTOCOL, 1, now + RESPONSE_WINDOW)
+            .expect("new peer can enter once the original window expires");
+        assert_eq!(budget.by_peer.len(), 1);
+        assert!(!budget.by_peer.contains_key(&victim));
     }
 
     #[test]
@@ -399,13 +401,12 @@ mod tests {
         assert!(!budget.by_peer.contains_key(&newcomer));
         assert!(budget.admit(victim, FETCH_BLOB_PROTOCOL, 1, now).is_err());
 
-        // A nonempty successful response still uses the existing bounded
-        // eviction policy and ordinary positive-byte charging.
-        budget.admit(newcomer, FETCH_BLOB_PROTOCOL, 1, now).unwrap();
+        // A nonempty response is denied rather than evicting a paid window.
+        assert!(budget.admit(newcomer, FETCH_BLOB_PROTOCOL, 1, now).is_err());
         assert_eq!(budget.by_peer.len(), FETCH_BLOB_RESPONSE_BUDGET_MAX_PEERS);
-        assert!(!budget.by_peer.contains_key(&victim));
-        assert!(budget.by_peer.contains_key(&newcomer));
-        assert_eq!(budget.global.unwrap().bytes, before + 1);
+        assert!(budget.by_peer.contains_key(&victim));
+        assert!(!budget.by_peer.contains_key(&newcomer));
+        assert_eq!(budget.global.unwrap().bytes, before);
     }
 
     #[test]

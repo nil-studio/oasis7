@@ -79,7 +79,7 @@
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_cognition_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 174035},
       {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_delivery_cursor", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2813},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_diplomacy_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 132522},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_due_module_batch", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 4808},
+      {"package": "oasis7_runtime", "target_kind": "test", "target_name": "incremental_due_module_batch", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 4808},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_factory_authority_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 111722},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_factory_record_closure", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 39437},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_factory_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 103152},
@@ -101,12 +101,6 @@
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_effect_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 147952},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_governance_controls", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 3413},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_scheduler_controls", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 29829},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_balances", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 20826},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_organization_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 72481},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_bad_roots", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 66669},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_cold_point", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 8014},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_failures", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 13223},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_world_rule_supply_genesis", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 10216},
       {"package": "oasis7_cas", "target_kind": "lib", "target_name": "oasis7_cas", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 805},
       {"package": "oasis7_chain_runtime", "target_kind": "bin", "target_name": "oasis7_chain_runtime", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
       {"package": "oasis7_chain_runtime", "target_kind": "test", "target_name": "host_api", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 207},
@@ -690,7 +684,7 @@
         "crates/oasis7_runtime/tests/pr_fast_incremental.rs",
         "crates/oasis7/tests/incremental_runtime_commit.rs",
         "crates/oasis7/tests/incremental_runtime_allocators.rs",
-        "crates/oasis7/tests/incremental_due_module_batch.rs",
+        "crates/oasis7_runtime/tests/incremental_due_module_batch.rs",
         "crates/oasis7/tests/support/incremental_agent_event.rs"
       ],
       "targets": [
@@ -2508,6 +2502,10 @@
         "scripts/check-script-executable-bits*",
         "scripts/check-windows-paths*",
         "scripts/lint-skills*",
+        "skills-lock.json",
+        "skills/gpt-image-2/scripts/gen.sh",
+        "skills/gpt-image-2/scripts/extract_image.py",
+        "skills/gpt-image-2/gallery/*.png",
         "scripts/pre-commit*"
       ],
       "groups": [

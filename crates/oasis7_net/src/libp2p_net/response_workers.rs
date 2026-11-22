@@ -16,7 +16,9 @@ use oasis7_proto::distributed_net::{
 use crate::error::WorldError;
 use oasis7_proto::distributed_net::NetworkResponse;
 
-use super::response_budget::{FetchBlobResponseBudget, budgeted_response_bytes};
+use super::response_budget::{
+    FETCH_BLOB_PROTOCOL, FetchBlobResponseBudget, budgeted_response_bytes,
+};
 use super::{Behaviour, Handler};
 
 const CONTROL_QUEUE_CAPACITY: usize = 32;
@@ -236,20 +238,20 @@ impl ResponseWorkers {
         // or a backed-up completion channel can finish too late. Do not send
         // or charge such a success as a fresh paid response.
         let reply = fail_expired_success(reply, completed.deadline, std::time::Instant::now());
-        let response = response(
+        if !send_charged_response(
             budget,
             completed.peer,
             completed.protocol.as_str(),
             reply,
             now_ms,
             traffic_metrics,
-        );
-        if swarm
-            .behaviour_mut()
-            .request_response
-            .send_response(completed.channel, response)
-            .is_err()
-        {
+            |response| {
+                swarm
+                    .behaviour_mut()
+                    .request_response
+                    .send_response(completed.channel, response)
+            },
+        ) {
             super::push_bounded_clone(
                 event_errors,
                 format!(
@@ -279,14 +281,20 @@ impl ResponseWorkers {
         traffic_metrics: &super::SharedLibp2pTrafficMetrics,
         swarm: &mut Swarm<Behaviour>,
     ) -> bool {
-        swarm
-            .behaviour_mut()
-            .request_response
-            .send_response(
-                channel,
-                response(budget, peer, protocol, reply, now_ms, traffic_metrics),
-            )
-            .is_ok()
+        send_charged_response(
+            budget,
+            peer,
+            protocol,
+            reply,
+            now_ms,
+            traffic_metrics,
+            |response| {
+                swarm
+                    .behaviour_mut()
+                    .request_response
+                    .send_response(channel, response)
+            },
+        )
     }
 
     pub(super) fn overload_response() -> WorldError {
@@ -406,11 +414,56 @@ fn response(
     protocol: &str,
     reply: Result<Vec<u8>, WorldError>,
     now_ms: i64,
-    traffic_metrics: &super::SharedLibp2pTrafficMetrics,
+    _traffic_metrics: &super::SharedLibp2pTrafficMetrics,
 ) -> NetworkResponse {
-    let payload = budgeted_response_bytes(budget, peer, protocol, reply, now_ms);
-    super::record_response_outbound(traffic_metrics, protocol, payload.len());
-    NetworkResponse { payload }
+    NetworkResponse {
+        payload: budgeted_response_bytes(budget, peer, protocol, reply, now_ms),
+    }
+}
+
+/// The libp2p channel can synchronously reject a response when the caller
+/// canceled. This is known zero delivery and must not charge a successful
+/// FetchBlob response against the peer or global paid byte window.
+fn send_charged_response(
+    budget: &mut FetchBlobResponseBudget,
+    peer: libp2p::PeerId,
+    protocol: &str,
+    reply: Result<Vec<u8>, WorldError>,
+    now_ms: i64,
+    traffic_metrics: &super::SharedLibp2pTrafficMetrics,
+    send: impl FnOnce(NetworkResponse) -> Result<(), NetworkResponse>,
+) -> bool {
+    // Only positive successful FetchBlob bytes can mutate the ledger. The
+    // bounded 256-peer clone is not needed for ordinary/control/error paths.
+    let (response, proposed) =
+        if protocol == FETCH_BLOB_PROTOCOL && reply.as_ref().is_ok_and(|bytes| !bytes.is_empty()) {
+            let mut proposed = budget.clone();
+            (
+                response(
+                    &mut proposed,
+                    peer,
+                    protocol,
+                    reply,
+                    now_ms,
+                    traffic_metrics,
+                ),
+                Some(proposed),
+            )
+        } else {
+            (
+                response(budget, peer, protocol, reply, now_ms, traffic_metrics),
+                None,
+            )
+        };
+    let size = response.payload.len();
+    if send(response).is_err() {
+        return false;
+    }
+    if let Some(proposed) = proposed {
+        *budget = proposed;
+    }
+    super::record_response_outbound(traffic_metrics, protocol, size);
+    true
 }
 
 // The worker's admit/expire decision uses only the original monotonic
@@ -490,6 +543,69 @@ fn spawn_workers(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cancelled_blob_send_does_not_spend_a_peer_or_global_success_window() {
+        let peer = libp2p::PeerId::random();
+        let mut budget = FetchBlobResponseBudget::default();
+        let metrics = super::super::traffic_metrics::init_shared_traffic_metrics();
+        let bytes = vec![0_u8; FETCH_BLOB_RESPONSE_BYTES_PER_WINDOW];
+        // Real Swarm::send_response uses this same Result callback shape.
+        // Cancellation before acceptance returns the unused original response.
+        let accepted = send_charged_response(
+            &mut budget,
+            peer,
+            FETCH_BLOB_PROTOCOL,
+            Ok(bytes.clone()),
+            1_000,
+            &metrics,
+            Err,
+        );
+        assert!(!accepted);
+        {
+            let traffic = metrics.lock().unwrap();
+            assert_eq!(traffic.response.outbound.messages, 0);
+            assert_eq!(traffic.response.outbound.payload_bytes, 0);
+        }
+
+        let accepted = send_charged_response(
+            &mut budget,
+            peer,
+            FETCH_BLOB_PROTOCOL,
+            Ok(bytes),
+            1_000,
+            &metrics,
+            |reply| {
+                assert_eq!(reply.payload.len(), FETCH_BLOB_RESPONSE_BYTES_PER_WINDOW);
+                Ok(())
+            },
+        );
+        assert!(accepted);
+        {
+            let traffic = metrics.lock().unwrap();
+            assert_eq!(traffic.response.outbound.messages, 1);
+            assert_eq!(
+                traffic.response.outbound.payload_bytes,
+                FETCH_BLOB_RESPONSE_BYTES_PER_WINDOW as u64
+            );
+        }
+        let accepted = send_charged_response(
+            &mut budget,
+            peer,
+            FETCH_BLOB_PROTOCOL,
+            Ok(vec![1]),
+            1_000,
+            &metrics,
+            |reply| {
+                let error: oasis7_proto::distributed::ErrorResponse =
+                    serde_cbor::from_slice(&reply.payload).unwrap();
+                assert_eq!(error.code, DistributedErrorCode::ErrRateLimited);
+                assert!(error.retryable);
+                Ok(())
+            },
+        );
+        assert!(accepted);
+    }
 
     #[test]
     fn expired_completed_success_is_not_released_or_charged() {

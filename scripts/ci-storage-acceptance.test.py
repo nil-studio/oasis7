@@ -11,7 +11,7 @@ import os
 import re
 import sys
 import subprocess
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 import unittest
 
 HERE = Path(__file__).resolve().parent
@@ -26,6 +26,66 @@ fixture_spec.loader.exec_module(fixture)
 
 
 class FixtureContracts(unittest.TestCase):
+    @unittest.skipUnless(os.name == 'posix', 'real pipe readiness requires POSIX')
+    def test_real_child_readiness_success_eof_and_deadline(self):
+        cases = [
+            ('ready', 'import os,time; os.write(1,b"R"); time.sleep(30)', None),
+            ('eof', 'pass', 'without exec readiness'),
+            ('deadline', 'import time; time.sleep(30)', 'deadline exhausted'),
+        ]
+        for name, code, error in cases:
+            with self.subTest(name=name):
+                child = subprocess.Popen([sys.executable, '-c', code], stdout=subprocess.PIPE)
+                try:
+                    if error:
+                        with self.assertRaisesRegex(ValueError, error):
+                            fixture.wait_child_ready(child, timeout_seconds=0.05 if name == 'deadline' else 10)
+                    else:
+                        fixture.wait_child_ready(child)
+                        self.assertIsNone(child.poll())
+                finally:
+                    child.stdout.close()
+                    if child.poll() is None:
+                        child.kill()
+                    child.wait(timeout=10)
+
+    def test_process_probe_waits_for_child_exec_before_reading_marker(self):
+        state = dict(ready=False, marker=None)
+        pipe = Mock()
+        def child_ready(_count):
+            state['ready'] = True
+            return b'R'
+        pipe.read.side_effect = child_ready
+        child = Mock(pid=1234, stdout=pipe)
+        child.poll.return_value = 0
+        child.wait.return_value = -fixture.signal.SIGKILL
+        def spawn(*_args, **kwargs):
+            state['marker'] = kwargs['env']['OASIS7_STORAGE_SAMPLE_OWNER']
+            return child
+        proc = Mock()
+        proc.stat.return_value.st_uid = os.getuid()
+        environ = Mock()
+        environ.read_bytes.side_effect = lambda: (
+            ('OASIS7_STORAGE_SAMPLE_OWNER=' + state['marker']).encode() + b'\0'
+            if state['ready'] else b'old pre-exec environment\0')
+        status = Mock()
+        status.read_text.return_value = f'PPid:\t{os.getpid()}\nVmRSS:\t1 kB\n'
+        proc.__truediv__ = Mock(side_effect=lambda name: {'environ': environ, 'status': status, 'ns/pid': 'child-ns'}[name])
+        root = Mock()
+        root.__truediv__ = Mock(return_value=proc)
+        with patch.object(fixture.subprocess, 'Popen', side_effect=spawn), \
+             patch.object(fixture, 'Path', return_value=root), \
+             patch.object(fixture.os, 'readlink', return_value='pid:[same]'):
+            # The readiness helper uses select only after the implementation
+            # adds the real child handshake; the old probe reads the old marker.
+            import select
+            with patch.object(select, 'select', return_value=([pipe], [], [])):
+                result = fixture.process_probe()
+        self.assertTrue(result['proc_marker_visible'])
+        self.assertTrue(state['ready'])
+        child.kill.assert_called_once_with()
+        pipe.close.assert_called_once_with()
+
     def test_workflow_attempt_branch_passes_original_runner_bind_identity(self):
         workflow = (HERE.parent / '.github/workflows/storage-acceptance.yml').read_text()
         branch = workflow.split('          if [[ "$GROUP" == attempt-release ]]; then\n', 1)[1]
@@ -241,6 +301,7 @@ class Contracts(unittest.TestCase):
             binary = bundle / 'test'
             binary.write_text('#!' + sys.executable + '\nimport os\n'
                               'print("OBSERVED_LIMIT=" + os.environ["OASIS7_STORAGE_INVENTORY_ENTRY_LIMIT"])\n'
+                              'print("OBSERVED_CLOSURE=" + os.environ["OASIS7_FORMAL_CLOSURE_DIAGNOSTICS"])\n'
                               "print('STORAGE_FULL_NODE_REPORT={\"status\":\"partial\"}')\n"
                               'print("test result: ok. 1 passed; 0 failed; 0 ignored;")\n')
             binary.chmod(0o755)
@@ -261,6 +322,7 @@ class Contracts(unittest.TestCase):
             self.assertEqual(report['inventory_entry_limit'], 10_000_000)
             self.assertFalse(report['passed'])
             self.assertIn('OBSERVED_LIMIT=10000000', (args.results_dir / report['results'][0]['log']).read_text())
+            self.assertIn('OBSERVED_CLOSURE=1', (args.results_dir / report['results'][0]['log']).read_text())
 
     def test_only_capacity_long_overrides_logical_budget(self):
         workflow = (HERE.parent / '.github/workflows/storage-acceptance.yml').read_text()

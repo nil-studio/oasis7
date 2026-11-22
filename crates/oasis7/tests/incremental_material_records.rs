@@ -425,3 +425,6 @@ mod pages;
 
 #[path = "support/incremental_material_overlay.rs"]
 mod overlay_reads;
+
+#[path = "support/incremental_material_current_profile.rs"]
+mod current_profile;

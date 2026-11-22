@@ -15,7 +15,7 @@
 
 Trace refs: O7-REQ-f2da1c09-dedf-4118-b3ab-bce6828abb75；产品关系是[默认机体与能力框架](../../product/agents-world-simulation/prd.md#req-agent-default-001)及[组合验收](../../product/agents-world-simulation/prd.md#ac-agent-default-001)，通过配对 PRD 的各专业细条款承接。它归位原有目标，不升级当前可玩或发行阶段。
 
-本专题的具体规则声明在配对专业 PRD；[模块生命周期](module-lifecycle.md#module-instance-transaction-and-upgrade-contract)拥有注册、实例、目标、安装/升级/停用等通用合同，[WASM 接口](../wasm/wasm-interface.md#wasm-capability-permission-kernel-boundary)拥有 capability 与模块输出校验，[runtime 提交与恢复](../prd.md#runtime-authority-profile-commit)拥有权威提交、结果未知和历史恢复边界。本设计说明这些机制如何承接原默认能力，不新设权限或持久化 authority。
+本专题的具体规则声明在配对专业 PRD；[模块生命周期](module-lifecycle.md#module-instance-transaction-and-upgrade-contract)拥有注册、实例、目标、安装/升级/停用等通用合同，[WASM 接口](../wasm/wasm-open-institution-extension-contract.md#wasm-capability-permission-kernel-boundary)拥有 capability 与模块输出校验，[runtime 提交与恢复](../prd.md#runtime-authority-profile-commit)拥有权威提交、结果未知和历史恢复边界。本设计说明这些机制如何承接原默认能力，不新设权限或持久化 authority。
 
 ### 2.1 需求承接与分配表
 
@@ -265,7 +265,7 @@ WASM 的扩容统计是派生状态。核心扩容已提交、后续模块处理
 
 正式存取、扩容和实体挂载只允许当前有权主体作用于其被授权的 Agent、实体和目的容器；提交前重验 owner/委托范围、模块/实例、版本、撤销与配额。读取库存和记忆同样限于当前允许的内容。当前 `Action` 中存在 `agent_id`、能够序列化或能够通过内部 `submit_action` 调用，都不证明公开入口已有鉴权。
 
-若采用 module command，复用 [WASM capability](../wasm/wasm-interface.md#wasm-capability-permission-kernel-boundary) 的 live subject、declaration、scope 与执行重验，LLM 不可自授 grant；物理槽位与 ABI capability slot 分开。正式接线前必须核对真实 catalog/adapter，不能把内置 manifest 的空 `required_caps` 或当前 cargo 的无 command 声明当作自由写权限。
+若采用 module command，复用 [WASM capability](../wasm/wasm-open-institution-extension-contract.md#wasm-capability-permission-kernel-boundary) 的 live subject、declaration、scope 与执行重验，LLM 不可自授 grant；物理槽位与 ABI capability slot 分开。正式接线前必须核对真实 catalog/adapter，不能把内置 manifest 的空 `required_caps` 或当前 cargo 的无 command 声明当作自由写权限。
 
 WASM 无直接 I/O，输出由宿主核对并按资源/燃料/字节预算执行。模块失败不触发越权 fallback 或吞掉世界校验。测试 helper 仅证明该私有测试环境，生产、公开节点、其他 world 或外部 Runtime 不复用其获得物品/授权结论。
 
