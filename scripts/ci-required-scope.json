@@ -2182,6 +2182,15 @@
     },
     {
       "match": [
+        "evidence/issue-1973/selected-target-polish.png",
+        "evidence/pr-234/viewer-entry-after-advance.png",
+        "evidence/pr-234/viewer-entry-before.png"
+      ],
+      "groups": [],
+      "reason": "retired_root_evidence_screenshots"
+    },
+    {
+      "match": [
         "scripts/oasis7-pure-api-parity-smoke.sh",
         "scripts/governance-registry-drill.sh",
         "scripts/governed-rollback-v2-drill.sh",
