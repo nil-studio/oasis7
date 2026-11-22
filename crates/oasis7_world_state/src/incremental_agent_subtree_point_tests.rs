@@ -1156,7 +1156,15 @@ fn real_current_agent_identity_point_reads_respect_parent_and_budget() {
         "agent α",
         &proof,
         &roots,
-        &mut overlay!(&mut tx, &state, &values, &memory, &mut read_io, &mut keys, || false),
+        &mut overlay!(
+            &mut tx,
+            &state,
+            &values,
+            &memory,
+            &mut read_io,
+            &mut keys,
+            || false
+        ),
         &mut original,
         &mut pending_entries,
         &guard,
@@ -1173,7 +1181,15 @@ fn real_current_agent_identity_point_reads_respect_parent_and_budget() {
         "unknown agent",
         &proof,
         &roots,
-        &mut overlay!(&mut tx, &state, &values, &memory, &mut read_io, &mut keys, || false),
+        &mut overlay!(
+            &mut tx,
+            &state,
+            &values,
+            &memory,
+            &mut read_io,
+            &mut keys,
+            || false
+        ),
         &mut original,
         &mut pending_entries,
         &guard,
