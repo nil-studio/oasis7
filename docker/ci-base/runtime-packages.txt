@@ -1,6 +1,7 @@
 bash
 ca-certificates
 curl
+file
 gdb
 git
 jq

@@ -3813,10 +3813,24 @@ run_cargo() {
                 self.assertEqual(result.returncode, expected, result.stderr)
 
     def test_primary_rejects_non_loopback_test_login_listener(self):
-        result = subprocess.run(['bash', str(ROOT / 'scripts/viewer-primary-web-entry-regression.sh'),
-            '--viewer-host', '0.0.0.0'], capture_output=True, text=True)
-        self.assertEqual(result.returncode, 2)
-        self.assertIn('requires a loopback viewer host', result.stderr)
+        with tempfile.TemporaryDirectory() as directory:
+            # Verify argument handling without agent-browser or its npx fallback.
+            fixture = Path(directory)
+            (fixture / 'dirname').symlink_to(shutil.which('dirname'))
+            output = fixture / 'output'
+            command = [shutil.which('bash'), str(ROOT / 'scripts/viewer-primary-web-entry-regression.sh'),
+                       '--out-dir', str(output)]
+            for options, status, diagnostic in (
+                    (['--viewer-host', '0.0.0.0'], 2, 'requires a loopback viewer host'),
+                    (['--web-bind', '127.0.0.1'], 2, '--web-bind must be in <host:port> format'),
+                    (['--web-bind', '127.0.0.1:no-port'], 2, 'invalid --web-bind'),
+                    ([], 1, 'missing required command: agent-browser')):
+                with self.subTest(options=options):
+                    result = subprocess.run(command + options, capture_output=True, text=True,
+                                            env=dict(os.environ, PATH=directory))
+                    self.assertEqual(result.returncode, status, result.stderr)
+                    self.assertIn(diagnostic, result.stderr)
+                    self.assertFalse(output.exists())
 
     def test_primary_login_requires_guest_gate_and_visible_backend_issued_session(self):
         source = (ROOT / 'scripts/viewer-primary-web-entry-regression.sh').read_text()
