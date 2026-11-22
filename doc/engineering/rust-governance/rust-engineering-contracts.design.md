@@ -212,7 +212,7 @@ flowchart TB
 
 配套的长期净室与模块演进约束（当前为目标规范，随对应代码实现任务逐项落地与验收）：
 
-1. **根 `Cargo.toml` 净室与第三方补丁归口**：`workspace.members` 必须保持条目唯一（清除当前重复声明的 `crates/oasis7_model_provider`）；根目录的四个第三方 patch 目录（`vendor-if-watch-3.2.2`、`vendor-libp2p-quic-0.14.0`、`vendor-libp2p-swarm-0.48.0`、`vendor-libp2p-rendezvous-0.18.1`）如需收拢，应迁入受管 `vendor/` 目录（不违背 `third_party/` 只读规则）并同步核对 `scripts/libp2p-security-source.test.py` 等直接读取 manifest 的检查器；轻量 bridge crate（如 `oasis7_provider_local_bridge`、`oasis7_letai_credit_adapter`）仅在可证明不向无关消费者传播重依赖的前提下评估按 Cargo `features` 收敛。
+1. **根 `Cargo.toml` 净室与第三方补丁归口**：`workspace.members` 必须保持条目唯一；根目录的四个第三方 patch 目录（`vendor-if-watch-3.2.2`、`vendor-libp2p-quic-0.14.0`、`vendor-libp2p-swarm-0.48.0`、`vendor-libp2p-rendezvous-0.18.1`）如需收拢，应迁入受管 `vendor/` 目录（不违背 `third_party/` 只读规则）并同步核对 `scripts/libp2p-security-source.test.py` 等直接读取 manifest 的检查器；轻量 bridge crate（如 `oasis7_provider_local_bridge`、`oasis7_letai_credit_adapter`）仅在可证明不向无关消费者传播重依赖的前提下评估按 Cargo `features` 收敛。
 2. **语义化限界上下文拆分守卫**：配合 `scripts/check-rust-file-size.sh` 与 [1200 行专题](rust-1200-line-root-cause-governance-2026-03-29.prd.md)，禁止通过新建 `*_part2.rs`、`split_part` 或跨文件 `include!` 做机械行数切割；内核大文件按业务限界上下文拆分。
 3. **`crates/oasis7` 兼容伞包退役门禁**：`crates/oasis7` 不再拥有可执行目标，严禁新增业务实现、场景定义或跨组件集成测试；现存源码与 `crates/oasis7/tests/` 按 [world-runtime 退役矩阵](../../world-runtime/design.md#crates-oasis7-retirement-matrix) 逐步归位至真实 owner crate，以收敛 `scripts/plan-rust-required-scope.py` 的变更波及面。
 
@@ -420,7 +420,7 @@ Workspace 归一、边界检查与 Bootstrap 产物可独立或并行推进；�
 3. **Bootstrap 产物**：保留并补齐人工 OpenAPI 的机器约束，增加受管 TS/schema/manifest 与只读漂移检查，接入前述 TS 协议一致性样例的编译及运行时校验。首切片不替换现有 signer/codec；只有完整集合通过才可打包。工具回滚恢复上一已知完整生成集合与匹配的生成配置。
 4. **按需求扩展**：只有明确跨语言消费者时才提取 handler 使用的唯一 typed DTO 或登记新的具体 Rust profile。先保持 golden wire，再迁移 component 来源；生产包默认不引入生成工具依赖。不同 target/features 若改变 wire，必须成为显式命名 profile，不能随生成机器改变输出。
 
-新增边界按两个独立方向继续交付小而完整的 PR：源级方向先交付精确规则、真实语法反例与已有 Node 消费回归，再完成实际 scope/required 接线；若两者不能独立正确则同片交付。协议方向先交付真实 handler 使用的 `ReadBootstrapError` 和不变 fixtures，再接 Rust component 输入及同一 TS 消费者；不得留下仅供未来生成使用的空 DTO。每片固定依赖版本、共享文件写入者和受影响验收。文档 PR 仅交付设计，实施、接线与最终组合验收继续保留在原 Issue，按现有五类合同转代码任务；不以设计完成关闭实施义务。
+新增边界按两个独立方向沿[小而完整的 PR](../workflow/source-of-truth.md#small-complete-pr)交付：无外部任务等待且整体在 30 个代码文件建议内时，同一方向的规则/DTO、消费者接线与必要回归默认在同一 PR 连续收口；仅在解除真实下游阻塞、整体明显超限或需首次登记 CI 路径时分步交付（源级方向先交付精确规则、真实语法反例与已有 Node 消费回归，再完成实际 scope/required 接线，若不能独立正确则同片交付；协议方向先交付真实 handler 使用的 `ReadBootstrapError` 和不变 fixtures，再接 Rust component 输入及同一 TS 消费者，不得留下仅供未来生成使用的空 DTO）。每片固定依赖版本、共享文件写入者和受影响验收。文档 PR 仅交付设计，实施、接线与最终组合验收继续保留在原 Issue，按现有五类合同转代码任务；不以设计完成关闭实施义务。
 
 生成漂移、协议兼容和部署版本是不同维度。纯产物修正不自动增加 API revision；实际 wire 变化按原接口 owner 的版本协商、旧读新/新读旧、未知枚举和签名兼容合同处理。增字段不被自动认定为兼容，也不把 Cargo package 版本当 API 版本。
 

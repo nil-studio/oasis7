@@ -17,8 +17,8 @@
 - `doc/.governance/rust-oversized-file-baseline.tsv` 与
   `doc/.governance/rust-structural-slicing-baseline.tsv` 已退役，不得恢复为
   放行机制。
-- `scripts/ci-tests.sh required` 必须执行 `scripts/check-rust-file-size.sh`；
-  本地可直接运行同一脚本取得快速、可复现的门禁结果。该扫描必须可在 Linux
+- `scripts/ci-tests.sh required`（在 `rust_baseline` 组中）必须执行 `scripts/check-rust-file-size.sh`；
+  本地可直接运行 `./scripts/check-rust-file-size.sh` 取得快速、可复现的门禁结果（`check-local.py --profile quick` 仅跑通用文档/脚本 `baseline`）。该扫描必须可在 Linux
   与 macOS 执行，required tier 中的增量耗时目标不超过 15 秒。
 
 ## 可接受的拆分完成态
