@@ -33,7 +33,11 @@ impl FetchBlobResponseBudget {
         response_bytes: usize,
         now_ms: i64,
     ) -> Result<(), WorldError> {
-        if protocol != FETCH_BLOB_PROTOCOL {
+        // A successful zero-length response transfers no blob bytes. It must
+        // neither create a fresh peer window nor evict another peer's charged
+        // quota at the bounded table cap. A future positive response still
+        // performs the normal expiry and admission checks.
+        if protocol != FETCH_BLOB_PROTOCOL || response_bytes == 0 {
             return Ok(());
         }
 
@@ -348,6 +352,51 @@ mod tests {
                 now + FETCH_BLOB_RESPONSE_WINDOW_MS,
             )
             .expect("expired original window admits a new response");
+    }
+
+    #[test]
+    fn empty_blob_response_cannot_evict_another_peers_paid_window() {
+        let mut budget = FetchBlobResponseBudget::default();
+        let now = 4_000;
+        let mut peers = std::collections::HashSet::new();
+        while peers.len() < FETCH_BLOB_RESPONSE_BUDGET_MAX_PEERS {
+            peers.insert(PeerId::random());
+        }
+        let victim = *peers.iter().min_by_key(|peer| peer.to_bytes()).unwrap();
+        for peer in peers {
+            let charged = if peer == victim {
+                FETCH_BLOB_RESPONSE_BYTES_PER_WINDOW
+            } else {
+                1
+            };
+            budget.admit(peer, FETCH_BLOB_PROTOCOL, charged, now).unwrap();
+        }
+        let before = budget.global.unwrap().bytes;
+        let newcomer = loop {
+            let peer = PeerId::random();
+            if !budget.by_peer.contains_key(&peer) {
+                break peer;
+            }
+        };
+        // Exercise the real responder-side helper, not only a synthetic
+        // ledger call. The empty success should leave the paid owner intact.
+        assert!(
+            budgeted_response_bytes(&mut budget, newcomer, FETCH_BLOB_PROTOCOL, Ok(vec![]), now)
+                .is_empty()
+        );
+        assert_eq!(budget.global.unwrap().bytes, before);
+        assert_eq!(budget.by_peer.len(), FETCH_BLOB_RESPONSE_BUDGET_MAX_PEERS);
+        assert!(budget.by_peer.contains_key(&victim));
+        assert!(!budget.by_peer.contains_key(&newcomer));
+        assert!(budget.admit(victim, FETCH_BLOB_PROTOCOL, 1, now).is_err());
+
+        // A nonempty successful response still uses the existing bounded
+        // eviction policy and ordinary positive-byte charging.
+        budget.admit(newcomer, FETCH_BLOB_PROTOCOL, 1, now).unwrap();
+        assert_eq!(budget.by_peer.len(), FETCH_BLOB_RESPONSE_BUDGET_MAX_PEERS);
+        assert!(!budget.by_peer.contains_key(&victim));
+        assert!(budget.by_peer.contains_key(&newcomer));
+        assert_eq!(budget.global.unwrap().bytes, before + 1);
     }
 
     #[test]
