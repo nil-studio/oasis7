@@ -147,10 +147,8 @@ fn kernel_persist_and_restore() {
 
     static TEMP_DIR_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let seq = TEMP_DIR_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let tmp_dir = std::env::temp_dir().join(format!(
-        "oasis7-kernel-test-{}-{seq}",
-        std::process::id()
-    ));
+    let tmp_dir =
+        std::env::temp_dir().join(format!("oasis7-kernel-test-{}-{seq}", std::process::id()));
     if tmp_dir.exists() {
         fs::remove_dir_all(&tmp_dir).unwrap();
     }

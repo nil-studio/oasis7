@@ -290,8 +290,7 @@ mod tests {
     }
 
     fn unique_temp_root(label: &str) -> std::path::PathBuf {
-        static TEMP_DIR_SEQ: std::sync::atomic::AtomicU64 =
-            std::sync::atomic::AtomicU64::new(0);
+        static TEMP_DIR_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let seq = TEMP_DIR_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         std::env::temp_dir().join(format!("{label}-{}-{seq}", std::process::id()))
     }
