@@ -387,7 +387,8 @@ impl ClosureJob {
         let result = self.advance_page(store, proof_digest);
         let phase = self.progress_phase();
         if self.diagnostics.due(std::time::Instant::now(), phase) {
-            eprintln!(
+            let _ = writeln!(
+                std::io::stderr().lock(),
                 "formal_closure_progress job={} candidate={} proof={} phase={phase} pages={} native_index={} native_total={} native_chunks={} root_index={} roots_total={} visited_nodes={} unique_objects={} logical_bytes={} retirement_pages={} result={}",
                 self.seen
                     .root
