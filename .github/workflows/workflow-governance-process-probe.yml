@@ -1,0 +1,95 @@
+name: Workflow governance process diagnostic
+
+on:
+  pull_request:
+    branches: [codex/engineering-workflow-governance-process-probe-base]
+    paths: [.github/workflows/workflow-governance-process-probe.yml]
+    types: [opened]
+
+permissions:
+  contents: read
+cache-mode: read
+
+jobs:
+  compare-processes:
+    if: github.head_ref == 'codex/engineering-workflow-governance-process-probe' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    env:
+      TESTED_SHA: d5f6d955c5d87dd669898cd1baac9904a224e5d2
+      IMAGE: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: d5f6d955c5d87dd669898cd1baac9904a224e5d2
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12.16'
+      - name: Run the same three process contracts on one runner
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TESTED_SHA"
+          test "$(id -u):$(id -g)" = 1001:1001
+          export DOCKER_CONFIG
+          DOCKER_CONFIG=$(mktemp -d "$RUNNER_TEMP/governance-docker.XXXXXX")
+          container_id=''
+          cleanup() {
+            if [[ -n "$container_id" ]]; then docker rm -f "$container_id" >/dev/null; fi
+            rm -rf "$DOCKER_CONFIG"
+          }
+          trap cleanup EXIT
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          unset GHCR_TOKEN
+          time docker pull "$IMAGE"
+          probe="$RUNNER_TEMP/governance-process-probe.sh"
+          cat > "$probe" <<'BASH'
+          set -euo pipefail
+          mode="$1"
+          python3 --version
+          uname -r
+          id
+          snapshot() {
+            printf 'process_snapshot mode=%s stage=%s\n' "$mode" "$1"
+            ps -o pid,ppid,state,comm -p 1
+            ps -e -o pid=,ppid=,state= | awk '
+              { count++ }
+              $3 == "Z" { print; zombies++ }
+              END { print "process_totals", count+0, "zombies", zombies+0 }'
+          }
+          run_fixture() {
+            local label="$1" rc=0
+            shift
+            python3 "$@" || rc=$?
+            printf 'fixture_result mode=%s suite=%s exit=%d\n' "$mode" "$label" "$rc"
+            snapshot "$label"
+          }
+          snapshot initial
+          run_fixture apt scripts/ci-apt-install.test.py Lifecycle
+          run_fixture viewer scripts/ci-support-profiles.test.py ViewerChecks.test_viewer_zero_exit_with_detached_child_cannot_reach_security_smoke
+          run_fixture worker scripts/ci-worker-build.test.py WorkerBuild.test_install_and_final_probe_share_one_deadline
+          printf 'diagnostic_complete mode=%s production_acceptance=false\n' "$mode"
+          BASH
+          bash "$probe" host
+          for mode in plain init; do
+            options=()
+            if [[ "$mode" == init ]]; then options+=(--init); fi
+            container_id=$(docker create "${options[@]}" --network none --user 1001:1001 \
+              --workdir /__w/oasis7/oasis7 --entrypoint tail \
+              --mount "type=bind,src=$GITHUB_WORKSPACE,dst=/__w/oasis7/oasis7,readonly" \
+              --mount "type=bind,src=$pythonLocation,dst=/probe-python,readonly" \
+              --mount "type=bind,src=$probe,dst=/process-probe.sh,readonly" \
+              --env CI=true --env GITHUB_ACTIONS=true --env HOME=/tmp \
+              --env PYTHONDONTWRITEBYTECODE=1 \
+              "$IMAGE" -f /dev/null)
+            docker start "$container_id" >/dev/null
+            docker exec "$container_id" bash -c 'export PATH="/probe-python/bin:$PATH"; exec bash /process-probe.sh "$1"' _ "$mode"
+            docker rm -f "$container_id" >/dev/null
+            container_id=''
+          done
