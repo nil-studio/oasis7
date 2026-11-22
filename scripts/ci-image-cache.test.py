@@ -20,6 +20,12 @@ cache = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(cache)
 
 
+CARGO_VALUE_FLAGS = frozenset({
+    '-p', '--package', '--bin', '--test', '--example',
+    '--manifest-path', '--target-dir', '--features', '--target',
+})
+
+
 def normalized(command, environment=None):
     command, environment = list(command), dict(environment or {})
     if command[0] == 'env' and 'cargo' in command:
@@ -40,7 +46,41 @@ def normalized(command, environment=None):
     command = [arg for arg in command if arg not in ('--locked', '--no-run')]
     if command[1] == 'clippy':
         command[1] = 'check'
+    elif command[1] == 'test':
+        # Positional TESTNAME arguments filter runtime execution without changing
+        # the compiled unit tuple.
+        filtered = command[:2]
+        index = 2
+        while index < len(command):
+            arg = command[index]
+            if arg in CARGO_VALUE_FLAGS and index + 1 < len(command):
+                filtered.extend((arg, command[index + 1]))
+                index += 2
+            elif arg.startswith('-'):
+                filtered.append(arg)
+                index += 1
+            else:
+                index += 1
+        command = filtered
     return tuple(command), tuple(sorted(environment.items()))
+
+
+def warmed_covers_consumer(warmed_tuple, consumer_tuple):
+    if warmed_tuple == consumer_tuple:
+        return True
+    warmed_cmd, warmed_env = warmed_tuple
+    consumer_cmd, consumer_env = consumer_tuple
+    if warmed_env != consumer_env:
+        return False
+    # Warming `cargo test -p <pkg> --lib --bin <name>` compiles the exact same
+    # `--lib` test binary reused by a filtered `cargo test -p <pkg> --lib` run.
+    if (len(consumer_cmd) >= 2 and consumer_cmd[:2] == ('cargo', 'test')
+            and consumer_cmd[-1] == '--lib'
+            and len(warmed_cmd) == len(consumer_cmd) + 2
+            and warmed_cmd[:len(consumer_cmd)] == consumer_cmd
+            and warmed_cmd[len(consumer_cmd)] == '--bin'):
+        return True
+    return False
 
 
 class CompileContexts(unittest.TestCase):
@@ -80,8 +120,13 @@ class CompileContexts(unittest.TestCase):
         for profile, functions in readers.items():
             with self.subTest(profile=profile):
                 variants = cache.build_variants(ROOT, profile)
-                self.assertEqual(Counter(normalized(command, env) for _, command, env in variants),
-                                 self.consumer_commands(functions))
+                warmed = [normalized(command, env) for _, command, env in variants]
+                self.assertEqual(len(warmed), len(set(warmed)), 'duplicate warming compile tuple')
+                consumers = set(self.consumer_commands(functions))
+                uncovered = [c for c in consumers if not any(warmed_covers_consumer(w, c) for w in warmed)]
+                unused = [w for w in warmed if not any(warmed_covers_consumer(w, c) for c in consumers)]
+                self.assertEqual(uncovered, [], f'unwarmed reader compile tuples: {uncovered}')
+                self.assertEqual(unused, [], f'unused warming compile tuples: {unused}')
                 for _, command, _ in variants:
                     self.assertIn('--locked', command)
                     if command[1] == 'test':
