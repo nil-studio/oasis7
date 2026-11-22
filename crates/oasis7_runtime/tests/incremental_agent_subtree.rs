@@ -1,5 +1,5 @@
 #![cfg(all(unix, not(target_arch = "wasm32")))]
-use oasis7::AgentState;
+use oasis7_world_state::AgentState;
 use oasis7_distfs::incremental_page_store::{
     IncrementalPageStore, PageCompression, PageIoBudget, PageStoreError,
 };

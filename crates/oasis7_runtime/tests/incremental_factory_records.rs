@@ -12,7 +12,7 @@ use oasis7_runtime::{
 };
 use std::{collections::BTreeMap, io};
 #[allow(dead_code)]
-#[path = "../../oasis7/tests/support/incremental_inventory_fixture.rs"]
+#[path = "support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, logical, pair_token, physical, text_token};
 fn quota() -> PageIoBudget {

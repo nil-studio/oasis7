@@ -1,5 +1,5 @@
 #![cfg(all(unix, not(target_arch = "wasm32")))]
-#[path = "../../oasis7/tests/support/incremental_factory_authority_fixture.rs"]
+#[path = "support/incremental_factory_authority_fixture.rs"]
 mod incremental_factory_authority_fixture;
 use incremental_factory_authority_fixture::{physical_scope, scan, source, state_error};
 use oasis7_distfs::incremental_page_store::{IncrementalPageStore, PageCompression};
@@ -14,7 +14,7 @@ use oasis7_runtime::{
 #[path = "support/incremental_factory_authority_carriers.rs"]
 mod carriers;
 #[allow(dead_code)]
-#[path = "../../oasis7/tests/support/incremental_inventory_fixture.rs"]
+#[path = "support/incremental_inventory_fixture.rs"]
 mod fixture;
 #[path = "support/incremental_factory_authority_genesis.rs"]
 mod genesis;
@@ -31,7 +31,7 @@ mod pages;
 mod points;
 #[path = "support/incremental_factory_authority_put.rs"]
 mod put;
-#[path = "../../oasis7/tests/support/incremental_factory_authority_scaling.rs"]
+#[path = "support/incremental_factory_authority_scaling.rs"]
 mod scaling;
 
 fn seed(source: &WorldState, store: &IncrementalPageStore, memory: &MemoryBudget) -> StateRootV1 {
