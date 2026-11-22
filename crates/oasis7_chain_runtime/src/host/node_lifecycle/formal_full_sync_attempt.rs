@@ -4,7 +4,7 @@
 
 use super::FormalFullSyncConfigV1;
 use super::cas_lifecycle::CasBudget;
-use oasis7::{runtime::LocalCasStore, world_service::verified_view::VerifiedWorldView};
+use oasis7::world_service::verified_view::VerifiedWorldView;
 use oasis7_client_api::world_service::WorldIdentity;
 use oasis7_client_api::world_service_full_sync::{
     FormalFullSyncArtifactRoleV1 as WireArtifactRole, FormalFullSyncCutV1,
@@ -13,6 +13,7 @@ use oasis7_distfs::controlled_authority::{
     formal::VerifiedFormalReadAnchorV1,
     replicated_protocol::{ArtifactRole, ClosedRecord},
 };
+use oasis7_runtime::LocalCasStore;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub(super) struct FullSyncAttemptV1 {

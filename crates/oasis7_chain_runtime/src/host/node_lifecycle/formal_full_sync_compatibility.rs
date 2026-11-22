@@ -7,8 +7,9 @@ use super::{
     FormalFullSyncConfigV1, FormalFullSyncStatusV1, PROFILE, history_chain, nondecreasing_cut,
     providers,
 };
-use oasis7::{runtime::LocalCasStore, world_service::authority};
+use oasis7::world_service::authority;
 use oasis7_client_api::world_service_full_sync::FormalFullSyncCutV1;
+use oasis7_runtime::LocalCasStore;
 use std::{path::Path, sync::Arc, time::Duration};
 
 /// Re-run the exact read-only decoder against the fixed external C0 and the
