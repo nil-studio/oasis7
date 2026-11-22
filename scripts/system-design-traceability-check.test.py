@@ -1376,8 +1376,53 @@ def scenario_worktree_cached_view_is_fresh_for_each_invocation() -> None:
         shutil.rmtree(root)
 
 
+def scenario_svg_and_html_asset_fragments() -> None:
+    module = load_checker()
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        def _write(path: Path, text: str) -> None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+        _write(root / "doc/world-simulator/viewer/assets/mock.svg", '<svg><g id="viewport"></g><!-- <g id="commented"></g> --></svg>\n')
+        _write(root / "doc/world-simulator/viewer/assets/dup.svg", '<svg><g id="dup"></g><g id="dup"></g></svg>\n')
+        _write(
+            root / "doc/world-simulator/viewer/assets/index.html",
+            '<html><body><a href="#entry" data-route="entry">Entry</a><section id="details"></section></body></html>\n',
+        )
+        design = root / "doc/world-simulator/viewer/sample.design.md"
+        _write(design, "# Sample\n")
+        read_target = lambda p: p.read_text(encoding="utf-8") if p.is_file() else None
+
+        for ref in ("assets/mock.svg#viewport", "assets/index.html#entry", "assets/index.html#details"):
+            errors: list[str] = []
+            resolved, frag = module.validate_reference(
+                root, design, ref,
+                path="sample.design.md", code="trace-ref-unresolved", errors=errors,
+                require_fragment=False, markdown_target=False, follow_symlinks=False, read_target=read_target,
+            )
+            assert resolved is not None and frag and not errors, (ref, errors)
+
+        for ref in ("assets/mock.svg#missing", "assets/mock.svg#commented", "assets/index.html#missing"):
+            errors = []
+            module.validate_reference(
+                root, design, ref,
+                path="sample.design.md", code="trace-ref-unresolved", errors=errors,
+                require_fragment=False, markdown_target=False, follow_symlinks=False, read_target=read_target,
+            )
+            assert any("trace-ref-unresolved" in err for err in errors), (ref, errors)
+
+        errors = []
+        module.validate_reference(
+            root, design, "assets/dup.svg#dup",
+            path="sample.design.md", code="trace-ref-unresolved", errors=errors,
+            require_fragment=False, markdown_target=False, follow_symlinks=False, read_target=read_target,
+        )
+        assert any("trace-ref-ambiguous" in err for err in errors), errors
+
+
 def main() -> None:
     scenarios = (
+        scenario_svg_and_html_asset_fragments,
         scenario_formatting_advice_does_not_skip_other_relation_facts,
         scenario_single_mapping_accepts_equivalent_headers_and_order,
         scenario_declared_contradictions_cannot_hide_behind_optional_tables,
