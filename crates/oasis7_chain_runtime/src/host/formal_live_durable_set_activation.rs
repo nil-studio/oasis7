@@ -4,7 +4,7 @@
 //! response replays their contents from the configured external origin and
 //! verifies the exact qualified boundary, dual seals, and dual installs.
 
-use oasis7::world_service::formal_read::FormalNormalDurableSetReadStepV1;
+use oasis7_world_service::formal_read::FormalNormalDurableSetReadStepV1;
 use oasis7_distfs::controlled_authority::formal::VerifiedDurableSetActivationV1;
 use serde::{Deserialize, Serialize};
 use std::{

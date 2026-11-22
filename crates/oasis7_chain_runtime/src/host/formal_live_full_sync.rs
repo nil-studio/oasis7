@@ -574,15 +574,15 @@ fn verify_descendant(
         let page = service.history.history_page(
             &cursor,
             &next_anchor,
-            oasis7::world_service::formal_read::MAX_FORMAL_HISTORY_STEPS,
+            oasis7_world_service::formal_read::MAX_FORMAL_HISTORY_STEPS,
         )?;
         check_ancestry_deadline(deadline)?;
         if page.schema_version != 1
-            || page.steps.len() > oasis7::world_service::formal_read::MAX_FORMAL_HISTORY_STEPS
+            || page.steps.len() > oasis7_world_service::formal_read::MAX_FORMAL_HISTORY_STEPS
             || !page.steps.iter().any(|step| {
                 matches!(
                     step,
-                    oasis7::world_service::formal_read::FormalReadStepV1::Commit(_)
+                    oasis7_world_service::formal_read::FormalReadStepV1::Commit(_)
                 )
             })
         {
@@ -598,11 +598,11 @@ fn verify_descendant(
         let page = service.history.history_page(
             &cursor,
             descendant,
-            oasis7::world_service::formal_read::MAX_FORMAL_HISTORY_STEPS,
+            oasis7_world_service::formal_read::MAX_FORMAL_HISTORY_STEPS,
         )?;
         check_ancestry_deadline(deadline)?;
         if page.schema_version != 1
-            || page.steps.len() > oasis7::world_service::formal_read::MAX_FORMAL_HISTORY_STEPS
+            || page.steps.len() > oasis7_world_service::formal_read::MAX_FORMAL_HISTORY_STEPS
             || page.steps.is_empty()
         {
             return Err(FormalReadError::Integrity(

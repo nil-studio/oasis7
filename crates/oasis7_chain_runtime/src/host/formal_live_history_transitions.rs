@@ -38,17 +38,17 @@ fn append_recovery_read_step(
         oasis7_distfs::controlled_authority::formal::FencingBootstrapV1::Dual {
             primary,
             replica,
-        } => oasis7::world_service::formal_read::FormalReadFencingEvidenceV1::HealthyPair(
+        } => oasis7_world_service::formal_read::FormalReadFencingEvidenceV1::HealthyPair(
             Box::new([*primary.clone(), *replica.clone()]),
         ),
         oasis7_distfs::controlled_authority::formal::FencingBootstrapV1::NecessaryEndpoint {
             seal,
-        } => oasis7::world_service::formal_read::FormalReadFencingEvidenceV1::NecessaryEndpoint(
+        } => oasis7_world_service::formal_read::FormalReadFencingEvidenceV1::NecessaryEndpoint(
             seal.clone(),
         ),
     };
     steps.push(FormalReadStepV1::Recovery(Box::new(
-        oasis7::world_service::formal_read::FormalRecoveryReadStepV1 {
+        oasis7_world_service::formal_read::FormalRecoveryReadStepV1 {
             certificate: evidence.certificate.clone(),
             issuance: evidence.issuer_witness.clone(),
             fencing,
