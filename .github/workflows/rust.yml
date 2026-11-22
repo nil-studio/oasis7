@@ -3937,7 +3937,7 @@ jobs:
     timeout-minutes: 20
     container:
       image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb
-      options: --user 1001:1001
+      options: --user 1001:1001 --init
       credentials:
         username: ${{ github.actor }}
         password: ${{ github.token }}
