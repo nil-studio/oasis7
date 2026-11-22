@@ -22,7 +22,7 @@ spec.loader.exec_module(cache)
 
 def normalized(command, environment=None):
     command, environment = list(command), dict(environment or {})
-    if command[0] == 'env':
+    if command[0] == 'env' and 'cargo' in command:
         command.pop(0)
         while command and command[0] != 'cargo':
             item = command.pop(0)
@@ -113,23 +113,47 @@ class CompileContexts(unittest.TestCase):
              '--bin', 'oasis7_client_launcher', '--release', '--target', 'wasm32-unknown-unknown'], {})])
 
     def test_support_warms_the_selected_image_profile_compile_tuples(self):
-        plan = dict(scope='targeted', groups=['workspace_support'],
-                    workspace_support_profile_version=1,
-                    workspace_support_profiles=['oasis7_context', 'oasis7_wasm_executor'],
-                    workspace_support_partition_version=1, workspace_support_partitions=['other'])
-        commands = self.consumer_commands([
-            'ci_python=' + shlex.quote(sys.executable),
-            'driver_dir=' + shlex.quote(str(ROOT / 'scripts')),
-            'support_profiles=' + shlex.quote('plan:' + json.dumps(plan)),
-            'support_partition=other',
-            'support_execution=image',
-            'run_selected_workspace_support',
-        ])
+        def image_commands(plan):
+            return self.consumer_commands([
+                'ci_python=' + shlex.quote(sys.executable),
+                'driver_dir=' + shlex.quote(str(ROOT / 'scripts')),
+                'support_profiles=' + shlex.quote('plan:' + json.dumps(plan)),
+                'support_partition=other',
+                'support_execution=image',
+                'run_selected_workspace_support',
+            ])
+
+        baseline_plan = dict(scope='targeted', groups=['workspace_support'],
+                             workspace_support_profile_version=1,
+                             workspace_support_profiles=['oasis7_context', 'oasis7_wasm_executor'],
+                             workspace_support_partition_version=1, workspace_support_partitions=['other'])
+        full_plan = dict(scope='full', groups=['workspace_support'],
+                         workspace_support_profile_version=1,
+                         workspace_support_profiles=['oasis7_context', 'oasis7_wasm_executor'],
+                         workspace_support_partition_version=1, workspace_support_partitions=['custody', 'other'])
+        baseline_commands = image_commands(baseline_plan)
+        allowed_commands = image_commands(full_plan)
+        # dev_test_worker invokes Cargo inside its own verify.sh / build.sh scripts.
+        for dev_worker_cmd in (
+            ['cargo', 'test', '-p', 'oasis7_dev_test_worker', '--lib'],
+            ['cargo', 'test', '-p', 'oasis7_client_storage', '--example', 'dev_test_worker_material'],
+            ['cargo', 'check', '-p', 'oasis7_dev_test_worker', '--target', 'wasm32-unknown-unknown', '--no-deps'],
+            ['cargo', 'build', '-p', 'oasis7_dev_test_worker', '--release', '--target', 'wasm32-unknown-unknown'],
+        ):
+            allowed_commands[normalized(dev_worker_cmd)] += 1
+
         variants = cache.build_variants(ROOT, 'support')
-        self.assertEqual(Counter(normalized(command, env) for _, command, env in variants), commands)
+        actual = Counter(normalized(command, env) for _, command, env in variants)
+        self.assertTrue(set(baseline_commands) <= set(actual),
+                        f'missing baseline support warm tuples: {set(baseline_commands) - set(actual)}')
+        self.assertTrue(set(actual) <= set(allowed_commands),
+                        f'unexpected support warm tuples: {set(actual) - set(allowed_commands)}')
+        self.assertEqual(len(actual), len(variants), 'support cache must not duplicate identical compile tuples')
         for _, command, _ in variants:
             self.assertIn('--locked', command)
-            self.assertIn('--no-run', command)
+            if command[1] == 'test':
+                self.assertIn('--no-run', command)
+            self.assertNotIn('--', command, 'warming must not contain runtime test arguments')
 
     def test_unknown_profile_is_rejected_before_any_command(self):
         for profile in ('', 'all', 'native;echo unsafe', 'Native'):
