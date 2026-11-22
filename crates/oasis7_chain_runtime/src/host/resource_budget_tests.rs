@@ -406,4 +406,3 @@ fn typed_node_and_local_provider_budget_complete_real_rr_rejection_and_recovery(
         );
     }
 }
-
