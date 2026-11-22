@@ -1,17 +1,11 @@
 use super::*;
-use crate::{
-    incremental_field_member::*,
-    incremental_semantic_key::SemanticKeyBudget,
-};
+use crate::{incremental_field_member::*, incremental_semantic_key::SemanticKeyBudget};
 use oasis7_agent_api::world_resource::{ChainResourceDelta, ChainResourceManifest};
 use oasis7_formal_protocol::{
     incremental_execution::*, incremental_state::*, incremental_value::*,
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
-use std::collections::BTreeMap;
-use oasis7_formal_protocol::incremental_state::{MerkleNodeReader, StatePageWriter};
-use oasis7_formal_protocol::incremental_value::{ValueNodeReader, ValueNodeWriter};
-use std::{cell::RefCell, sync::Arc};
+use std::{cell::RefCell, collections::BTreeMap, sync::Arc};
 
 /// Scoped in-memory producer and reader for this test module. The previous
 /// root-level test-support import does not exist in the extracted crate.
@@ -36,10 +30,10 @@ impl ValueNodeWriter for Writer<'_> {
         id: [u8; 32],
         value: ReservedValue<Vec<u8>>,
     ) -> Result<(), ValueTreeError> {
-        if !value.uses_budget(&self.0.memory)
-            || *blake3::hash(&value).as_bytes() != id
-        {
-            return Err(ValueTreeError::Invalid("runtime artifact test original page"));
+        if !value.uses_budget(&self.0.memory) || *blake3::hash(&value).as_bytes() != id {
+            return Err(ValueTreeError::Invalid(
+                "runtime artifact test original page",
+            ));
         }
         let mut nodes = self.0.nodes.borrow_mut();
         if nodes.len() >= self.0.limit && !nodes.contains_key(&id) {
@@ -50,6 +44,19 @@ impl ValueNodeWriter for Writer<'_> {
     }
 }
 impl StatePageWriter for Writer<'_> {}
+// The actual GEN encoder requires both write and read capabilities on the
+// *same* backing page pool. A writer proxy cannot provide synthetic reads.
+impl ValueNodeReader for Writer<'_> {
+    fn read_node(
+        &self,
+        id: &[u8; 32],
+        max_bytes: usize,
+        memory: &MemoryBudget,
+        class: MemoryClass,
+    ) -> Result<Arc<ReservedValue<Vec<u8>>>, ValueTreeError> {
+        ValueNodeReader::read_node(self.0, id, max_bytes, memory, class)
+    }
+}
 impl ValueNodeReader for Pages {
     fn read_node(
         &self,
