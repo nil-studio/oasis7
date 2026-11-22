@@ -122,7 +122,7 @@ Web/native分别在自身界面完成，原生可复用Web，但外部浏览器�
 | 任意状态 | 换账号/world/撤权 | 清私有数据、交互和旧请求，再按新范围初始化。 |
 | 提交等待 | 网络/renderer失败 | 原操作、结果待确认及回查保留，不重投。 |
 
-Escape/Focus/IME沿[页面交互合同](../../world-simulator/viewer/viewer-page-module-design-2026-06-18.design.md#27-interaction-state-machine-and-focus-contract)：先最内层drawer，再Focus；IME合成不截获。跟随退出有独立可访问入口，不抢占该顺序。
+Escape/Focus/IME沿[页面交互合同](../../world-simulator/viewer/viewer-page-and-module-structure-2026-06-18.md#27-interaction-state-machine-and-focus-contract)：先最内层drawer，再Focus；IME合成不截获。跟随退出有独立可访问入口，不抢占该顺序。
 
 ### 3.3 输入方式与探索可达性
 
