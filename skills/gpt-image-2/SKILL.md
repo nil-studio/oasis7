@@ -34,7 +34,7 @@ Text-to-image, image-to-image editing, style transfer, and multi-reference compo
 >
 > The rest of this document covers the local Codex CLI flow for agents whose user has a ChatGPT subscription.
 
-![GPT Image 2 example — flat-color lobster repainted as a 1950s ukiyo-e woodblock print](https://raw.githubusercontent.com/agentspace-so/agent-skills/main/gpt-image-2/gallery/d-ukiyoe.png)
+![GPT Image 2 example — flat-color lobster repainted as a 1950s ukiyo-e woodblock print](gallery/d-ukiyoe.png)
 
 *Example output: a plain flat-color icon repainted via `--ref` in ukiyo-e style — composition preserved, rendering swapped, period-appropriate red seal added by the model unprompted.*
 
