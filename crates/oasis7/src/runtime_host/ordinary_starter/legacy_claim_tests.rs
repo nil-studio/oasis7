@@ -1,7 +1,10 @@
 use super::*;
+use oasis7_agent_api::world_action::{Action, GeoPos, MaterialLedgerId, ResourceKind};
 use oasis7_proto::player_auth::sign_gameplay_action_auth_proof;
 use oasis7_proto::viewer::GameplayActionRequest;
-use oasis7_runtime::{ChainResourceDerivationContext, DomainEvent, RejectReason, WorldEventBody};
+use oasis7_runtime::{
+    ChainResourceDerivationContext, DomainEvent, RejectReason, World, WorldEventBody,
+};
 
 fn published_world() -> World {
     let mut world = crate::runtime_host::world::new();
