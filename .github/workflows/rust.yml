@@ -3958,9 +3958,6 @@ jobs:
           persist-credentials: false
       - name: Trust the checked-out workspace path in the job container
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        with:
-          python-version: '3.12'
       - name: Download trusted control authority
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -3985,7 +3982,13 @@ jobs:
             echo 'complete_governance=false' >> "$GITHUB_OUTPUT"
           fi
       - name: Install document contract parser
-        run: python3 -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
+        run: |
+          venv="$RUNNER_TEMP/workflow-governance-venv"
+          /usr/bin/python3 -m venv "$venv"
+          export PATH="$venv/bin:$PATH"
+          env -u LD_LIBRARY_PATH python3 -c 'import ctypes, sys; assert sys.version_info[:2] == (3, 12); print(sys.version)'
+          python3 -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
+          printf '%s\n' "$venv/bin" >> "$GITHUB_PATH"
       - name: Verify preinstalled governance tools
         shell: bash
         run: |
