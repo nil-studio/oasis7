@@ -703,13 +703,9 @@ fn original_genesis_with_absent_optional_values_qualifies_without_forged_cells()
         let path = directory.0.join("pages");
         let (canonical, _producer_memory) = persist_sources(&path, compression, &source);
         let memory = MemoryBudget::new(64 << 20, 16 << 20).unwrap();
-        let store = IncrementalPageStore::open(
-            &path,
-            memory.clone(),
-            compression,
-            MemoryClass::Ordinary,
-        )
-        .unwrap();
+        let store =
+            IncrementalPageStore::open(&path, memory.clone(), compression, MemoryClass::Ordinary)
+                .unwrap();
         let roots = bounded_root_set(StateRootV1::from_canonical_bytes(&canonical).unwrap());
         let qualified = qualify(&store, &memory, &roots)
             .expect("genuine GEN optional-absent family must qualify");
@@ -719,9 +715,11 @@ fn original_genesis_with_absent_optional_values_qualifies_without_forged_cells()
         qualified
             .validate_binding(&identity, MemoryClass::Ordinary)
             .unwrap();
-        assert!(qualified
-            .validate_binding(&identity, MemoryClass::Recovery)
-            .is_err());
+        assert!(
+            qualified
+                .validate_binding(&identity, MemoryClass::Recovery)
+                .is_err()
+        );
     }
 }
 
