@@ -1,0 +1,146 @@
+name: Governance preview image comparison
+
+on:
+  pull_request:
+    branches: [codex/engineering-governance-preview-probe-base]
+    paths: [.github/workflows/governance-preview-image-probe.yml]
+    types: [opened]
+
+permissions:
+  contents: read
+cache-mode: read
+
+env:
+  BASE_SHA: fd9960e36502ce8c7f7c84470edeb8b1ba4c4e20
+  ACTUAL_SOURCE_SHA: e270eed259120e0a279a6b072e1c7cb3029d873d
+  TESTED_SHA: 140590b9227f5d1809354a15bead84fa373fa81b
+  RUST_TOOLCHAIN: 1.96.0
+
+jobs:
+  host:
+    if: &probe-identity github.head_ref == 'codex/engineering-governance-preview-probe' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - &checkout
+        name: Check out frozen candidate tested tree
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TESTED_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+      - &identity
+        name: Verify candidate identities and start environment preparation timer
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$TESTED_SHA"
+          test "$(git show -s --format=%P HEAD)" = "$BASE_SHA $ACTUAL_SOURCE_SHA"
+          echo "PREP_START=$(date +%s)" >> "$GITHUB_ENV"
+          printf 'controller=%s candidate=%s tested=%s base=%s\n' "$GITHUB_SHA" "$ACTUAL_SOURCE_SHA" "$TESTED_SHA" "$BASE_SHA"
+      - name: Configure mold for Linux host linking
+        id: probe-mold
+        uses: ./.github/actions/setup-linux-mold
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - name: Prepare original host governance comparison tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component rustfmt --component clippy
+          rustup default "$RUST_TOOLCHAIN"
+          command -v zstd
+          command -v zstdmt
+      - &comp
+        name: Run original governance preview and verify current-base outcome
+        env:
+          RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}
+          VERIFIED_MOLD_VERSION: ${{ steps.probe-mold.outputs.version }}
+          VERIFIED_MOLD_LINKER: ${{ steps.probe-mold.outputs.linker }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'preparation_seconds=%s\n' "$(( $(date +%s) - PREP_START ))"
+          python3 --version
+          rustc --version
+          node --version
+          test "$VERIFIED_MOLD_VERSION" = 3.0.0
+          test -x "$VERIFIED_MOLD_LINKER"
+          printf 'verified_mold=%s\n' "$VERIFIED_MOLD_VERSION"
+          started=$(date +%s%N)
+          python3 scripts/ci-governance-preview.py --repo-root "$GITHUB_WORKSPACE" \
+            --base-sha "$BASE_SHA" --source-sha "$ACTUAL_SOURCE_SHA" --tested-sha "$TESTED_SHA" \
+            --output-dir "$RUNNER_TEMP/governance-preview"
+          printf 'execution_ms=%s\n' "$(( ($(date +%s%N) - started) / 1000000 ))"
+          python3 - "$RUNNER_TEMP/governance-preview/result.json" <<'PY'
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          report = json.loads(Path(sys.argv[1]).read_text())
+          assert report['authority'] == 'diagnostic-only'
+          assert report['actual_base_sha'] == os.environ['BASE_SHA']
+          assert report['actual_source_sha'] == os.environ['ACTUAL_SOURCE_SHA']
+          assert report['tested_sha'] == report['benchmark_policy_sha'] == os.environ['TESTED_SHA']
+          assert report['cache_restored'] is False
+          assert report['not_applicable'] == 'base_already_single_owner'
+          assert report['complete'] is False
+          print(json.dumps(report, sort_keys=True))
+          PY
+      - &receipt
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: governance-preview-probe-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/governance-preview/result.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  image:
+    if: *probe-identity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - *checkout
+      - name: Trust the checked-out workspace path in the job container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - *identity
+      - name: Configure mold for Linux host linking
+        id: probe-mold
+        uses: ./.github/actions/setup-linux-mold
+        with:
+          install-dir: ${{ runner.temp }}/oasis7-governance-preview-mold
+      - name: Prepare governance comparison tools
+        run: |
+          set -euo pipefail
+          test "$(id -u)" = 1001
+          venv="$RUNNER_TEMP/governance-preview-venv"
+          /usr/bin/python3 -m venv "$venv"
+          export PATH="$venv/bin:$PATH"
+          env -u LD_LIBRARY_PATH python3 -c 'import ctypes, sys; assert sys.version_info[:2] == (3, 12); print(sys.version)'
+          python3 -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
+          printf '%s\n' "$venv/bin" >> "$GITHUB_PATH"
+          cargo +"$RUST_TOOLCHAIN" --version
+          test "$(rustc --version)" = "$(rustc +"$RUST_TOOLCHAIN" --version)"
+          cargo +"$RUST_TOOLCHAIN" fmt --version
+          cargo +"$RUST_TOOLCHAIN" clippy --version
+          node --version
+          command -v zstd
+          command -v zstdmt
+      - *comp
+      - *receipt
