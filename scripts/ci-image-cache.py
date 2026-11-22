@@ -64,6 +64,25 @@ def build_variants(root, profile):
         cargo('context-test', 'test', ['-p', 'oasis7_context', '--all-targets'])
         cargo('wasm-executor-lib-test', 'test', ['-p', 'oasis7_wasm_executor', '--features', 'wasmtime', '--lib'])
         cargo('wasm-executor-all-test', 'test', ['-p', 'oasis7_wasm_executor', '--features', 'wasmtime', '--all-targets'])
+        # Warm the heavy workspace-support-other (image) compile contexts that
+        # otherwise cold-compile for 20+ minutes on every expanded PR.
+        cargo('dev-test-worker-lib-test', 'test', ['-p', 'oasis7_dev_test_worker', '--lib'])
+        cargo('dev-test-worker-material-example', 'test', ['-p', 'oasis7_client_storage', '--example', 'dev_test_worker_material'])
+        cargo('dev-test-worker-wasm-check', 'check', ['-p', 'oasis7_dev_test_worker', '--target', 'wasm32-unknown-unknown', '--no-deps'])
+        cargo('dev-test-worker-wasm-release', 'build', ['-p', 'oasis7_dev_test_worker', '--release', '--target', 'wasm32-unknown-unknown'])
+        cargo('custody-core-test', 'test', ['-p', 'oasis7_custody_core', '--all-targets'])
+        cargo('pixel-world-bridge-test', 'test', ['-p', 'pixel_world_bridge', '--lib'])
+        cargo('client-launcher-bin-test', 'test', ['-p', 'oasis7_client_launcher', '--bin', 'oasis7_client_launcher'])
+        native('model-provider', ['-p', 'oasis7_model_provider', '--all-targets'])
+        cargo('agent-harness-check', 'check', ['-p', 'oasis7_agent_harness', '--all-targets'])
+        cargo('agent-harness-test', 'test', ['-p', 'oasis7_agent_harness', '--lib'])
+        cargo('browser-game-client-check', 'check', ['-p', 'oasis7_browser_game_client', '--all-targets'])
+        cargo('browser-game-client-test', 'test', ['-p', 'oasis7_browser_game_client', '--lib'])
+        cargo('client-storage-check', 'check', ['-p', 'oasis7_client_storage', '--all-targets'])
+        cargo('client-storage-test', 'test', ['-p', 'oasis7_client_storage', '--lib'])
+        cargo('client-api-test', 'test', ['-p', 'oasis7_client_api', '--lib'])
+        cargo('agent-api-check', 'check', ['-p', 'oasis7_agent_api', '--all-targets'])
+        cargo('agent-api-test', 'test', ['-p', 'oasis7_agent_api'])
     else:
         # Tooling's real repository work resolves the standalone lockfiles.
         # Its temporary Rust fixtures are local and do not share root targets.
