@@ -1,7 +1,7 @@
 use super::business::OriginHistoryProofPages;
 use super::*;
 #[cfg(unix)]
-use oasis7::world_service::formal_read::{
+use oasis7_world_service::formal_read::{
     FormalReadHistoryPageV1, FormalReadHistoryV1, FormalReadReplayCursorV1,
 };
 use oasis7_distfs::controlled_authority::{
