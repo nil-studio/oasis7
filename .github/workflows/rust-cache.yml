@@ -294,11 +294,12 @@ jobs:
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
       - name: Install dependency cache admission
         id: dependency-cache-tools
-        run: python3 scripts/ci-rust-cache-admission.py install
+        run: python3 scripts/ci-rust-cache-admission.py install-release
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         id: native-cache
         env:
-          PATH: ${{ steps.dependency-cache-tools.outputs.path }}
+          NODE_OPTIONS: ${{ steps.dependency-cache-tools.outputs.node_options }}
+          OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.dependency-cache-tools.outputs.python }}
           OASIS7_DEPENDENCY_CACHE_FAMILY: rust-image-native
           OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
           GH_TOKEN: ${{ github.token }}
@@ -306,7 +307,8 @@ jobs:
           shared-key: ci-rust-build-0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
-          save-if: ${{ job.status == 'success' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha && inputs.run_mode == 'image-native' }}
+          cache-provider: github
+          save-if: ${{ job.status == 'success' && steps.dependency-cache-tools.outputs.guard_ready == 'true' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha && inputs.run_mode == 'image-native' }}
           cache-on-failure: false
       - name: Warm the exact pixel-world bridge dependency contexts
         if: steps.native-cache.outputs.cache-hit != 'true'
@@ -409,11 +411,12 @@ jobs:
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
       - name: Install dependency cache admission
         id: dependency-cache-tools
-        run: python3 scripts/ci-rust-cache-admission.py install
+        run: python3 scripts/ci-rust-cache-admission.py install-release
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         id: image-cache
         env:
-          PATH: ${{ steps.dependency-cache-tools.outputs.path }}
+          NODE_OPTIONS: ${{ steps.dependency-cache-tools.outputs.node_options }}
+          OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.dependency-cache-tools.outputs.python }}
           OASIS7_DEPENDENCY_CACHE_FAMILY: ${{ matrix.family }}
           OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
           GH_TOKEN: ${{ github.token }}
@@ -421,7 +424,8 @@ jobs:
           shared-key: ${{ matrix.namespace }}
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
-          save-if: ${{ job.status == 'success' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}
+          cache-provider: github
+          save-if: ${{ job.status == 'success' && steps.dependency-cache-tools.outputs.guard_ready == 'true' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}
           cache-on-failure: false
       - name: Warm the exact component dependency contexts
         if: steps.image-cache.outputs.cache-hit != 'true'
