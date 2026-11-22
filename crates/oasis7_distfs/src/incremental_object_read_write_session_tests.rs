@@ -50,7 +50,7 @@ fn real_provisional_original_writer_preserves_original_bytes_pool_and_cold_readb
                 .unwrap(),
             original.len() as u64
         );
-        assert_eq!(received, original);
+        assert_eq!(received.as_slice(), original.as_slice());
         cancelled.store(true, Ordering::Release);
         assert!(
             session
