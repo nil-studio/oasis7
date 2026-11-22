@@ -485,7 +485,11 @@ fn late_target_persistence_keeps_original_selection_without_granting_more_io() {
     assert!(ledger.check_attempt(&attempt).is_err());
     assert!(ledger.bind_verified_target(&attempt, target).is_err());
     assert!(ledger.begin_exchange(&attempt, 1, 1).is_err());
-    assert!(ledger.begin_publication(&attempt, &serde_json::json!({"position":7}), &"ab".repeat(32)).is_err());
+    assert!(
+        ledger
+            .begin_publication(&attempt, &serde_json::json!({"position":7}), &"ab".repeat(32))
+            .is_err()
+    );
     drop(ledger);
 
     // The same durable target is visible for explicit fenced recovery, not
