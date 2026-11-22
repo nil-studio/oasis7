@@ -265,10 +265,18 @@ def cache_identity(workflow: str, name: str, non_linux: bool = False) -> dict:
     image = re.search(r"^    container:\n      image: ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:([0-9a-f]{64})$",
                       body, re.M)
     if image:
-        assert name in ("newapi-bridge-package", "package-linux-x86-64"), name
-        assert inputs.get("shared-key") == "newapi-bridge-service-linux-x86-64-ci-rust-build-" + image[1]
-        assert 'rustc +"${RUST_TOOLCHAIN}" -vV' in body[:cache.start()]
-        assert "pkg-config --exists wayland-client x11 alsa libudev openssl" in body[:cache.start()]
+        before_cache = body[:cache.start()]
+        if name == "web":
+            assert inputs.get("shared-key") == "ecs-web-ci-rust-build-" + image[1]
+            assert inputs.get("save-if") == "false" and inputs.get("cache-on-failure") == "false"
+            assert inputs.get("add-rust-environment-hash-key") == "true"
+            assert 'cargo +"$RUST_TOOLCHAIN" --version' in before_cache
+            assert 'rustup target list --installed --toolchain "$RUST_TOOLCHAIN" | grep -Fx wasm32-unknown-unknown' in before_cache
+        else:
+            assert name in ("newapi-bridge-package", "package-linux-x86-64"), name
+            assert inputs.get("shared-key") == "newapi-bridge-service-linux-x86-64-ci-rust-build-" + image[1]
+            assert 'rustc +"${RUST_TOOLCHAIN}" -vV' in before_cache
+            assert "pkg-config --exists wayland-client x11 alsa libudev openssl" in before_cache
         default = env["RUST_TOOLCHAIN"]
         toolchains.add(default)
     assert toolchains and default, f"{name}: verify a pinned toolchain before restoring cache"
@@ -421,11 +429,14 @@ assert cache_identity(rust, "newapi-bridge-package") == cache_identity(bridge, "
 web_identity = cache_identity(native_cache, "web-wasm-cache")
 assert web_identity["shared-key"] == "release-packages-web-wasm-trusted-v3"
 for workflow, names in ((release, ("release_gate_web", "build-web-dist")), (mainnet, ("release_gate_web", "build-web-dist")),
-                        (testnet, ("build-web-dist",)), (ecs, ("web",)),
+                        (testnet, ("build-web-dist",)),
                         (rust, ("viewer-js-required", "viewer-performance-report"))):
     for name in names:
         assert cache_identity(workflow, name) == web_identity, (name, "Web cache inputs differ")
         assert "save-if: false" in job_body(workflow, name)
+ecs_web_identity = cache_identity(ecs, "web")
+assert ecs_web_identity["image"], "ECS web requires the digest-scoped image reader"
+assert ecs_web_identity["shared-key"] != web_identity["shared-key"]
 assert "    cache-mode: read\n" in job_body(release, "release_gate_web")
 release_web_build = job_body(release, "build-web-dist")
 assert "    cache-mode: read\n" in release_web_build
