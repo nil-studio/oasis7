@@ -171,7 +171,6 @@ where
         if context.values.class != MemoryClass::Ordinary
             || !transaction.uses_budget(context.values.memory)
             || !family.uses_budget(context.values.memory)
-            || family.allocation_class() != MemoryClass::Ordinary
         {
             return Err(ValueTreeError::Invalid("Current material profile pool/class").into());
         }
@@ -266,7 +265,6 @@ where
             work.max_payload_bytes,
         )?;
         if !proof.uses_budget(context.values.memory)
-            || proof.allocation_class() != MemoryClass::Ordinary
         {
             return Err(ValueTreeError::Invalid("Current material profile closure").into());
         }
