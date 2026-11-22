@@ -5,8 +5,8 @@ use oasis7_client_api::network_tier_manifest::{
     NetworkTierEndpointPolicy, NetworkTierManifest, NetworkTierPromotionPolicy,
     NetworkTierRuntimeRefs, NetworkTierTokenPolicy, NetworkTierValidatorPolicy,
 };
-use oasis7::simulator::{RuntimePerfBottleneck, RuntimePerfHealth};
 use oasis7_node::NodeRole;
+use oasis7_simulator::{RuntimePerfBottleneck, RuntimePerfHealth};
 
 use super::super::status_payload::{RuntimePerfGateTier, runtime_perf_gate_tier_from_manifest};
 
@@ -111,7 +111,7 @@ fn runtime_perf_for_steady_window(
     p95_total_ms: u64,
     latest_total_ms: u64,
     max_total_ms: u64,
-) -> oasis7::simulator::RuntimePerfSnapshot {
+) -> oasis7_simulator::RuntimePerfSnapshot {
     let timing = super::super::execution_bridge::ExecutionBridgeCommitTimingSnapshot {
         window_capacity: 128,
         recent_commit_count: 128,
