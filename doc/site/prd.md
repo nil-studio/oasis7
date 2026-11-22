@@ -172,7 +172,7 @@ Trace refs: O7-REQ-6cbda46f-bba2-423f-8197-2a15a4b1d5a6；既有产品结果由 
 - `site/index.html` 与 `site/en/index.html` 是公开 CN/EN 首页；`site/assets/app.js` 和 `site/assets/styles.css` 是其静态交互与无脚本降级的实现面。它们必须继续把 `viewer` 表达为默认 Web 验证入口、把 `software_safe` 限定为兼容 alias，并保持 `limited playable technical preview` 的公开边界。
 - 首页不初始化已隐藏的 Canvas；保留的滚动高亮等交互仅是渐进增强，不能改变无 JS、键盘或 reduced-motion 访问下的内容、导航、CTA 与公开 claim；共享架构图必须保留稳定 SVG 引用和可访问语义。具体视觉层级、响应式和页面覆盖规则以 `doc/site/design.md` 为准。
 - Pages 发布在 `.github/workflows/pages.yml` 中先执行四个当前门禁：`scripts/site-link-check.sh`、`scripts/site-homepage-claim-check.sh`、`scripts/site-manual-sync-check.sh` 与 `scripts/site-download-check.sh`；任一失败都不应部署静态站点。前两个分别守本地资源可达性与 CN/EN claim/no-JS 导航，后两个分别守 Viewer 手册镜像和下载面。
-- 下载面只分发 `eng-cc/oasis7` GitHub Releases 的 Windows `.exe`、macOS `.dmg`、Linux `.deb` 与 checksum；Linux 运维恢复工具另以带 manifest/checksum 的 `oasis7-linux-x64-ops-tools.tar.gz` 独立资产提供。首页可按平台选择主 CTA，但必须在下载前保留版本、安装、信任与支持边界。资产存在或检查通过不构成普通用户广泛发行、Windows codesigning 或 macOS notarization 已就绪的声明。
+- 下载面只分发 `nil-studio/oasis7` GitHub Releases 的 Windows `.exe`、macOS `.dmg`、Linux `.deb` 与 checksum；Linux 运维恢复工具另以带 manifest/checksum 的 `oasis7-linux-x64-ops-tools.tar.gz` 独立资产提供。首页可按平台选择主 CTA，但必须在下载前保留版本、安装、信任与支持边界。资产存在或检查通过不构成普通用户广泛发行、Windows codesigning 或 macOS notarization 已就绪的声明。
 - 升级仅支持重新下载最新主包并手动覆盖/替换。`config.toml`、`.oasis7_launcher_ux_state.json` 与 `output/chain-runtime/<node_id>/reward-runtime-execution-world/` 是需要用户先备份的相对路径状态；不得把该说明升级为应用内更新、自动迁移或跨目录状态保留承诺。
 - `site/doc/{cn,en}/viewer-manual.html` 是静态发布镜像，不是 Viewer 手册真值；其 canonical source 是 `doc/world-simulator/viewer/viewer-manual.manual.md`，并由同步门禁约束当前 agent-browser 命令基线。
 - Edge Cases & Error Handling:

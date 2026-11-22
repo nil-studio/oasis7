@@ -25,10 +25,10 @@ REQUIRED_ENTRY_MARKERS=(
 )
 
 RELEASE_ASSET_URLS=(
-  "https://github.com/eng-cc/oasis7/releases/download/2026-06-03_v2/oasis7-windows-x64.exe"
-  "https://github.com/eng-cc/oasis7/releases/download/2026-06-03_v2/oasis7-macos-x64.dmg"
-  "https://github.com/eng-cc/oasis7/releases/download/2026-06-03_v2/oasis7-linux-x64.deb"
-  "https://github.com/eng-cc/oasis7/releases/download/2026-06-03_v2/oasis7-checksums.txt"
+  "https://github.com/nil-studio/oasis7/releases/download/2026-06-03_v2/oasis7-windows-x64.exe"
+  "https://github.com/nil-studio/oasis7/releases/download/2026-06-03_v2/oasis7-macos-x64.dmg"
+  "https://github.com/nil-studio/oasis7/releases/download/2026-06-03_v2/oasis7-linux-x64.deb"
+  "https://github.com/nil-studio/oasis7/releases/download/2026-06-03_v2/oasis7-checksums.txt"
 )
 
 STATIC_RELEASE_PATTERNS_ZH=(
@@ -110,14 +110,14 @@ for path in sys.argv[1:]:
         raise SystemExit(f"error: download section must remain visible without JavaScript in {path}")
 PY
 
-if ! contains_fixed_pattern "https://api.github.com/repos/eng-cc/oasis7/releases/latest" "${REPO_ROOT}/site/assets/app.js"; then
+if ! contains_fixed_pattern "window.oasis7Release.latestApi" "${REPO_ROOT}/site/assets/app.js"; then
   echo "error: missing latest release api endpoint in site/assets/app.js" >&2
   exit 1
 fi
 
 for forbidden in \
   ': "latest";' \
-  'https://github.com/eng-cc/oasis7/releases/latest";' \
+  'https://github.com/nil-studio/oasis7/releases/latest";' \
   'publish time pending'; do
   if contains_fixed_pattern "${forbidden}" "${REPO_ROOT}/site/assets/app.js"; then
     echo "error: release API failure path must preserve static metadata, found fallback: ${forbidden}" >&2
