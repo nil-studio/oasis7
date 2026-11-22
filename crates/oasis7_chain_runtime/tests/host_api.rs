@@ -315,11 +315,9 @@ mod shipping_budget_process {
         let first_status = status_until_ready(&mut first, status_addr);
         let original = find_budget(&first_status).unwrap();
         assert_eq!(original["profile"], PROFILE);
-        assert_eq!(original["limits"], serde_json::from_value::<Value>(limits()).unwrap()
-            .as_object().unwrap().iter()
-            .filter(|(key, _)| key.as_str() != "profile")
-            .map(|(key, val)| (key.clone(), val.clone()))
-            .collect::<serde_json::Map<String, Value>>());
+        let mut expected_limits = limits();
+        expected_limits.as_object_mut().unwrap().remove("profile");
+        assert_eq!(original["limits"], expected_limits);
         let first_instance = original["instance_id"]
             .as_str()
             .expect("typed live status must expose instance identity")
