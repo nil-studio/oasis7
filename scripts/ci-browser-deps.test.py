@@ -289,6 +289,49 @@ class BrowserDependencies(unittest.TestCase):
             self.assertEqual(values['PLAYWRIGHT_BROWSERS_PATH'], str(work / 'playwright-browsers'))
             self.assertEqual(probe.args[0][-1], '151.0.7922.34')
 
+    def test_chrome_launch_probe_drains_short_lived_async_children_without_leak_false_positive(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            fake_chrome = work / 'fake-chrome'
+            fake_chrome.write_text(
+                '#!/bin/sh\n'
+                'sleep 0.15 </dev/null >/dev/null 2>&1 &\n'
+                'printf "<html><head></head><body>oasis7-ci-browser-ready</body></html>\\n"\n'
+                'exit 0\n'
+            )
+            fake_chrome.chmod(0o755)
+            command = browser.chrome_launch_command(fake_chrome, work / 'probe-profile', 'oasis7-ci-browser-ready')
+            self.assertIn('--disable-crash-reporter', command)
+            self.assertIn('--disable-gpu', command)
+            output = browser.checked_command(command, work, 'chrome-launch', 10)
+            self.assertIn('<body>oasis7-ci-browser-ready</body>', output)
+            record = json.loads((work / 'processes.jsonl').read_text().strip().splitlines()[-1])
+            self.assertTrue(record['passed'], record)
+            self.assertEqual(record['exit_code'], 0)
+            self.assertEqual(record['cleanup_result'], 'clean')
+            self.assertFalse(record['leaked_processes'])
+
+    def test_chrome_launch_probe_still_reports_stuck_descendant_past_drain_budget(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            fake_chrome = work / 'fake-chrome-stuck'
+            fake_chrome.write_text(
+                '#!/bin/sh\n'
+                'sleep 30 </dev/null >/dev/null 2>&1 &\n'
+                'printf "<html><head></head><body>oasis7-ci-browser-ready</body></html>\\n"\n'
+                'exit 0\n'
+            )
+            fake_chrome.chmod(0o755)
+            command = browser.chrome_launch_command(
+                fake_chrome, work / 'probe-profile', 'oasis7-ci-browser-ready', drain_seconds=0.15)
+            with self.assertRaises(browser.BrowserError):
+                browser.checked_command(command, work, 'chrome-launch', 10)
+            record = json.loads((work / 'processes.jsonl').read_text().strip().splitlines()[-1])
+            self.assertFalse(record['passed'], record)
+            self.assertEqual(record['exit_code'], 0)
+            self.assertEqual(record['cleanup_result'], 'clean')
+            self.assertTrue(record['leaked_processes'])
+
 
 if __name__ == '__main__':
     unittest.main()
