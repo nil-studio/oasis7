@@ -2,7 +2,7 @@
 
 - 状态：目标设计提议；RIE-IRON-1/v1 的样本参数、有限终端用途与组合策略待本 PR owner 采纳。本文是可编辑档案源，不是已签发的世界配置、runtime DTO、运行报告或全链能力声明。
 - Owner：runtime_engineer；协作：gameplay_designer、M4 工业/物流/批次 owner、配方准入 owner、viewer_engineer、agent_engineer、qa_engineer。审读基线：nil-studio/oasis7@37f7719f6a68b23c6f8f6632571d82ce33a1b4e6。
-- 上游：[root-sc28-profile](../../product/world-rules-core-gameplay/prd.md#root-sc28-profile)；Trace refs: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117。玩家政策：[代表性 walkthrough](../../game/gameplay/gameplay-industrial-representative-execution-walkthrough.prd.md#representative-profile-policy)。方法：[专用手册](../../testing/manual/representative-industrial-execution-profile.manual.md#rie-m01)。
+- 上游：[root-sc28-profile](../../product/world-rules-core-gameplay/root-sc-status-and-ownership.prd.md#root-sc28-profile)；Trace refs: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117。玩家政策：[代表性 walkthrough](../../game/gameplay/gameplay-industrial-representative-execution-walkthrough.prd.md#representative-profile-policy)。方法：[专用手册](../../testing/manual/representative-industrial-execution-profile.manual.md#rie-m01)。
 
 ## 1. 问题、目标与非目标
 
@@ -18,10 +18,10 @@
 
 | 上游 requirement / professional acceptance（path#fragment） | 具体 obligation 与适用条件 | 本设计条款（path#anchor） | 外部 owner / dependency | 未覆盖范围 |
 | --- | --- | --- | --- | --- |
-| [root-sc28-profile](../../product/world-rules-core-gameplay/prd.md#root-sc28-profile)；Trace refs: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117 | 同一候选的完整工厂、两输入、有限物流、量子、电力、bundle 与用途档案 | [RI-01 具体档案](#rie-profile) | 原配方、工厂、M4 与 finality authority | 不新增目录、质量算法或全局经济默认值 |
-| [root-sc28-profile](../../product/world-rules-core-gameplay/prd.md#root-sc28-profile)；Trace refs: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117 | 正常链、玩家取舍、两种完成边界、稳定与三入口同义 | [RI-02 正常与完成](#rie-completion) | 原生产/物流/终端 writer、canonical 稳定判据和消费者 | 不以生产、到货或文本投影代签终端、真实体验 |
-| [root-sc28-profile](../../product/world-rules-core-gameplay/prd.md#root-sc28-profile)；Trace refs: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117 | 输入、容量、电力、mandatory 输出及终端失败；幂等、恢复与因果切换 | [RI-03 失败恢复](#rie-recovery) | 原工作图处置、ExecutionTransaction、G1 持久提交 | 不授予原 profile 未支持的退款、返工或迁移 |
-| [root-sc28-profile](../../product/world-rules-core-gameplay/prd.md#root-sc28-profile)；Trace refs: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117 | required 与 full 组合方法、三阶段、分支、切换和跨窗口 lineage | [RI-04 组合扩展](#rie-full) | QA、原生后继配方和有界读取 | 方法不是现成自动化或运行通过；不接收其他 SC 全部义务 |
+| [root-sc28-profile](../../product/world-rules-core-gameplay/root-sc-status-and-ownership.prd.md#root-sc28-profile)；Trace refs: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117 | 同一候选的完整工厂、两输入、有限物流、量子、电力、bundle 与用途档案 | [RI-01 具体档案](#rie-profile) | 原配方、工厂、M4 与 finality authority | 不新增目录、质量算法或全局经济默认值 |
+| [root-sc28-profile](../../product/world-rules-core-gameplay/root-sc-status-and-ownership.prd.md#root-sc28-profile)；Trace refs: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117 | 正常链、玩家取舍、两种完成边界、稳定与三入口同义 | [RI-02 正常与完成](#rie-completion) | 原生产/物流/终端 writer、canonical 稳定判据和消费者 | 不以生产、到货或文本投影代签终端、真实体验 |
+| [root-sc28-profile](../../product/world-rules-core-gameplay/root-sc-status-and-ownership.prd.md#root-sc28-profile)；Trace refs: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117 | 输入、容量、电力、mandatory 输出及终端失败；幂等、恢复与因果切换 | [RI-03 失败恢复](#rie-recovery) | 原工作图处置、ExecutionTransaction、G1 持久提交 | 不授予原 profile 未支持的退款、返工或迁移 |
+| [root-sc28-profile](../../product/world-rules-core-gameplay/root-sc-status-and-ownership.prd.md#root-sc28-profile)；Trace refs: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117 | required 与 full 组合方法、三阶段、分支、切换和跨窗口 lineage | [RI-04 组合扩展](#rie-full) | QA、原生后继配方和有界读取 | 方法不是现成自动化或运行通过；不接收其他 SC 全部义务 |
 
 ## 3. 当前源码事实、目标接缝与证据边界
 
@@ -229,10 +229,10 @@ full方法在stage1未sink、stage1 WIP、edge1 transit、J buffer、terminal_pe
 
 | 上游 requirement / professional acceptance（path#fragment） | 本设计条款（path#anchor） | 必须观察的结果 | 验证方法 | 证据与产物 | 当前限制 |
 | --- | --- | --- | --- | --- | --- |
-| [root-sc28-profile](../../product/world-rules-core-gameplay/prd.md#root-sc28-profile)；Trace refs: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117 | [RI-01 具体档案](#rie-profile) | 同candidate完整事实、真实proof与预算、两输入及损耗守恒 | [RIE-M01](../../testing/manual/representative-industrial-execution-profile.manual.md#rie-m01) | 固定配置源、来源/authority清单、逐项独立算例 | 静态核对不生成有效签名或正式世界来源 |
-| [root-sc28-profile](../../product/world-rules-core-gameplay/prd.md#root-sc28-profile)；Trace refs: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117 | [RI-02 正常与完成](#rie-completion) | P/T完成边界、once物理/接收分离、稳定不越级、三入口同义 | [RIE-M02](../../testing/manual/representative-industrial-execution-profile.manual.md#rie-m02) | 两独立同初态正常链、每边界receipt和授权读面 | 当前无组合运行/真人证据 |
-| [root-sc28-profile](../../product/world-rules-core-gameplay/prd.md#root-sc28-profile)；Trace refs: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117 | [RI-03 失败恢复](#rie-recovery) | 首sink前拒绝、既有义务守恒、G1全World隔离、恢复不复制 | [RIE-M03](../../testing/manual/representative-industrial-execution-profile.manual.md#rie-m03) | 单变量反例、故障切点、不中断对照与replay闭包 | 只有原capability实际支持的动作才可执行 |
-| [root-sc28-profile](../../product/world-rules-core-gameplay/prd.md#root-sc28-profile)；Trace refs: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117 | [RI-04 组合扩展](#rie-full) | 三stage/多分支、共享容量、cutover、跨窗口lineage与人类理解 | [RIE-M04](../../testing/manual/representative-industrial-execution-profile.manual.md#rie-m04) | full配置、完整结果包、实际环境/成本/介入与未覆盖 | 不以文档设计、模型模拟或其他SC成果代签真实full |
+| [root-sc28-profile](../../product/world-rules-core-gameplay/root-sc-status-and-ownership.prd.md#root-sc28-profile)；Trace refs: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117 | [RI-01 具体档案](#rie-profile) | 同candidate完整事实、真实proof与预算、两输入及损耗守恒 | [RIE-M01](../../testing/manual/representative-industrial-execution-profile.manual.md#rie-m01) | 固定配置源、来源/authority清单、逐项独立算例 | 静态核对不生成有效签名或正式世界来源 |
+| [root-sc28-profile](../../product/world-rules-core-gameplay/root-sc-status-and-ownership.prd.md#root-sc28-profile)；Trace refs: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117 | [RI-02 正常与完成](#rie-completion) | P/T完成边界、once物理/接收分离、稳定不越级、三入口同义 | [RIE-M02](../../testing/manual/representative-industrial-execution-profile.manual.md#rie-m02) | 两独立同初态正常链、每边界receipt和授权读面 | 当前无组合运行/真人证据 |
+| [root-sc28-profile](../../product/world-rules-core-gameplay/root-sc-status-and-ownership.prd.md#root-sc28-profile)；Trace refs: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117 | [RI-03 失败恢复](#rie-recovery) | 首sink前拒绝、既有义务守恒、G1全World隔离、恢复不复制 | [RIE-M03](../../testing/manual/representative-industrial-execution-profile.manual.md#rie-m03) | 单变量反例、故障切点、不中断对照与replay闭包 | 只有原capability实际支持的动作才可执行 |
+| [root-sc28-profile](../../product/world-rules-core-gameplay/root-sc-status-and-ownership.prd.md#root-sc28-profile)；Trace refs: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117 | [RI-04 组合扩展](#rie-full) | 三stage/多分支、共享容量、cutover、跨窗口lineage与人类理解 | [RIE-M04](../../testing/manual/representative-industrial-execution-profile.manual.md#rie-m04) | full配置、完整结果包、实际环境/成本/介入与未覆盖 | 不以文档设计、模型模拟或其他SC成果代签真实full |
 
 独立接收先核原文及数例、producer/consumer职责与错误路径，再分别记录设计已覆盖、实现是否存在、组件/组合/真人是否执行。文档门禁/链接通过只证明组织正确，不证明新profile激活或游戏可玩。
 

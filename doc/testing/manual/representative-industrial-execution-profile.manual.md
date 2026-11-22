@@ -2,7 +2,7 @@
 
 - 状态：设计与验证方法源；本次只做文档/源码审读、数例复算与静态门禁，没有执行 World、Rust/WASM、模型、正式客户端、故障注入或真人测试。
 - Owner：qa_engineer；独立领域审阅由 M4、runtime、gameplay 与 Viewer/Agent owner 配合。固定审读基线：nil-studio/oasis7@37f7719f6a68b23c6f8f6632571d82ce33a1b4e6。
-- 唯一产品范围：[root-sc28-profile](../../product/world-rules-core-gameplay/prd.md#root-sc28-profile)；Trace refs: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117。专业源：[RI-01～04](../../world-runtime/runtime/representative-industrial-execution-profile.design.md#rie-profile)；玩家源：[walkthrough政策](../../game/gameplay/gameplay-industrial-representative-execution-walkthrough.prd.md#representative-profile-policy)。
+- 唯一产品范围：[root-sc28-profile](../../product/world-rules-core-gameplay/root-sc-status-and-ownership.prd.md#root-sc28-profile)；Trace refs: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117。专业源：[RI-01～04](../../world-runtime/runtime/representative-industrial-execution-profile.design.md#rie-profile)；玩家源：[walkthrough政策](../../game/gameplay/gameplay-industrial-representative-execution-walkthrough.prd.md#representative-profile-policy)。
 
 ## 1. 执行前分层与证据包
 

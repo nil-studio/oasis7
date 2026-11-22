@@ -121,28 +121,28 @@
 <a id="des-economic-genesis-allocation"></a>
 ### 冻结分配可核算到各bucket与recipient
 
-Trace refs: O7-REQ-585609e7-ee93-4315-b9c7-fe58857164b4；[专业接受](mainchain-token-genesis-and-contributor-reward.prd.md#economic-contract-genesis-allocation) / [产品唯一声明](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-genesis-allocation)。
+Trace refs: O7-REQ-585609e7-ee93-4315-b9c7-fe58857164b4；[专业接受](mainchain-token-genesis-and-contributor-reward.prd.md#economic-contract-genesis-allocation) / [产品唯一声明](../../product/world-rules-core-gameplay/node-economy-contract-reception.prd.md#req-wr-economic-genesis-allocation)。
 
 按既有冻结总量和七桶参数核算分配及recipient vested_balance；采用原runtime rounding，创世custody account不等于treasury bucket。 本节接受上述已采用结果；具体字段/公式/参数和执行前提仍按配对PRD第4章，不改变原第2至5章。失败/恢复仍按原专业规则拒绝、保留状态或显式降级，不新增自动修复、重发资产或外部许可。未覆盖边界：不变更总量/比例/账户，不执行InitializeMainTokenGenesis。
 
 <a id="des-economic-genesis-control"></a>
 ### 控制主体与个人受益及释放边界分别可审计
 
-Trace refs: O7-REQ-2ee6964f-7c70-453c-958d-616b07c5d9d9；[专业接受](mainchain-token-genesis-and-contributor-reward.prd.md#economic-contract-genesis-control) / [产品唯一声明](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-genesis-control)。
+Trace refs: O7-REQ-2ee6964f-7c70-453c-958d-616b07c5d9d9；[专业接受](mainchain-token-genesis-and-contributor-reward.prd.md#economic-contract-genesis-control) / [产品唯一声明](../../product/world-rules-core-gameplay/node-economy-contract-reception.prd.md#req-wr-economic-genesis-control)。
 
 项目战略控制、协议储备、个人直接受益与外部流通分别核算；原vesting、claim、genesis_liquid与首年释放门槛继续独立约束。 本节接受上述已采用结果；具体字段/公式/参数和执行前提仍按配对PRD第4章，不改变原第2至5章。失败/恢复仍按原专业规则拒绝、保留状态或显式降级，不新增自动修复、重发资产或外部许可。未覆盖边界：不改控制人/vesting/释放额度，不把协议储备当团队库存。
 
 <a id="des-economic-genesis-freeze"></a>
 ### 逻辑冻结不等于真实mint-ready
 
-Trace refs: O7-REQ-6ca62d73-1934-4a80-bb18-1c21e35e2a15；[专业接受](mainchain-token-genesis-and-contributor-reward.prd.md#economic-contract-genesis-freeze) / [产品唯一声明](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-genesis-freeze)。
+Trace refs: O7-REQ-6ca62d73-1934-4a80-bb18-1c21e35e2a15；[专业接受](mainchain-token-genesis-and-contributor-reward.prd.md#economic-contract-genesis-freeze) / [产品唯一声明](../../product/world-rules-core-gameplay/node-economy-contract-reception.prd.md#req-wr-economic-genesis-freeze)。
 
 slot逻辑冻结与public signer规则不代替真实recipient/controller绑定、个人受益表和最终QA pass；pending或conditional状态不授予mint许可。 本节接受上述已采用结果；具体字段/公式/参数和执行前提仍按配对PRD第4章，不改变原第2至5章。失败/恢复仍按原专业规则拒绝、保留状态或显式降级，不新增自动修复、重发资产或外部许可。未覆盖边界：本轮不绑定地址/账户、不运行ceremony、不改变signer set或执行交易。
 
 <a id="des-economic-genesis-reward"></a>
 ### 独立reserve只消费最终复核的批准记录
 
-Trace refs: O7-REQ-e84d3e5c-af7c-4293-8d02-3b466af6dbfa；[专业接受](mainchain-token-genesis-and-contributor-reward.prd.md#economic-contract-genesis-reward) / [产品唯一声明](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-genesis-reward)。
+Trace refs: O7-REQ-e84d3e5c-af7c-4293-8d02-3b466af6dbfa；[专业接受](mainchain-token-genesis-and-contributor-reward.prd.md#economic-contract-genesis-reward) / [产品唯一声明](../../product/world-rules-core-gameplay/node-economy-contract-reception.prd.md#req-wr-economic-genesis-reward)。
 
 独立reward reserve只按canonical README ledger中approved且完成distribution前actual-value review的最终金额执行；资格/评分仍归pack/ledger，不并ecosystem_pool，不按登录或游玩自动发放。 本节接受上述已采用结果；具体字段/公式/参数和执行前提仍按配对PRD第4章，不改变原第2至5章。失败/恢复仍按原专业规则拒绝、保留状态或显式降级，不新增自动修复、重发资产或外部许可。未覆盖边界：本轮无发放授权，不修改资格/金额/审批；模板不是已批准批次。
 

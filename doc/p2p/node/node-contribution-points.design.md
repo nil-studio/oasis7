@@ -61,7 +61,7 @@
 <a id="des-economic-points-eligibility"></a>
 ### 基础义务与合格额外贡献分离
 
-Trace refs: O7-REQ-118e8c96-669b-4b11-bbec-a32831803e16；[专业接受](node-contribution-points.prd.md#economic-contract-points-eligibility) / [产品唯一声明](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-points-eligibility)。
+Trace refs: O7-REQ-118e8c96-669b-4b11-bbec-a32831803e16；[专业接受](node-contribution-points.prd.md#economic-contract-points-eligibility) / [产品唯一声明](../../product/world-rules-core-gameplay/node-economy-contract-reception.prd.md#req-wr-economic-points-eligibility)。
 
 为自身 Agent 模拟是基础义务，不直接获奖励；代跑离线节点、世界维护、有效存储和合格在线仅按原专业规则进入积分计算。
 
@@ -70,7 +70,7 @@ Trace refs: O7-REQ-118e8c96-669b-4b11-bbec-a32831803e16；[专业接受](node-co
 <a id="des-economic-points-allocation"></a>
 ### 固定双池的确定性且不重复分配
 
-Trace refs: O7-REQ-1bd30efb-22b7-403e-94f6-fe0a2efde4a2；[专业接受](node-contribution-points.prd.md#economic-contract-points-allocation) / [产品唯一声明](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-points-allocation)。
+Trace refs: O7-REQ-1bd30efb-22b7-403e-94f6-fe0a2efde4a2；[专业接受](node-contribution-points.prd.md#economic-contract-points-allocation) / [产品唯一声明](../../product/world-rules-core-gameplay/node-economy-contract-reception.prd.md#req-wr-economic-points-allocation)。
 
 两个固定 epoch 池分别按原合格正得分分配，独立存储池启用时主池排除存储权重；允许未分配余额，保持守恒、排序、惩罚效果和累计单调。
 
@@ -79,7 +79,7 @@ Trace refs: O7-REQ-1bd30efb-22b7-403e-94f6-fe0a2efde4a2；[专业接受](node-co
 <a id="des-economic-points-recovery"></a>
 ### epoch结算与恢复不重复入账
 
-Trace refs: O7-REQ-54617172-fa9b-4efe-a058-b327ce348407；[专业接受](node-contribution-points.prd.md#economic-contract-points-recovery) / [产品唯一声明](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-points-recovery)。
+Trace refs: O7-REQ-54617172-fa9b-4efe-a058-b327ce348407；[专业接受](node-contribution-points.prd.md#economic-contract-points-recovery) / [产品唯一声明](../../product/world-rules-core-gameplay/node-economy-contract-reception.prd.md#req-wr-economic-points-recovery)。
 
 同一 epoch/node 结算幂等；采样或快照写入不直接增加奖励，恢复、重复tick与replay只能复现结果；不可读collector状态须可观测降级，不是资产对账成功。
 
@@ -88,7 +88,7 @@ Trace refs: O7-REQ-54617172-fa9b-4efe-a058-b327ce348407；[专业接受](node-co
 <a id="des-economic-points-asset-gates"></a>
 ### 积分与独立资产路径保持门禁
 
-Trace refs: O7-REQ-45b12bd9-9d07-4bbf-86bc-2a85af07d5f5；[专业接受](node-contribution-points.prd.md#economic-contract-points-asset-gates) / [产品唯一声明](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-points-asset-gates)。
+Trace refs: O7-REQ-45b12bd9-9d07-4bbf-86bc-2a85af07d5f5；[专业接受](node-contribution-points.prd.md#economic-contract-points-asset-gates) / [产品唯一声明](../../product/world-rules-core-gameplay/node-economy-contract-reception.prd.md#req-wr-economic-points-asset-gates)。
 
 积分进入PowerCredit与主链Token bridge是两条独立受治理路径，不是自动兑换或同一池；多激励并用仍需独立审查重复奖励。
 
