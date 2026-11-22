@@ -2231,7 +2231,6 @@
     {
       "match": [
         "deny.toml",
-        "scripts/rustsec-ignore-direct-dependency-baseline.json",
         "scripts/check-rustsec-ignore-baseline.sh",
         "scripts/check-rustsec-ignore-baseline.test.sh"
       ],
@@ -2288,7 +2287,7 @@
       "match": [
         "doc/world-simulator/scenario/**",
         "crates/oasis7_simulator/scenarios/**",
-        "crates/oasis7/src/simulator/scenario.rs",
+        "crates/oasis7_simulator/src/scenario.rs",
         "crates/oasis7_simulator/tests/oasis7_init_demo.rs"
       ],
       "groups": [
