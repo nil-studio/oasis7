@@ -74,7 +74,7 @@
       {"package": "oasis7", "target_kind": "lib", "target_name": "oasis7", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2606},
       {"package": "oasis7", "target_kind": "lib", "target_name": "oasis7", "variant": "snapshot-tests", "mode": "filter", "selector": "snapshot_player_gameplay_execution_state_backfills_from_legacy_fields", "elapsed_ms": 206},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_agent_authority_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 85500},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_agent_event", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 14819},
+      {"package": "oasis7_runtime", "target_kind": "test", "target_name": "incremental_agent_event", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 14819},
       {"package": "oasis7_runtime", "target_kind": "test", "target_name": "incremental_agent_genesis", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 1210},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_agent_subtree", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 107084},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_authenticated_nonces", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 17633},
@@ -96,10 +96,10 @@
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_material_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 89883},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_module_marketplace_physical", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 48042},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_reward_budget_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 124364},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_allocators", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 7819},
+      {"package": "oasis7_runtime", "target_kind": "test", "target_name": "incremental_runtime_allocators", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 7819},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_artifact_resources", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 296182},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_capability_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 161792},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_commit", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 10026},
+      {"package": "oasis7_runtime", "target_kind": "test", "target_name": "incremental_runtime_commit", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 10026},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_effect_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 147952},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_governance_controls", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 3413},
       {"package": "oasis7_runtime", "target_kind": "test", "target_name": "incremental_runtime_scheduler_controls", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 29829},
@@ -684,10 +684,11 @@
     {
       "paths": [
         "crates/oasis7_runtime/tests/pr_fast_incremental.rs",
-        "crates/oasis7/tests/incremental_runtime_commit.rs",
-        "crates/oasis7/tests/incremental_runtime_allocators.rs",
+        "crates/oasis7_runtime/tests/incremental_runtime_commit.rs",
+        "crates/oasis7_runtime/tests/incremental_runtime_allocators.rs",
         "crates/oasis7_runtime/tests/incremental_due_module_batch.rs",
-        "crates/oasis7/tests/support/incremental_agent_event.rs"
+        "crates/oasis7/tests/support/incremental_agent_event.rs",
+        "crates/oasis7_runtime/tests/support/incremental_agent_event.rs"
       ],
       "targets": [
         "runtime-lib",
