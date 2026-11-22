@@ -248,6 +248,14 @@ def plan(args):
             # JSON registration; possible Rust consumers are still added below.
             add('actions-repo', path)
             add('python-repo', path)
+        elif path in ('skills-lock.json',
+                      'skills/gpt-image-2/gallery/a-poster.png',
+                      'skills/gpt-image-2/gallery/c1-logo.png',
+                      'skills/gpt-image-2/gallery/c2-tshirt.png',
+                      'skills/gpt-image-2/gallery/d-ukiyoe.png'):
+            # Skill provenance metadata and fixed example images are not CodeQL
+            # source. Preserve possible Rust include/build consumers below.
+            pass
         elif path == 'deny.toml':
             # Exact cargo-deny policy consumed by CI shell/Actions, not Rust source.
             # Preserve possible embedded/build consumers below and batch limits.

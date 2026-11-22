@@ -49,6 +49,24 @@ class PlannerTests(unittest.TestCase):
         args.update(kw)
         return planner.plan(SimpleNamespace(**args))
 
+    def test_image_skill_metadata_and_gallery_lifecycle(self):
+        paths = ['skills-lock.json'] + [
+            'skills/gpt-image-2/gallery/' + name + '.png'
+            for name in ('a-poster', 'c1-logo', 'c2-tshirt', 'd-ukiyoe')]
+        for value in ('before', 'after', None):
+            self.base = self.git('rev-parse', 'HEAD')
+            for path in paths:
+                if value is None:
+                    (self.root / path).unlink()
+                else:
+                    self.write(path, value)
+            self.commit()
+            self.assertEqual(self.run_plan()['candidate_units'], [])
+        self.write('skills/gpt-image-2/gallery/unknown.png')
+        self.commit()
+        with self.assertRaisesRegex(ValueError, 'unregistered input'):
+            self.run_plan()
+
     def test_triad_fixture_add_modify_delete_routes_only_rust(self):
         path = 'tools/scenario_test_runner/scenarios/triad_p2p.yaml'
         for value in ('name: before', 'name: after', None):
