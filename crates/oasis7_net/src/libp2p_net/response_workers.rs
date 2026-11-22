@@ -518,14 +518,19 @@ mod tests {
             serde_cbor::from_slice(&response.payload).unwrap();
         assert_eq!(rejection.code, DistributedErrorCode::ErrTimeout);
         assert!(rejection.retryable);
-        budget
-            .admit(
-                peer,
-                "/aw/node/replication/fetch-blob/1.0.0",
-                FETCH_BLOB_RESPONSE_BYTES_PER_WINDOW,
-                std::time::Instant::now(),
-            )
-            .expect("expired successful reply did not consume original full peer quota");
+        let full = vec![0_u8; FETCH_BLOB_RESPONSE_BYTES_PER_WINDOW];
+        let accepted = budgeted_response_bytes(
+            &mut budget,
+            peer,
+            "/aw/node/replication/fetch-blob/1.0.0",
+            Ok(full),
+            1_000,
+        );
+        assert_eq!(
+            accepted.len(),
+            FETCH_BLOB_RESPONSE_BYTES_PER_WINDOW,
+            "expired successful reply did not consume original full peer quota"
+        );
 
         let on_time = fail_expired_success(
             Ok(b"ok".to_vec()),
