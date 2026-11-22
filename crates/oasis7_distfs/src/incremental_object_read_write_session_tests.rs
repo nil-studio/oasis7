@@ -1,6 +1,6 @@
 use super::*;
 use crate::incremental_page_store::tests::{Fixture, logical_io, physical_io};
-use oasis7_formal_protocol::incremental_material::{OriginalObjectStreamReader, OriginalObjectStreamWriter};
+use oasis7_formal_protocol::incremental_material::OriginalObjectStreamReader;
 
 #[test]
 fn real_provisional_original_writer_preserves_original_bytes_pool_and_cold_readback() {
