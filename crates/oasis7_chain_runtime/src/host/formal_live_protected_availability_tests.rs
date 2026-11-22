@@ -4,10 +4,8 @@
 use super::*;
 use oasis7::world_service::{
     authority::{request_digest, verify_service_response},
-    formal_read_service::FormalReadPublication,
     wire::SignedServiceResponse,
 };
-use oasis7_client_api::world_service::FormalReadAnchorRefV1;
 use std::{
     io::{Read, Write},
     net::{SocketAddr, TcpStream},
@@ -601,43 +599,6 @@ pub(super) fn exercise(mut case: AvailabilityCase) -> Result<(), String> {
     Ok(())
 }
 
-/// Build a read selector and comparison projection only from the exact opaque
-/// publication already held by the runtime. The returned CommitRef never
-/// creates trust: `RemoteWorldServiceClient` must prove it from its external
-/// origin before the test accepts the old read.
-fn commit_ref_for_opaque_cut(
-    cut: &crate::formal_live_service::PublishedReadCut,
-    world: &WorldIdentity,
-) -> Result<(oasis7_client_api::world_service::CommitRef, Vec<u8>), String> {
-    let record = cut.anchor.head().record();
-    let anchor_ref = FormalReadAnchorRefV1 {
-        position: record.position,
-        record_id: cut.anchor.head().head().record_id.clone(),
-        active_authority_id: cut
-            .anchor
-            .authority()
-            .authority_id()
-            .map_err(|error| error.to_string())?,
-    };
-    let publication = FormalReadPublication::new(cut.anchor.clone(), cut.world.clone())
-        .map_err(|error| error.to_string())?;
-    let request = ReadWorldViewRequest {
-        observation_nonce: Some("07".repeat(32)),
-        formal_anchor: Some(anchor_ref),
-        contract_version: WORLD_SERVICE_CONTRACT_VERSION,
-        world: world.clone(),
-        scope_id: "public".into(),
-        min_commit: None,
-        fixed_commit: None,
-        deadline_unix_ms: None,
-    };
-    let response = publication
-        .view_at_own_anchor(&request, &super::oracle_support::public(92))
-        .map_err(|error| error.to_string())?;
-    let projection = serde_cbor::to_vec(&response.view)
-        .map_err(|error| format!("C06 serialize opaque current projection: {error}"))?;
-    Ok((response.version.commit, projection))
-}
 
 fn wait_for_degraded_status(
     config: &WorldServiceClientConfig,

@@ -856,6 +856,13 @@ pub(super) fn assert_admin_commit_did_not_emit_wasm(
     };
     let before = journal(before)?;
     let after = journal(&candidate.material)?;
+    assert_admin_journals_did_not_emit_wasm(&before, &after)
+}
+
+fn assert_admin_journals_did_not_emit_wasm(
+    before: &oasis7_runtime::Journal,
+    after: &oasis7_runtime::Journal,
+) -> Result<(), String> {
     if after.events.iter().any(|event| {
         matches!(&event.body, oasis7_runtime::WorldEventBody::ModuleEmitted(emission) if emission.kind == "wasm.test")
             && !before.events.contains(event)
@@ -863,4 +870,85 @@ pub(super) fn assert_admin_commit_did_not_emit_wasm(
         return Err("administrative exact commit unexpectedly executed simulation modules".into());
     }
     Ok(())
+}
+
+/// Build a read selector and comparison projection only from the exact opaque
+/// publication already held by the runtime. The returned CommitRef never
+/// creates trust: `RemoteWorldServiceClient` must prove it from its external
+/// origin before the test accepts the old read.
+pub(super) fn commit_ref_for_opaque_cut(
+    cut: &crate::formal_live_service::PublishedReadCut,
+    world: &WorldIdentity,
+) -> Result<(oasis7_client_api::world_service::CommitRef, Vec<u8>), String> {
+    let record = cut.anchor.head().record();
+    let anchor_ref = oasis7_client_api::world_service::FormalReadAnchorRefV1 {
+        position: record.position,
+        record_id: cut.anchor.head().head().record_id.clone(),
+        active_authority_id: cut
+            .anchor
+            .authority()
+            .authority_id()
+            .map_err(|error| error.to_string())?,
+    };
+    let publication = oasis7::world_service::formal_read_service::FormalReadPublication::new(
+        cut.anchor.clone(),
+        cut.world.clone(),
+    )
+    .map_err(|error| error.to_string())?;
+    let request = ReadWorldViewRequest {
+        observation_nonce: Some("07".repeat(32)),
+        formal_anchor: Some(anchor_ref),
+        contract_version: WORLD_SERVICE_CONTRACT_VERSION,
+        world: world.clone(),
+        scope_id: "public".into(),
+        min_commit: None,
+        fixed_commit: None,
+        deadline_unix_ms: None,
+    };
+    let response = publication
+        .view_at_own_anchor(&request, &super::oracle_support::public(92))
+        .map_err(|error| error.to_string())?;
+    let projection = serde_cbor::to_vec(&response.view)
+        .map_err(|error| format!("C06 serialize opaque current projection: {error}"))?;
+    Ok((response.version.commit, projection))
+}
+
+pub(super) fn assert_retry_emission_count(
+    fixed_emits: usize,
+    adjacent_before_emits: usize,
+    retry_emits: usize,
+) -> Result<(), String> {
+    if retry_emits != adjacent_before_emits {
+        return Err(format!(
+            "cold retry WASM emissions differ: fixed={fixed_emits}, adjacent_before={adjacent_before_emits}, retry={retry_emits}"
+        ));
+    }
+    Ok(())
+}
+
+#[test]
+fn cold_retry_emissions_exclude_prior_real_tick_but_reject_duplicate_emission() {
+    let (mut world, _) = world_with_owner_seed();
+    world.set_policy(PolicySet::allow_all());
+    install_wasmtime_action_observer(&mut world).unwrap();
+    let fixed_emits = wasm_emit_count(&world);
+    let fixed_journal = world.journal().clone();
+    let mut executor = oasis7_wasm_executor::WasmExecutor::new_for_deterministic_replay(
+        oasis7_wasm_executor::WasmExecutorConfig::default(),
+    )
+    .unwrap();
+    world.step_with_modules(&mut executor).unwrap();
+    let adjacent_emits = wasm_emit_count(&world);
+    assert!(
+        adjacent_emits > fixed_emits,
+        "the natural Tick must really execute Wasmtime and emit"
+    );
+    let adjacent_journal = world.journal().clone();
+    // A duplicate administrative publication must not execute a simulation Tick.
+    assert_retry_emission_count(fixed_emits, adjacent_emits, adjacent_emits).unwrap();
+    assert_admin_journals_did_not_emit_wasm(&adjacent_journal, world.journal()).unwrap();
+    // Treat the actual Tick's newly emitted journal as an illegal retry
+    // transition: both the global count and the exact journal must reject it.
+    assert!(assert_retry_emission_count(fixed_emits, fixed_emits, adjacent_emits).is_err());
+    assert!(assert_admin_journals_did_not_emit_wasm(&fixed_journal, &adjacent_journal).is_err());
 }

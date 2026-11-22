@@ -262,12 +262,18 @@ fn submit_change_owned(
 /// as the workload, not the unrelated generic 20s publication observer. A fresh
 /// natural-publication synchronization stage has its own bounded 120s budget.
 /// Both stages remain capped by the original whole-case budget.
+struct RetryPublication {
+    after: crate::formal_live_service::PublishedReadCut,
+    commit: oasis7_client_api::world_service::CommitRef,
+    adjacent_before_emits: usize,
+}
+
 fn retry_original_at_exact_publication(
     original: &SubmitIntentRequest<WorldServicePayloadV1>,
     runtime: &FormalLiveRuntime,
     owner: &RemoteWorldServiceClient,
     budget: &Budget,
-) -> Result<crate::formal_live_service::PublishedReadCut, String> {
+) -> Result<RetryPublication, String> {
     use crate::formal_live_service::test_control::Point;
     let control = runtime.published.control_boundaries()?;
     let synchronization_deadline = budget.phase_deadline(Instant::now())?;
@@ -281,6 +287,12 @@ fn retry_original_at_exact_publication(
     let barrier = control
         .wait(synchronization_deadline)
         .map_err(|error| format!("full-node cold retry synchronization: {error}"))?;
+    let before = runtime.published.current()?;
+    if before.anchor.head().record().position != barrier.position {
+        return Err("full-node cold retry captured a different preceding publication".into());
+    }
+    let adjacent_before_emits = wasm_emit_count(&before.world);
+    drop(before);
     let expected_position = barrier
         .position
         .checked_add(1)
@@ -309,7 +321,24 @@ fn retry_original_at_exact_publication(
         return Err("full-node cold retry captured a different publication".into());
     }
     control.release()?;
-    Ok(after)
+    let identity = &after.anchor.head().record().world;
+    let (commit, _) = commit_ref_for_opaque_cut(
+        &after,
+        &WorldIdentity {
+            world_id: identity.world_id.clone(),
+            genesis_digest: identity.genesis_digest.clone(),
+        },
+    )?;
+    if commit.position != expected_position
+        || commit.execution_block_hash != after.anchor.head().head().record_id
+    {
+        return Err("full-node cold retry publication identity mismatch".into());
+    }
+    Ok(RetryPublication {
+        after,
+        commit,
+        adjacent_before_emits,
+    })
 }
 fn restart(case: &mut Case) -> Result<(), String> {
     let (primary, address) =

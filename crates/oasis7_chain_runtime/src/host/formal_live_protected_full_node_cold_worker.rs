@@ -109,7 +109,12 @@ fn run(path: &Path) -> Result<(), String> {
     if lookup_original_commit(&owner, &input.original)? != input.original_commit {
         return Err("cold original CommitRef changed".into());
     }
-    let after = retry_original_at_exact_publication(&input.original, &runtime, &owner, &budget)?;
+    let retry = retry_original_at_exact_publication(&input.original, &runtime, &owner, &budget)?;
+    assert_admin_commit_did_not_emit_wasm(
+        &runtime.validated.config.writer_directory,
+        &retry.commit,
+    )?;
+    let after = retry.after;
     let commit_matches = lookup_original_commit(&owner, &input.original)? == input.original_commit;
     let result_matches = io::digest(&retained_result_from_hot_or_cold(
         &after.world,
@@ -119,7 +124,8 @@ fn run(path: &Path) -> Result<(), String> {
         io::digest(&game_task::current_control(&after.world, "agent").map_err(|e| e.to_string())?)?
             == input.effect;
     let retry_emits = wasm_emit_count(&after.world);
-    if !commit_matches || !result_matches || !effect_matches || retry_emits != input.emits {
+    assert_retry_emission_count(input.emits, retry.adjacent_before_emits, retry_emits)?;
+    if !commit_matches || !result_matches || !effect_matches {
         return Err(format!(
             "fresh cold original retry changed original result or effect: \
              commit_matches={commit_matches}, result_matches={result_matches}, \
