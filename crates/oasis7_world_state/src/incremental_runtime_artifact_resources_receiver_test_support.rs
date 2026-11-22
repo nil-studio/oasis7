@@ -257,7 +257,10 @@ pub(super) fn qualify(
     )
 }
 
-#[allow(dead_code, reason = "Shared test fixture method for independent receiver scenarios")]
+#[allow(
+    dead_code,
+    reason = "Shared test fixture method for independent receiver scenarios"
+)]
 pub(super) fn rewrite<K: crate::incremental_semantic_key::SemanticKeyV1 + ?Sized>(
     memory: &MemoryBudget,
     pages: &Pages,
@@ -336,7 +339,10 @@ pub(super) fn rewrite<K: crate::incremental_semantic_key::SemanticKeyV1 + ?Sized
     )
     .unwrap()
 }
-#[allow(dead_code, reason = "Shared test fixture method for independent receiver scenarios")]
+#[allow(
+    dead_code,
+    reason = "Shared test fixture method for independent receiver scenarios"
+)]
 pub(super) fn root_ref<K: crate::incremental_semantic_key::SemanticKeyV1 + ?Sized>(
     schema: [u8; 32],
     key: &K,
