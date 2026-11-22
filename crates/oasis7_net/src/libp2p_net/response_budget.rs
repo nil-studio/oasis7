@@ -15,9 +15,9 @@ use crate::util::to_canonical_cbor;
 
 use super::error_mapping::error_response_from_world_error;
 
-const FETCH_BLOB_PROTOCOL: &str = "/aw/node/replication/fetch-blob/1.0.0";
+pub(super) const FETCH_BLOB_PROTOCOL: &str = "/aw/node/replication/fetch-blob/1.0.0";
 const RESPONSE_WINDOW: Duration = Duration::from_millis(FETCH_BLOB_RESPONSE_WINDOW_MS as u64);
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct FetchBlobResponseBudget {
     by_peer: HashMap<PeerId, ResponseWindow>,
     global: Option<ResponseWindow>,
