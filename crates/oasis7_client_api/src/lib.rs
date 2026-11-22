@@ -7,6 +7,7 @@
 pub mod bootstrap;
 pub mod config;
 pub mod formal_projection;
+pub mod governance_audit_report;
 pub mod provider;
 pub mod signing;
 pub mod world_service;
