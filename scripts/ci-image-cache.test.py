@@ -225,5 +225,12 @@ class RealCargoWarming(unittest.TestCase):
         self.assertFalse((tools / 'target').exists())
 
 
+    def test_cargo_check_variants_do_not_pass_clippy_only_no_deps_flag(self):
+        for profile in cache.PROFILES:
+            for name, command, _ in cache.build_variants(ROOT, profile):
+                if command[:2] == ['cargo', 'check']:
+                    self.assertNotIn('--no-deps', command, f'{profile}:{name} passes clippy-only --no-deps to cargo check')
+
+
 if __name__ == '__main__':
     unittest.main()
