@@ -525,6 +525,10 @@ class FixedSourceWorkflowTests(unittest.TestCase):
             "terminal.update(error_type=type(error).__name__, error=str(error))")
         self.assertEqual(ast.dump(ast.parse(native)), ast.dump(ast.parse(original_native)))
 
+    def test_plan_checkout_disables_tag_fetching(self):
+        plan_section = WORKFLOW.split('  plan:\n', 1)[1].split('  analyze:\n', 1)[0]
+        self.assertIn('fetch-tags: false', plan_section)
+
 
 if __name__ == "__main__":
     unittest.main()

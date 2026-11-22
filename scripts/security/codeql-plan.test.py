@@ -1051,5 +1051,19 @@ class PlannerTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(b'invalid choice', result.stderr)
 
+    def test_batched_blob_reads_and_identical_head_merge_base_deduplication(self):
+        self.write('src/a.rs', 'const A: &str = include_str!("../data/a.md");\n')
+        self.write('src/b.rs', 'const B: &[u8] = include_bytes!("../data/b.md");\n')
+        self.write('data/a.md', 'v1')
+        self.write('data/b.md', 'v1')
+        self.base = self.commit()
+        self.write('data/b.md', 'v2')
+        self.commit()
+        result = self.run_plan()
+        self.assertEqual(result['selected_units'], ['rust-repo'])
+        self.assertEqual(result['reasons']['rust-repo'], ['embedded or possible build input: data/b.md'])
+        maintenance = self.run_plan(event='schedule', full=True)
+        self.assertEqual(len(maintenance['selected_units']), 4)
+
 
 if __name__ == '__main__': unittest.main()
