@@ -79,7 +79,7 @@
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_cognition_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 174035},
       {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_delivery_cursor", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2813},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_diplomacy_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 132522},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_due_module_batch", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 4808},
+      {"package": "oasis7_runtime", "target_kind": "test", "target_name": "incremental_due_module_batch", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 4808},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_factory_authority_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 111722},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_factory_record_closure", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 39437},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_factory_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 103152},
@@ -684,7 +684,7 @@
         "crates/oasis7_runtime/tests/pr_fast_incremental.rs",
         "crates/oasis7/tests/incremental_runtime_commit.rs",
         "crates/oasis7/tests/incremental_runtime_allocators.rs",
-        "crates/oasis7/tests/incremental_due_module_batch.rs",
+        "crates/oasis7_runtime/tests/incremental_due_module_batch.rs",
         "crates/oasis7/tests/support/incremental_agent_event.rs"
       ],
       "targets": [
