@@ -196,19 +196,32 @@ mod shipping_budget_process {
             provider(&mut wire);
             write_config(&path, &wire);
             for command in ["node", "local-provider"] {
-                let output = Command::new(binary())
+                let mut child = Command::new(binary())
                     .args(["dev", command, "--config", path.to_str().unwrap()])
                     .current_dir(&root.0)
-                    .output()
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
                     .unwrap();
+                let deadline = Instant::now() + Duration::from_secs(5);
+                let status = loop {
+                    if let Some(status) = child.try_wait().unwrap() {
+                        break status;
+                    }
+                    if Instant::now() >= deadline {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        panic!("shipping {command} continued after invalid {case}");
+                    }
+                    std::thread::sleep(Duration::from_millis(10));
+                };
                 assert!(
-                    !output.status.success(),
-                    "shipping {command} accepted invalid {case}: stdout={}",
-                    String::from_utf8_lossy(&output.stdout)
+                    !status.success(),
+                    "shipping {command} accepted invalid {case}"
                 );
                 assert!(
-                    !root.0.join("node.toml").exists()
-                        && !root.0.join("runtime").exists(),
+                    !root.0.join("node.toml").exists() && !root.0.join("runtime").exists(),
                     "shipping {command} performed runtime effects before rejecting {case}"
                 );
             }
@@ -261,10 +274,16 @@ mod shipping_budget_process {
 
     fn fetch_status(address: SocketAddr) -> Option<Value> {
         let mut stream = TcpStream::connect_timeout(&address, Duration::from_millis(200)).ok()?;
-        stream.set_read_timeout(Some(Duration::from_millis(600))).ok()?;
-        stream.set_write_timeout(Some(Duration::from_millis(600))).ok()?;
         stream
-            .write_all(b"GET /v1/chain/status HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .set_read_timeout(Some(Duration::from_millis(600)))
+            .ok()?;
+        stream
+            .set_write_timeout(Some(Duration::from_millis(600)))
+            .ok()?;
+        stream
+            .write_all(
+                b"GET /v1/chain/status HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+            )
             .ok()?;
         let mut response = Vec::new();
         stream.read_to_end(&mut response).ok()?;
