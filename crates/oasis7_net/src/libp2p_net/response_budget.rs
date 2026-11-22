@@ -41,24 +41,26 @@ impl FetchBlobResponseBudget {
         // because a different peer proposed a response that will be rejected.
         self.evict_stale_and_over_capacity(now_ms, None);
 
-        let global = self.global.get_or_insert(ResponseWindow {
-            started_at_ms: now_ms,
-            bytes: 0,
-        });
-        if now_ms.saturating_sub(global.started_at_ms) >= FETCH_BLOB_RESPONSE_WINDOW_MS {
-            *global = ResponseWindow {
+        {
+            let global = self.global.get_or_insert(ResponseWindow {
                 started_at_ms: now_ms,
                 bytes: 0,
-            };
-        }
-        if response_bytes > FETCH_BLOB_GLOBAL_RESPONSE_BYTES_PER_WINDOW.saturating_sub(global.bytes)
-        {
-            return Err(WorldError::NetworkRequestFailed {
-                code: DistributedErrorCode::ErrRateLimited,
-                message: "global fetch-blob response budget exhausted; retry after window reset"
-                    .to_string(),
-                retryable: true,
             });
+            if now_ms.saturating_sub(global.started_at_ms) >= FETCH_BLOB_RESPONSE_WINDOW_MS {
+                *global = ResponseWindow {
+                    started_at_ms: now_ms,
+                    bytes: 0,
+                };
+            }
+            if response_bytes > FETCH_BLOB_GLOBAL_RESPONSE_BYTES_PER_WINDOW.saturating_sub(global.bytes)
+            {
+                return Err(WorldError::NetworkRequestFailed {
+                    code: DistributedErrorCode::ErrRateLimited,
+                    message: "global fetch-blob response budget exhausted; retry after window reset"
+                        .to_string(),
+                    retryable: true,
+                });
+            }
         }
 
         // Preflight the peer's existing in-window usage before changing the
@@ -105,6 +107,7 @@ impl FetchBlobResponseBudget {
         }
 
         window.bytes = window.bytes.saturating_add(response_bytes);
+        let global = self.global.as_mut().expect("global window initialized");
         global.bytes = global.bytes.saturating_add(response_bytes);
         Ok(())
     }
@@ -312,14 +315,16 @@ mod tests {
         // The newcomer has no valid per-peer budget for this response.
         // Previously the cap handler first evicted the victim, then rejected
         // this response, letting that victim incorrectly restart its window.
-        assert!(budget
-            .admit(
-                newcomer,
-                FETCH_BLOB_PROTOCOL,
-                FETCH_BLOB_RESPONSE_BYTES_PER_WINDOW + 1,
-                now,
-            )
-            .is_err());
+        assert!(
+            budget
+                .admit(
+                    newcomer,
+                    FETCH_BLOB_PROTOCOL,
+                    FETCH_BLOB_RESPONSE_BYTES_PER_WINDOW + 1,
+                    now,
+                )
+                .is_err()
+        );
         assert!(!budget.by_peer.contains_key(&newcomer));
         assert!(budget.by_peer.contains_key(&victim));
         assert_eq!(budget.by_peer.len(), FETCH_BLOB_RESPONSE_BUDGET_MAX_PEERS);
