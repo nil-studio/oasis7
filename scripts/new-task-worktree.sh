@@ -16,7 +16,9 @@ usage() {
   cat <<'USAGE'
 Usage: ./scripts/new-task-worktree.sh <module> <task> [options]
 
-Create or attach a standardized git worktree for one task slice.
+Create or attach a standardized git worktree when parallel isolation is needed.
+Check `git worktree list --porcelain` (or `./scripts/worktree-gc-report.sh`) first:
+serial tasks should reuse a clean, unoccupied dev worktree via `git switch -c`.
 New branches require fetching origin/main; existing branches and setup recovery do not.
 
 Default conventions:
@@ -457,19 +459,19 @@ Next:
   cd $TARGET_PATH
 INFO
 
-if [[ "$INIT_DOCS" == "1" ]]; then
-  if [[ "$DOC_PRD_EXISTS" == "1" ]]; then
-    printf '  sed -n '\''1,160p'\'' %s\n' "${DOC_PRD_PATH#$TARGET_PATH/}"
-  else
-    printf '  mkdir -p %s\n' "doc/$MODULE_SLUG"
-    printf '  # create %s\n' "${DOC_PRD_PATH#$TARGET_PATH/}"
-  fi
-else
+if [[ -f "$TARGET_PATH/doc/$MODULE_SLUG/prd.md" ]]; then
   printf '  sed -n '\''1,160p'\'' %s\n' "doc/$MODULE_SLUG/prd.md"
+elif [[ -f "$TARGET_PATH/doc/$MODULE_SLUG/README.md" ]]; then
+  printf '  sed -n '\''1,160p'\'' %s\n' "doc/$MODULE_SLUG/README.md"
+elif [[ -f "$TARGET_PATH/doc/README.md" ]]; then
+  printf '  sed -n '\''1,160p'\'' doc/README.md\n'
 fi
 if [[ "$WITH_HARNESS" == "1" ]]; then
   printf '  ./scripts/worktree-harness.sh status --json\n'
 fi
 cat <<INFO
   git status -sb
+  # Keep <=30 code-file tasks in one branch/PR: checkpoint with local commits, run
+  # ./scripts/cargo-dev.sh ... and python3 scripts/check-local.py --profile quick|affected,
+  # then push in batches (Draft PRs skip heavy CI until marked Ready for review).
 INFO

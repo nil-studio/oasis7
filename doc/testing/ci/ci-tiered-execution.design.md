@@ -524,7 +524,7 @@ affected 的最终 dirty 适配保守合并 base→HEAD、暂存、未暂存和�
 
 **只读与故障。** 仅允许 ignored 构建输出、自有临时目录和显式报告目录；锁定命令的依赖缓存写入须披露。不改源码、锁文件、配置、index 或 ref，不自动安装/升级工具。接线前逐个审计 driver 写集合；必要命令须有真实 check-only 或隔离输出，否则 blocked，不能先写后回滚。缺工具、锁定依赖不可用及禁止联网分别诊断。失败停止依赖步骤，独立检查可继续；取消/超时只清理本次拥有的子进程和临时目录，不删除用户输出。
 
-**共同结果。** text/JSON 来自同一对象，包含 `schema_version`、profile/tier、source/base/policy 或明确的不适用原因、输入/dirty 摘要、实际 planner/driver 版本、选择理由、argv/cwd、非凭据配置、时间、退出码、逐项状态与 reason、预期/实际执行数、日志及未覆盖范围。有效检查数与测试 case 数分列，非测试检查不得虚构测试数量；预期执行测试的项仍须证明实际 case 非零。未选择与必要但 skipped 分开；必要执行数量不可解析为 unknown。运行前确定日志位置，报告写失败不能留下成功摘要。
+**共同结果。** text/JSON 来自同一对象，包含 `schema_version`、profile/tier、source/base/policy 或明确的不适用原因、输入/dirty 摘要、只读 `workflow_advisory`（按[代码文件规模口径](../../engineering/workflow/source-of-truth.md#code-task-file-limit)去重统计代码/纯说明文档变更数、领先基线提交数与当前分支，并在命中 `main` 分支、超过 30 个代码文件、1–2 个代码文件触发重型 CI 或存在未提交/未跟踪改动时给出非阻断的合批与成批推送提醒，`advisory_only=true`，绝不改变 `status`、退出码或 `validated`）、实际 planner/driver 版本、选择理由、argv/cwd、非凭据配置、时间、退出码、逐项状态与 reason、预期/实际执行数、日志及未覆盖范围。有效检查数与测试 case 数分列，非测试检查不得虚构测试数量；预期执行测试的项仍须证明实际 case 非零。未选择与必要但 skipped 分开；必要执行数量不可解析为 unknown。运行前确定日志位置，报告写失败不能留下成功摘要。
 
 | 总状态 | 退出语义 | 判定 |
 | --- | --- | --- |

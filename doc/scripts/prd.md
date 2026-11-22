@@ -178,7 +178,7 @@ Trace refs: O7-REQ-a805d965-b040-44ba-9af1-68ca3c96b2d8；本接口承接同一�
   - fallback 误用：未满足触发条件时拒绝 fallback。
   - worktree 并行：同一分支或同一用户同时开多个 worktree 时，端口、bundle、日志、browser session 与 chain node id 必须按 worktree 隔离，避免互相踩踏。
   - worktree bootstrap：源 worktree 脏、目标路径已存在、目标分支已在其他 worktree 检出或 `<module>/<task>` 为空时，必须阻断并打印修复建议。
-  - bootstrap followups：`--json` 模式下即便开启 `--with-harness`，也不得把 harness 子命令的人类输出混入 JSON；模块文档不存在时只报告缺失，不替用户静默创建空文档。
+  - bootstrap followups：`--json` 模式下即便开启 `--with-harness`，也不得把 harness 子命令的人类输出混入 JSON；模块文档不存在时只报告缺失，不替用户静默创建空文档，人类可读 `Next:` 指引优先指向已存在的模块文档或 `doc/README.md`（不引导直接新建未登记顶层 `doc/<module>/prd.md`），并提示按单分支本地提交、`check-local.py` 验证收敛后成批推送完整 PR。
   - task PR closure（已退役）：早期专用收口脚本及“source 分支落后于 comparison ref 时阻断”规则已退役；现行合入按开发流程规范 §4.2 使用 `gh pr merge --squash --match-head-commit`，`main` 前进或 `BEHIND` 本身不要求 rebase 或重跑 CI。
   - PR review thread：查询、写入或回读确认失败时非零返回，不能把结果不明报为已解决。resolve 只代表线程状态；合入前按开发规范检查当前 PR 和 source HEAD、必要 CI、适用评审、冲突、权限与用户限制。
   - `.pm` rebase conflict helper（已退役）：原辅助入口已随本地 `.pm` 执行器退役，历史实现仅留于 Git history；`.pm/` 既有用户资料按 `.pm/README.md` 保持只读。

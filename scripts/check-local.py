@@ -119,6 +119,115 @@ def requested(argv, name, default=None):
     return default
 
 
+CODE_TASK_FILE_GUIDELINE = 30
+HEAVY_ADVISORY_GROUPS = frozenset((
+    'rust_baseline', 'oasis7_required', 'consensus', 'distfs', 'node', 'net',
+    'workspace_support', 'formal_process', 'viewer_js_required', 'launcher_web',
+))
+
+
+def is_doc_only_path(path):
+    if not path.endswith('.md'):
+        return False
+    return ('/' not in path
+            or path.startswith(('doc/', '.agents/'))
+            or (Path(path).name == 'README.md'
+                and not path.startswith(('.github/', 'crates/', 'scripts/fixtures/',
+                                         'scripts/tests/', 'tests/', 'skills/', 'site/'))))
+
+
+def summarize_task_changes(changes):
+    active_id_for_path = {}
+    latest_path_for_id = {}
+    next_id = 0
+
+    def touch(path, *, force_new=False):
+        nonlocal next_id
+        if force_new or path not in active_id_for_path:
+            file_id = next_id
+            next_id += 1
+            active_id_for_path[path] = file_id
+        else:
+            file_id = active_id_for_path[path]
+        latest_path_for_id[file_id] = path
+
+    for item in changes:
+        if item.get('origin') not in ('committed', 'staged', 'unstaged', 'untracked'):
+            continue
+        status = item.get('status', '')
+        path = item.get('path')
+        if not isinstance(path, str) or not path:
+            continue
+        if status.startswith('R') and isinstance(item.get('old_path'), str) and item['old_path']:
+            file_id = active_id_for_path.pop(item['old_path'], None)
+            if file_id is None:
+                file_id = next_id
+                next_id += 1
+            active_id_for_path[path] = file_id
+            latest_path_for_id[file_id] = path
+        elif status.startswith('C'):
+            touch(path, force_new=path not in active_id_for_path)
+        else:
+            touch(path)
+
+    canonical_paths = sorted(set(latest_path_for_id.values()))
+    doc_files = [path for path in canonical_paths if is_doc_only_path(path)]
+    code_files = [path for path in canonical_paths if not is_doc_only_path(path)]
+    return code_files, doc_files
+
+
+def capture_branch_and_ahead(root, base, head):
+    commits_ahead = int(inputs.git(root, 'rev-list', '--count', f'{base}..{head}').decode().strip())
+    symbolic = subprocess.run(
+        ['git', '-C', str(root), '-c', 'core.fsmonitor=false', 'symbolic-ref', '-q', '--short', 'HEAD'],
+        env=inputs.environment(), capture_output=True, timeout=10,
+    )
+    branch = symbolic.stdout.decode('utf-8', 'replace').strip() if symbolic.returncode == 0 else None
+    return branch or None, commits_ahead
+
+
+def build_workflow_advisory(branch, commits_ahead, summary, result):
+    code_files, doc_files = summarize_task_changes(summary.get('changes', ()))
+    code_count, doc_count = len(code_files), len(doc_files)
+    selected_heavy = sorted({group['name'] for group in result.get('groups', ())
+                             if isinstance(group, dict) and group.get('name') in HEAVY_ADVISORY_GROUPS})
+    reminders = []
+    if branch == 'main':
+        reminders.append(
+            'HEAD is on main; switch to an isolated task branch before committing or pushing (source-of-truth.md §2).'
+        )
+    if code_count > CODE_TASK_FILE_GUIDELINE:
+        reminders.append(
+            f'Changed code files ({code_count}) exceed the {CODE_TASK_FILE_GUIDELINE}-file task guideline; '
+            'check for an independent prerequisite/increment with real split value, or state in the PR why '
+            'keeping the atomic change together is better (advisory only, never a gate).'
+        )
+    if 1 <= code_count <= 2 and (result.get('scope') == 'full' or selected_heavy):
+        heavy_label = 'scope=full' if result.get('scope') == 'full' else ', '.join(selected_heavy)
+        reminders.append(
+            f'Small code change ({code_count} code file(s)) selects heavy CI ({heavy_label}); '
+            'if same-scope migrations or edge-case fixes remain with no downstream blocker waiting, '
+            'batch them on this branch before pushing instead of opening multiple micro-PRs.'
+        )
+    if summary.get('dirty') or summary.get('untracked'):
+        reminders.append(
+            'Worktree has uncommitted or untracked changes; checkpoint internal steps with local commits '
+            'and push in batches once local checks converge to avoid repeated CI cancellations.'
+        )
+    return dict(
+        advisory_only=True,
+        branch=branch,
+        on_main_branch=(branch == 'main'),
+        commits_ahead=commits_ahead,
+        code_file_count=code_count,
+        doc_file_count=doc_count,
+        total_changed_files=code_count + doc_count,
+        code_task_file_guideline=CODE_TASK_FILE_GUIDELINE,
+        exceeds_code_task_guideline=(code_count > CODE_TASK_FILE_GUIDELINE),
+        reminders=reminders,
+    )
+
+
 def report_directory(root, requested_path):
     if requested_path is None:
         return Path(tempfile.mkdtemp(prefix='oasis7-local-check-'))
@@ -651,7 +760,7 @@ def main(argv=None):
                   limitations=['Local results do not replace hosted CI, other platforms or real-world acceptance.',
                                'Unsupported selected groups block the whole execution; no silent narrowing.'])
     start = time.monotonic()
-    before = root = directory = base = None
+    before = root = directory = base = branch = commits_ahead = None
     extra = set()
     try:
         parser = Parser(description=__doc__)
@@ -677,6 +786,7 @@ def main(argv=None):
                       base_source=args.base_ref or 'merge-base(HEAD,local origin/main)')
         before = inputs.capture(root, base)
         result['input'] = dict(before['summary'])
+        branch, commits_ahead = capture_branch_and_ahead(root, base, head)
         if before['summary']['source_sha'] != head or inputs.commit(root, 'refs/remotes/origin/main') != anchor:
             raise Blocked('HEAD or trust anchor changed between baseline resolution and input capture')
         if args.profile == 'formal' and (result['input']['dirty'] or result['input']['untracked']):
@@ -768,6 +878,8 @@ def main(argv=None):
                 unchanged = False
             if not unchanged and result['status'] != 'cancelled':
                 result.update(status='stale_input', exit_code=2, reason=f'Cargo configuration changed: {path}')
+    if before is not None and commits_ahead is not None:
+        result['workflow_advisory'] = build_workflow_advisory(branch, commits_ahead, before['summary'], result)
     if result['status'] != 'passed':
         result['validated'] = False
         for group in result['groups']:
@@ -795,6 +907,12 @@ def main(argv=None):
         print(f"{result['status']}: {result['reason']}")
         print(f"Checks executed: {result['checks_executed']}; test cases: {result['tests_executed']}; "
               f"business test cases: {result['business_tests_executed']}; validated={str(result['validated']).lower()}")
+        advisory = result.get('workflow_advisory')
+        if advisory:
+            print(f"Task scope (advisory): {advisory['code_file_count']} code file(s), "
+                  f"{advisory['doc_file_count']} doc file(s), {advisory['commits_ahead']} commit(s) ahead of base")
+            for reminder in advisory['reminders']:
+                print(f"Advisory: {reminder}")
         print('Full result:')
         print(json.dumps(result, ensure_ascii=True, sort_keys=True, indent=2))
     return result['exit_code']

@@ -17,10 +17,10 @@
 ## 接口 / 数据
 - 脚本路径：`scripts/pre-commit.sh`
 - 运行命令：`./scripts/pre-commit.sh`
-- 执行内容：静默返回成功，不读取或修改暂存区，不调用 `git`、`rustfmt`、`cargo`、`npm`、`ci-tests.sh` 或治理脚本。
-- `./scripts/ci-tests.sh commit` 保留为显式诊断/开发命令，但不由普通 commit 调用，也不是 lifecycle proof。
-- `./scripts/fix-precommit.sh` 依次运行 `env -u RUSTC_WRAPPER cargo fmt --all`、`git add -u` 和 `./scripts/ci-tests.sh commit`；它会更新已跟踪文件的暂存状态，执行前后均应检查 diff。
-- 需要重门禁时由操作者另行显式运行 `./scripts/ci-tests.sh required`；不应通过修复脚本或 legacy hook 隐式触发。
+- 执行内容：静默返回成功，不读取或修改暂存区，不调用 `git`、`rustfmt`、`cargo`、`npm`、`ci-tests.sh` 或治理脚本；开发者可在同一任务分支内用多个本地 commit 低成本记录内部步骤，待显式本地检查收敛后再成批推送到单个完整 PR，避免逐小步高频 push 反复启动并取消远程 CI。
+- 日常按包开发反馈使用 `./scripts/cargo-dev.sh ...`，推送或提 PR 前的只读显式检查使用 `python3 scripts/check-local.py --profile quick` 或 `--profile affected`（含非阻断 `workflow_advisory` 任务文件规模与合批提醒，见 [testing-manual.md](../../../testing-manual.md#local-check-entry)）。`./scripts/ci-tests.sh commit` 保留为显式诊断/开发命令，不由普通 commit 调用，也不是 lifecycle proof。
+- `./scripts/fix-precommit.sh` 依次运行 `env -u RUSTC_WRAPPER cargo fmt --all`、`git add -u` 和 `./scripts/ci-tests.sh commit`；它会修改已跟踪文件和暂存状态并无条件执行 `commit` 诊断清单，执行前后均应检查 diff，不能替代只读 `check-local.py`。
+- 需要显式本地 required 检查时优先按[测试手册本地检查入口](../../../testing-manual.md#local-check-entry)选择 `check-local.py`（或按原合同运行 `./scripts/ci-tests.sh required`）；不应通过修复脚本或 legacy hook 隐式触发。
 - 不另设 frozen-head Pre-PR Ready 或 `claim-ready` 通用准入；实际 required CI 与适用评审要求以开发流程规范和当前保护设置为准，本文不解除任何现行必需检查。
 - 规则归属：
   - 普通 commit no-op 定义：canonical workflow、本文件与 `scripts/pre-commit.sh`
