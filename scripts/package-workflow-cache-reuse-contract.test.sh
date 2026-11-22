@@ -266,8 +266,9 @@ def cache_identity(workflow: str, name: str, non_linux: bool = False) -> dict:
                       body, re.M)
     if image:
         before_cache = body[:cache.start()]
-        if name == "web":
-            assert inputs.get("shared-key") == "ecs-web-ci-rust-build-" + image[1]
+        if name in ("web", "build-web-dist"):
+            prefix = "ecs-web" if name == "web" else "testnet-web"
+            assert inputs.get("shared-key") == prefix + "-ci-rust-build-" + image[1]
             assert inputs.get("save-if") == "false" and inputs.get("cache-on-failure") == "false"
             assert inputs.get("add-rust-environment-hash-key") == "true"
             assert 'cargo +"$RUST_TOOLCHAIN" --version' in before_cache
@@ -443,11 +444,19 @@ assert cache_identity(rust, "newapi-bridge-package") == cache_identity(bridge, "
 web_identity = cache_identity(native_cache, "web-wasm-cache")
 assert web_identity["shared-key"] == "release-packages-web-wasm-trusted-v3"
 for workflow, names in ((release, ("release_gate_web", "build-web-dist")), (mainnet, ("release_gate_web", "build-web-dist")),
-                        (testnet, ("build-web-dist",)),
                         (rust, ("viewer-js-required", "viewer-performance-report"))):
     for name in names:
         assert cache_identity(workflow, name) == web_identity, (name, "Web cache inputs differ")
         assert "save-if: false" in job_body(workflow, name)
+testnet_web_identity = cache_identity(testnet, "build-web-dist")
+testnet_web_build = job_body(testnet, "build-web-dist")
+assert "save-if: false" in testnet_web_build
+if testnet_web_identity["image"]:
+    assert "\ncache-mode: read\n" in testnet
+    assert "    cache-mode: write\n" not in testnet_web_build
+    assert testnet_web_identity["shared-key"] != web_identity["shared-key"]
+else:
+    assert testnet_web_identity == web_identity, "Testnet host Web cache inputs differ"
 ecs_web_identity = cache_identity(ecs, "web")
 assert ecs_web_identity["image"], "ECS web requires the digest-scoped image reader"
 assert ecs_web_identity["shared-key"] != web_identity["shared-key"]
@@ -584,7 +593,10 @@ for workflow, names in ((release, (*native_gates, "release_gate_web", "build-web
         for step in guarded:
             assert f"if: hashFiles('{normalizer}') != ''" in step, name
         assert body.index(f"python3 {normalizer}") < body.index("Swatinem/rust-cache@"), name
-        keeps_wasm_toolchain = name in native_gates or (workflow == ecs and name == "web")
+        keeps_wasm_toolchain = (name in native_gates
+                                or (workflow == ecs and name == "web")
+                                or (workflow == testnet and name == "build-web-dist"
+                                    and testnet_web_identity["image"] is not None))
         for command in re.findall(r"^\s+(?:run: )?python3 scripts/ci-rust-cache-toolchains.py (.*)$", body, re.M):
             assert ('"$OASIS7_WASM_TOOLCHAIN"' in command) == keeps_wasm_toolchain
 

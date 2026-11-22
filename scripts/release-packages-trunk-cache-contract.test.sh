@@ -120,7 +120,16 @@ assert "restore-keys:" not in testnet_cache
 assert run(testnet_install) == expected_install
 assert "actions/cache@" not in testnet_web and "actions/cache/save@" not in testnet_web
 assert "save-if: false" in testnet_web
-assert "shared-key: release-packages-web-wasm-trusted-v3" in testnet_web
+testnet_image = re.search(
+    r"^    container:\n      image: ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:([0-9a-f]{64})$",
+    testnet_web, re.MULTILINE,
+)
+if testnet_image:
+    assert field(testnet_web, "shared-key", 10) == "testnet-web-ci-rust-build-" + testnet_image[1]
+    assert field(testnet_web, "add-rust-environment-hash-key", 10) == "true"
+else:
+    assert "\n    container:" not in testnet_web
+    assert field(testnet_web, "shared-key", 10) == "release-packages-web-wasm-trusted-v3"
 assert "shared-key: testnet-packages-web-wasm-trusted-v2" not in testnet_web
 assert not re.search(r"\bcargo\s+install\s+trunk\b", testnet)
 assert [testnet_web.index(name) for name in (
