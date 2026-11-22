@@ -448,6 +448,44 @@ pub(super) fn check_preparation(
     clock_edge.validate_configuration().unwrap();
     BftCheckpointTrustPolicyV1::decode_canonical(&canonical(&clock_edge)).unwrap();
 
+    // A historical sequence-0 H can be expired when a *separately* approved
+    // renewal becomes possible. Policy/clock validity may start after H expiry:
+    // that must not turn portable configuration preparation into a current-use
+    // authorization gate or permanently block a valid recovery route.
+    for clock_start in [60u64, 70u64] {
+        let mut renewal_after_h = value.clone();
+        renewal_after_h["policy"]["clock_profile"]["time_key_not_before_unix_ms"] =
+            serde_json::json!(clock_start);
+        renewal_after_h["policy"]["clock_profile"]["time_key_expires_at_unix_ms"] =
+            serde_json::json!(100);
+        renewal_after_h["policy"]["clock_profile_digest"] = serde_json::json!(digest(
+            "clock-profile",
+            &renewal_after_h["policy"]["clock_profile"],
+        ));
+        let updated_pin = digest("policy", &renewal_after_h["policy"]);
+        renewal_after_h["policy_digest"] = serde_json::json!(updated_pin);
+        let policy: BftCheckpointTrustPolicyV1 =
+            serde_json::from_value(renewal_after_h["policy"].clone()).unwrap();
+        policy
+            .validate_configuration()
+            .expect("independent renewal still has a common authorization window");
+        let prepared = BftCheckpointTrustConfigV1::decode_and_prepare(
+            &canonical(&renewal_after_h),
+            &updated_pin,
+            &pin,
+            &c0_pin,
+        )
+        .expect("expired original H must remain preparable for independent renewal");
+        assert_eq!(prepared.config().initial_not_before_unix_ms, 20);
+        assert_eq!(prepared.config().initial_expires_at_unix_ms, 60);
+        assert_eq!(
+            prepared.config().policy.clock_profile.time_key_not_before_unix_ms,
+            clock_start,
+        );
+        // Prepared configuration is not a live signing/following permit; the
+        // actual protected UTC, status, issuer and installation are separate.
+    }
+
     // Having enough issuer keys in the policy is not sufficient when their
     // half-open validity windows cannot satisfy the threshold simultaneously.
     // The original root/policy limits also restrict the possible quorum time.
