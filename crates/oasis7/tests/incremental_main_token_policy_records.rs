@@ -378,6 +378,9 @@ mod oracle;
 #[path = "support/incremental_main_token_policy_status_output.rs"]
 mod status_output;
 
+#[path = "support/incremental_main_token_policy_current_grant.rs"]
+mod current_grant;
+
 #[test]
 fn point_and_receiver_skip_unchanged_symbol_across_value_chunks() {
     scaling::exercise_unchanged_symbol(&[
