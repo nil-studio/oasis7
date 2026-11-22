@@ -60,6 +60,7 @@ class Contracts(unittest.TestCase):
             binary = bundle / 'test'
             binary.write_text('#!' + sys.executable + '\nimport os\n'
                               'print("OBSERVED_LIMIT=" + os.environ["OASIS7_STORAGE_INVENTORY_ENTRY_LIMIT"])\n'
+                              'print("OBSERVED_CLOSURE=" + os.environ["OASIS7_FORMAL_CLOSURE_DIAGNOSTICS"])\n'
                               "print('STORAGE_FULL_NODE_REPORT={\"status\":\"partial\"}')\n"
                               'print("test result: ok. 1 passed; 0 failed; 0 ignored;")\n')
             binary.chmod(0o755)
@@ -80,6 +81,7 @@ class Contracts(unittest.TestCase):
             self.assertEqual(report['inventory_entry_limit'], 10_000_000)
             self.assertFalse(report['passed'])
             self.assertIn('OBSERVED_LIMIT=10000000', (args.results_dir / report['results'][0]['log']).read_text())
+            self.assertIn('OBSERVED_CLOSURE=1', (args.results_dir / report['results'][0]['log']).read_text())
 
     def test_only_capacity_long_overrides_logical_budget(self):
         workflow = (HERE.parent / '.github/workflows/storage-acceptance.yml').read_text()

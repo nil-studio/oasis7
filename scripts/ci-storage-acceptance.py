@@ -249,6 +249,7 @@ def execute(args):
         env.setdefault('OASIS7_STORAGE_MAX_SECONDS', '18000')
         env.setdefault('OASIS7_STORAGE_PROGRESS_INTERVAL', '100')
     if args.group == 'full-node':
+        env['OASIS7_FORMAL_CLOSURE_DIAGNOSTICS'] = '1'
         env['OASIS7_STORAGE_INVENTORY_ENTRY_LIMIT'] = str(entry_limit)
     marker = uuid.uuid4().hex
     env['OASIS7_STORAGE_SAMPLE_OWNER'] = marker

@@ -28,6 +28,30 @@ pub(crate) struct ClosureJob {
     complete: bool,
     retiring_scratch: bool,
     started: bool,
+    pages: u64,
+    visited_nodes: u64,
+    retirement_pages: u64,
+    diagnostics: ClosureDiagnostics,
+}
+
+// Observational only: no cursor or receipt authority is recovered from logs.
+struct ClosureDiagnostics {
+    enabled: bool,
+    last: Option<(std::time::Instant, &'static str)>,
+}
+impl ClosureDiagnostics {
+    fn due(&mut self, now: std::time::Instant, phase: &'static str) -> bool {
+        if !self.enabled {
+            return false;
+        }
+        if self.last.is_some_and(|(last, old)| {
+            old == phase && now.saturating_duration_since(last) < std::time::Duration::from_secs(10)
+        }) {
+            return false;
+        }
+        self.last = Some((now, phase));
+        true
+    }
 }
 
 // Diagnostic scratch is never a durable authority. The append-only hashes
@@ -336,6 +360,14 @@ impl ClosureJob {
             complete: false,
             retiring_scratch: false,
             started: false,
+            pages: 0,
+            visited_nodes: 0,
+            retirement_pages: 0,
+            diagnostics: ClosureDiagnostics {
+                enabled: std::env::var_os("OASIS7_FORMAL_CLOSURE_DIAGNOSTICS").as_deref()
+                    == Some(std::ffi::OsStr::new("1")),
+                last: None,
+            },
         };
         for (id, expected) in raw {
             let bytes = store.published_local_read_once(&id, &sync_markers)?;
@@ -347,6 +379,67 @@ impl ClosureJob {
         Ok(job)
     }
     pub(crate) fn advance(
+        &mut self,
+        store: &Store,
+        proof_digest: &str,
+    ) -> Result<Option<FormalPublishedClosureReceiptV1>, FormalError> {
+        self.pages = self.pages.saturating_add(1);
+        let result = self.advance_page(store, proof_digest);
+        let phase = self.progress_phase();
+        if self.diagnostics.due(std::time::Instant::now(), phase) {
+            eprintln!(
+                "formal_closure_progress job={} candidate={} proof={} phase={phase} pages={} native_index={} native_total={} native_chunks={} root_index={} roots_total={} visited_nodes={} unique_objects={} logical_bytes={} retirement_pages={} result={}",
+                self.seen
+                    .root
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy(),
+                self.report.candidate_digest,
+                self.proof_digest,
+                self.pages,
+                self.native_index,
+                self.native.len(),
+                self.native
+                    .iter()
+                    .map(|job| job.verified_chunks())
+                    .sum::<u64>(),
+                self.root,
+                self.roots.len(),
+                self.visited_nodes,
+                self.report.logical_objects,
+                self.report.logical_bytes,
+                self.retirement_pages,
+                if result.is_err() { "error" } else { "ok" },
+            );
+        }
+        result
+    }
+    #[cfg(test)]
+    pub(crate) fn progress_for_test(&self) -> (&'static str, [u64; 6]) {
+        (
+            self.progress_phase(),
+            [
+                self.pages,
+                self.visited_nodes,
+                self.retirement_pages,
+                self.root as u64,
+                self.native_index as u64,
+                self.report.logical_objects,
+            ],
+        )
+    }
+    fn progress_phase(&self) -> &'static str {
+        if self.complete {
+            "complete"
+        } else if self.retiring_scratch {
+            "retiring"
+        } else if self.native_index < self.native.len() {
+            "native"
+        } else {
+            "rootwalk"
+        }
+    }
+    fn advance_page(
         &mut self,
         store: &Store,
         proof_digest: &str,
@@ -379,6 +472,7 @@ impl ClosureJob {
         loop {
             if self.root == self.roots.len() {
                 self.retiring_scratch = true;
+                self.retirement_pages = self.retirement_pages.saturating_add(1);
                 // Scratch reclamation is also paged. Dropping an interrupted
                 // job releases its lock; later jobs scavenge bounded pages.
                 if !self.seen.clean_page()? {
@@ -415,6 +509,7 @@ impl ClosureJob {
             let bytes = store.published_local_read_once(&id, &self.seen.root.join("fsync-v1"))?;
             read_bytes += bytes.len();
             nodes += 1;
+            self.visited_nodes = self.visited_nodes.saturating_add(1);
             self.account(&id, &bytes)?;
             match BusinessIndexNodeV1::decode(&bytes).map_err(invalid)?.kind {
                 BusinessIndexNodeKindV1::Branch {
@@ -842,6 +937,76 @@ fn collect(
 #[cfg(all(test, unix))]
 mod scratch_tests {
     use super::*;
+    #[test]
+    fn closure_diagnostics_are_opt_in_and_time_bounded_between_phases() {
+        let start = std::time::Instant::now();
+        let mut diagnostics = ClosureDiagnostics {
+            enabled: false,
+            last: None,
+        };
+        assert!(!diagnostics.due(start, "native"));
+        assert!(diagnostics.last.is_none());
+        diagnostics.enabled = true;
+        assert!(diagnostics.due(start, "native"));
+        assert!(!diagnostics.due(start + std::time::Duration::from_secs(9), "native"));
+        assert!(diagnostics.due(start + std::time::Duration::from_secs(10), "native"));
+        assert!(diagnostics.due(start + std::time::Duration::from_secs(10), "rootwalk"));
+        assert!(!diagnostics.due(start + std::time::Duration::from_secs(19), "rootwalk"));
+        assert!(diagnostics.due(start + std::time::Duration::from_secs(19), "retiring"));
+        assert!(diagnostics.due(start + std::time::Duration::from_secs(19), "complete"));
+    }
+
+    #[test]
+    fn closure_scratch_retirement_makes_bounded_progress_until_complete() {
+        let parent = std::env::temp_dir().join(format!(
+            "oasis7-closure-retirement-{}",
+            crate::controlled_authority::fencing::fresh_challenge().unwrap()
+        ));
+        fs::create_dir(&parent).unwrap();
+        let root = parent.join(blake3::hash(b"retiring-job").to_hex().as_str());
+        fs::create_dir(&root).unwrap();
+        let lock = Seen::lock(&root, true).unwrap().unwrap();
+        let mut seen = Seen {
+            root: root.clone(),
+            _lock: lock,
+            cleanup: None,
+            garbage: None,
+        };
+        let sync = root.join("fsync-v1");
+        fs::create_dir(&sync).unwrap();
+        for index in 0u32..769 {
+            let id = blake3::hash(&index.to_be_bytes()).to_hex().to_string();
+            assert!(seen.insert(&id).unwrap());
+            fs::write(sync.join(format!("physical-1-{index}")), b"").unwrap();
+        }
+        let count = || {
+            if !root.exists() {
+                return 0;
+            }
+            fs::read_dir(&root).unwrap().count()
+                + if sync.exists() {
+                    fs::read_dir(&sync).unwrap().count()
+                } else {
+                    0
+                }
+        };
+        let mut remaining = count();
+        for page in 0..16 {
+            let complete = seen.clean_page().unwrap();
+            let next = count();
+            assert!(next < remaining, "retirement page {page} made no progress");
+            // One page deletes at most 256 markers plus directory/lock entries.
+            assert!(remaining - next <= 259, "retirement page exceeded its cap");
+            if complete {
+                assert_eq!(next, 0);
+                fs::remove_dir(&parent).unwrap();
+                return;
+            }
+            remaining = next;
+        }
+        panic!("finite closure scratch did not retire in bounded pages");
+    }
+
     #[test]
     fn closure_disk_seen_reclaims_in_pages_and_never_scavenges_live_jobs() {
         let parent = std::env::temp_dir().join(format!(
