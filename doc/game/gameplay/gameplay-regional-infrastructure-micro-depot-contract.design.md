@@ -2,7 +2,7 @@
 
 - 对应需求文档: `doc/game/gameplay/gameplay-regional-infrastructure-micro-depot-contract.prd.md`
 - 可变执行状态: 对应 GitHub Project task 与 issue evidence comments
-- 对应任务证据: GitHub issue / task `task_3c55fc4c17ea44aa850adf7a6a4463f4`；退役前 `.pm/tasks/*` execution log 仅通过 `.pm/github-project-sync/task-archive.jsonl` 作 migration/audit 追溯
+- 对应任务证据: GitHub issue / task `task_3c55fc4c17ea44aa850adf7a6a4463f4`；退役前 `.pm/tasks/*` execution log 仅通过 [固定版本归档](https://github.com/nil-studio/oasis7/blob/4d8c742a9f5eca75c02a4156678d71ccc7e87d53/.pm/github-project-sync/task-archive.jsonl) 作 migration/audit 追溯
 - 关联玩法真值:
   - `doc/game/gameplay/gameplay-agent-claim-economy-contract.prd.md`
   - `doc/product/world-rules-core-gameplay/prd.md`（产品承诺）与 `doc/game/gameplay/gameplay-top-level-design.prd.md`（玩法合同）

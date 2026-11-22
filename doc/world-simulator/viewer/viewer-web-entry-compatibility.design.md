@@ -1,7 +1,7 @@
 # Viewer Web Entry Compatibility 设计
 
 - 对应需求文档: `doc/world-simulator/viewer/viewer-web-entry-compatibility.prd.md`
-- 已完成的实施追溯见 GitHub task issue evidence comments 与 `.pm/github-project-sync/task-archive.jsonl`。
+- 已完成的实施追溯见 GitHub task issue evidence comments 与 [固定版本归档](https://github.com/nil-studio/oasis7/blob/4d8c742a9f5eca75c02a4156678d71ccc7e87d53/.pm/github-project-sync/task-archive.jsonl)。
 
 审计轮次: 3
 

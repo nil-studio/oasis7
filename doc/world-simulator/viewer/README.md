@@ -104,7 +104,7 @@
 ### 已吸收的旧 Viewer 实现追溯
 
 - EGUI 右侧面板、Chat IME 桥接、Chat Web 锁重入和产业图谱语义缩放共八份旧文档已退役。有效输入要求进入手册、semantic test API 与 Agent 对话/Prompt 产品专题；稳定性进入 Web Build Truth；产业关系与空间层级目标进入 Player-readable World Stage 和 Pixel-world player-readable rendering。
-- 固定历史基线为 `25fbcd7cf590c5e1b1248119d407cc7c34e8e634`（第三轮复审 main，含 PR #4154）。可用 `git show <该OID>:doc/world-simulator/viewer/<旧文件名>` 读取原文：`viewer-egui-right-panel`、`viewer-chat-ime-egui-bridge`、`viewer-chat-web-deadlock-resolution`、`viewer-industry-graph-semantic-zoom`，各含 `.prd.md` 与 `.design.md`；原任务/截图/实施证据从 GitHub task issue evidence 和 `.pm/github-project-sync/task-archive.jsonl` 追溯。固定基线是历史证据，不声明当前实现或全场景验收通过。
+- 固定历史基线为 `25fbcd7cf590c5e1b1248119d407cc7c34e8e634`（第三轮复审 main，含 PR #4154）。可用 `git show <该OID>:doc/world-simulator/viewer/<旧文件名>` 读取原文：`viewer-egui-right-panel`、`viewer-chat-ime-egui-bridge`、`viewer-chat-web-deadlock-resolution`、`viewer-industry-graph-semantic-zoom`，各含 `.prd.md` 与 `.design.md`；原任务/截图/实施证据从 GitHub task issue evidence 和 [固定版本归档](https://github.com/nil-studio/oasis7/blob/4d8c742a9f5eca75c02a4156678d71ccc7e87d53/.pm/github-project-sync/task-archive.jsonl) 追溯。固定基线是历史证据，不声明当前实现或全场景验收通过。
 
 ### 6. release / 体验收口
 - 首读入口:
@@ -135,7 +135,7 @@
 
 ## 定向检索边界
 - 已知准确文件名时，直接查 `../prd.index.md`；本页不替代完整索引。
-- 旧 2026-03-11 模块状态 closure / viewer-to-producer handoff 文档已退役删除；当前 Viewer 合同以本目录 PRD/design/manual 为准，活跃任务状态与历史专题从 `../prd.index.md`、PR、实际 CI 与评审记录（Issue 按需） 与 `.pm/github-project-sync/task-archive.jsonl` 进入。
+- 旧 2026-03-11 模块状态 closure / viewer-to-producer handoff 文档已退役删除；当前 Viewer 合同以本目录 PRD/design/manual 为准，活跃任务状态与历史专题从 `../prd.index.md`、PR、实际 CI 与评审记录（Issue 按需） 与 [固定版本归档](https://github.com/nil-studio/oasis7/blob/4d8c742a9f5eca75c02a4156678d71ccc7e87d53/.pm/github-project-sync/task-archive.jsonl) 进入。
 - 如果某个主题已经出现“主文档物理合并”，应优先进入主文档，而不是从旧阶段文档开始；release immersion phase2~10 的历史追溯从主文档、`../prd.index.md` 历史说明、core review logs、git history 与 PR、实际 CI 与评审记录（Issue 按需） 进入。
 
 ## 维护约定

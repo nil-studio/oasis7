@@ -41,7 +41,7 @@
   - SC-9: `run-launcher-stack.sh`、`run-producer-playtest.sh` 与新的 worktree harness 主入口必须支持“每个 git worktree 一套独立端口、独立 bundle、独立日志 / 产物目录、独立浏览器 session”的隔离执行，不再默认复用全局端口与全局 bundle 目录。
   - SC-10: 提供可选的标准 worktree 创建入口，统一命名、路径和失败恢复；开发在独立分支进行，隔离需要按实际任务决定。
   - SC-12C: 提供按需使用的 PR review-thread 工具，查询实际线程，或在显式指定 PR 和线程范围后执行 resolve 并回读结果；合入条件由[开发流程规范](../engineering/workflow/source-of-truth.md#42-评审与合入)统一定义。
-  - SC-12D: 仓库必须提供 `.pm` rebase 冲突辅助入口，在 branch 跟进最新 `main` 时统一报告 `.pm/**` 未合并路径；`.pm/inbox/signals.jsonl` 已退休，命中时只能提示删除退休文件或人工归档，git-ignored 本地视图冲突只能提示“保留 `main` 删除并重建”，不能回退到人工恢复共享视图文件。
+  - SC-12D（已退役）: 早期 `.pm` rebase 冲突辅助入口（原 `rebase-conflict-helper.sh` / `sync-views.sh`）已随本地 `.pm` 执行器一起退役，历史实现仅保留于 Git history；当前开发与交付统一遵循[开发流程规范](../engineering/workflow/source-of-truth.md)，`.pm/` 仅作只读历史资料保留。
   - SC-13: 资源清理独立于代码交付，保留 dirty、未合入、使用中与身份不明的资源。
   - SC-13A: 只读 worktree 报告汇总 Git 注册、HEAD、文件状态、main 可达性与体积，不读取 PM/PR 状态决定资格，也不输出删除建议。
   - SC-14: 分支与资源保护遵循开发流程规范，脚本不增加逐请求工作区许可。
@@ -82,7 +82,7 @@
   3. Flow-SCR-003: `常规链路无法复现 -> 触发 fallback 工具 -> 采集诊断证据`
   4. Flow-SCR-004: `new-task-worktree.sh <module> <task> -> 创建 codex/<module>-<task> 分支和 worktree -> setup；失败保留 -> --resume-setup 补齐缺失步骤`
   6B. Flow-SCR-006B: 按需运行 `pr-review-thread-closeout.sh [pr-number] --unresolved-only` 查询线程 → 处理实际反馈 → 显式指定 PR，运行 `pr-review-thread-closeout.sh <pr-number> --resolve-thread <id>` 或 `pr-review-thread-closeout.sh <pr-number> --resolve-all-unresolved` → 回读线程及本次结果。合入前另按开发规范核对当前候选，不以线程数量代替合入判断。
-  6C. Flow-SCR-006C: `git rebase origin/main -> 命中 .pm/** 冲突 -> rebase-conflict-helper.sh --json -> 若命中 retired signal inbox 则删除退休文件或人工归档 -> 若命中 registry/backlog 视图则保留 main 删除并执行 sync-views -> 其余 canonical task/memory/stage 冲突人工处理`
+  6C. Flow-SCR-006C（已退役）: 早期 `.pm/**` rebase 冲突辅助流程已随本地 `.pm` 执行器退役；当前仅保留 Git history 参考。
   7. Flow-SCR-007: `确定独立分支与隔离需求 -> 保留已有工作 -> 实施与验证 -> 正常受保护 PR 合入`
   8. Flow-SCR-008: `cargo-dev.sh check/test/run -> 使用 Cargo 原生 target 解析 -> 应用本地开发 profile 与可用 sccache -> 执行 cargo`
   9. Flow-SCR-009: `local smoke / regression / drill script -> source cargo-dev-lib.sh -> 调用 oasis7_cargo_dev build/test/run -> 本地使用当前 worktree 的 target；CI 或显式 raw 环境跳过开发 profile`
@@ -95,7 +95,7 @@
 | fallback 规则 | 触发条件、替代脚本、产物要求 | 满足条件后才允许 fallback | `normal -> fallback -> diagnosed` | 常规链路优先 | 仅排障场景允许触发 |
 | 标题品牌治理 | 标题前缀、适用专题、兼容命名说明 | 将脚本治理专题标题统一切到 `oasis7` | `legacy_title -> oasis7_title -> audited` | 先改治理主入口，再改周边专题 | owner 可改，治理门禁复核 |
 | worktree-isolated harness | `worktree_id`、端口组、状态文件、bundle 根目录、artifact 根目录、browser session | 通过单一 harness 入口执行 `up/down/status/url/logs/smoke` | `idle -> booting -> ready -> verifying -> torn_down` | 先按 worktree 生成稳定身份，再为该 worktree 派生 bundle / port / output | `qa_engineer` 维护主入口，runtime/viewer 协同实现 |
-| `.pm` rebase conflict helper | `rebase_in_progress`、`summary.total_conflicted_paths`、`summary.retired_signal_conflicts`、`summary.generated_view_conflicts`、`summary.manual_conflicts`、`conflicts[].category`、`conflicts[].recommended_action`、`resolved_now` | 在 active rebase 中只读分类 `.pm/**` 未合并路径；不自动修复任何 `.pm/**` 路径 | `rebase_conflicted -> classified -> manual_resolution_pending` | `.pm/inbox/signals.jsonl` 已退休，命中时只提示删除退休文件或人工归档；`.pm/registry/tasks.yaml` 与 `.pm/roles/*/backlog/*.yaml` 只提示保留 `main` 删除并执行 `sync-views.sh` | `producer_system_designer` / `qa_engineer` 可读，scripts owner 维护入口 |
+| `.pm` rebase conflict helper（已退役） | 历史只读分类接口 | 已随本地 `.pm` 执行器退役，不再维护活跃脚本入口 | `retired` | 历史实现见 Git history；`.pm/` 按 `.pm/README.md` 保留为只读历史资料 | 不适用（已退役） |
 | PR review thread 工具 | 目标 PR、线程与统计、本次已核实 resolve 的 ID | 默认只读查询；显式指定 PR 和线程范围后 resolve，并回读验证 | 使用 GitHub 线程的实际 resolved/outdated 状态 | 查询可取当前分支关联 PR；`--resolve-all-unresolved` 只处理本轮查询到的 unresolved threads | 沿用实际 GitHub 读写权限及任务授权，scripts owner 维护入口 |
 - Acceptance Criteria:
   - AC-1: scripts PRD 明确脚本分类、入口、约束。
@@ -182,7 +182,7 @@ Trace refs: O7-REQ-a805d965-b040-44ba-9af1-68ca3c96b2d8；本接口承接同一�
   - bootstrap followups：`--json` 模式下即便开启 `--with-harness`，也不得把 harness 子命令的人类输出混入 JSON；模块文档不存在时只报告缺失，不替用户静默创建空文档。
   - task PR closure：若 base branch 缺少本地/远端 ref、source 分支落后于 comparison ref、`gh` 不可用，或 `--create` 时 push/PR create 失败，脚本只中断并保留现场，不擅自修改 `main` 或删除 branch/worktree。
   - PR review thread：查询、写入或回读确认失败时非零返回，不能把结果不明报为已解决。resolve 只代表线程状态；合入前按开发规范检查当前 PR 和 source HEAD、必要 CI、适用评审、冲突、权限与用户限制。
-  - `.pm` rebase conflict helper：helper 不自动修复任何 `.pm/**` 路径；若冲突来自 retired signal inbox、工作说明或按需 Issue mapping / archive、memory、stage 或其他 canonical 对象，脚本只能分类并提示删除/人工归档/人工处理，不得擅自重写真值。
+  - `.pm` rebase conflict helper（已退役）：原辅助入口已随本地 `.pm` 执行器退役，历史实现仅留于 Git history；`.pm/` 既有用户资料按 `.pm/README.md` 保持只读。
   - resource cleanup：从目标外运行，明确 repo/path/branch/expected HEAD；先正常 fetch 更新基线，停止已知使用者。资料或占用不明时保留。
   - worktree report：missing/prunable/locked、dirty/untracked/ignored 与不可读原因按事实报告，不隐式修改资源。
   - local cargo target：默认使用各 worktree 内的 `target/`，固定路径工作区复用自身产物；跨 worktree 只通过 sccache 复用支持的编译结果。不设置外部 namespace、租约、缓存登记或自动回收。deterministic wasm / release 脚本若要求 `CARGO_TARGET_DIR` 为空，必须继续走原始 cargo 入口而不是 `cargo-dev.sh`。
