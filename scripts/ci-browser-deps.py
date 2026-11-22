@@ -330,6 +330,41 @@ def install_tools():
         check_tools('agent')
 
 
+CHROME_EXIT_DRAIN_SECONDS = 2.0
+
+
+def chrome_launch_command(chrome, profile_dir, marker, *, drain_seconds=CHROME_EXIT_DRAIN_SECONDS):
+    """Run headless Chrome under a Linux child subreaper so normal async teardown finishes before exit."""
+    probe = (
+        "import ctypes, os, subprocess, sys, time\n"
+        "PR_SET_CHILD_SUBREAPER = 36\n"
+        "libc = ctypes.CDLL(None, use_errno=True)\n"
+        "if libc.prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0) != 0:\n"
+        "    raise OSError(ctypes.get_errno(), 'prctl(PR_SET_CHILD_SUBREAPER) failed')\n"
+        "drain_seconds = float(sys.argv[1])\n"
+        "proc = subprocess.Popen(sys.argv[2:])\n"
+        "code = proc.wait()\n"
+        "deadline = time.monotonic() + drain_seconds\n"
+        "while True:\n"
+        "    try:\n"
+        "        pid, _ = os.waitpid(-1, os.WNOHANG)\n"
+        "    except ChildProcessError:\n"
+        "        break\n"
+        "    if pid == 0:\n"
+        "        if time.monotonic() >= deadline:\n"
+        "            break\n"
+        "        time.sleep(0.02)\n"
+        "raise SystemExit(code)\n"
+    )
+    return [
+        sys.executable, '-c', probe, f'{drain_seconds:g}',
+        str(chrome), '--headless', '--no-sandbox', '--disable-dev-shm-usage',
+        '--disable-crash-reporter', '--disable-gpu',
+        '--user-data-dir=' + str(profile_dir), '--dump-dom',
+        f'data:text/html,<body>{marker}</body>',
+    ]
+
+
 def activate(browser, work, github_env=None, *, prebuilt=False):
     require_platform()
     work = safe_path(work)
@@ -351,9 +386,8 @@ def activate(browser, work, github_env=None, *, prebuilt=False):
         if actual != f'Google Chrome for Testing {CHROME_VERSION}':
             raise BrowserError('Chrome executable version mismatch')
         marker = 'oasis7-ci-browser-ready'
-        dom = checked_command([str(chrome), '--headless', '--no-sandbox', '--disable-dev-shm-usage',
-                               '--user-data-dir=' + str(work / 'probe-profile'), '--dump-dom',
-                               f'data:text/html,<body>{marker}</body>'], work, 'chrome-launch', 30)
+        dom = checked_command(chrome_launch_command(chrome, work / 'probe-profile', marker),
+                              work, 'chrome-launch', 30)
         if f'<body>{marker}</body>' not in dom:
             raise BrowserError('Chrome renderer probe did not return the expected document')
         values = dict(AGENT_BROWSER_BIN=str(agent), AGENT_BROWSER_EXECUTABLE_PATH=str(chrome))

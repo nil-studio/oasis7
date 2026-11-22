@@ -59,7 +59,7 @@
 <a id="des-economic-power-ledger"></a>
 ### 贡献形成受限协议资产账本
 
-Trace refs: O7-REQ-c0f136a1-3baf-497e-a0ec-622e745024d0；[专业接受](node-redeemable-power-asset.prd.md#economic-contract-power-ledger) / [产品唯一声明](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-power-ledger)。
+Trace refs: O7-REQ-c0f136a1-3baf-497e-a0ec-622e745024d0；[专业接受](node-redeemable-power-asset.prd.md#economic-contract-power-ledger) / [产品唯一声明](../../product/world-rules-core-gameplay/node-economy-contract-reception.prd.md#req-wr-economic-power-ledger)。
 
 PowerCredit保持不可直接转账的受限协议资产；按原积分换算和mint记录形成可追溯余额，不扩展通用交易市场。
 
@@ -68,7 +68,7 @@ PowerCredit保持不可直接转账的受限协议资产；按原积分换算和
 <a id="des-economic-power-redemption"></a>
 ### 全部条件成立才燃烧资产并增加目标电力
 
-Trace refs: O7-REQ-a061488d-5b14-489a-af77-ed3f6f75f1bb；[专业接受](node-redeemable-power-asset.prd.md#economic-contract-power-redemption) / [产品唯一声明](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-power-redemption)。
+Trace refs: O7-REQ-a061488d-5b14-489a-af77-ed3f6f75f1bb；[专业接受](node-redeemable-power-asset.prd.md#economic-contract-power-redemption) / [产品唯一声明](../../product/world-rules-core-gameplay/node-economy-contract-reception.prd.md#req-wr-economic-power-redemption)。
 
 兑换沿原余额、nonce、最小量、epoch储备与上限条件；成功须扣资产、扣储备与增加指定Agent电力一致，失败不得伪装兑付成功。
 
@@ -77,7 +77,7 @@ Trace refs: O7-REQ-a061488d-5b14-489a-af77-ed3f6f75f1bb；[专业接受](node-re
 <a id="des-economic-power-signature"></a>
 ### 签名治理条件不足必须拒绝
 
-Trace refs: O7-REQ-85c5baeb-e05a-4924-9024-e05f1903bd2a；[专业接受](node-redeemable-power-asset.prd.md#economic-contract-power-signature) / [产品唯一声明](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-power-signature)。
+Trace refs: O7-REQ-85c5baeb-e05a-4924-9024-e05f1903bd2a；[专业接受](node-redeemable-power-asset.prd.md#economic-contract-power-signature) / [产品唯一声明](../../product/world-rules-core-gameplay/node-economy-contract-reception.prd.md#req-wr-economic-power-signature)。
 
 v1仅历史可重算摘要；v2与兑换签名依既有治理策略和绑定执行，缺少密钥、绑定或所需策略条件时fail closed。
 
@@ -86,7 +86,7 @@ v1仅历史可重算摘要；v2与兑换签名依既有治理策略和绑定执�
 <a id="des-economic-power-audit"></a>
 ### 审计与恢复检测异常而不自动修复
 
-Trace refs: O7-REQ-9804d9d7-2c75-475f-b321-5c4ed36276b5；[专业接受](node-redeemable-power-asset.prd.md#economic-contract-power-audit) / [产品唯一声明](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-power-audit)。
+Trace refs: O7-REQ-9804d9d7-2c75-475f-b321-5c4ed36276b5；[专业接受](node-redeemable-power-asset.prd.md#economic-contract-power-audit) / [产品唯一声明](../../product/world-rules-core-gameplay/node-economy-contract-reception.prd.md#req-wr-economic-power-audit)。
 
 mint/burn/balance/record与快照/replay保持一致；invariant report用于检测而非自动修复，旧快照可读取不免除签名策略与报告复核。
 

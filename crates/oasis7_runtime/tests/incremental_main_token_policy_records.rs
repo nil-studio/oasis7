@@ -1,5 +1,5 @@
 #![cfg(all(unix, not(target_arch = "wasm32")))]
-#[path = "support/incremental_main_token_policy_fixture.rs"]
+#[path = "../../oasis7/tests/support/incremental_main_token_policy_fixture.rs"]
 mod incremental_main_token_policy_fixture;
 use incremental_main_token_policy_fixture::{ctx, physical, scan, source, state_error};
 use oasis7_distfs::incremental_page_store::{IncrementalPageStore, PageCompression};
@@ -12,7 +12,7 @@ use oasis7_runtime::{
     incremental_main_token_policy_records::*,
 };
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../../oasis7/tests/support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, logical};
 
@@ -360,7 +360,7 @@ mod operations;
 #[path = "support/incremental_main_token_policy_faults.rs"]
 mod faults;
 
-#[path = "support/incremental_main_token_policy_scaling.rs"]
+#[path = "../../oasis7/tests/support/incremental_main_token_policy_scaling.rs"]
 mod scaling;
 
 #[path = "support/incremental_main_token_policy_pages.rs"]

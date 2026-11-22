@@ -208,7 +208,7 @@ EpochSettlementReport {
 <a id="economic-contract-points-eligibility"></a>
 ### 基础义务与合格额外贡献分离的既有专业接受关系
 
-Trace refs: O7-REQ-118e8c96-669b-4b11-bbec-a32831803e16；唯一声明：[世界规则根结果](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-points-eligibility)。
+Trace refs: O7-REQ-118e8c96-669b-4b11-bbec-a32831803e16；唯一声明：[世界规则根结果](../../product/world-rules-core-gameplay/node-economy-contract-reception.prd.md#req-wr-economic-points-eligibility)。
 
 - 原义务：SC-1..3、贡献输入与计分公式；为自身 Agent 模拟是基础义务，不直接获奖励；代跑离线节点、世界维护、有效存储和合格在线仅按原专业规则进入积分计算。
 - 原验证入口：[本文件验证与决策记录](#6-validation--decision-record)；具体业务场景仍按本文件第4章与原AC，不以§6文档迁移检查代签业务测试。
@@ -217,7 +217,7 @@ Trace refs: O7-REQ-118e8c96-669b-4b11-bbec-a32831803e16；唯一声明：[世界
 <a id="economic-contract-points-allocation"></a>
 ### 固定双池的确定性且不重复分配的既有专业接受关系
 
-Trace refs: O7-REQ-1bd30efb-22b7-403e-94f6-fe0a2efde4a2；唯一声明：[世界规则根结果](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-points-allocation)。
+Trace refs: O7-REQ-1bd30efb-22b7-403e-94f6-fe0a2efde4a2；唯一声明：[世界规则根结果](../../product/world-rules-core-gameplay/node-economy-contract-reception.prd.md#req-wr-economic-points-allocation)。
 
 - 原义务：AC-9、独立存储奖励池与结算合并规则；两个固定 epoch 池分别按原合格正得分分配，独立存储池启用时主池排除存储权重；允许未分配余额，保持守恒、排序、惩罚效果和累计单调。
 - 原验证入口：[本文件验证与决策记录](#6-validation--decision-record)；具体业务场景仍按本文件第4章与原AC，不以§6文档迁移检查代签业务测试。
@@ -226,7 +226,7 @@ Trace refs: O7-REQ-1bd30efb-22b7-403e-94f6-fe0a2efde4a2；唯一声明：[世界
 <a id="economic-contract-points-recovery"></a>
 ### epoch结算与恢复不重复入账的既有专业接受关系
 
-Trace refs: O7-REQ-54617172-fa9b-4efe-a058-b327ce348407；唯一声明：[世界规则根结果](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-points-recovery)。
+Trace refs: O7-REQ-54617172-fa9b-4efe-a058-b327ce348407；唯一声明：[世界规则根结果](../../product/world-rules-core-gameplay/node-economy-contract-reception.prd.md#req-wr-economic-points-recovery)。
 
 - 原义务：AC-7、Runtime 与多节点闭环约束；同一 epoch/node 结算幂等；采样或快照写入不直接增加奖励，恢复、重复tick与replay只能复现结果；不可读collector状态须可观测降级，不是资产对账成功。
 - 原验证入口：[本文件验证与决策记录](#6-validation--decision-record)；具体业务场景仍按本文件第4章与原AC，不以§6文档迁移检查代签业务测试。
@@ -235,7 +235,7 @@ Trace refs: O7-REQ-54617172-fa9b-4efe-a058-b327ce348407；唯一声明：[世界
 <a id="economic-contract-points-asset-gates"></a>
 ### 积分与独立资产路径保持门禁的既有专业接受关系
 
-Trace refs: O7-REQ-45b12bd9-9d07-4bbf-86bc-2a85af07d5f5；唯一声明：[世界规则根结果](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-points-asset-gates)。
+Trace refs: O7-REQ-45b12bd9-9d07-4bbf-86bc-2a85af07d5f5；唯一声明：[世界规则根结果](../../product/world-rules-core-gameplay/node-economy-contract-reception.prd.md#req-wr-economic-points-asset-gates)。
 
 - 原义务：积分与资产结算边界；积分进入PowerCredit与主链Token bridge是两条独立受治理路径，不是自动兑换或同一池；多激励并用仍需独立审查重复奖励。
 - 原验证入口：[本文件验证与决策记录](#6-validation--decision-record)；具体业务场景仍按本文件第4章与原AC，不以§6文档迁移检查代签业务测试。

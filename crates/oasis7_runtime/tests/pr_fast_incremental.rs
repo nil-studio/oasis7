@@ -4,10 +4,6 @@
 //! These exercise candidate persistence and queries, not canonical acceptance.
 #![cfg(all(unix, not(target_arch = "wasm32")))]
 
-// The shared fixture imports AgentState through the oasis7 facade. Bind that name
-// to the same type's owning library without adding the application dependency.
-extern crate oasis7_world_state as oasis7;
-
 #[path = "incremental_due_module_batch.rs"]
 mod due_module_batch;
 // The unchanged standalone cases each own this fixture module. Keep their
