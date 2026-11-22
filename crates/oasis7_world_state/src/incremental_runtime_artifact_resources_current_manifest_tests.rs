@@ -6,7 +6,6 @@ use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
 
 #[path = "incremental_runtime_artifact_resources_receiver_test_support.rs"]
 mod support;
-use support::*;
 use crate::{
     incremental_field_overlay::WorldFieldOverlayContextV1,
     incremental_field_read::WorldFieldReadContextV1,
@@ -15,6 +14,8 @@ use crate::{
 use oasis7_formal_protocol::{
     incremental_execution::*, incremental_state::*, incremental_value::*,
 };
+use support::*;
+
 #[test]
 fn current_manifest_opener_preserves_original_field_and_rejects_deleted_current_metadata() {
     let memory = MemoryBudget::new(192 << 20, 16 << 20).unwrap();
