@@ -16,8 +16,7 @@ impl RuntimeLlmSidecar {
             && parent.agent_turn_id == cause.parent_agent_turn_id
             && parent.decision_request_id == cause.parent_decision_request_id
         {
-            oasis7::runtime_host::memory::rebind_stale_parent_corrections(
-                &mut self.provider_memory_store,
+            self.provider_memory_store.rebind_corrections_after_stale_parent(
                 &parent.decision_request_id,
                 &parent.request_digest,
                 turn,
