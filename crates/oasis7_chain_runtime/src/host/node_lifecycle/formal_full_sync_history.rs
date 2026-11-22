@@ -5,7 +5,7 @@
 //! restores a World or advertises readiness.
 
 use super::*;
-use oasis7::world_service::formal_read::{
+use oasis7_world_service::formal_read::{
     FormalReadHistoryPageV1, FormalReadReplayCursorV1, FormalReadStepV1,
 };
 use std::collections::BTreeSet;

@@ -84,7 +84,7 @@ pub(super) struct HealthyDurableSetProgressV1 {
     pub stage: HealthyStageV1,
     pub transition: Option<SignedNormalDurableSetTransitionV1>,
     pub activation_step:
-        Option<oasis7::world_service::formal_read::FormalNormalDurableSetReadStepV1>,
+        Option<oasis7_world_service::formal_read::FormalNormalDurableSetReadStepV1>,
     pub successor_owner: Option<FormalRuntimeInstanceV1>,
     pub blocker: Option<String>,
     pub boundary_record_id: Option<String>,
@@ -890,7 +890,7 @@ fn advance(
         )
         .map_err(|e| e.to_string())?;
         progress.activation_step = Some(
-            oasis7::world_service::formal_read::FormalNormalDurableSetReadStepV1 {
+            oasis7_world_service::formal_read::FormalNormalDurableSetReadStepV1 {
                 transition: signed,
                 old_seals,
                 new_installs: installs,

@@ -139,7 +139,7 @@ fn formal_profile2_checkpoint_boundary_case() {
     .unwrap();
 
     let initial_business =
-        oasis7::world_service::formal_result::FormalBusinessResultTreeV1::for_initial_world(
+        oasis7_world_service::formal_result::FormalBusinessResultTreeV1::for_initial_world(
             &world,
             &identity,
             &EmptyIndexReader,
