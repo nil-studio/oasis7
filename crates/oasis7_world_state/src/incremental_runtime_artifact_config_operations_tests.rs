@@ -540,7 +540,17 @@ fn ordinary_same_transaction_creates_changes_reads_and_independently_receives() 
         .validate_binding(&sealed.record.after.digest().unwrap())
         .unwrap();
     assert_eq!(accepted.registry_active_count(), 1);
-    let independent = qualify_family(&sealed.record.after, &pages).unwrap();
+    // Requalify the post-transition original in an independent recovery pool.
+    // The helper that only checks validity discards the qualification, so use
+    // the proof-bearing path to compare the actual authenticated count.
+    let independent_memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
+    let (independent, _) = family_in_pool(
+        &sealed.record.after,
+        &pages,
+        &independent_memory,
+        MemoryClass::Recovery,
+    )
+    .unwrap();
     assert_eq!(
         independent.registry_active_count(),
         accepted.registry_active_count()
