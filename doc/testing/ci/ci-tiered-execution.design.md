@@ -684,7 +684,7 @@ Custody 的可信分阶段执行保留 `custody_execution_version=1`，将 nativ
 
 Web 缓存生产者承接 Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7。admission 的 `release-web` family 只注册新的 workflow/job 元组，旧 Release 身份不能上传。writer 迁移须使 workflow、job、admission 身份、写入权限和预算转发形成完整且互斥的一组，双 writer、零 writer、未知身份或半迁移均失败；必要兼容合同先进入可信 BASE，再原子切换生产接线，不改变 selector 或可信 Python 执行器来避开旧合同。首次 seed 前核对旧版 Release Web 写入任务全部终结，避免跨 revision 的在途 writer 重叠。
 
-producer 沿用四小时 schedule 或 `run_mode=full` 手动事件，只接受当前 main，checkout、事件、workflow 和 REST run 身份一致；不接受 source/tag/version 覆盖。它与 native job 独立，只有 contents/actions read 权限和本 job 的 cache write scope，60 分钟内完成或失败。使用固定 stable、WASM target 和默认 Web 环境指纹，不安装 builtin nightly。完整闭包保留三个独立上下文：默认 features 的 browser WASM、禁用默认 features 且启用 `webgl2_runtime` 的 pixel WASM，以及固定 Trunk 的 launcher `--release` 构建。复用软件安全 Viewer 脚本，并显式强制重新检查两个 WASM 构建，已有 dist 不能抵扣依赖闭包；Trunk archive 只读且始终经过既有安装器摘要/版本校验。不合并 Cargo 调用造成 feature union，不改 target 或 profile。只有明确的 exact hit 可以省略缓存生产；其他恢复结果均完成整个闭包，任一构建失败不保存。最终归档仍受原 step-local Node admission、20 GB 总预算和活动保护约束，不增加缓存族或删除权限，不进入 Rust required/full 或 Release gate 的依赖图。
+producer 沿用四小时 schedule 或 `run_mode=full` 手动事件，只接受当前 main，checkout、事件、workflow 和 REST run 身份一致；不接受 source/tag/version 覆盖。它与 native job 独立，只有 contents/actions read 权限和本 job 的 cache write scope，60 分钟内完成或失败。使用固定 stable、WASM target 和默认 Web 环境指纹，不安装 builtin nightly。完整闭包保留三个独立上下文：默认 features 的 browser WASM、禁用默认 features 且启用 `webgl2_runtime` 的 pixel WASM，以及固定 Trunk 的 launcher `--release` 构建。复用软件安全 Viewer 脚本，并显式强制重新检查两个 WASM 构建，已有 dist 不能抵扣依赖闭包；Trunk archive 只读且始终经过既有安装器摘要/版本校验。不合并 Cargo 调用造成 feature union，不改 target 或 profile。只有明确的 exact hit 可以省略缓存生产；其他恢复结果均完成整个闭包，任一构建失败不保存。最终归档仍受原 step-local Node admission、仓库预算和活动保护约束，不增加缓存族或删除权限，不进入 Rust required/full 或 Release gate 的依赖图。
 
 两个 Viewer reader 的迁移合同只接受原 native-v4 配置，或同一 Web-v3、stable-only 工具链及默认环境指纹的完整配置。当前两个 reader 使用后者：只安装固定 stable 和 `wasm32-unknown-unknown`，缓存前只保留该工具链，环境前缀为 `CARGO CC CFLAGS CXX CMAKE RUST`，明确禁止保存。完整缓存身份与 producer 对齐，原 npm、wasm-bindgen、两个独立 WASM 构建、ABI、安全浏览器及性能验证保持；其他 native reader 不改变。真实 hosted 冷暖收益仍待验收。真实 seed 以上传完成为准，并在同一 source/tested/policy 候选上核对恢复 key、编译复用、准备成本和原验证结果；老归档前缀恢复可能清理过期编译产物，不能仅用下载成功认定暖缓存。同一 run 的 reader 重跑只用于 job 冷暖对照，不能把合入与 seed 等待时间计为新的普通 PR 端到端样本。
 
@@ -1188,11 +1188,11 @@ Before installing the toolchain or building, `preflight` reads the complete repo
 
 A valid positive integer `max_cache_size_gb` is conservatively converted using `1,000,000,000` bytes per GB. An explicitly configured `ECS_CACHE_REPOSITORY_BUDGET_BYTES` is a policy ceiling; when the live limit is available the effective budget is the smaller value.
 
-Only a recognized access-denied response from the quota endpoint, excluding rate limits, may use this verified configured budget while leaving the live limit unknown. Invalid responses, incomplete inventory, unrelated API failures and an absent configured budget fail closed.
+Only a recognized access-denied response from the quota endpoint, excluding rate limits, may use the smaller of the configured budget and the last verified 20,000,000,000-byte quota while leaving the live limit unknown. Invalid responses, incomplete inventory, unrelated API failures and an absent configured budget fail closed.
 
 Diagnostics retain only bounded, allowlisted status/request/permission information; response bodies and credentials are not logged.
 
-The repository's [Actions cache page](https://github.com/nil-studio/oasis7/actions/caches) showed a 10 GB eviction limit when the configured budget was verified on 2026-10-21; the historical numerical fixtures retain that 10,000,000,000-byte policy. The trusted workflows now configure a 20,000,000,000-byte repository budget, unchanged by the Ordinary single-upload increase. These configured values do not claim that every run read the live quota; a lower valid live limit still wins. Maintainers must reverify the setting when the repository cache limit changes.
+The repository's [Actions cache page](https://github.com/nil-studio/oasis7/actions/caches) showed a 10 GB eviction limit when the configured budget was verified on 2026-10-21; the historical numerical fixtures retain that 10,000,000,000-byte policy. The trusted workflows configure a 30,000,000,000-byte repository ceiling. Usage above 20,000,000,000 bytes requires a valid live quota above 20 GB in the same capacity check. A lower valid quota always wins. The repository setting, organization limit and Actions Cache Storage billing budget are administered separately.
 
 Reports separately identify the live limit, configured and effective budgets, capacity basis, observed inventory and projected usage. The entry point never changes repository limits or grants administration permissions.
 
@@ -1253,4 +1253,4 @@ Ubuntu 24.04 x64 的系统清单逐项对应固定 agent-browser 的全部依赖
 
 缓存只保存下载归档，字体与 Chrome 分别使用精确 key，包含 Linux/X64、Ubuntu 版本、固定定义及 schema 身份；没有宽泛 restore 前缀，不缓存展开的系统/浏览器目录。每次恢复均校验精确文件集合、普通文件、长度及 SHA-256，拒绝 symlink、hardlink、部分文件和损坏缓存。冷下载只使用固定 HTTPS 来源，在有界下载成功且摘要相符后原子提交文件；解包限制路径、文件类型、数量及展开长度。Chrome 的摘要来自固定官方 HTTPS 归档的审读，不宣称是上游发布签名。
 
-普通三个浏览器消费者保持只读缓存。`rust-cache.yml / browser-archive-cache` 是独立的 main schedule/manual-full writer，只准备和验证下载物，不代替产品测试。保存绑定 event/workflow/实际 checkout/REST run 身份，复用小工具缓存的实际归档测量、完整 all-ref 容量检查、20 GB 仓库预算和 2.5 GiB 依赖轮换保留；身份或容量未知只跳过可选保存。归档单份有界，版本升级才改变 key，不按 PR、source 或 run 保存相同下载物。候选首次安装、合入后 seed 和真实 reader 命中分别记录；缓存不承诺消除必要 APT 索引访问，也不承诺固定加速比例。
+普通三个浏览器消费者保持只读缓存。`rust-cache.yml / browser-archive-cache` 是独立的 main schedule/manual-full writer，只准备和验证下载物，不代替产品测试。保存绑定 event/workflow/实际 checkout/REST run 身份，复用小工具缓存的实际归档测量、完整 all-ref 容量检查、仓库预算和 2.5 GiB 依赖轮换保留；身份或容量未知只跳过可选保存。归档单份有界，版本升级才改变 key，不按 PR、source 或 run 保存相同下载物。候选首次安装、合入后 seed 和真实 reader 命中分别记录；缓存不承诺消除必要 APT 索引访问，也不承诺固定加速比例。

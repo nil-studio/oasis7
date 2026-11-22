@@ -92,6 +92,10 @@ def configured_budget(value):
     return int(value)
 
 
+# Keep the last verified quota when a workflow token cannot read the current setting.
+VERIFIED_QUOTA_FALLBACK_BYTES = 20_000_000_000
+
+
 def capacity_context(maintenance, api, budget, report):
     """Keep the configured budget distinct from an unreadable live quota."""
     if budget is not None and (type(budget) is not int or budget <= 0):
@@ -111,7 +115,9 @@ def capacity_context(maintenance, api, budget, report):
         if (budget is None or error.status != 403 or error.rate_limited
                 or error.diagnostics['category'] not in ('integration_access', 'personal_token_access')):
             raise
-        effective, basis = budget, 'verified_configured_budget'
+        effective = min(budget, VERIFIED_QUOTA_FALLBACK_BYTES)
+        basis = ('verified_quota_fallback_cap' if effective < budget
+                 else 'verified_configured_budget')
     else:
         report['live_repository_limit_bytes'] = live
         effective = min(live, budget) if budget is not None else live

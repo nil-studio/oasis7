@@ -41,9 +41,9 @@ env:
   CARGO_INCREMENTAL: 0
   CARGO_NET_RETRY: 10
   RUST_TOOLCHAIN: 1.96.0
-  # Configured repository cache budget: 20 GB (decimal bytes).
+  # Configured repository cache budget: 30 GB (decimal bytes).
   # GitHub cache limits and billing budgets must also allow this capacity.
-  ECS_CACHE_REPOSITORY_BUDGET_BYTES: '20000000000'
+  ECS_CACHE_REPOSITORY_BUDGET_BYTES: '30000000000'
 
 jobs:
   web:

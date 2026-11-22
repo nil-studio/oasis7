@@ -307,7 +307,7 @@ ecs = (root / ".github/workflows/ecs-packages.yml").read_text()
 # Trace refs: O7-REQ-d9292810-5229-417f-9fc8-262ee04759c7.
 # One repository pool, not a separate allowance for each producer. This is a
 # contract for the checked-in block-style env declarations, not a YAML parser.
-repository_budget = '20000000000'
+repository_budget = '30000000000'
 budget_entries = {
     'rust.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 2),
     'rust-cache.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 4),
@@ -395,9 +395,9 @@ reject_budget_mutation(budget_workflows | {
         'CI_CACHE_REPOSITORY_BUDGET_BYTES: ${{ env.ECS_CACHE_REPOSITORY_BUDGET_BYTES }}',
         'CI_CACHE_REPOSITORY_BUDGET_BYTES: "10000000000"')}, 'stale ECS maintenance bridge')
 reject_budget_mutation(budget_workflows | {
-    'unregistered-budget.yml': 'env:\n  CI_CACHE_REPOSITORY_BUDGET_BYTES: "20000000000"\n'},
+    'unregistered-budget.yml': 'env:\n  CI_CACHE_REPOSITORY_BUDGET_BYTES: "30000000000"\n'},
     'new budget-bearing workflow')
-print(f'ok: five repository-wide 20 GB budgets and forwarding; {budget_negative_cases} drift mutations rejected')
+print(f'ok: five repository-wide 30 GB budgets and forwarding; {budget_negative_cases} drift mutations rejected')
 
 assert "\ncache-mode: read\n" in mainnet
 native_gates = ("release_gate_runtime_core", "release_gate_runtime_support",

@@ -25,9 +25,9 @@ env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
   PYTHONDONTWRITEBYTECODE: "1"
-  # Configured repository cache budget: 20 GB (decimal bytes).
+  # Configured repository cache budget: 30 GB (decimal bytes).
   # GitHub cache limits and billing budgets must also allow this capacity.
-  CI_CACHE_REPOSITORY_BUDGET_BYTES: "20000000000"
+  CI_CACHE_REPOSITORY_BUDGET_BYTES: "30000000000"
   CARGO_NET_RETRY: 10
   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
   CARGO_PROFILE_DEV_DEBUG: 0

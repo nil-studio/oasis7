@@ -248,6 +248,28 @@ class AdmissionTests(unittest.TestCase):
                     self.assertIsNone(result['live_repository_limit_bytes'])
                     self.assertEqual(result['capacity_basis'], 'verified_configured_budget')
 
+    def test_thirty_gb_configuration_does_not_expand_the_unverified_quota(self):
+        inventory_bytes = 19_837_855_999
+        archive_bytes = 190_524_692
+        with self.archive.open('r+b') as archive:
+            archive.truncate(archive_bytes)
+        self.api.list_caches.return_value = [self.entry(inventory_bytes)]
+        environment = self.environment | {'OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES': '30000000000'}
+        quota_denied = admission.maintenance.MaintenanceApiError('GET', HTTPError(
+            'https://api.github.com', 403, 'forbidden', {},
+            io.BytesIO(b'{"message": "Resource not accessible by integration"}')))
+        for quota, effective, allowed in (
+                ({'max_cache_size_gb': 20}, 20_000_000_000, False),
+                (quota_denied, 20_000_000_000, False),
+                ({'max_cache_size_gb': 30}, 30_000_000_000, True)):
+            with self.subTest(quota=quota):
+                self.api.request.side_effect = [self.run, quota]
+                report = admission.check_archive(self.archive, environment, self.api)
+                self.assertEqual(report['configured_repository_budget_bytes'], 30_000_000_000)
+                self.assertEqual(report['effective_repository_budget_bytes'], effective)
+                self.assertEqual(report['projected_repository_bytes'], inventory_bytes + archive_bytes)
+                self.assertEqual(report['allowed'], allowed, report)
+
     def test_missing_inventory_invalid_budget_and_bad_archive_fail_closed(self):
         self.api.list_caches.side_effect = admission.maintenance.MaintenanceError('page two failed')
         self.assertFalse(admission.check_archive(self.archive, self.environment, self.api)['allowed'])

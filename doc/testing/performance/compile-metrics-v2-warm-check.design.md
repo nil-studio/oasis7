@@ -664,7 +664,7 @@ Trace refs: O7-REQ-a1babf5b-78ec-4c34-8daf-3546abcacc7b；承接 [跨入口构�
 
 分开登记 registry/source 数据、第三方依赖编译结果、workspace 编译单元、可执行测试包和交付 binary。编译复用身份至少核对 toolchain/host/target、package 与源码、manifest/lock、解析后的 features、cfg/test、profile 与 rustflags、build script/环境/生成输入、wrapper 及路径约束。相同 crate 版本、同一 commit 或 cache-hit 都不足以证明兼容；普通与 Formal 的同名单元仅在这些实际输入一致且原验证器接受时才是候选。测试包不能替代发布 binary，旧测试结果也不能由编译命中推导为新候选已测试。
 
-当前两个 workflow 的仓库预算均配置为 `20000000000` 字节（十进制 20 GB），这不是在线可用库存，也不是各 cache family 单独享有的额度。报告保存采样时实际配置、库存与 family 占用；缺少库存读取则写未知，不沿用旧任务中的容量数字，不通过扩容或清理缓存制造收益。
+两个 workflow 共用全仓容量策略，报告分别记录配置上限、可读的真实配额和采样时的库存。报告保存采样时实际配置、库存与 family 占用；缺少库存读取则写未知，不沿用旧任务中的容量数字，不通过扩容或清理缓存制造收益。
 
 #### 样本与现有执行入口
 
