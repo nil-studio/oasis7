@@ -6,17 +6,14 @@
 //! adapter never records results or edits the World itself.
 use ed25519_dalek::SigningKey;
 pub(crate) use oasis7::world_service::formal_read_error::{FormalReadError, FormalReadResult};
-use oasis7::{
-    runtime::World,
-    world_service::{
-        agent_authority, agent_chat, authority, correlation,
-        formal_read::{FormalReadHistoryV1, FormalReadVerifier, MAX_FORMAL_HISTORY_STEPS},
-        formal_read_service::{FormalCommittedReadService, FormalReadPublication},
-        game_task, gameplay,
-        wire::{
-            AuthenticatedLookup, CHANGES_PATH, LOOKUP_PATH, SUBMIT_PATH, SignedReadRequest,
-            VIEW_PATH, WorldServicePayloadV1,
-        },
+use oasis7::world_service::{
+    agent_authority, agent_chat, authority, correlation,
+    formal_read::{FormalReadHistoryV1, FormalReadVerifier, MAX_FORMAL_HISTORY_STEPS},
+    formal_read_service::{FormalCommittedReadService, FormalReadPublication},
+    game_task, gameplay,
+    wire::{
+        AuthenticatedLookup, CHANGES_PATH, LOOKUP_PATH, SUBMIT_PATH, SignedReadRequest,
+        VIEW_PATH, WorldServicePayloadV1,
     },
 };
 use oasis7_client_api::world_service::{
@@ -29,6 +26,7 @@ use oasis7_distfs::controlled_authority::{
     replicated_protocol::ClosedRecord,
 };
 use oasis7_node::NodeRuntime;
+use oasis7_runtime::World;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
     collections::VecDeque,

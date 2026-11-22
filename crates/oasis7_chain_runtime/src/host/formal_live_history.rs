@@ -4,12 +4,9 @@ use super::{
     formal_live_config::ValidatedFormalLiveConfigV1,
     formal_live_service::{FormalLiveHistoryResolver, FormalReadError},
 };
-use oasis7::{
-    runtime::{Journal, ReleaseSecurityPolicy, Snapshot, World},
-    world_service::{
-        formal_read::{FormalReadHistoryV1, FormalReadStepV1, MAX_FORMAL_HISTORY_STEPS},
-        formal_read_service::FormalReadPublication,
-    },
+use oasis7::world_service::{
+    formal_read::{FormalReadHistoryV1, FormalReadStepV1, MAX_FORMAL_HISTORY_STEPS},
+    formal_read_service::FormalReadPublication,
 };
 use oasis7_client_api::world_service::{CommitRef, FormalReadAnchorRefV1};
 use oasis7_distfs::controlled_authority::{
@@ -24,6 +21,7 @@ use oasis7_distfs::controlled_authority::{
     },
     replicated_protocol::{ArtifactRole, ClosedRecord, EndpointRole},
 };
+use oasis7_runtime::{Journal, ReleaseSecurityPolicy, Snapshot, World};
 use std::{
     net::SocketAddr,
     path::PathBuf,
