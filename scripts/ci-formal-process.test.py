@@ -1627,10 +1627,22 @@ if args[0] == 'clippy' and args[args.index('-p') + 1] == os.environ['FAIL_CLIPPY
                 ['clippy', '-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint']]
             original_lints = [args + ['--', '-D', 'warnings', '-D', 'clippy::correctness',
                                       '-D', 'clippy::suspicious'] for args in original_lints]
-            distfs_lib_test = ['test', '-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint', '--', '--test-threads=1']
-            allowed_tests = (
-                [['test', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib', '--', '--test-threads=1'], distfs_lib_test],
-                [['test', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib'], distfs_lib_test],
+            distfs_lib_test_variants = (
+                [['test', '-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint', '--', '--test-threads=1']],
+                [
+                    ['test', '-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint',
+                     '--', '--skip', 'controlled_authority::formal::transport::'],
+                    ['test', '-p', 'oasis7_distfs', '--lib', 'controlled_authority::formal::transport::',
+                     '--', '--test-threads=1'],
+                ],
+            )
+            allowed_tests = tuple(
+                [cas_cmd, *distfs_cmds]
+                for cas_cmd in (
+                    ['test', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib', '--', '--test-threads=1'],
+                    ['test', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib'],
+                )
+                for distfs_cmds in distfs_lib_test_variants
             )
             for mode, failed in (('handoff', ''), ('legacy', ''), ('handoff', 'oasis7_cas'),
                                  ('handoff', 'oasis7_distfs'), ('manual', '')):
@@ -1764,13 +1776,28 @@ if ('--test' in args and args[args.index('--test') + 1] == 'incremental_industry
             original_lints = [
                 ['clippy', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib'] + lint_flags,
                 ['clippy', '-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint'] + lint_flags]
-            distfs_lib_test = ['test', '-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint', '--', '--test-threads=1']
-            allowed_base_tests = (
-                [['test', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib', '--', '--test-threads=1'], distfs_lib_test],
-                [['test', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib'], distfs_lib_test],
+            distfs_lib_test_variants = (
+                [['test', '-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint', '--', '--test-threads=1']],
+                [
+                    ['test', '-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint',
+                     '--', '--skip', 'controlled_authority::formal::transport::'],
+                    ['test', '-p', 'oasis7_distfs', '--lib', 'controlled_authority::formal::transport::',
+                     '--', '--test-threads=1'],
+                ],
+            )
+            allowed_base_tests = tuple(
+                [cas_cmd, *distfs_cmds]
+                for cas_cmd in (
+                    ['test', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib', '--', '--test-threads=1'],
+                    ['test', '-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib'],
+                )
+                for distfs_cmds in distfs_lib_test_variants
             )
             target_args = ['-p', 'oasis7_distfs', '--test', 'incremental_industry_jobs']
             named_lint = ['clippy', *target_args, *lint_flags]
+            merged_distfs_lint = [
+                'clippy', '-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint',
+                '--test', 'incremental_industry_jobs', *lint_flags]
             allowed_named_tests = (
                 ['test', *target_args, '--', '--test-threads=1'],
                 ['test', *target_args],
@@ -1841,6 +1868,9 @@ run_oasis7_distfs_tests
                             expected_lints = list(original_lints) if group == owner else []
                             if present and run_named and group == 'distfs':
                                 expected_lints.append(named_lint)
+                            expected_lint_variants = [expected_lints]
+                            if present and run_named and group == 'distfs' and owner == 'distfs':
+                                expected_lint_variants.append([original_lints[0], merged_distfs_lint])
                             expected_test_variants = [[]]
                             if group == 'distfs' and failed != 'clippy':
                                 if present and run_named:
@@ -1855,7 +1885,7 @@ run_oasis7_distfs_tests
                             with self.subTest(present=present, mode=mode, failed=failed, group=group):
                                 self.assertEqual(result.returncode, expected_status if group == 'distfs' else 0,
                                                  result.stdout + result.stderr)
-                                self.assertEqual(observed_lints, expected_lints)
+                                self.assertIn(observed_lints, expected_lint_variants)
                                 self.assertIn([args for args in commands if args[0] == 'test'], expected_test_variants)
                 if not present:
                     continue
