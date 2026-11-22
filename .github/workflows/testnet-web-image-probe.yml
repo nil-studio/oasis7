@@ -1,0 +1,232 @@
+name: Testnet web image diagnostic
+
+on:
+  pull_request:
+    branches: [codex/engineering-testnet-web-image-probe-base]
+    paths: [.github/workflows/testnet-web-image-probe.yml]
+    types: [opened]
+
+permissions:
+  contents: read
+cache-mode: read
+
+env:
+  RUST_TOOLCHAIN: 1.96.0
+  TRUNK_VERSION: 0.21.14
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+  PACKAGING_WORKFLOW_SOURCE: 30fd978b2a887f154386d261124636572d958125
+  PLANNED_PACKAGE_SOURCE: 382604b3e57d7ba141ee80d5ec4156295a4ba505
+
+jobs:
+  plan:
+    if: github.head_ref == 'codex/engineering-testnet-web-image-probe' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      checkoutSha: ${{ steps.source.outputs.checkoutSha }}
+      sourcePlan: ${{ steps.source.outputs.sourcePlan }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.PACKAGING_WORKFLOW_SOURCE }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify packaging workflow tooling SHA
+        run: test "$(git rev-parse HEAD)" = "$PACKAGING_WORKFLOW_SOURCE"
+      - name: Resolve immutable package source
+        id: source
+        env:
+          REQUESTED_REF: ${{ env.PLANNED_PACKAGE_SOURCE }}
+        run: python3 scripts/package-source-plan.py
+
+  build-web-dist:
+    name: build-web-dist
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb
+      options: --user 1001:1001
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
+    steps:
+      # Use the executing workflow tools before restoring the complete source checkout.
+      - name: Check out workflow linker setup
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.PACKAGING_WORKFLOW_SOURCE }}
+          persist-credentials: false
+          sparse-checkout: .github/actions/setup-linux-mold
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
+        with:
+          install-dir: ${{ runner.temp }}/oasis7-testnet-web-mold
+      # Omitting sparse-checkout disables it and restores the full business source.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.plan.outputs.checkoutSha }}
+          persist-credentials: false
+      - name: Trust the checked-out workspace path in the job container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Verify planned source HEAD
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ needs.plan.outputs.checkoutSha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Verify planned Trunk installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f scripts/install-ci-trunk.sh || ! -s scripts/install-ci-trunk.sh || -L scripts/install-ci-trunk.sh ]]; then
+            echo "error: planned package source must include a nonempty regular scripts/install-ci-trunk.sh; select a source ref with verified Trunk installer support" >&2
+            exit 1
+          fi
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+      - name: Install viewer web dependencies
+        run: npm ci --prefix crates/oasis7_viewer
+      - name: Verify the preinstalled Rust and WASM target
+        run: |
+          set -euo pipefail
+          test "$(id -u)" = 1001
+          cargo +"$RUST_TOOLCHAIN" --version
+          test "$(rustc --version)" = "$(rustc +"$RUST_TOOLCHAIN" --version)"
+          rustup target list --installed --toolchain "$RUST_TOOLCHAIN" | grep -Fx wasm32-unknown-unknown
+      - name: Normalize Rust cache toolchains
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        shell: bash
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        with:
+          shared-key: testnet-web-ci-rust-build-068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb
+          add-rust-environment-hash-key: true
+          save-if: false
+          cache-on-failure: false
+      - name: Restore pinned Trunk release archive
+        id: trunk-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/ci-tools/trunk-x86_64-unknown-linux-gnu.tar.gz
+          key: trunk-archive-${{ runner.os }}-${{ runner.arch }}-${{ env.TRUNK_VERSION }}-${{ hashFiles('scripts/install-ci-trunk.sh') }}
+      - name: Install verified pinned Trunk
+        shell: bash
+        run: bash scripts/install-ci-trunk.sh "$RUNNER_TEMP/ci-tools/trunk-x86_64-unknown-linux-gnu.tar.gz" "$RUNNER_TEMP/ci-tools/bin"
+      - name: Verify pinned trunk
+        shell: bash
+        run: |
+          set -euo pipefail
+          trunk --version | grep -Fqx "trunk ${TRUNK_VERSION}"
+      - name: Build web dists
+        run: |
+          mkdir -p output/testnet-packages/web-dist output/testnet-packages/web-launcher-dist output/testnet-packages/viewer-optional-payload
+          (
+            ./scripts/build-viewer-software-safe.sh --optional-payload-dir output/testnet-packages/viewer-optional-payload
+            ./scripts/copy-viewer-web-dist.sh \
+              --dist-dir output/testnet-packages/web-dist \
+              --optional-payload-dir output/testnet-packages/viewer-optional-payload
+            ./scripts/package-viewer-web-delivery.sh \
+              --web-dist output/testnet-packages/web-dist \
+              --optional-payload-dir output/testnet-packages/viewer-optional-payload \
+              --out-file output/testnet-packages/oasis7-viewer-web-delivery.tar.gz
+          )
+          (
+            cd crates/oasis7_client_launcher
+            env -u NO_COLOR trunk build --release --dist ../../output/testnet-packages/web-launcher-dist
+          )
+      - name: Verify diagnostic source and web artifact integrity
+        env:
+          SOURCE_PLAN: ${{ needs.plan.outputs.sourcePlan }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$PLANNED_PACKAGE_SOURCE"
+          git diff --exit-code HEAD --
+          python3 - <<'PYTHON'
+          import hashlib
+          import json
+          import os
+          import tarfile
+          from pathlib import Path
+
+          root = Path("output/testnet-packages")
+          viewer = root / "web-dist"
+          launcher = root / "web-launcher-dist"
+          archive = root / "oasis7-viewer-web-delivery.tar.gz"
+          payload_name = "pixel_world_bridge_bindgen_bg.wasm"
+          into_archive = f"viewer-optional-payload/{payload_name}"
+
+          def digest(path):
+              with path.open("rb") as stream:
+                  return hashlib.file_digest(stream, "sha256").hexdigest()
+
+          plan = json.loads(os.environ["SOURCE_PLAN"])
+          assert plan["checkoutSha"] == plan["requestedRef"] == os.environ["PLANNED_PACKAGE_SOURCE"]
+          assert plan["eventSha"] == os.environ["GITHUB_SHA"]
+          assert plan["workflowSha"] == os.environ["GITHUB_WORKFLOW_SHA"]
+          assert plan["requestedKind"] == "commit"
+          for dist in (viewer, launcher):
+              assert (dist / "index.html").stat().st_size > 0, dist
+              assert any(path.stat().st_size > 0 for path in dist.rglob("*.wasm")), dist
+          assert not list(viewer.rglob(payload_name))
+          with tarfile.open(archive, "r:gz") as delivery:
+              payload = delivery.extractfile(into_archive).read()
+              manifest = json.load(delivery.extractfile("optional-payloads.json"))[payload_name]
+              assert manifest["available"] is True
+              assert manifest["size_bytes"] == len(payload)
+              assert manifest["sha256"] == hashlib.sha256(payload).hexdigest()
+              assert manifest["delivery"] == "separate_artifact"
+              assert delivery.getmember("index.html").size > 0
+          files = {
+              str(path.relative_to(root)): digest(path)
+              for directory in (viewer, launcher)
+              for path in sorted(directory.rglob("*")) if path.is_file()
+          }
+          files[archive.name] = digest(archive)
+          result = {
+              "diagnostic_only": True,
+              "controller_sha": os.environ["GITHUB_WORKFLOW_SHA"],
+              "packaging_workflow_source": os.environ["PACKAGING_WORKFLOW_SOURCE"],
+              "plan": plan,
+              "cargo_lock_sha256": digest(Path("Cargo.lock")),
+              "files": files,
+          }
+          destination = Path(os.environ["RUNNER_TEMP"]) / "testnet-web-probe.json"
+          destination.write_text(json.dumps(result, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+          print(f"Verified {len(files)} deliverable SHA-256s on {plan['checkoutSha']}")
+          PYTHON
+      - name: Upload web dist artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: testnet-web-dists
+          path: |
+            output/testnet-packages/web-dist
+            output/testnet-packages/web-launcher-dist
+          if-no-files-found: error
+      - name: Upload viewer web delivery
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: testnet-viewer-web-delivery
+          path: output/testnet-packages/oasis7-viewer-web-delivery.tar.gz
+          if-no-files-found: error
+      - name: Upload diagnostic source and checksums
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: testnet-web-image-probe
+          path: ${{ runner.temp }}/testnet-web-probe.json
+          if-no-files-found: error
+          retention-days: 7
