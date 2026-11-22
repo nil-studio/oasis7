@@ -345,29 +345,6 @@ impl BftCheckpointTrustPolicyV1 {
         if self.security_assumptions_digest != digest("security-policy", security)? {
             return Err("renewal security policy digest mismatch".into());
         }
-        // All independently authorized windows must support the same
-        // threshold set at a single instant. Pairwise overlap of the
-        // issuer/root windows and the independent safety window is not
-        // sufficient: a quorum valid only after safety expiry (or before
-        // safety activation) cannot authorize any checkpoint.
-        let quorum_start = status_start.max(security.security_not_before_unix_ms);
-        let quorum_end = status_end.min(security.absolute_safe_until_unix_ms);
-        let threshold = self.threshold as usize;
-        if !self.issuer_keys.iter().any(|candidate| {
-            let instant = candidate.not_before_unix_ms.max(quorum_start);
-            instant < quorum_end
-                && self
-                    .issuer_keys
-                    .iter()
-                    .filter(|key| {
-                        key.not_before_unix_ms <= instant && instant < key.expires_at_unix_ms
-                    })
-                    .take(threshold)
-                    .count()
-                    == threshold
-        }) {
-            return Err("checkpoint issuer threshold has no common authorization window".into());
-        }
         let clock = &self.clock_profile;
         if clock.schema_version != 1
             || clock.profile != "bounded-utc-observation-v1"
@@ -384,6 +361,31 @@ impl BftCheckpointTrustPolicyV1 {
         )?;
         if self.clock_profile_digest != digest("clock-profile", clock)? {
             return Err("renewal clock profile digest mismatch".into());
+        }
+        // A quorum, its root and policy, the independent safety bound, and
+        // the independent time signing key must all be live at one instant.
+        // Separate pairwise intersections cannot produce usable renewal time.
+        let quorum_start = status_start
+            .max(security.security_not_before_unix_ms)
+            .max(clock.time_key_not_before_unix_ms);
+        let quorum_end = status_end
+            .min(security.absolute_safe_until_unix_ms)
+            .min(clock.time_key_expires_at_unix_ms);
+        let threshold = self.threshold as usize;
+        if !self.issuer_keys.iter().any(|candidate| {
+            let instant = candidate.not_before_unix_ms.max(quorum_start);
+            instant < quorum_end
+                && self
+                    .issuer_keys
+                    .iter()
+                    .filter(|key| {
+                        key.not_before_unix_ms <= instant && instant < key.expires_at_unix_ms
+                    })
+                    .take(threshold)
+                    .count()
+                    == threshold
+        }) {
+            return Err("checkpoint issuer threshold has no common authorization window".into());
         }
         // A root key reused as an issuer could forge root-signed revocations;
         // an issuer reused as the clock could manufacture time observations.
