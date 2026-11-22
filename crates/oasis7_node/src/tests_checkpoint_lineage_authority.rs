@@ -865,12 +865,27 @@ fn validator_lifecycle_publishes_signed_lineage_vote_after_retained_c_then_authe
     replication_endpoint
         .publish_replication(&retained_checkpoint)
         .expect("publish retained C before authenticated H");
-    thread::sleep(Duration::from_millis(100));
+    let source_path = runtime_dir.join("checkpoint-lineage").join("source-64.json");
+    let retained_persisted =
+        wait_until(Instant::now() + Duration::from_secs(10), || source_path.is_file());
+    if !retained_persisted {
+        let snapshot = runtime.snapshot();
+        let _ = runtime.stop();
+        let _ = fs::remove_dir_all(source_dir);
+        let _ = fs::remove_dir_all(runtime_dir);
+        panic!(
+            "validator runtime must persist retained C before publishing authenticated H: tick_count={} known_peer_heads={} network_committed_height={} last_error={:?}",
+            snapshot.tick_count,
+            snapshot.consensus.known_peer_heads,
+            snapshot.consensus.network_committed_height,
+            snapshot.last_error
+        );
+    }
     let head = signed_lineage_head(world_id, "node-a", 233, 128);
     consensus_endpoint
         .publish_commit(&head)
         .expect("publish authenticated H after retained C");
-    let vote_seen = wait_until(Instant::now() + Duration::from_secs(2), || {
+    let vote_seen = wait_until(Instant::now() + Duration::from_secs(10), || {
         lineage_subscription.drain().into_iter().any(|payload| {
             serde_json::from_slice::<GossipMessage>(payload.as_slice())
                 .ok()
@@ -890,7 +905,8 @@ fn validator_lifecycle_publishes_signed_lineage_vote_after_retained_c_then_authe
     runtime.stop().expect("stop validator runtime");
     assert!(
         vote_seen,
-        "normal validator lifecycle must publish a signed C→H lineage vote after retained C and authenticated H: known_peer_heads={} network_committed_height={} last_error={:?}",
+        "normal validator lifecycle must publish a signed C→H lineage vote after retained C and authenticated H: tick_count={} known_peer_heads={} network_committed_height={} last_error={:?}",
+        snapshot.tick_count,
         snapshot.consensus.known_peer_heads,
         snapshot.consensus.network_committed_height,
         snapshot.last_error

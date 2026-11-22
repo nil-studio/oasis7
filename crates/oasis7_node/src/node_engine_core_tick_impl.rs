@@ -448,9 +448,22 @@ impl PosNodeEngine {
         }
         if let Some(endpoint) = replication_network.as_ref() {
             with_execution_hook(&mut execution_hook, |hook| {
-                self.ingest_network_replications(endpoint, node_id, world_id, replication, hook)
+                self.ingest_network_replications(
+                    endpoint,
+                    node_id,
+                    world_id,
+                    replication.as_deref_mut(),
+                    hook,
+                )
             })?;
         }
+        self.maybe_publish_local_checkpoint_lineage_vote(
+            consensus_network.as_deref(),
+            gossip,
+            node_id,
+            world_id,
+            replication,
+        )?;
         if local_execution_applied
             && (self.committed_height < decision.height
                 || self.last_execution_height < decision.height)
