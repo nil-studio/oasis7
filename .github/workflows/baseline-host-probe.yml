@@ -1,0 +1,52 @@
+name: Baseline host comparison
+
+on:
+  pull_request:
+    branches: [codex/engineering-baseline-host-probe-base]
+    paths: [.github/workflows/baseline-host-probe.yml]
+    types: [opened]
+
+permissions:
+  contents: read
+cache-mode: read
+
+jobs:
+  host:
+    if: github.head_ref == 'codex/engineering-baseline-host-probe' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      TESTED_SHA: f1698b5d313bd13d1b17fc7ee989b44d26bac1e5
+      BASE_SHA: 6fe8e3b353fa96b15a3fe3b3d97423752b3a5955
+      SOURCE_SHA: 61f7b2d18e3ed537277a7eb11fbac3e8101584d2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: f1698b5d313bd13d1b17fc7ee989b44d26bac1e5
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - name: Install Markdown runtime
+        run: python3 -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
+      - name: Resolve the original tested product-document range
+        run: |
+          test "$(git rev-parse HEAD)" = "$TESTED_SHA"
+          test "$(git rev-parse HEAD^1)" = "$BASE_SHA"
+          test "$(git rev-parse HEAD^2)" = "$SOURCE_SHA"
+          event="$RUNNER_TEMP/baseline-original-event.json"
+          printf '{"pull_request":{"base":{"sha":"%s"},"head":{"sha":"%s"}}}\n' "$BASE_SHA" "$SOURCE_SHA" > "$event"
+          python3 --version
+          git --version
+          python3 scripts/resolve-product-doc-ci-range.py \
+            --repo-root "$GITHUB_WORKSPACE" \
+            --event-name pull_request \
+            --event-path "$event" \
+            --tested-oid "$TESTED_SHA" >>"$GITHUB_ENV"
+      - name: Execute selected group
+        env:
+          CI_VERBOSE: '1'
+          OASIS7_CI_PROFILE: pr-fast
+        run: bash ./scripts/ci-tests.sh required --group "baseline" --repo-root "$GITHUB_WORKSPACE"
