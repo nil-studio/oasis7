@@ -392,14 +392,14 @@ run_oasis7_distfs_industry() {
     *) echo "Unknown industry selection: $selection" >&2; return 2 ;;
   esac
   case "$action" in
-    test) run_cargo test -p oasis7_distfs --test incremental_industry_jobs -- --test-threads=1 ;;
+    test) run_cargo test -p oasis7_distfs --test incremental_industry_jobs ;;
     clippy) run_cargo_clippy -p oasis7_distfs --test incremental_industry_jobs ;;
     *) echo "Unknown industry check: $action" >&2; return 2 ;;
   esac
 }
 
 run_oasis7_distfs_tests() {
-  run_cargo test -p oasis7_cas -p oasis7_formal_protocol --lib -- --test-threads=1
+  run_cargo test -p oasis7_cas -p oasis7_formal_protocol --lib
   # Keep independent RPC deadline fixtures from contending with other storage fixtures.
   run_cargo test -p oasis7_distfs --lib --bin oasis7_durability_endpoint -- --test-threads=1
   run_oasis7_distfs_industry test
