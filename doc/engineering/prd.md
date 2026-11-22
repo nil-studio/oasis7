@@ -89,9 +89,9 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
   1. Flow-ENG-001: 明确问题与验收 → 独立分支实现 → 局部验证 → 同一目的 PR → 实际 CI 与按风险评审 → 修复阻断问题 → 绑定预期 HEAD 正常合入。
   2. Flow-ENG-002: CI 失败 → 复现和定位根因 → 最小修复 → 重测受影响内容。
   3. Flow-ENG-003: 文档变化 → 选择对应领域与职责 → 同步消费者与索引 → 适用文档检查。
-  4. Flow-ENG-008: 多个就绪代码任务 → 独立开发会话分别领取 → 各会话实现、自测并跟进 PR → 负责人验证实际组合。
+  4. Flow-ENG-008: 多个就绪代码任务 → 独立开发会话分别领取 → 各会话在单子任务单活在途开放 PR 边界内完成本地多 commit 收敛、自测并跟进 PR → 负责人验证实际组合。
   5. Flow-ENG-009: 获得高价值反馈 → 核对事实、影响及用户范围 → 修复当前问题或记录可读建议；无需自动转任务、memory 或 stage。
-  6. Flow-ENG-011: 按[项目拆解规则](workflow/source-of-truth.md#project-decomposition)核对完整目标与验收 → 组织可用模块增量和关键依赖 → 细化当前及近期批次，参考[代码任务规模建议](workflow/source-of-truth.md#code-task-file-limit)，把可独立交付的开发任务建为原生 sub-issue → 按子项领取并及时集成验收。父项保留后续范围与全部剩余义务；模块分组不强制另建中间 Issue，内部步骤用清单，Project 按需展示，看板故障不停止就绪工作。
+  6. Flow-ENG-011: 按[项目拆解规则](workflow/source-of-truth.md#project-decomposition)核对完整目标与验收 → 组织可用模块增量和关键依赖 → 细化当前及近期批次，参考[代码任务规模建议](workflow/source-of-truth.md#code-task-file-limit)与[小而完整的 PR](workflow/source-of-truth.md#small-complete-pr)，归并同 CI 受影响范围的同类待办并把有拆分收益的开发任务建为原生 sub-issue → 按子项领取（建议规模内默认单 PR 收口）并及时集成验收。父项保留后续范围与全部剩余义务；模块分组不强制另建中间 Issue，内部步骤用清单，Project 按需展示，看板故障不停止就绪工作。
   7. Flow-ENG-014: 独立分支或按需 worktree → 保留各工作区的本地 Cargo target和运行隔离 → 连续开发验证 → 正常 PR 与合入 → 独立安全清理。
   8. Flow-ENG-016: 只读查询或分析 → 直接提供事实或按需专业判断；不创建流程身份、工作区或远程记录。
   9. Flow-ENG-017: 收到 CI、评审或验收反馈 → 优先续接原开发会话 → 修复并验证 → 更新原 Issue/PR；需要独立审阅时另行安排，不增加固定角色链。
@@ -110,7 +110,7 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
 | 协作交接 | 当前 Issue/PR、具体问题、必要上下文、允许范围和预期结果 | 引用已有任务内容，补充本次需要的信息；模板按需使用 | 跟随实际任务与交付状态 | 不另建角色交接状态或回执链 | 原负责人交接，接手者核实范围与已有成果 |
 - Acceptance Criteria:
   - AC-1: engineering PRD 明确文件约束、脚本约束、测试分层约束。
-  - AC-2: 父目标能定位已验证的可用结果、当前批次、关键阻塞、待集成/待验收成果及全部剩余义务；按拆分收益细化近期任务，后续未细化范围不阻塞当前就绪工作，决定架构可行性的约束须提前核对。独立代码任务参考[尽量不超过 30 个代码文件](workflow/source-of-truth.md#code-task-file-limit)的建议，结合预计及实际累计范围判断拆分收益；超过时说明完整交付需要和范围取舍，文件数不单独阻断交付。独立开发任务通过原生父子 Issue 跟踪与领取并关联实际 PR、CI 和验收；不以子项数量代替整体进展。简单修改可直接用 PR，模块分组和 Project 按需使用，不另建台账或状态副本。
+  - AC-2: 父目标能定位已验证的可用结果、当前批次、关键阻塞、待集成/待验收成果及全部剩余义务；按拆分收益与 CI 受影响范围细化或归并近期任务，后续未细化范围不阻塞当前就绪工作，决定架构可行性的约束须提前核对。独立代码任务参考[尽量不超过 30 个代码文件](workflow/source-of-truth.md#code-task-file-limit)与[小而完整的 PR](workflow/source-of-truth.md#small-complete-pr)，建议规模内默认单 PR 收口且单子项同一时刻原则上只保持一个在途开放 PR（解阻前置除外）；超过规模或确需拆多 PR 时说明完整交付需要和范围取舍，文件数与 PR 数不单独阻断交付。独立开发任务通过原生父子 Issue 跟踪与领取并关联实际 PR、CI 和验收；不以子项数量代替整体进展。简单修改可直接用 PR，模块分组和 Project 按需使用，不另建台账或状态副本。
   - AC-3: 与 `doc/scripts/precommit/pre-commit.prd.md`、`testing-manual.md` 的口径一致。
   - AC-5: 新增工程治理专题若引入运行态治理层，必须明确与正式文档层的分工边界，并在当前 PR 或按需 Issue 记录本次范围；复杂协调按需使用 Issue/Project，不作为普通 PR 准入。
   - AC-6: 文档治理脚本从实际一级目录和根 README 的准确 Markdown 链接核对入口，检查路径/锚点/ID、已声明关系与正向完成证据；标题、固定章节/列数及普遍状态字段作写作提示，不用完整路径 allowlist 冻结文件。
@@ -173,7 +173,7 @@ Trace ID: O7-REQ-b189f0a2-0425-4985-9a5d-86179428b586
   - `doc/engineering/doc-governance/doc-structure-standard.design.md`
   - `doc/engineering/workflow/source-of-truth.md`
   - historical engineering full-PRD review triplet（后续已删除；历史审读证据见 Git history logs，当前追踪入口见 `doc/engineering/prd.index.md` 与模块入口）
-  - historical world-simulator PRD review checklist snapshot（后续已删除；当前 world-simulator truth 见 `doc/world-simulator/README.md`、`doc/world-simulator/prd.index.md`、`doc/world-simulator/prd.md` 与 `doc/world-simulator/prd.md`）
+  - historical world-simulator PRD review checklist snapshot（后续已删除；当前 world-simulator truth 见 `doc/world-simulator/README.md`、`doc/world-simulator/prd.index.md`、`doc/world-simulator/prd.md` 与 `doc/world-simulator/design.md`）
   - historical self-evolution file-based PM background: `doc/engineering/self-evolution/file-based-self-evolution-management-2026-03-30.design.md`; current task truth / evidence rules live in `doc/engineering/workflow/source-of-truth.md`
   - current self-evolution, memory, reflection and external-workflow boundaries: `doc/engineering/workflow/source-of-truth.md`; pending scope is retained in `doc/engineering/prd.md`, and default-vs-library skill reachability is in `.agents/skills/README.md`
   - current document organization and consumption-layer rules: `doc/engineering/doc-governance/doc-structure-standard.design.md`; inventory and maintenance-cost follow-up routing: `doc/engineering/governance/README.md`
@@ -264,7 +264,7 @@ Trace ID: O7-REQ-b189f0a2-0425-4985-9a5d-86179428b586
 | PRD-ENGINEERING-029 | `testing-evidence-path-governance` | historical-only | 一次性专题三件套已退役删除；当前验证入口为 `doc/testing/evidence/README.md` 首读分流、`doc/testing/README.md` / `doc/testing/prd.index.md` / engineering 根入口回写与 `doc-governance-check` | `testing/evidence` 热点子域入口、`PRD-ENGINEERING-025` 第四条 follow-up 收口 |
 | PRD-ENGINEERING-030 | historical `readme-governance-path-governance`（已退役） | historical-only | 当前检查 `doc/readme/governance/README.md` 首读分流、维护触发器、`doc/readme/README.md` / `doc/readme/prd.index.md` 上游可达性与 `doc-governance-check`；原三件套从 git history 与 PR 与实际验证记录 追溯 | `readme/governance` 热点子域入口与 `PRD-ENGINEERING-025` 第五条 follow-up 的长期承接 |
 | PRD-ENGINEERING-033 | `doc-hotspot-path-aftercare` | `test_tier_required` | `doc/world-simulator/launcher/README.md` 与 `doc/game/gameplay/README.md` 首读分流、模块 `README.md` / `prd.index.md` 回写、`bash scripts/doc-inventory-report.sh`、`doc-governance-check` 与 `git diff --check` 通过 | inventory 重新暴露的热点路径 aftercare，避免全仓机械治理并继续压低默认阅读面成本 |
-| PRD-ENGINEERING-032 | `skill-replacement-rationalization` | `test_tier_required` | skill rationalization 专题三件套、低耦合 skill 删除、角色卡/活跃文档引用清理、`doc-governance-check`、`pm-lint` 与 `git diff --check` 通过 | `.agents/skills` 本地维护面、角色卡推荐 skill 真实性与 engineering/self-evolution 治理边界 |
+| PRD-ENGINEERING-032 | `skill-replacement-rationalization` | `test_tier_required` | skill rationalization 专题三件套、低耦合 skill 删除、角色卡/活跃文档引用清理、`doc-governance-check` 与 `git diff --check` 通过（当期验证曾包含已退役的 `pm-lint`） | `.agents/skills` 本地维护面、角色卡推荐 skill 真实性与 engineering/self-evolution 治理边界 |
 
 - Decision Log:
 | 决策ID | 选定方案 | 备选方案（否决） | 依据 |
@@ -283,13 +283,13 @@ Trace ID: O7-REQ-b189f0a2-0425-4985-9a5d-86179428b586
 | DEC-ENG-012 | 2026-03 阶段采用全量逐篇审读留痕；当前该旧清单面已退役为历史留痕 | 仅维护模块级进度百分比 | 当期逐篇留痕提供了审计与遗漏定位；当前 truth 已收敛到模块入口和 round logs。 |
 | DEC-ENG-013（历史） | 当期审读先按代码核实事实描述 | 仅凭历史文档推定当前实现 | 保留当期事实回填理由；现行要求与设计 authority 不被代码覆盖，按上述偏差分流处理。 |
 | DEC-ENG-014 | 重复与上下游对齐问题在同批次完成修复与回填 | 跨批次累积处理 | 同批次闭环可避免问题扩散到下一轮审读。 |
-| DEC-ENG-015 | 根 `AGENTS.md` 仅保留 7 个组合角色入口，详细职责下沉到 `.agents/roles/*.md` | 在根 `AGENTS.md` 内持续堆叠所有角色长描述 | 入口更短、更稳，且更便于按角色独立演进职责卡。 |
-| DEC-ENG-016 | 为角色协作提供统一 handoff 模板，并放在 `.agents/roles/templates/` | 继续依赖自由格式口头/临时文本交接 | 统一模板能显著降低跨角色遗漏、返工和上下文漂移。 |
-| DEC-ENG-017 | 将 `AGENTS.md` 工作流升级为角色协作版，并显式写入 handoff / QA / LiveOps / GitHub PR review / no-commit 例外 | 继续保留单线程开发表述，或让额外本地 review 替代 owner role / GitHub PR 默认评审边界 | 当前仓库已引入角色职责卡与交接模板；需要继续由角色视角承接 owner 责任，并把 GitHub PR 的 required checks、requested changes/comment closeout、mergeability 与 merge path 作为默认评审/合流边界；`REVIEW_REQUIRED` 仅回报不阻塞。 |
-| DEC-ENG-018 | 自我进化项目管理首期采用仓库内文件化运行层 | 直接将外部 PM/SaaS 作为主真值 | 当前仓库已具备 Git/worktree/正式文档治理链，先在 repo 内闭环更符合现有工程约束。 |
-| DEC-ENG-020 | 角色名通过 `.agents/roles/*.md` 自动生成白名单并由门禁校验 | 允许自由填写角色名或维护独立手写名单 | 自动从单一事实源派生，最不容易漂移。 |
-| DEC-ENG-021 | 在每张角色职责卡内补充“推荐技能”区段，并明确“角色定 owner，技能定方法” | 仅在对话中临时口头说明角色与技能关系 | 关系落盘后更利于新人自助选择方法，也能降低角色/技能混用带来的协作歧义。 |
-| DEC-ENG-021 | 将“需要其他伙伴协作”的默认执行语义收敛为“切换到标准角色视角并加载职责卡” | 保留“可开启 sub agent”表述 | 角色视角切换已被现有职责卡、handoff 模板与工作流规则完整支持，且不依赖额外运行时能力，执行口径更稳定。 |
+| DEC-ENG-015（历史） | 当期根 `AGENTS.md` 仅保留 7 个组合角色入口，详细职责下沉到 `.agents/roles/*.md` | 在根 `AGENTS.md` 内持续堆叠所有角色长描述 | 当期压缩入口背景；现行规则见 SC-14，根入口不再规定固定角色数量。 |
+| DEC-ENG-016（历史） | 为角色协作提供可选 handoff 模板（`.agents/roles/templates/`） | 仅依赖自由格式口头文本交接 | 现行交接复用 Issue/PR，模板仅作按需参考（SC-15）。 |
+| DEC-ENG-017（历史） | 当期将 `AGENTS.md` 升级为角色协作版并写入 handoff / QA 等流程 | 继续保留早期单线程表述 | 现已收敛为单一负责人 + 多独立开发会话模型（SC-16 与开发流程规范），不再设固定角色交接链。 |
+| DEC-ENG-018（历史） | 自我进化项目管理早期采用仓库内 `.pm` 文件化运行层 | 直接将外部 PM/SaaS 作为主真值 | 本地 `.pm` 运行层后续已退役，现行交付事实以 Git、PR、CI 和评审记录为准。 |
+| DEC-ENG-020（历史） | 早期角色名通过 `.agents/roles/*.md` 生成白名单校验 | 手写独立名单 | 旧 handoff/devlog 角色格式门禁已退役（NFR-ENG-17）。 |
+| DEC-ENG-021（历史） | 早期在角色职责卡内补充推荐技能区段 | 仅口头说明关系 | 现行专业关注点与默认/库级技能索引按 SC-14 与 `.agents/skills/README.md` 维护。 |
+| DEC-ENG-021B（历史） | 早期将协作默认语义定为切换角色视角 | 保留早期 sub-agent 表述 | 现已更新为默认使用多个独立开发会话分别领取就绪代码任务（SC-16 与开发流程规范 §2.5）。 |
 | DEC-ENG-023 | 先冻结“阅读面分层”而不是立刻重组目录树；`活跃真值 / 审计留痕 / 历史归档 / 兼容跳转` 的差异先体现在 root README、模块 README、`prd.index.md` 与专题互链上 | 立即重引入 `archive/` 树或直接批量移动 `reviews/governance/evidence` 文件 | 当前问题首先是默认阅读面过宽，而不是路径本身不可存放；先压缩入口和消费层，风险最小，也不破坏现有引用稳定性。 |
 
 <a id="PRD-ENGINEERING-035"></a>
