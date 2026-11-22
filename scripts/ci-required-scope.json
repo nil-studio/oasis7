@@ -2508,6 +2508,10 @@
         "scripts/check-script-executable-bits*",
         "scripts/check-windows-paths*",
         "scripts/lint-skills*",
+        "skills-lock.json",
+        "skills/gpt-image-2/scripts/gen.sh",
+        "skills/gpt-image-2/scripts/extract_image.py",
+        "skills/gpt-image-2/gallery/*.png",
         "scripts/pre-commit*"
       ],
       "groups": [
