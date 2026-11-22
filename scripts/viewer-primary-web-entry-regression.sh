@@ -354,8 +354,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-ab_require
-
 case "$viewer_host" in
   127.0.0.1|localhost|::1|'[::1]') ;;
   *) echo "error: primary entry QA test login requires a loopback viewer host" >&2; exit 2 ;;
@@ -372,6 +370,8 @@ if [[ -z "$web_bind_host" || -z "$web_bind_port" || ! "$web_bind_port" =~ ^[0-9]
   echo "error: invalid --web-bind: $web_bind" >&2
   exit 2
 fi
+
+ab_require
 
 mkdir -p "$out_root"
 stamp=$(date '+%Y%m%d-%H%M%S')
