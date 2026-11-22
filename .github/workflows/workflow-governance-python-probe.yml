@@ -1,0 +1,69 @@
+name: Workflow governance Python diagnostic
+
+on:
+  pull_request:
+    branches: [codex/engineering-workflow-governance-python-probe-base]
+    paths: [.github/workflows/workflow-governance-python-probe.yml]
+    types: [opened]
+
+permissions:
+  contents: read
+cache-mode: read
+
+jobs:
+  compare-python:
+    if: github.head_ref == 'codex/engineering-workflow-governance-python-probe' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb
+      options: --user 1001:1001 --init
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      TESTED_SHA: 92b4f36cc6a8d45147a1d6135835aaa1f729a654
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 92b4f36cc6a8d45147a1d6135835aaa1f729a654
+          persist-credentials: false
+      - name: Verify the checkout and record the original search path
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          test "$(git rev-parse HEAD)" = "$TESTED_SHA"
+          test "$(id -u)" = 1001
+          ps -o pid,ppid,comm -p 1
+          printf 'PROBE_SYSTEM_PATH=%s\n' "$PATH" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12.16'
+      - name: Run both Python provisioning paths on the original metadata test suite
+        run: |
+          suite=scripts/security/codeql-rust-wasm-metadata.test.py
+          python3 --version
+          setup_import=0
+          env -u LD_LIBRARY_PATH python3 -c 'import ctypes; print(ctypes.__file__)' || setup_import=$?
+          setup_suite=0
+          python3 "$suite" || setup_suite=$?
+          printf 'python_diagnostic mode=setup-python stripped_import=%s suite_exit=%s\n' "$setup_import" "$setup_suite"
+
+          venv="$RUNNER_TEMP/governance-python-probe"
+          env -u LD_LIBRARY_PATH /usr/bin/python3 -m venv "$venv"
+          export PATH="$venv/bin:$PROBE_SYSTEM_PATH"
+          unset LD_LIBRARY_PATH
+          python3 --version
+          python3 -c 'import ctypes, sys; assert sys.version_info[:2] == (3, 12); print(ctypes.__file__)'
+          system_suite=0
+          python3 "$suite" || system_suite=$?
+          printf 'python_diagnostic mode=system-venv stripped_import=0 suite_exit=%s\n' "$system_suite"
+          test "$(git rev-parse HEAD)" = "$TESTED_SHA"
+          git diff --exit-code
+          test "$system_suite" = 0
