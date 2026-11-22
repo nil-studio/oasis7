@@ -634,7 +634,6 @@ fn a_compatibility_turn_cannot_be_retried_or_completed_with_production_feedback(
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 
-#[allow(dead_code)]
 struct ProductionOnlyProvider;
 
 impl DecisionProvider<Value, Value> for ProductionOnlyProvider {
@@ -669,13 +668,6 @@ impl DecisionProvider<Value, Value> for ProductionOnlyProvider {
             crate::provider::cognition_response_digest(&response.base_decision_response);
         Ok(response)
     }
-}
-
-#[allow(dead_code)]
-fn assert_production_only_registration_still_works() {
-    let mut runner = AsyncAgentRunner::<Value, Value>::with_default_capacity();
-    runner.register("agent-a", ProductionOnlyProvider).unwrap();
-    let _ = runner.restore_feedback_history(&FixtureAuthority::default());
 }
 
 struct HandoffProvider {

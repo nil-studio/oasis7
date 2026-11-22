@@ -1,12 +1,7 @@
 use super::*;
 
 #[cfg(not(target_arch = "wasm32"))]
-use std::sync::Mutex;
-#[cfg(not(target_arch = "wasm32"))]
 use std::time::{SystemTime, UNIX_EPOCH};
-
-#[cfg(not(target_arch = "wasm32"))]
-static UX_STATE_FS_LOCK: Mutex<()> = Mutex::new(());
 
 #[cfg(not(target_arch = "wasm32"))]
 fn unique_temp_dir(label: &str) -> std::path::PathBuf {
@@ -25,11 +20,20 @@ fn unique_temp_dir(label: &str) -> std::path::PathBuf {
 #[test]
 fn load_launcher_ux_state_ignores_noncanonical_state_path() {
     const NONCANONICAL_UX_STATE_PATH: &str = ".legacy_launcher_ux_state.json";
+    struct CwdRestore(std::path::PathBuf);
+    impl Drop for CwdRestore {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.0);
+        }
+    }
 
-    let _guard = UX_STATE_FS_LOCK.lock().expect("lock");
+    let _guard = crate::transfer_auth::TRANSFER_AUTH_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
     let temp_dir = unique_temp_dir("ux_state");
     std::fs::create_dir_all(&temp_dir).expect("create temp dir");
     let old_cwd = std::env::current_dir().expect("current dir");
+    let _cwd_restore = CwdRestore(old_cwd);
 
     let result = (|| -> Result<(), Box<dyn std::error::Error>> {
         std::env::set_current_dir(&temp_dir)?;
@@ -54,7 +58,7 @@ fn load_launcher_ux_state_ignores_noncanonical_state_path() {
         Ok(())
     })();
 
-    std::env::set_current_dir(old_cwd).expect("restore cwd");
+    drop(_cwd_restore);
     std::fs::remove_dir_all(&temp_dir).ok();
     result.expect("ux state checks should succeed");
 }

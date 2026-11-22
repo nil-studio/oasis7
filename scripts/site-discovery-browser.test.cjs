@@ -142,17 +142,19 @@ const origin=process.env.OASIS7_SITE_QA_URL || 'http://127.0.0.1:48760';
   await c.close();record(locale+' failed concept media and runtime reduced-motion retain readable controls and FAQ');
  }
  const files=['oasis7-windows-x64.exe','oasis7-macos-x64.dmg','oasis7-linux-x64.deb','oasis7-checksums.txt'];
- for(const scenario of ['full','no-platform','no-checksum','invalid','timeout']){
-  const c=await context();await c.route('https://api.github.com/**',async r=>{
+ for(const locale of ['zh-CN','en-US']) for(const scenario of ['full','no-platform','no-checksum','invalid','timeout']){
+  const c=await context({locale});let requestUrl;await c.route('https://api.github.com/**',async r=>{
+   requestUrl=r.request().url();
    if(scenario==='timeout')return r.abort();
    const names=files.filter(n=>!(scenario==='no-platform'&&n===files[0])&&!(scenario==='no-checksum'&&n===files[3]));
-   await r.fulfill({json:{tag_name:'qa-candidate',published_at:scenario==='invalid'?'bad':'2026-10-14T00:00:00Z',assets:names.map(name=>({name,browser_download_url:`https://github.com/eng-cc/oasis7/releases/download/qa-candidate/${name}`}))}});
-  });const p=await c.newPage();await p.goto(origin+'/');await p.locator('[data-preview-details] > summary').click();await p.locator('[data-download-platform-button="windows"]').click();
+   await r.fulfill({json:{tag_name:'qa-candidate',published_at:scenario==='invalid'?'bad':'2026-10-14T00:00:00Z',assets:names.map(name=>({name,browser_download_url:`https://github.com/nil-studio/oasis7/releases/download/qa-candidate/${name}`}))}});
+  });const p=await c.newPage();await p.goto(origin+(locale==='zh-CN'?'/':'/en/'));await p.locator('[data-preview-details] > summary').click();await p.locator('[data-download-platform-button="windows"]').click();
   await p.waitForTimeout(150);
+  assert.equal(requestUrl,'https://api.github.com/repos/nil-studio/oasis7/releases/latest');
   const tag=await p.locator('[data-release-tag]').innerText();const href=await p.locator('[data-download-primary-link]').getAttribute('href');
-  if(scenario==='invalid'||scenario==='timeout'){assert.equal(tag,'2026-06-03_v2');assert.ok(href.includes('/2026-06-03_v2/'));assert.ok((await p.locator('[data-release-status]').innerText()).includes('未确认最新'));}
-  else {assert.equal(tag,'qa-candidate');assert.ok((await p.locator('[data-package-validation-copy]').innerText()).includes('此下载候选没有'));if(scenario==='full')assert.ok(href.includes('/qa-candidate/'));else assert.equal(href,null);}
-  await c.close();record('release '+scenario+' coherent metadata/assets or safe fallback');
+  if(scenario==='invalid'||scenario==='timeout'){assert.equal(tag,'2026-06-03_v2');assert.equal(href,'https://github.com/nil-studio/oasis7/releases/download/2026-06-03_v2/'+files[0]);}
+  else {assert.equal(tag,'qa-candidate');if(scenario==='full')assert.equal(href,'https://github.com/nil-studio/oasis7/releases/download/qa-candidate/'+files[0]);else assert.equal(href,null);}
+  await c.close();record(locale+' release '+scenario+' coherent metadata/assets or safe fallback');
  }
  for (const userAgent of ['Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Mobile', 'Mozilla/5.0 (Windows NT 10.0; ARM64)', 'Mozilla/5.0 (X11; Linux aarch64)']) {
   const c=await context({userAgent});await c.route('https://api.github.com/**',r=>r.abort());const p=await c.newPage();await p.goto(origin+'/');assert.equal(await p.locator('[data-download-primary-link]').getAttribute('href'),null);assert.equal(await p.locator('[data-download-platform-button][aria-pressed="true"]').count(),0);await c.close();record('unsupported device has no recommendation: '+userAgent);

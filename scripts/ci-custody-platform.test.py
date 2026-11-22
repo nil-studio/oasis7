@@ -588,6 +588,90 @@ else: record([name, *a])
                             C.execute(self.root, self.plan, shard, output, '71', 2, True)
                 self.assertFalse((output / 'result.json').exists())
 
+    def test_known_workerd_fault_retries_once_and_preserves_attempt_one_evidence(self):
+        path, shard = self.client_fixture()
+        passing_source = path.read_text()
+        failing_source = "import {test} from 'node:test';test('fault',()=>{throw Error('fetch failed')});"
+        output = Path(self.temporary.name) / 'known-fault-retry-pass'
+        calls = []
+
+        def prepare(root, results, environment, context, attempt, command):
+            call_index = len(calls) + 1
+            calls.append(call_index)
+            path.write_text(failing_source if call_index == 1 else passing_source)
+            directory = results / 'workerd-fault'
+            directory.mkdir()
+            (directory / 'records.jsonl').write_text(f'attempt-{call_index}\n')
+            return directory, command, environment
+
+        def finish(directory, context, attempt, node_passed):
+            report = dict(
+                schema=C.workerd_capture.SCHEMA,
+                engine_sha256=C.workerd_capture.ENGINE_SHA256,
+                complete=True,
+                passed=bool(node_passed),
+                summary=dict(known_fault=not node_passed, signal_count=0 if node_passed else 1,
+                             runtime_count=1, passed=bool(node_passed)),
+            )
+            (directory / 'report.json').write_text(json.dumps(report) + '\n')
+            return report
+
+        with mock.patch.object(C.workerd_capture, 'prepare', side_effect=prepare), \
+             mock.patch.object(C.workerd_capture, 'finish', side_effect=finish):
+            C.execute(self.root, self.plan, shard, output, '71', 2, True)
+
+        self.assertEqual(calls, [1, 2])
+        self.assertEqual((output / 'workerd-fault-attempt-1/records.jsonl').read_text(), 'attempt-1\n')
+        self.assertEqual((output / 'workerd-fault/records.jsonl').read_text(), 'attempt-2\n')
+        self.assertTrue((output / (C.workerd_capture.TEST_FILE + '.attempt-1.log')).exists())
+        receipt = C.load(output / 'result.json')
+        row = next(item for item in receipt['files'] if item['file'] == C.workerd_capture.TEST_FILE)
+        self.assertEqual(row['known_fault_retry'], dict(
+            attempts=2,
+            engine_sha256=C.workerd_capture.ENGINE_SHA256,
+            fault_offset=C.workerd_capture.KNOWN_FAULT_OFFSET,
+            issue='#5900',
+            upstream_issue=C.workerd_capture.UPSTREAM_ISSUE_URL,
+            preserved_evidence='workerd-fault-attempt-1',
+            preserved_log=C.workerd_capture.TEST_FILE + '.attempt-1.log',
+        ))
+
+    def test_known_workerd_fault_retry_is_bounded_and_never_retries_other_failures(self):
+        path, shard = self.client_fixture()
+        path.write_text("import {test} from 'node:test';test('fault',()=>{throw Error('boom')});")
+
+        for known_fault, expected_calls in ((True, 2), (False, 1)):
+            output = Path(self.temporary.name) / f'known-fault-bounded-{known_fault}'
+            calls = []
+
+            def prepare(root, results, environment, context, attempt, command):
+                calls.append(len(calls) + 1)
+                directory = results / 'workerd-fault'
+                directory.mkdir()
+                (directory / 'records.jsonl').write_text(f'attempt-{len(calls)}\n')
+                return directory, command, environment
+
+            def finish(directory, context, attempt, node_passed):
+                report = dict(
+                    schema=C.workerd_capture.SCHEMA,
+                    engine_sha256=C.workerd_capture.ENGINE_SHA256,
+                    complete=True,
+                    passed=False,
+                    summary=dict(known_fault=known_fault, signal_count=1 if known_fault else 0,
+                                 runtime_count=1, passed=False),
+                )
+                (directory / 'report.json').write_text(json.dumps(report) + '\n')
+                return report
+
+            with mock.patch.object(C.workerd_capture, 'prepare', side_effect=prepare), \
+                 mock.patch.object(C.workerd_capture, 'finish', side_effect=finish), \
+                 self.assertRaisesRegex(ValueError, 'custody Node file failed'):
+                C.execute(self.root, self.plan, shard, output, '71', 2, True)
+
+            self.assertEqual(len(calls), expected_calls)
+            self.assertFalse((output / 'result.json').exists())
+            self.assertEqual((output / 'workerd-fault-attempt-1').exists(), known_fault)
+
     def test_final_consumer_requires_capture_and_binds_the_producer_attempt(self):
         self.client_fixture()
         receipts = []

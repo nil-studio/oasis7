@@ -751,6 +751,34 @@ class PlannerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'symbolic link'):
             self.run_plan()
 
+    def test_retired_root_evidence_deletion_only_and_closed_for_add_or_other_paths(self):
+        exact = (
+            'evidence/issue-1973/selected-target-polish.png',
+            'evidence/pr-234/viewer-entry-after-advance.png',
+            'evidence/pr-234/viewer-entry-before.png',
+        )
+        for path in exact:
+            self.write(path, 'png-bytes')
+        self.base = self.commit()
+        # Modifying an existing retired evidence screenshot remains rejected.
+        self.write(exact[0], 'modified-bytes'); self.commit()
+        with self.assertRaisesRegex(ValueError, 'unregistered input'):
+            self.run_plan()
+        # Deleting the exact 3 orphaned screenshots succeeds with no CodeQL units.
+        self.base = self.git('rev-parse', 'HEAD')
+        for path in exact:
+            (self.root / path).unlink()
+        self.commit()
+        result = self.run_plan()
+        self.assertEqual(result['selected_units'], [])
+        # Re-introducing any of them or touching another evidence/ path stays closed.
+        for path in (exact[0], 'evidence/other/new.png'):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, 'png-bytes'); self.commit()
+                with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                    self.run_plan()
+
     def test_git_attributes_preserve_all_language_consumers(self):
         for path in ('.gitattributes', 'scripts/.gitattributes'):
             with self.subTest(path=path):

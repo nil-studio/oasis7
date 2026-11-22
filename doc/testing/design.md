@@ -229,7 +229,7 @@ This matrix is per frozen object, not a whole-file rewrite list. It preserves th
 <a id="l4-session-orchestration"></a>
 ### 6.2 浏览器与玩家会话编排
 
-复用 [Hosted 玩家流程](../p2p/blockchain/hosted-public-join-managed-identity-custody.prd.md#2-user-experience-functionality)、[Hosted 身份职责](../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#4-目标身份模型) 和 [agent-browser 生命周期](manual/web-ui-agent-browser-closure-manual.manual.md#agent-browser-会话生命周期约定)。L4B 仅消费这些合同，不改变其认证、注册、刷新和撤销语义。
+复用 [Hosted 玩家流程](../p2p/blockchain/hosted-public-join-managed-identity-custody.prd.md#hosted-custody-user-experience)、[Hosted 身份职责](../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#4-目标身份模型) 和 [agent-browser 生命周期](manual/web-ui-agent-browser-closure-manual.manual.md#agent-browser-会话生命周期约定)。L4B 仅消费这些合同，不改变其认证、注册、刷新和撤销语义。
 
 1. runner 创建本轮唯一的 owned browser session，producer 采用同一个 session 引用；登录、观测、正式 UI 操作和最终截图均绑定该 session。若另有 observer，其角色与独立 session 单列，不能用 observer 的登录状态证明 driver 已登录。
 2. 默认干净 `hosted_public_join` 路径先记录 guest 状态，再在实际 driver session 通过现有合法登录/注册路径进入玩家态。缺账号配置、受支持登录能力或登录失败时记录具体前置 blocker；不静默改部署模式或自动赋予身份。

@@ -3,7 +3,9 @@ import importlib.util
 import io
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("signer_runner", HERE / "ci-local-signer-tests.py")
@@ -49,6 +51,38 @@ class HelperCoverage(unittest.TestCase):
 
     def test_require_darwin_on_other_host_fails(self):
         self.assertEqual(self.run_fixture([self.native()], platform="linux", require_darwin=True)[0], 1)
+
+    def test_boundary_runs_exact_consumer_with_private_generated_fixture(self):
+        seen = []
+
+        def cargo(command, **kwargs):
+            self.assertEqual(command, ["cargo", "test", "--locked", "-p", "oasis7_local_signer",
+                                       "--lib", "--", "--ignored", "--exact", runner.BOUNDARY_TEST])
+            self.assertNotIn("RUSTC_WRAPPER", kwargs["env"])
+            fixture = Path(kwargs["env"]["OASIS7_INSTALLER_BOUNDARY_FIXTURE"])
+            self.assertEqual(fixture.read_text(), "{}")
+            self.assertEqual(fixture.parent.stat().st_mode & 0o777, 0o700)
+            seen.append(fixture)
+            return SimpleNamespace(returncode=0, stdout=f"running 1 test\ntest {runner.BOUNDARY_TEST} ... ok\n")
+
+        with patch.object(runner.subprocess, "run", side_effect=cargo):
+            with patch.dict(runner.os.environ, RUSTC_WRAPPER="unexpected"):
+                self.assertEqual(runner.run_installer_boundary(
+                    lambda path: path.write_text("{}"), stream=io.StringIO()), 0)
+        self.assertEqual(len(seen), 1)
+        self.assertFalse(seen[0].parent.exists())
+
+    def test_boundary_rejects_success_exit_without_exact_pass(self):
+        for status, output in ((0, "running 0 tests\n"), (0, "test other ... ok\n"),
+                               (0, f"test {runner.BOUNDARY_TEST} ... ok\n"),
+                               (1, f"running 1 test\ntest {runner.BOUNDARY_TEST} ... ok\n")):
+            with self.subTest(status=status, log=output):
+                with patch.object(runner.subprocess, "run",
+                                  return_value=SimpleNamespace(returncode=status, stdout=output)):
+                    stream = io.StringIO()
+                    self.assertEqual(runner.run_installer_boundary(
+                        lambda path: path.write_text("{}"), stream=stream), 1)
+                    self.assertIn("expected exact installer boundary importer success", stream.getvalue())
 
     def test_discovery_import_errors_fail(self):
         with tempfile.TemporaryDirectory() as directory:

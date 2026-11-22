@@ -17,6 +17,8 @@ use super::store::BridgeStateStore;
 use super::{dispatch_request, parse_cli_options};
 #[path = "access_observability_tests.rs"]
 mod access_observability_tests;
+#[path = "cli_env_tests.rs"]
+mod cli_env_tests;
 #[path = "deposit_token_tests.rs"]
 mod deposit_token_tests;
 #[path = "tests_support.rs"]
@@ -924,26 +926,6 @@ fn parse_cli_options_accepts_bridge_automation_flags() {
         Some("https://api.letai.run")
     );
     assert_eq!(options.reconcile_interval_seconds, 15);
-}
-
-#[test]
-fn parse_cli_options_accepts_letai_platform_key_env() {
-    const ENV_NAME: &str = "OASIS7_TEST_NEWAPI_BRIDGE_PLATFORM_KEY_ENV";
-    unsafe {
-        env::set_var(ENV_NAME, "platform-key-from-env");
-    }
-    let options = parse_cli_options(vec![
-        "--letai-platform-key-env".to_string(),
-        ENV_NAME.to_string(),
-    ])
-    .expect("parse env platform key");
-    assert_eq!(
-        options.letai_platform_key.as_deref(),
-        Some("platform-key-from-env")
-    );
-    unsafe {
-        env::remove_var(ENV_NAME);
-    }
 }
 
 #[test]

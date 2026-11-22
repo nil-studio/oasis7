@@ -673,7 +673,7 @@ impl ViewerRuntimeLiveServer {
             chunk_generation_schema_version: CHUNK_GENERATION_SCHEMA_VERSION,
             time: runtime_state.time,
             config: self.snapshot_config.clone(),
-            model: oasis7::runtime_host::projection::into_projection_model(projection_kernel),
+            model: projection_kernel.into_model(),
             runtime_snapshot: Some(runtime_snapshot),
             player_gameplay: Some(player_gameplay),
             chain_resource_manifest,

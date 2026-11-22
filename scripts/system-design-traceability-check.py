@@ -682,6 +682,31 @@ def fragment_occurrences(text: str, fragment: str) -> int:
     return dict(fragment_counts(text)).get(fragment.strip().casefold(), 0)
 
 
+@lru_cache(maxsize=128)
+def asset_fragment_counts(suffix: str, text: str) -> tuple[tuple[str, int], ...]:
+    """Index explicit id/route targets for static SVG and HTML assets."""
+    cleaned = without_html_comments(text)
+    counts: dict[str, int] = {}
+    if suffix == ".svg":
+        pattern = r"""\bid\s*=\s*["']([^"']+)["']"""
+    elif suffix in {".html", ".htm"}:
+        pattern = r"""\b(?:id|name|data-route)\s*=\s*["']([^"']+)["']"""
+    else:
+        return ()
+    for value in re.findall(pattern, cleaned, re.IGNORECASE):
+        key = value.strip().casefold()
+        if key:
+            counts[key] = counts.get(key, 0) + 1
+    return tuple(counts.items())
+
+
+def target_fragment_occurrences(target_path: Path, text: str, fragment: str) -> int:
+    suffix = target_path.suffix.casefold()
+    if suffix in {".svg", ".html", ".htm"}:
+        return dict(asset_fragment_counts(suffix, text)).get(fragment.strip().casefold(), 0)
+    return fragment_occurrences(text, fragment)
+
+
 GLOBAL_TRACE_RE = re.compile(r"(?<![A-Za-z0-9_-])O7-REQ-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(?![A-Za-z0-9_-])")
 
 
@@ -1062,7 +1087,7 @@ def validate_reference(
         fail(errors, code, path, f"upstream reference must target Markdown; repair the path: {raw_target!r}")
         return None, fragment
     if fragment:
-        occurrences = fragment_occurrences(target_text, fragment)
+        occurrences = target_fragment_occurrences(target_path, target_text, fragment)
         if occurrences == 0:
             fail(errors, "trace-ref-unresolved", path, f"fragment is unresolved; repair the reference: {target_path.relative_to(root).as_posix()}#{fragment}")
             return None, fragment

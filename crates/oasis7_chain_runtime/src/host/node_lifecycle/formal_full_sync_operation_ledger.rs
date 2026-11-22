@@ -444,6 +444,18 @@ impl Ledger {
         permit: &AttemptPermit,
         target_json: &[u8],
     ) -> Result<(), String> {
+        self.bind_verified_target_with_finished_at(permit, target_json, Instant::now)
+    }
+
+    // A successful durable target selection is immediately consumed by the
+    // live full-sync worker to pin a cut and fetch its manifest/material. A
+    // slow fsync/readback cannot give this expired attempt new I/O authority.
+    pub(super) fn bind_verified_target_with_finished_at(
+        &mut self,
+        permit: &AttemptPermit,
+        target_json: &[u8],
+        finished_at: impl FnOnce() -> Instant,
+    ) -> Result<(), String> {
         self.check_attempt(permit)?;
         if target_json.is_empty() || target_json.len() > 64 * 1024 {
             return Err("operation target record exceeds supported bound".into());
@@ -458,7 +470,14 @@ impl Ledger {
         }
         let mut next = self.state.clone();
         next.verified_target_json = Some(target_json.to_vec());
-        self.save(next)
+        self.save(next)?;
+        if finished_at() >= permit.deadline {
+            // The original bytes and the spent attempt stay durable, but a
+            // late selected target may not authorize another manifest read.
+            self.poisoned = true;
+            return Err("attempt_expired".into());
+        }
+        Ok(())
     }
 
     /// Persist before changing loaded-world pins. Even an identical existing

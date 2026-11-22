@@ -7,7 +7,7 @@ use oasis7_node::{
 use std::io::{BufRead, BufReader, BufWriter};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, mpsc};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -263,8 +263,7 @@ fn live_server_config_supports_llm_mode() {
 }
 
 fn viewer_live_llm_timeout_env_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+    oasis7::env_mut::process_env_lock()
 }
 
 #[test]

@@ -954,7 +954,7 @@ pub(super) fn runtime_context_digests_for_continuation(
 
 use service_cognition::runtime_continuation_for_wake_with_identity;
 
-use crate::runtime_host::provider_context::{
+use oasis7_world_service::provider_context::{
     ProviderCapabilityContext, provider_capability_context,
 };
 

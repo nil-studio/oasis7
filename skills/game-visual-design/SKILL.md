@@ -14,7 +14,7 @@ Use this skill when the task changes visual or player-visible content, especiall
 - a task changes visible UI/game presentation, HUD-like surfaces, overlays, menus, maps, boards, or status panels
 - screenshot review needs criteria for hierarchy, contrast, density, scale, typography, color, spacing, or motion emphasis
 - visual references or target images are useful but must stay bounded by oasis7 runtime and originality constraints
-- `game_visual_interaction_designer` is reviewing a visual/player-facing change before handing a brief to `viewer_engineer` or residual visual risk to `qa_engineer`
+- a task owner or reviewer (referencing `.agents/roles/game_visual_interaction_designer.md` as needed) is defining or reviewing visual acceptance criteria alongside implementation or verification
 
 Do not use this skill when:
 
@@ -63,9 +63,8 @@ Rejected as defaults:
 
 ## Oasis7-Specific Surfaces
 
-- role owner for professional conclusions: `.agents/roles/game_visual_interaction_designer.md`
-- implementation handoff owner: `.agents/roles/viewer_engineer.md`
-- verification handoff owner: `.agents/roles/qa_engineer.md`
+- specialist perspective reference: `.agents/roles/game_visual_interaction_designer.md`
+- related implementation & verification references (consulted as needed, not a fixed handoff chain): `.agents/roles/viewer_engineer.md`, `.agents/roles/qa_engineer.md`
 - visual companion skill: `skills/gpt-image-2/SKILL.md`
 - browser evidence skill: `skills/agent-browser/SKILL.md`
 - workflow evidence sink: the actual PR or existing Task, following `doc/engineering/workflow/source-of-truth.md`; Issue and Project are optional
@@ -79,11 +78,11 @@ Rejected as defaults:
 
 ## Guardrails
 
-- Treat this as mandatory only for visual or player-visible content changes; for other `game_visual_interaction_designer` participation, use it only when the slice contract names a visual risk.
+- Apply this checklist when the change introduces or modifies player-visible visual presentation or names a visual risk; it does not create a separate workflow gate or mandatory role handoff chain.
 - Keep visual findings separate from gameplay-rule findings and implementation feasibility.
 - Do not create fake affordances or decorative state that runtime/viewer data cannot support.
-- Do not let visual references replace original oasis7 direction, screenshot evidence, or QA review.
-- If implementation follows from the brief, name the minimum view states and screenshot set that can verify it.
+- Do not let visual references replace original oasis7 direction, screenshot evidence, or applicable verification.
+- If implementation follows from the brief, name the minimum view states and screenshot set that verify it per `doc/engineering/workflow/source-of-truth.md#3-验证与评审`.
 
 ## Verification
 

@@ -1,7 +1,7 @@
 //! Real signed ordinary page and retained permission chain loader regressions.
 use super::*;
 use crate::formal_live_recovery_test_support as recovery_test_support;
-use oasis7::world_service::formal_read::{
+use oasis7_world_service::formal_read::{
     FormalReadHistoryPageV1, FormalReadHistoryV1, FormalReadReplayCursorV1, FormalReadStepV1,
 };
 use oasis7_distfs::controlled_authority::{

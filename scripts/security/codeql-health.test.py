@@ -240,8 +240,15 @@ class HealthTests(unittest.TestCase):
                "path": ".github/workflows/codeql.yml", "run_started_at": "2026-09-30T23:00:00Z"}
         job = {"name": "CodeQL / rust-repo / default", "status": "completed", "conclusion": "success",
                "steps": [{"name": "CodeQL SARIF upload", "conclusion": "success"}]}
-        with patch.object(health, "read_pages", side_effect=[[], [run], [], [job]]) as pages:
+        command = ["gh", "api", "repos/fixture/repo"]
+        unavailable = subprocess.CompletedProcess(command, 1, "", "repository unavailable")
+        with (
+            patch.object(health, "read_pages", side_effect=[[], [run], [], [job]]) as pages,
+            patch.object(health.association.subprocess, "run", return_value=unavailable) as request,
+        ):
             data = health.live("fixture/repo", "refs/heads/main", SHA)
+        request.assert_called_once_with(command, capture_output=True, text=True, timeout=30)
+        self.assertIn("upload association: association API read failed: repos/fixture/repo", data["errors"])
         self.assertEqual(pages.call_args_list[-1].args[1], "actions/runs/20/attempts/3/jobs")
         self.assertEqual(data["jobs"][0]["run_attempt"], 3)
         self.assertNotIn("upload_sarif_id", data["jobs"][0])

@@ -8,8 +8,7 @@ use sha2::{Digest, Sha256};
 use super::execution_bridge::ExecutionCheckpointStatusEvidence;
 use super::feedback_submit_api::FeedbackSubmitSigner;
 use super::rebuild_status::{
-    RebuildStatusResponse, build_rebuild_status_with_signer, verify_rebuild_proof,
-    verify_rebuild_proof_file,
+    build_rebuild_status_with_signer, verify_rebuild_proof, verify_rebuild_proof_file,
 };
 
 #[test]
@@ -85,9 +84,6 @@ fn rebuild_status_marks_stopped_runtime_not_ready_without_full_status_builder() 
     assert_eq!(response.readiness.status, "not_ready");
     assert_eq!(response.checkpoint.unwrap().height, 1);
 }
-
-#[allow(dead_code)]
-fn _type_check(_: RebuildStatusResponse) {}
 
 #[test]
 fn rebuild_status_rejects_checkpoint_head_mismatch_and_signs_not_ready_proof() {

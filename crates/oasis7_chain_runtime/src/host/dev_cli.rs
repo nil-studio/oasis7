@@ -175,4 +175,58 @@ mod tests {
         );
         assert!(parse(["guarded-world", "--help", "--config", "a"].into_iter()).is_err());
     }
+
+    #[test]
+    fn node_and_local_provider_reject_invalid_typed_network_budget_at_the_real_cli_entry() {
+        // Both public commands must fail during typed --config decoding,
+        // before constructing a NodeRuntime, local provider or network.
+        let config =
+            super::super::development_runtime::from_options(&super::super::CliOptions::default())
+                .unwrap();
+        let mut wire = serde_json::to_value(config).unwrap();
+        let mut nonce = [0_u8; 16];
+        getrandom::fill(&mut nonce).unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "oasis7-dev-budget-cli-{}.json",
+            hex::encode(nonce)
+        ));
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(path.clone());
+        let path = path.to_str().unwrap();
+
+        let base = serde_json::json!({
+            "profile": "v1-discovery-resource-budget-1",
+            "connections_total": 3,
+            "pending_connections_total": 2,
+            "pending_inbound_unknown": 1,
+            "pending_outbound": 2,
+            "connections_per_peer": 1,
+            "handshake_timeout_ms": 2000,
+            "bytes_in_per_window": 1024,
+            "bytes_out_per_window": 2048,
+            "bytes_total_per_window": 3072
+        });
+        let mut missing = base.clone();
+        missing.as_object_mut().unwrap().remove("pending_inbound_unknown");
+        let mut zero = base.clone();
+        zero["bytes_out_per_window"] = serde_json::json!(0);
+        let mut unknown = base;
+        unknown["profile"] = serde_json::json!("unsupported-budget-v2");
+        for invalid in [missing, zero, unknown] {
+            wire["runtime"]["p2p_resource_budget"] = invalid;
+            std::fs::write(path, serde_json::to_vec(&wire).unwrap()).unwrap();
+            for command in ["node", "local-provider"] {
+                let error = run([command, "--config", path].into_iter()).unwrap_err();
+                assert!(
+                    error.starts_with("typed engineering config:"),
+                    "{command} must reject the network budget before provider/runtime admission: {error}"
+                );
+            }
+        }
+    }
 }

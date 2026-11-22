@@ -459,6 +459,9 @@ root overlay 的 frame mark/sweep 也必须分批，私有 job 绑定当前代�
 
 attempt 回收要求原 Published envelope 与 P/R 分别完成的独立 typed 闭包读回。每个闭包作业在活跃内核 pin 内分页，重启失去 pin 后重新读回；未完成或 unknown 保留 attempt。稀疏树遍历页保留最多 256 节点/8 MiB 的工作上限，并在完整校验一个节点后按 1 秒软工作时窗让出；软时窗不替代原 RPC 截止时间，也不允许部分校验节点进入 receipt。业务提交与 Node 空闲轮询仅推进有界维护步骤；源中独有的 world/外部结果/未决义务不能因已经 Qualified 而删除。完整实现是否达到退出门槛仍按下表和 §11 的实际 source/environment 证据判断。
 
+正式 endpoint 在显式 `OASIS7_FORMAL_CLOSURE_DIAGNOSTICS=1` 时，沿原活跃 pin 作业输出 `formal_closure_progress`：随机 scratch job 身份及 candidate/proof、native/rootwalk/retiring/complete 阶段、累计页/原生块/遍历节点/唯一对象与字节，以及根游标和退休页数。仅阶段切换或距上次输出至少 10 秒输出一行，不逐节点记录；Storage full-node driver 启用并通过现有继承 stderr 与 case.log artifact 收集。计数只解释工作进展，不是恢复游标、独立持久闭包 receipt 或完成证明；重开后的新作业重新计数，不延长预算或授权，不改变失败传播和 pin 释放条件。
+
+
 同一共享 recipe 的多个小对象允许通过一次明确的有界批量读取验证：单批最多 1,024 个请求对象、8 MiB 返回原字节，超过该字节界的单对象沿原 64 MiB 上限独立读取。批内持有原物理根 pin，重新读取并校验每个涉及 recipe 的当前完整内容及每个涉及 frame；同一分组内的 frame 只需解码一次，各逻辑对象仍分别验证完整原 hash。按 recipe 分组后逐组释放元数据，仅保留一个最多 64 KiB 的解码 frame 暂存，返回字节仍受 8 MiB 批界限制。各 alias 都通过受控路径及 O_NOFOLLOW 新打开并校验 owner、类型和写权限；仅允许在本批仍持有 anchor FD 时，以 dev/ino 证明 alias 指向该同一物理文件，不能据此证明内容正确。每组仍须从 anchor FD 本次完整读取并校验 recipe，逐项确认请求对象的成员关系、长度及覆盖。最多同时持有 16 个 anchor FD，达到上限先验证并释放当前分组再继续，不无界持有文件。函数返回即丢弃批内复用状态；下一批即便遇到相同 inode 也重新完整读取和校验，不以 inode/mtime 复用内容，不跨调用保留 frame 原字节，也不复用其他端点的结果。全局解析缓存仍受原固定预算约束。耐久读取在同一批内对共享不可变表示同步一次；不得为已有对象先做一遍普通全读、再重复全读只为同步。批量错误仍阻止相应持久化成功或删除源副本，不将部分验证结果视为完整 receipt。
 
 上述 16 个 FD 指保留到分组完成的 anchor，另允许一个临时 probe FD 校验新 alias 身份；probe 不计入保留组，不能累计。frame 解码复用只覆盖当前 recipe 分组；不同 recipe 或已释放后重新遇到的分组仍重新读验，不能为全调用去重引入无界 frame 缓存。
