@@ -71,7 +71,7 @@ Trace ID: O7-REQ-83ee480f-007c-446d-a05d-827c51b403e3
 
 系统设计状态：已覆盖；[本地检查设计](ci-tiered-execution.design.md#local-check-entry-design)承接分阶段交付及 LOCAL-AC-1–5，具体操作与验证见[测试手册](../../../testing-manual.md#local-check-entry)。
 
-实现状态：部分实现。现有 no-op `pre-commit.sh`、显式 tier driver、开发 wrapper 与 Git refs planner 可用；统一三 profile 入口、dirty 精确输入与完整报告仍需实现。后续实现和实际结果沿 [#5386](https://github.com/nil-studio/oasis7/issues/5386) 追踪；准备性 dry-run 只能证明规划范围，不计为检查执行。hosted 十分钟/P95 与周期完整回归仍由 [CI 分级要求](ci-tiered-execution.prd.md#ci-fast-pr-periodic-full)拥有。
+实现状态：部分实现。`scripts/check-local.py` 已提供 quick、affected 与 formal 三个 profile 和同源文本/JSON 结果。quick 执行当前 baseline；affected 在可信基线支持快照且所选组全部适配时支持 dirty 输入；formal required 在干净源码上执行已适配的组。formal full 仍仅可 dry-run；未适配组、平台和缺少证据或环境前提的选择保持阻断。已具备能力及限制见[测试手册](../../../testing-manual.md#local-check-entry)，剩余义务和实际验收沿 [#5386](https://github.com/nil-studio/oasis7/issues/5386) 追踪。dry-run 只能证明规划范围，不计为检查执行。hosted 十分钟/P95 与周期完整回归仍由 [CI 分级要求](ci-tiered-execution.prd.md#ci-fast-pr-periodic-full)拥有。
 
 ## 3. AI System Requirements (If Applicable)
 - Tool Requirements: 不适用（本任务为测试覆盖治理）。
