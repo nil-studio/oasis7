@@ -312,6 +312,28 @@ def browser_archive_cache_writer(job):
     return admissions[0]
 
 
+def image_cache_admission_layout(job, cache, save_condition):
+    """Recognize the complete before/after layouts during container rollout."""
+    steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
+    installers = [step for step in steps if 'id: dependency-cache-tools\n' in step]
+    assert len(installers) == 1
+    installer = installers[0]
+    assert job.index(installer) < job.index(cache)
+    assert not re.search(r'^        (?:if|continue-on-error):', installer, re.M)
+    path_adapter = '          PATH: ${{ steps.dependency-cache-tools.outputs.path }}\n'
+    preload = '          NODE_OPTIONS: ${{ steps.dependency-cache-tools.outputs.node_options }}\n'
+    interpreter = '          OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.dependency-cache-tools.outputs.python }}\n'
+    guard = "steps.dependency-cache-tools.outputs.guard_ready == 'true'"
+    if 'run: python3 scripts/ci-rust-cache-admission.py install-release\n' in installer:
+        assert preload in cache and interpreter in cache and path_adapter not in cache
+        assert '          cache-provider: github\n' in cache
+        save_condition = save_condition.replace("job.status == 'success'", "job.status == 'success' && " + guard, 1)
+    else:
+        assert 'run: python3 scripts/ci-rust-cache-admission.py install\n' in installer
+        assert path_adapter in cache and preload not in cache and interpreter not in cache
+    assert '          save-if: ${{ ' + save_condition + ' }}\n' in cache
+
+
 def component_image_cache_writer(job, families, readers=JOBS):
     """Bind each complete writer row to the actual reader cache environment."""
     header, steps = job.split('    steps:', 1)
@@ -368,7 +390,6 @@ def component_image_cache_writer(job, families, readers=JOBS):
                      'test "$GITHUB_REF" = refs/heads/main', 'test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"',
                      'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"',
                      'python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"',
-                     'python3 scripts/ci-rust-cache-admission.py install',
                      "if: steps.image-cache.outputs.cache-hit != 'true'",
                      'IMAGE_CACHE_PROFILE: ${{ matrix.profile }}',
                      'python3 scripts/ci-image-cache.py --profile "$IMAGE_CACHE_PROFILE"'):
@@ -378,15 +399,15 @@ def component_image_cache_writer(job, families, readers=JOBS):
     assert len(caches) == 1
     cache = caches[0]
     for required in ('Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0',
-                     'PATH: ${{ steps.dependency-cache-tools.outputs.path }}',
                      'OASIS7_DEPENDENCY_CACHE_FAMILY: ${{ matrix.family }}',
                      'OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}',
                      'shared-key: ${{ matrix.namespace }}', 'add-rust-environment-hash-key: true',
                      'env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM',
-                     "save-if: ${{ job.status == 'success' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}",
                      'cache-on-failure: false'):
         assert required in cache
     assert not re.search(r'^          (?:key|prefix-key|workspaces|cache-directories|cache-targets|restore-keys):', cache, re.M)
+    image_cache_admission_layout(job, cache,
+        "job.status == 'success' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha")
     assert steps.index('Verify current main cache source') < steps.index('ci-rust-cache-admission.py install')
     assert steps.index('setup-linux-mold') < steps.index('Stabilize Rust cache toolchains') < steps.index(cache)
     assert steps.index(cache) < steps.index('Warm the exact component dependency contexts')
@@ -426,6 +447,10 @@ def web_cache_layout(cache_workflow, release_workflow, admission_source):
         assert "github.ref == 'refs/heads/main' && github.workflow_sha == github.sha" in job
         assert "github.event_name == 'workflow_dispatch' && inputs.run_mode == 'image-native'" in job
         assert 'OASIS7_DEPENDENCY_CACHE_FAMILY: rust-image-native\n' in job
+        caches = rust_cache_steps(job)
+        assert len(caches) == 1
+        image_cache_admission_layout(job, caches[0], "job.status == 'success' && github.ref == 'refs/heads/main' && "
+                                     "github.workflow_sha == github.sha && inputs.run_mode == 'image-native'")
         tool_jobs.add(image_writer)
     else:
         assert 'rust-image-native' not in families
@@ -1038,6 +1063,33 @@ class Workflow(unittest.TestCase):
         changed_reader = dict(JOBS, node=JOBS['node'].replace('oasis7-node-mold', 'different-node-mold'))
         with self.assertRaises(AssertionError):
             component_image_cache_writer(job, families, changed_reader)
+
+    def test_container_image_writer_post_guard_requires_the_complete_transition(self):
+        workflow, _ = self.shared_cache_workflow()
+        jobs = workflow_jobs(workflow)
+        for name in ('rust-image-native-cache', 'rust-image-component-cache'):
+            job = jobs[name]
+            save = re.search(r'^          save-if: (.+)$', job, re.M)[1]
+            save = save.removeprefix('${{ ').removesuffix(' }}')
+            guard = "steps.dependency-cache-tools.outputs.guard_ready == 'true'"
+            save = save.replace(" && " + guard, "")
+            guarded = job.replace('ci-rust-cache-admission.py install\n', 'ci-rust-cache-admission.py install-release\n')
+            guarded = guarded.replace('          PATH: ${{ steps.dependency-cache-tools.outputs.path }}\n',
+                '          NODE_OPTIONS: ${{ steps.dependency-cache-tools.outputs.node_options }}\n'
+                '          OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.dependency-cache-tools.outputs.python }}\n')
+            guarded = guarded.replace('          save-if: ${{ ' + save + ' }}\n',
+                '          cache-provider: github\n'
+                '          save-if: ${{ ' + save.replace("job.status == 'success'",
+                                                       "job.status == 'success' && " + guard, 1) + ' }}\n')
+            image_cache_admission_layout(guarded, rust_cache_steps(guarded)[0], save)
+            for absent in ('NODE_OPTIONS', 'OASIS7_DEPENDENCY_CACHE_PYTHON', 'cache-provider'):
+                changed = re.sub(r'^          ' + absent + r': .+\n', '', guarded, flags=re.M)
+                self.assertNotEqual(changed, guarded)
+                with self.subTest(name=name, absent=absent), self.assertRaises(AssertionError):
+                    image_cache_admission_layout(changed, rust_cache_steps(changed)[0], save)
+            changed = guarded.replace(' && ' + guard, '')
+            with self.subTest(name=name, absent='guard_ready'), self.assertRaises(AssertionError):
+                image_cache_admission_layout(changed, rust_cache_steps(changed)[0], save)
 
     def test_component_image_writer_runs_only_for_current_main_cache_events(self):
         workflow, _ = self.shared_cache_workflow()
