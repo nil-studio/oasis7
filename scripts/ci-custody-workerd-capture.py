@@ -13,6 +13,7 @@ SCHEMA = 'oasis7.custody-workerd-gdb/v1'
 ENGINE_SHA256 = 'd7ce7f7de38dba233a2924b777b51c65a407e524154d9b66fa8d2bc0a1ff5dcf'
 ENGINE_VERSION = '1.20261019.1'
 KNOWN_FAULT_OFFSET = '0x573f313'
+UPSTREAM_ISSUE_URL = 'https://github.com/cloudflare/workerd/issues/8801'
 MAX_RECORD_BYTES = 1024 * 1024
 MAX_RECORDS = 256
 REGISTERS = {'pc', 'r13', 'rbp', 'rsp'}
@@ -200,3 +201,26 @@ def validate(directory, context, attempt):
             or report.get('passed') is not True or summary['passed'] is not True
             or report.get('summary') != summary):
         raise ValueError('workerd capture did not complete successfully')
+
+
+def can_retry_known_fault(report, process_result):
+    if not isinstance(report, dict) or not isinstance(process_result, dict):
+        return False
+    summary = report.get('summary')
+    if not isinstance(summary, dict):
+        return False
+    return (
+        report.get('schema') == SCHEMA
+        and report.get('engine_sha256') == ENGINE_SHA256
+        and report.get('complete') is True
+        and report.get('passed') is False
+        and summary.get('known_fault') is True
+        and summary.get('signal_count') == 1
+        and summary.get('runtime_count') == 1
+        and process_result.get('passed') is False
+        and process_result.get('timeout') is False
+        and process_result.get('cancelled') is False
+        and process_result.get('leaked_processes') is False
+        and process_result.get('cleanup_result') == 'clean'
+        and process_result.get('log_complete') is True
+    )

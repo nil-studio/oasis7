@@ -11,14 +11,12 @@ use oasis7_agent_api::world_action::ResourceKind;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const SOURCE_COMPILER_ENV: &str = "OASIS7_MODULE_SOURCE_COMPILER";
 const SOURCE_MAX_FILES_ENV: &str = "OASIS7_MODULE_SOURCE_MAX_FILES";
 const SOURCE_COMPILE_TIMEOUT_MS_ENV: &str = "OASIS7_MODULE_SOURCE_COMPILE_TIMEOUT_MS";
 const SOURCE_SANDBOX_SECRET_ENV: &str = "OASIS7_SOURCE_SANDBOX_TEST_SECRET";
-pub(crate) static SOURCE_COMPILER_ENV_LOCK: Mutex<()> = Mutex::new(());
 const TEST_FINALITY_SIGNER_NODE_1: &str = "governance.local.finality.signer.1";
 const TEST_FINALITY_SIGNER_SEED_1: &str = "oasis7-governance-local-finality-signer-1-v1";
 const TEST_FINALITY_SIGNER_NODE_2: &str = "governance.local.finality.signer.2";
@@ -383,7 +381,9 @@ fn test_module_artifact_signing_key() -> SigningKey {
 
 #[test]
 fn compile_module_artifact_from_source_registers_compiled_artifact() {
-    let _env_lock = SOURCE_COMPILER_ENV_LOCK.lock().expect("lock compile env");
+    let _env_lock = crate::env_mut::process_env_lock()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
     let _env_guard = EnvVarGuard::capture(SOURCE_COMPILER_ENV);
     let removed_old_brand_compiler = removed_old_brand_module_source_env("COMPILER");
     let _removed_old_brand_env_guard = EnvVarGuard::capture(removed_old_brand_compiler.as_str());
@@ -439,7 +439,9 @@ fn compile_module_artifact_from_source_registers_compiled_artifact() {
 
 #[test]
 fn compile_module_artifact_from_source_rejects_removed_old_brand_compiler_env() {
-    let _env_lock = SOURCE_COMPILER_ENV_LOCK.lock().expect("lock compile env");
+    let _env_lock = crate::env_mut::process_env_lock()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
     let _env_guard = EnvVarGuard::capture(SOURCE_COMPILER_ENV);
     let removed_old_brand_compiler = removed_old_brand_module_source_env("COMPILER");
     let _removed_old_brand_env_guard = EnvVarGuard::capture(removed_old_brand_compiler.as_str());
@@ -492,7 +494,9 @@ fn compile_module_artifact_from_source_rejects_removed_old_brand_compiler_env() 
 
 #[test]
 fn compile_module_artifact_from_source_rejects_in_production_release_policy() {
-    let _env_lock = SOURCE_COMPILER_ENV_LOCK.lock().expect("lock compile env");
+    let _env_lock = crate::env_mut::process_env_lock()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
     let _env_guard = EnvVarGuard::capture(SOURCE_COMPILER_ENV);
     let removed_old_brand_compiler = removed_old_brand_module_source_env("COMPILER");
     let _removed_old_brand_env_guard = EnvVarGuard::capture(removed_old_brand_compiler.as_str());
@@ -555,7 +559,9 @@ fn compile_module_artifact_from_source_rejects_when_manifest_path_missing_in_fil
 
 #[test]
 fn compile_module_artifact_from_source_rejects_when_file_count_exceeds_limit() {
-    let _env_lock = SOURCE_COMPILER_ENV_LOCK.lock().expect("lock compile env");
+    let _env_lock = crate::env_mut::process_env_lock()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
     let _env_guard = EnvVarGuard::capture(SOURCE_MAX_FILES_ENV);
     let removed_old_brand_max_files = removed_old_brand_module_source_env("MAX_FILES");
     let _removed_old_brand_env_guard = EnvVarGuard::capture(removed_old_brand_max_files.as_str());
@@ -583,7 +589,9 @@ fn compile_module_artifact_from_source_rejects_when_file_count_exceeds_limit() {
 
 #[test]
 fn compile_module_artifact_from_source_rejects_when_compiler_times_out() {
-    let _env_lock = SOURCE_COMPILER_ENV_LOCK.lock().expect("lock compile env");
+    let _env_lock = crate::env_mut::process_env_lock()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
     let _compiler_guard = EnvVarGuard::capture(SOURCE_COMPILER_ENV);
     let removed_old_brand_compiler = removed_old_brand_module_source_env("COMPILER");
     let _removed_old_brand_compiler_guard =
@@ -626,7 +634,9 @@ fn compile_module_artifact_from_source_rejects_when_compiler_times_out() {
 
 #[test]
 fn compile_module_artifact_from_source_sanitizes_env_and_isolates_tmpdir() {
-    let _env_lock = SOURCE_COMPILER_ENV_LOCK.lock().expect("lock compile env");
+    let _env_lock = crate::env_mut::process_env_lock()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
     let _compiler_guard = EnvVarGuard::capture(SOURCE_COMPILER_ENV);
     let removed_old_brand_compiler = removed_old_brand_module_source_env("COMPILER");
     let _removed_old_brand_compiler_guard =

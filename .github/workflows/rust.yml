@@ -3701,7 +3701,10 @@ jobs:
           path: |
             output/custody-${{ matrix.shard }}/workerd-fault/records.jsonl
             output/custody-${{ matrix.shard }}/workerd-fault/report.json
+            output/custody-${{ matrix.shard }}/workerd-fault-attempt-1/records.jsonl
+            output/custody-${{ matrix.shard }}/workerd-fault-attempt-1/report.json
             output/custody-${{ matrix.shard }}/client-abuse.integration.test.mjs.log
+            output/custody-${{ matrix.shard }}/client-abuse.integration.test.mjs.attempt-1.log
             output/workerd-gdb-contracts/*/records.jsonl
             output/workerd-gdb-contracts/*/processes.jsonl
             output/workerd-gdb-contracts/*/node.log

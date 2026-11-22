@@ -375,7 +375,12 @@ fn fixed_sandbox_fail_returns_cloned_failure() {
 #[cfg(feature = "wasmtime")]
 #[test]
 fn wasm_executor_returns_disk_cache_init_error() {
-    let cache_root = std::env::temp_dir().join("oasis7-wasm-init-error-file");
+    static TEMP_FILE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = TEMP_FILE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let cache_root = std::env::temp_dir().join(format!(
+        "oasis7-wasm-init-error-file-{}-{seq}",
+        std::process::id()
+    ));
     fs::write(&cache_root, b"not-a-directory").expect("create temp cache file");
 
     let err = WasmExecutor::new(WasmExecutorConfig {

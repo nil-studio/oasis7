@@ -1,4 +1,6 @@
-fn provider_env_lock() -> &'static std::sync::Mutex<()> { static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(()); &LOCK }
+fn provider_env_lock() -> &'static std::sync::Mutex<()> {
+    crate::env_mut::process_env_lock()
+}
 use super::*;
 use crate::geometry::GeoPos;
 use crate::simulator::{LlmChatRole, WorldEvent};

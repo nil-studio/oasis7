@@ -4,7 +4,7 @@ use super::super::*;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::MutexGuard;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const BUILTIN_WASM_DISTFS_ROOT_ENV: &str = "OASIS7_BUILTIN_WASM_DISTFS_ROOT";
@@ -14,8 +14,6 @@ const FAULT_SIG_MANIFEST_MISSING_OR_ROLLED_BACK: &str =
     "fault_signature=builtin_release_manifest_missing_or_rolled_back";
 const FAULT_SIG_MANIFEST_IDENTITY_DRIFT: &str =
     "fault_signature=builtin_release_manifest_identity_drift";
-
-static RELEASE_MANIFEST_ENV_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
 fn production_policy_surfaces_fault_signature_when_online_manifest_unreachable() {
@@ -227,7 +225,7 @@ fn temp_dir(prefix: &str) -> PathBuf {
 }
 
 fn lock_release_manifest_env() -> MutexGuard<'static, ()> {
-    RELEASE_MANIFEST_ENV_LOCK
+    crate::env_mut::test_env_lock()
         .lock()
         .unwrap_or_else(|poison| poison.into_inner())
 }

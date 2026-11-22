@@ -11,6 +11,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tomllib
 
 from ci_process_runner import run
@@ -373,27 +374,58 @@ def execute(root, plan, shard, results, run_id, attempt, capture_workerd=False):
     receipts = []
     for filename in files:
         log = results / (filename + '.log')
-        command = ['node', '--test', '--test-concurrency=1', '--test-reporter=tap', 'tests/' + filename]
-        environment = os.environ.copy()
-        capture = None
-        if capture_workerd and filename == workerd_capture.TEST_FILE:
-            capture, command, environment = workerd_capture.prepare(
-                root, results, environment, context, attempt, command)
-        with log.open('w') as stream:
-            result = run(command, root / WORKER, environment, 'custody', filename, results / 'processes.jsonl',
-                         timeout_seconds=2400, log_stream=stream)
-        capture_passed = True
-        if capture is not None:
-            try:
-                capture_passed = workerd_capture.finish(capture, context, attempt, result['passed'])['passed']
-            except (OSError, ValueError):
-                capture_passed = False
+        base_command = ['node', '--test', '--test-concurrency=1', '--test-reporter=tap', 'tests/' + filename]
+        known_fault_retry = None
+        for file_attempt in (1, 2):
+            command = list(base_command)
+            environment = os.environ.copy()
+            capture = None
+            if capture_workerd and filename == workerd_capture.TEST_FILE:
+                capture, command, environment = workerd_capture.prepare(
+                    root, results, environment, context, attempt, command)
+            with log.open('w') as stream:
+                result = run(command, root / WORKER, environment, 'custody', filename, results / 'processes.jsonl',
+                             timeout_seconds=2400, log_stream=stream)
+            capture_report = None
+            capture_passed = True
+            if capture is not None:
+                try:
+                    capture_report = workerd_capture.finish(capture, context, attempt, result['passed'])
+                    capture_passed = capture_report['passed']
+                except (OSError, ValueError):
+                    capture_passed = False
+            if (file_attempt == 1 and capture is not None and not result['passed']
+                    and workerd_capture.can_retry_known_fault(capture_report, result)):
+                preserved_capture = results / 'workerd-fault-attempt-1'
+                preserved_log = results / (filename + '.attempt-1.log')
+                capture.rename(preserved_capture)
+                log.rename(preserved_log)
+                known_fault_retry = dict(
+                    attempts=2,
+                    engine_sha256=workerd_capture.ENGINE_SHA256,
+                    fault_offset=workerd_capture.KNOWN_FAULT_OFFSET,
+                    issue='#5900',
+                    upstream_issue=workerd_capture.UPSTREAM_ISSUE_URL,
+                    preserved_evidence=preserved_capture.name,
+                    preserved_log=preserved_log.name,
+                )
+                print(
+                    f'::warning title=Custody workerd known SIGSEGV retry::Retrying {filename} once after '
+                    f'exact known workerd SIGSEGV at {workerd_capture.KNOWN_FAULT_OFFSET} '
+                    f'(tracking #5900 / {workerd_capture.UPSTREAM_ISSUE_URL}); attempt-1 evidence preserved '
+                    f'under {preserved_capture.name}.',
+                    file=sys.stderr,
+                )
+                continue
+            break
         if not result['passed']:
             raise ValueError(f'custody Node file failed: {filename}')
         if not capture_passed:
             raise ValueError('workerd capture failed, was incomplete, or observed a runtime restart/failure')
-        receipts.append(dict(file=filename, counts=tap_summary(log.read_text(), filename),
-                             process=result))
+        entry = dict(file=filename, counts=tap_summary(log.read_text(), filename), process=result)
+        if known_fault_retry is not None:
+            entry['known_fault_retry'] = known_fault_retry
+        receipts.append(entry)
     (results / 'result.json').write_text(json.dumps(dict(schema=SCHEMA, context=context, shard=shard,
         consumer_attempt=attempt, files=receipts), sort_keys=True) + '\n')
 

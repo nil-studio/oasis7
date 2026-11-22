@@ -42,15 +42,11 @@ fn newapi_bridge_state_env_guard() -> MutexGuard<'static, ()> {
     GUARD
         .get_or_init(|| Mutex::new(()))
         .lock()
-        .expect("newapi bridge state env test guard")
+        .unwrap_or_else(|poison| poison.into_inner())
 }
 
 fn timeout_env_guard() -> MutexGuard<'static, ()> {
-    static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
-    GUARD
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .expect("timeout env test guard")
+    newapi_bridge_state_env_guard()
 }
 
 fn letai_env_guard() -> MutexGuard<'static, ()> {

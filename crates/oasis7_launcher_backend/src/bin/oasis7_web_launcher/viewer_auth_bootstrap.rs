@@ -230,7 +230,16 @@ mod tests {
 
     #[test]
     fn resolve_optional_viewer_auth_bootstrap_uses_config_file() {
-        let _guard = viewer_auth_test_env_lock().lock().expect("env lock");
+        struct CwdRestore(std::path::PathBuf);
+        impl Drop for CwdRestore {
+            fn drop(&mut self) {
+                let _ = std::env::set_current_dir(&self.0);
+            }
+        }
+
+        let _guard = viewer_auth_test_env_lock()
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         let _restore = ViewerAuthEnvRestore::clear();
         let temp_root = temp_config_path("config");
         fs::create_dir_all(&temp_root).expect("mkdir");
@@ -241,11 +250,12 @@ mod tests {
         )
         .expect("write config");
         let old_cwd = std::env::current_dir().expect("cwd");
+        let _cwd_restore = CwdRestore(old_cwd);
         std::env::set_current_dir(config_path.parent().expect("parent")).expect("chdir");
         let auth = resolve_optional_viewer_auth_bootstrap().expect("auth");
         assert_eq!(auth.public_key, "public-key-hex");
         assert_eq!(auth.private_key, "private-key-hex");
-        std::env::set_current_dir(old_cwd).expect("restore cwd");
+        drop(_cwd_restore);
         let _ = fs::remove_dir_all(temp_root);
     }
 }
