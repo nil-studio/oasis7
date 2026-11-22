@@ -150,7 +150,11 @@ def trusted_writer(environment, api):
                  ('image-native',) if family == 'rust-image-native' else ('full',))
         try:
             payload = json.loads(Path(environment.get('GITHUB_EVENT_PATH', '')).read_text())
-            selected = payload.get('inputs', {}).get('run_mode') in modes
+            mode = payload.get('inputs', {}).get('run_mode')
+            selected = mode in modes or (
+                mode == 'image-support' and api.repository == 'nil-studio/oasis7'
+                and family == 'rust-image-support'
+                and environment.get('OASIS7_DEPENDENCY_CACHE_PROFILE') == 'support')
         except (OSError, ValueError, AttributeError):
             selected = False
         if not selected:

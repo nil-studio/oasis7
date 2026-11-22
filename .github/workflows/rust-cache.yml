@@ -10,7 +10,7 @@ on:
         required: true
         default: full
         type: choice
-        options: [full, image-native]
+        options: [full, image-native, image-support]
 
 concurrency:
   group: ci-shared-native-cache-main
@@ -316,59 +316,101 @@ jobs:
           env -u RUSTC_WRAPPER cargo test --locked -p pixel_world_bridge --lib --no-run
           env -u RUSTC_WRAPPER cargo check --locked -p pixel_world_bridge --target wasm32-unknown-unknown
 
+  plan-image-component-cache:
+    cache-mode: none
+    permissions: {}
+    if: >-
+      github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
+      (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' &&
+       (inputs.run_mode == 'full' || inputs.run_mode == 'image-native' ||
+        (inputs.run_mode == 'image-support' && github.repository == 'nil-studio/oasis7'))))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      rows: ${{ steps.plan.outputs.rows }}
+    steps:
+      - id: plan
+        shell: bash
+        env:
+          MODE: ${{ inputs.run_mode }}
+        run: |
+          rows=$(jq -ce --arg mode "$MODE" '
+            if $mode == "image-support" then map(select(.profile == "support")) else . end
+            | select(length > 0)
+          ' <<'JSON'
+          [
+            {
+              "profile": "native",
+              "family": "rust-image-components",
+              "image": "ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f",
+              "namespace": "ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f",
+              "options": "",
+              "mold-dir": ""
+            },
+            {
+              "profile": "node",
+              "family": "rust-image-components",
+              "image": "ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f",
+              "namespace": "ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f",
+              "options": "--user 1001:1001",
+              "mold-dir": "oasis7-node-mold"
+            },
+            {
+              "profile": "net",
+              "family": "rust-image-net",
+              "image": "ghcr.io/nil-studio/oasis7/ci-rust-wasm-build@sha256:57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6",
+              "namespace": "ci-rust-wasm-build-57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6",
+              "options": "--user 1001:1001",
+              "mold-dir": "oasis7-net-mold"
+            },
+            {
+              "profile": "launcher",
+              "family": "rust-image-launcher",
+              "image": "ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6",
+              "namespace": "ci-rust-build-cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6",
+              "options": "",
+              "mold-dir": ""
+            },
+            {
+              "profile": "tooling",
+              "family": "rust-image-tooling",
+              "image": "ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc",
+              "namespace": "ci-rust-build-d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc",
+              "options": "",
+              "mold-dir": ""
+            },
+            {
+              "profile": "support",
+              "family": "rust-image-support",
+              "image": "ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2",
+              "namespace": "ci-rust-build-822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2",
+              "options": "",
+              "mold-dir": ""
+            }
+          ]
+          JSON
+          )
+          printf 'rows=%s\n' "$rows" >> "$GITHUB_OUTPUT"
+
   rust-image-component-cache:
     cache-mode: write
     permissions:
       contents: read
       actions: read
       packages: read
+    needs: plan-image-component-cache
     if: >-
       github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
       (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' &&
-       (inputs.run_mode == 'full' || inputs.run_mode == 'image-native')))
+       (inputs.run_mode == 'full' || inputs.run_mode == 'image-native' ||
+        (inputs.run_mode == 'image-support' && github.repository == 'nil-studio/oasis7'))))
     strategy:
       fail-fast: false
       # Observe the repository budget after each image archive, without adding
       # simultaneous matrix uploads. Other writers retain their own admission.
       max-parallel: 1
       matrix:
-        include:
-          - profile: native
-            family: rust-image-components
-            image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f
-            namespace: ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f
-            options: ''
-            mold-dir: ''
-          - profile: node
-            family: rust-image-components
-            image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f
-            namespace: ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f
-            options: --user 1001:1001
-            mold-dir: oasis7-node-mold
-          - profile: net
-            family: rust-image-net
-            image: ghcr.io/nil-studio/oasis7/ci-rust-wasm-build@sha256:57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6
-            namespace: ci-rust-wasm-build-57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6
-            options: --user 1001:1001
-            mold-dir: oasis7-net-mold
-          - profile: launcher
-            family: rust-image-launcher
-            image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6
-            namespace: ci-rust-build-cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6
-            options: ''
-            mold-dir: ''
-          - profile: tooling
-            family: rust-image-tooling
-            image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc
-            namespace: ci-rust-build-d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc
-            options: ''
-            mold-dir: ''
-          - profile: support
-            family: rust-image-support
-            image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2
-            namespace: ci-rust-build-822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2
-            options: ''
-            mold-dir: ''
+        include: ${{ fromJSON(needs.plan-image-component-cache.outputs.rows) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     container:
@@ -418,6 +460,7 @@ jobs:
           NODE_OPTIONS: ${{ steps.dependency-cache-tools.outputs.node_options }}
           OASIS7_DEPENDENCY_CACHE_PYTHON: ${{ steps.dependency-cache-tools.outputs.python }}
           OASIS7_DEPENDENCY_CACHE_FAMILY: ${{ matrix.family }}
+          OASIS7_DEPENDENCY_CACHE_PROFILE: ${{ matrix.profile }}
           OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
           GH_TOKEN: ${{ github.token }}
         with:

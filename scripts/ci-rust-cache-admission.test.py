@@ -201,10 +201,31 @@ class AdmissionTests(unittest.TestCase):
                         self.assertFalse(admission.check_archive(self.archive, environment | change, self.api)['allowed'])
                 self.run['event'] = 'workflow_dispatch'
                 manual = environment | {'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_EVENT_PATH': str(event)}
-                for mode in ('full', 'image-native', 'pr-fast', '', None):
+                for mode in ('full', 'image-native', 'image-support', 'pr-fast', '', None):
                     event.write_text(json.dumps({'inputs': {'run_mode': mode}}))
                     self.assertEqual(admission.check_archive(self.archive, manual, self.api)['allowed'],
                                      mode in ('full', 'image-native'))
+                    for profile in ('support', 'native', 'node', ''):
+                        selected = manual | {'OASIS7_DEPENDENCY_CACHE_PROFILE': profile}
+                        self.assertEqual(admission.check_archive(self.archive, selected, self.api)['allowed'],
+                            mode in ('full', 'image-native') or
+                            (mode == 'image-support' and family == 'rust-image-support' and profile == 'support'))
+                        if mode == 'image-support':
+                            for change in ({'GITHUB_JOB': 'rust-image-native-cache'},
+                                           {'GITHUB_REPOSITORY': 'fork/oasis7'},
+                                           {'GITHUB_REF': 'refs/heads/topic'}):
+                                self.assertFalse(admission.check_archive(
+                                    self.archive, selected | change, self.api)['allowed'])
+                if family == 'rust-image-support':
+                    event.write_text(json.dumps({'inputs': {'run_mode': 'image-support'}}))
+                    self.api.repository = 'fork/oasis7'
+                    fork = manual | {'GITHUB_REPOSITORY': 'fork/oasis7',
+                        'GITHUB_WORKFLOW_REF': 'fork/oasis7/.github/workflows/rust-cache.yml@refs/heads/main',
+                        'OASIS7_DEPENDENCY_CACHE_PROFILE': 'support'}
+                    try:
+                        self.assertFalse(admission.check_archive(self.archive, fork, self.api)['allowed'])
+                    finally:
+                        self.api.repository = 'nil-studio/oasis7'
                 self.run['event'] = 'schedule'
                 self.api.list_caches.return_value = [self.entry(901)]
                 self.assertFalse(admission.check_archive(self.archive, environment, self.api)['allowed'])
