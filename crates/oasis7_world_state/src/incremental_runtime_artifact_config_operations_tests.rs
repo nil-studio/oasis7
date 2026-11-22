@@ -214,23 +214,23 @@ fn ordinary_same_transaction_creates_changes_reads_and_independently_receives() 
         audit_event_id: None,
     };
     let guard = overlay.transaction.guard();
-    let created = change_qualified_artifact_config_record_v1(
-        ArtifactConfigRecordChangeV1 {
-            field: ArtifactConfigFieldV1::RegistryManifest,
-            key: ArtifactConfigRecordKeyV1::Member("different raw key"),
-            family: &family,
-            expected: None,
-            after: Some(ArtifactConfigBodyRefV1::Module(&new_record)),
+    // The production L2 module-lifecycle producer consumes the real qualified
+    // original RegistryRecord and contributes to the same pending transaction.
+    let created = replace_current_module_lifecycle_artifact_config_v1(
+        ModuleLifecycleArtifactConfigEditV1::RegistryRecord {
+            original_key: "different raw key",
+            after: &new_record,
         },
+        &family,
+        None,
         &mut overlay,
         &mut write,
         &mut write_work(),
         &guard,
         &live,
     )
-    .unwrap();
-    assert!(created.changed);
-    let created = created.qualification.unwrap();
+    .unwrap()
+    .expect("genuine new RegistryRecord must retain its Current qualification");
     let guard = overlay.transaction.guard();
     let changed = change_qualified_artifact_config_cell_v1(
         ArtifactConfigCellChangeV1 {
@@ -278,14 +278,13 @@ fn ordinary_same_transaction_creates_changes_reads_and_independently_receives() 
         .is_none()
     );
     let guard = overlay.transaction.guard();
-    let active = change_qualified_artifact_config_record_v1(
-        ArtifactConfigRecordChangeV1 {
-            field: ArtifactConfigFieldV1::RegistryActive,
-            key: ArtifactConfigRecordKeyV1::Member("independent active"),
-            family: &family,
-            expected: None,
-            after: Some(ArtifactConfigBodyRefV1::Active("unregistered raw version")),
+    let active = replace_current_module_lifecycle_artifact_config_v1(
+        ModuleLifecycleArtifactConfigEditV1::Active {
+            module_id: "independent active",
+            after: Some("unregistered raw version"),
         },
+        &family,
+        None,
         &mut overlay,
         &mut write,
         &mut write_work(),
@@ -293,8 +292,7 @@ fn ordinary_same_transaction_creates_changes_reads_and_independently_receives() 
         &live,
     )
     .unwrap()
-    .qualification
-    .unwrap();
+    .expect("the real unregistered active member must be a qualified Current row");
     let guard = overlay.transaction.guard();
     assert_eq!(
         read_current_registry_active_count_v1(
@@ -308,14 +306,13 @@ fn ordinary_same_transaction_creates_changes_reads_and_independently_receives() 
         2
     );
     let guard = overlay.transaction.guard();
-    let deleted = change_qualified_artifact_config_record_v1(
-        ArtifactConfigRecordChangeV1 {
-            field: ArtifactConfigFieldV1::RegistryActive,
-            key: ArtifactConfigRecordKeyV1::Member("independent active"),
-            family: &family,
-            expected: Some(&active),
+    let deleted = replace_current_module_lifecycle_artifact_config_v1(
+        ModuleLifecycleArtifactConfigEditV1::Active {
+            module_id: "independent active",
             after: None,
         },
+        &family,
+        Some(&active),
         &mut overlay,
         &mut write,
         &mut write_work(),
@@ -323,7 +320,7 @@ fn ordinary_same_transaction_creates_changes_reads_and_independently_receives() 
         &live,
     )
     .unwrap();
-    assert!(deleted.changed && deleted.qualification.is_none());
+    assert!(deleted.is_none(), "qualified current deletion must not mint an entry");
     let guard = overlay.transaction.guard();
     assert_eq!(
         read_current_registry_active_count_v1(
