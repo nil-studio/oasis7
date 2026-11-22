@@ -15,7 +15,7 @@
 
 ## 测试基架建议（草案）
 
-- 文件组织：`crates/oasis7/tests/module_lifecycle.rs`
+- 文件组织：`crates/oasis7_runtime/tests/module_lifecycle.rs`
 - 共享夹具：`TestWorldBuilder`（构造 world + manifest + registry 初始态）
 - 伪造工件：内存内生成 dummy wasm bytes + 计算 hash
 - Shadow 注入：允许在测试中强制 shadow 失败/通过

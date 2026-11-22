@@ -1000,7 +1000,7 @@ PR 按独立交付目的组织，不强制按语言/阶段拆分或维持历史 
 
 - R1：main 分支与可见 required status。`https://api.github.com/repos/eng-cc/oasis7/branches/main`
 - R2：本次读取的仓库有效 ruleset 详情。具体实例定位保留在本次审查记录，长期规范通过 rulesets API 动态发现。`https://api.github.com/repos/eng-cc/oasis7/rulesets`
-- R4：`scripts/ci-required-scope.v2.json`，审查基线。
+- R4：`scripts/ci-required-scope.json`，审查基线。
 - R5：根 `Cargo.toml` 与 `crates/oasis7/Cargo.toml`，审查基线。
 - R6：`.github/workflows/rust.yml` 与现有 capabilities，审查基线。
 - R7：`doc/engineering/workflow/source-of-truth.md`，审查基线。
