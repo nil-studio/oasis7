@@ -264,8 +264,7 @@ where
             &mut work.cells_remaining,
             work.max_payload_bytes,
         )?;
-        if !proof.uses_budget(context.values.memory)
-        {
+        if !proof.uses_budget(context.values.memory) {
             return Err(ValueTreeError::Invalid("Current material profile closure").into());
         }
 
