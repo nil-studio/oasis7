@@ -123,9 +123,8 @@ impl FetchBlobResponseBudget {
     }
 
     fn evict_stale_and_over_capacity(&mut self, now: Instant, incoming_peer: Option<PeerId>) {
-        self.by_peer.retain(|_, window| {
-            now.saturating_duration_since(window.started_at) < RESPONSE_WINDOW
-        });
+        self.by_peer
+            .retain(|_, window| now.saturating_duration_since(window.started_at) < RESPONSE_WINDOW);
         while self.by_peer.len() >= FETCH_BLOB_RESPONSE_BUDGET_MAX_PEERS
             && incoming_peer.is_some_and(|peer| !self.by_peer.contains_key(&peer))
         {
@@ -352,12 +351,7 @@ mod tests {
         assert!(!budget.by_peer.contains_key(&victim));
         assert!(budget.by_peer.contains_key(&newcomer));
         budget
-            .admit(
-                victim,
-                FETCH_BLOB_PROTOCOL,
-                1,
-                now + RESPONSE_WINDOW,
-            )
+            .admit(victim, FETCH_BLOB_PROTOCOL, 1, now + RESPONSE_WINDOW)
             .expect("expired original window admits a new response");
     }
 
@@ -390,8 +384,14 @@ mod tests {
         // Exercise the real responder-side helper, not only a synthetic
         // ledger call. The empty success should leave the paid owner intact.
         assert!(
-            budgeted_response_bytes(&mut budget, newcomer, FETCH_BLOB_PROTOCOL, Ok(vec![]), 1_000)
-                .is_empty()
+            budgeted_response_bytes(
+                &mut budget,
+                newcomer,
+                FETCH_BLOB_PROTOCOL,
+                Ok(vec![]),
+                1_000
+            )
+            .is_empty()
         );
         assert_eq!(budget.global.unwrap().bytes, before);
         assert_eq!(budget.by_peer.len(), FETCH_BLOB_RESPONSE_BUDGET_MAX_PEERS);
@@ -414,19 +414,19 @@ mod tests {
         let peer = PeerId::random();
         let now = Instant::now();
         budget
-            .admit(peer, FETCH_BLOB_PROTOCOL, FETCH_BLOB_RESPONSE_BYTES_PER_WINDOW, now)
+            .admit(
+                peer,
+                FETCH_BLOB_PROTOCOL,
+                FETCH_BLOB_RESPONSE_BYTES_PER_WINDOW,
+                now,
+            )
             .unwrap();
         let original = budget.by_peer[&peer];
         // The production responder receives a wall-clock diagnostic stamp,
         // but only monotonic elapsed time can expire its paid byte window.
         for wall in [i64::MAX, i64::MIN] {
-            let response = budgeted_response_bytes(
-                &mut budget,
-                peer,
-                FETCH_BLOB_PROTOCOL,
-                Ok(vec![1]),
-                wall,
-            );
+            let response =
+                budgeted_response_bytes(&mut budget, peer, FETCH_BLOB_PROTOCOL, Ok(vec![1]), wall);
             assert!(!response.is_empty(), "rate-limit error is encoded");
             assert_eq!(budget.by_peer[&peer].bytes, original.bytes);
             assert_eq!(budget.by_peer[&peer].started_at, original.started_at);
