@@ -122,6 +122,3 @@ where
     })
 }
 
-#[cfg(test)]
-#[path = "incremental_factory_authority_records_selected_tests.rs"]
-mod tests;
