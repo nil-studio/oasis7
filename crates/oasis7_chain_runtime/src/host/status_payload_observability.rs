@@ -1,11 +1,11 @@
 use std::collections::BTreeSet;
 
-use oasis7::simulator::{
-    RuntimePerfBottleneck, RuntimePerfHealth, RuntimePerfSeriesSnapshot, RuntimePerfSnapshot,
-};
 use oasis7_client_api::network_tier_manifest::LoadedNetworkTierManifest;
 use oasis7_node::NodeRole;
 use oasis7_node::NodeSnapshot;
+use oasis7_simulator::{
+    RuntimePerfBottleneck, RuntimePerfHealth, RuntimePerfSeriesSnapshot, RuntimePerfSnapshot,
+};
 use serde::Serialize;
 
 use super::super::publication_lifecycle::{

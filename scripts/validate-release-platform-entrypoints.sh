@@ -157,8 +157,36 @@ case "$PLATFORM" in
     require_path "$BUNDLE_DIR/oasis7 Client Launcher.app/Contents/Info.plist" file
     require_path "$BUNDLE_DIR/oasis7 Client Launcher.app/Contents/MacOS/oasis7-client-launcher" executable
     if [[ "$PLATFORM" == "macos-arm64" ]]; then
-      runtime_architecture="$(file "$BUNDLE_DIR/bin/oasis7_chain_runtime")"
-      if [[ "$runtime_architecture" != *"Mach-O"* || "$runtime_architecture" != *"arm64"* ]]; then
+      if command -v file >/dev/null 2>&1; then
+        runtime_architecture="$(file -b "$BUNDLE_DIR/bin/oasis7_chain_runtime")"
+      else
+        runtime_architecture="$(python3 - "$BUNDLE_DIR/bin/oasis7_chain_runtime" <<'PY'
+import struct
+import sys
+
+with open(sys.argv[1], "rb") as stream:
+    data = stream.read(4096)
+
+if len(data) >= 8:
+    magic_le, cpu_le = struct.unpack_from("<II", data, 0)
+    if magic_le == 0xFEEDFACF:
+        print("Mach-O 64-bit arm64" if cpu_le == 0x0100000C else f"Mach-O 64-bit cpu=0x{cpu_le:08x}")
+        sys.exit(0)
+    magic_be, nfat = struct.unpack_from(">II", data, 0)
+    if magic_be in (0xCAFEBABE, 0xCAFEBABF):
+        stride = 20 if magic_be == 0xCAFEBABE else 32
+        cpus = [
+            struct.unpack_from(">I", data, 8 + i * stride)[0]
+            for i in range(nfat)
+            if 8 + i * stride + 4 <= len(data)
+        ]
+        print("Mach-O universal arm64" if 0x0100000C in cpus else f"Mach-O universal cpus={[hex(c) for c in cpus]}")
+        sys.exit(0)
+print("non-Mach-O binary")
+PY
+)"
+      fi
+      if [[ "$runtime_architecture" != *Mach-O*arm64* ]]; then
         echo "error: macos-arm64 runtime is not Mach-O arm64: $runtime_architecture" >&2
         exit 1
       fi

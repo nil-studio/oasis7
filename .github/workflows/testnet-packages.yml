@@ -492,10 +492,6 @@ jobs:
             --platform "${{ matrix.platform }}" \
             --bundle-dir "output/testnet-packages/assets/oasis7-${{ matrix.platform }}" \
             | tee "output/testnet-packages/assets/${{ matrix.platform }}-entrypoint-validation.log"
-          if [[ "${{ matrix.platform }}" == "macos-arm64" ]]; then
-            runtime="output/testnet-packages/assets/oasis7-${{ matrix.platform }}/bin/oasis7_chain_runtime"
-            file "${runtime}" | grep -Eq 'Mach-O.*arm64'
-          fi
       - name: Stage bundle manifest
         shell: bash
         run: |

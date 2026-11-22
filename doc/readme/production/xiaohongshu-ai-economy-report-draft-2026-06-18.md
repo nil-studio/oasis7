@@ -4,7 +4,7 @@ Lifecycle: unpublished dated channel draft. It is not approved current copy and 
 
 ## 来源
 
-- 原始材料：外部研究材料（未入库；本机路径已移除以保持仓库文档可复现；读取与提炼边界见 GitHub task issue #800 / `task_0745838e8c6546a09faba1ce8c602e33`；历史 `.pm` evidence 已归档到 `.pm/github-project-sync/task-archive.jsonl`）
+- 原始材料：外部研究材料（未入库；本机路径已移除以保持仓库文档可复现；读取与提炼边界见 GitHub task issue #800 / `task_0745838e8c6546a09faba1ce8c602e33`；历史 `.pm` evidence 已归档到 [固定版本归档](https://github.com/nil-studio/oasis7/blob/4d8c742a9f5eca75c02a4156678d71ccc7e87d53/.pm/github-project-sync/task-archive.jsonl)）
 - 内容定位：基于原始材料延展出的第一人称视角分享
 - 话术风格：保持审慎、分析型、情景推演口径，但对外表达采用“我怎么看”的分享语气，避免夸大、恐慌化和投资建议式表达
 

@@ -3813,10 +3813,24 @@ run_cargo() {
                 self.assertEqual(result.returncode, expected, result.stderr)
 
     def test_primary_rejects_non_loopback_test_login_listener(self):
-        result = subprocess.run(['bash', str(ROOT / 'scripts/viewer-primary-web-entry-regression.sh'),
-            '--viewer-host', '0.0.0.0'], capture_output=True, text=True)
-        self.assertEqual(result.returncode, 2)
-        self.assertIn('requires a loopback viewer host', result.stderr)
+        with tempfile.TemporaryDirectory() as directory:
+            # Verify argument handling without agent-browser or its npx fallback.
+            fixture = Path(directory)
+            (fixture / 'dirname').symlink_to(shutil.which('dirname'))
+            output = fixture / 'output'
+            command = [shutil.which('bash'), str(ROOT / 'scripts/viewer-primary-web-entry-regression.sh'),
+                       '--out-dir', str(output)]
+            for options, status, diagnostic in (
+                    (['--viewer-host', '0.0.0.0'], 2, 'requires a loopback viewer host'),
+                    (['--web-bind', '127.0.0.1'], 2, '--web-bind must be in <host:port> format'),
+                    (['--web-bind', '127.0.0.1:no-port'], 2, 'invalid --web-bind'),
+                    ([], 1, 'missing required command: agent-browser')):
+                with self.subTest(options=options):
+                    result = subprocess.run(command + options, capture_output=True, text=True,
+                                            env=dict(os.environ, PATH=directory))
+                    self.assertEqual(result.returncode, status, result.stderr)
+                    self.assertIn(diagnostic, result.stderr)
+                    self.assertFalse(output.exists())
 
     def test_primary_login_requires_guest_gate_and_visible_backend_issued_session(self):
         source = (ROOT / 'scripts/viewer-primary-web-entry-regression.sh').read_text()
@@ -4512,9 +4526,32 @@ run_cargo() {
         self.assertIn('--policy-sha "$POLICY_SHA"', job)
         self.assertIn('--plan "$RUNNER_TEMP/ci-control-selection/selection.json"', job)
         self.assertIn('python_control_contract_version == 1', job)
-        self.assertIn('rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal', job)
-        self.assertIn('rustup default "$RUST_TOOLCHAIN"', job)
-        self.assertIn('command -v zstdmt', job)
+        if '    container:' in job:
+            self.assertRegex(job, r'(?m)^    container:\n'
+                                  r'      image: ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:[0-9a-f]{64}$')
+            self.assertRegex(job, r'(?m)^      options: --user 1001:1001(?: --init)?$')
+            permissions = re.search(r'(?m)^    permissions:\n((?:      [^\n]+\n)+)', job)
+            self.assertIsNotNone(permissions)
+            self.assertCountEqual(permissions[1].splitlines(), [
+                '      contents: read', '      actions: read', '      packages: read',
+            ])
+            self.assertNotRegex(job, r'(?m)^\s+[a-z-]+: write$')
+            verify = job.split('      - name: Verify preinstalled governance tools\n', 1)
+            self.assertEqual(len(verify), 2)
+            self.assertLess(job.index('name: Verify preinstalled governance tools'), job.index(trusted))
+            preparation = verify[1].split('\n      - ', 1)[0]
+            for command in (
+                    'cargo +"$RUST_TOOLCHAIN" --version',
+                    'test "$(rustc --version)" = "$(rustc +"$RUST_TOOLCHAIN" --version)"',
+                    'cargo +"$RUST_TOOLCHAIN" fmt --version',
+                    'cargo +"$RUST_TOOLCHAIN" clippy --version',
+                    'command -v zstd', 'command -v zstdmt'):
+                self.assertIn('          ' + command + '\n', preparation + '\n')
+            self.assertNotRegex(job, r'rustup (?:toolchain install|default)\b')
+        else:
+            self.assertIn('rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal', job)
+            self.assertIn('rustup default "$RUST_TOOLCHAIN"', job)
+            self.assertIn('command -v zstdmt', job)
         self.assertIn('pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt', job)
         self.assertLess(job.index(trusted), job.index('bash ./scripts/ci-tests.sh required'))
         self.assertNotIn('cargo test -p', job)
@@ -6463,11 +6500,17 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'windows-rollout': 10,
                 'fleet-health': 15,
                 'doc-checker-contracts': 15,
-                'workflow-governance': 20,
+                'workflow-governance': 15,
+                'custody-native-contracts': 15,
+                'custody-wasm-contracts': 15,
                 'consensus': 20,
                 'net': 20,
                 'node': 20,
                 'pixel-world-bridge': 20,
+                'custody-node': 25,
+                'custody-native': 25,
+                'custody-wasm-production': 25,
+                'custody-wasm-approval': 25,
                 'distfs': 30,
                 'rust-baseline': 30,
                 'launcher-web': 30,
@@ -6580,7 +6623,7 @@ class HeavyPrJobTimeoutContractTests(unittest.TestCase):
                 'oasis7-required': 60,
                 'workspace-support-legacy': 60,
                 'workspace-support-other': 60,
-                'operational-contracts': 60,
+                'operational-contracts': 20,
             },
             '.github/workflows/wasm-determinism-gate.yml': {
                 'collect-wasm-summaries': 60,
@@ -6596,6 +6639,81 @@ class HeavyPrJobTimeoutContractTests(unittest.TestCase):
                     actual = int(match.group(1))
                     self.assertGreater(actual, 0)
                     self.assertLessEqual(actual, max_minutes)
+
+
+class PriorityRunnerRoutingContractTests(unittest.TestCase):
+    def test_ci_priority_label_routes_same_repo_pr_required_jobs_only(self):
+        expected_expr = (
+            "runs-on: ${{ github.event_name == 'pull_request' && "
+            "github.event.pull_request.head.repo.full_name == github.repository && "
+            "contains(github.event.pull_request.labels.*.name, 'ci-priority') && "
+            "'oasis7-priority-linux' || 'ubuntu-24.04' }}"
+        )
+        priority_jobs = {
+            'select', 'baseline', 'rust-baseline',
+            'oasis7-test-build-candidate', 'oasis7-test-build',
+            'formal-debug-build', 'formal-endpoint-build', 'formal-test-build',
+            'oasis7-required', 'formal-process-tests', 'formal-process',
+            'consensus', 'distfs', 'node', 'net',
+            'viewer-js-required', 'viewer-performance-report', 'pixel-world-bridge',
+            'launcher-web', 'workspace-support-other',
+            'custody-native-contracts', 'custody-native',
+            'custody-wasm-production', 'custody-wasm-approval',
+            'custody-wasm-contracts', 'custody-node', 'workspace-support',
+            'scenario-regression',
+            'workflow-governance', 'codex-agent-config-validation',
+            'compile-metrics', 'site-quality', 'doc-checker-contracts',
+            'cargo-tooling-contracts', 'macos-package-contract', 'required-gate',
+        }
+        excluded_jobs = {
+            'operational-contracts', 'packaging-contracts',
+            'pr-fast-preview-plan', 'pr-fast-preview',
+            'pr-governance-preview', 'pr-ordinary-delivery-preview',
+            'periodic-admission', 'cache-bootstrap-maintenance', 'cache-maintenance',
+            'oasis7-test-build-trusted', 'formal-debug-build-trusted',
+            'formal-endpoint-build-trusted', 'formal-test-build-trusted',
+            'full-regression', 'candidate-full-regression', 'explicit-full-gate',
+            'workspace-support-legacy',
+        }
+        for name in priority_jobs:
+            with self.subTest(priority_job=name):
+                self.assertIn(expected_expr, JOBS[name])
+        for name in excluded_jobs:
+            with self.subTest(excluded_job=name):
+                self.assertNotIn('oasis7-priority-linux', JOBS[name])
+
+
+class AllWorkflowJobsTimeoutGuardTests(unittest.TestCase):
+    def test_every_executable_workflow_job_declares_timeout_minutes(self):
+        workflow_dir = ROOT / '.github/workflows'
+        workflow_paths = sorted(
+            path for path in workflow_dir.iterdir()
+            if path.is_file() and path.suffix in ('.yml', '.yaml')
+        )
+        self.assertGreater(len(workflow_paths), 0)
+        checked_jobs = 0
+        for path in workflow_paths:
+            rel_path = path.relative_to(ROOT).as_posix()
+            jobs = workflow_jobs(path.read_text())
+            self.assertGreater(len(jobs), 0, f'{rel_path} must declare at least one job')
+            for job_name, body in jobs.items():
+                if re.search(r'^    uses:\s*\S+', body, re.M):
+                    continue
+                checked_jobs += 1
+                with self.subTest(workflow=rel_path, job=job_name):
+                    match = re.search(r'^    timeout-minutes:\s*(.+?)\s*$', body, re.M)
+                    self.assertIsNotNone(
+                        match,
+                        f'{rel_path}:{job_name} must declare explicit timeout-minutes',
+                    )
+                    value = match.group(1)
+                    if value.isdigit():
+                        minutes = int(value)
+                        self.assertGreater(minutes, 0)
+                        self.assertLessEqual(minutes, 360)
+                    else:
+                        self.assertRegex(value, r'^\$\{\{.+\}\}$')
+        self.assertGreater(checked_jobs, 0)
 
 
 if __name__ == '__main__':

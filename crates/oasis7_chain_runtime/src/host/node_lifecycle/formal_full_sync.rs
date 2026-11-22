@@ -4,16 +4,11 @@
 //! Content-addressed blobs are atomic; proof history and the last verified World
 //! remain pinned until a fully restored successor is ready.
 
-use oasis7::{
-    runtime::{
-        BlobStore, Journal, LocalCasStore, Snapshot, VerifiedFormalRetainedHistoryParentV1, World,
-    },
-    world_service::{
-        authority,
-        client::{FormalReadTrustConfigV1, RemoteWorldServiceClient, WorldServicePort},
-        verified_view::VerifiedWorldView,
-        wire::SignedServiceResponse,
-    },
+use oasis7::world_service::{
+    authority,
+    client::{FormalReadTrustConfigV1, RemoteWorldServiceClient, WorldServicePort},
+    verified_view::VerifiedWorldView,
+    wire::SignedServiceResponse,
 };
 use oasis7_client_api::world_service::{
     ReadWorldViewRequest, WORLD_SERVICE_CONTRACT_VERSION, WorldIdentity,
@@ -34,6 +29,9 @@ use oasis7_distfs::controlled_authority::{
         verify_record_material,
     },
     replicated_protocol::{ArtifactObject, ArtifactRole, ClosedRecord},
+};
+use oasis7_runtime::{
+    BlobStore, Journal, LocalCasStore, Snapshot, VerifiedFormalRetainedHistoryParentV1, World,
 };
 use reqwest::blocking::Client as HttpClient;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};

@@ -152,6 +152,9 @@ pub use family::{
     FactoryAuthorityFamilyQualificationV1, open_qualified_factory_authority_record_v1,
     qualify_factory_authority_family_v1,
 };
+#[path = "incremental_factory_authority_records_selected.rs"]
+mod selected;
+pub use selected::open_factory_authority_body_overlay_v1;
 #[path = "incremental_factory_authority_records_lifecycle.rs"]
 mod lifecycle;
 pub use lifecycle::{

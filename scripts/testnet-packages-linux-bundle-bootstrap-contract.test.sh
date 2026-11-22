@@ -83,52 +83,62 @@ tar -tzf "$archive" >"$members"
 grep -Fxq 'oasis7-linux-x64-ops-tools/.oasis7-ops-tools-manifest.json' "$members"
 grep -Fxq 'oasis7-linux-x64-ops-tools/SHA256SUMS' "$members"
 
-if command -v dpkg-deb >/dev/null 2>&1; then
-  deb_root="$TMP_DIR/deb-root"
-  mkdir -p "$deb_root/DEBIAN" "$deb_root/opt/oasis7/bin"
-  printf 'Package: oasis7\nVersion: 0.0.0\nArchitecture: amd64\nDescription: contract fixture\n' \
-    >"$deb_root/DEBIAN/control"
-  printf 'workflow=Testnet Packages\ncommit=abcdef1234567890abcdef1234567890abcdef12\npackage_version=0.0.0\nrun_id=1\nplatform=linux-x64\n' \
-    >"$deb_root/opt/oasis7/BUILDINFO"
-  printf '#!/usr/bin/env bash\n' >"$deb_root/opt/oasis7/bin/oasis7_chain_runtime"
-  chmod +x "$deb_root/opt/oasis7/bin/oasis7_chain_runtime"
-  (
-    cd "$deb_root/opt/oasis7"
-    sha256sum bin/oasis7_chain_runtime BUILDINFO >SHA256SUMS
-  )
-  dpkg-deb --build --root-owner-group "$deb_root" "$TMP_DIR/oasis7-linux-x64.deb" >/dev/null
-  extract_dir="$TMP_DIR/deb-extract"
-  dpkg-deb --extract "$TMP_DIR/oasis7-linux-x64.deb" "$extract_dir"
-  test -f "$extract_dir/opt/oasis7/BUILDINFO"
-  test -f "$extract_dir/opt/oasis7/SHA256SUMS"
-  (cd "$extract_dir/opt/oasis7" && sha256sum -c SHA256SUMS >/dev/null)
-
-  verifier="$ROOT_DIR/scripts/p2p-verify-linux-package-bundle.py"
-  bundle="$extract_dir/opt/oasis7"
-  python3 "$verifier" "$bundle" 0.0.0 abcdef1234567890abcdef1234567890abcdef12 1
-
-  # RED/GREEN regression: a regular payload file that is deployed by the
-  # upgrader must not be accepted when it is absent from SHA256SUMS.
-  printf 'unlisted payload\n' >"$bundle/bin/UNLISTED"
-  set +e
-  python3 "$verifier" "$bundle" 0.0.0 abcdef1234567890abcdef1234567890abcdef12 1 \
-    >"$TMP_DIR/unlisted.stdout" 2>"$TMP_DIR/unlisted.stderr"
-  unlisted_status=$?
-  set -e
-  test "$unlisted_status" -ne 0
-  grep -q "SHA256SUMS does not cover bundle files: bin/UNLISTED" "$TMP_DIR/unlisted.stderr"
-
-  # BUILDINFO is also a rollout input to fresh-host bootstrap.  Reject an
-  # unsafe version before any caller can interpolate it into releases/.
-  sed -i 's/^package_version=.*/package_version=..\/outside/' "$bundle/BUILDINFO"
-  (cd "$bundle" && sha256sum bin/oasis7_chain_runtime BUILDINFO >SHA256SUMS)
-  set +e
-  python3 "$verifier" "$bundle" ../outside abcdef1234567890abcdef1234567890abcdef12 1 \
-    >"$TMP_DIR/version.stdout" 2>"$TMP_DIR/version.stderr"
-  version_status=$?
-  set -e
-  test "$version_status" -ne 0
-  grep -q "safe single path token" "$TMP_DIR/version.stderr"
+echo "ok: Linux workflow contract and synthetic ops-tools archive fixture"
+if [[ "$(uname -s)" != Linux ]]; then
+  echo "SKIP: synthetic Debian payload verifier fixture runs on Linux only"
+  exit 0
+fi
+if ! command -v dpkg-deb >/dev/null 2>&1; then
+  echo "error: Linux requires dpkg-deb to run the Debian payload verifier fixture" >&2
+  exit 1
 fi
 
-echo "ok: Linux publishes deb-only player package plus checksummed ops package"
+# This fixture exercises the verifier against an actual DEB container; it
+# is not evidence for a package built by the release pipeline.
+deb_root="$TMP_DIR/deb-root"
+mkdir -p "$deb_root/DEBIAN" "$deb_root/opt/oasis7/bin"
+printf 'Package: oasis7\nVersion: 0.0.0\nArchitecture: amd64\nDescription: contract fixture\n' \
+  >"$deb_root/DEBIAN/control"
+printf 'workflow=Testnet Packages\ncommit=abcdef1234567890abcdef1234567890abcdef12\npackage_version=0.0.0\nrun_id=1\nplatform=linux-x64\n' \
+  >"$deb_root/opt/oasis7/BUILDINFO"
+printf '#!/usr/bin/env bash\n' >"$deb_root/opt/oasis7/bin/oasis7_chain_runtime"
+chmod +x "$deb_root/opt/oasis7/bin/oasis7_chain_runtime"
+(
+  cd "$deb_root/opt/oasis7"
+  sha256sum bin/oasis7_chain_runtime BUILDINFO >SHA256SUMS
+)
+dpkg-deb --build --root-owner-group "$deb_root" "$TMP_DIR/oasis7-linux-x64.deb" >/dev/null
+extract_dir="$TMP_DIR/deb-extract"
+dpkg-deb --extract "$TMP_DIR/oasis7-linux-x64.deb" "$extract_dir"
+test -f "$extract_dir/opt/oasis7/BUILDINFO"
+test -f "$extract_dir/opt/oasis7/SHA256SUMS"
+(cd "$extract_dir/opt/oasis7" && sha256sum -c SHA256SUMS >/dev/null)
+
+verifier="$ROOT_DIR/scripts/p2p-verify-linux-package-bundle.py"
+bundle="$extract_dir/opt/oasis7"
+python3 "$verifier" "$bundle" 0.0.0 abcdef1234567890abcdef1234567890abcdef12 1
+
+# RED/GREEN regression: a regular payload file that is deployed by the
+# upgrader must not be accepted when it is absent from SHA256SUMS.
+printf 'unlisted payload\n' >"$bundle/bin/UNLISTED"
+set +e
+python3 "$verifier" "$bundle" 0.0.0 abcdef1234567890abcdef1234567890abcdef12 1 \
+  >"$TMP_DIR/unlisted.stdout" 2>"$TMP_DIR/unlisted.stderr"
+unlisted_status=$?
+set -e
+test "$unlisted_status" -ne 0
+grep -q "SHA256SUMS does not cover bundle files: bin/UNLISTED" "$TMP_DIR/unlisted.stderr"
+
+# BUILDINFO is also a rollout input to fresh-host bootstrap.  Reject an
+# unsafe version before any caller can interpolate it into releases/.
+sed -i 's/^package_version=.*/package_version=..\/outside/' "$bundle/BUILDINFO"
+(cd "$bundle" && sha256sum bin/oasis7_chain_runtime BUILDINFO >SHA256SUMS)
+set +e
+python3 "$verifier" "$bundle" ../outside abcdef1234567890abcdef1234567890abcdef12 1 \
+  >"$TMP_DIR/version.stdout" 2>"$TMP_DIR/version.stderr"
+version_status=$?
+set -e
+test "$version_status" -ne 0
+grep -q "safe single path token" "$TMP_DIR/version.stderr"
+
+echo "ok: synthetic Debian payload extraction and verifier cases"

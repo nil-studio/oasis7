@@ -293,6 +293,20 @@ pub(crate) fn write_http_reply(
     status: u16,
     body: &[u8],
 ) -> Result<(), String> {
+    write_http_reply_until(
+        stream,
+        status,
+        body,
+        std::time::Instant::now() + HTTP_CONNECTION_TIMEOUT,
+    )
+}
+
+fn write_http_reply_until(
+    stream: &mut TcpStream,
+    status: u16,
+    body: &[u8],
+    deadline: std::time::Instant,
+) -> Result<(), String> {
     if body.len() > MAX_HTTP_REPLY {
         return Err("HTTP response exceeds bound".into());
     }
@@ -306,10 +320,50 @@ pub(crate) fn write_http_reply(
         503 => "Service Unavailable",
         _ => "Internal Server Error",
     };
-    write!(stream, "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len())
-        .and_then(|_| stream.write_all(body))
-        .and_then(|_| stream.flush())
-        .map_err(|error| format!("HTTP write: {error}"))
+    let header = format!(
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    // Socket SO_SNDTIMEO is per blocking write, not a whole-response
+    // deadline: a slow peer can keep a write_all loop alive indefinitely by
+    // making occasional progress. The single formal HTTP worker must stop
+    // sending this response at the original monotonic deadline.
+    write_http_bytes_until(stream, header.as_bytes(), deadline)?;
+    write_http_bytes_until(stream, body, deadline)
+}
+
+fn write_http_bytes_until(
+    stream: &mut TcpStream,
+    mut bytes: &[u8],
+    deadline: std::time::Instant,
+) -> Result<(), String> {
+    while !bytes.is_empty() {
+        let remaining = deadline
+            .checked_duration_since(std::time::Instant::now())
+            .filter(|duration| !duration.is_zero())
+            .ok_or("HTTP absolute response deadline expired")?;
+        stream
+            .set_write_timeout(Some(remaining))
+            .map_err(|error| format!("HTTP write timeout: {error}"))?;
+        // Bound each kernel write without renewing the original deadline.
+        let chunk_len = bytes.len().min(64 * 1024);
+        match stream.write(&bytes[..chunk_len]) {
+            Ok(0) => return Err("HTTP peer closed during response".into()),
+            Ok(written) => bytes = &bytes[written..],
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::Interrupted
+                        | std::io::ErrorKind::WouldBlock
+                        | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                continue;
+            }
+            Err(error) => return Err(format!("HTTP write: {error}")),
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -335,7 +389,7 @@ impl Drop for FormalHttpServer {
 
 #[cfg(test)]
 mod framing_tests {
-    use super::{parse_http_headers, read_http_request, write_http_reply};
+    use super::{parse_http_headers, read_http_request, write_http_reply, write_http_reply_until};
     use std::{
         io::{Read, Write},
         net::{Shutdown, TcpListener, TcpStream},
@@ -372,6 +426,29 @@ mod framing_tests {
             assert!(headers.split("\r\n").any(|line| line == "Content-Length: 2"));
             assert!(headers.split("\r\n").any(|line| line == "Connection: close"));
         }
+    }
+
+    #[test]
+    fn formal_http_response_writer_rejects_expired_budget_before_any_bytes() {
+        // Use a real accepted TCP socket. An already-expired budget must not
+        // write even the response header, and cannot poison the next reply.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (mut server, _) = listener.accept().unwrap();
+        let expired = Instant::now() - Duration::from_millis(1);
+        assert_eq!(
+            write_http_reply_until(&mut server, 200, b"{}", expired).unwrap_err(),
+            "HTTP absolute response deadline expired"
+        );
+        write_http_reply(&mut server, 503, b"{}").unwrap();
+        drop(server);
+        let mut response = String::new();
+        client.read_to_string(&mut response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 503 Service Unavailable\r\n"));
+        assert!(!response.contains("HTTP/1.1 200"));
+        assert_eq!(response.matches("HTTP/1.1 ").count(), 1);
+        assert!(response.contains("\r\nCache-Control: no-store\r\n"));
+        assert!(response.ends_with("\r\n\r\n{}"));
     }
 
     #[test]

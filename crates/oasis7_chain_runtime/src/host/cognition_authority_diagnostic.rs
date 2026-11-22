@@ -1,6 +1,6 @@
 //! Opt-in operator evidence only; never changes admission or execution authority.
-use oasis7::runtime::World;
 use oasis7_agent_api::world_cognition::RuntimeCognitionBaseBindingV1;
+use oasis7_runtime::World;
 
 pub(super) fn timestamp() -> Option<u64> {
     if std::env::var("OASIS7_COGNITION_AUTHORITY_DIAGNOSTIC").as_deref() != Ok("1") {

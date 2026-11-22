@@ -7375,6 +7375,28 @@ mod family {
             with self.assertRaisesRegex(ValueError, 'tested_sha'):
                 artifacts.load(bundle)
 
+    def test_coalesce_build_invocations_merges_only_both_default_snapshot_libs(self):
+        variants = artifacts.build_variants('ordinary')
+        invocations = artifacts.coalesce_build_invocations(variants)
+        self.assertEqual([name for name, _, _, _ in invocations], ['viewer', 'required', 'snapshot-tests'])
+        _, args, features, pkg_map = invocations[2]
+        self.assertEqual(args, ['test', '-p', 'oasis7', '-p', 'oasis7_viewer_runtime', '--lib', '--no-run'])
+        self.assertEqual(features, [])
+        self.assertEqual(pkg_map, {'oasis7': 'snapshot-tests', 'oasis7_viewer_runtime': 'viewer-snapshot-tests'})
+        single = [v for v in variants if v[0] != 'viewer-snapshot-tests']
+        self.assertEqual(
+            artifacts.coalesce_build_invocations(single),
+            [(name, a, f, None) for name, a, f in single],
+        )
+
+    def test_snapshot_profiles_reject_leaked_test_tier_features(self):
+        for logical in ('snapshot-tests', 'viewer-snapshot-tests'):
+            artifacts.validate_profile(logical, {'features': ['default']}, 'ordinary')
+            for leaked in ('test_tier_required', 'test_tier_full'):
+                with self.subTest(logical=logical, leaked=leaked):
+                    with self.assertRaisesRegex(ValueError, 'default-only features'):
+                        artifacts.validate_profile(logical, {'features': ['default', leaked]}, 'ordinary')
+
 
 if __name__ == '__main__':
     unittest.main()

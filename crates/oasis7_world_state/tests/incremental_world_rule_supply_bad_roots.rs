@@ -14,7 +14,7 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueReadContext, ValueTreeError, write_value},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
-use oasis7_runtime::{
+use oasis7_world_state::{
     CrisisState, CrisisStatus, WorldState,
     incremental_field_member::*,
     incremental_field_read::WorldFieldReadContextV1,
@@ -46,7 +46,7 @@ mod semantic_oracle;
 use oasis7_formal_protocol::{
     incremental_execution::TransitionVerifier, incremental_value::ValueNodeWriter,
 };
-use oasis7_runtime::incremental_field_overlay::WorldFieldOverlayErrorV1;
+use oasis7_world_state::incremental_field_overlay::WorldFieldOverlayErrorV1;
 use semantic_oracle::{Path, semantic};
 fn scan() -> StateScanBudget {
     StateScanBudget {

@@ -200,7 +200,7 @@ fn record_test_service_request_witness(method: &str, path: &str) -> Result<(), S
 fn build_chain_runtime_perf_snapshot(
     loaded_network_tier_manifest: Option<&LoadedNetworkTierManifest>,
     node_role: NodeRole,
-) -> Option<oasis7::simulator::RuntimePerfSnapshot> {
+) -> Option<oasis7_simulator::RuntimePerfSnapshot> {
     let gate_tier = super::status_payload::runtime_perf_gate_tier_from_manifest(
         loaded_network_tier_manifest,
         node_role,
