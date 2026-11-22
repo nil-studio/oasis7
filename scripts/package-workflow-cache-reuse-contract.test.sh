@@ -279,6 +279,8 @@ def cache_identity(workflow: str, name: str, non_linux: bool = False) -> dict:
         else:
             assert name in ("newapi-bridge-package", "package-linux-x86-64"), name
             assert inputs.get("shared-key") == "newapi-bridge-service-linux-x86-64-ci-rust-build-" + image[1]
+            assert inputs.get("save-if") == "${{ github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}"
+            assert inputs.get("cache-on-failure") == "false"
             assert 'rustc +"${RUST_TOOLCHAIN}" -vV' in before_cache
             assert "pkg-config --exists wayland-client x11 alsa libudev openssl" in before_cache
         default = env["RUST_TOOLCHAIN"]
