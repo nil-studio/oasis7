@@ -42,6 +42,7 @@ mod shipping_budget_process {
         time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
 
+    use oasis7_net::{Libp2pNetwork, Libp2pNetworkConfig};
     use serde_json::{Value, json};
 
     const PROFILE: &str = "v1-discovery-resource-budget-1";
@@ -313,6 +314,75 @@ mod shipping_budget_process {
         }
     }
 
+    // The original session must actually consume metered substream bytes.
+    // Otherwise checking a zero byte ledger on restart would not detect an
+    // accidental persistence or reuse of the original resource counters.
+    fn charge_shipping_budget(
+        original_status: &Value,
+        status_address: SocketAddr,
+        node_tcp_port: u16,
+    ) {
+        let peer_id = original_status["replication"]["local_peer_id"]
+            .as_str()
+            .expect("public status must expose the real replication peer identity");
+        let bootstrap = format!("/ip4/127.0.0.1/tcp/{node_tcp_port}/p2p/{peer_id}")
+            .parse()
+            .unwrap();
+        let client = Libp2pNetwork::try_new(Libp2pNetworkConfig {
+            bootstrap_peers: vec![bootstrap],
+            enable_autonat: false,
+            ..Libp2pNetworkConfig::default()
+        })
+        .expect("connect independent authenticated budget consumer");
+        let connect_deadline = Instant::now() + Duration::from_secs(15);
+        let peer = loop {
+            if let Some(peer) = client
+                .connected_peers()
+                .into_iter()
+                .find(|peer| peer.to_string() == peer_id)
+            {
+                break peer;
+            }
+            assert!(
+                Instant::now() < connect_deadline,
+                "shipping budgeted peer never connected: {:?}",
+                client.debug_errors()
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        // A deliberately malformed read still uses the *actual* authenticated
+        // RR substream and must be rejected by the real Node handler, without
+        // any fake local-handler fallback.
+        let _ = client.request_to_peer_with_timeout(
+            "/aw/node/replication/fetch-commit/head/1.0.0",
+            b"not-a-valid-original-head-request",
+            peer,
+            Duration::from_secs(3),
+        );
+        let charged_deadline = Instant::now() + Duration::from_secs(15);
+        loop {
+            if let Some(status) = fetch_status(status_address)
+                && let Some(budget) = find_budget(&status)
+                && budget["bytes"]["charged_bytes"]["total"]
+                    .as_u64()
+                    .is_some_and(|count| count > 0)
+            {
+                assert!(
+                    budget["bytes"]["actual_bytes"]["inbound"]
+                        .as_u64()
+                        .unwrap_or_default()
+                        > 0
+                );
+                return;
+            }
+            assert!(
+                Instant::now() < charged_deadline,
+                "actual shipping network never charged a real substream"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
     #[test]
     fn shipping_dev_node_starts_with_both_transports_and_cold_reopens_new_budget_instance() {
         let root = PrivateRoot::new();
@@ -334,6 +404,7 @@ mod shipping_budget_process {
             .expect("typed live status must expose instance identity")
             .to_owned();
         assert_eq!(original["connections"]["total"], 0);
+        charge_shipping_budget(&first_status, status_addr, node_tcp);
         first.stop();
 
         // The same fixed typed config must reopen against the same original
