@@ -1,10 +1,10 @@
 #![cfg(all(unix, not(target_arch = "wasm32")))]
 
-use oasis7::AgentState;
 use oasis7_distfs::incremental_page_store::{IncrementalPageStore, PageCompression, PageIoBudget};
 use oasis7_formal_protocol::incremental_state::StateNamespaceV1 as Ns;
 use oasis7_formal_protocol::incremental_value::{ValueIoBudget, ValueReadContext};
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
+use oasis7_runtime::agent_state::AgentState;
 use oasis7_runtime::{
     AgentCell, BodyMutationContext, BodyMutationError, DomainEvent, World, WorldState,
     incremental_agent_fields::{AgentFieldV1, AgentScalarRefV1},
