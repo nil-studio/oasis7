@@ -20,7 +20,13 @@ use support::*;
 fn current_manifest_opener_preserves_original_field_and_rejects_deleted_current_metadata() {
     let memory = MemoryBudget::new(192 << 20, 16 << 20).unwrap();
     let _fixture = memory.reserve(4 << 20, MemoryClass::Ordinary).unwrap();
-    let manifest = ChainResourceManifest::empty_at_height("actual-world", 7, 0);
+    // The family-closure fixture uses actual present optional metadata, as in
+    // the existing GEN qualification positive case; this test concerns the
+    // Current pointer and must first establish a valid original family.
+    let mut manifest = ChainResourceManifest::empty_at_height("actual-world", 7, 0);
+    manifest.genesis_ref = Some("genesis-current".into());
+    manifest.created_at_block_hash = Some("block-current".into());
+    manifest.refresh_hashes();
     let builtin = Builtins(Default::default());
     let (pages, roots) = seed(&memory, &manifest, None, &builtin);
     let qualification = qualify(&pages, &roots, &memory).unwrap();
