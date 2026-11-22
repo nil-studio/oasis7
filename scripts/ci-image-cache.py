@@ -36,9 +36,15 @@ def build_variants(root, profile):
     if profile == 'native':
         native('consensus', ['-p', 'oasis7_consensus', '--lib'])
         native('storage-libs', ['-p', 'oasis7_cas', '-p', 'oasis7_formal_protocol', '--lib'])
-        native('distfs', ['-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint'])
         if (root / 'crates/oasis7_distfs/tests/incremental_industry_jobs.rs').is_file():
-            native('distfs-industry', ['-p', 'oasis7_distfs', '--test', 'incremental_industry_jobs'])
+            cargo('distfs-check', 'check', [
+                '-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint',
+                '--test', 'incremental_industry_jobs',
+            ])
+            cargo('distfs-test', 'test', ['-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint'])
+            cargo('distfs-industry-test', 'test', ['-p', 'oasis7_distfs', '--test', 'incremental_industry_jobs'])
+        else:
+            native('distfs', ['-p', 'oasis7_distfs', '--lib', '--bin', 'oasis7_durability_endpoint'])
     elif profile == 'node':
         native('node', ['-p', 'oasis7_node', '--lib'])
     elif profile == 'net':
