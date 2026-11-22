@@ -33,7 +33,12 @@ fn real_provisional_original_writer_preserves_original_bytes_pool_and_cold_readb
             let writer = OriginalObjectStreamReader::original_writer(&mut session).unwrap();
             assert!(
                 writer
-                    .write_original(&mut original.as_slice(), original.len() as u64, id, &foreign)
+                    .write_original(
+                        &mut original.as_slice(),
+                        original.len() as u64,
+                        id,
+                        &foreign
+                    )
                     .is_err()
             );
             assert_eq!(
