@@ -161,28 +161,59 @@ case "$PLATFORM" in
         runtime_architecture="$(file -b "$BUNDLE_DIR/bin/oasis7_chain_runtime")"
       else
         runtime_architecture="$(python3 - "$BUNDLE_DIR/bin/oasis7_chain_runtime" <<'PY'
+import os
 import struct
 import sys
 
-with open(sys.argv[1], "rb") as stream:
-    data = stream.read(4096)
+ARM64 = 0x0100000C
+HEADER_SIZE = 32
+TABLE_READ_LIMIT = 4096
+FAT_FORMATS = {
+    0xCAFEBABE: struct.Struct(">5I"),
+    0xCAFEBABF: struct.Struct(">IIQQII"),
+}
 
-if len(data) >= 8:
-    magic_le, cpu_le = struct.unpack_from("<II", data, 0)
-    if magic_le == 0xFEEDFACF:
-        print("Mach-O 64-bit arm64" if cpu_le == 0x0100000C else f"Mach-O 64-bit cpu=0x{cpu_le:08x}")
-        sys.exit(0)
-    magic_be, nfat = struct.unpack_from(">II", data, 0)
-    if magic_be in (0xCAFEBABE, 0xCAFEBABF):
-        stride = 20 if magic_be == 0xCAFEBABE else 32
-        cpus = [
-            struct.unpack_from(">I", data, 8 + i * stride)[0]
-            for i in range(nfat)
-            if 8 + i * stride + 4 <= len(data)
-        ]
-        print("Mach-O universal arm64" if 0x0100000C in cpus else f"Mach-O universal cpus={[hex(c) for c in cpus]}")
-        sys.exit(0)
-print("non-Mach-O binary")
+
+def is_arm64_header(data, slice_size):
+    if len(data) < HEADER_SIZE or slice_size < HEADER_SIZE:
+        return False
+    magic, cpu, _, _, command_count, command_bytes, _, _ = struct.unpack_from("<8I", data)
+    return (
+        magic == 0xFEEDFACF and cpu == ARM64
+        and command_count * 8 <= command_bytes <= slice_size - HEADER_SIZE
+    )
+
+
+def architecture(stream):
+    file_size = os.fstat(stream.fileno()).st_size
+    data = stream.read(TABLE_READ_LIMIT)
+    if is_arm64_header(data, file_size):
+        return "Mach-O 64-bit arm64"
+    if len(data) < 8:
+        return "unsupported or incomplete Mach-O header"
+    magic, count = struct.unpack_from(">II", data)
+    descriptor = FAT_FORMATS.get(magic)
+    if descriptor is None:
+        return "unsupported or incomplete Mach-O header"
+    # Check that the complete table fits in the bounded read before iteration.
+    if not 0 < count <= (len(data) - 8) // descriptor.size:
+        return "invalid Mach-O universal architecture table"
+    end_of_table = 8 + count * descriptor.size
+    has_arm64 = False
+    for i in range(count):
+        cpu, _, offset, size, *_ = descriptor.unpack_from(data, 8 + i * descriptor.size)
+        if offset < end_of_table or not 0 < size <= file_size - offset:
+            return "invalid Mach-O universal slice bounds"
+        if cpu == ARM64:
+            stream.seek(offset)
+            if not is_arm64_header(stream.read(min(size, HEADER_SIZE)), size):
+                return "invalid Mach-O universal slice header"
+            has_arm64 = True
+    return "Mach-O universal arm64" if has_arm64 else "unsupported Mach-O universal architecture"
+
+
+with open(sys.argv[1], "rb") as stream:
+    print(architecture(stream))
 PY
 )"
       fi
