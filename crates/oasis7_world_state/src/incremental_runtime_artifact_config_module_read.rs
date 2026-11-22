@@ -686,7 +686,10 @@ mod tests {
         };
         // The full record retains the original 1-MiB registered_by plus
         // independently charged manifest/JSON and bounded decode workspace.
-        let memory = MemoryBudget::new(12 << 20, 8 << 20).unwrap();
+        // MemoryBudget's second argument reserves Recovery headroom; use an
+        // ordinary allowance that really covers the two simultaneously
+        // admitted 2-MiB decoding phases, not an uncharged test shortcut.
+        let memory = MemoryBudget::new(24 << 20, 4 << 20).unwrap();
         let mut state_io = body_tests::io();
         let state_io = RefCell::new(&mut state_io);
         let mut stop = || false;
