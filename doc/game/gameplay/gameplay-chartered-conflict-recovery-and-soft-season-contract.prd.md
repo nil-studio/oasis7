@@ -5,6 +5,7 @@
 - 固定输入：`eng-cc/oasis7@cca8cda97cf121ebc1e25e96d6b0204a421323ea`，2026-11-05。原产品范围是[区域冲突专题](../../product/world-rules-core-gameplay/chartered-conflict-soft-seasons-and-recovery.prd.md#req-wr-cc-001)；地点权利政策只由[区域 tenure 合同](gameplay-regional-charter-tenure-funding-contract.prd.md#tenure-policy)拥有。
 - 设计适用性：`simple-topic-exemption`（`PRD-only-sufficient`）。本文件拥有玩家选择、冲突/损失/赛季政策和验收；执行、状态、预算、读面、恢复由[冲突连续性设计](../../world-runtime/runtime/chartered-conflict-assets-and-soft-season-continuity.design.md#conflict-authority)及[tenure 设计](../../world-runtime/runtime/location-tenure-and-disposition.design.md#tenure-identity)承接。
 
+<a id="chartered-conflict-recovery-goals-and-scope"></a>
 ## 1. 问题、目标与范围
 
 玩家加入的是有期限、范围和代价的区域竞争。一次宣战、地图上的占领标记、已装船的货物或赛季排名都不能替代真实权利和世界结果。目标是让参与者可以在明确暴露的资产上竞争，在损失后比较修复、重建、转向或退出，并带着身份、历史和真实剩余能力继续同一个世界。
