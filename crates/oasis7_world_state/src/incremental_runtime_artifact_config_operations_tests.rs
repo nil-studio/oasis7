@@ -115,6 +115,20 @@ fn ordinary_same_transaction_creates_changes_reads_and_independently_receives() 
             .expect("genesis original registry member")
             .clone()
     };
+    assert_eq!(family.registry_active_count(), 1);
+    let mut pending_entries = 2048;
+    let guard = overlay.transaction.guard();
+    assert_eq!(
+        read_current_registry_active_count_v1(
+            &family,
+            &mut overlay,
+            &mut pending_entries,
+            &guard,
+            &live,
+        )
+        .unwrap(),
+        1
+    );
     let active_key = entry(ArtifactConfigFieldV1::RegistryActive);
     let record_key = entry(ArtifactConfigFieldV1::RegistryManifest);
     let guard = overlay.transaction.guard();
@@ -282,6 +296,18 @@ fn ordinary_same_transaction_creates_changes_reads_and_independently_receives() 
     .qualification
     .unwrap();
     let guard = overlay.transaction.guard();
+    assert_eq!(
+        read_current_registry_active_count_v1(
+            &family,
+            &mut overlay,
+            &mut pending_entries,
+            &guard,
+            &live,
+        )
+        .unwrap(),
+        2
+    );
+    let guard = overlay.transaction.guard();
     let deleted = change_qualified_artifact_config_record_v1(
         ArtifactConfigRecordChangeV1 {
             field: ArtifactConfigFieldV1::RegistryActive,
@@ -298,6 +324,18 @@ fn ordinary_same_transaction_creates_changes_reads_and_independently_receives() 
     )
     .unwrap();
     assert!(deleted.changed && deleted.qualification.is_none());
+    let guard = overlay.transaction.guard();
+    assert_eq!(
+        read_current_registry_active_count_v1(
+            &family,
+            &mut overlay,
+            &mut pending_entries,
+            &guard,
+            &live,
+        )
+        .unwrap(),
+        1
+    );
     use crate::incremental_json_records::{
         JsonChangeWorkV1, JsonPathSegmentV1, JsonReadWorkV1, JsonSubtreeEditV1,
     };
