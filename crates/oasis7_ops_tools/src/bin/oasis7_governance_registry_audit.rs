@@ -9,7 +9,7 @@ use oasis7_runtime::{
 };
 use serde::Deserialize;
 
-use oasis7::governance_audit_report as audit_report;
+use oasis7_client_api::governance_audit_report as audit_report;
 #[path = "oasis7_governance_registry_audit/manifest_digest.rs"]
 mod manifest_digest;
 use audit_report::{GovernanceRegistryAuditReport, RollbackAuthorityAuditRow, audit_row};
