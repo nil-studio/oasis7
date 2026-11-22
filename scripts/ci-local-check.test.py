@@ -118,6 +118,17 @@ class InputCapture(GitFixture):
         snapshot = inputs.capture(self.root, self.base)
         self.assertEqual(inputs.referenced_inputs(self.root, snapshot, HERE / 'plan-rust-required-scope.py'), expected)
 
+    def test_non_path_multiline_or_overlong_rust_literals_do_not_crash_referenced_inputs(self):
+        overlong_snippet = 'a' * 270 + '//1_000_000\nline2'
+        self.write('crates/sample/src/lib.rs', f'pub fn code() -> &\'static str {{ r#"{overlong_snippet}"# }}\n')
+        snapshot = inputs.capture(self.root, self.base)
+        self.assertEqual(inputs.referenced_inputs(self.root, snapshot, HERE / 'plan-rust-required-scope.py'), set())
+        overlong_required = 'b' * 270 + '.rs'
+        self.write('crates/sample/src/lib.rs', f'#[path = "{overlong_required}"]\nmod broken;\n')
+        snapshot = inputs.capture(self.root, self.base)
+        with self.assertRaises(inputs.Blocked):
+            inputs.referenced_inputs(self.root, snapshot, HERE / 'plan-rust-required-scope.py')
+
     def test_ignored_directory_symlink_cannot_hide_baseline_input(self):
         outside = Path(self.temp.name) / 'foreign'
         outside.mkdir()
@@ -1119,6 +1130,91 @@ raise SystemExit('unexpected build/install/command '+repr((role,args)))
         with mock.patch.dict(os.environ, inherited):
             env = entry.execution_environment()
         self.assertFalse(set(inherited) & set(env))
+
+
+class WorkflowAdvisoryTests(GitFixture):
+    def test_change_summary_deduplicates_renames_excludes_referenced_and_splits_docs(self):
+        changes = [
+            dict(origin='committed', status='M', path='crates/sample/src/lib.rs'),
+            dict(origin='staged', status='R100', old_path='crates/sample/src/lib.rs', path='crates/sample/src/moved.rs'),
+            dict(origin='unstaged', status='M', path='crates/sample/src/moved.rs'),
+            dict(origin='untracked', status='??', path='crates/sample/src/lib.rs'),
+            dict(origin='committed', status='C100', old_path='crates/sample/Cargo.toml', path='crates/sample/Cargo.copy.toml'),
+            dict(origin='committed', status='M', path='doc/engineering/workflow/source-of-truth.md'),
+            dict(origin='committed', status='M', path='testing-manual.md'),
+            dict(origin='committed', status='M', path='.agents/roles/tpm.md'),
+            dict(origin='committed', status='M', path='.github/pull_request_template.md'),
+            dict(origin='committed', status='M', path='skills/oasis7/SKILL.md'),
+            dict(origin='referenced', status='A', path='scripts/ignored-local.py'),
+        ]
+        code_files, doc_files = entry.summarize_task_changes(changes)
+        self.assertEqual(doc_files, [
+            '.agents/roles/tpm.md',
+            'doc/engineering/workflow/source-of-truth.md',
+            'testing-manual.md',
+        ])
+        self.assertEqual(code_files, [
+            '.github/pull_request_template.md',
+            'crates/sample/Cargo.copy.toml',
+            'crates/sample/src/lib.rs',
+            'crates/sample/src/moved.rs',
+            'skills/oasis7/SKILL.md',
+        ])
+
+    def test_advisory_reminders_cover_main_branch_micro_pr_dirty_and_guideline_without_blocking(self):
+        self.git('branch', '-M', 'main')
+        self.install_policy(real=True)
+        self.git('switch', '-c', 'codex/micro-slice')
+        self.write('crates/sample/src/lib.rs', 'pub fn value() -> usize { 2 }\n')
+        self.write('doc/notes.md', '# doc sync\n')
+        self.commit()
+        self.write('crates/sample/src/uncommitted.rs', 'pub fn draft() {}\n')
+
+        process = subprocess.run(
+            [sys.executable, str(HERE / 'check-local.py'), '--profile', 'quick',
+             '--dry-run', '--format', 'text', '--output-dir', str(self.reports)],
+            cwd=self.root, capture_output=True, text=True, timeout=30)
+        self.assertEqual(process.returncode, 0, process.stderr)
+        self.assertIn('Task scope (advisory): 2 code file(s), 1 doc file(s), 1 commit(s) ahead of base', process.stdout)
+        self.assertIn('Worktree has uncommitted or untracked changes', process.stdout)
+        report = json.loads(process.stdout.split('Full result:\n', 1)[1])
+        self.assertEqual(report['status'], 'planned')
+        advisory = report['workflow_advisory']
+        self.assertTrue(advisory['advisory_only'])
+        self.assertEqual(advisory['branch'], 'codex/micro-slice')
+        self.assertFalse(advisory['on_main_branch'])
+        self.assertEqual((advisory['code_file_count'], advisory['doc_file_count'], advisory['commits_ahead']), (2, 1, 1))
+        self.assertFalse(advisory['exceeds_code_task_guideline'])
+
+        (self.root / 'crates/sample/src/uncommitted.rs').unlink()
+        affected = subprocess.run(
+            [sys.executable, str(HERE / 'check-local.py'), '--profile', 'affected',
+             '--dry-run', '--format', 'json', '--output-dir', str(self.reports)],
+            cwd=self.root, capture_output=True, text=True, timeout=30)
+        self.assertEqual(affected.returncode, 0, affected.stderr)
+        affected_advisory = json.loads(affected.stdout)['workflow_advisory']
+        self.assertTrue(any('Small code change (1 code file(s)) selects heavy CI (consensus, rust_baseline)' in item
+                            for item in affected_advisory['reminders']), affected_advisory['reminders'])
+
+        for index in range(31):
+            self.write(f'crates/sample/src/mod_{index:02d}.rs', f'pub const V_{index}: usize = {index};\n')
+        self.commit()
+        large = subprocess.run(
+            [sys.executable, str(HERE / 'check-local.py'), '--profile', 'quick',
+             '--dry-run', '--format', 'json', '--output-dir', str(self.reports)],
+            cwd=self.root, capture_output=True, text=True, timeout=30)
+        self.assertEqual(large.returncode, 0, large.stderr)
+        large_report = json.loads(large.stdout)
+        self.assertEqual(large_report['status'], 'planned')
+        self.assertTrue(large_report['workflow_advisory']['exceeds_code_task_guideline'])
+        self.assertEqual(large_report['workflow_advisory']['code_file_count'], 32)
+        self.assertTrue(any('exceed the 30-file task guideline' in item
+                            for item in large_report['workflow_advisory']['reminders']))
+
+        detached = entry.build_workflow_advisory(
+            'main', 0, dict(changes=[], dirty=False, untracked=False), dict(scope='targeted', groups=[]))
+        self.assertTrue(detached['on_main_branch'])
+        self.assertTrue(any('HEAD is on main' in item for item in detached['reminders']))
 
 
 if __name__ == '__main__':

@@ -16,6 +16,7 @@ This router for `doc/scripts/precommit/` does not duplicate commands, failure pr
 | Question | Canonical source |
 | --- | --- |
 | What runs before a local commit? | Nothing; see `pre-commit.prd.md` and the legacy no-op `scripts/pre-commit.sh` |
+| What should I run locally before batch-pushing or opening a PR? | `scripts/cargo-dev.sh` for package feedback plus `python3 scripts/check-local.py --profile quick` or `--profile affected`; see `testing-manual.md#local-check-entry` |
 | How do I repair a formatting or explicit-validation failure? | `pre-commit.prd.md` plus `scripts/fix-precommit.sh` |
 | What does each CI tier cover? | `doc/testing/ci/ci-tiered-execution.prd.md` plus `scripts/ci-tests.sh` |
 | What was completed for this topic? | PR、实际 CI 与评审记录（Issue 按需） |

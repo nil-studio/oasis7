@@ -86,7 +86,7 @@ Viewer 两组要求已准备好的 npm 依赖、Rust/WASM target、匹配锁文�
 
 缺省基线只解析本地 `origin/main` 与 HEAD 的唯一 merge-base，不 fetch；`--base-ref` 必须为该信任锚的祖先。dirty 规划要求该 base 自身含 `LOCAL_INPUTS_VERSION=1`；旧 base 不支持时先 blocked，合入能力后更新本地 main 并 rebase，不能改用候选 planner。输入在私有对象目录中变成 tree，不创建 commit、操作用户 index/ref 或 checkout；base→HEAD、index、实际原始文件内容分别入图，保留抵消、删除、rename 两端和来源。显式 Cargo target/build/依赖、Rust 引用与 ignored 源码需要纳入读集或阻断。未启用 feature 可能引用尚未生成的夹具；入口记录其缺失身份，实际选中编译若需要它仍须失败，运行中出现该文件则 stale，不把缺失身份当成已验证字节。
 
-- `--output-dir` 指定工作树外或 ignored 的报告父目录，每次创建独有子目录；不能放进 baseline 会扫描的 doc/scripts/skills 目录。省略时使用系统临时目录。text/JSON 和 `result.json` 来自同一对象，逐命令保存 argv/cwd、checker 身份、原始日志、耗时、退出码和证据数量。
+- `--output-dir` 指定工作树外或 ignored 的报告父目录，每次创建独有子目录；不能放进 baseline 会扫描的 doc/scripts/skills 目录。省略时使用系统临时目录。text/JSON 和 `result.json` 来自同一对象，逐命令保存 argv/cwd、checker 身份、原始日志、耗时、退出码和证据数量；完成输入采集后同步附带只读 `workflow_advisory`（按重命名去重统计变更代码文件数、说明文档数、领先基线提交数及非阻断提醒，便于核对 30 文件建议、同域微改动合批与本地收敛后成批推送，不影响退出码或 `validated`）。
 - `--timeout-seconds` 是每个 driver 组的时限，默认 2400 秒；`--planner-timeout-seconds` 默认 120 秒。有效检查、工具自测及业务 case 分列；无法解析的必要测试数量为 unknown/incomplete，零匹配和必要 skip 不会报通过。
 - 不自动安装/升级工具，不格式化或暂存。Cargo 命令锁定依赖，保留当前 worktree target 和构建锁；外部/符号链接 target、编译器替换和未审计写入拒绝。允许 ignored 构建输出、自有临时/报告文件及锁定依赖与 advisory 缓存写入。`--offline` 禁止 Cargo 依赖联网；当前 RustSec 离线准备尚未适配，选中该组时在执行前阻断。
 - 冲突、隐藏 index 标志、symlink 读集、Git 内容 filter/encoding、不支持的控制字符文件名、缺失/歧义基线和缺工具为 blocked（2）。运行中 source/index/ref/实际读集或 Cargo 配置变化为 stale_input（2）；失败、必要证据 unknown 或报告写失败为 failed/incomplete（1）；空计划为 no_checks（3）；中断为 cancelled（130）。显式 dry-run 只为 planned（0）、`validated=false`；全部必要检查实际完成才为 passed（0）。

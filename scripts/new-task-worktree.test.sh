@@ -123,4 +123,18 @@ test "$(cat "$TMP/hook/target/user")" = keep
 for extra in '--branch codex/wrong' '--with-harness'; do
   if "$REPO/scripts/new-task-worktree.sh" docs hook --path "$TMP/hook" --resume-setup $extra >/dev/null 2>&1; then exit 1; fi
 done
+help_out="$("$REPO/scripts/new-task-worktree.sh" --help)"
+grep -Fq 'git worktree list --porcelain' <<<"$help_out"
+mkdir -p "$TMP/updater/doc"
+printf '# doc root\n' >"$TMP/updater/doc/README.md"
+git -C "$TMP/updater" add doc/README.md
+git -C "$TMP/updater" commit -qm 'add doc root'
+git -C "$TMP/updater" push -q origin main
+human_out="$("$REPO/scripts/new-task-worktree.sh" engineering batching --path "$TMP/human" --init-docs)"
+grep -Fq "sed -n '1,160p' doc/README.md" <<<"$human_out"
+grep -Fq 'check-local.py --profile quick|affected' <<<"$human_out"
+if grep -Fq 'mkdir -p doc/engineering' <<<"$human_out" || grep -Fq '# create doc/engineering/prd.md' <<<"$human_out"; then
+  echo 'human output must not suggest creating unindexed top-level module docs' >&2
+  exit 1
+fi
 echo 'new-task-worktree.test: OK'
