@@ -153,7 +153,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
         let envelope = oasis7_distfs::controlled_authority::formal::business_material::FormalBusinessResultEnvelopeV1::decode(&object(ArtifactRole::Result)?)
             .map_err(|error| error.to_string())?;
         let initial_tree =
-            oasis7::world_service::formal_result::FormalBusinessResultTreeV1::decode_cbor(
+            oasis7_world_service::formal_result::FormalBusinessResultTreeV1::decode_cbor(
                 &envelope.tree_descriptor_cbor,
             )?;
         initial_tree.validate_world_boundary(&world, anchor.head().record())?;

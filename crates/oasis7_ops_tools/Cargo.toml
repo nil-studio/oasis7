@@ -12,6 +12,7 @@ oasis7_simulator = { path = "../oasis7_simulator" }
 oasis7_agent_api = { path = "../oasis7_agent_api" }
 oasis7_proto = { version = "0.1.0", path = "../oasis7_proto" }
 oasis7 = { version = "0.1.0", path = "../oasis7", default-features = false }
+oasis7_hosted_access = { path = "../oasis7_hosted_access" }
 ed25519-dalek = { version = "3", features = ["rand_core"] }
 hex = "0.4"
 oasis7_wasm_abi = { version = "0.1.0", path = "../oasis7_wasm_abi" }

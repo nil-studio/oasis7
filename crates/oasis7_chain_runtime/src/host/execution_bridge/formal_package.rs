@@ -38,7 +38,7 @@ pub(super) struct FormalExecutionManifestV1 {
     /// Only current input dependencies; never recursive parent proof closures.
     pub artifact_roots: BTreeMap<ArtifactRole, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub business_tree: Option<oasis7::world_service::formal_result::FormalBusinessResultTreeV1>,
+    pub business_tree: Option<oasis7_world_service::formal_result::FormalBusinessResultTreeV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_qualified: Option<FormalQualifiedCommitProofV1>,
     /// A one-shot, old-writer-signed healthy durable-set transition. Omission
@@ -120,7 +120,7 @@ pub(super) fn freeze_material_from_parent(
     continuation: &NodeLocalExecutionContinuation,
     world: &World,
     release_policy: &ReleaseSecurityPolicy,
-    business_tree: oasis7::world_service::formal_result::FormalBusinessResultTreeV1,
+    business_tree: oasis7_world_service::formal_result::FormalBusinessResultTreeV1,
     parent_qualified: FormalQualifiedCommitProofV1,
     transition: Option<SignedNormalDurableSetTransitionV1>,
     parent_material: &ClosedRecord,
@@ -151,7 +151,7 @@ fn freeze_material_inner(
     continuation: &NodeLocalExecutionContinuation,
     world: &World,
     release_policy: &ReleaseSecurityPolicy,
-    business_tree: Option<oasis7::world_service::formal_result::FormalBusinessResultTreeV1>,
+    business_tree: Option<oasis7_world_service::formal_result::FormalBusinessResultTreeV1>,
     parent_qualified: Option<FormalQualifiedCommitProofV1>,
     durable_set_transition: Option<SignedNormalDurableSetTransitionV1>,
     parent_material: Option<&ClosedRecord>,
@@ -820,7 +820,7 @@ pub(super) fn candidate_with_business_reader(
             )?),
         },
         result_root: result,
-        projection_root: oasis7::world_service::formal_projection::commitments_for_world(
+        projection_root: oasis7_world_service::formal_projection::commitments_for_world(
             after_world,
         )?
         .root()?,

@@ -1,5 +1,5 @@
 //! Bounded numeric private files; each page is independently verified from C0.
-use oasis7::world_service::formal_read::FormalReadHistoryPageV1;
+use oasis7_world_service::formal_read::FormalReadHistoryPageV1;
 use std::path::{Path, PathBuf};
 pub(super) struct RecoveryPages {
     directory: PathBuf,

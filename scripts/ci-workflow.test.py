@@ -4556,6 +4556,12 @@ run_cargo() {
         cache_workflow, _ = self.shared_cache_workflow()
         without_admitted_uploads = cache_workflow
         for name, writer in workflow_jobs(cache_workflow).items():
+            if name == 'plan-image-component-cache':
+                self.assertIn('    cache-mode: none\n', writer)
+                self.assertIn('    permissions: {}\n', writer)
+                self.assertNotIn('uses:', writer)
+                self.assertNotIn('github.token', writer)
+                continue
             if name == 'browser-archive-cache':
                 admission = browser_archive_cache_writer(writer)
                 without_admitted_uploads = without_admitted_uploads.replace(admission, '', 1)
