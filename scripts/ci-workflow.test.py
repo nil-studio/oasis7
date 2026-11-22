@@ -606,7 +606,10 @@ def validate_workerd_capture(node, summary):
             or 'overwrite:' in uploads[0]
             or '/workerd-fault/records.jsonl' not in uploads[0]
             or '/workerd-fault/report.json' not in uploads[0]
-            or '/client-abuse.integration.test.mjs.log' not in uploads[0]):
+            or '/workerd-fault-attempt-1/records.jsonl' not in uploads[0]
+            or '/workerd-fault-attempt-1/report.json' not in uploads[0]
+            or '/client-abuse.integration.test.mjs.log' not in uploads[0]
+            or '/client-abuse.integration.test.mjs.attempt-1.log' not in uploads[0]):
         raise ValueError('workerd failure evidence must survive later attempts')
 
 
@@ -5846,7 +5849,9 @@ class WorkerdFaultCapture(unittest.TestCase):
                   if re.search(r'^    container:', node, re.M) else '-- gdb gcc pkg-config'), '-- pkg-config'),
                 ('custody-workerd-fault-${{ github.run_id }}-${{ github.run_attempt }}-',
                  'custody-workerd-fault-${{ github.run_id }}-'),
-                ('name: custody-workerd-fault-', 'overwrite: true\n          name: custody-workerd-fault-')):
+                ('name: custody-workerd-fault-', 'overwrite: true\n          name: custody-workerd-fault-'),
+                ('/workerd-fault-attempt-1/records.jsonl', '/workerd-fault-dropped/records.jsonl'),
+                ('/client-abuse.integration.test.mjs.attempt-1.log', '/client-abuse.dropped.log')):
             with self.subTest(before=before), self.assertRaises(ValueError):
                 validate_workerd_capture(node.replace(before, after), summary)
         with self.assertRaises(ValueError):

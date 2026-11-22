@@ -158,7 +158,36 @@ class Receipts(unittest.TestCase):
                 with self.subTest(environment=environment), self.assertRaises(ValueError):
                     C.prepare(root, root, environment, CONTEXT, 2, ['node'])
 
-
+    def test_known_fault_retry_predicate_requires_exact_signature_and_clean_teardown(self):
+        report = dict(
+            schema=C.SCHEMA,
+            engine_sha256=C.ENGINE_SHA256,
+            complete=True,
+            passed=False,
+            summary=dict(known_fault=True, signal_count=1, runtime_count=1, passed=False),
+        )
+        process = dict(
+            passed=False,
+            timeout=False,
+            cancelled=False,
+            leaked_processes=False,
+            cleanup_result='clean',
+            log_complete=True,
+        )
+        self.assertTrue(C.can_retry_known_fault(report, process))
+        for field, value in (('engine_sha256', '0' * 64), ('complete', False), ('passed', True), ('schema', 'other')):
+            changed = dict(report, **{field: value})
+            with self.subTest(report_field=field):
+                self.assertFalse(C.can_retry_known_fault(changed, process))
+        for field, value in (('known_fault', False), ('signal_count', 2), ('runtime_count', 2)):
+            changed = dict(report, summary=dict(report['summary'], **{field: value}))
+            with self.subTest(summary_field=field):
+                self.assertFalse(C.can_retry_known_fault(changed, process))
+        for field, value in (('passed', True), ('timeout', True), ('cancelled', True),
+                             ('leaked_processes', True), ('cleanup_result', 'dirty'), ('log_complete', False)):
+            changed = dict(process, **{field: value})
+            with self.subTest(process_field=field):
+                self.assertFalse(C.can_retry_known_fault(report, changed))
 
 
 if __name__ == '__main__':
