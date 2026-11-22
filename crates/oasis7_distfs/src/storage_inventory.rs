@@ -6,6 +6,9 @@ use std::fs;
 #[cfg(unix)]
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
+
+const INVENTORY_DEADLINE_ERROR: &str = "inventory walltime budget exhausted";
 
 #[derive(Debug, Default, Serialize)]
 pub struct StorageInventory {
@@ -34,6 +37,29 @@ pub fn inventory_storage(root: &Path) -> StorageInventory {
 /// deduplication still scales with unique entries. Exhaustion is an incomplete
 /// inventory, never a complete capacity baseline.
 pub fn inventory_storage_with_entry_limit(root: &Path, maximum_entries: usize) -> StorageInventory {
+    inventory_storage_with_limits(root, maximum_entries, None)
+}
+
+/// Apply one caller-owned absolute deadline as well as the entry limit.
+/// Checks are cooperative between synchronous filesystem operations; a blocked
+/// filesystem call cannot be preempted, and a late return remains incomplete.
+pub fn inventory_storage_with_limits(
+    root: &Path,
+    maximum_entries: usize,
+    deadline: Option<Instant>,
+) -> StorageInventory {
+    inventory_storage_with_clock(root, maximum_entries, deadline, Instant::now, |path| {
+        fs::read_dir(path)
+    })
+}
+
+fn inventory_storage_with_clock(
+    root: &Path,
+    maximum_entries: usize,
+    deadline: Option<Instant>,
+    mut now: impl FnMut() -> Instant,
+    mut open_directory: impl FnMut(&Path) -> std::io::Result<fs::ReadDir>,
+) -> StorageInventory {
     let mut result = StorageInventory {
         complete: true,
         allocated_bytes: cfg!(unix).then_some(0),
@@ -49,7 +75,15 @@ pub fn inventory_storage_with_entry_limit(root: &Path, maximum_entries: usize) -
     };
     let mut seen = BTreeSet::new();
     let mut visited = 0usize;
-    while let Some(entry) = pending.next() {
+    loop {
+        let entry = match pending.next_checked(deadline, &mut now) {
+            InventoryStep::Entry(entry) => entry,
+            InventoryStep::Done => break,
+            InventoryStep::Deadline => {
+                result.errors.push(INVENTORY_DEADLINE_ERROR.into());
+                break;
+            }
+        };
         if visited >= maximum_entries {
             result.errors.push(format!(
                 "inventory entry budget exhausted: {maximum_entries}"
@@ -64,6 +98,10 @@ pub fn inventory_storage_with_entry_limit(root: &Path, maximum_entries: usize) -
                 continue;
             }
         };
+        if deadline.is_some_and(|deadline| now() >= deadline) {
+            result.errors.push(INVENTORY_DEADLINE_ERROR.into());
+            break;
+        }
         let metadata = match fs::symlink_metadata(&path) {
             Ok(metadata) => metadata,
             Err(error) => {
@@ -71,6 +109,10 @@ pub fn inventory_storage_with_entry_limit(root: &Path, maximum_entries: usize) -
                 continue;
             }
         };
+        if deadline.is_some_and(|deadline| now() >= deadline) {
+            result.errors.push(INVENTORY_DEADLINE_ERROR.into());
+            break;
+        }
         if !metadata.is_file() && !metadata.is_dir() {
             result.errors.push(format!(
                 "{}: unsupported file type (symlinks are not followed)",
@@ -106,15 +148,38 @@ pub fn inventory_storage_with_entry_limit(root: &Path, maximum_entries: usize) -
         }
         if metadata.is_dir() && first {
             result.directories += 1;
-            match fs::read_dir(&path) {
+            if deadline.is_some_and(|deadline| now() >= deadline) {
+                result.errors.push(INVENTORY_DEADLINE_ERROR.into());
+                break;
+            }
+            let entries = open_directory(&path);
+            if deadline.is_some_and(|deadline| now() >= deadline) {
+                result.errors.push(INVENTORY_DEADLINE_ERROR.into());
+                break;
+            }
+            match entries {
                 Ok(entries) => pending.directories.push((path, entries)),
                 Err(error) => result.errors.push(format!("{}: {error}", path.display())),
             }
         }
     }
     result.errors.sort();
+    if deadline.is_some_and(|deadline| now() >= deadline)
+        && !result
+            .errors
+            .iter()
+            .any(|error| error == INVENTORY_DEADLINE_ERROR)
+    {
+        result.errors.push(INVENTORY_DEADLINE_ERROR.into());
+    }
     result.complete = result.errors.is_empty();
     result
+}
+
+enum InventoryStep {
+    Entry(Result<PathBuf, String>),
+    Done,
+    Deadline,
 }
 
 // Keep only active ancestors, never all sibling paths from a wide directory.
@@ -122,15 +187,28 @@ struct InventoryPaths {
     root: Option<PathBuf>,
     directories: Vec<(PathBuf, fs::ReadDir)>,
 }
-impl Iterator for InventoryPaths {
-    type Item = Result<PathBuf, String>;
-    fn next(&mut self) -> Option<Self::Item> {
+impl InventoryPaths {
+    fn next_checked(
+        &mut self,
+        deadline: Option<Instant>,
+        now: &mut impl FnMut() -> Instant,
+    ) -> InventoryStep {
         if let Some(root) = self.root.take() {
-            return Some(Ok(root));
+            if deadline.is_some_and(|deadline| now() >= deadline) {
+                return InventoryStep::Deadline;
+            }
+            return InventoryStep::Entry(Ok(root));
         }
         while let Some((path, entries)) = self.directories.last_mut() {
-            if let Some(entry) = entries.next() {
-                return Some(
+            if deadline.is_some_and(|deadline| now() >= deadline) {
+                return InventoryStep::Deadline;
+            }
+            let entry = entries.next();
+            if deadline.is_some_and(|deadline| now() >= deadline) {
+                return InventoryStep::Deadline;
+            }
+            if let Some(entry) = entry {
+                return InventoryStep::Entry(
                     entry
                         .map(|entry| entry.path())
                         .map_err(|error| format!("{}: {error}", path.display())),
@@ -138,7 +216,7 @@ impl Iterator for InventoryPaths {
             }
             self.directories.pop();
         }
-        None
+        InventoryStep::Done
     }
 }
 
@@ -164,6 +242,115 @@ mod tests {
             fs::remove_dir_all(&self.0).unwrap();
         }
     }
+    #[test]
+    fn deadline_exhaustion_never_produces_complete_inventory() {
+        let fixture = Fixture::new();
+        fs::write(fixture.0.join("retained"), b"retained").unwrap();
+        let expired = inventory_storage_with_limits(&fixture.0, 10, Some(Instant::now()));
+        assert!(!expired.complete);
+        assert_eq!(expired.file_paths, 0);
+        assert!(
+            expired
+                .errors
+                .iter()
+                .any(|error| error.contains("walltime"))
+        );
+        let complete = inventory_storage_with_limits(
+            &fixture.0,
+            2,
+            Some(Instant::now() + std::time::Duration::from_secs(60)),
+        );
+        assert!(complete.complete, "{:?}", complete.errors);
+        assert_eq!(complete.file_paths, 1);
+        assert!(!inventory_storage_with_limits(&fixture.0, 1, None).complete);
+    }
+    #[test]
+    fn deadline_during_traversal_keeps_partial_counters() {
+        let fixture = Fixture::new();
+        fs::write(fixture.0.join("retained"), b"retained").unwrap();
+        let before = Instant::now();
+        let expired = before + std::time::Duration::from_secs(1);
+        let opened = std::cell::Cell::new(false);
+        let result = inventory_storage_with_clock(
+            &fixture.0,
+            3,
+            Some(expired),
+            || if opened.get() { expired } else { before },
+            |path| {
+                let entries = fs::read_dir(path);
+                opened.set(true);
+                entries
+            },
+        );
+        assert!(!result.complete);
+        assert_eq!(result.directories, 1);
+        assert_eq!(result.file_paths, 0);
+        assert!(result.errors.iter().any(|error| error.contains("walltime")));
+    }
+    #[test]
+    fn expired_metadata_does_not_open_directory() {
+        let fixture = Fixture::new();
+        let before = Instant::now();
+        let expired = before + std::time::Duration::from_secs(1);
+        // Expire either as metadata returns, or during accounting before open.
+        for allowed_checks in [2, 3] {
+            let mut checks = 0;
+            let mut opened = 0;
+            let result = inventory_storage_with_clock(
+                &fixture.0,
+                10,
+                Some(expired),
+                || {
+                    checks += 1;
+                    if checks <= allowed_checks {
+                        before
+                    } else {
+                        expired
+                    }
+                },
+                |path| {
+                    opened += 1;
+                    fs::read_dir(path)
+                },
+            );
+            assert!(!result.complete);
+            assert_eq!(
+                opened, 0,
+                "must not start read_dir after metadata/accounting exceeds deadline"
+            );
+        }
+    }
+
+    #[test]
+    fn expired_child_iterator_does_not_read_parent() {
+        let parent = Fixture::new();
+        let child = Fixture::new();
+        fs::write(parent.0.join("sentinel"), b"retained").unwrap();
+        let mut paths = InventoryPaths {
+            root: None,
+            directories: vec![
+                (parent.0.clone(), fs::read_dir(&parent.0).unwrap()),
+                (child.0.clone(), fs::read_dir(&child.0).unwrap()),
+            ],
+        };
+        let before = Instant::now();
+        let expired = before + std::time::Duration::from_secs(1);
+        let mut checks = 0;
+        let step = paths.next_checked(Some(expired), &mut || {
+            checks += 1;
+            if checks == 1 { before } else { expired }
+        });
+        assert!(matches!(step, InventoryStep::Deadline));
+        // The exhausted child may still be held for normal cleanup. Inspect
+        // the parent's real iterator: a post-deadline read would consume it.
+        let sentinel = paths.directories[0].1.next();
+        assert!(
+            sentinel.is_some(),
+            "parent iterator was read after child EOF returned late"
+        );
+        assert_eq!(sentinel.unwrap().unwrap().file_name(), "sentinel");
+    }
+
     #[test]
     fn wide_nested_tree_preserves_exact_entry_boundary() {
         let fixture = Fixture::new();

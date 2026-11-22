@@ -67,7 +67,7 @@ class CompileContexts(unittest.TestCase):
             env=env | {'GITHUB_ACTIONS': 'true', 'RUNNER_OS': 'Linux'}, text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return Counter(item for line in result.stdout.splitlines()
-                       if (item := normalized(*json.loads(line))) is not None)
+                       if line.startswith('[') and (item := normalized(*json.loads(line))) is not None)
 
     def test_native_node_and_net_warm_every_actual_reader_compile_tuple(self):
         readers = {
@@ -111,6 +111,25 @@ class CompileContexts(unittest.TestCase):
         self.assertEqual(cache.build_variants(ROOT, 'launcher'), [
             ('launcher-wasm-release', ['cargo', 'build', '--locked', '-p', 'oasis7_client_launcher',
              '--bin', 'oasis7_client_launcher', '--release', '--target', 'wasm32-unknown-unknown'], {})])
+
+    def test_support_warms_the_selected_image_profile_compile_tuples(self):
+        plan = dict(scope='targeted', groups=['workspace_support'],
+                    workspace_support_profile_version=1,
+                    workspace_support_profiles=['oasis7_context', 'oasis7_wasm_executor'],
+                    workspace_support_partition_version=1, workspace_support_partitions=['other'])
+        commands = self.consumer_commands([
+            'ci_python=' + shlex.quote(sys.executable),
+            'driver_dir=' + shlex.quote(str(ROOT / 'scripts')),
+            'support_profiles=' + shlex.quote('plan:' + json.dumps(plan)),
+            'support_partition=other',
+            'support_execution=image',
+            'run_selected_workspace_support',
+        ])
+        variants = cache.build_variants(ROOT, 'support')
+        self.assertEqual(Counter(normalized(command, env) for _, command, env in variants), commands)
+        for _, command, _ in variants:
+            self.assertIn('--locked', command)
+            self.assertIn('--no-run', command)
 
     def test_unknown_profile_is_rejected_before_any_command(self):
         for profile in ('', 'all', 'native;echo unsafe', 'Native'):

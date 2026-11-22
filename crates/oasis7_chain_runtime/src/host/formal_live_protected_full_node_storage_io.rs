@@ -5,47 +5,118 @@ use oasis7_distfs::{
         endpoint::{FileFormalEndpoint, FormalEndpointAuthorizationV1},
         fencing::{RemoteMonotonicEndpointProvider, TrustedFencingPolicyV1},
     },
-    storage_inventory::inventory_storage_with_entry_limit,
+    storage_inventory::inventory_storage_with_limits,
 };
 use std::{collections::BTreeMap, fs, path::PathBuf, sync::Arc};
 
-// The 10-change calibration has about 32k paths; allow the 1000-change
-// selection room to measure without promising a byte/RSS bound.
-const INVENTORY_ENTRY_LIMIT: usize = 5_000_000;
+// This is a resource guard, not a claim that any workload fits the ceiling.
+const MAXIMUM_INVENTORY_ENTRIES: usize = 10_000_000;
+pub(super) fn inventory_entry_limit(value: &str) -> Result<usize, String> {
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err("full-node inventory entry budget must be an integer in 1..10000000".into());
+    }
+    let entries = value.parse::<usize>().map_err(|e| e.to_string())?;
+    if !(1..=MAXIMUM_INVENTORY_ENTRIES).contains(&entries) {
+        return Err("full-node inventory entry budget must be 1..10000000".into());
+    }
+    Ok(entries)
+}
+
+#[test]
+fn full_node_inventory_budget_rejects_invalid_bounds() {
+    for value in ["0", "10000001", "-1", "invalid", "18446744073709551616"] {
+        assert!(inventory_entry_limit(value).is_err(), "{value}");
+    }
+    for value in ["1", "5000000", "10000000"] {
+        assert_eq!(inventory_entry_limit(value).unwrap().to_string(), value);
+    }
+}
+
+#[test]
+fn full_node_inventory_uses_frozen_limits_and_reports_actual_budget() {
+    let directory = oracle_support::PrivateRoot::new().unwrap();
+    for name in ["primary-data", "replica-data", "formal-writer"] {
+        fs::create_dir_all(directory.path().join(name)).unwrap();
+        fs::write(directory.path().join(name).join("retained"), b"retained").unwrap();
+    }
+    let mut budget = Budget {
+        started: Instant::now(),
+        maximum: Duration::from_secs(60),
+        progress: None,
+        complete: true,
+        requested: 10,
+        completed_commits: 0,
+        inventory_entries: 7,
+    };
+    let report = inventory(directory.path(), &budget).unwrap();
+    assert_eq!(report["entry_count_budget_per_inventory"], 7);
+    assert_eq!(report["whole_case_time_budget_seconds"], 60);
+    assert_eq!(report["total"]["file_paths"], 3);
+    assert_eq!(report["total"]["directories"], 4);
+    budget.inventory_entries = 6;
+    assert!(
+        inventory(directory.path(), &budget)
+            .unwrap_err()
+            .contains("entry budget")
+    );
+    budget.inventory_entries = 7;
+    budget.started = Instant::now() - Duration::from_secs(61);
+    assert!(
+        inventory(directory.path(), &budget)
+            .unwrap_err()
+            .contains("walltime")
+    );
+}
 
 pub(super) fn digest<T: serde::Serialize>(value: &T) -> Result<String, String> {
     serde_cbor::to_vec(value)
         .map(|bytes| blake3_hex(&bytes))
         .map_err(|e| e.to_string())
 }
-pub(super) fn inventory(root: &Path) -> Result<Value, String> {
-    let total = inventory_storage_with_entry_limit(root, INVENTORY_ENTRY_LIMIT);
-    if !total.complete {
-        eprintln!(
-            "STORAGE_FULL_NODE_INVENTORY_PARTIAL={}",
-            serde_json::json!({
-                "status":"partial", "entry_count_budget":INVENTORY_ENTRY_LIMIT, "inventory":&total
-            })
-        );
-        return Err(format!(
-            "incomplete full-node inventory: {:?}",
-            total.errors
-        ));
-    }
+pub(super) fn inventory(root: &Path, budget: &Budget) -> Result<Value, String> {
+    let maximum_entries = budget.inventory_entries;
+    let deadline = Some(budget.started + budget.maximum);
+    let check_deadline = || {
+        if Instant::now() >= budget.started + budget.maximum {
+            Err("full-node whole-case budget exhausted during inventory attribution".to_string())
+        } else {
+            Ok(())
+        }
+    };
+    let scan = |path: &Path| -> Result<_, String> {
+        let result = inventory_storage_with_limits(path, maximum_entries, deadline);
+        if !result.complete {
+            eprintln!(
+                "STORAGE_FULL_NODE_INVENTORY_PARTIAL={}",
+                serde_json::json!({
+                    "status":"partial", "path":path, "entry_count_budget":maximum_entries,
+                    "whole_case_time_budget_seconds":budget.maximum.as_secs(), "inventory":&result
+                })
+            );
+            return Err(format!(
+                "incomplete full-node inventory: {:?}",
+                result.errors
+            ));
+        }
+        Ok(result)
+    };
+    let total = scan(root)?;
     let mut attribution = BTreeMap::new();
     for name in ["primary-data", "replica-data", "formal-writer"] {
         let path = root.join(name);
-        let value = inventory_storage_with_entry_limit(&path, INVENTORY_ENTRY_LIMIT);
-        if !value.complete {
-            return Err(format!("incomplete {name} inventory"));
-        }
+        let value = scan(&path)?;
         let mut categories = BTreeMap::new();
-        for entry in fs::read_dir(&path).map_err(|e| e.to_string())? {
+        check_deadline()?;
+        let mut entries = fs::read_dir(&path).map_err(|e| e.to_string())?;
+        loop {
+            check_deadline()?;
+            let entry = entries.next();
+            check_deadline()?;
+            let Some(entry) = entry else {
+                break;
+            };
             let entry = entry.map_err(|e| e.to_string())?;
-            let value = inventory_storage_with_entry_limit(&entry.path(), INVENTORY_ENTRY_LIMIT);
-            if !value.complete {
-                return Err("incomplete category inventory".into());
-            }
+            let value = scan(&entry.path())?;
             categories.insert(entry.file_name().to_string_lossy().to_string(), value);
         }
         attribution.insert(
@@ -53,8 +124,11 @@ pub(super) fn inventory(root: &Path) -> Result<Value, String> {
             serde_json::json!({"inventory":value,"categories":categories}),
         );
     }
+    if Instant::now() >= budget.started + budget.maximum {
+        return Err("full-node whole-case budget exhausted after inventory attribution".into());
+    }
     Ok(
-        serde_json::json!({"complete":true,"total":total,"attribution":attribution,"entry_count_budget_per_inventory":INVENTORY_ENTRY_LIMIT,
+        serde_json::json!({"complete":true,"total":total,"attribution":attribution,"entry_count_budget_per_inventory":maximum_entries,"whole_case_time_budget_seconds":budget.maximum.as_secs(),
         "scope":"entire fixture root, including P/R native executable/environment CAS, endpoint checkpoints/provider files, generation metadata, writer publications/attempts and private fixture metadata; shared installed binaries/build caches outside root excluded; categories are attribution and must not be summed"}),
     )
 }

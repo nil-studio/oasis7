@@ -16,6 +16,11 @@ on:
         required: true
         default: '10'
         options: ['10', '1000', '10000']
+      inventory_entry_limit:
+        description: 'Full-node paths per inventory (1..10000000; default retained, exhaustion fails)'
+        type: string
+        required: true
+        default: '5000000'
       repeat_faults:
         description: 'Repetitions of each case under each network fault profile'
         type: choice
@@ -75,6 +80,16 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Validate inventory budget before building artifacts
+        env:
+          INVENTORY_ENTRY_LIMIT: ${{ inputs.inventory_entry_limit }}
+        run: |
+          python3 - "$INVENTORY_ENTRY_LIMIT" <<'PY_INVENTORY'
+          import sys
+          value = sys.argv[1]
+          if not value.isascii() or not value.isdecimal() or not 1 <= int(value) <= 10_000_000:
+              raise SystemExit('inventory entry limit must be an integer in 1..10000000')
+          PY_INVENTORY
       - name: Trust the checked-out workspace path in the job container
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Configure mold for Linux host linking
@@ -227,12 +242,13 @@ jobs:
           NETWORK: ${{ matrix.network }}
           FAULT_REPEATS: ${{ inputs.repeat_faults }}
           SCALE: ${{ matrix.scale }}
+          INVENTORY_ENTRY_LIMIT: ${{ inputs.inventory_entry_limit }}
           OASIS7_STORAGE_ENOSPC_ROOT: ${{ runner.temp }}/storage-enospc
           OASIS7_FORMAL_EXECUTION_TIMING: ${{ matrix.group == 'full-node' && '1' || '' }}
         run: |
           repeats=1
           if [[ "$NETWORK" != none ]]; then repeats="$FAULT_REPEATS"; fi
-          command=(python3 scripts/ci-storage-acceptance.py run --bundle "$RUNNER_TEMP/storage-tests" --group "$GROUP" --label "$LABEL" --results-dir output/storage --capacity-scale "$SCALE" --repeat-faults "$repeats")
+          command=(python3 scripts/ci-storage-acceptance.py run --bundle "$RUNNER_TEMP/storage-tests" --group "$GROUP" --label "$LABEL" --results-dir output/storage --capacity-scale "$SCALE" --repeat-faults "$repeats" --inventory-entry-limit "$INVENTORY_ENTRY_LIMIT")
           if [[ "$USE_PREBUILT" != true ]]; then
             # Cargo embeds absolute executable paths. A bind mount preserves
             # this path for host-only tests and for Python's resolved checkout.

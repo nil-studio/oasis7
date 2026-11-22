@@ -10,6 +10,7 @@ import argparse
 import os
 import re
 import sys
+import subprocess
 from unittest.mock import patch
 import unittest
 
@@ -35,6 +36,50 @@ class Contracts(unittest.TestCase):
                     producer_run_id='1', producer_attempt='1', passed=True,
                     expected_cases=1, selected_inventory=[{'binary': 'test'}], results=[dict(
                         passed=True, exit_code=0, cleanup_result='clean', timeout=False, cancelled=False, count_ok=True, leaked_processes=False)])
+
+    def test_inventory_entry_limit_validation_and_dispatch_wiring(self):
+        for value in ('0', '-1', '10000001', '1.5', '1e6', '', '１２'):
+            with self.assertRaises(argparse.ArgumentTypeError):
+                acceptance.inventory_entry_limit(value)
+        for value in ('1', '5000000', '10000000'):
+            self.assertEqual(acceptance.inventory_entry_limit(value), int(value))
+        rejected = subprocess.run([sys.executable, str(HERE / 'ci-storage-acceptance.py'),
+                                   'run', '--inventory-entry-limit', '10000001'],
+                                  capture_output=True, text=True)
+        self.assertEqual(rejected.returncode, 2)
+        self.assertIn('inventory entry limit', rejected.stderr)
+        workflow = (HERE.parent / '.github/workflows/storage-acceptance.yml').read_text()
+        self.assertIn("INVENTORY_ENTRY_LIMIT: ${{ inputs.inventory_entry_limit }}", workflow)
+        self.assertIn('--inventory-entry-limit "$INVENTORY_ENTRY_LIMIT"', workflow)
+
+    def test_full_node_budget_reaches_real_child_and_summary(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = root / 'bundle'
+            bundle.mkdir()
+            binary = bundle / 'test'
+            binary.write_text('#!' + sys.executable + '\nimport os\n'
+                              'print("OBSERVED_LIMIT=" + os.environ["OASIS7_STORAGE_INVENTORY_ENTRY_LIMIT"])\n'
+                              "print('STORAGE_FULL_NODE_REPORT={\"status\":\"partial\"}')\n"
+                              'print("test result: ok. 1 passed; 0 failed; 0 ignored;")\n')
+            binary.chmod(0o755)
+            manifest = dict(scope='storage', selection=None, tested_sha='abc', source_sha='abc',
+                producer_run_id='1', producer_attempt='1', runner_image='test', rustc_version='test',
+                binaries={'test': dict(path='test', cwd='.')})
+            args = argparse.Namespace(inventory_entry_limit=10_000_000, bundle=bundle,
+                results_dir=root / 'results', group='full-node', capacity_scale=10,
+                repeat_faults=1, label='full-node', timeout_seconds=5)
+            with patch.object(acceptance.artifacts, 'load', return_value=(manifest, dict(os.environ))), \
+                 patch.object(acceptance, 'select', return_value=[dict(binary='test', batch=True, count=1)]), \
+                 patch.object(acceptance.shutil, 'disk_usage', return_value=argparse.Namespace(total=20*1024**3, used=1*1024**3, free=10*1024**3)), \
+                 patch.object(acceptance, 'full_node_inventory_budget_passed', wraps=acceptance.full_node_inventory_budget_passed) as budget_check:
+                with self.assertRaisesRegex(ValueError, 'partial'):
+                    acceptance.execute(args)
+            report = json.loads((args.results_dir / 'summary.json').read_text())
+            budget_check.assert_called_once_with(dict(status='partial'), 10_000_000)
+            self.assertEqual(report['inventory_entry_limit'], 10_000_000)
+            self.assertFalse(report['passed'])
+            self.assertIn('OBSERVED_LIMIT=10000000', (args.results_dir / report['results'][0]['log']).read_text())
 
     def test_only_capacity_long_overrides_logical_budget(self):
         workflow = (HERE.parent / '.github/workflows/storage-acceptance.yml').read_text()
@@ -277,7 +322,7 @@ class Contracts(unittest.TestCase):
             manifest = dict(scope='storage', selection=None, tested_sha='abc', source_sha='abc',
                 producer_run_id='1', producer_attempt='1', runner_image='test', rustc_version='test',
                 binaries={'test': dict(path='test', cwd='.')})
-            args = argparse.Namespace(bundle=bundle, results_dir=root / 'results', group='units',
+            args = argparse.Namespace(inventory_entry_limit=5_000_000, bundle=bundle, results_dir=root / 'results', group='units',
                 capacity_scale=10, repeat_faults=1, label='units', timeout_seconds=5)
             with patch.object(acceptance.artifacts, 'load', return_value=(manifest, dict(os.environ))), \
                  patch.object(acceptance, 'select', return_value=[dict(binary='test', batch=True, count=1)]), \
@@ -300,7 +345,7 @@ class Contracts(unittest.TestCase):
             manifest = dict(scope='storage', selection=None, tested_sha='abc', source_sha='abc',
                 producer_run_id='1', producer_attempt='1', runner_image='test', rustc_version='test',
                 binaries={'test': dict(path='test', cwd='.')})
-            args = argparse.Namespace(bundle=bundle, results_dir=root / 'results', group='capacity',
+            args = argparse.Namespace(inventory_entry_limit=5_000_000, bundle=bundle, results_dir=root / 'results', group='capacity',
                 capacity_scale=10, repeat_faults=1, label='capacity', timeout_seconds=5)
             with patch.object(acceptance.artifacts, 'load', return_value=(manifest, dict(os.environ))), \
                  patch.object(acceptance, 'select', return_value=[dict(binary='test', batch=True, count=1)]), \
@@ -367,7 +412,8 @@ class Contracts(unittest.TestCase):
         name = 'fixture::formal_full_node_storage_maintenance_preserves_history'
         manifest['binaries']['runtime-tests']['ignored_tests'].append(name)
         self.assertEqual(acceptance.select(manifest, 'full-node'), [dict(binary='runtime-tests', name=name, ignored=True)])
-        report = dict(status='passed', executed_commits=1000,
+        report = dict(status='passed', executed_commits=1000, inventory_entry_limit=5_000_000,
+                      whole_case_time_budget_seconds=18000,
                       fixed_head_unchanged=True, logical_history_unchanged=True,
                       typed_history_unchanged=True, original_result_unchanged=True,
                       original_effect_unchanged=True, continuation_completed=True,
@@ -378,7 +424,8 @@ class Contracts(unittest.TestCase):
                       maintenance_net_allocated_change_bytes=-10,
                       cold_restore_net_allocated_change_bytes=0)
         for field in ('initial', 'before', 'after_maintenance', 'after_cold_restore'):
-            report[field] = dict(complete=True, total=dict(complete=True, allocated_bytes=100))
+            report[field] = dict(complete=True, total=dict(complete=True, allocated_bytes=100),
+                                 entry_count_budget_per_inventory=5_000_000, whole_case_time_budget_seconds=18000)
         report['published_before'] = dict(complete=True, files=1002, bytes=64000, digest='d'*64,
             original_position=2, original_digest='e'*64, fixed_head_position=1002, fixed_head_digest='f'*64)
         report['published_after_maintenance'] = copy.deepcopy(report['published_before'])
@@ -400,7 +447,35 @@ class Contracts(unittest.TestCase):
                     final_position=1004, continuation_completed=True)
         report['cold_writer_done'] = done
         self.assertTrue(acceptance.full_node_passed(report, 1000))
+        self.assertTrue(acceptance.full_node_inventory_budget_passed(report, 5_000_000))
+        legacy = copy.deepcopy(report)
+        del legacy['inventory_entry_limit']
+        del legacy['whole_case_time_budget_seconds']
+        for field in ('initial', 'before', 'after_maintenance', 'after_cold_restore'):
+            del legacy[field]['entry_count_budget_per_inventory']
+            del legacy[field]['whole_case_time_budget_seconds']
+        self.assertTrue(acceptance.full_node_passed(legacy, 1000))
+        self.assertFalse(acceptance.full_node_inventory_budget_passed(legacy, 5_000_000))
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            summary = self.report('full-node')
+            summary.update(group='full-node', capacity_scale=1000,
+                           inventory_entry_limit=5_000_000, full_node_reports=[report])
+            path = directory / 'summary.json'
+            path.write_text(json.dumps(summary))
+            self.assertTrue(acceptance.summarize(directory, ['full-node'])['passed'])
+            summary['full_node_reports'] = [legacy]
+            path.write_text(json.dumps(summary))
+            with self.assertRaisesRegex(ValueError, 'incomplete'):
+                acceptance.summarize(directory, ['full-node'])
+
         self.assertFalse(acceptance.full_node_passed(report, 10000))
+        self.assertFalse(acceptance.full_node_inventory_budget_passed(report, 10_000_000))
+        for field in ('initial', 'before', 'after_maintenance', 'after_cold_restore'):
+            for key in ('entry_count_budget_per_inventory', 'whole_case_time_budget_seconds'):
+                changed = copy.deepcopy(report)
+                del changed[field][key]
+                self.assertFalse(acceptance.full_node_inventory_budget_passed(changed, 5_000_000), (field, key))
         exact = copy.deepcopy(report)
         exact['cold_writer_ready'].update(schema=2, continuation_commit=None)
         exact['cold_writer_done'].update(

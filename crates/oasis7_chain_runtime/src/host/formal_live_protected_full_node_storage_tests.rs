@@ -100,6 +100,7 @@ struct Budget {
     complete: bool,
     requested: u64,
     completed_commits: u64,
+    inventory_entries: usize,
 }
 impl Budget {
     fn new(requested: u64) -> Result<Self, String> {
@@ -110,6 +111,12 @@ impl Budget {
         if !(1..=21600).contains(&seconds) {
             return Err("full-node time budget must be 1..21600 seconds".into());
         }
+        let configured_entries = match std::env::var("OASIS7_STORAGE_INVENTORY_ENTRY_LIMIT") {
+            Ok(value) => value,
+            Err(std::env::VarError::NotPresent) => "5000000".into(),
+            Err(error) => return Err(error.to_string()),
+        };
+        let inventory_entries = io::inventory_entry_limit(&configured_entries)?;
         let progress = std::env::var_os("OASIS7_STORAGE_FULL_NODE_PROGRESS_PATH")
             .map(|path| OpenOptions::new().create_new(true).write(true).open(path))
             .transpose()
@@ -121,6 +128,7 @@ impl Budget {
             complete: false,
             requested,
             completed_commits: 0,
+            inventory_entries,
         })
     }
     fn emit(&mut self, value: Value) -> Result<(), String> {
@@ -157,7 +165,7 @@ impl Budget {
 impl Drop for Budget {
     fn drop(&mut self) {
         if !self.complete {
-            let _ = self.emit(serde_json::json!({"status":"partial","requested_commits":self.requested,"executed_commits":self.completed_commits,"elapsed_ms":self.started.elapsed().as_millis()}));
+            let _ = self.emit(serde_json::json!({"status":"partial","requested_commits":self.requested,"executed_commits":self.completed_commits,"inventory_entry_limit":self.inventory_entries,"whole_case_time_budget_seconds":self.maximum.as_secs(),"elapsed_ms":self.started.elapsed().as_millis()}));
         }
     }
 }
@@ -370,7 +378,7 @@ pub(super) fn exercise(mut case: Case) -> Result<(), String> {
     stop_endpoints(&mut case)?;
     io::settle_endpoint(&case.primary_config)?;
     io::settle_endpoint(&case.replica_config)?;
-    let initial = io::inventory(&case.root)?;
+    let initial = io::inventory(&case.root, &budget)?;
     restart(&mut case)?;
     drop(case.runtime);
     case.runtime = FormalLiveRuntime::open_with_native_history(&case.runtime_config)?;
@@ -415,7 +423,7 @@ pub(super) fn exercise(mut case: Case) -> Result<(), String> {
         fixed_head_position,
         &mut budget,
     )?;
-    let before = io::inventory(&case.root)?;
+    let before = io::inventory(&case.root, &budget)?;
     restart(&mut case)?;
     let maintenance_started = Instant::now();
     let mut writer_steps = 0_u64;
@@ -447,7 +455,7 @@ pub(super) fn exercise(mut case: Case) -> Result<(), String> {
     if published_before != published_after_maintenance {
         return Err("maintenance changed writer published original bytes/name inventory".into());
     }
-    let after_maintenance = io::inventory(&case.root)?;
+    let after_maintenance = io::inventory(&case.root, &budget)?;
     let maintenance_ms = maintenance_started.elapsed().as_millis();
     let (primary, address) =
         oracle_support::start_endpoint(&case.endpoint_binary, &case.primary_config)?;
@@ -499,7 +507,7 @@ pub(super) fn exercise(mut case: Case) -> Result<(), String> {
     if published_before != published_after_cold_restore {
         return Err("cold restore changed writer published original bytes/name inventory".into());
     }
-    let after_cold_restore = io::inventory(&case.root)?;
+    let after_cold_restore = io::inventory(&case.root, &budget)?;
     let cold_restore_ms = cold_started.elapsed().as_millis();
     let (primary, address) =
         oracle_support::start_endpoint(&case.endpoint_binary, &case.primary_config)?;
@@ -522,6 +530,7 @@ pub(super) fn exercise(mut case: Case) -> Result<(), String> {
     let sections = [
         serde_json::json!({
             "schema_version": 1, "status": "passed", "executed_commits": requested,
+            "inventory_entry_limit":budget.inventory_entries, "whole_case_time_budget_seconds":budget.maximum.as_secs(),
             "fixed_head": fixed_head, "fixed_head_position": fixed_head_position,
             "original_commit_position": case.original_commit.position,
             "original_commit_ref": case.original_commit,
@@ -595,6 +604,7 @@ fn full_node_published_receipt_detects_original_mutation_and_missing_head() {
         complete: true,
         requested: 10,
         completed_commits: 10,
+        inventory_entries: 5_000_000,
     };
     let before = io::published_receipt(root.path(), 1, 2, &mut budget).unwrap();
     std::fs::write(&original, b"changed original writer bytes").unwrap();
