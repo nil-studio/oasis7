@@ -98,7 +98,7 @@
       {"package": "oasis7_runtime", "target_kind": "test", "target_name": "incremental_reward_budget_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 124364},
       {"package": "oasis7_runtime", "target_kind": "test", "target_name": "incremental_runtime_allocators", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 7819},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_artifact_resources", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 296182},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_capability_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 161792},
+      {"package": "oasis7_runtime", "target_kind": "test", "target_name": "incremental_runtime_capability_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 161792},
       {"package": "oasis7_runtime", "target_kind": "test", "target_name": "incremental_runtime_commit", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 10026},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_effect_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 147952},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_governance_controls", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 3413},
