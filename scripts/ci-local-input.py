@@ -1,4 +1,5 @@
 """Read-only local input capture and private Git trees for the shared planner."""
+import errno
 import hashlib
 import importlib.util
 import json
@@ -202,6 +203,10 @@ def referenced_inputs(root, snapshot, planner_path):
     extra = set()
 
     def include(path, owner, required=False):
+        if '\0' in path:
+            if required:
+                raise Blocked(f'invalid referenced input path in {owner}: {path!r}')
+            return
         candidate = Path(os.path.normpath(path))
         if candidate.is_absolute() or '..' in candidate.parts:
             if required:
@@ -209,7 +214,13 @@ def referenced_inputs(root, snapshot, planner_path):
             return
         relative = candidate.as_posix()
         target = root / candidate
-        if target.is_file() or target.is_symlink():
+        try:
+            exists = target.is_file() or target.is_symlink()
+        except OSError as error:
+            if not required and error.errno in (errno.ENAMETOOLONG, errno.EINVAL, errno.ENOTDIR):
+                return
+            raise Blocked(f'unstatable referenced input in {owner}: {path!r}: {error}') from error
+        if exists:
             if relative not in files:
                 extra.add(relative)
         elif required:
@@ -296,7 +307,9 @@ def referenced_inputs(root, snapshot, planner_path):
             # Dynamic/generated include expressions remain the planner's
             # conservative policy; they never authorize targeted local success.
         for literal in literals:
-            if ('/' in literal or literal.endswith('.rs')) and '\\' not in literal and len(literal) <= 512:
+            if (('/' in literal or literal.endswith('.rs'))
+                    and not any(char in literal for char in '\\\0\r\n')
+                    and len(literal) <= 512):
                 for directory in ('.', owner, str(Path(path).parent)):
                     include(str(Path(directory) / literal), path)
     return extra

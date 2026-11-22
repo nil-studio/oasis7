@@ -118,6 +118,17 @@ class InputCapture(GitFixture):
         snapshot = inputs.capture(self.root, self.base)
         self.assertEqual(inputs.referenced_inputs(self.root, snapshot, HERE / 'plan-rust-required-scope.py'), expected)
 
+    def test_non_path_multiline_or_overlong_rust_literals_do_not_crash_referenced_inputs(self):
+        overlong_snippet = 'a' * 270 + '//1_000_000\nline2'
+        self.write('crates/sample/src/lib.rs', f'pub fn code() -> &\'static str {{ r#"{overlong_snippet}"# }}\n')
+        snapshot = inputs.capture(self.root, self.base)
+        self.assertEqual(inputs.referenced_inputs(self.root, snapshot, HERE / 'plan-rust-required-scope.py'), set())
+        overlong_required = 'b' * 270 + '.rs'
+        self.write('crates/sample/src/lib.rs', f'#[path = "{overlong_required}"]\nmod broken;\n')
+        snapshot = inputs.capture(self.root, self.base)
+        with self.assertRaises(inputs.Blocked):
+            inputs.referenced_inputs(self.root, snapshot, HERE / 'plan-rust-required-scope.py')
+
     def test_ignored_directory_symlink_cannot_hide_baseline_input(self):
         outside = Path(self.temp.name) / 'foreign'
         outside.mkdir()
