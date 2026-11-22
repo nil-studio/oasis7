@@ -45,7 +45,7 @@ impl WorldKernel {
     fn from_native(mut kernel: NativeKernel) -> Self {
         #[cfg(not(target_arch = "wasm32"))]
         kernel.set_module_source_compiler(Arc::new(
-            crate::module_source_compiler::HostModuleSourceCompiler,
+            oasis7_world_service::module_source_compiler::HostModuleSourceCompiler,
         ));
         Self {
             kernel,

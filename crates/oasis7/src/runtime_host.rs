@@ -5,7 +5,7 @@ use std::{path::Path, sync::Arc};
 /// Attach application capabilities after deterministic replay and validation have completed.
 pub fn install_runtime_capabilities(mut world: World) -> World {
     world.set_module_source_compiler(Arc::new(
-        crate::module_source_compiler::HostModuleSourceCompiler,
+        oasis7_world_service::module_source_compiler::HostModuleSourceCompiler,
     ));
     world
 }

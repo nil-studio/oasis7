@@ -8,7 +8,7 @@ use oasis7_agent_api::module_source::{
 };
 use oasis7_agent_api::world_action::ModuleSourcePackage;
 
-pub(crate) struct HostModuleSourceCompiler;
+pub struct HostModuleSourceCompiler;
 impl ModuleSourceCompiler for HostModuleSourceCompiler {
     fn compile(
         &self,
@@ -391,6 +391,8 @@ mod tests {
     use super::{module_source_env_key, module_source_env_non_empty};
     use std::sync::Mutex;
 
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
     #[test]
     fn module_source_env_non_empty_reads_oasis7_value() {
         let _guard = module_source_env_lock().lock().expect("env lock");
@@ -398,7 +400,7 @@ mod tests {
         let _env_guard = TestEnvGuard::capture(key.as_str());
         // SAFETY: This test/setup code mutates process environment in a controlled scope.
         unsafe {
-            oasis7::env_mut::set_var(key.as_str(), "/tmp/oasis7-module-source-compiler");
+            std::env::set_var(key.as_str(), "/tmp/oasis7-module-source-compiler");
         }
 
         assert_eq!(
@@ -416,11 +418,11 @@ mod tests {
         let _removed_old_brand_guard = TestEnvGuard::capture(removed_old_brand_key.as_str());
         // SAFETY: This test/setup code mutates process environment in a controlled scope.
         unsafe {
-            oasis7::env_mut::remove_var(key.as_str());
+            std::env::remove_var(key.as_str());
         }
         // SAFETY: This test/setup code mutates process environment in a controlled scope.
         unsafe {
-            oasis7::env_mut::set_var(
+            std::env::set_var(
                 removed_old_brand_key.as_str(),
                 "/tmp/removed-old-brand-module-source-compiler",
             );
@@ -430,7 +432,7 @@ mod tests {
     }
 
     fn module_source_env_lock() -> &'static Mutex<()> {
-        crate::env_mut::process_env_lock()
+        &ENV_LOCK
     }
 
     fn removed_old_brand_module_source_env(suffix: &str) -> String {
@@ -456,12 +458,12 @@ mod tests {
             if let Some(value) = self.previous.as_ref() {
                 // SAFETY: This test/setup code mutates process environment in a controlled scope.
                 unsafe {
-                    oasis7::env_mut::set_var(self.key.as_str(), value);
+                    std::env::set_var(self.key.as_str(), value);
                 }
             } else {
                 // SAFETY: This test/setup code mutates process environment in a controlled scope.
                 unsafe {
-                    oasis7::env_mut::remove_var(self.key.as_str());
+                    std::env::remove_var(self.key.as_str());
                 }
             }
         }
