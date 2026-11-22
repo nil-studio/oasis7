@@ -1,5 +1,5 @@
 use super::{build_minimal_status_payload, build_minimal_status_payload_with_runtime_perf};
-use oasis7::simulator::{
+use oasis7_simulator::{
     RuntimePerfBottleneck, RuntimePerfHealth, RuntimePerfSeriesSnapshot, RuntimePerfSnapshot,
 };
 use std::collections::BTreeMap;

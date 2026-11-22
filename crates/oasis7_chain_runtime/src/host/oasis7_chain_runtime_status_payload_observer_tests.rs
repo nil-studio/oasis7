@@ -1,5 +1,5 @@
 use super::build_chain_status_payload;
-use oasis7::simulator::RuntimePerfSnapshot;
+use oasis7_simulator::RuntimePerfSnapshot;
 use oasis7_node::{
     Libp2pReachabilitySnapshot, NodeConsensusSnapshot, NodeNetworkPolicy,
     NodeReachabilityAutoDetection, NodeRole, NodeSnapshot, NodeUserMode,

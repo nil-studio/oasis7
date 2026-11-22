@@ -12,9 +12,9 @@ use super::status_payload_network_tier::ChainNetworkTierStatus;
 use super::status_payload_p2p::ChainP2pStatus;
 use super::status_payload_world_resource::ChainWorldResourceStatus;
 use super::storage_metrics;
-use oasis7::simulator::RuntimePerfSnapshot;
 use oasis7_node::{NodeRole, NodeSnapshot, NodeValidatorStakeProofSnapshot};
 use oasis7_runtime::ReleaseSecurityPolicy;
+use oasis7_simulator::RuntimePerfSnapshot;
 use serde::Serialize;
 use std::path::Path;
 

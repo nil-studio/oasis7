@@ -1,7 +1,7 @@
 use super::cli::TrafficProfile;
 use super::{build_chain_status_payload, release_security_policy_for_storage_profile};
 use ed25519_dalek::{Signer, SigningKey};
-use oasis7::simulator::RuntimePerfSnapshot;
+use oasis7_simulator::RuntimePerfSnapshot;
 use oasis7_node::{
     GossipTrafficMetricsSnapshot, Libp2pReachabilitySnapshot, NodeConsensusSnapshot,
     NodeFinalityLatencySnapshot, NodeNetworkPolicy, NodeReachabilityAutoDetection, NodeRole,
