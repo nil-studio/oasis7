@@ -1,0 +1,194 @@
+name: Storage attempt environment diagnostic
+
+on:
+  pull_request:
+    branches: [codex/engineering-storage-attempt-release-image]
+    paths: [.github/workflows/storage-attempt-preflight-probe.yml]
+    types: [opened]
+
+permissions:
+  contents: read
+
+jobs:
+  environment-only:
+    if: github.head_ref == 'codex/engineering-storage-attempt-preflight-probe' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    env:
+      HELPER_SHA: d818cacb94683c90c822f32cc29251699da1bbff
+      NATIVE_SHA: 18e7d0d013dbbfa2721b5fd27a0f64a07d837b1f
+      NATIVE_RUN: '44964355637'
+      NATIVE_ATTEMPT: '2'
+      CONTROLLER_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      CONTROLLER_MERGE_SHA: ${{ github.sha }}
+      CONTROLLER_RUN: ${{ github.run_id }}
+      PROBE_IMAGE: ghcr.io/nil-studio/oasis7/ci-build@sha256:027eb11ad5c315b7ba3aaf834d3ceff5bd84cf6d4d7dfb196bbe4989fc9aa57c
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: d818cacb94683c90c822f32cc29251699da1bbff
+          path: helper
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 18e7d0d013dbbfa2721b5fd27a0f64a07d837b1f
+          path: native
+          persist-credentials: false
+      - name: Record separate diagnostic and native identities
+        run: |
+          set -euo pipefail
+          test "$(git -C helper rev-parse HEAD)" = "$HELPER_SHA"
+          test "$(git -C native rev-parse HEAD)" = "$NATIVE_SHA"
+          mkdir -p output/probe
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          keys = ('HELPER_SHA', 'NATIVE_SHA', 'NATIVE_RUN', 'NATIVE_ATTEMPT',
+                  'CONTROLLER_HEAD_SHA', 'CONTROLLER_MERGE_SHA', 'CONTROLLER_RUN', 'PROBE_IMAGE')
+          Path('output/probe/context.json').write_text(json.dumps(dict(
+              diagnostic_only=True, formal_candidate_validation=False,
+              identities={key: os.environ[key] for key in keys}), indent=2) + '\n')
+          PY
+      - name: Download and strictly unpack the frozen successful native bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/nil-studio/oasis7/actions/artifacts/14735249141 > output/probe/artifact-metadata.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          artifact = json.loads(Path('output/probe/artifact-metadata.json').read_text())
+          assert artifact['id'] == 14735249141 and not artifact['expired']
+          assert artifact['workflow_run']['id'] == 44964355637
+          assert artifact['workflow_run']['head_sha'] == '18e7d0d013dbbfa2721b5fd27a0f64a07d837b1f'
+          assert artifact['name'] == 'storage-tests-18e7d0d013dbbfa2721b5fd27a0f64a07d837b1f-2'
+          assert artifact['digest'] == 'sha256:131625552547a91970589f7a0091fa02407e4db0624e50162096971c0af595c5'
+          PY
+          gh api repos/nil-studio/oasis7/actions/artifacts/14735249141/zip > "$RUNNER_TEMP/bundle.zip"
+          echo "131625552547a91970589f7a0091fa02407e4db0624e50162096971c0af595c5  $RUNNER_TEMP/bundle.zip" | sha256sum --check
+          python3 - <<'PY'
+          import json, os, tarfile, zipfile, shutil
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP'])
+          with zipfile.ZipFile(root / 'bundle.zip') as archive:
+              assert archive.namelist() == ['storage-tests.tar.gz']
+              with archive.open('storage-tests.tar.gz') as source, (root / 'bundle.tar.gz').open('wb') as target:
+                  shutil.copyfileobj(source, target)
+          bundle = root / 'bundle'
+          bundle.mkdir()
+          seen = set()
+          with tarfile.open(root / 'bundle.tar.gz', 'r:gz') as archive:
+              for member in archive:
+                  path = Path(member.name)
+                  if (not member.isfile() or member.name in seen or path.as_posix() != member.name
+                          or not (member.name == 'manifest.json' or
+                                  len(path.parts) == 2 and path.parts[0] in ('bin', 'lib'))):
+                      raise ValueError('invalid frozen bundle member')
+                  seen.add(member.name)
+                  archive.extract(member, bundle, filter='data')
+          manifest = json.loads((bundle / 'manifest.json').read_text())
+          expected = {'manifest.json', *(entry['path'] for entry in manifest['binaries'].values()),
+                      *manifest['libraries']}
+          if seen != expected:
+              raise ValueError('frozen archive differs from its complete manifest')
+          PY
+      - name: Run only the candidate filesystem process and native preflight
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          canonical=/__w/oasis7/oasis7
+          fixture_host="$GITHUB_WORKSPACE/native/output/attempt-release-image"
+          fixture="$canonical/output/attempt-release-image"
+          mkdir -p "$GITHUB_WORKSPACE/native/output"
+          mkdir -m 0700 "$fixture_host"
+          mkdir -m 0700 "$fixture_host/tmp"
+          fixture_device=$(stat -c %d "$fixture_host")
+          fixture_inode=$(stat -c %i "$fixture_host")
+          helper_file_sha=$(sha256sum helper/scripts/ci-storage-fixture.py | cut -d ' ' -f 1)
+          # The new helper is an explicit separate read-only mount. Native git
+          # HEAD and every compiled artifact remain the recorded old source.
+          touch native/scripts/ci-storage-fixture.py
+          export DOCKER_CONFIG
+          DOCKER_CONFIG=$(mktemp -d)
+          trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          unset GHCR_TOKEN
+          time docker pull "$PROBE_IMAGE"
+          docker run --rm --init --pull never --user "$(id -u):$(id -g)" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/native,target=$canonical" \
+            --mount "type=bind,source=$RUNNER_TEMP/bundle,target=/probe-bundle,readonly" \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/helper/scripts/ci-storage-fixture.py,target=$canonical/scripts/ci-storage-fixture.py,readonly" \
+            --mount "type=bind,source=$fixture_host,target=$fixture" \
+            --workdir "$canonical" --env HOME="$fixture/tmp" --env TMPDIR="$fixture/tmp" \
+            --env OASIS7_STORAGE_FIXTURE_DEVICE="$fixture_device" --env OASIS7_STORAGE_FIXTURE_INODE="$fixture_inode" \
+            --env HELPER_FILE_SHA="$helper_file_sha" --env HELPER_SHA --env NATIVE_SHA --env NATIVE_RUN --env NATIVE_ATTEMPT \
+            --env CONTROLLER_HEAD_SHA --env CONTROLLER_MERGE_SHA --env CONTROLLER_RUN --env PROBE_IMAGE \
+            --env RUST_TOOLCHAIN=1.96.0 --env ImageOS=ubuntu24 \
+            -i "$PROBE_IMAGE" python3 - <<'PY'
+          import hashlib, importlib.util, json, os, shutil, sys, uuid
+          from pathlib import Path
+          from unittest.mock import patch
+          root = Path.cwd()
+          sys.path.insert(0, str(root / 'scripts'))
+          def module(name, path):
+              spec = importlib.util.spec_from_file_location(name, path)
+              result = importlib.util.module_from_spec(spec)
+              spec.loader.exec_module(result)
+              return result
+          driver = module('native_driver', root / 'scripts/ci-storage-acceptance.py')
+          helper_path = root / 'scripts/ci-storage-fixture.py'
+          helper_sha = hashlib.sha256(helper_path.read_bytes()).hexdigest()
+          assert helper_sha == os.environ['HELPER_FILE_SHA']
+          helper = module('candidate_helper', helper_path)
+          fixture = root / 'output/attempt-release-image'
+          results = fixture / 'results'
+          results.mkdir(mode=0o700)
+          report = dict(diagnostic_only=True, formal_candidate_validation=False,
+                        environment_preflight_passed=False, helper_sha256=helper_sha,
+                        identities={key: os.environ[key] for key in (
+                            'HELPER_SHA', 'NATIVE_SHA', 'NATIVE_RUN', 'NATIVE_ATTEMPT',
+                            'CONTROLLER_HEAD_SHA', 'CONTROLLER_MERGE_SHA', 'CONTROLLER_RUN', 'PROBE_IMAGE')})
+          try:
+              # Scope the original loader's expected producer context. The
+              # actual diagnostic run remains separate in the receipt above.
+              with patch.dict(os.environ, SOURCE_SHA=os.environ['NATIVE_SHA'],
+                              GITHUB_RUN_ID=os.environ['NATIVE_RUN'],
+                              GITHUB_RUN_ATTEMPT=os.environ['NATIVE_ATTEMPT']):
+                  manifest, env = driver.artifacts.load(Path('/probe-bundle'))
+              assert manifest['scope'] == 'storage' and manifest['selection'] is None
+              assert manifest['producer_attempt'] == os.environ['NATIVE_ATTEMPT']
+              report['native_artifact_manifest'] = manifest
+              marker = uuid.uuid4().hex
+              env['OASIS7_STORAGE_SAMPLE_OWNER'] = marker
+              if shutil.disk_usage(results).free < 3 * 1024 ** 3:
+                  raise ValueError('disk below original 3 GiB safety floor')
+              with driver.MemorySampler(marker, results) as sampler:
+                  report['preflight'] = helper.preflight(fixture, results, Path('/probe-bundle'), manifest, env)
+              report['resources'] = sampler.report()
+              if sampler.disk_floor_breached or sampler.monitor_error:
+                  raise ValueError('preflight resource observation failed')
+              report['environment_preflight_passed'] = True
+          except Exception as error:
+              report['error'] = str(error)
+              raise
+          finally:
+              if 'sampler' in locals():
+                  report['resources'] = sampler.report()
+              (results / 'diagnostic.json').write_text(json.dumps(report, indent=2) + '\n')
+          PY
+      - name: Preserve diagnostic receipts without temporary fixture data
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: storage-attempt-environment-probe
+          path: |
+            output/probe
+            native/output/attempt-release-image/results
+          retention-days: 2
+          if-no-files-found: error
