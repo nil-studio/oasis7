@@ -676,6 +676,54 @@ fn raw_and_zstd_family_qualification_closes_every_runtime_artifact_record() {
 }
 
 #[test]
+fn original_genesis_with_absent_optional_values_qualifies_without_forged_cells() {
+    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+        let (mut manifest, mut delta, builtins) = rich_sources();
+        // The original producer encodes .present=false and deliberately does
+        // not emit a .value cell; the family verifier must accept this shape
+        // without weakening required metadata/count/child checks.
+        manifest.genesis_ref = None;
+        manifest.created_at_block_hash = None;
+        for chunk in manifest.generated_chunks.values_mut() {
+            chunk.commit_ref.block_hash = None;
+            chunk.commit_ref.event_id = None;
+            chunk.commit_ref.action_id = None;
+        }
+        manifest.refresh_hashes();
+        delta.action_id = None;
+        delta.event_id = None;
+        delta.commit_block_hash = None;
+        let builtin = BuiltinSource(&builtins);
+        let source = RuntimeArtifactResourcesRefV1 {
+            chain_resource_manifest: &manifest,
+            latest_chain_resource_delta: Some(&delta),
+            builtin_release_manifest: &builtin,
+        };
+        let directory = Directory::new();
+        let path = directory.0.join("pages");
+        let (canonical, _producer_memory) = persist_sources(&path, compression, &source);
+        let memory = MemoryBudget::new(64 << 20, 16 << 20).unwrap();
+        let store =
+            IncrementalPageStore::open(&path, memory.clone(), compression, MemoryClass::Ordinary)
+                .unwrap();
+        let roots = bounded_root_set(StateRootV1::from_canonical_bytes(&canonical).unwrap());
+        let qualified = qualify(&store, &memory, &roots)
+            .expect("genuine GEN optional-absent family must qualify");
+        assert_eq!(qualified.record_counts(), [1, 1, 1]);
+        assert!(qualified.uses_budget(&memory));
+        let identity = roots.digest().unwrap();
+        qualified
+            .validate_binding(&identity, MemoryClass::Ordinary)
+            .unwrap();
+        assert!(
+            qualified
+                .validate_binding(&identity, MemoryClass::Recovery)
+                .is_err()
+        );
+    }
+}
+
+#[test]
 fn full_qualification_rejects_orphan_count_and_wrong_owner_child_binding() {
     let directory = Directory::new();
     let path = directory.0.join("pages");
