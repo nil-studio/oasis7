@@ -337,12 +337,51 @@ def reconstructable_pycache(path, item):
         return False
 
 
-def user_material(repo, path, records):
+def task_cargo_target(path, item):
+    relative = pathlib.PurePosixPath(item)
+    if relative.parts[0] != 'target':
+        return False
+    manifest = path / 'Cargo.toml'
+    if manifest.is_symlink() or not manifest.is_file() or not git(path, 'ls-files', '--', 'Cargo.toml'):
+        raise CleanupError('Cargo target requires a tracked workspace manifest')
+    target = path / 'target'
+    if target.is_symlink() or target.is_mount() or not target.is_dir():
+        raise CleanupError('Cargo target must be a local directory')
+    # 不跟随链接；显式授权也不能覆盖外部或嵌套挂载的数据。
+    def unreadable(exc):
+        raise CleanupError('unreadable Cargo target material retained') from exc
+
+    inodes = {}
+    for root, directories, files in os.walk(target, followlinks=False, onerror=unreadable):
+        for name in directories + files:
+            entry = pathlib.Path(root) / name
+            if entry.is_symlink() or entry.is_mount():
+                raise CleanupError('linked or mounted Cargo target material retained')
+            if not entry.is_file() and not entry.is_dir():
+                raise CleanupError('special Cargo target material retained')
+            if name == '.git':
+                raise CleanupError('nested repository in Cargo target retained')
+            if entry.is_file():
+                info = entry.stat()
+                key = (info.st_dev, info.st_ino)
+                count, _ = inodes.get(key, (0, info.st_nlink))
+                inodes[key] = (count + 1, info.st_nlink)
+    if any(count != links for count, links in inodes.values()):
+        raise CleanupError('shared Cargo target material retained')
+    return True
+
+
+def user_material(repo, path, records, allow_cargo_target=False):
     if git(path, 'status', '--porcelain', '--untracked-files=all'):
         raise CleanupError('uncommitted or untracked work retained')
     canonical = pathlib.Path(records[0]['worktree']).resolve()
     ignored = git(path, 'ls-files', '--others', '--ignored', '--exclude-standard', '-z').split('\0')
+    cargo_target_verified = False
     for item in filter(None, ignored):
+        if allow_cargo_target and pathlib.PurePosixPath(item).parts[0] == 'target':
+            if not cargo_target_verified:
+                cargo_target_verified = task_cargo_target(path, item)
+            continue
         if reconstructable_pycache(path, item):
             continue
         if item == 'config.toml':
@@ -673,7 +712,7 @@ def delivery(repo, expected, base_ref, pr):
     return base, origin
 
 
-def inspect(repo, path, branch, expected, base_ref='refs/remotes/origin/main', pr=None, allow_submodules=False):
+def inspect(repo, path, branch, expected, base_ref='refs/remotes/origin/main', pr=None, allow_submodules=False, allow_cargo_target=False):
     repo, path = repo.resolve(), path.resolve()
     if branch in {'main', 'master'}:
         raise CleanupError('primary branch retained')
@@ -687,7 +726,7 @@ def inspect(repo, path, branch, expected, base_ref='refs/remotes/origin/main', p
         raise CleanupError('locked or ambiguous worktree retained')
     if pathlib.Path(git(path, 'rev-parse', '--path-format=absolute', '--git-common-dir')).resolve() != pathlib.Path(git(repo, 'rev-parse', '--path-format=absolute', '--git-common-dir')).resolve():
         raise CleanupError('repository identity mismatch')
-    user_material(repo, path, records)
+    user_material(repo, path, records, allow_cargo_target)
     modules = inspect_submodules(path, allow_submodules)
     base, origin = delivery(repo, expected, base_ref, pr)
     upstream = _run(['git', '-C', str(path), 'rev-parse', '--symbolic-full-name', '@{upstream}'], check=False)
@@ -720,14 +759,14 @@ def _removal_identity(repo, path, branch, expected, base_ref, report):
     return records
 
 
-def execute(repo, path, branch, expected, base_ref, pr, report, allow_submodules=False):
+def execute(repo, path, branch, expected, base_ref, pr, report, allow_submodules=False, allow_cargo_target=False):
     repo, path = repo.resolve(), path.resolve()
-    fresh = inspect(repo, path, branch, expected, base_ref, pr, allow_submodules)
+    fresh = inspect(repo, path, branch, expected, base_ref, pr, allow_submodules, allow_cargo_target)
     if (fresh['base_oid'] != report['base_oid'] or fresh['origin_main_oid'] != report['origin_main_oid']
             or fresh['submodules'] != report['submodules']):
         raise CleanupError('base changed before deletion; retained')
     records = _removal_identity(repo, path, branch, expected, base_ref, report)
-    user_material(repo, path, records)
+    user_material(repo, path, records, allow_cargo_target)
     modules = inspect_submodules(path, allow_submodules)
     if modules != fresh['submodules']:
         raise CleanupError('submodule identity changed before deletion')
@@ -739,7 +778,7 @@ def execute(repo, path, branch, expected, base_ref, pr, report, allow_submodules
             git(path, '--literal-pathspecs', 'submodule', 'deinit', '--',
                 *(str(child.relative_to(path)) for child in roots))
         records = _removal_identity(repo, path, branch, expected, base_ref, report)
-        user_material(repo, path, records)
+        user_material(repo, path, records, allow_cargo_target)
         if inspect_submodules(path, allow_submodules) != modules:
             raise CleanupError('submodule identity changed during deinitialization')
         git(repo, 'worktree', 'remove', '--force', str(path.resolve()))
@@ -771,6 +810,7 @@ def main():
     parser.add_argument('--expected-head', required=True, help='full expected commit OID')
     parser.add_argument('--base-ref', choices=['refs/remotes/origin/main', 'refs/heads/main'], default='refs/remotes/origin/main')
     parser.add_argument('--pr', type=int, help='explicit PR number for squash/rebase merged proof')
+    parser.add_argument('--allow-cargo-target', action='store_true', help='confirm target/ is task-owned disposable Cargo build data; retain linked/shared material')
     parser.add_argument('--allow-submodules', action='store_true', help='verify recursive submodule data and allow one force remove after non-force deinit')
     parser.add_argument('--execute', action='store_true')
     args = parser.parse_args()
@@ -780,10 +820,10 @@ def main():
         parser.error('invalid branch name')
     report = dict(eligible=False, blocked_reasons=[], executed=args.execute, worktree_removed=False, branch_removed=False, submodule_force_remove=False)
     try:
-        report.update(inspect(args.repo_root, args.worktree, args.branch, args.expected_head, args.base_ref, args.pr, args.allow_submodules))
+        report.update(inspect(args.repo_root, args.worktree, args.branch, args.expected_head, args.base_ref, args.pr, args.allow_submodules, args.allow_cargo_target))
         report['eligible'] = True
         if args.execute:
-            execute(args.repo_root, args.worktree, args.branch, args.expected_head, args.base_ref, args.pr, report, args.allow_submodules)
+            execute(args.repo_root, args.worktree, args.branch, args.expected_head, args.base_ref, args.pr, report, args.allow_submodules, args.allow_cargo_target)
     except (CleanupError, OSError, ValueError, subprocess.TimeoutExpired) as exc:
         report['eligible'] = False
         report['blocked_reasons'].append(str(exc))
