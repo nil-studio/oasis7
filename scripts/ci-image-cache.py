@@ -68,7 +68,7 @@ def build_variants(root, profile):
         # otherwise cold-compile for 20+ minutes on every expanded PR.
         cargo('dev-test-worker-lib-test', 'test', ['-p', 'oasis7_dev_test_worker', '--lib'])
         cargo('dev-test-worker-material-example', 'test', ['-p', 'oasis7_client_storage', '--example', 'dev_test_worker_material'])
-        cargo('dev-test-worker-wasm-check', 'check', ['-p', 'oasis7_dev_test_worker', '--target', 'wasm32-unknown-unknown', '--no-deps'])
+        cargo('dev-test-worker-wasm-check', 'clippy', ['-p', 'oasis7_dev_test_worker', '--target', 'wasm32-unknown-unknown', '--no-deps'])
         cargo('dev-test-worker-wasm-release', 'build', ['-p', 'oasis7_dev_test_worker', '--release', '--target', 'wasm32-unknown-unknown'])
         cargo('custody-core-test', 'test', ['-p', 'oasis7_custody_core', '--all-targets'])
         cargo('pixel-world-bridge-test', 'test', ['-p', 'pixel_world_bridge', '--lib'])
