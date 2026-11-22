@@ -320,8 +320,8 @@ TARGETED_ORDINARY_ARTIFACT_PARTITIONS = ('controls', 'native-0', 'native-1', 'na
 # dependency declarations. Any edit requires review before this optimization can
 # apply again; an unrecognized checkout simply executes both forms.
 SHARED_INCREMENTAL_SOURCES = {
-    'crates/oasis7_runtime/tests/pr_fast_incremental.rs': '8e07bb49fd412ce1f32156e9c82fc07fb791452a123d65d6b3bb0467e3d7e7fa',
-    'crates/oasis7/tests/incremental_due_module_batch.rs': 'fc6d4fe1a4bd8e40ca240e0532f45428d3a7bdeb9d0142d95eb83937c1694a76',
+    'crates/oasis7_runtime/tests/pr_fast_incremental.rs': '9110a8f1e7fb2b83402cf6131de0117665aace2a4f854985956616cac2d52201',
+    'crates/oasis7_runtime/tests/incremental_due_module_batch.rs': 'fc6d4fe1a4bd8e40ca240e0532f45428d3a7bdeb9d0142d95eb83937c1694a76',
     'crates/oasis7/tests/incremental_runtime_allocators.rs': 'dbdfc17092dcc46d2f772e9e6375c2569b694cad305c340e682b88452d62c084',
     'crates/oasis7/tests/incremental_runtime_commit.rs': '99ac3d2893c1b0b4b643c97fdad5fc26de8a8abe8cd7fe29aa0fa0c6e0ec19de',
     'crates/oasis7/tests/support/incremental_agent_event.rs': 'c5d2621fd5846ef58a375d481d964f657738f12f72de1ddcebf5f2df57612223',

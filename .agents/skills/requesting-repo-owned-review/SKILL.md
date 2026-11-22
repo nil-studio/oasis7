@@ -16,7 +16,7 @@ description: Use when arranging or responding to review for an oasis7 change.
 先读当前需求/设计和 diff，再跟到受影响的调用方、状态变换与最终消费者，不只审改动行。按两条线检查，可由同一审阅者完成，不增加固定角色或轮次：
 
 1. 合同是否成立：沿“适用条款 → 触发输入/状态 → 实际消费者 → 正/负例”追一条最短路径。核对权限、身份、失败/恢复及真正的业务效果；分清 accepted/committed、unknown/failed、produced/delivered。先核对该条款是当前支持范围还是未实现目标，不把目标说明当作已上线行为。
-2. 实现是否可靠：检查仓库规范、已有能力复用、重复状态/逻辑、错误传播、兼容与可维护性。安全等效实现不因写法不同而判错；风格意见不能掩盖合同偏差。合同本身有缺陷时走既有[设计检查](../../../doc/engineering/workflow/source-of-truth.md#root-cause-design-check)，不在评审中偷偷新增产品要求。
+2. 实现是否可靠：检查仓库规范、已有能力复用、重复状态/逻辑、错误传播、兼容与可维护性；结合[PR 评审检查项](../../../.github/instructions/pr-review.instructions.md)、[小而完整的 PR](../../../doc/engineering/workflow/source-of-truth.md#small-complete-pr)和[代码任务规模建议](../../../doc/engineering/workflow/source-of-truth.md#code-task-file-limit)核对任务与 PR 范围取舍（避免无收益微切片或遗漏完整联动，不以文件/PR 数量做机械门禁）。安全等效实现不因写法不同而判错；风格意见不能掩盖合同偏差。合同本身有缺陷时走既有[设计检查](../../../doc/engineering/workflow/source-of-truth.md#root-cause-design-check)，不在评审中偷偷新增产品要求。
 
 缺陷结论给出具体位置、可核对的触发条件或可达路径、影响和依据，区分事实与假设。可由代码确认的风险可直接报告，无需以事故或运行复现为前提；疑点写明待核查条件，不把证据不足的疑点写成确定缺陷。回归建议说明什么行为会判红，可对照[独立预期值与恢复场景](../../../testing-manual.md#regression-oracle)，不要求另填追踪表。
 

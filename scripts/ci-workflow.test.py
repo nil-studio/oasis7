@@ -334,7 +334,7 @@ def image_cache_admission_layout(job, cache, save_condition):
     assert '          save-if: ${{ ' + save_condition + ' }}\n' in cache
 
 
-def component_image_cache_writer(job, families, readers=JOBS):
+def component_image_cache_writer(job, families, readers=JOBS, planner=None):
     """Bind each complete writer row to the actual reader cache environment."""
     header, steps = job.split('    steps:', 1)
     for required in ('cache-mode: write', 'contents: read', 'actions: read', 'packages: read',
@@ -344,9 +344,17 @@ def component_image_cache_writer(job, families, readers=JOBS):
                      'fail-fast: false', 'max-parallel: 1', 'runs-on: ubuntu-24.04',
                      'timeout-minutes: 60', 'image: ${{ matrix.image }}', 'options: ${{ matrix.options }}'):
         assert required in header, 'component image writer needs its complete trusted main layout'
-    records = re.findall(r'^          - profile: ([a-z]+)\n((?:^            .+\n)+)', header, re.M)
-    rows = {profile: dict((key, value.strip("'")) for key, value in re.findall(
-        r'^            ([a-z-]+): (.*)$', body, re.M)) for profile, body in records}
+    if planner is None:
+        records = re.findall(r'^          - profile: ([a-z]+)\n((?:^            .+\n)+)', header, re.M)
+        rows = {profile: dict((key, value.strip("'")) for key, value in re.findall(
+            r'^            ([a-z-]+): (.*)$', body, re.M)) for profile, body in records}
+    else:
+        assert 'needs: plan-image-component-cache' in header
+        assert 'include: ${{ fromJSON(needs.plan-image-component-cache.outputs.rows) }}' in header
+        assert 'cache-mode: none' in planner and 'permissions: {}' in planner
+        records = json.loads(planner.split("<<'JSON'\n", 1)[1].split('          JSON\n', 1)[0])
+        rows = {row['profile']: {key: value for key, value in row.items() if key != 'profile'}
+                for row in records}
     expected = {
         'native': (('consensus', 'distfs'), 'rust-image-components'),
         'node': (('node',), 'rust-image-components'),
@@ -456,13 +464,15 @@ def web_cache_layout(cache_workflow, release_workflow, admission_source):
         assert 'rust-image-native' not in families
     component_writer = 'rust-image-component-cache'
     if component_writer in cache_jobs:
-        component_image_cache_writer(cache_jobs[component_writer], families)
+        component_image_cache_writer(cache_jobs[component_writer], families,
+                                     planner=cache_jobs.get('plan-image-component-cache'))
         tool_jobs.add(component_writer)
     else:
         assert not {'rust-image-components', 'rust-image-net', 'rust-image-launcher',
                     'rust-image-tooling', 'rust-image-support'}.intersection(families)
     assert set(cache_jobs) == (({'shared-native-cache', 'web-wasm-cache'} if migrated
-                               else {'shared-native-cache'}) | tool_jobs), 'incomplete cache producer layout'
+                               else {'shared-native-cache'}) | tool_jobs
+                               | ({'plan-image-component-cache'} if 'plan-image-component-cache' in cache_jobs else set())), 'incomplete cache producer layout'
     active = []
     for path, workflow, jobs in (('.github/workflows/rust-cache.yml', cache_workflow, cache_jobs),
                                  ('.github/workflows/release-packages.yml', release_workflow, release_jobs)):
@@ -1021,7 +1031,8 @@ class Workflow(unittest.TestCase):
 
     def test_component_image_writer_matches_reader_contexts_and_rejects_partial_wiring(self):
         workflow, _ = self.shared_cache_workflow()
-        job = workflow_jobs(workflow)['rust-image-component-cache']
+        jobs = workflow_jobs(workflow)
+        job, planner = jobs['rust-image-component-cache'], jobs.get('plan-image-component-cache')
         source = ast.parse((ROOT / 'scripts/ci-rust-cache-admission.py').read_text())
         families = ast.literal_eval(next(node.value for node in source.body
             if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name)
@@ -1031,7 +1042,7 @@ class Workflow(unittest.TestCase):
         if 'rust-image-support' in families:
             expected_profiles.add('support')
             image_families.add('rust-image-support')
-        self.assertEqual(set(component_image_cache_writer(job, families)), expected_profiles)
+        self.assertEqual(set(component_image_cache_writer(job, families, planner=planner)), expected_profiles)
         # These global values enter the upstream Rust environment hash. The
         # matrix must not create a different identity before any Cargo runs.
         def cache_environment(text):
@@ -1039,11 +1050,7 @@ class Workflow(unittest.TestCase):
             return dict(re.findall(r'^  ((?:CARGO|RUST|OASIS7_WASM)[A-Z0-9_]*): (.+)$', header, re.M))
         self.assertEqual(cache_environment(workflow), cache_environment(RAW_WORKFLOW))
         mutations = (
-            job.replace('profile: node', 'profile: native', 1),
-            job.replace('mold-dir: oasis7-node-mold', 'mold-dir: oasis7-other-mold', 1),
-            job.replace('options: --user 1001:1001', "options: ''", 1),
             job.replace('max-parallel: 1', 'max-parallel: 5', 1),
-            job.replace('family: rust-image-net', 'family: rust-image-components', 1),
             job.replace('add-rust-environment-hash-key: true', 'add-rust-environment-hash-key: false', 1),
             job.replace('cache-on-failure: false', 'cache-on-failure: true', 1),
             job.replace('shared-key: ${{ matrix.namespace }}', 'shared-key: ci-shared-native-trusted-v4', 1),
@@ -1057,15 +1064,29 @@ class Workflow(unittest.TestCase):
             job.replace('persist-credentials: false', 'persist-credentials: true', 1),
         )
         for changed in mutations:
-            with self.subTest(change=changed):
-                with self.assertRaises(AssertionError):
-                    component_image_cache_writer(changed, families)
+            with self.subTest(change=changed), self.assertRaises(AssertionError):
+                component_image_cache_writer(changed, families, planner=planner)
+        row_mutations = (
+            ('profile: node', 'profile: native', '"profile": "node"', '"profile": "native"'),
+            ('mold-dir: oasis7-node-mold', 'mold-dir: oasis7-other-mold',
+             '"mold-dir": "oasis7-node-mold"', '"mold-dir": "oasis7-other-mold"'),
+            ('options: --user 1001:1001', "options: ''", '"options": "--user 1001:1001"', '"options": ""'),
+            ('family: rust-image-net', 'family: rust-image-components',
+             '"family": "rust-image-net"', '"family": "rust-image-components"'),
+        )
+        for old_static, new_static, old_planned, new_planned in row_mutations:
+            with self.subTest(original=old_static), self.assertRaises(AssertionError):
+                if planner is None:
+                    component_image_cache_writer(job.replace(old_static, new_static, 1), families)
+                else:
+                    component_image_cache_writer(job, families,
+                                                 planner=planner.replace(old_planned, new_planned, 1))
         for family in sorted(image_families):
             with self.subTest(missing=family), self.assertRaises(AssertionError):
-                component_image_cache_writer(job, {key: value for key, value in families.items() if key != family})
+                component_image_cache_writer(job, {key: value for key, value in families.items() if key != family}, planner=planner)
         changed_reader = dict(JOBS, node=JOBS['node'].replace('oasis7-node-mold', 'different-node-mold'))
         with self.assertRaises(AssertionError):
-            component_image_cache_writer(job, families, changed_reader)
+            component_image_cache_writer(job, families, changed_reader, planner=planner)
 
     def test_container_image_writer_post_guard_requires_the_complete_transition(self):
         workflow, _ = self.shared_cache_workflow()
@@ -1099,19 +1120,49 @@ class Workflow(unittest.TestCase):
         job = workflow_jobs(workflow)['rust-image-component-cache']
         expression = ' '.join(job.split('    if:', 1)[1].split('    strategy:', 1)[0]
                               .strip().removeprefix('>-').split())
-        for event, ref, matching, mode in itertools.product(
+        for event, ref, matching, mode, repository in itertools.product(
                 ('schedule', 'workflow_dispatch', 'pull_request', 'push', 'workflow_run'),
                 ('refs/heads/main', 'refs/heads/topic', 'refs/pull/1/merge', 'refs/tags/v1'),
-                (True, False), ('full', 'image-native', 'pr-fast', '')):
+                (True, False), ('full', 'image-native', 'image-support', 'pr-fast', ''), ('nil-studio/oasis7', 'fork/oasis7')):
             values = {'github.event_name': event, 'github.ref': ref, 'github.workflow_sha': 'a',
-                      'github.sha': 'a' if matching else 'b', 'inputs.run_mode': mode}
+                      'github.sha': 'a' if matching else 'b', 'inputs.run_mode': mode, 'github.repository': repository}
             predicate = expression
             for token, value in values.items():
                 predicate = predicate.replace(token, repr(value))
             with self.subTest(event=event, ref=ref, matching=matching, mode=mode):
                 self.assertEqual(eval(predicate.replace('&&', ' and ').replace('||', ' or '), {'__builtins__': {}}, {}),
                     ref == 'refs/heads/main' and matching and (event == 'schedule'
-                    or event == 'workflow_dispatch' and mode in ('full', 'image-native')))
+                    or event == 'workflow_dispatch' and (mode in ('full', 'image-native') or mode == 'image-support' and repository == 'nil-studio/oasis7'
+                        and 'plan-image-component-cache' in workflow_jobs(workflow))))
+
+    def test_component_cache_planner_runs_the_complete_or_support_only_matrix(self):
+        workflow, _ = self.shared_cache_workflow()
+        jobs = workflow_jobs(workflow)
+        planner = jobs.get('plan-image-component-cache')
+        writer = jobs['rust-image-component-cache']
+        if planner is None:
+            self.assertNotIn('image-support', workflow.split('jobs:', 1)[0])
+            self.assertIn('matrix:\n        include:\n', writer)
+            self.assertEqual(re.findall(r'^          - profile: ([a-z]+)$', writer, re.M),
+                             ['native', 'node', 'net', 'launcher', 'tooling', 'support'])
+            return
+        predicate = lambda job: ' '.join(job.split('    if: >-\n', 1)[1].split('\n    ', 1)[0].split())
+        self.assertEqual(predicate(planner), predicate(writer))
+        script = textwrap.dedent(planner.split('        run: |\n', 1)[1]).strip()
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / 'output'
+            for mode in ('', 'full', 'image-native', 'image-support'):
+                output.write_text('')
+                subprocess.run(['bash', '-e', '-c', script], check=True,
+                               env=os.environ | {'MODE': mode, 'GITHUB_OUTPUT': str(output)})
+                rows = json.loads(output.read_text().removeprefix('rows='))
+                profiles = [row['profile'] for row in rows]
+                if mode == 'image-support':
+                    self.assertEqual(profiles, ['support'])
+                    self.assertEqual(rows, [row for row in full_rows if row['profile'] == 'support'])
+                else:
+                    self.assertEqual(profiles, ['native', 'node', 'net', 'launcher', 'tooling', 'support'])
+                    full_rows = rows
 
     def test_web_cache_migration_rejects_partial_or_multiple_writers(self):
         namespace = 'release-packages-web-wasm-trusted-v3'
@@ -2638,7 +2689,11 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
 
     def test_preview_is_cold_read_only_and_independent_of_required_authority(self):
         planner, preview = JOBS['pr-fast-preview-plan'], JOBS['pr-fast-preview']
-        self.assertIn("if: github.event_name == 'pull_request'", planner)
+        self.assertIn(
+            "if: github.event_name == 'pull_request' && !github.event.pull_request.draft && "
+            "contains(github.event.pull_request.labels.*.name, 'ci-fast-preview')",
+            planner,
+        )
         self.assertNotIn('needs: select', planner)
         self.assertIn('ci-fast-preview.py plan-matrix --base-ref "$BASE_SHA" --head-ref "$TESTED_SHA"', planner)
         self.assertIn('SOURCE_SHA: ${{ github.event.pull_request.head.sha }}', planner)
@@ -2652,7 +2707,11 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         label_workflow = (ROOT / '.github/workflows/pr-fast-preview.yml').read_text()
         label_jobs = workflow_jobs(label_workflow)
         self.assertIn('types: [labeled]', label_workflow)
-        self.assertIn("github.event.label.name == 'ci-fast-preview'", label_jobs['pr-fast-preview-plan'])
+        self.assertIn(
+            "github.event_name == 'pull_request' && !github.event.pull_request.draft && "
+            "github.event.label.name == 'ci-fast-preview'",
+            label_jobs['pr-fast-preview-plan'],
+        )
         self.assertIn("needs.pr-fast-preview-plan.result == 'success' && needs.pr-fast-preview-plan.outputs.enabled == 'true'",
                       label_jobs['pr-fast-preview'])
         for name, job in label_jobs.items():
@@ -3497,6 +3556,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertIn("if: runner.os == 'macOS'", fleet)
         self.assertIn('TMPDIR: /private/tmp', fleet)
         self.assertIn('python3 scripts/ci-local-signer-tests.py --require-darwin', fleet)
+        self.assertLess(fleet.index('rustup default "$RUST_TOOLCHAIN"'),
+                        fleet.index('python3 scripts/ci-local-signer-tests.py --require-darwin'))
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         packaging = driver.split('run_packaging_contract_tests() {', 1)[1].split('\n}', 1)[0]
         self.assertEqual(packaging.count('run python3 ./scripts/ci-local-signer-tests.py'), 1)
@@ -4127,7 +4188,12 @@ run_cargo() {
         on = re.search(r'^on:\n(.*?)(?=^[^\s#]|\Z)', workflow, re.M | re.S)[1]
         self.assertEqual(set(re.findall(r'^  ([a-z_]+):', on, re.M)), {'schedule', 'workflow_dispatch'})
         image_writer = workflow_jobs(workflow).get('rust-image-native-cache')
-        self.assertIn('options: [full, image-native]' if image_writer else 'options: [full]', on)
+        modes = ['full']
+        if image_writer:
+            modes.append('image-native')
+        if 'plan-image-component-cache' in workflow_jobs(workflow):
+            modes.append('image-support')
+        self.assertIn(f'options: [{", ".join(modes)}]', on)
         self.assertNotIn('source_ref', on)
         self.assertNotIn('workflow_run', on)
         self.assertIn('cache-mode: write', writer)
@@ -4498,6 +4564,12 @@ run_cargo() {
         cache_workflow, _ = self.shared_cache_workflow()
         without_admitted_uploads = cache_workflow
         for name, writer in workflow_jobs(cache_workflow).items():
+            if name == 'plan-image-component-cache':
+                self.assertIn('    cache-mode: none\n', writer)
+                self.assertIn('    permissions: {}\n', writer)
+                self.assertNotIn('uses:', writer)
+                self.assertNotIn('github.token', writer)
+                continue
             if name == 'browser-archive-cache':
                 admission = browser_archive_cache_writer(writer)
                 without_admitted_uploads = without_admitted_uploads.replace(admission, '', 1)
@@ -4822,23 +4894,25 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
         select = JOBS['select']
         self.assertIn('needs: periodic-admission', select)
         condition = select.split('    if: >-\n', 1)[1].split('    runs-on:', 1)[0]
-        for event, mode, admission, full, expected in (
-                ('pull_request', '', 'skipped', '', True),
-                ('push', '', 'skipped', '', True),
-                ('workflow_dispatch', 'full', 'skipped', '', True),
-                ('workflow_dispatch', 'newapi_bridge_package', 'skipped', '', False),
-                ('schedule', '', 'success', 'true', True),
-                ('schedule', '', 'success', 'false', False),
-                ('schedule', '', 'failure', 'true', False),
-                ('schedule', '', 'cancelled', 'true', False)):
+        for event, draft, mode, admission, full, expected in (
+                ('pull_request', False, '', 'skipped', '', True),
+                ('pull_request', True, '', 'skipped', '', False),
+                ('push', False, '', 'skipped', '', True),
+                ('workflow_dispatch', False, 'full', 'skipped', '', True),
+                ('workflow_dispatch', False, 'newapi_bridge_package', 'skipped', '', False),
+                ('schedule', False, '', 'success', 'true', True),
+                ('schedule', False, '', 'success', 'false', False),
+                ('schedule', False, '', 'failure', 'true', False),
+                ('schedule', False, '', 'cancelled', 'true', False)):
             expr = condition
             for token, value in {'always()': True, 'cancelled()': False,
-                    'github.event_name': event, 'inputs.run_mode': mode,
+                    'github.event_name': event, 'github.event.pull_request.draft': draft,
+                    'inputs.run_mode': mode,
                     'needs.periodic-admission.result': admission,
                     'needs.periodic-admission.outputs.run_full': full}.items():
                 expr = expr.replace(token, repr(value))
             expr = re.sub(r'!(?!=)', 'not ', expr.replace('&&', ' and ').replace('||', ' or '))
-            with self.subTest(event=event, admission=admission, run_full=full):
+            with self.subTest(event=event, draft=draft, admission=admission, run_full=full):
                 self.assertEqual(eval(' '.join(expr.split()), {'__builtins__': {}}, {}), expected)
 
     def test_selected_jobs_survive_skipped_admission_and_keep_failure_boundaries(self):
@@ -6492,35 +6566,36 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'workspace-support': 5,
                 'required-gate': 5,
                 'explicit-full-gate': 5,
-                'select': 10,
+                'select': 5,
+                'pr-governance-preview': 5,
                 'pr-fast-preview-plan': 10,
-                'baseline': 10,
-                'codex-agent-config-validation': 10,
-                'macos-package-contract': 10,
-                'site-quality': 10,
-                'packaging-contracts': 10,
-                'scenario-regression': 10,
-                'compile-metrics': 10,
-                'cargo-tooling-contracts': 10,
+                'baseline': 5,
+                'codex-agent-config-validation': 5,
+                'macos-package-contract': 5,
+                'site-quality': 5,
+                'packaging-contracts': 5,
+                'scenario-regression': 5,
+                'compile-metrics': 5,
+                'cargo-tooling-contracts': 5,
                 'windows-rollout': 10,
-                'fleet-health': 15,
+                'fleet-health': 12,
                 'doc-checker-contracts': 15,
                 'workflow-governance': 15,
                 'custody-native-contracts': 15,
-                'custody-wasm-contracts': 15,
-                'consensus': 20,
-                'net': 20,
-                'node': 20,
-                'pixel-world-bridge': 20,
-                'custody-node': 25,
+                'custody-wasm-contracts': 10,
+                'consensus': 5,
+                'net': 10,
+                'node': 15,
+                'pixel-world-bridge': 5,
+                'custody-node': 20,
                 'custody-native': 25,
-                'custody-wasm-production': 25,
-                'custody-wasm-approval': 25,
-                'distfs': 30,
+                'custody-wasm-production': 20,
+                'custody-wasm-approval': 20,
+                'distfs': 20,
                 'rust-baseline': 30,
-                'launcher-web': 30,
-                'viewer-js-required': 30,
-                'viewer-performance-report': 30,
+                'launcher-web': 15,
+                'viewer-js-required': 20,
+                'viewer-performance-report': 15,
                 'newapi-bridge-package': 30,
             },
             '.github/workflows/wasm-determinism-gate.yml': {
@@ -6528,7 +6603,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'verify-wasm-determinism': 10,
             },
             '.github/workflows/command-center.yml': {
-                'desktop': 30,
+                'desktop': 25,
             },
             '.github/workflows/compile-metrics.yml': {
                 'summarize': 10,
@@ -6617,7 +6692,7 @@ class HeavyPrJobTimeoutContractTests(unittest.TestCase):
     def test_heavy_pr_jobs_declare_bounded_fallback_timeout_minutes(self):
         expected_limits = {
             '.github/workflows/rust.yml': {
-                'oasis7-test-build-candidate': 60,
+                'oasis7-test-build-candidate': 40,
                 'oasis7-test-build-trusted': 60,
                 'formal-debug-build': 60,
                 'formal-debug-build-trusted': 60,
@@ -6625,7 +6700,7 @@ class HeavyPrJobTimeoutContractTests(unittest.TestCase):
                 'formal-endpoint-build-trusted': 60,
                 'formal-test-build': 60,
                 'formal-test-build-trusted': 60,
-                'oasis7-required': 60,
+                'oasis7-required': 35,
                 'workspace-support-legacy': 60,
                 'workspace-support-other': 60,
                 'operational-contracts': 20,
@@ -6686,6 +6761,112 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
         for name in excluded_jobs:
             with self.subTest(excluded_job=name):
                 self.assertNotIn('oasis7-priority-linux', JOBS[name])
+
+    def test_draft_pr_fail_closed_gate_and_main_fast_cancelled_push_range_recovery(self):
+        pr_header = RAW_WORKFLOW.split('  pull_request:\n', 1)[1].split('  schedule:\n', 1)[0]
+        self.assertIn('types: [opened, synchronize, reopened, ready_for_review]', pr_header)
+        self.assertEqual(CONFIG.get('main_fast_range_recovery_version'), 1)
+        self.assertEqual(CONFIG.get('draft_pr_heavy_ci_skip_version'), 1)
+
+        gate = JOBS['required-gate']
+        self.assertIn("if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')", gate)
+        self.assertIn(
+            "IS_DRAFT_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'true' || 'false' }}",
+            gate,
+        )
+        gate_step = workflow_step_script(gate, 'Require successful scope planning')
+        for select_result in ('skipped', 'success', 'failure'):
+            draft_res = subprocess.run(
+                ['bash', '-euo', 'pipefail', '-c', gate_step],
+                env=dict(os.environ, IS_DRAFT_PR='true', SELECT_RESULT=select_result),
+                text=True, capture_output=True,
+            )
+            self.assertNotEqual(draft_res.returncode, 0)
+            self.assertIn('Draft PR skipped main CI jobs', draft_res.stdout + draft_res.stderr)
+        ready_ok = subprocess.run(
+            ['bash', '-euo', 'pipefail', '-c', gate_step],
+            env=dict(os.environ, IS_DRAFT_PR='false', SELECT_RESULT='success'),
+            text=True, capture_output=True,
+        )
+        self.assertEqual(ready_ok.returncode, 0, ready_ok.stdout + ready_ok.stderr)
+
+        select_job = JOBS['select']
+        self.assertIn('permissions:\n      contents: read\n      actions: read', select_job)
+        self.assertIn(
+            "MAIN_FAST_BASE_TOKEN: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.token || '' }}",
+            select_job,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / 'repo'
+            repo.mkdir()
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(repo), *args], text=True).strip()
+            git('init', '-q', '-b', 'main')
+            git('config', 'user.name', 'Fixture')
+            git('config', 'user.email', 'fixture@example.invalid')
+            (repo / 'scripts').mkdir()
+            for name in ('ci-required-scope.json', 'ci-required-result.py', 'ci-formal-plan.py',
+                         'ci-formal-process-suites.json'):
+                (repo / 'scripts' / name).write_bytes((ROOT / 'scripts' / name).read_bytes())
+            (repo / 'scripts/plan-rust-required-scope.py').write_text('''import argparse, json, pathlib, subprocess
+p = argparse.ArgumentParser()
+for key in ('profile', 'base-ref', 'head-ref', 'test-ref', 'policy-ref', 'formal-config', 'github-output', 'output'):
+    p.add_argument('--' + key)
+a = p.parse_args()
+diff_files = subprocess.check_output(['git', 'diff', '--name-only', a.base_ref, a.head_ref], text=True).splitlines()
+groups = ['baseline', 'oasis7_required'] if 'rust_touch.txt' in diff_files else ['baseline']
+plan = {'scope': 'targeted', 'execution_profile': a.profile, 'fast_plan_version': 1,
+        'check_inventory_version': 1, 'groups': groups,
+        'source_sha': a.head_ref, 'tested_sha': a.test_ref, 'policy_sha': a.policy_ref}
+pathlib.Path(a.output).write_text(json.dumps(plan))
+with pathlib.Path(a.github_output).open('a') as f:
+    for g in groups:
+        f.write(f'run_{g}=true\\n')
+''')
+            (repo / 'README.md').write_text('m0\n')
+            git('add', '.')
+            git('commit', '-qm', 'm0')
+            m0 = git('rev-parse', 'HEAD')
+            # m1 changes rust_touch.txt AND installs a deterministic resolve-main-fast-base stub in trusted policy.
+            (repo / 'rust_touch.txt').write_text('changed in cancelled m1\n')
+            (repo / 'scripts/ci-full-result.py').write_text(f'''import argparse, os, sys
+p = argparse.ArgumentParser()
+sub = p.add_subparsers(dest='command', required=True)
+r = sub.add_parser('resolve-main-fast-base')
+for k in ('repo-root', 'before', 'head'):
+    r.add_argument('--' + k, required=True)
+a = p.parse_args()
+assert os.environ.get('MAIN_FAST_BASE_TOKEN') == 'push-read-token'
+print({m0!r})
+''')
+            git('add', '.')
+            git('commit', '-qm', 'm1')
+            m1 = git('rev-parse', 'HEAD')
+            # m2 only touches README.md; without range recovery m1..m2 would miss rust_touch.txt!
+            (repo / 'README.md').write_text('m2 doc-only\n')
+            git('add', '.')
+            git('commit', '-qm', 'm2')
+            m2 = git('rev-parse', 'HEAD')
+
+            script = workflow_step_script(select_job, 'Select using trusted baseline Git data')
+            out_file = Path(directory) / 'github-output'
+            env = dict(
+                os.environ, EVENT_NAME='push', SOURCE_REF='', SOURCE_SHA=m2, BASE_SHA=m1,
+                WORKFLOW_SHA=m2, GITHUB_SHA=m2, GITHUB_REF='refs/heads/main',
+                GITHUB_WORKSPACE=str(repo), GITHUB_REPOSITORY='nil-studio/oasis7',
+                MAIN_FAST_BASE_TOKEN='push-read-token',
+                RUNNER_TEMP=str(directory), GITHUB_OUTPUT=str(out_file),
+                GITHUB_STEP_SUMMARY=str(Path(directory) / 'summary'),
+            )
+            res = subprocess.run(['bash', '-c', script], cwd=repo, env=env, text=True, capture_output=True)
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+            outputs = dict(line.split('=', 1) for line in out_file.read_text().splitlines())
+            self.assertEqual(outputs['policy_sha'], m1)
+            self.assertEqual(outputs['range_base'], m0)
+            self.assertEqual(outputs['run_oasis7_required'], 'true')
+            plan = json.loads((Path(directory) / 'selection.json').read_text())
+            self.assertEqual((plan['policy_sha'], plan['source_sha'], plan['tested_sha']), (m1, m2, m2))
+            self.assertIn('oasis7_required', plan['groups'])
 
 
 class AllWorkflowJobsTimeoutGuardTests(unittest.TestCase):

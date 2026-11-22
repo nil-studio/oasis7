@@ -46,6 +46,41 @@ class SafetyTests(unittest.TestCase):
         return cleanup.inspect(self.repo, self.path, 'feature', self.head)
 
     @patch.object(cleanup, '_process_mentions_path', return_value=False)
+    def test_explicit_task_cargo_target_retains_default_and_shared_material(self, _):
+        (self.repo / 'Cargo.toml').write_text('[workspace]\n')
+        self.git('add', 'Cargo.toml')
+        self.git('commit', '-qm', 'workspace')
+        subprocess.check_call(['git', '-C', str(self.path), 'merge', 'main', '--ff-only'], stdout=subprocess.DEVNULL)
+        self.head = self.git('rev-parse', 'HEAD')
+        self.git('update-ref', 'refs/remotes/origin/main', self.head)
+        self.git('update-ref', 'refs/remotes/origin/feature', self.head)
+        self.git('config', 'core.excludesFile', str(self.root / 'ignore'))
+        (self.root / 'ignore').write_text('target\n')
+        target = self.path / 'target'
+        target.mkdir()
+        (target / '.rustc_info.json').write_text('{}')
+        records = cleanup.worktrees(self.repo)
+        with self.assertRaisesRegex(cleanup.CleanupError, 'unknown ignored'):
+            cleanup.user_material(self.repo, self.path, records)
+        cleanup.user_material(self.repo, self.path, records, True)
+        (target / 'external').symlink_to(self.root)
+        with self.assertRaisesRegex(cleanup.CleanupError, 'linked or mounted'):
+            cleanup.user_material(self.repo, self.path, records, True)
+        (target / 'external').unlink()
+        os.link(target / '.rustc_info.json', target / 'internal-copy')
+        cleanup.user_material(self.repo, self.path, records, True)
+        os.link(target / '.rustc_info.json', self.root / 'shared-copy')
+        with self.assertRaisesRegex(cleanup.CleanupError, 'shared Cargo'):
+            cleanup.user_material(self.repo, self.path, records, True)
+        (self.root / 'shared-copy').unlink()
+        with patch.object(cleanup.os, 'scandir', side_effect=PermissionError('denied')):
+            with self.assertRaisesRegex(cleanup.CleanupError, 'unreadable Cargo'):
+                cleanup.task_cargo_target(self.path, 'target/.rustc_info.json')
+        (target / '.git').mkdir()
+        with self.assertRaisesRegex(cleanup.CleanupError, 'nested repository'):
+            cleanup.user_material(self.repo, self.path, records, True)
+
+    @patch.object(cleanup, '_process_mentions_path', return_value=False)
     def test_clean_exact_resource_is_inspectable(self, _):
         self.assertEqual(self.inspect()['head'], self.head)
 

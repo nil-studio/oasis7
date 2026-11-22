@@ -45,7 +45,7 @@ impl WorldKernel {
     fn from_native(mut kernel: NativeKernel) -> Self {
         #[cfg(not(target_arch = "wasm32"))]
         kernel.set_module_source_compiler(Arc::new(
-            crate::module_source_compiler::HostModuleSourceCompiler,
+            oasis7_world_service::module_source_compiler::HostModuleSourceCompiler,
         ));
         Self {
             kernel,
@@ -97,7 +97,9 @@ impl WorldKernel {
             "native kernel journal cannot shrink"
         );
     }
-    pub(crate) fn into_model(self) -> WorldModel {
+    /// Consume the host kernel into the same read-only projection model previously
+    /// exported by `runtime_host::projection::into_projection_model`.
+    pub fn into_model(self) -> WorldModel {
         self.kernel.into_state().model
     }
     pub fn journal(&self) -> WorldJournalView<'_> {

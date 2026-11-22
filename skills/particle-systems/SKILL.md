@@ -78,11 +78,9 @@ Do not use this skill when:
 ## Guardrails
 
 - Keep this entrypoint concise; move heavy examples or catalog material to supporting files.
-- Do not bypass oasis7 task/worktree truth or professional role ownership when the workflow requires it.
+- Follow `doc/engineering/workflow/source-of-truth.md` for authority docs, user authorization, and verification evidence; do not add separate task or role gates.
 - Do not present reference material as verified project behavior without checking the current repo state.
-- Do not treat a particle recipe as accepted visual direction without
-  `game_visual_interaction_designer` ownership and real rendering/playtest
-  evidence.
+- Do not treat a particle recipe as accepted visual direction without checking applicable visual design authorities and real rendering/playtest evidence.
 
 ## Verification
 

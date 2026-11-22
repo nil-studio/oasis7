@@ -1,10 +1,9 @@
 use super::{ChainRuntimeStatus, ClientLauncherApp, OASIS7_CLIENT_LAUNCHER_SCREENSHOT_MODAL_ENV};
 use eframe::egui;
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 
 fn launcher_screenshot_modal_env_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+    &crate::transfer_auth::TRANSFER_AUTH_ENV_LOCK
 }
 
 #[test]

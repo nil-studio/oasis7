@@ -2,7 +2,6 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::super::{
@@ -12,11 +11,11 @@ use super::super::{
 const FETCHER_ENV: &str = "OASIS7_BUILTIN_WASM_FETCHER";
 const COMPILER_ENV: &str = "OASIS7_BUILTIN_WASM_COMPILER";
 
-static ENV_LOCK: Mutex<()> = Mutex::new(());
-
 #[test]
 fn materializer_fetch_miss_falls_back_to_compile_and_caches_blob() {
-    let _env_guard = ENV_LOCK.lock().expect("lock env");
+    let _env_guard = crate::env_mut::test_env_lock()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
     let temp_root = temp_dir("builtin-materializer");
     fs::create_dir_all(&temp_root).expect("create temp root");
 
@@ -93,7 +92,9 @@ fn materializer_fetch_miss_falls_back_to_compile_and_caches_blob() {
 
 #[test]
 fn materializer_reuses_cached_module_hash_when_manifest_hashes_do_not_match() {
-    let _env_guard = ENV_LOCK.lock().expect("lock env");
+    let _env_guard = crate::env_mut::test_env_lock()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
     let temp_root = temp_dir("builtin-materializer-cache");
     fs::create_dir_all(&temp_root).expect("create temp root");
 

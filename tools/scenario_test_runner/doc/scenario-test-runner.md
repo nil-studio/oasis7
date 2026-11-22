@@ -2,7 +2,7 @@
 
 ## 目标
 - 提供一套**场景文件驱动**的测试框架，便于按需添加场景并快速验证核心世界初始化与关键断言。
-- 框架**独立于核心工程与 CI**：不进入 workspace，不进入 CI 测试清单，按需手动运行。
+- Runner 是根 workspace 成员；自身库测试按 required 选测规则调度，场景文件也可用 CLI 按需手动运行。
 - 场景文件尽量简洁：支持内置 `WorldScenario` 或显式 `WorldInitConfig`，并提供可读的断言配置。
 
 ## 范围
@@ -14,7 +14,7 @@
 - 内置断言：agents/locations 数量、必含 IDs、小行星碎片带是否启用、agent->location 位置匹配。
 
 ### Out of Scope
-- 接入 CI 或 pre-commit。
+- 不负责 Simulator 的独立 `scenario-regression` CI 组：该组验证 `oasis7_simulator` 的场景初始化集成测试，不代表 Runner 自身的库测试或自定义场景执行。
 - 复杂仿真回放与长期性能测试。
 - 自动生成场景文件或 UI 管理面板。
 
@@ -54,5 +54,5 @@ expect:
 
 ## 风险
 - 场景文件与内核能力漂移，导致断言过时或误报。
-- 非 CI 路径易被忽视，需要明确手动运行指引。
+- 未显式选取的自定义场景文件不因库测试通过而算已执行；应保留手动运行指引。
 - 自定义 `WorldInitConfig` 写法较冗长，需要示例与模板约束。

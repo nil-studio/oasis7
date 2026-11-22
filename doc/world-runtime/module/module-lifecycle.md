@@ -4,6 +4,7 @@
 
 本分册为 `doc/world-runtime/prd.md` 的详细展开。
 
+<a id="module-governance-and-compatibility"></a>
 ## 模块治理与兼容性（草案）
 - **版本与兼容**：`interface_version` 由内核维护；模块声明兼容范围，若不兼容则拒绝加载。
 - **治理闭环**：模块变更走 `propose → shadow → approve → apply`，升级/回滚均形成审计事件。
@@ -315,6 +316,7 @@ ManifestMigrated {
 }
 ```
 
+<a id="module-instance-transaction-and-upgrade-contract"></a>
 ## 稳定实例、交易与升级合同
 
 - 活动模块以持久 `instance_id` 区分，同一 module artifact 可在不同 owner/target 下形成独立实例；确定性执行使用稳定实例顺序。
@@ -397,7 +399,7 @@ Observer 和普通 reader 先核对所选 generation、全部 manifest 身份与
 <a id="revoked-grant-discovery"></a>
 ### 撤销历史与当前能力目录
 
-目录遵守 [WASM capability 合同](../wasm/wasm-interface.md#wasm-capability-permission-kernel-boundary)，保留持久 grant 历史，由已验证的当前 authority/revocation 状态排除明确 revoked/superseded 的条目，再投影其余有效声明与授权。合法撤销 A 不应阻断独立有效 B；损坏签名、错误 authority/proof 或不可解释冲突仍拒绝，不能改成吞掉所有验证错误。执行时仍重验 live revocation，旧目录不能重新授权 A。
+目录遵守 [WASM capability 合同](../wasm/wasm-open-institution-extension-contract.md#wasm-capability-permission-kernel-boundary)，保留持久 grant 历史，由已验证的当前 authority/revocation 状态排除明确 revoked/superseded 的条目，再投影其余有效声明与授权。合法撤销 A 不应阻断独立有效 B；损坏签名、错误 authority/proof 或不可解释冲突仍拒绝，不能改成吞掉所有验证错误。执行时仍重验 live revocation，旧目录不能重新授权 A。
 
 针对 #4502，待执行回归必须先成功注册 A/B，再合法撤销 A，然后真实调用目录派生及 B 的调用上下文生成：A 不可发现/执行，B 仍可发现；受支持 snapshot round-trip 和 journal replay 后同义。先撤销 A 再尝试注册 A 的 fixture 不覆盖此场景。该投影修复不等于生产 Agent E2E、command 实例隔离或全体能力迁移验收。
 

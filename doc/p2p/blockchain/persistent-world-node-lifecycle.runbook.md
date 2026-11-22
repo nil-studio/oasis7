@@ -81,6 +81,7 @@ fixture v87 / production v30 / endpoint release v14 的普通提交/重启、完
 
 本轮集成的本机验收脚本为 `scripts/formal-live-local-tests.sh`，覆盖真实端点子进程及串行 Wasmtime 组合，且已纳入 required tier 调用路径。以上结果不代表脚本覆盖的所有流程均已在同一版本完整通过；长期历史与待验场景仍见上表及本节末尾状态。
 
+<a id="persistent-node-lifecycle-acceptance-followups"></a>
 ## 后续 TODO 与验收边界（2026-10-14）
 
 用户授权小遗留在实施文档跟踪；这些项不表示当前已通过，也不解除切换、回滚与恢复正确性及 required CI 的合入要求。

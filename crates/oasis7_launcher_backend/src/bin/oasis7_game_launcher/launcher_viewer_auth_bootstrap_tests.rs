@@ -131,6 +131,15 @@ fn resolve_viewer_auth_bootstrap_from_path_uses_chain_node_id_fallback() {
 
 #[test]
 fn hosted_public_join_disables_viewer_auth_bootstrap_resolution() {
+    static CWD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    struct CwdRestore(std::path::PathBuf);
+    impl Drop for CwdRestore {
+        fn drop(&mut self) {
+            let _ = env::set_current_dir(&self.0);
+        }
+    }
+
+    let _cwd_guard = CWD_LOCK.lock().unwrap_or_else(|poison| poison.into_inner());
     let temp_dir = make_temp_dir("hosted_public_join_no_bootstrap");
     let config_path = temp_dir.join("config.toml");
     fs::write(
@@ -140,12 +149,13 @@ fn hosted_public_join_disables_viewer_auth_bootstrap_resolution() {
     .expect("write config");
 
     let old_cwd = env::current_dir().expect("cwd");
+    let _cwd_restore = CwdRestore(old_cwd);
     env::set_current_dir(&temp_dir).expect("chdir");
     let auth = resolve_viewer_auth_bootstrap_for_embedded_server(
         DeploymentMode::HostedPublicJoin,
         Some("chain-a"),
     );
-    env::set_current_dir(old_cwd).expect("restore cwd");
+    drop(_cwd_restore);
 
     assert!(auth.is_none());
     let _ = fs::remove_dir_all(temp_dir);

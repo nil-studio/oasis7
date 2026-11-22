@@ -27,7 +27,7 @@ cache-mode: read
 jobs:
   plan:
     name: CodeQL / plan
-    if: github.event_name != 'pull_request' || (github.event.action != 'closed' && !github.event.pull_request.draft)
+    if: github.event_name != 'pull_request' || (github.event.action != 'closed' && !github.event.pull_request.draft && vars.OASIS7_CODEQL_MODE != '' && vars.OASIS7_CODEQL_MODE != 'off' && vars.OASIS7_CODEQL_MODE != 'baseline')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -37,7 +37,7 @@ jobs:
       status: ${{ steps.plan.outputs.status }}
       checkout: ${{ steps.plan.outputs.checkout }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4, official tag resolved 2026-10-01
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -529,7 +529,7 @@ jobs:
   summary:
     name: CodeQL / summary
     needs: [plan, analyze]
-    if: always() && (github.event_name != 'pull_request' || (github.event.action != 'closed' && !github.event.pull_request.draft))
+    if: always() && (github.event_name != 'pull_request' || (github.event.action != 'closed' && !github.event.pull_request.draft && vars.OASIS7_CODEQL_MODE != '' && vars.OASIS7_CODEQL_MODE != 'off' && vars.OASIS7_CODEQL_MODE != 'baseline' && (needs.plan.result != 'success' || needs.plan.outputs.has_units == 'true')))
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     steps:

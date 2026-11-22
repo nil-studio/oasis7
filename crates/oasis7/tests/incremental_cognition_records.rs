@@ -46,6 +46,10 @@ fn cognition_optional_group_lifecycle_is_closed_in_the_shared_transaction() {
     run_cognition(false, true, false);
 }
 #[test]
+fn genuine_nonempty_gen_delegation_grants_reject_then_current_delete_allows_empty() {
+    run_cognition(true, true, false);
+}
+#[test]
 fn cognition_source_failures_keep_exact_error_and_abort_real_prefix() {
     run_cognition(false, false, true);
 }
@@ -180,7 +184,11 @@ fn run_cognition(all_optional: bool, groups_only: bool, faults_only: bool) {
                 },
             };
             if groups_only {
-                cognition_groups::exercise(&store, &memory, &parent, &family);
+                if all_optional {
+                    cognition_groups::exercise_real_delegation(&store, &memory, &parent, &family);
+                } else {
+                    cognition_groups::exercise(&store, &memory, &parent, &family);
+                }
             } else {
                 cognition_source_faults::exercise(&store, &memory, &parent, &family);
                 cognition_source_faults::real_put_cancellation(

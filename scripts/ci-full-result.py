@@ -94,6 +94,9 @@ def definition_digest(root, revision):
                 or type(config.get("custody_compile_proof_version")) is not int
                 or config["custody_compile_proof_version"] != 1):
             raise ValueError("invalid trusted custody policy tests definition")
+    for capability in ("main_fast_range_recovery_version", "draft_pr_heavy_ci_skip_version"):
+        if capability in config and (type(config[capability]) is not int or config[capability] != 1):
+            raise ValueError(f"invalid trusted {capability} definition")
     contract_tests = set()
     if "workflow_governance_python_tests" in config:
         governed = config["workflow_governance_python_tests"]
@@ -947,6 +950,73 @@ def periodic_health(api, now):
     return health(full, now, observations=observations, control_failures=failures)
 
 
+def resolve_main_fast_base(api, root, before_sha, head_sha, *, current_run_id=None, max_commits=64):
+    before, head = commit(before_sha), commit(head_sha)
+    if type(max_commits) is not int or max_commits < 1 or max_commits > 256:
+        raise ValueError("max_commits must be between 1 and 256")
+    for sha in (before, head):
+        subprocess.run(["git", "-C", str(root), "cat-file", "-e", f"{sha}^{{commit}}"],
+                       check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    if before == head:
+        return before
+    ancestor_check = subprocess.run(
+        ["git", "-C", str(root), "merge-base", "--is-ancestor", before, head],
+        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+    )
+    if ancestor_check.returncode != 0:
+        raise ValueError("push before is not an ancestor of head")
+    first_parents = subprocess.check_output(
+        ["git", "-C", str(root), "rev-list", "--first-parent", f"--max-count={max_commits + 1}", head],
+        text=True, stderr=subprocess.PIPE,
+    ).splitlines()
+    if before not in first_parents[1:]:
+        # Never narrow a push that already spans beyond the bounded window or a non-first-parent edge.
+        return before
+    ancestors = first_parents[first_parents.index(before):]
+    if len(ancestors) <= 1:
+        return before
+    workflow_id = api.get("actions/workflows/rust.yml").get("id")
+    if type(workflow_id) is not int or workflow_id < 1:
+        raise ValueError("unknown canonical Rust workflow")
+    runs_by_sha = {}
+    for page in (1, 2):
+        query = urllib.parse.urlencode({"event": "push", "branch": "main", "per_page": 100, "page": page})
+        payload = api.get(f"actions/workflows/{workflow_id}/runs?{query}")
+        batch = payload.get("workflow_runs") if isinstance(payload, dict) else None
+        if not isinstance(batch, list):
+            raise ValueError("invalid Actions push workflow_runs payload")
+        for run in batch:
+            if not isinstance(run, dict) or type(run.get("id")) is not int or run["id"] < 1:
+                raise ValueError("invalid Actions push run record")
+            if current_run_id is not None and run["id"] == current_run_id:
+                continue
+            if (run.get("workflow_id") != workflow_id or run.get("path") != WORKFLOW
+                    or run.get("event") != "push" or run.get("head_branch") != "main"):
+                continue
+            sha = commit(run.get("head_sha"))
+            runs_by_sha.setdefault(sha, []).append(run)
+        total = payload.get("total_count")
+        if len(batch) < 100 or (type(total) is int and page * 100 >= total):
+            break
+    widened = before
+    for index, sha in enumerate(ancestors):
+        sha_runs = runs_by_sha.get(sha, ())
+        if any(run.get("status") == "completed" and run.get("conclusion") == "success" for run in sha_runs):
+            widened = sha
+            break
+        if sha_runs:
+            if index + 1 < len(ancestors):
+                widened = ancestors[index + 1]
+        else:
+            if not any(older in runs_by_sha for older in ancestors[index + 1:]):
+                break
+            if index + 1 < len(ancestors):
+                widened = ancestors[index + 1]
+    subprocess.run(["git", "-C", str(root), "merge-base", "--is-ancestor", widened, before],
+                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    return widened
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -963,8 +1033,14 @@ def main():
     admission = commands.add_parser("admit-periodic")
     admission.add_argument("--output", type=Path, required=True)
     admission.add_argument("--github-output", type=Path, required=True)
+    main_fast = commands.add_parser("resolve-main-fast-base")
+    main_fast.add_argument("--repo-root", type=Path)
+    main_fast.add_argument("--before", required=True)
+    main_fast.add_argument("--head", required=True)
+    main_fast.add_argument("--max-commits", type=int, default=64)
     args = parser.parse_args()
-    root = Path(os.environ.get("GITHUB_WORKSPACE", os.getcwd())).resolve()
+    root = (args.repo_root if getattr(args, "repo_root", None) is not None
+            else Path(os.environ.get("GITHUB_WORKSPACE", os.getcwd()))).resolve()
     config = decode_json(Path(__file__).with_name("ci-required-scope.json").read_bytes())
     if args.command == "produce":
         context = {key: os.environ[variable] for key, variable in {
@@ -978,6 +1054,18 @@ def main():
         receipt = make_receipt(plan, needs, config, context, digest)
         args.output.write_text(json.dumps(receipt, sort_keys=True, indent=2) + "\n")
         print(f"Complete CI result recorded for {plan['source_sha']}.")
+        return
+    if args.command == "resolve-main-fast-base":
+        token = (os.environ.get("MAIN_FAST_BASE_TOKEN")
+                 or os.environ.get("GH_TOKEN")
+                 or os.environ.get("GITHUB_TOKEN"))
+        api = GitHub(os.environ["GITHUB_REPOSITORY"], token)
+        run_id_raw = os.environ.get("GITHUB_RUN_ID", "")
+        current_run_id = int(run_id_raw) if run_id_raw.isdigit() and int(run_id_raw) > 0 else None
+        print(resolve_main_fast_base(
+            api, root, args.before, args.head,
+            current_run_id=current_run_id, max_commits=args.max_commits,
+        ))
         return
     api = GitHub(os.environ["GITHUB_REPOSITORY"], os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN"),
                  recover_collections=args.command in {"admit-periodic", "health"})

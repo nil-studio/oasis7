@@ -344,7 +344,7 @@ Trace refs: O7-REQ-32e47f2a-2da3-4ca6-aaf0-ef522be4b898、O7-REQ-c95314c6-feb1-4
 
 **会话释放的真实失败切点。** 当前底层兼容 [hosted release](../../../crates/oasis7_launcher_backend/src/bin/oasis7_game_launcher/hosted_player_session.rs) 可先 `release_slot_for_player_with_reason` 再 `persist_ledger`；持久化失败返回 `ok=false / session_ledger_persist_failed` 时，内存 slot 可能已经释放。这不证明“仍有控制”或“持久释放完成”。原 owner 以当前受支持状态、ledger 与 world 控制事实核对；玩家不能以新的 grant/player 或重放世界动作修复此不确定性。新版账号/设备适配仍须遵循原 current-only epoch 与明确接管合同，不把这条兼容失败事实推广成新 API 已提供完整查询。身份登录的原 operation receipt、world join、反馈 ID 和 bridge order 各用自己的原关联，不能混用为统一成功凭证。
 
-**bridge 目标与现状的分界。** 上表 verification-only 消费的是原恢复目标；原设计 [§11.2 当前源码差距](../../p2p/token/mainchain-token-newapi-quota-bridge.design.md#112-当前源码差距（静态核对）)仍指出，Credited 后 user/project 前置失败可经 `record_retryable_failure` 写成 Failed/ManualReview，既有健康 restart 例不能证明该切点保留成功事实。首次绑定失败清理也不能证明远端未知效果安全恢复。因此当前候选必须分别核原 receipt、订单与真实持久阶段；遇到冲突交原 operator 待核，不能从阶段降级推出未入账并再次 topup。本节只接收目标和真实阻塞，不修代码、不解除 hold、不宣称旧 bridge 已实现上述保证。
+**bridge 目标与现状的分界。** 上表 verification-only 消费的是原恢复目标；原设计 [§11.2 当前源码差距](../../p2p/token/mainchain-token-newapi-quota-bridge.design.md#quota-bridge-current-source-gaps)仍指出，Credited 后 user/project 前置失败可经 `record_retryable_failure` 写成 Failed/ManualReview，既有健康 restart 例不能证明该切点保留成功事实。首次绑定失败清理也不能证明远端未知效果安全恢复。因此当前候选必须分别核原 receipt、订单与真实持久阶段；遇到冲突交原 operator 待核，不能从阶段降级推出未入账并再次 topup。本节只接收目标和真实阻塞，不修代码、不解除 hold、不宣称旧 bridge 已实现上述保证。
 
 **具体接收与交接。** 沿 §4 的既有记录保留实际候选/表面、原身份与操作的安全定位、最后已证阶段、当前读权限/阻塞、停止了什么、仍有效的义务、原执行 owner 和接手者的确认。一次支持答复、换入口或新的配置不产生原业务 receipt；原件未知时先按当前合法读权核对，无法核对就保持未确认并停止依赖它的新副作用。成功事实与历史不因超时、迟到错误或旧投影被回退；失效权限也不因保留历史而恢复。没有接手确认的事项仍归原责任方，按 §9.1 实际容量/窗口安排，不能以入口关闭或成本未知结案。对私有材料只交原受众获权的内容，不以支持交接开新读权。
 

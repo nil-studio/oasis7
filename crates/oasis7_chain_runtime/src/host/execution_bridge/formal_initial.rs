@@ -258,7 +258,7 @@ impl InitialWorldClosure {
         let mut business_root = None;
         let result_references = vec![state_root.clone(), journal.clone()];
         if business_contract {
-            let update = oasis7::world_service::formal_result::FormalBusinessResultTreeV1::for_initial_world(world, identity, &EmptyBusinessIndex)?;
+            let update = oasis7_world_service::formal_result::FormalBusinessResultTreeV1::for_initial_world(world, identity, &EmptyBusinessIndex)?;
             business_root = Some(update.tree.root()?);
             // Node bytes are committed inside the one bounded delta envelope.
             // Endpoints derive and durably store their raw logical CAS objects;
@@ -342,7 +342,7 @@ impl InitialWorldClosure {
                 &oasis7_world_state::codec::journal_events_cbor(&world.journal().events)
                     .map_err(|err| format!("serialize to cbor failed: {}", err))?,
             ),
-            projection_root: oasis7::world_service::formal_projection::commitments_for_world(
+            projection_root: oasis7_world_service::formal_projection::commitments_for_world(
                 world,
             )?
             .root()?,

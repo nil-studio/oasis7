@@ -8,14 +8,13 @@
 - 模块 PRD：`doc/site/prd.md`
 - 模块设计总览：`doc/site/design.md`
 - 可变执行状态：PR、实际 CI 与评审记录（Issue 按需）
-- 当前高频 site 入口：`doc/site/prd.md`
 
 ## 首读分流
 - 想先回答 site 模块在管什么、哪些公开边界是当前真值：先读 `doc/site/prd.md`
 - 想先回答当前站点同步状态、最近完成项和是否还有未收口任务：读取 PR、实际 CI 与评审记录（Issue 按需）
 - 想先看公开 docs hub 与手册镜像的 canonical 策略：先读 `doc/site/manual/README.md`
 - 想先看 GitHub Pages 下载链路与公开版本说明边界：先读 `doc/site/prd.md`；执行状态再读 PR、实际 CI 与评审记录（Issue 按需）
-- 想先看“正式公告仍在准备中”的当前公开口径：先读 `doc/site/prd.md`、`doc/site/prd.md`，再对照 `site/index.html` 与 `site/doc/cn/index.html`
+- 想先看“正式公告仍在准备中”的当前公开口径：先读 `doc/site/prd.md`，再对照 `site/index.html` 与 `site/doc/cn/index.html`
 - 要做官网视觉稿：先读[产品体验与视觉设计](../product/player-entry-distribution/public-site-discovery-and-showcase.design.md)，再按需核对产品要求。
 - 要实现或验证官网：先读[系统实现设计](github-pages/public-site-discovery-and-showcase.design.md)，并回查上游产品体验。
 - 要查看完整配套文档：使用下方“官网发现与展示”入口；要继续按文件名下钻，使用活跃专题清单。
@@ -84,15 +83,15 @@
 ## 已退役删除的旧专题
 | 旧专题 | 当前入口 |
 | --- | --- |
-| `github-pages-hero-cta-simplify-2026-02-26` | 该完成态 CTA 微专题三件套已删除；当前首页叙事、CTA 与下载入口真值以 `doc/site/prd.md`、`doc/site/prd.md`、`site/index.html` 与 `site/en/index.html` 为准，历史细节从 PR、实际 CI 与评审记录（Issue 按需） 与 git history 追溯。 |
-| `github-pages-release-communication-placeholder-2026-03-11` | 该完成态公告占位三件套已删除；当前公开公告准备态与 technical preview 边界以 `doc/site/prd.md`、`doc/site/prd.md`、`site/index.html` 与 `site/doc/cn/index.html` 为准，历史细节从 PR、实际 CI 与评审记录（Issue 按需） 与 git history 追溯。 |
+| `github-pages-hero-cta-simplify-2026-02-26` | 该完成态 CTA 微专题三件套已删除；当前首页叙事、CTA 与下载入口真值以 `doc/site/prd.md`、`site/index.html` 与 `site/en/index.html` 为准，历史细节从 PR、实际 CI 与评审记录（Issue 按需） 与 git history 追溯。 |
+| `github-pages-release-communication-placeholder-2026-03-11` | 该完成态公告占位三件套已删除；当前公开公告准备态与 technical preview 边界以 `doc/site/prd.md`、`site/index.html` 与 `site/doc/cn/index.html` 为准，历史细节从 PR、实际 CI 与评审记录（Issue 按需） 与 git history 追溯。 |
 | `viewer-manual-content-migration-2026-02-15` | 该完成态 Viewer 手册搬迁三件套已删除；玩家模式承诺以 `doc/product/player-entry-distribution/access-modes-and-release-readiness.prd.md` 为准，当前操作及退役边界以 `doc/world-simulator/viewer/viewer-manual.manual.md` 为准，CN/EN 镜像治理以 `doc/site/manual/site-manual-static-docs.*` 为准，任务过程从 PR、实际 CI 与评审记录（Issue 按需） 与 git history 追溯。 |
-| `github-pages-content-sync-2026-02-12` | 该完成态内容状态同步三件套已删除；当前 site 真值以 `doc/site/prd.md` 与 `doc/site/prd.md` 为准，当前公开面以 `site/**` 现行文件追溯，任务过程以 GitHub task #2518 evidence comments 与 git history 追溯。 |
-| `github-pages-content-sync-2026-02-25` | 该完成态内容状态同步三件套已删除；当前公开发现与双语 claim 规则以 `doc/product/player-entry-distribution/release-communications-and-public-claims.prd.md` 为准，Viewer 手册以 `doc/world-simulator/viewer/viewer-manual.manual.md` 为准，CN/EN 静态镜像治理以 `doc/site/manual/site-manual-static-docs.*` 为准，当前 site 真值以 `doc/site/prd.md` 与 `doc/site/prd.md` 为准，任务过程以 GitHub task #2522 evidence comments 与 git history 追溯。 |
-| `github-pages-visual-polish-v2-2026-02-12` | 该完成态视觉增量三件套已删除；当前站点视觉层级、双语同构、响应式与 reduced-motion 约束以 `doc/site/prd.md`、`doc/site/prd.md` 与现行 `site/**` 为准，历史截图与 cargo check 记录以 GitHub task #2524 evidence comments 与 git history 追溯。 |
-| `github-pages-game-first-home-2026-02-25` | 该完成态首页游戏优先重排三件套已删除；当前公开首页语义与状态边界以 `doc/site/prd.md`、`doc/site/prd.md`、`site/index.html` 与 `site/en/index.html` 为准，任务过程以 GitHub task #2515 evidence comments 与 git history 追溯。 |
-| `github-pages-showcase` | 该完成态首版对外展示站三件套已删除；当前公开站点结构、双语入口与状态边界以 `doc/site/prd.md`、`doc/site/prd.md`、`site/index.html` 与 `site/en/index.html` 为准，任务过程以 GitHub task #2515 evidence comments 与 git history 追溯。 |
-| `github-pages-dated-batch-2026-02-to-03` | game-engine reposition、home conversion、radical redesign、quality/SEO、release/download 与 user-perspective 六个完成态三件套已删除；当前站点/下载/镜像 authority 以 `doc/site/prd.md`、`doc/site/design.md` 与 `doc/site/prd.md` 为准，玩家发行体验以 `doc/product/player-entry-distribution/prd.md` 为准；历史细节从 GitHub task #2563 evidence comments 与 git history 追溯。 |
+| `github-pages-content-sync-2026-02-12` | 该完成态内容状态同步三件套已删除；当前 site 真值以 `doc/site/prd.md` 为准，当前公开面以 `site/**` 现行文件追溯，任务过程以 GitHub task #2518 evidence comments 与 git history 追溯。 |
+| `github-pages-content-sync-2026-02-25` | 该完成态内容状态同步三件套已删除；当前公开发现与双语 claim 规则以 `doc/product/player-entry-distribution/release-communications-and-public-claims.prd.md` 为准，Viewer 手册以 `doc/world-simulator/viewer/viewer-manual.manual.md` 为准，CN/EN 静态镜像治理以 `doc/site/manual/site-manual-static-docs.*` 为准，当前 site 真值以 `doc/site/prd.md` 为准，任务过程以 GitHub task #2522 evidence comments 与 git history 追溯。 |
+| `github-pages-visual-polish-v2-2026-02-12` | 该完成态视觉增量三件套已删除；当前站点视觉层级、双语同构、响应式与 reduced-motion 约束以 `doc/site/prd.md` 与现行 `site/**` 为准，历史截图与 cargo check 记录以 GitHub task #2524 evidence comments 与 git history 追溯。 |
+| `github-pages-game-first-home-2026-02-25` | 该完成态首页游戏优先重排三件套已删除；当前公开首页语义与状态边界以 `doc/site/prd.md`、`site/index.html` 与 `site/en/index.html` 为准，任务过程以 GitHub task #2515 evidence comments 与 git history 追溯。 |
+| `github-pages-showcase` | 该完成态首版对外展示站三件套已删除；当前公开站点结构、双语入口与状态边界以 `doc/site/prd.md`、`site/index.html` 与 `site/en/index.html` 为准，任务过程以 GitHub task #2515 evidence comments 与 git history 追溯。 |
+| `github-pages-dated-batch-2026-02-to-03` | game-engine reposition、home conversion、radical redesign、quality/SEO、release/download 与 user-perspective 六个完成态三件套已删除；当前站点/下载/镜像 authority 以 `doc/site/prd.md` 与 `doc/site/design.md` 为准，玩家发行体验以 `doc/product/player-entry-distribution/prd.md` 为准；历史细节从 GitHub task #2563 evidence comments 与 git history 追溯。 |
 | `github-pages-architecture-svg-refresh`、`github-pages-benchmark-polish-v3`、`github-pages-hero-motion-layer`、`github-pages-hero-pointer-interaction`、`github-pages-lean-tech-refresh` | 五组完成态微专题三件套已删除；当前 Canvas/指针/时间线/SVG、双语响应式和无障碍约束以 `doc/site/design.md` 与 `doc/site/prd.md` 为准，任务过程以 GitHub task #2702 evidence comments 与 git history 追溯。 |
 | `github-pages-cinematic-consequence-visual-review-card-2026-07-19`、`page-design-coverage-2026-06-19` | dated review/coverage 文件已删除；前者的冻结评审与残余风险以 GitHub task #2449 evidence comments 与 git history 追溯，后者的 site 页面覆盖/fixture 路由已回填 `doc/site/design.md`，跨模块页面继续由各自专业设计 authority 承担。 |
 
@@ -100,5 +99,5 @@
 - 本索引用于保证模块专题文档在根入口文档树中可达。
 - 文档配对规则：`*.prd.md`、`*.design.md` 与相关 PR 和实际验证记录。
 - ROUND-002 口径：`doc/site/manual/site-manual-static-docs.prd.md` 为 manual 主文档；已完成的 Viewer 手册搬迁增量已回填并退役，默认阅读先经 `doc/site/manual/README.md` 分流。
-- 当前 github-pages authority 由 `doc/site/prd.md`、`doc/site/design.md` 与 `doc/site/prd.md` 承担；专题只保留仍有当前增量语义的文档。
+- 当前 github-pages authority 由 `doc/site/prd.md` 与 `doc/site/design.md` 承担；专题只保留仍有当前增量语义的文档。
 - 默认入口面先在 `README.md` / `prd.index.md` 收紧；只有当入口仍无法完成分流时，才进入后续路径级治理。

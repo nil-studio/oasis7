@@ -503,7 +503,6 @@ fn power_buy_zero_price_uses_dynamic_market_quote() {
     config.power.market_price_min_per_pu = 1;
     config.power.market_price_max_per_pu = 50;
     config.power.market_scarcity_price_max_bps = 30_000;
-    config.power.market_distance_price_per_km_bps = 0;
     config.power.market_price_band_bps = 20_000;
     let mut kernel = WorldKernel::with_config(config);
 
@@ -626,7 +625,6 @@ fn power_buy_rejects_price_outside_market_band() {
     config.power.market_price_min_per_pu = 1;
     config.power.market_price_max_per_pu = 100;
     config.power.market_scarcity_price_max_bps = 10_000;
-    config.power.market_distance_price_per_km_bps = 0;
     config.power.market_price_band_bps = 500;
     let mut kernel = WorldKernel::with_config(config);
 

@@ -14,7 +14,7 @@ Use this skill when the task changes player-visible interaction content, especia
 - a task touches player actions, click/drag/select/command flows, controls, or input affordances
 - UI states need feedback rules for hover, focus, pressed, selected, disabled, loading, success, failure, or blocked actions
 - a viewer/web/gameplay screen needs first-time usability, error recovery, or accessibility review
-- `game_visual_interaction_designer` is reviewing a visual/player-facing interaction change before handing a brief to `viewer_engineer` or residual risk to `qa_engineer`
+- a task owner or reviewer (referencing `.agents/roles/game_visual_interaction_designer.md` as needed) is defining or reviewing player-facing interaction criteria alongside implementation or verification
 
 Do not use this skill when:
 
@@ -88,9 +88,8 @@ Rejected as defaults:
 
 ## Oasis7-Specific Surfaces
 
-- role owner for professional conclusions: `.agents/roles/game_visual_interaction_designer.md`
-- implementation handoff owner: `.agents/roles/viewer_engineer.md`
-- verification handoff owner: `.agents/roles/qa_engineer.md`
+- specialist perspective reference: `.agents/roles/game_visual_interaction_designer.md`
+- related implementation & verification references (consulted as needed, not a fixed handoff chain): `.agents/roles/viewer_engineer.md`, `.agents/roles/qa_engineer.md`
 - browser loop skill: `skills/agent-browser/SKILL.md`
 - workflow evidence sink: the actual PR or existing Task, following `doc/engineering/workflow/source-of-truth.md`; Issue and Project are optional
 
@@ -103,11 +102,11 @@ Rejected as defaults:
 
 ## Guardrails
 
-- Treat this as mandatory only for visual or player-visible interaction changes; for other `game_visual_interaction_designer` participation, use it only when the slice contract names an interaction risk.
+- Apply this checklist when the change introduces or modifies player-visible interaction behavior or names an interaction risk; it does not create a separate workflow gate or mandatory role handoff chain.
 - Keep interaction findings separate from gameplay-rule findings.
-- Do not promise keyboard, touch, controller, or screen-reader support unless the implementation and QA evidence cover it.
+- Do not promise keyboard, touch, controller, or screen-reader support unless the implementation and verification evidence cover it.
 - Do not let target images, reference videos, or design-system examples replace real player-facing smoke evidence.
-- If implementation follows from the brief, name the minimum states that `viewer_engineer` must implement and `qa_engineer` can verify.
+- If implementation follows from the brief, name the minimum states to implement and verify with the PR (or hand off only when post-merge complex testing applies per `doc/engineering/workflow/source-of-truth.md#issue-lifecycle`).
 
 ## Verification
 

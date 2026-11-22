@@ -1,13 +1,10 @@
 extern crate self as oasis7;
 
 pub mod capability_invocation_context;
-pub mod chain_pos_defaults;
 pub mod chain_resource_schema;
 pub mod collect_data_auth;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod consensus_action_payload;
-#[cfg(not(target_arch = "wasm32"))]
-pub mod development_node_config;
 pub mod env_mut;
 pub mod geometry;
 #[cfg(not(target_arch = "wasm32"))]
@@ -34,6 +31,3 @@ pub use geometry::{
     space_distance_cm, space_distance_m,
 };
 pub use models::{AgentState, BodyKernelView, DEFAULT_AGENT_HEIGHT_CM, RobotBodySpec};
-
-#[cfg(not(target_arch = "wasm32"))]
-mod module_source_compiler;

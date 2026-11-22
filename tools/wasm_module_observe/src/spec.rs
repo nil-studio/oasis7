@@ -289,9 +289,15 @@ mod tests {
         std::env::temp_dir().join(format!("wasm-module-observe-spec-{suffix}.json"))
     }
 
+    fn unique_temp_root(label: &str) -> std::path::PathBuf {
+        static TEMP_DIR_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let seq = TEMP_DIR_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        std::env::temp_dir().join(format!("{label}-{}-{seq}", std::process::id()))
+    }
+
     #[test]
     fn load_spec_resolves_manifest_relative_to_spec() {
-        let temp_root = std::env::temp_dir().join("wasm-module-observe-spec-test");
+        let temp_root = unique_temp_root("wasm-module-observe-spec-test");
         let module_dir = temp_root.join("module");
         let observe_dir = module_dir.join("observability");
         std::fs::create_dir_all(&observe_dir).expect("create observe dir");
@@ -361,7 +367,7 @@ mod tests {
 
     #[test]
     fn load_spec_rejects_unknown_schema_version() {
-        let temp_root = std::env::temp_dir().join("wasm-module-observe-schema-version-test");
+        let temp_root = unique_temp_root("wasm-module-observe-schema-version-test");
         let module_dir = temp_root.join("module");
         let observe_dir = module_dir.join("observability");
         std::fs::create_dir_all(&observe_dir).expect("create observe dir");

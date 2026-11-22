@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
 struct RecordedHttpRequest {
@@ -1083,8 +1083,7 @@ impl ProviderOriginalMaterialStore for TestProviderMaterialStore {
 }
 
 fn proxy_env_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+    crate::env_mut::process_env_lock()
 }
 
 fn proxy_env_keys() -> &'static [&'static str] {

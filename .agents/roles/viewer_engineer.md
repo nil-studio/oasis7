@@ -26,7 +26,7 @@
 
 - 前端职责/入口变化：`npm --prefix crates/oasis7_viewer run test:frontend-structure`。
 - 组件/状态逻辑：`npm --prefix crates/oasis7_viewer run test:ui -- <实际测试文件>`；文件从当前受影响用例选择，不把占位符当命令。
-- Rust runtime 内部行为：`env -u RUSTC_WRAPPER cargo test -p oasis7_viewer_runtime --lib <实际过滤项>`；确认实际选中用例，再按消费者和风险加测。
+- Rust runtime 内部行为：日常反馈运行 `./scripts/cargo-dev.sh test -p oasis7_viewer_runtime --lib <实际过滤项>`（正式验收保留 `env -u RUSTC_WRAPPER cargo test ...`）；确认实际选中用例，再按消费者和风险加测。
 - 可见交互、输入或跨边界状态变化：沿 S6 选择适用浏览器场景；component/fixture 与真实服务、世界验收分别记录。
 
 非显然约束：保留已有 DOM/测试消费者和生成来源；区分请求接受、业务回执与世界效果；旧结果、重挂和恢复沿原身份处理。具体约束回到对应设计，不由本角色卡新增协议或授权。角色卡与工具配置的[导航维护方法](../../doc/engineering/design.md#task-scoped-engineering-context-design)保持一致。

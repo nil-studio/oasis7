@@ -8,7 +8,7 @@ pub(super) struct ReplayedHistoryCut {
     pub(super) activation: Option<VerifiedDurableSetActivationV1>,
     pub(super) activation_predecessor: Option<VerifiedFormalReadAnchorV1>,
     pub(super) activation_step:
-        Option<oasis7::world_service::formal_read::FormalNormalDurableSetReadStepV1>,
+        Option<oasis7_world_service::formal_read::FormalNormalDurableSetReadStepV1>,
 }
 
 impl ReplayedHistoryCut {
@@ -82,7 +82,7 @@ pub(super) fn replay_exact_origin_from_with_activations(
     mut activation_at: impl FnMut(
         u64,
     ) -> Result<
-        Option<oasis7::world_service::formal_read::FormalNormalDurableSetReadStepV1>,
+        Option<oasis7_world_service::formal_read::FormalNormalDurableSetReadStepV1>,
         FormalReadError,
     >,
     mut proof_at: impl FnMut(
@@ -238,7 +238,7 @@ pub(super) fn replay_exact_origin_after_verified_with_activation_policy(
     mut activation_at: impl FnMut(
         u64,
     ) -> Result<
-        Option<oasis7::world_service::formal_read::FormalNormalDurableSetReadStepV1>,
+        Option<oasis7_world_service::formal_read::FormalNormalDurableSetReadStepV1>,
         ReplayFailure,
     >,
     mut after_verified: impl FnMut(
@@ -410,7 +410,7 @@ pub(super) fn replay_exact_origin_after_verified_with_activation_policy(
 pub(super) fn advance_durable_set_marker(
     predecessor: &VerifiedFormalReadAnchorV1,
     boundary: &VerifiedFormalReadAnchorV1,
-    marker: &oasis7::world_service::formal_read::FormalNormalDurableSetReadStepV1,
+    marker: &oasis7_world_service::formal_read::FormalNormalDurableSetReadStepV1,
 ) -> Result<(VerifiedFormalReadAnchorV1, VerifiedDurableSetActivationV1), FormalReadError> {
     if boundary.head().record().position != marker.transition.body.boundary_position
         || predecessor.head().head() != marker.transition.body.predecessor
