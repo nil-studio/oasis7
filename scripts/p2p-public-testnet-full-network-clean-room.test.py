@@ -2813,8 +2813,10 @@ class FullNetworkCleanRoomPlanTests(unittest.TestCase):
     def test_plan_projects_identity_commands_through_governed_v2_sidecar(self) -> None:
         """Every authoritative identity command must use the executable v2 sidecar."""
         runbook = (
-            ROOT / "doc/p2p/blockchain/public-testnet-governed-bootstrap.runbook.md"
-        ).read_text(encoding="utf-8")
+            (ROOT / "doc/p2p/blockchain/public-testnet-governed-bootstrap.runbook.md").read_text(encoding="utf-8")
+            + "\n"
+            + (ROOT / "doc/p2p/blockchain/public-testnet-governed-bootstrap-phase-c-rebuild.runbook.md").read_text(encoding="utf-8")
+        )
         self.assertIn("p2p-public-testnet-identity-receipt-v2.py", runbook)
         self.assertIn("--raw-v1", runbook)
         self.assertIn("--template", runbook)
@@ -2838,8 +2840,10 @@ class FullNetworkCleanRoomPlanTests(unittest.TestCase):
 
     def test_governed_bootstrap_runbook_describes_v2_identity_envelope_boundary(self) -> None:
         """The authoritative runbook must retire raw v1 direct admission and specify v2."""
-        runbook = (ROOT / "doc/p2p/blockchain/public-testnet-governed-bootstrap.runbook.md").read_text(
-            encoding="utf-8"
+        runbook = (
+            (ROOT / "doc/p2p/blockchain/public-testnet-governed-bootstrap.runbook.md").read_text(encoding="utf-8")
+            + "\n"
+            + (ROOT / "doc/p2p/blockchain/public-testnet-governed-bootstrap-phase-c-rebuild.runbook.md").read_text(encoding="utf-8")
         )
         self.assertRegex(
             runbook,
