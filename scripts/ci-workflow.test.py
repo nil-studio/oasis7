@@ -180,7 +180,7 @@ def workspace_support_image_matrix(job):
 
 
 def rust_image_cache_namespace(name, job):
-    if name not in ('node', 'consensus', 'distfs', 'rust-baseline', 'pixel-world-bridge', 'net', 'scenario-regression', 'launcher-web', 'custody-wasm-contracts', 'workspace-support-other', 'cargo-tooling-contracts') or '    container:' not in job:
+    if name not in ('node', 'consensus', 'distfs', 'rust-baseline', 'pixel-world-bridge', 'net', 'scenario-regression', 'launcher-web', 'custody-native-contracts', 'workspace-support-other', 'cargo-tooling-contracts') or '    container:' not in job:
         return None
     if name == 'workspace-support-other' and (matrix := workspace_support_image_matrix(job)):
         return matrix
@@ -643,7 +643,7 @@ def validate_candidate_graph(workflow, config):
         if group == 'workspace_support':
             summary = jobs['workspace-support']
             expected_support = ['select', 'workspace-support-legacy', 'workspace-support-other',
-                                'custody-native-contracts', 'custody-wasm-contracts', 'custody-native',
+                                'custody-native-contracts', 'custody-native',
                                 'custody-wasm-production', 'custody-wasm-approval', 'custody-node']
             dependencies = re.search(r'    needs: \[(.*)\]', summary).group(1).split(', ')
             if (dependencies != expected_support or 'always()' not in summary
@@ -668,7 +668,7 @@ def validate_candidate_graph(workflow, config):
                     or 'needs: [select, custody-native, custody-wasm-production, custody-wasm-approval]' not in node):
                 raise ValueError('custody must run the complete trusted file shards and TypeScript consumer')
             proof = jobs['custody-native-contracts']
-            if ('    needs: select' not in proof or 'custody_execution_version == 1' not in proof
+            if ('    needs: select\n' not in proof or 'custody_execution_version == 1' not in proof
                     or 'verify.sh --stage native-contracts' not in proof
                     or 'RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}' not in proof
                     or 'custody-native-contracts' in node):
@@ -684,17 +684,16 @@ def validate_candidate_graph(workflow, config):
                         or 'name: ${{ needs.select.outputs.selection_artifact }}' not in proof
                         or 'path: ${{ runner.temp }}' not in proof):
                     raise ValueError('custody policy changes must execute the complete native target expansion')
-            wasm_proof = jobs['custody-wasm-contracts']
-            if ('    needs: select\n' not in wasm_proof
-                    or 'custody_compile_proof_version == 1' not in wasm_proof
-                    or 'custody_execution_version == 1' not in wasm_proof
-                    or 'CUSTODY_COMPONENT: wasm-contracts' not in wasm_proof
-                    or 'ci-custody-platform.py stage' not in wasm_proof
-                    or 'verify.sh --stage "$stage"' not in wasm_proof
-                    or 'run_worker_wasm_compile_profiles' not in wasm_proof
-                    or 'CUSTODY_SELECTION_SHA256: ${{ fromJSON(needs.select.outputs.plan).selection_sha256 }}' not in wasm_proof
-                    or 'actions/upload-artifact' in wasm_proof
-                    or 'custody-wasm-contracts' in node):
+            wasm_step = next((step for step in re.findall(r'^      - .*?(?=^      - |\Z)', proof, re.M | re.S)
+                              if 'name: Execute complete custody WASM compile proofs' in step), '')
+            if ('if: fromJSON(needs.select.outputs.plan).custody_compile_proof_version == 1' not in wasm_step
+                    or 'CUSTODY_COMPONENT: wasm-contracts' not in wasm_step
+                    or 'ci-custody-platform.py stage' not in wasm_step
+                    or 'verify.sh --stage "$stage"' not in wasm_step
+                    or 'run_worker_wasm_compile_profiles' not in wasm_step
+                    or 'CUSTODY_SELECTION_SHA256: ${{ fromJSON(needs.select.outputs.plan).selection_sha256 }}' not in wasm_step
+                    or 'actions/upload-artifact' in proof
+                    or 'custody-wasm-contracts' in jobs):
                 raise ValueError('WASM proof must preserve selected compile checks without blocking Node consumers')
             for component in ('native', 'wasm-production', 'wasm-approval'):
                 producer = jobs['custody-' + component]
@@ -722,9 +721,15 @@ def validate_candidate_graph(workflow, config):
                 raise ValueError('other support must remain independent of custody builds')
             continue
         if group == 'formal_process':
-            if 'always()' not in job or 'ci-formal-plan.py" --selected' not in job:
-                raise ValueError('formal aggregation must execute and validate results')
+            if ('always()' not in job or 'ci-formal-plan.py" --selected' not in job
+                    or "needs.select.outputs.run_formal_process == 'true'" not in job):
+                raise ValueError('formal aggregation must execute when selected or failed and validate results')
             continue
+        if config.get('contract_job_consolidation_version') == 1 and group in config.get('group_jobs', {}):
+            host_job = jobs[config['group_jobs'][group]]
+            if ('fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 1' not in job
+                    or f'needs.select.outputs.run_{group}' not in host_job):
+                raise ValueError('consolidated contract group must gate legacy job and bind its select output on host job')
         if ("needs.select.result == 'success'" not in job
                 or "fromJSON(needs.select.outputs.plan).scope == 'full'" not in job):
             raise ValueError('group requires successful select and full migration fallback')
@@ -1579,9 +1584,10 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                   'python_control_contract_version', 'groups', 'source_sha', 'tested_sha', 'policy_sha',
                   'check_inventory_version', 'fast_plan_exceptions'}
         consumers = set(re.findall(r'fromJSON\(needs\.select\.outputs\.plan\)\.([A-Za-z0-9_]+)', RAW_WORKFLOW))
-        self.assertLessEqual(consumers, fields | {'ordinary_main_fast_cache_writer_version',
-                                                'custody_compile_proof_version', 'custody_policy_tests_version',
-                                                'selection_sha256'})
+        self.assertLessEqual(consumers, fields | {
+            'ordinary_dynamic_partition_version', 'ordinary_main_fast_cache_writer_version',
+            'contract_job_consolidation_version',
+            'custody_compile_proof_version', 'custody_policy_tests_version', 'selection_sha256'})
         self.assertIn('plan: ${{ steps.workflow-plan.outputs.plan }}', JOBS['select'])
         guard = workflow_step_script(JOBS['required-gate'], 'Validate complete selection handoff')
         self.assertEqual(guard, workflow_step_script(JOBS['explicit-full-gate'], 'Validate complete selection handoff'))
@@ -1733,7 +1739,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             self.assertNotEqual(result.returncode, 0)
             support = dict(select=selection, **{name: {'result': 'skipped'} for name in (
                 'workspace-support-other', 'custody-native', 'custody-wasm-production', 'custody-wasm-approval',
-                'custody-native-contracts', 'custody-wasm-contracts', 'custody-node')})
+                'custody-native-contracts', 'custody-node')})
             support['workspace-support-legacy'] = {'result': 'success'}
             script = workflow_step_script(JOBS['workspace-support'], 'Require all selected support stages and complete file inventory')
             environment['SUPPORT_NEEDS'] = json.dumps(support)
@@ -1742,9 +1748,9 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             for state in ('success', 'failure', 'cancelled', None, 'missing'):
                 changed = dict(support)
                 if state == 'missing':
-                    del changed['custody-wasm-contracts']
+                    del changed['custody-native-contracts']
                 else:
-                    changed['custody-wasm-contracts'] = {'result': state}
+                    changed['custody-native-contracts'] = {'result': state}
                 with self.subTest(unselected_proof=state):
                     result = subprocess.run(['bash', '-euc', script], cwd=ROOT,
                         env=environment | {'SUPPORT_NEEDS': json.dumps(changed)}, text=True, capture_output=True)
@@ -1753,6 +1759,51 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             result = subprocess.run(['bash', '-euc', script], cwd=ROOT,
                 env=environment | {'SUPPORT_NEEDS': json.dumps(support)}, text=True, capture_output=True)
             self.assertNotEqual(result.returncode, 0)
+            # Post-merge candidate-full against a 7347b13-era source (which has
+            # custody_compile_proof_version == 1 and requires custody-wasm-contracts
+            # in validate_jobs) must receive the real consolidated proof result.
+            era2_repo = root / 'era2'
+            (era2_repo / 'scripts').mkdir(parents=True)
+            (era2_repo / 'scripts/ci-custody-platform.py').write_text(
+                'import argparse, json\n'
+                'p = argparse.ArgumentParser()\n'
+                'p.add_argument("action"); p.add_argument("--plan"); p.add_argument("--needs")\n'
+                'p.add_argument("--results"); p.add_argument("--capture-workerd-faults", action="store_true")\n'
+                'a = p.parse_args()\n'
+                'plan = json.loads(open(a.plan).read())\n'
+                'needs = json.loads(a.needs)\n'
+                'expected = {"select", "workspace-support-legacy", "workspace-support-other",\n'
+                '            "custody-native", "custody-wasm-production", "custody-wasm-approval",\n'
+                '            "custody-native-contracts", "custody-wasm-contracts", "custody-node"}\n'
+                'assert plan["custody_compile_proof_version"] == 1 and set(needs) == expected\n'
+                'assert needs["custody-native-contracts"]["result"] == "success"\n'
+                'assert needs["custody-wasm-contracts"]["result"] == "success"\n'
+            )
+            era2_plan = large_transport_plan() | {
+                'workspace_support_partition_version': 1,
+                'workspace_support_partitions': ['custody'],
+                'test_policy_changed': False,
+                'custody_compile_proof_version': 1,
+            }
+            project_selection(root, era2_plan)
+            era2_support = {
+                'select': selection,
+                'workspace-support-legacy': {'result': 'skipped'},
+                'workspace-support-other': {'result': 'skipped'},
+                'custody-native': {'result': 'success'},
+                'custody-wasm-production': {'result': 'success'},
+                'custody-wasm-approval': {'result': 'success'},
+                'custody-native-contracts': {'result': 'success'},
+                'custody-node': {'result': 'success'},
+            }
+            result = subprocess.run(['bash', '-euc', script], cwd=era2_repo,
+                env=environment | {'SUPPORT_NEEDS': json.dumps(era2_support)}, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            for bad in ('failure', 'cancelled', 'skipped', None):
+                broken = dict(era2_support, **{'custody-native-contracts': {'result': bad}})
+                result = subprocess.run(['bash', '-euc', script], cwd=era2_repo,
+                    env=environment | {'SUPPORT_NEEDS': json.dumps(broken)}, text=True, capture_output=True)
+                self.assertNotEqual(result.returncode, 0)
             observation = workflow_step_script(JOBS['select'], 'Record engineering job observation')
             result = subprocess.run(['bash', '-euc', observation], cwd=root,
                 env=dict(environment, TELEMETRY_NEEDS=json.dumps({'select': selection}), TELEMETRY_MATRIX='{}',
@@ -1836,8 +1887,12 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             self.assertNotEqual(invoke(projected | {field: 1}).returncode, 0)
 
     def test_trusted_selection_projects_custody_proof_only_for_the_capable_baseline(self):
-        condition = re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)',
-                              JOBS['custody-wasm-contracts'], re.M | re.S)[1]
+        job_condition = re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)',
+                                  JOBS['custody-native-contracts'], re.M | re.S)[1]
+        proof_step = next(step for step in re.findall(r'^      - .*?(?=^      - |\Z)',
+                                                      JOBS['custody-native-contracts'], re.M | re.S)
+                          if 'name: Execute complete custody WASM compile proofs\n' in step)
+        step_condition = re.search(r'^        if: (.+)$', proof_step, re.M)[1]
         for version in ('new', 'old-custody', 'legacy'):
             policy = dict(CONFIG)
             if version != 'new':
@@ -1854,7 +1909,10 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 values = {'needs.select.result': 'success',
                           'fromJSON(needs.select.outputs.plan).custody_execution_version': projected.get('custody_execution_version', 0),
                           'fromJSON(needs.select.outputs.plan).custody_compile_proof_version': projected.get('custody_compile_proof_version', 0)}
-                self.assertEqual(effective_job_condition(condition, values, ['skipped', 'success']), version == 'new')
+                job_runs = effective_job_condition(job_condition, values, ['skipped', 'success'])
+                step_runs = job_runs and effective_job_condition(step_condition, values, [])
+                self.assertEqual(job_runs, version in ('new', 'old-custody'))
+                self.assertEqual(step_runs, version == 'new')
 
     def test_current_workflow_preserves_the_fixed_historical_custody_source_protocol(self):
         old = {key: value for key, value in CONFIG.items()
@@ -1954,8 +2012,10 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
     def test_explicit_full_gate_covers_every_group_and_records_only_success(self):
         gate = JOBS['explicit-full-gate']
         dependencies = re.search(r'    needs: \[(.*)\]', gate).group(1).split(', ')
-        self.assertEqual(set(dependencies), {'select', 'oasis7-test-build', 'full-regression',
-            'candidate-full-regression', *(group.replace('_', '-') for group in CONFIG['groups'])})
+        self.assertEqual(set(dependencies), {
+            'select', 'oasis7-test-build-candidate', 'oasis7-test-build-trusted',
+            'full-regression', 'candidate-full-regression',
+            *(group.replace('_', '-') for group in CONFIG['groups'])})
         self.assertEqual(len(dependencies), len(set(dependencies)))
         self.assertIn('always()', gate)
         self.assertIn("trusted_main('ci-required-result.py', ['--full'", gate)
@@ -1980,10 +2040,15 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 self.assertGreater((Path(directory) / 'selection.json').stat().st_size, 128 * 1024)
                 repo = Path(directory) / 'repo'
                 subprocess.run(['git', '-C', str(repo), 'checkout', '-q', policy], check=True)
-                needs = {group.replace('_', '-'): {'result': 'success'} for group in CONFIG['groups']}
-                needs.update(select={'result': 'success', 'outputs': {'plan': json.dumps(projected)}},
-                             **{'oasis7-test-build': {'result': 'success'}})
+                retired = ({group.replace('_', '-') for group in CONFIG.get('group_jobs', {})}
+                           if plan.get('contract_job_consolidation_version') == 1 else set())
+                needs = {group.replace('_', '-'): {'result': 'skipped' if group.replace('_', '-') in retired else 'success'}
+                         for group in CONFIG['groups']}
                 trusted = source == policy
+                needs.update(select={'result': 'success', 'outputs': {'plan': json.dumps(projected)}}, **{
+                    'oasis7-test-build-candidate': {'result': 'skipped' if trusted else 'success'},
+                    'oasis7-test-build-trusted': {'result': 'success' if trusted else 'skipped'},
+                })
                 needs['full-regression'] = {'result': 'success' if trusted else 'skipped'}
                 needs['candidate-full-regression'] = {'result': 'skipped' if trusted else 'success'}
                 environment = dict(os.environ, RUNNER_TEMP=directory, GITHUB_WORKSPACE=str(repo),
@@ -2513,10 +2578,12 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             self.assertIn('./scripts/ci-tests.sh full-extended', JOBS[name])
             self.assertIn('needs: select', JOBS[name])
             self.assertNotIn('oasis7-test-build', JOBS[name])
+        self.assertNotIn('oasis7-test-build', JOBS)
         self.assertIn('compression-level: 0', JOBS['oasis7-test-build-candidate'])
         self.assertIn('overwrite: true', JOBS['oasis7-test-build-candidate'])
         self.assertIn('--scope ordinary', JOBS['oasis7-test-build-candidate'])
-        self.assertNotIn('run_formal_process', JOBS['oasis7-test-build'])
+        self.assertNotIn('run_formal_process', JOBS['oasis7-test-build-candidate'])
+        self.assertNotIn('run_formal_process', JOBS['oasis7-test-build-trusted'])
         self.assertIn('merge-formal --debug-bundle', JOBS['formal-test-build'])
         self.assertIn('--split-formal', JOBS['formal-test-build'])
         self.assertIn('formal-tests-${{ matrix.shard }}-${{ github.sha }}', matrix)
@@ -2598,19 +2665,28 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                                 self.assertEqual(actual, expected)
 
     def test_ordinary_build_aggregation_rejects_every_incomplete_lane_combination(self):
-        gate = JOBS['oasis7-test-build']
-        self.assertIn('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]', gate)
-        self.assertIn('always()', gate.split('    runs-on:', 1)[0])
-        self.assertIn("needs.select.result == 'success'", gate)
-        script = textwrap.dedent(gate.split('        run: |\n', 1)[1])
+        consumer = JOBS['oasis7-required']
+        self.assertIn('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]', consumer)
+        condition = consumer.split('    runs-on:', 1)[0].split('    if:', 1)[1].strip().removeprefix('>-').strip()
+        self.assertIn('always() && !cancelled()', condition)
+        self.assertIn("needs.select.result == 'success'", condition)
         states = ('success', 'skipped', 'failure', 'cancelled', '', 'unknown')
         for candidate in states:
             for trusted in states:
                 with self.subTest(candidate=candidate, trusted=trusted):
-                    result = subprocess.run(['bash', '-c', script], text=True, capture_output=True,
-                        env=dict(os.environ, CANDIDATE_RESULT=candidate, TRUSTED_RESULT=trusted))
+                    values = {
+                        'always()': True, 'cancelled()': False,
+                        'needs.select.result': 'success',
+                        'needs.oasis7-test-build-candidate.result': candidate,
+                        'needs.oasis7-test-build-trusted.result': trusted,
+                        'needs.select.outputs.run_oasis7_required': 'true',
+                        'fromJSON(needs.select.outputs.plan).scope': 'targeted',
+                        'fromJSON(needs.select.outputs.plan).fast_execution_version': 1,
+                        'fromJSON(needs.select.outputs.plan).ordinary_execution': 'artifact',
+                    }
+                    actual = effective_job_condition(condition, values, ['success', candidate, trusted])
                     expected = (candidate, trusted) in (('success', 'skipped'), ('skipped', 'success'))
-                    self.assertEqual(result.returncode == 0, expected, result.stdout + result.stderr)
+                    self.assertEqual(actual, expected)
 
     def test_consumers_require_their_actual_dependency_and_handle_cancellation(self):
         for name in ('oasis7-required', 'full-regression', 'candidate-full-regression'):
@@ -2618,8 +2694,10 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             condition = header.split('    if:', 1)[1].strip()
             condition = condition.removeprefix('>-').strip()
             self.assertIn('always() && !cancelled()', condition)
-            predecessor = 'oasis7-test-build' if name == 'oasis7-required' else 'select'
-            self.assertIn(f"needs.{predecessor}.result == 'success'", condition)
+            self.assertIn("needs.select.result == 'success'", condition)
+            if name == 'oasis7-required':
+                self.assertIn("needs.oasis7-test-build-candidate.result == 'success'", condition)
+                self.assertIn("needs.oasis7-test-build-trusted.result == 'success'", condition)
             for result in ('success', 'failure', 'skipped', 'cancelled', '', 'unknown'):
                 for cancelled in (False, True):
                     for event, ref, mode, scope, expected in (
@@ -2631,7 +2709,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                             ('workflow_dispatch', 'refs/heads/main', 'newapi_bridge_package', 'explicit-full', None)):
                         values = {
                             'always()': True, 'cancelled()': cancelled,
-                            'needs.oasis7-test-build.result': result,
+                            'needs.oasis7-test-build-candidate.result': result,
+                            'needs.oasis7-test-build-trusted.result': 'skipped',
                             'needs.select.result': 'success' if name == 'oasis7-required' else result,
                             'needs.select.outputs.run_oasis7_required': 'false',
                             'fromJSON(needs.select.outputs.plan).scope': scope,
@@ -2656,11 +2735,14 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
     def test_inline_execution_skips_only_compatible_producers_and_rejects_bad_dependency_states(self):
         for version, mode in ((0, ''), (2, 'inline'), (1, 'artifact'), (1, 'inline')):
             inline = version == 1 and mode == 'inline'
-            for producer in ('success', 'skipped', 'failure', 'cancelled', '', 'unknown'):
+            for candidate, trusted in (('skipped', 'skipped'), ('success', 'skipped'),
+                                       ('skipped', 'success'), ('success', 'success'),
+                                       ('failure', 'skipped'), ('cancelled', 'skipped')):
                 for cancelled in (False, True):
                     values = {
                         'always()': True, 'cancelled()': cancelled, 'needs.select.result': 'success',
-                        'needs.oasis7-test-build.result': producer,
+                        'needs.oasis7-test-build-candidate.result': candidate,
+                        'needs.oasis7-test-build-trusted.result': trusted,
                         'needs.select.outputs.run_oasis7_required': 'true',
                         'needs.select.outputs.trusted_source': 'false',
                         'fromJSON(needs.select.outputs.plan).scope': 'targeted',
@@ -2672,24 +2754,22 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                         'github.event_name': 'pull_request', 'github.ref': 'refs/pull/1/merge',
                         'github.workflow_sha': 'a', 'github.sha': 'b', 'inputs.run_mode': '',
                     }
-                    for name in ('oasis7-test-build-candidate', 'oasis7-test-build-trusted',
-                                 'oasis7-test-build', 'oasis7-required'):
+                    for name in ('oasis7-test-build-candidate', 'oasis7-test-build-trusted', 'oasis7-required'):
                         condition = JOBS[name].split('    if:', 1)[1].split('    runs-on:', 1)[0].strip().removeprefix('>-')
                         for token, value in values.items():
                             condition = condition.replace(token, repr(value))
                         condition = re.sub(r'!(?!=)', 'not ', condition.replace('&&', ' and ').replace('||', ' or '))
                         actual = eval(' '.join(condition.split()), {'__builtins__': {}}, {})
                         if name == 'oasis7-required':
-                            expected = not cancelled and producer == ('skipped' if inline else 'success')
+                            valid_producers = ((candidate, trusted) == ('skipped', 'skipped') if inline
+                                               else (candidate, trusted) in (('success', 'skipped'), ('skipped', 'success')))
+                            expected = not cancelled and valid_producers
                         elif name == 'oasis7-test-build-trusted':
                             expected = False
-                        elif name == 'oasis7-test-build-candidate':
-                            expected = not inline and not cancelled
                         else:
-                            # Aggregation still runs after cancellation to expose
-                            # incomplete producers; ordinary builds must stop.
-                            expected = not inline
-                        with self.subTest(job=name, version=version, mode=mode, producer=producer, cancelled=cancelled):
+                            expected = not inline and not cancelled
+                        with self.subTest(job=name, version=version, mode=mode,
+                                          candidate=candidate, trusted=trusted, cancelled=cancelled):
                             self.assertEqual(actual, expected)
 
     def test_preview_is_cold_read_only_and_independent_of_required_authority(self):
@@ -2881,7 +2961,7 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
     def test_ordinary_matrix_keeps_the_trusted_complete_partition_list_and_failure_boundary(self):
         job = JOBS['oasis7-required']
         self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
-        self.assertIn('needs: [select, oasis7-test-build]', job)
+        self.assertIn('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]', job)
         self.assertIn('oasis7-required', JOBS['required-gate'])
         for damaged in (
             job.replace('fail-fast: false', 'fail-fast: true'),
@@ -4480,7 +4560,8 @@ run_cargo() {
                 self.assertEqual(result.returncode, 0 if state == 'success' else 1)
                 if state != 'success':
                     self.assertIn('CI scope planning did not succeed', result.stdout)
-        for name in ('oasis7-test-build', 'formal-test-build', 'formal-test-build-trusted', 'formal-process-tests', 'command-center'):
+        for name in ('oasis7-test-build-candidate', 'oasis7-test-build-trusted',
+                     'formal-test-build', 'formal-test-build-trusted', 'formal-process-tests', 'command-center'):
             self.assertIn("needs.select.result == 'success'", JOBS[name])
 
     def test_gate_is_last_and_all_groups_are_dependencies(self):
@@ -4498,7 +4579,8 @@ run_cargo() {
             if group == 'workspace_support':
                 self.assertTrue(validate_candidate_graph(WORKFLOW, CONFIG))
                 continue
-            dependency = 'needs: [select, oasis7-test-build]' if group == 'oasis7_required' else 'needs: select'
+            dependency = ('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]'
+                          if group == 'oasis7_required' else 'needs: select')
             self.assertIn(dependency, job)
             self.assertIn(f"needs.select.outputs.run_{group} == 'true'", job)
             self.assertIn("needs.select.result == 'success'", job)
@@ -4514,11 +4596,12 @@ run_cargo() {
     def test_platform_product_jobs_still_gate(self):
         self.assertIn('runs-on: windows-2022', JOBS['windows-rollout'])
         self.assertIn('p2p-public-testnet-package-rollout.test.sh', JOBS['windows-rollout'])
+        self.assertIn('testnet-packages-macos-arm64-contract.test.sh', JOBS['baseline'])
         self.assertIn('testnet-packages-macos-arm64-contract.test.sh', JOBS['macos-package-contract'])
         self.assertIn('p2p-public-testnet-fleet-health.test.py', JOBS['fleet-health'])
         self.assertIn('os: [ubuntu-24.04, windows-2022, macos-15]', JOBS['fleet-health'])
         self.assertIn('--host-smoke', JOBS['fleet-health'])
-        self.assertEqual(WORKFLOW.count('run: bash ./scripts/testnet-packages-macos-arm64-contract.test.sh'), 1)
+        self.assertEqual(WORKFLOW.count('testnet-packages-macos-arm64-contract.test.sh'), 2)
         self.assertIn('./scripts/ci-tests.sh full', JOBS['full-regression'])
         self.assertIn('package-newapi-bridge-service.sh', JOBS['newapi-bridge-package'])
         report = JOBS['viewer-performance-report']
@@ -4926,19 +5009,20 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
             'consensus', 'distfs', 'node', 'net', 'viewer-js-required',
             'viewer-performance-report', 'pixel-world-bridge', 'launcher-web',
             'workspace-support-legacy', 'workspace-support-other', 'custody-native', 'custody-native-contracts',
-            'custody-wasm-production', 'custody-wasm-approval', 'custody-wasm-contracts', 'custody-node',
+            'custody-wasm-production', 'custody-wasm-approval', 'custody-node',
             'scenario-regression', 'operational-contracts', 'packaging-contracts',
             'workflow-governance', 'codex-agent-config-validation', 'compile-metrics',
             'site-quality', 'doc-checker-contracts', 'cargo-tooling-contracts',
             'windows-rollout', 'macos-package-contract', 'fleet-health',
         )
-        self.assertEqual(len(names), 32)
+        self.assertEqual(len(names), 31)
         producers = ('custody-native', 'custody-wasm-production', 'custody-wasm-approval')
-        split_jobs = {*producers, 'custody-native-contracts', 'custody-wasm-contracts', 'custody-node', 'workspace-support-other'}
+        split_jobs = {*producers, 'custody-native-contracts', 'custody-node', 'workspace-support-other'}
         conditions = {name: re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)',
                                       JOBS[name], re.M | re.S)[1] for name in names}
 
-        def values_for(name, event, selected=True, select='success', scope='targeted', results=None):
+        def values_for(name, event, selected=True, select='success', scope='targeted', results=None,
+                       consolidation=0):
             values = {
                 'needs.select.result': select,
                 'needs.select.outputs.trusted_source': 'true' if event == 'push' else 'false',
@@ -4946,6 +5030,7 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                 'fromJSON(needs.select.outputs.plan).scope': scope,
                 'fromJSON(needs.select.outputs.plan).fast_plan_version': 1,
                 'fromJSON(needs.select.outputs.plan).ordinary_main_fast_cache_writer_version': 0,
+                'fromJSON(needs.select.outputs.plan).contract_job_consolidation_version': consolidation,
                 'fromJSON(needs.select.outputs.plan).fast_execution_version': 1,
                 'fromJSON(needs.select.outputs.plan).ordinary_execution': 'artifact',
                 'fromJSON(needs.select.outputs.plan).custody_execution_version': 1 if selected and name in split_jobs else 0,
@@ -4989,6 +5074,17 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                     with self.subTest(job=name, event=event, scope='full'):
                         values = values_for(name, event, selected=False, scope='full')
                         self.assertTrue(effective_job_condition(condition, values, ['skipped', 'success']))
+            for retired in ('codex-agent-config-validation', 'compile-metrics', 'macos-package-contract'):
+                for scope in ('targeted', 'full', 'explicit-full'):
+                    values = values_for(retired, event, selected=True, scope=scope, consolidation=1)
+                    self.assertFalse(effective_job_condition(conditions[retired], values, ['skipped', 'success']))
+            # Consolidated owners trigger even if only the absorbed contract group was selected.
+            only_macos = values_for('baseline', event, selected=False, consolidation=1)
+            only_macos['needs.select.outputs.run_macos_package_contract'] = 'true'
+            self.assertTrue(effective_job_condition(conditions['baseline'], only_macos, ['skipped', 'success']))
+            only_metrics = values_for('doc-checker-contracts', event, selected=False, consolidation=1)
+            only_metrics['needs.select.outputs.run_compile_metrics'] = 'true'
+            self.assertTrue(effective_job_condition(conditions['doc-checker-contracts'], only_metrics, ['skipped', 'success']))
 
         # An explicit status function also bypasses implicit producer success.
         # Every producer must therefore be checked by the actual Node job guard.
@@ -5006,6 +5102,22 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
             self.assertIn('always()', job)
             self.assertIn("needs.select.result != 'skipped'", job)
             self.assertNotIn("needs.select.result == 'success'", job.split('    runs-on:', 1)[0])
+        formal_cond = re.search(r'^    if: (.*?)(?=^    [a-z-]+:|\Z)', JOBS['formal-process'], re.M | re.S)[1]
+        for select, run_formal, expected in (
+            ('success', 'false', False),
+            ('success', '', False),
+            ('success', 'true', True),
+            ('failure', '', True),
+            ('cancelled', '', True),
+            ('skipped', 'true', False),
+        ):
+            actual = effective_job_condition(formal_cond, {
+                'needs.select.result': select,
+                'needs.select.outputs.run_formal_process': run_formal,
+                'github.event_name': 'pull_request',
+                'inputs.run_mode': '',
+            }, [select])
+            self.assertEqual(actual, expected, (select, run_formal))
         gate = JOBS['explicit-full-gate']
         self.assertNotIn('periodic-admission', re.search(r'    needs: \[(.*)\]', gate).group(1))
         admission = JOBS['periodic-admission']
@@ -5040,7 +5152,7 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
         summary = JOBS['workspace-support']
         for before, after in [
                 ('custody-node]', ']'),
-                ('custody-wasm-contracts, ', ''),
+                ('custody-native-contracts, ', ''),
                 ('ci-custody-platform.py validate', 'true'),
                 ('pattern: custody-node-${{ github.run_id }}-*', 'pattern: stale-*')]:
             with self.subTest(before=before), self.assertRaises(ValueError):
@@ -5051,16 +5163,15 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
                               ('npm run test:types', 'true')]:
             with self.subTest(before=before), self.assertRaises(ValueError):
                 validate_candidate_graph(WORKFLOW.replace(node, node.replace(before, after)), CONFIG)
-        proof = JOBS['custody-wasm-contracts']
-        for before, after in [('custody_compile_proof_version == 1', 'custody_compile_proof_version == 2'),
+        native = JOBS['custody-native-contracts']
+        for before, after in [('if: fromJSON(needs.select.outputs.plan).custody_compile_proof_version == 1', 'if: fromJSON(needs.select.outputs.plan).custody_compile_proof_version == 2'),
                               ('ci-custody-platform.py stage', 'true'),
                               ('verify.sh --stage "$stage"', 'true'),
                               ('run_worker_wasm_compile_profiles', 'true'),
                               ('    needs: select\n', '    needs: custody-wasm-approval\n')]:
             with self.subTest(before=before), self.assertRaises(ValueError):
-                validate_candidate_graph(WORKFLOW.replace(proof, proof.replace(before, after)), CONFIG)
-        native = JOBS['custody-native-contracts']
-        for before, after in [('custody_policy_tests_version == 1', 'custody_policy_tests_version == 2'),
+                validate_candidate_graph(WORKFLOW.replace(native, native.replace(before, after)), CONFIG)
+        for before, after in [('if: fromJSON(needs.select.outputs.plan).custody_policy_tests_version == 1', 'if: fromJSON(needs.select.outputs.plan).custody_policy_tests_version == 2'),
                               ('ci-custody-platform.py policy-tests', 'true'),
                               ('name: ${{ needs.select.outputs.selection_artifact }}', 'name: unrelated'),
                               ('OASIS7_SUPPORT_TESTED_SHA:', 'OMITTED_TESTED_SHA:')]:
@@ -5096,7 +5207,7 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
     def test_custody_approval_step_initializes_real_driver_and_propagates_compile_failure(self):
         scripts_by_component = {
             'wasm-approval': workflow_step_script(JOBS['custody-wasm-approval'], 'Build and verify the complete custody component'),
-            'wasm-contracts': workflow_step_script(JOBS['custody-wasm-contracts'], 'Execute complete custody WASM compile proofs'),
+            'wasm-contracts': workflow_step_script(JOBS['custody-native-contracts'], 'Execute complete custody WASM compile proofs'),
         }
         self.assertEqual(*(script.split('bash crates/', 1)[1].rstrip() for script in scripts_by_component.values()))
         features = ('identity', 'owner', 'executor', 'recovery-fence',
@@ -5776,7 +5887,7 @@ class TargetedOrdinaryArtifactWorkflow(unittest.TestCase):
         self.assertIn('fail-fast: false', header)
         self.assertNotIn('include:', header)
         self.assertNotIn('exclude:', header)
-        self.assertIn('needs: [select, oasis7-test-build]', header)
+        self.assertIn('needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]', header)
         self.assertIn('oasis7-required', JOBS['required-gate'])
         step = job.split('      - name: Execute selected group\n', 1)[1]
         script = textwrap.dedent(step.split('        run: ', 1)[1])
@@ -5855,16 +5966,22 @@ class OrdinaryDeliveryWorkflow(unittest.TestCase):
                         self.assertEqual('--split-ordinary' in lines[1], version in ('1', '2'))
         uploads = [step for step in steps if 'uses: actions/upload-artifact@' in step and 'name: native-tests-' in step]
         self.assertEqual(len(uploads), 6)
-        for version in (None, 1, 2):
-            selected = [step for step in uploads if effective_job_condition(self.condition(step),
-                        {'fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version': version}, [])]
-            self.assertEqual(len(selected), 5 if version is not None else 1)
+        for version, compact in ((None, False), (1, False), (2, False), (2, True)):
+            owners = (['all'] if version is None
+                      else ['controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1'] if version == 1
+                      else ['controls', 'native-0', 'native-1'] if compact
+                      else ['controls', 'native-0', 'native-1', 'native-2', 'native-3'])
+            partition_values = {
+                'fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version': version,
+                'fromJSON(needs.select.outputs.ordinary_partitions)[3]': owners[3] if len(owners) > 3 else None,
+                'fromJSON(needs.select.outputs.ordinary_partitions)[4]': owners[4] if len(owners) > 4 else None,
+            }
+            selected = [step for step in uploads if effective_job_condition(self.condition(step), partition_values, [])]
+            self.assertEqual(len(selected), 1 if version is None else len(owners))
             for step in selected:
                 for required in ('compression-level: 0', 'overwrite: true', 'if-no-files-found: error'):
                     self.assertIn(required, step)
             if version is not None:
-                owners = (['controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1']
-                          if version == 1 else ['controls', 'native-0', 'native-1', 'native-2', 'native-3'])
                 resolved = '\n'.join(selected)
                 for index, owner in enumerate(owners[1:], 1):
                     expression = '${{ fromJSON(needs.select.outputs.ordinary_partitions)[' + str(index) + '] }}'
@@ -5879,15 +5996,22 @@ class OrdinaryDeliveryWorkflow(unittest.TestCase):
         job = JOBS['pr-ordinary-delivery-preview']
         condition = job.split('    if: ', 1)[1].split('    runs-on:', 1)[0]
         values = {'github.event_name': 'pull_request', 'needs.select.result': 'success',
-                  'needs.oasis7-test-build.result': 'success',
+                  'needs.oasis7-test-build-candidate.result': 'success',
+                  'needs.oasis7-test-build-trusted.result': 'skipped',
                   'fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version': 1,
                   'fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version': None}
         self.assertTrue(effective_job_condition(condition, values, []))
-        for field, value in [('github.event_name', 'push'), ('needs.select.result', 'failure'),
-                             ('needs.oasis7-test-build.result', 'skipped'),
-                             ('fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version', 2),
-                             ('fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version', 1)]:
-            self.assertFalse(effective_job_condition(condition, values | {field: value}, []))
+        self.assertTrue(effective_job_condition(condition, values | {
+            'needs.oasis7-test-build-candidate.result': 'skipped',
+            'needs.oasis7-test-build-trusted.result': 'success',
+        }, []))
+        for extra in ({'github.event_name': 'push'}, {'needs.select.result': 'failure'},
+                      {'needs.oasis7-test-build-candidate.result': 'skipped'},
+                      {'needs.oasis7-test-build-trusted.result': 'success'},
+                      {'needs.oasis7-test-build-candidate.result': 'failure'},
+                      {'fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version': 2},
+                      {'fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version': 1}):
+            self.assertFalse(effective_job_condition(condition, values | extra, []))
         self.assertFalse(effective_job_condition(condition, values, [], cancelled=True))
         for exact in ('ref: ${{ needs.select.outputs.tested_sha }}',
                       'SOURCE_SHA: ${{ needs.select.outputs.source_sha }}',
@@ -6566,7 +6690,6 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
     def test_stable_pr_jobs_declare_bounded_timeout_minutes(self):
         expected_limits = {
             '.github/workflows/rust.yml': {
-                'oasis7-test-build': 5,
                 'formal-process': 5,
                 'workspace-support': 5,
                 'required-gate': 5,
@@ -6586,8 +6709,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'fleet-health': 12,
                 'doc-checker-contracts': 15,
                 'workflow-governance': 15,
-                'custody-native-contracts': 15,
-                'custody-wasm-contracts': 10,
+                'custody-native-contracts': 20,
                 'consensus': 5,
                 'net': 10,
                 'node': 15,
@@ -6736,7 +6858,7 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
         )
         priority_jobs = {
             'select', 'baseline', 'rust-baseline',
-            'oasis7-test-build-candidate', 'oasis7-test-build',
+            'oasis7-test-build-candidate',
             'formal-debug-build', 'formal-endpoint-build', 'formal-test-build',
             'oasis7-required', 'formal-process-tests', 'formal-process',
             'consensus', 'distfs', 'node', 'net',
@@ -6744,7 +6866,7 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
             'launcher-web', 'workspace-support-other',
             'custody-native-contracts', 'custody-native',
             'custody-wasm-production', 'custody-wasm-approval',
-            'custody-wasm-contracts', 'custody-node', 'workspace-support',
+            'custody-node', 'workspace-support',
             'scenario-regression',
             'workflow-governance', 'codex-agent-config-validation',
             'compile-metrics', 'site-quality', 'doc-checker-contracts',
