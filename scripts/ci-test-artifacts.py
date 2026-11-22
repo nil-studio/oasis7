@@ -1546,6 +1546,35 @@ def shared_incremental_duplicate(manifest):
         return None
 
 
+def coalesce_build_invocations(variants):
+    """Merge identical default-feature snapshot lib builds into one Cargo call."""
+    snapshot_specs = {
+        'snapshot-tests': ['test', '-p', 'oasis7', '--lib', '--no-run'],
+        'viewer-snapshot-tests': ['test', '-p', 'oasis7_viewer_runtime', '--lib', '--no-run'],
+    }
+    present = {
+        variant for variant, args, features in variants
+        if variant in snapshot_specs and args == snapshot_specs[variant] and features == []
+    }
+    if present != set(snapshot_specs):
+        return [(variant, args, features, None) for variant, args, features in variants]
+    invocations = []
+    merged = False
+    for variant, args, features in variants:
+        if variant in snapshot_specs:
+            if not merged:
+                invocations.append((
+                    'snapshot-tests',
+                    ['test', '-p', 'oasis7', '-p', 'oasis7_viewer_runtime', '--lib', '--no-run'],
+                    [],
+                    {'oasis7': 'snapshot-tests', 'oasis7_viewer_runtime': 'viewer-snapshot-tests'},
+                ))
+                merged = True
+            continue
+        invocations.append((variant, args, features, None))
+    return invocations
+
+
 def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir=None, ordinary_partition=None):
     validate_plan_identity(plan)
     image = storage_build_image() if scope in STORAGE_COMPONENTS else None
@@ -1592,7 +1621,7 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
                                 ('required-full-fast-', ordinary_full_fast_targets(plan)),
                                 ('required-risk-', ordinary_risk_supplements(plan))):
             target_specs.update({prefix + str(index): target for index, target in enumerate(targets or [])})
-    for variant, args, features in variants:
+    for variant, args, features, package_variants in coalesce_build_invocations(variants):
         members = {variant: target_specs[variant]} if variant in target_specs else {}
         if (members and scope == 'ordinary' and plan is not None
                 and plan.get('fast_execution_version') == 1):
@@ -1643,7 +1672,11 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
                 manifest = Path(artifact['manifest_path'])
                 package = tomllib.loads(manifest.read_text())['package']['name']
                 artifact_variant = variant
-                if members and test:
+                if package_variants and test:
+                    if package not in package_variants:
+                        raise ValueError('unexpected snapshot package in Cargo build: ' + package)
+                    artifact_variant = package_variants[package]
+                elif members and test:
                     matching = [name for name, spec in members.items()
                                 if (spec['package'], [spec['target_kind']], spec['target_name']) ==
                                    (package, target['kind'], target['name'])]
@@ -1683,6 +1716,8 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
                             dependency_rebuilt=dependency_units - dependency_fresh))
         if len(members) > 1:
             timings[-1]['target_variants'] = list(members)
+        elif package_variants:
+            timings[-1]['target_variants'] = list(package_variants.values())
         print('native_build=' + json.dumps(timings[-1]), flush=True)
     manifest = dict(schema_version=2, scope=scope, tested_sha=output(['git', 'rev-parse', 'HEAD']),
         source_sha=os.environ.get('SOURCE_SHA', output(['git', 'rev-parse', 'HEAD'])),
