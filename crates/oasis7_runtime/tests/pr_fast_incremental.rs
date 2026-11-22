@@ -13,7 +13,7 @@ mod due_module_batch;
 // The unchanged standalone cases each own this fixture module. Keep their
 // original scopes when composing the cases into one fast integration target.
 #[allow(clippy::duplicate_mod)]
-#[path = "../../oasis7/tests/incremental_runtime_allocators.rs"]
+#[path = "incremental_runtime_allocators.rs"]
 mod runtime_allocators;
-#[path = "../../oasis7/tests/incremental_runtime_commit.rs"]
+#[path = "incremental_runtime_commit.rs"]
 mod runtime_commit;
