@@ -1387,7 +1387,7 @@ jobs:
           github.workflow_sha == github.sha && needs.select.outputs.trusted_source == 'true' &&
           (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
         env:
-          OASIS7_FORMAL_BUILD_INPUTS: ${{ hashFiles('scripts/ci-formal-process-suites.json') }}
+          OASIS7_FORMAL_BUILD_INPUTS: ${{ hashFiles('scripts/ci-test-artifacts.py', 'scripts/ci-formal-process-suites.json') }}
         with:
           save-if: false
           shared-key: ci-formal-debug-deps-trusted-v1
@@ -1402,7 +1402,7 @@ jobs:
           (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')) &&
           steps.dependency-cache-tools.outcome == 'success'
         env:
-          OASIS7_FORMAL_BUILD_INPUTS: ${{ hashFiles('scripts/ci-formal-process-suites.json') }}
+          OASIS7_FORMAL_BUILD_INPUTS: ${{ hashFiles('scripts/ci-test-artifacts.py', 'scripts/ci-formal-process-suites.json') }}
           PATH: ${{ steps.dependency-cache-tools.outputs.path }}
           OASIS7_DEPENDENCY_CACHE_FAMILY: formal-debug
           OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
@@ -1670,7 +1670,7 @@ jobs:
           github.workflow_sha == github.sha && needs.select.outputs.trusted_source == 'true' &&
           (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
         env:
-          OASIS7_FORMAL_BUILD_INPUTS: ${{ hashFiles('scripts/ci-formal-process-suites.json') }}
+          OASIS7_FORMAL_BUILD_INPUTS: ${{ hashFiles('scripts/ci-test-artifacts.py', 'scripts/ci-formal-process-suites.json') }}
         with:
           save-if: false
           shared-key: ci-formal-endpoint-deps-trusted-v1
@@ -1685,7 +1685,7 @@ jobs:
           (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')) &&
           steps.dependency-cache-tools.outcome == 'success'
         env:
-          OASIS7_FORMAL_BUILD_INPUTS: ${{ hashFiles('scripts/ci-formal-process-suites.json') }}
+          OASIS7_FORMAL_BUILD_INPUTS: ${{ hashFiles('scripts/ci-test-artifacts.py', 'scripts/ci-formal-process-suites.json') }}
           PATH: ${{ steps.dependency-cache-tools.outputs.path }}
           OASIS7_DEPENDENCY_CACHE_FAMILY: formal-endpoint
           OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
