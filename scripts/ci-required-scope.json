@@ -1277,6 +1277,7 @@
     "scripts/ci-rust-cache-toolchains.py": ["workflow_governance"],
     "scripts/ci-rust-cache-toolchains.test.py": ["workflow_governance"],
     "scripts/ci-shared-native-cache.py": ["workflow_governance"],
+    "scripts/ci-storage-fixture.py": ["workflow_governance"],
     "scripts/ci-storage-acceptance.py": ["workflow_governance"],
     "scripts/ci-storage-acceptance.test.py": ["workflow_governance"],
     "scripts/ci-storage-network.py": ["workflow_governance"],
@@ -1648,6 +1649,12 @@
         "scripts/ci-rust-cache-build.test.py",
         "scripts/ci-rust-cache-admission.test.py",
         "scripts/ci-workflow.test.py"
+      ]
+    },
+    "scripts/ci-storage-fixture.py": {
+      "group": "workflow_governance",
+      "tests": [
+        "scripts/ci-storage-acceptance.test.py"
       ]
     },
     "scripts/ci-storage-acceptance.py": {

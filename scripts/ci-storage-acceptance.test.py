@@ -20,7 +20,145 @@ acceptance = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(acceptance)
 
 
+fixture_spec = importlib.util.spec_from_file_location('storage_fixture', HERE / 'ci-storage-fixture.py')
+fixture = importlib.util.module_from_spec(fixture_spec)
+fixture_spec.loader.exec_module(fixture)
+
+
+class FixtureContracts(unittest.TestCase):
+    def test_workflow_attempt_branch_passes_original_runner_bind_identity(self):
+        workflow = (HERE.parent / '.github/workflows/storage-acceptance.yml').read_text()
+        branch = workflow.split('          if [[ "$GROUP" == attempt-release ]]; then\n', 1)[1]
+        branch = branch.split('          fi\n', 1)[0]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            captured = root / 'docker-arguments'
+            env = dict(os.environ, GROUP='attempt-release', GITHUB_WORKSPACE=str(root),
+                STORAGE_ARTIFACT_CHECKOUT='/__w/oasis7/oasis7', RUNNER_TEMP=str(root / 'runner'),
+                STORAGE_VERIFY_IMAGE='example@sha256:fixed', LABEL='attempt-release',
+                SCALE='10', repeats='1', INVENTORY_ENTRY_LIMIT='5000000', CAPTURE=str(captured))
+            script = 'docker() { printf "%s\\0" "$@" > "$CAPTURE"; }\n' + branch
+            if sys.platform == 'darwin':
+                script = 'stat() { command stat -f "$2" "$3"; }\n' + script
+            subprocess.run(['bash', '-eu', '-c', script], env=env, check=True)
+            arguments = captured.read_bytes().decode().rstrip('\0').split('\0')
+            fixture_root = root / 'output/attempt-release-image'
+            identity = fixture_root.stat()
+            self.assertIn('type=bind,source=' + str(fixture_root)
+                          + ',target=/__w/oasis7/oasis7/output/attempt-release-image', arguments)
+            self.assertIn('OASIS7_STORAGE_FIXTURE_DEVICE=' + str(identity.st_dev), arguments)
+            self.assertIn('OASIS7_STORAGE_FIXTURE_INODE=' + str(identity.st_ino), arguments)
+            self.assertIn('TMPDIR=/__w/oasis7/oasis7/output/attempt-release-image/tmp', arguments)
+            self.assertIn('output/attempt-release-image/results', arguments)
+            self.assertIn('--init', arguments)
+            self.assertIn('--user', arguments)
+            self.assertFalse(any(arg.startswith(('--privileged', '--cap-add', '--pid')) for arg in arguments))
+            self.assertEqual(identity.st_mode & 0o777, 0o700)
+
+    def test_wrong_runner_identity_rejected_before_filesystem_operations(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            results = root / 'results'
+            results.mkdir()
+            info = root.stat()
+            for device, inode in ((info.st_dev + 1, info.st_ino), (info.st_dev, info.st_ino + 1)):
+                with self.assertRaisesRegex(ValueError, 'original identity'):
+                    fixture.filesystem_probe(root, results, device, inode)
+            root.chmod(0o755)
+            with self.assertRaisesRegex(ValueError, 'private runner-owned'):
+                fixture.filesystem_probe(root, results, info.st_dev, info.st_ino)
+
+    def test_results_outside_fixture_and_temporary_symlink_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            info = root.stat()
+            with self.assertRaisesRegex(ValueError, 'share one filesystem'):
+                fixture.filesystem_probe(root, root.parent, info.st_dev, info.st_ino)
+            results = root / 'results'
+            results.mkdir()
+            (root / 'tmp').symlink_to(results, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, 'temporary directory'):
+                fixture.filesystem_probe(root, results, info.st_dev, info.st_ino)
+
+    def test_overlay_or_tmpfs_rejected_before_case(self):
+        for filesystem in ('overlayfs', 'tmpfs'):
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                results = root / 'results'
+                results.mkdir()
+                info = root.stat()
+                with patch.object(fixture.subprocess, 'check_output', return_value=filesystem), \
+                        self.assertRaisesRegex(ValueError, 'not overlay or tmpfs'):
+                    fixture.filesystem_probe(root, results, info.st_dev, info.st_ino)
+
+    @unittest.skipUnless(sys.platform == 'linux', 'actual Linux filesystem/proc prerequisite')
+    def test_actual_runner_filesystem_and_child_process(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            results = root / 'results'
+            results.mkdir()
+            info = root.stat()
+            filesystem = subprocess.check_output(['stat', '-f', '-c', '%T', str(root)], text=True).strip()
+            if filesystem in ('overlayfs', 'tmpfs'):
+                with self.assertRaisesRegex(ValueError, 'not overlay or tmpfs'):
+                    fixture.filesystem_probe(root, results, info.st_dev, info.st_ino)
+            else:
+                report = fixture.filesystem_probe(root, results, info.st_dev, info.st_ino)
+                self.assertTrue(report['hardlink'])
+                self.assertTrue(report['flock'])
+                self.assertTrue(report['file_fsync'])
+                self.assertTrue(report['directory_fsync'])
+            process = fixture.process_probe()
+            self.assertTrue(process['sigkill_reaped'])
+            self.assertNotEqual(process['parent_pid'], process['child_pid'])
+
+    def test_native_failure_saved_and_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            results = root / 'results'
+            results.mkdir()
+            manifest = {'binaries': {'runtime-tests': dict(path='bin/runtime', cwd='.',
+                tests=['test::native_environment_original_loaded_bytes_verify'], ignored_tests=[])}}
+            env = {'TMPDIR': str(root / 'tmp')}
+            with patch.dict(os.environ, OASIS7_STORAGE_FIXTURE_DEVICE='1', OASIS7_STORAGE_FIXTURE_INODE='2'), \
+                    patch.object(fixture, 'filesystem_probe', return_value={}), \
+                    patch.object(fixture, 'process_probe', return_value={}), \
+                    patch.object(fixture.tempfile, 'gettempdir', return_value=env['TMPDIR']), \
+                    patch.object(fixture, 'run', return_value=dict(passed=False)) as runner:
+                with self.assertRaisesRegex(ValueError, 'native environment capture'):
+                    fixture.preflight(root, results, root, manifest, env)
+            report = json.loads((results / 'fixture-preflight.json').read_text())
+            self.assertFalse(report['passed'])
+            self.assertIn('--exact', runner.call_args.args[0])
+            self.assertEqual(runner.call_args.kwargs['expected_count'], 1)
+
+
+
 class Contracts(unittest.TestCase):
+    def test_image_fixture_rejection_blocks_acceptance_and_summary(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bundle = root / 'bundle'
+            bundle.mkdir()
+            manifest = dict(scope='storage', selection=None, tested_sha='abc', source_sha='abc',
+                producer_run_id='1', producer_attempt='1', runner_image='test', rustc_version='test', binaries={})
+            args = argparse.Namespace(bundle=bundle, results_dir=root / 'results', group='attempt-release',
+                capacity_scale=10, repeat_faults=1, label='attempt-release', timeout_seconds=5)
+            with patch.dict(os.environ, OASIS7_STORAGE_IMAGE_FIXTURE=str(root)), \
+                    patch.object(acceptance.artifacts, 'load', return_value=(manifest, dict(os.environ))), \
+                    patch.object(acceptance, 'select', return_value=[dict(binary='test', name='test')]), \
+                    patch.object(acceptance, 'host_observation', return_value={}), \
+                    patch.object(acceptance, 'image_fixture_preflight', side_effect=ValueError('real fixture rejected')), \
+                    patch.object(acceptance, 'run') as runner:
+                with self.assertRaisesRegex(ValueError, 'real fixture rejected'):
+                    acceptance.execute(args)
+            runner.assert_not_called()
+            report = json.loads((args.results_dir / 'summary.json').read_text())
+            self.assertFalse(report['passed'])
+            self.assertFalse(report['image_fixture']['passed'])
+            with self.assertRaisesRegex(ValueError, 'incomplete or failed'):
+                acceptance.summarize(args.results_dir, ['attempt-release'])
+
     def manifest(self):
         binaries = {name: dict(tests=['one'], ignored_tests=[]) for name in acceptance.LIBRARIES}
         binaries['runtime-tests'] = dict(tests=['runtime::storage_test', 'runtime::other',

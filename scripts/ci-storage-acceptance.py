@@ -221,6 +221,13 @@ def inventory_entry_limit(value):
     return entries
 
 
+def image_fixture_preflight(*args):
+    fixture_spec = importlib.util.spec_from_file_location('storage_fixture', HERE / 'ci-storage-fixture.py')
+    fixture_module = importlib.util.module_from_spec(fixture_spec)
+    fixture_spec.loader.exec_module(fixture_module)
+    return fixture_module.preflight(*args)
+
+
 def execute(args):
     entry_limit = inventory_entry_limit(getattr(args, 'inventory_entry_limit', 5_000_000))
     bundle, directory = args.bundle.resolve(), args.results_dir.resolve()
@@ -254,6 +261,16 @@ def execute(args):
     env['OASIS7_STORAGE_SAMPLE_OWNER'] = marker
     try:
         with MemorySampler(marker, directory) as sampler:
+            fixture = os.environ.get('OASIS7_STORAGE_IMAGE_FIXTURE')
+            if fixture:
+                if args.group != 'attempt-release':
+                    raise ValueError('image fixture is only supported for attempt-release')
+                summary['image_fixture'] = dict(passed=False)
+                if shutil.disk_usage(directory).free < 3 * 1024 ** 3:
+                    raise ValueError('disk below 3 GiB safety floor; incomplete preflight')
+                summary['image_fixture'] = image_fixture_preflight(fixture, directory, bundle, manifest, env)
+                if sampler.disk_floor_breached or sampler.monitor_error:
+                    raise ValueError('resource safety preflight failed')
             for repeat in range(args.repeat_faults if args.group == 'network' else 1):
                 for index, entry in enumerate(entries):
                     if 'script' in entry:
@@ -445,6 +462,7 @@ def summarize(directory, expected, needs=None):
                 or len(report.get('results', [])) != report['expected_cases']
                 or not all(validate_result(result) for result in report['results'])
                 or not report.get('selected_inventory')
+                or ('image_fixture' in report and report['image_fixture'].get('passed') is not True)
                 or (report['group'] == 'capacity' and (len(report.get('capacity_reports', [])) != 1
                     or report['capacity_reports'][0].get('status') != 'passed'
                     or report['capacity_reports'][0].get('executed_heights') != report.get('capacity_scale')))
