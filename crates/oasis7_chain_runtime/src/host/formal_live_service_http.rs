@@ -250,6 +250,12 @@ pub(super) fn parse_http_headers(header: &[u8]) -> Result<(String, String, usize
         {
             return Err("malformed HTTP header field".into());
         }
+        // This one-request signed service never sends an interim 100 Continue.
+        // A client waiting for it would otherwise occupy a connection until
+        // the absolute body deadline. Reject expectations before body reads.
+        if name.eq_ignore_ascii_case("expect") {
+            return Err("HTTP expect header is unsupported".into());
+        }
         if name.eq_ignore_ascii_case("transfer-encoding") {
             return Err("transfer encoding is unsupported".into());
         }
@@ -418,6 +424,41 @@ mod framing_tests {
         let (method, path, body) =
             receive(b"POST /v1/world/submit HTTP/1.1\r\nContent-Length:\t002 \t\r\n\r\n{}")
                 .expect("ASCII decimal with legal OWS");
+        assert_eq!(method, "POST");
+        assert_eq!(path, "/v1/world/submit");
+        assert_eq!(body, b"{}");
+    }
+
+    #[test]
+    fn signed_formal_http_rejects_expect_without_waiting_for_body() {
+        // A real client may wait for "100 Continue" and leave the write side
+        // open. The server does not implement an interim response, so parsing
+        // must fail before it attempts to read the claimed body.
+        for header in [
+            b"Expect: 100-continue".as_slice(),
+            b"eXpEcT: custom-extension".as_slice(),
+        ] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+            client
+                .write_all(b"POST /v1/world/submit HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\n")
+                .unwrap();
+            client.write_all(header).unwrap();
+            client.write_all(b"\r\n\r\n").unwrap();
+            let (mut server, _) = listener.accept().unwrap();
+            // With the former parser this blocks waiting for a body that the
+            // client will not send, and ends as a read timeout instead.
+            let error = read_http_request(
+                &mut server,
+                Instant::now() + Duration::from_millis(250),
+            )
+            .unwrap_err();
+            assert_eq!(error, "HTTP expect header is unsupported");
+        }
+        let (method, path, body) = receive(
+            b"POST /v1/world/submit HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\n\r\n{}",
+        )
+        .expect("ordinary bounded POST remains supported");
         assert_eq!(method, "POST");
         assert_eq!(path, "/v1/world/submit");
         assert_eq!(body, b"{}");
