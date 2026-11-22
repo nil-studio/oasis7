@@ -31,4 +31,3 @@ pub use geometry::{
     space_distance_cm, space_distance_m,
 };
 pub use models::{AgentState, BodyKernelView, DEFAULT_AGENT_HEIGHT_CM, RobotBodySpec};
-
