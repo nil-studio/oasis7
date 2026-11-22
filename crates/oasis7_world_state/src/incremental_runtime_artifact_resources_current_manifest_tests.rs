@@ -1,6 +1,5 @@
 //! Child of resource receiver cold tests; reuses its actual seed/qualification.
 use super::*;
-use crate::incremental_runtime_artifact_resources::*;
 use oasis7_agent_api::world_resource::ChainResourceManifest;
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass};
 
@@ -11,9 +10,7 @@ use crate::{
     incremental_field_read::WorldFieldReadContextV1,
     incremental_world_field_key::{WorldFieldKeyV1, WorldFieldRecordKindV1},
 };
-use oasis7_formal_protocol::{
-    incremental_execution::*, incremental_state::*, incremental_value::*,
-};
+use oasis7_formal_protocol::{incremental_execution::*, incremental_value::*};
 use support::*;
 
 #[test]

@@ -249,6 +249,7 @@ where
         .memory
         .reserve(32 << 10, ctx.values.class)
         .map_err(ValueTreeError::Memory)?;
+    let mut active_count = parent.registry_active_count();
     for write in &verified.record.writes {
         work.cell()?;
         let Some((field, key)) = family::field_key(write.namespace, &write.mutation.key)? else {
@@ -276,6 +277,16 @@ where
             .transpose()?;
         if field.global() && (old.is_none() || new.is_none()) {
             return Err(read::invalid().into());
+        }
+        if field == ArtifactConfigFieldV1::RegistryActive
+            && binding.kind == WorldFieldRecordKindV1::Entry
+        {
+            active_count = match (old.is_some(), new.is_some()) {
+                (false, true) => active_count.checked_add(1),
+                (true, false) => active_count.checked_sub(1),
+                _ => Some(active_count),
+            }
+            .ok_or_else(read::invalid)?;
         }
         if field.body_kind() == ArtifactConfigBodyKindV1::Module {
             for sibling in family::RECORD_FIELDS {
@@ -322,6 +333,7 @@ where
             .after
             .digest()
             .map_err(|_| read::invalid())?,
+        active_count,
         ctx.values.memory,
         ctx.values.class,
     )?;
