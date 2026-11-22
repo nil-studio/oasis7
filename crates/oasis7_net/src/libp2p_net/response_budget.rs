@@ -52,12 +52,14 @@ impl FetchBlobResponseBudget {
                     bytes: 0,
                 };
             }
-            if response_bytes > FETCH_BLOB_GLOBAL_RESPONSE_BYTES_PER_WINDOW.saturating_sub(global.bytes)
+            if response_bytes
+                > FETCH_BLOB_GLOBAL_RESPONSE_BYTES_PER_WINDOW.saturating_sub(global.bytes)
             {
                 return Err(WorldError::NetworkRequestFailed {
                     code: DistributedErrorCode::ErrRateLimited,
-                    message: "global fetch-blob response budget exhausted; retry after window reset"
-                        .to_string(),
+                    message:
+                        "global fetch-blob response budget exhausted; retry after window reset"
+                            .to_string(),
                     retryable: true,
                 });
             }
