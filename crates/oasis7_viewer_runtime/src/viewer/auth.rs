@@ -1,5 +1,6 @@
 //! Host authentication adapter: pure signature contracts plus durable replay checks.
 use super::protocol::{AuthoritativeSessionRegisterRequest, PlayerAuthProof};
+pub use oasis7_client_api::viewer_auth::*;
 pub use oasis7_hosted_access::auth_storage::{
     ExclusiveDirectoryProcessLock, HOSTED_REGISTRATION_REPLAY_LEDGER_PATH_ENV,
     preflight_hosted_registration_replay_ledger,
@@ -7,7 +8,6 @@ pub use oasis7_hosted_access::auth_storage::{
 pub(crate) use oasis7_hosted_access::auth_storage::{
     claim_registration_grant_nonce_for_recovery, consume_registration_grant_nonce,
 };
-pub use oasis7_client_api::viewer_auth::*;
 
 pub fn verify_session_register_auth_proof(
     request: &AuthoritativeSessionRegisterRequest,
