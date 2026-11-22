@@ -85,6 +85,12 @@ LINEAGE_WORKSPACE_SCHEMAS = frozenset(('ordinary-workspace-v1', 'formal-workspac
                                      'formal-debug-workspace-v1', 'formal-endpoint-workspace-v1'))
 # Leave room in the shared request budget for inventories, active runs and DELETEs.
 MAX_ANCESTRY_REQUESTS = 20
+# Under repository headroom pressure, an older dependency environment recovery
+# snapshot on main may be retired only when a newer complete snapshot in the
+# same (namespace, platform, arch, cache version) exists and the older
+# environment had no reads for at least this window before the successor was
+# created (in addition to active-run cutoff protection).
+DORMANT_DEPENDENCY_ENV_GRACE_SECONDS = 6 * 3600
 
 
 class MaintenanceError(ValueError):
@@ -546,6 +552,33 @@ def workspace_lineage_successors(entries, workspaces, keys, head_sha, is_ancesto
     return result
 
 
+def dormant_dependency_env_successors(dependencies):
+    """Map dormant superseded dependency environment recoveries to the newest complete snapshot in the same (namespace, platform, arch, version)."""
+    groups = defaultdict(list)
+    for entry in dependencies['recoveries']:
+        if entry['ref'] != MAIN_REF or entry['size_in_bytes'] <= 0:
+            continue
+        match = RUST_KEY.fullmatch(entry['key'])
+        if match is None or match['family'] not in DEPENDENCY_NAMESPACES:
+            continue
+        groups[(match['family'], match['platform'], match['arch'], entry['version'])].append(entry)
+    result = {}
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        created = [timestamp(entry['created_at']) for entry in group]
+        if len(created) != len(set(created)):
+            continue
+        successor = max(group, key=lambda entry: timestamp(entry['created_at']))
+        successor_created = timestamp(successor['created_at'])
+        for entry in group:
+            if entry['id'] == successor['id']:
+                continue
+            if (successor_created - timestamp(entry['last_accessed_at'])).total_seconds() >= DORMANT_DEPENDENCY_ENV_GRACE_SECONDS:
+                result[entry['id']] = successor
+    return result
+
+
 def plan_recovery(entries, run_started_at, *, repository_limit_bytes, current_key=None, active_runs=None,
                   verified_head_sha=None, is_ancestor=None):
     validate_inventory(entries)
@@ -601,6 +634,23 @@ def plan_recovery(entries, run_started_at, *, repository_limit_bytes, current_ke
             workspaces['source_lineage'].append(dict(retired_id=identifier, recovery_id=successor['id'],
                 source=old['key'].rsplit('-', 1)[1], successor_source=successor['key'].rsplit('-', 1)[1],
                 verified_head_sha=verified_head_sha))
+    dependencies['environment_lineage'] = []
+    if projected > resident_target:
+        dep_successors = dormant_dependency_env_successors(dependencies)
+        dep_anchors = {entry['id']: entry for entry in dependencies['recoveries']}
+        for identifier in sorted(dep_successors, key=lambda value: (timestamp(dep_anchors[value]['created_at']), value)):
+            old, successor = dep_anchors[identifier], dep_successors[identifier]
+            if protected_by_activity(old, cutoff) or projected <= resident_target:
+                continue
+            deletions.append(dict(old, recovery_id=successor['id'],
+                                  reason='dormant superseded dependency environment'))
+            deletions = [entry | {'recovery_id': successor['id']}
+                         if rust_namespace(entry) in DEPENDENCY_NAMESPACES and compatibility(entry) == compatibility(old)
+                         else entry for entry in deletions]
+            projected -= old['size_in_bytes']
+            dependencies['environment_lineage'].append(dict(
+                retired_id=identifier, recovery_id=successor['id'],
+                namespace=rust_namespace(old)))
     deletions.sort(key=lambda entry: (timestamp(entry['created_at']), entry['id']))
     deleted_ids = {entry['id'] for entry in deletions}
     workspaces['protected_ids'] = sorted(set(workspaces['protected_ids']) - deleted_ids)
@@ -611,6 +661,15 @@ def plan_recovery(entries, run_started_at, *, repository_limit_bytes, current_ke
     workspaces['delete'] = [entry for entry in deletions if managed(entry)]
     workspaces['projected_bytes'] = sum(entry['size_in_bytes'] for entry in entries
                                        if managed(entry) and entry['id'] not in deleted_ids)
+    dependencies['protected_ids'] = sorted(set(dependencies['protected_ids']) - deleted_ids)
+    dependencies['protected_bytes'] = sum(entry['size_in_bytes'] for entry in entries
+                                          if entry['id'] in dependencies['protected_ids'])
+    dependencies['recoveries'] = [entry for entry in dependencies['recoveries'] if entry['id'] not in deleted_ids]
+    dependencies['recovery_ids'] = sorted(entry['id'] for entry in dependencies['recoveries'])
+    dependencies['delete'] = [entry for entry in deletions if rust_namespace(entry) in DEPENDENCY_NAMESPACES]
+    dependencies['projected_bytes'] = sum(entry['size_in_bytes'] for entry in entries
+                                          if rust_namespace(entry) in DEPENDENCY_NAMESPACES
+                                          and entry['id'] not in deleted_ids)
     families = {}
     for name, specification in policy.FAMILIES.items():
         owned = [entry for entry in entries if managed(entry) and policy.family_for_key(entry['key']) == name]
