@@ -272,6 +272,10 @@ def cache_identity(workflow: str, name: str, non_linux: bool = False) -> dict:
             assert inputs.get("add-rust-environment-hash-key") == "true"
             assert 'cargo +"$RUST_TOOLCHAIN" --version' in before_cache
             assert 'rustup target list --installed --toolchain "$RUST_TOOLCHAIN" | grep -Fx wasm32-unknown-unknown' in before_cache
+            assert 'python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"' in before_cache
+            nightly = env.get("OASIS7_WASM_TOOLCHAIN", "")
+            assert re.fullmatch(r"nightly-\d{4}-\d{2}-\d{2}", nightly)
+            toolchains.add(nightly)
         else:
             assert name in ("newapi-bridge-package", "package-linux-x86-64"), name
             assert inputs.get("shared-key") == "newapi-bridge-service-linux-x86-64-ci-rust-build-" + image[1]
@@ -570,8 +574,9 @@ for workflow, names in ((release, (*native_gates, "release_gate_web", "build-web
         for step in guarded:
             assert f"if: hashFiles('{normalizer}') != ''" in step, name
         assert body.index(f"python3 {normalizer}") < body.index("Swatinem/rust-cache@"), name
+        keeps_wasm_toolchain = name in native_gates or (workflow == ecs and name == "web")
         for command in re.findall(r"^\s+(?:run: )?python3 scripts/ci-rust-cache-toolchains.py (.*)$", body, re.M):
-            assert ('"$OASIS7_WASM_TOOLCHAIN"' in command) == (name in native_gates)
+            assert ('"$OASIS7_WASM_TOOLCHAIN"' in command) == keeps_wasm_toolchain
 
 # Run the real logging pipelines with failing upstream commands. Merely finding
 # the word pipefail would not establish that tee cannot hide a gate failure.
