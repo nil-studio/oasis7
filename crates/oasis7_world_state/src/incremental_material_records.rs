@@ -196,3 +196,10 @@ pub use pages::{
 #[path = "incremental_material_records_overlay_read.rs"]
 mod overlay_read;
 pub use overlay_read::read_qualified_material_cell_overlay_v1;
+
+#[path = "incremental_material_records_current_profile.rs"]
+mod current_profile;
+pub use current_profile::{
+    MaterialProfileCurrentReadWorkV1, read_current_material_default_priority_overlay_v1,
+    read_current_material_transport_loss_overlay_v1,
+};
