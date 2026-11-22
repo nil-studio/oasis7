@@ -1691,5 +1691,80 @@ class TrustTests(unittest.TestCase):
             self.assertIn('::warning::', output.getvalue())
 
 
+class DormantDependencyEnvironmentRecoveryTests(unittest.TestCase):
+    NAMESPACE = 'ci-formal-debug-deps-trusted-v1'
+    RUN_START = '2026-11-22T12:00:00Z'
+
+    @classmethod
+    def dep(cls, identifier, *, env_hex='11111111', lock_hex=None, created, accessed=None,
+            size=600 * 1024 * 1024, version='v1', platform='Linux-x64', namespace=None):
+        ns = namespace or cls.NAMESPACE
+        lock = lock_hex or f'{identifier:08x}'
+        return cache(identifier,
+                     key=f'v0-rust-{ns}-{platform}-{env_hex}-{lock}',
+                     created=created, accessed=accessed or created,
+                     size=size, version=version)
+
+    def test_retires_dormant_superseded_environments_oldest_first_only_under_pressure(self):
+        old_a = self.dep(1, env_hex='aaaaaaaa', created='2026-11-18T00:00:00Z', accessed='2026-11-18T01:00:00Z')
+        old_b = self.dep(2, env_hex='bbbbbbbb', created='2026-11-19T00:00:00Z', accessed='2026-11-19T01:00:00Z')
+        newest = self.dep(3, env_hex='cccccccc', created='2026-11-22T09:00:00Z', accessed='2026-11-22T11:00:00Z')
+        entries = [old_a, old_b, newest]
+
+        # With ample headroom, all environments keep their recovery anchor.
+        ample = maintenance.plan_recovery(entries, self.RUN_START, repository_limit_bytes=20 * 1024**3)
+        self.assertEqual(ample['delete'], [])
+        self.assertEqual(ample['dependencies']['recovery_ids'], [1, 2, 3])
+        self.assertEqual(ample['dependencies']['environment_lineage'], [])
+
+        # Under headroom pressure where deleting only the oldest restores target.
+        limit = maintenance.policy.DEPENDENCY_ROTATION_HEADROOM_BYTES + old_b['size_in_bytes'] + newest['size_in_bytes']
+        partial = maintenance.plan_recovery(entries, self.RUN_START, repository_limit_bytes=limit)
+        self.assertEqual([entry['id'] for entry in partial['delete']], [1])
+        self.assertEqual(partial['delete'][0]['recovery_id'], 3)
+        self.assertEqual(partial['delete'][0]['reason'], 'dormant superseded dependency environment')
+        self.assertEqual(partial['dependencies']['recovery_ids'], [2, 3])
+        self.assertEqual(partial['dependencies']['protected_ids'], [2, 3])
+        self.assertEqual(partial['rotation']['projected_headroom_deficit_bytes'], 0)
+
+        # Under tight pressure, both dormant environments retire while newest survives.
+        tight = maintenance.plan_recovery(entries, self.RUN_START, repository_limit_bytes=1)
+        self.assertEqual([entry['id'] for entry in tight['delete']], [1, 2])
+        self.assertEqual(tight['dependencies']['recovery_ids'], [3])
+        self.assertEqual(tight['dependencies']['protected_ids'], [3])
+
+    def test_preserves_recently_accessed_active_different_version_and_ambiguous_environments(self):
+        newest = self.dep(10, env_hex='cccccccc', created='2026-11-22T09:00:00Z', accessed='2026-11-22T11:00:00Z')
+        # Accessed only 2 hours before successor was created (< 6h grace window).
+        recent_read = self.dep(1, env_hex='11111111', created='2026-11-18T00:00:00Z', accessed='2026-11-22T07:00:00Z')
+        # Accessed at/after run start cutoff (active protection).
+        active_read = self.dep(2, env_hex='22222222', created='2026-11-18T00:00:00Z', accessed=self.RUN_START)
+        # Different cache version cannot be superseded by newest.
+        other_version = self.dep(3, env_hex='33333333', created='2026-11-18T00:00:00Z', version='v2')
+        # Different namespace cannot be superseded by newest.
+        other_ns = self.dep(4, env_hex='44444444', created='2026-11-18T00:00:00Z',
+                            namespace='ci-formal-endpoint-deps-trusted-v1')
+        plan = maintenance.plan_recovery([recent_read, active_read, other_version, other_ns, newest],
+                                         self.RUN_START, repository_limit_bytes=1)
+        self.assertEqual(plan['delete'], [])
+        self.assertEqual(plan['dependencies']['recovery_ids'], [1, 2, 3, 4, 10])
+
+    def test_maintain_revalidates_and_deletes_dormant_superseded_dependency_environment(self):
+        old = self.dep(1, env_hex='aaaaaaaa', created='2026-11-18T00:00:00Z', accessed='2026-11-18T01:00:00Z')
+        newest = self.dep(2, env_hex='bbbbbbbb', created='2026-11-22T09:00:00Z', accessed='2026-11-22T11:00:00Z')
+        entries = [old, newest]
+        limit = maintenance.policy.DEPENDENCY_ROTATION_HEADROOM_BYTES + newest['size_in_bytes']
+        api = api_with(entries, entries, [newest])
+        api.request.return_value = {'max_cache_size_gb': 4}
+        report = maintenance.maintain(api, run_started_at=self.RUN_START, recover=True, apply=True,
+                                      repository_budget_bytes=limit)
+        self.assertEqual(report['status'], 'completed')
+        self.assertEqual(report['deleted_ids'], [1])
+        self.assertEqual(report['deleted_dependency_ids'], [1])
+        self.assertEqual(report['stable_dependency_recovery_ids'], [2])
+        self.assertEqual(report['rotation_after']['headroom_deficit_bytes'], 0)
+        api.delete_cache.assert_called_once_with(1)
+
+
 if __name__ == '__main__':
     unittest.main()
