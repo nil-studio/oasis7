@@ -684,7 +684,9 @@ mod tests {
             pages: &pages,
             root: Cell::new(None),
         };
-        let memory = MemoryBudget::new(8 << 20, 4 << 20).unwrap();
+        // The full record retains the original 1-MiB registered_by plus
+        // independently charged manifest/JSON and bounded decode workspace.
+        let memory = MemoryBudget::new(12 << 20, 8 << 20).unwrap();
         let mut state_io = body_tests::io();
         let state_io = RefCell::new(&mut state_io);
         let mut stop = || false;
