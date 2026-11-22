@@ -37,7 +37,9 @@ impl FetchBlobResponseBudget {
             return Ok(());
         }
 
-        self.evict_stale_and_over_capacity(now_ms, Some(peer));
+        // Expire old windows first, but do not evict an active peer merely
+        // because a different peer proposed a response that will be rejected.
+        self.evict_stale_and_over_capacity(now_ms, None);
 
         let global = self.global.get_or_insert(ResponseWindow {
             started_at_ms: now_ms,
@@ -59,6 +61,28 @@ impl FetchBlobResponseBudget {
             });
         }
 
+        // Preflight the peer's existing in-window usage before changing the
+        // capacity table. An oversized or otherwise rejected response must
+        // never evict another peer's charged budget.
+        let used = self.by_peer.get(&peer).map_or(0, |window| {
+            if now_ms.saturating_sub(window.started_at_ms) >= FETCH_BLOB_RESPONSE_WINDOW_MS {
+                0
+            } else {
+                window.bytes
+            }
+        });
+        if response_bytes > FETCH_BLOB_RESPONSE_BYTES_PER_WINDOW.saturating_sub(used) {
+            return Err(WorldError::NetworkRequestFailed {
+                code: DistributedErrorCode::ErrRateLimited,
+                message: format!(
+                    "fetch-blob response budget exhausted for peer={peer}; retry after window reset"
+                ),
+                retryable: true,
+            });
+        }
+        // Only a response that passed both global and per-peer checks may
+        // displace the deterministic oldest peer at the bounded table cap.
+        self.evict_stale_and_over_capacity(now_ms, Some(peer));
         let window = self.by_peer.entry(peer).or_insert(ResponseWindow {
             started_at_ms: now_ms,
             bytes: 0,
@@ -257,6 +281,66 @@ mod tests {
             )
             .expect("stale entries are pruned before inserting");
         assert_eq!(budget.by_peer.len(), 1);
+    }
+
+    #[test]
+    fn rejected_new_peer_cannot_evict_an_existing_charged_window() {
+        let mut budget = FetchBlobResponseBudget::default();
+        let now = 4_000;
+        let mut peers = std::collections::HashSet::new();
+        while peers.len() < FETCH_BLOB_RESPONSE_BUDGET_MAX_PEERS {
+            peers.insert(PeerId::random());
+        }
+        let victim = *peers.iter().min_by_key(|peer| peer.to_bytes()).unwrap();
+        for peer in peers {
+            let bytes = if peer == victim {
+                FETCH_BLOB_RESPONSE_BYTES_PER_WINDOW
+            } else {
+                1
+            };
+            budget
+                .admit(peer, FETCH_BLOB_PROTOCOL, bytes, now)
+                .expect("existing per-peer window is admitted");
+        }
+        assert_eq!(budget.by_peer.len(), FETCH_BLOB_RESPONSE_BUDGET_MAX_PEERS);
+        let newcomer = loop {
+            let candidate = PeerId::random();
+            if !budget.by_peer.contains_key(&candidate) {
+                break candidate;
+            }
+        };
+        // The newcomer has no valid per-peer budget for this response.
+        // Previously the cap handler first evicted the victim, then rejected
+        // this response, letting that victim incorrectly restart its window.
+        assert!(budget
+            .admit(
+                newcomer,
+                FETCH_BLOB_PROTOCOL,
+                FETCH_BLOB_RESPONSE_BYTES_PER_WINDOW + 1,
+                now,
+            )
+            .is_err());
+        assert!(!budget.by_peer.contains_key(&newcomer));
+        assert!(budget.by_peer.contains_key(&victim));
+        assert_eq!(budget.by_peer.len(), FETCH_BLOB_RESPONSE_BUDGET_MAX_PEERS);
+        assert!(budget.admit(victim, FETCH_BLOB_PROTOCOL, 1, now).is_err());
+
+        // Legitimately admitted new peers can still displace the oldest
+        // window under the original bounded-cap policy.
+        budget
+            .admit(newcomer, FETCH_BLOB_PROTOCOL, 1, now)
+            .expect("valid new response can use bounded capacity");
+        assert_eq!(budget.by_peer.len(), FETCH_BLOB_RESPONSE_BUDGET_MAX_PEERS);
+        assert!(!budget.by_peer.contains_key(&victim));
+        assert!(budget.by_peer.contains_key(&newcomer));
+        budget
+            .admit(
+                victim,
+                FETCH_BLOB_PROTOCOL,
+                1,
+                now + FETCH_BLOB_RESPONSE_WINDOW_MS,
+            )
+            .expect("expired original window admits a new response");
     }
 
     #[test]
