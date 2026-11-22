@@ -5007,7 +5007,8 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           shared-key: newapi-bridge-service-linux-x86-64-ci-rust-build-0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3
-          cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' && github.workflow_sha == github.sha }}
+          cache-on-failure: false
 
       - name: Build and stage deployable artifact
         run: |
