@@ -6,21 +6,14 @@
 //! oracle is a test simulation and does not prove HSM custody or fault domains.
 use super::*;
 use ed25519_dalek::{Signature, SigningKey, Verifier, VerifyingKey};
-use oasis7::{
-    runtime::{
-        Action, Manifest, ModuleAbiContract, ModuleActivation, ModuleChangeSet, ModuleKind,
-        ModuleLimits, ModuleManifest, ModuleRole, ModuleSubscription, ModuleSubscriptionStage,
-        PolicySet, ProposalDecision, SchedulerPolicyV1, WorldState, blake3_hex,
+use oasis7::world_service::{
+    authority::sign_read_request,
+    client::{
+        FormalReadTrustConfigV1, RemoteWorldServiceClient, WorldServiceClientConfig,
+        WorldServicePort,
     },
-    world_service::{
-        authority::sign_read_request,
-        client::{
-            FormalReadTrustConfigV1, RemoteWorldServiceClient, WorldServiceClientConfig,
-            WorldServicePort,
-        },
-        correlation, game_task,
-        wire::WorldServicePayloadV1,
-    },
+    correlation, game_task,
+    wire::WorldServicePayloadV1,
 };
 use oasis7_agent_api::game::{DecimalU64, GAME_TASK_CREATE_DOMAIN, GameTaskCreateV1};
 use oasis7_client_api::world_service::{
@@ -33,6 +26,11 @@ use oasis7_distfs::controlled_authority::{
         transport::RemoteFormalEndpoint, *,
     },
     replicated_protocol::EndpointRole,
+};
+use oasis7_runtime::{
+    Action, Manifest, ModuleAbiContract, ModuleActivation, ModuleChangeSet, ModuleKind,
+    ModuleLimits, ModuleManifest, ModuleRole, ModuleSubscription, ModuleSubscriptionStage,
+    PolicySet, ProposalDecision, SchedulerPolicyV1, WorldState, blake3_hex,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};

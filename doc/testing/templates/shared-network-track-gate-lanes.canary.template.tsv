@@ -1,8 +1,0 @@
-# lane_id	owner	status	evidence_path	note
-candidate_bundle_integrity	qa_engineer	pass	output/release-candidates/canary-01.json	bundle validates and matches promotion target
-promotion_record	liveops_community	partial	output/network-rehearsal/canary/promotion-record.md	fill promotion approval evidence
-canary_window	liveops_community	partial	output/network-rehearsal/canary/window-summary.md	fill canary observation window evidence
-mixed_topology_claim_review	producer_system_designer	partial	output/network-rehearsal/canary/mixed-topology-claim-review.md	fill canary claim review against latest mixed-topology evidence
-rollback_rehearsal	runtime_engineer	partial	output/network-rehearsal/canary/rollback-rehearsal.md	fill canary rollback evidence
-incident_review	qa_engineer	partial	output/network-rehearsal/canary/incident-review.md	fill incident review evidence
-exit_decision	producer_system_designer	partial	output/network-rehearsal/canary/exit-decision.md	fill expand/hold/rollback decision evidence

@@ -122,7 +122,7 @@ software_safe_src/
 
 生产源码 1200 行、测试源码 1600 行是软阈值。对 touched files 依 PRD 选择收敛或豁免；责任混杂、facade 新职责、生成逻辑旁路与 canonical/compat 方向不明也需人工审查。豁免必须有 owner、reason、nextTrigger，不能用机械切片逃避职责治理。
 
-现有 `test:frontend-structure` 先运行 alias fixture，再运行 `scripts/frontend-structure-audit.mjs`；后者已有阈值、债务 cap/失效记录、canonical/compat 与 generated-runtime 检查。dist 不存在时跳过 runtime 分支不代表构建通过。ESLint/Prettier 仍是候选，不新增或声称启用这些 gate。当前债务以配对 PRD 所指 audit registry 为准，静态审读不宣称已清零。
+现有 `test:frontend-structure` 先运行 alias fixture，再运行 `crates/oasis7_viewer/scripts/frontend-structure-audit.mjs`；后者已有阈值、债务 cap/失效记录、canonical/compat 与 generated-runtime 检查。dist 不存在时跳过 runtime 分支不代表构建通过。ESLint/Prettier 仍是候选，不新增或声称启用这些 gate。当前债务以配对 PRD 所指 audit registry 为准，静态审读不宣称已清零。
 
 ## 外部规范适配
 - Feature-Sliced Design: 采纳 layer/slice/public API 思想，不照搬完整目录和术语。

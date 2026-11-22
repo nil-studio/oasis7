@@ -1353,6 +1353,10 @@ def validate_profile(logical, binary, scope=None):
                 or profile.get('overflow_checks') is not True):
             policy = 'optimized storage' if scope == 'storage' else 'unoptimized ' + scope
             raise ValueError('expected ' + policy + ' artifact with assertions and overflow checks')
+    if logical in ('snapshot-tests', 'viewer-snapshot-tests'):
+        leaked = {'test_tier_required', 'test_tier_full'}.intersection(binary.get('features') or ())
+        if leaked:
+            raise ValueError(f'{logical} must keep default-only features without {sorted(leaked)}')
 
 
 class BuildObservation:
@@ -1546,6 +1550,35 @@ def shared_incremental_duplicate(manifest):
         return None
 
 
+def coalesce_build_invocations(variants):
+    """Legacy helper retained temporarily for trusted-baseline test compatibility; unused by build()."""
+    snapshot_specs = {
+        'snapshot-tests': ['test', '-p', 'oasis7', '--lib', '--no-run'],
+        'viewer-snapshot-tests': ['test', '-p', 'oasis7_viewer_runtime', '--lib', '--no-run'],
+    }
+    present = {
+        variant for variant, args, features in variants
+        if variant in snapshot_specs and args == snapshot_specs[variant] and features == []
+    }
+    if present != set(snapshot_specs):
+        return [(variant, args, features, None) for variant, args, features in variants]
+    invocations = []
+    merged = False
+    for variant, args, features in variants:
+        if variant in snapshot_specs:
+            if not merged:
+                invocations.append((
+                    'snapshot-tests',
+                    ['test', '-p', 'oasis7', '-p', 'oasis7_viewer_runtime', '--lib', '--no-run'],
+                    [],
+                    {'oasis7': 'snapshot-tests', 'oasis7_viewer_runtime': 'viewer-snapshot-tests'},
+                ))
+                merged = True
+            continue
+        invocations.append((variant, args, features, None))
+    return invocations
+
+
 def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir=None, ordinary_partition=None):
     validate_plan_identity(plan)
     image = storage_build_image() if scope in STORAGE_COMPONENTS else None
@@ -1592,6 +1625,9 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
                                 ('required-full-fast-', ordinary_full_fast_targets(plan)),
                                 ('required-risk-', ordinary_risk_supplements(plan))):
             target_specs.update({prefix + str(index): target for index, target in enumerate(targets or [])})
+    # Keep each snapshot variant in its own Cargo invocation so dev-dependencies
+    # (such as oasis7_viewer_runtime -> oasis7/test_tier_required) cannot unify
+    # test_tier_required into the default-only oasis7 snapshot harness.
     for variant, args, features in variants:
         members = {variant: target_specs[variant]} if variant in target_specs else {}
         if (members and scope == 'ordinary' and plan is not None

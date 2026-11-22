@@ -1,8 +1,0 @@
-# lane_id	owner	status	evidence_path	note
-candidate_bundle_integrity	qa_engineer	pass	output/release-candidates/public-testnet-rehearsal-01.json	bundle validates and matches promotion target
-shared_access	qa_engineer	partial	output/network-rehearsal/public-testnet-rehearsal/access-check.md	fill shared endpoint / shared operator access evidence
-multi_entry_closure	qa_engineer	partial	output/network-rehearsal/public-testnet-rehearsal/multi-entry-summary.md	fill S6 + pure_api + no-ui summary
-mixed_topology_baseline	qa_engineer	partial	output/network-rehearsal/public-testnet-rehearsal/mixed-topology-gate.md	fill P2PARCH-6 matrix baseline and shared-window mixed-topology gate note
-governance_live_drill	runtime_engineer	partial	doc/testing/evidence/governance-registry-live-world-drill-finality-2026-03-24.md	fill public-testnet-rehearsal live governance drill evidence
-short_window_longrun	runtime_engineer	partial	output/network-rehearsal/public-testnet-rehearsal/longrun-summary.md	fill short-window S9/S10 shared run evidence
-rollback_target_ready	liveops_community	partial	output/network-rehearsal/public-testnet-rehearsal/rollback-target.md	fill fallback candidate / rollback target evidence

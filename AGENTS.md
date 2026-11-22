@@ -28,6 +28,7 @@
 - Agent 游戏功能验证须按[规范触发范围](doc/engineering/workflow/source-of-truth.md#agent-gameplay-selftest)执行[自测操作手册](doc/testing/manual/agent-runtime-self-playtest.manual.md)：主 Agent 组织独立试玩、读取正式游戏 Skill、核对世界结果并修复复测；缺前置如实报告，普通 CI 不代签实玩。
 - 显式本地检查见 [测试手册](testing-manual.md#local-check-entry)：`python3 scripts/check-local.py --profile quick` 执行固定 baseline；`--profile affected` 沿可信 planner 选测，未适配组在执行前 blocked；formal 必须显式 tier，当前 full 只支持规划。入口按实际 Linux 能力与输入范围报告，不替代原 canonical 验收。`pre-commit.sh` 是 no-op 兼容入口，不执行验证。
 - PR：按[PR 描述要求](doc/engineering/workflow/source-of-truth.md#pr-description)填写并更新正文；`gh pr create`、`gh pr checks <pr> --required`。
+- `ci-priority` 标签会路由至付费 Larger Runner，见[高优 CI 快车道标签](doc/engineering/workflow/source-of-truth.md#ci-priority-label)；除非获得用户明确授权，不得擅自为 PR 添加或使用。
 - 合入：满足适用评审、检查及用户限制后，执行 `gh pr merge <pr> --squash --match-head-commit <expected-head>`。
 
 PR 标题和 commit message 使用英文。

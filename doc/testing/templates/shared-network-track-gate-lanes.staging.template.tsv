@@ -1,9 +1,0 @@
-# lane_id	owner	status	evidence_path	note
-candidate_bundle_integrity	qa_engineer	pass	output/release-candidates/staging-01.json	bundle validates and matches promotion target
-shared_access	qa_engineer	partial	output/network-rehearsal/staging/access-check.md	fill staging shared access evidence
-unified_candidate_gate	qa_engineer	partial	output/network-rehearsal/staging/unified-gate-summary.md	fill same-candidate unified gate evidence
-mixed_topology_rehearsal	qa_engineer	partial	output/network-rehearsal/staging/mixed-topology-rehearsal.md	fill staging same-candidate mixed-topology rehearsal evidence
-governance_live_drill	runtime_engineer	partial	output/network-rehearsal/staging/governance-summary.md	fill staging governance drill evidence
-upgrade_rehearsal	runtime_engineer	partial	output/network-rehearsal/staging/upgrade-rehearsal.md	fill upgrade rehearsal evidence
-rollback_rehearsal	liveops_community	partial	output/network-rehearsal/staging/rollback-rehearsal.md	fill rollback rehearsal evidence
-incident_template	liveops_community	partial	output/network-rehearsal/staging/incident-template.md	fill incident template / freeze path evidence

@@ -14,7 +14,7 @@ use oasis7_formal_protocol::{
     incremental_value::{ValueReadContext, ValueTreeError, write_value},
 };
 use oasis7_proto::memory_budget::{MemoryBudget, MemoryClass, ReservedValue};
-use oasis7_runtime::{
+use oasis7_world_state::{
     CrisisState, CrisisStatus, WorldState,
     incremental_field_member::*,
     incremental_field_overlay::WorldFieldOverlayContextV1,
@@ -44,7 +44,7 @@ mod supply_fixture;
 use oasis7_formal_protocol::{
     incremental_execution::ExecutionError, incremental_value::ValueNodeWriter,
 };
-use oasis7_runtime::incremental_field_overlay::WorldFieldOverlayErrorV1;
+use oasis7_world_state::incremental_field_overlay::WorldFieldOverlayErrorV1;
 use std::cell::Cell;
 use supply_fixture::{authorization, batch};
 struct Controlled<'a, W> {

@@ -4512,9 +4512,32 @@ run_cargo() {
         self.assertIn('--policy-sha "$POLICY_SHA"', job)
         self.assertIn('--plan "$RUNNER_TEMP/ci-control-selection/selection.json"', job)
         self.assertIn('python_control_contract_version == 1', job)
-        self.assertIn('rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal', job)
-        self.assertIn('rustup default "$RUST_TOOLCHAIN"', job)
-        self.assertIn('command -v zstdmt', job)
+        if '    container:' in job:
+            self.assertRegex(job, r'(?m)^    container:\n'
+                                  r'      image: ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:[0-9a-f]{64}$')
+            self.assertIn('      options: --user 1001:1001\n', job)
+            permissions = re.search(r'(?m)^    permissions:\n((?:      [^\n]+\n)+)', job)
+            self.assertIsNotNone(permissions)
+            self.assertCountEqual(permissions[1].splitlines(), [
+                '      contents: read', '      actions: read', '      packages: read',
+            ])
+            self.assertNotRegex(job, r'(?m)^\s+[a-z-]+: write$')
+            verify = job.split('      - name: Verify preinstalled governance tools\n', 1)
+            self.assertEqual(len(verify), 2)
+            self.assertLess(job.index('name: Verify preinstalled governance tools'), job.index(trusted))
+            preparation = verify[1].split('\n      - ', 1)[0]
+            for command in (
+                    'cargo +"$RUST_TOOLCHAIN" --version',
+                    'test "$(rustc --version)" = "$(rustc +"$RUST_TOOLCHAIN" --version)"',
+                    'cargo +"$RUST_TOOLCHAIN" fmt --version',
+                    'cargo +"$RUST_TOOLCHAIN" clippy --version',
+                    'command -v zstd', 'command -v zstdmt'):
+                self.assertIn('          ' + command + '\n', preparation + '\n')
+            self.assertNotRegex(job, r'rustup (?:toolchain install|default)\b')
+        else:
+            self.assertIn('rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal', job)
+            self.assertIn('rustup default "$RUST_TOOLCHAIN"', job)
+            self.assertIn('command -v zstdmt', job)
         self.assertIn('pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt', job)
         self.assertLess(job.index(trusted), job.index('bash ./scripts/ci-tests.sh required'))
         self.assertNotIn('cargo test -p', job)
@@ -6596,6 +6619,81 @@ class HeavyPrJobTimeoutContractTests(unittest.TestCase):
                     actual = int(match.group(1))
                     self.assertGreater(actual, 0)
                     self.assertLessEqual(actual, max_minutes)
+
+
+class PriorityRunnerRoutingContractTests(unittest.TestCase):
+    def test_ci_priority_label_routes_same_repo_pr_required_jobs_only(self):
+        expected_expr = (
+            "runs-on: ${{ github.event_name == 'pull_request' && "
+            "github.event.pull_request.head.repo.full_name == github.repository && "
+            "contains(github.event.pull_request.labels.*.name, 'ci-priority') && "
+            "'oasis7-priority-linux' || 'ubuntu-24.04' }}"
+        )
+        priority_jobs = {
+            'select', 'baseline', 'rust-baseline',
+            'oasis7-test-build-candidate', 'oasis7-test-build',
+            'formal-debug-build', 'formal-endpoint-build', 'formal-test-build',
+            'oasis7-required', 'formal-process-tests', 'formal-process',
+            'consensus', 'distfs', 'node', 'net',
+            'viewer-js-required', 'viewer-performance-report', 'pixel-world-bridge',
+            'launcher-web', 'workspace-support-other',
+            'custody-native-contracts', 'custody-native',
+            'custody-wasm-production', 'custody-wasm-approval',
+            'custody-wasm-contracts', 'custody-node', 'workspace-support',
+            'scenario-regression',
+            'workflow-governance', 'codex-agent-config-validation',
+            'compile-metrics', 'site-quality', 'doc-checker-contracts',
+            'cargo-tooling-contracts', 'macos-package-contract', 'required-gate',
+        }
+        excluded_jobs = {
+            'operational-contracts', 'packaging-contracts',
+            'pr-fast-preview-plan', 'pr-fast-preview',
+            'pr-governance-preview', 'pr-ordinary-delivery-preview',
+            'periodic-admission', 'cache-bootstrap-maintenance', 'cache-maintenance',
+            'oasis7-test-build-trusted', 'formal-debug-build-trusted',
+            'formal-endpoint-build-trusted', 'formal-test-build-trusted',
+            'full-regression', 'candidate-full-regression', 'explicit-full-gate',
+            'workspace-support-legacy',
+        }
+        for name in priority_jobs:
+            with self.subTest(priority_job=name):
+                self.assertIn(expected_expr, JOBS[name])
+        for name in excluded_jobs:
+            with self.subTest(excluded_job=name):
+                self.assertNotIn('oasis7-priority-linux', JOBS[name])
+
+
+class AllWorkflowJobsTimeoutGuardTests(unittest.TestCase):
+    def test_every_executable_workflow_job_declares_timeout_minutes(self):
+        workflow_dir = ROOT / '.github/workflows'
+        workflow_paths = sorted(
+            path for path in workflow_dir.iterdir()
+            if path.is_file() and path.suffix in ('.yml', '.yaml')
+        )
+        self.assertGreater(len(workflow_paths), 0)
+        checked_jobs = 0
+        for path in workflow_paths:
+            rel_path = path.relative_to(ROOT).as_posix()
+            jobs = workflow_jobs(path.read_text())
+            self.assertGreater(len(jobs), 0, f'{rel_path} must declare at least one job')
+            for job_name, body in jobs.items():
+                if re.search(r'^    uses:\s*\S+', body, re.M):
+                    continue
+                checked_jobs += 1
+                with self.subTest(workflow=rel_path, job=job_name):
+                    match = re.search(r'^    timeout-minutes:\s*(.+?)\s*$', body, re.M)
+                    self.assertIsNotNone(
+                        match,
+                        f'{rel_path}:{job_name} must declare explicit timeout-minutes',
+                    )
+                    value = match.group(1)
+                    if value.isdigit():
+                        minutes = int(value)
+                        self.assertGreater(minutes, 0)
+                        self.assertLessEqual(minutes, 360)
+                    else:
+                        self.assertRegex(value, r'^\$\{\{.+\}\}$')
+        self.assertGreater(checked_jobs, 0)
 
 
 if __name__ == '__main__':

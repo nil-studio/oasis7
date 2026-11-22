@@ -211,12 +211,24 @@ impl PeerRecordCache {
     }
     pub(super) fn prune(&mut self, active: &HashMap<PeerId, TransportPath>) -> bool {
         let mut changed = false;
+        let mut removed = Vec::new();
         self.records.retain(|peer, cached| {
             let live = cached.lease.is_valid();
             changed |= live != cached.was_live;
             cached.was_live = live;
-            active.contains_key(peer) || live
+            let keep = active.contains_key(peer) || live;
+            if !keep {
+                removed.push(*peer);
+            }
+            keep
         });
+        // The event loop only rebuilds PeerManager views when prune reports a
+        // change. An expired session was already marked not-live on a prior
+        // iteration, so its final removal must also trigger a rebuild.
+        for peer in removed {
+            self.dial_policy.remove_record_paths(peer);
+            changed = true;
+        }
         changed
     }
     #[cfg(test)]
@@ -301,8 +313,16 @@ mod tests {
         assert_eq!(cache.records.len(), 1);
         assert!(cache.get(&active_peer).is_none());
         assert!(cache.session_record(&active_peer).is_some());
-        cache.prune(&HashMap::new());
+        // The expiry transition already marked was_live=false while the
+        // active transport still needed its original session restrictions.
+        // Removing that session later must independently notify consumers.
+        let still_active_path = peer_record_transport_paths(&active_record)
+            .unwrap()
+            .remove(0);
+        assert!(!cache.prune(&HashMap::from([(active_peer, still_active_path)])));
+        assert!(cache.prune(&HashMap::new()));
         assert!(cache.records.is_empty());
+        assert!(!cache.prune(&HashMap::new()));
     }
     #[test]
     fn identical_reinstall_preserves_refresh_attempt_and_original_deadline() {

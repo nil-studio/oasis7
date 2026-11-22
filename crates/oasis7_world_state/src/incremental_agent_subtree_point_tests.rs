@@ -1101,3 +1101,6 @@ fn recovery_structure_cannot_mint_ordinary_balance_access() {
         Some(AgentSubtreeValueV1::I64(77))
     );
 }
+
+#[path = "incremental_agent_current_presence_tests.rs"]
+mod current_presence_tests;

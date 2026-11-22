@@ -1,14 +1,14 @@
 # `testing/evidence` 热点子域入口
 
-更新时间: 2026-10-15
+更新时间: 2026-11-21
 
 ## 从这里开始
 - 想确认当前 release readiness 或测试层级：先读 [`../../../testing-manual.md`](../../../testing-manual.md) 与 [`../README.md`](../README.md)；`release-evidence-bundle-task-game-018-2026-03-10.md`、`closed-beta-candidate-release-gate-2026-03-22.md` 和 `gameplay-ten-minute-trust-gate-2026-04-09.md` 仅作为对应窗口的历史/待领域复核证据
 - 想确认当前 hosted access、托管身份与签名安全边界：先读 [`../../p2p/blockchain/hosted-public-join-managed-identity-custody.prd.md`](../../p2p/blockchain/hosted-public-join-managed-identity-custody.prd.md) 与 [`../../p2p/blockchain/p2p-mainnet-security-governance-readiness.prd.md`](../../p2p/blockchain/p2p-mainnet-security-governance-readiness.prd.md)；2026-03 的 hosted/browser/mainchain 文件仅作历史验证窗口
-- 想确认当前 public-testnet 机制与 readiness：先读 [`../../p2p/blockchain/formal-network-tiers-testnet-mechanism.runbook.md`](../../p2p/blockchain/formal-network-tiers-testnet-mechanism.runbook.md)，再把 `public-testnet-current-required-lanes-2026-07-03.md` 与 `public-testnet-claims-boundary-review-2026-07-06.md` 作为其采集窗口观测；candidate、triad、shared-network 和 incident 文件只作为历史 provenance
+- 想确认当前 public-testnet 机制与 readiness：先读 [`../../p2p/blockchain/formal-network-tiers-testnet-mechanism.runbook.md`](../../p2p/blockchain/formal-network-tiers-testnet-mechanism.runbook.md)，再把 `public-testnet-current-required-lanes-2026-07-03.md` 与 `public-testnet-claims-boundary-review-2026-07-06.md` 作为其采集窗口观测；2026-09 的 triad registry/authority 文件（`public-testnet-validator-triad-authority-2026-09-15.json` 等）为三验证者权威基线产物；candidate、triad、shared-network 和 incident 文件只作为历史 provenance
 - 想确认当前治理与 finality 合同：先读 [`../../p2p/blockchain/p2p-mainnet-security-governance-readiness.prd.md`](../../p2p/blockchain/p2p-mainnet-security-governance-readiness.prd.md) 与 [`../../world-runtime/runtime/chain-pos-control-plane.prd.md`](../../world-runtime/runtime/chain-pos-control-plane.prd.md)；2026-03-24 的 governance registry/live-world drill 文件只作为历史 diagnostic provenance
 - 想确认当前 claim/restricted grant 合同：先读 [`../../game/gameplay/gameplay-agent-claim-economy-contract.prd.md`](../../game/gameplay/gameplay-agent-claim-economy-contract.prd.md) 与 [`../../game/gameplay/gameplay-agent-claim-restricted-grant-liveops-runbook-2026-03-29.md`](../../game/gameplay/gameplay-agent-claim-restricted-grant-liveops-runbook-2026-03-29.md)；`game-agent-claim-abuse-matrix-2026-03-27.md`、`token-genesis-allocation-audit-template.md` 与 `testing-quality-trend-baseline-2026-03-11.md` 分别只作为历史观测、未填充模板或历史质量基线
-- 想确认当前 provider、Web entry 或 onboarding 合同：分别进入 [`../../world-simulator/llm/provider-agent-dual-mode.prd.md`](../../world-simulator/llm/provider-agent-dual-mode.prd.md)、[`../../world-simulator/viewer/viewer-web-entry-compatibility.prd.md`](../../world-simulator/viewer/viewer-web-entry-compatibility.prd.md) 与 [`../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md`](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md)；本目录对应 dated evidence 仅作历史 provenance 或 supporting artifact
+- 想确认当前 provider、Web entry 或 onboarding 合同：分别进入 [`../../world-simulator/llm/provider-agent-dual-mode.prd.md`](../../world-simulator/llm/provider-agent-dual-mode.prd.md)、[`../../world-simulator/viewer/viewer-web-entry-compatibility.prd.md`](../../world-simulator/viewer/viewer-web-entry-compatibility.prd.md) 与 [`../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md`](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md)；本目录对应 dated evidence（含 2026-10 native-task 有界独立试玩目录）仅作历史 provenance 或 supporting artifact
 - 想精确找某份 evidence 文件，而不是按问题阅读：回到 `../prd.index.md` 或直接按文件名进入目标 evidence
 
 ## 入口分工
@@ -33,8 +33,11 @@
 - 治理前快照（2026-04-17）:
   - `doc/testing/evidence/`: 49 份 Markdown
   - `doc/testing/`: 178 份 Markdown
-- 当前子域属于 `testing` 模块最高密度热点路径；本页旨在缩短首读路径，不在本批直接减少文件数。
 - 历史盘点（2026-08-02）记录 124 个 evidence 对象，其中 81 份 Markdown、28 个 JSON、9 张 PNG、4 个 TSV、2 个 TXT；该记录只说明当时触发了 lifecycle 分类复核，不代表当前数量或已完成当前有效性审查。
+- 巡检快照（2026-11-21，由 `./scripts/doc-inventory-report.sh` 复算）:
+  - `doc/testing/evidence/`: 91 份 Markdown（`action_required`），含子目录 JSON/JSONL/PNG/TSV/TXT 共 193 个文件
+  - `doc/testing/`: 204 份 Markdown（`action_required`）
+  - 以上快照仅记录存量密度与触发复核事实，不代表当前发布或运行态已验收。
 
 ## 首读主题簇
 
@@ -125,6 +128,21 @@
   - provider dual-mode、旧 `software_safe` alias、headless smoke 或 launcher UX 的历史验证在哪
   - 某条 evidence 是局部 supporting artifact 还是历史 provenance
   - 当前 provider/Web entry/onboarding 合同须从本页顶部列出的专业 authority 进入
+
+### 7. 2026-09 Triad 权威产物与 2026-10 Native-task 有界独立试玩证据
+- 2026-09 public-testnet 三验证者权威基线（支持正式 runbook 与预检脚本引用，不代表当前在线可用性）：
+  - `public-testnet-validator-triad-authority-2026-09-15.json`
+  - `public-testnet-governed-bootstrap-validator-triad-registry-2026-09-15.json`
+  - `public-testnet-governed-bootstrap-validator-triad-bootstrap-peers-2026-09-15.txt`
+- 2026-10 native-task 有界独立试玩目录（均为历史候选窗口观察，不构成全量 AC-EXT-010、首局整体验收或部署通过）：
+  - `external-task-native-execution-2026-10-12/README.md`
+  - `native-task-logistics-2026-10-12/README.md`
+  - `native-task-production-2026-10-13/README.md`（历史结论为 inconclusive）
+  - `native-task-starter-chain-2026-10-13/README.md`（历史结论为 inconclusive）
+- 适合问题:
+  - 追溯 2026-09 triad 权威清单与 bootstrap peers 原始产物
+  - 追溯 2026-10 原生私密任务执行、物流、配方排产与起步链的有界独立试玩结果及未覆盖边界
+  - 当前外部 Agent 合同与原生物流/排产设计回到 `../../world-simulator/llm/external-agent-game-api.design.md`
 
 ## 定向检索边界
 - 已知准确文件名时，回到 `../prd.index.md` 或按文件名打开目标 evidence；本页不替代完整索引。

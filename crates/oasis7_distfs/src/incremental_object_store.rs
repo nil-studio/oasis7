@@ -513,3 +513,14 @@ impl oasis7_formal_protocol::incremental_material::OriginalObjectStreamReader
             .read_object_into(id, max_bytes, &mut output, self.io)
     }
 }
+
+#[path = "incremental_object_read_write_session.rs"]
+mod read_write_session;
+pub use read_write_session::ObjectReadWriteSession;
+
+#[cfg(all(test, unix))]
+#[path = "incremental_object_read_write_session_tests.rs"]
+mod read_write_tests;
+
+#[path = "incremental_object_durable.rs"]
+mod durable;

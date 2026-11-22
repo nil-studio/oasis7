@@ -1,6 +1,6 @@
 # Viewer Pixel World Bridge Rendering
 
-- 已完成的实施追溯见 GitHub task issue evidence comments 与 `.pm/github-project-sync/task-archive.jsonl`。
+- 已完成的实施追溯见 GitHub task issue evidence comments 与 [固定版本归档](https://github.com/nil-studio/oasis7/blob/4d8c742a9f5eca75c02a4156678d71ccc7e87d53/.pm/github-project-sync/task-archive.jsonl)。
 - 关联主专题:
   - `doc/world-simulator/viewer/viewer-page-module-design-2026-06-18.design.md`
   - `doc/world-simulator/viewer/viewer-web-entry-compatibility.prd.md`
