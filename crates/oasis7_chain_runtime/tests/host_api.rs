@@ -30,6 +30,7 @@ fn cli_errors_return_without_terminating_the_library_caller() {
     assert!(RuntimeConfig::parse(["--unknown-library-option"].into_iter()).is_err());
     assert!(run_cli(vec!["--help".into()]).is_ok());
 }
+
 #[cfg(unix)]
 mod shipping_budget_process {
     use std::{
@@ -179,7 +180,10 @@ mod shipping_budget_process {
         unknown["unregistered_budget_override"] = json!(1);
         invalid.push(("unknown-field".into(), unknown));
         let mut missing = limits();
-        missing.as_object_mut().unwrap().remove("pending_inbound_unknown");
+        missing
+            .as_object_mut()
+            .unwrap()
+            .remove("pending_inbound_unknown");
         invalid.push(("missing-field".into(), missing));
         let mut future = limits();
         future["profile"] = json!("unsupported-future-profile");
@@ -236,7 +240,14 @@ mod shipping_budget_process {
 
         fn diagnostics(&self) -> String {
             let content = fs::read_to_string(&self.stderr).unwrap_or_default();
-            content.chars().rev().take(5000).collect::<String>().chars().rev().collect()
+            content
+                .chars()
+                .rev()
+                .take(5000)
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect()
         }
     }
 
