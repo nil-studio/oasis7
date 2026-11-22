@@ -418,7 +418,7 @@ conflict.
 <a id="rejected-movement-settlement"></a>
 ##### Rejected movement: distance settlement versus independent progression (target, not implemented)
 
-Trace refs: O7-REQ-5514d066-856a-49e9-9c34-ad0ea3408c99; this design covers the rejected-movement subset of [SC-7 physical truth](../product/world-rules-core-gameplay/prd.md#root-sc7-scale), not the whole cross-layer requirement.
+Trace refs: O7-REQ-5514d066-856a-49e9-9c34-ad0ea3408c99; this design covers the rejected-movement subset of [SC-7 physical truth](../product/world-rules-core-gameplay/root-sc-status-and-ownership.prd.md#root-sc7-scale), not the whole cross-layer requirement.
 
 A final rejected `MoveAgent` must have zero movement-distance debit and must not advance either canonical position or the storage-power module's position. A rule's preliminary allow is not a successful move. Successful settlement uses the authoritative `AgentMoved` outcome (including the final target after a supported rule modification), and charges each applicable movement-cost ledger once; it must not charge both the original proposal and the modified result. Runtime resource electricity and M1 battery are distinct ledgers, not interchangeable balances.
 

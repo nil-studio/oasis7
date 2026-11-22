@@ -201,7 +201,7 @@ DomainEvent::PowerRedeemRejected {
 <a id="economic-contract-power-ledger"></a>
 ### 贡献形成受限协议资产账本的既有专业接受关系
 
-Trace refs: O7-REQ-c0f136a1-3baf-497e-a0ec-622e745024d0；唯一声明：[世界规则根结果](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-power-ledger)。
+Trace refs: O7-REQ-c0f136a1-3baf-497e-a0ec-622e745024d0；唯一声明：[世界规则根结果](../../product/world-rules-core-gameplay/node-economy-contract-reception.prd.md#req-wr-economic-power-ledger)。
 
 - 原义务：AC-1..6、资产与储备账本和结算记录；PowerCredit保持不可直接转账的受限协议资产；按原积分换算和mint记录形成可追溯余额，不扩展通用交易市场。
 - 原验证入口：[本文件验证与决策记录](#6-validation--decision-record)；具体业务场景仍按本文件第4章与原AC，不以§6文档迁移检查代签业务测试。
@@ -210,7 +210,7 @@ Trace refs: O7-REQ-c0f136a1-3baf-497e-a0ec-622e745024d0；唯一声明：[世界
 <a id="economic-contract-power-redemption"></a>
 ### 全部条件成立才燃烧资产并增加目标电力的既有专业接受关系
 
-Trace refs: O7-REQ-a061488d-5b14-489a-af77-ed3f6f75f1bb；唯一声明：[世界规则根结果](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-power-redemption)。
+Trace refs: O7-REQ-a061488d-5b14-489a-af77-ed3f6f75f1bb；唯一声明：[世界规则根结果](../../product/world-rules-core-gameplay/node-economy-contract-reception.prd.md#req-wr-economic-power-redemption)。
 
 - 原义务：兑换动作与事件、关键规则；兑换沿原余额、nonce、最小量、epoch储备与上限条件；成功须扣资产、扣储备与增加指定Agent电力一致，失败不得伪装兑付成功。
 - 原验证入口：[本文件验证与决策记录](#6-validation--decision-record)；具体业务场景仍按本文件第4章与原AC，不以§6文档迁移检查代签业务测试。
@@ -219,7 +219,7 @@ Trace refs: O7-REQ-a061488d-5b14-489a-af77-ed3f6f75f1bb；唯一声明：[世界
 <a id="economic-contract-power-signature"></a>
 ### 签名治理条件不足必须拒绝的既有专业接受关系
 
-Trace refs: O7-REQ-85c5baeb-e05a-4924-9024-e05f1903bd2a；唯一声明：[世界规则根结果](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-power-signature)。
+Trace refs: O7-REQ-85c5baeb-e05a-4924-9024-e05f1903bd2a；唯一声明：[世界规则根结果](../../product/world-rules-core-gameplay/node-economy-contract-reception.prd.md#req-wr-economic-power-signature)。
 
 - 原义务：审计与签名治理演进、MIG-097验收；v1仅历史可重算摘要；v2与兑换签名依既有治理策略和绑定执行，缺少密钥、绑定或所需策略条件时fail closed。
 - 原验证入口：[本文件验证与决策记录](#6-validation--decision-record)；具体业务场景仍按本文件第4章与原AC，不以§6文档迁移检查代签业务测试。
@@ -228,7 +228,7 @@ Trace refs: O7-REQ-85c5baeb-e05a-4924-9024-e05f1903bd2a；唯一声明：[世界
 <a id="economic-contract-power-audit"></a>
 ### 审计与恢复检测异常而不自动修复的既有专业接受关系
 
-Trace refs: O7-REQ-9804d9d7-2c75-475f-b321-5c4ed36276b5；唯一声明：[世界规则根结果](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-power-audit)。
+Trace refs: O7-REQ-9804d9d7-2c75-475f-b321-5c4ed36276b5；唯一声明：[世界规则根结果](../../product/world-rules-core-gameplay/node-economy-contract-reception.prd.md#req-wr-economic-power-audit)。
 
 - 原义务：状态与回放一致性、审计与签名治理演进、MIG-096验收；mint/burn/balance/record与快照/replay保持一致；invariant report用于检测而非自动修复，旧快照可读取不免除签名策略与报告复核。
 - 原验证入口：[本文件验证与决策记录](#6-validation--decision-record)；具体业务场景仍按本文件第4章与原AC，不以§6文档迁移检查代签业务测试。

@@ -19,8 +19,8 @@
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 具体 obligation 与适用条件 | 本设计条款（path#anchor） | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
-| [可选外部性 profile 与 legacy 边界](../../product/world-rules-core-gameplay/prd.md#root-sc33-extscope)；Trace refs: O7-REQ-e6f4ffa7-0b1b-4d0e-b7a3-8ca38c8d0244 | 仅显式 profile 启用；scope/authority 缺失、过期或不可核验时 unknown/blocked；不取得区域或治理权。 | [Profile与授权模型](#externality-profile) | M4 profile、当前授权；[配方生命周期](industrial-work-graph-and-recipe-lifecycle.design.md#recipe-lifecycle) | 不推断污染数值、不默认启用 legacy、不扩大局部 mitigation。 |
-| [外部性处置与其他事实隔离](../../product/world-rules-core-gameplay/prd.md#root-sc33-extdispose)；Trace refs: O7-REQ-bd83785c-d414-4bd7-b291-41a4d7272aa3 | preview 只读、submit fresh；生产/处置独立且单次；WIP/transit/buffer/terminal 保留身份义务，不改 quality/custody/byproduct/maintenance/settlement/W。 | [联合结果及处置协议](#externality-commit) | [工作图与 ChildRefV1](industrial-work-graph-and-recipe-lifecycle.design.md#industrial-identity)、[工作处置](industrial-work-graph-and-recipe-lifecycle.design.md#industrial-cutover)；资源/物流/终端 authority | 不用普通工业 receipt 代签外部性；不宣称长时、区域影响或完整 current evidence。 |
+| [可选外部性 profile 与 legacy 边界](../../product/world-rules-core-gameplay/root-sc-status-and-ownership.prd.md#root-sc33-extscope)；Trace refs: O7-REQ-e6f4ffa7-0b1b-4d0e-b7a3-8ca38c8d0244 | 仅显式 profile 启用；scope/authority 缺失、过期或不可核验时 unknown/blocked；不取得区域或治理权。 | [Profile与授权模型](#externality-profile) | M4 profile、当前授权；[配方生命周期](industrial-work-graph-and-recipe-lifecycle.design.md#recipe-lifecycle) | 不推断污染数值、不默认启用 legacy、不扩大局部 mitigation。 |
+| [外部性处置与其他事实隔离](../../product/world-rules-core-gameplay/root-sc-status-and-ownership.prd.md#root-sc33-extdispose)；Trace refs: O7-REQ-bd83785c-d414-4bd7-b291-41a4d7272aa3 | preview 只读、submit fresh；生产/处置独立且单次；WIP/transit/buffer/terminal 保留身份义务，不改 quality/custody/byproduct/maintenance/settlement/W。 | [联合结果及处置协议](#externality-commit) | [工作图与 ChildRefV1](industrial-work-graph-and-recipe-lifecycle.design.md#industrial-identity)、[工作处置](industrial-work-graph-and-recipe-lifecycle.design.md#industrial-cutover)；资源/物流/终端 authority | 不用普通工业 receipt 代签外部性；不宣称长时、区域影响或完整 current evidence。 |
 
 ## 3. 当前状态、目标状态与差距
 
@@ -170,8 +170,8 @@ snapshot+journal 同时保留 profile binding、全部被引用 profile 版本�
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 本设计条款（path#anchor） | 独立 obligation 与适用条件 | 准确验证方法、test/manual source 或 ID、scenario/layer、candidate/environment 要求或选择规则 | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
-| [可选外部性 profile 与 legacy 边界](../../product/world-rules-core-gameplay/prd.md#root-sc33-extscope)；Trace refs: O7-REQ-e6f4ffa7-0b1b-4d0e-b7a3-8ca38c8d0244 | [Profile与授权模型](#externality-profile) | 显式启用、scope/authority fail-closed、局部授权及 legacy 隔离。 | `EXT-VERIFY-001`；SC-33 required 固定 candidate/profile 与各入口同源观察；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的真实 profile/submit、前后摘要及各消费者证据。 | 不证明污染/区域模拟、治理资格或 release readiness。 |
-| [外部性处置与其他事实隔离](../../product/world-rules-core-gameplay/prd.md#root-sc33-extdispose)；Trace refs: O7-REQ-bd83785c-d414-4bd7-b291-41a4d7272aa3 | [联合结果及处置协议](#externality-commit) | preview/fresh submit、分层单次结果、旧工作与其他事实守恒。 | `EXT-VERIFY-001`、`002`、`003`；原 required 的故障/恢复/重复/parity，完整保留根 SC 的条件；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的工作图、容量及各域 receipt 对账和实际 CI。 | 本文未运行验收；普通工业测试不代签新增 facet，单节点不代签长时/区域影响。 |
+| [可选外部性 profile 与 legacy 边界](../../product/world-rules-core-gameplay/root-sc-status-and-ownership.prd.md#root-sc33-extscope)；Trace refs: O7-REQ-e6f4ffa7-0b1b-4d0e-b7a3-8ca38c8d0244 | [Profile与授权模型](#externality-profile) | 显式启用、scope/authority fail-closed、局部授权及 legacy 隔离。 | `EXT-VERIFY-001`；SC-33 required 固定 candidate/profile 与各入口同源观察；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的真实 profile/submit、前后摘要及各消费者证据。 | 不证明污染/区域模拟、治理资格或 release readiness。 |
+| [外部性处置与其他事实隔离](../../product/world-rules-core-gameplay/root-sc-status-and-ownership.prd.md#root-sc33-extdispose)；Trace refs: O7-REQ-bd83785c-d414-4bd7-b291-41a4d7272aa3 | [联合结果及处置协议](#externality-commit) | preview/fresh submit、分层单次结果、旧工作与其他事实守恒。 | `EXT-VERIFY-001`、`002`、`003`；原 required 的故障/恢复/重复/parity，完整保留根 SC 的条件；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的工作图、容量及各域 receipt 对账和实际 CI。 | 本文未运行验收；普通工业测试不代签新增 facet，单节点不代签长时/区域影响。 |
 
 ## 12. 决策、长期风险与未决问题
 
