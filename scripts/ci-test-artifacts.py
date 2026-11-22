@@ -314,6 +314,30 @@ UNIT_TEST_CONTRACT_FIELDS = frozenset((
 
 ORDINARY_ARTIFACT_PARTITIONS = ('controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1')
 TARGETED_ORDINARY_ARTIFACT_PARTITIONS = ('controls', 'native-0', 'native-1', 'native-2', 'native-3')
+COMPACT_TARGETED_ORDINARY_ARTIFACT_PARTITIONS = ('controls', 'native-0', 'native-1')
+COMPACT_ORDINARY_NON_RUNTIME_BUDGET_MS = 300000
+
+
+def targeted_ordinary_artifact_partitions(plan):
+    if (isinstance(plan, dict)
+            and plan.get('ordinary_dynamic_partition_version') == 1
+            and plan.get('scope') == 'targeted'
+            and isinstance(plan.get('ordinary_harness_costs'), dict)
+            and isinstance(plan.get('oasis7_required_packages'), list)):
+        selected = set(plan['oasis7_required_packages'])
+        if not {'oasis7', 'oasis7_world_state'}.intersection(selected):
+            non_runtime_ms = sum(
+                row['elapsed_ms'] for row in plan['ordinary_harness_costs']['harnesses']
+                if row['package'] in selected
+                and not (row['package'] == 'oasis7_chain_runtime'
+                         and row['target_kind'] == 'lib'
+                         and row['target_name'] == 'oasis7_chain_runtime'
+                         and row['variant'] == 'required'
+                         and row['mode'] == 'batch')
+            )
+            if non_runtime_ms <= COMPACT_ORDINARY_NON_RUNTIME_BUDGET_MS:
+                return COMPACT_TARGETED_ORDINARY_ARTIFACT_PARTITIONS
+    return TARGETED_ORDINARY_ARTIFACT_PARTITIONS
 
 # This is one reviewed source-sharing contract, not name-based test deduplication.
 # Pin the shared cases, their fixture, the AgentState re-export chain and the
@@ -374,7 +398,8 @@ def fast_plan(plan):
             raise ValueError('invalid ordinary risk target capability')
     partitioned = isinstance(plan, dict) and bool(
         {'ordinary_partition_version', 'ordinary_artifact_partition_version', 'ordinary_partitions',
-         'ordinary_artifact_delivery_version', 'ordinary_harness_costs'}.intersection(plan))
+         'ordinary_artifact_delivery_version', 'ordinary_harness_costs',
+         'ordinary_dynamic_partition_version'}.intersection(plan))
     distfs_clippy = isinstance(plan, dict) and bool(
         {'distfs_clippy_contract_version', 'distfs_clippy_group'}.intersection(plan))
     if distfs_clippy and 'fast_plan_version' not in plan:
@@ -548,6 +573,12 @@ def validate_ordinary_partitions(plan):
         if plan.get('ordinary_artifact_partition_version') != 2:
             raise ValueError('ordinary harness costs require artifact v2')
         validate_ordinary_harness_costs(plan['ordinary_harness_costs'])
+    if 'ordinary_dynamic_partition_version' in plan:
+        if (type(plan['ordinary_dynamic_partition_version']) is not int
+                or plan['ordinary_dynamic_partition_version'] != 1
+                or plan.get('ordinary_artifact_partition_version') != 2
+                or 'ordinary_harness_costs' not in plan):
+            raise ValueError('invalid ordinary dynamic partition capability')
     if 'ordinary_artifact_delivery_version' in plan:
         if (type(plan['ordinary_artifact_delivery_version']) is not int
                 or plan['ordinary_artifact_delivery_version'] not in (1, 2)
@@ -556,7 +587,7 @@ def validate_ordinary_partitions(plan):
             raise ValueError('invalid ordinary artifact delivery capability')
     if 'ordinary_artifact_partition_version' in plan:
         version = plan['ordinary_artifact_partition_version']
-        expected = ORDINARY_ARTIFACT_PARTITIONS if version == 1 else TARGETED_ORDINARY_ARTIFACT_PARTITIONS
+        expected = ORDINARY_ARTIFACT_PARTITIONS if version == 1 else targeted_ordinary_artifact_partitions(plan)
         if (type(version) is not int or version not in (1, 2)
                 or 'ordinary_partition_version' in plan
                 or 'fast_execution_version' in plan
@@ -3330,7 +3361,7 @@ def ordinary_artifact_entries(manifest, plan, partition):
     if plan.get('ordinary_artifact_partition_version') not in (1, 2) or partition not in ordinary_partitions(plan):
         raise ValueError('unknown complete ordinary artifact partition')
     if plan['ordinary_artifact_partition_version'] == 2:
-        return targeted_ordinary_artifact_entries(manifest, partition)
+        return targeted_ordinary_artifact_entries(manifest, partition, plan=plan)
     buckets = {name: [] for name in ORDINARY_ARTIFACT_PARTITIONS}
     entries = ordinary_entries(manifest)
     identities = [(entry['binary'], entry.get('filter')) for entry in entries]
@@ -3387,9 +3418,12 @@ def expand_ordinary_batches(entries, binaries):
     return expanded
 
 
-def targeted_ordinary_artifact_entries(manifest, partition):
+def targeted_ordinary_artifact_entries(manifest, partition, plan=None):
     """Partition real runtime cases, retaining every other complete harness."""
-    owners = TARGETED_ORDINARY_ARTIFACT_PARTITIONS[1:]
+    effective_plan = manifest.get('execution_plan') if plan is None else plan
+    owners = tuple(ordinary_partitions(effective_plan)[1:])
+    if owners not in (COMPACT_TARGETED_ORDINARY_ARTIFACT_PARTITIONS[1:], TARGETED_ORDINARY_ARTIFACT_PARTITIONS[1:]):
+        raise ValueError('unsupported targeted ordinary native owners')
     entries = expand_ordinary_batches(ordinary_entries(manifest), manifest['binaries'])
     runtime = [entry for entry in entries if entry.get('batch') and (
         manifest['binaries'][entry['binary']].get('package'),
