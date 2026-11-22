@@ -4302,18 +4302,31 @@ jobs:
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
     timeout-minutes: 10
-    # Temporarily use the host until the published runtime includes file (#6437).
     permissions:
       contents: read
+      packages: read
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-runtime@sha256:14ef7ecc92a75d99af0723dbb0fa131b24c40ac2f83eed748fde1698c35c4258
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        with:
-          python-version: '3.12'
+      - name: Verify preinstalled Python
+        shell: bash
+        run: python3 -c 'import sys; sys.exit(sys.version_info[:2] != (3, 12))'
+      - name: Ensure real file(1) Mach-O validation prerequisite
+        shell: bash
+        run: |
+          if ! command -v file >/dev/null 2>&1; then
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends file
+          fi
+          file --version
       - name: Execute selected group
         shell: bash
         run: bash ./scripts/testnet-packages-macos-arm64-contract.test.sh
