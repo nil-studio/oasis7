@@ -35,7 +35,7 @@ use serde_json::json;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[path = "main_tests_chain_args.rs"]
@@ -50,8 +50,7 @@ mod onboarding_tests;
 mod provider_probe_tests;
 
 fn hosted_strong_auth_env_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+    &crate::transfer_auth::TRANSFER_AUTH_ENV_LOCK
 }
 
 fn clear_hosted_strong_auth_env() {

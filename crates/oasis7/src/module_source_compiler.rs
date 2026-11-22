@@ -389,7 +389,7 @@ fn repo_root() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{module_source_env_key, module_source_env_non_empty};
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::Mutex;
 
     #[test]
     fn module_source_env_non_empty_reads_oasis7_value() {
@@ -430,8 +430,7 @@ mod tests {
     }
 
     fn module_source_env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
+        crate::env_mut::process_env_lock()
     }
 
     fn removed_old_brand_module_source_env(suffix: &str) -> String {

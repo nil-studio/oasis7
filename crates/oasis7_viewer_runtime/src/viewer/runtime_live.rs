@@ -60,8 +60,7 @@ use tracing::Level;
 
 #[cfg(test)]
 pub(super) fn canonical_runtime_provider_env_lock() -> &'static Mutex<()> {
-    static LOCK: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+    oasis7::env_mut::process_env_lock()
 }
 
 #[path = "runtime_live/advance_runtime_server.rs"]
