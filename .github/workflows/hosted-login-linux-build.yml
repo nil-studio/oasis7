@@ -66,8 +66,8 @@ jobs:
         with:
           shared-key: hosted-login-linux-x86-64-ci-rust-build-068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb
           add-rust-environment-hash-key: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-          cache-on-failure: true
+          save-if: false
+          cache-on-failure: false
 
       - name: Resolve build profile
         id: profile
