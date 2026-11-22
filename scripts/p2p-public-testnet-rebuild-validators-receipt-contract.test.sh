@@ -24,8 +24,9 @@ root = Path(sys.argv[1])
 test_path = root / "scripts" / "p2p-public-testnet-validator-pair-rebuild.test.py"
 wrapper_path = root / "scripts" / "p2p-public-testnet-rebuild-validators.sh"
 runbook_path = root / "doc" / "p2p" / "blockchain" / "public-testnet-governed-bootstrap.runbook.md"
+phase_c_runbook_path = root / "doc" / "p2p" / "blockchain" / "public-testnet-governed-bootstrap-phase-c-rebuild.runbook.md"
 wrapper_source = wrapper_path.read_text(encoding="utf-8")
-runbook_source = runbook_path.read_text(encoding="utf-8")
+runbook_source = runbook_path.read_text(encoding="utf-8") + "\n" + phase_c_runbook_path.read_text(encoding="utf-8")
 help_output = subprocess.run(
     [str(wrapper_path), "--help"], text=True, capture_output=True, check=True
 ).stdout

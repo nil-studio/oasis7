@@ -45,6 +45,7 @@ FLEET_HEALTH = ROOT / "scripts/p2p-public-testnet-fleet-health.py"
 SERVICE_READBACK = ROOT / "scripts/service-readback"
 START_NODE = ROOT / "scripts/p2p-triad-node-start.sh"
 RUNBOOK = ROOT / "doc/p2p/blockchain/public-testnet-governed-bootstrap.runbook.md"
+RUNBOOK_PHASE_C = ROOT / "doc/p2p/blockchain/public-testnet-governed-bootstrap-phase-c-rebuild.runbook.md"
 MANUAL = ROOT / "doc/testing/manual/public-testnet-fresh-validator-host-bootstrap-2026-07-28.manual.md"
 
 INVENTORY_RELATIVE = "scripts/public-testnet-validator-triad-inventory.v1.json"
@@ -899,17 +900,21 @@ class Validator47HostStagingContractTests(unittest.TestCase):
             "clean redeploy": r"clean[- ]redeploy",
             "pair preservation": r"pair[- ]preserv",
         }
-        for path in (RUNBOOK, MANUAL):
-            source = path.read_text(encoding="utf-8").lower()
+        doc_sources = (
+            (RUNBOOK.name, RUNBOOK.read_text(encoding="utf-8") + "\n" + RUNBOOK_PHASE_C.read_text(encoding="utf-8")),
+            (MANUAL.name, MANUAL.read_text(encoding="utf-8")),
+        )
+        for doc_name, raw_source in doc_sources:
+            source = raw_source.lower()
             for marker in command_markers:
                 self.assertTrue(
                     marker.lower() in source,
-                    f"contract: {path.name} lacks executable validator-47 command {marker}",
+                    f"contract: {doc_name} lacks executable validator-47 command {marker}",
                 )
             for marker, pattern in contract_patterns.items():
                 self.assertTrue(
                     re.search(pattern, source),
-                    f"contract: {path.name} lacks executable validator-47 contract marker {marker}",
+                    f"contract: {doc_name} lacks executable validator-47 contract marker {marker}",
                 )
 
 
