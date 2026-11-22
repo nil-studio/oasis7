@@ -1,0 +1,142 @@
+name: ECS Web Source Fingerprint Probe
+
+on:
+  pull_request:
+    branches: [codex/engineering-ecs-web-source-probe-base]
+    paths: [.github/workflows/ecs-web-source-probe.yml]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  RUST_TOOLCHAIN: 1.96.0
+  # Configured repository cache budget: 20 GB (decimal bytes).
+  # GitHub cache limits and billing budgets must also allow this capacity.
+  ECS_CACHE_REPOSITORY_BUDGET_BYTES: '20000000000'
+
+jobs:
+  web:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb
+      options: --user 1001:1001
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
+      OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: 774f9c994b4b71a149740506fd1b8c17ba63b66f
+          persist-credentials: false
+      - name: Trust the checked-out workspace path in the job container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Snapshot source at the fixed checkout
+        run: |
+          cat > "$RUNNER_TEMP/ecs-web-source-probe.py" <<'PYTHON'
+          import ast
+          import hashlib
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          import tarfile
+          from pathlib import Path
+
+          stage = sys.argv[1]
+          expected_oid = "774f9c994b4b71a149740506fd1b8c17ba63b66f"
+          assert subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip() == expected_oid
+          source_helper = Path("scripts/viewer-web-dist-contract.sh").read_text()
+          scope = ast.literal_eval(re.search(r"^scope = (\[.*?^\])", source_helper, re.S | re.M)[1])
+          root = Path.cwd().resolve()
+          paths = set()
+          for name in scope:
+              entry = root / name
+              if entry.is_dir():
+                  paths.update(path.resolve() for path in entry.rglob("*") if path.is_file())
+              elif entry.is_file():
+                  paths.add(entry.resolve())
+          fingerprint = hashlib.sha256()
+          files = {}
+          for path in sorted(paths):
+              name = path.relative_to(root).as_posix()
+              data = path.read_bytes()
+              fingerprint.update(name.encode() + b"\0" + data + b"\0")
+              files[name] = hashlib.sha256(data).hexdigest()
+
+          record = Path(os.environ["RUNNER_TEMP"]) / "ecs-web-checkout-hashes.json"
+          if stage == "checkout":
+              record.write_text(json.dumps(files))
+              expected = {}
+              with subprocess.Popen(["git", "cat-file", "--batch"], stdin=subprocess.PIPE,
+                                    stdout=subprocess.PIPE) as blobs:
+                  for name in files:
+                      blobs.stdin.write(("HEAD:" + name + "\n").encode())
+                      blobs.stdin.flush()
+                      header = blobs.stdout.readline().split()
+                      if len(header) == 3 and header[1] == b"blob":
+                          expected[name] = hashlib.sha256(blobs.stdout.read(int(header[2]))).hexdigest()
+                          assert blobs.stdout.read(1) == b"\n"
+                  blobs.stdin.close()
+          else:
+              expected = json.loads(record.read_text())
+          changes = {name: [expected.get(name), files.get(name)] for name in sorted(expected.keys() | files.keys())
+                     if expected.get(name) != files.get(name)}
+          print(json.dumps({"stage": stage, "oid": expected_oid, "files": len(files),
+                            "fingerprint": fingerprint.hexdigest(), "changes": changes}, sort_keys=True))
+          subprocess.run(["git", "status", "--porcelain=v1", "--untracked-files=normal"], check=True)
+          if stage == "packaged":
+              with tarfile.open("output/web.tar.gz", "r:gz") as archive:
+                  manifest = json.load(archive.extractfile(".oasis7-viewer-dist-manifest.json"))
+              print(json.dumps({"archiveFingerprint": manifest["sourceFingerprint"],
+                                "archiveFileCount": manifest["sourceFileCount"]}, sort_keys=True))
+          PYTHON
+          python3 "$RUNNER_TEMP/ecs-web-source-probe.py" checkout
+      - name: Install the same verified mold without cache writes
+        run: python3 .github/actions/setup-linux-mold/setup.py --install-dir "$RUNNER_TEMP/oasis7-ecs-web-mold"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - run: npm ci --prefix crates/oasis7_viewer
+      - name: Verify the preinstalled Rust and WASM target
+        run: |
+          cargo +"$RUST_TOOLCHAIN" --version
+          rustup target list --installed --toolchain "$RUST_TOOLCHAIN" | grep -Fx wasm32-unknown-unknown
+      - name: Normalize Rust cache toolchains
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        shell: bash
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
+        with:
+          shared-key: ecs-web-ci-rust-build-068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb
+          add-rust-environment-hash-key: true
+          save-if: false
+          cache-on-failure: false
+      - name: Snapshot source after dependency preparation
+        run: python3 "$RUNNER_TEMP/ecs-web-source-probe.py" prepared
+      - name: Build Viewer Web only
+        run: |
+          ./scripts/build-viewer-software-safe.sh --optional-payload-dir output/optional-payload
+          python3 "$RUNNER_TEMP/ecs-web-source-probe.py" built
+          ./scripts/copy-viewer-web-dist.sh --dist-dir output/web-dist --optional-payload-dir output/optional-payload
+          ./scripts/package-viewer-web-delivery.sh --web-dist output/web-dist --optional-payload-dir output/optional-payload --out-file output/web.tar.gz
+      - name: Compare packaged source and archive fingerprints
+        run: python3 "$RUNNER_TEMP/ecs-web-source-probe.py" packaged
