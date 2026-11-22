@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [codex/engineering-workflow-governance-process-probe-base]
     paths: [.github/workflows/workflow-governance-process-probe.yml]
-    types: [opened]
+    types: [synchronize]
 
 permissions:
   contents: read
@@ -53,6 +53,7 @@ jobs:
           set -euo pipefail
           mode="$1"
           python3 --version
+          python3 -c "import ctypes, os; print(ctypes.__file__); os.close(os.pidfd_open(os.getpid()))"
           uname -r
           id
           snapshot() {
@@ -72,8 +73,6 @@ jobs:
           }
           snapshot initial
           run_fixture apt scripts/ci-apt-install.test.py Lifecycle
-          run_fixture viewer scripts/ci-support-profiles.test.py ViewerChecks.test_viewer_zero_exit_with_detached_child_cannot_reach_security_smoke
-          run_fixture worker scripts/ci-worker-build.test.py WorkerBuild.test_install_and_final_probe_share_one_deadline
           printf 'diagnostic_complete mode=%s production_acceptance=false\n' "$mode"
           BASH
           bash "$probe" host
@@ -89,7 +88,11 @@ jobs:
               --env PYTHONDONTWRITEBYTECODE=1 \
               "$IMAGE" -f /dev/null)
             docker start "$container_id" >/dev/null
-            docker exec "$container_id" bash -c 'export PATH="/probe-python/bin:$PATH"; exec bash /process-probe.sh "$1"' _ "$mode"
+            docker exec "$container_id" bash -c '
+              export PATH="/probe-python/bin:$PATH"
+              export LD_LIBRARY_PATH=/probe-python/lib
+              exec bash /process-probe.sh "$1"
+            ' _ "$mode"
             docker rm -f "$container_id" >/dev/null
             container_id=''
           done
