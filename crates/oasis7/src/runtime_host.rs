@@ -151,7 +151,6 @@ pub mod ordinary_starter;
 
 pub mod feedback;
 
-
 /// Composite native host archive extensions.
 pub mod archive {
     pub use crate::simulator::persist::*;
