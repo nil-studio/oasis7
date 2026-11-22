@@ -8,7 +8,7 @@
 // to the same type's owning library without adding the application dependency.
 extern crate oasis7_world_state as oasis7;
 
-#[path = "../../oasis7/tests/incremental_due_module_batch.rs"]
+#[path = "incremental_due_module_batch.rs"]
 mod due_module_batch;
 // The unchanged standalone cases each own this fixture module. Keep their
 // original scopes when composing the cases into one fast integration target.

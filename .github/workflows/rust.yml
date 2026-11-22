@@ -5,6 +5,7 @@ on:
     branches: ["main"]
   pull_request:
     branches: ["main"]
+    types: [opened, synchronize, reopened, ready_for_review]
   schedule:
     - cron: "17,37,57 * * * *"
   workflow_dispatch:
@@ -180,11 +181,15 @@ jobs:
     needs: periodic-admission
     if: >-
       always() && !cancelled() &&
+      (github.event_name != 'pull_request' || !github.event.pull_request.draft) &&
       (github.event_name != 'workflow_dispatch' || inputs.run_mode == 'full') &&
       (github.event_name != 'schedule' ||
        (needs.periodic-admission.result == 'success' && needs.periodic-admission.outputs.run_full == 'true'))
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
     outputs:
       plan: ${{ steps.workflow-plan.outputs.plan }}
       selection_artifact: ${{ steps.selection-artifacts.outputs.selection_artifact }}
@@ -242,6 +247,7 @@ jobs:
           SOURCE_REF: ${{ inputs.source_ref }}
           EVENT_NAME: ${{ github.event_name }}
           WORKFLOW_SHA: ${{ github.workflow_sha }}
+          MAIN_FAST_BASE_TOKEN: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.token || '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -284,7 +290,9 @@ jobs:
           : > "$RUNNER_TEMP/selection-outputs.txt"
           args=(--head-ref "$source_sha" --test-ref "$tested_sha" --github-output "$RUNNER_TEMP/selection-outputs.txt" --output "$RUNNER_TEMP/selection.json")
           bootstrap_full=false
+          has_profile=false
           if python3 "$authority/plan-rust-required-scope.py" --help | grep -q -- '--profile'; then
+            has_profile=true
             args+=(--profile "$profile" --policy-ref "$policy_sha" --formal-config "$authority/ci-formal-process-suites.json")
           elif [[ "$profile" == periodic-full || "$profile" == candidate-full ]]; then
             [[ "$EVENT_NAME" == workflow_dispatch && "$GITHUB_REF" != refs/heads/main ]] || {
@@ -295,8 +303,17 @@ jobs:
             bootstrap_full=true
             cp scripts/ci-required-result.py scripts/ci-full-result.py "$authority/"
           fi
+          if [[ "$has_profile" == true && "$EVENT_NAME" == push && "$GITHUB_REF" == refs/heads/main && -n "${MAIN_FAST_BASE_TOKEN:-}" && -n "${GITHUB_REPOSITORY:-}" ]]; then
+            if git cat-file -e "${policy_sha}:scripts/ci-full-result.py" 2>/dev/null; then
+              git show "${policy_sha}:scripts/ci-full-result.py" >"${authority}/ci-full-result.py"
+              if python3 "$authority/ci-full-result.py" --help | grep -q -- 'resolve-main-fast-base'; then
+                range_base="$(python3 "$authority/ci-full-result.py" resolve-main-fast-base \
+                  --repo-root "$GITHUB_WORKSPACE" --before "$BASE_SHA" --head "$source_sha")"
+              fi
+            fi
+          fi
           if [[ "$profile" == pr-fast || "$profile" == main-fast ]]; then
-            args+=(--base-ref "$BASE_SHA")
+            args+=(--base-ref "$range_base")
           elif [[ "$bootstrap_full" == false ]]; then
             git show "${policy_sha}:scripts/ci-full-result.py" >"${authority}/ci-full-result.py"
           fi
@@ -575,7 +592,7 @@ jobs:
           retention-days: 14
 
   pr-fast-preview-plan:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && !github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'ci-fast-preview')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -780,22 +797,38 @@ jobs:
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
     timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9
+      options: --user 1001:1001
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        with:
-          python-version: '3.12'
+      - name: Trust the checked-out workspace path in the job container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Install Markdown runtime
-        run: python3 -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
+        run: |
+          python3 -c 'import sys; assert sys.version_info[:2] == (3, 12)'
+          python3 -m venv "$RUNNER_TEMP/baseline-venv"
+          "$RUNNER_TEMP/baseline-venv/bin/python3" -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
+          printf '%s\n' "$RUNNER_TEMP/baseline-venv/bin" >> "$GITHUB_PATH"
       - name: Resolve tested product-document range
         shell: bash
         env:
           CI_PROFILE: ${{ fromJSON(needs.select.outputs.plan).execution_profile }}
           TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
+          SELECT_RANGE_BASE: ${{ needs.select.outputs.range_base }}
         run: |
           if [[ "$CI_PROFILE" == periodic-full || "$CI_PROFILE" == candidate-full ]]; then
             printf 'OASIS7_PRODUCT_DOC_BASE=%s\nOASIS7_PRODUCT_DOC_HEAD=%s\n' \
@@ -2629,7 +2662,7 @@ jobs:
       (needs.select.outputs.run_viewer_js_required == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - *linux-mold-tools-checkout
       - name: Configure mold for Linux host linking
@@ -2736,7 +2769,7 @@ jobs:
       (needs.select.outputs.run_viewer_performance_report == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - *linux-mold-tools-checkout
       - name: Configure mold for Linux host linking
@@ -2897,7 +2930,7 @@ jobs:
       (needs.select.outputs.run_launcher_web == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 30
+    timeout-minutes: 15
     permissions:
       contents: read
       packages: read
@@ -4430,8 +4463,13 @@ jobs:
       - name: Require successful scope planning
         env:
           SELECT_RESULT: ${{ needs.select.result }}
+          IS_DRAFT_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'true' || 'false' }}
         shell: bash
         run: |
+          if [[ "$IS_DRAFT_PR" == true ]]; then
+            echo "::error::Draft PR skipped main CI jobs to conserve runner capacity; mark Ready for review to run required checks."
+            exit 1
+          fi
           if [[ "$SELECT_RESULT" != success ]]; then
             echo "::error::CI scope planning did not succeed ($SELECT_RESULT); see select diagnostics for unregistered paths or input errors."
             exit 1

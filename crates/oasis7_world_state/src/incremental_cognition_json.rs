@@ -459,3 +459,7 @@ pub(crate) fn write_root<W: ValueNodeWriter, C: FnMut() -> bool>(
         context,
     )
 }
+
+#[path = "incremental_cognition_json_overlay_empty.rs"]
+mod overlay_empty;
+pub use overlay_empty::require_current_delegation_grants_empty_v1;

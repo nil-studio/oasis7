@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import select
 import stat
 import subprocess
 import sys
@@ -64,16 +65,33 @@ def filesystem_probe(root, results, expected_device, expected_inode):
                 hardlink=True, flock=True, file_fsync=True, directory_fsync=True)
 
 
+def wait_child_ready(child, timeout_seconds=10):
+    if child.stdout is None:
+        raise ValueError('fixture child readiness pipe is missing')
+    ready, _, _ = select.select([child.stdout], [], [], timeout_seconds)
+    if not ready:
+        raise ValueError('fixture child readiness deadline exhausted')
+    if child.stdout.read(1) != b'R':
+        raise ValueError('fixture child exited without exec readiness')
+
+
 def process_probe():
     marker = uuid.uuid4().hex
-    child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'],
+    code = ('import os,sys,time; '
+            'sys.exit(2) if os.environ.get("OASIS7_STORAGE_SAMPLE_OWNER") != sys.argv[1] else None; '
+            'os.write(1,b"R"); time.sleep(30)')
+    child = subprocess.Popen([sys.executable, '-c', code, marker], stdout=subprocess.PIPE,
                              env=dict(os.environ, OASIS7_STORAGE_SAMPLE_OWNER=marker))
     try:
+        # Popen returning is not evidence that /proc exposes the child's new
+        # exec image. The child explicitly confirms its own marked environment.
+        wait_child_ready(child)
         proc = Path('/proc') / str(child.pid)
-        if (proc.stat().st_uid != os.getuid()
-                or ('OASIS7_STORAGE_SAMPLE_OWNER=' + marker).encode()
+        if proc.stat().st_uid != os.getuid():
+            raise ValueError('fixture child UID differs from the driver')
+        if (('OASIS7_STORAGE_SAMPLE_OWNER=' + marker).encode()
                 not in (proc / 'environ').read_bytes().split(b'\0')):
-            raise ValueError('same-UID marked child is not observable through proc')
+            raise ValueError('same-UID child exec marker is not observable through proc')
         if os.readlink(proc / 'ns/pid') != os.readlink('/proc/self/ns/pid'):
             raise ValueError('driver and fixture child do not share a PID namespace')
         status = (proc / 'status').read_text()
@@ -83,6 +101,8 @@ def process_probe():
         if child.wait(timeout=10) != -signal.SIGKILL:
             raise ValueError('real child kill/wait did not observe SIGKILL')
     finally:
+        if child.stdout is not None:
+            child.stdout.close()
         if child.poll() is None:
             child.kill()
         child.wait(timeout=10)

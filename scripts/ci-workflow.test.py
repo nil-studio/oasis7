@@ -2689,7 +2689,11 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
 
     def test_preview_is_cold_read_only_and_independent_of_required_authority(self):
         planner, preview = JOBS['pr-fast-preview-plan'], JOBS['pr-fast-preview']
-        self.assertIn("if: github.event_name == 'pull_request'", planner)
+        self.assertIn(
+            "if: github.event_name == 'pull_request' && !github.event.pull_request.draft && "
+            "contains(github.event.pull_request.labels.*.name, 'ci-fast-preview')",
+            planner,
+        )
         self.assertNotIn('needs: select', planner)
         self.assertIn('ci-fast-preview.py plan-matrix --base-ref "$BASE_SHA" --head-ref "$TESTED_SHA"', planner)
         self.assertIn('SOURCE_SHA: ${{ github.event.pull_request.head.sha }}', planner)
@@ -2703,7 +2707,11 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         label_workflow = (ROOT / '.github/workflows/pr-fast-preview.yml').read_text()
         label_jobs = workflow_jobs(label_workflow)
         self.assertIn('types: [labeled]', label_workflow)
-        self.assertIn("github.event.label.name == 'ci-fast-preview'", label_jobs['pr-fast-preview-plan'])
+        self.assertIn(
+            "github.event_name == 'pull_request' && !github.event.pull_request.draft && "
+            "github.event.label.name == 'ci-fast-preview'",
+            label_jobs['pr-fast-preview-plan'],
+        )
         self.assertIn("needs.pr-fast-preview-plan.result == 'success' && needs.pr-fast-preview-plan.outputs.enabled == 'true'",
                       label_jobs['pr-fast-preview'])
         for name, job in label_jobs.items():
@@ -4556,6 +4564,12 @@ run_cargo() {
         cache_workflow, _ = self.shared_cache_workflow()
         without_admitted_uploads = cache_workflow
         for name, writer in workflow_jobs(cache_workflow).items():
+            if name == 'plan-image-component-cache':
+                self.assertIn('    cache-mode: none\n', writer)
+                self.assertIn('    permissions: {}\n', writer)
+                self.assertNotIn('uses:', writer)
+                self.assertNotIn('github.token', writer)
+                continue
             if name == 'browser-archive-cache':
                 admission = browser_archive_cache_writer(writer)
                 without_admitted_uploads = without_admitted_uploads.replace(admission, '', 1)
@@ -4880,23 +4894,25 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
         select = JOBS['select']
         self.assertIn('needs: periodic-admission', select)
         condition = select.split('    if: >-\n', 1)[1].split('    runs-on:', 1)[0]
-        for event, mode, admission, full, expected in (
-                ('pull_request', '', 'skipped', '', True),
-                ('push', '', 'skipped', '', True),
-                ('workflow_dispatch', 'full', 'skipped', '', True),
-                ('workflow_dispatch', 'newapi_bridge_package', 'skipped', '', False),
-                ('schedule', '', 'success', 'true', True),
-                ('schedule', '', 'success', 'false', False),
-                ('schedule', '', 'failure', 'true', False),
-                ('schedule', '', 'cancelled', 'true', False)):
+        for event, draft, mode, admission, full, expected in (
+                ('pull_request', False, '', 'skipped', '', True),
+                ('pull_request', True, '', 'skipped', '', False),
+                ('push', False, '', 'skipped', '', True),
+                ('workflow_dispatch', False, 'full', 'skipped', '', True),
+                ('workflow_dispatch', False, 'newapi_bridge_package', 'skipped', '', False),
+                ('schedule', False, '', 'success', 'true', True),
+                ('schedule', False, '', 'success', 'false', False),
+                ('schedule', False, '', 'failure', 'true', False),
+                ('schedule', False, '', 'cancelled', 'true', False)):
             expr = condition
             for token, value in {'always()': True, 'cancelled()': False,
-                    'github.event_name': event, 'inputs.run_mode': mode,
+                    'github.event_name': event, 'github.event.pull_request.draft': draft,
+                    'inputs.run_mode': mode,
                     'needs.periodic-admission.result': admission,
                     'needs.periodic-admission.outputs.run_full': full}.items():
                 expr = expr.replace(token, repr(value))
             expr = re.sub(r'!(?!=)', 'not ', expr.replace('&&', ' and ').replace('||', ' or '))
-            with self.subTest(event=event, admission=admission, run_full=full):
+            with self.subTest(event=event, draft=draft, admission=admission, run_full=full):
                 self.assertEqual(eval(' '.join(expr.split()), {'__builtins__': {}}, {}), expected)
 
     def test_selected_jobs_survive_skipped_admission_and_keep_failure_boundaries(self):
@@ -6577,9 +6593,9 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'custody-wasm-approval': 25,
                 'distfs': 20,
                 'rust-baseline': 30,
-                'launcher-web': 30,
-                'viewer-js-required': 30,
-                'viewer-performance-report': 30,
+                'launcher-web': 15,
+                'viewer-js-required': 20,
+                'viewer-performance-report': 15,
                 'newapi-bridge-package': 30,
             },
             '.github/workflows/wasm-determinism-gate.yml': {
@@ -6745,6 +6761,112 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
         for name in excluded_jobs:
             with self.subTest(excluded_job=name):
                 self.assertNotIn('oasis7-priority-linux', JOBS[name])
+
+    def test_draft_pr_fail_closed_gate_and_main_fast_cancelled_push_range_recovery(self):
+        pr_header = RAW_WORKFLOW.split('  pull_request:\n', 1)[1].split('  schedule:\n', 1)[0]
+        self.assertIn('types: [opened, synchronize, reopened, ready_for_review]', pr_header)
+        self.assertEqual(CONFIG.get('main_fast_range_recovery_version'), 1)
+        self.assertEqual(CONFIG.get('draft_pr_heavy_ci_skip_version'), 1)
+
+        gate = JOBS['required-gate']
+        self.assertIn("if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')", gate)
+        self.assertIn(
+            "IS_DRAFT_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft && 'true' || 'false' }}",
+            gate,
+        )
+        gate_step = workflow_step_script(gate, 'Require successful scope planning')
+        for select_result in ('skipped', 'success', 'failure'):
+            draft_res = subprocess.run(
+                ['bash', '-euo', 'pipefail', '-c', gate_step],
+                env=dict(os.environ, IS_DRAFT_PR='true', SELECT_RESULT=select_result),
+                text=True, capture_output=True,
+            )
+            self.assertNotEqual(draft_res.returncode, 0)
+            self.assertIn('Draft PR skipped main CI jobs', draft_res.stdout + draft_res.stderr)
+        ready_ok = subprocess.run(
+            ['bash', '-euo', 'pipefail', '-c', gate_step],
+            env=dict(os.environ, IS_DRAFT_PR='false', SELECT_RESULT='success'),
+            text=True, capture_output=True,
+        )
+        self.assertEqual(ready_ok.returncode, 0, ready_ok.stdout + ready_ok.stderr)
+
+        select_job = JOBS['select']
+        self.assertIn('permissions:\n      contents: read\n      actions: read', select_job)
+        self.assertIn(
+            "MAIN_FAST_BASE_TOKEN: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.token || '' }}",
+            select_job,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / 'repo'
+            repo.mkdir()
+            def git(*args):
+                return subprocess.check_output(['git', '-C', str(repo), *args], text=True).strip()
+            git('init', '-q', '-b', 'main')
+            git('config', 'user.name', 'Fixture')
+            git('config', 'user.email', 'fixture@example.invalid')
+            (repo / 'scripts').mkdir()
+            for name in ('ci-required-scope.json', 'ci-required-result.py', 'ci-formal-plan.py',
+                         'ci-formal-process-suites.json'):
+                (repo / 'scripts' / name).write_bytes((ROOT / 'scripts' / name).read_bytes())
+            (repo / 'scripts/plan-rust-required-scope.py').write_text('''import argparse, json, pathlib, subprocess
+p = argparse.ArgumentParser()
+for key in ('profile', 'base-ref', 'head-ref', 'test-ref', 'policy-ref', 'formal-config', 'github-output', 'output'):
+    p.add_argument('--' + key)
+a = p.parse_args()
+diff_files = subprocess.check_output(['git', 'diff', '--name-only', a.base_ref, a.head_ref], text=True).splitlines()
+groups = ['baseline', 'oasis7_required'] if 'rust_touch.txt' in diff_files else ['baseline']
+plan = {'scope': 'targeted', 'execution_profile': a.profile, 'fast_plan_version': 1,
+        'check_inventory_version': 1, 'groups': groups,
+        'source_sha': a.head_ref, 'tested_sha': a.test_ref, 'policy_sha': a.policy_ref}
+pathlib.Path(a.output).write_text(json.dumps(plan))
+with pathlib.Path(a.github_output).open('a') as f:
+    for g in groups:
+        f.write(f'run_{g}=true\\n')
+''')
+            (repo / 'README.md').write_text('m0\n')
+            git('add', '.')
+            git('commit', '-qm', 'm0')
+            m0 = git('rev-parse', 'HEAD')
+            # m1 changes rust_touch.txt AND installs a deterministic resolve-main-fast-base stub in trusted policy.
+            (repo / 'rust_touch.txt').write_text('changed in cancelled m1\n')
+            (repo / 'scripts/ci-full-result.py').write_text(f'''import argparse, os, sys
+p = argparse.ArgumentParser()
+sub = p.add_subparsers(dest='command', required=True)
+r = sub.add_parser('resolve-main-fast-base')
+for k in ('repo-root', 'before', 'head'):
+    r.add_argument('--' + k, required=True)
+a = p.parse_args()
+assert os.environ.get('MAIN_FAST_BASE_TOKEN') == 'push-read-token'
+print({m0!r})
+''')
+            git('add', '.')
+            git('commit', '-qm', 'm1')
+            m1 = git('rev-parse', 'HEAD')
+            # m2 only touches README.md; without range recovery m1..m2 would miss rust_touch.txt!
+            (repo / 'README.md').write_text('m2 doc-only\n')
+            git('add', '.')
+            git('commit', '-qm', 'm2')
+            m2 = git('rev-parse', 'HEAD')
+
+            script = workflow_step_script(select_job, 'Select using trusted baseline Git data')
+            out_file = Path(directory) / 'github-output'
+            env = dict(
+                os.environ, EVENT_NAME='push', SOURCE_REF='', SOURCE_SHA=m2, BASE_SHA=m1,
+                WORKFLOW_SHA=m2, GITHUB_SHA=m2, GITHUB_REF='refs/heads/main',
+                GITHUB_WORKSPACE=str(repo), GITHUB_REPOSITORY='nil-studio/oasis7',
+                MAIN_FAST_BASE_TOKEN='push-read-token',
+                RUNNER_TEMP=str(directory), GITHUB_OUTPUT=str(out_file),
+                GITHUB_STEP_SUMMARY=str(Path(directory) / 'summary'),
+            )
+            res = subprocess.run(['bash', '-c', script], cwd=repo, env=env, text=True, capture_output=True)
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+            outputs = dict(line.split('=', 1) for line in out_file.read_text().splitlines())
+            self.assertEqual(outputs['policy_sha'], m1)
+            self.assertEqual(outputs['range_base'], m0)
+            self.assertEqual(outputs['run_oasis7_required'], 'true')
+            plan = json.loads((Path(directory) / 'selection.json').read_text())
+            self.assertEqual((plan['policy_sha'], plan['source_sha'], plan['tested_sha']), (m1, m2, m2))
+            self.assertIn('oasis7_required', plan['groups'])
 
 
 class AllWorkflowJobsTimeoutGuardTests(unittest.TestCase):

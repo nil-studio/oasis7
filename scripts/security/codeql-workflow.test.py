@@ -253,11 +253,41 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("group: oasis7-codeql-scan-slot-${{ matrix.slot }}\n      queue: max\n      cancel-in-progress: false", WORKFLOW)
         self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", WORKFLOW)
         self.assertIn("github.event.pull_request.number || github.run_id", WORKFLOW)
-        self.assertIn("if: github.event_name != 'pull_request' || (github.event.action != 'closed' && !github.event.pull_request.draft)", WORKFLOW)
-        self.assertIn("if: always() && (github.event_name != 'pull_request' || (github.event.action != 'closed' && !github.event.pull_request.draft))", WORKFLOW)
+        plan_if = "github.event_name != 'pull_request' || (github.event.action != 'closed' && !github.event.pull_request.draft && vars.OASIS7_CODEQL_MODE != '' && vars.OASIS7_CODEQL_MODE != 'off' && vars.OASIS7_CODEQL_MODE != 'baseline')"
+        summary_if = "always() && (github.event_name != 'pull_request' || (github.event.action != 'closed' && !github.event.pull_request.draft && vars.OASIS7_CODEQL_MODE != '' && vars.OASIS7_CODEQL_MODE != 'off' && vars.OASIS7_CODEQL_MODE != 'baseline' && (needs.plan.result != 'success' || needs.plan.outputs.has_units == 'true')))"
+        self.assertIn("if: " + plan_if, WORKFLOW)
+        self.assertIn("if: " + summary_if, WORKFLOW)
         self.assertIn("if: needs.plan.outputs.has_units == 'true'", WORKFLOW)
         self.assertIn("fail-fast: false", WORKFLOW)
         self.assertNotRegex(WORKFLOW, r"(?m)^  push:")
+
+        def eval_guard(expr, values):
+            rendered = expr
+            for token, value in sorted(values.items(), key=lambda item: -len(item[0])):
+                rendered = rendered.replace(token, repr(value))
+            rendered = __import__('re').sub(r'!(?!=)', 'not ', rendered.replace('&&', ' and ').replace('||', ' or '))
+            return eval(rendered, {'__builtins__': {}}, {})
+
+        for event in ('schedule', 'workflow_dispatch', 'pull_request'):
+            for mode in ('', 'off', 'baseline', 'observe', 'invalid_typo'):
+                for draft, action, plan_res, has_units in (
+                        (False, 'synchronize', 'success', 'false'),
+                        (False, 'synchronize', 'success', 'true'),
+                        (False, 'synchronize', 'failure', 'false'),
+                        (True, 'synchronize', 'skipped', ''),
+                        (False, 'closed', 'skipped', '')):
+                    values = {
+                        'always()': True, 'github.event_name': event, 'github.event.action': action,
+                        'github.event.pull_request.draft': draft, 'vars.OASIS7_CODEQL_MODE': mode,
+                        'needs.plan.result': plan_res, 'needs.plan.outputs.has_units': has_units,
+                    }
+                    expected_plan = (event != 'pull_request' or
+                                     (action != 'closed' and not draft and mode not in ('', 'off', 'baseline')))
+                    expected_summary = (event != 'pull_request' or
+                                        (expected_plan and (plan_res != 'success' or has_units == 'true')))
+                    with self.subTest(event=event, mode=mode, draft=draft, action=action, plan_res=plan_res, has_units=has_units):
+                        self.assertEqual(eval_guard(plan_if, values), expected_plan)
+                        self.assertEqual(eval_guard(summary_if, values), expected_summary)
 
     def test_rust_native_preparation_scope_budget_and_artifact(self):
         step = WORKFLOW.split('      - id: rust_native\n', 1)[1].split('      - id:', 1)[0]

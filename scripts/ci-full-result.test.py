@@ -2171,5 +2171,110 @@ class HealthAndConsumers(unittest.TestCase):
             self.assertTrue(publish.call_args.args[-1])
 
 
+class MainFastRangeRecoveryTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.repo = Path(self.temp.name) / "repo"
+        self.repo.mkdir()
+        self.git("init", "-q", "-b", "main")
+        self.git("config", "user.name", "Fixture")
+        self.git("config", "user.email", "fixture@example.invalid")
+        self.commits = []
+        for idx in range(5):
+            (self.repo / "file.txt").write_text(f"step {idx}\n", encoding="utf-8")
+            self.git("add", ".")
+            self.git("commit", "-qm", f"m{idx}")
+            self.commits.append(self.git("rev-parse", "HEAD"))
+
+    def git(self, *args):
+        return subprocess.check_output(
+            ["git", "-C", str(self.repo), *args], text=True, stderr=subprocess.PIPE
+        ).strip()
+
+    def make_api(self, runs):
+        api = mock.Mock()
+        def fake_get(path):
+            if path == "actions/workflows/rust.yml":
+                return {"id": 7}
+            if path.startswith("actions/workflows/7/runs?"):
+                query = urllib.parse.parse_qs(path.split("?", 1)[1])
+                page = int(query["page"][0])
+                batch = runs[(page - 1) * 100: page * 100]
+                return {"total_count": len(runs), "workflow_runs": batch}
+            raise AssertionError(f"unexpected path: {path}")
+        api.get.side_effect = fake_get
+        return api
+
+    def run_item(self, run_id, sha, status="completed", conclusion="success", *, event="push", branch="main"):
+        return {
+            "id": run_id, "workflow_id": 7, "path": module.WORKFLOW,
+            "event": event, "head_branch": branch, "head_sha": sha,
+            "status": status, "conclusion": conclusion,
+        }
+
+    def test_keeps_before_when_immediate_prior_push_succeeded_or_history_pruned(self):
+        m0, m1, m2, _, _ = self.commits
+        api_green = self.make_api([self.run_item(11, m1, "completed", "success")])
+        self.assertEqual(module.resolve_main_fast_base(api_green, self.repo, m1, m2), m1)
+        # Empty / 90-day-pruned history must not widen falsely past event.before.
+        api_empty = self.make_api([])
+        self.assertEqual(module.resolve_main_fast_base(api_empty, self.repo, m1, m2), m1)
+
+    def test_widens_across_cancelled_failed_in_progress_and_intermediate_commits(self):
+        m0, m1, m2, m3, m4 = self.commits
+        # m0 succeeded, m1 had no run (multi-commit push with m2), m2 cancelled, m3 in_progress, m4 current
+        runs = [
+            self.run_item(40, m4, "in_progress", None),
+            self.run_item(30, m3, "in_progress", None),
+            self.run_item(20, m2, "completed", "cancelled"),
+            self.run_item(10, m0, "completed", "success"),
+        ]
+        api = self.make_api(runs)
+        self.assertEqual(
+            module.resolve_main_fast_base(api, self.repo, m3, m4, current_run_id=40),
+            m0,
+        )
+        # When m1 was cancelled and m0 has no recorded run (initial push), widen to m0 (parent of m1).
+        api_initial = self.make_api([self.run_item(21, m1, "completed", "cancelled")])
+        self.assertEqual(module.resolve_main_fast_base(api_initial, self.repo, m1, m2), m0)
+
+    def test_rejects_non_ancestor_before_and_never_narrows_wide_push(self):
+        m0, m1, m2, m3, m4 = self.commits
+        api = self.make_api([self.run_item(30, m3, "completed", "success")])
+        # Push already spans m1..m4 (> max_commits=2): must keep m1, never narrow to m3!
+        self.assertEqual(module.resolve_main_fast_base(api, self.repo, m1, m4, max_commits=2), m1)
+        with self.assertRaisesRegex(ValueError, "not an ancestor"):
+            module.resolve_main_fast_base(api, self.repo, m4, m2)
+
+    def test_cli_reads_main_fast_base_token_and_validates_capability_digest(self):
+        m0, m1, m2, _, _ = self.commits
+        api = self.make_api([
+            self.run_item(20, m1, "completed", "cancelled"),
+            self.run_item(10, m0, "completed", "success"),
+        ])
+        env = dict(GITHUB_REPOSITORY="nil-studio/oasis7", MAIN_FAST_BASE_TOKEN="tok", GITHUB_RUN_ID="99")
+        argv = ["ci-full-result.py", "resolve-main-fast-base",
+                "--repo-root", str(self.repo), "--before", m1, "--head", m2]
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, env, clear=False), \
+             mock.patch.object(sys, "argv", argv), \
+             mock.patch.object(module, "GitHub", return_value=api) as gh_cls, \
+             redirect_stdout(out):
+            module.main()
+        self.assertEqual(out.getvalue().strip(), m0)
+        gh_cls.assert_called_once_with("nil-studio/oasis7", "tok")
+        for bad_field in ("main_fast_range_recovery_version", "draft_pr_heavy_ci_skip_version"):
+            bad_cfg = json.dumps(dict(CONFIG, **{bad_field: 2})).encode()
+            def fake_check_output(cmd, **_kwargs):
+                target = cmd[-1]
+                if target.endswith(":scripts/ci-required-scope.json"):
+                    return bad_cfg
+                return (ROOT / target.split(":", 1)[1]).read_bytes()
+            with mock.patch.object(module.subprocess, "check_output", side_effect=fake_check_output):
+                with self.assertRaisesRegex(ValueError, f"invalid trusted {bad_field} definition"):
+                    module.definition_digest(self.repo, A)
+
+
 if __name__ == "__main__":
     unittest.main()
