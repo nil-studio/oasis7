@@ -255,8 +255,9 @@ fn typed_node_and_local_provider_budget_complete_real_rr_rejection_and_recovery(
 
     let mut node_config = development_runtime::from_options(&CliOptions::default()).unwrap();
     node_config.runtime.p2p_resource_budget = profile;
-    node_config.runtime.replication_network_listen_addrs =
-        vec!["/ip4/127.0.0.1/tcp/0".into()];
+    let node_socket: std::net::SocketAddr = unused_loopback_tcp_addr().parse().unwrap();
+    let listen_addr = format!("/ip4/127.0.0.1/tcp/{}", node_socket.port());
+    node_config.runtime.replication_network_listen_addrs = vec![listen_addr.clone()];
     let mut node_options = development_runtime::into_options(
         read_fixture_config(&serde_json::to_vec(&node_config).unwrap()).unwrap(),
         false,
@@ -277,21 +278,29 @@ fn typed_node_and_local_provider_budget_complete_real_rr_rejection_and_recovery(
     )
     .expect("typed dev-node listener");
     let deadline = Instant::now() + Duration::from_secs(15);
-    let listen_addr = loop {
-        if let Some(addr) = node
-            .listening_addrs()
-            .into_iter()
-            .find(|addr| addr.to_string().contains("/tcp/"))
-        {
-            break addr;
-        }
+    // Node's listening_addrs() is cfg(test) within its own crate, not part of
+    // the production Host API. Probe the actual configured TCP listener.
+    while std::net::TcpStream::connect_timeout(&node_socket, Duration::from_millis(100)).is_err() {
         assert!(
             Instant::now() < deadline,
             "typed dev-node did not bind: {:?}",
             node.debug_errors()
         );
         std::thread::sleep(Duration::from_millis(20));
-    };
+    }
+    // A raw TCP readiness probe owns an inbound admission until it closes.
+    // Do not consume its pending slot during the subsequent real RR path.
+    while node
+        .traffic_metrics_snapshot()
+        .resource_budget
+        .connections
+        .expect("host budget connections")
+        .total
+        != 0
+    {
+        assert!(Instant::now() < deadline, "readiness probe did not release");
+        std::thread::sleep(Duration::from_millis(20));
+    }
     node.register_handler(
         "/aw/node/replication/ping",
         Box::new(|payload| {
