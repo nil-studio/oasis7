@@ -317,3 +317,11 @@ pub fn read_runtime_artifact_record_reference_v1<
         class: context.values.class,
     })))
 }
+
+#[path = "incremental_runtime_artifact_resources_current_manifest.rs"]
+mod current_manifest;
+pub use current_manifest::open_current_chain_resource_manifest_v1;
+
+#[cfg(test)]
+#[path = "incremental_runtime_artifact_resources_current_manifest_tests.rs"]
+mod current_manifest_tests;
