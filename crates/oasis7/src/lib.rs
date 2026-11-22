@@ -32,5 +32,3 @@ pub use geometry::{
 };
 pub use models::{AgentState, BodyKernelView, DEFAULT_AGENT_HEIGHT_CM, RobotBodySpec};
 
-#[cfg(not(target_arch = "wasm32"))]
-mod module_source_compiler;

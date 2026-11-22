@@ -25,6 +25,8 @@ pub mod formal_result;
 pub mod game_task;
 pub mod gameplay;
 pub mod membership;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod module_source_compiler;
 pub mod private_goal_prepare;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod private_goal_store;
