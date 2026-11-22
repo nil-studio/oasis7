@@ -429,6 +429,4 @@ pub use pages::{
 };
 #[path = "incremental_main_token_policy_grant_current.rs"]
 mod current_grant;
-pub use current_grant::{
-    CurrentRestrictedClaimGrantV1, read_current_restricted_claim_grant_v1,
-};
+pub use current_grant::{CurrentRestrictedClaimGrantV1, read_current_restricted_claim_grant_v1};

@@ -10,9 +10,12 @@ fn current_grant_reads_all_original_fields_and_rejects_stale_guard() {
     for compression in [PageCompression::Raw, PageCompression::Zstd] {
         let directory = Directory::new();
         let memory = MemoryBudget::new(64 << 20, 8 << 20).unwrap();
-        let store =
-            IncrementalPageStore::create(&directory.0.join("current-grant"), memory.clone(), compression)
-                .unwrap();
+        let store = IncrementalPageStore::create(
+            &directory.0.join("current-grant"),
+            memory.clone(),
+            compression,
+        )
+        .unwrap();
         let original = source();
         let roots = seed(&store, &memory, &original);
         let state = store
