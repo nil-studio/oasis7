@@ -224,4 +224,3 @@ def can_retry_known_fault(report, process_result):
         and process_result.get('cleanup_result') == 'clean'
         and process_result.get('log_complete') is True
     )
-
