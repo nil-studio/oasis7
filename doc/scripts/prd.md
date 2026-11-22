@@ -70,7 +70,7 @@
   - PRD-SCRIPTS-002: As a CI 维护者, I want deterministic script contracts, so that pipeline changes are controlled.
   - PRD-SCRIPTS-003: As a 排障人员, I want explicit fallback tooling rules, so that issue triage is faster.
   - PRD-SCRIPTS-004: As a `qa_engineer`, I want a worktree-isolated harness for Viewer Web / launcher stack, so that multiple agent tasks can boot, verify, and tear down isolated stacks without port, artifact, or browser-session collisions.
-  - PRD-SCRIPTS-007: As a `producer_system_designer`, I want a standard task-worktree GitHub PR closure command, so that completed work enters protected `main` with one consistent, auditable path instead of ad hoc local landing.
+  - PRD-SCRIPTS-007（已退役）：曾设想专用 task-worktree PR closure 脚本；现行合入统一使用 [开发流程规范 §4.2](../engineering/workflow/source-of-truth.md#42-评审与合入) 的 `gh pr create` 与 `gh pr merge --squash --match-head-commit`，不再维护专用收口脚本。
   - PRD-SCRIPTS-007B: As a reviewer, I want optional thread inspection and verified explicit resolution, so that comment maintenance uses native GitHub state and leaves merge checks to the existing workflow.
   - PRD-SCRIPTS-007C（已退役）：曾要求 `.pm` rebase 冲突辅助入口；原标识只用于历史追溯，不再作为当前用户故事或执行要求。
   - PRD-SCRIPTS-008: As a 开发者, I want explicit identity, merge, material and process checks before cleanup, so that delivered code can be cleaned without losing ongoing work.
@@ -179,7 +179,7 @@ Trace refs: O7-REQ-a805d965-b040-44ba-9af1-68ca3c96b2d8；本接口承接同一�
   - worktree 并行：同一分支或同一用户同时开多个 worktree 时，端口、bundle、日志、browser session 与 chain node id 必须按 worktree 隔离，避免互相踩踏。
   - worktree bootstrap：源 worktree 脏、目标路径已存在、目标分支已在其他 worktree 检出或 `<module>/<task>` 为空时，必须阻断并打印修复建议。
   - bootstrap followups：`--json` 模式下即便开启 `--with-harness`，也不得把 harness 子命令的人类输出混入 JSON；模块文档不存在时只报告缺失，不替用户静默创建空文档。
-  - task PR closure：若 base branch 缺少本地/远端 ref、source 分支落后于 comparison ref、`gh` 不可用，或 `--create` 时 push/PR create 失败，脚本只中断并保留现场，不擅自修改 `main` 或删除 branch/worktree。
+  - task PR closure（已退役）：早期专用收口脚本及“source 分支落后于 comparison ref 时阻断”规则已退役；现行合入按开发流程规范 §4.2 使用 `gh pr merge --squash --match-head-commit`，`main` 前进或 `BEHIND` 本身不要求 rebase 或重跑 CI。
   - PR review thread：查询、写入或回读确认失败时非零返回，不能把结果不明报为已解决。resolve 只代表线程状态；合入前按开发规范检查当前 PR 和 source HEAD、必要 CI、适用评审、冲突、权限与用户限制。
   - `.pm` rebase conflict helper（已退役）：原辅助入口已随本地 `.pm` 执行器退役，历史实现仅留于 Git history；`.pm/` 既有用户资料按 `.pm/README.md` 保持只读。
   - resource cleanup：从目标外运行，明确 repo/path/branch/expected HEAD；先正常 fetch 更新基线，停止已知使用者。资料或占用不明时保留。
@@ -193,7 +193,7 @@ Trace refs: O7-REQ-a805d965-b040-44ba-9af1-68ca3c96b2d8；本接口承接同一�
   - NFR-SCR-5: fallback 流程必须可追溯到故障诊断记录。
   - NFR-SCR-6: worktree harness 的状态文件必须机器可读，允许 agent 直接拿到 URL、端口组、输出目录与 PID，而不依赖 stdout 文本解析。
   - NFR-SCR-7: 同一仓库下至少两份 worktree 可在默认配置下并行起栈，不因固定端口或全局 bundle 目录直接冲突。
-  - NFR-SCR-10: task worktree GitHub PR 收口入口必须默认使用非交互、可审计的 preflight / create 策略；JSON 模式下 stdout 只能输出单个结构化对象。
+  - NFR-SCR-10（已退役）：对应已退役的 `PRD-SCRIPTS-007` 专用 PR 收口脚本；现行 PR 创建与受保护合入遵循开发流程规范。
   - NFR-SCR-11: 交付事实以实际 PR merged 为准；清理暂缓只报告具体保留项，不改变代码已交付事实。
   - NFR-SCR-12: 分支、工作区和清理规则遵循开发流程规范，不额外引入任务身份或复用授权。
   - NFR-SCR-12A: GC JSON 稳定且只读，包含事实和不可读原因，不包含清理命令或资格判断。
@@ -211,7 +211,7 @@ Trace refs: O7-REQ-a805d965-b040-44ba-9af1-68ca3c96b2d8；本接口承接同一�
   - 风险-3: 若 worktree harness 只包壳而不下沉到 `run-launcher-stack.sh` / `run-producer-playtest.sh` 契约层，后续上层脚本仍会靠 grep stdout 和全局目录工作，隔离性会继续失真。
   - 风险-4: 若 worktree 创建仍只有口头规范、没有标准脚本，团队会继续混用手工 branch/path 命名，导致多任务并行难以搜索、回收与审计。
   - 风险-5: 若 `--with-harness` 破坏 JSON/stdout 纯度，agent 侧自动化会从“稳定入口”退回“半结构化抓取”。
-  - 风险-6: 若 GitHub PR 收口仍依赖手工 push / gh 序列，不同人会混用本地 landing、直接 push 与半手工 PR 路径，导致默认保护边界和 task worktree 回收时机失控。
+  - 风险-6（历史）：早期未统一 `gh pr merge --match-head-commit` 受保护合入路径时的本地合流风险；现已由开发流程规范 §4.2 与分支保护承接。
   - 风险-7: 清理未经合入、资料或使用检查可能丢失用户工作；无法确认时保留资源并报告原因。
 
 ## 6. Validation & Decision Record

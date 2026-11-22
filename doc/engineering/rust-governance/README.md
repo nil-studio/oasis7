@@ -7,8 +7,8 @@
 - [Rust 工程契约系统设计](rust-engineering-contracts.design.md)：配置等价、方向矩阵、生成生命周期及验证；目标设计不表示新检查已启用。
 - [Rust 工程契约验证手册](rust-engineering-contracts.manual.md)：工具就绪后的逐项验收方法、真实正反例和证据范围；不记录执行完成态。
 
-文件体量的扫描结果由 `scripts/check-rust-file-size.sh` 产生，required gate 通过
-`scripts/ci-tests.sh required` 调用该脚本。文档不复制扫描清单或完成任务
+文件体量的扫描结果由 `scripts/check-rust-file-size.sh` 产生，required gate 在选中 `rust_baseline` 组时通过
+`scripts/ci-tests.sh required --group rust_baseline`（或完整 `required`）调用该脚本；本地也可直接运行该脚本（`check-local.py --profile quick` 仅含通用 `baseline`，不含 `rust_baseline`）。文档不复制扫描清单或完成任务
 ledger，避免一次性 burn-down 记录重新成为当前规则。
 
 Workspace 与协议治理按设计中的实施范围逐步落地，当前能力与缺口见专题基线。

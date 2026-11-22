@@ -1,6 +1,6 @@
 ---
 name: oasis7-command-center
-description: 为 eng-cc/oasis7 构建、修改或刷新项目开发指挥看板，关联短期与长期目标、当前有效规范及决策、Git/PR 交付事实与原 PR、外部工具定位和待人处理的问题。在用户要求 oasis7 项目总览、指挥面板、持续更新项目状态、目标进度、近期变化、架构与部署索引、规范回顾或通过看板管理开发任务时使用。不把游戏内 Agent/Viewer 当成开发会话，也不作为普通代码修改的默认流程。
+description: 为 nil-studio/oasis7 构建、修改或刷新项目开发指挥看板，关联短期与长期目标、当前有效规范及决策、Git/PR 交付事实与原 PR、外部工具定位和待人处理的问题。在用户要求 oasis7 项目总览、指挥面板、持续更新项目状态、目标进度、近期变化、架构与部署索引、规范回顾或通过看板管理开发任务时使用。不把游戏内 Agent/Viewer 当成开发会话，也不作为普通代码修改的默认流程。
 ---
 
 # Oasis7 项目指挥看板
@@ -26,7 +26,7 @@ description: 为 eng-cc/oasis7 构建、修改或刷新项目开发指挥看板�
 
 ## 定位当前来源
 
-1. 读取[项目入口地图](references/project-map.md)，确认目标为 `eng-cc/oasis7`。本地从 Git 根目录和工作树识别仓库；远程固定本轮已解析的提交，记录版本与查询时间。
+1. 读取[项目入口地图](references/project-map.md)，确认目标为 `nil-studio/oasis7`。本地从 Git 根目录和工作树识别仓库；远程固定本轮已解析的提交，记录版本与查询时间。
 2. 读取当前 `AGENTS.md`、开发流程和根 `README.md`，再用 `rg` 定位相关产品、专业域或测试条款，避免全仓全文加载。
 3. 先读[项目状态](../../doc/engineering/command-center/README.md)的核验范围和[架构索引](../../doc/engineering/command-center/architecture/README.md)，再从 `doc/core/prd.md` 的“当前阶段交付目标与全局 P0”核对近期目标，从产品入口核对长期方向；摘要不是权威，不用历史里程碑替代当前路线图。
 4. 按事项主责和显式后继关系核对规范；不能只按修改时间、审计轮次、文件名或模型记忆排序。遇到冲突说明来源及影响，不阻塞无关工作。

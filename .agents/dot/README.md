@@ -17,6 +17,7 @@
 | [CI 回顾任务](tasks/ci-duration-review.md) | 检查前一日 CI 耗时，对卡点创建或关联 Issue |
 | [Rust CodeQL 告警处置](tasks/codeql-alert-triage.md) | 分诊日频主干告警，交接确认问题的修复并跟进 PR、CI 与后续扫描确认 |
 | [增量 Issue 整理](tasks/issue-triage.md) | 每 20 分钟处理五类 Issue 的增量分类、转换、完成核验、去重及归并；不自动开发 |
+| [旧缺陷整理兼容跳转](tasks/defect-triage.md) | 已并入增量 Issue 整理的兼容跳转说明，承接旧实例迁移边界 |
 | [Sites 内容 review](tasks/sites-content-review.md) | 检查公开来源、摘要与任务状态；有新增/过期内容时在既有入口更新，无变化不重复写 |
 
 先读本文件，再依次读取 ROLE、AUTONOMY、WORKFLOW、REPORTING。通用开发规则只由[开发流程规范](../../doc/engineering/workflow/source-of-truth.md)定义；仓库入口为 [AGENTS.md](../../AGENTS.md)。本目录不把 Issue、Project、固定角色链或审批材料设为通用必经流程，不增加 CI 放行条件；已委托工作中的真实问题按 [WORKFLOW 的建单与跟进](WORKFLOW.md#confirmed-problem-followthrough)落实承接，授权边界见 AUTONOMY，时间表中的专项管理仍只适用于对应任务。
