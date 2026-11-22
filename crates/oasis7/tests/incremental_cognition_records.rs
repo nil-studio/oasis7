@@ -43,7 +43,7 @@ fn cognition_optional_economy_and_delegation_keep_original_state_and_side_routin
 }
 #[test]
 fn cognition_optional_group_lifecycle_is_closed_in_the_shared_transaction() {
-    run_cognition(false, true, false);
+    run_cognition(true, true, false);
 }
 #[test]
 fn cognition_source_failures_keep_exact_error_and_abort_real_prefix() {
