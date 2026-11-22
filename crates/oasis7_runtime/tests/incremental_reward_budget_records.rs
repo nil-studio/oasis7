@@ -11,7 +11,7 @@ use oasis7_runtime::{
     incremental_field_read::*, incremental_reward_budget_records::*,
 };
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../../oasis7/tests/support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, logical};
 fn physical() -> PageIoBudget {
