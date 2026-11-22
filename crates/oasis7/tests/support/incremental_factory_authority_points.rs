@@ -126,6 +126,46 @@ fn family_bound_lifecycle_and_original_columns_share_one_transaction() {
             take_state_error: || state.take_read_error().map(state_error),
             cancelled: || false,
         };
+        // The selected Current opener must consume the original qualified
+        // parent and the one live transaction, not caller-selected DTOs.
+        assert_eq!(family.allocation_class(), MemoryClass::Ordinary);
+        let selected_key = keys[0];
+        let guard = overlay.transaction.guard();
+        let selected = open_factory_authority_body_overlay_v1(
+            selected_key,
+            &family,
+            &state,
+            &mut overlay,
+            &mut scan(),
+            &mut 4096,
+            1024,
+            &guard,
+            &live,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(selected.uses_budget(&memory));
+        let guard = overlay.transaction.guard();
+        let mut owner_text = Vec::new();
+        read_qualified_factory_authority_cell_overlay_v1(
+            FactoryAuthorityCellRequestV1 {
+                key: selected_key,
+                cell: FactoryAuthorityCellV1::OwnerAgentId,
+                qualification: &selected,
+            },
+            &mut overlay,
+            1024,
+            &mut owner_text,
+            &guard,
+            &live,
+        )
+        .unwrap();
+        assert_eq!(
+            owner_text,
+            original.factory_site_authorities[" outer-site\0界 "]
+                .owner_agent_id
+                .as_bytes()
+        );
         let mut backend = store.value_session(physical_scope());
         let mut write_io = logical();
         let mut write_keys = SemanticKeyBudget {
