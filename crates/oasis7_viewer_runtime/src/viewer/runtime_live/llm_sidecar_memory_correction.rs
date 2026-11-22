@@ -16,12 +16,13 @@ impl RuntimeLlmSidecar {
             && parent.agent_turn_id == cause.parent_agent_turn_id
             && parent.decision_request_id == cause.parent_decision_request_id
         {
-            self.provider_memory_store.rebind_corrections_after_stale_parent(
-                &parent.decision_request_id,
-                &parent.request_digest,
-                turn,
-            )
-            .map_err(|error| error.to_string())?;
+            self.provider_memory_store
+                .rebind_corrections_after_stale_parent(
+                    &parent.decision_request_id,
+                    &parent.request_digest,
+                    turn,
+                )
+                .map_err(|error| error.to_string())?;
         }
         Ok(())
     }
