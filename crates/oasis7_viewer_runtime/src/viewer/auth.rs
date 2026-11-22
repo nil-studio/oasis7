@@ -1,10 +1,10 @@
 //! Host authentication adapter: pure signature contracts plus durable replay checks.
 use super::protocol::{AuthoritativeSessionRegisterRequest, PlayerAuthProof};
-pub use oasis7::runtime_host::auth_storage::{
+pub use oasis7_hosted_access::auth_storage::{
     ExclusiveDirectoryProcessLock, HOSTED_REGISTRATION_REPLAY_LEDGER_PATH_ENV,
     preflight_hosted_registration_replay_ledger,
 };
-pub(crate) use oasis7::runtime_host::auth_storage::{
+pub(crate) use oasis7_hosted_access::auth_storage::{
     claim_registration_grant_nonce_for_recovery, consume_registration_grant_nonce,
 };
 pub use oasis7_client_api::viewer_auth::*;
@@ -15,7 +15,7 @@ pub fn verify_session_register_auth_proof(
 ) -> Result<VerifiedPlayerAuth, String> {
     let verified = verify_session_register_auth_proof_signature(request, proof)?;
     if let Some(nonce) = &verified.hosted_registration_nonce {
-        oasis7::runtime_host::auth_storage::ensure_registration_grant_nonce_unused(nonce)?;
+        oasis7_hosted_access::auth_storage::ensure_registration_grant_nonce_unused(nonce)?;
     }
     Ok(verified)
 }
@@ -36,7 +36,7 @@ pub(crate) fn verify_hosted_authorization_grant(
         grant, player_id, public_key,
     )?;
     if require_unused {
-        oasis7::runtime_host::auth_storage::ensure_registration_grant_nonce_unused(
+        oasis7_hosted_access::auth_storage::ensure_registration_grant_nonce_unused(
             &authorization_nonce(&context),
         )?;
     }
