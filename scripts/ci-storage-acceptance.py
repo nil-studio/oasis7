@@ -446,10 +446,21 @@ def summarize(directory, expected, needs=None):
     if len(labels) != len(set(labels)) or set(labels) != set(expected) or len(expected) != len(set(expected)):
         raise ValueError('missing, duplicate or unexpected acceptance result')
     if needs is not None:
-        if set(needs) != {'build', 'verify', 'capacity-long', 'full-node-long'}:
+        base_jobs = {'build', 'verify', 'capacity-long', 'full-node-long'}
+        reference_job = 'attempt-release-reference'
+        reference_selected = 'attempt-release-host' in expected
+        # Preserve old four-job report validation; new workflow always sends
+        # the fifth job, including its skipped result when not selected.
+        if (set(needs) not in (base_jobs, base_jobs | {reference_job})
+                or reference_selected and reference_job not in needs):
             raise ValueError('missing or unexpected acceptance job')
         long_selected = any(label in ('capacity-1000', 'capacity-10000') for label in expected)
         for name, job in needs.items():
+            if name == reference_job:
+                required = 'success' if reference_selected else 'skipped'
+                if job.get('result') != required:
+                    raise ValueError('host reference job differs from selected acceptance inventory')
+                continue
             optional_selected = long_selected if name == 'capacity-long' else any(label in ('full-node-1000', 'full-node-10000') for label in expected)
             required = 'skipped' if name in ('capacity-long', 'full-node-long') and not optional_selected else 'success'
             if job.get('result') != required:
@@ -473,6 +484,8 @@ def summarize(directory, expected, needs=None):
     return dict(passed=True, identity=list(next(iter(identities))), groups=sorted(labels),
                 observations=[dict(label=report['label'], cases=report['expected_cases'],
                                    elapsed_seconds=round(sum(r.get('elapsed_seconds', 0) for r in report['results']), 3),
+                                   image_preflight_seconds=report.get('image_fixture', {}).get('elapsed_seconds'),
+                                   memory_includes_image_preflight='image_fixture' in report,
                                    memory=report.get('memory'), host=report.get('host'))
                               for report in sorted(reports, key=lambda value: value['label'])],
                 not_run=[label for label in ('capacity-1000', 'capacity-10000', 'full-node-1000', 'full-node-10000') if label not in labels]

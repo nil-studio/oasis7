@@ -135,6 +135,49 @@ class FixtureContracts(unittest.TestCase):
 
 
 class Contracts(unittest.TestCase):
+    def test_opt_in_host_reference_requires_its_exact_result_and_job(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            image = self.report('attempt-release')
+            image['group'] = 'attempt-release'
+            (root / 'summary.json').write_text(json.dumps(image))
+            needs = {name: {'result': status} for name, status in {
+                'build': 'success', 'verify': 'success', 'capacity-long': 'skipped',
+                'full-node-long': 'skipped', 'attempt-release-reference': 'skipped'}.items()}
+            self.assertTrue(acceptance.summarize(root, ['attempt-release'], needs)['passed'])
+            needs['attempt-release-reference']['result'] = 'success'
+            with self.assertRaisesRegex(ValueError, 'host reference job'):
+                acceptance.summarize(root, ['attempt-release'], needs)
+            expected = ['attempt-release', 'attempt-release-host']
+            with self.assertRaisesRegex(ValueError, 'missing, duplicate or unexpected'):
+                acceptance.summarize(root, expected, needs)
+            reference = copy.deepcopy(image)
+            reference['label'] = 'attempt-release-host'
+            nested = root / 'reference'
+            nested.mkdir()
+            (nested / 'summary.json').write_text(json.dumps(reference))
+            self.assertTrue(acceptance.summarize(root, expected, needs)['passed'])
+            needs['attempt-release-reference']['result'] = 'skipped'
+            with self.assertRaisesRegex(ValueError, 'host reference job'):
+                acceptance.summarize(root, expected, needs)
+            del needs['attempt-release-reference']
+            with self.assertRaisesRegex(ValueError, 'missing or unexpected acceptance job'):
+                acceptance.summarize(root, expected, needs)
+
+    def test_workflow_host_reference_is_opt_in_and_fixture_bytes_are_excluded(self):
+        workflow = (HERE.parent / '.github/workflows/storage-acceptance.yml').read_text()
+        self.assertIn('attempt_release_host_reference:\n', workflow)
+        self.assertIn('        default: false\n', workflow)
+        reference = workflow.split('  attempt-release-reference:\n', 1)[1].split('  capacity-long:', 1)[0]
+        self.assertIn('if: inputs.attempt_release_host_reference', reference)
+        self.assertIn('needs: build', reference)
+        self.assertIn('steps: *acceptance-consumer', reference)
+        self.assertIn("matrix.label == 'attempt-release-host' || !contains", workflow)
+        self.assertIn("USE_PREBUILT: ${{ matrix.label != 'attempt-release-host' && contains", workflow)
+        self.assertIn('            !output/attempt-release-image/tmp/**\n', workflow)
+        self.assertIn('HOST_REFERENCE: ${{ inputs.attempt_release_host_reference }}', workflow)
+        self.assertIn('if [[ "$HOST_REFERENCE" == true ]]; then args+=(--expected attempt-release-host); fi', workflow)
+
     def test_image_fixture_rejection_blocks_acceptance_and_summary(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

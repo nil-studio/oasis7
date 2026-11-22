@@ -21,6 +21,11 @@ on:
         type: string
         required: true
         default: '5000000'
+      attempt_release_host_reference:
+        description: 'Also verify attempt-release on host using this same source and complete bundle'
+        type: boolean
+        required: true
+        default: false
       repeat_faults:
         description: 'Repetitions of each case under each network fault profile'
         type: choice
@@ -208,7 +213,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install consumer libraries
-        if: ${{ !contains(fromJSON('["units","runtime-protocol","world-history","healthy-set","storage-recovery","lifecycle-cli","attempt-release"]'), matrix.group) }}
+        if: ${{ matrix.label == 'attempt-release-host' || !contains(fromJSON('["units","runtime-protocol","world-history","healthy-set","storage-recovery","lifecycle-cli","attempt-release"]'), matrix.group) }}
         run: |
           sudo apt-get update
           sudo apt-get install -y iproute2 libwayland-client0 libxkbcommon0 libxi6 libxcursor1 libxrandr2 libxinerama1 libasound2t64 libudev1
@@ -234,8 +239,8 @@ jobs:
           findmnt --json --target "$RUNNER_TEMP/storage-enospc" > output/disk/mount.json
       - name: Run acceptance with exact inventory and process cleanup
         env:
-          USE_PREBUILT: ${{ contains(fromJSON('["units","runtime-protocol","world-history","healthy-set","storage-recovery","lifecycle-cli","attempt-release"]'), matrix.group) }}
-          GHCR_TOKEN: ${{ contains(fromJSON('["units","runtime-protocol","world-history","healthy-set","storage-recovery","lifecycle-cli","attempt-release"]'), matrix.group) && github.token || '' }}
+          USE_PREBUILT: ${{ matrix.label != 'attempt-release-host' && contains(fromJSON('["units","runtime-protocol","world-history","healthy-set","storage-recovery","lifecycle-cli","attempt-release"]'), matrix.group) }}
+          GHCR_TOKEN: ${{ matrix.label != 'attempt-release-host' && contains(fromJSON('["units","runtime-protocol","world-history","healthy-set","storage-recovery","lifecycle-cli","attempt-release"]'), matrix.group) && github.token || '' }}
           STORAGE_VERIFY_IMAGE: ghcr.io/nil-studio/oasis7/ci-build@sha256:027eb11ad5c315b7ba3aaf834d3ceff5bd84cf6d4d7dfb196bbe4989fc9aa57c
           GROUP: ${{ matrix.group }}
           LABEL: ${{ matrix.label }}
@@ -320,9 +325,23 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: storage-result-${{ matrix.label }}-${{ github.run_attempt }}
-          path: output
+          path: |
+            output
+            !output/attempt-release-image/tmp/**
           retention-days: 14
           if-no-files-found: error
+
+  attempt-release-reference:
+    name: Attempt release / host reference
+    if: inputs.attempt_release_host_reference
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    strategy:
+      matrix:
+        include:
+          - {label: attempt-release-host, group: attempt-release, network: none, scale: '10'}
+    steps: *acceptance-consumer
 
   capacity-long:
     name: Capacity / ${{ inputs.capacity_scale }} heights
@@ -358,7 +377,7 @@ jobs:
 
   summary:
     if: always()
-    needs: [build, verify, capacity-long, full-node-long]
+    needs: [build, verify, capacity-long, full-node-long, attempt-release-reference]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -378,6 +397,7 @@ jobs:
           NEEDS_JSON: ${{ toJSON(needs) }}
           SCALE: ${{ inputs.capacity_scale }}
           FULL_NODE_SCALE: ${{ inputs.full_node_scale }}
+          HOST_REFERENCE: ${{ inputs.attempt_release_host_reference }}
         run: |
           mkdir -p output
           printf '%s\n' "$NEEDS_JSON" > output/needs.json
@@ -385,6 +405,7 @@ jobs:
           for label in units runtime-protocol world-history healthy-set storage-recovery lifecycle-cli capacity-10 full-node-10 attempt-release disk-full network-delay network-loss; do
             args+=(--expected "$label")
           done
+          if [[ "$HOST_REFERENCE" == true ]]; then args+=(--expected attempt-release-host); fi
           if [[ "$SCALE" != 10 ]]; then args+=(--expected "capacity-$SCALE"); fi
           if [[ "$FULL_NODE_SCALE" != 10 ]]; then args+=(--expected "full-node-$FULL_NODE_SCALE"); fi
           python3 scripts/ci-storage-acceptance.py summarize --results-dir output/collected "${args[@]}" --needs-json output/needs.json --output output/summary.json
