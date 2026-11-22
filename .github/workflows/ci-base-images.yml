@@ -8,6 +8,7 @@ on:
       - scripts/ci-browser-tools/package.json
       - scripts/ci-browser-tools/package-lock.json
       - .github/workflows/ci-base-images.yml
+      - .github/workflows/rust.yml
   workflow_dispatch:
   schedule:
     - cron: "17 3 * * 1"
@@ -20,15 +21,39 @@ permissions:
   contents: read
 
 jobs:
+  plan:
+    if: github.event_name == 'pull_request' && !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - id: select
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          matrix=$(bash docker/ci-base/plan-candidate.sh "$BASE_SHA")
+          printf 'matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
+
   build:
-    if: (github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.ref == 'refs/heads/main'
+    needs: plan
+    if: >-
+      !cancelled() &&
+      ((github.event_name == 'pull_request' && needs.plan.result == 'success' &&
+        needs.plan.outputs.matrix != '' && needs.plan.outputs.matrix != '{"target":[]}') ||
+       (github.event_name != 'pull_request' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-24.04
     timeout-minutes: 55
     permissions:
       contents: read
     strategy:
-      matrix:
-        target: [runtime, build, browser, rust-build, rust-wasm-build]
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix || '{"target":["runtime","build","browser","rust-build","rust-wasm-build"]}') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
