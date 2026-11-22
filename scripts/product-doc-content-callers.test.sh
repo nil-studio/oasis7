@@ -28,7 +28,8 @@ fi
 # deliberately exit 0 but report WARN rather than falsely claiming conformance.
 # Preserve that distinction while requiring explicit full-corpus output.
 if ! grep -Fq 'product-doc-content: OK (full-corpus checked ' "$tmp_dir/full-corpus.out"; then
-  grep -Eq '^document-content: WARN \([1-9][0-9]* finding\(s\); advisory, not proof of conformance\)
+  grep -Eq '^document-content: WARN \([1-9][0-9]* finding\(s\); advisory, not proof of conformance\)$' "$tmp_dir/full-corpus.out"
+fi
 
 if (unset OASIS7_PRODUCT_DOC_BASE OASIS7_PRODUCT_DOC_HEAD; OASIS7_PRODUCT_DOC_BASE="$base_oid" ./scripts/doc-governance-check.sh) >"$tmp_dir/partial.out" 2>&1; then
   echo "product-doc-content-callers.test: partial local base/head unexpectedly passed" >&2
