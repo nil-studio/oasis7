@@ -648,7 +648,8 @@ pub use selected::{ArtifactConfigSelectedBodyRequestV1, open_artifact_config_bod
 #[path = "incremental_runtime_artifact_config_module_read.rs"]
 mod module_read;
 pub use module_read::{
-    SelectedModuleManifestLimitsV1, SelectedModuleManifestV1, read_selected_module_manifest_v1,
+    SelectedModuleManifestLimitsV1, SelectedModuleManifestV1, SelectedModuleRecordV1,
+    read_selected_module_manifest_v1, read_selected_module_record_v1,
 };
 #[path = "incremental_runtime_artifact_config_current_keys.rs"]
 mod current_keys;
