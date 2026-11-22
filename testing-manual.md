@@ -561,6 +561,7 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_agent_harness native_task::tests
 
 同一 PR 的后续运行会替代同组已有运行；仅重跑当前 HEAD，旧 HEAD 重跑也会竞争。不同 PR 和非 PR run 独立。
 
+<a id="testing-layer-model"></a>
 ## 分层模型（针对当前仓库）
 
 ### L0 静态与工件一致性层
@@ -630,6 +631,7 @@ Scaffold 操作语义：`--json` 是已有 CLI 选项，成功的五字段摘要
 - 结论边界：只有到这一层，才能正式回答“真实人类/真实环境里是否仍想继续玩”；内部真人 spot-check 仍只算 `L4B` 的可选校准，不单列新层。
 - 说明：长稳、压力和 soak 仍属于测试套件层（如 S8/S10），不是这里的 playability `L5`。
 
+<a id="playability-review-persona-and-claim"></a>
 ### Playability review、persona 与 claim 收口
 - L4A packet 记录 change scope、target claim、formal surfaces、evidence、blockers、roles、personas、questions 与 target lane；card 必须区分直接证据、推断、未证明项和 follow-up。输入不足写 `insufficient_input`，只转述他人结论写 `secondary_review_only`。
 - 默认先由 `producer_system_designer` 与 `qa_engineer` 审核，按 surface 追加 viewer/agent/runtime/WASM 角色；涉及 limited-preview 或外部 claim 时追加 `liveops_community`。角色 review 完整只构成 L4A。

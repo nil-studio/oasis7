@@ -328,6 +328,7 @@ A 成功提交 Reconciled 后 B 的延迟失败只能成为该过期尝试的诊
 
 现有测试入口为 `crates/oasis7_newapi_bridge_service/src/bin/oasis7_newapi_bridge_service/tests.rs`，分页替身在同目录 `tests_support.rs`；在这些已有入口补充 §10 的故障语义，按 `env -u RUSTC_WRAPPER cargo test -p oasis7_newapi_bridge_service --bin oasis7_newapi_bridge_service` 执行并记录实际结果。手册/测试入口存在不表示新增场景已实现或执行；本次文档不运行真实 topup、模型调用或 operator 部署，也不以测试计划代替四项独立验收。
 
+<a id="quota-bridge-current-source-gaps"></a>
 ### 11.2 当前源码差距（静态核对）
 
 本节区分目标恢复合同与当前代码，主责 runtime_engineer / qa_engineer；源码固定基线 `c1ae79da79c2cb7962a5e87bb3cee1b60eaf623e`，未执行行为测试或外部服务。

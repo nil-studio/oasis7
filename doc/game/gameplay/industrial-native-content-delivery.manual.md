@@ -85,7 +85,7 @@ PY
 | factory kind/spec、原选择/报价消费者 | `env -u RUSTC_WRAPPER cargo test -p oasis7_runtime --lib --features test_tier_full builtin_factory_quote_` | [原测试](../../../crates/oasis7_runtime/src/tests/agent_delegation/factory.rs)覆盖非 kind 同名实例、quote 不改世界、实际建造、篡改规格与授权/准入拒绝；仍是局部 fixture。 |
 | 固定 starter bootstrap 或资源准备 | `env -u RUSTC_WRAPPER cargo test -p oasis7_viewer_runtime --lib --features test_tier_required bootstrap_formal_release_runtime_world_uses_seeded_fragment_bootstrap_agent`；相同参数将 filter 换为 `bootstrap_formal_release_owner_can_fund_first_twelve_batch_smelter_run` | [原测试](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/support.rs)核 seeded Agent/site 输入及首个生产路径的 fixture；不证明每个 named scenario、正式激活或玩家入口。 |
 | WASM 定义、模板、构建依赖或工件实际交付 | 沿[WASM 构建管线](../../world-runtime/wasm/wasm-deterministic-build-pipeline.design.md#build-source-input-rule)和[原测试手册](../../../testing-manual.md)选中受影响模块，保存原 receipt/hash/identity | 新源码对应新候选的构建/消费证据；内容目录和源文件摘要不能代替此项，本文不授权发布写入。 |
-| 实际首局内容集成/入口行为 | 沿[首局内容手册的候选准备](../../world-simulator/viewer/first-session-content-delivery.manual.md#fs-content-candidate)及[首产物合同](gameplay-industrial-starter-completion-contract.prd.md#5-exactly-once、replay-与跨-surface-验收)选择原运行方法 | 使用隔离且已获准的测试世界，核原操作、实际账本、匹配结算、重连与同候选入口；不从另一窗口 smoke 推定当前 Viewer 组合通过。 |
+| 实际首局内容集成/入口行为 | 沿[首局内容手册的候选准备](../../world-simulator/viewer/first-session-content-delivery.manual.md#fs-content-candidate)及[首产物合同](gameplay-industrial-starter-completion-contract.prd.md#5-exactly-oncereplay-与跨-surface-验收)选择原运行方法 | 使用隔离且已获准的测试世界，核原操作、实际账本、匹配结算、重连与同候选入口；不从另一窗口 smoke 推定当前 Viewer 组合通过。 |
 
 仅更新目录/方法时运行 `./scripts/doc-governance-check.sh`，不启动 Rust 全套、浏览器或游戏。首局源码已有方法不意味着 factory_core 的全依赖链已有可玩场景；扩大该链的交付前需补真实输入来源、账本适用性及所需运输/执行能力。
 

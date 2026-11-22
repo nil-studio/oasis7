@@ -97,7 +97,7 @@ Compatibility declaration 只证明客户端能理解当前 manifest，不能选
 
 ## 5. 当前与目标的分离
 
-下列能力边界以 `b42a9e3fb8c8cd60679936c5f46c2fde6f62cf1e` 的源码和现行 [节点生命周期合同](../../p2p/blockchain/local-node-lifecycle.runbook.md#local-capability-and-verification-boundary)、[持久世界验收边界](../../p2p/blockchain/persistent-world-node-lifecycle.runbook.md#后续-todo-与验收边界（2026-10-14）) 为依据；本次补充产品和系统设计，没有新增运行或部署通过结论。
+下列能力边界以 `b42a9e3fb8c8cd60679936c5f46c2fde6f62cf1e` 的源码和现行 [节点生命周期合同](../../p2p/blockchain/local-node-lifecycle.runbook.md#local-capability-and-verification-boundary)、[持久世界验收边界](../../p2p/blockchain/persistent-world-node-lifecycle.runbook.md#persistent-node-lifecycle-acceptance-followups) 为依据；本次补充产品和系统设计，没有新增运行或部署通过结论。
 
 | 路径 | 已有能力 | 当前未完成范围 |
 | --- | --- | --- |
