@@ -424,10 +424,6 @@ fn response(
 /// The libp2p channel can synchronously reject a response when the caller
 /// canceled. This is known zero delivery and must not charge a successful
 /// FetchBlob response against the peer or global paid byte window.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "Explicit true send outcome fences shared responder byte quotas"
-)]
 fn send_charged_response(
     budget: &mut FetchBlobResponseBudget,
     peer: libp2p::PeerId,
