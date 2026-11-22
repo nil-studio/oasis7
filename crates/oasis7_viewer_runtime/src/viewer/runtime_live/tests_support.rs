@@ -2,7 +2,7 @@ use super::*;
 use ed25519_dalek::SigningKey;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::net::TcpStream;
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 use std::time::Duration;
 
 pub(super) const VIEWER_AGENT_DECISION_SOURCE_ENV: &str = "OASIS7_AGENT_DECISION_SOURCE";
@@ -36,8 +36,8 @@ pub(super) fn removed_old_brand_runtime_live_env(suffix: &str) -> String {
     ["AGENT", "WORLD", suffix].join("_")
 }
 
-pub(super) fn lock_test_llm_env() -> std::sync::MutexGuard<'static, ()> {
-    let guard = runtime_provider_env_lock().lock().expect("env lock");
+pub(super) fn lock_test_llm_env() -> oasis7::env_mut::ProcessEnvGuard {
+    let guard = oasis7::env_mut::lock_process_env();
     clear_runtime_provider_env();
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
@@ -111,13 +111,8 @@ pub(super) fn clear_hosted_strong_auth_env() {
     }
 }
 
-pub(super) fn hosted_strong_auth_env_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-}
-
-pub(super) fn lock_test_hosted_strong_auth_env() -> std::sync::MutexGuard<'static, ()> {
-    let guard = hosted_strong_auth_env_lock().lock().expect("env lock");
+pub(super) fn lock_test_hosted_strong_auth_env() -> oasis7::env_mut::ProcessEnvGuard {
+    let guard = oasis7::env_mut::lock_process_env();
     clear_hosted_strong_auth_env();
     guard
 }

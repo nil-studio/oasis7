@@ -664,9 +664,7 @@ fn chain_linked_runtime_revalidates_initial_snapshot_after_previous_session() {
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn legacy_operator_observer_blocks_hosted_prompt_and_reconnects_exact_head() {
-    let _env_guard = runtime_provider_env_lock()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _env_guard = oasis7::env_mut::lock_process_env();
     let _provider_env_snapshot = HostedLocalMockProviderEnvSnapshot::capture();
     configure_hosted_local_mock_provider_env();
     let _strong_auth_guard = lock_test_hosted_strong_auth_env();
