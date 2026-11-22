@@ -3497,6 +3497,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertIn("if: runner.os == 'macOS'", fleet)
         self.assertIn('TMPDIR: /private/tmp', fleet)
         self.assertIn('python3 scripts/ci-local-signer-tests.py --require-darwin', fleet)
+        self.assertLess(fleet.index('rustup default "$RUST_TOOLCHAIN"'),
+                        fleet.index('python3 scripts/ci-local-signer-tests.py --require-darwin'))
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         packaging = driver.split('run_packaging_contract_tests() {', 1)[1].split('\n}', 1)[0]
         self.assertEqual(packaging.count('run python3 ./scripts/ci-local-signer-tests.py'), 1)

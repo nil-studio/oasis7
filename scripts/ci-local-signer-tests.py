@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """Run all local-signer contracts and enforce native platform coverage."""
 import argparse
+import os
 from pathlib import Path
 import sys
+import subprocess
+import tempfile
 import unittest
 
+BOUNDARY_TEST = "store::tests::emitted_installer_binding_is_v3_and_policyless_doctor_is_unready"
 NATIVE_TEST = "test_path_filesystem_contract.FilesystemContract.test_installed_darwin_descriptor"
 
 
@@ -50,13 +54,40 @@ def run_suite(suite, *, require_darwin=False, platform=None, stream=None):
     return int(not result.wasSuccessful() or bool(unexpected_skips) or native_missing)
 
 
+def run_installer_boundary(generate_fixture, *, stream=None):
+    """Require evidence that the exact ignored Rust importer actually passed."""
+    stream = sys.stderr if stream is None else stream
+    root = Path(__file__).resolve().parent.parent
+    with tempfile.TemporaryDirectory(prefix="oasis7-signer-boundary-") as directory:
+        fixture = Path(directory) / "installer-boundary.json"
+        generate_fixture(fixture)
+        environment = dict(os.environ, OASIS7_INSTALLER_BOUNDARY_FIXTURE=str(fixture))
+        environment.pop("RUSTC_WRAPPER", None)
+        result = subprocess.run(
+            ["cargo", "test", "--locked", "-p", "oasis7_local_signer", "--lib",
+             "--", "--ignored", "--exact", BOUNDARY_TEST],
+            cwd=root, env=environment, stdout=subprocess.PIPE, text=True, check=False,
+        )
+        print(result.stdout, end="", file=stream)
+        lines = result.stdout.splitlines()
+        if result.returncode or "running 1 test" not in lines or f"test {BOUNDARY_TEST} ... ok" not in lines:
+            print("local-signer coverage: expected exact installer boundary importer success", file=stream)
+            return 1
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--require-darwin", action="store_true")
     args = parser.parse_args()
     directory = Path(__file__).resolve().parent / "local-signer" / "tests"
     suite = unittest.TestLoader().discover(str(directory), pattern="test_*.py")
-    return run_suite(suite, require_darwin=args.require_darwin)
+    status = run_suite(suite, require_darwin=args.require_darwin)
+    if status or not args.require_darwin:
+        return status
+    # Discovery loaded the test module from the repository test directory.
+    from test_release_installer import generate_boundary_fixture
+    return run_installer_boundary(generate_boundary_fixture)
 
 
 if __name__ == "__main__":
