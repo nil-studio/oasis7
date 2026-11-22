@@ -15,7 +15,7 @@ use oasis7_runtime::{
     types::MaterialLedgerId,
 };
 use std::{cell::Cell, rc::Rc};
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../../oasis7/tests/support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::*;
 fn typed(e: PageStoreError) -> ValueTreeError {
