@@ -77,7 +77,7 @@
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_agent_event", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 14819},
       {"package": "oasis7_runtime", "target_kind": "test", "target_name": "incremental_agent_genesis", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 1210},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_agent_subtree", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 107084},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_authenticated_nonces", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 17633},
+      {"package": "oasis7_runtime", "target_kind": "test", "target_name": "incremental_authenticated_nonces", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 17633},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_cognition_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 174035},
       {"package": "oasis7_world_state", "target_kind": "test", "target_name": "incremental_delivery_cursor", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 2813},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_diplomacy_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 132522},
