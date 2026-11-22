@@ -134,6 +134,41 @@ jobs:
         run: python3 "$RUNNER_TEMP/ecs-web-source-probe.py" prepared
       - name: Build Viewer Web only
         run: |
+          REAL_ECS_PROBE_CARGO="$(command -v cargo)"
+          export REAL_ECS_PROBE_CARGO
+          mkdir -p "$RUNNER_TEMP/ecs-probe-bin"
+          cat > "$RUNNER_TEMP/ecs-probe-bin/cargo" <<'BASH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          if [[ "${1:-}" != build ]]; then
+            exec "$REAL_ECS_PROBE_CARGO" "$@"
+          fi
+          case " $* " in
+            *" -p oasis7_browser_game_client "*|*" -p pixel_world_bridge "*) ;;
+            *) exec "$REAL_ECS_PROBE_CARGO" "$@" ;;
+          esac
+          case " $* " in
+            *" --target wasm32-unknown-unknown "*) ;;
+            *) exec "$REAL_ECS_PROBE_CARGO" "$@" ;;
+          esac
+          diagnostic="$(mktemp "$RUNNER_TEMP/ecs-cargo-locked.XXXXXX")"
+          if "$REAL_ECS_PROBE_CARGO" build --locked "${@:2}" 2>"$diagnostic"; then
+            cat "$diagnostic" >&2
+            printf 'Locked build succeeded: %s\n' "$*"
+          else
+            result=$?
+            cat "$diagnostic" >&2
+            if ! grep -iE 'lock file.*needs to be updated|cannot update the lock file' "$diagnostic" >/dev/null ||
+               ! grep -F -- '--locked' "$diagnostic" >/dev/null; then
+              exit "$result"
+            fi
+            printf 'Locked build rejected lockfile update: %s\n' "$*"
+            "$REAL_ECS_PROBE_CARGO" "$@"
+          fi
+          git diff --no-ext-diff -- Cargo.lock
+          BASH
+          chmod +x "$RUNNER_TEMP/ecs-probe-bin/cargo"
+          export PATH="$RUNNER_TEMP/ecs-probe-bin:$PATH"
           ./scripts/build-viewer-software-safe.sh --optional-payload-dir output/optional-payload
           python3 "$RUNNER_TEMP/ecs-web-source-probe.py" built
           ./scripts/copy-viewer-web-dist.sh --dist-dir output/web-dist --optional-payload-dir output/optional-payload
