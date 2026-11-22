@@ -18,8 +18,23 @@ pub fn exercise(
         CognitionOptionalGroupV1::ContinuationEvaluations,
         CognitionOptionalGroupV1::ReorgEpoch,
     ] {
-        exercise_group(store, memory, parent, family, group);
+        exercise_group(store, memory, parent, family, group, false);
     }
+}
+pub fn exercise_real_delegation(
+    store: &IncrementalPageStore,
+    memory: &MemoryBudget,
+    parent: &ExecutionParent,
+    family: &ReservedValue<CognitionCurrentStateQualificationV1>,
+) {
+    exercise_group(
+        store,
+        memory,
+        parent,
+        family,
+        CognitionOptionalGroupV1::Delegation,
+        true,
+    );
 }
 fn exercise_group(
     store: &IncrementalPageStore,
@@ -27,6 +42,7 @@ fn exercise_group(
     parent: &ExecutionParent,
     family: &ReservedValue<CognitionCurrentStateQualificationV1>,
     group: CognitionOptionalGroupV1,
+    nonempty_original_grants: bool,
 ) {
     let state = store
         .state_session(physical(), MemoryClass::Ordinary)
@@ -52,7 +68,7 @@ fn exercise_group(
     )
     .unwrap();
     let live = parent.fence().unwrap();
-    if group == CognitionOptionalGroupV1::Delegation {
+    if nonempty_original_grants {
         // The genuine persistent GEN parent has a nonempty grants map. Its
         // current-body read must reject that map and poison this isolated Txn,
         // rather than trusting a parent-only field-presence shortcut.
@@ -286,6 +302,11 @@ fn exercise_group(
         sealed.record.writes.len(),
         match group {
             CognitionOptionalGroupV1::Economy => 28,
+            // Existing original was deleted and recreated with the identical
+            // original bytes; the sole transaction correctly coalesces to no
+            // accepted after-root delta, even though intermediate Current
+            // absence was independently proven and the original rejects.
+            CognitionOptionalGroupV1::Delegation if nonempty_original_grants => 0,
             CognitionOptionalGroupV1::Delegation => 8,
             CognitionOptionalGroupV1::ContinuationEvaluations => 2,
             _ => 0,
