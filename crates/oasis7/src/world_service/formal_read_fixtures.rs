@@ -6,13 +6,13 @@
     reason = "Shared test fixtures are included by several binaries with different helper needs"
 )]
 use ed25519_dalek::{Signer, SigningKey};
-use oasis7::runtime::{World, blake3_hex};
-use oasis7::world_service::{authority, projection::WorldServiceProjection};
 use oasis7_distfs::controlled_authority::{
     fencing::EndpointInstanceBindingV1,
     formal::*,
     replicated_protocol::{ArtifactRole, EndpointRole},
 };
+use oasis7_runtime::{World, blake3_hex};
+use oasis7_world_service::{authority, projection::WorldServiceProjection};
 use std::collections::BTreeMap;
 pub(crate) fn h(n: u8) -> String {
     hex::encode([n; 32])
@@ -138,7 +138,7 @@ pub(crate) fn actual_world_initial_fixture_with_execution_policy(
         .unwrap();
     let genesis = h(8);
     let snapshot = original.snapshot_with_chain_resource_context(
-        oasis7::runtime::ChainResourceDerivationContext {
+        oasis7_runtime::ChainResourceDerivationContext {
             world_id: "formal-fixture-world",
             chain_id: "formal-fixture-chain",
             genesis_ref: Some(&genesis),
@@ -220,7 +220,7 @@ pub(crate) fn actual_world_initial_fixture_with_execution_policy(
     let authority = verify_initial_activation(&certificate, &trust).unwrap();
     let input = blake3_hex(&initial_activation_input_bytes(&certificate).unwrap());
     roots.insert(ArtifactRole::Input, input.clone());
-    let projection_root = oasis7::world_service::formal_projection::commitments_for_world(&world)
+    let projection_root = oasis7_world_service::formal_projection::commitments_for_world(&world)
         .unwrap()
         .root()
         .unwrap();
@@ -254,7 +254,7 @@ pub(crate) fn actual_world_initial_fixture_with_execution_policy(
     (world, trust, anchor, proof)
 }
 pub(crate) fn projection(world: &World) -> WorldServiceProjection {
-    oasis7::world_service::projection::from_formal_committed_world(world, None, "").unwrap()
+    oasis7_world_service::projection::from_formal_committed_world(world, None, "").unwrap()
 }
 /// Actual restored World cuts with test-authority light envelopes. This helper
 /// does not exercise the production executor or certify endpoint key custody.
@@ -281,7 +281,7 @@ pub(crate) fn actual_world_successor_fixture_with_handoff(
     world.step().expect("actual World fixture tick");
     let identity = &parent.head().record().world;
     let snapshot = world.snapshot_with_chain_resource_context(
-        oasis7::runtime::ChainResourceDerivationContext {
+        oasis7_runtime::ChainResourceDerivationContext {
             world_id: &identity.world_id,
             chain_id: &identity.chain_id,
             genesis_ref: Some(&identity.genesis_digest),
@@ -362,11 +362,10 @@ pub(crate) fn actual_world_successor_fixture_with_handoff(
         ArtifactRole::ExecutionManifest,
         record.runtime_manifest_digest.clone(),
     );
-    record.projection_root =
-        oasis7::world_service::formal_projection::commitments_for_world(&world)
-            .unwrap()
-            .root()
-            .unwrap();
+    record.projection_root = oasis7_world_service::formal_projection::commitments_for_world(&world)
+        .unwrap()
+        .root()
+        .unwrap();
     let proof = qualified_proof(
         record,
         Some(frozen),
