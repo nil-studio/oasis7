@@ -112,6 +112,77 @@ fn current_grant_reads_all_original_fields_and_rejects_stale_guard() {
             assert!(selected.qualification().is_some());
         }
 
+        // Exercise the real original Grant record through the existing point
+        // mutation and then re-read the pending Current child *in the same
+        // transaction*, without rebuilding the World or trusting a stale
+        // parent qualification for the modified child.
+        let guard = overlay.transaction.guard();
+        let selected = read_current_restricted_claim_grant_v1(
+            " raw grant ",
+            &family,
+            &roots,
+            &state,
+            &mut overlay,
+            &mut family_scan,
+            &mut cells,
+            4096,
+            &guard,
+            &live,
+        )
+        .unwrap();
+        let mut writer = store.value_session(physical());
+        let mut write_io = logical();
+        let mut write_keys = SemanticKeyBudget {
+            bytes_remaining: 1 << 20,
+        };
+        let mut write = MemberRecordWriteContext {
+            sink: &mut writer,
+            memory: &memory,
+            io: &mut write_io,
+            key_work: &mut write_keys,
+            limits: limits(),
+            cancelled: || false,
+        };
+        let guard = overlay.transaction.guard();
+        let changed = change_qualified_main_token_policy_cell_v1(
+            MainTokenPolicyCellChangeV1 {
+                key: MainTokenPolicyKeyV1::Grant(" raw grant "),
+                cell: MainTokenPolicyCellV1::Column(MainTokenPolicyColumnV1::IssuedAmount),
+                qualification: selected.qualification().unwrap(),
+                expected: MainTokenPolicyValueRefV1::U64(u64::MAX),
+                after: MainTokenPolicyValueRefV1::U64(7),
+                max_current_payload_bytes: 4096,
+                max_pending_node_bytes: 4 << 20,
+            },
+            &mut overlay,
+            &mut write,
+            &guard,
+            &live,
+        )
+        .unwrap();
+        assert!(changed.is_some());
+        let guard = overlay.transaction.guard();
+        let after = read_current_restricted_claim_grant_v1(
+            " raw grant ",
+            &family,
+            &roots,
+            &state,
+            &mut overlay,
+            &mut family_scan,
+            &mut cells,
+            4096,
+            &guard,
+            &live,
+        )
+        .unwrap();
+        let mut expected = original.restricted_starter_claim_grants[" raw grant "].clone();
+        expected.issued_amount = 7;
+        assert_eq!(
+            serde_json::to_value(after.value().unwrap()).unwrap(),
+            serde_json::to_value(expected).unwrap(),
+            "real pending Current Grant must reflect the exact original point change"
+        );
+
         let guard = overlay.transaction.guard();
         let absent = read_current_restricted_claim_grant_v1(
             "missing-original-grant",
