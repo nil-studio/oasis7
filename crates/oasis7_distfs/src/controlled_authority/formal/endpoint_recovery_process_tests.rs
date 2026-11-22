@@ -568,15 +568,61 @@ fn run_recovery(consecutive: bool) {
         recovery.successor().clone(),
         fixture.authority.clone(),
         Some(recovery.clone()),
-        Some(verified),
+        Some(verified.clone()),
     )
     .unwrap();
+    // Replaying the retained request proves idempotence, but alone cannot
+    // demonstrate that the recovered owner can accept the *next* business
+    // request after the cold restart. Use the real successor writer and an
+    // independent new request ID on the same native P/R endpoint pair.
     assert_eq!(coordinator.submit(candidate).unwrap(), completed);
+    let (mut next_input, next_material) = fixture.frozen(&verified, 46);
+    next_input.body.authority_id = recovery.successor().authority_id().unwrap();
+    next_input.body.epoch = 2;
+    next_input.body.activation_ref = recovery.successor().activation_ref().into();
+    next_input.signature_hex = signed(frozen_signing_bytes(&next_input.body).unwrap(), 10);
+    let next_executable = coordinator.freeze(next_input, next_material).unwrap();
+    let mut next_candidate = fixture.candidate(&next_executable);
+    next_candidate.candidate.record.original_epoch = 2;
+    next_candidate.candidate.writer_signature_hex = signed(
+        canonical_candidate_signing_bytes(&next_candidate.candidate.record).unwrap(),
+        10,
+    );
+    assert_ne!(
+        next_candidate.candidate.record.request_digest,
+        completed.decision.record.request_digest
+    );
+    let next = coordinator.submit(next_candidate.clone()).unwrap();
+    assert_eq!(next.decision.record.position, verified.head().position + 1);
+    let next_verified = verify_formal_qualified(
+        &next,
+        &fixture.authority,
+        Some(&verified),
+        Some(&recovery),
+    )
+    .unwrap();
+    assert_eq!(coordinator.submit(next_candidate).unwrap(), next);
     drop(coordinator);
     p2.kill().unwrap();
     p2.wait().unwrap();
     r2.kill().unwrap();
     r2.wait().unwrap();
+    // A second cold open must retain the *new* result, not merely the
+    // restored original request or the predecessor epoch's pinned cut.
+    let (mut next_primary, next_address) = start(&binary, &new_configs[0]);
+    let next_restored = remote(
+        next_address,
+        recovery.successor(),
+        EndpointRole::Primary,
+        10,
+        cut.head(),
+    )
+    .restore_native_current(&fixture.authority, Some(&recovery), Some(&cut))
+    .unwrap();
+    assert_eq!(next_restored.commit().head(), next_verified.head());
+    assert_eq!(next_restored.proof(), &next);
+    next_primary.kill().unwrap();
+    next_primary.wait().unwrap();
     // External fixed-cut mismatch cannot publish a ready endpoint.
     let mut wrong: serde_json::Value =
         serde_json::from_slice(&fs::read(&new_configs[0]).unwrap()).unwrap();
