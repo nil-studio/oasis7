@@ -9,8 +9,8 @@
 - 含子模块的 worktree 清理按开发规范 §5.1，通过 `resource-cleanup-executor.py --allow-submodules` 显式启用有条件例外；不直接用强制删除绕过检查。
 - Cargo 默认使用各 worktree 的本地 `target/`，无需预先准备。日常反馈用开发 wrapper，正式验收保留 canonical 命令和参数。
 - `third_party/` 只读；Rust 工作参考 `third_party/rust-skills/AGENTS.md`。
-- 默认优先[小而完整的 PR](doc/engineering/workflow/source-of-truth.md#small-complete-pr)，可独立交付的前置尽早提供给依赖方；强耦合改动可原子跨多个 crate。未拆分的简单修改可直接用 PR，Project 按需使用。
-- 复杂项目先按[项目拆解](doc/engineering/workflow/source-of-truth.md#project-decomposition)组织可用模块增量、关键依赖和整体验收，只细化当前及近期批次；按实际收益拆出独立任务并建立[原生 sub-issue](doc/engineering/workflow/source-of-truth.md#code-task-sub-issues)。使用 [parallel-development](.agents/skills/parallel-development/SKILL.md) 核对真实消费接口、[验收准备](doc/engineering/workflow/source-of-truth.md#code-task-acceptance-readiness)与领取，在独立会话中推进并及时集成。同一业务的内部步骤连续完成，任务与 PR 不机械一一对应。
+- 按完整可验收结果组织[小而完整的 PR](doc/engineering/workflow/source-of-truth.md#small-complete-pr)：30 个代码文件以内的独立任务默认单 PR 收口，内部步骤用本地 commit 连续完成并成批推送；仅在解除真实下游阻塞、规模明显超限、分步兼容契约或共享入口隔离时拆多 PR，不为无外部等待的同域迁移、边界修复或同类配置拆微 PR。强耦合改动可原子跨多个 crate；未拆分的简单修改可直接用 PR，Project 按需使用。
+- 复杂项目先按[项目拆解](doc/engineering/workflow/source-of-truth.md#project-decomposition)组织可用模块增量、关键依赖和整体验收，只细化当前及近期批次；按实际收益与 CI 受影响范围归并或拆出独立任务并建立[原生 sub-issue](doc/engineering/workflow/source-of-truth.md#code-task-sub-issues)。使用 [parallel-development](.agents/skills/parallel-development/SKILL.md) 核对真实消费接口、[验收准备](doc/engineering/workflow/source-of-truth.md#code-task-acceptance-readiness)与领取，在独立会话中推进并控制在途开放 PR 并发，及时集成。同一业务的内部步骤连续完成，任务与 PR 不机械一一对应。
 - 每个可独立交付的代码任务[尽量不超过 30 个代码文件](doc/engineering/workflow/source-of-truth.md#code-task-file-limit)，包含测试、脚本和生成代码，同任务跨 PR 累计观察；超过时复核拆分收益，确需保留完整改动则简述原因，文件数不作为停工或合入门禁。
 - 仓库文档及 Issue、PR、评审和交接文字遵循[语言与写作要求](doc/engineering/workflow/source-of-truth.md#language-and-writing)。
 - 问题根因确认后，先按[设计检查与修复](doc/engineering/workflow/source-of-truth.md#root-cause-design-check)核对适用要求与系统设计：有缺陷先补受影响文档再修实现；纯实现 bug 直接修复验证，不强制改正确设计。
