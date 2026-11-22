@@ -786,7 +786,10 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(serde_json::to_vec(selected_record.manifest()).unwrap(), expected);
+        assert_eq!(
+            serde_json::to_vec(selected_record.manifest()).unwrap(),
+            expected
+        );
         assert_eq!(selected_record.registered_at(), u64::MAX);
         assert_eq!(selected_record.registered_by().len(), 1 << 20);
         assert_eq!(selected_record.audit_event_id(), Some(0));
