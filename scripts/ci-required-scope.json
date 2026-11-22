@@ -102,7 +102,7 @@
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_commit", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 10026},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_effect_records", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 147952},
       {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_governance_controls", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 3413},
-      {"package": "oasis7", "target_kind": "test", "target_name": "incremental_runtime_scheduler_controls", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 29829},
+      {"package": "oasis7_runtime", "target_kind": "test", "target_name": "incremental_runtime_scheduler_controls", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 29829},
       {"package": "oasis7_cas", "target_kind": "lib", "target_name": "oasis7_cas", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 805},
       {"package": "oasis7_chain_runtime", "target_kind": "bin", "target_name": "oasis7_chain_runtime", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 209},
       {"package": "oasis7_chain_runtime", "target_kind": "test", "target_name": "host_api", "variant": "required", "mode": "batch", "selector": "", "elapsed_ms": 207},
