@@ -300,7 +300,7 @@ pub(crate) fn write_http_reply(
         503 => "Service Unavailable",
         _ => "Internal Server Error",
     };
-    write!(stream, "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len())
+    write!(stream, "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len())
         .and_then(|_| stream.write_all(body))
         .and_then(|_| stream.flush())
         .map_err(|error| format!("HTTP write: {error}"))
@@ -329,9 +329,9 @@ impl Drop for FormalHttpServer {
 
 #[cfg(test)]
 mod framing_tests {
-    use super::{parse_http_headers, read_http_request};
+    use super::{parse_http_headers, read_http_request, write_http_reply};
     use std::{
-        io::Write,
+        io::{Read, Write},
         net::{Shutdown, TcpListener, TcpStream},
         time::{Duration, Instant},
     };
@@ -344,6 +344,28 @@ mod framing_tests {
         client.shutdown(Shutdown::Write).unwrap();
         let (mut server, _) = listener.accept().unwrap();
         read_http_request(&mut server, Instant::now() + Duration::from_secs(2))
+    }
+
+    #[test]
+    fn formal_http_replies_disable_caching_even_for_degraded_status() {
+        // Use the production TCP response writer, not a synthetic header
+        // builder. A previous successful status must never become a reusable
+        // response after readiness or authorization changes.
+        for status in [200, 400, 503] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let mut client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+            let (mut server, _) = listener.accept().unwrap();
+            write_http_reply(&mut server, status, b"{}").unwrap();
+            drop(server);
+            let mut response = String::new();
+            client.read_to_string(&mut response).unwrap();
+            let (headers, body) = response.split_once("\r\n\r\n").unwrap();
+            assert_eq!(body, "{}");
+            assert!(headers.starts_with(&format!("HTTP/1.1 {status} ")));
+            assert!(headers.split("\r\n").any(|line| line == "Cache-Control: no-store"));
+            assert!(headers.split("\r\n").any(|line| line == "Content-Length: 2"));
+            assert!(headers.split("\r\n").any(|line| line == "Connection: close"));
+        }
     }
 
     #[test]
