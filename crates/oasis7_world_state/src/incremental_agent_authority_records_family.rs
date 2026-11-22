@@ -22,8 +22,12 @@ fn invalid() -> ValueTreeError {
 pub struct AgentAuthorityFamilyQualificationV1 {
     roots: [u8; 32],
     counts: [u64; 3],
+    class: oasis7_proto::memory_budget::MemoryClass,
 }
 impl AgentAuthorityFamilyQualificationV1 {
+    pub fn allocation_class(&self) -> oasis7_proto::memory_budget::MemoryClass {
+        self.class
+    }
     pub fn validate_binding(&self, roots: &[u8; 32]) -> Result<(), ValueTreeError> {
         if &self.roots == roots {
             Ok(())
@@ -253,6 +257,7 @@ pub fn qualify_agent_authority_family_v1<
     Ok(retained.retain(AgentAuthorityFamilyQualificationV1 {
         roots: roots.digest().map_err(|_| invalid())?,
         counts,
+        class: ctx.values.class,
     }))
 }
 
@@ -264,7 +269,11 @@ pub(super) fn mint(
 ) -> Result<ReservedValue<AgentAuthorityFamilyQualificationV1>, ValueTreeError> {
     Ok(memory
         .reserve(512, class)?
-        .retain(AgentAuthorityFamilyQualificationV1 { roots, counts }))
+        .retain(AgentAuthorityFamilyQualificationV1 {
+            roots,
+            counts,
+            class,
+        }))
 }
 
 /// Open one record under an already-qualified exact family RootSet.
