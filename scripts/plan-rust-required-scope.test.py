@@ -774,7 +774,7 @@ class Selection(unittest.TestCase):
 
     def test_rustsec_baseline_inputs_are_registered(self):
         self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        for path in ('deny.toml', 'scripts/rustsec-ignore-direct-dependency-baseline.json',
+        for path in ('deny.toml',
                      'scripts/check-rustsec-ignore-baseline.sh',
                      'scripts/check-rustsec-ignore-baseline.test.sh'):
             with self.subTest(path=path):
@@ -783,6 +783,14 @@ class Selection(unittest.TestCase):
                 self.assertEqual(plan['scope'], 'targeted')
                 self.assertTrue({'rust_baseline', 'operational_contracts'}.issubset(plan['groups']))
                 self.base = self.git('rev-parse', 'HEAD')
+
+    def test_retired_rustsec_baseline_is_not_a_trusted_input(self):
+        self.config = json.loads((HERE / 'ci-required-scope.json').read_text())
+        path = 'scripts/rustsec-ignore-direct-dependency-baseline.json'
+        self.write(path, '{}')
+        with self.assertRaises(selector.UnknownInputsError) as caught:
+            self.plan()
+        self.assertIn(path, str(caught.exception))
 
     def test_independent_targets_do_not_change_library_consumers(self):
         for path in ['src/bin/tool.rs', 'src/bin/tool/helpers.rs',
