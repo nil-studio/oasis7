@@ -541,7 +541,10 @@ fn ordinary_same_transaction_creates_changes_reads_and_independently_receives() 
         .unwrap();
     assert_eq!(accepted.registry_active_count(), 1);
     let independent = qualify_family(&sealed.record.after, &pages).unwrap();
-    assert_eq!(independent.registry_active_count(), accepted.registry_active_count());
+    assert_eq!(
+        independent.registry_active_count(),
+        accepted.registry_active_count()
+    );
     let expected_json = serde_json::json!({"items":[true,true,true],"metadata":"keep"});
     let expected = crate::incremental_json_records::prepare_json_subtree_v1(
         genesis::json_profile(),
