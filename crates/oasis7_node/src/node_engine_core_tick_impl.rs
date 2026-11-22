@@ -462,7 +462,7 @@ impl PosNodeEngine {
             gossip,
             node_id,
             world_id,
-            replication.as_deref_mut(),
+            replication,
         )?;
         if local_execution_applied
             && (self.committed_height < decision.height
