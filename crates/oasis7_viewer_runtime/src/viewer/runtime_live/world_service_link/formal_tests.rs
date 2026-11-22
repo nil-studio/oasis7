@@ -15,7 +15,7 @@ use std::{
     time::Duration,
 };
 fn response(
-    world: &oasis7::runtime::World,
+    world: &oasis7_runtime::World,
     anchor: &VerifiedFormalReadAnchorV1,
     history: FormalReadHistoryV1,
 ) -> (

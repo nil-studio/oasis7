@@ -48,15 +48,15 @@ fn request(proof: Option<&SignedReadRequest<ReadWorldViewRequest>>) -> Request {
     request.body(()).unwrap()
 }
 fn response(request: &ReadWorldViewRequest) -> ReadWorldViewResponse<WorldServiceProjection> {
-    let mut state = oasis7::runtime::WorldState::default();
+    let mut state = oasis7_runtime::WorldState::default();
     state.agents.insert(
         "a".into(),
-        oasis7::runtime::AgentCell::new(
+        oasis7_runtime::AgentCell::new(
             oasis7::models::AgentState::new("a", oasis7::geometry::GeoPos::new(0, 0, 0)),
             u64::MAX,
         ),
     );
-    let world = oasis7::runtime::World::new_with_state(state);
+    let world = oasis7_runtime::World::new_with_state(state);
     let mut view = oasis7::world_service::projection::from_world(&world, Some("a")).unwrap();
     view.runtime_binding = None;
     let subject = json!({"kind":"agent","agent_id":"a","owner_binding":"owner","generation":1});
