@@ -26,8 +26,8 @@ use oasis7_distfs::controlled_authority::{
     replicated_protocol::ClosedRecord,
 };
 use oasis7_node::NodeRuntime;
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use oasis7_runtime::World;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
     collections::VecDeque,
     io::{Read, Write},
