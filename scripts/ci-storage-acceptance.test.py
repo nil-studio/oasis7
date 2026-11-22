@@ -308,7 +308,16 @@ class Contracts(unittest.TestCase):
         self.assertIn('env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM', body)
         self.assertIn('cache-on-failure: false', body)
         rust_cache = (HERE.parent / '.github/workflows/rust-cache.yml').read_text()
-        self.assertIn(f'namespace: {namespace}\n', rust_cache)
+        if '\n  plan-image-component-cache:\n' in rust_cache:
+            planner = rust_cache.split('\n  plan-image-component-cache:\n', 1)[1].split(
+                '\n  rust-image-component-cache:\n', 1)[0]
+            rows = json.loads(planner.split("<<'JSON'\n", 1)[1].split('          JSON\n', 1)[0])
+            native = [row for row in rows if row['profile'] == 'native']
+            self.assertEqual(len(native), 1)
+            self.assertEqual(native[0]['namespace'], namespace)
+            self.assertEqual(native[0]['image'], 'ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:' + digest.group(1))
+        else:
+            self.assertIn(f'namespace: {namespace}\n', rust_cache)
 
     def test_storage_components_preserve_every_exact_build_variant_and_profile(self):
         native = acceptance.artifacts
