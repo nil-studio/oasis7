@@ -462,6 +462,39 @@ fn uncertain_proof_persistence_invalidates_active_permit() {
 }
 
 #[test]
+fn late_target_persistence_keeps_original_selection_without_granting_more_io() {
+    let temp = TestDir::new();
+    let path = temp.path().join("operation.json");
+    let policy = policy();
+    let identity = identity(&policy);
+    let mut ledger = Ledger::create(&path, identity.clone(), policy.clone()).unwrap();
+    let attempt = ledger.begin_attempt().unwrap();
+    let target = br#"[{"position":7},{"record":"original"}]"#;
+
+    // Deterministically model slow target persistence ending at the already
+    // fixed attempt deadline. There is no sleep and no manufactured renewal.
+    let error = ledger
+        .bind_verified_target_with_finished_at(&attempt, target, || attempt.deadline())
+        .unwrap_err();
+    assert_eq!(error, "attempt_expired");
+    let saved = ledger.snapshot().clone();
+    assert_eq!(saved.verified_target_json.as_deref(), Some(target.as_slice()));
+    assert_eq!(saved.attempts_used, 1);
+    assert!(saved.active_attempt_nonce.is_some());
+    assert_eq!(saved.exchanges_started, 0);
+    assert!(ledger.check_attempt(&attempt).is_err());
+    assert!(ledger.bind_verified_target(&attempt, target).is_err());
+    assert!(ledger.begin_exchange(&attempt, 1, 1).is_err());
+    assert!(ledger.begin_publication(&attempt, &serde_json::json!({"position":7}), &"ab".repeat(32)).is_err());
+    drop(ledger);
+
+    // The same durable target is visible for explicit fenced recovery, not
+    // silently repinned or replaced under the old attempt.
+    let recovered = Ledger::open(&path, &identity, &policy, 0).unwrap();
+    assert_eq!(recovered.snapshot(), &saved);
+}
+
+#[test]
 fn original_verified_target_is_durable_and_cannot_be_replaced() {
     let temp = TestDir::new();
     let path = temp.path().join("operation.json");
