@@ -708,8 +708,8 @@ fn module_lifecycle_original_current_rejects_stale_guard_and_cannot_seal() {
         "stale original guard must never authorize deletion"
     );
     let final_guard = overlay.transaction.guard();
-    // The last use of overlay was the guard read above; its mutable loan
-    // ends before seal consumes the still-aborted transaction.
+    // The overlay is no longer used after capturing the final guard.
+    // Non-lexical lifetimes release its mutable loan before seal consumes tx.
     assert!(matches!(
         tx.seal(&final_guard, &live, 0),
         Err(ExecutionError::Aborted)
