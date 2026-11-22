@@ -345,6 +345,69 @@ pub(super) fn check_preparation(
     edge_security.validate_configuration().unwrap();
     BftCheckpointTrustPolicyV1::decode_canonical(&canonical(&edge_security)).unwrap();
 
+    // Pairwise overlaps are insufficient: the independent safety interval
+    // and original root/policy window each admit some time, while the only
+    // issuer quorum is entirely outside the safe portion of that window.
+    // Re-pin every modified policy digest so rejection comes from the actual
+    // joint authorization check, not from a stale digest.
+    for (issuer_start, issuer_end, safe_start, safe_end) in [
+        (90u64, 100u64, 10u64, 90u64),
+        (10, 40, 40, 90),
+    ] {
+        let mut disjoint = value.clone();
+        disjoint["policy"]["issuer_keys"][0]["not_before_unix_ms"] =
+            serde_json::json!(issuer_start);
+        disjoint["policy"]["issuer_keys"][0]["expires_at_unix_ms"] =
+            serde_json::json!(issuer_end);
+        disjoint["policy"]["security_policy"]["security_not_before_unix_ms"] =
+            serde_json::json!(safe_start);
+        disjoint["policy"]["security_policy"]["absolute_safe_until_unix_ms"] =
+            serde_json::json!(safe_end);
+        disjoint["policy"]["security_assumptions_digest"] =
+            serde_json::json!(digest("security-policy", &disjoint["policy"]["security_policy"]));
+        let updated_pin = digest("policy", &disjoint["policy"]);
+        disjoint["policy_digest"] = serde_json::json!(updated_pin);
+        let policy: BftCheckpointTrustPolicyV1 =
+            serde_json::from_value(disjoint["policy"].clone()).unwrap();
+        let error = policy.validate_configuration().unwrap_err();
+        assert!(error.contains("no common authorization window"), "{error}");
+        assert!(
+            BftCheckpointTrustPolicyV1::decode_canonical(&canonical(&policy)).is_err(),
+            "portable decoder accepted quorum entirely outside safety"
+        );
+        let error = match BftCheckpointTrustConfigV1::decode_and_prepare(
+            &canonical(&disjoint),
+            &updated_pin,
+            &pin,
+            &c0_pin,
+        ) {
+            Ok(_) => panic!("SDK accepted a quorum with no safe authorization instant"),
+            Err(error) => error,
+        };
+        assert!(error.contains("no common authorization window"), "{error}");
+    }
+
+    // An issuer quorum sharing exactly [89,90) with the independent safety
+    // bound is valid; 90 itself is exclusive, not an invented extra millisecond.
+    let mut safe_quorum_edge = value.clone();
+    safe_quorum_edge["policy"]["issuer_keys"][0]["not_before_unix_ms"] =
+        serde_json::json!(89);
+    safe_quorum_edge["policy"]["issuer_keys"][0]["expires_at_unix_ms"] =
+        serde_json::json!(100);
+    let edge_pin = digest("policy", &safe_quorum_edge["policy"]);
+    safe_quorum_edge["policy_digest"] = serde_json::json!(edge_pin);
+    let edge_policy: BftCheckpointTrustPolicyV1 =
+        serde_json::from_value(safe_quorum_edge["policy"].clone()).unwrap();
+    edge_policy.validate_configuration().unwrap();
+    BftCheckpointTrustPolicyV1::decode_canonical(&canonical(&edge_policy)).unwrap();
+    BftCheckpointTrustConfigV1::decode_and_prepare(
+        &canonical(&safe_quorum_edge),
+        &edge_pin,
+        &pin,
+        &c0_pin,
+    )
+    .expect("one millisecond of a common issuer/root/policy/safety interval is valid");
+
     // Having enough issuer keys in the policy is not sufficient when their
     // half-open validity windows cannot satisfy the threshold simultaneously.
     // The original root/policy limits also restrict the possible quorum time.
