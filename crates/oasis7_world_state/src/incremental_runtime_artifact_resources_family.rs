@@ -215,9 +215,8 @@ impl RecordProgress {
                         return Err(invalid());
                     }
                     if !present {
-                        let value_bit = 1u128
-                            .checked_shl(u32::from(slot) + 1)
-                            .ok_or_else(invalid)?;
+                        let value_bit =
+                            1u128.checked_shl(u32::from(slot) + 1).ok_or_else(invalid)?;
                         self.absent_option_value_mask |= value_bit;
                     }
                 }
