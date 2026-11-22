@@ -235,4 +235,3 @@ trap cleanup_upload_dir EXIT
 ```
 
 上传目录如 `/tmp/oasis7-upgrade-<run_id>`、per-run driver 目录如 `/tmp/oasis7-run*-<node>` 必须在部署流程成功或失败收口时清理；只有设置明确 debug keep 开关时才允许保留。`<node-root>/tmp` 仅用于本轮 staging/bundle/bootstrap 临时产物，部署成功后应清空本轮产物。`<node-root>/backups` 不属于 package cleanup，必须按单独的备份保留策略处理。
-
