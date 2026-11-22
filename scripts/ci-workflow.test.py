@@ -6403,12 +6403,13 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
             'custody-native-contracts', 'custody-native',
             'custody-wasm-production', 'custody-wasm-approval',
             'custody-wasm-contracts', 'custody-node', 'workspace-support',
-            'scenario-regression', 'operational-contracts', 'packaging-contracts',
+            'scenario-regression',
             'workflow-governance', 'codex-agent-config-validation',
             'compile-metrics', 'site-quality', 'doc-checker-contracts',
             'cargo-tooling-contracts', 'macos-package-contract', 'required-gate',
         }
         excluded_jobs = {
+            'operational-contracts', 'packaging-contracts',
             'pr-fast-preview-plan', 'pr-fast-preview',
             'pr-governance-preview', 'pr-ordinary-delivery-preview',
             'periodic-admission', 'cache-bootstrap-maintenance', 'cache-maintenance',

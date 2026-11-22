@@ -3777,7 +3777,7 @@ jobs:
       always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_operational_contracts == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -3802,7 +3802,7 @@ jobs:
       always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_packaging_contracts == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read

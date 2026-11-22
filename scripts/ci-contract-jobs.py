@@ -76,7 +76,7 @@ def render_job(group: str) -> str:
         f"      always() && !cancelled() && needs.select.result == 'success' &&\n"
         f"      (needs.select.outputs.run_{group} == 'true' ||\n"
         f"       fromJSON(needs.select.outputs.plan).scope == 'full')\n"
-        f"    runs-on: ${{{{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}}}\n"
+        f"    runs-on: ubuntu-24.04\n"
         f"{timeout_line}"
         f"{container}"
         f"    steps:\n"

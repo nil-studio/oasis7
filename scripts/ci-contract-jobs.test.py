@@ -272,7 +272,7 @@ class TestContractJobs(unittest.TestCase):
         self.assertEqual(block.count("    needs: select"), 2)
 
         # Runs on ubuntu-24.04
-        self.assertEqual(block.count("    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}"), 2)
+        self.assertEqual(block.count("    runs-on: ubuntu-24.04"), 2)
 
         # Exact conditional expressions
         self.assertIn("needs.select.outputs.run_operational_contracts == 'true'", block)
