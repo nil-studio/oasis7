@@ -8,7 +8,6 @@ updates:
       - "/"
       - "/crates/oasis7_builtin_wasm_modules/m*"
       - "/crates/oasis7_builtin_wasm_modules/local_test_provider"
-      - "/tools/scenario_test_runner"
     schedule:
       interval: cron
       cronjob: "0 9 * * 1,3"
