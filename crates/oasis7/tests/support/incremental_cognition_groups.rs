@@ -101,12 +101,14 @@ fn exercise_group(
             );
         assert!(
             matches!(
-                result,
-                Err(oasis7_runtime::incremental_field_overlay::WorldFieldOverlayErrorV1::Value(
-                    ValueTreeError::Invalid("nonempty delegation grants unsupported")
-                ))
+                &result,
+                Err(
+                    oasis7_runtime::incremental_field_overlay::WorldFieldOverlayErrorV1::Value(
+                        ValueTreeError::Invalid("nonempty delegation grants unsupported")
+                    )
+                )
             ),
-            "real nonempty original grant map must not permit bootstrap"
+            "real nonempty original grant map must not permit bootstrap; actual: {result:?}"
         );
         let guard = rejected.guard();
         assert!(matches!(
