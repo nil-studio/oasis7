@@ -229,6 +229,14 @@ fn read_fixture_config(
 /// This does not replace the separate standard CLI process / all-transport matrix.
 #[test]
 fn typed_node_and_local_provider_budget_complete_real_rr_rejection_and_recovery() {
+    // Use both transports assembled by the same shipping development Host
+    // path; independent helper invocations start fresh budget instances.
+    for transport in ["tcp", "quic"] {
+        exercise_typed_node_and_local_provider_budget(transport);
+    }
+}
+
+fn exercise_typed_node_and_local_provider_budget(transport: &str) {
     use oasis7_client_api::development_node_config::{
         DevelopmentLocalProviderV1, DevelopmentProviderSessionV1, P2pResourceBudget,
     };
@@ -255,8 +263,19 @@ fn typed_node_and_local_provider_budget_complete_real_rr_rejection_and_recovery(
 
     let mut node_config = development_runtime::from_options(&CliOptions::default()).unwrap();
     node_config.runtime.p2p_resource_budget = profile;
-    let node_socket: std::net::SocketAddr = unused_loopback_tcp_addr().parse().unwrap();
-    let listen_addr = format!("/ip4/127.0.0.1/tcp/{}", node_socket.port());
+    let node_socket: std::net::SocketAddr = if transport == "tcp" {
+        unused_loopback_tcp_addr().parse().unwrap()
+    } else {
+        std::net::UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+    };
+    let listen_addr = if transport == "tcp" {
+        format!("/ip4/127.0.0.1/tcp/{}", node_socket.port())
+    } else {
+        format!("/ip4/127.0.0.1/udp/{}/quic-v1", node_socket.port())
+    };
     node_config.runtime.replication_network_listen_addrs = vec![listen_addr.clone()];
     let mut node_options = development_runtime::into_options(
         read_fixture_config(&serde_json::to_vec(&node_config).unwrap()).unwrap(),
@@ -278,29 +297,37 @@ fn typed_node_and_local_provider_budget_complete_real_rr_rejection_and_recovery(
     )
     .expect("typed dev-node listener");
     let deadline = Instant::now() + Duration::from_secs(15);
-    // Node's listening_addrs() is cfg(test) within its own crate, not part of
-    // the production Host API. Probe the actual configured TCP listener.
-    while std::net::TcpStream::connect_timeout(&node_socket, Duration::from_millis(100)).is_err() {
-        assert!(
-            Instant::now() < deadline,
-            "typed dev-node did not bind: {:?}",
-            node.debug_errors()
-        );
-        std::thread::sleep(Duration::from_millis(20));
+    if transport == "tcp" {
+        // The Node-only listening_addrs() test accessor is not a production
+        // Host API. Probe the configured TCP listener without widening it.
+        while std::net::TcpStream::connect_timeout(&node_socket, Duration::from_millis(100))
+            .is_err()
+        {
+            assert!(
+                Instant::now() < deadline,
+                "typed dev-node did not bind: {:?}",
+                node.debug_errors()
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        // A TCP readiness probe temporarily occupies the inbound budget.
+        while node
+            .traffic_metrics_snapshot()
+            .resource_budget
+            .connections
+            .expect("host budget connections")
+            .total
+            != 0
+        {
+            assert!(
+                Instant::now() < deadline,
+                "readiness probe did not release"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
-    // A raw TCP readiness probe owns an inbound admission until it closes.
-    // Do not consume its pending slot during the subsequent real RR path.
-    while node
-        .traffic_metrics_snapshot()
-        .resource_budget
-        .connections
-        .expect("host budget connections")
-        .total
-        != 0
-    {
-        assert!(Instant::now() < deadline, "readiness probe did not release");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    // QUIC readiness is proved by the authenticated Node-to-provider
+    // connection below, not by a misleading unencrypted UDP probe.
     node.register_handler(
         "/aw/node/replication/ping",
         Box::new(|payload| {

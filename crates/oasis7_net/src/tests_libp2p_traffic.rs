@@ -154,7 +154,9 @@ fn typed_net_budget_caps_real_business_substream_before_remote_decode() {
 
 #[test]
 fn active_bootstrap_respects_the_real_outbound_byte_limit() {
-    exercise_active_business_substream("/ip4/127.0.0.1/tcp/0", ResourceBudgetRejection::BytesOut);
+    for address in ["/ip4/127.0.0.1/tcp/0", "/ip4/127.0.0.1/udp/0/quic-v1"] {
+        exercise_active_business_substream(address, ResourceBudgetRejection::BytesOut);
+    }
 }
 
 fn exercise_active_business_substream(address: &str, reason: ResourceBudgetRejection) {
@@ -313,6 +315,12 @@ fn real_transport_deadline_reports_a_fixed_budget_status() {
 
 #[test]
 fn typed_net_budget_caps_real_gossip_before_delivery() {
+    for address in ["/ip4/127.0.0.1/tcp/0", "/ip4/127.0.0.1/udp/0/quic-v1"] {
+        exercise_real_gossip_budget_before_delivery(address);
+    }
+}
+
+fn exercise_real_gossip_budget_before_delivery(address: &str) {
     let profile = serde_json::from_str(
         r#"{"profile":"v1-discovery-resource-budget-1",
         "connections_total":3,"pending_connections_total":2,"pending_inbound_unknown":1,
@@ -322,7 +330,7 @@ fn typed_net_budget_caps_real_gossip_before_delivery() {
     .unwrap();
     let receiver = Libp2pNetwork::try_new(Libp2pNetworkConfig {
         p2p_resource_budget: profile,
-        listen_addrs: vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()],
+        listen_addrs: vec![address.parse().unwrap()],
         enable_autonat: false,
         ..Libp2pNetworkConfig::default()
     })
