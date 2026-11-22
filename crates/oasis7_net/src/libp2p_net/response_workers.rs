@@ -72,6 +72,7 @@ pub(super) struct CompletedResponse {
     pub protocol: String,
     pub peer: libp2p::PeerId,
     pub queued_at_ms: i64,
+    deadline: std::time::Instant,
     pub reply: Result<Vec<u8>, WorldError>,
     auth_release: Option<super::authenticated_reply::ReplyGuard>,
     _reservation: InFlightReservation,
@@ -231,6 +232,10 @@ impl ResponseWorkers {
         } else {
             completed.reply
         };
+        // Even after dequeuing before its deadline, a non-cooperative handler
+        // or a backed-up completion channel can finish too late. Do not send
+        // or charge such a success as a fresh paid response.
+        let reply = fail_expired_success(reply, completed.deadline, std::time::Instant::now());
         let response = response(
             budget,
             completed.peer,
@@ -415,6 +420,21 @@ fn response_deadline_elapsed(deadline: std::time::Instant, now: std::time::Insta
     now >= deadline
 }
 
+fn fail_expired_success(
+    reply: Result<Vec<u8>, WorldError>,
+    deadline: std::time::Instant,
+    now: std::time::Instant,
+) -> Result<Vec<u8>, WorldError> {
+    if reply.is_ok() && response_deadline_elapsed(deadline, now) {
+        return Err(WorldError::NetworkRequestFailed {
+            code: DistributedErrorCode::ErrTimeout,
+            message: "response worker original deadline elapsed before release".into(),
+            retryable: true,
+        });
+    }
+    reply
+}
+
 fn spawn_workers(
     rx: mpsc::Receiver<Job>,
     count: usize,
@@ -453,6 +473,7 @@ fn spawn_workers(
                     protocol: job.protocol,
                     peer: job.peer,
                     queued_at_ms: job.queued_at_ms,
+                    deadline: job.deadline,
                     reply,
                     auth_release: job.auth_release,
                     _reservation: job.reservation,
@@ -469,6 +490,68 @@ fn spawn_workers(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn expired_completed_success_is_not_released_or_charged() {
+        let now = std::time::Instant::now();
+        let peer = libp2p::PeerId::random();
+        let mut budget = FetchBlobResponseBudget::default();
+        let metrics = super::super::traffic_metrics::init_shared_traffic_metrics();
+        let reply = fail_expired_success(Ok(b"late success".to_vec()), now, now);
+        assert!(matches!(
+            reply,
+            Err(WorldError::NetworkRequestFailed {
+                code: DistributedErrorCode::ErrTimeout,
+                retryable: true,
+                ..
+            })
+        ));
+        let response = response(
+            &mut budget,
+            peer,
+            "/aw/node/replication/fetch-blob/1.0.0",
+            reply,
+            1_000,
+            &metrics,
+        );
+        let rejection: oasis7_proto::distributed::ErrorResponse =
+            serde_cbor::from_slice(&response.payload).unwrap();
+        assert_eq!(rejection.code, DistributedErrorCode::ErrTimeout);
+        assert!(rejection.retryable);
+        let full = vec![0_u8; FETCH_BLOB_RESPONSE_BYTES_PER_WINDOW];
+        let accepted = budgeted_response_bytes(
+            &mut budget,
+            peer,
+            "/aw/node/replication/fetch-blob/1.0.0",
+            Ok(full),
+            1_000,
+        );
+        assert_eq!(
+            accepted.len(),
+            FETCH_BLOB_RESPONSE_BYTES_PER_WINDOW,
+            "expired successful reply did not consume original full peer quota"
+        );
+
+        let on_time = fail_expired_success(
+            Ok(b"ok".to_vec()),
+            now + std::time::Duration::from_nanos(1),
+            now,
+        )
+        .expect("success before deadline remains successful");
+        assert_eq!(on_time, b"ok");
+        let prior_failure = WorldError::NetworkRequestFailed {
+            code: DistributedErrorCode::ErrNotAvailable,
+            message: "real authorization failure".into(),
+            retryable: true,
+        };
+        assert!(matches!(
+            fail_expired_success(Err(prior_failure), now, now),
+            Err(WorldError::NetworkRequestFailed {
+                code: DistributedErrorCode::ErrNotAvailable,
+                ..
+            })
+        ));
+    }
 
     #[test]
     fn queued_worker_deadline_is_absolute_and_monotonic() {
