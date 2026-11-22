@@ -12,6 +12,24 @@ use std::net::{TcpListener, TcpStream};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+// Dropping the last network handle requests asynchronous worker shutdown. A fixed
+// sleep does not fence its final publisher writes on a busy CI runner.
+fn remove_network_scratch(path: &Path) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match std::fs::remove_dir_all(path) {
+            Ok(()) => return,
+            Err(error)
+                if error.kind() == std::io::ErrorKind::DirectoryNotEmpty
+                    && Instant::now() < deadline =>
+            {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            Err(error) => panic!("remove network scratch {}: {error}", path.display()),
+        }
+    }
+}
+
 fn loaded_manifest(chain_id: &str) -> LoadedNetworkTierManifest {
     LoadedNetworkTierManifest {
         source_path: "peer-publication-test-manifest.json".into(),
@@ -402,8 +420,7 @@ fn durable_peer_record_initializer_and_normal_start_share_manifest_world_binding
     let network = create_default_replication_network(&normal_options, &keypair, &paths)
         .expect("normal startup should open the initialized matching binding");
     drop(network);
-    std::thread::sleep(Duration::from_millis(100));
-    std::fs::remove_dir_all(scratch).expect("remove test scratch directory");
+    remove_network_scratch(&scratch);
 }
 
 #[cfg(not(unix))]

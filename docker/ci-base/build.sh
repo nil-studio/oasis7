@@ -48,6 +48,7 @@ docker build "${options[@]}" --platform linux/amd64 --target "$target" \
 docker run --rm --platform linux/amd64 "$image" bash -ec '
   git --version
   gdb --version
+  file --version
   zstd --version
   smoke=$(mktemp -d)
   printf "cache archive smoke\n" >"$smoke/input"
