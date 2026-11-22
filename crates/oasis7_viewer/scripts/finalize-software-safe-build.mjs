@@ -15,6 +15,8 @@ const profile = process.argv[2] || "release";
 if (!["release", "visual-test"].includes(profile)) throw new Error("unknown viewer build profile");
 const visualTest = profile === "visual-test";
 const buildPaths = viewerBuildPaths(profile);
+// CI artifacts must preserve the checkout's Cargo.lock for source freshness.
+const cargoLockArgs = buildPaths.local || process.env.CI === "true" ? ["--locked"] : [];
 const tempOutDir = buildPaths.bundleDir;
 const softwareSafeSrcDir = resolve(viewerRoot, "software_safe_src");
 const viewerDistDir = buildPaths.distDir;
@@ -150,7 +152,7 @@ async function buildPixelWorldRuntimeVariant({ featureName, backendDirName }) {
     "RUSTC_WRAPPER",
     "cargo",
     "build",
-    ...(buildPaths.local ? ["--locked"] : []),
+    ...cargoLockArgs,
     "-p",
     "pixel_world_bridge",
     "--target",
@@ -197,7 +199,7 @@ await writeFile(finalDistBundlePath, canonicalBundle, "utf8");
 await writeViewerCompatAliases(viewerRoot, viewerDistDir);
 // The Task protocol is a separate, credential-free WASM module. Generate it
 // serially with the rendering bridge; both use the repository Cargo target.
-await runChecked("env", ["-u", "RUSTC_WRAPPER", "cargo", "build", ...(buildPaths.local ? ["--locked"] : []), "-p", "oasis7_browser_game_client", "--target", "wasm32-unknown-unknown", "--release"]);
+await runChecked("env", ["-u", "RUSTC_WRAPPER", "cargo", "build", ...cargoLockArgs, "-p", "oasis7_browser_game_client", "--target", "wasm32-unknown-unknown", "--release"]);
 const gameProtocolDir = resolve(viewerDistDir, "browser-game-client");
 await mkdir(gameProtocolDir, { recursive: true });
 await runChecked(await resolveWasmBindgenCommand(), ["--target", "web", "--out-dir", gameProtocolDir, "--out-name", "oasis7_browser_game_client", resolve(workspaceRoot, "target", "wasm32-unknown-unknown", "release", "oasis7_browser_game_client.wasm")]);

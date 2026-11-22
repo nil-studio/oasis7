@@ -155,11 +155,14 @@ fs.appendFileSync(path.join(root,'commands.jsonl'),JSON.stringify({role,args,off
 if(role==='wasm-bindgen' && args[0]==='--version'){console.log('wasm-bindgen 0.2.999');process.exit(0);}
 if(process.env.VIEWER_IO_FIXTURE_FAIL===role)process.exit(17);
 if(role==='npm'){
- const bundle=path.join(process.env.OASIS7_VIEWER_LOCAL_OUTPUT_ROOT,'bundles/release');fs.mkdirSync(bundle,{recursive:true});fs.writeFileSync(path.join(bundle,'viewer.js'),'export const currentCandidate=true;\\n');
+ const bundle=process.env.OASIS7_LOCAL_CHECK==='1'
+   ? path.join(process.env.OASIS7_VIEWER_LOCAL_OUTPUT_ROOT,'bundles/release')
+   : path.join(root,'crates/oasis7_viewer/.software-safe-build');fs.mkdirSync(bundle,{recursive:true});fs.writeFileSync(path.join(bundle,'viewer.js'),'export const currentCandidate=true;\\n');
  const result=cp.spawnSync(process.execPath,[path.join(root,'crates/oasis7_viewer/scripts/finalize-software-safe-build.mjs')],{stdio:'inherit',env:process.env});process.exit(result.status??1);
 }
 if(role==='cargo'){
- if(args[0]!=='build'||!args.includes('--locked'))throw Error('expected locked Cargo build');
+ if (args[0]!=='build') throw Error('expected Cargo build');
+ if (!args.includes('--locked')) fs.appendFileSync(path.join(root,'Cargo.lock'),'# unlocked Cargo changed the input\\n');
  const p=args[args.indexOf('-p')+1], target=path.join(root,'target/wasm32-unknown-unknown/release');fs.mkdirSync(target,{recursive:true});fs.writeFileSync(path.join(target,p+'.wasm'),'fixture-cargo-wasm');process.exit(0);
 }
 if(role==='wasm-bindgen'){
@@ -198,6 +201,24 @@ test("the real finalizer and copy consumer publish fresh isolated outputs withou
     assert.equal(command.offline, 'true');
     assert.ok(command.args.includes('--locked'));
     assert.equal(command.args.includes('--target-dir'), false);
+  }
+});
+
+test("the CI artifact build preserves Cargo.lock without changing the developer build policy", t => {
+  for (const ci of ["true", "false"]) {
+    const f = producerFixture(t);
+    const lock = join(f.root, "Cargo.lock");
+    const originalLock = readFileSync(lock, "utf8");
+    const result = f.run({ OASIS7_LOCAL_CHECK: "0", CI: ci });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    const commands = readFileSync(join(f.root, "commands.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+    const cargoBuilds = commands.filter(x => x.role === "cargo");
+    assert.deepEqual(cargoBuilds.map(x => x.args[x.args.indexOf("-p") + 1]), [
+      "oasis7_browser_game_client",
+      "pixel_world_bridge",
+    ]);
+    assert.ok(cargoBuilds.every(x => x.args.includes("--locked") === (ci === "true")));
+    assert.equal(readFileSync(lock, "utf8") === originalLock, ci === "true");
   }
 });
 
