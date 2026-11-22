@@ -1,8 +1,6 @@
-use oasis7::{
-    runtime::{CausedBy, DomainEvent, World, WorldEventBody},
-    world_service::*,
-};
+use oasis7::world_service::*;
 use oasis7_node::NodeExecutionCommitContext;
+use oasis7_runtime::{CausedBy, DomainEvent, World, WorldEventBody};
 
 pub(super) struct StagedResult {
     result: CanonicalIntentResultV1,

@@ -6,8 +6,8 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use oasis7::runtime::{NodePointsConfig, NodePointsRuntimeCollector, NodePointsRuntimeHeuristics};
 use oasis7_node::{NodeConfig, NodeReplicationConfig, NodeRole, NodeRuntime};
+use oasis7_runtime::{NodePointsConfig, NodePointsRuntimeCollector, NodePointsRuntimeHeuristics};
 
 #[test]
 fn node_runtime_multi_node_points_closure_settles_rewards() {
