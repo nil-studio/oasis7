@@ -97,7 +97,9 @@ impl WorldKernel {
             "native kernel journal cannot shrink"
         );
     }
-    pub(crate) fn into_model(self) -> WorldModel {
+    /// Consume the host kernel into the same read-only projection model previously
+    /// exported by `runtime_host::projection::into_projection_model`.
+    pub fn into_model(self) -> WorldModel {
         self.kernel.into_state().model
     }
     pub fn journal(&self) -> WorldJournalView<'_> {

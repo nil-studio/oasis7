@@ -132,6 +132,20 @@ for name, cpu, subtype in (("arm64", 0x0100000C, 0), ("x64", 0x01000007, 3)):
     (bundle / f"{name}.header").write_bytes(
         struct.pack("<8I", 0xFEEDFACF, cpu, subtype, 2, 0, 0, 0, 0)
     )
+
+arm = (bundle / "arm64.header").read_bytes()
+x64 = (bundle / "x64.header").read_bytes()
+fat32 = struct.pack(">7I", 0xCAFEBABE, 1, 0x0100000C, 0, 32, len(arm), 2)
+fat64 = struct.pack(">4I2Q2I", 0xCAFEBABF, 1, 0x0100000C, 0, 40, len(arm), 3, 0)
+for name, data in {
+    "fat32": fat32.ljust(32, b"\0") + arm,
+    "fat64": fat64 + arm,
+    "short-thin": arm[:8],
+    "short-table": struct.pack(">3I", 0xCAFEBABE, 1, 0x0100000C),
+    "short-slice": fat32.ljust(32, b"\0") + arm[:-1],
+    "wrong-slice": fat32.ljust(32, b"\0") + x64,
+}.items():
+    (bundle / f"{name}.header").write_bytes(data)
 PY
 validator="$ROOT_DIR/scripts/validate-release-platform-entrypoints.sh"
 cat "$bundle/arm64.header" >"$bundle/bin/oasis7_chain_runtime"
@@ -142,4 +156,26 @@ if "$validator" --platform macos-arm64 --bundle-dir "$bundle" >"$TMP_DIR/wrong-a
   exit 1
 fi
 grep -Fq 'macos-arm64 runtime is not Mach-O arm64' "$TMP_DIR/wrong-arch.log"
+
+# Exercise the Python fallback without exposing file(1) in the child PATH.
+fallback_path="$TMP_DIR/fallback-bin"
+mkdir -p "$fallback_path"
+for command in dirname grep cmp python3; do
+  ln -s "$(command -v "$command")" "$fallback_path/$command"
+done
+run_fallback() {
+  PATH="$fallback_path" "$BASH" "$validator" --platform macos-arm64 --bundle-dir "$bundle"
+}
+for fixture in arm64 fat32 fat64; do
+  cat "$bundle/$fixture.header" >"$bundle/bin/oasis7_chain_runtime"
+  run_fallback
+done
+for fixture in x64 short-thin short-table short-slice wrong-slice; do
+  cat "$bundle/$fixture.header" >"$bundle/bin/oasis7_chain_runtime"
+  if run_fallback >"$TMP_DIR/fallback.log" 2>&1; then
+    echo "error: Python fallback accepted $fixture in the macos-arm64 bundle" >&2
+    exit 1
+  fi
+  grep -Fq 'macos-arm64 runtime is not Mach-O arm64' "$TMP_DIR/fallback.log"
+done
 echo "ok: macOS matrix contract and actual arm64 entrypoint validation"

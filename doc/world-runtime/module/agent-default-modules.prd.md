@@ -16,6 +16,7 @@
 
 > 现状对齐：默认模块安装与执行已统一为 wasm-only 链路。`World::install_m1_power_bootstrap_modules` 安装两个 power 模块；`World::install_m1_agent_default_modules` 安装 sensor/mobility/memory/cargo；`World::install_m1_scenario_bootstrap_modules` 先安装 power，再按配置安装默认包。
 
+<a id="agent-default-modules-user-experience"></a>
 ## 2. User Experience & Functionality
 ### In Scope
 - 默认模块包的组成、模块 ID 约定、依赖关系、降级策略。

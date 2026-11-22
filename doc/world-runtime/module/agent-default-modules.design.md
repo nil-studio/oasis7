@@ -9,13 +9,13 @@
 
 默认模块安装已有治理入口，机体也已有槽位和接口扩容的局部状态；但安装集合、槽位占位、实体库存和实际能力是不同事实。设计要让消费者回答：这台 Agent 采用什么机体、哪些槽位绑定什么能力、哪个接口实体被消费、cargo 还能容纳多少、当前调用为何可用或被拒绝，以及中断后如何核对原结果。
 
-本设计承接 PRD 已有的全部默认框架义务，保留七类能力、5/7/10 槽规格、standard 的 6 加 1 方案、扩容消耗、实体存取、降级和治理。完整接口道具来源、工业制造链、复杂网络感知、高保真连续动力学沿[原范围](agent-default-modules.prd.md#2-user-experience-functionality)排除；不新增初始赠送、物品交易或把测试注入变成正式获得路径。WASM First 继续适用，世界位置、资源、基础物理与提交不变量由 Kernel 保护。
+本设计承接 PRD 已有的全部默认框架义务，保留七类能力、5/7/10 槽规格、standard 的 6 加 1 方案、扩容消耗、实体存取、降级和治理。完整接口道具来源、工业制造链、复杂网络感知、高保真连续动力学沿[原范围](agent-default-modules.prd.md#agent-default-modules-user-experience)排除；不新增初始赠送、物品交易或把测试注入变成正式获得路径。WASM First 继续适用，世界位置、资源、基础物理与提交不变量由 Kernel 保护。
 
 ## 2. 上游约束与相关角色
 
 Trace refs: O7-REQ-f2da1c09-dedf-4118-b3ab-bce6828abb75；产品关系是[默认机体与能力框架](../../product/agents-world-simulation/prd.md#req-agent-default-001)及[组合验收](../../product/agents-world-simulation/prd.md#ac-agent-default-001)，通过配对 PRD 的各专业细条款承接。它归位原有目标，不升级当前可玩或发行阶段。
 
-本专题的具体规则声明在配对专业 PRD；[模块生命周期](module-lifecycle.md#稳定实例、交易与升级合同)拥有注册、实例、目标、安装/升级/停用等通用合同，[WASM 接口](../wasm/wasm-interface.md#3-capability、权限和-kernel-边界)拥有 capability 与模块输出校验，[runtime 提交与恢复](../prd.md#runtime-authority-profile-commit)拥有权威提交、结果未知和历史恢复边界。本设计说明这些机制如何承接原默认能力，不新设权限或持久化 authority。
+本专题的具体规则声明在配对专业 PRD；[模块生命周期](module-lifecycle.md#module-instance-transaction-and-upgrade-contract)拥有注册、实例、目标、安装/升级/停用等通用合同，[WASM 接口](../wasm/wasm-interface.md#wasm-capability-permission-kernel-boundary)拥有 capability 与模块输出校验，[runtime 提交与恢复](../prd.md#runtime-authority-profile-commit)拥有权威提交、结果未知和历史恢复边界。本设计说明这些机制如何承接原默认能力，不新设权限或持久化 authority。
 
 ### 2.1 需求承接与分配表
 
@@ -265,7 +265,7 @@ WASM 的扩容统计是派生状态。核心扩容已提交、后续模块处理
 
 正式存取、扩容和实体挂载只允许当前有权主体作用于其被授权的 Agent、实体和目的容器；提交前重验 owner/委托范围、模块/实例、版本、撤销与配额。读取库存和记忆同样限于当前允许的内容。当前 `Action` 中存在 `agent_id`、能够序列化或能够通过内部 `submit_action` 调用，都不证明公开入口已有鉴权。
 
-若采用 module command，复用 [WASM capability](../wasm/wasm-interface.md#3-capability、权限和-kernel-边界) 的 live subject、declaration、scope 与执行重验，LLM 不可自授 grant；物理槽位与 ABI capability slot 分开。正式接线前必须核对真实 catalog/adapter，不能把内置 manifest 的空 `required_caps` 或当前 cargo 的无 command 声明当作自由写权限。
+若采用 module command，复用 [WASM capability](../wasm/wasm-interface.md#wasm-capability-permission-kernel-boundary) 的 live subject、declaration、scope 与执行重验，LLM 不可自授 grant；物理槽位与 ABI capability slot 分开。正式接线前必须核对真实 catalog/adapter，不能把内置 manifest 的空 `required_caps` 或当前 cargo 的无 command 声明当作自由写权限。
 
 WASM 无直接 I/O，输出由宿主核对并按资源/燃料/字节预算执行。模块失败不触发越权 fallback 或吞掉世界校验。测试 helper 仅证明该私有测试环境，生产、公开节点、其他 world 或外部 Runtime 不复用其获得物品/授权结论。
 

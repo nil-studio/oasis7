@@ -276,11 +276,25 @@ fn libp2p_smoke_request_response_and_pubsub_work_between_peers() {
 
     let sub2 = net2.subscribe("aw.smoke").expect("sub2");
     let _sub1 = net1.subscribe("aw.smoke").expect("sub1");
-    std::thread::sleep(Duration::from_millis(200));
-
-    net1.publish("aw.smoke", b"hello").expect("publish");
-
+    // 订阅传播是异步的；只重试尚无接收 peer 的错误，发布与接收共享总预算。
     let deadline = Instant::now() + Duration::from_secs(10);
+    wait_until("gossipsub publish readiness", deadline, || {
+        match net1.publish("aw.smoke", b"hello") {
+            Ok(()) => true,
+            Err(err) => match err.diagnostic_source() {
+                WorldError::NetworkProtocolUnavailable { protocol }
+                    if protocol
+                        == "libp2p publish failed topic=aw.smoke: NoPeersSubscribedToTopic"
+                        || protocol
+                            == "libp2p publish failed topic=aw.smoke: InsufficientPeers" =>
+                {
+                    false
+                }
+                _ => panic!("unexpected publish error: {err:?}"),
+            },
+        }
+    });
+
     wait_until("gossipsub deliver", deadline, || {
         sub2.drain().iter().any(|msg| msg == b"hello")
     });

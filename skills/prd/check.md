@@ -264,11 +264,11 @@ Module PRD
 
 ---
 
-## 11.8 反流水账（PRD vs Project vs Devlog）
+## 11.8 需求规格与执行记录的边界
 
 * [ ] PRD 描述目标态规格（Why/What/Done）及有依据的功能设计/实现状态摘要，不写任务拆解或详细进度叙述。
 * [ ] 既有 Task/PR（Issue 按需）描述任务与执行（How/When/Who），不重写需求规格。
-* [ ] `doc/devlog/YYYY-MM-DD.md` 仅记录当日过程（时刻、完成内容、遗留事项），不定义需求。
+* [ ] 执行与验证证据沿用 Git、PR、实际 CI 及评审记录（Issue 按需）；[退役 devlog 摘要](../../doc/devlog/README.md)仅供历史追溯，不创建新的每日记录。
 * [ ] `Critical User Flows` 描述系统/用户/操作者行为与状态变化，不描述“改文档流程”。
 * [ ] `Acceptance Criteria` 描述可复现验证结果（行为/不变量/指标/测试），不是文件清单。
 * [ ] `Roadmap/Milestones` 描述能力交付阶段（MVP/v1.1/v2.0），不是日常进度列表。

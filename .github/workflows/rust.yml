@@ -184,7 +184,7 @@ jobs:
       (github.event_name != 'schedule' ||
        (needs.periodic-admission.result == 'success' && needs.periodic-admission.outputs.run_full == 'true'))
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 10
+    timeout-minutes: 5
     outputs:
       plan: ${{ steps.workflow-plan.outputs.plan }}
       selection_artifact: ${{ steps.selection-artifacts.outputs.selection_artifact }}
@@ -524,7 +524,7 @@ jobs:
       needs.pr-fast-preview-plan.result == 'success' &&
       needs.pr-fast-preview-plan.outputs.enabled == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 20
     permissions:
       contents: read
     steps:
@@ -779,7 +779,7 @@ jobs:
       (needs.select.outputs.run_baseline == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -948,7 +948,7 @@ jobs:
         (github.event_name == 'push' || github.event_name == 'schedule' ||
          (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 60
+    timeout-minutes: 40
     steps:
       - *linux-mold-tools-checkout
       - &ordinary-configure-linux-mold
@@ -2054,7 +2054,7 @@ jobs:
       (needs.select.outputs.run_oasis7_required == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 60
+    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
@@ -2349,7 +2349,7 @@ jobs:
       (needs.select.outputs.run_consensus == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 20
+    timeout-minutes: 10
     permissions:
       contents: read
       packages: read
@@ -2408,7 +2408,7 @@ jobs:
       (needs.select.outputs.run_distfs == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 30
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: read
@@ -2489,7 +2489,7 @@ jobs:
       (needs.select.outputs.run_node == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 20
+    timeout-minutes: 15
     permissions:
       contents: read
       packages: read
@@ -2557,7 +2557,7 @@ jobs:
       (needs.select.outputs.run_net == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 20
+    timeout-minutes: 15
     permissions:
       contents: read
       packages: read
@@ -2836,7 +2836,7 @@ jobs:
       (needs.select.outputs.run_pixel_world_bridge == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 20
+    timeout-minutes: 10
     permissions:
       contents: read
       packages: read
@@ -3765,7 +3765,7 @@ jobs:
       (needs.select.outputs.run_scenario_regression == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 10
+    timeout-minutes: 5
     permissions:
       contents: read
       packages: read
@@ -4046,7 +4046,7 @@ jobs:
       (needs.select.outputs.run_codex_agent_config_validation == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 10
+    timeout-minutes: 5
     permissions:
       contents: read
       packages: read
@@ -4127,7 +4127,7 @@ jobs:
       (needs.select.outputs.run_site_quality == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 10
+    timeout-minutes: 5
     permissions:
       contents: read
       packages: read
@@ -4304,7 +4304,7 @@ jobs:
       (needs.select.outputs.run_macos_package_contract == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 10
+    timeout-minutes: 5
     permissions:
       contents: read
       packages: read
@@ -4367,12 +4367,6 @@ jobs:
         shell: bash
         run: python scripts/p2p-public-testnet-fleet-health.test.py
 
-      - name: Verify local signer contracts on macOS
-        if: runner.os == 'macOS'
-        env:
-          TMPDIR: /private/tmp
-        run: python3 scripts/ci-local-signer-tests.py --require-darwin
-
       - name: Prepare native filesystem contract Rust toolchain
         shell: bash
         run: |
@@ -4389,6 +4383,12 @@ jobs:
         run: |
           env -u RUSTC_WRAPPER cargo test --locked -p oasis7_context -p oasis7_secure_envelope --all-targets
           env -u RUSTC_WRAPPER cargo test --locked -p oasis7_local_signer --test context_cli
+
+      - name: Verify local signer contracts on macOS
+        if: runner.os == 'macOS'
+        env:
+          TMPDIR: /private/tmp
+        run: python3 scripts/ci-local-signer-tests.py --require-darwin
 
       - name: Ensure Linux process inspection dependency
         if: runner.os == 'Linux'

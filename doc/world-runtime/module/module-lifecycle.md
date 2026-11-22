@@ -4,6 +4,7 @@
 
 本分册为 `doc/world-runtime/prd.md` 的详细展开。
 
+<a id="module-governance-and-compatibility"></a>
 ## 模块治理与兼容性（草案）
 - **版本与兼容**：`interface_version` 由内核维护；模块声明兼容范围，若不兼容则拒绝加载。
 - **治理闭环**：模块变更走 `propose → shadow → approve → apply`，升级/回滚均形成审计事件。
@@ -315,6 +316,7 @@ ManifestMigrated {
 }
 ```
 
+<a id="module-instance-transaction-and-upgrade-contract"></a>
 ## 稳定实例、交易与升级合同
 
 - 活动模块以持久 `instance_id` 区分，同一 module artifact 可在不同 owner/target 下形成独立实例；确定性执行使用稳定实例顺序。

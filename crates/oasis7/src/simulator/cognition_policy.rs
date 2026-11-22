@@ -142,7 +142,7 @@ impl MemoryWriteStore {
 
     /// Host-only continuation of an authoritative stale parent. Earliest
     /// preparation provenance remains immutable; only finalization moves.
-    pub(crate) fn rebind_corrections_after_stale_parent(
+    pub fn rebind_corrections_after_stale_parent(
         &mut self,
         parent_request_id: &str,
         parent_digest: &str,

@@ -606,20 +606,35 @@ fn run_recovery(consecutive: bool) {
     r2.wait().unwrap();
     // A second cold open must retain the *new* result, not merely the
     // restored original request or the predecessor epoch's pinned cut.
-    let (mut next_primary, next_address) = start(&binary, &new_configs[0]);
-    let next_restored = remote(
-        next_address,
-        recovery.successor(),
-        EndpointRole::Primary,
-        10,
-        cut.head(),
-    )
-    .restore_native_current(&fixture.authority, Some(&recovery), Some(&cut))
-    .unwrap();
-    assert_eq!(next_restored.commit().head(), next_verified.head());
-    assert_eq!(next_restored.proof(), &next);
-    next_primary.kill().unwrap();
-    next_primary.wait().unwrap();
+    // Both original P and R must independently reopen the same new proof.
+    // Checking only P permits an apparently successful resumed writer while
+    // R has lost its newer qualified result (or cannot reconstruct its CAS).
+    for (config, role) in new_configs
+        .iter()
+        .zip([EndpointRole::Primary, EndpointRole::Replica])
+    {
+        let (mut child, address) = start(&binary, config);
+        let mut endpoint = remote(address, recovery.successor(), role, 10, cut.head());
+        let next_restored = endpoint
+            .restore_native_current(&fixture.authority, Some(&recovery), Some(&cut))
+            .unwrap();
+        assert_eq!(next_restored.commit().head(), next_verified.head());
+        assert_eq!(next_restored.proof(), &next);
+        // Independently query the exact original new request on the *cold*
+        // endpoint. Matching head alone does not prove its receipt was kept.
+        let FormalQueryOutcomeV1::Recorded(state) = endpoint
+            .query(&next.decision.record.request_digest)
+            .unwrap()
+        else {
+            panic!("new successor request missing after the second cold open");
+        };
+        let FormalRequestStateV1::Qualified { proof, .. } = *state else {
+            panic!("new successor request not qualified after the second cold open");
+        };
+        assert_eq!(proof, next);
+        child.kill().unwrap();
+        child.wait().unwrap();
+    }
     // External fixed-cut mismatch cannot publish a ready endpoint.
     let mut wrong: serde_json::Value =
         serde_json::from_slice(&fs::read(&new_configs[0]).unwrap()).unwrap();

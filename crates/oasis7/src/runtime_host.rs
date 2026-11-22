@@ -158,6 +158,4 @@ pub mod archive {
     pub use crate::simulator::persist::*;
 }
 
-pub mod memory;
-pub mod projection;
 pub mod runner;

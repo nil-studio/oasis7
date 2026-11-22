@@ -67,6 +67,101 @@ fn typed_resource_budget_reaches_live_host_replication_status_and_rejects_invali
 }
 
 #[test]
+fn typed_local_provider_budget_reaches_real_host_network_and_status() {
+    use oasis7_client_api::development_node_config::{
+        DevelopmentLocalProviderV1, DevelopmentProviderSessionV1, P2pResourceBudget,
+    };
+
+    // Exercise the positive local-provider path, not merely the dev node
+    // variant. The typed provider declaration is validated before the same
+    // real host network builder consumes its selected resource budget.
+    let mut config = development_runtime::from_options(&CliOptions::default()).unwrap();
+    let profile: P2pResourceBudget = serde_json::from_str(
+        r#"{"profile":"v1-discovery-resource-budget-1",
+            "connections_total":3,"pending_connections_total":2,
+            "pending_inbound_unknown":1,"pending_outbound":2,
+            "connections_per_peer":1,"handshake_timeout_ms":2000,
+            "bytes_in_per_window":1024,"bytes_out_per_window":2048,
+            "bytes_total_per_window":3072}"#,
+    )
+    .unwrap();
+    config.runtime.p2p_resource_budget = profile;
+    config.local_provider = Some(DevelopmentLocalProviderV1 {
+        authority_path: "local-provider-authority.json".into(),
+        wasm_path: "local-provider.wasm".into(),
+        metadata_path: "local-provider-metadata.json".into(),
+        agent_id: "local-provider-budget-agent".into(),
+        owner_binding: "local-provider-budget-owner".into(),
+        finality_block_hash: format!("blake3:{}", "0".repeat(64)),
+        session_mode: DevelopmentProviderSessionV1::Loopback,
+        funding_lane: None,
+    });
+    let listener: std::net::SocketAddr = unused_loopback_tcp_addr().parse().unwrap();
+    config.runtime.replication_network_listen_addrs =
+        vec![format!("/ip4/127.0.0.1/tcp/{}", listener.port())];
+    let original = read_fixture_config(&serde_json::to_vec(&config).unwrap()).unwrap();
+    let options = development_runtime::into_options(original, true)
+        .expect("typed local-provider accepts the original nonzero budget");
+    assert!(options.development_runtime);
+    assert_eq!(options.p2p_resource_budget, profile);
+    assert!(options.local_test_provider_authority_path.is_some());
+    assert!(options.local_test_provider_wasm_path.is_some());
+    assert!(options.local_test_provider_metadata_path.is_some());
+    assert_eq!(
+        development_runtime::from_options(&options)
+            .unwrap()
+            .runtime
+            .p2p_resource_budget,
+        profile
+    );
+
+    let signing_key = SigningKey::from_bytes(&[74_u8; 32]);
+    let keypair = node_keypair_config::NodeKeypairConfig {
+        private_key_hex: hex::encode(signing_key.to_bytes()),
+        public_key_hex: hex::encode(signing_key.verifying_key().to_bytes()),
+    };
+    let paths = resolve_runtime_paths(&options);
+    let network =
+        replication_network::create_default_replication_network(&options, &keypair, &paths)
+            .expect("real local-provider network must accept the shared resource budget");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(4);
+    loop {
+        if std::net::TcpStream::connect_timeout(
+            &listener,
+            std::time::Duration::from_millis(100),
+        )
+        .is_ok()
+        {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "local-provider typed budget listener never became reachable"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    loop {
+        let snapshot = network.traffic_metrics_snapshot().resource_budget;
+        let occupancy = snapshot.connections.expect("live connection budget status");
+        if occupancy.total == 0 {
+            assert_eq!(snapshot.profile, "v1-discovery-resource-budget-1");
+            assert!(snapshot.instance_id.is_some());
+            assert_eq!(snapshot.bytes.unwrap().charged_bytes.total, 0);
+            let P2pResourceBudget::SubstreamV1(limits) = profile else {
+                unreachable!();
+            };
+            assert_eq!(snapshot.limits, Some(limits));
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "local-provider probe connection did not release"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+#[test]
 fn normal_config_file_rejects_invalid_resource_budget_before_start() {
     let input = development_runtime::from_options(&CliOptions::default()).unwrap();
     let mut wire = serde_json::to_value(input).unwrap();

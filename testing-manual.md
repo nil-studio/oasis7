@@ -358,7 +358,7 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
 - hosted 分别核对 Rust full 的全部选中结果与独立缓存 run 的准备、编译、实际保存；缓存 run 不产 full receipt。完整回归保持原成功/失败/取消判定及发布消费者的整条 run 成功要求，不能把缓存成功算成测试通过。补齐 fast 依赖后的普通 PR 收益须包含首次 v4 冷恢复、后续实际命中和测试执行成本。
 - Linux packaging 与 full 通过 discovery 运行 local-signer 完整 suite：`python3 scripts/ci-local-signer-tests.py`。只允许已知 Darwin descriptor 项 skip；零测试、缺 native 项、导入错误、其他 skip 或失败均返回非零。
 - fleet-health 的 Linux/Windows/macOS 原生分片执行 `env -u RUSTC_WRAPPER cargo test --locked -p oasis7_hosted_access`，覆盖永久 OS 锁、双 stale 回收者、崩溃释放与 nonce 原件并发消费；仅适用于受信本地文件系统，不证明网络共享盘或多机互斥。该包的修改选中 fleet-health。
-- fleet-health 的 macOS 分片执行 `TMPDIR=/private/tmp python3 scripts/ci-local-signer-tests.py --require-darwin`，native descriptor 必须真实成功且整个 suite 不得 skip。测试目录与 local-file-signing runbook 选择 packaging/fleet；四个 Python 生产入口另选 workspace_support；未知生产模块继续 full。
+- fleet-health 的 macOS 分片执行 `TMPDIR=/private/tmp python3 scripts/ci-local-signer-tests.py --require-darwin`，native descriptor 必须真实成功且整个 suite 不得 skip。 Docker/Linux packaging 仍只跑 Python。macOS 还须在已准备固定 Rust 工具链后，由安装器构建器生成私有临时夹具，并真正执行唯一的 Rust installer boundary importer；零执行不算通过。测试目录与 local-file-signing runbook 选择 packaging/fleet；四个 Python 生产入口另选 workspace_support；未知生产模块继续 full。
 - CI 控制改动的 PR 仍由可信 base selector 选择全部适用组。候选 selector 的精确路由仅在合入后成为可信规则，required-gate 的组集合与失败判定保留。
 - 本地合同验证：`bash scripts/plan-wasm-determinism-scope.test.sh`、`bash scripts/ensure-wasm-bindgen-cli.test.sh`、`python3 scripts/ci-local-signer-tests.test.py`、`python3 scripts/plan-rust-required-scope.test.py`、`python3 scripts/ci-required-result.test.py`、`python3 scripts/ci-workflow.test.py`；前三项接入 workflow_governance。
 - net 的 libp2p/Python/WASM 检查、Viewer auth smoke 与 performance visual build 均通过 `ci-tests.sh --group` 执行一次；YAML 负责工具、浏览器和依赖准备。stable 安装使用 minimal 并显式安装 rustfmt/clippy，nightly、rust-src 与 WASM targets 保留。
@@ -561,6 +561,7 @@ env -u RUSTC_WRAPPER cargo test -p oasis7_agent_harness native_task::tests
 
 同一 PR 的后续运行会替代同组已有运行；仅重跑当前 HEAD，旧 HEAD 重跑也会竞争。不同 PR 和非 PR run 独立。
 
+<a id="testing-layer-model"></a>
 ## 分层模型（针对当前仓库）
 
 ### L0 静态与工件一致性层
@@ -630,6 +631,7 @@ Scaffold 操作语义：`--json` 是已有 CLI 选项，成功的五字段摘要
 - 结论边界：只有到这一层，才能正式回答“真实人类/真实环境里是否仍想继续玩”；内部真人 spot-check 仍只算 `L4B` 的可选校准，不单列新层。
 - 说明：长稳、压力和 soak 仍属于测试套件层（如 S8/S10），不是这里的 playability `L5`。
 
+<a id="playability-review-persona-and-claim"></a>
 ### Playability review、persona 与 claim 收口
 - L4A packet 记录 change scope、target claim、formal surfaces、evidence、blockers、roles、personas、questions 与 target lane；card 必须区分直接证据、推断、未证明项和 follow-up。输入不足写 `insufficient_input`，只转述他人结论写 `secondary_review_only`。
 - 默认先由 `producer_system_designer` 与 `qa_engineer` 审核，按 surface 追加 viewer/agent/runtime/WASM 角色；涉及 limited-preview 或外部 claim 时追加 `liveops_community`。角色 review 完整只构成 L4A。

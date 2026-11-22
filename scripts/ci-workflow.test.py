@@ -1066,13 +1066,21 @@ class Workflow(unittest.TestCase):
         for changed in mutations:
             with self.subTest(change=changed), self.assertRaises(AssertionError):
                 component_image_cache_writer(changed, families, planner=planner)
-        for original, replacement in (
-                ('"profile": "node"', '"profile": "native"'),
-                ('"mold-dir": "oasis7-node-mold"', '"mold-dir": "oasis7-other-mold"'),
-                ('"options": "--user 1001:1001"', '"options": ""'),
-                ('"family": "rust-image-net"', '"family": "rust-image-components"')):
-            with self.subTest(original=original), self.assertRaises(AssertionError):
-                component_image_cache_writer(job, families, planner=planner.replace(original, replacement, 1))
+        row_mutations = (
+            ('profile: node', 'profile: native', '"profile": "node"', '"profile": "native"'),
+            ('mold-dir: oasis7-node-mold', 'mold-dir: oasis7-other-mold',
+             '"mold-dir": "oasis7-node-mold"', '"mold-dir": "oasis7-other-mold"'),
+            ('options: --user 1001:1001', "options: ''", '"options": "--user 1001:1001"', '"options": ""'),
+            ('family: rust-image-net', 'family: rust-image-components',
+             '"family": "rust-image-net"', '"family": "rust-image-components"'),
+        )
+        for old_static, new_static, old_planned, new_planned in row_mutations:
+            with self.subTest(original=old_static), self.assertRaises(AssertionError):
+                if planner is None:
+                    component_image_cache_writer(job.replace(old_static, new_static, 1), families)
+                else:
+                    component_image_cache_writer(job, families,
+                                                 planner=planner.replace(old_planned, new_planned, 1))
         for family in sorted(image_families):
             with self.subTest(missing=family), self.assertRaises(AssertionError):
                 component_image_cache_writer(job, {key: value for key, value in families.items() if key != family}, planner=planner)
@@ -1124,13 +1132,20 @@ class Workflow(unittest.TestCase):
             with self.subTest(event=event, ref=ref, matching=matching, mode=mode):
                 self.assertEqual(eval(predicate.replace('&&', ' and ').replace('||', ' or '), {'__builtins__': {}}, {}),
                     ref == 'refs/heads/main' and matching and (event == 'schedule'
-                    or event == 'workflow_dispatch' and (mode in ('full', 'image-native') or mode == 'image-support' and repository == 'nil-studio/oasis7')))
+                    or event == 'workflow_dispatch' and (mode in ('full', 'image-native') or mode == 'image-support' and repository == 'nil-studio/oasis7'
+                        and 'plan-image-component-cache' in workflow_jobs(workflow))))
 
     def test_component_cache_planner_runs_the_complete_or_support_only_matrix(self):
         workflow, _ = self.shared_cache_workflow()
         jobs = workflow_jobs(workflow)
-        planner = jobs['plan-image-component-cache']
+        planner = jobs.get('plan-image-component-cache')
         writer = jobs['rust-image-component-cache']
+        if planner is None:
+            self.assertNotIn('image-support', workflow.split('jobs:', 1)[0])
+            self.assertIn('matrix:\n        include:\n', writer)
+            self.assertEqual(re.findall(r'^          - profile: ([a-z]+)$', writer, re.M),
+                             ['native', 'node', 'net', 'launcher', 'tooling', 'support'])
+            return
         predicate = lambda job: ' '.join(job.split('    if: >-\n', 1)[1].split('\n    ', 1)[0].split())
         self.assertEqual(predicate(planner), predicate(writer))
         script = textwrap.dedent(planner.split('        run: |\n', 1)[1]).strip()
@@ -3533,6 +3548,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertIn("if: runner.os == 'macOS'", fleet)
         self.assertIn('TMPDIR: /private/tmp', fleet)
         self.assertIn('python3 scripts/ci-local-signer-tests.py --require-darwin', fleet)
+        self.assertLess(fleet.index('rustup default "$RUST_TOOLCHAIN"'),
+                        fleet.index('python3 scripts/ci-local-signer-tests.py --require-darwin'))
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         packaging = driver.split('run_packaging_contract_tests() {', 1)[1].split('\n}', 1)[0]
         self.assertEqual(packaging.count('run python3 ./scripts/ci-local-signer-tests.py'), 1)
@@ -4163,7 +4180,12 @@ run_cargo() {
         on = re.search(r'^on:\n(.*?)(?=^[^\s#]|\Z)', workflow, re.M | re.S)[1]
         self.assertEqual(set(re.findall(r'^  ([a-z_]+):', on, re.M)), {'schedule', 'workflow_dispatch'})
         image_writer = workflow_jobs(workflow).get('rust-image-native-cache')
-        self.assertIn('options: [full, image-native, image-support]' if image_writer else 'options: [full]', on)
+        modes = ['full']
+        if image_writer:
+            modes.append('image-native')
+        if 'plan-image-component-cache' in workflow_jobs(workflow):
+            modes.append('image-support')
+        self.assertIn(f'options: [{", ".join(modes)}]', on)
         self.assertNotIn('source_ref', on)
         self.assertNotIn('workflow_run', on)
         self.assertIn('cache-mode: write', writer)
@@ -6528,14 +6550,15 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'workspace-support': 5,
                 'required-gate': 5,
                 'explicit-full-gate': 5,
-                'select': 10,
+                'select': 5,
+                'pr-governance-preview': 20,
                 'pr-fast-preview-plan': 10,
-                'baseline': 10,
-                'codex-agent-config-validation': 10,
-                'macos-package-contract': 10,
-                'site-quality': 10,
+                'baseline': 5,
+                'codex-agent-config-validation': 5,
+                'macos-package-contract': 5,
+                'site-quality': 5,
                 'packaging-contracts': 10,
-                'scenario-regression': 10,
+                'scenario-regression': 5,
                 'compile-metrics': 10,
                 'cargo-tooling-contracts': 10,
                 'windows-rollout': 10,
@@ -6544,15 +6567,15 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'workflow-governance': 15,
                 'custody-native-contracts': 15,
                 'custody-wasm-contracts': 15,
-                'consensus': 20,
-                'net': 20,
-                'node': 20,
-                'pixel-world-bridge': 20,
+                'consensus': 10,
+                'net': 15,
+                'node': 15,
+                'pixel-world-bridge': 10,
                 'custody-node': 25,
                 'custody-native': 25,
                 'custody-wasm-production': 25,
                 'custody-wasm-approval': 25,
-                'distfs': 30,
+                'distfs': 20,
                 'rust-baseline': 30,
                 'launcher-web': 30,
                 'viewer-js-required': 30,
@@ -6653,7 +6676,7 @@ class HeavyPrJobTimeoutContractTests(unittest.TestCase):
     def test_heavy_pr_jobs_declare_bounded_fallback_timeout_minutes(self):
         expected_limits = {
             '.github/workflows/rust.yml': {
-                'oasis7-test-build-candidate': 60,
+                'oasis7-test-build-candidate': 40,
                 'oasis7-test-build-trusted': 60,
                 'formal-debug-build': 60,
                 'formal-debug-build-trusted': 60,
@@ -6661,7 +6684,7 @@ class HeavyPrJobTimeoutContractTests(unittest.TestCase):
                 'formal-endpoint-build-trusted': 60,
                 'formal-test-build': 60,
                 'formal-test-build-trusted': 60,
-                'oasis7-required': 60,
+                'oasis7-required': 35,
                 'workspace-support-legacy': 60,
                 'workspace-support-other': 60,
                 'operational-contracts': 20,

@@ -593,7 +593,7 @@
       return;
     }
 
-    const apiUrl = "https://api.github.com/repos/eng-cc/oasis7/releases/latest";
+    const apiUrl = window.oasis7Release.latestApi;
     const controller = typeof AbortController === "function" ? new AbortController() : null;
     let timeoutId = 0;
     if (controller) {
