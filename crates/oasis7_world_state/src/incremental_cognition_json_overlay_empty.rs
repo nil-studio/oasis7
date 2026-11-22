@@ -1,12 +1,12 @@
 //! Bootstrap applicability checks read the sole transaction, never parent absence.
 use super::*;
+use crate::incremental_json_records::JsonReadWorkV1;
 use crate::{
     incremental_cognition_json_read as read,
     incremental_field_overlay::{WorldFieldOverlayContextV1, WorldFieldOverlayErrorV1, lookup},
     incremental_inventory_value_read::InventoryValueReader,
     incremental_world_field_key::{WorldFieldKeyV1, WorldFieldRecordKindV1},
 };
-use crate::incremental_json_records::JsonReadWorkV1;
 use oasis7_formal_protocol::{
     incremental_execution::{ExecutionFence, PreparedGuard},
     incremental_state::MerkleNodeReader,
@@ -71,4 +71,3 @@ pub fn require_current_delegation_grants_empty_v1<
         Ok(())
     })
 }
-
