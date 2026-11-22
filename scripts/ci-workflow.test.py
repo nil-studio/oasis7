@@ -4512,9 +4512,32 @@ run_cargo() {
         self.assertIn('--policy-sha "$POLICY_SHA"', job)
         self.assertIn('--plan "$RUNNER_TEMP/ci-control-selection/selection.json"', job)
         self.assertIn('python_control_contract_version == 1', job)
-        self.assertIn('rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal', job)
-        self.assertIn('rustup default "$RUST_TOOLCHAIN"', job)
-        self.assertIn('command -v zstdmt', job)
+        if '    container:' in job:
+            self.assertRegex(job, r'(?m)^    container:\n'
+                                  r'      image: ghcr\.io/nil-studio/oasis7/ci-rust-build@sha256:[0-9a-f]{64}$')
+            self.assertIn('      options: --user 1001:1001\n', job)
+            permissions = re.search(r'(?m)^    permissions:\n((?:      [^\n]+\n)+)', job)
+            self.assertIsNotNone(permissions)
+            self.assertCountEqual(permissions[1].splitlines(), [
+                '      contents: read', '      actions: read', '      packages: read',
+            ])
+            self.assertNotRegex(job, r'(?m)^\s+[a-z-]+: write$')
+            verify = job.split('      - name: Verify preinstalled governance tools\n', 1)
+            self.assertEqual(len(verify), 2)
+            self.assertLess(job.index('name: Verify preinstalled governance tools'), job.index(trusted))
+            preparation = verify[1].split('\n      - ', 1)[0]
+            for command in (
+                    'cargo +"$RUST_TOOLCHAIN" --version',
+                    'test "$(rustc --version)" = "$(rustc +"$RUST_TOOLCHAIN" --version)"',
+                    'cargo +"$RUST_TOOLCHAIN" fmt --version',
+                    'cargo +"$RUST_TOOLCHAIN" clippy --version',
+                    'command -v zstd', 'command -v zstdmt'):
+                self.assertIn('          ' + command + '\n', preparation + '\n')
+            self.assertNotRegex(job, r'rustup (?:toolchain install|default)\b')
+        else:
+            self.assertIn('rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal', job)
+            self.assertIn('rustup default "$RUST_TOOLCHAIN"', job)
+            self.assertIn('command -v zstdmt', job)
         self.assertIn('pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt', job)
         self.assertLess(job.index(trusted), job.index('bash ./scripts/ci-tests.sh required'))
         self.assertNotIn('cargo test -p', job)
