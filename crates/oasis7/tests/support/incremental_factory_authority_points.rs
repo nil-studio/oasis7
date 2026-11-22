@@ -95,6 +95,57 @@ fn family_bound_lifecycle_and_original_columns_share_one_transaction() {
         let state = store
             .state_session(physical_scope(), MemoryClass::Ordinary)
             .unwrap();
+        // Negative same-Core/class admission: an otherwise live transaction
+        // must not consume an Ordinary parent qualification from Recovery.
+        // Use a separate transaction: a rejected contribution aborts its tx.
+        {
+            let mut rejected_tx = ExecutionTransaction::begin(
+                parent.clone(),
+                [8; 32],
+                &state,
+                &memory,
+                TransactionLimits {
+                    max_reads: 16,
+                    max_writes: 2,
+                    max_facts: 1,
+                    max_pending_node_bytes: 4 << 20,
+                },
+            )
+            .unwrap();
+            let mut rejected_io = logical();
+            let mut rejected_keys = SemanticKeyBudget {
+                bytes_remaining: 1 << 20,
+            };
+            let mut rejected = WorldFieldOverlayContextV1 {
+                transaction: &mut rejected_tx,
+                values: ValueReadContext {
+                    source: &values,
+                    memory: &memory,
+                    class: MemoryClass::Recovery,
+                    io: &mut rejected_io,
+                },
+                key_work: &mut rejected_keys,
+                semantic_bytes: 1024,
+                record_bytes: 4096,
+                take_state_error: || state.take_read_error().map(state_error),
+                cancelled: || false,
+            };
+            let guard = rejected.transaction.guard();
+            assert!(
+                open_factory_authority_body_overlay_v1(
+                    keys[0],
+                    &family,
+                    &state,
+                    &mut rejected,
+                    &mut scan(),
+                    &mut 4096,
+                    1024,
+                    &guard,
+                    &live,
+                )
+                .is_err()
+            );
+        }
         let mut tx = ExecutionTransaction::begin(
             parent.clone(),
             [6; 32],
