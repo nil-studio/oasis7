@@ -53,12 +53,17 @@ class RangeTests(unittest.TestCase):
         self.merge = self.commit('tested synthetic merge')
         self.event = {'pull_request': {'base': {'sha': self.base}, 'head': {'sha': self.source}}}
 
-    def invoke(self, event=None, kind='pull_request', tested=None):
+    def invoke(self, event=None, kind='pull_request', tested=None, env_extra=None):
         event_path = Path(self.temp.name) / 'event.json'
         event_path.write_text(json.dumps(self.event if event is None else event))
+        env = dict(os.environ)
+        env.pop('SELECT_RANGE_BASE', None)
+        if env_extra:
+            env.update(env_extra)
         return subprocess.run([sys.executable, str(HELPER), '--repo-root', str(self.root),
                                '--event-name', kind, '--event-path', str(event_path),
-                               '--tested-oid', tested or self.merge], text=True, capture_output=True)
+                               '--tested-oid', tested or self.merge],
+                              env=env, text=True, capture_output=True)
 
     def assert_bad(self, result):
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
@@ -164,6 +169,19 @@ class RangeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, f'{self.base}\n{self.source}\n')
 
+    def test_push_widens_only_to_verified_ancestor_and_rejects_narrowing(self):
+        self.history()
+        event = {'before': self.target, 'after': self.merge}
+        widened = self.invoke(event, kind='push', env_extra={'SELECT_RANGE_BASE': self.base})
+        self.assertEqual(widened.returncode, 0, widened.stderr)
+        self.assertEqual(widened.stdout, f'OASIS7_PRODUCT_DOC_BASE={self.base}\nOASIS7_PRODUCT_DOC_HEAD={self.merge}\n')
+        same = self.invoke(event, kind='push', env_extra={'SELECT_RANGE_BASE': self.target})
+        self.assertEqual(same.returncode, 0, same.stderr)
+        self.assertEqual(same.stdout, f'OASIS7_PRODUCT_DOC_BASE={self.target}\nOASIS7_PRODUCT_DOC_HEAD={self.merge}\n')
+        for bad_base in (self.merge, self.source, '0' * 40, 'not-an-oid'):
+            with self.subTest(bad_base=bad_base):
+                self.assert_bad(self.invoke(event, kind='push', env_extra={'SELECT_RANGE_BASE': bad_base}))
+
     def test_workflow_wiring_is_baseline_only_and_cannot_override_exports(self):
         workflow = (ROOT / '.github/workflows/rust.yml').read_text()
         baseline = workflow.split('\n  baseline:', 1)[1].split('\n  rust-baseline:', 1)[0]
@@ -171,6 +189,7 @@ class RangeTests(unittest.TestCase):
         self.assertIn('--tested-oid "$GITHUB_SHA" >>"$GITHUB_ENV"', baseline)
         self.assertIn('--event-path "$GITHUB_EVENT_PATH"', baseline)
         self.assertIn('--event-name "$GITHUB_EVENT_NAME"', baseline)
+        self.assertIn('SELECT_RANGE_BASE: ${{ needs.select.outputs.range_base }}', baseline)
         self.assertLess(baseline.index('Resolve tested product-document range'), baseline.index('Execute selected group'))
         self.assertNotIn('OASIS7_PRODUCT_DOC_BASE:', baseline)
         self.assertNotIn('OASIS7_PRODUCT_DOC_HEAD:', baseline)

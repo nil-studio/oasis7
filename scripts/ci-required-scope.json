@@ -58,6 +58,8 @@
   "ordinary_artifact_partition_version": 2,
   "ordinary_main_fast_cache_writer_version": 1,
   "ecs_workspace_upload_budget_version": 2,
+  "main_fast_range_recovery_version": 1,
+  "draft_pr_heavy_ci_skip_version": 1,
   "ordinary_harness_costs": {
     "version": 1,
     "fallback_ms": 60000,

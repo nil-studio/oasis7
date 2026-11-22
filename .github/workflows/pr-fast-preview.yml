@@ -28,7 +28,7 @@ env:
 
 jobs:
   pr-fast-preview-plan:
-    if: github.event_name == 'pull_request' && github.event.label.name == 'ci-fast-preview'
+    if: github.event_name == 'pull_request' && !github.event.pull_request.draft && github.event.label.name == 'ci-fast-preview'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

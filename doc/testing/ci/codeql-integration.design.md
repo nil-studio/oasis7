@@ -304,7 +304,7 @@ GitHub 原生 `queue: max` 支持同一 concurrency group 保留多个待执行�
 
 ### 6.4 资源与公平性边界
 
-重型扫描最多两个并发；plan 和摘要仍有短暂 runner 开销。两个槽位不是专属预留机器，GitHub 也没有在这里承诺 required CI 的绝对优先级。因此不能宣称真实排队时间必然零增长。
+重型扫描最多两个并发；plan 和摘要仍有短暂 runner 开销。为减少普通 PR 排队开销，`OASIS7_CODEQL_MODE` 处于缺省/`off` 或 `baseline` 时在 job 层直接跳过 PR 的 `plan` 与 `summary`（非法值仍进入 `plan` 显式报错），且 PR 在 `plan` 成功但无选中分析单元（`has_units != 'true'`，如纯文档或仅命中 baseline 的纯 Rust PR）时直接保留 `plan` 摘要并跳过独立 `summary` runner；维护运行与存在选中单元或 `plan` 异常的 PR 仍保留 `summary`。两个槽位不是专属预留机器，GitHub 也没有在这里承诺 required CI 的绝对优先级。因此不能宣称真实排队时间必然零增长。
 
 分桶可能造成一个槽位排队、另一个暂时空闲，接受这一简单方案的利用率损失，不增加自建调度服务。超出平台队列容量的取消必须进入健康报告，不能统计为完成。
 

@@ -2,6 +2,7 @@
 """Resolve the baseline job's tested documentation range; never change Git state."""
 import argparse
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -21,7 +22,7 @@ def git(root, *args):
     return result.stdout.strip()
 
 
-def resolve(root, event_name, event, tested_oid):
+def resolve(root, event_name, event, tested_oid, *, push_range_base=None):
     tested = oid(tested_oid, 'tested OID')
     if git(root, 'rev-parse', '--verify', 'HEAD^{commit}') != tested:
         raise ValueError('checkout HEAD does not match tested OID')
@@ -46,6 +47,14 @@ def resolve(root, event_name, event, tested_oid):
         head = oid(event.get('after'), 'push after')
         if head != tested:
             raise ValueError('push after does not match tested OID')
+        if push_range_base:
+            widened = oid(push_range_base, 'selected push range base')
+            git(root, 'cat-file', '-e', widened + '^{commit}')
+            ancestor = subprocess.run(['git', '-C', str(root), 'merge-base', '--is-ancestor', widened, base],
+                                      text=True, capture_output=True)
+            if ancestor.returncode != 0:
+                raise ValueError('selected push range base must be an ancestor of push before')
+            base = widened
     else:
         raise ValueError(f'unsupported CI event: {event_name}')
     for commit in (base, head):
@@ -62,7 +71,8 @@ def main():
     args = parser.parse_args()
     try:
         event = json.loads(args.event_path.read_text(encoding='utf-8'))
-        base, head = resolve(args.repo_root, args.event_name, event, args.tested_oid)
+        base, head = resolve(args.repo_root, args.event_name, event, args.tested_oid,
+                             push_range_base=os.environ.get('SELECT_RANGE_BASE', '').strip() or None)
     except (OSError, ValueError) as error:
         print(f'product-doc-ci-range: error: {error}', file=sys.stderr)
         return 2

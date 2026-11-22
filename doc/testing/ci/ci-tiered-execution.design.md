@@ -386,7 +386,7 @@ Viewer 的完整 UI 测试与 software-safe 构建在输入、输出互不依赖
 
 Viewer 的 Vitest UI 测试保留单 worker、逐文件独立 fork 与 jsdom，只复用 Node 编译字节码，不复用测试文件的可变模块或全局状态。worker 默认使用本工作区 `node_modules/.cache/vitest-node-compile`；调用者显式的 `NODE_COMPILE_CACHE` 路径和 `NODE_DISABLE_COMPILE_CACHE=1` 仍有效。沿用 Node 对源码和运行时版本的缓存校验、Vitest 对 V8 coverage 的禁用保护；缓存不可用时仍执行原测试。该目录不上传为跨 job 缓存，完整文件集合、原断言、Solid 模块身份及失败/清理合同保持。
 
-候选策略可通过独立、只读的性能预览取得合入前数据。现有 Rust workflow 的 `pr-fast-preview-plan` 在 `rust.yml`、`ci-required-scope.json`、`ci-tests.sh`、`cargo-dev-architecture.json` 或实际构建驱动 `ci-test-artifacts.py`、`cargo-dev-architecture.py` 变化时启用产品预览；单独修改 planner 或 preview 编排的 Python 实现及测试时，执行其所属合同与实际 required 消费者，不额外构建产品性能样本。混合修改仍由执行配置或构建驱动启用预览。
+候选策略可通过独立、只读的性能预览取得合入前数据。为避免常规 PR 每次推送都额外启动规划 runner 并执行全量历史克隆，Rust workflow 与标签触发入口的 `pr-fast-preview-plan` 仅在显式带有 `ci-fast-preview` 标签的非草稿 PR 上运行，并在 `rust.yml`、`ci-required-scope.json`、`ci-tests.sh`、`cargo-dev-architecture.json` 或实际构建驱动 `ci-test-artifacts.py`、`cargo-dev-architecture.py` 变化时启用产品预览（同依赖的迁移对照 `pr-governance-preview` 随之按需启动）；单独修改 planner 或 preview 编排的 Python 实现及测试时，执行其所属合同与实际 required 消费者，不额外构建产品性能样本。混合修改仍由执行配置或构建驱动启用预览。
 
 预览的触发差异复用 required 选择器的 Git 身份与比较范围：workflow 显式传入事件 BASE、实际 PR source 和 tested commit；在验证真实 target 与 source 父节点、BASE 祖先关系及唯一共同祖先后，取共同祖先到 source、实际 target 到 tested 的差异并集，包含删除和重命名两端。main 单独前进不触发预览，真实 source 改动与 merge resolution 改动仍触发；身份或差异无法确认时报告失败，不能安静跳过。这个范围只决定是否运行诊断，不改变可信 required 计划。
 
@@ -420,13 +420,13 @@ Cargo 的测试名过滤只限制执行，不能当作编译范围缩小的证�
 
 PR 汇总只等待本 PR 计划的必要检查，周期汇总等待本轮完整集合。保留可靠 always 收口：规划失败、选中任务失败/取消/超时/缺失、应执行却 skipped 均失败；未选中可以 skipped。预期矩阵单元须全部终态，不能用其它单元成功或总测试数掩盖漏项。新提交取消的旧运行不为新 source HEAD 放行。
 
-保留稳定 required check 名称，避免对整个必需 workflow 加 paths 过滤造成 Pending；依赖失败也必须进入最终汇总。手动候选验证不替代 PR 必需事件产生的检查。若发布所需平台不在本轮完整集合内，补跑准确候选的相应范围后再消费结果，不能把“不适用”用于隐藏缺环境。
+保留稳定 required check 名称，避免对整个必需 workflow 加 paths 过滤造成 Pending；依赖失败也必须进入最终汇总。`pull_request` 订阅 `opened`、`synchronize`、`reopened`、`ready_for_review`：Draft PR 跳过 `select` 及全部下游重型组以释放共享 runner 容量，同时 `required-gate` 仍运行并快速失败阻断，避免在 `strict: false` 分支保护下产生 `skipped` 通过记录；PR 转为 Ready 时由 `ready_for_review` 自动触发完整规划与验证。手动候选验证不替代 PR 必需事件产生的检查。若发布所需平台不在本轮完整集合内，补跑准确候选的相应范围后再消费结果，不能把“不适用”用于隐藏缺环境。
 
 ### 调度、并发与主线健康
 
 schedule 使用 `17,37,57 * * * *`（UTC）执行轻量观察。短串行 admission 从实际 Actions run、jobs 与版本化 admission 产物判断：无活动 full 且距最近真实 full 启动达到四小时，才启动本轮完整图；没有历史记录且查询完整时启动首轮。失败和取消仍计入真实启动间隔，不每二十分钟重跑测试；错过多个时隙只补当前一轮。每轮固定事件 main SHA，所有 checkout、产物和汇总引用该值，保留 manual full。
 
-PR 并发组按 PR 编号取消过期运行；`main` 分支的 `push`（`main-fast`）按目标分支 ref 共享并发组并取消被新合入覆盖的过期运行（漏掉的中间提交由后续 `periodic-full` 兜底）。schedule 观察使用每 run 独立并发组，admission job 使用固定短并发组且不取消正在执行的判断。判断与上传启动资格在同一短锁内；已发布资格但 select 尚未启动也阻止下一轮重复启动。活动 full 超期只报告，不自动取消或重叠。candidate-full 按触发 ref 与固定候选区分，避免取消主线回归或把不同候选串成一个成功结果。完整扩展 job 的执行上限为 210 分钟，主线健康检查另以四小时观测单轮预算；这不等于整条 workflow 已证明在四小时内完成。超过容量目标时优化分片或资源，不无限重叠。需要硬性隔离 PR 容量时使用独立 runner 池，普通 concurrency 不等于平台优先级。
+PR 并发组按 PR 编号取消过期运行；`main` 分支的 `push`（`main-fast`）按目标分支 ref 共享并发组并取消被新合入覆盖的过期运行。为避免连续合入取消中间 `push` 运行后仅按最近一次 `event.before` 选测而漏掉前序提交的受影响验证组及 `ordinary-main-fast-cache-writer` 缓存更新，`select` 在 `main-fast` 下保持 `policy_sha=event.before` 不变，同时通过有界只读 Actions 历史查询将比较基准 `range_base` 向前扩展至有界第一父提交窗口内最近一次成功完成的 `main` `push` 运行提交（绝不晚于 `event.before`；历史缺失时保守回退到窗口内最早未验证 `push` 运行的父提交或 `event.before`），`baseline` 与下游组同步消费该扩展范围，四小时 `periodic-full` 继续做全量兜底。schedule 观察使用每 run 独立并发组，admission job 使用固定短并发组且不取消正在执行的判断。判断与上传启动资格在同一短锁内；已发布资格但 select 尚未启动也阻止下一轮重复启动。活动 full 超期只报告，不自动取消或重叠。candidate-full 按触发 ref 与固定候选区分，避免取消主线回归或把不同候选串成一个成功结果。完整扩展 job 的执行上限为 210 分钟，主线健康检查另以四小时观测单轮预算；这不等于整条 workflow 已证明在四小时内完成。超过容量目标时优化分片或资源，不无限重叠。需要硬性隔离 PR 容量时使用独立 runner 池，普通 concurrency 不等于平台优先级。
 
 `ci-full-result.py health` 只读观察最近两天 main schedule 的实际 attempt，区分观察与实际 full，报告最近完整运行、最近终态、`last_successful_sha` 和 `commit_range`，缺数据保留 unknown。为覆盖旧 run 最近重跑，metadata 按两天窗口回看三十七天，并单独查询全部活动轮；范围覆盖 GitHub 的[三十天重跑期限](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)及[三十五天 workflow 运行上限](https://docs.github.com/en/actions/reference/limits)加两天观察窗，不把创建时间当最新 attempt 时间。
 
