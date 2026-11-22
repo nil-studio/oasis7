@@ -5,14 +5,11 @@ use crate::formal_live_service::{
     PublishedReadState,
 };
 use ed25519_dalek::{Signer, SigningKey};
-use oasis7::{
-    runtime::{ChainResourceDerivationContext, World, blake3_hex},
-    world_service::{
-        authority,
-        formal_read::{FormalReadHistoryV1, FormalReadStepV1, MAX_FORMAL_HISTORY_STEPS},
-        formal_read_service::FormalReadPublication,
-        wire::SignedServiceResponse,
-    },
+use oasis7::world_service::{
+    authority,
+    formal_read::{FormalReadHistoryV1, FormalReadStepV1, MAX_FORMAL_HISTORY_STEPS},
+    formal_read_service::FormalReadPublication,
+    wire::SignedServiceResponse,
 };
 use oasis7_client_api::{
     world_service::{CommitRef, FormalReadAnchorRefV1, WorldIdentity},
@@ -28,6 +25,7 @@ use oasis7_distfs::controlled_authority::{
     replicated_protocol::{ArtifactObject, ArtifactRole, ClosedRecord, EndpointRole},
 };
 use oasis7_node::{NodeConfig, NodeRole};
+use oasis7_runtime::{ChainResourceDerivationContext, World, blake3_hex};
 use std::{
     collections::BTreeMap,
     io::{Read, Write},
