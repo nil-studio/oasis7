@@ -310,11 +310,28 @@ jobs:
           cache-provider: github
           save-if: ${{ job.status == 'success' && steps.dependency-cache-tools.outputs.guard_ready == 'true' && github.ref == 'refs/heads/main' && github.workflow_sha == github.sha && inputs.run_mode == 'image-native' }}
           cache-on-failure: false
-      - name: Warm the exact pixel-world bridge dependency contexts
+      - name: Warm the exact pixel-world bridge and rust-baseline dependency contexts
         if: steps.native-cache.outputs.cache-hit != 'true'
         run: |
           env -u RUSTC_WRAPPER cargo test --locked -p pixel_world_bridge --lib --no-run
           env -u RUSTC_WRAPPER cargo check --locked -p pixel_world_bridge --target wasm32-unknown-unknown
+          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_game_client --lib
+          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_world_state --lib
+          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_world_state --features test_tier_required --tests
+          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_world_state --features test_tier_full --tests
+          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_world_state --features test-support --tests
+          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_world_projection --lib
+          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_runtime --lib
+          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_runtime --features test_tier_required --tests
+          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_runtime --features wasmtime --lib
+          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_launcher_backend --lib
+          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_client_launcher --tests
+          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_protocol_tools --lib
+          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_protocol_tools --features test_tier_required --tests
+          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_custody_core --lib
+          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_custody_core --tests
+          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_custody_core --target wasm32-unknown-unknown --lib
+          env -u RUSTC_WRAPPER cargo test --locked -p oasis7_newapi_bridge_service --bin oasis7_newapi_bridge_service --no-run
 
   rust-image-component-cache:
     cache-mode: write
