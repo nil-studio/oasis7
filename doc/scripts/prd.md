@@ -72,7 +72,7 @@
   - PRD-SCRIPTS-004: As a `qa_engineer`, I want a worktree-isolated harness for Viewer Web / launcher stack, so that multiple agent tasks can boot, verify, and tear down isolated stacks without port, artifact, or browser-session collisions.
   - PRD-SCRIPTS-007: As a `producer_system_designer`, I want a standard task-worktree GitHub PR closure command, so that completed work enters protected `main` with one consistent, auditable path instead of ad hoc local landing.
   - PRD-SCRIPTS-007B: As a reviewer, I want optional thread inspection and verified explicit resolution, so that comment maintenance uses native GitHub state and leaves merge checks to the existing workflow.
-  - PRD-SCRIPTS-007C: As a `producer_system_designer`, I want a `.pm` rebase conflict helper, so that same-PR rebase maintenance can distinguish retired signal inbox conflicts, generated-view conflicts, and canonical task/memory/stage conflicts that still require manual judgment.
+  - PRD-SCRIPTS-007C（已退役）：曾要求 `.pm` rebase 冲突辅助入口；原标识只用于历史追溯，不再作为当前用户故事或执行要求。
   - PRD-SCRIPTS-008: As a 开发者, I want explicit identity, merge, material and process checks before cleanup, so that delivered code can be cleaned without losing ongoing work.
   - PRD-SCRIPTS-008A: As a 开发者, I want a read-only Git/filesystem report, so that registered worktrees and disk use are visible without deletion advice.
   - PRD-SCRIPTS-009: As a 开发者, I want a local Cargo profile and sccache wrapper, so that each git worktree can reuse its own Rust build artifacts without cross-worktree contamination or weakening deterministic wasm/release gates.
@@ -156,8 +156,7 @@ Trace refs: O7-REQ-a805d965-b040-44ba-9af1-68ca3c96b2d8；本接口承接同一�
 - Integration Points:
   - `scripts/`
   - `doc/scripts/precommit/`
-  - `doc/scripts/viewer-tools/`
-  - `doc/scripts/wasm/`
+  - [脚本专题索引](prd.index.md)（现行脚本专题与发布级 WASM 构建入口）
   - `scripts/run-launcher-stack.sh`
   - `scripts/run-producer-playtest.sh`
   - `scripts/worktree-harness.sh`

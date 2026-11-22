@@ -116,7 +116,7 @@ Each detailed gameplay PRD or promoted topic must cover:
 - **Validation Matrix**: PRD-GAME id, owner role, required/full evidence tier,
   sample scenario, acceptance signal, and what remains unproven.
 
-### Document Boundary (PRD vs Project vs Devlog)
+### Document Boundary (PRD vs Execution Records)
 
 Use the following split and avoid duplicate definitions:
 
@@ -124,7 +124,9 @@ Use the following split and avoid duplicate definitions:
 | --- | --- | --- |
 | PRD (`doc/<module>/prd.md`, `doc/**/**.prd.md`) | `Why/What/Done` (scope, behavior, acceptance, NFR, risks, decisions) | task breakdown, daily progress |
 | Existing Task/PR (optional Issue or Project view) | `How/When/Who` (tasks, dependency, owner, status, execution plan) | rewriting target-state requirements |
-| Devlog (`doc/devlog/YYYY-MM-DD.md`) | immutable daily record (timestamp, done, pending, blockers) | requirement definitions |
+| Git, PR, actual CI, and review records | implementation and verification evidence; link the relevant Task/Issue when used | a parallel progress ledger or a source of new requirements |
+
+The [retired devlog summary](../../doc/devlog/README.md) is for historical lookup only. Do not create daily devlog files.
 
 Guardrails:
 - Product feature design/implementation status summaries are allowed next to their requirements; retain evidence links and baseline, and keep detailed execution history in Task/PR. They are not a second progress ledger.
