@@ -130,6 +130,43 @@ fn point_option_creation_deletion_and_receiver_preserve_original_agent_records()
             take_state_error: || state.take_read_error().map(state_error),
             cancelled: || false,
         };
+        // Read the actual current location body from the original qualified
+        // family and same live transaction, before applying subsequent edits.
+        assert_eq!(family.allocation_class(), MemoryClass::Ordinary);
+        let current_key = AgentAuthorityRecordKeyV1 {
+            kind: AgentAuthorityRecordKindV1::AgentLocation,
+            id: " outer agent ",
+        };
+        let guard = overlay.transaction.guard();
+        let current_body = open_agent_authority_body_overlay_v1(
+            current_key,
+            &family,
+            &state,
+            &mut overlay,
+            &mut work().scan,
+            &mut 8192,
+            165,
+            &guard,
+            &live,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(current_body.uses_budget(&memory));
+        let guard = overlay.transaction.guard();
+        let current = read_qualified_agent_authority_cell_overlay_v1(
+            AgentAuthorityCellRequestV1 {
+                key: current_key,
+                cell: AgentAuthorityCellV1::Column(AgentAuthorityColumnV1::Active),
+                qualification: &current_body,
+            },
+            &mut overlay,
+            165,
+            &mut std::io::sink(),
+            &guard,
+            &live,
+        )
+        .unwrap();
+        assert_eq!(current, AgentAuthorityValueV1::Bool(false));
         let mut writer = store.value_session(physical_scope());
         let mut write_io = logical();
         let mut write_keys = SemanticKeyBudget {
