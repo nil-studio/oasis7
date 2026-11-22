@@ -156,6 +156,9 @@ struct RecordProgress {
     metadata: bool,
     fixed_mask: u128,
     fixed_count: u8,
+    // Optional `.value` cells are absent in the original GEN wire when
+    // their mandatory `.present` cell is false.
+    absent_option_value_mask: u128,
     group_mask: u8,
     dynamic: [DynamicProgress; 3],
     option_present: [Option<bool>; 3],
@@ -167,6 +170,7 @@ impl RecordProgress {
             metadata: false,
             fixed_mask: 0,
             fixed_count: 0,
+            absent_option_value_mask: 0,
             group_mask: 0,
             dynamic: std::array::from_fn(|_| DynamicProgress::default()),
             option_present: [None; 3],
@@ -210,6 +214,12 @@ impl RecordProgress {
                     {
                         return Err(invalid());
                     }
+                    if !present {
+                        let value_bit = 1u128
+                            .checked_shl(u32::from(slot) + 1)
+                            .ok_or_else(invalid)?;
+                        self.absent_option_value_mask |= value_bit;
+                    }
                 }
                 schema::OptionPart::Value => {
                     if self.option_value_seen.get(index).is_none() || self.option_value_seen[index]
@@ -243,9 +253,13 @@ impl RecordProgress {
     }
     fn finish(&self, record: Record) -> Result<(), ValueTreeError> {
         let layout = schema::layout(record);
-        let expected_fixed_mask = (1u128 << layout.fixed_fields) - 1;
+        let all_fixed = (1u128 << layout.fixed_fields) - 1;
+        if self.absent_option_value_mask & !all_fixed != 0 {
+            return Err(invalid());
+        }
+        let expected_fixed_mask = all_fixed & !self.absent_option_value_mask;
         if !self.metadata
-            || self.fixed_count != layout.fixed_fields
+            || u32::from(self.fixed_count) != expected_fixed_mask.count_ones()
             || self.fixed_mask != expected_fixed_mask
             || self.group_mask != layout.groups
         {
