@@ -369,7 +369,9 @@ mod tests {
             } else {
                 1
             };
-            budget.admit(peer, FETCH_BLOB_PROTOCOL, charged, now).unwrap();
+            budget
+                .admit(peer, FETCH_BLOB_PROTOCOL, charged, now)
+                .unwrap();
         }
         let before = budget.global.unwrap().bytes;
         let newcomer = loop {
