@@ -17,12 +17,12 @@ before emitting `TransportEvent::Incoming`. Quinn immediately spawns and drives
 the server TLS handshake before `Swarm` has evaluated `NetworkBehaviour::handle_pending_inbound_connection`.
 
 This minimal two-file patch:
-1. Retains `quinn::Incoming` inside `Connecting` (`ConnectingInner::Incoming`) until
+1. Retains `quinn::Incoming` inside `Connecting` (`incoming: Option<quinn::Incoming>`) until
    `Connecting` is polled for the first time (after `Swarm` pending-inbound admission
    has accepted the upgrade);
 2. Drops unpolled denied upgrades cleanly, causing Quinn to refuse the unaccepted
    `Incoming` (`CONNECTION_REFUSED`) before starting TLS state allocation;
-3. Captures the handshake timeout deadline at packet receipt (`Connecting::new_incoming`)
+3. Captures the handshake timeout deadline at packet receipt (`Connecting::incoming`)
    rather than first poll so admission delay cannot extend the total handshake budget;
 4. Maps `Incoming::accept()` failure to `Error::Connection(ConnectionError)` on that
    specific listener upgrade future instead of emitting a listener-wide `ListenerError`.

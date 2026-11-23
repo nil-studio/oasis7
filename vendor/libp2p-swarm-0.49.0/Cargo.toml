@@ -38,3 +38,7 @@ tokio = ["dep:tokio"]
 
 [package.metadata.oasis7-compat]
 upstream-revision = "2cb3c04346fdcb0ecf6717728664602378edac13"
+
+# Standalone workspace lock for CodeQL build-mode=none locked Cargo metadata extraction.
+[workspace]
+

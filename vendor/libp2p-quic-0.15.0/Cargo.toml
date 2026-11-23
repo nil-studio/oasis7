@@ -34,3 +34,10 @@ all-features = true
 
 [package.metadata.oasis7-compat]
 upstream-revision = "2cb3c04346fdcb0ecf6717728664602378edac13"
+
+# Standalone workspace lock for CodeQL build-mode=none locked Cargo metadata extraction.
+[workspace]
+
+[patch.crates-io]
+if-watch = { path = "../if-watch-3.2.2" }
+

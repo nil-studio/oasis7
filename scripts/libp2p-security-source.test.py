@@ -107,10 +107,13 @@ class NetworkSourceContract(unittest.TestCase):
         self.assertFalse((vendor / "src/transport_attempt.rs").exists())
         self.assertFalse((vendor / "OASIS7-PATCH.md").exists())
         manifest = tomllib.loads((vendor / "Cargo.toml").read_text())
+        self.assertIn("workspace", manifest)
         self.assertEqual(manifest["package"]["version"], "0.49.0")
         self.assertEqual(manifest["package"]["metadata"]["oasis7-compat"]["upstream-revision"], REVISION)
         self.assertEqual(manifest["dependencies"]["futures-timer"]["version"], "3.0.4")
         self.assertEqual(manifest["target"]['cfg(target_family="wasm")']["dependencies"]["wasm-bindgen-futures"]["version"], "0.4")
+        packages = tomllib.loads((vendor / "Cargo.lock").read_text())["package"]
+        self.assertFalse(any(p["name"] == "paste" for p in packages))
 
     def test_quic_patch_provenance_and_minimal_surface(self):
         vendor = ROOT / "vendor/libp2p-quic-0.15.0"
@@ -122,11 +125,18 @@ class NetworkSourceContract(unittest.TestCase):
                   for p in (vendor / "src").rglob("*.rs")}
         self.assertEqual(actual, upstream | patched)
         manifest = tomllib.loads((vendor / "Cargo.toml").read_text())
+        self.assertIn("workspace", manifest)
+        self.assertEqual(manifest["patch"]["crates-io"]["if-watch"]["path"], "../if-watch-3.2.2")
         self.assertEqual(manifest["package"]["version"], "0.15.0")
         self.assertEqual(manifest["package"]["metadata"]["oasis7-compat"]["upstream-revision"], REVISION)
         for dep_name in ("libp2p-core", "libp2p-tls"):
             dep = manifest["dependencies"][dep_name]
             self.assertEqual((dep["git"], dep["rev"]), (URL, REVISION))
+        packages = tomllib.loads((vendor / "Cargo.lock").read_text())["package"]
+        self.assertFalse(any(p["name"] == "paste" for p in packages))
+        watchers = [p for p in packages if p["name"] == "if-watch"]
+        self.assertEqual(len(watchers), 1)
+        self.assertNotIn("source", watchers[0])
 
 
 if __name__ == "__main__":
