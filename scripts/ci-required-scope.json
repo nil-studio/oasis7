@@ -2201,7 +2201,7 @@
         "vendor-libp2p-rendezvous-0.18.1/**"
       ],
       "groups": ["rust_baseline", "net", "node"],
-      "reason": "rendezvous_patch_consumers"
+      "reason": "retired_rendezvous_patch_consumers"
     },
     {
       "match": ["scripts/libp2p-security-source.test.py"],

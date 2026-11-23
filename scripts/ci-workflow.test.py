@@ -3861,7 +3861,6 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         result = subprocess.run(['bash', '-c', script], text=True, capture_output=True, env=dict(os.environ, GITHUB_ACTIONS='true', RUNNER_OS='Linux'))
         self.assertEqual(result.returncode, 0, result.stderr)
         for command in ('libp2p-security-source.test.py', 'libp2p-compat.test.py',
-                        'test --locked --manifest-path ./vendor-libp2p-rendezvous-0.18.1/Cargo.toml --target-dir ./target --lib -- --test-threads=1',
                         'check -p oasis7_net', 'check -p oasis7_node'):
             self.assertEqual(result.stdout.count(command), 1)
         failure = subprocess.run(['bash', '-c', script.replace("printf '%s\\n' \"$*\"", 'return 42')], text=True, capture_output=True, env=dict(os.environ, GITHUB_ACTIONS='true', RUNNER_OS='Linux'))

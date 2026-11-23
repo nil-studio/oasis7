@@ -5408,6 +5408,7 @@ dependencies = [
 [[package]]
 name = "libp2p-rendezvous"
 version = "0.18.1"
+source = "git+https://github.com/libp2p/rust-libp2p?rev=2d8497b2615086bd88018ef3a1fb32bc613a07ca#2d8497b2615086bd88018ef3a1fb32bc613a07ca"
 dependencies = [
  "asynchronous-codec",
  "bimap",
@@ -6627,11 +6628,13 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "futures",
+ "futures-timer",
  "hex",
  "libp2p",
  "oasis7_proto",
  "oasis7_wasm_abi",
  "pin-project",
+ "prost 0.14.4",
  "serde",
  "serde_cbor_2",
  "serde_json",
