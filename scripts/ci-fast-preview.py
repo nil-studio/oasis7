@@ -133,7 +133,25 @@ def synthetic_baseline(repo, source, *, sample='runtime-world'):
     return commit, tree
 
 
-def validate_plan(plan, source, *, sample='runtime-world'):
+def world_state_excluded_groups(repo, source, plan):
+    affected = plan.get('affected_packages')
+    if (repo is None or not isinstance(affected, list)
+            or 'oasis7_world_state' not in affected
+            or any(not isinstance(package, str) for package in affected)
+            or affected != sorted(set(affected))):
+        raise ValueError('private WorldState preview requires the complete affected package inventory')
+    policy = json.loads(git(repo, 'show', f'{source}:scripts/ci-required-scope.json'))
+    mapping = policy['package_groups']
+    if any(not mapping.get(package) for package in affected):
+        raise ValueError('private WorldState preview has unmapped affected packages')
+    # The private unit-test proof requires no matched path groups or forced
+    # groups. Its excluded groups are the affected-package policy mappings
+    # outside the retained unit-test groups that can enter this contract.
+    eligible = {'consensus', 'distfs', 'net', 'node'}
+    return sorted({group for package in affected for group in mapping[package]} & eligible)
+
+
+def validate_plan(plan, source, *, sample='runtime-world', repo=None):
     expected = sample_definition(sample)
     if (not isinstance(plan, dict) or plan.get('scope') != 'targeted'
             or plan.get('execution_profile') != 'pr-fast'
@@ -227,7 +245,7 @@ def validate_plan(plan, source, *, sample='runtime-world'):
                 or not isinstance(refs, list) or len(refs) != 2
                 or any(not isinstance(ref, str) or len(ref) != 40 for ref in refs)
                 or set(refs) != {source, architecture.get('base')}
-                or plan.get('ordinary_unit_test_excluded_groups') != ['distfs', 'net', 'node']
+                or plan.get('ordinary_unit_test_excluded_groups') != world_state_excluded_groups(repo, source, plan)
                 or not isinstance(omitted, list) or len(omitted) != 3
                 or omitted_identities != EXPECTED_TARGETS - expected['targets']
                 or plan.get('oasis7_required_packages') != ['oasis7_world_state']):
@@ -311,7 +329,7 @@ def plan_preview(repo, base_ref, head_ref, output, github_output=None, *, source
                     '--formal-config', str(repo / 'scripts/ci-formal-process-suites.json'),
                     '--output', str(output)], cwd=repo, check=True)
     selected = json.loads(output.read_text())
-    validate_plan(selected, source, sample=sample)
+    validate_plan(selected, source, sample=sample, repo=repo)
     metadata = {
         'schema_version': 1, 'authority': 'diagnostic-only', 'sample': sample,
         'workload': 'synthetic-comment-diff', 'cache': 'cold-no-restore',
@@ -351,7 +369,7 @@ def restore_baseline(repo, metadata, *, sample=None, plan=None, group=None, part
     if git(repo, 'rev-parse', source + '^{tree}').decode().strip() != metadata.get('source_tree'):
         raise ValueError('preview source tree mismatch')
     if plan is not None:
-        validate_plan(plan, source, sample=sample)
+        validate_plan(plan, source, sample=sample, repo=repo)
         if (plan['groups'] != metadata.get('groups')
                 or plan['ordinary_partitions'] != metadata.get('ordinary_partitions')
                 or plan['architecture'].get('base') != metadata.get('synthetic_base_sha')):
