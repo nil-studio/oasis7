@@ -2,7 +2,7 @@
 //! These status codes do not grant admission or extend the captured lease.
 use super::super::private_goal_tests::{http, http_with_diagnostic_hook, http_with_hook};
 use super::*;
-use oasis7::world_service::{private_task_context::*, task_factory_quote::*, task_recipe_quote::*};
+use oasis7_world_service::{private_task_context::*, task_factory_quote::*, task_recipe_quote::*};
 use oasis7_client_api::world_service::task_context::TASK_CONTEXT_READ_DELIVERY_DRIFT;
 use std::path::PathBuf;
 struct Fixture {

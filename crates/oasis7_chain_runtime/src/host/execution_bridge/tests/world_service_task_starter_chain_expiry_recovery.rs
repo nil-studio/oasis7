@@ -1,11 +1,11 @@
 use super::*;
-use oasis7::world_service::client::{
+use oasis7_world_service::client::{
     RemoteWorldServiceClient, WorldServiceClientConfig, WorldServiceClientError,
 };
-use oasis7::world_service::private_task_context::{
+use oasis7_world_service::private_task_context::{
     TASK_CONTEXT_PREPARE_PATH, TASK_CONTEXT_READ_PATH, TaskContextGetV1, TaskContextPrepareV1,
 };
-use oasis7::world_service::{SchedulerIntentV1, SchedulerOperationV1};
+use oasis7_world_service::{SchedulerIntentV1, SchedulerOperationV1};
 use oasis7_agent_api::game::GameTaskFenceV1;
 use oasis7_client_api::world_service::LookupIntentRequest;
 use std::fs;
