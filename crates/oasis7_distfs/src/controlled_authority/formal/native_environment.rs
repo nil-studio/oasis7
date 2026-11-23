@@ -138,7 +138,7 @@ mod tests {
 /// Endpoint evidence is valid only while this live representation lease survives.
 pub(crate) struct EndpointVerificationJob {
     pub job: VerificationJob,
-    pub _pin: std::fs::File,
+    pub _pin: super::physical::LeaseGuard,
     pub last_activity: std::time::Instant,
 }
 
