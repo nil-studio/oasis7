@@ -1,4 +1,6 @@
 //! Native L4 process-local World construction and recovery; no lower-layer reverse dependency.
+pub mod gameplay_actions;
+
 use oasis7_runtime::{Journal, ReleaseSecurityPolicy, Snapshot, World, WorldError, WorldState};
 use std::{path::Path, sync::Arc};
 
