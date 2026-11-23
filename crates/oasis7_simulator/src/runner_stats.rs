@@ -2,8 +2,8 @@
 //! The host AgentRunner retains scheduling and actual execution ownership.
 
 use crate::{Action, AgentDecision, AgentDecisionTrace, RuntimePerfSnapshot, WorldTime};
-use std::time::Duration;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 // ============================================================================
 // Metrics and Statistics
@@ -132,7 +132,6 @@ pub fn llm_api_duration_from_trace(decision_trace: Option<&AgentDecisionTrace>) 
         .unwrap_or(0);
     Duration::from_millis(llm_api_latency_ms)
 }
-
 
 #[cfg(test)]
 mod tests {
