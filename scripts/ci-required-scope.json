@@ -687,7 +687,6 @@
         "crates/oasis7_runtime/tests/incremental_runtime_commit.rs",
         "crates/oasis7_runtime/tests/incremental_runtime_allocators.rs",
         "crates/oasis7_runtime/tests/incremental_due_module_batch.rs",
-        "crates/oasis7_runtime/tests/support/incremental_agent_event.rs",
         "crates/oasis7_runtime/tests/support/incremental_agent_event.rs"
       ],
       "targets": [
