@@ -65,7 +65,7 @@ pub(super) fn load_recovery_permission(
         let directory = origin_history_directory.ok_or(
             "HistoryUnavailable: recovery cut requires independently replayed origin history",
         )?;
-        oasis7::world_service::formal_recovery_lineage::verify_recovery_predecessor_lineage(
+        oasis7_world_service::formal_recovery_lineage::verify_recovery_predecessor_lineage(
             &trust.initial_trust,
             external,
             &expected,

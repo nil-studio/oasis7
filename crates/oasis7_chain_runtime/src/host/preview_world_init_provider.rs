@@ -1,6 +1,6 @@
 //! Explicit, fresh-only DevLocal provider and canonical owner provisioning.
 use super::{Options, encode, files};
-use oasis7::world_service::{WorldIdentity, sign_read_request};
+use oasis7_world_service::{WorldIdentity, sign_read_request};
 use oasis7_runtime::{
     Action, LocalTestProviderAuthorityConfig, LocalTestProviderSessionMode,
     ProviderBackedBootstrapAuthorityV1, World, blake3_hex,
@@ -210,7 +210,7 @@ pub(super) fn prepare(
     }
     let delegation = sign_read_request(
         "delegation",
-        oasis7::world_service::AgentSignerDelegationChangeV1 {
+        oasis7_world_service::AgentSignerDelegationChangeV1 {
             world_id: options.world_id.clone(),
             branch_id: "main".into(),
             agent_id: input.agent_id.clone(),

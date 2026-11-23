@@ -1,5 +1,5 @@
 //! Read-only authenticated service diagnostics; dispatch before node startup.
-use oasis7::world_service::{
+use oasis7_world_service::{
     CommitRef, MembershipCandidateStatus, ReadMembershipRequest, ReadMembershipResponse,
     WORLD_SERVICE_CONTRACT_VERSION, authority,
     client::{RemoteWorldServiceClient, WorldServiceClientConfig},

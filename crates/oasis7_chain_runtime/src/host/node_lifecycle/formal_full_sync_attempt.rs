@@ -4,7 +4,7 @@
 
 use super::FormalFullSyncConfigV1;
 use super::cas_lifecycle::CasBudget;
-use oasis7::world_service::verified_view::VerifiedWorldView;
+use oasis7_world_service::verified_view::VerifiedWorldView;
 use oasis7_client_api::world_service::WorldIdentity;
 use oasis7_client_api::world_service_full_sync::{
     FormalFullSyncArtifactRoleV1 as WireArtifactRole, FormalFullSyncCutV1,

@@ -3,7 +3,7 @@
 //! simulations; these tests do not claim physical fault independence.
 use super::*;
 use crate::execution_bridge::formal_durable_set_arm::DurableSetArmPhaseV1;
-use oasis7::world_service::AgentSignerDelegationChangeV1;
+use oasis7_world_service::AgentSignerDelegationChangeV1;
 use oasis7_distfs::controlled_authority::formal::{
     DurableSetSealedEvidenceV1, HealthyEndpointLineagePageV1, HealthyEndpointLineageStepV1,
     NormalDurableSetTransitionBodyV1, SignedNormalDurableSetTransitionV1,
@@ -302,20 +302,20 @@ pub(super) fn exercise(mut case: HealthySetCase) -> Result<(), String> {
         .history_page(
             &case.initial_anchor,
             &boundary_anchor,
-            oasis7::world_service::formal_read::MAX_FORMAL_HISTORY_STEPS,
+            oasis7_world_service::formal_read::MAX_FORMAL_HISTORY_STEPS,
         )
         .map_err(|error| error.to_string())?;
     let lineage_steps = lineage_history
         .steps
         .into_iter()
         .map(|step| match step {
-            oasis7::world_service::formal_read::FormalReadStepV1::Commit(proof) => {
+            oasis7_world_service::formal_read::FormalReadStepV1::Commit(proof) => {
                 Ok(HealthyEndpointLineageStepV1::Commit(proof))
             }
-            oasis7::world_service::formal_read::FormalReadStepV1::Recovery(_) => {
+            oasis7_world_service::formal_read::FormalReadStepV1::Recovery(_) => {
                 Err("healthy endpoint lineage unexpectedly contains recovery".to_owned())
             }
-            oasis7::world_service::formal_read::FormalReadStepV1::DurableSetActivation(_) => {
+            oasis7_world_service::formal_read::FormalReadStepV1::DurableSetActivation(_) => {
                 Err("first healthy endpoint replacement unexpectedly follows another set".into())
             }
         })
@@ -630,7 +630,7 @@ pub(super) fn exercise(mut case: HealthySetCase) -> Result<(), String> {
     case.scenario_deadline
         .report_stage("dual native H readback verified")?;
 
-    let activation_step = oasis7::world_service::formal_read::FormalNormalDurableSetReadStepV1 {
+    let activation_step = oasis7_world_service::formal_read::FormalNormalDurableSetReadStepV1 {
         transition: transition.clone(),
         old_seals: [primary_seal, replica_seal],
         new_installs: [primary_install, replica_install],
@@ -965,7 +965,7 @@ pub(super) fn write_healthy_endpoint_config(
 fn exercise_successor_long_history(
     mut runtime: FormalLiveRuntime,
     case: &HealthySetCase,
-    original_result: &oasis7::world_service::CanonicalIntentResultV1,
+    original_result: &oasis7_world_service::CanonicalIntentResultV1,
     original_commit: &oasis7_client_api::world_service::CommitRef,
     original_key: &str,
     original_game_task: &oasis7_agent_api::game::GameTaskControlV1,

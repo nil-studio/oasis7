@@ -66,7 +66,7 @@ pub(super) fn wait_owner(
 /// Failure-only observation. Read the existing signed status without replacing
 /// the original lookup error or changing its admission/commit deadline.
 pub(super) fn original_commit_failure_status(
-    config: &oasis7::world_service::client::WorldServiceClientConfig,
+    config: &oasis7_world_service::client::WorldServiceClientConfig,
 ) -> String {
     let status = (|| {
         let address = config
@@ -217,7 +217,7 @@ impl Drop for ExactOwnerCleanup {
 
 #[test]
 fn original_commit_diagnostic_rejects_remote_endpoint_without_exposing_credentials() {
-    let config = oasis7::world_service::client::WorldServiceClientConfig {
+    let config = oasis7_world_service::client::WorldServiceClientConfig {
         formal_read_trust: None,
         endpoint: "http://192.0.2.1:1234".into(),
         trusted_service_public_key: "private-test-service-identity".into(),

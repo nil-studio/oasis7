@@ -4,7 +4,7 @@ use super::{
     formal_live_config::ValidatedFormalLiveConfigV1,
     formal_live_service::{FormalLiveHistoryResolver, FormalReadError},
 };
-use oasis7::world_service::{
+use oasis7_world_service::{
     formal_read::{FormalReadHistoryV1, FormalReadStepV1, MAX_FORMAL_HISTORY_STEPS},
     formal_read_service::FormalReadPublication,
 };
@@ -61,7 +61,7 @@ use transitions::{
 
 pub(crate) fn persist_durable_set_activation_marker(
     writer_directory: &std::path::Path,
-    step: &oasis7::world_service::formal_read::FormalNormalDurableSetReadStepV1,
+    step: &oasis7_world_service::formal_read::FormalNormalDurableSetReadStepV1,
     activation: &VerifiedDurableSetActivationV1,
 ) -> Result<(), String> {
     durable_set_activation::DurableSetActivationMarkerStoreV1::new(writer_directory.to_path_buf())
@@ -445,7 +445,7 @@ impl NativeHistoryResolver {
     ) -> Result<
         Option<(
             VerifiedFormalReadAnchorV1,
-            oasis7::world_service::formal_read::FormalNormalDurableSetReadStepV1,
+            oasis7_world_service::formal_read::FormalNormalDurableSetReadStepV1,
         )>,
         FormalReadError,
     > {

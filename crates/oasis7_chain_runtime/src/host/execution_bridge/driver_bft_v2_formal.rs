@@ -8,7 +8,7 @@ use super::super::super::super::{
     controlled_capture, formal_business_package, formal_native_environment, formal_package,
 };
 use super::*;
-use oasis7::world_service::{CanonicalIntentResultV1, formal_result::FormalBusinessResultTreeV1};
+use oasis7_world_service::{CanonicalIntentResultV1, formal_result::FormalBusinessResultTreeV1};
 use oasis7_consensus::tendermint_v2::{
     BFT_FORMAL_EXECUTION_DOMAIN_V1, BftHeightProposerScheduleV2, BftProfileTargetV1,
     FormalBftExecutionCommitmentV1, VerifiedBftHandoffTargetV1, verify_commit_certificate_token_v2,
@@ -511,10 +511,10 @@ fn execute_formal_candidate(
             formal_prefix: prefix,
         })?;
     let projection_root =
-        oasis7::world_service::formal_projection::commitments_for_world(&executed.world)?.root()?;
+        oasis7_world_service::formal_projection::commitments_for_world(&executed.world)?.root()?;
     let new_results = newly_recorded_results(parent_world, &executed.world)?;
     let result_update = FormalBusinessResultTreeV1::extend_bft_successor(
-        oasis7::world_service::formal_result::FormalBftResultSuccessorInputV1 {
+        oasis7_world_service::formal_result::FormalBftResultSuccessorInputV1 {
             world: &executed.world,
             identity,
             height: block.height,
@@ -677,7 +677,7 @@ fn restore_handoff_world(
         return Err("qualified H result tree differs from the committed result root".into());
     }
     let projection_root =
-        oasis7::world_service::formal_projection::commitments_for_world(&world)?.root()?;
+        oasis7_world_service::formal_projection::commitments_for_world(&world)?.root()?;
     if projection_root != record.projection_root {
         return Err("qualified H World differs from its committed projection root".into());
     }

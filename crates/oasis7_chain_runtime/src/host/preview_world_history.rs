@@ -5,7 +5,7 @@ use super::execution_bridge as bridge;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 use super::execution_bridge_real_tests::real_execution_bridge as bridge;
 use ed25519_dalek::{Signature, VerifyingKey};
-use oasis7::world_service::CommitRef;
+use oasis7_world_service::CommitRef;
 use oasis7_node::{NodeConsensusAction, NodeExecutionCommitContext, NodeExecutionHook};
 use oasis7_runtime::{LocalCasStore, ReleaseSecurityPolicy, blake3_hex};
 use serde::{Deserialize, Serialize};
@@ -341,7 +341,7 @@ pub(super) fn reconstruct(
     budget.check()?;
     let identity_bytes =
         budget.read_limit(&root.join("world/world-service-identity.json"), 256 * 1024)?;
-    let source_identity: oasis7::world_service::WorldIdentity =
+    let source_identity: oasis7_world_service::WorldIdentity =
         serde_json::from_slice(&identity_bytes)
             .map_err(|_| "preview history source service identity invalid")?;
     source_identity

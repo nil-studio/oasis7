@@ -7,7 +7,7 @@
 //! request; a historical cut or provider-supplied anchor is never trust.
 use super::*;
 use super::{FormalReadError, FormalReadResult};
-use oasis7::world_service::authority;
+use oasis7_world_service::authority;
 use oasis7_client_api::world_service_full_sync::{
     FORMAL_FULL_SYNC_MANIFEST_PATH, FORMAL_FULL_SYNC_OBJECT_PATH,
     FormalFullSyncArtifactRoleV1 as WireRole, FormalFullSyncArtifactRootV1, FormalFullSyncCutV1,
