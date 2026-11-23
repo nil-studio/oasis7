@@ -36,8 +36,8 @@ compile_metrics_timeout=$(awk '
 in_job && /^  [^[:space:]]/ { exit }
 in_job && /^[[:space:]]+timeout-minutes:/ { print $2; exit }
 ' .github/workflows/compile-metrics.yml)
-if [[ "$compile_metrics_timeout" != "45" ]]; then
-  echo "compile metrics matrix job must cap runner time at 45 minutes" >&2
+if ! [[ "$compile_metrics_timeout" =~ ^[0-9]+$ ]] || (( compile_metrics_timeout < 1 || compile_metrics_timeout > 35 )); then
+  echo "compile metrics matrix job must cap runner time within 1..35 minutes" >&2
   exit 1
 fi
 if ! grep -Eq '^[[:space:]]*CARGO_REGISTRIES_CRATES_IO_PROTOCOL:[[:space:]]*sparse[[:space:]]*$' .github/workflows/compile-metrics.yml; then

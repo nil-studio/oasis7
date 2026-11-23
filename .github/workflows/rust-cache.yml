@@ -49,7 +49,7 @@ jobs:
       github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
       (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -221,7 +221,7 @@ jobs:
       github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
       (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
-    timeout-minutes: 150
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -303,7 +303,7 @@ jobs:
       github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
       github.event_name == 'workflow_dispatch' && inputs.run_mode == 'image-native'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 20
     container:
       image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3
       credentials:
@@ -479,7 +479,7 @@ jobs:
       github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
       (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 18
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

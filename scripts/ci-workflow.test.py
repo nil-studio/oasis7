@@ -291,7 +291,7 @@ def browser_archive_cache_writer(job):
         assert required in header, 'browser cache requires the bounded trusted main writer'
     assert 'strategy:' not in header and 'matrix:' not in header
     timeout_match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', header, re.M)
-    assert timeout_match and 0 < int(timeout_match.group(1)) <= 10, 'browser cache requires bounded timeout-minutes <= 10'
+    assert timeout_match and 0 < int(timeout_match.group(1)) <= 6, 'browser cache requires bounded timeout-minutes <= 6'
     assert 'actions: write' not in job and 'secrets.' not in job and 'continue-on-error' not in job
     assert 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"' in job
     assert 'persist-credentials: false' in job
@@ -6886,10 +6886,11 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'plan-wasm-determinism-scope': 5,
             },
             '.github/workflows/command-center.yml': {
-                'desktop': 20,
+                'desktop': 16,
             },
             '.github/workflows/compile-metrics.yml': {
-                'compile-metrics-linux': 35,
+                'compile-metrics': 35,
+                'compile-metrics-linux': 25,
                 'summarize': 5,
             },
             '.github/workflows/daily-github-release.yml': {
@@ -6899,7 +6900,9 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'deploy': 5,
             },
             '.github/workflows/ecs-packages.yml': {
-                'web': 25,
+                'web': 18,
+                'native': 135,
+                'native-trusted': 135,
                 'package': 20,
                 'publish-preview': 10,
             },
@@ -6925,6 +6928,14 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
             '.github/workflows/wasm-darwin-docker-evidence.yml': {
                 'collect-darwin-docker-summaries': 90,
                 'verify-with-linux-summaries': 45,
+            },
+            '.github/workflows/rust-cache.yml': {
+                'browser-archive-cache': 6,
+                'worker-build-cache': 12,
+                'shared-native-cache': 120,
+                'rust-image-native-cache': 20,
+                'rust-image-component-cache': 35,
+                'web-wasm-cache': 18,
             },
         }
         for rel_path, limits in expected_limits.items():
