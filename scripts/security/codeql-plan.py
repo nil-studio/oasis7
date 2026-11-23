@@ -261,11 +261,10 @@ def plan(args):
             add('javascript-repo', path)
         elif path.startswith('.github/workflows/') or name in ('action.yml', 'action.yaml'):
             add('actions-repo', path)
-        elif path in ('scripts/ci-required-scope.json', 'scripts/cargo-dev-architecture.json',
-                     'scripts/ci-formal-process-suites.json'):
-            # Exact CI policy/test inventory inputs consumed by Python planning
-            # and rust.yml selection or Formal suite execution. No general JSON
-            # exemption; possible Rust consumers remain selected below.
+        elif path in ('scripts/ci-required-scope.json', 'scripts/cargo-dev-architecture.json'):
+            # Fixed CI policies consumed by the Python planning/architecture
+            # tools and rust.yml's selection or execution. This is not a blanket
+            # JSON registration; possible Rust consumers are still added below.
             add('actions-repo', path)
             add('python-repo', path)
         elif path == 'deny.toml':

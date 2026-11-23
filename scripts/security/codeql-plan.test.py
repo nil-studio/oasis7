@@ -570,26 +570,6 @@ class PlannerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'unregistered input'):
             self.run_plan()
 
-    def test_formal_process_suite_manifest_selects_exact_python_and_actions_consumers(self):
-        path = 'scripts/ci-formal-process-suites.json'
-        self.write(path, '{"schema_version": 2, "suites": {}}\n')
-        self.commit()
-        plan = self.run_plan()
-        self.assertEqual(plan['selected_units'], ['actions-repo', 'python-repo'])
-        for unit in ('actions-repo', 'python-repo'):
-            self.assertIn(path, plan['reasons'][unit])
-
-    def test_formal_process_suite_registration_does_not_allow_neighbor_json(self):
-        for path in ('scripts/ci-formal-process-suites-v2.json',
-                     'scripts/nested/ci-formal-process-suites.json',
-                     'scripts/ci-formal-process-suites.json.extra'):
-            with self.subTest(path=path):
-                self.base = self.git('rev-parse', 'HEAD')
-                self.write(path, '{}\n')
-                self.commit()
-                with self.assertRaisesRegex(ValueError, 'unregistered input'):
-                    self.run_plan()
-
     def test_ci_required_scope_selects_its_python_and_actions_consumers(self):
         path = 'scripts/ci-required-scope.json'
         self.write(path, '{"groups":["baseline"]}\n')
