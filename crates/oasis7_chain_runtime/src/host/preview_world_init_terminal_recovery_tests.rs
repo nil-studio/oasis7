@@ -1,6 +1,6 @@
 //! Existing full actual-artifact scenario; real commits, service HTTP and SDK.
 use super::*;
-use oasis7::world_service::*;
+use oasis7_world_service::*;
 use oasis7_node::{
     NodeConsensusAction, NodeExecutionCommitContext, NodeExecutionHook,
     compute_consensus_action_root,
@@ -271,8 +271,8 @@ pub(super) fn run(options: &Options, receipt: &Receipt) {
             super::super::super::super::world_service_api::take_last_service_error()
                 .map(|reason| persist_service_diagnostic(&reason))
         });
-        let client = oasis7::world_service::client::RemoteWorldServiceClient::new(
-            oasis7::world_service::client::WorldServiceClientConfig {
+        let client = oasis7_world_service::client::RemoteWorldServiceClient::new(
+            oasis7_world_service::client::WorldServiceClientConfig {
                 formal_read_trust: None,
                 endpoint,
                 trusted_service_public_key: receipt.service_public_key.clone(),
