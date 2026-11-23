@@ -45,6 +45,24 @@ ISSUE_METADATA_INPUTS = {
     '.github/ISSUE_TEMPLATE/test.yml',
 }
 
+# Exact non-Rust/non-Markdown files in fixed root vendor patches. Neighboring or
+# version-bumped paths remain unregistered and fail closed until reviewed.
+VENDOR_RUST_METADATA_INPUTS = {
+    'vendor-if-watch-3.2.2/Cargo.toml.orig',
+    'vendor-libp2p-quic-0.14.0/.gitignore',
+    'vendor-libp2p-quic-0.14.0/LICENSE',
+    'vendor-libp2p-rendezvous-0.18.1/src/generated/rpc.proto',
+    'vendor-libp2p-swarm-0.48.0/LICENSE',
+}
+
+VENDOR_PROVENANCE_INPUTS = {
+    'vendor-if-watch-3.2.2/upstream-source-sha256.json',
+    'vendor-libp2p-rendezvous-0.18.1/LICENSE',
+    'vendor-libp2p-rendezvous-0.18.1/local-patch-sha256.json',
+    'vendor-libp2p-rendezvous-0.18.1/upstream-source-sha256.json',
+    'vendor-libp2p-swarm-0.48.0/upstream-source-sha256.json',
+}
+
 
 def retired_document_metadata_path(path):
     # This is a bounded deletion migration, not a registration of live inputs.
@@ -259,9 +277,14 @@ def plan(args):
             all_units('scan configuration: ' + path)
         elif name == '.gitattributes':
             all_units('Git checkout attributes: ' + path)
-        elif path in ('vendor-libp2p-quic-0.14.0/.gitignore', 'vendor-libp2p-quic-0.14.0/LICENSE'):
-            # Metadata travels with this fixed Rust dependency; do not treat
+        elif path in VENDOR_RUST_METADATA_INPUTS:
+            # Metadata travels with these fixed Rust dependencies; do not treat
             # neighboring unclassified files as registered or excluded.
+            add('rust-repo', path)
+        elif path in VENDOR_PROVENANCE_INPUTS:
+            # Consumed by scripts/libp2p-security-source.test.py and paired with
+            # the fixed Rust vendor packages; neighboring files stay closed.
+            add('python-repo', path)
             add('rust-repo', path)
         elif suffix == '.rs' or name in ('Cargo.toml', 'Cargo.lock', 'rust-toolchain', 'rust-toolchain.toml') or path.startswith('.cargo/'):
             add('rust-repo', path)
