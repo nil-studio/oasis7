@@ -118,7 +118,7 @@ impl FileFormalEndpoint {
             .as_ref()
             .map(|id| self.store.get::<FormalRequestStateV1>(id))
             .transpose()?;
-        Ok(progress_from_entry(fixed, entry.as_ref())?)
+        progress_from_entry(fixed, entry.as_ref())
     }
 
     pub(super) fn update_recovery_progress(

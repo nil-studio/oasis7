@@ -86,7 +86,7 @@ impl ControlledFileWriterProvider {
             .ok_or_else(|| invalid("writer replay requires the original Frozen certificate"))?;
         self.validate_recovery_certificate(certificate)?;
         certificate.matches_record(record)?;
-        if record.position != position.to_owned()
+        if record.position != *position
             || record.frozen_reservation_id.as_deref() != Some(reservation_id.as_str())
             || record.handoff.as_ref() != handoff.as_ref()
             || record.parent_record_id != recovery.body().sealed_cut.record_id

@@ -398,9 +398,33 @@ impl FormalLiveRuntime {
                         &*business_reader,
                     )
                     .map_err(|error| format!("formal replica recovery native restore: {error}"))?;
-                super::formal_live_reconcile::DualNativeRestore {
-                    primary: (primary, p),
-                    replica: (replica, r),
+                // Schema-3 recovery owns only the cut/C+1 control boundary.
+                // Once either endpoint has advanced into ordinary business
+                // publications (C+2 or later), a crash between the two
+                // publish_qualified calls must be repaired by the normal
+                // proof-complete dual-native reconciliation path.
+                let control_position = permission
+                    .cut()
+                    .record()
+                    .position
+                    .checked_add(1)
+                    .ok_or("recovery control position overflow")?;
+                if p.commit().record().position > control_position
+                    || r.commit().record().position > control_position
+                {
+                    super::formal_live_reconcile::restore_dual_native(
+                        primary,
+                        replica,
+                        permission.original_authority(),
+                        Some(permission.recovery()),
+                        Some(permission.cut()),
+                        &*business_reader,
+                    )?
+                } else {
+                    super::formal_live_reconcile::DualNativeRestore {
+                        primary: (primary, p),
+                        replica: (replica, r),
+                    }
                 }
             } else {
                 super::formal_live_reconcile::restore_dual_native(
