@@ -1,5 +1,5 @@
 use super::*;
-use oasis7_hosted_access::process_env::{remove_var as unset_env, set_var as set_env};
+use oasis7_hosted_access::process_env::set_var as set_env;
 
 #[path = "auth_actions_agent_chat_echo.rs"]
 mod echo_tests;
