@@ -426,10 +426,14 @@ pub(super) fn take_retryable_transport_path(
     if tracked.connection_id != connection {
         return None;
     }
-    let deadline_elapsed =
-        super::resource_budget::dial_path_hit_handshake_deadline(error, &tracked.path.addr);
+    let local_budget_stopped =
+        super::resource_budget::dial_path_hit_handshake_deadline(error, &tracked.path.addr)
+            || super::resource_budget::dial_path_hit_outbound_budget_denial(
+                error,
+                &tracked.path.addr,
+            );
     let completed = last_dialed_transport_paths.remove(&peer)?;
-    (!deadline_elapsed).then_some(completed.path)
+    (!local_budget_stopped).then_some(completed.path)
 }
 
 pub(super) fn retry_transport_path_after_error(

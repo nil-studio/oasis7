@@ -2193,7 +2193,11 @@
       "reason": "quic_patch_consumers"
     },
     {
-      "match": ["vendor-libp2p-swarm-0.48.0/src/**"],
+      "match": [
+        "vendor-libp2p-swarm-0.48.0/src/**",
+        "vendor-libp2p-swarm-0.48.0/LICENSE",
+        "vendor-libp2p-swarm-0.48.0/upstream-source-sha256.json"
+      ],
       "groups": ["rust_baseline", "net", "node"],
       "reason": "swarm_patch_consumers"
     },
