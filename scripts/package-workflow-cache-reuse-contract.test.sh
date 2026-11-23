@@ -329,6 +329,7 @@ budget_entries = {
     'ecs-packages.yml': ('ECS_CACHE_REPOSITORY_BUDGET_BYTES', 1),
     'release-packages.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 2),
     'testnet-packages.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 1),
+    'hosted-login-linux-build.yml': ('CI_CACHE_REPOSITORY_BUDGET_BYTES', 1),
 }
 budget_assignment = re.compile(
     r'^( +)((?:CI|ECS)_CACHE_REPOSITORY_BUDGET_BYTES|'
@@ -412,7 +413,7 @@ reject_budget_mutation(budget_workflows | {
 reject_budget_mutation(budget_workflows | {
     'unregistered-budget.yml': 'env:\n  CI_CACHE_REPOSITORY_BUDGET_BYTES: "20000000000"\n'},
     'new budget-bearing workflow')
-print(f'ok: five repository-wide 20 GB budgets and forwarding; {budget_negative_cases} drift mutations rejected')
+print(f'ok: {len(budget_entries)} repository-wide 20 GB budgets and forwarding; {budget_negative_cases} drift mutations rejected')
 
 assert "\ncache-mode: read\n" in mainnet
 native_gates = ("release_gate_runtime_core", "release_gate_runtime_support",
