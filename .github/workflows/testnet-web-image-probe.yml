@@ -164,6 +164,20 @@ jobs:
             CARGO="$cargo_adapter" OASIS7_TRUNK_CARGO="$real_cargo" \
               env -u NO_COLOR trunk build --release --locked --dist ../../output/testnet-packages/web-launcher-dist
           )
+      - name: Upload web dist artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: testnet-web-dists
+          path: |
+            output/testnet-packages/web-dist
+            output/testnet-packages/web-launcher-dist
+          if-no-files-found: error
+      - name: Upload viewer web delivery
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: testnet-viewer-web-delivery
+          path: output/testnet-packages/oasis7-viewer-web-delivery.tar.gz
+          if-no-files-found: error
       - name: Verify diagnostic source and web artifact integrity
         env:
           SOURCE_PLAN: ${{ needs.plan.outputs.sourcePlan }}
@@ -172,6 +186,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "$PLANNED_PACKAGE_SOURCE"
           git diff --exit-code HEAD --
           python3 - <<'PYTHON'
+          import gzip
           import hashlib
           import json
           import os
@@ -183,7 +198,6 @@ jobs:
           launcher = root / "web-launcher-dist"
           archive = root / "oasis7-viewer-web-delivery.tar.gz"
           payload_name = "pixel_world_bridge_bindgen_bg.wasm"
-          into_archive = f"viewer-optional-payload/{payload_name}"
 
           def digest(path):
               with path.open("rb") as stream:
@@ -199,12 +213,18 @@ jobs:
               assert any(path.stat().st_size > 0 for path in dist.rglob("*.wasm")), dist
           assert not list(viewer.rglob(payload_name))
           with tarfile.open(archive, "r:gz") as delivery:
-              payload = delivery.extractfile(into_archive).read()
               manifest = json.load(delivery.extractfile("optional-payloads.json"))[payload_name]
               assert manifest["available"] is True
+              assert manifest["delivery"] == "separate_artifact"
+              assert manifest["path"] == f"viewer-optional-payload/{manifest['sha256']}.wasm"
+              payload = delivery.extractfile(manifest["path"]).read()
               assert manifest["size_bytes"] == len(payload)
               assert manifest["sha256"] == hashlib.sha256(payload).hexdigest()
-              assert manifest["delivery"] == "separate_artifact"
+              encoding = manifest["encodings"]["gzip"]
+              assert encoding["path"] == manifest["path"] + ".gz"
+              compressed = delivery.extractfile(encoding["path"]).read()
+              assert encoding["size_bytes"] == len(compressed)
+              assert gzip.decompress(compressed) == payload
               assert delivery.getmember("index.html").size > 0
           files = {
               str(path.relative_to(root)): digest(path)
@@ -224,20 +244,6 @@ jobs:
           destination.write_text(json.dumps(result, sort_keys=True, indent=2) + "\n", encoding="utf-8")
           print(f"Verified {len(files)} deliverable SHA-256s on {plan['checkoutSha']}")
           PYTHON
-      - name: Upload web dist artifacts
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: testnet-web-dists
-          path: |
-            output/testnet-packages/web-dist
-            output/testnet-packages/web-launcher-dist
-          if-no-files-found: error
-      - name: Upload viewer web delivery
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: testnet-viewer-web-delivery
-          path: output/testnet-packages/oasis7-viewer-web-delivery.tar.gz
-          if-no-files-found: error
       - name: Upload diagnostic source and checksums
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
