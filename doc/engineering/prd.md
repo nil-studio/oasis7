@@ -91,7 +91,7 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
   3. Flow-ENG-003: 文档变化 → 选择对应领域与职责 → 同步消费者与索引 → 适用文档检查。
   4. Flow-ENG-008: 多个就绪代码任务 → 独立开发会话分别领取 → 各会话在单子任务单活在途开放 PR 边界内完成本地多 commit 收敛、自测并跟进 PR → 负责人验证实际组合。
   5. Flow-ENG-009: 获得高价值反馈 → 核对事实、影响及用户范围 → 修复当前问题或记录可读建议；无需自动转任务、memory 或 stage。
-  6. Flow-ENG-011: 按[项目拆解规则](workflow/source-of-truth.md#project-decomposition)核对完整目标与验收 → 组织可用模块增量和关键依赖 → 细化当前及近期批次，参考[代码任务规模建议](workflow/source-of-truth.md#code-task-file-limit)与[小而完整的 PR](workflow/source-of-truth.md#small-complete-pr)，归并同 CI 受影响范围的同类待办并把有拆分收益的开发任务建为原生 sub-issue → 按子项领取（建议规模内默认单 PR 收口）并及时集成验收。父项保留后续范围与全部剩余义务；模块分组不强制另建中间 Issue，内部步骤用清单，Project 按需展示，看板故障不停止就绪工作。
+  6. Flow-ENG-011: 按[项目拆解规则](workflow/source-of-truth.md#project-decomposition)核对完整目标与验收 → 组织可用模块增量和关键依赖 → 细化当前及近期批次，参考[代码任务规模建议](workflow/source-of-truth.md#code-task-file-limit)、[小而完整的 PR](workflow/source-of-truth.md#small-complete-pr)与[预计 PR 边界](workflow/source-of-truth.md#planned-pr-scope)，归并同 CI 受影响范围的同类待办、把有拆分收益的开发任务建为原生 sub-issue 并同步划定预计 PR 批次 → 按子项领取并沿预定 PR 边界收口（实做需调整批次时简述原因）并及时集成验收。父项保留后续范围与全部剩余义务；模块分组不强制另建中间 Issue，内部步骤用清单，Project 按需展示，看板故障不停止就绪工作。
   7. Flow-ENG-014: 独立分支或按需 worktree → 保留各工作区的本地 Cargo target和运行隔离 → 连续开发验证 → 正常 PR 与合入 → 独立安全清理。
   8. Flow-ENG-016: 只读查询或分析 → 直接提供事实或按需专业判断；不创建流程身份、工作区或远程记录。
   9. Flow-ENG-017: 收到 CI、评审或验收反馈 → 优先续接原开发会话 → 修复并验证 → 更新原 Issue/PR；需要独立审阅时另行安排，不增加固定角色链。
@@ -110,7 +110,7 @@ Trace refs: O7-REQ-276983b3-3187-405e-8453-e2785f01c5e6；本页的现行流程�
 | 协作交接 | 当前 Issue/PR、具体问题、必要上下文、允许范围和预期结果 | 引用已有任务内容，补充本次需要的信息；模板按需使用 | 跟随实际任务与交付状态 | 不另建角色交接状态或回执链 | 原负责人交接，接手者核实范围与已有成果 |
 - Acceptance Criteria:
   - AC-1: engineering PRD 明确文件约束、脚本约束、测试分层约束。
-  - AC-2: 父目标能定位已验证的可用结果、当前批次、关键阻塞、待集成/待验收成果及全部剩余义务；按拆分收益与 CI 受影响范围细化或归并近期任务，后续未细化范围不阻塞当前就绪工作，决定架构可行性的约束须提前核对。独立代码任务参考[尽量不超过 30 个代码文件](workflow/source-of-truth.md#code-task-file-limit)与[小而完整的 PR](workflow/source-of-truth.md#small-complete-pr)，建议规模内默认单 PR 收口且单子项同一时刻原则上只保持一个在途开放 PR（解阻前置除外）；超过规模或确需拆多 PR 时说明完整交付需要和范围取舍，文件数与 PR 数不单独阻断交付。独立开发任务通过原生父子 Issue 跟踪与领取并关联实际 PR、CI 和验收；不以子项数量代替整体进展。简单修改可直接用 PR，模块分组和 Project 按需使用，不另建台账或状态副本。
+  - AC-2: 父目标能定位已验证的可用结果、当前批次、关键阻塞、待集成/待验收成果及全部剩余义务；按拆分收益与 CI 受影响范围细化或归并近期任务，后续未细化范围不阻塞当前就绪工作，决定架构可行性的约束须提前核对。独立代码任务参考[尽量不超过 30 个代码文件](workflow/source-of-truth.md#code-task-file-limit)、[小而完整的 PR](workflow/source-of-truth.md#small-complete-pr)与[预计 PR 边界](workflow/source-of-truth.md#planned-pr-scope)，建单/拆单时预先明确单 PR 收口或具体多 PR 批次范围，单子项同一时刻原则上只保持一个在途开放 PR（解阻前置除外）；超过规模、确需拆多 PR 或实做调整原定批次时说明完整交付需要和范围取舍，偶发合理大/小 PR 不以文件数或 PR 数单独阻断交付。独立开发任务通过原生父子 Issue 跟踪与领取并关联实际 PR、CI 和验收；不以子项数量代替整体进展。简单修改可直接用 PR，模块分组和 Project 按需使用，不另建台账或状态副本。
   - AC-3: 与 `doc/scripts/precommit/pre-commit.prd.md`、`testing-manual.md` 的口径一致。
   - AC-5: 新增工程治理专题若引入运行态治理层，必须明确与正式文档层的分工边界，并在当前 PR 或按需 Issue 记录本次范围；复杂协调按需使用 Issue/Project，不作为普通 PR 准入。
   - AC-6: 文档治理脚本从实际一级目录和根 README 的准确 Markdown 链接核对入口，检查路径/锚点/ID、已声明关系与正向完成证据；标题、固定章节/列数及普遍状态字段作写作提示，不用完整路径 allowlist 冻结文件。

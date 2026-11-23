@@ -20,7 +20,7 @@ Trace refs: O7-REQ-1a003dc5-18f2-4cd3-adbb-d1b95316086e、O7-REQ-f1388c2b-6f64-4
 
 缺陷根因不明或证据不足时，保留缺陷类型并列出补证条件；明确文档缺口转文档，设计充分或已有明确 bug 合同转代码，需 owner 取舍转决策，当前目标为独立测试或开发 PR 合入后的剩余复杂测试，且范围/环境/退出条件明确时转测试。文档完成后可转代码，决策完成后可转文档，普通开发自测不单独转为测试项。
 
-转为代码只确定主交付物；按[可验证的代码任务](../../../doc/engineering/workflow/source-of-truth.md#verifiable-code-task)核对它承载父目标还是具体执行项，并按[代码任务规模建议](../../../doc/engineering/workflow/source-of-truth.md#code-task-file-limit)复核预计范围与数量，尽量不超过 30 个代码文件。超过时评估拆分收益与完整交付需要，保留较大任务时说明原因；不因数量自动退回重拆。父项缺少必要拆分时保留总体目标、有效认领和暂停，说明待明确范围及负责人；拆出的开发任务须按[原生 sub-issue 规则](../../../doc/engineering/workflow/source-of-truth.md#code-task-sub-issues)承接。类型转换不代表父项全部范围可直接实施。
+转为代码只确定主交付物；按[可验证的代码任务](../../../doc/engineering/workflow/source-of-truth.md#verifiable-code-task)核对它承载父目标还是具体执行项，并按[代码任务规模建议](../../../doc/engineering/workflow/source-of-truth.md#code-task-file-limit)与[预计 PR 边界](../../../doc/engineering/workflow/source-of-truth.md#planned-pr-scope)复核预计文件数及预定 PR 交付批次（建议规模内默认写明单 PR 收口，确需多 PR 时预列各批范围，较大原子单 PR 或极小解阻 PR 简述原因，不因数量自动退回重拆）。父项缺少必要拆分时保留总体目标、有效认领和暂停，说明待明确范围及负责人；拆出的开发任务须按[原生 sub-issue 规则](../../../doc/engineering/workflow/source-of-truth.md#code-task-sub-issues)承接。类型转换不代表父项全部范围可直接实施。
 
 转换沿用原 ID，保留原问题、讨论、完成成果和全部未完义务；补齐目标类型的来源、范围、验收、依赖、交付终点和真实下一责任人，无人承接时注明待承接。在同仓库写入互斥内重新读取执行者与最新状态，更新正文当前目标、唯一类型，并以一条有实质变化的评论记录依据、完成项和剩余项；写后分别回读。五类标签定义须先存在，不在巡检中创建定义。缺权限、标签或安全协调时保留待修正，不假称转换成功。
 
