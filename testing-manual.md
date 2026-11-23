@@ -319,7 +319,7 @@ GITHUB_REPOSITORY=nil-studio/oasis7 python3 scripts/ci-full-result.py health
   - hosted 完整覆盖由全部配置组、平台矩阵和 full 扩展共同提供，不能仅凭本地函数名或单个 `full` 命令通过推断跨平台完整结果。
   - `cargo test -p oasis7 -p oasis7_viewer_runtime --tests --features test_tier_full,wasmtime,viewer_live_integration`
   - `cargo test -p oasis7_node --lib`
-  - `cargo test -p oasis7_net --lib`（默认启用 `libp2p` 和 `self_tests`）；libp2p 兼容、vendor 及 WASM 检查保留为独立命令。
+  - `cargo test -p oasis7_net --lib`（默认启用 `libp2p` 和 `self_tests`）；vendor 和 WASM 检查保留各自入口。
   - `./scripts/llm-baseline-fixture-smoke.sh`
   - `run_workspace_support_full_feature_tests` 按实际 manifest 对适用 support 包执行 required/full/wasmtime/viewer 等完整 feature 并集和 `--all-targets`，与原 profile 共同保留首次 PR 之后的周期覆盖。
   - 构建真实生产 `oasis7_chain_runtime` / `oasis7_game_launcher`：Chain 所属包启用 `wasmtime`，Launcher 使用 `oasis7_launcher_backend` 的默认 features，两者均不含 test-tier feature。`scripts/hosted-local-mock-production-guard.py` 按所属包核对 Cargo artifact 清单中的 manifest、bin target、非 test harness 与各自的 feature 要求，再分别启动并核对 Hosted local-mock funding 参数被生产 guard 精确拒绝；不以其他启动错误代替拒绝结果。
@@ -1088,12 +1088,11 @@ Phase 6 world-state integration / release:
 ```bash
 ./scripts/game-world-state-sync-commit-module-required.sh
 ```
-- 等价展开命令：
+- 同等覆盖的手工命令（省略脚本重复的 Net 原生执行）：
 ```bash
 env -u RUSTC_WRAPPER cargo test -p oasis7 --tests --features test_tier_required
 env -u RUSTC_WRAPPER cargo test -p oasis7_node
 env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib
-env -u RUSTC_WRAPPER cargo test -p oasis7_net --features libp2p --lib
 env -u RUSTC_WRAPPER cargo test -p oasis7_consensus --lib
 env -u RUSTC_WRAPPER cargo test -p oasis7_distfs --lib
 ./scripts/p2p-mixed-topology-matrix.sh --tier required

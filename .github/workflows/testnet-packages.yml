@@ -48,7 +48,7 @@ jobs:
   plan:
     name: plan-testnet-package-scope
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     outputs:
       checkoutSha: ${{ steps.source.outputs.checkoutSha }}
       resolvedRef: ${{ steps.source.outputs.resolvedRef }}
@@ -103,7 +103,7 @@ jobs:
   full-regression-qualification:
     needs: plan
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     permissions:
       contents: read
       actions: read
@@ -124,7 +124,7 @@ jobs:
     name: build-web-dist
     needs: plan
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 35
     permissions:
       contents: read
       packages: read

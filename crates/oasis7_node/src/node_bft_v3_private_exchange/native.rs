@@ -51,12 +51,29 @@ pub trait NodeBftCommittedReadCredentialsV3: Send + Sync {
 mod client;
 #[path = "package.rs"]
 mod package;
+
 #[path = "server.rs"]
 mod server;
 #[path = "wire.rs"]
 mod wire;
 use oasis7_net::AuthenticatedHandlerRegistration;
 use std::{collections::BTreeSet, thread::JoinHandle, time::Duration};
+
+/// Encode already authorized private material using the native exchange format.
+/// This codec supplies no read permission, provenance or execution authority.
+pub fn encode_bft_v3_private_candidate_package(
+    candidate: &NodeBftPrivateCandidatePackageV3,
+) -> Result<Vec<u8>, String> {
+    package::encode_package(candidate)
+}
+
+/// Decode bounded original transport bytes. The consumer must independently
+/// verify its qualified parent, exact closure and actual Runtime execution.
+pub fn decode_bft_v3_private_candidate_package(
+    bytes: &[u8],
+) -> Result<NodeBftPrivateCandidatePackageV3, String> {
+    package::decode_package(bytes)
+}
 
 pub struct NodeBftPrivateExchangeConfigV3 {
     pub binding: BftSignerBindingV3,

@@ -2245,6 +2245,21 @@
     },
     {
       "match": [
+        "scripts/shared-devnet-blocker-packet-smoke.sh",
+        "scripts/shared-devnet-blocker-packet.sh",
+        "scripts/shared-devnet-rehearsal-smoke.sh",
+        "scripts/shared-devnet-rehearsal.sh",
+        "scripts/shared-network-track-gate-smoke.sh",
+        "scripts/shared-network-track-gate.sh",
+        "scripts/wasm-bindgen-test-runner.sh"
+      ],
+      "groups": [
+        "operational_contracts"
+      ],
+      "reason": "retired_legacy_scripts"
+    },
+    {
+      "match": [
         "scripts/oasis7-pure-api-parity-smoke.sh",
         "scripts/governance-registry-drill.sh",
         "scripts/governed-rollback-v2-drill.sh",

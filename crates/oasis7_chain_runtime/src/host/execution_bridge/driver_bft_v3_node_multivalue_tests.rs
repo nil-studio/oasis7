@@ -25,7 +25,10 @@ fn candidate(
         })
         .unwrap()
 }
-fn package(h: &QualifiedH<BftProfileTargetV2>, id: u64) -> NodeBftPrivateCandidatePackageV3 {
+pub(super) fn package(
+    h: &QualifiedH<BftProfileTargetV2>,
+    id: u64,
+) -> NodeBftPrivateCandidatePackageV3 {
     let root = Scratch::new();
     let store = cas(root.path());
     let actual = driver(h, root.path(), &store);
