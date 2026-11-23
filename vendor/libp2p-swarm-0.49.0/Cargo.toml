@@ -1,9 +1,9 @@
 [package]
 name = "libp2p-swarm"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.89.0"
 description = "The libp2p swarm"
-version = "0.48.0"
+version = "0.49.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 license = "MIT"
 repository = "https://github.com/libp2p/rust-libp2p"
@@ -17,10 +17,10 @@ futures = { version = "0.3" }
 futures-timer = { version = "3.0.4" }
 web-time = { version = "1.1" }
 hashlink = { version = "0.12" }
-libp2p-core = { git = "https://github.com/libp2p/rust-libp2p", rev = "2d8497b2615086bd88018ef3a1fb32bc613a07ca" }
-libp2p-identity = { version = "0.3.0" }
-libp2p-swarm-derive = { git = "https://github.com/libp2p/rust-libp2p", rev = "2d8497b2615086bd88018ef3a1fb32bc613a07ca", optional = true }
-multistream-select = { git = "https://github.com/libp2p/rust-libp2p", rev = "2d8497b2615086bd88018ef3a1fb32bc613a07ca" }
+libp2p-core = { git = "https://github.com/libp2p/rust-libp2p", rev = "2cb3c04346fdcb0ecf6717728664602378edac13" }
+libp2p-identity = { version = "0.3.1" }
+libp2p-swarm-derive = { git = "https://github.com/libp2p/rust-libp2p", rev = "2cb3c04346fdcb0ecf6717728664602378edac13", optional = true }
+multistream-select = { git = "https://github.com/libp2p/rust-libp2p", rev = "2cb3c04346fdcb0ecf6717728664602378edac13" }
 rand = { version = "0.10" }
 smallvec = "1.15"
 tracing = { version = "0.1" }
@@ -36,8 +36,5 @@ wasm-bindgen-futures = { version = "0.4" }
 macros = ["dep:libp2p-swarm-derive"]
 tokio = ["dep:tokio"]
 
-
-[workspace]
-
 [package.metadata.oasis7-compat]
-upstream-revision = "2d8497b2615086bd88018ef3a1fb32bc613a07ca"
+upstream-revision = "2cb3c04346fdcb0ecf6717728664602378edac13"

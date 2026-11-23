@@ -10,7 +10,7 @@ import tomllib
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-PATCH = "vendor-if-watch-3.2.2"
+PATCH = "vendor/if-watch-3.2.2"
 
 
 class RustCoverageTests(unittest.TestCase):

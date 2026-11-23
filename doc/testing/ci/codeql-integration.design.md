@@ -39,7 +39,7 @@
 | `pr-lifecycle-gate.py` 会读取 required policy，也会无条件阻断 `UNSTABLE` | “不是 required”仍可能成为事实门禁，必须修兼容性 | R3 |
 | required-scope 的未知路径采用 full 回退 | 新安全路径需显式归类；当前未登记路径按[CI 门禁](ci-tiered-execution.prd.md#ci-unknown-inputs)阻断，不作自动豁免，解析失败仍保留全量 | R4 |
 | 核心代码为多 crate Rust workspace，另有 Python/JS 与大量工作流资产 | 四语言接入；分语言隔离工具安装和扫描耗时 | R5、R6 |
-| 根 Cargo 使用本地 patched vendor 依赖 | 不能通配忽略 `vendor-*`，把维护中的补丁漏掉 | R5 |
+| 根 Cargo 使用本地 patched vendor 依赖 | 不能通配忽略 `vendor/*`（及历史 `vendor-*`），把维护中的补丁漏掉 | R5 |
 | 审查基线的旧 workflow 曾区分 system 与 code loop | 仅作历史设计依据；当前按开发流程规范围绕交付目的组织 PR，不恢复两 PR 准入 | R7 |
 | 现有 CI 包含 `cargo deny check advisories` | 保留现有依赖安全检查，不让 CodeQL 重复或替代它 | R8 |
 

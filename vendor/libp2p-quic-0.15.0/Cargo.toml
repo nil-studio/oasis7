@@ -1,20 +1,20 @@
 [package]
 name = "libp2p-quic"
-version = "0.14.0"
+version = "0.15.0"
 authors = ["Parity Technologies <admin@parity.io>"]
 edition = "2024"
-rust-version = "1.88.0"
+rust-version = "1.89.0"
 description = "TLS based QUIC transport implementation for libp2p"
 repository = "https://github.com/libp2p/rust-libp2p"
 license = "MIT"
 
 [dependencies]
 futures = { version = "0.3" }
-futures-timer = { version = "3.0" }
+futures-timer = { version = "3.0.4" }
 if-watch = { version = "3.2" }
-libp2p-core = { git = "https://github.com/libp2p/rust-libp2p", rev = "2d8497b2615086bd88018ef3a1fb32bc613a07ca" }
-libp2p-tls = { git = "https://github.com/libp2p/rust-libp2p", rev = "2d8497b2615086bd88018ef3a1fb32bc613a07ca" }
-libp2p-identity = { version = "0.3.0" }
+libp2p-core = { git = "https://github.com/libp2p/rust-libp2p", rev = "2cb3c04346fdcb0ecf6717728664602378edac13" }
+libp2p-tls = { git = "https://github.com/libp2p/rust-libp2p", rev = "2cb3c04346fdcb0ecf6717728664602378edac13" }
+libp2p-identity = { version = "0.3.1" }
 quinn = { version = "0.11", default-features = false, features = ["rustls-aws-lc-rs", "futures-io"] }
 quinn-proto = { version = "0.11", default-features = false, features = ["bloom", "log", "ring"] }
 rand = { version = "0.10" }
@@ -32,7 +32,5 @@ tokio = ["dep:tokio", "if-watch/tokio", "quinn/runtime-tokio"]
 [package.metadata.docs.rs]
 all-features = true
 
-[workspace]
-
 [package.metadata.oasis7-compat]
-upstream-revision = "2d8497b2615086bd88018ef3a1fb32bc613a07ca"
+upstream-revision = "2cb3c04346fdcb0ecf6717728664602378edac13"

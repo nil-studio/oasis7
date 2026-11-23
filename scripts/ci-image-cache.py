@@ -49,7 +49,7 @@ def build_variants(root, profile):
         native('node', ['-p', 'oasis7_node', '--lib'])
     elif profile == 'net':
         native('net', ['-p', 'oasis7_net', '--lib'])
-        cargo('if-watch', 'test', ['--manifest-path', './vendor-if-watch-3.2.2/Cargo.toml',
+        cargo('if-watch', 'test', ['--manifest-path', './vendor/if-watch-3.2.2/Cargo.toml',
                                   '--target-dir', './target', '--all-features', '--lib'])
         native('net-libp2p', ['-p', 'oasis7_net', '--features', 'libp2p', '--lib'])
         wasm = {'CC_wasm32_unknown_unknown': 'clang', 'AR_wasm32_unknown_unknown': 'llvm-ar'}
