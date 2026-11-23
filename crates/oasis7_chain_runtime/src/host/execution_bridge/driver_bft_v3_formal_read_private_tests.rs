@@ -94,8 +94,8 @@ fn private_auth_case() {
         .install_prefix(&prefix, exact_target.height, &exact_target.header_id)
         .unwrap();
     assert_eq!(cut.world().state().time, exact_target.height);
-    let publication = oasis7::world_service::formal_bft_header_read_service::FormalBftHeaderReadPublicationV4::new(
-        oasis7::world_service::formal_bft_header_read_service::FormalBftHeaderReadPublicationInputV4 {
+    let publication = oasis7_world_service::formal_bft_header_read_service::FormalBftHeaderReadPublicationV4::new(
+        oasis7_world_service::formal_bft_header_read_service::FormalBftHeaderReadPublicationInputV4 {
             handoff_anchor: h.anchor.clone(),
             target_config: h.target.clone(),
             exact_target: exact_target.clone(),
@@ -242,7 +242,7 @@ fn signed_delegation(
     revoked: bool,
 ) -> SignedReadRequest<AgentSignerDelegationChangeV1> {
     let binding = world.current_cognition_runtime_binding().unwrap();
-    oasis7::world_service::authority::sign_read_request(
+    oasis7_world_service::authority::sign_read_request(
         "delegation",
         AgentSignerDelegationChangeV1 {
             world_id: binding.world_id,

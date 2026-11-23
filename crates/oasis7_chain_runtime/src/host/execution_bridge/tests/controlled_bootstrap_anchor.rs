@@ -388,7 +388,7 @@ fn cli_fixture(absent_genesis: bool) -> (Vec<u8>, Vec<u8>) {
     cli_fixture_with_snapshot(snapshot, journal)
 }
 pub(crate) fn live_cli_fixture() -> (Vec<u8>, Vec<u8>) {
-    let public = oasis7::world_service::sign_read_request("owner", (), &hex::encode([7; 32]))
+    let public = oasis7_world_service::sign_read_request("owner", (), &hex::encode([7; 32]))
         .unwrap()
         .subject_public_key;
     let world = super::super::tests::world_service::live_fixture_world(&trust().world_id, &public);

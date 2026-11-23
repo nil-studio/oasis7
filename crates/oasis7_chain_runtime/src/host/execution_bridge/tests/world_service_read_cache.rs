@@ -364,7 +364,7 @@ fn effective_host_config_flows_into_current_and_historical_service_reads() {
     let options = crate::cli::CliOptions {
         development_runtime: true,
         devlocal_participant_operator_public_key: Some(
-            oasis7::world_service::sign_read_request("test", (), &hex::encode([77; 32]))
+            oasis7_world_service::sign_read_request("test", (), &hex::encode([77; 32]))
                 .unwrap()
                 .subject_public_key,
         ),

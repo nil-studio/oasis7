@@ -424,7 +424,7 @@ mod tests {
             state_root_ref: "root".into(),
         };
         let mut projection =
-            oasis7::world_service::projection::from_world(&server.world, None).unwrap();
+            oasis7_world_service::projection::from_world(&server.world, None).unwrap();
         projection.runtime_binding = None;
         let response = ReadWorldViewResponse {
             contract_version: WORLD_SERVICE_CONTRACT_VERSION,

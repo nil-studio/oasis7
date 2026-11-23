@@ -709,7 +709,7 @@ pub(crate) fn history_successor(
     record.after_state_root = material.after_state_root.clone();
     record.artifact_roots = material.roots.clone();
     record.projection_root =
-        oasis7::world_service::formal_projection::commitments_for_world(&after)
+        oasis7_world_service::formal_projection::commitments_for_world(&after)
             .unwrap()
             .root()
             .unwrap();
@@ -736,7 +736,7 @@ pub(crate) fn history_successor(
         }
     }
     let update =
-        oasis7::world_service::formal_result::FormalBusinessResultTreeV1::extend_with_parent_proof(
+        oasis7_world_service::formal_result::FormalBusinessResultTreeV1::extend_with_parent_proof(
             &after,
             &record,
             &business_tree,

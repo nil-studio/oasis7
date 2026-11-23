@@ -95,8 +95,8 @@ pub(crate) fn select_original_input(
         .ok_or("crash target original request missing")?;
     let bytes =
         crate::controlled_history_cli::read_bounded(std::path::Path::new(&path), 1024 * 1024)?;
-    let expected: oasis7::world_service::SubmitIntentRequest<
-        oasis7::world_service::WorldServicePayloadV1,
+    let expected: oasis7_world_service::SubmitIntentRequest<
+        oasis7_world_service::WorldServicePayloadV1,
     > = serde_cbor::from_slice(&bytes).map_err(|e| e.to_string())?;
     expected.validate().map_err(|e| e.to_string())?;
     let (_, _, _, inputs) =

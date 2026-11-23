@@ -597,7 +597,7 @@ fn runtime_config(
         .as_bytes(),
     )
     .unwrap();
-    let pin = oasis7::world_service::client::FormalReadTrustConfigV1 {
+    let pin = oasis7_world_service::client::FormalReadTrustConfigV1 {
         initial_trust: trust.clone(),
         checkpoint_digest: archive
             .resolver
