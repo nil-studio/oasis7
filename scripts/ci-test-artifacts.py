@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build once and run native test executables without Cargo on consumers."""
 import argparse
+from datetime import datetime, timezone
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import gzip
 import hashlib
@@ -1400,7 +1401,10 @@ class BuildObservation:
         self.process = self.observer = None
         self.before = {}
         self.started = time.monotonic()
-        self.report = dict(variant=variant, status='running', cargo_exit_code=None, timings=[])
+        self.report = dict(variant=variant, status='running', cargo_exit_code=None, timings=[],
+                           started_at=datetime.now(timezone.utc).isoformat(),
+                           completed_units=0, latest_completed_unit=None)
+        self.last_unit_write = self.started
 
     def warn(self, error):
         print(f'::warning::Build diagnostics for {self.variant}: {type(error).__name__}', flush=True)
@@ -1416,6 +1420,7 @@ class BuildObservation:
         if self.directory is not None:
             try:
                 self.report['elapsed_seconds'] = round(time.monotonic() - self.started, 3)
+                self.report['observed_at'] = datetime.now(timezone.utc).isoformat()
                 temporary = self.directory / 'build.json.tmp'
                 temporary.write_text(json.dumps(self.report, indent=2) + '\n')
                 temporary.replace(self.directory / 'build.json')
@@ -1435,6 +1440,21 @@ class BuildObservation:
                 print('native_build_start=' + json.dumps(self.report), flush=True)
         return self
 
+    def observe_unit(self, artifact):
+        if self.directory is None or artifact.get('reason') != 'compiler-artifact':
+            return
+        self.report['completed_units'] += 1
+        target = artifact.get('target', {})
+        self.report['latest_completed_unit'] = dict(
+            observed_at=datetime.now(timezone.utc).isoformat(),
+            target_name=str(target.get('name', ''))[:256],
+            target_kind=[str(kind)[:64] for kind in target.get('kind', [])[:8]],
+            fresh=artifact.get('fresh') is True)
+        now = time.monotonic()
+        if now - self.last_unit_write >= 20:
+            self.write()
+            self.last_unit_write = now
+
     def attach(self, process):
         self.process = process
         if self.directory is not None:
@@ -1442,7 +1462,7 @@ class BuildObservation:
                 self.observer = subprocess.Popen([
                     sys.executable, str(Path(__file__).with_name('package-ecs-resource-monitor.py')),
                     '--out', str(self.directory / 'resources.json'), '--pid', str(process.pid),
-                    '--label', self.variant, '--heartbeat-seconds', '20'], cwd=ROOT)
+                    '--label', self.variant, '--heartbeat-seconds', '20', '--disk-path', str(ROOT)], cwd=ROOT)
             except OSError as error:
                 self.warn(error)
 
@@ -1680,6 +1700,7 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
                     artifact = json.loads(line)
                 except ValueError:
                     continue
+                observation.observe_unit(artifact)
                 if artifact.get('reason') == 'compiler-message':
                     print(artifact['message'].get('rendered', ''), end='', flush=True)
                 if variant == 'required' and shared_units is not None:

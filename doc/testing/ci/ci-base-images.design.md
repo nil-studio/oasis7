@@ -50,6 +50,14 @@ Actions 工具归档的兼容性还包含实际 archive path 和压缩方式；�
 
 第一轮以同一提交和最小正式参数运行，核对全部分区、归档及现有分片的实际测试选择与结果。单分区失败必须使汇总失败；重跑仅复用身份匹配且已完整验证的分区。当前实施和验收证据跟踪于 [#6182](https://github.com/nil-studio/oasis7/issues/6182)。
 
+### Storage producer 的构建中诊断
+
+`storage-required` 复用原生 `BuildObservation` 与资源观察器。每个 Cargo 上下文记录 UTC 开始、最近收到的 `compiler-artifact` 单元与累计数、结束和真实退出码；完成单元不表示当前活跃 rustc 的内部阶段。每秒只读采样可用内存、cgroup 计数、固定 Cargo 身份与后代的 CPU/RSS，并记录同一构建盘可用字节，每 20 秒输出摘要。RSS 是快照求和，可能重复共享页或漏短峰；未知值保留为空，心跳和 Pending 都不证明构建推进、OOM 或成功。
+
+runner 失联时尾上传和日志端点都可能不可用，因此仅明确绑定同一 source 的可信 main 手动 dispatch 在构建期间另存有界白名单 JSON 快照；其他 ref 保留原 shell 构建，不进入带 runtime 凭据的 Node action。上传复用与现行 workflow 相同固定提交的官方 `upload-artifact` 发布包，下载到 runner 临时目录并校验固定 SHA-256；不把第三方 checkout 加到候选源码，不新增 SDK、PAT 或仓库写权限。官方 action 的 runtime 凭据从 Cargo 环境剥离，不写入快照或输出环境/参数；同 UID 的进程不是凭据隔离边界，因此不能把该路径开放给未受信候选。报告读取使用 no-follow 文件描述符和有界读取，再按固定字段、类型及字符串上限投影，不上传任意 JSON 字段。每 5 分钟至多发起一次、同时最多一个上传，单份不超过 256 KiB，最多 31 份（含开始与结束），保存 2 天；总 payload 不超过 7.75 MiB，另有一次约 4.5 MB 官方发布包下载及压缩/协议开销。下载及每次上传各有独立 30 秒上限，构建开始前下载与结束后等待最多各占用 30 秒原 job 预算；下载或上传失败只告警，不能重试构建、放宽选择或改写 Cargo/pack 退出结果。
+
+artifact 名字及快照绑定 source、run、attempt、component 和递增序号，诊断不是可消费的 native component，也不参与 bundle 身份汇总。只有官方上传成功返回且可独立读取的 artifact 才证明该快照已保存；最后成功快照与失联之间仍可能缺失，网络或进程同时中断时不能保证保存事故瞬间。不得以诊断到达、构建结束或旧 source 的成功组件代签本轮完整归档及默认分片验收。首次实际诊断必须记录上传次数、大小、失败及时间开销；不改变既有 runner、150 分钟预算、profile、缓存和覆盖。
+
 ### attempt-release 的镜像消费边界
 
 仅该分片在预制镜像内运行完整 Python driver 与真实子进程，使用 Docker init、runner 的同 UID/GID 和默认 PID namespace，不增加 capabilities、privileged 或 host PID。一个 mode 0700 的 runner 文件系统目录单独 bind，TMPDIR 与采样 results 都在该目录内；预检核对宿主传入的 device/inode、容器目录身份和同 device，拒绝 overlay/tmpfs，避免资源采样只观察另一个盘。case 私有根仍由原 fixture 创建，P/R、attempt 和原字节之间的文件系统关系不变。上传只保留结果与诊断，显式排除该目录下 tmp/**（同时承载 HOME）的全部文件，避免失败时残留语料、native 原字节或进程私有文件进入结果归档。

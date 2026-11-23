@@ -4884,6 +4884,26 @@ fn rendezvous(name: &str, peer: &str) {
 
 
 class BuildDiagnostics(unittest.TestCase):
+    def test_completed_unit_receipt_is_bounded_and_does_not_claim_active_stage(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            observation = artifacts.BuildObservation('required', root)
+            observation.directory.mkdir()
+            observation.last_unit_write -= 21
+            observation.observe_unit(dict(reason='compiler-message', message='not a completed unit'))
+            self.assertEqual(observation.report['completed_units'], 0)
+            observation.observe_unit(dict(reason='compiler-artifact', target={
+                'name': 'a' * 400, 'kind': ['lib']}, fresh=False,
+                package_id='private-registry-secret', manifest_path='/private/path'))
+            report = json.loads((observation.directory / 'build.json').read_text())
+            self.assertEqual(report['completed_units'], 1)
+            self.assertEqual(len(report['latest_completed_unit']['target_name']), 256)
+            self.assertFalse(report['latest_completed_unit']['fresh'])
+            self.assertEqual(report['status'], 'running')
+            self.assertIsNone(report['cargo_exit_code'])
+            self.assertNotIn('private', json.dumps(report))
+            self.assertIn('observed_at', report['latest_completed_unit'])
+
     def test_only_current_timing_files_are_published_with_start_and_end_state(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

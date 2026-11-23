@@ -348,6 +348,22 @@ class Contracts(unittest.TestCase):
         self.assertIn(variable + ": ${{ matrix.group == 'full-node' && '1' || '' }}", step)
         self.assertIn('python3 scripts/ci-storage-acceptance.py run', step)
 
+    def test_live_producer_diagnostics_keep_candidate_builds_on_original_no_token_path(self):
+        workflow = (HERE.parent / '.github/workflows/storage-acceptance.yml').read_text()
+        live, rest = workflow.split('      - name: Build required component with in-build diagnostics\n', 1)[1].split(
+            '      - name: Build and inventory exact native acceptance executables\n', 1)
+        self.assertIn("if: matrix.component == 'storage-required' && github.ref == 'refs/heads/main'", live)
+        self.assertIn('uses: ./.github/actions/storage-producer-diagnostics', live)
+        original = rest.split('      - uses: actions/upload-artifact@', 1)[0]
+        self.assertIn("if: matrix.component != 'storage-required' || github.ref != 'refs/heads/main'", original)
+        self.assertIn('python3 scripts/ci-storage-acceptance.py build --component "$COMPONENT"', original)
+        self.assertIn('python3 scripts/ci-storage-acceptance.py pack --component "$COMPONENT"', original)
+        build_job = workflow.split('  build-components:\n', 1)[1].split('\n  build:\n', 1)[0]
+        self.assertIn('timeout-minutes: 150', build_job)
+        self.assertNotIn('continue-on-error:', build_job)
+        self.assertNotIn('actions: write', build_job)
+        self.assertNotIn('checks: write', build_job)
+
     def test_build_components_reads_warmed_shared_image_cache_namespace(self):
         workflow = (HERE.parent / '.github/workflows/storage-acceptance.yml').read_text()
         digest = re.search(

@@ -119,7 +119,11 @@ jobs:
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
+      - name: Build required component with in-build diagnostics
+        if: matrix.component == 'storage-required' && github.ref == 'refs/heads/main'
+        uses: ./.github/actions/storage-producer-diagnostics
       - name: Build and inventory exact native acceptance executables
+        if: matrix.component != 'storage-required' || github.ref != 'refs/heads/main'
         env:
           COMPONENT: ${{ matrix.component }}
         run: |
