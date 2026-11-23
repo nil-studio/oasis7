@@ -1,8 +1,9 @@
 //! Legacy archive-backed generated-sidecar loader. Native L4 owns the actual
 //! World/industrial bootstrap, but the historical simulator host still owns
 //! archive snapshot + journal validation until #6149 migrates that authority.
-pub use oasis7_runtime_host::bootstrap::*;
 use crate::simulator::{ChunkRuntimeConfig, WorldConfig, WorldKernel, WorldModel};
+pub use oasis7_runtime_host::bootstrap::*;
+use oasis7_runtime::World as RuntimeWorld;
 use std::path::Path;
 
 pub fn bootstrap_generated_sidecar_runtime_world(
@@ -47,8 +48,10 @@ mod archive_loader_tests {
     #[test]
     fn generated_sidecar_rejects_missing_provenance_before_archive_open() {
         let absent = Path::new("__oasis7_native_bootstrap_absent_provenance__");
-        let error = bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(absent)
-            .expect_err("missing generated provenance is not a trusted archive");
+        let error = match bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(absent) {
+            Err(error) => error,
+            Ok(_) => panic!("missing generated provenance is not a trusted archive"),
+        };
         assert!(error.contains("world provenance missing"));
     }
 }

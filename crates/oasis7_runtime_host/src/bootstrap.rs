@@ -3,15 +3,16 @@ use super::gameplay_actions::{
     FACTORY_ASSEMBLER_MK1, FACTORY_SMELTER_MK1, STARTER_INDUSTRIAL_ELECTRICITY,
     formal_release_default_seed_model,
 };
-use oasis7_simulator::GeoPos;
+pub use oasis7_client_api::bootstrap::FORMAL_RELEASE_DEFAULT_WORLD_ID;
 use oasis7_runtime::{
     Action as RuntimeAction, AgentLocationAuthorityV1, FactoryConstructionPowerMode,
     FactoryConstructionPowerProfileV1, FactoryProfileV1, FactorySiteAuthorityV1, LocationAnchorV1,
     MaterialLedgerId, World as RuntimeWorld,
 };
-use oasis7_simulator::*;
-pub use oasis7_client_api::bootstrap::FORMAL_RELEASE_DEFAULT_WORLD_ID;
-use oasis7_simulator::{ChunkRuntimeConfig, Location, WorldModel};
+use oasis7_simulator::{
+    ChunkRuntimeConfig, GeoPos, Location, ResourceKind, WorldConfig, WorldInitConfig, WorldModel,
+    WorldScenario, build_world_model,
+};
 use std::collections::HashSet;
 pub const FORMAL_RELEASE_DEFAULT_BOOTSTRAP_AGENT_ID: &str = "starter-agent-0";
 pub fn bootstrap_runtime_world_with_chunk_runtime(
