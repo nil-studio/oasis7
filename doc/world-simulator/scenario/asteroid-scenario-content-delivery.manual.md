@@ -134,7 +134,7 @@ env -u RUSTC_WRAPPER cargo run -p oasis7_ops_tools --bin oasis7_generate_world_a
 <a id="asc-consumer"></a>
 ## 8. ASC-CONSUMER：目标消费者的内容对账
 
-先沿[实际分流](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/support.rs)确定 world-service、generated sidecar、named scenario 或本地默认入口，再读 [bootstrap.rs](../../../crates/oasis7_runtime_host/src/bootstrap.rs)。源模型和目标 snapshot 要属于同一候选和明确时间点；记录转换后的内容，不要求不同消费者强行相同。
+先沿[实际分流](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/support.rs)确定 world-service、generated sidecar、named scenario 或本地默认入口，再读 [原生 World bootstrap](../../../crates/oasis7_runtime_host/src/bootstrap.rs) 与 [仍由历史 Archive Host 验证的 generated-sidecar 读取](../../../crates/oasis7/src/runtime_host/bootstrap.rs)。源模型和目标 snapshot 要属于同一候选和明确时间点；记录转换后的内容，不要求不同消费者强行相同。
 
 | 核查项 | 当前应如何解释 | 目标环境追加判据 |
 | --- | --- | --- |

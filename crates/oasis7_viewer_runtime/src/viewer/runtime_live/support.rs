@@ -416,6 +416,7 @@ pub(super) fn bootstrap_runtime_live_world(
     }
 }
 
+pub(super) use oasis7::runtime_host::bootstrap::bootstrap_generated_sidecar_runtime_world_with_chunk_runtime;
 pub(super) use oasis7_runtime_host::bootstrap::*;
 
 pub(super) fn runtime_metrics(world: &RuntimeWorld) -> RunnerMetrics {

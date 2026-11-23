@@ -13,7 +13,6 @@ use oasis7_simulator::*;
 pub use oasis7_client_api::bootstrap::FORMAL_RELEASE_DEFAULT_WORLD_ID;
 use oasis7_simulator::{ChunkRuntimeConfig, Location, WorldModel};
 use std::collections::HashSet;
-use std::path::Path;
 pub const FORMAL_RELEASE_DEFAULT_BOOTSTRAP_AGENT_ID: &str = "starter-agent-0";
 pub fn bootstrap_runtime_world_with_chunk_runtime(
     scenario: WorldScenario,
@@ -33,41 +32,7 @@ pub fn bootstrap_runtime_world_with_chunk_runtime(
     Ok((world, config, chunk_runtime))
 }
 
-pub fn bootstrap_generated_sidecar_runtime_world(
-    generated_world_dir: &Path,
-) -> Result<(RuntimeWorld, WorldConfig, WorldModel), String> {
-    let (world, config, model, _) =
-        bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(generated_world_dir)?;
-    Ok((world, config, model))
-}
-
-pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(
-    generated_world_dir: &Path,
-) -> Result<(RuntimeWorld, WorldConfig, WorldModel, ChunkRuntimeConfig), String> {
-    let sidecar_dir = generated_world_dir.join("generated-scenario-world");
-    let provenance_path = generated_world_dir.join("world-generation-provenance.json");
-    if !provenance_path.is_file() {
-        return Err(format!(
-            "generated world provenance missing: {}",
-            provenance_path.display()
-        ));
-    }
-    let kernel = WorldKernel::load_from_dir(&sidecar_dir).map_err(|err| {
-        format!(
-            "runtime live generated sidecar load failed dir={} err={err:?}",
-            sidecar_dir.display()
-        )
-    })?;
-    let snapshot = kernel.snapshot();
-    let chunk_runtime = snapshot.chunk_runtime.clone();
-    let config = snapshot.config;
-    let model = snapshot.model;
-    let (world, config) =
-        bootstrap_runtime_world_from_model(config, &model, "runtime live generated sidecar")?;
-    Ok((world, config, model, chunk_runtime))
-}
-
-fn bootstrap_runtime_world_from_model(
+pub fn bootstrap_runtime_world_from_model(
     config: WorldConfig,
     model: &WorldModel,
     label: &str,
@@ -434,11 +399,4 @@ mod owner_tests {
         assert_eq!(location.id, original.location_id);
     }
 
-    #[test]
-    fn native_generated_sidecar_requires_provenance_before_world_open() {
-        let missing = std::path::Path::new("__oasis7_native_bootstrap_absent_provenance__");
-        let error = bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(missing)
-            .expect_err("sidecar without provenance must fail closed");
-        assert!(error.contains("world provenance missing"));
-    }
 }
