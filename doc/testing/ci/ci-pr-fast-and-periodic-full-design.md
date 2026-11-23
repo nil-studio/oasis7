@@ -25,11 +25,12 @@ Trace refs: O7-REQ-a34ef03b-c8ee-4988-af23-67ad20e65e29；承接[快速反馈与
 | `execution_profile`、`fast_plan_version=1`、`check_inventory_version=1` | 区分快速/完整策略及接口、库存版本；旧 BASE 不含 capability 时不得套用候选的窄范围 |
 | `source_sha`、`tested_sha`、`policy_sha`、`architecture` | 固定源码、实际 tested commit 和可信策略；PR 保留 source 与 merge 的区别，candidate-full 另记实际 tree，artifact 绑定 commit、工具链与构建输入 |
 | `groups`、`oasis7_required_packages`、`oasis7_required_wasm_packages`、`workspace_support_profiles` | 组及实际 native/WASM 包范围；support 沿用版本化 profile，控制/不确定输入保留旧完整库存 |
-| `ordinary_artifact_partition_version=1/2`、`ordinary_partitions` | v1 保留完整目标分区；v2 对有 chain-runtime 的 targeted 或获可信 delivery v2 授权的 full 快速普通库存执行 controls 与四个 native case 分区；保留唯一 producer 的完整 feature 组合，区别于 inline 分包构建 |
+| `ordinary_artifact_partition_version=1/2`、`ordinary_dynamic_partition_version=1`、`ordinary_partitions` | v1 保留完整目标分区；v2 对有 chain-runtime 的 targeted 或获可信 delivery v2 授权的 full 快速普通库存执行 controls 与 native case 分区（启用 `ordinary_dynamic_partition_version=1` 且 `scope=targeted`、未触达 `oasis7`/`oasis7_world_state` 重型套件且其余受影响包累计 `ordinary_harness_costs` 不超过 300s 时使用两个 native 分区，其余情况保留四个 native 分区）；保留唯一 producer 的完整 feature 组合，区别于 inline 分包构建 |
 | `ordinary_artifact_delivery_version=1/2` | delivery v1 为 artifact v1 分发共享辅助产物与四个完整 harness 包；delivery v2 为 artifact v2 另共享唯一 required Runtime harness，其余 harness 保持唯一 payload owner；完整父清单、构建与测试选择不变，旧计划继续原路 |
 | `workspace_support_partition_version=1`、`workspace_support_partitions` | 选中 custody worker 时单列 custody，其余 profile 归 other；两路并集保留全部选中 profile，旧 BASE 使用 all |
-| `custody_execution_version=1`、`custody_node_shards` | 可信能力且无测试政策变化时允许 custody 三路构建与四个完整 Node 文件分片；策略变更还须具备下述完整扩展能力，其他情况继续原 verifier，稳定 support 汇总核验全部实际结果 |
-| `custody_policy_tests_version=1` | 可信能力及固定 tested 源码均支持时，快速 profile 的策略变更也可分阶段执行；依赖 custody 与独立 WASM proof，原生合同 job 额外完整执行原 Worker expanded-feature `--all-targets` 尾部 |
+| `custody_execution_version=1`、`custody_node_shards_version=2`、`custody_node_shards` | 可信能力且无测试政策变化时允许 custody 三路构建与三个完整 Node 文件分片（固定 tested 源码或旧 BASE 缺少 `custody_node_shards_version=2` 时兼容回退四分片）；策略变更还须具备下述完整扩展能力，其他情况继续原 verifier，稳定 support 汇总核验全部实际结果 |
+| `custody_policy_tests_version=1` | 可信能力及固定 tested 源码均支持时，快速 profile 的策略变更也可分阶段执行；依赖 custody 与 WASM 编译证明，原生合同 job 额外完整执行原 Worker expanded-feature `--all-targets` 尾部 |
+| `contract_job_consolidation_version=1` | 可信配置启用后，保留全部逻辑组与细粒度选择，由 `group_jobs` 将 `codex_agent_config_validation`、`macos_package_contract` 并入 `baseline`，将 `compile_metrics` 并入 `doc-checker-contracts` 执行，并要求旧独立 job 保持 skipped |
 | `fast_test_inventory_version=1`、`ordinary_fast_targets` | 可信路径合同允许时，固定普通快速检查的 Cargo target、features 和最低 case 身份；构建、Clippy、打包与执行使用同一清单 |
 | `fast_execution_version=1`、`ordinary_execution=inline`、`ordinary_clippy_group`、`rust_baseline_checks` | 可信组件快速计划在单 runner 构建并执行测试，由明确的并行组执行相同 target 的 Clippy；显式选择 accounting/独立工具专项，缺少新能力时保留旧执行与 baseline 全集 |
 | `architecture.build_policy_version=1`、`build_policy=ordinary-targets` | 全部直接架构输入由快速目标承接时，保留全部声明/依赖图，额外 profile 编译明确延期到 full；缺少能力或混合未覆盖输入保持原编译选择 |
@@ -52,7 +53,7 @@ workflow 先探测可信 planner 的 `--profile` capability；旧 BASE 的 PR/pu
 
 风险映射由真实路径、消费者和行为合同决定，不依赖作者贴标签或模型猜测。没有已验证的窄用例映射时保留相应普通完整组，不能将缺映射解释为无风险。重型 Formal 由可信 `formal_full_profiles_only_version=1` 单独安排到完整 profile：`pr-fast/main-fast` 无论 targeted、保守 `scope=full`、风险映射或显式追加组，最终均移除 `formal_process`，输出空 `formal_suites/formal_shards` 并记录原因。`periodic-full/candidate-full` 保留全部组和五个逻辑 suite；`scope=full` 只表示普通检查扩测，不能据此恢复重型 Formal。旧 BASE 缺能力时沿用原风险选择，未知能力版本失败。普通 CAS/Formal Protocol 库、单元及控制合同测试继续执行。
 
-Formal producer、合并及物理矩阵继续消费同一可信选择输出；快速层不产生 Formal 产物，固定轻量 `formal-process` 汇总核对 producer/矩阵均 skipped 后报告 `not_selected`。完整层仍要求恰好一个 producer 成功及矩阵成功，`explicit-full-gate` 核齐全部配置组。执行器仅在新能力与快速 profile 同时成立时接受空 Formal；Python 控制迁移也仅在可信配置已启用该能力时，从普通 full 的精确应选组集合移除 `formal_process`，其他组缺失及完整 profile 缺 Formal 仍失败。候选新增能力不能给旧 BASE 的迁移计划授权。
+Formal producer、合并及物理矩阵继续消费同一可信选择输出；快速层不产生 Formal 产物，`select` 成功且未选中 Formal 时 `formal-process` 直接在 job 层 skipped 并由 `required-gate` 核验未选中跳过（`select` 失败时仍运行以保持失败可见）。完整层仍要求恰好一个 producer 成功及矩阵成功，`explicit-full-gate` 核齐全部配置组。执行器仅在新能力与快速 profile 同时成立时接受空 Formal；Python 控制迁移也仅在可信配置已启用该能力时，从普通 full 的精确应选组集合移除 `formal_process`，其他组缺失及完整 profile 缺 Formal 仍失败。候选新增能力不能给旧 BASE 的迁移计划授权。
 
 两个已登记的 BFT membership 长场景没有 ignored 或 Formal 环境门控，会在 ordinary `runtime-tests` 批次重复运行。可信 scope 配置以完整 case 名将其写入快速计划的 `formal_deferred_ordinary_cases`；执行器核对 Chain Runtime library 目标身份，以 libtest `--exact --skip` 精确后移并从实际应执行数中扣除，记录延期名称。近邻名称、其他 Formal 命名的单元/合同测试和失败计数保留。两 case 仍由完整 Formal 环境批次及物理分片各覆盖一次；完整 profile 清空延期表，旧 BASE 无能力时不排除任何普通 case。Formal 延期在普通目标、架构编译、Clippy 与 support 转交范围推导完成后应用，不借此进一步缩减其他检查。
 

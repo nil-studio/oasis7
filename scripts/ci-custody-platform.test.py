@@ -88,8 +88,10 @@ class Custody(unittest.TestCase):
         legacy = dict(self.plan)
         del legacy['custody_execution_version']
         self.assertFalse(C.enabled(legacy))
+        self.assertTrue(C.enabled(dict(self.plan, custody_node_shards=[0, 1, 2])))
+        self.assertTrue(C.enabled(dict(self.plan, custody_node_shards=[0, 1, 2, 3])))
         for key, value in [('custody_execution_version', True), ('custody_execution_version', 2),
-                           ('custody_node_shards', [0, 1, 2]), ('custody_node_shards', [False, 1, 2, 3]),
+                           ('custody_node_shards', [0, 1]), ('custody_node_shards', [False, 1, 2, 3]),
                            ('custody_node_shards', [0, 1, 2, 2]), ('workspace_support_profiles', []),
                            ('workspace_support_partitions', ['other']), ('groups', ['baseline'])]:
             with self.subTest(key=key, value=value), self.assertRaises(ValueError):
@@ -298,7 +300,7 @@ else: record([name, *a])
                 C.enabled(changed)
         for key, value in [('test_policy_changed', True), ('test_policy_changed', 0),
                            ('groups', []), ('workspace_support_profiles', []),
-                           ('workspace_support_partitions', ['other']), ('custody_node_shards', [0, 1, 2])]:
+                           ('workspace_support_partitions', ['other']), ('custody_node_shards', [0, 1])]:
             with self.subTest(key=key, value=value), self.assertRaises(ValueError):
                 C.enabled(dict(plan, **{key: value}))
 
@@ -715,8 +717,17 @@ else: record([name, *a])
             C.validate_jobs(self.plan, needs)
         for plan in (self.proof_plan(), self.policy_plan()):
             self.assertTrue(C.validate_jobs(plan, needs))
+            consolidated = {key: value for key, value in needs.items() if key != 'custody-wasm-contracts'}
+            self.assertTrue(C.validate_jobs(plan, consolidated))
+            for state in ('failure', 'cancelled', 'skipped', None):
+                failed = copy.deepcopy(consolidated)
+                failed['custody-native-contracts'] = dict(result=state)
+                with self.subTest(consolidated_state=state), self.assertRaises(ValueError):
+                    C.validate_jobs(plan, failed)
             for job in ('custody-native-contracts', 'custody-wasm-contracts', 'custody-node'):
                 for state in ('failure', 'cancelled', 'skipped', None, 'missing'):
+                    if job == 'custody-wasm-contracts' and state == 'missing':
+                        continue
                     changed = copy.deepcopy(needs)
                     if state == 'missing':
                         del changed[job]

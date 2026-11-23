@@ -2264,16 +2264,35 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
             module.main()
         self.assertEqual(out.getvalue().strip(), m0)
         gh_cls.assert_called_once_with("nil-studio/oasis7", "tok")
-        for bad_field in ("main_fast_range_recovery_version", "draft_pr_heavy_ci_skip_version"):
-            bad_cfg = json.dumps(dict(CONFIG, **{bad_field: 2})).encode()
+        for bad_field in ("main_fast_range_recovery_version", "draft_pr_heavy_ci_skip_version",
+                          "ordinary_dynamic_partition_version", "contract_job_consolidation_version",
+                          "custody_node_shards_version"):
+            bad_cfg = json.dumps(dict(CONFIG, **{bad_field: 9})).encode()
             def fake_check_output(cmd, **_kwargs):
                 target = cmd[-1]
                 if target.endswith(":scripts/ci-required-scope.json"):
                     return bad_cfg
                 return (ROOT / target.split(":", 1)[1]).read_bytes()
             with mock.patch.object(module.subprocess, "check_output", side_effect=fake_check_output):
-                with self.assertRaisesRegex(ValueError, f"invalid trusted {bad_field} definition"):
+                with self.assertRaisesRegex(ValueError, f"invalid trusted .*{bad_field}"):
                     module.definition_digest(self.repo, A)
+
+    def test_consolidated_full_receipt_requires_skipped_retired_jobs_and_direct_producer_xor(self):
+        receipt, run, jobs = fixture()
+        receipt["plan"]["contract_job_consolidation_version"] = 1
+        del receipt["needs"]["oasis7-test-build"]
+        receipt["needs"]["oasis7-test-build-candidate"] = {"result": "skipped"}
+        receipt["needs"]["oasis7-test-build-trusted"] = {"result": "success"}
+        for group in CONFIG["group_jobs"]:
+            receipt["needs"][group.replace("_", "-")] = {"result": "skipped"}
+        verified = module.verify_receipt(receipt, run, jobs, source=A, repository="nil-studio/oasis7",
+                                         workflow_id=7, config=CONFIG, digest="definition")
+        self.assertEqual(verified, receipt)
+        broken = copy.deepcopy(receipt)
+        broken["needs"]["compile-metrics"] = {"result": "success"}
+        with self.assertRaises(ValueError):
+            module.verify_receipt(broken, run, jobs, source=A, repository="nil-studio/oasis7",
+                                  workflow_id=7, config=CONFIG, digest="definition")
 
 
 if __name__ == "__main__":

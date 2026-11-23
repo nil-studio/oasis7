@@ -127,9 +127,9 @@ def paths(data):
     return result
 
 
-def inventory(root, oid):
+def inventory(root, oid, *, with_blobs=False):
     entries = git(root, 'ls-tree', '-rz', oid).split(b'\0')
-    files, symlinks = [], set()
+    files, symlinks, blobs = [], set(), {}
     for entry in entries:
         if not entry:
             continue
@@ -138,7 +138,37 @@ def inventory(root, oid):
         files.append(path)
         if meta.startswith(b'120000 '):
             symlinks.add(path)
-    return files, symlinks
+        elif with_blobs:
+            parts = meta.split()
+            if len(parts) == 3 and parts[1] == b'blob':
+                blobs[path] = parts[2]
+    return (files, symlinks, blobs) if with_blobs else (files, symlinks)
+
+
+def read_blobs(root, blob_oids):
+    unique = list(dict.fromkeys(blob_oids))
+    if not unique:
+        return {}
+    proc = subprocess.run(['git', '-C', str(root), 'cat-file', '--batch'],
+                          input=b''.join(oid + b'\n' for oid in unique), capture_output=True)
+    if proc.returncode != 0:
+        raise ValueError('embedded input blob batch unreadable')
+    data = proc.stdout
+    fetched, offset = {}, 0
+    for oid in unique:
+        end = data.find(b'\n', offset)
+        fields = data[offset:end].split() if end >= offset else []
+        if len(fields) != 3 or fields[:2] != [oid, b'blob'] or not fields[2].isdigit():
+            raise ValueError('invalid embedded input blob header')
+        size = int(fields[2])
+        start, offset = end + 1, end + 1 + size
+        if data[offset:offset + 1] != b'\n':
+            raise ValueError('incomplete embedded input blob body')
+        fetched[oid] = data[start:offset]
+        offset += 1
+    if offset != len(data):
+        raise ValueError('unexpected trailing embedded input blob data')
+    return fetched
 
 
 def changes(root, base, head):
@@ -175,8 +205,11 @@ def plan(args):
             raise ValueError('invalid Git identity')
         ids[key] = git(root, 'rev-parse', '--verify', ref + '^{commit}').decode().strip()
     ids['merge_base'] = git(root, 'merge-base', ids['event_base'], ids['source_head']).decode().strip()
-    base_files, base_links = inventory(root, ids['merge_base'])
-    head_files, head_links = inventory(root, ids['source_head'])
+    base_files, base_links, base_blobs = inventory(root, ids['merge_base'], with_blobs=True)
+    if ids['merge_base'] == ids['source_head']:
+        head_files, head_links, head_blobs = base_files, base_links, base_blobs
+    else:
+        head_files, head_links, head_blobs = inventory(root, ids['source_head'], with_blobs=True)
     changed = changes(root, ids['merge_base'], ids['source_head'])
     if set(changed) & (base_links | head_links):
         raise ValueError('changed symbolic link requires explicit coverage review')
@@ -202,7 +235,11 @@ def plan(args):
     dynamic_includes = False
     action_consumers = any(p.startswith('.github/workflows/') or pathlib.PurePosixPath(p).name in ('action.yml', 'action.yaml')
                            for p in base_files + head_files if not p.startswith(tuple(exclusions)))
-    for oid, files in [(ids['merge_base'], base_files), (ids['source_head'], head_files)]:
+    trees = [(ids['merge_base'], base_files, base_blobs)]
+    if ids['source_head'] != ids['merge_base']:
+        trees.append((ids['source_head'], head_files, head_blobs))
+    matched_sources = []
+    for oid, files, blobs in trees:
         build_scripts |= any(pathlib.PurePosixPath(p).name == 'build.rs' and not p.startswith('third_party/') for p in files)
         matches = subprocess.run(['git', '-C', str(root), 'grep', '-I', '-l', '-z', '-E',
                                   'include_(str|bytes)!', oid, '--', '*.rs'], capture_output=True)
@@ -212,11 +249,17 @@ def plan(args):
             source = entry.split(':', 1)[1]
             if source.startswith('third_party/'):
                 continue
-            content = git(root, 'show', oid + ':' + source).decode('utf-8', 'strict')
-            literal_matches = list(re.finditer(r'include_(?:str|bytes)!\s*\(\s*"([^"\n]+)"', content))
-            dynamic_includes |= len(literal_matches) < len(re.findall(r'include_(?:str|bytes)!', content))
-            for match in literal_matches:
-                embedded.add(posixpath.normpath(str(pathlib.PurePosixPath(source).parent / match[1])))
+            blob_oid = blobs.get(source)
+            if blob_oid is None:
+                raise ValueError('embedded input blob missing from tree inventory')
+            matched_sources.append((source, blob_oid))
+    blob_contents = read_blobs(root, [blob_oid for _, blob_oid in matched_sources])
+    for source, blob_oid in matched_sources:
+        content = blob_contents[blob_oid].decode('utf-8', 'strict')
+        literal_matches = list(re.finditer(r'include_(?:str|bytes)!\s*\(\s*"([^"\n]+)"', content))
+        dynamic_includes |= len(literal_matches) < len(re.findall(r'include_(?:str|bytes)!', content))
+        for match in literal_matches:
+            embedded.add(posixpath.normpath(str(pathlib.PurePosixPath(source).parent / match[1])))
     for path in changed:
         name = pathlib.PurePosixPath(path).name
         suffix = pathlib.PurePosixPath(path).suffix.lower()

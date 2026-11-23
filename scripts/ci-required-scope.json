@@ -1,5 +1,13 @@
 {
   "fast_scope_version": 1,
+  "ordinary_dynamic_partition_version": 1,
+  "custody_node_shards_version": 2,
+  "contract_job_consolidation_version": 1,
+  "group_jobs": {
+    "codex_agent_config_validation": "baseline",
+    "macos_package_contract": "baseline",
+    "compile_metrics": "doc-checker-contracts"
+  },
   "ordinary_case_prefix_contract_version": 1,
   "ordinary_shared_incremental_contract_version": 1,
   "ordinary_fast_group_contract_version": 1,

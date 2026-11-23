@@ -2684,6 +2684,29 @@ class CasePartitionArtifactDelivery(unittest.TestCase):
             report['archives']['common']['compressed_bytes'] + report['archives'][owner]['compressed_bytes']
             for owner in self.plan['ordinary_partitions'][1:]))
 
+    def test_compact_three_partition_delivery_covers_every_case_and_binary(self):
+        self.plan.update(
+            scope='targeted',
+            oasis7_required_packages=['oasis7_chain_runtime'],
+            ordinary_dynamic_partition_version=1,
+            ordinary_partitions=list(artifacts.COMPACT_TARGETED_ORDINARY_ARTIFACT_PARTITIONS),
+            ordinary_harness_costs=json.loads((HERE / 'ci-required-scope.json').read_text())['ordinary_harness_costs'],
+        )
+        self.write_parent()
+        report = self.pack()
+        self.assertEqual(set(report['archives']), {'common', 'native-0', 'native-1'})
+        cases = []
+        for owner in ('native-0', 'native-1'):
+            destination, _ = self.unpack(owner)
+            manifest, _ = artifacts.load(destination, 'ordinary', plan=self.plan, ordinary_artifact_partition=owner)
+            selected = artifacts.ordinary_artifact_entries(manifest, self.plan, owner)
+            cases.extend(TargetedArtifactPartitions().coverage(manifest, selected))
+        self.assertCountEqual(cases, TargetedArtifactPartitions().coverage(
+            self.manifest, artifacts.ordinary_entries(self.manifest)))
+        self.assertEqual(len(cases), len(set(cases)))
+        with self.assertRaises(ValueError):
+            artifacts.fast_plan(self.plan | {'ordinary_partitions': ['controls', 'native-0', 'native-1', 'native-2', 'native-3']})
+
     def test_full_case_partition_delivery_requires_new_authority_and_preserves_profile_gates(self):
         for scope in ('targeted', 'full'):
             for profile in ('pr-fast', 'main-fast'):

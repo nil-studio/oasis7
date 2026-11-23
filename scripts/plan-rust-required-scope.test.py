@@ -4821,16 +4821,25 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
                                          self.base, head, profile=profile)
                 self.assertEqual(current['scope'], 'targeted')
                 self.assertEqual(current['ordinary_artifact_partition_version'], 2)
+                self.assertEqual(current['ordinary_dynamic_partition_version'], 1)
                 self.assertEqual(current['ordinary_partitions'],
-                                 ['controls', 'native-0', 'native-1', 'native-2', 'native-3'])
+                                 ['controls', 'native-0', 'native-1'])
                 self.assertEqual(current['oasis7_required_packages'], ['oasis7_chain_runtime'])
                 self.assertIs(current['test_policy_changed'], False)
                 self.assertNotIn('ordinary_fast_targets', current)
                 self.assertNotIn('fast_execution_version', current)
                 self.assertEqual({key: value for key, value in current.items()
                                   if key not in ('ordinary_artifact_partition_version', 'ordinary_partitions',
+                                                 'ordinary_dynamic_partition_version',
                                                  'ordinary_harness_costs', 'ordinary_artifact_delivery_version')},
                                  legacy)
+                heavy_plan = dict(current)
+                heavy_plan.pop('ordinary_dynamic_partition_version', None)
+                heavy_plan['oasis7_required_packages'] = ['oasis7', 'oasis7_chain_runtime']
+                selector.complete_ordinary_partitions(self.config, heavy_plan)
+                self.assertNotIn('ordinary_dynamic_partition_version', heavy_plan)
+                self.assertEqual(heavy_plan['ordinary_partitions'],
+                                 ['controls', 'native-0', 'native-1', 'native-2', 'native-3'])
 
     def test_full_fast_uses_case_partitions_without_changing_the_original_selected_checks(self):
         self.write('Cargo.toml', Path('Cargo.toml').read_text() + '\n# shared control input\n')
@@ -4921,6 +4930,11 @@ class TargetedRuntimePartitionPlans(unittest.TestCase):
             current = selector.select(self.config, self.base, head, profile=execution)
             legacy = selector.select(old, self.base, head, profile=execution)
             self.assertEqual(current.pop('ordinary_harness_costs'), profile)
+            self.assertEqual(current.pop('ordinary_dynamic_partition_version'), 1)
+            self.assertEqual(current['ordinary_partitions'], ['controls', 'native-0', 'native-1'])
+            self.assertEqual(legacy['ordinary_partitions'],
+                             ['controls', 'native-0', 'native-1', 'native-2', 'native-3'])
+            current['ordinary_partitions'] = legacy['ordinary_partitions']
             self.assertEqual(current, legacy)
         for execution in ('periodic-full', 'candidate-full'):
             self.assertNotIn('ordinary_harness_costs', selector.full_plan(self.config, execution, head))
@@ -5149,7 +5163,7 @@ class CustodyExecutionPlans(unittest.TestCase):
                 self.assertNotIn('custody_execution_version', before)
                 self.assertEqual(after['custody_policy_tests_version'], 1)
                 self.assertEqual(after['custody_compile_proof_version'], 1)
-                self.assertEqual(after['custody_node_shards'], [0, 1, 2, 3])
+                self.assertEqual(after['custody_node_shards'], [0, 1, 2])
                 for field in ('custody_execution_version', 'custody_node_shards',
                               'custody_compile_proof_version', 'custody_policy_tests_version'):
                     after.pop(field)
@@ -5213,7 +5227,7 @@ class CustodyExecutionPlans(unittest.TestCase):
                 self.assertIn('oasis7_custody_worker', plan['workspace_support_profiles'])
                 self.assertIn('custody', plan['workspace_support_partitions'])
                 self.assertEqual(plan['custody_execution_version'], 1)
-                self.assertEqual(plan['custody_node_shards'], [0, 1, 2, 3])
+                self.assertEqual(plan['custody_node_shards'], [0, 1, 2])
                 self.assertEqual(plan['custody_compile_proof_version'], 1)
 
     def test_other_support_and_docs_do_not_select_custody_jobs(self):

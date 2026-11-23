@@ -174,6 +174,71 @@ class Results(unittest.TestCase):
             with self.subTest(event=event, ref=ref, mode=mode), self.assertRaises(ValueError):
                 result.validate_full(plan, needs, self.jobs, **args)
 
+    def test_consolidated_group_jobs_require_host_success_and_retired_skip(self):
+        config = {
+            'groups': ['baseline', 'doc_checker_contracts', 'codex_agent_config_validation',
+                       'macos_package_contract', 'compile_metrics'],
+            'contract_job_consolidation_version': 1,
+            'group_jobs': {
+                'codex_agent_config_validation': 'baseline',
+                'macos_package_contract': 'baseline',
+                'compile_metrics': 'doc-checker-contracts',
+            },
+        }
+        legacy_plan = {'groups': ['baseline', 'compile_metrics']}
+        self.assertEqual(result.retired_group_jobs(config, legacy_plan), set())
+        self.assertEqual(result.configured_group_jobs(config, legacy_plan)['compile_metrics'], 'compile-metrics')
+        plan = {'groups': ['baseline', 'compile_metrics'], 'contract_job_consolidation_version': 1}
+        jobs = result.configured_group_jobs(config, plan)
+        retired = result.retired_group_jobs(config, plan)
+        self.assertEqual(jobs['compile_metrics'], 'doc-checker-contracts')
+        self.assertEqual(retired, {'codex-agent-config-validation', 'macos-package-contract', 'compile-metrics'})
+        needs = {
+            'select': {'result': 'success'},
+            'baseline': {'result': 'success'},
+            'doc-checker-contracts': {'result': 'success'},
+            'codex-agent-config-validation': {'result': 'skipped'},
+            'macos-package-contract': {'result': 'skipped'},
+            'compile-metrics': {'result': 'skipped'},
+        }
+        self.assertTrue(result.validate(plan, needs, jobs, retired_jobs=retired))
+        for bad in ('failure', 'cancelled', 'skipped', None):
+            broken = copy.deepcopy(needs)
+            broken['doc-checker-contracts'] = {'result': bad}
+            with self.subTest(host_state=bad), self.assertRaises(ValueError):
+                result.validate(plan, broken, jobs, retired_jobs=retired)
+        for retired_job in sorted(retired):
+            for bad in ('success', 'failure', 'cancelled', 'unknown', None, 'missing'):
+                broken = copy.deepcopy(needs)
+                if bad == 'missing':
+                    del broken[retired_job]
+                else:
+                    broken[retired_job] = {'result': bad}
+                with self.subTest(retired_job=retired_job, state=bad), self.assertRaises(ValueError):
+                    result.validate(plan, broken, jobs, retired_jobs=retired)
+
+    def test_full_accepts_direct_ordinary_producer_xor_and_rejects_ambiguous_lanes(self):
+        for candidate, dispatch in ((False, False), (False, True), (True, True)):
+            plan, needs, args = self.full_fixture(candidate=candidate, main_dispatch=dispatch)
+            del needs['oasis7-test-build']
+            needs['oasis7-test-build-candidate'] = {'result': 'success' if candidate else 'skipped'}
+            needs['oasis7-test-build-trusted'] = {'result': 'skipped' if candidate else 'success'}
+            self.assertTrue(result.validate_full(plan, needs, self.jobs, **args))
+            for cand_state, trust_state in (('success', 'success'), ('skipped', 'skipped'),
+                                            ('failure', 'skipped'), ('skipped', 'failure'),
+                                            ('cancelled', 'skipped'), (None, 'success')):
+                broken = copy.deepcopy(needs)
+                broken['oasis7-test-build-candidate'] = {'result': cand_state}
+                broken['oasis7-test-build-trusted'] = {'result': trust_state}
+                with self.subTest(candidate=candidate, cand_state=cand_state, trust_state=trust_state), \
+                     self.assertRaises(ValueError):
+                    result.validate_full(plan, broken, self.jobs, **args)
+            swapped = copy.deepcopy(needs)
+            swapped['oasis7-test-build-candidate'] = {'result': 'skipped' if candidate else 'success'}
+            swapped['oasis7-test-build-trusted'] = {'result': 'success' if candidate else 'skipped'}
+            with self.assertRaises(ValueError):
+                result.validate_full(plan, swapped, self.jobs, **args)
+
 
 if __name__ == '__main__':
     unittest.main()

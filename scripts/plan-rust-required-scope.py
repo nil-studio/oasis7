@@ -44,7 +44,11 @@ PYTHON_CONTROL_CONTRACT_VERSION = 1
 ADDITIVE_GOVERNANCE_REGISTRATION_VERSION = 1
 CUSTODY_EXECUTION_VERSION = 1
 CUSTODY_COMPILE_PROOF_VERSION = 1
-CUSTODY_NODE_SHARDS = (0, 1, 2, 3)
+CUSTODY_NODE_SHARDS = (0, 1, 2)
+LEGACY_CUSTODY_NODE_SHARDS = (0, 1, 2, 3)
+CUSTODY_NODE_SHARDS_VERSION = 2
+ORDINARY_DYNAMIC_PARTITION_VERSION = 1
+CONTRACT_JOB_CONSOLIDATION_VERSION = 1
 FORMAL_SUITES = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery', 'lifecycle-cli')
 SUPPORT_PROFILES = (
     'oasis7_agent_api', 'oasis7_agent_harness', 'oasis7_browser_game_client', 'oasis7_client_api', 'oasis7_game_client', 'oasis7_model_provider',
@@ -1122,6 +1126,26 @@ def validate_config(config):
                 or config['ordinary_artifact_partition_version'] not in (1, 2)
                 or config.get('fast_scope_version') != FAST_PLAN_VERSION):
             raise ValueError('invalid ordinary artifact partition capability')
+    if 'ordinary_dynamic_partition_version' in config:
+        if (type(config['ordinary_dynamic_partition_version']) is not int
+                or config['ordinary_dynamic_partition_version'] != ORDINARY_DYNAMIC_PARTITION_VERSION):
+            raise ValueError('invalid ordinary dynamic partition capability')
+    if 'custody_node_shards_version' in config:
+        if (type(config['custody_node_shards_version']) is not int
+                or config['custody_node_shards_version'] != CUSTODY_NODE_SHARDS_VERSION):
+            raise ValueError('invalid custody Node shards capability')
+    if 'contract_job_consolidation_version' in config or 'group_jobs' in config:
+        overrides = config.get('group_jobs')
+        if (type(config.get('contract_job_consolidation_version')) is not int
+                or config['contract_job_consolidation_version'] != CONTRACT_JOB_CONSOLIDATION_VERSION
+                or config.get('fast_scope_version') != FAST_PLAN_VERSION
+                or not isinstance(overrides, dict) or not overrides):
+            raise ValueError('invalid contract job consolidation capability')
+        default_jobs = {group.replace('_', '-') for group in config['groups']}
+        for group, job in overrides.items():
+            if (group not in config['groups'] or not isinstance(job, str)
+                    or job not in default_jobs or job == group.replace('_', '-')):
+                raise ValueError('invalid consolidated group job mapping')
     if 'ordinary_harness_costs' in config:
         if config.get('ordinary_artifact_partition_version') not in (1, 2):
             raise ValueError('ordinary harness costs require artifact partitions')
@@ -3426,6 +3450,29 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
 
 ORDINARY_ARTIFACT_PARTITIONS = ['controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1']
 TARGETED_ORDINARY_ARTIFACT_PARTITIONS = ['controls', 'native-0', 'native-1', 'native-2', 'native-3']
+COMPACT_TARGETED_ORDINARY_ARTIFACT_PARTITIONS = ['controls', 'native-0', 'native-1']
+COMPACT_ORDINARY_NON_RUNTIME_BUDGET_MS = 300000
+
+
+def targeted_ordinary_artifact_partitions(plan):
+    if (plan.get('ordinary_dynamic_partition_version') == ORDINARY_DYNAMIC_PARTITION_VERSION
+            and plan.get('scope') == 'targeted'
+            and isinstance(plan.get('ordinary_harness_costs'), dict)
+            and isinstance(plan.get('oasis7_required_packages'), list)):
+        selected = set(plan['oasis7_required_packages'])
+        if not {'oasis7', 'oasis7_world_state'}.intersection(selected):
+            non_runtime_ms = sum(
+                row['elapsed_ms'] for row in plan['ordinary_harness_costs']['harnesses']
+                if row['package'] in selected
+                and not (row['package'] == 'oasis7_chain_runtime'
+                         and row['target_kind'] == 'lib'
+                         and row['target_name'] == 'oasis7_chain_runtime'
+                         and row['variant'] == 'required'
+                         and row['mode'] == 'batch')
+            )
+            if non_runtime_ms <= COMPACT_ORDINARY_NON_RUNTIME_BUDGET_MS:
+                return list(COMPACT_TARGETED_ORDINARY_ARTIFACT_PARTITIONS)
+    return list(TARGETED_ORDINARY_ARTIFACT_PARTITIONS)
 
 
 SCALE_EXPRESSION_MACROS = frozenset(('format', 'vec', 'assert', 'assert_eq', 'assert_ne', 'matches', 'panic'))
@@ -3564,6 +3611,9 @@ def add_ordinary_scale_contract(config, plan, paths, path_affected, comparisons,
 
 
 def complete_ordinary_partitions(config, plan):
+    if (config.get('contract_job_consolidation_version') == CONTRACT_JOB_CONSOLIDATION_VERSION
+            and plan.get('fast_plan_version') == FAST_PLAN_VERSION):
+        plan['contract_job_consolidation_version'] = CONTRACT_JOB_CONSOLIDATION_VERSION
     # The unchanged producer already supplies both default snapshots and the
     # runtime/component libraries. Actual nonempty inventories remain checked
     # at build and consumption; smaller policy migrations keep the all owner.
@@ -3589,10 +3639,18 @@ def complete_ordinary_partitions(config, plan):
                 and 'oasis7_chain_runtime' in plan.get('oasis7_required_packages', ())):
             # The original producer and every target/feature remain unchanged.
             # Only the complete runtime case inventory gets multiple owners.
-            plan.update(ordinary_artifact_partition_version=2,
-                        ordinary_partitions=list(TARGETED_ORDINARY_ARTIFACT_PARTITIONS))
+            plan['ordinary_artifact_partition_version'] = 2
             if 'ordinary_harness_costs' in config:
                 plan['ordinary_harness_costs'] = config['ordinary_harness_costs']
+            if (config.get('ordinary_dynamic_partition_version') == ORDINARY_DYNAMIC_PARTITION_VERSION
+                    and plan['scope'] == 'targeted' and 'ordinary_harness_costs' in plan
+                    and tested_source_supports_capability(plan, 'ordinary_dynamic_partition_version',
+                                                          ORDINARY_DYNAMIC_PARTITION_VERSION)):
+                candidate_partitions = targeted_ordinary_artifact_partitions(
+                    plan | {'ordinary_dynamic_partition_version': ORDINARY_DYNAMIC_PARTITION_VERSION})
+                if candidate_partitions != list(TARGETED_ORDINARY_ARTIFACT_PARTITIONS):
+                    plan['ordinary_dynamic_partition_version'] = ORDINARY_DYNAMIC_PARTITION_VERSION
+            plan['ordinary_partitions'] = targeted_ordinary_artifact_partitions(plan)
         elif plan['scope'] in ('full', 'explicit-full') or targeted_policy:
             plan.update(ordinary_artifact_partition_version=1,
                         ordinary_partitions=list(ORDINARY_ARTIFACT_PARTITIONS))
@@ -3625,15 +3683,42 @@ def complete_ordinary_partitions(config, plan):
                 and (plan.get('test_policy_changed') is False or policy_tests)):
             # Policy edits only split when a trusted, source-supported native
             # contract owner also runs the complete expanded --all-targets tail.
+            compile_proof_supported = (
+                config.get('custody_compile_proof_version') == CUSTODY_COMPILE_PROOF_VERSION
+                and custody_source_supports_compile_proof(plan)
+            )
+            shards = (CUSTODY_NODE_SHARDS if (
+                config.get('custody_node_shards_version') == CUSTODY_NODE_SHARDS_VERSION
+                and compile_proof_supported
+                and tested_source_supports_capability(plan, 'custody_node_shards_version',
+                                                      CUSTODY_NODE_SHARDS_VERSION)
+            ) else LEGACY_CUSTODY_NODE_SHARDS)
             plan.update(custody_execution_version=CUSTODY_EXECUTION_VERSION,
-                        custody_node_shards=list(CUSTODY_NODE_SHARDS))
+                        custody_node_shards=list(shards))
             if policy_tests:
                 plan['custody_policy_tests_version'] = 1
             if config.get('custody_compile_proof_version') == CUSTODY_COMPILE_PROOF_VERSION:
-                if custody_source_supports_compile_proof(plan):
+                if compile_proof_supported:
                     plan['custody_compile_proof_version'] = CUSTODY_COMPILE_PROOF_VERSION
                 else:
                     plan['reasons'].append('tested source retains complete legacy custody approval proofs')
+
+
+def tested_source_supports_capability(plan, field, expected_version):
+    tested, policy = plan.get('tested_sha'), plan.get('policy_sha')
+    if not tested or not policy or tested == policy:
+        return True
+    try:
+        source_config = json.loads(git('show', f'{tested}:scripts/ci-required-scope.json'))
+    except (subprocess.CalledProcessError, ValueError, UnicodeError) as error:
+        raise ValueError(f'cannot read tested protocol configuration for {field}') from error
+    if not isinstance(source_config, dict):
+        raise ValueError(f'invalid tested protocol configuration for {field}')
+    if field not in source_config:
+        return False
+    if type(source_config[field]) is not int or source_config[field] != expected_version:
+        raise ValueError(f'invalid tested capability: {field}')
+    return True
 
 
 def custody_source_supports_compile_proof(plan, *, field='custody_compile_proof_version'):
