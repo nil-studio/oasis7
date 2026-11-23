@@ -170,6 +170,13 @@ class Ownership(unittest.TestCase):
             'oasis7_runtime', 'oasis7_world_service', 'oasis7_formal_protocol', 'oasis7_agent_api'
         })
         self.assertNotIn('oasis7', host_deps)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                source = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::world::', source, str(rust))
+                self.assertNotIn('crate::runtime_host::world::', source, str(rust))
+                self.assertNotIn('oasis7::runtime_host::install_runtime_capabilities', source, str(rust))
+                self.assertNotIn('crate::runtime_host::install_runtime_capabilities', source, str(rust))
         for package in ('oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
             spec = manifest(package)
             deps = dict(spec.get('dependencies', {}))

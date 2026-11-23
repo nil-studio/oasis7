@@ -1,4 +1,5 @@
-//! Process-local capabilities installed by the native application after construction or recovery.
+//! Native L4 process-local World construction and recovery; no lower-layer reverse dependency.
+#![cfg(not(target_arch = "wasm32"))]
 use oasis7_runtime::{Journal, ReleaseSecurityPolicy, Snapshot, World, WorldError, WorldState};
 use std::{path::Path, sync::Arc};
 
