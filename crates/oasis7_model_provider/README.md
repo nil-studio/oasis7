@@ -15,6 +15,18 @@ reexports preserve its active simulator consumers. The sections below describe
 that legacy compatibility path. Its configuration and retry behavior do not
 configure or weaken the separate BYOK consumer.
 
+## Native legacy completion bridge
+
+The implementation of `LlmCompletionModelProvider<C>` lives in
+`legacy_model_adapter` in this crate, next to the existing legacy
+`LlmCompletionClient` and its transport errors. The previous umbrella path
+`oasis7::simulator::LlmCompletionModelProvider` is a type-identical reexport.
+The adapter forwards exactly one budget-limited call, keeps request digest,
+ordered Decision/ModuleCall payloads, usage, and provider ID, and preserves the
+prior retryability classification. It never constructs Runtime World state or
+executes provider-suggested tools. Both direct-owner and legacy-host tests must
+pass before retiring the compatibility export.
+
 ## Boundaries
 
 `OpenAiChatCompletionClient` implements the Harness `ModelProvider` interface.

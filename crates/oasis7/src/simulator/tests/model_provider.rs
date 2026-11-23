@@ -104,7 +104,8 @@ impl LlmCompletionClient for LegacyClient {
 
 #[test]
 fn model_provider_adapts_existing_completion_client_without_changing_typed_output() {
-    let mut provider = LlmCompletionModelProvider::new("legacy-client", LegacyClient);
+    let mut provider: oasis7_model_provider::legacy_model_adapter::LlmCompletionModelProvider<_> =
+        LlmCompletionModelProvider::new("legacy-client", LegacyClient);
     let response = provider
         .complete_checked(&request())
         .expect("legacy completion adapter");
