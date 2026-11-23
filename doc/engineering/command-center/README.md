@@ -84,7 +84,7 @@ Smelter 合法建成 → 铁锭生产 cycle → owner-bound output ledger 实际
 
 ## 当前主线与进展
 
-2026-11-06 开发测试账号工具职责局部核对：[当前要求](../../p2p/blockchain/hosted-public-join-managed-identity-custody.prd.md#dev-test-accounts)与[系统设计](../../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#dev-test-accounts-design)将 #5076 的交付集中到测试账号目录、凭据保管、按会话选账号及外部 Agent 实际接入。游戏权限与结果继续由现有客户端／世界 authority 承担，测试编排负责业务目标与所需清理。旧扩张要求已退役，后续实施只按当前工具合同推进。源码核对基线 `3bd96334c7ce3ad09111ed25d586afd1e20bab64`；已有多资源 broker 与 Control-only Host 可作为复用基础，工具的本地／远程入口、真实双账号使用及部署隔离仍待实现／验收。后续拆解集中在 [#5076](https://github.com/nil-studio/oasis7/issues/5076)；本次未核验部署，其他主题核验时间不变。
+开发测试账号由通用账号服务承接，范围和实际部署验收见[历史交付](#cc-status-account-service-delivery)；当前产品与设计入口见[测试账号要求](../../p2p/blockchain/hosted-public-join-managed-identity-custody.prd.md#dev-test-accounts)和[系统设计](../../p2p/blockchain/hosted-public-join-managed-identity-custody.design.md#dev-test-accounts-design)。游戏权限与结果继续由现有客户端／世界权威承担，不归账号服务。
 
 以下主线消费既有里程碑和实际交付记录，不在这里重新排序或建立一套任务状态。
 [#4363](https://github.com/eng-cc/oasis7/issues/4363) 已以 `not_planned` 关闭，只是历史规划/文档来源；当前能力和限制回到对应主责文档与实际 PR/验证记录，不恢复旧 Issue 的剩余义务。
@@ -115,10 +115,7 @@ starter 候选、owner 目标持久化等前置已有代码；Web guest 启动/�
 
 ### 3. 当前验证与消费者收口
 
-[#4568](https://github.com/eng-cc/oasis7/pull/4568) 已合入，自身最终 CI 的通过范围可追溯。
-观测时 [#4571](https://github.com/eng-cc/oasis7/pull/4571) `b251e295` 未合入、新版本 CI 待完成；
-依赖它的 [#4567](https://github.com/eng-cc/oasis7/pull/4567) `8ea69adb` 与 [#4569](https://github.com/eng-cc/oasis7/pull/4569) `4e94a2e6` 仍为草稿。
-下一步由原负责人处理实际新源验证与合入；旧绿色结果不替代新版本，也不因此新增人工审批。
+代码交付见[历史记录](#cc-status-consumer-delivery)。实际部署、同候选完整首局及真人验收仍按[待补事实](#待补事实)跟踪，不以旧 PR 的 CI 代替。
 
 ### 4. 受控真人两次会话
 
@@ -192,6 +189,19 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 后续 #4533、#4563、#4572 已有实现，不能继续把客户端整体描述为“仅方案”，也不能据此断言全部设计完成。
 按事件时间阅读 PR：#4533 当时尚未实现的 runtime，后来由 #4563 增量交付。
 
+<a id="cc-status-consumer-delivery"></a>
+
+### 消费链路与持久世界部署前置（2026-10-11 至 2026-10-15）
+
+- 2026-10-11：[固定世界恢复缓存 #4571](https://github.com/nil-studio/oasis7/pull/4571)、[纯 API 客户端聊天 #4567](https://github.com/nil-studio/oasis7/pull/4567)与[玩法验证报告 #4569](https://github.com/nil-studio/oasis7/pull/4569)均已合入；各自最终验证范围以对应 PR 为准。
+- 2026-10-15：[持久世界恢复与节点生命周期 #4683](https://github.com/nil-studio/oasis7/pull/4683)已合入。代码交付不证明真实部署、完整产品或自主试玩验收；运维入口见[架构索引](architecture/README.md#cc-architecture-authority)和[节点生命周期手册](../../p2p/blockchain/persistent-world-node-lifecycle.runbook.md)。
+
+<a id="cc-status-account-service-delivery"></a>
+
+### 通用测试账号服务交付（2026-11-13）
+
+[#5076](https://github.com/nil-studio/oasis7/issues/5076)按修订后的通用账号服务范围结项；[实现与交付 #5842](https://github.com/nil-studio/oasis7/pull/5842)记录两套独立账号 Worker、静态 Skill 与认证 MCP 的实际部署及测试。本项不代签已退役的旧游戏、本机或 Dot 验收，也不证明第三方登录或平台灾备恢复。
+
 ### 本次候选增量（2026-10-12）
 
 2026-10-14 局部摘要：[PR #4624](https://github.com/eng-cc/oasis7/pull/4624) 已合入，新增内置私有资料、同构建可选 CLI、兼容既有 signer 的文件签名接入，以及显式私有开发会话输入；普通本机工具边界见[当前设计](local-tools.design.md)。
@@ -224,7 +234,7 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 后续若改变阶段目标、正式开放范围或部署安排，应回到对应主责条款和已有操作入口形成具体决定。
 这里记录真实问题，不把正常 CI、文档刷新或已有授权工作包装成新的许可请求。来源：[开发流程边界](../workflow/source-of-truth.md#1-适用范围与规则边界)、[#4363 历史安排](https://github.com/eng-cc/oasis7/issues/4363#issuecomment-6107216860)。
 
-持久世界部署优化的代码候选见 [PR #4683](https://github.com/eng-cc/oasis7/pull/4683) 和[架构索引](architecture/README.md#cc-architecture-authority)，2026-10-15 核对为待合入。当前授权范围为代码与本机验证；小遗留按[实施文档 TODO](../../p2p/blockchain/persistent-world-node-lifecycle.runbook.md)跟踪，真实部署、完整产品及自主试玩验收仍未完成。
+持久世界的真实部署、完整产品及自主试玩仍按下表所列事实验收，不重新把[已合入的代码前置](#cc-status-consumer-delivery)列为待决定。
 
 ### 待补事实
 
@@ -232,7 +242,6 @@ Web Passkey 多凭证账号把账号登录与世界控制分开，邮箱为可�
 | --- | --- | --- |
 | 正式部署候选、环境、故障域、实际保留/恢复与旧写者隔离结果 | 决定能否从代码前置进入正式持久世界开放；当前没有线上状态核验 | [架构索引](architecture/README.md)、[#4363](https://github.com/eng-cc/oasis7/issues/4363#issuecomment-6107216860) |
 | 同候选首产物、阻塞恢复、目标接续与真实玩家观察 | 决定邀请范围和是否继续、修复或收窄；局部实现与 guest 启动不足以回答 | [当前阶段](../../core/prd.md#当前阶段收口优先级stage-closure-backlog)、[首局验收](../../product/world-rules-core-gameplay/first-session-and-continuation.prd.md#ac-first-industrial-004) |
-| #4571 及消费者的新源 CI/合入结果 | 更新代码进展，识别仍存在的具体回归；这属于后续取证，不是新增审批 | [#4571](https://github.com/eng-cc/oasis7/pull/4571)、[#4567](https://github.com/eng-cc/oasis7/pull/4567)、[#4569](https://github.com/eng-cc/oasis7/pull/4569) |
 
 ### 知悉变化
 
