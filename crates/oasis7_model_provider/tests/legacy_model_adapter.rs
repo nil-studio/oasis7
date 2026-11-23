@@ -5,7 +5,10 @@ use oasis7_model_provider::{
     LlmClientError, LlmCompletionClient, LlmCompletionRequest, LlmCompletionResult,
     LlmCompletionTurn, legacy_model_adapter::LlmCompletionModelProvider,
 };
-use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
 struct ProbeClient {
     calls: Arc<AtomicUsize>,
@@ -73,7 +76,9 @@ fn direct_owner_preserves_original_single_call_identity_turns_usage_and_trace() 
             fail_transport: false,
         },
     );
-    let response = adapter.complete_checked(&request()).expect("valid legacy response");
+    let response = adapter
+        .complete_checked(&request())
+        .expect("valid legacy response");
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(response.request_digest, request().request_digest);
     assert_eq!(response.usage.total_tokens, Some(5));

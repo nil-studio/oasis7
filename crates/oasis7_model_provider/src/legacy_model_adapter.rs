@@ -26,9 +26,7 @@ impl<C> LlmCompletionModelProvider<C> {
     }
 }
 
-impl<C: crate::LlmCompletionClient + Send> ModelProvider
-    for LlmCompletionModelProvider<C>
-{
+impl<C: crate::LlmCompletionClient + Send> ModelProvider for LlmCompletionModelProvider<C> {
     fn provider_id(&self) -> &str {
         self.provider_id.as_str()
     }
@@ -47,17 +45,12 @@ impl<C: crate::LlmCompletionClient + Send> ModelProvider
         };
         let completion = self.client.complete(&completion_request).map_err(|error| {
             let (code, retryable) = match &error {
-                crate::LlmClientError::Http { .. }
-                | crate::LlmClientError::HttpStatus { .. } => {
+                crate::LlmClientError::Http { .. } | crate::LlmClientError::HttpStatus { .. } => {
                     ("provider_unavailable", true)
                 }
-                crate::LlmClientError::BuildClient { .. } => {
-                    ("provider_unavailable", false)
-                }
+                crate::LlmClientError::BuildClient { .. } => ("provider_unavailable", false),
                 crate::LlmClientError::DecodeResponse { .. }
-                | crate::LlmClientError::EmptyChoice => {
-                    ("invalid_model_response", false)
-                }
+                | crate::LlmClientError::EmptyChoice => ("invalid_model_response", false),
             };
             ModelProviderError::new(code, error.to_string(), retryable)
         })?;
