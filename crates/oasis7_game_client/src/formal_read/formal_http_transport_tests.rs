@@ -38,10 +38,11 @@ fn formal_reader_uses_direct_http_policy() {
             // A real formal read reaches the configured origin despite proxy
             // environment variables. The unsigned error is still rejected;
             // this transport fixture does not claim an accepted World proof.
-            assert!(matches!(
-                client.read_view(request),
-                Err(crate::WorldServiceClientError::Rejected { status: 400, .. })
-            ));
+            match client.read_view(request) {
+                Err(crate::WorldServiceClientError::Rejected { status: 400, .. }) => {}
+                Err(error) => panic!("expected direct-origin HTTP 400 refusal, got {error}"),
+                Ok(_) => panic!("unsigned HTTP 400 was accepted"),
+            }
         },
     );
 }
