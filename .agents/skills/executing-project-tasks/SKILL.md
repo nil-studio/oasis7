@@ -21,7 +21,7 @@ description: Use when implementing and finishing an authorized oasis7 change.
 
 修改前按开发规范检查 `git worktree list --porcelain`、工作区状态和使用情况，优先复用固定开发路径；聊天附件只用于识别附件，不能据此认定没有可复用工作区。需要新增时执行 `scripts/new-task-worktree.sh`，遵循仓库根目录配置，不以 App 创建、worktree fork 或 handoff 代替。用户明确要求其他入口时遵从用户要求。Cargo 默认使用各 worktree 的本地 `target/`，无需准备链接；日常反馈使用 wrapper，正式验收保留 canonical 命令。已有 target 不擅自删除。
 
-当前开发会话在独立分支连续分析、实现、自测、跟进 PR/CI 并修复本项问题；不默认转派给 subagent。建议规模内的同一任务默认在单分支内用多个清楚的本地 commit 连续推进实现步骤、同模块迁移与已知边界分支，按改动类型完成适用本地自测（如 Rust 开发使用 `./scripts/cargo-dev.sh`、显式检查入口 `scripts/check-local.py`、前端/文档执行对应检查）收敛后再成批推送并创建或更新同一 PR，不把局部 commit 步骤拆成多个微 PR。并行任务按[独立开发会话](../../../doc/engineering/workflow/source-of-truth.md#independent-development-sessions)分别领取，保持写入边界并保留他人改动。
+当前开发会话在独立分支连续分析、实现、自测并修复本项问题；PR/CI 跟进可通过 `merge:managed` 按[PR 合入托管](../../../doc/engineering/workflow/source-of-truth.md#managed-pr-merge)确认交接，接管前仍由原会话跟进；不默认转派给 subagent。建议规模内的同一任务默认在单分支内用多个清楚的本地 commit 连续推进实现步骤、同模块迁移与已知边界分支，按改动类型完成适用本地自测（如 Rust 开发使用 `./scripts/cargo-dev.sh`、显式检查入口 `scripts/check-local.py`、前端/文档执行对应检查）收敛后再成批推送并创建或更新同一 PR，不把局部 commit 步骤拆成多个微 PR。并行任务按[独立开发会话](../../../doc/engineering/workflow/source-of-truth.md#independent-development-sessions)分别领取，保持写入边界并保留他人改动。
 
 先读相关实现，沿调用和数据流确认受影响范围。最小完整修改以本次验收和适用契约为界，包含必要的消费者、测试、配置和文档；允许根因修复跨模块进行，不为减少文件数或行数省略必要修改。
 

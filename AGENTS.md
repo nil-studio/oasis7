@@ -1,6 +1,6 @@
 # Oasis7 Agent Entry Point
 
-通用规则见 [开发流程规范](doc/engineering/workflow/source-of-truth.md)。简单任务由当前会话完成；并行代码开发默认由多个[独立开发会话](doc/engineering/workflow/source-of-truth.md#independent-development-sessions)承接。每个会话负责实现、自测、适用评审和 PR/CI 跟进，满足必要检查及用户授权后交付。
+通用规则见 [开发流程规范](doc/engineering/workflow/source-of-truth.md)。简单任务由当前会话完成；并行代码开发默认由多个[独立开发会话](doc/engineering/workflow/source-of-truth.md#independent-development-sessions)承接。每个会话负责实现、自测和适用评审；PR/CI 跟进可通过 `merge:managed` 按[PR 合入托管](doc/engineering/workflow/source-of-truth.md#managed-pr-merge)确认交接，满足本次交付终点、必要检查及用户授权后交付。
 
 按任务从[工程知识导航](doc/engineering/design.md#task-scoped-engineering-context-design)进入相应模块与检查来源。环境另行提供的 RTK 等个人工具说明只在明确配置且可读取时参考；缺失不阻塞仓库开发，也不覆盖仓库主责规范或当前用户授权。
 

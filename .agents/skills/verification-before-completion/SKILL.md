@@ -15,6 +15,8 @@ description: Use when reporting oasis7 verification or completion.
 
 按本次约定的交付终点报告状态。`implementation:ready` 表示具备实施条件且尚未确认领取；交付可评审 PR 时注明是否已合入；报告“可合入”前检查当前候选的必要 CI、适用评审及阻断项；报告“已合入的代码交付”前确认 PR 已实际 merged，并核对提交。明确的部署、多 PR 和管理义务尚未完成时列出剩余工作，不以本轮请求完成代替父目标完成。
 
+采用 `merge:managed` 时，按[PR 合入托管](../../../doc/engineering/workflow/source-of-truth.md#managed-pr-merge)核对实际接管记录和续接安排；开发交接、已提 PR、可合入与已合入分别报告，标签本身不证明任一完成状态。
+
 ## 按消费者给出验证结论
 
 先用[公共行为与独立预期值](../../../testing-manual.md#regression-oracle)核对断言是否能检出原问题，再明确下列证据覆盖的层级；只列本次涉及的层，不新增统一回执。

@@ -86,7 +86,7 @@ Trace refs: O7-REQ-f1388c2b-6f64-4ebd-886e-0b741bfe176c；承接任务拆分、�
 
 ## 5. 在独立会话中推进就绪任务
 
-按[独立开发会话](../../../doc/engineering/workflow/source-of-truth.md#independent-development-sessions)由用户直接打开会话，或在选择 TPM 协调时使用已获准的会话管理能力。每个会话领取具体代码任务，负责实现、自测、PR/CI 和同范围修复；优先续接已有会话，不默认转派给 subagent。用户或已有负责人承担整合，不为本方法增加必经协调会话。
+按[独立开发会话](../../../doc/engineering/workflow/source-of-truth.md#independent-development-sessions)由用户直接打开会话，或在选择 TPM 协调时使用已获准的会话管理能力。每个会话领取具体代码任务，负责实现、自测和同范围修复，PR/CI 跟进可按[PR 合入托管](../../../doc/engineering/workflow/source-of-truth.md#managed-pr-merge)交接；优先续接已有会话，不默认转派给 subagent。用户或已有负责人承担整合，不为本方法增加必经协调会话。
 
 启动前按[验收条件](../../../doc/engineering/workflow/source-of-truth.md#code-task-acceptance-readiness)核对本项输入/夹具、消费入口、权威结果观察点与运行资源；共同准备已有有效结果时，核对前置版本、配置、输入和环境后直接引用，仅对失效或未覆盖部分补做启动或基线核验。需在本项补建的入口、夹具或环境准备写入范围；外部前置缺失时明确产出、责任人和解除条件，先推进可执行准备及独立就绪范围，不要求待实现行为预先通过。
 
