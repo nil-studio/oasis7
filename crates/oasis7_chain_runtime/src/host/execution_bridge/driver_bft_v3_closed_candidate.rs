@@ -472,10 +472,6 @@ impl FormalBftHeaderLedgerExecutionV3 {
         )
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "The original source authority and optional received package remain explicit."
-    )]
     fn archive_first_original_input(
         &self,
         archive: &LocalBftSuccessorArchiveStoreV1,

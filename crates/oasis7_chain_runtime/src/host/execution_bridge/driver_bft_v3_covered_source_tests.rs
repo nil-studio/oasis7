@@ -484,10 +484,8 @@ fn activation_case(received: bool) {
     let cold_reader = || {
         ArchivedOriginalSourceReaderV1::new(
             Arc::new(
-                LocalBftSuccessorArchiveStoreV1::new(LocalCasStore::new(
-                    archive_store.root().to_path_buf(),
-                ))
-                .unwrap(),
+                LocalBftSuccessorArchiveStoreV1::new(LocalCasStore::new(archive_store.root()))
+                    .unwrap(),
             ),
             original_source.clone(),
             h.anchor.clone(),
@@ -643,10 +641,7 @@ fn activation_case(received: bool) {
         .unwrap();
     let repriced_reader = ArchivedOriginalSourceReaderV1::new(
         Arc::new(
-            LocalBftSuccessorArchiveStoreV1::new(LocalCasStore::new(
-                archive_store.root().to_path_buf(),
-            ))
-            .unwrap(),
+            LocalBftSuccessorArchiveStoreV1::new(LocalCasStore::new(archive_store.root())).unwrap(),
         ),
         original_source.clone(),
         h.anchor.clone(),
