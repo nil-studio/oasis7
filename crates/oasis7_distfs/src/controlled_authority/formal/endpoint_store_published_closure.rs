@@ -15,7 +15,7 @@ const MAX_NODES: usize = 262_144;
 /// In-process progress is reusable only while this exact representation is
 /// pinned. Reopening drops both this cursor and its pin and starts fresh.
 pub(crate) struct ClosureJob {
-    _pin: File,
+    _pin: super::super::physical::LeaseGuard,
     proof_digest: String,
     report: FormalPublishedClosureReceiptV1,
     seen: Seen,
