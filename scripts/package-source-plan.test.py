@@ -128,6 +128,26 @@ with tempfile.TemporaryDirectory() as temporary:
     tool=root / "gh"
     tool.write_text("#!/usr/bin/env python3\nimport json,os,sys\nkind=os.environ['MOCK_KIND']\nsha=os.environ['MOCK_SHA']\nprint(json.dumps({'object': {'type': 'commit' if '/git/tags/' in sys.argv[2] else kind, 'sha': sha if kind == 'commit' or '/git/tags/' in sys.argv[2] else 'b'*40}}))\n")
     tool.chmod(0o755)
+    # The real release workflow uses jq on its publishing runner. This test
+    # already mocks gh; emulate only the jq invocations exercised here so
+    # documentation CI images do not need a separate jq installation.
+    jq = root / "jq"
+    jq.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, sys\n"
+        "args = sys.argv[1:]\n"
+        "if args in ([\"-r\", \".object.sha\"], [\"-r\", \".object.type\"]):\n"
+        "    value = json.load(sys.stdin)[\"object\"][args[1].rsplit(\".\", 1)[1]]\n"
+        "    print(value)\n"
+        "elif len(args) == 6 and args[:3] == [\"-e\", \"--arg\", \"sha\"] and args[4] == \".checkoutSha == $sha\":\n"
+        "    with open(args[5], encoding=\"utf-8\") as source:\n"
+        "        accepted = json.load(source)[\"checkoutSha\"] == args[3]\n"
+        "    print(\"true\" if accepted else \"false\")\n"
+        "    sys.exit(0 if accepted else 1)\n"
+        "else:\n"
+        "    sys.exit(\"unsupported jq fixture invocation\")\n"
+    )
+    jq.chmod(0o755)
     (root / "output/release/assets").mkdir(parents=True)
     for platform in ("linux-x64", "macos-x64", "windows-x64"):
         (root / "output/release/assets" / (platform+"-SOURCEPLAN.json")).write_text(json.dumps({"checkoutSha": "a"*40}))
