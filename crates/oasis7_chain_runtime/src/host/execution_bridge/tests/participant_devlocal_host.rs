@@ -592,7 +592,7 @@ fn devlocal_host_rejects_unsigned_formal_admission_and_conflicted_recovery_witho
             ..Default::default()
         },
     );
-    let error = oasis7::runtime_host::world::from_snapshot_with_devlocal_participant_authority(
+    let error = oasis7_runtime_host::world::from_snapshot_with_devlocal_participant_authority(
         conflicted,
         driver.execution_world.journal().clone(),
         driver.devlocal_participant.authority.clone().unwrap(),

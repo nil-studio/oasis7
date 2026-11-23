@@ -130,7 +130,7 @@ fn formal_profile2_checkpoint_boundary_case() {
     let retained_parent =
         VerifiedFormalRetainedHistoryParentV1::verify(&parent, &to_cbor(&snapshot).unwrap())
             .unwrap();
-    let world = oasis7::runtime_host::world::from_verified_formal_snapshot(
+    let world = oasis7_runtime_host::world::from_verified_formal_snapshot(
         snapshot,
         world.journal().clone(),
         retained_parent,

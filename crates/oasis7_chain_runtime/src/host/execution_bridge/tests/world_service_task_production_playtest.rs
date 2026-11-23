@@ -127,7 +127,7 @@ fn fixture_mode(
             },
         );
     }
-    let mut world = oasis7::runtime_host::world::new_with_state(initial);
+    let mut world = oasis7_runtime_host::world::new_with_state(initial);
     world.submit_action(Action::RegisterAgent {
         agent_id: "agent-a".into(),
         pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),

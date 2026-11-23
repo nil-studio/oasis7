@@ -123,7 +123,7 @@ fn fixture_with_controller_preload(
         world_id: "w1".into(),
         genesis_digest: "fixture-genesis-v1".into(),
     };
-    let mut world = oasis7::runtime_host::world::new_with_state(WorldState::default());
+    let mut world = oasis7_runtime_host::world::new_with_state(WorldState::default());
     if let Some(controller) = controller {
         world
             .set_governance_main_token_controller_registry(controller)
