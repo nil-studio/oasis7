@@ -116,7 +116,10 @@ fn native_budget_denial_round_trips_through_live_sidecar_without_effects() {
     ]);
     // SAFETY: the canonical provider lock serializes this test's environment setup.
     unsafe {
-        oasis7_hosted_access::process_env::set_var(crate::simulator::ENV_LLM_MODEL, "gpt-runtime-budget-test");
+        oasis7_hosted_access::process_env::set_var(
+            crate::simulator::ENV_LLM_MODEL,
+            "gpt-runtime-budget-test",
+        );
         oasis7_hosted_access::process_env::set_var(
             crate::simulator::ENV_LLM_BASE_URL,
             "https://example.invalid/v1",
@@ -287,7 +290,10 @@ fn budget_wait_without_response_context_enters_terminal_cleanup() {
     ]);
     // SAFETY: the canonical provider lock serializes this test's environment setup.
     unsafe {
-        oasis7_hosted_access::process_env::set_var(crate::simulator::ENV_LLM_MODEL, "gpt-runtime-budget-test");
+        oasis7_hosted_access::process_env::set_var(
+            crate::simulator::ENV_LLM_MODEL,
+            "gpt-runtime-budget-test",
+        );
         oasis7_hosted_access::process_env::set_var(
             crate::simulator::ENV_LLM_BASE_URL,
             "https://example.invalid/v1",

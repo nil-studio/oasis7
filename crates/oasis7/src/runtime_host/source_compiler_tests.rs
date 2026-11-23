@@ -394,7 +394,10 @@ fn compile_module_artifact_from_source_registers_compiled_artifact() {
     write_fake_source_compiler(compiler_script.as_path(), produced_wasm_bytes);
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7_hosted_access::process_env::set_var(SOURCE_COMPILER_ENV, compiler_script.as_os_str());
+        oasis7_hosted_access::process_env::set_var(
+            SOURCE_COMPILER_ENV,
+            compiler_script.as_os_str(),
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
@@ -507,7 +510,10 @@ fn compile_module_artifact_from_source_rejects_in_production_release_policy() {
     write_fake_source_compiler(compiler_script.as_path(), "compiled-in-production");
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7_hosted_access::process_env::set_var(SOURCE_COMPILER_ENV, compiler_script.as_os_str());
+        oasis7_hosted_access::process_env::set_var(
+            SOURCE_COMPILER_ENV,
+            compiler_script.as_os_str(),
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
@@ -607,7 +613,10 @@ fn compile_module_artifact_from_source_rejects_when_compiler_times_out() {
     );
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7_hosted_access::process_env::set_var(SOURCE_COMPILER_ENV, compiler_script.as_os_str());
+        oasis7_hosted_access::process_env::set_var(
+            SOURCE_COMPILER_ENV,
+            compiler_script.as_os_str(),
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
@@ -655,7 +664,10 @@ fn compile_module_artifact_from_source_sanitizes_env_and_isolates_tmpdir() {
     );
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7_hosted_access::process_env::set_var(SOURCE_COMPILER_ENV, compiler_script.as_os_str());
+        oasis7_hosted_access::process_env::set_var(
+            SOURCE_COMPILER_ENV,
+            compiler_script.as_os_str(),
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {

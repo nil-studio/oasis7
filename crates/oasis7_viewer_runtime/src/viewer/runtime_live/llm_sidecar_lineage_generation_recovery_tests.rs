@@ -127,7 +127,10 @@ fn generation_changed_restore_releases_active_reserved_lease_before_fresh_planni
     ]);
     // SAFETY: the canonical provider lock serializes this test's environment setup.
     unsafe {
-        oasis7_hosted_access::process_env::set_var(crate::simulator::ENV_LLM_MODEL, "generation-change-test");
+        oasis7_hosted_access::process_env::set_var(
+            crate::simulator::ENV_LLM_MODEL,
+            "generation-change-test",
+        );
         oasis7_hosted_access::process_env::set_var(
             crate::simulator::ENV_LLM_BASE_URL,
             "https://example.invalid/v1",
