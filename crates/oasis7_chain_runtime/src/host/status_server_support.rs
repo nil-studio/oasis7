@@ -233,7 +233,7 @@ fn run_chain_status_server_loop(
     storage_metrics: storage_metrics::SharedStorageMetrics,
     feedback_submit_signer: FeedbackSubmitSigner,
     runtime_authority_binding: Option<super::runtime_authority::RuntimeAuthorityBinding>,
-    private_goal_store: Option<Arc<oasis7::world_service::private_goal_store::PrivateGoalStore>>,
+    private_goal_store: Option<Arc<oasis7_world_service::private_goal_store::PrivateGoalStore>>,
     restore_context: super::execution_bridge::world_service_read::RestoreContext,
 ) -> Result<(), String> {
     let admission = super::status_admission::Admission::default();
@@ -332,7 +332,7 @@ fn handle_chain_status_connection(
     storage_metrics: storage_metrics::SharedStorageMetrics,
     feedback_submit_signer: &FeedbackSubmitSigner,
     runtime_authority_binding: Option<&super::runtime_authority::RuntimeAuthorityBinding>,
-    private_goal_store: Option<Arc<oasis7::world_service::private_goal_store::PrivateGoalStore>>,
+    private_goal_store: Option<Arc<oasis7_world_service::private_goal_store::PrivateGoalStore>>,
     restore_context: &super::execution_bridge::world_service_read::RestoreContext,
 ) -> Result<(), String> {
     stream

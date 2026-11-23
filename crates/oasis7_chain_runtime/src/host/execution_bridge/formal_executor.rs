@@ -118,7 +118,7 @@ fn execute_with_business_reader(
     let _attempt_pin = super::formal_attempt_lifecycle::active(&attempt, frozen)?;
     let world_dir = attempt.join("world");
     super::controlled_live::private_directory(&world_dir)?;
-    let identity = oasis7::world_service::WorldIdentity {
+    let identity = oasis7_world_service::WorldIdentity {
         world_id: authority.definition().world.world_id.clone(),
         genesis_digest: authority.definition().world.genesis_digest.clone(),
     };
