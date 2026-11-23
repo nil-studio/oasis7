@@ -196,7 +196,12 @@ impl FormalFullSyncSession {
         Ok(VerifiedInstallation {
             cut: serde_json::to_value(&restored.cut).map_err(|e| e.to_string())?,
             roots_digest: super::super::local_io::digest(&restored.retained_cas_hashes)?,
-            manifest_digest: super::super::local_io::digest(&restored.manifest)?,
+            // The durable installation stores the complete manifest as a
+            // JSON Value. Hash that same representation; the typed struct's
+            // declaration order is not the persisted object's key order.
+            manifest_digest: super::super::local_io::digest(
+                &serde_json::to_value(&restored.manifest).map_err(|e| e.to_string())?,
+            )?,
             history_manifest_digest: history["manifest_digest"].as_str().map(str::to_owned),
         })
     }

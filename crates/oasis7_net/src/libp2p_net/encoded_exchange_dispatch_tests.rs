@@ -138,6 +138,12 @@ fn actual_no_address_and_refused_tcp_dials_spend_original_exchange_count() {
                         peer,
                         format!("/ip4/127.0.0.1/tcp/{port}").parse().unwrap(),
                     );
+                } else {
+                    // A synchronous NoAddresses failure is delivered to the
+                    // behaviour, without an OutgoingConnectionError event.
+                    // Verify the actual dial result before the budgeted RR
+                    // dispatch exercises the same empty address set.
+                    assert!(matches!(swarm.dial(peer), Err(DialError::NoAddresses)));
                 }
                 let exchange = Exchange::new(Box::new(Budget::new(Arc::clone(&state), deadline)));
                 prepare_encoded_request(message(), &exchange).unwrap();
@@ -149,19 +155,17 @@ fn actual_no_address_and_refused_tcp_dials_spend_original_exchange_count() {
                     Some(exchange),
                 );
                 tokio::time::timeout(Duration::from_secs(3), async {
-                    let mut saw_expected_dial_error = false;
-                    loop {
+                    let mut saw_transport_failure = false;
+                    let mut saw_request_failure = false;
+                    while !saw_request_failure || (with_address && !saw_transport_failure) {
                         match swarm.select_next_some().await {
                             SwarmEvent::OutgoingConnectionError {
                                 peer_id: Some(failed),
                                 error,
                                 ..
-                            } if failed == peer => {
-                                saw_expected_dial_error |= if with_address {
-                                    matches!(error, DialError::Transport(_))
-                                } else {
-                                    matches!(error, DialError::NoAddresses)
-                                };
+                            } if with_address && failed == peer => {
+                                assert!(matches!(error, DialError::Transport(_)), "{error:?}");
+                                saw_transport_failure = true;
                             }
                             SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
                                 Event::OutboundFailure {
@@ -169,11 +173,7 @@ fn actual_no_address_and_refused_tcp_dials_spend_original_exchange_count() {
                                 },
                             )) if request_id == request => {
                                 assert!(matches!(error, OutboundFailure::DialFailure), "{error:?}");
-                                assert!(
-                                    saw_expected_dial_error,
-                                    "actual Swarm dial failure must precede the request error"
-                                );
-                                break;
+                                saw_request_failure = true;
                             }
                             _ => {}
                         }
@@ -202,6 +202,8 @@ fn actual_no_address_and_refused_tcp_dials_spend_original_exchange_count() {
 
 #[test]
 fn repeated_real_protocol_failure_exhausts_the_same_original_exchange_limit() {
+    use oasis7_proto::network_failure::{FailureCause, FailureOrigin, NetworkFailure};
+
     let (server, client) = super::network_tests::UnsupportedPeer::connect();
     let state = ledger(1024);
     state.lock().unwrap().max_exchanges = Some(1);
@@ -219,16 +221,47 @@ fn repeated_real_protocol_failure_exhausts_the_same_original_exchange_limit() {
         if first {
             assert_eq!(
                 error.network_failure(Some(protocol)).cause,
-                oasis7_proto::network_failure::FailureCause::MissingHandler
+                FailureCause::MissingHandler
             );
         } else {
-            assert!(format!("{error:?}").contains("original operation unavailable or exhausted"));
+            assert_eq!(
+                error.network_failure(Some(protocol)),
+                NetworkFailure::observed(
+                    FailureOrigin::LocalTransport,
+                    FailureCause::Unknown,
+                    Some(protocol),
+                )
+            );
+            assert!(matches!(
+                error.diagnostic_source(),
+                crate::WorldError::NetworkProtocolUnavailable { protocol: phase }
+                    if phase == "encoded exchange admission failed"
+            ));
         }
+        // Observe the first exchange's completed owner before retrying, so
+        // only max_exchanges, not a still-active owner, can reject the retry.
+        let finished_by = Instant::now() + Duration::from_secs(2);
+        while Arc::strong_count(&state) != 1 && Instant::now() < finished_by {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(Arc::strong_count(&state), 1);
+        assert!(Instant::now() < deadline);
+        let actual = state.lock().unwrap();
+        assert!(!actual.active);
+        assert_eq!(actual.starts, [request_bytes(protocol, &[255]).len()]);
+        assert_eq!(actual.max_exchanges, Some(1));
+        assert!(actual.limit > actual.starts[0]);
+        assert_eq!(
+            (actual.tx, actual.rx, actual.unknown, actual.finishes),
+            (0, 0, 0, 1)
+        );
+        assert!(actual.pending.is_empty());
+        // The refused retry never reaches the actual runtime RR dispatch.
+        assert_eq!(
+            client.traffic_metrics_snapshot().by_protocol[protocol]
+                .outbound
+                .messages,
+            1
+        );
     }
-    let actual = state.lock().unwrap();
-    assert_eq!(actual.starts.len(), 1);
-    assert_eq!(
-        (actual.tx, actual.rx, actual.unknown, actual.finishes),
-        (0, 0, 0, 1)
-    );
 }

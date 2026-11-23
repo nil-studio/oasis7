@@ -3,6 +3,7 @@
 //! signer lease, native owner takeover or a successor installer.
 #![cfg(all(feature = "node-libp2p", not(target_arch = "wasm32")))]
 
+use super::super::operation_failure::LocalBlocker;
 use super::super::operation_ledger::{
     AttemptPermit, Direction, ExchangePermit, Identity, Ledger, Policy, Reservation,
 };
@@ -12,6 +13,8 @@ use oasis7_net::{
     Libp2pNetworkConfig,
 };
 use oasis7_proto::distributed_net::DistributedNetwork as _;
+use oasis7_proto::network_failure::{FailureCause, FailureOrigin, NetworkFailure};
+use oasis7_proto::world_error::WorldError;
 use sha2::Digest;
 use std::{
     io,
@@ -315,7 +318,7 @@ fn real_wire_cancel_keeps_unknown_original_reservation_after_cold_open() {
 
 struct CancelAfterAdmission {
     inner: SoftwareExchange,
-    cancelled: AtomicBool,
+    cancelled: Arc<AtomicBool>,
 }
 
 impl EncodedExchangeBudget for CancelAfterAdmission {
@@ -348,6 +351,22 @@ impl EncodedExchangeBudget for CancelAfterAdmission {
     }
 }
 
+fn assert_local_admission_failure(error: &WorldError, protocol: &str) {
+    assert_eq!(
+        error.network_failure(Some(protocol)),
+        NetworkFailure::observed(
+            FailureOrigin::LocalTransport,
+            FailureCause::Unknown,
+            Some(protocol),
+        )
+    );
+    assert!(matches!(
+        error.diagnostic_source(),
+        WorldError::NetworkProtocolUnavailable { protocol: phase }
+            if phase == "encoded exchange admission failed"
+    ));
+}
+
 #[test]
 fn real_predispatch_cancel_spends_exchange_limit_and_cold_ledger_preserves_known_zero() {
     let (server, client) = pair(false);
@@ -369,6 +388,7 @@ fn real_predispatch_cancel_spends_exchange_limit_and_cold_ledger_preserves_known
     policy.max_exchanges = 1;
     let (state, identity) = original(&path, &policy, protocol);
     let deadline = state.lock().unwrap().attempt.deadline();
+    let cancelled = Arc::new(AtomicBool::new(false));
     let error = client
         .request_to_peer_with_encoded_budget(
             protocol,
@@ -376,11 +396,12 @@ fn real_predispatch_cancel_spends_exchange_limit_and_cold_ledger_preserves_known
             server.peer_id(),
             Box::new(CancelAfterAdmission {
                 inner: SoftwareExchange::new(Arc::clone(&state)),
-                cancelled: AtomicBool::new(false),
+                cancelled: Arc::clone(&cancelled),
             }),
         )
         .unwrap_err();
-    assert!(format!("{error:?}").contains("cancelled after durable admission"));
+    assert_local_admission_failure(&error, protocol);
+    assert!(cancelled.load(Ordering::Acquire));
     wait_until(|| Arc::strong_count(&state) == 1);
     let before = state.lock().unwrap().ledger.snapshot().clone();
     assert_eq!((before.exchanges_started, before.attempts_used), (1, 1));
@@ -397,6 +418,15 @@ fn real_predispatch_cancel_spends_exchange_limit_and_cold_ledger_preserves_known
     assert_eq!(state.lock().unwrap().stopped_exchanges, 1);
     // Only that exchange was cancelled. The original operation and attempt are
     // still active, so this independent refusal must be the spent count cap.
+    {
+        let original = state.lock().unwrap();
+        original.ledger.check_attempt(&original.attempt).unwrap();
+        assert!(original.exchange.is_none());
+        assert_eq!(
+            original.ledger.failure_reason(&original.attempt),
+            LocalBlocker::RecoveryRequired
+        );
+    }
     let error = client
         .request_to_peer_with_encoded_budget(
             protocol,
@@ -405,10 +435,27 @@ fn real_predispatch_cancel_spends_exchange_limit_and_cold_ledger_preserves_known
             Box::new(SoftwareExchange::new(Arc::clone(&state))),
         )
         .unwrap_err();
-    assert!(format!("{error:?}").contains("operation_budget_exhausted: exchanges"));
+    assert_local_admission_failure(&error, protocol);
     wait_until(|| Arc::strong_count(&state) == 1);
-    assert_eq!(state.lock().unwrap().ledger.snapshot(), &before);
-    assert_eq!(state.lock().unwrap().attempt.deadline(), deadline);
+    {
+        let original = state.lock().unwrap();
+        assert_eq!(original.ledger.snapshot(), &before);
+        assert_eq!(original.attempt.deadline(), deadline);
+        assert_eq!(
+            original.ledger.failure_reason(&original.attempt),
+            LocalBlocker::BudgetExhausted
+        );
+        assert_eq!(original.stopped_exchanges, 1);
+        assert!(original.exchange.is_none());
+    }
+    assert_eq!(
+        client
+            .traffic_metrics_snapshot()
+            .by_protocol
+            .get(protocol)
+            .map_or(0, |lane| lane.outbound.messages),
+        0
+    );
     assert_eq!(calls.load(Ordering::Acquire), 0);
     assert!(Instant::now() < deadline);
     drop(state);
