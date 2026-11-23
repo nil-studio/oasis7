@@ -5491,10 +5491,9 @@ run() { if [[ "$1" == "$ci_python" && "${2:-}" == - ]]; then "$@"; fi; }
         self.assertIn("format('run-{0}', github.run_id)", WORKFLOW)
         concurrency = WORKFLOW.split('concurrency:', 1)[1].split('permissions:', 1)[0]
         push_group = "github.event_name == 'push' && format('push-{0}', github.ref)"
-        cancellation = "github.event_name == 'pull_request'"
-        if push_group in concurrency:
-            cancellation += " || github.event_name == 'push'"
-        self.assertIn("cancel-in-progress: ${{ " + cancellation + " }}", concurrency)
+        self.assertIn(push_group, concurrency)
+        self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", concurrency)
+        self.assertNotIn("github.event_name == 'push'", concurrency.split('cancel-in-progress:', 1)[1])
         self.assertIn("format('periodic-observe-{0}', github.run_id)", concurrency)
         self.assertIn('group: rust-periodic-admission-main', JOBS['periodic-admission'])
         self.assertIn('cancel-in-progress: false', JOBS['periodic-admission'])
@@ -7085,8 +7084,11 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
             concurrency,
         )
         self.assertEqual(CONFIG.get('main_fast_range_recovery_version'), 1)
+        self.assertEqual(CONFIG.get('main_fast_coalesce_concurrency_version'), 1)
         self.assertEqual(CONFIG.get('draft_pr_heavy_ci_skip_version'), 1)
         self.assertEqual(CONFIG.get('auxiliary_workflow_consolidation_version'), 1)
+        self.assertEqual(CONFIG.get('workspace_member_cargo_manifest_scope_version'), 1)
+        self.assertEqual(CONFIG.get('scoped_production_cfg_version'), 1)
 
         gate = JOBS['required-gate']
         self.assertIn(
