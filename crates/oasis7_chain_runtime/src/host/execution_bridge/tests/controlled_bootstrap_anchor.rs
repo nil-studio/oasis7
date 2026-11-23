@@ -36,7 +36,7 @@ fn snapshot() -> (Snapshot, Journal) {
         ..Default::default()
     };
     // Deliberately distinct simulation tick and execution checkpoint height.
-    let world = oasis7::runtime_host::world::new_with_state(state);
+    let world = oasis7_runtime_host::world::new_with_state(state);
     let t = trust();
     let snapshot = world.snapshot_with_chain_resource_context(
         ChainResourceDerivationContext {

@@ -16,7 +16,7 @@ use oasis7_world_service::consensus_action_payload::{
 fn provider_bootstrap_fixture(
     world_dir: &std::path::Path,
 ) -> oasis7_runtime::ProviderBackedBootstrapAuthorityV1 {
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     world.submit_action(Action::RegisterAgent {
         agent_id: "agent-a".to_string(),
         pos: GeoPos::new(0, 0, 0),
@@ -179,7 +179,7 @@ fn provider_bootstrap_preflight_reconciles_record_ahead_of_world_cache() {
     // its existing finality authority can be reused for agent-b. The regular
     // fixture installer intentionally rejects replacing an immutable
     // authority record, which is exactly what the production state must do.
-    let mut authoritative_fixture = oasis7::runtime_host::world::new();
+    let mut authoritative_fixture = oasis7_runtime_host::world::new();
     authoritative_fixture.submit_action(Action::RegisterAgent {
         agent_id: "agent-b".to_string(),
         pos: GeoPos::new(1, 1, 0),

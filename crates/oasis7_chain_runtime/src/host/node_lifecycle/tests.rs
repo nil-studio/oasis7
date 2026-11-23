@@ -772,7 +772,7 @@ fn export_bound_fixture_world(destination: &Path, world_id: &str, genesis_sha: &
     );
     let snapshot = Snapshot::load_json(source.join("snapshot.json")).unwrap();
     let journal = Journal::load_json(source.join("journal.json")).unwrap();
-    let world = oasis7::runtime_host::world::from_snapshot(snapshot, journal).unwrap();
+    let world = oasis7_runtime_host::world::from_snapshot(snapshot, journal).unwrap();
     let genesis_ref = format!("sha256:{genesis_sha}");
     io::private_dir(destination).unwrap();
     world

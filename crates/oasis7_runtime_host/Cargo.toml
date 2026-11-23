@@ -1,0 +1,14 @@
+[package]
+name = "oasis7_runtime_host"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+oasis7_runtime = { path = "../oasis7_runtime", default-features = false }
+oasis7_world_service = { path = "../oasis7_world_service", default-features = false }
+oasis7_formal_protocol = { path = "../oasis7_formal_protocol" }
+oasis7_agent_api = { path = "../oasis7_agent_api" }
+
+[features]
+default = []

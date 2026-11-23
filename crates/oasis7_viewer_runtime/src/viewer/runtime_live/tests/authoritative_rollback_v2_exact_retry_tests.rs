@@ -126,7 +126,7 @@ fn committed_v2_exact_retry_rejects_mismatched_outer_request_reason_atomically()
         .get_rollback_receipt(nonce.to_string())
         .expect("committed receipt exists before retry");
     let generation_before =
-        crate::runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
+        oasis7_runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
             .expect("load generation before retry")
             .expect("initial commit persists a generation");
     let memory_before = serde_json::to_vec(&(
@@ -168,7 +168,7 @@ fn committed_v2_exact_retry_rejects_mismatched_outer_request_reason_atomically()
         "rejected retry must be byte-equivalent in memory"
     );
     let generation_after =
-        crate::runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
+        oasis7_runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
             .expect("load generation after retry")
             .expect("rejected retry preserves persisted generation");
     assert_eq!(

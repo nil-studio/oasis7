@@ -163,7 +163,7 @@ fn seed_module_recovery_fixture(dir: &std::path::Path) -> ModuleRecoveryFixture 
     let world_dir = dir.join("world");
     let records_dir = dir.join("records");
     let storage_root = dir.join("store");
-    let mut historical_world = oasis7::runtime_host::world::new();
+    let mut historical_world = oasis7_runtime_host::world::new();
     let module_hash = install_module_fixture(
         &mut historical_world,
         "m.execution-bridge.historical",
@@ -202,7 +202,7 @@ fn seed_module_recovery_fixture(dir: &std::path::Path) -> ModuleRecoveryFixture 
 
     // Leave a newer module-bearing world in the mutable cache. A historical
     // restore must continue to use only the snapshot CAS payload.
-    let mut newer_world = oasis7::runtime_host::world::new();
+    let mut newer_world = oasis7_runtime_host::world::new();
     install_module_fixture(
         &mut newer_world,
         "m.execution-bridge.newer",

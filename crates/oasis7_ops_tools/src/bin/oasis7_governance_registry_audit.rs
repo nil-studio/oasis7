@@ -98,7 +98,7 @@ fn main() {
 }
 
 fn build_audit_report(options: &CliOptions) -> Result<GovernanceRegistryAuditReport, String> {
-    let world = oasis7::runtime_host::world::load_from_dir(options.world_dir.as_path())
+    let world = oasis7_runtime_host::world::load_from_dir(options.world_dir.as_path())
         .map_err(|err| format!("load world {} failed: {err:?}", options.world_dir.display()))?;
     let audited_manifest_digest = audited_manifest_digest(options.public_manifest.as_deref())?;
     let manifest_slots = if let Some(path) = options.public_manifest.as_ref() {

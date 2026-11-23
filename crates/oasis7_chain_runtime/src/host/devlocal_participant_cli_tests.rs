@@ -247,7 +247,7 @@ fn actual_restore_writes_stay_in_private_copy_and_source_bytes_remain_identical(
         let scratch = copy::isolated_copy(&source, &root).unwrap();
         scratch_path = scratch.path.clone();
         let loaded =
-            oasis7::runtime_host::world::load_from_dir_with_devlocal_participant_authority(
+            oasis7_runtime_host::world::load_from_dir_with_devlocal_participant_authority(
                 &scratch.path,
                 authority(&config.operator_public_key).unwrap(),
             )

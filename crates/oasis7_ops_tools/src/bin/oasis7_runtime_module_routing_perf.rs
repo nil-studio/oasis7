@@ -165,7 +165,7 @@ fn build_world_with_active_manifests(
     wasm_bytes: &[u8],
     wasm_hash: &str,
 ) -> Result<World, String> {
-    let mut base = oasis7::runtime_host::world::new();
+    let mut base = oasis7_runtime_host::world::new();
     base.set_policy(PolicySet::allow_all());
     base.register_module_artifact(wasm_hash.to_string(), wasm_bytes)
         .map_err(|err| format!("register_module_artifact: {err:?}"))?;
@@ -173,7 +173,7 @@ fn build_world_with_active_manifests(
     let mut snapshot = base.snapshot();
     snapshot.module_registry = build_module_registry(manifests);
 
-    let mut world = oasis7::runtime_host::world::from_snapshot(snapshot, Journal::default())
+    let mut world = oasis7_runtime_host::world::from_snapshot(snapshot, Journal::default())
         .map_err(|err| format!("from_snapshot: {err:?}"))?;
     world
         .register_module_artifact(wasm_hash.to_string(), wasm_bytes)

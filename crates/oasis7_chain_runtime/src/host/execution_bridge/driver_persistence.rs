@@ -133,18 +133,18 @@ pub(crate) fn load_execution_world_with_context(
         );
     }
     if !snapshot_path.exists() || !journal_path.exists() {
-        let mut world = oasis7::runtime_host::world::new_production_hardened()
+        let mut world = oasis7_runtime_host::world::new_production_hardened()
             .with_release_security_policy(release_security_policy.clone());
         normalize_execution_world_main_token_config_for_policy(&mut world, release_security_policy);
         return Ok(world);
     }
     let loaded = if let Some(authority) = authority {
-        oasis7::runtime_host::world::load_from_dir_with_devlocal_participant_authority(
+        oasis7_runtime_host::world::load_from_dir_with_devlocal_participant_authority(
             world_dir,
             authority.clone(),
         )
     } else {
-        oasis7::runtime_host::world::load_from_dir_with_release_security_policy(
+        oasis7_runtime_host::world::load_from_dir_with_release_security_policy(
             world_dir,
             release_security_policy.clone(),
         )

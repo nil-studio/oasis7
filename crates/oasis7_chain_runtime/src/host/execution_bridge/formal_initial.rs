@@ -204,7 +204,7 @@ impl InitialWorldClosure {
         }
         validate_modules(&snapshot)?;
         let mut restored =
-            oasis7::runtime_host::world::from_snapshot(snapshot.clone(), world.journal().clone())
+            oasis7_runtime_host::world::from_snapshot(snapshot.clone(), world.journal().clone())
                 .map_err(|e| format!("{e:?}"))?
                 .with_release_security_policy(release.clone());
         if snapshot.state.retained_history_root.is_some() {

@@ -47,7 +47,7 @@ fn committed(position: u64, signer: u8) -> ReadMembershipResponse {
         ),
         ..WorldState::default()
     };
-    let mut world = oasis7::runtime_host::world::new_with_state(state);
+    let mut world = oasis7_runtime_host::world::new_with_state(state);
     world
         .bind_cognition_runtime("watch-world", "main", 0, None, "pending", 0)
         .unwrap();

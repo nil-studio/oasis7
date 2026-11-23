@@ -313,7 +313,7 @@ fn load_world(
         m.world_config_hash.clone(),
         m.generation_algorithm_hash.clone(),
     );
-    oasis7::runtime_host::world::from_snapshot_with_devlocal_participant_authority(
+    oasis7_runtime_host::world::from_snapshot_with_devlocal_participant_authority(
         snapshot,
         world.journal().clone(),
         auth,

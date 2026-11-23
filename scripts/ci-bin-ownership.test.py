@@ -171,6 +171,34 @@ class Ownership(unittest.TestCase):
             for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
                 self.assertNotIn('oasis7::world_service::correlation::', rust.read_text(), str(rust))
 
+    def test_native_world_host_factory_has_one_owner_and_real_app_dependencies(self):
+        native = ROOT / 'crates/oasis7_runtime_host/src/lib.rs'
+        source = native.read_text()
+        self.assertIn('pub fn install_runtime_capabilities(', source)
+        self.assertIn('pub fn load_authoritative_recovery_generation(', source)
+        self.assertIn('HostModuleSourceCompiler', source)
+        umbrella = (ROOT / 'crates/oasis7/src/runtime_host.rs').read_text()
+        self.assertIn('pub use oasis7_runtime_host::{install_runtime_capabilities, world};', umbrella)
+        self.assertNotIn('pub fn install_runtime_capabilities(', umbrella)
+        host_deps = manifest('oasis7_runtime_host')['dependencies']
+        self.assertEqual(set(host_deps), {
+            'oasis7_runtime', 'oasis7_world_service', 'oasis7_formal_protocol', 'oasis7_agent_api'
+        })
+        self.assertNotIn('oasis7', host_deps)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                source = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::world::', source, str(rust))
+                self.assertNotIn('crate::runtime_host::world::', source, str(rust))
+                self.assertNotIn('oasis7::runtime_host::install_runtime_capabilities', source, str(rust))
+                self.assertNotIn('crate::runtime_host::install_runtime_capabilities', source, str(rust))
+        for package in ('oasis7', 'oasis7_chain_runtime', 'oasis7_viewer_runtime', 'oasis7_ops_tools', 'oasis7_provider_tools', 'oasis7_client_cli'):
+            spec = manifest(package)
+            deps = dict(spec.get('dependencies', {}))
+            for target in spec.get('target', {}).values():
+                deps.update(target.get('dependencies', {}))
+            self.assertIn('oasis7_runtime_host', deps, package)
+
     def test_world_library_does_not_own_launcher_or_network_hosting(self):
         source = ROOT / 'crates/oasis7/src'
         self.assertFalse((source / 'launcher_bootstrap_peers.rs').exists())

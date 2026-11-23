@@ -13,6 +13,7 @@ members = [
     "crates/oasis7",
     "crates/oasis7_simulator",
     "crates/oasis7_runtime",
+    "crates/oasis7_runtime_host",
     "crates/oasis7_world_state",
     "crates/oasis7_world_projection",
     "crates/oasis7_world_service",

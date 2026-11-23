@@ -28,6 +28,7 @@ ed25519-dalek = { version = "3", features = ["rand_core"] }
 oasis7_hosted_access = { path = "../oasis7_hosted_access" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+oasis7_runtime_host = { path = "../oasis7_runtime_host" }
 oasis7_world_service = { path = "../oasis7_world_service", default-features = false }
 oasis7_observability = { path = "../oasis7_observability" }
 oasis7_model_provider = { path = "../oasis7_model_provider" }
