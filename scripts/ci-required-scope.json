@@ -1842,7 +1842,7 @@
     "oasis7_world_state": ["oasis7_required", "launcher_web"],
     "oasis7_world_projection": ["oasis7_required"],
     "oasis7_runtime": ["oasis7_required", "launcher_web"],
-    "oasis7_runtime_host": ["oasis7_required"],
+    "oasis7_runtime_host": ["oasis7_required", "launcher_web"],
     "oasis7_world_service": ["oasis7_required"],
     "oasis7_simulator": ["oasis7_required", "launcher_web"],
     "oasis7_agent_api": [
