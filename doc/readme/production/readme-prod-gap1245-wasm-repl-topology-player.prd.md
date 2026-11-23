@@ -1,6 +1,6 @@
 # README 生产级缺口收口（二次）：默认 WASM 执行 + Replication RR + 分布式 Triad + 玩家节点身份（设计文档）
 
-- 历史设计承接：[本文件的保留边界与现行去向](#historical-retention-and-routing)；原同名 design 仅作兼容跳转。
+- 历史设计承接：[本文件的保留边界与现行去向](#historical-retention-and-routing)。
 - 执行记录: Git、PR、实际 CI 和评审记录；Issue 与 Project 按需使用
 
 审计轮次: 4

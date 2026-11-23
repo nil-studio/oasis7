@@ -33,7 +33,6 @@
 - [Viewer 世界视觉内容与交付](viewer/viewer-world-visual-content-delivery.design.md)与[制作验收手册](viewer/viewer-world-visual-content-delivery.manual.md)：维护当前四类程序化视觉内容的变体、事实边界、编辑源、构建消费关系、来源资料和替换交接；复用原 Bevy 详细视觉交接，六视图工具与正式消费资产分别核实。
 - `doc/world-simulator/viewer/viewer-frontend-structure-standard.prd.md`：Viewer 前端 `js/html/jsx` 结构治理标准，覆盖 source/generated/compat taxonomy、分层模型、拆分触发条件、组件/模块抽象边界与验证矩阵。
 - `doc/world-simulator/viewer/viewer-manual.manual.md`：Viewer / Web 闭环 / operator 手册，不在下方 PRD 三件套长表中展开。
-- `doc/world-simulator/viewer/viewer-pixel-world-player-leverage-production-readability-2026-05-28.brainstorm.md`：pixel-world 商业化下一轮 bounded brainstorming，聚焦玩家因果、行动反馈、生产可读性与后续 runtime/viewer 协议候选。
 - `doc/world-simulator/launcher/README.md`：`launcher/` 热点子域 landing page，适合先做簇级分流，再决定进入 release/distribution、control plane、explorer、runtime 边界或 self-guided 专题。
 - `doc/world-simulator/launcher/game-client-launcher-cross-surface-action-parity.prd.md`：native/Web Launcher 配置、设置、反馈与转账受控动作的当前专业入口；共享真实的 executable/blocked/result/recovery 语义，保留平台字段和适配差异，并且不将 submit acceptance、近期历史或控制面可达外推为 settlement、持久性、完全 parity、可玩性或发行结论。
 - `doc/world-simulator/launcher/game-client-launcher-feedback.prd.md`：launcher feedback 当前 authority，收敛 native Ready 后远端提交失败时的本地回落与 Web 控制面代理边界；三个 2026-03 源三件套已删除，追溯仅使用 Git 与 `.pm` task evidence。

@@ -51,7 +51,7 @@ class MarkdownHtml:
     content: str
 
 
-@lru_cache(maxsize=128)
+@lru_cache(maxsize=512)
 def _parse_markdown(text: str) -> tuple[tuple[MarkdownBlock, ...], tuple[MarkdownHtml, ...], tuple[MarkdownLink, ...], str]:
     """Parse an exact content snapshot once and retain only immutable records.
 
@@ -124,19 +124,19 @@ def _parse_markdown(text: str) -> tuple[tuple[MarkdownBlock, ...], tuple[Markdow
     return tuple(blocks), tuple(nodes), tuple(links), "\n".join(references)
 
 
-@lru_cache(maxsize=64)
+@lru_cache(maxsize=256)
 def parse_markdown_blocks(text: str) -> tuple[MarkdownBlock, ...]:
     """Return actual CommonMark fenced/indented code spans, including nesting."""
     return _parse_markdown(text)[0]
 
 
-@lru_cache(maxsize=64)
+@lru_cache(maxsize=256)
 def parse_markdown_html(text: str) -> tuple[MarkdownHtml, ...]:
     """Return CommonMark HTML nodes, excluding code spans and code blocks."""
     return _parse_markdown(text)[1]
 
 
-@lru_cache(maxsize=64)
+@lru_cache(maxsize=256)
 def parse_markdown_links(text: str) -> tuple[MarkdownLink, ...]:
     """Return clickable links and first source lines, excluding images/code."""
     return _parse_markdown(text)[2]
@@ -147,7 +147,7 @@ def parse_markdown_reference_text(text: str) -> str:
     return _parse_markdown(text)[3]
 
 
-@lru_cache(maxsize=64)
+@lru_cache(maxsize=256)
 def markdown_anchor_ids(text: str) -> frozenset[str]:
     """Return rendered heading and explicit HTML anchors, excluding code examples."""
     anchors: set[str] = set()

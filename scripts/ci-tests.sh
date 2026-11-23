@@ -721,18 +721,131 @@ run_provider_remote_https_smoke() {
   run ./scripts/provider-remote-https/provider-bridge-contract-smoke.test.sh
 }
 
+run_parallel_contract_commands() {
+  local env_var_name="$1" prefix="$2" collector_fn="$3"
+  local max_jobs="${!env_var_name:-}"
+  if [[ -z "$max_jobs" ]]; then
+    if [[ "${OASIS7_LOCAL_CHECK:-0}" == 1 ]]; then
+      max_jobs=1
+    else
+      max_jobs="$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)"
+      if [[ "$max_jobs" =~ ^[0-9]+$ ]] && (( max_jobs > 4 )); then
+        max_jobs=4
+      fi
+    fi
+  fi
+  if [[ ! "$max_jobs" =~ ^[0-9]+$ ]] || (( max_jobs < 1 )); then
+    echo "invalid ${env_var_name}: $max_jobs" >&2
+    return 2
+  fi
+  if (( max_jobs == 1 )); then
+    local OASIS7_PARALLEL_CONTRACT_COLLECTING=1
+    "$collector_fn"
+    return $?
+  fi
+
+  local pool_tmp orig_run_def pool_total=0 worker_count w i rc first_rc=0 next_flush=0 alive
+  local -a worker_pids=()
+  pool_tmp="$(mktemp -d "${TMPDIR:-/tmp}/oasis7-${prefix}-contracts.XXXXXX")"
+  orig_run_def="$(declare -f run)"
+  run() {
+    printf '%s\0' "$@" >"$pool_tmp/cmd-$pool_total"
+    pool_total=$((pool_total + 1))
+  }
+  local OASIS7_PARALLEL_CONTRACT_COLLECTING=1
+  "$collector_fn"
+  eval "$orig_run_def"
+  OASIS7_PARALLEL_CONTRACT_COLLECTING=0
+
+  worker_count="$max_jobs"
+  if (( pool_total < worker_count )); then
+    worker_count="$pool_total"
+  fi
+  for (( w = 0; w < worker_count; w++ )); do
+    (
+      set +e
+      local idx task_rc arg
+      local -a cmd_args
+      for (( idx = 0; idx < pool_total; idx++ )); do
+        [[ ! -f "$pool_tmp/stop" ]] || exit 0
+        mkdir "$pool_tmp/claim-$idx" 2>/dev/null || continue
+        cmd_args=()
+        while IFS= read -r -d '' arg; do
+          cmd_args+=("$arg")
+        done <"$pool_tmp/cmd-$idx"
+        (
+          set -euo pipefail
+          run "${cmd_args[@]}"
+        ) >"$pool_tmp/out-$idx" 2>"$pool_tmp/err-$idx"
+        task_rc=$?
+        printf '%s\n' "$task_rc" >"$pool_tmp/rc-$idx.tmp"
+        mv "$pool_tmp/rc-$idx.tmp" "$pool_tmp/rc-$idx"
+        if (( task_rc != 0 )); then
+          : >"$pool_tmp/stop"
+          exit 0
+        fi
+      done
+    ) &
+    worker_pids+=("$!")
+  done
+
+  while (( next_flush < pool_total )); do
+    while (( next_flush < pool_total )) && [[ -f "$pool_tmp/rc-$next_flush" ]]; do
+      cat "$pool_tmp/out-$next_flush"
+      cat "$pool_tmp/err-$next_flush" >&2
+      next_flush=$((next_flush + 1))
+    done
+    alive=0
+    for pid in "${worker_pids[@]}"; do
+      if kill -0 "$pid" 2>/dev/null; then
+        alive=1
+        break
+      fi
+    done
+    (( alive == 1 )) || break
+    sleep 0.05
+  done
+
+  for pid in "${worker_pids[@]}"; do
+    wait "$pid" || first_rc=$?
+  done
+
+  for (( i = 0; i < pool_total; i++ )); do
+    if [[ -f "$pool_tmp/rc-$i" ]]; then
+      if (( i >= next_flush )); then
+        cat "$pool_tmp/out-$i"
+        cat "$pool_tmp/err-$i" >&2
+      fi
+      rc="$(<"$pool_tmp/rc-$i")"
+      if (( rc != 0 && first_rc == 0 )); then
+        first_rc="$rc"
+      fi
+    elif (( first_rc == 0 )); then
+      echo "missing ${prefix} contract result for task $i" >&2
+      first_rc=1
+    fi
+  done
+
+  rm -rf "$pool_tmp"
+  return "$first_rc"
+}
+
 run_doc_checker_contract_tests() {
-  run python3 ./scripts/resolve-product-doc-ci-range.test.py
-  run python3 ./scripts/doc-governance-scope.test.py
-  run python3 ./scripts/document-corpus-inventory-check.test.py
-  run_procedural_doc_contract scripts/product-doc-governance-check.test.py
+  if [[ "${OASIS7_PARALLEL_CONTRACT_COLLECTING:-0}" != 1 ]]; then
+    run_parallel_contract_commands OASIS7_DOC_CHECKER_CONTRACT_JOBS doc-checker run_doc_checker_contract_tests
+    return $?
+  fi
+  run bash ./scripts/doc-governance-check.test.sh
   run_procedural_doc_contract scripts/product-doc-content-check.test.py
-  run python3 ./scripts/doc-core-content-check.test.py
-  run python3 ./scripts/doc-content-warnings.test.py
+  run_procedural_doc_contract scripts/product-doc-governance-check.test.py
+  run python3 ./scripts/doc-governance-scope.test.py
   run_system_design_traceability_tests
   run bash ./scripts/product-doc-content-callers.test.sh
-  run bash ./scripts/doc-governance-check.test.sh
+  run python3 ./scripts/doc-content-warnings.test.py
+  run python3 ./scripts/doc-core-content-check.test.py
+  run python3 ./scripts/resolve-product-doc-ci-range.test.py
   run bash ./scripts/find-python-with-module.test.sh
+  run python3 ./scripts/document-corpus-inventory-check.test.py
 }
 
 run_procedural_doc_contract() {
@@ -1247,6 +1360,10 @@ run_codex_agent_config_validation() {
 }
 
 run_compile_metrics_contract_tests() {
+  if [[ "${OASIS7_PARALLEL_CONTRACT_COLLECTING:-0}" != 1 ]]; then
+    run_parallel_contract_commands OASIS7_COMPILE_METRICS_CONTRACT_JOBS compile-metrics run_compile_metrics_contract_tests
+    return $?
+  fi
   run bash ./scripts/ci-compile-metrics-contract.test.sh
   run python3 ./scripts/ci-ecs-build-metrics.test.py
   run python3 ./scripts/ci-ecs-cache.test.py

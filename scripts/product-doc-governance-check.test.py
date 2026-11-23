@@ -3,10 +3,15 @@
 
 from __future__ import annotations
 
+import atexit
+import contextlib
+import importlib.util
+import io
 from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 
 
@@ -35,7 +40,6 @@ COPY_PATHS = (
     "doc/world-simulator/m4/industrial-resource-flow-contract.prd.md",
     "doc/world-simulator/llm/decision-provider-contract.prd.md",
     "doc/world-simulator/llm/provider-agent-experience-parity.prd.md",
-    "doc/world-simulator/llm/decision-provider-contract.prd.md",
     "doc/world-simulator/viewer/viewer-control-plane-split-live-playback.prd.md",
     "doc/game/gameplay/gameplay-agent-claim-economy-contract.prd.md",
 )
@@ -71,9 +75,11 @@ MODULE_NAME_COMPATIBILITY = (
     ),
 )
 
+_FIXTURE_TEMPLATE: Path | None = None
+_CHECKER_MODULE = None
 
-def make_fixture() -> Path:
-    root = Path(tempfile.mkdtemp(prefix="oasis7-product-doc-fixture-"))
+
+def _build_fixture_tree(root: Path) -> None:
     for relative in COPY_PATHS:
         source = ROOT / relative
         target = root / relative
@@ -110,22 +116,65 @@ It is not an active product identity, authority, roadmap, or acceptance source.
         encoding="utf-8",
     )
     assert (root / FIXTURE_RETIRED_HISTORY).is_file()
+
+
+def make_fixture() -> Path:
+    global _FIXTURE_TEMPLATE
+    if _FIXTURE_TEMPLATE is None or not _FIXTURE_TEMPLATE.is_dir():
+        template = Path(tempfile.mkdtemp(prefix="oasis7-product-doc-template-"))
+        _build_fixture_tree(template)
+        atexit.register(shutil.rmtree, template, True)
+        _FIXTURE_TEMPLATE = template
+    root = Path(tempfile.mkdtemp(prefix="oasis7-product-doc-fixture-"))
+    shutil.copytree(_FIXTURE_TEMPLATE, root, dirs_exist_ok=True)
     return root
 
 
-def run(root: Path, expected: str | None = None) -> None:
-    result = subprocess.run(
-        ["python3", str(CHECKER), "--repo-root", str(root)],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    output = result.stdout + result.stderr
+def _checker_module():
+    global _CHECKER_MODULE
+    if _CHECKER_MODULE is None:
+        scripts_dir = str(CHECKER.parent)
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        spec = importlib.util.spec_from_file_location("product_doc_governance_checker", CHECKER)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        _CHECKER_MODULE = module
+    return _CHECKER_MODULE
+
+
+def run(root: Path, expected: str | None = None, *, subprocess_cli: bool = False) -> None:
+    if subprocess_cli:
+        result = subprocess.run(
+            [sys.executable, str(CHECKER), "--repo-root", str(root)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        returncode = result.returncode
+        output = result.stdout + result.stderr
+    else:
+        checker = _checker_module()
+        stdout_buffer = io.StringIO()
+        stderr_buffer = io.StringIO()
+        previous_argv = sys.argv
+        sys.argv = [str(CHECKER), "--repo-root", str(root)]
+        try:
+            with contextlib.redirect_stdout(stdout_buffer), contextlib.redirect_stderr(stderr_buffer):
+                try:
+                    returncode = checker.main()
+                except SystemExit as exc:
+                    returncode = exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 1)
+        finally:
+            sys.argv = previous_argv
+        output = stdout_buffer.getvalue() + stderr_buffer.getvalue()
     if expected is None:
-        assert result.returncode == 0, output
+        assert returncode == 0, output
         assert "product-doc-governance: OK" in output, output
     else:
-        assert result.returncode != 0, output
+        assert returncode != 0, output
         assert expected in output, output
 
 
@@ -348,7 +397,7 @@ def scenario_missing_status_metadata_does_not_become_integrity_failure() -> None
         path.write_text(original.replace('- 生命周期：`active`\n', '').replace('- 后继文档：`无`\n', ''))
         # Ordinary history navigation is not an undeclared product pairing.
         (path.parent / 'concept.design.md').write_text('# Concept\n历史背景：[旧材料](fixture-retired-history.prd.md)\n')
-        result = subprocess.run(['python3', str(CHECKER), '--repo-root', str(root)], capture_output=True, text=True)
+        result = subprocess.run([sys.executable, str(CHECKER), '--repo-root', str(root)], capture_output=True, text=True)
         assert result.returncode == 0 and '::warning::' in result.stdout, result.stdout + result.stderr
         path.write_text(original.replace('- 生命周期：`active`', '- 生命周期：`unknown`'))
         run(root, 'lifecycle-contract')
@@ -363,7 +412,7 @@ def main() -> None:
     scenario_missing_status_metadata_does_not_become_integrity_failure()
     root = make_fixture()
     try:
-        run(root)
+        run(root, subprocess_cli=True)
         assert_access_mode_consolidated(root)
     finally:
         shutil.rmtree(root)
