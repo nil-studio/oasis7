@@ -77,12 +77,6 @@ pub use agent::{
     LlmEffectIntentTrace, LlmEffectReceiptTrace, LlmPromptSectionTrace, LlmStepTrace,
     MicroDepotQuoteRequest,
 };
-pub use oasis7_agent_api::intent_summary::{
-    AGENT_INTENT_SUMMARY_MAX_CHARS, AGENT_INTENT_SUMMARY_SCHEMA_VERSION,
-    AUTHORITATIVE_AGENT_INTENT_SOURCES, AgentIntentKindV1, AgentIntentSourceV1,
-    AgentIntentStatusV1, AgentIntentSummaryError, AgentIntentSummaryTemplateV1,
-    AgentIntentSummaryV1, canonical_agent_intent_summary,
-};
 #[cfg(not(target_arch = "wasm32"))]
 pub use async_agent_runner::CommittedFeedbackMemoryInput;
 #[cfg(not(target_arch = "wasm32"))]
@@ -111,7 +105,6 @@ pub use cognition_response_identity::{
     CognitionResponseDigestDisposition, classify_cognition_response_digest,
     cognition_legacy_response_digest, cognition_response_digest,
 };
-pub use oasis7_agent_harness::BudgetContractV1;
 pub use continuous_agent_harness::{
     AgentCognitionStore, COGNITION_CAPABILITY_CATALOG_DOMAIN,
     COGNITION_CAPABILITY_INVOCATION_CONTEXT_DOMAIN, COGNITION_PROVIDER_INVOCATION_DOMAIN,
@@ -133,6 +126,13 @@ pub use decision_provider::{
     ProviderRecentEvent, ProviderSelfState, ProviderTokenUsage, ProviderTraceEnvelope,
     ProviderTranscriptEntry, golden_decision_provider_fixtures,
 };
+pub use oasis7_agent_api::intent_summary::{
+    AGENT_INTENT_SUMMARY_MAX_CHARS, AGENT_INTENT_SUMMARY_SCHEMA_VERSION,
+    AUTHORITATIVE_AGENT_INTENT_SOURCES, AgentIntentKindV1, AgentIntentSourceV1,
+    AgentIntentStatusV1, AgentIntentSummaryError, AgentIntentSummaryTemplateV1,
+    AgentIntentSummaryV1, canonical_agent_intent_summary,
+};
+pub use oasis7_agent_harness::BudgetContractV1;
 pub use oasis7_simulator::ChunkRuntimeConfig;
 pub use oasis7_simulator::generate_fragments;
 pub use oasis7_simulator::{
@@ -169,6 +169,15 @@ pub use llm_agent::{
     LlmCompletionClient, LlmCompletionRequest, LlmCompletionResult, LlmCompletionTurn,
     LlmPromptProfile,
 };
+pub use memory::{
+    AgentMemory, LongTermMemory, LongTermMemoryEntry, MemoryEntry, MemoryEntryKind, ShortTermMemory,
+};
+#[cfg(not(target_arch = "wasm32"))]
+pub use model_provider::{
+    LlmCompletionModelProvider, ModelProvider, ModelProviderError, ModelProviderRequest,
+    ModelProviderResponse, ModelProviderTool, ModelProviderTrace, ModelProviderTraceEntry,
+    ModelProviderTurn, ModelProviderUsage,
+};
 pub use oasis7_agent_harness::llm_defaults::{
     DEFAULT_CONFIG_FILE_NAME, DEFAULT_LLM_FORCE_REPLAN_AFTER_SAME_ACTION,
     DEFAULT_LLM_LONG_TERM_GOAL, DEFAULT_LLM_MAX_DECISION_STEPS, DEFAULT_LLM_MAX_MODULE_CALLS,
@@ -178,15 +187,6 @@ pub use oasis7_agent_harness::llm_defaults::{
     ENV_LLM_MAX_MODULE_CALLS, ENV_LLM_MAX_REPAIR_ROUNDS, ENV_LLM_MODEL,
     ENV_LLM_PROMPT_MAX_HISTORY_ITEMS, ENV_LLM_PROMPT_PROFILE, ENV_LLM_SHORT_TERM_GOAL,
     ENV_LLM_SYSTEM_PROMPT, ENV_LLM_TIMEOUT_MS,
-};
-pub use memory::{
-    AgentMemory, LongTermMemory, LongTermMemoryEntry, MemoryEntry, MemoryEntryKind, ShortTermMemory,
-};
-#[cfg(not(target_arch = "wasm32"))]
-pub use model_provider::{
-    LlmCompletionModelProvider, ModelProvider, ModelProviderError, ModelProviderRequest,
-    ModelProviderResponse, ModelProviderTool, ModelProviderTrace, ModelProviderTraceEntry,
-    ModelProviderTurn, ModelProviderUsage,
 };
 pub use oasis7_simulator::{
     Action, ActionEnvelope, ActionId, ActionSubmitter, AgentId, AssetId,
