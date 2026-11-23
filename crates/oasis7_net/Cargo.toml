@@ -8,10 +8,8 @@ license = "MIT"
 path = "src/lib.rs"
 
 [features]
-default = ["self_tests", "libp2p"]
+default = ["libp2p"]
 libp2p = ["dep:futures", "dep:futures-timer", "dep:libp2p", "dep:pin-project", "dep:prost", "dep:tokio"]
-# Kept one release cycle until trusted-baseline ci-image-cache.test.py drops self_tests check.
-self_tests = []
 
 [dependencies]
 blake3 = "1"

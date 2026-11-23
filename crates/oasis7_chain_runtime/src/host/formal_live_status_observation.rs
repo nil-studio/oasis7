@@ -7,7 +7,7 @@ use super::formal_live_runtime::{
 use super::formal_live_service::{
     CHAIN_STATUS_PATH, FormalLiveStatusV1, http::FormalLiveStatusChallengeV1,
 };
-use oasis7::world_service::{
+use oasis7_world_service::{
     authority::{request_digest, verify_service_response},
     wire::SignedServiceResponse,
 };
@@ -232,7 +232,7 @@ fn verify(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oasis7::world_service::authority::sign_service_response;
+    use oasis7_world_service::authority::sign_service_response;
     use ed25519_dalek::SigningKey;
 
     #[test]

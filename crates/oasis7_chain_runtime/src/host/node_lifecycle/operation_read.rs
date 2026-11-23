@@ -4,7 +4,7 @@
 //! module reconstructs the existing client from the node's pinned observer
 //! configuration and private read identity, then returns only a verified view.
 use super::{actions, formal_observer, local_io as io, model::NodeConfig, types::LocalInstance};
-use oasis7::world_service::{
+use oasis7_world_service::{
     client::{RemoteWorldServiceClient, WorldServiceClientConfig, WorldServicePort},
     verified_view::VerifiedWorldView,
 };

@@ -1,8 +1,8 @@
 //! Claimed-Agent construction and first production through the real native service.
 use super::*;
-use oasis7::world_service::private_task_context::*;
-use oasis7::world_service::task_factory_quote::*;
-use oasis7::world_service::task_recipe_quote::*;
+use oasis7_world_service::private_task_context::*;
+use oasis7_world_service::task_factory_quote::*;
+use oasis7_world_service::task_recipe_quote::*;
 use oasis7_runtime::*;
 #[path = "world_service_task_starter_chain_expiry_recovery.rs"]
 mod expiry_recovery;
@@ -411,7 +411,7 @@ fn private_task_starter_chain_build_feed_first_product_and_restart() {
                                     sign_read_request("cognition", altered, &delegate).unwrap(),
                                 ),
                             );
-                            assert!(matches!(client.submit(changed.clone()), Err(oasis7::world_service::client::WorldServiceClientError::Rejected {status:503,..})));
+                            assert!(matches!(client.submit(changed.clone()), Err(oasis7_world_service::client::WorldServiceClientError::Rejected {status:503,..})));
                             assert!(
                                 client
                                     .lookup(
@@ -706,13 +706,13 @@ struct FactoryQuoteProbeState {
 }
 
 fn context_expired_conflict(
-    error: &oasis7::world_service::client::WorldServiceClientError,
+    error: &oasis7_world_service::client::WorldServiceClientError,
     canonical_tick: u64,
     valid_until_tick: u64,
 ) -> bool {
     matches!(
         error,
-        oasis7::world_service::client::WorldServiceClientError::Rejected { status: 409, .. }
+        oasis7_world_service::client::WorldServiceClientError::Rejected { status: 409, .. }
     ) && canonical_tick > valid_until_tick
 }
 
@@ -736,13 +736,13 @@ fn read_context_until_expiry<F: Fn() -> u64>(
             Err(error) if context_expired_conflict(&error, canonical_tick(), valid_until_tick) => {
                 return ContextRead::Expired;
             }
-            Err(oasis7::world_service::client::WorldServiceClientError::Rejected {
+            Err(oasis7_world_service::client::WorldServiceClientError::Rejected {
                 status,
                 ..
             }) => panic!("starter task context read rejected while still live (HTTP {status})"),
             Err(
-                oasis7::world_service::client::WorldServiceClientError::Transport(_)
-                | oasis7::world_service::client::WorldServiceClientError::Cooldown { .. },
+                oasis7_world_service::client::WorldServiceClientError::Transport(_)
+                | oasis7_world_service::client::WorldServiceClientError::Cooldown { .. },
             ) => {
                 let pause = Duration::from_millis(100)
                     .min(deadline.saturating_duration_since(Instant::now()));
@@ -834,13 +834,13 @@ fn build_action(
         let quote = loop {
             match client.quote_task_factory(&proof) {
                 Ok(value) => break Some(value),
-                Err(oasis7::world_service::client::WorldServiceClientError::Rejected {
+                Err(oasis7_world_service::client::WorldServiceClientError::Rejected {
                     status: 409,
                     ..
                 }) => break None,
                 Err(
-                    oasis7::world_service::client::WorldServiceClientError::Transport(_)
-                    | oasis7::world_service::client::WorldServiceClientError::Cooldown { .. },
+                    oasis7_world_service::client::WorldServiceClientError::Transport(_)
+                    | oasis7_world_service::client::WorldServiceClientError::Cooldown { .. },
                 ) => {
                     assert!(Instant::now() < deadline);
                     std::thread::sleep(Duration::from_millis(100));
@@ -919,7 +919,7 @@ fn build_action(
                     );
                 }
             }
-            Err(oasis7::world_service::client::WorldServiceClientError::Rejected {
+            Err(oasis7_world_service::client::WorldServiceClientError::Rejected {
                 status: 409,
                 ..
             }) => (),
@@ -1089,7 +1089,7 @@ fn reject_stale_factory_quote_while_live(
         matches!(
             stale_quote,
             Err(
-                oasis7::world_service::client::WorldServiceClientError::Rejected {
+                oasis7_world_service::client::WorldServiceClientError::Rejected {
                     status: 409,
                     ..
                 }
@@ -1142,13 +1142,13 @@ fn recipe_action(
                     captured.current_public_context = quote.current_public_context;
                     return Some(quote.quote.action);
                 }
-                Err(oasis7::world_service::client::WorldServiceClientError::Rejected {
+                Err(oasis7_world_service::client::WorldServiceClientError::Rejected {
                     status: 409,
                     ..
                 }) => break,
                 Err(
-                    oasis7::world_service::client::WorldServiceClientError::Transport(_)
-                    | oasis7::world_service::client::WorldServiceClientError::Cooldown { .. },
+                    oasis7_world_service::client::WorldServiceClientError::Transport(_)
+                    | oasis7_world_service::client::WorldServiceClientError::Cooldown { .. },
                 ) => {
                     assert!(Instant::now() < deadline);
                     std::thread::sleep(Duration::from_millis(100));

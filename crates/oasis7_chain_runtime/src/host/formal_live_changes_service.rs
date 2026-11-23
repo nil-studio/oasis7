@@ -1,6 +1,6 @@
 //! Bounded Changes from a current-authorized qualified projection.
 use super::*;
-use oasis7::world_service::{
+use oasis7_world_service::{
     formal_result::build_formal_changes_page, wire::FormalAuthenticatedChangesV1,
 };
 

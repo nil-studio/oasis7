@@ -212,7 +212,7 @@ flowchart TB
 
 配套的长期净室与模块演进约束（当前为目标规范，随对应代码实现任务逐项落地与验收）：
 
-1. **根 `Cargo.toml` 净室与第三方补丁归口**：`workspace.members` 必须保持条目唯一；根目录现存的第三方 patch 目录（`vendor-if-watch-3.2.2`、`vendor-libp2p-quic-0.14.0`、`vendor-libp2p-swarm-0.48.0`；原 `vendor-libp2p-rendezvous-0.18.1` 已内收至 `oasis7_net` 薄客户端并退役）如需收拢，应迁入受管 `vendor/` 目录（不违背 `third_party/` 只读规则）并同步核对 `scripts/libp2p-security-source.test.py` 等直接读取 manifest 的检查器；轻量 bridge crate（如 `oasis7_provider_local_bridge`、`oasis7_letai_credit_adapter`）仅在可证明不向无关消费者传播重依赖的前提下评估按 Cargo `features` 收敛。
+1. **根 `Cargo.toml` 净室与第三方补丁归口**：`workspace.members` 必须保持条目唯一；根目录现存的第三方 patch 目录（`vendor-if-watch-3.2.2`、`vendor-libp2p-quic-0.14.0` 及仅保留 `Cargo.toml` 依赖约束解绑、Rust 源码与上游完全一致的 `vendor-libp2p-swarm-0.48.0`；原 `vendor-libp2p-rendezvous-0.18.1` 与 `libp2p-swarm` 连接准入源码补丁已内收至 `oasis7_net`）如需收拢，应迁入受管 `vendor/` 目录（不违背 `third_party/` 只读规则）并同步核对 `scripts/libp2p-security-source.test.py` 等直接读取 manifest 的检查器；轻量 bridge crate（如 `oasis7_provider_local_bridge`、`oasis7_letai_credit_adapter`）仅在可证明不向无关消费者传播重依赖的前提下评估按 Cargo `features` 收敛。
 2. **语义化限界上下文拆分守卫**：配合 `scripts/check-rust-file-size.sh` 与 [1200 行专题](rust-1200-line-root-cause-governance-2026-03-29.prd.md)，禁止通过新建 `*_part2.rs`、`split_part` 或跨文件 `include!` 做机械行数切割；内核大文件按业务限界上下文拆分。
 3. **`crates/oasis7` 兼容伞包退役门禁**：`crates/oasis7` 不再拥有可执行目标，严禁新增业务实现、场景定义或跨组件集成测试；现存源码与 `crates/oasis7/tests/` 按 [world-runtime 退役矩阵](../../world-runtime/design.md#crates-oasis7-retirement-matrix) 逐步归位至真实 owner crate，以收敛 `scripts/plan-rust-required-scope.py` 的变更波及面。
 

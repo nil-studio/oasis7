@@ -10,7 +10,12 @@ impl Directory {
             .unwrap()
             .as_nanos();
         let sequence = NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
+        let base = std::env::var_os("RUNNER_TEMP")
+            .map(std::path::PathBuf::from)
+            .and_then(|p| p.canonicalize().ok())
+            .filter(|p| p.is_absolute() && p.is_dir())
+            .unwrap_or_else(std::env::temp_dir);
+        let path = base.join(format!(
             "oasis7-industry-jobs-{}-{nonce}-{sequence}",
             std::process::id()
         ));

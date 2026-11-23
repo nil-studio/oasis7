@@ -7,7 +7,7 @@ use std::{
 use libp2p::{
     Multiaddr, PeerId,
     core::transport::TransportError,
-    swarm::{DialError, ListenError, TransportHandshakeDeadlineElapsed},
+    swarm::{DialError, ListenError},
 };
 use oasis7_proto::p2p_resource_budget::{P2pResourceBudget, P2pResourceBudgetLimits};
 use serde::{Deserialize, Serialize};
@@ -15,6 +15,7 @@ use tokio::time::Instant;
 
 use super::{
     connection_budget::{ConnectionBudget, ConnectionLimits},
+    transport_admission::{OutboundAttemptBudgetDenied, TransportHandshakeDeadlineElapsed},
     wire_byte_window::{WireByteLimits, WireByteWindow},
     wire_bytes::{
         Libp2pWireByteCounters, SharedLibp2pWireByteCounters, init_shared_wire_byte_counters,
@@ -139,8 +140,13 @@ impl ActiveResourceBudget {
 }
 
 fn is_handshake_deadline_error(error: &TransportError<io::Error>) -> bool {
-    matches!(error, TransportError::Other(error)
-        if error.get_ref().is_some_and(|cause| cause.is::<TransportHandshakeDeadlineElapsed>()))
+    matches!(
+        error,
+        TransportError::Other(error)
+            if super::transport_admission::has_transport_error_cause::<
+                TransportHandshakeDeadlineElapsed,
+            >(error)
+    )
 }
 
 pub(super) fn has_handshake_deadline_error(
@@ -161,12 +167,32 @@ pub(super) fn dial_hit_handshake_deadline(error: &DialError) -> bool {
     }
 }
 
+fn is_outbound_budget_denial_error(error: &TransportError<io::Error>) -> bool {
+    matches!(
+        error,
+        TransportError::Other(error)
+            if super::transport_admission::has_transport_error_cause::<
+                OutboundAttemptBudgetDenied,
+            >(error)
+    )
+}
+
 pub(super) fn dial_path_hit_handshake_deadline(error: &DialError, address: &Multiaddr) -> bool {
     match error {
         DialError::Transport(errors) => errors
             .iter()
             .any(|(failed, error)| failed == address && is_handshake_deadline_error(error)),
         _ => dial_hit_handshake_deadline(error),
+    }
+}
+
+pub(super) fn dial_path_hit_outbound_budget_denial(error: &DialError, address: &Multiaddr) -> bool {
+    match error {
+        DialError::Transport(errors) => errors
+            .iter()
+            .any(|(failed, error)| failed == address && is_outbound_budget_denial_error(error)),
+        DialError::Denied { .. } => true,
+        _ => false,
     }
 }
 

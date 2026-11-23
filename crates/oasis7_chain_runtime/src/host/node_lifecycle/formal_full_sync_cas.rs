@@ -32,6 +32,27 @@ pub(super) const MAX_FULL_SYNC_CAS_BYTES: u64 =
 /// compatibility must reject malformed high objects instead of silently
 /// treating a lower readable proof head as the state that would be restored.
 pub(super) fn verify_read_only_cas(store: &LocalCasStore) -> Result<serde_json::Value, String> {
+    verify_cas_except_original_missing(store, &BTreeSet::new())
+}
+
+/// Narrow repair preflight: only a separately authenticated installation may
+/// name absent originals. Present bad objects and every other missing pin keep
+/// the ordinary poison gate. This does not publish roots or admit network I/O.
+#[cfg(unix)]
+pub(super) fn verify_repair_cas(
+    store: &LocalCasStore,
+    original_missing: &BTreeSet<String>,
+) -> Result<serde_json::Value, String> {
+    if original_missing.is_empty() {
+        return Err("repair requires missing original material".into());
+    }
+    verify_cas_except_original_missing(store, original_missing)
+}
+
+fn verify_cas_except_original_missing(
+    store: &LocalCasStore,
+    original_missing: &BTreeSet<String>,
+) -> Result<serde_json::Value, String> {
     super::super::local_io::reject_symlinks(store.root())?;
     super::super::local_io::reject_symlinks(store.blobs_dir())?;
     verify_read_only_directory_entries(store.blobs_dir(), true)?;
@@ -78,7 +99,10 @@ pub(super) fn verify_read_only_cas(store: &LocalCasStore) -> Result<serde_json::
         );
     }
     let blobs = hashes.into_iter().collect::<BTreeSet<_>>();
-    if !pins.is_subset(&blobs) {
+    if pins
+        .difference(&blobs)
+        .any(|hash| !original_missing.contains(hash))
+    {
         return Err(
             "HistoryUnavailable: a durable full-sync CAS root is missing its object".into(),
         );
@@ -351,6 +375,26 @@ pub(super) fn stabilize_loaded_world_pins(store: &LocalCasStore) -> Result<(), S
         super::super::local_io::sync_dir(parent)
     })
     .map_err(|error| error.to_string())
+}
+
+/// Read the exact independent installation pointer after validating its local
+/// originals. Ledger acknowledgement alone is never this readback proof.
+pub(super) fn verify_loaded_world_pins(
+    store: &LocalCasStore,
+    expected: &BTreeSet<String>,
+) -> Result<(), String> {
+    let _retention = store
+        .acquire_retention_guard()
+        .map_err(|error| format!("lock full-sync CAS roots: {error:?}"))?;
+    let scope = ensure_pin_scope_dir(store).map_err(|error| error.to_string())?;
+    let actual = read_pin_shard(&scope.join(format!("{LOADED_WORLD_PIN_SHARD}.json")))?;
+    if actual.as_ref() != Some(expected) || expected.is_empty() {
+        return Err(
+            "operation_recovery_required: loaded-world pins differ from original installation"
+                .into(),
+        );
+    }
+    sync_verified_blobs(store, expected)
 }
 
 fn read_pin_shard(path: &Path) -> Result<Option<BTreeSet<String>>, String> {

@@ -83,7 +83,7 @@ pub(super) fn run() {
     let legacy_signed = sign_read_request("cognition", legacy, &hex::encode([8u8; 32])).unwrap();
     let roundtrip: SignedReadRequest<CognitionIntentV1> =
         serde_json::from_value(serde_json::to_value(legacy_signed).unwrap()).unwrap();
-    oasis7::world_service::authority::verify_read_request("cognition", &roundtrip).unwrap();
+    oasis7_world_service::authority::verify_read_request("cognition", &roundtrip).unwrap();
     let mut forged_context = serde_json::to_value(signed.request.causal_proposal).unwrap();
     forged_context["override_actor"] = serde_json::json!("owner");
     assert!(serde_json::from_value::<CognitionCausalProposalV1>(forged_context).is_err());

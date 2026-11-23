@@ -33,8 +33,12 @@ env:
 
 jobs:
   plan:
+    cache-mode: none
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
     outputs:
       checkoutSha: ${{ steps.source.outputs.checkoutSha }}
       version: ${{ steps.source.outputs.version }}
@@ -51,24 +55,10 @@ jobs:
         env:
           REQUESTED_REF: ${{ inputs.tag || github.ref }}
         run: python3 scripts/package-source-plan.py --release
-
-  full-regression-qualification:
-    needs: plan
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.workflow_sha }}
-          fetch-depth: 0
-          persist-credentials: false
       - name: Require complete CI for the exact package source
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_SHA: ${{ needs.plan.outputs.checkoutSha }}
+          SOURCE_SHA: ${{ steps.source.outputs.checkoutSha }}
           GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: python3 scripts/ci-full-result.py verify --source "$SOURCE_SHA"
 
@@ -101,7 +91,7 @@ jobs:
   release_gate_runtime_core:
     cache-mode: read
     name: release-gate-runtime-core
-    needs: [plan, full-regression-qualification]
+    needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -179,7 +169,7 @@ jobs:
   release_gate_runtime_support:
     cache-mode: read
     name: release-gate-runtime-support
-    needs: [plan, full-regression-qualification]
+    needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -257,7 +247,7 @@ jobs:
   release_gate_runtime_sync:
     cache-mode: read
     name: release-gate-runtime-sync
-    needs: [plan, full-regression-qualification]
+    needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -331,7 +321,7 @@ jobs:
   release_gate_web:
     cache-mode: read
     name: release-gate-web
-    needs: [plan, full-regression-qualification]
+    needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
@@ -416,7 +406,7 @@ jobs:
   release_gate_soak:
     cache-mode: read
     name: release-gate-soak
-    needs: [plan, full-regression-qualification]
+    needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
@@ -911,10 +901,10 @@ jobs:
         run: python3 scripts/ci-cache-maintenance.py --recover --apply
 
   publish-release:
-    needs: [plan, package-native, full-regression-qualification]
+    needs: [plan, package-native]
     if: >-
       always() && !cancelled() && needs.plan.result == 'success' &&
-      needs.package-native.result == 'success' && needs.full-regression-qualification.result == 'success'
+      needs.package-native.result == 'success'
     cache-mode: none
     runs-on: ubuntu-24.04
     timeout-minutes: 10

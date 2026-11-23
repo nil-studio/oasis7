@@ -109,7 +109,7 @@ pub(super) fn lookup(
             terminal_recovery_authority: None,
             formal_profile: None,
             execution_evidence_scope: service.guarded.map(|_| {
-                oasis7::world_service::verified_view::CONTROLLED_PREREQUISITE_READ_SCOPE.into()
+                oasis7_world_service::verified_view::CONTROLLED_PREREQUISITE_READ_SCOPE.into()
             }),
             contract_version: WORLD_SERVICE_CONTRACT_VERSION,
             correlation,

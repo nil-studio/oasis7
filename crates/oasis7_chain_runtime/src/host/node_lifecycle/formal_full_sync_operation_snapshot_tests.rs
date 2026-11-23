@@ -50,7 +50,10 @@ fn reject_then_restore(path: &Path, original: &Snapshot, bad: &Snapshot) {
     assert!(original.validate().is_ok());
     assert!(bad.validate().is_err(), "fabricated ledger state accepted");
     local_io::write(path, bad).unwrap();
-    assert!(read_snapshot(path).is_err(), "fabricated disk ledger accepted");
+    assert!(
+        read_snapshot(path).is_err(),
+        "fabricated disk ledger accepted"
+    );
     local_io::write(path, original).unwrap();
     assert_eq!(read_snapshot(path).unwrap(), *original);
 }
@@ -169,6 +172,7 @@ fn cold_open_rejects_zero_sequence_reservations_in_active_and_interrupted_attemp
         tx_credit,
         rx_credit,
         reservation: old_reservation,
+        owner: None,
     });
     interrupted.attempts_used += 1;
     interrupted.active_attempt_nonce = Some("ab".repeat(16));

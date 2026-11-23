@@ -76,14 +76,6 @@ allowed_snippets = {
         "shared_devnet|shared_network)",
         '{"shared_devnet", "shared_network"}',
     ),
-    "scripts/ci-required-scope.json": (
-        '"scripts/shared-devnet-blocker-packet-smoke.sh"',
-        '"scripts/shared-devnet-blocker-packet.sh"',
-        '"scripts/shared-devnet-rehearsal-smoke.sh"',
-        '"scripts/shared-devnet-rehearsal.sh"',
-        '"scripts/shared-network-track-gate-smoke.sh"',
-        '"scripts/shared-network-track-gate.sh"',
-    ),
     "scripts/legacy-shared-devnet-provenance-smoke.sh": (
         "authority=doc/testing/evidence/legacy-shared-devnet-provenance-2026-07-26.md",
         '"shared_devnet"',

@@ -3,7 +3,7 @@ use super::*;
 pub(super) struct InitialRuntimeState {
     pub(super) runtime: Option<FormalLiveRuntime>,
     pub(super) initial_client: RemoteWorldServiceClient,
-    pub(super) initial_view: Option<oasis7::world_service::verified_view::VerifiedWorldView>,
+    pub(super) initial_view: Option<oasis7_world_service::verified_view::VerifiedWorldView>,
 }
 
 /// Start the non-shipping fixture runtime and obtain the initial signed view.

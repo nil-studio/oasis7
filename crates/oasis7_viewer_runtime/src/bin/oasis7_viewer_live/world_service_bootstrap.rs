@@ -1,7 +1,7 @@
-use oasis7::world_service::client::{
+use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServerConfig;
+use oasis7_world_service::client::{
     RemoteWorldServiceClient, WorldServiceAgentSignerConfig, WorldServiceClientConfig,
 };
-use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServerConfig;
 
 pub(super) fn configure(
     mut config: ViewerRuntimeLiveServerConfig,
@@ -13,7 +13,7 @@ pub(super) fn configure(
         if signer.delegation_generation == 0 {
             return Err("Agent delegation generation must be nonzero".into());
         }
-        oasis7::world_service::sign_read_request(
+        oasis7_world_service::sign_read_request(
             "agent-configuration",
             (),
             &signer.private_key_hex,

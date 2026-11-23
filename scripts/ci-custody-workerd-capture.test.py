@@ -189,6 +189,99 @@ class Receipts(unittest.TestCase):
             with self.subTest(process_field=field):
                 self.assertFalse(C.can_retry_known_fault(report, changed))
 
+    def test_post_fault_dispose_teardown_runtime_is_retryable_without_passing_capture(self):
+        process = dict(
+            passed=False,
+            timeout=False,
+            cancelled=False,
+            leaked_processes=False,
+            cleanup_result='clean',
+            log_complete=True,
+        )
+        for first_code, first_sig in ((1, None), (None, 11)):
+            rows = [
+                dict(event='session', schema=C.SCHEMA, context=CONTEXT, attempt=1,
+                     engine_sha256=C.ENGINE_SHA256, gdb_version='15.1'),
+                dict(event='root_started', inferior=1, pid=720),
+                dict(event='runtime_started', inferior=3, pid=740, engine_sha256=C.ENGINE_SHA256),
+                dict(event='signal', inferior=3, pid=740, thread=[740, 740, 0], signal='SIGSEGV', si_code=1,
+                     si_addr='0x7ffc2c87ffe8', registers=dict(pc='0x55a884ba5313', r13='0x7ffc2c87ffe0',
+                     rbp='0x7ffc2c86d6b0', rsp='0x7ffc2c86d680'), maps_complete=True,
+                     mappings=dict.fromkeys(C.MAPPINGS), pc_offset=C.KNOWN_FAULT_OFFSET),
+                dict(event='runtime_exited', inferior=3, pid=740, exit_code=first_code, exit_signal=first_sig),
+                dict(event='runtime_started', inferior=4, pid=744, engine_sha256=C.ENGINE_SHA256),
+                dict(event='runtime_exited', inferior=4, pid=744, exit_code=None, exit_signal=9),
+                dict(event='root_exited', inferior=1, pid=720, exit_code=1),
+                dict(event='complete', errors=[], open_runtimes=[]),
+            ]
+            with tempfile.TemporaryDirectory() as temporary:
+                directory = Path(temporary)
+                (directory / 'records.jsonl').write_bytes(encoded(rows))
+                report = C.finish(directory, CONTEXT, 1, False)
+                self.assertFalse(report['passed'])
+                self.assertFalse(report['summary']['passed'])
+                self.assertEqual(report['summary']['runtime_count'], 2)
+                self.assertTrue(report['summary']['post_fault_dispose_only'])
+                self.assertTrue(C.can_retry_known_fault(report, process))
+                with self.assertRaises(ValueError):
+                    C.validate(directory, CONTEXT, 1)
+
+        # Reject concurrent second runtime, signal on second runtime, non-SIGKILL second exit, or non-known offset.
+        rejected_cases = [
+            # Second runtime started before first runtime exited (concurrent)
+            [
+                dict(event='session', schema=C.SCHEMA, context=CONTEXT, attempt=1,
+                     engine_sha256=C.ENGINE_SHA256, gdb_version='15.1'),
+                dict(event='root_started', inferior=1, pid=720),
+                dict(event='runtime_started', inferior=3, pid=740, engine_sha256=C.ENGINE_SHA256),
+                dict(event='runtime_started', inferior=4, pid=744, engine_sha256=C.ENGINE_SHA256),
+                dict(event='signal', inferior=3, pid=740, thread=[740, 740, 0], signal='SIGSEGV', si_code=1,
+                     si_addr='0x0', registers=dict(pc='0x1000', r13='0x0', rbp='0x1', rsp='0x2'),
+                     maps_complete=True, mappings=dict.fromkeys(C.MAPPINGS), pc_offset=C.KNOWN_FAULT_OFFSET),
+                dict(event='runtime_exited', inferior=3, pid=740, exit_code=1, exit_signal=None),
+                dict(event='runtime_exited', inferior=4, pid=744, exit_code=None, exit_signal=9),
+                dict(event='root_exited', inferior=1, pid=720, exit_code=1),
+                dict(event='complete', errors=[], open_runtimes=[]),
+            ],
+            # First runtime failed without known_fault; second runtime hit known_fault then SIGKILL
+            [
+                dict(event='session', schema=C.SCHEMA, context=CONTEXT, attempt=1,
+                     engine_sha256=C.ENGINE_SHA256, gdb_version='15.1'),
+                dict(event='root_started', inferior=1, pid=720),
+                dict(event='runtime_started', inferior=3, pid=740, engine_sha256=C.ENGINE_SHA256),
+                dict(event='runtime_exited', inferior=3, pid=740, exit_code=1, exit_signal=None),
+                dict(event='runtime_started', inferior=4, pid=744, engine_sha256=C.ENGINE_SHA256),
+                dict(event='signal', inferior=4, pid=744, thread=[744, 744, 0], signal='SIGSEGV', si_code=1,
+                     si_addr='0x0', registers=dict(pc='0x1000', r13='0x0', rbp='0x1', rsp='0x2'),
+                     maps_complete=True, mappings=dict.fromkeys(C.MAPPINGS), pc_offset=C.KNOWN_FAULT_OFFSET),
+                dict(event='runtime_exited', inferior=4, pid=744, exit_code=None, exit_signal=9),
+                dict(event='root_exited', inferior=1, pid=720, exit_code=1),
+                dict(event='complete', errors=[], open_runtimes=[]),
+            ],
+            # Second runtime exited 0 instead of SIGKILL dispose
+            [
+                dict(event='session', schema=C.SCHEMA, context=CONTEXT, attempt=1,
+                     engine_sha256=C.ENGINE_SHA256, gdb_version='15.1'),
+                dict(event='root_started', inferior=1, pid=720),
+                dict(event='runtime_started', inferior=3, pid=740, engine_sha256=C.ENGINE_SHA256),
+                dict(event='signal', inferior=3, pid=740, thread=[740, 740, 0], signal='SIGSEGV', si_code=1,
+                     si_addr='0x0', registers=dict(pc='0x1000', r13='0x0', rbp='0x1', rsp='0x2'),
+                     maps_complete=True, mappings=dict.fromkeys(C.MAPPINGS), pc_offset=C.KNOWN_FAULT_OFFSET),
+                dict(event='runtime_exited', inferior=3, pid=740, exit_code=1, exit_signal=None),
+                dict(event='runtime_started', inferior=4, pid=744, engine_sha256=C.ENGINE_SHA256),
+                dict(event='runtime_exited', inferior=4, pid=744, exit_code=0, exit_signal=None),
+                dict(event='root_exited', inferior=1, pid=720, exit_code=1),
+                dict(event='complete', errors=[], open_runtimes=[]),
+            ],
+        ]
+        for idx, rows in enumerate(rejected_cases):
+            with self.subTest(rejected_case=idx), tempfile.TemporaryDirectory() as temporary:
+                directory = Path(temporary)
+                (directory / 'records.jsonl').write_bytes(encoded(rows))
+                report = C.finish(directory, CONTEXT, 1, False)
+                self.assertFalse(report['summary']['post_fault_dispose_only'])
+                self.assertFalse(C.can_retry_known_fault(report, process))
+
 
 if __name__ == '__main__':
     unittest.main()

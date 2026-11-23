@@ -64,11 +64,11 @@ pub(in super::super) struct AdmitWaitViewGateState {
 }
 
 fn identity_digest(values: [&str; 9]) -> Result<String, String> {
-    oasis7::world_service::authority::request_digest("wait-admit-continuation-identity-v1", &values)
+    oasis7_world_service::authority::request_digest("wait-admit-continuation-identity-v1", &values)
 }
 
 fn opaque_digest(domain: &str, value: &str) -> Result<String, String> {
-    oasis7::world_service::authority::request_digest(domain, &value)
+    oasis7_world_service::authority::request_digest(domain, &value)
 }
 
 fn parse_candidate(
@@ -259,7 +259,7 @@ impl super::WorldGate {
                     "authenticated Wait Admit receipt tuple differs from signed proposal".into(),
                 );
             }
-            let receipt_digest = oasis7::world_service::authority::request_digest(
+            let receipt_digest = oasis7_world_service::authority::request_digest(
                 "wait-admit-authenticated-receipt-v1",
                 &admitted,
             )
@@ -286,7 +286,7 @@ impl super::WorldGate {
             payload_digest: expected.payload_digest.clone(),
             authenticated_receipt_digest: authenticated_receipt_digest.clone(),
         };
-        let selector_digest = match oasis7::world_service::authority::request_digest(
+        let selector_digest = match oasis7_world_service::authority::request_digest(
             "wait-admit-view-selector-v1",
             &selector,
         ) {
@@ -453,7 +453,7 @@ impl super::WorldGate {
         drop(state);
 
         let view_request_digest =
-            oasis7::world_service::authority::request_digest(VIEW_PATH, &request.request)
+            oasis7_world_service::authority::request_digest(VIEW_PATH, &request.request)
                 .expect("verified Wait Admit View request has digest");
         super::write_new_json(
             &root.join("world-wait-admit-view-started"),

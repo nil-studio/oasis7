@@ -64,11 +64,11 @@ pub(super) fn verify(
     let WorldServicePayloadV1::FeedbackAck(signed) = &payload else {
         panic!("actual signed ACK codec required")
     };
-    oasis7::world_service::authority::verify_read_request("feedback_ack", signed).unwrap();
+    oasis7_world_service::authority::verify_read_request("feedback_ack", signed).unwrap();
     let correlation: oasis7_client_api::world_service::RequestCorrelation =
         serde_json::from_value(ack["correlation"].clone()).unwrap();
     assert_eq!(
-        oasis7::world_service::derive_correlation(correlation.key.world.clone(), &payload).unwrap(),
+        oasis7_world_service::derive_correlation(correlation.key.world.clone(), &payload).unwrap(),
         correlation
     );
     let key = correlation::key_digest(&correlation.key).unwrap();

@@ -8,14 +8,14 @@ use std::{
 
 use libp2p::{
     Multiaddr, PeerId,
-    swarm::{
-        Config, ConnectionDenied, ConnectionId, TransportAdmission,
-        TransportHandshakeDeadlineElapsed,
-    },
+    swarm::{ConnectionDenied, ConnectionId},
 };
 
-use super::resource_budget::{
-    BudgetDiagnostics, ConnectionBudgetSnapshot, ResourceBudgetRejection,
+use super::{
+    resource_budget::{BudgetDiagnostics, ConnectionBudgetSnapshot, ResourceBudgetRejection},
+    transport_admission::{
+        TransportAdmission, TransportAdmissionGate, TransportHandshakeDeadlineElapsed,
+    },
 };
 
 #[cfg(test)]
@@ -190,16 +190,15 @@ impl ConnectionBudget {
         denied(detail)
     }
 
-    pub(super) fn configure_swarm(&self, config: Config) -> Config {
+    pub(super) fn admission_gate(&self) -> TransportAdmissionGate {
         let inbound = self.clone();
         let outbound = self.clone();
-        config
-            .with_timed_inbound_transport_admission(move |connection, _, _| {
-                inbound.reserve(AttemptKey::Inbound(connection), None)
-            })
-            .with_timed_outbound_transport_admission(move |connection, peer, address| {
+        TransportAdmissionGate::with_callbacks(
+            move |connection, _, _| inbound.reserve(AttemptKey::Inbound(connection), None),
+            move |connection, peer, address| {
                 outbound.reserve(AttemptKey::Outbound(connection, address.clone()), peer)
-            })
+            },
+        )
     }
 
     fn reserve(

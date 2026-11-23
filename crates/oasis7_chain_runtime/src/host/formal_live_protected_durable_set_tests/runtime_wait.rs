@@ -43,7 +43,7 @@ pub(super) fn wait_for_boundary(runtime: &FormalLiveRuntime, position: u64) -> R
 pub(super) fn wait_for_request_result(
     runtime: &FormalLiveRuntime,
     request: &SubmitIntentRequest<WorldServicePayloadV1>,
-) -> Result<oasis7::world_service::CanonicalIntentResultV1, String> {
+) -> Result<oasis7_world_service::CanonicalIntentResultV1, String> {
     let key = correlation::key_digest(&request.correlation.key).map_err(|e| e.to_string())?;
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {

@@ -2,7 +2,7 @@ use super::super::local_io as io;
 use super::*;
 use crate::formal_read_fixtures as fixtures;
 use fixtures::*;
-use oasis7::world_service::{
+use oasis7_world_service::{
     SignedReadRequest, authority,
     formal_read::{FormalReadHistoryV1, FormalReadVerifier},
     formal_read_service::{FormalCommittedReadService, FormalReadPublication},
@@ -248,7 +248,7 @@ fn restart_does_not_reuse_persisted_head_when_formal_history_is_unavailable() {
     let mut stale = status(&instance(1));
     stale.last_verified_commit = Some(commit_ref(
         &anchor,
-        &oasis7::world_service::projection::from_formal_committed_world(
+        &oasis7_world_service::projection::from_formal_committed_world(
             &world,
             None,
             &public(8),

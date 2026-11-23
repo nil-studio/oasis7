@@ -1,6 +1,6 @@
 //! Pure quote over the same authenticated canonical pin as the captured task.
 use super::*;
-use oasis7::world_service::task_factory_quote::*;
+use oasis7_world_service::task_factory_quote::*;
 
 pub(super) fn process(
     service: &Service<'_>,
