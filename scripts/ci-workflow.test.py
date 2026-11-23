@@ -6840,7 +6840,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'fleet-health': 12,
                 'doc-checker-contracts': 12,
                 'workflow-governance': 15,
-                'custody-native-contracts': 20,
+                'custody-native-contracts': 15,
                 'consensus': 5,
                 'net': 10,
                 'node': 12,
@@ -6854,7 +6854,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'launcher-web': 12,
                 'viewer-js-required': 16,
                 'viewer-performance-report': 15,
-                'newapi-bridge-package': 30,
+                'newapi-bridge-package': 15,
             },
             '.github/workflows/wasm-determinism-gate.yml': {
                 'plan-wasm-determinism-scope': 5,
@@ -6961,7 +6961,7 @@ class HeavyPrJobTimeoutContractTests(unittest.TestCase):
                 'formal-test-build-trusted': 60,
                 'oasis7-required': 35,
                 'workspace-support-legacy': 60,
-                'workspace-support-other': 45,
+                'workspace-support-other': 40,
                 'operational-contracts': 20,
             },
             '.github/workflows/wasm-determinism-gate.yml': {
