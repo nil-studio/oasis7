@@ -1,6 +1,6 @@
 use super::*;
-use oasis7_world_service::{client::WorldServiceClientConfig, projection::WorldServiceProjection};
 use oasis7_client_api::world_service::*;
+use oasis7_world_service::{client::WorldServiceClientConfig, projection::WorldServiceProjection};
 use std::{net::TcpListener, thread};
 
 fn client(endpoint: String) -> RemoteWorldServiceClient {

@@ -1,7 +1,7 @@
+use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServerConfig;
 use oasis7_world_service::client::{
     RemoteWorldServiceClient, WorldServiceAgentSignerConfig, WorldServiceClientConfig,
 };
-use oasis7_viewer_runtime::viewer::ViewerRuntimeLiveServerConfig;
 
 pub(super) fn configure(
     mut config: ViewerRuntimeLiveServerConfig,

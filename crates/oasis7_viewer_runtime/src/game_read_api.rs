@@ -1,15 +1,15 @@
 //! Opt-in signed-read bootstrap for Game API. No pairing, token issuance or
 //! writes are exposed until the corresponding Runtime contracts exist.
-use oasis7_world_service::{
-    SignedReadRequest, VIEW_PATH, authority,
-    client::{RemoteWorldServiceClient, WorldServiceClientError},
-};
 use oasis7_agent_api::game::{
     API_REVISION, MAX_ACTIVE_READS, MAX_READ_HTTP_HEADER_BYTES, MAX_READ_PROOF_HEADER_BYTES,
     MAX_READ_RESPONSE_BYTES, READ_OPENAPI_PATH, READ_SCHEMA_REVISION, parse_request,
     read_bootstrap_limits, read_bootstrap_openapi,
 };
 use oasis7_client_api::world_service::ReadWorldViewRequest;
+use oasis7_world_service::{
+    SignedReadRequest, VIEW_PATH, authority,
+    client::{RemoteWorldServiceClient, WorldServiceClientError},
+};
 use serde::de::IntoDeserializer;
 use serde_json::{Value, json};
 use std::sync::atomic::{AtomicUsize, Ordering};
