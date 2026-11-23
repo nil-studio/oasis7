@@ -255,23 +255,16 @@ impl<B: AgentBehavior> AgentRunner<B> {
     }
 
     fn select_next_ready_agent_id(&self, kernel: &WorldKernel, now: WorldTime) -> Option<String> {
-        let cursor = self.scheduler_cursor.as_deref();
-        let mut first_ready = None;
-        let mut first_after_cursor = None;
-
-        for (id, agent) in &self.agents {
-            if !self.is_agent_ready_for_tick(kernel, now, id, agent) {
-                continue;
-            }
-            let id = id.as_str();
-            first_ready.get_or_insert(id);
-            if cursor.is_some_and(|cursor| id > cursor) {
-                first_after_cursor = Some(id);
-                break;
-            }
-        }
-
-        first_after_cursor.or(first_ready).map(str::to_owned)
+        oasis7_simulator::choose_next_ready_agent_id_v1(
+            self.agents.iter().map(|(id, agent)| {
+                (
+                    id.as_str(),
+                    self.is_agent_ready_for_tick(kernel, now, id, agent),
+                )
+            }),
+            self.scheduler_cursor.as_deref(),
+        )
+        .map(str::to_owned)
     }
 
     /// Preview the same deterministic scheduler choice used by
