@@ -2,9 +2,6 @@
 //! original action bytes in a public or single-Agent light-read proof.
 use super::prefix_ledger_tests::open_prefix;
 use super::*;
-use oasis7::consensus_action_payload::{
-    ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
-};
 use oasis7::world_service::formal_bft_prefix_read_service::{
     FormalBftReadPublicationInputV3, FormalBftReadPublicationV3,
 };
@@ -14,6 +11,9 @@ use oasis7::world_service::formal_bft_read_service::{
 use oasis7::world_service::formal_read_error::FormalReadError;
 use oasis7_client_api::world_service::*;
 use oasis7_node::NodeConsensusAction;
+use oasis7_world_service::consensus_action_payload::{
+    ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
+};
 
 #[test]
 fn formal_prefix_light_read_refuses_original_actions_even_with_valid_qc_and_world() {

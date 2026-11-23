@@ -1,13 +1,13 @@
 //! V3 public block identity is bound to a real execution commitment and the
 //! exact private action bytes without exposing those bytes in public metadata.
 use super::*;
-use oasis7::consensus_action_payload::{
-    ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
-};
 use oasis7_consensus::formal_bft_payload_v3::ValidatedBftPrivatePayloadV3;
 use oasis7_formal_protocol::bft::{BoundFormalBftHeaderV3, FormalBftExecutionCommitmentV1};
 use oasis7_node::NodeConsensusAction;
 use oasis7_proto::distributed_bft::v3::{BftBlockHeaderV3, actions_cbor_digest_v3};
+use oasis7_world_service::consensus_action_payload::{
+    ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
+};
 
 const PRIVATE_CANARY: &str = "private-header-canary-4975-never-public";
 

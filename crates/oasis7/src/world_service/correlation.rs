@@ -5,7 +5,7 @@ pub use crate::runtime::service_admission::correlation::*;
 pub fn encode_consensus_intent(
     request: &super::SubmitIntentRequest<WorldServicePayloadV1>,
 ) -> Result<Vec<u8>, String> {
-    use crate::consensus_action_payload::*;
+    use oasis7_world_service::consensus_action_payload::*;
     encode_consensus_action_payload(&ConsensusActionPayloadEnvelope {
         version: 1,
         auth: None,
@@ -22,7 +22,7 @@ pub fn encode_consensus_intent(
 pub fn encode_cleanup_consensus_v2(
     request: &task_cleanup_v2::TaskCleanupSubmitV2,
 ) -> Result<Vec<u8>, String> {
-    use crate::consensus_action_payload::*;
+    use oasis7_world_service::consensus_action_payload::*;
     request.verify_owner_signature()?;
     encode_consensus_action_payload(&ConsensusActionPayloadEnvelope {
         version: 1,

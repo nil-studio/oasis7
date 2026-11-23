@@ -699,7 +699,7 @@
         }
       ],
       "allows": [
-        "dev -> oasis7(default=false, features=[test_tier_required]) for signed interoperability"
+        "dev -> oasis7_runtime(default=false, features=[test_tier_required]) and oasis7_world_service(default=false, features=[]) for signed interoperability"
       ],
       "exceptions": [],
       "test_edges": [
@@ -710,7 +710,7 @@
             "version": "0.1.0"
           },
           "dependency": {
-            "name": "oasis7",
+            "name": "oasis7_runtime",
             "source": null,
             "version": "0.1.0"
           },
@@ -720,6 +720,29 @@
             "test_tier_required"
           ],
           "purpose": "signed Runtime interoperability",
+          "upstream": "doc/world-runtime/design.md#1-\u8bbe\u8ba1\u5b9a\u4f4d",
+          "kind": "dev",
+          "target": "host",
+          "profiles": [
+            "test_tier_required",
+            "test_tier_full"
+          ]
+        },
+        {
+          "root": {
+            "name": "oasis7_protocol_tools",
+            "source": null,
+            "version": "0.1.0"
+          },
+          "dependency": {
+            "name": "oasis7_world_service",
+            "source": null,
+            "version": "0.1.0"
+          },
+          "cfg": null,
+          "default_features": false,
+          "features": [],
+          "purpose": "native consensus payload signature interoperability",
           "upstream": "doc/world-runtime/design.md#1-\u8bbe\u8ba1\u5b9a\u4f4d",
           "kind": "dev",
           "target": "host",

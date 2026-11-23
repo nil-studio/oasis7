@@ -23,12 +23,12 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[path = "driver_bft_v3_covered_source_tests.rs"]
+mod covered_source_tests;
 #[path = "driver_bft_v3_node_batch_tests.rs"]
 mod node_batch_tests;
 #[path = "driver_bft_v3_node_cli_tests.rs"]
 mod node_cli_tests;
-#[path = "driver_bft_v3_covered_source_tests.rs"]
-mod covered_source_tests;
 #[path = "driver_bft_v3_node_identity_tests.rs"]
 mod node_identity_tests;
 #[path = "driver_bft_v3_node_multivalue_tests.rs"]
@@ -340,8 +340,8 @@ fn runtime(
         .unwrap()
 }
 fn payload(id: &str) -> Vec<u8> {
-    oasis7::consensus_action_payload::encode_consensus_action_payload(
-        &oasis7::consensus_action_payload::ConsensusActionPayloadEnvelope::from_runtime_action(
+    oasis7_world_service::consensus_action_payload::encode_consensus_action_payload(
+        &oasis7_world_service::consensus_action_payload::ConsensusActionPayloadEnvelope::from_runtime_action(
             Action::RegisterAgent {
                 agent_id: id.into(),
                 pos: oasis7_agent_api::world_action::GeoPos::new(4, 5, 6),
