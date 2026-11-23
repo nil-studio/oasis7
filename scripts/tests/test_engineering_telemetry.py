@@ -931,7 +931,11 @@ import engineering_telemetry as t
 original=subprocess.Popen
 def sleeper(*args,**kwargs):
     child=original([sys.executable,'-c','import time;time.sleep(30)'],**kwargs)
-    Path(sys.argv[2]).write_text(str(child.pid))
+    # Publish PID atomically: exists() must never observe an empty, open file.
+    pid_path = Path(sys.argv[2])
+    staged_pid_path = pid_path.with_suffix(".pid.tmp")
+    staged_pid_path.write_text(str(child.pid))
+    staged_pid_path.replace(pid_path)
     return child
 subprocess.Popen=sleeper
 raise SystemExit(t.main(['collect-github','owner/repo','7','2',sys.argv[3],sys.argv[4],'--max-seconds',sys.argv[5]]))
