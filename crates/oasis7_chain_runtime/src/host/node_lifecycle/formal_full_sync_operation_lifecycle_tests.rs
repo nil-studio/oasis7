@@ -507,6 +507,83 @@ impl Drop for BudgetFixture {
     }
 }
 
+fn signed_renewal(fixture: &BudgetFixture) -> FormalNodeReadGrantV1 {
+    let original = fixture
+        .node
+        .identity
+        .chain
+        .budgeted_formal_full_sync()
+        .unwrap()
+        .grant
+        .as_ref()
+        .unwrap();
+    FormalNodeReadGrantV1::sign(
+        oasis7_client_api::world_service_full_sync::FormalNodeReadGrantBodyV1 {
+            grant_epoch: original.body.grant_epoch + 1,
+            ..original.body.clone()
+        },
+        &hex::encode(test_key(9).to_bytes()),
+    )
+    .unwrap()
+}
+
+#[test]
+fn budgeted_completed_grant_renewal_keeps_original_paid_ledger_and_cold_reopens() {
+    let mut fixture = BudgetFixture::new(false, |_| {}, None);
+    let mut first = fixture.driver(1);
+    first.poll();
+    fixture.require_world(&first);
+    let before = fixture.snapshot();
+    assert!(before.installation.as_ref().unwrap().completed);
+    let prior = fixture.observations();
+    drop(first);
+
+    let replacement = fixture._root.0.join("renewed-issuer-grant.json");
+    local_io::write(&replacement, &signed_renewal(&fixture)).unwrap();
+    let changed = super::super::super::install_grant(
+        &fixture.node.identity.data_dir,
+        &replacement,
+    )
+    .unwrap();
+    assert_eq!(changed["changed"], true);
+    fixture.node =
+        model::NodeConfig::load(&fixture.node.identity.data_dir.join(model::CONFIG_FILE)).unwrap();
+    fixture.instance.config_digest = local_io::digest(&fixture.node).unwrap();
+
+    let mut cold = fixture.driver(2);
+    cold.poll();
+    fixture.require_world(&cold);
+    assert_eq!(fixture.snapshot(), before);
+    assert_eq!(fixture.observations().len(), prior.len());
+    cold.poll();
+    fixture.require_world(&cold);
+    let after = fixture.snapshot();
+    assert_eq!(after.terminal_index.as_ref().unwrap().completed_operations, 2);
+    assert_ne!(after.identity.operation_id, before.identity.operation_id);
+    assert_eq!(
+        after.terminal_index.as_ref().unwrap().summaries[0].identity,
+        before.identity
+    );
+}
+
+#[test]
+fn budgeted_unfinished_grant_renewal_never_replaces_the_original_request() {
+    let fixture = BudgetFixture::new(false, |_| {}, None);
+    let before = fixture.interrupted_installation("intent_durable");
+    let replacement = fixture._root.0.join("invalid-renewal.json");
+    local_io::write(&replacement, &signed_renewal(&fixture)).unwrap();
+    let result = super::super::super::install_grant(
+        &fixture.node.identity.data_dir,
+        &replacement,
+    );
+    assert!(result.is_err());
+    assert_eq!(fixture.snapshot(), before);
+    assert_eq!(
+        model::NodeConfig::load(&fixture.node.identity.data_dir.join(model::CONFIG_FILE)).unwrap(),
+        fixture.node
+    );
+}
+
 #[test]
 fn budgeted_consumer_accounts_real_routes_and_failover_error_body() {
     let fixture = BudgetFixture::new(true, |_| {}, None);
