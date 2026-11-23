@@ -186,6 +186,8 @@ mod runtime_authority;
 mod runtime_file_io;
 #[path = "host/runtime_status_util.rs"]
 mod runtime_status_util;
+#[path = "host/startup_execution.rs"]
+mod startup_execution;
 #[path = "host/startup_reconcile.rs"]
 mod startup_reconcile;
 #[path = "host/status_admission.rs"]
@@ -455,15 +457,7 @@ fn run_chain_runtime(options: CliOptions) -> Result<(), String> {
                 "--formal-live-config cannot be combined with --guarded-initial-config".into(),
             );
         }
-        #[cfg(unix)]
-        {
-            return formal_live_runtime::run(config_path);
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = config_path;
-            return Err("formal live runtime currently requires Unix native storage".into());
-        }
+        return startup_execution::run_formal_live(config_path);
     }
     if options.guarded_initial_config.is_some() {
         return controlled_live_runtime::run(dev_cli::GuardedWorldOptions {
@@ -617,60 +611,12 @@ fn run_chain_runtime(options: CliOptions) -> Result<(), String> {
             paths.execution_world_dir.as_path(),
         )?;
     }
-    #[cfg(not(test))]
-    let local_execution_bootstrap = options
-        .local_test_provider_authority_path
-        .as_ref()
-        .filter(|_| {
-            !(paths
-                .execution_world_dir
-                .join("world-service-identity.json")
-                .exists()
-                && paths.execution_records_dir.join("latest.json").exists())
-        })
-        .map(|_| {
-            let world = execution_bridge::load_execution_world_with_policy(
-                paths.execution_world_dir.as_path(),
-                release_security_policy.clone(),
-            )?;
-            let finality_block_hash = options
-                .local_test_provider_finality_block_hash
-                .as_deref()
-                .ok_or_else(|| "local test finality marker is missing".to_string())?;
-            execution_bridge::derive_local_execution_bootstrap(
-                paths.execution_world_dir.as_path(),
-                paths.execution_records_dir.as_path(),
-                options.world_id.as_str(),
-                world.state().time,
-                finality_block_hash,
-                &release_security_policy,
-            )
-        })
-        .transpose()?;
-    #[cfg(not(test))]
-    let local_execution_bootstrap = if paths
-        .execution_world_dir
-        .join("world-service-identity.json")
-        .exists()
-        && paths.execution_records_dir.join("latest.json").exists()
-    {
-        Some(
-            execution_bridge::derive_service_execution_bootstrap_with_context(
-                &paths.execution_world_dir,
-                &paths.execution_records_dir,
-                &paths.storage_root,
-                &options.world_id,
-                &execution_bridge::world_service_read::RestoreContext::new(
-                    release_security_policy.clone(),
-                    participant_control.authority.clone(),
-                )?,
-            )?,
-        )
-    } else {
-        local_execution_bootstrap
-    };
-    #[cfg(test)]
-    let local_execution_bootstrap: Option<oasis7_node::NodeExecutionBootstrap> = None;
+    let local_execution_bootstrap = startup_execution::resolve_local_execution_bootstrap(
+        &options,
+        &paths,
+        &release_security_policy,
+        &participant_control,
+    )?;
     let effective_validator_signer_bindings =
         config.pos_config.validator_signer_public_keys.clone();
     let replication_remote_writer_allowlist =
@@ -730,28 +676,11 @@ fn run_chain_runtime(options: CliOptions) -> Result<(), String> {
                 participant_control.clone(),
             )
         } else if let Some(baseline) = local_execution_bootstrap {
-            #[cfg(not(test))]
-            {
-                NodeRuntimeExecutionDriver::new_with_local_bootstrap(
-                    paths.execution_bridge_state_path.clone(),
-                    paths.execution_world_dir.clone(),
-                    paths.execution_records_dir.clone(),
-                    paths.storage_root.clone(),
-                    &storage_profile_config,
-                    baseline,
-                )
-            }
-            #[cfg(test)]
-            {
-                let _ = baseline;
-                NodeRuntimeExecutionDriver::new_with_storage_profile(
-                    paths.execution_bridge_state_path.clone(),
-                    paths.execution_world_dir.clone(),
-                    paths.execution_records_dir.clone(),
-                    paths.storage_root.clone(),
-                    &storage_profile_config,
-                )
-            }
+            startup_execution::driver_with_local_bootstrap(
+                &paths,
+                &storage_profile_config,
+                baseline,
+            )
         } else {
             NodeRuntimeExecutionDriver::new_with_storage_profile(
                 paths.execution_bridge_state_path.clone(),
@@ -762,21 +691,7 @@ fn run_chain_runtime(options: CliOptions) -> Result<(), String> {
             )
         }
         .map_err(|err| format!("failed to initialize execution driver: {err}"))?;
-        #[cfg(not(test))]
-        let mut provider_bootstrap_authority_paths =
-            options.provider_backed_bootstrap_authority_paths.clone();
-        #[cfg(not(test))]
-        if let Some(local_authority_path) = options.local_test_provider_authority_path.as_ref()
-            && !provider_bootstrap_authority_paths.contains(local_authority_path)
-        {
-            provider_bootstrap_authority_paths.push(local_authority_path.clone());
-        }
-        #[cfg(not(test))]
-        execution_bridge::publish_provider_backed_bootstrap_from_paths(
-            &runtime,
-            paths.execution_world_dir.as_path(),
-            provider_bootstrap_authority_paths.as_slice(),
-        )?;
+        startup_execution::publish_provider_bootstrap(&runtime, &options, &paths)?;
         execution_driver.set_controlled_capture_enabled(options.capture_schedule_recipe_history)?;
         runtime = runtime.with_execution_hook(execution_driver);
     }
