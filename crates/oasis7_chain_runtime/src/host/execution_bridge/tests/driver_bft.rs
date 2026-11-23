@@ -1,6 +1,6 @@
 use super::*;
 use ed25519_dalek::SigningKey;
-use oasis7::world_service::{
+use oasis7_world_service::{
     RequestCorrelation, RequestKey, SubmitIntentRequest, WorldIdentity, WorldServicePayloadV1,
 };
 use oasis7_node::{
