@@ -1083,8 +1083,12 @@ impl World {
     pub(super) fn apply_resource_delta(&mut self, delta: &ResourceDelta) -> Result<(), WorldError> {
         // This is the original live consumer: retain the once-only install
         // site, but share the exact checked arithmetic with root-staged fees.
-        let planned =
-            crate::domains::monetary::plan_resource_delta(&self.state.resources, delta)?;
+        let scope = crate::domains::monetary::StagedRuleFeeSettlement {
+            general: delta,
+            with_distance: delta,
+            disposition: oasis7_domain_types::rule_settlement::RuleActionDisposition::Accepted,
+        };
+        let planned = scope.plan_checked(&self.state.resources)?;
         for (kind, next) in planned {
             self.state.resources.insert(kind, next);
         }
