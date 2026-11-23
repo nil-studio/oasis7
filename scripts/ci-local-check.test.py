@@ -36,22 +36,42 @@ command = module('ci-local-check-command')
 
 
 class GitFixture(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls._base_template_dir = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls._base_template_dir.cleanup)
+        trepo = Path(cls._base_template_dir.name) / 'repo'
+        trepo.mkdir()
+        def tgit(*args):
+            return subprocess.check_output(['git', '-C', str(trepo), *args],
+                                           env=inputs.environment(), stderr=subprocess.PIPE).decode().strip()
+        tgit('init', '-q')
+        tgit('config', 'user.name', 'Local Check Test')
+        tgit('config', 'user.email', 'local@example.invalid')
+        for rel, content in (
+            ('.gitignore', 'target/\noutput/\nignored.txt\ncrates/sample/src/hidden.rs\n'),
+            ('README.md', '# fixture\n'),
+            ('Cargo.toml', '[workspace]\nmembers=["crates/sample"]\nresolver="2"\n'),
+            ('crates/sample/Cargo.toml', '[package]\nname="oasis7_consensus"\nversion="0.1.0"\nedition="2021"\n'),
+            ('crates/sample/src/lib.rs', 'pub fn value() -> usize { 1 }\n'),
+        ):
+            target = trepo / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content)
+        tgit('add', '.')
+        tgit('commit', '-qm', 'fixture')
+        cls._template_base_sha = tgit('rev-parse', 'HEAD')
+        tgit('update-ref', 'refs/remotes/origin/main', cls._template_base_sha)
+        cls._template_repo = trepo
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name) / 'repo'
-        self.root.mkdir()
+        shutil.copytree(self._template_repo, self.root)
         self.reports = Path(self.temp.name) / 'reports'
-        self.git('init', '-q')
-        self.git('config', 'user.name', 'Local Check Test')
-        self.git('config', 'user.email', 'local@example.invalid')
-        self.write('.gitignore', 'target/\noutput/\nignored.txt\ncrates/sample/src/hidden.rs\n')
-        self.write('README.md', '# fixture\n')
-        self.write('Cargo.toml', '[workspace]\nmembers=["crates/sample"]\nresolver="2"\n')
-        self.write('crates/sample/Cargo.toml', '[package]\nname="oasis7_consensus"\nversion="0.1.0"\nedition="2021"\n')
-        self.write('crates/sample/src/lib.rs', 'pub fn value() -> usize { 1 }\n')
-        self.base = self.commit()
-        self.git('update-ref', 'refs/remotes/origin/main', self.base)
+        self.base = self._template_base_sha
+        self._index_refreshed = False
 
     def git(self, *args, env=None):
         return subprocess.check_output(['git', '-C', str(self.root), *args],
@@ -68,9 +88,13 @@ class GitFixture(unittest.TestCase):
     def commit(self):
         self.git('add', '.')
         self.git('commit', '-qm', 'fixture')
+        self._index_refreshed = True
         return self.git('rev-parse', 'HEAD')
 
     def state(self):
+        if not self._index_refreshed:
+            self.git('update-index', '-q', '--refresh')
+            self._index_refreshed = True
         return (self.git('rev-parse', 'HEAD'), (self.root / '.git/index').read_bytes(),
                 self.git('show-ref'), {path.relative_to(self.root).as_posix(): path.read_bytes()
                                       for path in self.root.rglob('*') if path.is_file()
@@ -768,25 +792,33 @@ class SupportContracts(GitFixture):
         binaries = Path(self.temp.name) / 'bin'
         binaries.mkdir()
         cargo = binaries / 'cargo'
-        cargo.write_text(
-            f'#!{sys.executable}\n'
-            'import json, os, pathlib, sys\n'
-            'args = sys.argv[1:]\n'
-            'with open(os.environ["LOCAL_SUPPORT_CALLS"], "a") as stream:\n'
-            '    stream.write(json.dumps(args) + "\\n")\n'
-            'if args[:1] == ["--verbose"]: args = args[1:]\n'
-            'if args[0] == "metadata":\n'
-            '    print(json.dumps({"target_directory": str(pathlib.Path.cwd() / "target")}))\n'
-            'elif args[0] == "test":\n'
-            '    mode = os.environ.get("LOCAL_SUPPORT_MODE", "passed")\n'
-            '    if mode == "failed": sys.exit(19)\n'
-            '    if mode == "unknown": print("finished without case evidence"); sys.exit(0)\n'
-            '    count = 0 if mode == "zero" else 1\n'
-            '    ignored = 1 if mode == "skipped" else 0\n'
-            '    print(f"running {count} tests")\n'
-            '    print(f"test result: ok. {count - ignored} passed; 0 failed; {ignored} ignored;")\n'
-            'elif args[0] != "clippy":\n'
-            '    raise SystemExit("unexpected Cargo operation: " + repr(args))\n')
+        cargo.write_text(r'''#!/usr/bin/env bash
+set -euo pipefail
+args_json=""; sep=""
+for arg in "$@"; do
+  s="${arg//\\/\\\\}"; s="${s//\"/\\\"}"
+  args_json+="${sep}\"${s}\""; sep=", "
+done
+printf '[%s]\n' "$args_json" >> "$LOCAL_SUPPORT_CALLS"
+if [[ "${1:-}" == "--verbose" ]]; then shift; fi
+op="${1:-}"
+if [[ "$op" == "metadata" ]]; then
+  tdir="$PWD/target"
+  tdir="${tdir//\\/\\\\}"; tdir="${tdir//\"/\\\"}"
+  printf '{"target_directory": "%s"}\n' "$tdir"
+elif [[ "$op" == "test" ]]; then
+  mode="${LOCAL_SUPPORT_MODE:-passed}"
+  if [[ "$mode" == "failed" ]]; then exit 19; fi
+  if [[ "$mode" == "unknown" ]]; then printf 'finished without case evidence\n'; exit 0; fi
+  count=1; [[ "$mode" != "zero" ]] || count=0
+  ignored=0; [[ "$mode" != "skipped" ]] || ignored=1
+  printf 'running %d tests\n' "$count"
+  printf 'test result: ok. %d passed; 0 failed; %d ignored;\n' "$((count - ignored))" "$ignored"
+elif [[ "$op" != "clippy" ]]; then
+  printf 'unexpected Cargo operation: %s\n' "$op" >&2
+  exit 1
+fi
+''')
         cargo.chmod(0o755)
         for name in ('rustc', 'rustup'):
             binary = binaries / name
