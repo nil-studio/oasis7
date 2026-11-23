@@ -114,7 +114,7 @@ jobs:
             oasis7-ci-rust-wasm-build:candidate \
             bash ./scripts/ci-tests.sh required --group net --repo-root /workspace
       - name: Scan OS vulnerabilities
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: oasis7-ci-${{ matrix.target }}:candidate
           scanners: vuln
