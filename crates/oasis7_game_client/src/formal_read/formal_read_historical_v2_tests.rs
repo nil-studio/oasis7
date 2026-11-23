@@ -213,6 +213,8 @@ fn replay_frozen_origin_qualification_imports_exact_non_normal_token() {
                 frozen_material_digest: h(62),
                 handoff: None,
             };
+            let primary_instance_digest = original.definition().primary.instance.digest().unwrap();
+            let replica_instance_digest = original.definition().replica.instance.digest().unwrap();
             let frozen_certificate = FormalFrozenCertificateV1 {
                 reservation: SignedFormalFrozenV1 {
                     signature_hex: sign(frozen_signing_bytes(&frozen).unwrap(), 4),
@@ -223,7 +225,7 @@ fn replay_frozen_origin_qualification_imports_exact_non_normal_token() {
                         frozen_receipt_signing_bytes(&FormalFrozenReceiptBodyV1 {
                             authority_id: original.authority_id().unwrap(),
                             role: EndpointRole::Primary,
-                            instance_digest: original.definition().primary.instance.digest().unwrap(),
+                            instance_digest: primary_instance_digest.clone(),
                             reservation_id: frozen.reservation_id().unwrap(),
                         })
                         .unwrap(),
@@ -232,7 +234,7 @@ fn replay_frozen_origin_qualification_imports_exact_non_normal_token() {
                     body: FormalFrozenReceiptBodyV1 {
                         authority_id: original.authority_id().unwrap(),
                         role: EndpointRole::Primary,
-                        instance_digest: original.definition().primary.instance.digest().unwrap(),
+                        instance_digest: primary_instance_digest.clone(),
                         reservation_id: frozen.reservation_id().unwrap(),
                     },
                 },
@@ -241,7 +243,7 @@ fn replay_frozen_origin_qualification_imports_exact_non_normal_token() {
                         frozen_receipt_signing_bytes(&FormalFrozenReceiptBodyV1 {
                             authority_id: original.authority_id().unwrap(),
                             role: EndpointRole::Replica,
-                            instance_digest: original.definition().replica.instance.digest().unwrap(),
+                            instance_digest: replica_instance_digest.clone(),
                             reservation_id: frozen.reservation_id().unwrap(),
                         })
                         .unwrap(),
@@ -250,18 +252,15 @@ fn replay_frozen_origin_qualification_imports_exact_non_normal_token() {
                     body: FormalFrozenReceiptBodyV1 {
                         authority_id: original.authority_id().unwrap(),
                         role: EndpointRole::Replica,
-                        instance_digest: original.definition().replica.instance.digest().unwrap(),
+                        instance_digest: replica_instance_digest.clone(),
                         reservation_id: frozen.reservation_id().unwrap(),
                     },
                 },
             };
             let recovery_tail = RecoveryTailWitnessV1::Frozen(frozen_certificate.clone());
             let next2 = super::successor(original, 2, 13, 14, 15, 2);
-            let minimum =
-                oasis7_formal_protocol::controlled_authority::formal::issuer::IssuerAnchorV1::initial(
-                    original.policy(),
-                )
-                .unwrap();
+            use oasis7_formal_protocol::controlled_authority::formal::issuer::IssuerAnchorV1;
+            let minimum = IssuerAnchorV1::initial(original.policy()).unwrap();
             let (step2, issuer_anchor2) = super::recovery_step(
                 original,
                 anchor.head(),
@@ -293,9 +292,10 @@ fn replay_frozen_origin_qualification_imports_exact_non_normal_token() {
                 issuer_anchor2,
                 [14, 15],
             );
-            let recovery3 = super::super::history::verify_recovery_step(&step3, &anchor, Some(&recovery2))
-                .unwrap()
-                .recovery;
+            let recovery3 =
+                super::super::history::verify_recovery_step(&step3, &anchor, Some(&recovery2))
+                    .unwrap()
+                    .recovery;
             let mut record = anchor.head().record().clone();
             record.kind = FormalRecordKindV1::Execution;
             record.position = frozen.next_position;
@@ -331,7 +331,10 @@ fn replay_frozen_origin_qualification_imports_exact_non_normal_token() {
             .unwrap();
             let receipt = |role, key_id| FormalFinalReceiptV1 {
                 signature_hex: sign(
-                    formal_final_receipt_signing_bytes(&context.receipt_body(role).unwrap()).unwrap(),
+                    formal_final_receipt_signing_bytes(
+                        &context.receipt_body(role).unwrap(),
+                    )
+                    .unwrap(),
                     key_id,
                 ),
                 body: context.receipt_body(role).unwrap(),
@@ -345,8 +348,13 @@ fn replay_frozen_origin_qualification_imports_exact_non_normal_token() {
                 primary: receipt(EndpointRole::Primary, 24),
                 replica: receipt(EndpointRole::Replica, 25),
             };
-            let verified_decision =
-                verify_formal_decision(&decision, original, Some(anchor.head()), Some(&recovery3)).unwrap();
+            let verified_decision = verify_formal_decision(
+                &decision,
+                original,
+                Some(anchor.head()),
+                Some(&recovery3),
+            )
+            .unwrap();
             let completion_receipt = |role, key_id| FormalProofCompleteReceiptV1 {
                 signature_hex: sign(
                     formal_proof_complete_signing_bytes(
