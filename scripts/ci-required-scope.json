@@ -1333,6 +1333,8 @@
     "scripts/ci-shared-native-cache.py": ["workflow_governance"],
     "scripts/ci-storage-fixture.py": ["workflow_governance"],
     "scripts/ci-storage-acceptance.py": ["workflow_governance"],
+    ".github/actions/storage-producer-diagnostics/action.yml": ["workflow_governance"],
+    ".github/actions/storage-producer-diagnostics/index.cjs": ["workflow_governance"],
     "scripts/ci-storage-acceptance.test.py": ["workflow_governance"],
     "scripts/ci-storage-network.py": ["workflow_governance"],
     "scripts/ci-storage-network.test.py": ["workflow_governance"],
@@ -2077,6 +2079,11 @@
     ]
   },
   "rules": [
+    {
+      "match": ["scripts/storage-producer-diagnostics.cjs", "scripts/storage-producer-diagnostics.test.cjs"],
+      "groups": ["workflow_governance"],
+      "reason": "storage_producer_diagnostics"
+    },
     {
       "match": [
         ".gitattributes"
