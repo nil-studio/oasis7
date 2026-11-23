@@ -1,6 +1,6 @@
 use super::*;
 use crate::formal_read_fixtures as fixtures;
-use oasis7::world_service::{
+use oasis7_world_service::{
     formal_read::FormalReadVerifier, formal_read_service::FormalReadPublication,
 };
 use oasis7_client_api::world_service::{
