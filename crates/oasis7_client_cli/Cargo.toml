@@ -10,6 +10,7 @@ oasis7_simulator = { path = "../oasis7_simulator" }
 oasis7_proto = { version = "0.1.0", path = "../oasis7_proto" }
 oasis7 = { version = "0.1.0", path = "../oasis7", default-features = false }
 oasis7_client_api = { version = "0.1.0", path = "../oasis7_client_api" }
+oasis7_world_service = { path = "../oasis7_world_service", default-features = false }
 ed25519-dalek = { version = "3", features = ["rand_core"] }
 getrandom = "0.4"
 hex = "0.4"
