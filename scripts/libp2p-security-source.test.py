@@ -88,16 +88,14 @@ class NetworkSourceContract(unittest.TestCase):
             self.assertEqual(len(watcher), 1)
             self.assertNotIn("source", watcher[0])
 
-    def test_swarm_snapshot_matches_transport_admission_patch(self):
+    def test_swarm_snapshot_matches_upstream_sources(self):
         vendor = ROOT / "vendor-libp2p-swarm-0.48.0"
         hashes = json.loads((vendor / "upstream-source-sha256.json").read_text())
-        hashes.update({
-            "src/lib.rs": "c7eff68dae28f3f2ecf25afbfccb66a620c9867a5d2b51e523e3a6f3b234f9b8",
-            "src/transport_attempt.rs": "dc9d12894502d57485e50a4ce91c131c45879879cc4a7c7f761a9014fbfd9e9d",
-        })
         actual = {str(p.relative_to(vendor)): hashlib.sha256(p.read_bytes()).hexdigest()
                   for p in (vendor / "src").rglob("*.rs")}
         self.assertEqual(actual, hashes)
+        self.assertFalse((vendor / "src/transport_attempt.rs").exists())
+        self.assertFalse((vendor / "OASIS7-PATCH.md").exists())
         manifest = tomllib.loads((vendor / "Cargo.toml").read_text())
         self.assertEqual(manifest["package"]["metadata"]["oasis7-compat"]["upstream-revision"], REVISION)
         self.assertEqual(manifest["dependencies"]["futures-timer"]["version"], "3.0.4")

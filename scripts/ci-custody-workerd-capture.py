@@ -104,6 +104,9 @@ def summarize(data, context, attempt):
     root = None
     root_exit = None
     targets = {}
+    runtime_order = []
+    started_after_prior_exit = {}
+    runtime_signals = {}
     signal_count = 0
     known_fault = False
     for row in rows[1:-1]:
@@ -125,6 +128,9 @@ def summarize(data, context, attempt):
             if (key in targets or root is None or key[0] == root[0] or root_exit is not None
                     or row.get('engine_sha256') != ENGINE_SHA256):
                 raise ValueError('duplicate or late workerd startup')
+            started_after_prior_exit[key] = all(targets[prior] is not None for prior in runtime_order)
+            runtime_order.append(key)
+            runtime_signals[key] = []
             targets[key] = None
         elif event == 'runtime_exited':
             if key not in targets or targets[key] is not None:
@@ -160,7 +166,9 @@ def summarize(data, context, attempt):
                         or not re.fullmatch(r'[r-][w-][x-][ps]', mapping['permissions'])):
                     raise ValueError('invalid workerd mapping context')
             signal_count += 1
-            known_fault |= row['signal'] == 'SIGSEGV' and row['pc_offset'] == KNOWN_FAULT_OFFSET
+            is_known_fault = row['signal'] == 'SIGSEGV' and row['pc_offset'] == KNOWN_FAULT_OFFSET
+            runtime_signals[key].append(is_known_fault)
+            known_fault |= is_known_fault
     complete = rows[-1]
     if (len(rows) < 4 or complete.get('event') != 'complete'
             or complete.get('errors') != [] or complete.get('open_runtimes') != []
@@ -171,8 +179,20 @@ def summarize(data, context, attempt):
     unexpected_exit = any(value['exit_code'] not in (None, 0)
                           or value['exit_signal'] not in (None, 9) for value in targets.values())
     passed = root_exit == 0 and len(targets) == 1 and not known_fault and not unexpected_exit
+    post_fault_dispose_only = (
+        len(runtime_order) == 2
+        and runtime_signals[runtime_order[0]] == [True]
+        and targets[runtime_order[0]] in (
+            dict(exit_code=1, exit_signal=None),
+            dict(exit_code=None, exit_signal=11),
+        )
+        and started_after_prior_exit[runtime_order[1]] is True
+        and runtime_signals[runtime_order[1]] == []
+        and targets[runtime_order[1]] == dict(exit_code=None, exit_signal=9)
+    )
     return dict(root_exit_code=root_exit, runtime_count=len(targets), signal_count=signal_count,
-                known_fault=known_fault, unexpected_exit=unexpected_exit,
+                known_fault=known_fault, post_fault_dispose_only=post_fault_dispose_only,
+                unexpected_exit=unexpected_exit,
                 terminations=[dict(value, origin='unknown',
                                    compatible_with_dispose=value['exit_signal'] == 9)
                               for value in targets.values()], passed=passed)
@@ -209,6 +229,11 @@ def can_retry_known_fault(report, process_result):
     summary = report.get('summary')
     if not isinstance(summary, dict):
         return False
+    runtime_count = summary.get('runtime_count')
+    valid_runtime_shape = (
+        runtime_count == 1
+        or (runtime_count == 2 and summary.get('post_fault_dispose_only') is True)
+    )
     return (
         report.get('schema') == SCHEMA
         and report.get('engine_sha256') == ENGINE_SHA256
@@ -216,7 +241,7 @@ def can_retry_known_fault(report, process_result):
         and report.get('passed') is False
         and summary.get('known_fault') is True
         and summary.get('signal_count') == 1
-        and summary.get('runtime_count') == 1
+        and valid_runtime_shape
         and process_result.get('passed') is False
         and process_result.get('timeout') is False
         and process_result.get('cancelled') is False

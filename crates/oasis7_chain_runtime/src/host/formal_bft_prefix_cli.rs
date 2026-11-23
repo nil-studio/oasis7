@@ -177,7 +177,7 @@ pub(super) fn run_with_shutdown<'a>(
             return Err("bft-prefix service key path must be absolute".into());
         }
         let signer = super::controlled_live_config::read_existing_signing_key(key_path)?;
-        use oasis7::world_service::formal_bft_prefix_read_service::{
+        use oasis7_world_service::formal_bft_prefix_read_service::{
             FormalBftReadPublicationInputV3, FormalBftReadPublicationV3,
         };
         let publication = FormalBftReadPublicationV3::new(FormalBftReadPublicationInputV3 {

@@ -51,7 +51,7 @@ pub(super) fn restore(
         .map_err(|error| format!("read qualified H manifest: {error:?}"))?;
     let parent_result_root = parent_result_tree.root()?;
     let parent_projection_root =
-        oasis7::world_service::formal_projection::commitments_for_world(&parent_world)?.root()?;
+        oasis7_world_service::formal_projection::commitments_for_world(&parent_world)?.root()?;
     let closed_material_digest = closed_material_digest(&parent_record, &h_material)?;
     let pin = formal_storage::FormalBftReadPinV1::from_handoff(
         &handoff,

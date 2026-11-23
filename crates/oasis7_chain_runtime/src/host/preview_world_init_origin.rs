@@ -91,7 +91,7 @@ pub(crate) fn verify_existing_origin(
         return Err("preview origin artifact or genesis mismatch".into());
     }
     let identity = bridge::world_service_read::identity(&root.join("world"), world_id)?;
-    let original: oasis7::world_service::CommitRef =
+    let original: oasis7_world_service::CommitRef =
         serde_json::from_value(receipt.published_commit)
             .map_err(|_| "invalid preview origin commit")?;
     if identity != receipt.world

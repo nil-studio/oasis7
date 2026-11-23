@@ -3,7 +3,7 @@ use super::{
     RemoteWorldServiceClient, SubmitIntentRequest, WorldServicePayloadV1, cli_support,
     original_commit_from_lookup,
 };
-use oasis7::world_service::client::{WorldServiceClientConfig, WorldServiceClientError};
+use oasis7_world_service::client::{WorldServiceClientConfig, WorldServiceClientError};
 use oasis7_client_api::world_service::CommitRef;
 use std::{
     thread,

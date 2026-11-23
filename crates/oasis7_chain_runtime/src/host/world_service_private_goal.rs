@@ -1,6 +1,6 @@
 //! Opt-in confidential owner goal subset; never a public CAS or full TaskSnapshot.
 use super::*;
-use oasis7::world_service::{
+use oasis7_world_service::{
     private_goal_prepare::SignedGoalPrepareV1, private_goal_store::PrivateGoalStore,
 };
 use oasis7_agent_api::game::GameTaskControlV1;
@@ -8,18 +8,18 @@ use std::{io::Write, path::PathBuf};
 use zeroize::Zeroizing;
 #[path = "world_service_private_task_context.rs"]
 mod task_context;
-use oasis7::world_service::private_task_context::{
+use oasis7_world_service::private_task_context::{
     TASK_CONTEXT_PREPARE_PATH, TASK_CONTEXT_READ_PATH, TASK_SNAPSHOT_PATH,
 };
-use oasis7::world_service::task_factory_quote::TASK_FACTORY_QUOTE_PATH;
-use oasis7::world_service::task_recipe_quote::TASK_RECIPE_QUOTE_PATH;
+use oasis7_world_service::task_factory_quote::TASK_FACTORY_QUOTE_PATH;
+use oasis7_world_service::task_recipe_quote::TASK_RECIPE_QUOTE_PATH;
 use oasis7_client_api::world_service::task_context::TASK_CONTEXT_LIVE_READ_PATH;
 use oasis7_client_api::world_service::task_context_projection::{
     CONTEXT_MOVE_PROJECTION_PATH_V2, CONTEXT_PREPARE_ATTESTED_PATH_V2,
     CONTEXT_READ_ATTESTED_PATH_V2,
 };
 
-use oasis7::world_service::private_goal_read::{
+use oasis7_world_service::private_goal_read::{
     CurrentGoalRequest, CurrentGoalResponse, GOAL_CURRENT_PATH as CURRENT_PATH,
     GOAL_PREPARE_PATH as PREPARE_PATH, verify_current_request,
 };
@@ -82,7 +82,7 @@ fn open_configured_store(
     }
 }
 fn read_key(path: &Path) -> Result<Zeroizing<[u8; 32]>, String> {
-    oasis7::world_service::private_key_file::read_private_key_file(path)
+    oasis7_world_service::private_key_file::read_private_key_file(path)
 }
 
 #[derive(Clone, Copy)]
@@ -108,9 +108,9 @@ impl From<&str> for PrivateError {
         Self::Unavailable
     }
 }
-impl From<oasis7::world_service::private_goal_store::PreparedGoalError> for PrivateError {
-    fn from(error: oasis7::world_service::private_goal_store::PreparedGoalError) -> Self {
-        use oasis7::world_service::private_goal_store::PreparedGoalError;
+impl From<oasis7_world_service::private_goal_store::PreparedGoalError> for PrivateError {
+    fn from(error: oasis7_world_service::private_goal_store::PreparedGoalError) -> Self {
+        use oasis7_world_service::private_goal_store::PreparedGoalError;
         match error {
             PreparedGoalError::Invalid => Self::Invalid,
             PreparedGoalError::Conflict => Self::Conflict,
@@ -187,7 +187,7 @@ fn current_goal_history(
 ) -> Result<
     (
         Option<CommitRef>,
-        Option<oasis7::world_service::private_goal::PreparedGoalReceiptV1>,
+        Option<oasis7_world_service::private_goal::PreparedGoalReceiptV1>,
     ),
     PrivateError,
 > {
@@ -609,12 +609,12 @@ fn maybe_handle_configured(
                 }
                 PrivateError::QuoteBaseDrift => (
                     409,
-                    oasis7::world_service::task_factory_quote::TASK_QUOTE_BASE_DRIFT,
+                    oasis7_world_service::task_factory_quote::TASK_QUOTE_BASE_DRIFT,
                     None,
                 ),
                 PrivateError::QuoteDeliveryDrift => (
                     409,
-                    oasis7::world_service::task_factory_quote::TASK_QUOTE_DELIVERY_DRIFT,
+                    oasis7_world_service::task_factory_quote::TASK_QUOTE_DELIVERY_DRIFT,
                     None,
                 ),
                 PrivateError::ContextReadDeliveryDrift(stage) => (

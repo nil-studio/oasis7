@@ -1,6 +1,6 @@
 //! Signed lookup pages retain the exact original qualified outcome identity.
 use super::*;
-use oasis7::world_service::wire::FormalAuthenticatedLookupV1;
+use oasis7_world_service::wire::FormalAuthenticatedLookupV1;
 use oasis7_client_api::world_service::FormalBusinessOutcomePageV1;
 
 impl FormalLiveService {
