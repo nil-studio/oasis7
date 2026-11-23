@@ -38,11 +38,10 @@ pub fn bootstrap_runtime_world_from_model(
     model: &WorldModel,
     label: &str,
 ) -> Result<(RuntimeWorld, WorldConfig), String> {
-    let mut world =
-        crate::world::new_production_hardened_with_initial_module_visuals(
-            &model.module_visual_entities,
-        )
-        .map_err(|err| format!("{label} initialize module visuals failed: {err:?}"))?;
+    let mut world = crate::world::new_production_hardened_with_initial_module_visuals(
+        &model.module_visual_entities,
+    )
+    .map_err(|err| format!("{label} initialize module visuals failed: {err:?}"))?;
     world.set_resource_balance(ResourceKind::Electricity, 400);
     for (material, amount) in [
         ("structural_frame", 40),
@@ -378,26 +377,38 @@ mod owner_tests {
 
     #[test]
     fn native_formal_release_bootstrap_installs_original_agent_and_resources() {
-        let (world, _) = bootstrap_formal_release_runtime_world()
-            .expect("native formal-release bootstrapping");
-        assert!(world.state().agents.contains_key(FORMAL_RELEASE_DEFAULT_BOOTSTRAP_AGENT_ID));
-        assert!(world.state().time >= 2, "both registration and resource seed steps run");
+        let (world, _) =
+            bootstrap_formal_release_runtime_world().expect("native formal-release bootstrapping");
         assert!(
-            world.agent_resource_balance(
-                FORMAL_RELEASE_DEFAULT_BOOTSTRAP_AGENT_ID,
-                ResourceKind::Electricity,
-            ).expect("native registered agent resource authority") >= STARTER_INDUSTRIAL_ELECTRICITY
+            world
+                .state()
+                .agents
+                .contains_key(FORMAL_RELEASE_DEFAULT_BOOTSTRAP_AGENT_ID)
+        );
+        assert!(
+            world.state().time >= 2,
+            "both registration and resource seed steps run"
+        );
+        assert!(
+            world
+                .agent_resource_balance(
+                    FORMAL_RELEASE_DEFAULT_BOOTSTRAP_AGENT_ID,
+                    ResourceKind::Electricity,
+                )
+                .expect("native registered agent resource authority")
+                >= STARTER_INDUSTRIAL_ELECTRICITY
         );
     }
 
     #[test]
     fn native_formal_seed_location_matches_registered_agent() {
         let (_, model) = formal_release_default_seed_model().expect("canonical industrial seed");
-        let original = model.agents.get(FORMAL_RELEASE_DEFAULT_BOOTSTRAP_AGENT_ID)
+        let original = model
+            .agents
+            .get(FORMAL_RELEASE_DEFAULT_BOOTSTRAP_AGENT_ID)
             .expect("formal bootstrap agent");
         let location = formal_release_default_seed_location_for_pos(original.pos)
             .expect("native seed location readback");
         assert_eq!(location.id, original.location_id);
     }
-
 }

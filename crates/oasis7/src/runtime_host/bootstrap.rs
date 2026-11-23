@@ -2,8 +2,8 @@
 //! World/industrial bootstrap, but the historical simulator host still owns
 //! archive snapshot + journal validation until #6149 migrates that authority.
 use crate::simulator::{ChunkRuntimeConfig, WorldConfig, WorldKernel, WorldModel};
-pub use oasis7_runtime_host::bootstrap::*;
 use oasis7_runtime::World as RuntimeWorld;
+pub use oasis7_runtime_host::bootstrap::*;
 use std::path::Path;
 
 pub fn bootstrap_generated_sidecar_runtime_world(
@@ -35,11 +35,13 @@ pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(
     let chunk_runtime = snapshot.chunk_runtime.clone();
     let config = snapshot.config;
     let model = snapshot.model;
-    let (world, config) =
-        oasis7_runtime_host::bootstrap::bootstrap_runtime_world_from_model(config, &model, "runtime live generated sidecar")?;
+    let (world, config) = oasis7_runtime_host::bootstrap::bootstrap_runtime_world_from_model(
+        config,
+        &model,
+        "runtime live generated sidecar",
+    )?;
     Ok((world, config, model, chunk_runtime))
 }
-
 
 #[cfg(test)]
 mod archive_loader_tests {
