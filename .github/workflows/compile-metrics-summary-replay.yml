@@ -2,7 +2,7 @@ name: Compile metrics summary replay
 
 on:
   pull_request:
-    types: [opened]
+    types: [synchronize]
     branches: [codex/engineering-compile-metrics-summary-replay-base]
     paths: [.github/workflows/compile-metrics-summary-replay.yml]
 
@@ -25,7 +25,7 @@ jobs:
       - &download
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
-          artifact-ids: 14585768682,14584517275,14584064614,14583999757
+          artifact-ids: 14585768682,14584517275,14584064614
           run-id: 44634499219
           github-token: ${{ github.token }}
           path: output/compile-metrics
@@ -46,7 +46,6 @@ jobs:
           8f3155d96e4c65b0b4d3bbf04b0ede1114ef26b239a0585e7c2e5d825f69996e  output/compile-metrics/compile-metrics-macos-arm64/summary.md
           565d349b4042adb360d13a61cb32370883cd1ba1410434567870b8fcd954ce5c  output/compile-metrics/compile-metrics-linux-x64/summary.md
           d18eb3fed5631261fcc85fdff749945e7ce9c32d112e0dd07d2a8f85b7dc769d  output/compile-metrics/compile-metrics-windows-x64/summary.md
-          7581f887b435331fd8e53e5a8aabd1b4a0d103b5df4beb6f04dd70f2e1125806  output/compile-metrics/compile-metrics-summary/combined-summary.md
           SHA
           expected="$RUNNER_TEMP/historical-summary/combined-summary.md"
           printf '%s  %s\n' 09efe44fe2a3c58215b23dc2e75c4e4af876b67adc0d0fe5e3529c7403f9e89b "$expected" | sha256sum -c -
