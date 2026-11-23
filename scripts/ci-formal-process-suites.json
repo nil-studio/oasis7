@@ -169,6 +169,11 @@
       },
       {
         "binary": "runtime-tests",
+        "name": "node_lifecycle::formal_full_sync::tests::cli_process_tests::formal_full_state_sync_cli_budgeted_signed_grant_renewal_keeps_original_ledger",
+        "ignored": true
+      },
+      {
+        "binary": "runtime-tests",
         "name": "node_lifecycle::formal_full_sync::tests::cli_process_tests::formal_full_state_sync_cli_dead_seed_joins_alternate_and_restarts_from_fixed_c0",
         "ignored": true
       }

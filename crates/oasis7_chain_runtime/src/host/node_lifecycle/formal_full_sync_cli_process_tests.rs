@@ -504,6 +504,12 @@ fn formal_full_state_sync_cli_moving_head_restart_catches_up_from_fixed_c0() {
 }
 
 #[test]
+#[ignore = "requires shipping OASIS7_FORMAL_NODE_TEST_BIN; signed grant renewal and cold next cycle"]
+fn formal_full_state_sync_cli_budgeted_signed_grant_renewal_keeps_original_ledger() {
+    budgeted_tests::budgeted_shipping_cli_renewal_preserves_original_and_advances();
+}
+
+#[test]
 #[ignore = "requires shipping OASIS7_FORMAL_NODE_TEST_BIN; real signed recovery history from unchanged C0"]
 fn formal_full_state_sync_cli_legal_epoch_new_grant_replays_from_unchanged_c0() {
     run_cli_join_with_recovery(true, true).unwrap();
