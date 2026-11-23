@@ -256,7 +256,7 @@ fn preflight(
     dir: &Path,
     store: &LocalCasStore,
     marker: &BftPrivateRetentionCreationMarkerV1,
-    pending_height: Option<u64>,
+    pending_basename: Option<&str>,
 ) -> Result<Option<Slot>, String> {
     let path = dir.join("origin.cbor");
     let existing = read_slot(&path)?;
@@ -277,7 +277,7 @@ fn preflight(
             return Err("covered origin WAL disappeared while original pins remain".into());
         }
     }
-    check_original_files(dir, existing.is_some(), pending_height)?;
+    check_original_files(dir, existing.is_some(), pending_basename)?;
     if let Some(slot) = &existing {
         let activation = slot
             .data
@@ -302,15 +302,14 @@ fn preflight(
 fn check_original_files(
     dir: &Path,
     has_origin: bool,
-    pending_height: Option<u64>,
+    pending_basename: Option<&str>,
 ) -> Result<(), String> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(_) => return Err("inspect covered source namespace".into()),
     };
-    let pending_name = pending_height.map(|height| format!("candidate-{height:020}"));
-    let bare = pending_name.as_deref();
+    let bare = pending_basename;
     for (count, entry) in entries.enumerate() {
         let entry = entry.map_err(|_| "read covered source namespace")?;
         let name = entry
@@ -362,6 +361,93 @@ impl AuthenticatedOriginalV1 {
             self.data.references.iter().cloned().collect(),
         ))
     }
+
+    pub(in super::super) fn archive_material(
+        &self,
+        store: &LocalCasStore,
+    ) -> Result<(Vec<u8>, Vec<u8>), String> {
+        let carrier = self
+            .data
+            .source_activation
+            .as_ref()
+            .ok_or("covered original activation carrier absent")?;
+        let path = self.directory.join("origin.cbor");
+        verify_original_slot(
+            store,
+            &path,
+            &Slot {
+                data: self.data.clone(),
+                complete: true,
+            },
+        )?;
+        Ok((
+            self.data.bytes()?,
+            common_storage::read_cas_bounded(store, &carrier.reference, MAX_ACTIVATION_BYTES)?,
+        ))
+    }
+}
+
+/// Authenticate the preserved original bytes without reopening the live Node
+/// directory. The directory identity remains part of the original Data hash;
+/// it is not treated as an authorization for the independent archive location.
+pub(in super::super) fn verify_archived_original(
+    original_bytes: &[u8],
+    capsule_bytes: &[u8],
+    binding: &BftSignerBindingV3,
+    attestor: &BftPrivateRetentionAttestorV1,
+    marker: &BftPrivateRetentionCreationMarkerV1,
+) -> Result<(BTreeSet<String>, BftPrivateRetentionActivationV1), String> {
+    if original_bytes.len() > MAX_RECORD || capsule_bytes.len() > MAX_ACTIVATION_BYTES {
+        return Err("archived original source capacity".into());
+    }
+    let data: Data = serde_cbor::from_slice(original_bytes)
+        .map_err(|_| "decode archived original private Origin")?;
+    let carrier = data
+        .source_activation
+        .as_ref()
+        .ok_or("archived original activation carrier absent")?;
+    if data.schema_version != 8
+        || !data.origin
+        || data.bytes()? != original_bytes
+        || data.instance_id != marker.creation_identity
+        || data.ledger_origin_digest != marker.ledger_origin_digest
+        || data.material_identity != marker.source.material_source_digest
+        || data.height.checked_add(1) != Some(marker.initial_height)
+        || carrier.reference != blake3_hex(capsule_bytes)
+        || carrier.encoded_bytes != capsule_bytes.len() as u64
+    {
+        return Err("archived original source differs from independent marker".into());
+    }
+    let record: SourceActivationRecordV1 = serde_cbor::from_slice(capsule_bytes)
+        .map_err(|_| "decode archived original activation capsule")?;
+    if record.schema_version != 1
+        || record.domain != ACTIVATION_DOMAIN
+        || &record.marker != marker
+        || record.capability_digest != attestor.digest().map_err(|error| error.to_string())?
+        || record.bytes()? != capsule_bytes
+    {
+        return Err("archived activation differs from independent source authority".into());
+    }
+    let activation = &record.original_empty_coverage;
+    let body = &activation.receipt.body;
+    let mut state = oasis7_distfs::protected_bft_v3::BftSignerStateV3::from_handoff(binding)
+        .map_err(|error| error.to_string())?;
+    state.revision = body.after_revision;
+    state.state_digest = body.after_state_digest.clone();
+    state.private_retention = Some(body.head.clone());
+    activation
+        .verify(
+            binding,
+            attestor,
+            marker,
+            &state,
+            body.original_lease_generation,
+        )
+        .map_err(|error| error.to_string())?;
+    Ok((
+        data.references.into_iter().collect(),
+        record.original_empty_coverage,
+    ))
 }
 
 pub(in super::super) fn read_authenticated_original(
@@ -370,12 +456,12 @@ pub(in super::super) fn read_authenticated_original(
     binding: &BftSignerBindingV3,
     attestor: &BftPrivateRetentionAttestorV1,
     marker: &BftPrivateRetentionCreationMarkerV1,
-    pending_height: Option<u64>,
+    pending_basename: Option<&str>,
 ) -> Result<AuthenticatedOriginalV1, String> {
     let directory = ledger.directory().join(storage::NODE_PRIVATE_DIRECTORY);
     let path = directory.join("origin.cbor");
     ledger.verify_carriers()?;
-    let original = preflight(&directory, store, marker, pending_height)?
+    let original = preflight(&directory, store, marker, pending_basename)?
         .filter(|slot| slot.complete)
         .ok_or("complete authenticated original private Origin required")?;
     if common_storage::read_optional_bytes(&directory.join("ready"), MARKER.len())?.as_deref()
@@ -430,7 +516,40 @@ pub(in super::super) fn read_authenticated_original(
     })
 }
 
-pub(in super::super) struct PreparedPendingLocal<'a> {
+fn original_candidate_basename(data: &Data) -> Result<String, String> {
+    match data.schema_version {
+        9 => Ok(format!("candidate-{:020}", data.height)),
+        10 => Ok(format!(
+            "candidate-{:020}-{}",
+            data.height,
+            data.value
+                .as_ref()
+                .ok_or("original Received value absent")?
+                .block_id()?
+        )),
+        _ => Err("first Pending requires original Local or Received Data".into()),
+    }
+}
+
+pub(in super::super) fn pending_original_basename(
+    input: &oasis7_distfs::protected_bft_v3::BftPrivateRetentionAdmissionInputV1,
+) -> Result<String, String> {
+    use oasis7_distfs::protected_bft_v3::BftPrivateRetentionInputObjectKindV1 as Kind;
+    input.validate().map_err(|error| error.to_string())?;
+    let object = input
+        .objects
+        .iter()
+        .find(|object| object.kind == Kind::OriginalData)
+        .ok_or("original Pending Data absent")?;
+    let data: Data =
+        serde_cbor::from_slice(&object.bytes).map_err(|_| "decode original Pending Data")?;
+    if data.bytes()? != object.bytes {
+        return Err("original Pending Data is not canonical".into());
+    }
+    original_candidate_basename(&data)
+}
+
+pub(in super::super) struct PreparedPendingOriginal<'a> {
     original: &'a AuthenticatedOriginalV1,
     data: Data,
     metadata: &'a oasis7_distfs::protected_bft_v3::BftPrivateRetentionInputObjectV1,
@@ -439,12 +558,12 @@ pub(in super::super) struct PreparedPendingLocal<'a> {
 }
 
 impl AuthenticatedOriginalV1 {
-    pub(in super::super) fn prepare_pending_local<'a>(
+    pub(in super::super) fn prepare_pending_original<'a>(
         &'a self,
         input: &'a oasis7_distfs::protected_bft_v3::BftPrivateRetentionAdmissionInputV1,
         ledger: &mut storage::Ledger,
         store: &LocalCasStore,
-    ) -> Result<PreparedPendingLocal<'a>, String> {
+    ) -> Result<PreparedPendingOriginal<'a>, String> {
         use oasis7_distfs::protected_bft_v3::BftPrivateRetentionInputObjectKindV1 as Kind;
 
         input.validate().map_err(|error| error.to_string())?;
@@ -452,7 +571,7 @@ impl AuthenticatedOriginalV1 {
             .objects
             .iter()
             .find(|object| object.kind == Kind::OriginalData)
-            .ok_or("first Pending original Local Data absent")?;
+            .ok_or("first Pending original candidate Data absent")?;
         let metadata = input
             .objects
             .iter()
@@ -466,8 +585,8 @@ impl AuthenticatedOriginalV1 {
             .collect();
         let original_hash = self.data.digest()?;
         let candidate: Data = serde_cbor::from_slice(&data.bytes)
-            .map_err(|_| "read exact schema-9 original Local WAL bytes")?;
-        if candidate.schema_version != 9
+            .map_err(|_| "read exact original Local/Received WAL bytes")?;
+        if !matches!(candidate.schema_version, 9 | 10)
             || candidate.bytes()? != data.bytes
             || candidate.ledger_origin_digest != self.data.ledger_origin_digest
             || candidate.material_identity != self.data.material_identity
@@ -481,30 +600,30 @@ impl AuthenticatedOriginalV1 {
             || candidate
                 .value
                 .as_ref()
-                .ok_or("original Local public value absent")?
+                .ok_or("original candidate public value absent")?
                 .block_id()?
                 != input.key.header_id
         {
-            return Err("first Pending Local WAL differs from protected original input".into());
+            return Err("first Pending WAL differs from protected original input".into());
         }
         let path = self
             .directory
-            .join(format!("candidate-{:020}.cbor", candidate.height));
+            .join(format!("{}.cbor", original_candidate_basename(&candidate)?));
         let existing = read_slot(&path)?;
         if existing.as_ref().is_some_and(|slot| slot.data != candidate) {
-            return Err("original first Local candidate WAL names a different input".into());
+            return Err("original first candidate WAL names a different input".into());
         }
         let known_shards = BTreeSet::from([self.data.shard(), candidate.shard()]);
         let shard_prefix = format!("ledger-{}-", candidate.ledger_origin_digest);
         for shard in store
             .list_pin_scope_shards(SCOPE)
-            .map_err(|_| "inspect covered Local candidate pins")?
+            .map_err(|_| "inspect covered original candidate pins")?
         {
             if shard.starts_with(&shard_prefix)
                 && (!known_shards.contains(&shard)
                     || (shard == candidate.shard() && existing.is_none()))
             {
-                return Err("covered Local original WAL/pin inventory changed".into());
+                return Err("covered original WAL/pin inventory changed".into());
             }
         }
         if let Some(slot) = &existing {
@@ -538,7 +657,7 @@ impl AuthenticatedOriginalV1 {
         }
         ledger.verify_carriers()?;
         ledger.reserve_external_material(use_bytes)?;
-        Ok(PreparedPendingLocal {
+        Ok(PreparedPendingOriginal {
             original: self,
             data: candidate,
             metadata,
@@ -548,7 +667,11 @@ impl AuthenticatedOriginalV1 {
     }
 }
 
-impl PreparedPendingLocal<'_> {
+impl PreparedPendingOriginal<'_> {
+    pub(in super::super) fn is_received(&self) -> bool {
+        self.data.schema_version == 10
+    }
+
     /// Called only after the actual remote lease validates the original
     /// Pending receipt and its exact authenticated checkpoint.
     pub(in super::super) fn publish(
@@ -560,7 +683,7 @@ impl PreparedPendingLocal<'_> {
         let path = self
             .original
             .directory
-            .join(format!("candidate-{:020}.cbor", self.data.height));
+            .join(format!("{}.cbor", original_candidate_basename(&self.data)?));
         let carrier = self
             .original
             .data
@@ -569,7 +692,7 @@ impl PreparedPendingLocal<'_> {
             .ok_or("covered Origin activation absent")?;
         let guard = || -> Result<(), String> {
             if Instant::now() >= deadline {
-                return Err("first Pending local publication deadline expired".into());
+                return Err("first Pending original publication deadline expired".into());
             }
             ledger.verify_carriers()?;
             if DirectoryIdentity::open(&self.original.directory)? != carrier.directory {

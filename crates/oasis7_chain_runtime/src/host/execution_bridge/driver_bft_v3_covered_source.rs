@@ -13,6 +13,15 @@ use oasis7_distfs::protected_bft_v3::{
 use std::time::Instant;
 
 impl FormalBftHeaderLedgerExecutionV3 {
+    pub(in super::super) fn original_source_archive_material(
+        &self,
+        binding: &BftSignerBindingV3,
+        attestor: &BftPrivateRetentionAttestorV1,
+        marker: &BftPrivateRetentionCreationMarkerV1,
+    ) -> Result<(Vec<u8>, Vec<u8>), String> {
+        read_authenticated_original(&self.ledger, &self.store, binding, attestor, marker, None)?
+            .archive_material(&self.store)
+    }
     #[cfg(test)]
     pub(crate) fn inject_covered_source_reservation_cut() {
         super::private_store::source_activation::inject_reservation_cut();
@@ -116,7 +125,7 @@ impl FormalBftHeaderLedgerExecutionV3 {
         clippy::too_many_arguments,
         reason = "The independent source and lease boundaries remain explicit."
     )]
-    pub(crate) fn reserve_first_covered_local(
+    pub(crate) fn reserve_first_covered_original(
         &mut self,
         binding: &BftSignerBindingV3,
         attestor: &BftPrivateRetentionAttestorV1,
@@ -126,23 +135,24 @@ impl FormalBftHeaderLedgerExecutionV3 {
         input: Arc<BftPrivateRetentionAdmissionInputV1>,
         provider: &RemoteBftSignerProviderV3,
         deadline: Instant,
-    ) -> Result<(String, String), String> {
+    ) -> Result<(String, String, bool), String> {
         let marker = self.derive_covered_source_marker(binding, creation_identity)?;
         if input.key.height != marker.initial_height {
-            return Err("first Local Reserve requires the exact original H height".into());
+            return Err("first original Reserve requires the exact original H height".into());
         }
+        let basename = super::private_store::source_activation::pending_original_basename(&input)?;
         let original = read_authenticated_original(
             &self.ledger,
             &self.store,
             binding,
             attestor,
             &marker,
-            Some(input.key.height),
+            Some(&basename),
         )?;
         let (origin, _) = original.inventory()?;
         if pin.original_private_origin_digest() != origin {
             return Err(
-                "first Local Reserve archive does not bind the original private Origin".into(),
+                "first original Reserve archive does not bind the original private Origin".into(),
             );
         }
         pin.verify_first_price(
@@ -152,9 +162,11 @@ impl FormalBftHeaderLedgerExecutionV3 {
             &marker,
             &attestor.creation_marker_digest,
         )?;
-        let publication = original.prepare_pending_local(&input, &mut self.ledger, &self.store)?;
+        let publication =
+            original.prepare_pending_original(&input, &mut self.ledger, &self.store)?;
+        let received = publication.is_received();
         if Instant::now() >= deadline {
-            return Err("first Local Reserve deadline expired before protected lease".into());
+            return Err("first original Reserve deadline expired before protected lease".into());
         }
         self.ledger.verify_carriers()?;
         let mut lease = provider
@@ -165,7 +177,7 @@ impl FormalBftHeaderLedgerExecutionV3 {
             .map_err(|error| error.to_string())?;
         let hash = publication.publish(&self.ledger, &self.store, deadline)?;
         drop(lease);
-        Ok((hash, pending.receipt.body.after_state_digest))
+        Ok((hash, pending.receipt.body.after_state_digest, received))
     }
 
     pub(crate) fn activate_covered_original_source(
@@ -223,4 +235,22 @@ impl FormalBftHeaderLedgerExecutionV3 {
         drop(lease);
         result
     }
+}
+
+pub(in super::super) fn verify_archived_original_source(
+    original: &[u8],
+    capsule: &[u8],
+    binding: &BftSignerBindingV3,
+    attestor: &BftPrivateRetentionAttestorV1,
+    marker: &BftPrivateRetentionCreationMarkerV1,
+) -> Result<
+    (
+        std::collections::BTreeSet<String>,
+        oasis7_distfs::protected_bft_v3::BftPrivateRetentionActivationV1,
+    ),
+    String,
+> {
+    super::private_store::source_activation::verify_archived_original(
+        original, capsule, binding, attestor, marker,
+    )
 }
