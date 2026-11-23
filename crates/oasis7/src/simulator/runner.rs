@@ -122,14 +122,6 @@ pub struct AgentRunner<B: AgentBehavior> {
     runtime_perf: RuntimePerfCollector,
 }
 
-fn llm_api_duration_from_trace(decision_trace: Option<&AgentDecisionTrace>) -> Duration {
-    let llm_api_latency_ms = decision_trace
-        .and_then(|trace| trace.llm_diagnostics.as_ref())
-        .and_then(|diagnostics| diagnostics.latency_ms)
-        .unwrap_or(0);
-    Duration::from_millis(llm_api_latency_ms)
-}
-
 impl<B: AgentBehavior> Default for AgentRunner<B> {
     fn default() -> Self {
         Self::new()
@@ -664,7 +656,7 @@ impl<B: AgentBehavior> AgentRunner<B> {
         decision_total_duration: Duration,
         decision_trace: Option<&AgentDecisionTrace>,
     ) -> Duration {
-        let llm_api_duration = llm_api_duration_from_trace(decision_trace);
+        let llm_api_duration = oasis7_simulator::llm_api_duration_from_trace(decision_trace);
         let decision_local_duration = decision_total_duration
             .checked_sub(llm_api_duration)
             .unwrap_or(Duration::from_millis(0));
