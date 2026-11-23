@@ -94,17 +94,32 @@ fn runtime_background_play_commits_provider_response_without_latency_stale_base(
     });
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_loopback_http");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, base_url);
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_MODE_ENV,
+            "provider_loopback_http",
+        );
+        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, base_url);
         // The loopback callback is served by a helper thread. Required-tier
         // runs can temporarily starve that thread while many Rust tests are
         // active; keep the mock request alive long enough to observe the
         // response instead of turning scheduler pressure into a gameplay
         // retry failure.
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_CONNECT_TIMEOUT_MS_ENV, "15000");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_DECISION_TIMEOUT_MS_ENV, "15000");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
-        oasis7::env_mut::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_CONNECT_TIMEOUT_MS_ENV,
+            "15000",
+        );
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_DECISION_TIMEOUT_MS_ENV,
+            "15000",
+        );
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_PROFILE_ENV,
+            "oasis7_p0_low_freq_npc",
+        );
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_EXECUTION_LANE_ENV,
+            "player_parity",
+        );
     }
 
     let test_world_id = format!("live-runtime-{}", WorldScenario::Minimal.as_str());
@@ -447,10 +462,19 @@ fn live_stale_parent_correction_rebinds_only_after_real_rejected_terminal() {
     });
     // SAFETY: shared provider environment lock serializes these variables.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_loopback_http");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, url);
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
-        oasis7::env_mut::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_MODE_ENV,
+            "provider_loopback_http",
+        );
+        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, url);
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_PROFILE_ENV,
+            "oasis7_p0_low_freq_npc",
+        );
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_EXECUTION_LANE_ENV,
+            "player_parity",
+        );
     }
     let path = std::env::temp_dir().join(format!(
         "oasis7-live-stale-correction-{}.json",

@@ -95,7 +95,7 @@ pub(super) fn assert_queued_original_across_tick(
     world: &WorldIdentity,
     original: &SubmitIntentRequest<WorldServicePayloadV1>,
 ) {
-    let bytes = correlation::encode_consensus_intent(original).unwrap();
+    let bytes = oasis7_world_service::correlation::encode_consensus_intent(original).unwrap();
     let original_json = serde_json::to_vec(original).unwrap();
     let key = correlation::key_digest(&original.correlation.key).unwrap();
     for mode in 0..3 {

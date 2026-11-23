@@ -4,9 +4,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
-#[cfg(test)]
-use oasis7::runtime::Action;
 use oasis7_client_api::{MainTokenTransfer, sign_main_token_transfer};
+#[cfg(test)]
+use oasis7_runtime::Action;
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 
@@ -397,7 +397,7 @@ fn print_json<T: Serialize>(value: &T) -> Result<(), String> {
 mod tests {
     use super::*;
     use ed25519_dalek::SigningKey;
-    use oasis7::consensus_action_payload::{
+    use oasis7_world_service::consensus_action_payload::{
         MainTokenActionAuthProof, MainTokenActionAuthScheme, verify_main_token_runtime_action_auth,
     };
 

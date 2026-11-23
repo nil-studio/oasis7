@@ -1,4 +1,3 @@
-use oasis7::AgentState;
 use oasis7_agent_api::world_action::{BodyKernelView, GeoPos};
 use oasis7_distfs::incremental_page_store::{
     IncrementalPageStore, PageIoBudget, PageStoreError,
@@ -20,6 +19,7 @@ use oasis7_runtime::{
     incremental_agent_genesis::AgentGenesisContext,
     incremental_event_fields::{EVENT_SEQUENCE_KEY_V1, EventSequenceV1},
 };
+use oasis7_world_state::AgentState;
 use std::{collections::BTreeMap, io::Write, sync::atomic::AtomicBool};
 
 pub fn physical() -> PageIoBudget {

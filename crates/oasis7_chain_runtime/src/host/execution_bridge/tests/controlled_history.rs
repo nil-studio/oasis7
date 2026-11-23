@@ -3,9 +3,6 @@ use super::super::controlled_history::{
     TrustedHistoryConfiguration, request_identity, verify_history,
 };
 use super::*;
-use oasis7::consensus_action_payload::{
-    ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
-};
 use oasis7_distfs::controlled_authority::replicated_protocol::{
     EndpointRole, FileEndpoint, FixedTrust, ProtocolOutcome, ReplicatedCoordinator,
 };
@@ -15,6 +12,9 @@ use oasis7_runtime::{
     ModuleSubscriptionStage,
 };
 use oasis7_wasm_executor::{WasmExecutor, WasmExecutorConfig};
+use oasis7_world_service::consensus_action_payload::{
+    ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
+};
 
 fn key(n: u8) -> SigningKey {
     SigningKey::from_bytes(&[n; 32])
@@ -122,13 +122,13 @@ fn controlled_history_rejects_decodable_service_envelopes_without_dropping_them(
     // Both service encodings accepted by the shared execution decoder stay
     // outside the single legacy origin-bearing ScheduleRecipe history scope.
     for envelope in [
-        correlation::encode_consensus_intent(&request).unwrap(),
+        oasis7_world_service::correlation::encode_consensus_intent(&request).unwrap(),
         encode_consensus_action_payload(&ConsensusActionPayloadEnvelope {
             version: 1,
             auth: None,
             gameplay_submission_origin: None,
             body:
-                oasis7::consensus_action_payload::ConsensusActionPayloadBody::WorldServiceIntent {
+                oasis7_world_service::consensus_action_payload::ConsensusActionPayloadBody::WorldServiceIntent {
                     request: request.clone(),
                 },
         })

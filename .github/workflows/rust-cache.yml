@@ -54,7 +54,7 @@ jobs:
       matrix:
         component: [fonts-noto-cjk, fonts-freefont-ttf, chrome]
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -112,7 +112,7 @@ jobs:
       github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
       (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -181,7 +181,7 @@ jobs:
       github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
       (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
-    timeout-minutes: 210
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -324,9 +324,9 @@ jobs:
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_runtime --lib
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_runtime --features test_tier_required --tests
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_runtime --features wasmtime --lib
-          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_launcher_backend --lib
+          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_launcher_backend --bins
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_client_launcher --tests
-          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_protocol_tools --lib
+          env -u RUSTC_WRAPPER cargo check --locked -p oasis7_protocol_tools --bins
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_protocol_tools --features test_tier_required --tests
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_custody_core --lib
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_custody_core --tests
@@ -502,7 +502,7 @@ jobs:
       github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
       (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

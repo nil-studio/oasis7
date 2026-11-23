@@ -7,11 +7,11 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use oasis7::consensus_action_payload::{
-    sign_main_token_runtime_action_auth, sign_threshold_main_token_runtime_action_auth,
-};
 use oasis7_runtime::{
     Action, MainTokenGenesisAllocationPlan, main_token_account_id_from_node_public_key,
+};
+use oasis7_world_service::consensus_action_payload::{
+    sign_main_token_runtime_action_auth, sign_threshold_main_token_runtime_action_auth,
 };
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};

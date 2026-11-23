@@ -8,7 +8,7 @@ body:
       value: |
         先查重；分类与状态分离。依开发流程规范的 Issue 五类与转换合同，建单不等于开发已启动。标签须在采用前配置；写后核对唯一类型，不默认 ready。
         拆出的开发任务须创建或复用本类 Issue，并在 GitHub 建立真实 parent/sub-issue 关系后领取；正文链接或 checkbox 不代替原生关系。见[子任务跟踪规则](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#code-task-sub-issues)。
-        每个可独立交付代码任务尽量不超过 30 个代码文件，同任务跨 PR 累计观察；超过时复核拆分收益，必要的完整改动可保留并简述原因。见[任务规模建议](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#code-task-file-limit)，文件数不作为任务准入门禁。
+        每个可独立交付代码任务尽量不超过 30 个代码文件，同任务跨 PR 累计观察，并在建单/拆单时预先划定[预计 PR 边界与批次](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#planned-pr-scope)（建议规模内默认单 PR 收口，确需多 PR 时预先列出各批次范围，偶发较大原子 PR 或极小解阻/修复 PR 简述原因）。见[任务规模建议](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#code-task-file-limit)，文件与 PR 数量不作为任务准入硬门禁。
         描述与评论遵循[语言与写作要求](https://github.com/nil-studio/oasis7/blob/main/doc/engineering/workflow/source-of-truth.md#language-and-writing)。
   - type: dropdown
     id: issue_type
@@ -29,7 +29,12 @@ body:
     id: sources_scope
     attributes:
       label: "来源与范围"
-      description: "公开来源与固定版本；本次范围、非目标、实际消费者与接口边界。估算变更的代码文件或可核对目录范围及数量（尽量不超过 30 个，包含必要测试、脚本、配置和生成代码）；超过时简述范围取舍，父项引用执行子项的估算。明确 profile、入口、版本或预算，或引用能唯一确定它们的来源；未定部分写明补齐动作及影响。子任务核对父 Issue 和原生关系。勿上传凭据或敏感日志。"
+      description: "公开来源与固定版本；本次范围、非目标、实际消费者与接口边界。估算变更的代码文件或可核对目录范围及数量（尽量不超过 30 个，含测试、脚本、配置和生成代码；父项引用执行子项估算），并按 #planned-pr-scope 预先写明预计 PR 划分与批次边界（默认预计 1 个完整 PR 收口，内部步骤在单分支用本地 commit 连续完成，复杂实现可按需列步骤清单；满足解阻前置、超规模、分步契约或共享入口隔离需拆多 PR 时，预先列出各批次大致目录/范围与依据，不留待实施期临场拆分；强耦合较大单 PR 或独立极小 PR 直接说明原因）。明确 profile、入口、版本或预算，或引用固定来源；未定部分写明补齐动作及影响。子任务核对父 Issue 和原生关系。勿上传凭据或敏感日志。"
+      placeholder: |
+        公开来源与版本：
+        本次范围 / 非目标 / 消费者与接口边界：
+        预计变更目录与代码文件数：
+        预计 PR 划分与批次边界（默认单 PR 收口；拆多 PR 时预列各批范围与依据；例外大/小单 PR 简述原因）：
     validations:
       required: true
   - type: textarea
@@ -64,10 +69,10 @@ body:
     id: parallel_plan
     attributes:
       label: "项目拆解与当前批次（复杂任务适用）"
-      description: "先组织可用模块增量和关键依赖，再细化当前/近期批次；后续范围保留目标与前置。独立派发须有解除阻塞、独立容量、风险隔离或提前交付的收益，不能仅因可测试继续细拆；触达同一 Cargo 依赖闭包、高扇出共享 crate 或共享 CI 控制路径的同类改动在 30 个代码文件建议内优先归并批次。建议规模内的子任务默认单 PR 收口，每个子任务同一时刻原则上只保持一个在途开放 PR（解阻前置除外）。复用原生代码 sub-issue，派发前回读关系；模块分组不强制另建 Issue，内部步骤留清单。引用已有范围与验收，区分待承接、就绪和实际认领；任务与 PR 不要求一一对应。"
+      description: "先组织可用模块增量和关键依赖，再细化当前/近期批次；后续范围保留目标与前置。独立派发须有解除阻塞、独立容量、风险隔离或提前交付的收益，不能仅因可测试继续细拆；触达同一 Cargo 依赖闭包、高扇出共享 crate 或共享 CI 控制路径的同类改动在 30 个代码文件建议内优先归并批次。拆出子 Issue 时同步锚定每项的预计 PR 边界与批次（建议规模内默认单 PR 收口，确需多批时预先划定每批范围；每个子任务同一时刻原则上只保持一个在途开放 PR，解阻前置除外）。复用原生代码 sub-issue，派发前回读关系；模块分组不强制另建 Issue，内部步骤留清单。引用已有范围与验收，区分待承接、就绪和实际认领。"
       placeholder: |
         父目标及最终集成验收 / 整体负责人：
         可用模块增量 / 当前批次 / 后续范围及关键前置：
-        原生子 Issue 与对应结果 / 预计代码文件范围与数量 / 关系核对 / 拆分或同 CI 范围归并依据：
+        原生子 Issue 与对应结果 / 预计代码文件数与预计 PR 批次边界 / 关系核对 / 拆分或同 CI 范围归并依据：
         已验证结果 / 待集成或待验收成果 / 当前唯一在途开放 PR / 下一步：
         共享接口与高扇出文件写入负责人 / 当前验收准备与待承接责任：

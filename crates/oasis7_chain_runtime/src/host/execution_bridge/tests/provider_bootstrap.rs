@@ -1,9 +1,6 @@
 use super::super::checkpoint::{execution_bridge_record_path, load_execution_bridge_record};
 use super::super::driver::{NodeRuntimeExecutionDriver, load_execution_world};
 use super::*;
-use oasis7::consensus_action_payload::{
-    ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
-};
 use oasis7_agent_api::world_action::GeoPos;
 use oasis7_node::{
     NodeConfig, NodeConsensusAction, NodeExecutionCommitContext, NodeExecutionHook,
@@ -12,6 +9,9 @@ use oasis7_node::{
     REPLICATED_EXECUTION_INPUT_SUBMITTER, compute_consensus_action_root,
 };
 use oasis7_runtime::{Action, ChainResourceDerivationContext};
+use oasis7_world_service::consensus_action_payload::{
+    ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
+};
 
 fn provider_bootstrap_fixture(
     world_dir: &std::path::Path,

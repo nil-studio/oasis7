@@ -21,9 +21,9 @@
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 具体 obligation 与适用条件 | 本设计条款（path#anchor） | 外部 owner / dependency | 明确排除或未覆盖范围 |
 | --- | --- | --- | --- | --- |
-| [canonical 替代比较](../../product/world-rules-core-gameplay/prd.md#root-sc5-altcompare)；Trace refs: O7-REQ-d76b49a6-01a7-46db-968b-23bfd35fc295 | 不支持原细粒度请求时比较安全单/多候选的目标、范围、成本、风险、后果、可撤回性和理由；无安全候选停止。 | [原请求与候选](#alternative-candidates) | Agent 候选建议、runtime 受支持能力和领域只读校验、Viewer/API | 不新增动作、不静默改写原目标、不用 Wait 假装替代能力。 |
-| [替代的明确授权与无效果预览](../../product/world-rules-core-gameplay/prd.md#root-sc5-altauth)；Trace refs: O7-REQ-7326a105-57ef-4cf4-823c-2755c539671b | 确认前无效果；新增承诺或不可逆后果取得精确范围授权。 | [明确确认协议](#alternative-confirmation) | 当前玩家/控制权、原 domain authority、各入口独立确认 producer | 普通 chat owner 签名、旧 grant、模型建议和 test-only proposed 不代签。 |
-| [替代失效与单次结果](../../product/world-rules-core-gameplay/prd.md#root-sc5-altrepeat)；Trace refs: O7-REQ-ea9640b0-fb39-4fde-9ec1-69e25c448ba5 | 拒绝、过期、权限收缩/替换、并发确认、重连、重试不静默执行或重复，原请求到唯一结果可审计。 | [唯一执行与结果协议](#alternative-consumption) | canonical request/intent/domain receipt；当前权限与持久化；跨入口 QA | 不重做普通原 operation 恢复、不宣称未提供的外部 adapter 已兼容。 |
+| [canonical 替代比较](../../product/world-rules-core-gameplay/root-sc-status-and-ownership.prd.md#root-sc5-altcompare)；Trace refs: O7-REQ-d76b49a6-01a7-46db-968b-23bfd35fc295 | 不支持原细粒度请求时比较安全单/多候选的目标、范围、成本、风险、后果、可撤回性和理由；无安全候选停止。 | [原请求与候选](#alternative-candidates) | Agent 候选建议、runtime 受支持能力和领域只读校验、Viewer/API | 不新增动作、不静默改写原目标、不用 Wait 假装替代能力。 |
+| [替代的明确授权与无效果预览](../../product/world-rules-core-gameplay/root-sc-status-and-ownership.prd.md#root-sc5-altauth)；Trace refs: O7-REQ-7326a105-57ef-4cf4-823c-2755c539671b | 确认前无效果；新增承诺或不可逆后果取得精确范围授权。 | [明确确认协议](#alternative-confirmation) | 当前玩家/控制权、原 domain authority、各入口独立确认 producer | 普通 chat owner 签名、旧 grant、模型建议和 test-only proposed 不代签。 |
+| [替代失效与单次结果](../../product/world-rules-core-gameplay/root-sc-status-and-ownership.prd.md#root-sc5-altrepeat)；Trace refs: O7-REQ-ea9640b0-fb39-4fde-9ec1-69e25c448ba5 | 拒绝、过期、权限收缩/替换、并发确认、重连、重试不静默执行或重复，原请求到唯一结果可审计。 | [唯一执行与结果协议](#alternative-consumption) | canonical request/intent/domain receipt；当前权限与持久化；跨入口 QA | 不重做普通原 operation 恢复、不宣称未提供的外部 adapter 已兼容。 |
 
 ## 3. 当前状态、目标状态与差距
 
@@ -196,9 +196,9 @@ snapshot/journal 共同保留原 request/digest、eligibility/no-effect 证明�
 
 | 上游 requirement / product AC / professional acceptance（path#fragment） | 本设计条款（path#anchor） | 独立 obligation 与适用条件 | 准确验证方法、test/manual source 或 ID、scenario/layer、candidate/environment 要求或选择规则 | evidence target | 未证明范围 |
 | --- | --- | --- | --- | --- | --- |
-| [canonical 替代比较](../../product/world-rules-core-gameplay/prd.md#root-sc5-altcompare)；Trace refs: O7-REQ-d76b49a6-01a7-46db-968b-23bfd35fc295 | [原请求与候选](#alternative-candidates) | 单/多候选全部比较维度、安全未知和无安全候选停止。 | `ALT-VERIFY-001`；原 required 固定候选与各入口真实 producer/reader；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的只读前后状态、比较数据和真实 surface captures。 | 文档和模型 fixture 不证明生产接入或真人理解。 |
-| [替代的明确授权与无效果预览](../../product/world-rules-core-gameplay/prd.md#root-sc5-altauth)；Trace refs: O7-REQ-7326a105-57ef-4cf4-823c-2755c539671b | [明确确认协议](#alternative-confirmation) | 精确范围独立确认，首效果前当前授权及单次消费。 | `ALT-VERIFY-001`、`002`；required 正负例及原 full 权限收缩/替换；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的真实确认消息、授权/执行绑定、原子前后差分。 | 普通 owner 签名、quote、test-only proposed 不代签。 |
-| [替代失效与单次结果](../../product/world-rules-core-gameplay/prd.md#root-sc5-altrepeat)；Trace refs: O7-REQ-ea9640b0-fb39-4fde-9ec1-69e25c448ba5 | [唯一执行与结果协议](#alternative-consumption) | 重连/并发/拒绝/失效无重复或隐式执行；完整原请求因果可读。 | `ALT-VERIFY-002`、`003`；required 恢复与 full 跨入口关联，固定实际 candidate/runtime/authority；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的唯一执行/receipt、资源及持久化对账和各入口观察。 | 本文没有运行证据；不证明未知外部 adapter、全部间接控制或发布。 |
+| [canonical 替代比较](../../product/world-rules-core-gameplay/root-sc-status-and-ownership.prd.md#root-sc5-altcompare)；Trace refs: O7-REQ-d76b49a6-01a7-46db-968b-23bfd35fc295 | [原请求与候选](#alternative-candidates) | 单/多候选全部比较维度、安全未知和无安全候选停止。 | `ALT-VERIFY-001`；原 required 固定候选与各入口真实 producer/reader；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的只读前后状态、比较数据和真实 surface captures。 | 文档和模型 fixture 不证明生产接入或真人理解。 |
+| [替代的明确授权与无效果预览](../../product/world-rules-core-gameplay/root-sc-status-and-ownership.prd.md#root-sc5-altauth)；Trace refs: O7-REQ-7326a105-57ef-4cf4-823c-2755c539671b | [明确确认协议](#alternative-confirmation) | 精确范围独立确认，首效果前当前授权及单次消费。 | `ALT-VERIFY-001`、`002`；required 正负例及原 full 权限收缩/替换；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的真实确认消息、授权/执行绑定、原子前后差分。 | 普通 owner 签名、quote、test-only proposed 不代签。 |
+| [替代失效与单次结果](../../product/world-rules-core-gameplay/root-sc-status-and-ownership.prd.md#root-sc5-altrepeat)；Trace refs: O7-REQ-ea9640b0-fb39-4fde-9ec1-69e25c448ba5 | [唯一执行与结果协议](#alternative-consumption) | 重连/并发/拒绝/失效无重复或隐式执行；完整原请求因果可读。 | `ALT-VERIFY-002`、`003`；required 恢复与 full 跨入口关联，固定实际 candidate/runtime/authority；按[测试手册](../../../testing-manual.md)扩展本节定义的真实提交/恢复场景。 | 实施 PR 的唯一执行/receipt、资源及持久化对账和各入口观察。 | 本文没有运行证据；不证明未知外部 adapter、全部间接控制或发布。 |
 
 ## 12. 决策、长期风险与未决问题
 

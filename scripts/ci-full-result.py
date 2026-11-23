@@ -94,9 +94,39 @@ def definition_digest(root, revision):
                 or type(config.get("custody_compile_proof_version")) is not int
                 or config["custody_compile_proof_version"] != 1):
             raise ValueError("invalid trusted custody policy tests definition")
-    for capability in ("main_fast_range_recovery_version", "draft_pr_heavy_ci_skip_version"):
+    if "custody_node_shards_version" in config:
+        if (type(config["custody_node_shards_version"]) is not int
+                or config["custody_node_shards_version"] != 2
+                or type(config.get("custody_execution_version")) is not int
+                or config["custody_execution_version"] != 1):
+            raise ValueError("invalid trusted custody_node_shards_version definition")
+    for capability in ("main_fast_range_recovery_version", "draft_pr_heavy_ci_skip_version",
+                       "ordinary_dynamic_partition_version", "ordinary_scope_config_slice_version",
+                       "standalone_cargo_manifest_scope_version"):
         if capability in config and (type(config[capability]) is not int or config[capability] != 1):
             raise ValueError(f"invalid trusted {capability} definition")
+    if "workspace_support_direct_gate_version" in config:
+        if (type(config["workspace_support_direct_gate_version"]) is not int
+                or config["workspace_support_direct_gate_version"] != 1
+                or type(config.get("workspace_support_partition_version")) is not int
+                or config["workspace_support_partition_version"] != 1):
+            raise ValueError("invalid trusted workspace_support_direct_gate_version definition")
+    if "contract_job_consolidation_version" in config:
+        if (type(config["contract_job_consolidation_version"]) is not int
+                or config["contract_job_consolidation_version"] not in (1, 2)):
+            raise ValueError("invalid trusted contract_job_consolidation_version definition")
+    if "group_jobs" in config or "contract_job_consolidation_version" in config:
+        overrides = config.get("group_jobs")
+        groups = config.get("groups")
+        if (type(config.get("contract_job_consolidation_version")) is not int
+                or config.get("contract_job_consolidation_version") not in (1, 2)
+                or not isinstance(groups, list) or not isinstance(overrides, dict) or not overrides):
+            raise ValueError("invalid trusted contract job consolidation definition")
+        default_jobs = {group.replace("_", "-") for group in groups if isinstance(group, str)}
+        for group, job in overrides.items():
+            if (group not in groups or not isinstance(job, str)
+                    or job not in default_jobs or job == group.replace("_", "-")):
+                raise ValueError("invalid trusted consolidated group job mapping")
     contract_tests = set()
     if "workflow_governance_python_tests" in config:
         governed = config["workflow_governance_python_tests"]
@@ -146,20 +176,30 @@ def definition_digest(root, revision):
     return digest.hexdigest()
 
 
-def validator():
+def validator_module():
     path = Path(__file__).with_name("ci-required-result.py")
     spec = importlib.util.spec_from_file_location("ci_required_full_result", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.validate_full
+    return module
+
+
+def validator():
+    return validator_module().validate_full
 
 
 def validate_plan(plan, needs, config, context):
-    jobs = {name: name.replace("_", "-") for name in config["groups"]}
-    validator()(
+    module = validator_module()
+    jobs = (module.configured_group_jobs(config, plan)
+            if hasattr(module, "configured_group_jobs")
+            else {name: name.replace("_", "-") for name in config["groups"]})
+    retired = module.retired_group_jobs(config, plan) if hasattr(module, "retired_group_jobs") else ()
+    extra = {"retired_jobs": retired} if retired else {}
+    module.validate_full(
         plan, needs, jobs, event_name=context["event_name"], ref=context["ref"],
         workflow_sha=context["workflow_sha"], source_sha=plan["source_sha"],
         run_mode="full" if context["event_name"] == "workflow_dispatch" else "",
+        **extra,
     )
 
 

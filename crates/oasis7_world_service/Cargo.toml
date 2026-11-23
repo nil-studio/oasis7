@@ -31,6 +31,9 @@ cap-std = "4"
 cap-fs-ext = "4"
 libc = "0.2"
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+oasis7_simulator = { path = "../oasis7_simulator", default-features = false }
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
 

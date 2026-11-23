@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import shutil
 import sys
 import time
 
@@ -208,6 +209,7 @@ def main():
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--jobs", type=int, choices=(1, 2), default=os.environ.get("CARGO_BUILD_JOBS"))
     parser.add_argument("--pid", type=int, help="observe this fixed process and its current descendants")
+    parser.add_argument("--disk-path", type=Path, help="observe available bytes on this build filesystem")
     parser.add_argument("--label", help="variant label for optional process heartbeats")
     parser.add_argument("--heartbeat-seconds", type=float, default=20)
     args = parser.parse_args()
@@ -245,13 +247,19 @@ def main():
         if process_tree is not None:
             report["process_tree"] = process_tree.sample()
             target_exited = report["process_tree"]["target_exited"] is True
+        if args.disk_path is not None:
+            try:
+                disk = shutil.disk_usage(args.disk_path)
+                report['disk'] = dict(total_bytes=disk.total, free_bytes=disk.free)
+            except OSError:
+                report['disk'] = None
         now = time.monotonic()
         report.update(complete=stopping or target_exited, elapsed_seconds=round(now - started, 3), ended_at=datetime.now(timezone.utc).isoformat())
         write_report(args.out, report)
         if process_tree is not None and (now >= next_heartbeat or report["complete"]):
             print("native_build_heartbeat=" + json.dumps(dict(label=args.label,
                 elapsed_seconds=report["elapsed_seconds"], complete=report["complete"],
-                host=current["host"], swap_pages=current["swap_pages"],
+                host=current["host"], disk=report.get("disk"), swap_pages=current["swap_pages"],
                 cgroup=cgroup_heartbeat(current, report["cgroup"]["events"]),
                 process_tree=report["process_tree"]), sort_keys=True), flush=True)
             next_heartbeat = now + args.heartbeat_seconds

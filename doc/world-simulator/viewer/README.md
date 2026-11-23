@@ -20,7 +20,7 @@
 - 想确认 pixel-world 稀疏快照下的 agent 派生坐标、关系线与 rendered DOM 定位：先读 `viewer-pixel-world-semantic-positioning.prd.md`
 - 想确认 pixel-world Fragment terrain、Location 逻辑锚点与缩放 LOD 分层：先读 `viewer-pixel-world-fragment-lod.prd.md`
 - 想确认 pixel-world 面向商业化游戏首屏如何呈现目标、下一步、玩家杠杆与诊断降噪：先读 `viewer-pixel-world-player-readable-rendering.prd.md`
-- 想确认 pixel-world 下一轮如何表达玩家因果、行动反馈、生产可读性与商业化长期循环：先读 `viewer-pixel-world-player-leverage-production-readability-2026-05-28.brainstorm.md`
+- 想确认 pixel-world 如何表达玩家因果、行动反馈与生产可读性：先读 `viewer-pixel-world-player-readable-rendering.design.md`
 - 想确认 runtime live / event-driven / step-control 现行口径：先读 `viewer-control-plane-split-live-playback.prd.md`；操作、进程与 runtime-live 观测边界读 `viewer-manual.manual.md`，Agent/provider 语义读 `../llm/decision-provider-contract.prd.md`
 - 想确认本人、其他玩家与匿名请求的反馈归属，以及预检和提交的边界：产品读[反馈连续性](../../product/agents-world-simulation/player-readable-surface-continuity.prd.md#req-agent-surface-003)，专业要求读[动作反馈目标](viewer-control-plane-split-live-playback.prd.md#player-action-feedback-targets)，实现方案读[控制面设计](viewer-control-plane-split-live-playback.design.md#gameplay-feedback-isolation)。实现、定向回归和真实多人验收分别核实，文档导航不代替运行证据。
 - 想处理锚点重复枚举、depot 范围圈实体复用或 selected/corner-frame 视觉回归：读[增量与回归要求](viewer-pixel-world-bridge-rendering.prd.md#render-reconcile-and-visual-regression-requirements)及配对设计；claim evidence 测试页的[已有分类](viewer-pixel-world-bridge-rendering.prd.md#claim-evidence-classification)不再作为缺口。

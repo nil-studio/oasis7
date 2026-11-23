@@ -1,4 +1,5 @@
 use super::*;
+use oasis7_hosted_access::process_env::{remove_var as unset_env, set_var as set_env};
 use oasis7_simulator::WorldEventKind;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 #[path = "chain_sync_recovery.rs"]
@@ -37,8 +38,8 @@ impl Drop for HostedLocalMockProviderEnvSnapshot {
             // SAFETY: The test holds the canonical provider environment lock.
             unsafe {
                 match value {
-                    Some(value) => oasis7::env_mut::set_var(key, value),
-                    None => oasis7::env_mut::remove_var(key),
+                    Some(value) => set_env(key, value),
+                    None => unset_env(key),
                 }
             }
         }
@@ -48,14 +49,14 @@ impl Drop for HostedLocalMockProviderEnvSnapshot {
 fn configure_hosted_local_mock_provider_env() {
     // SAFETY: The caller holds the canonical provider environment lock.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_DECISION_SOURCE_ENV, "provider_backed");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_backed");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_BACKEND_ENV, "provider_local_mock");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_CONTRACT_ENV, "worldsim_provider_v1");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_TRANSPORT_ENV, "loopback_http");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, "http://127.0.0.1:9");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
-        oasis7::env_mut::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
+        set_env(VIEWER_AGENT_DECISION_SOURCE_ENV, "provider_backed");
+        set_env(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_backed");
+        set_env(VIEWER_AGENT_PROVIDER_BACKEND_ENV, "provider_local_mock");
+        set_env(VIEWER_AGENT_PROVIDER_CONTRACT_ENV, "worldsim_provider_v1");
+        set_env(VIEWER_AGENT_PROVIDER_TRANSPORT_ENV, "loopback_http");
+        set_env(VIEWER_AGENT_PROVIDER_URL_ENV, "http://127.0.0.1:9");
+        set_env(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
+        set_env(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
     }
 }
 

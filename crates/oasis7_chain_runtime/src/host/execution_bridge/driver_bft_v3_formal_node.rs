@@ -11,10 +11,10 @@ use oasis7_node::{
     NodeExecutionHook,
 };
 
-#[path = "driver_bft_v3_node_private_store.rs"]
-mod private_store;
 #[path = "driver_bft_v3_covered_source.rs"]
 mod covered_source;
+#[path = "driver_bft_v3_node_private_store.rs"]
+mod private_store;
 use private_store::NodePrivateStore;
 
 #[cfg(test)]
@@ -542,10 +542,10 @@ impl NodeExecutionHook for FormalBftHeaderNodeDriverV3 {
         // Actual batch execution still checks the original signed payload and
         // immutable parent policy before retention or signing.
         let envelope =
-            oasis7::consensus_action_payload::decode_consensus_action_payload_envelope(payload)
+            oasis7_world_service::consensus_action_payload::decode_consensus_action_payload_envelope(payload)
                 .map_err(|_| "Node action payload encoding rejected")?;
         match envelope.body {
-            oasis7::consensus_action_payload::ConsensusActionPayloadBody::RuntimeAction {
+            oasis7_world_service::consensus_action_payload::ConsensusActionPayloadBody::RuntimeAction {
                 ..
             } => Ok(()),
             _ => Err("formal header Node requires a closed RuntimeAction payload".into()),

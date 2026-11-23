@@ -2,7 +2,6 @@
 use super::WorldKernel;
 use super::archive::WorldEvent;
 
-use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
@@ -11,7 +10,7 @@ use super::agent::{
 };
 use super::runtime_perf::{RuntimePerfCollector, RuntimePerfSnapshot};
 use oasis7_simulator::WorldEventKind;
-use oasis7_simulator::{Action, WorldTime};
+use oasis7_simulator::WorldTime;
 
 // ============================================================================
 // Quota and Rate Limiting
@@ -121,14 +120,6 @@ pub struct AgentRunner<B: AgentBehavior> {
     rate_limit_policy: Option<RateLimitPolicy>,
     /// Runtime execution performance collector.
     runtime_perf: RuntimePerfCollector,
-}
-
-fn llm_api_duration_from_trace(decision_trace: Option<&AgentDecisionTrace>) -> Duration {
-    let llm_api_latency_ms = decision_trace
-        .and_then(|trace| trace.llm_diagnostics.as_ref())
-        .and_then(|diagnostics| diagnostics.latency_ms)
-        .unwrap_or(0);
-    Duration::from_millis(llm_api_latency_ms)
 }
 
 impl<B: AgentBehavior> Default for AgentRunner<B> {
@@ -255,23 +246,16 @@ impl<B: AgentBehavior> AgentRunner<B> {
     }
 
     fn select_next_ready_agent_id(&self, kernel: &WorldKernel, now: WorldTime) -> Option<String> {
-        let cursor = self.scheduler_cursor.as_deref();
-        let mut first_ready = None;
-        let mut first_after_cursor = None;
-
-        for (id, agent) in &self.agents {
-            if !self.is_agent_ready_for_tick(kernel, now, id, agent) {
-                continue;
-            }
-            let id = id.as_str();
-            first_ready.get_or_insert(id);
-            if cursor.is_some_and(|cursor| id > cursor) {
-                first_after_cursor = Some(id);
-                break;
-            }
-        }
-
-        first_after_cursor.or(first_ready).map(str::to_owned)
+        oasis7_simulator::choose_next_ready_agent_id_v1(
+            self.agents.iter().map(|(id, agent)| {
+                (
+                    id.as_str(),
+                    self.is_agent_ready_for_tick(kernel, now, id, agent),
+                )
+            }),
+            self.scheduler_cursor.as_deref(),
+        )
+        .map(str::to_owned)
     }
 
     /// Preview the same deterministic scheduler choice used by
@@ -672,7 +656,7 @@ impl<B: AgentBehavior> AgentRunner<B> {
         decision_total_duration: Duration,
         decision_trace: Option<&AgentDecisionTrace>,
     ) -> Duration {
-        let llm_api_duration = llm_api_duration_from_trace(decision_trace);
+        let llm_api_duration = oasis7_simulator::llm_api_duration_from_trace(decision_trace);
         let decision_local_duration = decision_total_duration
             .checked_sub(llm_api_duration)
             .unwrap_or(Duration::from_millis(0));
@@ -883,123 +867,11 @@ impl<B: AgentBehavior> AgentRunner<B> {
     }
 }
 
-// ============================================================================
-// Metrics and Statistics
-// ============================================================================
-
-/// Metrics for the AgentRunner.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RunnerMetrics {
-    /// Total number of ticks executed.
-    pub total_ticks: u64,
-    /// Total number of registered agents.
-    pub total_agents: usize,
-    /// Number of agents that are active (not quota-exhausted, not rate-limited).
-    pub agents_active: usize,
-    /// Number of agents that have exhausted their quota.
-    pub agents_quota_exhausted: usize,
-    /// Total actions taken across all agents.
-    pub total_actions: u64,
-    /// Total decisions made across all agents.
-    pub total_decisions: u64,
-    /// Average actions per tick.
-    pub actions_per_tick: f64,
-    /// Average decisions per tick.
-    pub decisions_per_tick: f64,
-    /// Success rate of actions (0.0 to 1.0).
-    pub success_rate: f64,
-    /// Runtime execution performance snapshot.
-    #[serde(default)]
-    pub runtime_perf: RuntimePerfSnapshot,
-}
-
-impl Default for RunnerMetrics {
-    fn default() -> Self {
-        Self {
-            total_ticks: 0,
-            total_agents: 0,
-            agents_active: 0,
-            agents_quota_exhausted: 0,
-            total_actions: 0,
-            total_decisions: 0,
-            actions_per_tick: 0.0,
-            decisions_per_tick: 0.0,
-            success_rate: 0.0,
-            runtime_perf: RuntimePerfSnapshot::default(),
-        }
-    }
-}
-
-/// Statistics for a single agent.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AgentStats {
-    /// The agent's ID.
-    pub agent_id: String,
-    /// Total actions taken by this agent.
-    pub action_count: u64,
-    /// Total decisions made by this agent.
-    pub decision_count: u64,
-    /// Whether the agent has exhausted its quota.
-    pub is_quota_exhausted: bool,
-    /// Time until which the agent is waiting (if any).
-    pub wait_until: Option<WorldTime>,
-}
-
-/// A log entry for runner events.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct RunnerLogEntry {
-    /// The tick number when this event occurred.
-    pub tick: u64,
-    /// The world time when this event occurred.
-    pub time: WorldTime,
-    /// The event kind.
-    pub kind: RunnerLogKind,
-}
-
-/// Kinds of runner log events.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", content = "data")]
-pub enum RunnerLogKind {
-    /// An agent was registered.
-    AgentRegistered { agent_id: String },
-    /// An agent was unregistered.
-    AgentUnregistered { agent_id: String },
-    /// An agent made a decision.
-    AgentDecision {
-        agent_id: String,
-        decision: AgentDecision,
-    },
-    /// An action was executed.
-    ActionExecuted {
-        agent_id: String,
-        action: Action,
-        success: bool,
-    },
-    /// An agent was skipped.
-    AgentSkipped {
-        agent_id: String,
-        reason: SkippedReason,
-    },
-    /// An agent exhausted its quota.
-    QuotaExhausted { agent_id: String },
-    /// An agent was rate-limited.
-    RateLimited { agent_id: String },
-    /// Metrics snapshot.
-    MetricsSnapshot { metrics: RunnerMetrics },
-}
-
-/// Reason why an agent was skipped during scheduling.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum SkippedReason {
-    /// Agent has exhausted its quota.
-    QuotaExhausted,
-    /// Agent is rate limited.
-    RateLimited,
-    /// Agent is waiting (wait_until not reached).
-    Waiting,
-    /// Agent is not registered in the world.
-    NotInWorld,
-}
+// Pure telemetry types now have their owner in oasis7_simulator (L2).
+// Preserve the public oasis7::simulator compatibility re-exports.
+pub use oasis7_simulator::{
+    AgentStats, RunnerLogEntry, RunnerLogKind, RunnerMetrics, SkippedReason,
+};
 
 /// Result of a single agent tick.
 #[derive(Debug, Clone, PartialEq)]

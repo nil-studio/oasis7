@@ -32,6 +32,7 @@ Preview 不锁来源或容量，不创建 hold/join/conversion，不扣输入，
 
 不展示不受支持的混批、降级用途、免费换料、自动 replacement 或自动换配方。推荐只能说明哪项真实选择更能保护当前目标、已投入价值或恢复弹性；没有安全选择时返回 `no_legal_substitute` 与下一决策/复查条件。
 
+<a id="decision-conversion-isolation"></a>
 ## 4. Decision、conversion 与因果隔离
 
 玩家确认时必须从 fresh authority 重验 owner/provenance/quality/custody、数量、ratio/rounding/residual、recipe/factory、path/capacity、power、output/value class 与 terminal。漂移只能触发重新报价、首个 sink 前无副作用原子拒绝，或 profile 明示的有界 pending。

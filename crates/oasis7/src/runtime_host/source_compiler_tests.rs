@@ -325,13 +325,13 @@ impl Drop for EnvVarGuard {
             Some(value) => {
                 // SAFETY: This test/setup code mutates process environment in a controlled scope.
                 unsafe {
-                    crate::env_mut::set_var(self.key.as_str(), value);
+                    oasis7_hosted_access::process_env::set_var(self.key.as_str(), value);
                 }
             }
             None => {
                 // SAFETY: This test/setup code mutates process environment in a controlled scope.
                 unsafe {
-                    crate::env_mut::remove_var(self.key.as_str());
+                    oasis7_hosted_access::process_env::remove_var(self.key.as_str());
                 }
             }
         }
@@ -381,7 +381,7 @@ fn test_module_artifact_signing_key() -> SigningKey {
 
 #[test]
 fn compile_module_artifact_from_source_registers_compiled_artifact() {
-    let _env_lock = crate::env_mut::process_env_lock()
+    let _env_lock = oasis7_hosted_access::process_env::process_env_lock()
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let _env_guard = EnvVarGuard::capture(SOURCE_COMPILER_ENV);
@@ -394,11 +394,14 @@ fn compile_module_artifact_from_source_registers_compiled_artifact() {
     write_fake_source_compiler(compiler_script.as_path(), produced_wasm_bytes);
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        crate::env_mut::set_var(SOURCE_COMPILER_ENV, compiler_script.as_os_str());
+        oasis7_hosted_access::process_env::set_var(
+            SOURCE_COMPILER_ENV,
+            compiler_script.as_os_str(),
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        crate::env_mut::remove_var(removed_old_brand_compiler.as_str());
+        oasis7_hosted_access::process_env::remove_var(removed_old_brand_compiler.as_str());
     }
 
     let mut world = crate::runtime_host::world::new();
@@ -439,7 +442,7 @@ fn compile_module_artifact_from_source_registers_compiled_artifact() {
 
 #[test]
 fn compile_module_artifact_from_source_rejects_removed_old_brand_compiler_env() {
-    let _env_lock = crate::env_mut::process_env_lock()
+    let _env_lock = oasis7_hosted_access::process_env::process_env_lock()
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let _env_guard = EnvVarGuard::capture(SOURCE_COMPILER_ENV);
@@ -457,11 +460,11 @@ fn compile_module_artifact_from_source_rejects_removed_old_brand_compiler_env() 
     );
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        crate::env_mut::set_var(SOURCE_COMPILER_ENV, primary_script.as_os_str());
+        oasis7_hosted_access::process_env::set_var(SOURCE_COMPILER_ENV, primary_script.as_os_str());
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        crate::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             removed_old_brand_compiler.as_str(),
             removed_old_brand_script.as_os_str(),
         );
@@ -494,7 +497,7 @@ fn compile_module_artifact_from_source_rejects_removed_old_brand_compiler_env() 
 
 #[test]
 fn compile_module_artifact_from_source_rejects_in_production_release_policy() {
-    let _env_lock = crate::env_mut::process_env_lock()
+    let _env_lock = oasis7_hosted_access::process_env::process_env_lock()
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let _env_guard = EnvVarGuard::capture(SOURCE_COMPILER_ENV);
@@ -507,11 +510,14 @@ fn compile_module_artifact_from_source_rejects_in_production_release_policy() {
     write_fake_source_compiler(compiler_script.as_path(), "compiled-in-production");
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        crate::env_mut::set_var(SOURCE_COMPILER_ENV, compiler_script.as_os_str());
+        oasis7_hosted_access::process_env::set_var(
+            SOURCE_COMPILER_ENV,
+            compiler_script.as_os_str(),
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        crate::env_mut::remove_var(removed_old_brand_compiler.as_str());
+        oasis7_hosted_access::process_env::remove_var(removed_old_brand_compiler.as_str());
     }
 
     let mut world = crate::runtime_host::world::new();
@@ -559,7 +565,7 @@ fn compile_module_artifact_from_source_rejects_when_manifest_path_missing_in_fil
 
 #[test]
 fn compile_module_artifact_from_source_rejects_when_file_count_exceeds_limit() {
-    let _env_lock = crate::env_mut::process_env_lock()
+    let _env_lock = oasis7_hosted_access::process_env::process_env_lock()
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let _env_guard = EnvVarGuard::capture(SOURCE_MAX_FILES_ENV);
@@ -567,11 +573,11 @@ fn compile_module_artifact_from_source_rejects_when_file_count_exceeds_limit() {
     let _removed_old_brand_env_guard = EnvVarGuard::capture(removed_old_brand_max_files.as_str());
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        crate::env_mut::set_var(SOURCE_MAX_FILES_ENV, "1");
+        oasis7_hosted_access::process_env::set_var(SOURCE_MAX_FILES_ENV, "1");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        crate::env_mut::remove_var(removed_old_brand_max_files.as_str());
+        oasis7_hosted_access::process_env::remove_var(removed_old_brand_max_files.as_str());
     }
 
     let mut world = crate::runtime_host::world::new();
@@ -589,7 +595,7 @@ fn compile_module_artifact_from_source_rejects_when_file_count_exceeds_limit() {
 
 #[test]
 fn compile_module_artifact_from_source_rejects_when_compiler_times_out() {
-    let _env_lock = crate::env_mut::process_env_lock()
+    let _env_lock = oasis7_hosted_access::process_env::process_env_lock()
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let _compiler_guard = EnvVarGuard::capture(SOURCE_COMPILER_ENV);
@@ -607,15 +613,18 @@ fn compile_module_artifact_from_source_rejects_when_compiler_times_out() {
     );
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        crate::env_mut::set_var(SOURCE_COMPILER_ENV, compiler_script.as_os_str());
+        oasis7_hosted_access::process_env::set_var(
+            SOURCE_COMPILER_ENV,
+            compiler_script.as_os_str(),
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        crate::env_mut::remove_var(removed_old_brand_compiler.as_str());
+        oasis7_hosted_access::process_env::remove_var(removed_old_brand_compiler.as_str());
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        crate::env_mut::set_var(SOURCE_COMPILE_TIMEOUT_MS_ENV, "20");
+        oasis7_hosted_access::process_env::set_var(SOURCE_COMPILE_TIMEOUT_MS_ENV, "20");
     }
 
     let mut world = crate::runtime_host::world::new();
@@ -634,7 +643,7 @@ fn compile_module_artifact_from_source_rejects_when_compiler_times_out() {
 
 #[test]
 fn compile_module_artifact_from_source_sanitizes_env_and_isolates_tmpdir() {
-    let _env_lock = crate::env_mut::process_env_lock()
+    let _env_lock = oasis7_hosted_access::process_env::process_env_lock()
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
     let _compiler_guard = EnvVarGuard::capture(SOURCE_COMPILER_ENV);
@@ -655,15 +664,18 @@ fn compile_module_artifact_from_source_sanitizes_env_and_isolates_tmpdir() {
     );
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        crate::env_mut::set_var(SOURCE_COMPILER_ENV, compiler_script.as_os_str());
+        oasis7_hosted_access::process_env::set_var(
+            SOURCE_COMPILER_ENV,
+            compiler_script.as_os_str(),
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        crate::env_mut::remove_var(removed_old_brand_compiler.as_str());
+        oasis7_hosted_access::process_env::remove_var(removed_old_brand_compiler.as_str());
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        crate::env_mut::set_var(SOURCE_SANDBOX_SECRET_ENV, "must-not-leak");
+        oasis7_hosted_access::process_env::set_var(SOURCE_SANDBOX_SECRET_ENV, "must-not-leak");
     }
 
     let mut world = crate::runtime_host::world::new();

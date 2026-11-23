@@ -724,7 +724,17 @@ where
             });
         }
 
-        merged.cost.add_assign(&decision.cost);
+        // Rule cost is an advisory projection in the Simulator. Reuse the
+        // same L0 scope contract as Runtime without authorizing a debit.
+        let quote = oasis7_domain_types::rule_settlement::RuleSettlementPolicy::quote(
+            &oasis7_domain_types::rule_settlement::AdvisoryOnly,
+            oasis7_domain_types::rule_settlement::RuleSettlementInput {
+                general: &decision.cost,
+                with_distance: &decision.cost,
+                disposition: oasis7_domain_types::rule_settlement::RuleActionDisposition::Accepted,
+            },
+        );
+        merged.cost.add_assign(quote.selected);
         merged.notes.extend(decision.notes);
 
         match decision.verdict {

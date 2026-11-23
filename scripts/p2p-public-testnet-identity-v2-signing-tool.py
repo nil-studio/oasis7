@@ -918,12 +918,13 @@ def _clear_derived_output(path_value: str | Path, label: str) -> None:
 # signing remains in the external custody adapter.
 Q = 2**255 - 19
 L = 2**252 + 27742317777372353535851937790883648493
-D = (-121665 * pow(121666, Q - 2, Q)) % Q
+D = (-121665 * pow(121666, -1, Q)) % Q
+D2 = (2 * D) % Q
 I = pow(2, (Q - 1) // 4, Q)
 
 
 def _xrecover(y: int) -> int:
-    xx = (y * y - 1) * pow(D * y * y + 1, Q - 2, Q) % Q
+    xx = (y * y - 1) * pow(D * y * y + 1, -1, Q) % Q
     x = pow(xx, (Q + 3) // 8, Q)
     if (x * x - xx) % Q:
         x = x * I % Q
@@ -932,7 +933,7 @@ def _xrecover(y: int) -> int:
     return Q - x if x & 1 else x
 
 
-BY = 4 * pow(5, Q - 2, Q) % Q
+BY = 4 * pow(5, -1, Q) % Q
 BX = _xrecover(BY)
 B = (BX, BY)
 
@@ -940,20 +941,54 @@ B = (BX, BY)
 def _edwards(first: tuple[int, int], second: tuple[int, int]) -> tuple[int, int]:
     x1, y1 = first
     x2, y2 = second
-    denominator_x = pow(1 + D * x1 * x2 * y1 * y2, Q - 2, Q)
-    denominator_y = pow(1 - D * x1 * x2 * y1 * y2, Q - 2, Q)
+    xy = D * x1 * x2 * y1 * y2 % Q
+    denominator_x = pow(1 + xy, -1, Q)
+    denominator_y = pow(1 - xy, -1, Q)
     return ((x1 * y2 + x2 * y1) * denominator_x % Q, (y1 * y2 + x1 * x2) * denominator_y % Q)
 
 
+def _ext_add(
+    first: tuple[int, int, int, int], second: tuple[int, int, int, int]
+) -> tuple[int, int, int, int]:
+    x1, y1, z1, t1 = first
+    x2, y2, z2, t2 = second
+    a = ((y1 - x1) * (y2 - x2)) % Q
+    b = ((y1 + x1) * (y2 + x2)) % Q
+    c = (t1 * D2 * t2) % Q
+    d = (2 * z1 * z2) % Q
+    e = b - a
+    f = d - c
+    g = d + c
+    h = b + a
+    return (e * f) % Q, (g * h) % Q, (f * g) % Q, (e * h) % Q
+
+
+def _ext_double(point: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    x1, y1, z1, _ = point
+    a = (x1 * x1) % Q
+    b = (y1 * y1) % Q
+    c = (2 * z1 * z1) % Q
+    h = a + b
+    s = x1 + y1
+    e = (h - s * s) % Q
+    g = a - b
+    f = c + g
+    return (e * f) % Q, (g * h) % Q, (f * g) % Q, (e * h) % Q
+
+
 def _scalarmult(point: tuple[int, int], scalar: int) -> tuple[int, int]:
-    result = (0, 1)
-    current = point
+    x, y = point[0] % Q, point[1] % Q
+    result = (0, 1, 1, 0)
+    current = (x, y, 1, (x * y) % Q)
     while scalar:
         if scalar & 1:
-            result = _edwards(result, current)
-        current = _edwards(current, current)
+            result = _ext_add(result, current)
         scalar >>= 1
-    return result
+        if scalar:
+            current = _ext_double(current)
+    rx, ry, rz, _ = result
+    inv_z = pow(rz, -1, Q)
+    return (rx * inv_z) % Q, (ry * inv_z) % Q
 
 
 def _encodepoint(point: tuple[int, int]) -> bytes:

@@ -1,9 +1,14 @@
 name: Storage Acceptance
-run-name: Storage acceptance / ${{ github.ref_name }} / namespace ${{ inputs.capacity_scale }} / full-node ${{ inputs.full_node_scale }}
+run-name: Storage ${{ inputs.diagnostics_probe && 'diagnostic probe only' || 'acceptance' }} / ${{ github.ref_name }} / namespace ${{ inputs.capacity_scale }} / full-node ${{ inputs.full_node_scale }}
 
 on:
   workflow_dispatch:
     inputs:
+      diagnostics_probe:
+        description: 'Only exercise diagnostic transport with a fake build; no Storage acceptance'
+        type: boolean
+        required: true
+        default: false
       capacity_scale:
         description: 'Additional actual World capacity run (10 is always verified)'
         type: choice
@@ -61,7 +66,86 @@ env:
   OASIS7_STORAGE_PROGRESS_INTERVAL: '100'
 
 jobs:
+  diagnostics-probe-admission:
+    name: Validate diagnostic probe source
+    if: inputs.diagnostics_probe == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    steps:
+      - name: Reject any source outside the trusted main dispatch
+        shell: bash
+        run: |
+          test "$GITHUB_REPOSITORY" = 'nil-studio/oasis7'
+          test "$GITHUB_EVENT_NAME" = 'workflow_dispatch'
+          test "$GITHUB_REF" = 'refs/heads/main'
+          test "$GITHUB_WORKFLOW_SHA" = "$GITHUB_SHA"
+
+  diagnostics-probe:
+    needs: diagnostics-probe-admission
+    name: Storage diagnostic transport probe (no Cargo)
+    if: >-
+      inputs.diagnostics_probe == true && github.repository == 'nil-studio/oasis7' &&
+      github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+      github.workflow_sha == github.sha
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: *storage-build-image
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Trust the probe checkout in its container
+        shell: bash
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Exercise the real diagnostic uploader with a fake build
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const {spawn} = require('node:child_process');
+            const {main} = require(process.env.GITHUB_WORKSPACE + '/scripts/storage-producer-diagnostics.cjs');
+            const environment = {...process.env};
+            delete environment['INPUT_GITHUB-TOKEN'];
+            const code = await main({env: environment, requireProbeAck: true, runBuild: async ({root, diagnostics, env}) => {
+              // This is a diagnostic-only observer fixture, never a Cargo artifact producer.
+              // Keep the fixture alive past the first upload's 30s bound, so the final
+              // snapshot includes the completed real observer rather than its initial state.
+              const program = `
+            import importlib.util, subprocess, sys
+            from pathlib import Path
+            root, diagnostics = map(Path, sys.argv[1:])
+            sys.path.insert(0, str(root / 'scripts'))
+            spec = importlib.util.spec_from_file_location('diagnostic_artifacts', root / 'scripts/ci-test-artifacts.py')
+            artifacts = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(artifacts)
+            diagnostics.mkdir()
+            with artifacts.BuildObservation('formal-required', diagnostics) as observation:
+                with subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(35)']) as process:
+                    observation.attach(process)
+                    observation.observe_unit(dict(reason='compiler-artifact', fresh=False,
+                        target=dict(name='diagnostic_fake_build_only', kind=['lib'])))
+                    process.wait()
+            `;
+              return await new Promise(resolve => {
+                const child = spawn('python3', ['-c', program, root, diagnostics], {cwd: root, env, stdio: 'inherit'});
+                child.once('error', () => resolve(1));
+                child.once('exit', result => resolve(Number.isInteger(result) ? result : 1));
+              });
+            }});
+            if (code !== 0) throw new Error('Diagnostic-only observer fixture failed');
+            core.notice('Diagnostic transport only: independently download acknowledged snapshots; no Storage acceptance ran.');
+
   build-components:
+    if: inputs.diagnostics_probe != true
     strategy:
       fail-fast: false
       matrix:
@@ -119,7 +203,11 @@ jobs:
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
+      - name: Build required component with in-build diagnostics
+        if: matrix.component == 'storage-required' && github.ref == 'refs/heads/main' && github.repository == 'nil-studio/oasis7'
+        uses: ./.github/actions/storage-producer-diagnostics
       - name: Build and inventory exact native acceptance executables
+        if: matrix.component != 'storage-required' || github.ref != 'refs/heads/main' || github.repository != 'nil-studio/oasis7'
         env:
           COMPONENT: ${{ matrix.component }}
         run: |
@@ -376,7 +464,7 @@ jobs:
     steps: *acceptance-consumer
 
   summary:
-    if: always()
+    if: always() && inputs.diagnostics_probe != true
     needs: [build, verify, capacity-long, full-node-long, attempt-release-reference]
     runs-on: ubuntu-24.04
     timeout-minutes: 10

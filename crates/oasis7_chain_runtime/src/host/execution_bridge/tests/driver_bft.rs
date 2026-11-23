@@ -1,8 +1,5 @@
 use super::*;
 use ed25519_dalek::SigningKey;
-use oasis7::consensus_action_payload::{
-    ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
-};
 use oasis7::world_service::{
     RequestCorrelation, RequestKey, SubmitIntentRequest, WorldIdentity, WorldServicePayloadV1,
 };
@@ -18,6 +15,9 @@ use oasis7_runtime::{
 };
 use oasis7_simulator::{Action as SimulatorAction, ActionSubmitter};
 use oasis7_wasm_executor::{WasmExecutor, WasmExecutorConfig};
+use oasis7_world_service::consensus_action_payload::{
+    ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
+};
 
 pub(super) fn keys() -> Vec<SigningKey> {
     (1..=4)
@@ -124,7 +124,7 @@ fn non_runtime_payloads() -> Vec<(&'static str, Vec<u8>)> {
         version: 1,
         gameplay_submission_origin: None,
         auth: None,
-        body: oasis7::consensus_action_payload::ConsensusActionPayloadBody::WorldServiceIntent {
+        body: oasis7_world_service::consensus_action_payload::ConsensusActionPayloadBody::WorldServiceIntent {
             request: service_request.clone(),
         },
     };

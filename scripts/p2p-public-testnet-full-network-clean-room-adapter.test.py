@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import importlib.machinery
 import importlib.util
 import json
 import os
@@ -20,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import types
 import unittest
 from contextlib import ExitStack
 from datetime import datetime, timezone
@@ -38,15 +40,37 @@ STORAGE_FIRST_CHILD_OPERATIONS = [
     "start:storage-205",
     "verify:storage-205",
 ]
+_COMPILED_MODULE_CODE: dict[str, types.CodeType] = {}
+_SHARED_PLANNER_FIXTURE_MODULE: types.ModuleType | None = None
 
 
 def load_module(name: str, path: Path):
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None or spec.loader is None:
-        raise AssertionError(f"cannot load module: {path}")
+    key = str(path.resolve())
+    code = _COMPILED_MODULE_CODE.get(key)
+    if code is None:
+        if not path.is_file():
+            raise AssertionError(f"cannot load module: {path}")
+        code = compile(path.read_bytes(), str(path), "exec")
+        _COMPILED_MODULE_CODE[key] = code
+    spec = importlib.machinery.ModuleSpec(name, None, origin=str(path))
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module.__file__ = str(path)
+    exec(code, module.__dict__)
     return module
+
+
+_DEFAULT_LOAD_MODULE = load_module
+
+
+def _shared_planner_fixture_module() -> types.ModuleType:
+    global _SHARED_PLANNER_FIXTURE_MODULE
+    if _SHARED_PLANNER_FIXTURE_MODULE is None:
+        fixture_module = _DEFAULT_LOAD_MODULE("shared_full_network_clean_room_fixture", PLANNER_TEST_PATH)
+        fixture_module.FullNetworkCleanRoomPlanTests.setUpClass()
+        _SHARED_PLANNER_FIXTURE_MODULE = fixture_module
+    else:
+        _SHARED_PLANNER_FIXTURE_MODULE.FullNetworkCleanRoomPlanTests.setUpClass()
+    return _SHARED_PLANNER_FIXTURE_MODULE
 
 
 class FakeTransport:
@@ -793,14 +817,23 @@ class FullNetworkCleanRoomAdapterTests(unittest.TestCase):
     def test_same_fleet_distinct_resume_transactions_are_serialized(self):
         self._assert_same_fleet_transactions_serialized(True)
 
+    _owns_isolated_fixture_module = False
+
     @classmethod
     def setUpClass(cls):
-        cls.fixture_module = load_module("full_network_clean_room_fixture", PLANNER_TEST_PATH)
-        cls.fixture_module.FullNetworkCleanRoomPlanTests.setUpClass()
+        if load_module is _DEFAULT_LOAD_MODULE:
+            cls.fixture_module = _shared_planner_fixture_module()
+            cls._owns_isolated_fixture_module = False
+        else:
+            cls.fixture_module = load_module("full_network_clean_room_fixture", PLANNER_TEST_PATH)
+            cls.fixture_module.FullNetworkCleanRoomPlanTests.setUpClass()
+            cls._owns_isolated_fixture_module = True
 
     @classmethod
     def tearDownClass(cls):
-        cls.fixture_module.FullNetworkCleanRoomPlanTests.tearDownClass()
+        if cls._owns_isolated_fixture_module:
+            cls.fixture_module.FullNetworkCleanRoomPlanTests.tearDownClass()
+            cls._owns_isolated_fixture_module = False
 
     def _recovery_verifier(self, plan, receipt):
         return {"verified": True, "bindings": receipt["bindings"],
@@ -4646,10 +4679,7 @@ class StorageFirstAdapterRedTests(unittest.TestCase):
         base = StorageFirstAdapterRedTests
         if hasattr(base, "_canonical_fixture_module"):
             return
-        fixture_module = load_module("storage_first_canonical_fixture", PLANNER_TEST_PATH)
-        fixture_class = fixture_module.FullNetworkCleanRoomPlanTests
-        fixture_class.setUpClass()
-        base._canonical_fixture_module = fixture_module
+        base._canonical_fixture_module = _shared_planner_fixture_module()
 
     def _canonical_fixture(self):
         """Return an isolated canonical plan/authority/trust-root fixture."""

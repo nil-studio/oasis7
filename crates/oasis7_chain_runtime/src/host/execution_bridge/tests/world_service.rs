@@ -8,7 +8,7 @@ fn commit(
     height: u64,
     request: SubmitIntentRequest<WorldServicePayloadV1>,
 ) {
-    let payload = correlation::encode_consensus_intent(&request).unwrap();
+    let payload = oasis7_world_service::correlation::encode_consensus_intent(&request).unwrap();
     let actions = vec![NodeConsensusAction::from_payload(height, "node-a", payload).unwrap()];
     driver
         .on_commit(NodeExecutionCommitContext {
@@ -155,7 +155,7 @@ fn world_service_driver_admin_commit_pin_restart_and_stale_fence() {
     // Node admission preserves the opaque legacy outer frame as well as the
     // registered inner frame. The canonical driver authenticates the request;
     // direct local World execution and unsigned controller actions stay fenced.
-    use oasis7::consensus_action_payload::*;
+    use oasis7_world_service::consensus_action_payload::*;
     let node = oasis7_node::NodeRuntime::new(
         oasis7_node::NodeConfig::new("node-a", "w1", NodeRole::Sequencer)
             .expect("valid node admission fixture"),
@@ -177,7 +177,7 @@ fn world_service_driver_admin_commit_pin_restart_and_stale_fence() {
     );
     node.submit_consensus_action_payload(100, old_frame)
         .unwrap();
-    let registered_frame = correlation::encode_consensus_intent(&registration).unwrap();
+    let registered_frame = oasis7_world_service::correlation::encode_consensus_intent(&registration).unwrap();
     let ConsensusActionPayloadBody::RuntimeAction {
         action: Action::WorldServiceIntent { request: decoded },
     } = decode_consensus_action_payload(&registered_frame).unwrap()
@@ -379,7 +379,7 @@ fn service_recipe_preserves_authenticated_origin_consensus_context_and_replay() 
         &identity,
         WorldServicePayloadV1::GameplayJson(serde_json::to_vec(&gameplay).unwrap()),
     );
-    let payload = correlation::encode_consensus_intent(&original).unwrap();
+    let payload = oasis7_world_service::correlation::encode_consensus_intent(&original).unwrap();
     let committed = NodeConsensusAction::from_payload(17, "node-transport", payload).unwrap();
     let context = NodeExecutionCommitContext {
         world_id: "w1".into(),

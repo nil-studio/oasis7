@@ -17,11 +17,11 @@ fn hosted_registration_persist_failure_rolls_back_binding_and_keeps_grant_retrya
         crate::viewer::derive_hosted_registration_issuer_public_key(issuer_private_key.as_str())
             .expect("derive issuer public key");
     unsafe {
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             crate::viewer::HOSTED_REGISTRATION_ISSUER_PUBLIC_KEY_ENV,
             issuer_public_key,
         );
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             crate::viewer::HOSTED_REGISTRATION_REPLAY_LEDGER_PATH_ENV,
             replay_ledger.as_os_str(),
         );
@@ -113,8 +113,12 @@ fn hosted_registration_persist_failure_rolls_back_binding_and_keeps_grant_retrya
     assert_eq!(ack.status, AuthoritativeRecoveryStatus::SessionRegistered);
 
     unsafe {
-        oasis7::env_mut::remove_var(crate::viewer::HOSTED_REGISTRATION_ISSUER_PUBLIC_KEY_ENV);
-        oasis7::env_mut::remove_var(crate::viewer::HOSTED_REGISTRATION_REPLAY_LEDGER_PATH_ENV);
+        oasis7_hosted_access::process_env::remove_var(
+            crate::viewer::HOSTED_REGISTRATION_ISSUER_PUBLIC_KEY_ENV,
+        );
+        oasis7_hosted_access::process_env::remove_var(
+            crate::viewer::HOSTED_REGISTRATION_REPLAY_LEDGER_PATH_ENV,
+        );
     }
     let _ = std::fs::remove_dir_all(replay_dir);
 }

@@ -5,6 +5,7 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+import textwrap
 import tarfile
 import argparse
 import os
@@ -347,6 +348,58 @@ class Contracts(unittest.TestCase):
         step = workflow.split('- name: Run acceptance with exact inventory and process cleanup\n', 1)[1].split('      - name:', 1)[0]
         self.assertIn(variable + ": ${{ matrix.group == 'full-node' && '1' || '' }}", step)
         self.assertIn('python3 scripts/ci-storage-acceptance.py run', step)
+
+    def test_transport_probe_is_opt_in_and_cannot_accept_storage_results(self):
+        workflow = (HERE.parent / '.github/workflows/storage-acceptance.yml').read_text()
+        input_definition = workflow.split('      diagnostics_probe:\n', 1)[1].split('      capacity_scale:\n', 1)[0]
+        self.assertIn('type: boolean', input_definition)
+        self.assertIn('default: false', input_definition)
+        probe = workflow.split('  diagnostics-probe:\n', 1)[1].split('  build-components:\n', 1)[0]
+        for guard in ("inputs.diagnostics_probe == true", "github.repository == 'nil-studio/oasis7'",
+                      "github.event_name == 'workflow_dispatch'", "github.ref == 'refs/heads/main'",
+                      'github.workflow_sha == github.sha'):
+            self.assertIn(guard, probe)
+        self.assertIn('timeout-minutes: 5', probe)
+        self.assertIn('needs: diagnostics-probe-admission', probe)
+        admission = workflow.split('  diagnostics-probe-admission:\n', 1)[1].split('  diagnostics-probe:\n', 1)[0]
+        self.assertIn('if: inputs.diagnostics_probe == true', admission)
+        self.assertIn('timeout-minutes: 2', admission)
+        self.assertIn('test \"$GITHUB_WORKFLOW_SHA\" = \"$GITHUB_SHA\"', admission)
+        self.assertIn("main({env: environment, requireProbeAck: true, runBuild:", probe)
+        self.assertIn('diagnostic_fake_build_only', probe)
+        program = re.search(r'const program = `(.*?)`;', probe, re.DOTALL).group(1)
+        compile(textwrap.dedent(program), '<trusted-diagnostic-observer-fixture>', 'exec')
+        self.assertNotIn('cargo build', probe)
+        self.assertNotIn('ci-storage-acceptance.py', probe)
+        self.assertNotIn('actions: write', probe)
+        self.assertIn('  build-components:\n    if: inputs.diagnostics_probe != true\n', workflow)
+        self.assertIn('  summary:\n    if: always() && inputs.diagnostics_probe != true\n', workflow)
+
+    def test_live_producer_diagnostics_behavioral_contracts(self):
+        result = subprocess.run(['node', '--test', str(HERE / 'storage-producer-diagnostics.test.cjs')],
+                                cwd=HERE.parent, capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('tests 15', result.stdout)
+        self.assertIn('fail 0', result.stdout)
+
+    def test_live_producer_diagnostics_keep_candidate_builds_on_original_no_token_path(self):
+        workflow = (HERE.parent / '.github/workflows/storage-acceptance.yml').read_text()
+        live, rest = workflow.split('      - name: Build required component with in-build diagnostics\n', 1)[1].split(
+            '      - name: Build and inventory exact native acceptance executables\n', 1)
+        self.assertIn("if: matrix.component == 'storage-required' && github.ref == 'refs/heads/main' && github.repository == 'nil-studio/oasis7'", live)
+        self.assertIn('uses: ./.github/actions/storage-producer-diagnostics', live)
+        implementation = (HERE / 'storage-producer-diagnostics.cjs').read_text()
+        official_pin = re.search(r"const UPLOAD_SHA = '([0-9a-f]{40})'", implementation).group(1)
+        self.assertIn('uses: actions/upload-artifact@' + official_pin, workflow)
+        original = rest.split('      - uses: actions/upload-artifact@', 1)[0]
+        self.assertIn("if: matrix.component != 'storage-required' || github.ref != 'refs/heads/main' || github.repository != 'nil-studio/oasis7'", original)
+        self.assertIn('python3 scripts/ci-storage-acceptance.py build --component "$COMPONENT"', original)
+        self.assertIn('python3 scripts/ci-storage-acceptance.py pack --component "$COMPONENT"', original)
+        build_job = workflow.split('  build-components:\n', 1)[1].split('\n  build:\n', 1)[0]
+        self.assertIn('timeout-minutes: 150', build_job)
+        self.assertNotIn('continue-on-error:', build_job)
+        self.assertNotIn('actions: write', build_job)
+        self.assertNotIn('checks: write', build_job)
 
     def test_build_components_reads_warmed_shared_image_cache_namespace(self):
         workflow = (HERE.parent / '.github/workflows/storage-acceptance.yml').read_text()

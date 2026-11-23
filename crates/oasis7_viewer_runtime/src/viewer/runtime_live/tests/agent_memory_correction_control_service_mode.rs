@@ -64,7 +64,7 @@ impl OfflineProviderFixture {
         // SAFETY: Caller holds the canonical provider environment lock; RAII restores every changed key.
         unsafe {
             for key in keys {
-                oasis7::env_mut::remove_var(key);
+                oasis7_hosted_access::process_env::remove_var(key);
             }
             for (key, value) in [
                 (VIEWER_AGENT_DECISION_SOURCE_ENV, "provider_backed"),
@@ -76,7 +76,7 @@ impl OfflineProviderFixture {
                 (VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity"),
                 (VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_loopback_http"),
             ] {
-                oasis7::env_mut::set_var(key, value);
+                oasis7_hosted_access::process_env::set_var(key, value);
             }
         }
         Self {
@@ -94,8 +94,8 @@ impl Drop for OfflineProviderFixture {
             // SAFETY: The canonical provider lock outlives this fixture.
             unsafe {
                 match value {
-                    Some(v) => oasis7::env_mut::set_var(key, v),
-                    None => oasis7::env_mut::remove_var(key),
+                    Some(v) => oasis7_hosted_access::process_env::set_var(key, v),
+                    None => oasis7_hosted_access::process_env::remove_var(key),
                 }
             }
         }

@@ -7,9 +7,6 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use super::ClosedRuntimeAction;
-use oasis7::consensus_action_payload::{
-    ConsensusActionPayloadBody, decode_consensus_action_payload_envelope,
-};
 use oasis7_consensus::tendermint_v2::{
     BftHeightProposerScheduleV2, VerifiedBftCommitCertificateV2,
 };
@@ -27,6 +24,9 @@ use oasis7_runtime::{
     World as RuntimeWorld, blake3_hex,
 };
 use oasis7_wasm_executor::{WasmExecutor, WasmExecutorConfig};
+use oasis7_world_service::consensus_action_payload::{
+    ConsensusActionPayloadBody, decode_consensus_action_payload_envelope,
+};
 use serde::Serialize;
 
 #[path = "driver_bft_v2_execution.rs"]

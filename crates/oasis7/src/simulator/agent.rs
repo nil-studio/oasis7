@@ -3,8 +3,6 @@
 use super::archive::WorldEvent;
 use serde::{Deserialize, Serialize};
 
-use oasis7_wasm_abi::AgentCommandResponse;
-
 use super::continuous_agent_harness::{
     ContinuousAgentRequestContextV1, ContinuousAgentResponseContextV1, ContinuousAgentTurnContextV1,
 };
@@ -123,151 +121,13 @@ pub trait AgentBehavior {
     }
 }
 
-/// The result of an agent's decision process.
-#[expect(
-    clippy::large_enum_variant,
-    reason = "Stable agent decision wire enum preserves direct gameplay action payloads."
-)]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum AgentDecision {
-    /// The agent decides to perform an action.
-    Act(Action),
-    /// The agent requests read-only information from the current world snapshot.
-    Query(AgentQuery),
-    /// A provider-produced capability response.  This is deliberately a
-    /// separate decision lane: the simulator runner must never turn a typed
-    /// module response into a core [`Action`].  A trusted host adapter owns
-    /// execution against the runtime World.
-    ModuleCommand { response: AgentCommandResponse },
-    /// The agent decides to wait/skip this turn.
-    Wait,
-    /// The agent decides to wait for a specific number of ticks.
-    WaitTicks(u64),
-}
-
-pub use oasis7_simulator::{AgentQuery, AgentQueryResult, MicroDepotQuoteRequest};
-
-impl AgentDecision {
-    /// Returns true if the agent decided to act.
-    pub fn is_act(&self) -> bool {
-        matches!(self, AgentDecision::Act(_))
-    }
-
-    /// Returns the action if the agent decided to act.
-    pub fn action(&self) -> Option<&Action> {
-        match self {
-            AgentDecision::Act(action) => Some(action),
-            _ => None,
-        }
-    }
-}
-
-/// Optional decision trace payload, intended for observability/diagnostics.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AgentDecisionTrace {
-    pub agent_id: String,
-    pub time: WorldTime,
-    pub decision: AgentDecision,
-    pub llm_input: Option<String>,
-    pub llm_output: Option<String>,
-    pub llm_error: Option<String>,
-    pub parse_error: Option<String>,
-    #[serde(default)]
-    pub llm_diagnostics: Option<LlmDecisionDiagnostics>,
-    #[serde(default)]
-    pub llm_effect_intents: Vec<LlmEffectIntentTrace>,
-    #[serde(default)]
-    pub llm_effect_receipts: Vec<LlmEffectReceiptTrace>,
-    #[serde(default)]
-    pub llm_step_trace: Vec<LlmStepTrace>,
-    #[serde(default)]
-    pub llm_prompt_section_trace: Vec<LlmPromptSectionTrace>,
-    #[serde(default)]
-    pub llm_chat_messages: Vec<LlmChatMessageTrace>,
-}
-
-pub use oasis7_simulator::{LlmEffectIntentTrace, LlmEffectReceiptTrace};
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LlmStepTrace {
-    pub step_index: usize,
-    pub step_type: String,
-    pub input_summary: String,
-    pub output_summary: String,
-    pub status: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LlmPromptSectionTrace {
-    pub step_index: usize,
-    pub kind: String,
-    pub priority: String,
-    pub included: bool,
-    pub estimated_tokens: usize,
-    pub emitted_tokens: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum LlmChatRole {
-    Player,
-    Agent,
-    Tool,
-    System,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct LlmChatMessageTrace {
-    pub time: WorldTime,
-    pub agent_id: String,
-    pub role: LlmChatRole,
-    pub content: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct LlmDecisionDiagnostics {
-    /// A bounded public explanation supplied by the Agent. This is never
-    /// Runtime evidence that its prediction or proposed action took effect.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agency_explanation: Option<AgentDecisionExplanationV1>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub latency_ms: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub prompt_tokens: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub completion_tokens: Option<u64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub total_tokens: Option<u64>,
-    #[serde(default)]
-    pub retry_count: u32,
-    /// Native Harness request budget and consumed invocation counts. These
-    /// are absent for legacy unbudgeted traces and never imply opaque
-    /// ProviderBacked usage or billing.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_model_calls: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model_calls_used: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_tool_calls: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tool_calls_used: Option<u32>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AgentDecisionExplanationV1 {
-    pub status: String,
-    pub provenance: String,
-    pub reason: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub dissent: Option<String>,
-    pub evidence_refs: Vec<String>,
-    pub stakes: Option<String>,
-    pub expected_consequence: Option<String>,
-    pub alternatives: Vec<String>,
-    pub next_step: String,
-}
+// Decision grammar and diagnostic projections are pure L2 values.
+// Host behavior and action result remain bound to live provider/archive owners.
+pub use oasis7_simulator::{
+    AgentDecision, AgentDecisionExplanationV1, AgentDecisionTrace, AgentQuery, AgentQueryResult,
+    LlmChatMessageTrace, LlmChatRole, LlmDecisionDiagnostics, LlmEffectIntentTrace,
+    LlmEffectReceiptTrace, LlmPromptSectionTrace, LlmStepTrace, MicroDepotQuoteRequest,
+};
 
 /// Result of an action execution, providing feedback to the agent.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

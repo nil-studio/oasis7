@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build once and run native test executables without Cargo on consumers."""
 import argparse
+from datetime import datetime, timezone
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import gzip
 import hashlib
@@ -314,6 +315,30 @@ UNIT_TEST_CONTRACT_FIELDS = frozenset((
 
 ORDINARY_ARTIFACT_PARTITIONS = ('controls', 'runtime', 'component-libs', 'integrations-0', 'integrations-1')
 TARGETED_ORDINARY_ARTIFACT_PARTITIONS = ('controls', 'native-0', 'native-1', 'native-2', 'native-3')
+COMPACT_TARGETED_ORDINARY_ARTIFACT_PARTITIONS = ('controls', 'native-0', 'native-1')
+COMPACT_ORDINARY_NON_RUNTIME_BUDGET_MS = 300000
+
+
+def targeted_ordinary_artifact_partitions(plan):
+    if (isinstance(plan, dict)
+            and plan.get('ordinary_dynamic_partition_version') == 1
+            and plan.get('scope') == 'targeted'
+            and isinstance(plan.get('ordinary_harness_costs'), dict)
+            and isinstance(plan.get('oasis7_required_packages'), list)):
+        selected = set(plan['oasis7_required_packages'])
+        if not {'oasis7', 'oasis7_world_state'}.intersection(selected):
+            non_runtime_ms = sum(
+                row['elapsed_ms'] for row in plan['ordinary_harness_costs']['harnesses']
+                if row['package'] in selected
+                and not (row['package'] == 'oasis7_chain_runtime'
+                         and row['target_kind'] == 'lib'
+                         and row['target_name'] == 'oasis7_chain_runtime'
+                         and row['variant'] == 'required'
+                         and row['mode'] == 'batch')
+            )
+            if non_runtime_ms <= COMPACT_ORDINARY_NON_RUNTIME_BUDGET_MS:
+                return COMPACT_TARGETED_ORDINARY_ARTIFACT_PARTITIONS
+    return TARGETED_ORDINARY_ARTIFACT_PARTITIONS
 
 # This is one reviewed source-sharing contract, not name-based test deduplication.
 # Pin the shared cases, their fixture, the AgentState re-export chain and the
@@ -374,7 +399,8 @@ def fast_plan(plan):
             raise ValueError('invalid ordinary risk target capability')
     partitioned = isinstance(plan, dict) and bool(
         {'ordinary_partition_version', 'ordinary_artifact_partition_version', 'ordinary_partitions',
-         'ordinary_artifact_delivery_version', 'ordinary_harness_costs'}.intersection(plan))
+         'ordinary_artifact_delivery_version', 'ordinary_harness_costs',
+         'ordinary_dynamic_partition_version'}.intersection(plan))
     distfs_clippy = isinstance(plan, dict) and bool(
         {'distfs_clippy_contract_version', 'distfs_clippy_group'}.intersection(plan))
     if distfs_clippy and 'fast_plan_version' not in plan:
@@ -548,6 +574,12 @@ def validate_ordinary_partitions(plan):
         if plan.get('ordinary_artifact_partition_version') != 2:
             raise ValueError('ordinary harness costs require artifact v2')
         validate_ordinary_harness_costs(plan['ordinary_harness_costs'])
+    if 'ordinary_dynamic_partition_version' in plan:
+        if (type(plan['ordinary_dynamic_partition_version']) is not int
+                or plan['ordinary_dynamic_partition_version'] != 1
+                or plan.get('ordinary_artifact_partition_version') != 2
+                or 'ordinary_harness_costs' not in plan):
+            raise ValueError('invalid ordinary dynamic partition capability')
     if 'ordinary_artifact_delivery_version' in plan:
         if (type(plan['ordinary_artifact_delivery_version']) is not int
                 or plan['ordinary_artifact_delivery_version'] not in (1, 2)
@@ -556,7 +588,7 @@ def validate_ordinary_partitions(plan):
             raise ValueError('invalid ordinary artifact delivery capability')
     if 'ordinary_artifact_partition_version' in plan:
         version = plan['ordinary_artifact_partition_version']
-        expected = ORDINARY_ARTIFACT_PARTITIONS if version == 1 else TARGETED_ORDINARY_ARTIFACT_PARTITIONS
+        expected = ORDINARY_ARTIFACT_PARTITIONS if version == 1 else targeted_ordinary_artifact_partitions(plan)
         if (type(version) is not int or version not in (1, 2)
                 or 'ordinary_partition_version' in plan
                 or 'fast_execution_version' in plan
@@ -1369,7 +1401,10 @@ class BuildObservation:
         self.process = self.observer = None
         self.before = {}
         self.started = time.monotonic()
-        self.report = dict(variant=variant, status='running', cargo_exit_code=None, timings=[])
+        self.report = dict(variant=variant, status='running', cargo_exit_code=None, timings=[],
+                           started_at=datetime.now(timezone.utc).isoformat(),
+                           completed_units=0, latest_completed_unit=None)
+        self.last_unit_write = self.started
 
     def warn(self, error):
         print(f'::warning::Build diagnostics for {self.variant}: {type(error).__name__}', flush=True)
@@ -1385,6 +1420,7 @@ class BuildObservation:
         if self.directory is not None:
             try:
                 self.report['elapsed_seconds'] = round(time.monotonic() - self.started, 3)
+                self.report['observed_at'] = datetime.now(timezone.utc).isoformat()
                 temporary = self.directory / 'build.json.tmp'
                 temporary.write_text(json.dumps(self.report, indent=2) + '\n')
                 temporary.replace(self.directory / 'build.json')
@@ -1404,6 +1440,21 @@ class BuildObservation:
                 print('native_build_start=' + json.dumps(self.report), flush=True)
         return self
 
+    def observe_unit(self, artifact):
+        if self.directory is None or artifact.get('reason') != 'compiler-artifact':
+            return
+        self.report['completed_units'] += 1
+        target = artifact.get('target', {})
+        self.report['latest_completed_unit'] = dict(
+            observed_at=datetime.now(timezone.utc).isoformat(),
+            target_name=str(target.get('name', ''))[:256],
+            target_kind=[str(kind)[:64] for kind in target.get('kind', [])[:8]],
+            fresh=artifact.get('fresh') is True)
+        now = time.monotonic()
+        if now - self.last_unit_write >= 20:
+            self.write()
+            self.last_unit_write = now
+
     def attach(self, process):
         self.process = process
         if self.directory is not None:
@@ -1411,7 +1462,7 @@ class BuildObservation:
                 self.observer = subprocess.Popen([
                     sys.executable, str(Path(__file__).with_name('package-ecs-resource-monitor.py')),
                     '--out', str(self.directory / 'resources.json'), '--pid', str(process.pid),
-                    '--label', self.variant, '--heartbeat-seconds', '20'], cwd=ROOT)
+                    '--disk-path', str(ROOT), '--label', self.variant, '--heartbeat-seconds', '20'], cwd=ROOT)
             except OSError as error:
                 self.warn(error)
 
@@ -1649,6 +1700,7 @@ def build(bundle, scope='all', cache_state_path=None, plan=None, diagnostics_dir
                     artifact = json.loads(line)
                 except ValueError:
                     continue
+                observation.observe_unit(artifact)
                 if artifact.get('reason') == 'compiler-message':
                     print(artifact['message'].get('rendered', ''), end='', flush=True)
                 if variant == 'required' and shared_units is not None:
@@ -2371,69 +2423,6 @@ def unpack_ordinary_delivery(common, payload, bundle, plan, partition, *, diagno
     except BaseException:
         shutil.rmtree(bundle)
         raise
-
-
-def measure_ordinary_delivery(archive_path, directory, plan):
-    """Diagnostic transport roundtrip only; never execute behavior tests or rewrite a plan."""
-    directory.mkdir(parents=True, exist_ok=False)
-    restored = {}
-    with tempfile.TemporaryDirectory(prefix='roundtrip-', dir=directory) as temporary:
-        root = Path(temporary)
-        original, archives = root / 'original', root / 'archives'
-        original.mkdir()
-        with tarfile.open(archive_path, mode='r|gz') as archive:
-            raw = read_archive_metadata(archive, 'manifest.json')
-            manifest = json.loads(raw)
-            validate_artifact_manifest(manifest, 'ordinary', plan=plan)
-            layout, files = ordinary_delivery_layout(manifest, plan, diagnostic=True)
-            (original / 'manifest.json').write_bytes(raw)
-            extract_artifact_files(archive, original, {name: sha for values in files.values() for name, sha in values.items()})
-        # Packing verifies the original file/resource identities. Actual harness
-        # inventories are checked once, by their real local consumption owners.
-        report = pack_ordinary_delivery(original, archives, plan, diagnostic=True)
-        if report['parent_manifest_sha256'] != hashlib.sha256(raw).hexdigest():
-            raise ValueError('ordinary delivery diagnostic changed the original parent manifest')
-        shutil.rmtree(original)
-        for name in layout['common']:
-            entry = manifest['binaries'][name]
-            path = Path(entry['original_executable'])
-            if not entry['test'] and path.is_relative_to(ROOT / 'target'):
-                if path.exists() or path.is_symlink() or not path.resolve().is_relative_to((ROOT / 'target').resolve()):
-                    raise ValueError('ordinary delivery diagnostic requires absent helper destinations')
-                # Cargo variants can share an original path. Match load()'s
-                # sorted logical order and verify its final file once, while
-                # retaining every logical binary in the parent and archives.
-                restored[path] = entry['sha256']
-        report.update(behavior_tests_executed=0, partitions={},
-                      legacy_compressed_bytes=archive_path.stat().st_size,
-                      legacy_consumer_compressed_bytes=len(ORDINARY_ARTIFACT_PARTITIONS) * archive_path.stat().st_size)
-        try:
-            for partition in ORDINARY_ARTIFACT_PARTITIONS[1:]:
-                destination = root / partition
-                row = unpack_ordinary_delivery(archives / 'common.tar.gz', archives / (partition + '.tar.gz'),
-                                               destination, plan, partition, diagnostic=True)
-                started = time.monotonic()
-                loaded, _ = load(destination, 'ordinary', plan=plan,
-                                 ordinary_artifact_partition=partition, diagnostic_delivery=True)
-                if loaded != manifest:
-                    raise ValueError('ordinary delivery diagnostic changed the parent inventory')
-                for path, sha in restored.items():
-                    if not path.is_file() or digest(path) != sha or not os.access(path, os.X_OK):
-                        raise ValueError('ordinary delivery did not restore an original helper')
-                    path.unlink()
-                row.update(validation_seconds=round(time.monotonic() - started, 3),
-                           helpers_restored=len(restored), inventory_verified=True)
-                report['partitions'][partition] = row
-                shutil.rmtree(destination)
-        finally:
-            # Only destinations verified absent before this diagnostic are ours.
-            for path, sha in restored.items():
-                if path.is_file() and digest(path) == sha:
-                    path.unlink()
-        report['complete'] = set(report['partitions']) == set(ORDINARY_ARTIFACT_PARTITIONS[1:])
-        (directory / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
-        print('ordinary_delivery_preview=' + json.dumps(report), flush=True)
-        return report
 
 
 def cache_budget(target, maximum=8 * 1024 ** 3):
@@ -3330,7 +3319,7 @@ def ordinary_artifact_entries(manifest, plan, partition):
     if plan.get('ordinary_artifact_partition_version') not in (1, 2) or partition not in ordinary_partitions(plan):
         raise ValueError('unknown complete ordinary artifact partition')
     if plan['ordinary_artifact_partition_version'] == 2:
-        return targeted_ordinary_artifact_entries(manifest, partition)
+        return targeted_ordinary_artifact_entries(manifest, partition, plan=plan)
     buckets = {name: [] for name in ORDINARY_ARTIFACT_PARTITIONS}
     entries = ordinary_entries(manifest)
     identities = [(entry['binary'], entry.get('filter')) for entry in entries]
@@ -3387,9 +3376,12 @@ def expand_ordinary_batches(entries, binaries):
     return expanded
 
 
-def targeted_ordinary_artifact_entries(manifest, partition):
+def targeted_ordinary_artifact_entries(manifest, partition, plan=None):
     """Partition real runtime cases, retaining every other complete harness."""
-    owners = TARGETED_ORDINARY_ARTIFACT_PARTITIONS[1:]
+    effective_plan = manifest.get('execution_plan') if plan is None else plan
+    owners = tuple(ordinary_partitions(effective_plan)[1:])
+    if owners not in (COMPACT_TARGETED_ORDINARY_ARTIFACT_PARTITIONS[1:], TARGETED_ORDINARY_ARTIFACT_PARTITIONS[1:]):
+        raise ValueError('unsupported targeted ordinary native owners')
     entries = expand_ordinary_batches(ordinary_entries(manifest), manifest['binaries'])
     runtime = [entry for entry in entries if entry.get('batch') and (
         manifest['binaries'][entry['binary']].get('package'),
@@ -3603,7 +3595,7 @@ def main():
     global ROOT, CONFIG, FORMAL_AUTHORITY
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=['prepare-provider', 'build', 'merge-formal', 'run', 'pack',
-                        'unpack-ordinary', 'measure-ordinary-delivery', 'shards', 'required-args',
+                        'unpack-ordinary', 'shards', 'required-args',
                         'cache-build', 'cache-budget', 'cache-stage', 'cache-restore'])
     parser.add_argument('--repo-root', type=Path, default=ROOT)
     parser.add_argument('--bundle', type=Path)
@@ -3721,10 +3713,6 @@ def main():
             parser.error('unpack-ordinary requires common/partition archives and a native owner')
         unpack_ordinary_delivery(args.common_archive, args.partition_archive, args.bundle.resolve(), plan,
                                  args.ordinary_partition)
-    elif args.action == 'measure-ordinary-delivery':
-        if not args.input_archive:
-            parser.error('measure-ordinary-delivery requires --input-archive')
-        measure_ordinary_delivery(args.input_archive, args.bundle.resolve(), plan)
     else:
         execute(args.bundle.resolve(), args.suite, args.results or ROOT / 'output/formal-process/results.jsonl',
                 args.shard, plan, args.ordinary_partition)

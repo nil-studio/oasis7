@@ -292,7 +292,7 @@ jobs:
   compile-metrics-linux:
     name: compile-metrics-${{ matrix.platform }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 35
     strategy:
       matrix:
         platform: [linux-x64]
@@ -311,7 +311,7 @@ jobs:
     needs: [compile-metrics, compile-metrics-linux]
     if: always()
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
       - name: Download compile metrics artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2

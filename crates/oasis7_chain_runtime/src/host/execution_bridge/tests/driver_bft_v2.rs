@@ -1,8 +1,4 @@
 use ed25519_dalek::{Signer, SigningKey};
-use oasis7::consensus_action_payload::{
-    ConsensusActionAuthEnvelope, ConsensusActionPayloadBody, ConsensusActionPayloadEnvelope,
-    encode_consensus_action_payload,
-};
 use oasis7_agent_api::world_action::GeoPos;
 use oasis7_consensus::tendermint_v2::{
     BftHeightProposerScheduleV2, BftSchedulePolicyV2, verify_commit_certificate_token_v2,
@@ -21,6 +17,10 @@ use oasis7_proto::distributed_bft::v2::{
     BftProposalHeaderV2, BftVotePhaseV2, BftVoteV2, BftVoteValueV2,
 };
 use oasis7_runtime::Action as RuntimeAction;
+use oasis7_world_service::consensus_action_payload::{
+    ConsensusActionAuthEnvelope, ConsensusActionPayloadBody, ConsensusActionPayloadEnvelope,
+    encode_consensus_action_payload,
+};
 use std::collections::BTreeMap;
 use std::net::{SocketAddr, TcpListener};
 use std::sync::{Arc, Mutex};

@@ -2337,69 +2337,6 @@ class OrdinaryArtifactDelivery(unittest.TestCase):
                 artifacts.load(destination, 'ordinary', plan=self.plan, ordinary_artifact_partition='runtime')
             shutil.rmtree(destination)
 
-    def test_diagnostic_roundtrip_keeps_original_plan_and_restores_helpers_each_time(self):
-        self.plan.pop('ordinary_artifact_delivery_version')
-        self.write_parent()
-        legacy = self.root / 'legacy.tar.gz'
-        artifacts.pack(self.bundle, legacy, 'ordinary', plan=self.plan)
-        report = artifacts.measure_ordinary_delivery(legacy, self.root / 'diagnostic', self.plan)
-        self.assertTrue(report['complete'])
-        self.assertEqual(report['behavior_tests_executed'], 0)
-        self.assertTrue(all(row['helpers_restored'] == 2 and row['inventory_verified']
-                            for row in report['partitions'].values()))
-        self.assertNotIn('ordinary_artifact_delivery_version', self.plan)
-        self.assertFalse((self.root / 'target/debug/viewer').exists())
-        self.assertEqual([path.name for path in (self.root / 'diagnostic').iterdir()], ['report.json'])
-
-    def test_diagnostic_roundtrip_keeps_aliases_and_restores_each_cargo_path_once(self):
-        self.plan.pop('ordinary_artifact_delivery_version')
-        helper = self.manifest['binaries']['required-executable-helper']
-        viewer = self.manifest['binaries']['viewer']
-        helper['original_executable'] = viewer['original_executable']
-        original = Path(viewer['original_executable'])
-        for distinct in (False, True):
-            with self.subTest(distinct_bytes=distinct):
-                if distinct:
-                    self.file(helper['path'], (self.bundle / viewer['path']).read_bytes() + b'# another build variant\n', True)
-                    helper['sha256'] = artifacts.digest(self.bundle / helper['path'])
-                self.write_parent()
-                legacy = self.root / f'legacy-alias-{distinct}.tar.gz'
-                artifacts.pack(self.bundle, legacy, 'ordinary', plan=self.plan)
-                report = artifacts.measure_ordinary_delivery(legacy, self.root / f'diagnostic-alias-{distinct}', self.plan)
-                self.assertTrue(report['complete'])
-                self.assertEqual(len(report['archives']['common']['binaries']), 2)
-                self.assertEqual(len({row['sha256'] for row in report['archives']['common']['binaries']}),
-                                 2 if distinct else 1)
-                self.assertTrue(all(row['helpers_restored'] == 1 and row['inventory_verified']
-                                    for row in report['partitions'].values()))
-                self.assertEqual(report['behavior_tests_executed'], 0)
-                self.assertFalse(original.exists())
-
-    def test_diagnostic_roundtrip_rejects_missing_or_corrupt_final_helper_alias(self):
-        self.plan.pop('ordinary_artifact_delivery_version')
-        helper = self.manifest['binaries']['required-executable-helper']
-        viewer = self.manifest['binaries']['viewer']
-        helper['original_executable'] = viewer['original_executable']
-        self.file(helper['path'], (self.bundle / viewer['path']).read_bytes() + b'# another build variant\n', True)
-        helper['sha256'] = artifacts.digest(self.bundle / helper['path'])
-        self.write_parent()
-        legacy = self.root / 'legacy-bad-alias.tar.gz'
-        artifacts.pack(self.bundle, legacy, 'ordinary', plan=self.plan)
-        original = Path(viewer['original_executable'])
-        real_load = artifacts.load
-        for damage in ('missing', 'earlier-variant'):
-            def damaged_load(*args, **kwargs):
-                loaded = real_load(*args, **kwargs)
-                if damage == 'missing':
-                    original.unlink()
-                else:
-                    original.write_bytes((self.bundle / helper['path']).read_bytes())
-                return loaded
-            with self.subTest(damage=damage), patch.object(artifacts, 'load', side_effect=damaged_load):
-                with self.assertRaisesRegex(ValueError, 'did not restore an original helper'):
-                    artifacts.measure_ordinary_delivery(legacy, self.root / f'diagnostic-bad-alias-{damage}', self.plan)
-            original.unlink(missing_ok=True)
-
     def test_shared_provider_and_builtin_resources_keep_full_parent_requirements(self):
         self.manifest['binaries']['runtime-tests']['features'] = ['test_tier_full']
         self.manifest['binaries']['component']['features'] = ['wasmtime', 'test_tier_full']
@@ -2683,6 +2620,29 @@ class CasePartitionArtifactDelivery(unittest.TestCase):
         self.assertEqual(report['consumer_compressed_bytes'], sum(
             report['archives']['common']['compressed_bytes'] + report['archives'][owner]['compressed_bytes']
             for owner in self.plan['ordinary_partitions'][1:]))
+
+    def test_compact_three_partition_delivery_covers_every_case_and_binary(self):
+        self.plan.update(
+            scope='targeted',
+            oasis7_required_packages=['oasis7_chain_runtime'],
+            ordinary_dynamic_partition_version=1,
+            ordinary_partitions=list(artifacts.COMPACT_TARGETED_ORDINARY_ARTIFACT_PARTITIONS),
+            ordinary_harness_costs=json.loads((HERE / 'ci-required-scope.json').read_text())['ordinary_harness_costs'],
+        )
+        self.write_parent()
+        report = self.pack()
+        self.assertEqual(set(report['archives']), {'common', 'native-0', 'native-1'})
+        cases = []
+        for owner in ('native-0', 'native-1'):
+            destination, _ = self.unpack(owner)
+            manifest, _ = artifacts.load(destination, 'ordinary', plan=self.plan, ordinary_artifact_partition=owner)
+            selected = artifacts.ordinary_artifact_entries(manifest, self.plan, owner)
+            cases.extend(TargetedArtifactPartitions().coverage(manifest, selected))
+        self.assertCountEqual(cases, TargetedArtifactPartitions().coverage(
+            self.manifest, artifacts.ordinary_entries(self.manifest)))
+        self.assertEqual(len(cases), len(set(cases)))
+        with self.assertRaises(ValueError):
+            artifacts.fast_plan(self.plan | {'ordinary_partitions': ['controls', 'native-0', 'native-1', 'native-2', 'native-3']})
 
     def test_full_case_partition_delivery_requires_new_authority_and_preserves_profile_gates(self):
         for scope in ('targeted', 'full'):
@@ -4861,6 +4821,26 @@ fn rendezvous(name: &str, peer: &str) {
 
 
 class BuildDiagnostics(unittest.TestCase):
+    def test_completed_unit_receipt_is_bounded_and_does_not_claim_active_stage(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            observation = artifacts.BuildObservation('required', root)
+            observation.directory.mkdir()
+            observation.last_unit_write -= 21
+            observation.observe_unit(dict(reason='compiler-message', message='not a completed unit'))
+            self.assertEqual(observation.report['completed_units'], 0)
+            observation.observe_unit(dict(reason='compiler-artifact', target={
+                'name': 'a' * 400, 'kind': ['lib']}, fresh=False,
+                package_id='private-registry-secret', manifest_path='/private/path'))
+            report = json.loads((observation.directory / 'build.json').read_text())
+            self.assertEqual(report['completed_units'], 1)
+            self.assertEqual(len(report['latest_completed_unit']['target_name']), 256)
+            self.assertFalse(report['latest_completed_unit']['fresh'])
+            self.assertEqual(report['status'], 'running')
+            self.assertIsNone(report['cargo_exit_code'])
+            self.assertNotIn('private', json.dumps(report))
+            self.assertIn('observed_at', report['latest_completed_unit'])
+
     def test_only_current_timing_files_are_published_with_start_and_end_state(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

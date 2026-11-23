@@ -134,6 +134,84 @@ fn quic_muxer_shares_directional_and_total_byte_budget_across_streams() {
 }
 
 #[test]
+fn real_quic_window_waits_sixty_seconds_and_does_not_revive_cancelled_payload() {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            tokio::time::timeout(Duration::from_secs(70), async {
+                let (mut server, client) = quic_muxers().await;
+                // Unlike the fast boundary tests, this uses the real monotonic
+                // clock and an untouched, empty production window. The remote
+                // stream independently witnesses the bytes it receives.
+                let window = Arc::new(
+                    WireByteWindow::new(WireByteLimits {
+                        inbound: 8,
+                        outbound: 4,
+                        total: 4,
+                    })
+                    .unwrap(),
+                );
+                let mut client = InstrumentedStreamMuxer::new(
+                    client,
+                    Libp2pWireByteCounters::with_window(Arc::clone(&window)),
+                );
+                let mut stream = poll_fn(|cx| Pin::new(&mut client).poll_outbound(cx))
+                    .await
+                    .unwrap();
+                let before_first_write = std::time::Instant::now();
+                assert_eq!(stream.write(b"original").await.unwrap(), 4);
+                let first_write_done = std::time::Instant::now();
+                let mut remote = poll_fn(|cx| Pin::new(&mut server).poll_inbound(cx))
+                    .await
+                    .unwrap();
+                let mut received = [0; 4];
+                remote.read_exact(&mut received).await.unwrap();
+                assert_eq!(&received, b"orig");
+
+                assert!(
+                    tokio::time::timeout(Duration::from_millis(30), stream.write(b"cancelled"))
+                        .await
+                        .is_err()
+                );
+                let cancelled = window.snapshot().unwrap();
+                assert_eq!(cancelled.actual_bytes.outbound, 4);
+                assert_eq!(cancelled.charged_bytes.total, 4);
+                assert_eq!(cancelled.uncertain_charge_bytes.total, 0);
+                assert_eq!(cancelled.reserved_bytes.total, 0);
+                // An empty caller buffer must remain immediately successful
+                // without converting a quota wait into a false remote EOF.
+                assert_eq!(stream.write(&[]).await.unwrap(), 0);
+
+                assert_eq!(
+                    tokio::time::timeout(Duration::from_secs(63), stream.write(b"next"))
+                        .await
+                        .expect("natural window did not wake a valid fresh write")
+                        .unwrap(),
+                    4
+                );
+                assert!(
+                    before_first_write.elapsed() >= Duration::from_secs(60),
+                    "the same real connection obtained replacement quota too early"
+                );
+                assert!(
+                    first_write_done.elapsed() <= Duration::from_secs(63),
+                    "natural bucket expiry added more than the bounded scheduling margin"
+                );
+                remote.read_exact(&mut received).await.unwrap();
+                assert_eq!(&received, b"next", "the cancelled plaintext was revived");
+                let renewed = window.snapshot().unwrap();
+                assert_eq!(renewed.actual_bytes.outbound, 4);
+                assert_eq!(renewed.charged_bytes.total, 4);
+                assert_eq!(renewed.reserved_bytes.total, 0);
+            })
+            .await
+            .expect("real 60-second QUIC window fixture timed out");
+        });
+}
+
+#[test]
 fn real_tcp_yamux_write_zero_refunds_only_the_failed_poll() {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
