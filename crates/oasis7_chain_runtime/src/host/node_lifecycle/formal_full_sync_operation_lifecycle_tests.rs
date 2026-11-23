@@ -956,6 +956,13 @@ fn budgeted_real_deadline_stops_failover_without_refreshing_attempt() {
     );
 }
 
+#[path = "formal_full_sync_operation_shipping_renewal_tests.rs"]
+mod shipping_renewal;
+
+pub(super) fn budgeted_shipping_cli_renewal_preserves_original_and_advances() {
+    shipping_renewal::run();
+}
+
 /// Executed by the already registered shipping lifecycle CLI case, with the
 /// exact same candidate runtime binary supplied by the formal artifact runner.
 pub(super) fn budgeted_shipping_cli_completes_seventeen_cycles_and_local_cold_readback() {
