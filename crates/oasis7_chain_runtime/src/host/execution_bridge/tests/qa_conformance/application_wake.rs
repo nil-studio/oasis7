@@ -1,6 +1,6 @@
 //! Real provider Wait checkpoint, canonical selection, ResumeWake and Act closure.
 use super::*;
-use oasis7::world_service::client::WorldServiceAgentSignerConfig;
+use oasis7_world_service::client::WorldServiceAgentSignerConfig;
 use oasis7_simulator::WorldScenario;
 use oasis7_viewer_runtime::viewer::{
     ViewerLiveDecisionMode, ViewerRuntimeLiveServer, ViewerRuntimeLiveServerConfig,
@@ -97,7 +97,7 @@ pub(super) fn start_parent_clock(fixture: &Fixture, enabled: bool) -> ParentCloc
 
 fn view(
     client: &RemoteWorldServiceClient,
-) -> oasis7::world_service::verified_view::VerifiedWorldView {
+) -> oasis7_world_service::verified_view::VerifiedWorldView {
     client
         .read_view(ReadWorldViewRequest {
             observation_nonce: None,

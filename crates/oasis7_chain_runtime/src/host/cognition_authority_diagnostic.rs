@@ -32,7 +32,7 @@ pub(super) fn observe(
     request_commitment: &str,
     captured: &RuntimeCognitionBaseBindingV1,
     world: &World,
-    correlation: Option<&oasis7::world_service::RequestCorrelation>,
+    correlation: Option<&oasis7_world_service::RequestCorrelation>,
     pin_bracket: Option<(u64, u64)>,
 ) {
     let Some(elapsed_us) = timestamp() else {

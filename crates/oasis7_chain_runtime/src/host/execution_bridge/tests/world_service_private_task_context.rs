@@ -6,7 +6,7 @@ mod phases;
 mod queue;
 use super::private_goal_tests::{consumer, http, http_with_hook};
 use super::*;
-use oasis7::world_service::{
+use oasis7_world_service::{
     private_goal_prepare::sign_goal_prepare, private_goal_read::publication,
     private_goal_store::PrivateGoalStore, private_task_context::*,
 };
@@ -203,8 +203,8 @@ fn complete_context_scenario_at_age(
     let mut driver = boxed_context_driver_restart(&dir, bootstrap);
     if age >= 360 {
         let snapshot_proof = sign_read_request(
-            oasis7::world_service::task_context::TASK_SNAPSHOT_PATH,
-            oasis7::world_service::task_context::TaskGoalSnapshotRequestV1 {
+            oasis7_world_service::task_context::TASK_SNAPSHOT_PATH,
+            oasis7_world_service::task_context::TaskGoalSnapshotRequestV1 {
                 schema_revision:
                     oasis7_agent_api::game::TaskContextAuthorityModeV1::schema_revision(
                         authority_mode,

@@ -4,7 +4,7 @@
 //! Content-addressed blobs are atomic; proof history and the last verified World
 //! remain pinned until a fully restored successor is ready.
 
-use oasis7::world_service::{
+use oasis7_world_service::{
     authority,
     client::{FormalReadTrustConfigV1, RemoteWorldServiceClient, WorldServicePort},
     verified_view::VerifiedWorldView,

@@ -1,5 +1,5 @@
 //! Registered typed V2 lane. V1-only input preserves the old execution path.
-use oasis7::world_service::{self as wire, WorldIdentity, WorldServicePayloadV1};
+use oasis7_world_service::{self as wire, WorldIdentity, WorldServicePayloadV1};
 use oasis7_node::NodeExecutionCommitContext;
 use oasis7_runtime::World;
 use wire::task_cleanup_v2::TaskCleanupSubmitV2;

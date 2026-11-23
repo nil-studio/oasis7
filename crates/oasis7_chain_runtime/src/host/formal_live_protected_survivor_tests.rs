@@ -522,7 +522,7 @@ fn write_origin_pages(
     cut_position: u64,
     directory: &Path,
 ) -> Result<VerifiedFormalReadAnchorV1, String> {
-    use oasis7::world_service::formal_read::{
+    use oasis7_world_service::formal_read::{
         FormalReadHistoryPageV1, FormalReadHistoryV1, FormalReadReplayCursorV1, FormalReadStepV1,
     };
     let cursor = |anchor: &VerifiedFormalReadAnchorV1| -> Result<FormalReadReplayCursorV1, String> {
@@ -574,7 +574,7 @@ fn write_origin_pages(
         };
         // Re-run the same production page verifier before writing the fixture.
         let checked =
-            oasis7::world_service::formal_recovery_lineage::verify_recovery_predecessor_lineage(
+            oasis7_world_service::formal_recovery_lineage::verify_recovery_predecessor_lineage(
                 trust,
                 &current,
                 &advanced.checkpoint(),

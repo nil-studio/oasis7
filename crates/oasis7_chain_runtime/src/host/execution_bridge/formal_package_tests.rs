@@ -300,7 +300,7 @@ fn formal_initial_existing_world_has_complete_approved_material_and_stable_ident
         )
         .is_err()
     );
-    use oasis7::world_service::*;
+    use oasis7_world_service::*;
     let identity = WorldIdentity {
         world_id: anchor.head().record().world.world_id.clone(),
         genesis_digest: anchor.head().record().world.genesis_digest.clone(),

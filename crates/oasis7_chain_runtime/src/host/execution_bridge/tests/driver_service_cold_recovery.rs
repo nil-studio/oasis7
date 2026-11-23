@@ -44,7 +44,7 @@ impl Fixture {
             .unwrap();
         fs::write(
             world_dir.join("world-service-identity.json"),
-            serde_json::to_vec(&oasis7::world_service::WorldIdentity {
+            serde_json::to_vec(&oasis7_world_service::WorldIdentity {
                 world_id: "cold-world".into(),
                 genesis_digest: "cold-genesis".into(),
             })
@@ -73,7 +73,7 @@ impl Fixture {
         for height in 2..=132 {
             let mut actions = Vec::new();
             if admin_last && height == 132 {
-                use oasis7::world_service::*;
+                use oasis7_world_service::*;
                 let payload = WorldServicePayloadV1::Scheduler(
                     sign_read_request(
                         "scheduler",

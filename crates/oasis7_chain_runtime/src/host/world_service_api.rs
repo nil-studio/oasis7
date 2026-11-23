@@ -1,8 +1,9 @@
+use oasis7::world_service::gameplay;
 use super::{
     execution_bridge::world_service_read::{self, PinnedWorld},
     feedback_submit_api::FeedbackSubmitSigner,
 };
-use oasis7::world_service::*;
+use oasis7_world_service::*;
 use oasis7_node::NodeRuntime;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
@@ -173,7 +174,7 @@ impl Service<'_> {
                 )?;
             }
             WorldServicePayloadV1::GameTaskCreate(signed) => {
-                oasis7::world_service::game_task::validate_owner(&pinned.world, signed)?;
+                oasis7_world_service::game_task::validate_owner(&pinned.world, signed)?;
             }
             WorldServicePayloadV1::GameExecutorControl(signed) => {
                 game_task::validate_executor_owner(&pinned.world, signed)?;

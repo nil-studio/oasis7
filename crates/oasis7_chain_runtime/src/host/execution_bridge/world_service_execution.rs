@@ -1,4 +1,5 @@
-use oasis7::world_service::*;
+use oasis7::world_service::gameplay;
+use oasis7_world_service::*;
 use oasis7_node::NodeExecutionCommitContext;
 use oasis7_runtime::{CausedBy, DomainEvent, World, WorldEventBody};
 
@@ -89,7 +90,7 @@ pub(super) fn apply_intents(
                 )
             }
             WorldServicePayloadV1::GameExecutorControl(_) => {
-                oasis7::world_service::game_task::prepare_executor_control(
+                oasis7_world_service::game_task::prepare_executor_control(
                     &candidate,
                     &request,
                     staged.iter().map(|entry: &StagedResult| &entry.result),
@@ -100,7 +101,7 @@ pub(super) fn apply_intents(
                     else {
                         unreachable!()
                     };
-                    oasis7::world_service::game_task::retire_task_contexts(
+                    oasis7_world_service::game_task::retire_task_contexts(
                         &mut candidate,
                         &signed.request.fence.agent_id,
                         &staged
@@ -112,7 +113,7 @@ pub(super) fn apply_intents(
                 })
             }
             WorldServicePayloadV1::GameGoalPublish(_) => {
-                oasis7::world_service::game_task::prepare_publish(
+                oasis7_world_service::game_task::prepare_publish(
                     &candidate,
                     &request,
                     staged.iter().map(|entry: &StagedResult| &entry.result),
@@ -123,7 +124,7 @@ pub(super) fn apply_intents(
                     else {
                         unreachable!()
                     };
-                    oasis7::world_service::game_task::retire_task_contexts(
+                    oasis7_world_service::game_task::retire_task_contexts(
                         &mut candidate,
                         &signed.request.agent_id,
                         &staged
@@ -135,7 +136,7 @@ pub(super) fn apply_intents(
                 })
             }
             WorldServicePayloadV1::GameTaskCreate(_) => {
-                oasis7::world_service::game_task::prepare_create(
+                oasis7_world_service::game_task::prepare_create(
                     &candidate,
                     &request,
                     staged.iter().map(|entry: &StagedResult| &entry.result),

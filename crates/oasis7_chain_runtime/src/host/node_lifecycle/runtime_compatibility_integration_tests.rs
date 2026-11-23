@@ -2,7 +2,7 @@
 use super::super::{local_io as io, model, tests::Fixture};
 use super::describe_with_minimum;
 use crate::execution_bridge_real_tests::real_execution_bridge as bridge;
-use oasis7::world_service::WorldIdentity;
+use oasis7_world_service::WorldIdentity;
 use oasis7_node::{NodeExecutionCommitContext, NodeExecutionHook, compute_consensus_action_root};
 use oasis7_runtime::{
     BlobStore, ChainResourceDerivationContext, LocalCasStore, ReleaseSecurityPolicy,

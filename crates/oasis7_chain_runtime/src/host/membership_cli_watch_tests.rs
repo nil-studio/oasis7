@@ -2,7 +2,7 @@
 //! explicitly scoped engineering assertion path, not formal deployment proof.
 use super::*;
 use ed25519_dalek::SigningKey;
-use oasis7::world_service::{
+use oasis7_world_service::{
     Capability, DescribeWorldResponse, ExecutionBinding, MembershipReadEnvelope, SignedReadRequest,
     SignedServiceResponse, WorldAvailability, WorldIdentity, membership, verified_view,
 };
