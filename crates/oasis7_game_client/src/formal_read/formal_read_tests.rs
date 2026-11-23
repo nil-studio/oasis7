@@ -640,7 +640,6 @@ fn formal_cursor_restore_failure_is_atomic_and_existing_projection_cache_cannot_
     );
 }
 
-#[test]
 // Separate construction of the full E1→E2→E3 signed proof graph from
 // the subsequent independent restart, corruption and inclusion verification.
 // All fixtures, signer identities and assertions are identical; no extra
@@ -650,6 +649,7 @@ fn build_retained_recovery_setup<T>(build: impl FnOnce() -> T) -> T {
     build()
 }
 
+#[test]
 fn retained_recovery_e3_completes_original_frozen_tail_from_external_e1_pin() {
     let (
         world,
