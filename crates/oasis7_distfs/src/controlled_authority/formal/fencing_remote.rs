@@ -3,10 +3,10 @@
 //! its physical nonrollback storage or signer isolation. A connection is one
 //! exclusive lease and remains alive across native publication and signing.
 use super::*;
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 const REQUEST: &str = "oasis7.formal.monotonic_oracle.request.v1";
 const RESPONSE: &str = "oasis7.formal.monotonic_oracle.response.v1";
 const LIMIT: usize = 1024 * 1024;
@@ -40,6 +40,9 @@ mod lease_failure;
 mod lease_failure_tests;
 #[path = "fencing_remote_protected.rs"]
 mod protected_client;
+#[path = "fencing_remote_recovery_repair.rs"]
+mod recovery_repair_client;
+pub use recovery_repair_client::RecoveryRepairEndpointProviderV1;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MonotonicOracleCommandV1 {
     Acquire(EndpointCheckpointBindingV1),
@@ -50,6 +53,11 @@ pub enum MonotonicOracleCommandV1 {
     Finish,
     InitializeProtected(Box<ProtectedEndpointRegistrationV1>),
     ProtectedSign(Box<ProtectedEndpointSigningRequestV1>),
+    RepairProtected(Box<ProtectedRecoveryRepairRequestV1>),
+    ReplayRecoveryReceipt(Box<ProtectedRecoveryReceiptReplayV1>),
+    BeginReplay(Box<ProtectedRecoveryReceiptReplayHeaderV1>),
+    ReplayChunk { offset: u64, bytes: Vec<u8> },
+    FinishReplay,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -84,6 +92,8 @@ pub struct MonotonicOracleReplyBodyV1 {
     pub protected_custody: Option<ProtectedSignerCustodyV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub durable_set: Option<DurableSetProviderStateV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_repair: Option<ProtectedRecoveryRepairGrantV1>,
     pub protected_signature: Option<ProtectedEndpointSignatureV1>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -150,6 +160,93 @@ fn exchange(
     lease: Option<&str>,
     command: MonotonicOracleCommandV1,
 ) -> Result<MonotonicOracleReplyBodyV1, FencingError> {
+    exchange_before(stream, instance, key, policy, lease, command, None)
+}
+
+fn remaining(deadline: Instant) -> Result<Duration, FencingError> {
+    deadline
+        .checked_duration_since(Instant::now())
+        .filter(|remaining| !remaining.is_zero())
+        .ok_or_else(|| {
+            FencingError::Io("monotonic oracle original operation deadline expired".into())
+        })
+}
+
+fn write_before(
+    stream: &mut TcpStream,
+    mut bytes: &[u8],
+    deadline: Option<Instant>,
+) -> Result<(), FencingError> {
+    let Some(deadline) = deadline else {
+        return stream
+            .write_all(bytes)
+            .map_err(|e| FencingError::Io(format!("monotonic oracle request write: {e}")));
+    };
+    while !bytes.is_empty() {
+        stream
+            .set_write_timeout(Some(remaining(deadline)?))
+            .map_err(|e| FencingError::Io(e.to_string()))?;
+        match stream.write(bytes) {
+            Ok(0) => {
+                return Err(FencingError::Io(
+                    "monotonic oracle request write zero".into(),
+                ));
+            }
+            Ok(written) => bytes = &bytes[written..],
+            Err(error) if error.kind() == ErrorKind::Interrupted => continue,
+            Err(error) => {
+                return Err(FencingError::Io(format!(
+                    "monotonic oracle request write: {error}"
+                )));
+            }
+        }
+        remaining(deadline)?;
+    }
+    Ok(())
+}
+
+fn read_before(
+    stream: &mut TcpStream,
+    mut bytes: &mut [u8],
+    deadline: Option<Instant>,
+    phase: &str,
+) -> Result<(), FencingError> {
+    let Some(deadline) = deadline else {
+        return stream
+            .read_exact(bytes)
+            .map_err(|e| FencingError::Io(format!("monotonic oracle {phase} read: {e}")));
+    };
+    while !bytes.is_empty() {
+        stream
+            .set_read_timeout(Some(remaining(deadline)?))
+            .map_err(|e| FencingError::Io(e.to_string()))?;
+        match stream.read(bytes) {
+            Ok(0) => return Err(FencingError::Io(format!("monotonic oracle {phase} EOF"))),
+            Ok(read) => bytes = &mut bytes[read..],
+            Err(error) if error.kind() == ErrorKind::Interrupted => continue,
+            Err(error) => {
+                return Err(FencingError::Io(format!(
+                    "monotonic oracle {phase} read: {error}"
+                )));
+            }
+        }
+        remaining(deadline)?;
+    }
+    Ok(())
+}
+
+fn exchange_before(
+    stream: &mut TcpStream,
+    instance: &EndpointInstanceBindingV1,
+    key: &SigningKey,
+    policy: &TrustedFencingPolicyV1,
+    lease: Option<&str>,
+    command: MonotonicOracleCommandV1,
+    deadline: Option<Instant>,
+) -> Result<MonotonicOracleReplyBodyV1, FencingError> {
+    if let Some(deadline) = deadline {
+        remaining(deadline)?;
+    }
     let body = MonotonicOracleRequestBodyV1 {
         schema_version: 1,
         instance: instance.clone(),
@@ -167,22 +264,16 @@ fn exchange(
     if encoded.len() > LIMIT {
         return Err(invalid("monotonic oracle frame bound"));
     }
-    stream
-        .write_all(&(encoded.len() as u32).to_be_bytes())
-        .and_then(|_| stream.write_all(&encoded))
-        .map_err(|e| FencingError::Io(format!("monotonic oracle request write: {e}")))?;
+    write_before(stream, &(encoded.len() as u32).to_be_bytes(), deadline)?;
+    write_before(stream, &encoded, deadline)?;
     let mut length = [0; 4];
-    stream
-        .read_exact(&mut length)
-        .map_err(|e| FencingError::Io(format!("monotonic oracle response header read: {e}")))?;
+    read_before(stream, &mut length, deadline, "response header")?;
     let length = u32::from_be_bytes(length) as usize;
     if length == 0 || length > LIMIT {
         return Err(invalid("monotonic oracle frame bound"));
     }
     let mut bytes = vec![0; length];
-    stream
-        .read_exact(&mut bytes)
-        .map_err(|e| FencingError::Io(format!("monotonic oracle response body read: {e}")))?;
+    read_before(stream, &mut bytes, deadline, "response body")?;
     let reply: SignedMonotonicOracleReplyV1 =
         serde_cbor::from_slice(&bytes).map_err(|e| invalid(e.to_string()))?;
     verify(
@@ -236,9 +327,19 @@ fn exchange(
             return Err(FencingError::FencingUnproven);
         }
     }
+    if let Some(deadline) = deadline {
+        remaining(deadline)?;
+    }
     Ok(state)
 }
 impl MonotonicEndpointProvider for RemoteMonotonicEndpointProvider {
+    fn repair_protected(
+        &self,
+        instance: &EndpointInstanceBindingV1,
+        request: ProtectedRecoveryRepairRequestV1,
+    ) -> Result<Box<dyn MonotonicEndpointGuard>, FencingError> {
+        recovery_repair_client::open(self, instance, request)
+    }
     fn install_durable_set(
         &self,
         instance: &EndpointInstanceBindingV1,
@@ -287,6 +388,9 @@ impl MonotonicEndpointProvider for RemoteMonotonicEndpointProvider {
             None,
             MonotonicOracleCommandV1::Acquire(initial.clone()),
         )?;
+        if state.recovery_repair.is_some() {
+            return Err(FencingError::FencingUnproven);
+        }
         Ok(Box::new(RemoteGuard {
             failed: false,
             stream: Mutex::new(stream),
@@ -298,6 +402,15 @@ impl MonotonicEndpointProvider for RemoteMonotonicEndpointProvider {
     }
 }
 impl MonotonicEndpointGuard for RemoteGuard {
+    fn recovery_repair_grant(&self) -> Option<&ProtectedRecoveryRepairGrantV1> {
+        self.state.recovery_repair.as_ref()
+    }
+    fn replay_recovery_receipt(
+        &mut self,
+        request: ProtectedRecoveryReceiptReplayV1,
+    ) -> Result<ProtectedEndpointSignatureV1, FencingError> {
+        self.with_live_lease(|guard| recovery_repair_client::replay(guard, request))
+    }
     fn sign_endpoint(
         &mut self,
         request: ProtectedEndpointSigningRequestV1,
@@ -363,6 +476,7 @@ impl RemoteGuard {
             || state.pending.as_ref() != Some(&intent)
             || state.resource_binding != self.state.resource_binding
             || state.durable_set != self.state.durable_set
+            || state.recovery_repair != self.state.recovery_repair
             || state.protected_custody != self.state.protected_custody
             || state.seal != self.state.seal
         {
@@ -390,6 +504,7 @@ impl RemoteGuard {
         if state.checkpoint != intent.next
             || state.resource_binding != self.state.resource_binding
             || state.durable_set != self.state.durable_set
+            || state.recovery_repair != self.state.recovery_repair
             || state.protected_custody != self.state.protected_custody
             || (self.state.protected_custody.is_some()
                 && state.native_checkpoint_bytes.as_ref() != Some(&intent.checkpoint_bytes))

@@ -10,6 +10,7 @@ use std::path::Path;
 #[path = "fencing_provider.rs"]
 mod provider;
 pub use provider::ControlledFileProvider;
+pub use provider::writer::ControlledFileWriterProvider;
 #[path = "fencing_remote.rs"]
 mod remote;
 pub use remote::*;

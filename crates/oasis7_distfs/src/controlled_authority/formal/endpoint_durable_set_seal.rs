@@ -189,6 +189,8 @@ impl FileFormalEndpoint {
             ));
         }
         let body = fencing::EpochSealBodyV1 {
+            recovery_plan: None,
+            writer_seal: None,
             schema_version: 1,
             instance: self.instance().clone(),
             recovery_operation: transition.digest().into(),
@@ -202,8 +204,44 @@ impl FileFormalEndpoint {
             next_epoch_floor: transition.body().successor.epoch,
         };
         body.validate().map_err(fencing_error)?;
+        let node: HistoryNode = self.store.get(
+            self.store
+                .body
+                .head_node
+                .as_ref()
+                .ok_or_else(|| invalid("healthy seal original H history missing"))?,
+        )?;
+        let parent_node: HistoryNode = self.store.get(
+            &node
+                .ancestors
+                .first()
+                .ok_or_else(|| invalid("healthy seal original H-1 history missing"))?
+                .node,
+        )?;
+        let FormalRequestStateV1::Qualified {
+            proof: boundary_proof,
+            ..
+        } = self.store.get(&node.entry)?
+        else {
+            return Err(invalid("healthy seal original H Qualified missing"));
+        };
+        let FormalRequestStateV1::Qualified {
+            proof: predecessor_proof,
+            ..
+        } = self.store.get(&parent_node.entry)?
+        else {
+            return Err(invalid("healthy seal original H-1 Qualified missing"));
+        };
+        let authorization = HealthySealAuthorizationV1 {
+            schema_version: 1,
+            transition: transition.signed(),
+            predecessor_proof,
+            boundary_proof,
+        };
+        authorization.verify_seal(&self.store.body, &self.authority, &body)?;
         let mut next = self.store.body.clone();
         next.seal = Some(body.clone());
+        next.healthy_seal_authorization = Some(Box::new(authorization));
         if let Err(error) = self.publish_native(next, guard.as_mut()) {
             self.poisoned = true;
             return Err(error);

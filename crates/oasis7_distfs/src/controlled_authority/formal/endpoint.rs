@@ -47,7 +47,14 @@ mod durable_set_seal;
 mod import_tail;
 #[path = "endpoint_fencing.rs"]
 mod native_fencing;
+#[path = "endpoint_recovery_drain.rs"]
+mod recovery_drain;
+#[path = "endpoint_recovery_plan.rs"]
+mod recovery_plan;
+#[path = "endpoint_recovery_repair.rs"]
+mod recovery_repair;
 pub use durable_set_install::DurableSetCandidateV1;
+pub use recovery_repair::ProtectedRecoveryRepairInputV1;
 #[path = "endpoint_durable_set_provider.rs"]
 mod durable_set_provider;
 pub use durable_set_provider::{
@@ -186,7 +193,7 @@ impl FileFormalEndpoint {
             return Err(invalid("formal endpoint independent instance key"));
         }
         // Creation precedes fingerprint checking; no signatures are issued yet.
-        let (initial, sources) = protected_signer::initial_hot(
+        let (initial, sources) = protected_signer::initial_hot_historical_fixture(
             &authority, &original, &recovery, &parent, instance, archive,
         )?;
         let public_key = instance.endpoint_public_key.clone();
@@ -244,6 +251,7 @@ impl FileFormalEndpoint {
                 .map_err(fencing_error)?;
             self.store
                 .reconcile_public(guard.as_mut(), &self.public_key)?;
+            self.validate_recovery_phase()?;
             if let Some(binding) = &self.store.body.durable_set {
                 if binding.activation_digest.as_deref()
                     != self.authority.durable_set_activation_digest()
@@ -455,6 +463,7 @@ impl FileFormalEndpoint {
                     });
                 }
             }
+            self.update_recovery_progress(&entry, &mut next)?;
             self.publish_native(next, guard)
         })();
         if result.is_err() {
@@ -465,6 +474,9 @@ impl FileFormalEndpoint {
     fn fresh_slot(&self, request: &str, position: u64, parent: &str) -> Result<(), FormalError> {
         if self.store.body.seal.is_some() {
             return Err(FormalError::Conflict("formal epoch sealed".into()));
+        }
+        if self.store.body.recovery_drained.is_some() {
+            return Err(FormalError::Conflict("formal epoch drained".into()));
         }
         if Some(position) != self.store.body.head.position.checked_add(1)
             || parent != self.store.body.head.record_id

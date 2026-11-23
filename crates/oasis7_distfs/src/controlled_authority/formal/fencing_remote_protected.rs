@@ -28,6 +28,7 @@ pub(super) fn initialize(
     )?;
     if state.protected_custody != Some(ProtectedSignerCustodyV1::NonexportableLeaseBoundV1)
         || state.native_checkpoint_bytes.is_none()
+        || state.recovery_repair.is_some()
     {
         return Err(FencingError::FencingUnproven);
     }
@@ -73,6 +74,7 @@ pub(super) fn protected_sign(
         MonotonicOracleCommandV1::ProtectedSign(Box::new(request.clone())),
     )?;
     if state.durable_set != guard.state.durable_set
+        || state.recovery_repair != guard.state.recovery_repair
         || state.resource_binding != guard.state.resource_binding
         || state.protected_custody != guard.state.protected_custody
         || state.native_checkpoint_bytes != guard.state.native_checkpoint_bytes

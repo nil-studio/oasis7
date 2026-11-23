@@ -3,8 +3,18 @@
 use super::*;
 use crate::controlled_authority::formal::ProfileHandoffV1;
 use crate::controlled_authority::formal::business_index::*;
+#[path = "endpoint_recovery_boundary_tests.rs"]
+mod boundary_tests;
 #[path = "endpoint_consecutive_process_tests.rs"]
 mod consecutive_tests;
+#[path = "endpoint_recovery_fencing_tests.rs"]
+mod final_fencing_tests;
+#[path = "endpoint_legacy_recovery_process_tests.rs"]
+mod legacy_tests;
+#[path = "endpoint_planned_consecutive_tests.rs"]
+mod planned_consecutive_tests;
+#[path = "endpoint_recovery_seam_tests.rs"]
+mod seam_tests;
 use crate::controlled_authority::formal::{
     coordinator::FormalDurabilityEndpoint, transport::RemoteFormalEndpoint,
 };
@@ -31,6 +41,93 @@ fn credential(path: &Path) {
         .open(path)
         .unwrap();
     file.write_all(hex::encode([17u8; 32]).as_bytes()).unwrap();
+}
+fn recovery_credential_configs(fixture: &Fixture, configs: &[PathBuf]) {
+    let file = fixture.path.join("provider-recovery-auth");
+    if !file.exists() {
+        let mut key_file = fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .mode(0o600)
+            .open(&file)
+            .unwrap();
+        key_file
+            .write_all(hex::encode([28u8; 32]).as_bytes())
+            .unwrap();
+        key_file.sync_all().unwrap();
+    }
+    for config in configs {
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&fs::read(config).unwrap()).unwrap();
+        value["oracle_authentication_key_file"] = serde_json::json!(file);
+        fs::write(config, serde_json::to_vec(&value).unwrap()).unwrap();
+    }
+}
+fn recovery_copy_budget(directory: &Path) -> u64 {
+    let source = FileFormalArchiveSourceV1::new(directory.to_path_buf()).unwrap();
+    let mut objects = std::collections::BTreeMap::<String, u64>::new();
+    for name in source.logical_ids().unwrap() {
+        let bytes = source.read_object(&name).unwrap().unwrap();
+        assert_eq!(blake3::hash(&bytes).to_hex().as_str(), name);
+        objects.insert(name, bytes.len() as u64);
+        if let Ok(FormalRequestStateV1::Qualified { candidate, .. }) =
+            serde_cbor::from_slice::<FormalRequestStateV1>(&bytes)
+        {
+            for material in
+                std::iter::once(&candidate.material).chain(candidate.frozen_material.iter())
+            {
+                for object in &material.objects {
+                    assert_eq!(
+                        blake3::hash(&object.bytes).to_hex().as_str(),
+                        object.content_hash
+                    );
+                    let old =
+                        objects.insert(object.content_hash.clone(), object.bytes.len() as u64);
+                    assert!(old.is_none_or(|length| length == object.bytes.len() as u64));
+                }
+            }
+        }
+    }
+    objects
+        .values()
+        .try_fold(64 * 1024_u64, |total, bytes| total.checked_add(*bytes))
+        .unwrap()
+}
+/// Make the configured predecessor paths unavailable without changing their
+/// original inode/fingerprint when they are restored for later fencing checks.
+struct OfflineArchives(Vec<(PathBuf, PathBuf, String)>);
+impl OfflineArchives {
+    fn hide(directories: &[&Path]) -> Self {
+        let mut moved = Self(Vec::new());
+        for directory in directories {
+            let fingerprint = directory_fingerprint(directory).unwrap();
+            let offline = directory.with_extension("offline-source");
+            assert!(!offline.exists());
+            fs::rename(directory, &offline).unwrap();
+            assert!(
+                !directory.exists(),
+                "the original archive path must be offline"
+            );
+            moved
+                .0
+                .push((directory.to_path_buf(), offline, fingerprint));
+        }
+        moved
+    }
+}
+impl Drop for OfflineArchives {
+    fn drop(&mut self) {
+        for (original, offline, fingerprint) in self.0.iter().rev() {
+            if let Err(error) = fs::rename(offline, original) {
+                if std::thread::panicking() {
+                    eprintln!("cannot restore test archive {original:?}: {error}");
+                    continue;
+                }
+                panic!("cannot restore test archive {original:?}: {error}");
+            }
+            assert_eq!(&directory_fingerprint(original).unwrap(), fingerprint);
+        }
+    }
 }
 fn remote(
     address: std::net::SocketAddr,
@@ -85,148 +182,17 @@ fn original_configs(
     (initial, trust, configs)
 }
 
-fn assert_cold_committed_handoff_stays_closed_before_bft_commit() {
-    let binary = std::env::var_os("OASIS7_FORMAL_ENDPOINT_TEST_BIN").unwrap();
-    struct HandoffIndex(Vec<BusinessIndexNodeWriteV1>);
-    impl BusinessIndexNodeReader for HandoffIndex {
-        fn read_node(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
-            Ok(self
-                .0
-                .iter()
-                .find(|node| node.digest == digest)
-                .map(|node| node.bytes.clone()))
-        }
-    }
-
-    let (fixture, initial_envelope) = super::super::business_tests::fixture();
-    let primary_oracle = Oracle::start(&fixture, EndpointRole::Primary);
-    let replica_oracle = Oracle::start(&fixture, EndpointRole::Replica);
-    let authfile = fixture.path.join("oracle-auth");
-    let (_, _, configs) = original_configs(&fixture, &primary_oracle, &replica_oracle, &authfile);
-    let (mut primary, primary_address) = start(&binary, &configs[0]);
-    let (mut replica, replica_address) = start(&binary, &configs[1]);
-    let genesis = fixture.authority.definition().world.genesis_head().unwrap();
-    let mut coordinator = FormalCoordinator::new(
-        remote(
-            primary_address,
-            &fixture.authority,
-            EndpointRole::Primary,
-            4,
-            genesis.clone(),
-        ),
-        remote(
-            replica_address,
-            &fixture.authority,
-            EndpointRole::Replica,
-            4,
-            genesis,
-        ),
-        fixture.authority.clone(),
-        fixture.authority.clone(),
-        None,
-        None,
-    )
-    .unwrap();
-    let initial_proof = coordinator.submit(fixture.initial.clone()).unwrap();
-    let initial = verify_formal_qualified(&initial_proof, &fixture.authority, None, None).unwrap();
-    let (mut input, material) = fixture.frozen(&initial, 44);
-    let handoff = ProfileHandoffV1 {
-        next_profile: "bft".into(),
-        next_profile_version: 1,
-        next_authority_digest: h(79),
-        valid_from_position: 3,
-    };
-    input.body.handoff = Some(handoff.clone());
-    input.signature_hex = signed(frozen_signing_bytes(&input.body).unwrap(), 4);
-    let executable = coordinator.freeze(input, material).unwrap();
-    let original_request = executable.input().body.request_digest.clone();
-    let mut candidate = fixture.candidate(&executable);
-    let mut updates = vec![
-        BusinessIndexLeafV1 {
-            key_digest: metadata_key_digest(),
-            kind: BusinessIndexLeafKindV1::CommitMetadata,
-            canonical_value: b"committed handoff".to_vec(),
-        },
-        BusinessIndexLeafV1 {
-            key_digest: original_request.clone(),
-            kind: BusinessIndexLeafKindV1::Outcome,
-            canonical_value: serde_cbor::to_vec(&(44u8, 2u64)).unwrap(),
-        },
-        FormalHistoricalCutV1::from_proof(&initial_proof)
-            .unwrap()
-            .leaf()
-            .unwrap(),
-    ];
-    updates.sort_by(|a, b| a.key_digest.cmp(&b.key_digest));
-    let delta = BusinessIndexDeltaV1::build(
-        initial_envelope.delta.new,
-        updates,
-        &HandoffIndex(initial_envelope.delta.node_writes),
-    )
-    .unwrap();
-    let envelope = super::super::business_tests::envelope(delta);
-    super::super::business_tests::replace_result(
-        &mut candidate.material,
-        envelope.encode().unwrap(),
-    );
-    let record = &mut candidate.candidate.record;
-    record.handoff = Some(handoff.clone());
-    record.artifact_roots = candidate.material.roots.clone();
-    record.result_root = envelope.delta.new_root;
-    candidate.candidate.writer_signature_hex =
-        signed(canonical_candidate_signing_bytes(record).unwrap(), 4);
-    let committed = coordinator.submit(candidate).unwrap();
-    let cut =
-        verify_formal_qualified(&committed, &fixture.authority, Some(&initial), None).unwrap();
-    assert_eq!(cut.record().handoff.as_ref(), Some(&handoff));
-    drop(coordinator);
-    primary.kill().unwrap();
-    primary.wait().unwrap();
-    replica.kill().unwrap();
-    replica.wait().unwrap();
-
-    for (config, role) in configs
-        .iter()
-        .zip([EndpointRole::Primary, EndpointRole::Replica])
-    {
-        let (_reopened, address) = start(&binary, config);
-        let mut endpoint = remote(address, &fixture.authority, role, 4, cut.head());
-        let (input, material) = fixture.frozen(&cut, 45);
-        let next_request = input.body.request_digest.clone();
-        let FormalQueryOutcomeV1::Recorded(state) = endpoint.query(&original_request).unwrap()
-        else {
-            panic!("committed H was absent after cold reopen");
-        };
-        let FormalRequestStateV1::Qualified { proof, .. } = *state else {
-            panic!("committed H was not qualified after cold reopen");
-        };
-        assert_eq!(proof, committed);
-        let before = endpoint.checkpoint().unwrap();
-        let error = endpoint.freeze(input, material).unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("formal normal parent/profile/fresh-write boundary"),
-            "{error}"
-        );
-        assert_eq!(endpoint.head().unwrap(), cut.head());
-        assert_eq!(endpoint.checkpoint().unwrap(), before);
-        assert!(matches!(
-            endpoint.query(&next_request).unwrap(),
-            FormalQueryOutcomeV1::NotRecorded
-        ));
-    }
-}
-
 #[test]
 #[ignore = "requires OASIS7_FORMAL_ENDPOINT_TEST_BIN; external providers are simulations"]
 fn recovered_endpoint_children_import_ready_complete_original_and_reopen_without_reexecution() {
+    seam_tests::first_seal_binds_original_successor();
     run_recovery(false);
-    assert_cold_committed_handoff_stays_closed_before_bft_commit();
+    boundary_tests::run();
 }
 #[test]
 #[ignore = "requires OASIS7_FORMAL_ENDPOINT_TEST_BIN; external providers are simulations"]
 fn recovered_endpoint_children_consecutive_epoch_before_first_completion_preserves_original() {
+    legacy_tests::run(true);
     run_recovery(true);
 }
 // CA-R2 developer-software negative matrix at the *real successor process*
@@ -397,23 +363,20 @@ fn assert_corrupt_recovery_bootstraps_reject_before_listen(
 
 fn run_recovery(consecutive: bool) {
     let binary = std::env::var_os("OASIS7_FORMAL_ENDPOINT_TEST_BIN").unwrap();
-    let fixture = Fixture::new();
+    let (fixture, initial_envelope) = super::super::business_tests::fixture();
+    assert_eq!(fixture.authority.definition().profile_version, 2);
     let po = Oracle::start(&fixture, EndpointRole::Primary);
     let ro = Oracle::start(&fixture, EndpointRole::Replica);
     let authfile = fixture.path.join("oracle-auth");
     let (initial, trust, old_configs) = original_configs(&fixture, &po, &ro, &authfile);
-    let (mut pchild, paddr) = start(&binary, &old_configs[0]);
-    let (mut rchild, raddr) = start(&binary, &old_configs[1]);
+    let (mut pchild, mut paddr) = start(&binary, &old_configs[0]);
+    let (mut rchild, mut raddr) = start(&binary, &old_configs[1]);
+    let mut writer =
+        seam_tests::WriterProcess::start(&fixture, &binary, &fixture.authority, 4, None);
     let genesis = fixture.authority.definition().world.genesis_head().unwrap();
     let mut coordinator = FormalCoordinator::new(
-        remote(
-            paddr,
-            &fixture.authority,
-            EndpointRole::Primary,
-            4,
-            genesis.clone(),
-        ),
-        remote(raddr, &fixture.authority, EndpointRole::Replica, 4, genesis),
+        writer.normal_endpoint(paddr, EndpointRole::Primary, genesis.clone()),
+        writer.normal_endpoint(raddr, EndpointRole::Replica, genesis),
         fixture.authority.clone(),
         fixture.authority.clone(),
         None,
@@ -425,22 +388,28 @@ fn run_recovery(consecutive: bool) {
     let anchor = VerifiedFormalReadAnchorV1::from_initial(&initial, &trust, &first).unwrap();
     let primary_checkpoint = fixture.pdir.join("formal-checkpoint-v1.cbor");
     let original_checkpoint = fs::read(&primary_checkpoint).unwrap();
-    let (input, material) = fixture.frozen(&cut, 44);
+    let (mut input, material) = fixture.frozen(&cut, 44);
+    input.signature_hex = writer.normal.sign_frozen(&input.body).unwrap();
     let executable = coordinator.freeze(input, material).unwrap();
     let mut candidate = fixture.candidate(&executable);
+    let candidate_envelope = seam_tests::business_candidate(
+        &fixture,
+        &mut candidate,
+        &first,
+        &initial_envelope,
+        &[&fixture.pdir],
+        4,
+    );
+    candidate.candidate.writer_signature_hex = writer
+        .normal
+        .sign_candidate(&candidate.candidate.record, candidate.frozen.as_ref())
+        .unwrap();
     let (p, r) = coordinator.endpoints_mut();
     let pp = p.prepare(candidate.clone()).unwrap();
     let rp = r.prepare(candidate.clone()).unwrap();
-    let pf = p
-        .decide(
-            &candidate.candidate.record.request_digest,
-            pp.clone(),
-            rp.clone(),
-        )
-        .unwrap();
-    let rf = r
-        .decide(&candidate.candidate.record.request_digest, pp, rp)
-        .unwrap();
+    let request = &candidate.candidate.record.request_digest;
+    let pf = p.decide(request, pp.clone(), rp.clone()).unwrap();
+    let rf = r.decide(request, pp, rp).unwrap();
     let decision = FormalDecisionProofV1 {
         schema_version: 1,
         record: candidate.candidate.record.clone(),
@@ -452,59 +421,15 @@ fn run_recovery(consecutive: bool) {
     };
     p.install_proof(decision.clone()).unwrap();
     r.install_proof(decision).unwrap();
-    // Ready on both, no Qualified publication: recover along original candidate.
-    let operation = h(240);
-    let pc = p.checkpoint().unwrap();
-    let rc = r.checkpoint().unwrap();
-    let ps = p.seal_epoch(operation.clone(), 2, pc).unwrap();
-    let rs = r.seal_epoch(operation.clone(), 2, rc).unwrap();
-    let pm = p.archive_manifest().unwrap();
-    let rm = r.archive_manifest().unwrap();
     drop(coordinator);
-    let original_request = candidate.candidate.record.request_digest.clone();
-    let assert_old_writers_fenced = || {
-        for (address, role) in [
-            (paddr, EndpointRole::Primary),
-            (raddr, EndpointRole::Replica),
-        ] {
-            let mut old = remote(address, &fixture.authority, role, 4, cut.head());
-            let before = old.query(&original_request).unwrap();
-            assert_eq!(old.head().unwrap(), cut.head());
-            let (fresh_input, fresh_material) = fixture.frozen(&cut, 45);
-            let fresh_request = fresh_input.body.request_digest.clone();
-            assert!(matches!(
-                old.query(&fresh_request).unwrap(),
-                FormalQueryOutcomeV1::NotRecorded
-            ));
-            let error = old.freeze(fresh_input, fresh_material).unwrap_err();
-            assert!(error.to_string().contains("formal epoch sealed"), "{error}");
-            assert_eq!(old.head().unwrap(), cut.head());
-            assert_eq!(old.query(&original_request).unwrap(), before);
-            assert!(matches!(
-                old.query(&fresh_request).unwrap(),
-                FormalQueryOutcomeV1::NotRecorded
-            ));
-        }
-    };
-    // The old authenticated endpoint processes remain alive throughout takeover.
-    // A fresh request must fail at the seal, not merely at a stale credential.
-    assert_old_writers_fenced();
-    let policy = TrustedFencingPolicyV1 {
-        provider_public_key: public(3),
-        authorized_resource_bindings: fixture
-            .authority
-            .policy()
-            .authorized_fencing_resource_bindings
-            .clone(),
-    };
-    let pv = verify_epoch_seal(&ps, &policy).unwrap();
-    let rv = verify_epoch_seal(&rs, &policy).unwrap();
+    let original_ready = final_fencing_tests::capture_ready(&fixture, &cut);
+    let operation = h(240);
     let pdir = fixture.path.join("epoch2-p");
     let rdir = fixture.path.join("epoch2-r");
-    fs::create_dir(&pdir).unwrap();
-    fs::create_dir(&rdir).unwrap();
-    fs::set_permissions(&pdir, fs::Permissions::from_mode(0o700)).unwrap();
-    fs::set_permissions(&rdir, fs::Permissions::from_mode(0o700)).unwrap();
+    for dir in [&pdir, &rdir] {
+        fs::create_dir(dir).unwrap();
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o700)).unwrap();
+    }
     let mut successor = fixture.authority.definition().clone();
     successor.epoch = 2;
     successor.writer_public_key = public(10);
@@ -523,11 +448,11 @@ fn run_recovery(consecutive: bool) {
         binding.fault_domain_id = format!("successor-domain-{n}");
     }
     let frozen = candidate.frozen.clone().unwrap();
-    let body = RecoveryCertificateBodyV1 {
+    let template = RecoveryCertificateBodyV1 {
         retained_context: None,
         schema_version: 1,
         world: successor.world.clone(),
-        operation_id: operation,
+        operation_id: operation.clone(),
         predecessor_authority_id: fixture.authority.authority_id().unwrap(),
         predecessor_epoch: 1,
         sealed_cut: cut.head(),
@@ -537,47 +462,182 @@ fn run_recovery(consecutive: bool) {
             record_id: candidate.candidate.record.record_id().unwrap(),
             handoff: None,
         },
-        fencing_evidence_digest: recovery_fencing_digest([&pv, &rv]).unwrap(),
+        fencing_evidence_digest: h(0),
         successor,
         first_normal_position: Some(3),
     };
-    let tail = RecoveryTailWitnessV1::Decision {
+    let fixed = RecoveryTailWitnessV1::Decision {
         frozen,
         candidate: candidate.candidate.clone(),
     };
-    let intent =
-        VerifiedRecoveryIntent::verify(body.clone(), &fixture.authority, &cut, [&pv, &rv], &tail)
-            .unwrap();
-    let certificate = SignedRecoveryCertificateV1 {
-        signature_hex: signed(recovery_signing_bytes(&body).unwrap(), 1),
-        body,
-    };
-    use crate::controlled_authority::formal::issuer::*;
-    let minimum = IssuerAnchorV1::initial(fixture.authority.policy()).unwrap();
-    let witness = SignedIssuanceWitnessV1::sign(
-        IssuanceWitnessBodyV1 {
-            schema_version: 1,
-            capability: IssuerWitnessCapabilityV1::NonrollbackUniqueSuccessorV1,
-            request: IssuanceRequestBodyV1 {
-                schema_version: 1,
-                issuer_public_key: public(1),
-                policy_binding: minimum.digest.clone(),
-                predecessor_authority_id: fixture.authority.authority_id().unwrap(),
-                certificate_digest: recovery_certificate_digest(&certificate).unwrap(),
-                observation_nonce: h(241),
-                minimum_anchor: minimum.clone(),
-            },
-            grant_revision: 1,
-            current_anchor: IssuerAnchorV1 {
-                revision: 1,
-                digest: h(242),
-            },
-        },
-        &key(2),
+    let pending = RecoveryPendingHandoffV1::empty();
+    let plan = seam_tests::persist_plan(
+        &fixture,
+        &fixture.authority,
+        &cut,
+        &fixed,
+        &template,
+        &pending,
+        writer.plan_authorization(),
+    );
+    let ack = writer.persist_plan(&plan, &fixed, candidate.frozen_material.as_ref(), &pending);
+    assert!(
+        writer
+            .normal
+            .sign_candidate(&candidate.candidate.record, candidate.frozen.as_ref())
+            .is_err()
+    );
+    assert!(
+        writer
+            .normal
+            .sign_frozen(&candidate.frozen.as_ref().unwrap().reservation.body)
+            .is_err()
+    );
+    assert_eq!(
+        writer
+            .recovery
+            .sign_candidate(&candidate.candidate.record, candidate.frozen.as_ref())
+            .unwrap(),
+        candidate.candidate.writer_signature_hex
+    );
+    let mut p = writer.endpoint(paddr, EndpointRole::Primary, cut.head());
+    let mut r = writer.endpoint(raddr, EndpointRole::Replica, cut.head());
+    let pc = p.checkpoint().unwrap();
+    p.prepare_recovery_plan(plan.clone(), pending.clone(), ack.clone(), pc)
+        .unwrap();
+    recovery_credential_configs(&fixture, &old_configs[..1]);
+    pchild.kill().unwrap();
+    pchild.wait().unwrap();
+    (pchild, paddr) = start(&binary, &old_configs[0]);
+    p = writer.endpoint(paddr, EndpointRole::Primary, cut.head());
+    assert_eq!(p.recovery_pending_handoff().unwrap(), pending);
+    let pc = p.checkpoint().unwrap();
+    p.prepare_recovery_plan(plan.clone(), pending.clone(), ack.clone(), pc)
+        .unwrap();
+    let rc = r.checkpoint().unwrap();
+    r.prepare_recovery_plan(plan.clone(), pending.clone(), ack, rc)
+        .unwrap();
+    recovery_credential_configs(&fixture, &old_configs[1..]);
+    rchild.kill().unwrap();
+    rchild.wait().unwrap();
+    (rchild, raddr) = start(&binary, &old_configs[1]);
+    r = writer.endpoint(raddr, EndpointRole::Replica, cut.head());
+    assert_eq!(r.recovery_pending_handoff().unwrap(), pending);
+    final_fencing_tests::final_entries(&fixture, [&po, &ro], &original_ready);
+    let mut drain = FormalCoordinator::new(
+        p,
+        r,
+        fixture.authority.clone(),
+        fixture.authority.clone(),
+        None,
+        Some(cut.clone()),
     )
     .unwrap();
-    let issuance =
-        verify_issuance_witness(&witness, &certificate, fixture.authority.policy()).unwrap();
+    let completed = drain.submit(candidate.clone()).unwrap();
+    assert_eq!(completed.decision.record, candidate.candidate.record);
+    assert_eq!(
+        completed.decision.writer_signature_hex,
+        candidate.candidate.writer_signature_hex
+    );
+    assert_eq!(completed.decision.branch, FormalCompletionBranchV1::Normal);
+    let drained_cut =
+        verify_formal_qualified(&completed, &fixture.authority, Some(&cut), None).unwrap();
+    let drained_anchor = anchor
+        .after_verified_commit(fixture.authority.clone(), drained_cut.clone())
+        .unwrap();
+    let (p, r) = drain.endpoints_mut();
+    let drained = p.recovery_drained_proof().unwrap();
+    assert_eq!(drained, r.recovery_drained_proof().unwrap());
+    assert_eq!(drained.fixed, fixed);
+    assert_eq!(drained.qualified, completed);
+    drop(drain);
+    pchild.kill().unwrap();
+    pchild.wait().unwrap();
+    rchild.kill().unwrap();
+    rchild.wait().unwrap();
+    (pchild, paddr) = start(&binary, &old_configs[0]);
+    (rchild, raddr) = start(&binary, &old_configs[1]);
+    let writer_seal = writer.persist_seal(&plan, &drained);
+    assert!(
+        writer
+            .recovery
+            .sign_candidate(&candidate.candidate.record, candidate.frozen.as_ref())
+            .is_err()
+    );
+    let mut p = writer.endpoint(paddr, EndpointRole::Primary, drained_cut.head());
+    let mut r = writer.endpoint(raddr, EndpointRole::Replica, drained_cut.head());
+    assert_eq!(p.recovery_drained_proof().unwrap(), drained);
+    let pc = p.checkpoint().unwrap();
+    let ps = p.seal_planned_epoch(writer_seal.clone(), pc).unwrap();
+    pchild.kill().unwrap();
+    pchild.wait().unwrap();
+    (pchild, paddr) = start(&binary, &old_configs[0]);
+    p = writer.endpoint(paddr, EndpointRole::Primary, drained_cut.head());
+    let pc = p.checkpoint().unwrap();
+    assert_eq!(
+        p.seal_planned_epoch(writer_seal.clone(), pc).unwrap().body,
+        ps.body
+    );
+    let rc = r.checkpoint().unwrap();
+    let rs = r.seal_planned_epoch(writer_seal.clone(), rc).unwrap();
+    rchild.kill().unwrap();
+    rchild.wait().unwrap();
+    (rchild, raddr) = start(&binary, &old_configs[1]);
+    r = writer.endpoint(raddr, EndpointRole::Replica, drained_cut.head());
+    let rc = r.checkpoint().unwrap();
+    assert_eq!(r.seal_planned_epoch(writer_seal, rc).unwrap().body, rs.body);
+    let pm = p.archive_manifest().unwrap();
+    let rm = r.archive_manifest().unwrap();
+    drop((p, r));
+    final_fencing_tests::final_entries(&fixture, [&po, &ro], &original_ready);
+    let original_request = candidate.candidate.record.request_digest.clone();
+    let assert_old_writers_fenced = || {
+        for (address, role) in [
+            (paddr, EndpointRole::Primary),
+            (raddr, EndpointRole::Replica),
+        ] {
+            let mut old = remote(address, &fixture.authority, role, 4, drained_cut.head());
+            let before = old.query(&original_request).unwrap();
+            assert_eq!(old.head().unwrap(), drained_cut.head());
+            let (fresh, material) = fixture.frozen(&drained_cut, 45);
+            let fresh_request = fresh.body.request_digest.clone();
+            assert!(matches!(
+                old.query(&fresh_request).unwrap(),
+                FormalQueryOutcomeV1::NotRecorded
+            ));
+            assert!(old.freeze(fresh, material).is_err());
+            assert_eq!(old.head().unwrap(), drained_cut.head());
+            assert_eq!(old.query(&original_request).unwrap(), before);
+            assert!(matches!(
+                old.query(&fresh_request).unwrap(),
+                FormalQueryOutcomeV1::NotRecorded
+            ));
+        }
+    };
+    assert_old_writers_fenced();
+    let policy = TrustedFencingPolicyV1 {
+        provider_public_key: public(3),
+        authorized_resource_bindings: fixture
+            .authority
+            .policy()
+            .authorized_fencing_resource_bindings
+            .clone(),
+    };
+    let pv = verify_epoch_seal(&ps, &policy).unwrap();
+    let rv = verify_epoch_seal(&rs, &policy).unwrap();
+    let mut body = plan.body.intent.clone();
+    body.schema_version = 3;
+    body.sealed_cut = drained_cut.head();
+    body.tail = RecoveryTailV1::Empty;
+    body.retained_context = None;
+    body.fencing_evidence_digest = recovery_fencing_digest([&pv, &rv]).unwrap();
+    let tail = RecoveryTailWitnessV1::Empty;
+    let intent =
+        VerifiedRecoveryIntent::verify(body, &fixture.authority, &drained_cut, [&pv, &rv], &tail)
+            .unwrap();
+    use crate::controlled_authority::formal::issuer::*;
+    let minimum = IssuerAnchorV1::initial(fixture.authority.policy()).unwrap();
+    let (certificate, witness, issuance) = seam_tests::issue_after_interruptions(&fixture, &intent);
     let recovery =
         VerifiedRecovery::verify(&certificate, &intent, &fixture.authority, &issuance).unwrap();
     let pt = verify_formal_archive_transfer(
@@ -592,37 +652,34 @@ fn run_recovery(consecutive: bool) {
         Arc::new(FileFormalArchiveSourceV1::new(fixture.rdir.clone()).unwrap()),
     )
     .unwrap();
-    let (ph, _) = super::super::super::protected_signer::initial_hot(
-        recovery.successor(),
-        &fixture.authority,
-        &Some(recovery.clone()),
-        &Some(cut.clone()),
-        &recovery.successor().definition().primary.instance,
-        Some(&pt),
-    )
-    .unwrap();
-    let (rh, _) = super::super::super::protected_signer::initial_hot(
-        recovery.successor(),
-        &fixture.authority,
-        &Some(recovery.clone()),
-        &Some(cut.clone()),
-        &recovery.successor().definition().replica.instance,
-        Some(&rt),
-    )
-    .unwrap();
+    let initial_hot = |role, archive| {
+        super::super::super::protected_signer::initial_hot(
+            recovery.successor(),
+            &fixture.authority,
+            &Some(recovery.clone()),
+            &Some(drained_cut.clone()),
+            match role {
+                EndpointRole::Primary => &recovery.successor().definition().primary.instance,
+                EndpointRole::Replica => &recovery.successor().definition().replica.instance,
+            },
+            Some(archive),
+        )
+        .unwrap()
+        .0
+    };
     let p2o = Oracle::start_registered(
         recovery.successor().clone(),
         EndpointRole::Primary,
         key(11),
         policy.authorized_resource_bindings[0].clone(),
-        Some(ph),
+        Some(initial_hot(EndpointRole::Primary, &pt)),
     );
     let r2o = Oracle::start_registered(
         recovery.successor().clone(),
         EndpointRole::Replica,
         key(12),
         policy.authorized_resource_bindings[0].clone(),
-        Some(rh),
+        Some(initial_hot(EndpointRole::Replica, &rt)),
     );
     let mut new_configs = Vec::new();
     for (role, dir, oracle, manifest, archive) in [
@@ -630,12 +687,15 @@ fn run_recovery(consecutive: bool) {
         (EndpointRole::Replica, &rdir, &r2o, &rm, &fixture.rdir),
     ] {
         let config = fixture.path.join(format!("new-{role:?}.json"));
-        fs::write(&config,serde_json::to_vec(&serde_json::json!({"schema_version":2,"initial_trust":trust,"initial_certificate":initial,"initial_qualified":null,"role":role,"data_dir":dir,"oracle_authentication_key_file":authfile,"oracle_address":oracle.address,"listen":"127.0.0.1:0","timeout_ms":3000,"recovery_bootstrap":{"predecessor_checkpoint":anchor.checkpoint(),"predecessor_checkpoint_digest":anchor.checkpoint().digest().unwrap(),"certificate":certificate,"fencing":{"Dual":{"primary":ps,"replica":rs}},"tail":tail,"issuer_witness":witness,"minimum_issuer_anchor":minimum,"archive_manifest":manifest,"archive_directory":archive}})).unwrap()).unwrap();
+        fs::write(&config,serde_json::to_vec(&serde_json::json!({"schema_version":2,"initial_trust":trust,"initial_certificate":initial,
+            "initial_qualified":null,"role":role,"data_dir":dir,"oracle_authentication_key_file":authfile,"oracle_address":oracle.address,
+            "listen":"127.0.0.1:0","timeout_ms":3000,"recovery_bootstrap":{"predecessor_checkpoint":drained_anchor.checkpoint(),
+            "predecessor_checkpoint_digest":drained_anchor.checkpoint().digest().unwrap(),"certificate":certificate,
+            "fencing":{"Dual":{"primary":ps,"replica":rs}},"tail":tail,"issuer_witness":witness,"minimum_issuer_anchor":minimum,
+            "archive_manifest":manifest,"archive_directory":archive,
+            "recovery_copy_max_bytes":recovery_copy_budget(archive)}})).unwrap()).unwrap();
         new_configs.push(config);
     }
-    // Refused bootstraps must not poison the original Ready recovery. The
-    // correct P/R children start immediately afterwards and recover the exact
-    // original candidate before the next legitimate request.
     assert_corrupt_recovery_bootstraps_reject_before_listen(&binary, &fixture, &new_configs);
     let (mut p2, p2addr) = start(&binary, &new_configs[0]);
     let (mut r2, r2addr) = start(&binary, &new_configs[1]);
@@ -644,168 +704,210 @@ fn run_recovery(consecutive: bool) {
         recovery.successor(),
         EndpointRole::Primary,
         10,
-        cut.head(),
+        drained_cut.head(),
     )
-    .restore_native_current(&fixture.authority, Some(&recovery), Some(&cut))
+    .restore_native_current(&fixture.authority, Some(&recovery), Some(&drained_cut))
     .unwrap();
-    assert_eq!(restored_cut.commit().head(), cut.head());
-    assert!(matches!(
-        restored_cut.pending(),
-        Some(FormalRequestStateV1::Ready { .. })
-    ));
-    if consecutive {
-        consecutive_tests::consecutive(
-            &fixture,
-            &binary,
-            &recovery,
-            &cut,
-            &anchor,
-            &candidate,
-            &tail,
-            p2addr,
-            r2addr,
-            &new_configs,
-        );
-        assert_old_writers_fenced();
-        return;
-    }
-    let mut coordinator = FormalCoordinator::new(
-        remote(
-            p2addr,
-            recovery.successor(),
-            EndpointRole::Primary,
-            10,
-            cut.head(),
-        ),
-        remote(
-            r2addr,
-            recovery.successor(),
-            EndpointRole::Replica,
-            10,
-            cut.head(),
-        ),
+    assert_eq!(restored_cut.commit().head(), drained_cut.head());
+    assert!(restored_cut.pending().is_none());
+    let mut permission: serde_json::Value =
+        serde_json::from_slice(&fs::read(&new_configs[0]).unwrap()).unwrap();
+    permission = permission["recovery_bootstrap"].clone();
+    permission
+        .as_object_mut()
+        .unwrap()
+        .remove("archive_manifest");
+    permission
+        .as_object_mut()
+        .unwrap()
+        .remove("archive_directory");
+    permission
+        .as_object_mut()
+        .unwrap()
+        .remove("recovery_copy_max_bytes");
+    let mut writer2 = seam_tests::WriterProcess::start(
+        &fixture,
+        &binary,
+        recovery.successor(),
+        10,
+        Some((
+            serde_json::from_value(permission).unwrap(),
+            witness.body.current_anchor.clone(),
+        )),
+    );
+    let (mut premature, premature_material) = fixture.frozen(&drained_cut, 46);
+    premature.body.authority_id = recovery.successor().authority_id().unwrap();
+    premature.body.epoch = 2;
+    premature.signature_hex = signed(frozen_signing_bytes(&premature.body).unwrap(), 10);
+    assert!(
+        writer2.normal.sign_frozen(&premature.body).is_err(),
+        "business must wait for unique successor Control"
+    );
+    let mut control_coordinator = FormalCoordinator::new(
+        writer2.normal_endpoint(p2addr, EndpointRole::Primary, drained_cut.head()),
+        writer2.normal_endpoint(r2addr, EndpointRole::Replica, drained_cut.head()),
         recovery.successor().clone(),
         fixture.authority.clone(),
         Some(recovery.clone()),
-        Some(cut.clone()),
+        Some(drained_cut.clone()),
     )
     .unwrap();
-    assert_eq!(coordinator.submit(fixture.initial.clone()).unwrap(), first);
-    candidate.branch = FormalCompletionBranchV1::CompletePrepared;
-    let completed = coordinator.submit(candidate.clone()).unwrap();
-    assert_eq!(
-        completed.decision.record.record_id().unwrap(),
-        candidate.candidate.record.record_id().unwrap()
+    assert!(
+        control_coordinator
+            .freeze(premature, premature_material)
+            .is_err()
     );
-    let verified =
-        verify_formal_qualified(&completed, &fixture.authority, Some(&cut), Some(&recovery))
-            .unwrap();
-    assert_old_writers_fenced();
-    drop(coordinator);
+    let (control, control_envelope) = seam_tests::control_candidate(
+        recovery.successor(),
+        &certificate,
+        &completed,
+        &candidate,
+        &candidate_envelope,
+        &[&fixture.pdir, &pdir],
+        &writer2.normal,
+    );
+    let expected_control = if consecutive {
+        seam_tests::publish_one(&mut control_coordinator, &control)
+    } else {
+        control_coordinator.submit(control.clone()).unwrap()
+    };
+    drop(control_coordinator);
     p2.kill().unwrap();
     p2.wait().unwrap();
     r2.kill().unwrap();
     r2.wait().unwrap();
+    let offline = OfflineArchives::hide(&[&fixture.pdir, &fixture.rdir]);
     let (mut p2, p2addr) = start(&binary, &new_configs[0]);
     let (mut r2, r2addr) = start(&binary, &new_configs[1]);
-    let restored = remote(
-        p2addr,
-        recovery.successor(),
-        EndpointRole::Primary,
-        10,
-        cut.head(),
-    )
-    .restore_native_current(&fixture.authority, Some(&recovery), Some(&cut))
-    .unwrap();
-    assert_eq!(restored.commit().head(), verified.head());
-    assert_eq!(restored.proof(), &completed);
-    assert_old_writers_fenced();
-    let mut coordinator = FormalCoordinator::new(
-        remote(
-            p2addr,
-            recovery.successor(),
-            EndpointRole::Primary,
-            10,
-            cut.head(),
-        ),
-        remote(
-            r2addr,
-            recovery.successor(),
-            EndpointRole::Replica,
-            10,
-            cut.head(),
-        ),
+    let mut control_coordinator = FormalCoordinator::new(
+        writer2.normal_endpoint(p2addr, EndpointRole::Primary, drained_cut.head()),
+        writer2.normal_endpoint(r2addr, EndpointRole::Replica, drained_cut.head()),
         recovery.successor().clone(),
         fixture.authority.clone(),
         Some(recovery.clone()),
-        Some(verified.clone()),
+        Some(drained_cut.clone()),
     )
     .unwrap();
-    // Replaying the retained request proves idempotence, but alone cannot
-    // demonstrate that the recovered owner can accept the *next* business
-    // request after the cold restart. Use the real successor writer and an
-    // independent new request ID on the same native P/R endpoint pair.
-    assert_eq!(coordinator.submit(candidate).unwrap(), completed);
-    let (mut next_input, next_material) = fixture.frozen(&verified, 46);
+    let activation = control_coordinator.submit(control.clone()).unwrap();
+    assert_eq!(activation, expected_control);
+    assert_eq!(
+        control_coordinator.submit(control.clone()).unwrap(),
+        activation
+    );
+    let activated =
+        verify_formal_qualified(&activation, recovery.successor(), Some(&drained_cut), None)
+            .unwrap();
+    assert_eq!(activated.record().position, drained_cut.head().position + 1);
+    assert_eq!(
+        activated.record().before_state_root,
+        drained_cut.record().after_state_root
+    );
+    assert_eq!(
+        activated.record().after_state_root,
+        drained_cut.record().after_state_root
+    );
+    assert_eq!(
+        control_envelope.execution_result_cbor,
+        candidate_envelope.execution_result_cbor
+    );
+    drop(control_coordinator);
+    drop(offline);
+    let snapshot = writer2.normal.query().unwrap();
+    writer2.cold_reopen(snapshot.revision);
+    let mut coordinator = FormalCoordinator::new(
+        writer2.normal_endpoint(p2addr, EndpointRole::Primary, drained_cut.head()),
+        writer2.normal_endpoint(r2addr, EndpointRole::Replica, drained_cut.head()),
+        recovery.successor().clone(),
+        fixture.authority.clone(),
+        Some(recovery.clone()),
+        Some(activated.clone()),
+    )
+    .unwrap();
+    let (mut next_input, next_material) = fixture.frozen(&activated, 47);
     next_input.body.authority_id = recovery.successor().authority_id().unwrap();
     next_input.body.epoch = 2;
-    next_input.body.activation_ref = recovery.successor().activation_ref().into();
-    next_input.signature_hex = signed(frozen_signing_bytes(&next_input.body).unwrap(), 10);
+    next_input.signature_hex = writer2.normal.sign_frozen(&next_input.body).unwrap();
     let next_executable = coordinator.freeze(next_input, next_material).unwrap();
     let mut next_candidate = fixture.candidate(&next_executable);
     next_candidate.candidate.record.original_epoch = 2;
-    next_candidate.candidate.writer_signature_hex = signed(
-        canonical_candidate_signing_bytes(&next_candidate.candidate.record).unwrap(),
+    let next_envelope = seam_tests::business_candidate(
+        &fixture,
+        &mut next_candidate,
+        &activation,
+        &control_envelope,
+        &[&pdir, &fixture.pdir],
         10,
     );
-    assert_ne!(
-        next_candidate.candidate.record.request_digest,
-        completed.decision.record.request_digest
-    );
+    next_candidate.candidate.writer_signature_hex = writer2
+        .normal
+        .sign_candidate(
+            &next_candidate.candidate.record,
+            next_candidate.frozen.as_ref(),
+        )
+        .unwrap();
     let next = coordinator.submit(next_candidate.clone()).unwrap();
-    assert_eq!(next.decision.record.position, verified.head().position + 1);
-    // Fresh Normal writes belong to the successor authority, never the
-    // predecessor's one-time CompletePrepared recovery authorization.
     let next_verified =
-        verify_formal_qualified(&next, recovery.successor(), Some(&verified), None).unwrap();
-    assert_eq!(coordinator.submit(next_candidate).unwrap(), next);
+        verify_formal_qualified(&next, recovery.successor(), Some(&activated), None).unwrap();
+    assert_eq!(
+        next_verified.record().position,
+        drained_cut.head().position + 2
+    );
+    assert_eq!(coordinator.submit(next_candidate.clone()).unwrap(), next);
     drop(coordinator);
+    assert_old_writers_fenced();
     p2.kill().unwrap();
     p2.wait().unwrap();
     r2.kill().unwrap();
     r2.wait().unwrap();
-    // A second cold open must retain the *new* result, not merely the
-    // restored original request or the predecessor epoch's pinned cut.
-    // Both original P and R must independently reopen the same new proof.
-    // Checking only P permits an apparently successful resumed writer while
-    // R has lost its newer qualified result (or cannot reconstruct its CAS).
+    let offline = OfflineArchives::hide(&[&fixture.pdir, &fixture.rdir]);
     for (config, role) in new_configs
         .iter()
         .zip([EndpointRole::Primary, EndpointRole::Replica])
     {
         let (mut child, address) = start(&binary, config);
-        let mut endpoint = remote(address, recovery.successor(), role, 10, cut.head());
-        let next_restored = endpoint
-            .restore_native_current(&fixture.authority, Some(&recovery), Some(&cut))
+        let mut endpoint = writer2.normal_endpoint(address, role, drained_cut.head());
+        let restored = endpoint
+            .restore_native_current(&fixture.authority, Some(&recovery), Some(&drained_cut))
             .unwrap();
-        assert_eq!(next_restored.commit().head(), next_verified.head());
-        assert_eq!(next_restored.proof(), &next);
-        // Independently query the exact original new request on the *cold*
-        // endpoint. Matching head alone does not prove its receipt was kept.
-        let FormalQueryOutcomeV1::Recorded(state) = endpoint
-            .query(&next.decision.record.request_digest)
-            .unwrap()
-        else {
-            panic!("new successor request missing after the second cold open");
-        };
-        let FormalRequestStateV1::Qualified { proof, .. } = *state else {
-            panic!("new successor request not qualified after the second cold open");
-        };
-        assert_eq!(proof, next);
+        assert_eq!(restored.commit().head(), next_verified.head());
+        assert_eq!(restored.proof(), &next);
+        for proof in [&completed, &activation, &next] {
+            let FormalQueryOutcomeV1::Recorded(state) = endpoint
+                .query(&proof.decision.record.request_digest)
+                .unwrap()
+            else {
+                panic!("original/control/next identity missing after cold open");
+            };
+            let FormalRequestStateV1::Qualified {
+                proof: retained, ..
+            } = *state
+            else {
+                panic!("original/control/next not Qualified");
+            };
+            assert_eq!(&retained, proof);
+        }
         child.kill().unwrap();
         child.wait().unwrap();
     }
-    // External fixed-cut mismatch cannot publish a ready endpoint.
+    drop(offline);
+    if consecutive {
+        let _offline = OfflineArchives::hide(&[&fixture.pdir, &fixture.rdir]);
+        let next_anchor = drained_anchor
+            .after_verified_commit(recovery.successor().clone(), next_verified.clone())
+            .unwrap();
+        planned_consecutive_tests::run(planned_consecutive_tests::Previous {
+            fixture: &fixture,
+            binary: &binary,
+            recovery: &recovery,
+            anchor: &next_anchor,
+            proof: &next,
+            candidate: &next_candidate,
+            envelope: &next_envelope,
+            configs: &new_configs,
+            writer: &mut writer2,
+            old_proofs: &[&first, &completed, &activation],
+        });
+    }
     let mut wrong: serde_json::Value =
         serde_json::from_slice(&fs::read(&new_configs[0]).unwrap()).unwrap();
     wrong["recovery_bootstrap"]["predecessor_checkpoint_digest"] =
@@ -821,9 +923,15 @@ fn run_recovery(consecutive: bool) {
     assert!(!String::from_utf8_lossy(&failed.stdout).contains("formal_endpoint_listening="));
     pchild.kill().unwrap();
     pchild.wait().unwrap();
-    // Restore the earlier signed checkpoint in the original directory, preserving
-    // its storage identity and oracle authentication. Startup must reach the same
-    // oracle, and the oracle must reject the superseded checkpoint.
+    rchild.kill().unwrap();
+    rchild.wait().unwrap();
+    final_fencing_tests::remount_sealed(
+        &binary,
+        &fixture,
+        &old_configs,
+        &drained_cut,
+        &original_ready,
+    );
     let sealed_checkpoint = fs::read(&primary_checkpoint).unwrap();
     assert_ne!(sealed_checkpoint, original_checkpoint);
     let before = po.stale_checkpoint_opens();
@@ -846,9 +954,6 @@ fn run_recovery(consecutive: bool) {
     assert!(!rolled_back.wait().unwrap().success());
     assert_eq!(po.stale_checkpoint_opens(), before + 1);
     assert_eq!(fs::read(&primary_checkpoint).unwrap(), original_checkpoint);
-
-    // The rejected attempt leaves the provider usable for the current sealed
-    // snapshot, with the original head and mutation gate still intact.
     fs::write(&primary_checkpoint, &sealed_checkpoint).unwrap();
     let (mut sealed, address) = start(&binary, &old_configs[0]);
     let mut old = remote(
@@ -856,19 +961,15 @@ fn run_recovery(consecutive: bool) {
         &fixture.authority,
         EndpointRole::Primary,
         4,
-        cut.head(),
+        drained_cut.head(),
     );
-    assert_eq!(old.head().unwrap(), cut.head());
-    let (fresh_input, fresh_material) = fixture.frozen(&cut, 45);
-    let error = old.freeze(fresh_input, fresh_material).unwrap_err();
-    assert!(error.to_string().contains("formal epoch sealed"), "{error}");
+    assert_eq!(old.head().unwrap(), drained_cut.head());
+    let (fresh, material) = fixture.frozen(&drained_cut, 45);
+    assert!(old.freeze(fresh, material).is_err());
     assert_eq!(fs::read(&primary_checkpoint).unwrap(), sealed_checkpoint);
     sealed.kill().unwrap();
     sealed.wait().unwrap();
-    rchild.kill().unwrap();
-    rchild.wait().unwrap();
-    drop(p2o);
-    drop(r2o);
-    drop(po);
-    drop(ro);
+    eprintln!(
+        "CA-F2 profile2 actual writer-plan/P-plan/R-plan/old-E-drain/writer-seal/P-seal/R-seal/issuer/control/next cold seams operation={operation}"
+    );
 }

@@ -4,6 +4,7 @@
 use super::super::{formal_live_runtime::FormalRuntimeInstanceV1, node_lifecycle::local_io as io};
 use oasis7_distfs::controlled_authority::formal::{
     EndpointSignerBindingV1, SignedNormalDurableSetTransitionV1,
+    writer_signing::FormalWriterSignerV1,
 };
 use serde::{Deserialize, Serialize};
 use std::{net::SocketAddr, path::PathBuf};
@@ -178,6 +179,11 @@ pub(super) fn prepare_plan(
     }
     let predecessor = FormalLiveConfigV1::load(predecessor_config_file)?;
     let successor = FormalLiveConfigV1::load(&authorization.successor_runtime_config_file)?;
+    if !predecessor.writer_key.supports_healthy_durable_set()
+        || !successor.writer_key.supports_healthy_durable_set()
+    {
+        return Err("formal writer custody does not authorize healthy durable-set rotation".into());
+    }
     if predecessor.recovery.is_some() || successor.recovery.is_some() {
         return Err("healthy adapter currently requires original C0 normal lineage, not recovery-origin authority".into());
     }
@@ -190,7 +196,7 @@ pub(super) fn prepare_plan(
         || successor.config.primary != predecessor.config.primary
         || successor.trust.checkpoint_digest != predecessor.trust.checkpoint_digest
         || io::digest(&successor.trust)? != io::digest(&predecessor.trust)?
-        || successor.writer_key.to_bytes() != predecessor.writer_key.to_bytes()
+        || successor.writer_key.public_key_hex() != predecessor.writer_key.public_key_hex()
     {
         return Err(
             "healthy replacement must preserve complete C0/writer/P/fixed trust configuration"

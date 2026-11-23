@@ -43,7 +43,10 @@ pub(super) fn send_control_reply(
     deadline: Instant,
     mut stream: UnixStream,
 ) -> Result<ControlReply, String> {
-    if !matches!(action, "query" | "stop" | "observe_protected") {
+    if !matches!(
+        action,
+        "query" | "stop" | "observe_protected" | "freeze_pending_handoff"
+    ) {
         return Err("unsupported formal runtime owner control action".into());
     }
     let remaining = control_wire::remaining(deadline).map_err(|error| error.to_string())?;
@@ -86,7 +89,10 @@ pub(super) fn send_control_reply(
 // caller deadline; sub-millisecond wire budgets cannot authorize a stop.
 pub(super) fn control_work_timeout(action: &str, timeout: Duration) -> Result<Duration, String> {
     let timeout = timeout.min(Duration::from_secs(60));
-    let work = if matches!(action, "stop" | "observe_protected") {
+    let work = if matches!(
+        action,
+        "stop" | "observe_protected" | "freeze_pending_handoff"
+    ) {
         timeout - (timeout / 2).min(Duration::from_secs(2))
     } else {
         timeout
@@ -95,4 +101,35 @@ pub(super) fn control_work_timeout(action: &str, timeout: Duration) -> Result<Du
         return Err("formal runtime owner control budget is too small".into());
     }
     Ok(work)
+}
+
+pub(super) fn validate_control(
+    request: &ControlRequest,
+    instance: &FormalRuntimeInstanceV1,
+) -> Result<(), String> {
+    if request.api_version != OWNER_API
+        || (request.action == "durable_set") != request.durable_set.is_some()
+        || request.operation_id != instance.operation_id
+        || request.request_digest != instance.request_digest
+        || request.config_digest != instance.config_digest
+        || request.incarnation != instance.incarnation
+        || !(1..=60_000).contains(&request.timeout_ms)
+    {
+        return Err("formal runtime control request differs from exact owner incarnation".into());
+    }
+    Ok(())
+}
+
+pub(super) fn configure_control_stream(stream: &UnixStream) -> Result<(), String> {
+    // BSD may inherit the listener's nonblocking flag. Control frames use
+    // bounded blocking reads after accept.
+    stream
+        .set_nonblocking(false)
+        .map_err(|error| format!("configure owner control blocking mode: {error}"))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("configure owner control read timeout: {error}"))?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .map_err(|error| format!("configure owner control write timeout: {error}"))
 }

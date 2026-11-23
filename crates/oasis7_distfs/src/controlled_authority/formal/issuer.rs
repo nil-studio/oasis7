@@ -1,7 +1,8 @@
 //! Durable issuer operations over the shared checked issuance protocol.
 use super::{
-    FormalError, RecoveryPolicyV1, SignedRecoveryCertificateV1, VerifiedRecoveryIntent,
-    recovery_certificate_digest, recovery_signing_bytes,
+    FormalError, RecoveryPolicyV1, SignedRecoveryCertificateV1, SignedRecoveryPlanV1,
+    VerifiedRecoveryIntent, VerifiedRecoveryPlanV1, recovery_certificate_digest,
+    recovery_signing_bytes,
 };
 use ed25519_dalek::{Signer, SigningKey};
 pub use oasis7_formal_protocol::controlled_authority::formal::issuer::*;
@@ -32,6 +33,36 @@ pub struct RecoveryIssuer {
     poisoned: bool,
 }
 impl RecoveryIssuer {
+    /// Persist the complete checked plan before an endpoint may seal. The
+    /// original predecessor slot is a CAS; retries cannot rotate its bindings.
+    pub fn prepare_plan(
+        &mut self,
+        plan: &VerifiedRecoveryPlanV1,
+    ) -> Result<SignedRecoveryPlanV1, FormalError> {
+        if self.poisoned || plan.policy() != &self.policy {
+            return Err(invalid("recovery issuer plan policy/reopen required"));
+        }
+        let signed = SignedRecoveryPlanV1::sign(plan, &self.key)?;
+        let path = self.directory.join(format!(
+            "{}.plan.json",
+            signed.body.intent.predecessor_authority_id,
+        ));
+        if path.exists() {
+            let original: SignedRecoveryPlanV1 = read_bounded(&path)?;
+            if original != signed {
+                return Err(FormalError::Conflict(
+                    "predecessor already has another immutable recovery plan".into(),
+                ));
+            }
+        } else {
+            let bytes = serde_json::to_vec(&signed).map_err(|e| invalid(e.to_string()))?;
+            if let Err(error) = atomic(&self.directory, &path, &bytes) {
+                self.poisoned = true;
+                return Err(error);
+            }
+        }
+        Ok(signed)
+    }
     pub fn open(
         directory: &Path,
         policy: RecoveryPolicyV1,
@@ -104,6 +135,20 @@ impl RecoveryIssuer {
         }
         if intent.policy() != &self.policy {
             return Err(invalid("issuer original policy changed"));
+        }
+        if intent.body().successor.profile_version == 2 {
+            let plan = intent.recovery_plan().ok_or_else(|| {
+                invalid("native profile2 issuance requires the original persisted recovery plan")
+            })?;
+            let path = self.directory.join(format!(
+                "{}.plan.json",
+                intent.body().predecessor_authority_id
+            ));
+            let original: SignedRecoveryPlanV1 = read_bounded(&path)?;
+            if &original != plan {
+                return Err(invalid("issuer plan differs from the endpoint seals"));
+            }
+            original.body.matches_intent(intent.body())?;
         }
         let body = intent.body().clone();
         canonical::<32>(&body.predecessor_authority_id)?;

@@ -118,6 +118,9 @@ impl Store {
     pub fn sources(&self) -> &[Arc<dyn super::archive_transfer::FormalArchiveSourceV1>] {
         &self.sources
     }
+    pub(super) fn clear_recovery_sources(&mut self) {
+        self.sources.clear();
+    }
     pub fn open(
         path: &Path,
         initial: HotBody,
@@ -341,6 +344,80 @@ impl Store {
         self.validate_refs(&self.body)
     }
     fn validate_refs(&self, body: &HotBody) -> Result<(), FormalError> {
+        if let Some(plan) = &body.recovery_plan {
+            let ack = body
+                .writer_plan_ack
+                .as_ref()
+                .ok_or_else(|| invalid("planned recovery writer acknowledgement missing"))?;
+            let pending: RecoveryPendingHandoffV1 =
+                self.get(body.recovery_handoff.as_deref().ok_or_else(|| {
+                    invalid("planned recovery private handoff reference missing")
+                })?)?;
+            if pending.root()? != plan.body.pending_handoff_root
+                || plan.body.intent.predecessor_authority_id != body.authority_id
+                || ack.body.plan_digest != plan.digest()?
+                || ack.body.pending_handoff_root != plan.body.pending_handoff_root
+                || body
+                    .seal
+                    .as_ref()
+                    .is_some_and(|seal| seal.recovery_plan.as_ref() != Some(plan))
+                || body.seal.as_ref().is_some_and(|seal| {
+                    seal.writer_seal
+                        .as_ref()
+                        .is_none_or(|writer| &writer.plan_ack != ack)
+                })
+            {
+                return Err(invalid("native recovery plan/private handoff/seal binding"));
+            }
+            let drained = body
+                .seal
+                .as_ref()
+                .and_then(|seal| seal.writer_seal.as_ref())
+                .map(|writer| &writer.drained)
+                .or(body.recovery_drained.as_ref());
+            match (&body.recovery_progress, drained) {
+                (Some(progress), None)
+                    if body.pending.is_some()
+                        && body.head == plan.body.intent.sealed_cut
+                        && recovery_requests_commitment(&progress.fixed)?
+                            == plan.body.original_requests_commitment => {}
+                (None, Some(drained))
+                    if body.pending.is_none()
+                        && body.decision_head.is_none()
+                        && drained.plan_digest == plan.digest()?
+                        && drained.qualified.decision.record.position == body.head.position
+                        && drained.qualified.decision.record.record_id()?
+                            == body.head.record_id => {}
+                _ => {
+                    return Err(invalid(
+                        "native recovery phase and original stored cut differ",
+                    ));
+                }
+            }
+            if body.seal.is_some() && body.recovery_drained.is_some() {
+                return Err(invalid("sealed recovery repeats unsealed drained phase"));
+            }
+        } else if let Some(id) = &body.recovery_handoff {
+            let pending: RecoveryPendingHandoffV1 = self.get(id)?;
+            pending.validate()?;
+        }
+        if body.recovery_plan.is_none()
+            && (body.writer_plan_ack.is_some()
+                || body.recovery_progress.is_some()
+                || body.recovery_drained.is_some())
+        {
+            return Err(invalid(
+                "native writer acknowledgement without recovery plan",
+            ));
+        }
+        if body
+            .seal
+            .as_ref()
+            .is_some_and(|seal| seal.recovery_plan.is_some())
+            && body.recovery_plan.is_none()
+        {
+            return Err(invalid("native sealed plan was removed"));
+        }
         if body.head.position > 0
             && (body.index.is_none()
                 || (body.head_node.is_none() && body.imported_head_node.is_none()))

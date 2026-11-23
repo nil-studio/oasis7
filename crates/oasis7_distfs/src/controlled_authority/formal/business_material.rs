@@ -10,6 +10,8 @@ pub const FORMAL_BUSINESS_ENVELOPE_DOMAIN_V1: &str = "oasis7.formal.business-res
 pub const FORMAL_BUSINESS_ENVELOPE_LIMIT: usize = 64 * 1024 * 1024;
 const RESULT_BYTES_LIMIT: usize = 8 * 1024 * 1024;
 const DESCRIPTOR_BYTES_LIMIT: usize = 64 * 1024;
+#[path = "business_material_control.rs"]
+mod control;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FormalBusinessResultEnvelopeV1 {
@@ -181,7 +183,15 @@ impl<'a> VerifiedCandidateMaterialClosureV1<'a> {
                 verify_frozen_material(body, frozen)?;
                 None
             }
-            (None, None) if record.kind == FormalRecordKindV1::InitialActivation => None,
+            (None, None)
+                if matches!(
+                    record.kind,
+                    FormalRecordKindV1::InitialActivation
+                        | FormalRecordKindV1::RecoveryActivation { .. }
+                ) =>
+            {
+                None
+            }
             _ => {
                 return Err(invalid("formal candidate complete original frozen closure"));
             }
@@ -238,6 +248,7 @@ pub fn verify_formal_business_material(
         _ => return Err(invalid("formal business profile contract")),
     }
     verify_record_material(record, material)?;
+    verify_control_input(authority, record, material)?;
     verify_formal_business_material_after_closure(
         record,
         material,
@@ -261,6 +272,7 @@ pub(super) fn verify_formal_business_material_with_closure(
     let record = &candidate.candidate.record;
     let material = &candidate.material;
     let frozen_material = candidate.frozen_material.as_ref();
+    verify_control_input(authority, record, material)?;
     match authority.definition().profile_version {
         1 => return Ok(None),
         2 => {}
@@ -333,7 +345,11 @@ fn verify_formal_business_material_after_closure(
             ));
         }
     }
-    if let Some((after, before)) = snapshots {
+    if matches!(record.kind, FormalRecordKindV1::RecoveryActivation { .. }) {
+        let parent =
+            parent.ok_or_else(|| invalid("recovery control authenticated parent missing"))?;
+        control::verify_control(record, material, parent.record(), &envelope, reader)?;
+    } else if let Some((after, before)) = snapshots {
         retention::verify_retained_transition_from_bytes(
             record.kind == FormalRecordKindV1::InitialActivation,
             after,
@@ -361,8 +377,10 @@ fn verify_formal_business_material_after_closure(
                 .map_err(invalid)?;
             &empty
         }
-        FormalRecordKindV1::Execution => parent_result_root
-            .ok_or_else(|| invalid("profile2 business delta missing verified parent root"))?,
+        FormalRecordKindV1::Execution | FormalRecordKindV1::RecoveryActivation { .. } => {
+            parent_result_root
+                .ok_or_else(|| invalid("profile2 business delta missing verified parent root"))?
+        }
     };
     envelope.delta.verify(base, reader).map_err(invalid)?;
     if envelope.delta.new_root != record.result_root {
@@ -408,7 +426,7 @@ pub(crate) fn verify_committed_business_material(
                 .canonical_result_root()
                 .map_err(invalid)?
         }
-        FormalRecordKindV1::Execution => {
+        FormalRecordKindV1::Execution | FormalRecordKindV1::RecoveryActivation { .. } => {
             let position = record
                 .position
                 .checked_sub(1)
@@ -423,30 +441,52 @@ pub(crate) fn verify_committed_business_material(
             if cut.parent_record.record_id()? != record.parent_record_id
                 || cut.parent_record.activation_ref != record.activation_ref
                 || cut.parent_record.after_state_root != record.before_state_root
-                || frozen_material
-                    .map(|material| material.snapshot_bytes())
-                    .transpose()
-                    .map_err(|e| invalid(e.to_string()))?
-                    .map(|bytes| blake3::hash(&bytes).to_hex().to_string())
-                    .as_ref()
-                    != Some(&record.before_state_root)
+                || (!matches!(record.kind, FormalRecordKindV1::RecoveryActivation { .. })
+                    && frozen_material
+                        .map(|material| material.snapshot_bytes())
+                        .transpose()
+                        .map_err(|e| invalid(e.to_string()))?
+                        .map(|bytes| blake3::hash(&bytes).to_hex().to_string())
+                        .as_ref()
+                        != Some(&record.before_state_root))
             {
                 return Err(invalid("historical material hash-bound exact parent"));
+            }
+            if matches!(record.kind, FormalRecordKindV1::RecoveryActivation { .. }) {
+                control::verify_control(record, material, &cut.parent_record, &envelope, reader)?;
             }
             cut.parent_record.result_root
         }
     };
     verify_business_metadata_contract(&envelope.delta, reader)?;
-    retention::verify_retained_transition(
-        record.kind == FormalRecordKindV1::InitialActivation,
-        material,
-        frozen_material,
-        envelope.retained_history_delta.as_ref(),
-        reader,
-    )?;
+    if !matches!(record.kind, FormalRecordKindV1::RecoveryActivation { .. }) {
+        retention::verify_retained_transition(
+            record.kind == FormalRecordKindV1::InitialActivation,
+            material,
+            frozen_material,
+            envelope.retained_history_delta.as_ref(),
+            reader,
+        )?;
+    }
     envelope.delta.verify(&base, reader).map_err(invalid)?;
     if envelope.delta.new_root != record.result_root {
         return Err(invalid("historical business transition signed new root"));
+    }
+    Ok(())
+}
+
+fn verify_control_input(
+    authority: &VerifiedAuthorityV1,
+    record: &CanonicalRecordV1,
+    material: &ClosedRecord,
+) -> Result<(), FormalError> {
+    if matches!(record.kind, FormalRecordKindV1::RecoveryActivation { .. }) {
+        let input = material
+            .objects
+            .iter()
+            .find(|object| object.content_hash == record.payload_digest)
+            .ok_or_else(|| invalid("recovery activation original Input missing"))?;
+        verify_recovery_activation_input(&input.bytes, record, authority)?;
     }
     Ok(())
 }

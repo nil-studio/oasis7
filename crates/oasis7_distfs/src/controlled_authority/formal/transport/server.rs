@@ -251,6 +251,31 @@ impl FormalEndpointServer {
                     .seal_durable_set(&verified, &checkpoint)
                     .map(|seal| Value::DurableSetSeal(Some(Box::new(seal))))
             }
+            Command::PrepareRecoveryPlan {
+                plan,
+                pending,
+                writer_ack,
+                checkpoint,
+            } => {
+                self.endpoint
+                    .prepare_recovery_plan(*plan, *pending, *writer_ack, &checkpoint)?;
+                Ok(Value::Complete)
+            }
+            Command::SealPlanned {
+                writer_seal,
+                checkpoint,
+            } => self
+                .endpoint
+                .seal_planned_epoch(*writer_seal, &checkpoint)
+                .map(|seal| Value::Seal(Box::new(seal))),
+            Command::RecoveryPendingHandoff => self
+                .endpoint
+                .recovery_pending_handoff()
+                .map(|pending| Value::RecoveryPendingHandoff(Box::new(pending))),
+            Command::RecoveryDrainedProof => self
+                .endpoint
+                .recovery_drained_proof()
+                .map(|proof| Value::RecoveryDrainedProof(Box::new(proof))),
             Command::BusinessIndexPath { .. } => {
                 Err(invalid("business index path requires guarded read"))
             }

@@ -225,7 +225,7 @@ impl ScenarioDeadline {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 enum FixtureCase {
     Standard,
     FullNodeStorage,
@@ -233,6 +233,7 @@ enum FixtureCase {
     InitialLostResponse,
     GovernedParticipant,
     RegisteredSurvivor,
+    Revalidation(oracle_support::survivor_tests::revalidation_tests::RevalidationCase),
 }
 
 fn run_protected_runtime_case(
@@ -286,80 +287,6 @@ fn run_protected_runtime_availability_case(
         None,
         FixtureCase::Standard,
     )
-}
-
-fn prepare_fixture_world_identity(
-    world: &mut oasis7_runtime::World,
-    genesis_mode: bool,
-    identity: &oasis7_distfs::controlled_authority::formal::FormalWorldIdentityV1,
-    owner_key: &SigningKey,
-    fixture_case: FixtureCase,
-) -> Result<(), String> {
-    if !genesis_mode {
-        world.submit_action(Action::RegisterAgent {
-            agent_id: "agent".into(),
-            pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
-        });
-        world
-            .step()
-            .map_err(|error| format!("execute Wasmtime observer on actual action: {error:?}"))?;
-        world.submit_action(Action::ClaimStarterOc {
-            agent_id: "agent".into(),
-            player_id: "owner".into(),
-            public_key: Some(hex::encode(owner_key.verifying_key().to_bytes())),
-        });
-        world
-            .step()
-            .map_err(|error| format!("claim canonical fixture owner: {error:?}"))?;
-        world
-            .install_capability_agent_identity("agent", "owner", 1)
-            .map_err(|error| format!("install canonical fixture owner: {error:?}"))?;
-    }
-    world
-        .bind_cognition_runtime(&identity.world_id, "main", 0, None, "pending", 0)
-        .map_err(|error| format!("bind existing formal World: {error:?}"))?;
-    if !genesis_mode {
-        if fixture_case == FixtureCase::FullNodeStorage {
-            world.install_test_provider_capability_fixture_with_lifetime(
-                "agent",
-                full_node_storage_tests::capability_lifetime_ticks()?,
-            )
-        } else {
-            world.install_test_provider_capability_fixture("agent")
-        }
-        .map_err(|error| format!("install Runtime-owned provider authority fixture: {error:?}"))?;
-    }
-    Ok(())
-}
-
-fn snapshot_and_restore_fixture_world(
-    world: oasis7_runtime::World,
-    identity: &oasis7_distfs::controlled_authority::formal::FormalWorldIdentityV1,
-    genesis_mode: bool,
-) -> Result<(oasis7_runtime::World, usize), String> {
-    let snapshot = world.snapshot_with_chain_resource_context(
-        oasis7_runtime::ChainResourceDerivationContext {
-            world_id: &identity.world_id,
-            chain_id: &identity.chain_id,
-            genesis_ref: Some(&identity.genesis_digest),
-            created_at_height: 0,
-            manifest_height: 0,
-            commit_block_hash: None,
-            tick: world.state().time,
-        },
-        fixtures::h(10),
-        fixtures::h(11),
-    );
-    let world = oasis7_runtime::World::from_snapshot(snapshot, world.journal().clone())
-        .map_err(|error| format!("restore fixture World identity: {error:?}"))?;
-    if (genesis_mode && world.state().time != 0) || (!genesis_mode && world.state().time == 0) {
-        return Err(format!(
-            "fixture World time {} does not match genesis mode {genesis_mode}",
-            world.state().time
-        ));
-    }
-    let module_emits_initial = wasm_emit_count(&world);
-    Ok((world, module_emits_initial))
 }
 
 fn run_protected_runtime_fixture(
@@ -420,13 +347,28 @@ fn run_protected_runtime_fixture(
         genesis_mode,
         &identity,
         &owner_key,
-        fixture_case,
+        fixture_case.clone(),
     )?;
     let (mut world, module_emits_initial) =
         snapshot_and_restore_fixture_world(world, &identity, genesis_mode)?;
-    if matches!(fixture_case, FixtureCase::GovernedParticipant | FixtureCase::RegisteredSurvivor) {
-        oracle_support::survivor_tests::governed_participant::install_genesis_policy(&mut world, &identity)?;
+    if matches!(
+        fixture_case,
+        FixtureCase::GovernedParticipant
+            | FixtureCase::RegisteredSurvivor
+            | FixtureCase::Revalidation(_)
+    ) {
+        oracle_support::survivor_tests::governed_participant::install_genesis_policy(
+            &mut world, &identity,
+        )?;
     }
+    let revalidation_request = match &fixture_case {
+        FixtureCase::Revalidation(case) => Some(
+            oracle_support::survivor_tests::revalidation_tests::prepare_world(
+                case, &mut world, &identity,
+            )?,
+        ),
+        _ => None,
+    };
 
     let mut definition = seed_anchor.authority().definition().clone();
     let recovery = seed_anchor.authority().policy().clone();
@@ -626,11 +568,47 @@ fn run_protected_runtime_fixture(
     let node_key_dir = root.join("node-keypair");
     oracle_support::private_directory(&writer_dir)?;
     oracle_support::private_directory(&node_key_dir)?;
+    let remote_writer_mode = matches!(
+        crash_phase,
+        Some(
+            "pending_durable"
+                | "input_frozen"
+                | "execution_completed"
+                | "candidate_saved"
+                | "primary_published"
+                | "dual_qualified"
+                | "publication_saved"
+                | "attempt_output_unlinked"
+                | "read_published"
+                | "survivor_frozen"
+                | "survivor_prepared"
+        )
+    ) || matches!(fixture_case, FixtureCase::Revalidation(_))
+        || effect_scenario.is_some();
+    let writer_custody = if remote_writer_mode {
+        use oracle_support::writer_custody_fixture::{Authorization, WriterCustodyFixture};
+        Some(WriterCustodyFixture::initialize(
+            &root.join("writer-custody"),
+            &endpoint_binary,
+            Authorization {
+                authority: &authority,
+                trust: &initial_trust,
+                certificate: &certificate,
+                recovery: None,
+            },
+            &writer_key,
+            [24, 25],
+        )?)
+    } else {
+        None
+    };
     let writer_key_file = root.join("writer-key");
-    oracle_support::write_private(
-        &writer_key_file,
-        hex::encode(writer_key.to_bytes()).as_bytes(),
-    )?;
+    if !remote_writer_mode {
+        oracle_support::write_private(
+            &writer_key_file,
+            hex::encode(writer_key.to_bytes()).as_bytes(),
+        )?;
+    }
     let node_key = fixtures::key(90);
     let node_key_file = node_key_dir.join("node-keypair.toml");
     oracle_support::write_private(
@@ -667,6 +645,14 @@ fn run_protected_runtime_fixture(
         "status_bind": status_bind,
         "approved_initial_file": approved_file,
     });
+    if let Some(service) = &writer_custody {
+        runtime_config["schema_version"] = 2.into();
+        runtime_config
+            .as_object_mut()
+            .ok_or("runtime config object")?
+            .remove("writer_key_file");
+        runtime_config["writer_custody"] = service.runtime_config();
+    }
     if crash_phase == Some("v3_read_gate_no_adapter") {
         runtime_config["full_sync_provider_read_authorization"] = serde_json::json!("v3_required");
     }
@@ -688,8 +674,13 @@ fn run_protected_runtime_fixture(
         world_id: identity.world_id.clone(),
         genesis_digest: identity.genesis_digest.clone(),
     };
-    let owner_request = if fixture_case == FixtureCase::RegisteredSurvivor {
-        oracle_support::survivor_tests::governed_participant::registration_request(&world, &world_identity)?
+    let owner_request = if let Some(request) = revalidation_request {
+        request
+    } else if fixture_case == FixtureCase::RegisteredSurvivor {
+        oracle_support::survivor_tests::governed_participant::registration_request(
+            &world,
+            &world_identity,
+        )?
     } else if genesis_mode {
         request_for_first_agent(&owner_key, &world_identity)?
     } else {
@@ -707,9 +698,16 @@ fn run_protected_runtime_fixture(
         timeout: Duration::from_secs(30),
         max_response_bytes: 16 * 1024 * 1024,
     };
-    let registered_scope = if fixture_case == FixtureCase::RegisteredSurvivor {
-        Some(oracle_support::survivor_tests::governed_participant::registered_scope(&owner_request)?)
-    } else { None };
+    let registered_scope = if matches!(
+        fixture_case,
+        FixtureCase::RegisteredSurvivor | FixtureCase::Revalidation(_)
+    ) {
+        Some(
+            oracle_support::survivor_tests::governed_participant::registered_scope(&owner_request)?,
+        )
+    } else {
+        None
+    };
     let owner_client_config = || {
         let mut config = client_config();
         config.scope_id = if genesis_mode {
@@ -738,6 +736,17 @@ fn run_protected_runtime_fixture(
             initial_anchor: &anchor,
         });
     }
+    if let FixtureCase::Revalidation(case) = &fixture_case
+        && !case.fixed
+    {
+        return oracle_support::survivor_tests::revalidation_tests::run_pending(
+            case,
+            &runtime_config_path,
+            client_config(),
+            &world_identity,
+            &owner_request,
+        );
+    }
     if let Some(mode @ ("survivor_frozen" | "survivor_prepared")) = crash_phase {
         return oracle_support::survivor_tests::run(
             mode,
@@ -748,11 +757,24 @@ fn run_protected_runtime_fixture(
             &owner_request,
             module_emits_initial,
             oracle_support::survivor_tests::SurvivorResources {
-                governed_participant: matches!(fixture_case, FixtureCase::GovernedParticipant | FixtureCase::RegisteredSurvivor),
-                primary_child,
-                replica_child,
+                governed_participant: matches!(
+                    fixture_case,
+                    FixtureCase::GovernedParticipant
+                        | FixtureCase::RegisteredSurvivor
+                        | FixtureCase::Revalidation(_)
+                ),
+                revalidation: match &fixture_case {
+                    FixtureCase::Revalidation(case) => Some(case.clone()),
+                    _ => None,
+                },
+                writer_custody: writer_custody.ok_or("survivor requires real writer custody")?,
+                primary_child: Some(primary_child),
+                replica_child: Some(replica_child),
                 pdir,
                 rdir,
+                primary_oracle_address: primary_oracle.address(),
+                primary_config,
+                replica_config,
                 replica_address,
                 authority: authority.clone(),
                 trust: initial_trust.clone(),

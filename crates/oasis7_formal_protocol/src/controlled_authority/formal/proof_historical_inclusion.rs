@@ -23,19 +23,30 @@ pub(crate) fn verify_historical_qualified_from_inclusion(
         writer_signature_hex: proof.decision.writer_signature_hex.clone(),
     };
     candidate.verify_original(authority)?;
-    if authority
-        .first_normal_position
-        .is_none_or(|position| candidate.record.position < position)
-    {
-        return Err(invalid("historical delegated Normal authority window"));
+    if matches!(
+        candidate.record.kind,
+        FormalRecordKindV1::RecoveryActivation { .. }
+    ) {
+        super::super::recovery_activation::verify_recovery_activation_identity(
+            &candidate.record,
+            authority,
+            proof.decision.frozen.as_ref(),
+        )?;
+    } else {
+        if authority
+            .first_normal_position
+            .is_none_or(|position| candidate.record.position < position)
+        {
+            return Err(invalid("historical delegated Normal authority window"));
+        }
+        let frozen = proof
+            .decision
+            .frozen
+            .as_ref()
+            .ok_or_else(|| invalid("historical execution original Frozen certificate"))?;
+        frozen.verify(authority.definition(), authority.activation_ref())?;
+        frozen.matches_record(&candidate.record)?;
     }
-    let frozen = proof
-        .decision
-        .frozen
-        .as_ref()
-        .ok_or_else(|| invalid("historical execution original Frozen certificate"))?;
-    frozen.verify(authority.definition(), authority.activation_ref())?;
-    frozen.matches_record(&candidate.record)?;
     let context = VerifiedCandidateContextV1 {
         record: candidate.record,
         finalizer: authority.clone(),

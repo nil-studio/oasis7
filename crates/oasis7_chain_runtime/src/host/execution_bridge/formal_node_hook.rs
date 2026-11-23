@@ -35,6 +35,9 @@ pub(crate) struct CommittedExecutionEvidence {
 #[derive(Clone)]
 pub(crate) enum CurrentHeadEvidence {
     InitialActivation(NodeExecutionBootstrap),
+    /// A separately qualified control record preserves the exact original
+    /// InitialInput result. It is not itself an InitialActivation or Node tick.
+    RecoveryInitialBoundary(NodeExecutionBootstrap),
     Execution(Box<CommittedExecutionEvidence>),
 }
 
@@ -127,7 +130,16 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalNodeWriter
             FormalRecordKindV1::InitialActivation => Ok(CurrentHeadEvidence::InitialActivation(
                 FormalWriter::committed_initial_bootstrap(self)?,
             )),
-            FormalRecordKindV1::Execution => {
+            FormalRecordKindV1::Execution | FormalRecordKindV1::RecoveryActivation { .. } => {
+                if matches!(
+                    &canonical.kind,
+                    FormalRecordKindV1::RecoveryActivation { .. }
+                ) && self.recovery_activation_has_initial_bootstrap()?
+                {
+                    return Ok(CurrentHeadEvidence::RecoveryInitialBoundary(
+                        FormalWriter::committed_initial_bootstrap(self)?,
+                    ));
+                }
                 let result = self.committed_execution_record()?;
                 let snapshot_root = blake3_hex(&to_cbor(self.world().snapshot())?);
                 Ok(CurrentHeadEvidence::Execution(Box::new(
@@ -199,7 +211,8 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalNodeWriter
     fn committed_execution(&self) -> Result<CommittedExecutionEvidence, String> {
         match self.current_head_evidence()? {
             CurrentHeadEvidence::Execution(evidence) => Ok(*evidence),
-            CurrentHeadEvidence::InitialActivation(_) => {
+            CurrentHeadEvidence::InitialActivation(_)
+            | CurrentHeadEvidence::RecoveryInitialBoundary(_) => {
                 Err("formal InitialActivation has no committed Node execution result".into())
             }
         }
@@ -229,6 +242,8 @@ pub(crate) struct FormalNodeHook<W: FormalNodeWriter> {
     publication_sink: Option<Arc<dyn FormalPublicationSink>>,
     durable_set_arm: Option<Arc<super::formal_durable_set_arm::FormalDurableSetArmControlV1>>,
     admission_gate: Option<Arc<Mutex<()>>>,
+    pending_handoff:
+        Option<Arc<crate::formal_live_runtime::pending_handoff::FormalPendingHandoffQueue>>,
 }
 
 struct ConsumedTerminal {
@@ -253,6 +268,7 @@ impl<W: FormalNodeWriter> FormalNodeHook<W> {
             publication_sink: None,
             durable_set_arm: None,
             admission_gate: None,
+            pending_handoff: None,
         };
         // Refuse unsupported initial anchors and zero-height pending recovery at
         // construction. A zero-height InitialActivation must pass the distinct
@@ -261,7 +277,10 @@ impl<W: FormalNodeWriter> FormalNodeHook<W> {
             hook.bootstrap()?;
         } else {
             match hook.writer.current_head_evidence()? {
-                CurrentHeadEvidence::InitialActivation(bootstrap) if bootstrap.height == 0 => {
+                CurrentHeadEvidence::InitialActivation(bootstrap)
+                | CurrentHeadEvidence::RecoveryInitialBoundary(bootstrap)
+                    if bootstrap.height == 0 =>
+                {
                     hook.genesis_bootstrap()?.ok_or(
                         "formal zero-height InitialActivation lacks qualified genesis evidence",
                     )?;
@@ -305,6 +324,29 @@ impl<W: FormalNodeWriter> FormalNodeHook<W> {
             arm.set_pending_open(open)?;
         }
         Ok(())
+    }
+
+    pub(crate) fn with_pending_handoff_queue(
+        mut self,
+        pending: Arc<crate::formal_live_runtime::pending_handoff::FormalPendingHandoffQueue>,
+    ) -> Self {
+        self.pending_handoff = Some(pending);
+        self
+    }
+
+    fn require_unfrozen_admission(&self) -> Result<(), String> {
+        self.pending_handoff
+            .as_ref()
+            .map_or(Ok(()), |pending| pending.ensure_new_frozen_allowed())
+    }
+
+    fn note_successful_frozen(
+        &self,
+        continuation: &NodeLocalExecutionContinuation,
+    ) -> Result<(), String> {
+        self.pending_handoff
+            .as_ref()
+            .map_or(Ok(()), |pending| pending.note_frozen(continuation))
     }
 
     fn armed_transition_for_next_boundary(
@@ -355,6 +397,7 @@ impl<W: FormalNodeWriter> FormalNodeHook<W> {
                     );
                 }
                 CurrentHeadEvidence::InitialActivation(bootstrap)
+                | CurrentHeadEvidence::RecoveryInitialBoundary(bootstrap)
                     if continuation.predecessor_committed_height == 0 && bootstrap.height == 0 =>
                 {
                     let genesis = self
@@ -374,7 +417,8 @@ impl<W: FormalNodeWriter> FormalNodeHook<W> {
             }
         }
         match self.writer.current_head_evidence()? {
-            CurrentHeadEvidence::InitialActivation(bootstrap) => {
+            CurrentHeadEvidence::InitialActivation(bootstrap)
+            | CurrentHeadEvidence::RecoveryInitialBoundary(bootstrap) => {
                 bootstrap_from_initial(self.writer.world(), &bootstrap)
             }
             CurrentHeadEvidence::Execution(evidence) => bootstrap_from_execution(&evidence),
@@ -395,6 +439,21 @@ impl<W: FormalNodeWriter> FormalNodeHook<W> {
             CurrentHeadEvidence::InitialActivation(bootstrap) => {
                 let (world, anchor) = self.writer.committed_read_cut()?;
                 (world, anchor, bootstrap)
+            }
+            CurrentHeadEvidence::RecoveryInitialBoundary(bootstrap) => {
+                if bootstrap.height != 0 {
+                    return Ok(None);
+                }
+                let (world, anchor, initial) = self.writer.retained_initial_read_cut()?;
+                if initial != bootstrap
+                    || super::snapshot_to_cbor(&world.snapshot())?
+                        != super::snapshot_to_cbor(&self.writer.world().snapshot())?
+                {
+                    return Err(
+                        "recovery control changed the original qualified genesis boundary".into(),
+                    );
+                }
+                (world, anchor, initial)
             }
             CurrentHeadEvidence::Execution(_) => {
                 let Some(original) = self.writer.pending_continuation()? else {
@@ -675,6 +734,16 @@ impl<W: FormalNodeWriter> NodeExecutionHook for FormalNodeHook<W> {
             "node_prepare_continuation",
             continuation.context.height,
         );
+        #[cfg(test)]
+        if let Some(control) = self
+            .publication_sink
+            .as_ref()
+            .map(|sink| sink.test_boundary_control())
+            .transpose()?
+            .flatten()
+        {
+            control.before_frozen(&continuation.context)?;
+        }
         let admission_gate = self.admission_gate.clone();
         let _admission = admission_gate
             .as_ref()
@@ -687,6 +756,7 @@ impl<W: FormalNodeWriter> NodeExecutionHook for FormalNodeHook<W> {
         let pending = self.writer.pending_continuation()?;
         timing.mark("pending_read");
         if let Some(consumed) = &self.consumed_terminal {
+            self.require_unfrozen_admission()?;
             let original = pending
                 .as_ref()
                 .ok_or("formal consumed terminal disappeared before successor preparation")?;
@@ -710,6 +780,9 @@ impl<W: FormalNodeWriter> NodeExecutionHook for FormalNodeHook<W> {
                 &consumed.formal_record_id,
                 transition.as_ref(),
             );
+            if prepared.is_ok() {
+                self.note_successful_frozen(continuation)?;
+            }
             let pending_open = self.writer.pending_continuation()?.is_some();
             self.mark_pending_open(pending_open)?;
             prepared?;
@@ -728,10 +801,14 @@ impl<W: FormalNodeWriter> NodeExecutionHook for FormalNodeHook<W> {
             let prepared = self
                 .writer
                 .prepare_with_durable_set_transition(continuation, None);
+            if prepared.is_ok() {
+                self.note_successful_frozen(continuation)?;
+            }
             let pending_open = self.writer.pending_continuation()?.is_some();
             self.mark_pending_open(pending_open)?;
             return prepared;
         }
+        self.require_unfrozen_admission()?;
         let bootstrap = if continuation.predecessor_committed_height == 0 {
             self.genesis_bootstrap()?
                 .ok_or("formal zero-height continuation lacks qualified genesis")?
@@ -748,6 +825,9 @@ impl<W: FormalNodeWriter> NodeExecutionHook for FormalNodeHook<W> {
         let prepared = self
             .writer
             .prepare_with_durable_set_transition(continuation, transition.as_ref());
+        if prepared.is_ok() {
+            self.note_successful_frozen(continuation)?;
+        }
         let pending_open = self.writer.pending_continuation()?.is_some();
         self.mark_pending_open(pending_open)?;
         prepared

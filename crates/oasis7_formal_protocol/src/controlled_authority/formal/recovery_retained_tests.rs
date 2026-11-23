@@ -44,6 +44,8 @@ fn next_body(
     let seal = |instance: &fencing::EndpointInstanceBindingV1| {
         fencing::test_verified_seal_with_resource(
             fencing::EpochSealBodyV1 {
+                recovery_plan: None,
+                writer_seal: None,
                 schema_version: 1,
                 instance: instance.clone(),
                 recovery_operation: h(101),

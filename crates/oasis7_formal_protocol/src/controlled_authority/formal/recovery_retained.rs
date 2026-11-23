@@ -38,6 +38,9 @@ impl VerifiedActiveRecoveryContextV2 {
     pub fn commitment(&self) -> &RetainedRecoveryContextV2 {
         &self.commitment
     }
+    pub fn witness(&self) -> &RecoveryTailWitnessV1 {
+        &self.witness
+    }
     /// Every argument is already authorized: a raw config definition, failed
     /// process observation or unsigned cut cannot enter this constructor.
     pub fn from_previous(
@@ -369,10 +372,18 @@ fn verify_retained_intent(
             ));
         }
     }
+    let plan = super::super::recovery_plan::verify_recovery_plan_seals(
+        &body,
+        context.active(),
+        seals,
+        context.witness(),
+    )?;
     Ok(VerifiedRecoveryIntent {
         body,
         policy: context.active().policy().clone(),
         retained: Some(context.clone()),
+        plan,
+        sealed_commit: context.cut().clone(),
     })
 }
 fn exact_candidate_tail(

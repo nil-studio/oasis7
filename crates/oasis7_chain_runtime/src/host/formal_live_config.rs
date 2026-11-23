@@ -7,8 +7,12 @@ use ed25519_dalek::SigningKey;
 use oasis7::world_service::client::FormalReadTrustConfigV1;
 use oasis7_distfs::controlled_authority::formal::{
     FormalCompletionBranchV1, FormalQualifiedCommitProofV1, FormalRecordKindV1,
-    VerifiedFormalReadAnchorV1, endpoint::FormalCandidateMaterialV1, verify_formal_candidate,
-    verify_formal_qualified, verify_record_material,
+    VerifiedFormalReadAnchorV1,
+    endpoint::FormalCandidateMaterialV1,
+    verify_formal_candidate, verify_formal_qualified, verify_record_material,
+    writer_signing::{
+        FormalWriterSignerV1, RemoteWriterCustodyClientV1, WriterSigningCapabilityV1,
+    },
 };
 use oasis7_runtime::ReleaseSecurityPolicy;
 use serde::{Deserialize, Serialize};
@@ -39,16 +43,19 @@ impl FullSyncProviderReadAuthorizationModeV1 {
     }
 }
 
-/// Exact schema-1 configuration. The names and required fields are intentionally
-/// separate from `GuardedConfiguration`; legacy engineering files cannot be
-/// interpreted as formal production configuration.
+/// Versioned formal configuration. Schema 1 explicitly loads a local writer key;
+/// schema 2 admits only a separate credential for the pinned writer-custody service.
+/// Neither form can be inferred from a legacy `GuardedConfiguration`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct FormalLiveConfigV1 {
     pub schema_version: u32,
     pub node_id: String,
     pub node_keypair_directory: PathBuf,
-    pub writer_key_file: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub writer_key_file: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub writer_custody: Option<FormalWriterCustodyConfigV2>,
     pub formal_read_trust_file: PathBuf,
     pub writer_directory: PathBuf,
     pub primary: SocketAddr,
@@ -74,6 +81,14 @@ pub(super) struct FormalLiveConfigV1 {
     pub full_sync_read_authorization_v3: Option<FormalLiveReadAuthorizationV3>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct FormalWriterCustodyConfigV2 {
+    pub endpoint: SocketAddr,
+    pub credential_file: PathBuf,
+    pub minimum_revision: u64,
+}
+
 /// Routes are usable only when their complete contract digest is already
 /// selected by an effect in a qualified outbox. Loading never sends effects.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,7 +102,7 @@ pub(super) struct FormalEffectDeliveryConfigV1 {
 pub(super) struct ValidatedFormalLiveConfigV1 {
     pub config: FormalLiveConfigV1,
     pub node_keypair: super::node_keypair_config::NodeKeypairConfig,
-    pub writer_key: SigningKey,
+    pub writer_key: WriterSigningCapabilityV1,
     pub trust: FormalReadTrustConfigV1,
     pub anchor: VerifiedFormalReadAnchorV1,
     pub approved_initial: Option<ApprovedInitialPublicationV1>,
@@ -113,12 +128,15 @@ impl FormalLiveConfigV1 {
         let config_path = absolute_path(path)?;
         super::controlled_live_config::require_private_owned(&config_path, false)?;
         let bytes = super::controlled_history_cli::read_bounded(&config_path, MAX_CONFIG_BYTES)?;
-        let mut config: Self = serde_json::from_slice(&bytes)
+        let wire: serde_json::Value = serde_json::from_slice(&bytes)
             .map_err(|error| format!("formal live configuration: {error}"))?;
+        let mut config: Self = serde_json::from_value(wire.clone())
+            .map_err(|error| format!("formal live configuration: {error}"))?;
+        config.validate_writer_mode(&wire)?;
         if let Some(delivery) = &config.effect_delivery {
             super::formal_effect_transport::validate_receiver_contracts(&delivery.routes)?;
         }
-        if config.schema_version != 1
+        if !matches!(config.schema_version, 1 | 2)
             || config.node_id.trim().is_empty()
             || config.node_id.len() > MAX_NODE_ID_BYTES
             || config.node_id.chars().any(char::is_control)
@@ -137,6 +155,13 @@ impl FormalLiveConfigV1 {
                 "unsupported formal live schema, identity, loopback address, or timeout".into(),
             );
         }
+        if let Some(custody) = &config.writer_custody
+            && (!custody.endpoint.ip().is_loopback()
+                || custody.endpoint.port() == 0
+                || [config.primary, config.replica, config.status_bind].contains(&custody.endpoint))
+        {
+            return Err("formal writer custody requires a distinct loopback endpoint".into());
+        }
 
         let config_directory = config_path
             .parent()
@@ -146,8 +171,18 @@ impl FormalLiveConfigV1 {
             &config.node_keypair_directory,
             "node keypair directory",
         )?;
-        config.writer_key_file =
-            resolve_path(config_directory, &config.writer_key_file, "writer key file")?;
+        config.writer_key_file = config
+            .writer_key_file
+            .as_deref()
+            .map(|path| resolve_path(config_directory, path, "writer key file"))
+            .transpose()?;
+        if let Some(custody) = &mut config.writer_custody {
+            custody.credential_file = resolve_path(
+                config_directory,
+                &custody.credential_file,
+                "writer custody client credential file",
+            )?;
+        }
         config.formal_read_trust_file = resolve_path(
             config_directory,
             &config.formal_read_trust_file,
@@ -223,8 +258,6 @@ impl FormalLiveConfigV1 {
             return Err("formal node identity changed while loading configuration".into());
         }
 
-        let writer_key =
-            super::controlled_live_config::read_existing_signing_key(&config.writer_key_file)?;
         super::controlled_live_config::require_private_owned(
             &config.formal_read_trust_file,
             false,
@@ -272,11 +305,15 @@ impl FormalLiveConfigV1 {
         let active = recovery
             .as_ref()
             .map_or(anchor.authority(), |context| context.recovery().successor());
-        if hex::encode(writer_key.verifying_key().to_bytes())
-            != active.definition().writer_public_key
-        {
-            return Err("formal writer key differs from externally pinned active authority".into());
+        let mut signing_authorities = vec![active, anchor.authority()];
+        if let Some(context) = &recovery {
+            signing_authorities.push(context.recovery().predecessor());
         }
+        let writer_key = config.load_writer_capability(
+            active,
+            &signing_authorities,
+            &trust.initial_trust.issuer_public_key,
+        )?;
 
         let approved_initial = config
             .approved_initial_file
@@ -295,6 +332,86 @@ impl FormalLiveConfigV1 {
             recovery,
             release_policy: ReleaseSecurityPolicy::production_hardened(),
         })
+    }
+
+    fn validate_writer_mode(&self, wire: &serde_json::Value) -> Result<(), String> {
+        let object = wire
+            .as_object()
+            .ok_or("formal live configuration must be an object")?;
+        match self.schema_version {
+            1 if self.writer_key_file.is_some() && !object.contains_key("writer_custody") => Ok(()),
+            2 if self.writer_custody.is_some() && !object.contains_key("writer_key_file") => Ok(()),
+            _ => Err("formal schema 1 requires only writer_key_file; schema 2 requires only writer_custody and forbids a writer private-key path".into()),
+        }
+    }
+
+    pub(super) fn writer_authentication_input(
+        &self,
+    ) -> Result<(&'static str, &std::path::Path), String> {
+        match (
+            self.schema_version,
+            &self.writer_key_file,
+            &self.writer_custody,
+        ) {
+            (1, Some(path), None) => Ok(("writer_key", path)),
+            (2, None, Some(custody)) => Ok(("writer_client_credential", &custody.credential_file)),
+            _ => Err("formal writer authentication mode is inconsistent".into()),
+        }
+    }
+
+    fn load_writer_capability(
+        &self,
+        active: &oasis7_distfs::controlled_authority::formal::VerifiedAuthorityV1,
+        authorities: &[&oasis7_distfs::controlled_authority::formal::VerifiedAuthorityV1],
+        initial_issuer: &str,
+    ) -> Result<WriterSigningCapabilityV1, String> {
+        let (_, path) = self.writer_authentication_input()?;
+        let credential = super::controlled_live_config::read_existing_signing_key(path)?;
+        let public = hex::encode(credential.verifying_key().to_bytes());
+        if self.schema_version == 1 {
+            if public != active.definition().writer_public_key {
+                return Err(
+                    "formal writer key differs from externally pinned active authority".into(),
+                );
+            }
+            return Ok(credential.into());
+        }
+        if public == initial_issuer
+            || authorities.iter().any(|authority| {
+                let definition = authority.definition();
+                let policy = authority.policy();
+                [
+                    definition.writer_public_key.as_str(),
+                    definition.primary.instance.endpoint_public_key.as_str(),
+                    definition.replica.instance.endpoint_public_key.as_str(),
+                    policy.fencing_provider_public_key.as_str(),
+                    policy.recovery_issuer_public_key.as_str(),
+                    policy.issuer_anchor_public_key.as_str(),
+                ]
+                .contains(&public.as_str())
+            })
+        {
+            return Err("formal writer custody client credential must be independent of writer, endpoint, provider and issuer keys".into());
+        }
+        let custody = self
+            .writer_custody
+            .as_ref()
+            .ok_or("writer custody configuration missing")?;
+        let signer = WriterSigningCapabilityV1::new(
+            RemoteWriterCustodyClientV1::new(
+                custody.endpoint,
+                Duration::from_millis(self.timeout_ms),
+                active.authority_id().map_err(|e| e.to_string())?,
+                active.definition().writer_public_key.clone(),
+                credential,
+                custody.minimum_revision,
+            )
+            .map_err(|e| format!("formal writer custody configuration: {e}"))?,
+        );
+        if signer.public_key_hex() != active.definition().writer_public_key {
+            return Err("formal writer custody differs from pinned active authority".into());
+        }
+        Ok(signer)
     }
 }
 

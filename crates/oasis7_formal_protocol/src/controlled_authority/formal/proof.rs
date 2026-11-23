@@ -1,6 +1,21 @@
 pub const CANDIDATE_SIGN_DOMAIN_V1: &str = "oasis7.formal.candidate.sign.v1";
 pub const FINAL_RECEIPT_SIGN_DOMAIN_V1: &str = "oasis7.formal.final_receipt.sign.v1";
 pub const DECISION_PROOF_DOMAIN_V1: &str = "oasis7.formal.decision_proof_envelope.v1";
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FormalPrepareReceiptBodyV1 {
+    pub final_receipt: FormalFinalReceiptBodyV1,
+    pub candidate_material_digest: String,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FormalPrepareReceiptV1 {
+    pub body: FormalPrepareReceiptBodyV1,
+    pub signature_hex: String,
+}
+pub fn formal_prepare_receipt_signing_bytes(
+    body: &FormalPrepareReceiptBodyV1,
+) -> Result<Vec<u8>, FormalError> {
+    bytes("oasis7.formal.prepare_receipt.sign.v1", body)
+}
 #[path = "proof_completion.rs"]
 mod completion;
 use super::{crypto::*, *};
@@ -15,6 +30,12 @@ pub use checkpoint_restore::{
 #[path = "native_checkpoint.rs"]
 mod native_checkpoint;
 pub use native_checkpoint::*;
+#[path = "proof_recovery_drain.rs"]
+mod recovery_drain;
+pub(crate) use recovery_drain::{
+    verify_normal_qualified_from_authenticated_native_ancestry, verify_recovery_drain_decision,
+    verify_recovery_drained_qualified,
+};
 #[path = "read_anchor.rs"]
 mod read_anchor;
 pub use read_anchor::*;
@@ -226,9 +247,10 @@ fn verify_formal_candidate_with<O: QuorumValidationOps>(
     let (finalizer, certificate) = match branch {
         FormalCompletionBranchV1::Normal => {
             if recovery.is_some()
-                || authority
-                    .first_normal_position
-                    .is_none_or(|start| record.position < start)
+                || (!matches!(record.kind, FormalRecordKindV1::RecoveryActivation { .. })
+                    && authority
+                        .first_normal_position
+                        .is_none_or(|start| record.position < start))
             {
                 return Err(invalid("formal normal write not authorized"));
             }
@@ -282,6 +304,13 @@ fn verify_formal_candidate_with<O: QuorumValidationOps>(
         }
     };
     match (&record.kind, parent) {
+        (FormalRecordKindV1::RecoveryActivation { .. }, Some(parent))
+            if branch == FormalCompletionBranchV1::Normal =>
+        {
+            super::recovery_activation::verify_recovery_activation_record(
+                record, authority, parent, frozen,
+            )?;
+        }
         (FormalRecordKindV1::InitialActivation, None)
             if branch == FormalCompletionBranchV1::Normal =>
         {

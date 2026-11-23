@@ -29,6 +29,18 @@ pub(crate) fn install_genesis_policy(
     Ok(())
 }
 
+pub(crate) fn update_fixture_policy(
+    world: &mut oasis7_runtime::World,
+    identity: &WorldIdentity,
+    generation: u64,
+    enabled: bool,
+    namespace: GameIdentityNamespaceV1,
+    issuer_seed: u8,
+) -> Result<(), String> {
+    policy::install_for_identity(world, identity, generation, enabled, namespace, issuer_seed);
+    Ok(())
+}
+
 // Called by the existing trusted survivor test, not a new ignored test mapping.
 pub(super) fn run_recovery_scenario(phase: &str, registered_original: bool) -> Result<(), String> {
     run_protected_runtime_fixture(

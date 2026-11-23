@@ -2,10 +2,15 @@
 use super::*;
 #[path = "endpoint_store_durable_set_copy.rs"]
 mod copy;
-pub(crate) use copy::copy_authenticated_closure;
 #[cfg(test)]
 pub(crate) use copy::entry_validation_counts;
+pub(crate) use copy::{copy_authenticated_closure, copy_recovery_repair_closure};
 impl Store {
+    pub(crate) fn finish_recovery_repair_sources(&mut self) {
+        // The independently checked complete original graph is now local.
+        // Later missing bytes fail closed instead of borrowing the survivor.
+        self.sources.clear();
+    }
     pub(crate) fn read_native_checkpoint(path: &Path) -> Result<Vec<u8>, FormalError> {
         read(&path.join(HOT))
     }

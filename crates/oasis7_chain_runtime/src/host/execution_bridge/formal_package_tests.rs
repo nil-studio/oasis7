@@ -142,6 +142,55 @@ impl FormalDurabilityEndpoint for FrozenReceiver {
     }
 }
 
+/// Independent, fault-free execution of the exact signed input retained by a
+/// native crash scenario. The model receivers only mint the test execution
+/// token; they neither publish a decision nor provide native durability proof.
+pub(crate) fn independent_frozen_execution(
+    input: SignedFormalFrozenV1,
+    material: ClosedRecord,
+    parent: &VerifiedFormalReadAnchorV1,
+    private_root: &std::path::Path,
+    writer: &dyn FormalWriterSignerV1,
+    reader: std::sync::Arc<dyn business_index::BusinessIndexNodeReader + Send + Sync>,
+) -> Result<FormalCandidateMaterialV1, String> {
+    if input.body.parent != parent.head().head()
+        || input.body.authority_id
+            != parent
+                .authority()
+                .authority_id()
+                .map_err(|error| error.to_string())?
+    {
+        return Err("CA-R1 independent oracle parent/authority differs from original input".into());
+    }
+    let receiver = |role| FrozenReceiver {
+        authority: parent.authority().clone(),
+        parent: parent.head().clone(),
+        role,
+        retained: None,
+    };
+    let mut coordinator = FormalCoordinator::new(
+        receiver(EndpointRole::Primary),
+        receiver(EndpointRole::Replica),
+        parent.authority().clone(),
+        parent.authority().clone(),
+        None,
+        Some(parent.head().clone()),
+    )
+    .map_err(|error| error.to_string())?;
+    let frozen = coordinator
+        .freeze(input, material)
+        .map_err(|error| error.to_string())?;
+    super::super::formal_executor::execute_normal_with_business_reader(
+        &frozen,
+        parent.authority(),
+        parent.head(),
+        private_root,
+        writer,
+        Some(&super::super::formal_business_package::SharedBusinessReader(reader)),
+        Some(parent),
+    )
+}
+
 fn continuation(world: &World, parent: &VerifiedFormalCommitV1) -> NodeLocalExecutionContinuation {
     NodeLocalExecutionContinuation {
         schema_version: 1,

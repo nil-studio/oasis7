@@ -15,6 +15,8 @@ pub struct FormalReadCheckpointV1 {
     pub retained_record_id: Option<String>,
     pub head_record: CanonicalRecordV1,
     pub head_finalizing_authority_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_activation: Option<RecoveryActivationAuthorizationV1>,
 }
 impl FormalReadCheckpointV1 {
     pub fn digest(&self) -> Result<String, FormalError> {
@@ -36,6 +38,45 @@ impl VerifiedFormalReadAnchorV1 {
     }
     pub fn initial_certificate(&self) -> &SignedInitialActivationV1 {
         &self.initial_certificate
+    }
+    /// Recover only the initial authorization already authenticated by this
+    /// opaque anchor. This grants no genesis commit and accepts no new trust or
+    /// certificate from a service response.
+    pub fn verified_initial_authority(&self) -> Result<VerifiedAuthorityV1, FormalError> {
+        let body = &self.initial_certificate.body;
+        body.validate()?;
+        let input_digest =
+            blake3::hash(&initial_activation_input_bytes(&self.initial_certificate)?)
+                .to_hex()
+                .to_string();
+        if body.activation_ref()? != self.authority.activation_ref()
+            || body.authority.world != self.authority.definition().world
+            || body.recovery_policy != *self.authority.policy()
+            || self
+                .authority
+                .initial_body()
+                .is_some_and(|initial| initial != body)
+            || self
+                .authority
+                .initial_input_digest()
+                .is_some_and(|digest| digest != input_digest)
+        {
+            return Err(invalid(
+                "initial authorization differs from authenticated anchor lineage",
+            ));
+        }
+        Ok(VerifiedAuthorityV1 {
+            definition: body.authority.clone(),
+            policy: body.recovery_policy.clone(),
+            activation_ref: body.activation_ref()?,
+            durable_set_activation_digest: None,
+            initial: Some(body.clone()),
+            first_normal_position: Some(1),
+            recovery_cut: None,
+            recovery_retained_record: None,
+            initial_input_digest: Some(input_digest),
+            recovery_activation: None,
+        })
     }
     /// Derive a separate historical anchor from inclusion beneath the current
     /// qualified business root. This never rewinds the caller's current anchor.
@@ -239,6 +280,7 @@ impl VerifiedFormalReadAnchorV1 {
                 || checkpoint.first_normal_position != Some(1)
                 || checkpoint.recovery_cut.is_some()
                 || checkpoint.retained_record_id.is_some()
+                || checkpoint.recovery_activation.is_some()
             {
                 return Err(invalid("fixed initial authority checkpoint windows"));
             }
@@ -260,6 +302,24 @@ impl VerifiedFormalReadAnchorV1 {
         }
         if let Some(id) = &checkpoint.retained_record_id {
             hash_hex(id)?;
+        }
+        if let Some(activation) = &checkpoint.recovery_activation {
+            activation.validate()?;
+            if checkpoint
+                .recovery_cut
+                .as_ref()
+                .and_then(|cut| cut.position.checked_add(2))
+                != checkpoint.first_normal_position
+                || checkpoint
+                    .active_authority
+                    .valid_from_position
+                    .checked_add(1)
+                    != checkpoint.first_normal_position
+            {
+                return Err(invalid(
+                    "pinned recovery activation control/business positions",
+                ));
+            }
         }
         if checkpoint.head_finalizing_authority_id != checkpoint.active_authority.authority_id()?
             && !(checkpoint
@@ -289,6 +349,7 @@ impl VerifiedFormalReadAnchorV1 {
             recovery_retained_record: checkpoint.retained_record_id.clone(),
             initial_input_digest: initial.initial_input_digest.clone(),
             durable_set_activation_digest: None,
+            recovery_activation: checkpoint.recovery_activation.clone(),
         };
         // This construction is confined to an independently pinned checkpoint;
         // ordinary unpinned response data can never reach it.
@@ -320,6 +381,7 @@ impl VerifiedFormalReadAnchorV1 {
             retained_record_id: self.authority.recovery_retained_record.clone(),
             head_record: self.head.record().clone(),
             head_finalizing_authority_id: self.head.finalizing_authority_id().to_owned(),
+            recovery_activation: self.authority.recovery_activation.clone(),
         }
     }
     pub fn after_verified_commit(

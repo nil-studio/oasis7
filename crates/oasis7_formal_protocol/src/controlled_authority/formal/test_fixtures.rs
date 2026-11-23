@@ -433,6 +433,8 @@ pub fn recovery_fixture_with_profile(
     };
     let seal = verified_seal(
         fencing::EpochSealBodyV1 {
+            recovery_plan: None,
+            writer_seal: None,
             schema_version: 1,
             instance: authority.definition.primary.instance.clone(),
             recovery_operation: h(70),

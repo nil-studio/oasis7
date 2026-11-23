@@ -1,6 +1,5 @@
 //! Actual private runtime execution, gated by dual durable formal Frozen input.
 use super::{ExecutionBridgeState, checkpoint, controlled_capture as capture, formal_package};
-use ed25519_dalek::SigningKey;
 use oasis7_distfs::controlled_authority::formal::{
     coordinator::ExecutableFormalFrozenV1, endpoint::FormalCandidateMaterialV1, *,
 };
@@ -12,7 +11,7 @@ pub(super) fn execute_normal(
     authority: &VerifiedAuthorityV1,
     parent: &VerifiedFormalCommitV1,
     private_root: &Path,
-    writer: &SigningKey,
+    writer: &dyn FormalWriterSignerV1,
 ) -> Result<FormalCandidateMaterialV1, String> {
     execute_normal_with_business_reader(frozen, authority, parent, private_root, writer, None, None)
 }
@@ -21,7 +20,7 @@ pub(super) fn execute_normal_with_business_reader(
     authority: &VerifiedAuthorityV1,
     parent: &VerifiedFormalCommitV1,
     private_root: &Path,
-    writer: &SigningKey,
+    writer: &dyn FormalWriterSignerV1,
     business_reader: Option<&super::formal_business_package::SharedBusinessReader>,
     read_anchor: Option<&VerifiedFormalReadAnchorV1>,
 ) -> Result<FormalCandidateMaterialV1, String> {
@@ -44,13 +43,12 @@ pub(super) fn execute_recovery_replay(
     recovery: &VerifiedRecovery,
     parent: &VerifiedFormalCommitV1,
     private_root: &Path,
-    writer: &SigningKey,
+    writer: &dyn FormalWriterSignerV1,
     business_reader: Option<&super::formal_business_package::SharedBusinessReader>,
     read_anchor: Option<&VerifiedFormalReadAnchorV1>,
 ) -> Result<FormalCandidateMaterialV1, String> {
     if parent.head() != recovery.body().sealed_cut
-        || hex::encode(writer.verifying_key().as_bytes())
-            != recovery.successor().definition().writer_public_key
+        || writer.public_key_hex() != recovery.successor().definition().writer_public_key
     {
         return Err("formal replay requires exact sealed cut and successor writer".into());
     }
@@ -75,7 +73,7 @@ fn execute_with_business_reader(
     authority: &VerifiedAuthorityV1,
     parent: &VerifiedFormalCommitV1,
     private_root: &Path,
-    writer: &SigningKey,
+    writer: &dyn FormalWriterSignerV1,
     business_reader: Option<&super::formal_business_package::SharedBusinessReader>,
     read_anchor: Option<&VerifiedFormalReadAnchorV1>,
     recovery: Option<&VerifiedRecovery>,

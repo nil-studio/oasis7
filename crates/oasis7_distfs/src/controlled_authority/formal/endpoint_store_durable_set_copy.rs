@@ -26,6 +26,7 @@ enum Visit {
     Business(String, usize),
     Raw(String, Vec<u8>),
     Native(String, u32),
+    RecoveryHandoff(String, Option<String>),
 }
 impl Visit {
     fn id(&self) -> &str {
@@ -35,7 +36,8 @@ impl Visit {
             | Self::Entry(id, _)
             | Self::Business(id, _)
             | Self::Raw(id, _)
-            | Self::Native(id, _) => id,
+            | Self::Native(id, _)
+            | Self::RecoveryHandoff(id, _) => id,
         }
     }
     fn edge_digest(&self) -> Result<String, FormalError> {
@@ -46,6 +48,7 @@ impl Visit {
             Self::Business(_, depth) => serde_cbor::to_vec(depth),
             Self::Raw(..) => serde_cbor::to_vec(&()),
             Self::Native(_, size) => serde_cbor::to_vec(size),
+            Self::RecoveryHandoff(_, root) => serde_cbor::to_vec(root),
         }
         .map_err(|error| invalid(error.to_string()))?;
         hash(
@@ -61,6 +64,7 @@ impl Visit {
             Self::Business(..) => 3,
             Self::Raw(..) => 4,
             Self::Native(..) => 5,
+            Self::RecoveryHandoff(..) => 6,
         }
     }
 }
@@ -290,9 +294,6 @@ pub(crate) fn copy_authenticated_closure(
     max_operation_bytes: u64,
     copy: bool,
 ) -> Result<DurableSetClosureInventoryV1, FormalError> {
-    let mut trace = WalkTrace::new();
-    #[cfg(test)]
-    ENTRY_VALIDATIONS.with(|count| count.set((0, 0)));
     let body = Store::verify_public(source_checkpoint_bytes, source_key)?;
     let seal = body
         .seal
@@ -306,6 +307,76 @@ pub(crate) fn copy_authenticated_closure(
     {
         return Err(invalid("healthy copy sealed exact H and empty slot"));
     }
+    copy_native_closure(
+        target,
+        source_checkpoint_bytes,
+        &body,
+        source,
+        CopyScope {
+            profile_version,
+            pending: None,
+        },
+        max_operation_bytes,
+        copy,
+    )
+}
+
+/// This entry accepts only the original checkpoint authenticated by a live
+/// protected repair grant. The healthy entry above retains its sealed/empty gate.
+pub(crate) fn copy_recovery_repair_closure(
+    target: &Path,
+    source_checkpoint_bytes: &[u8],
+    source_key: &str,
+    source: &dyn FormalArchiveSourceV1,
+    grant: &fencing::ProtectedRecoveryRepairGrantV1,
+    max_operation_bytes: u64,
+    copy: bool,
+) -> Result<DurableSetClosureInventoryV1, FormalError> {
+    let body = Store::verify_public(source_checkpoint_bytes, source_key)?;
+    if Store::binding(&body, source_checkpoint_bytes) != grant.original_checkpoint
+        || body.instance_digest != grant.instance_digest
+        || body.pending != grant.original_pending
+        || body.seal.is_some()
+    {
+        return Err(invalid(
+            "repair copy must consume the exact original provider checkpoint",
+        ));
+    }
+    copy_native_closure(
+        target,
+        source_checkpoint_bytes,
+        &body,
+        source,
+        CopyScope {
+            profile_version: 2,
+            pending: body.pending.clone(),
+        },
+        max_operation_bytes,
+        copy,
+    )
+}
+
+struct CopyScope {
+    profile_version: u32,
+    pending: Option<String>,
+}
+
+#[path = "endpoint_store_recovery_repair_copy.rs"]
+mod recovery_repair_copy;
+
+fn copy_native_closure(
+    target: &Path,
+    source_checkpoint_bytes: &[u8],
+    body: &HotBody,
+    source: &dyn FormalArchiveSourceV1,
+    scope: CopyScope,
+    max_operation_bytes: u64,
+    copy: bool,
+) -> Result<DurableSetClosureInventoryV1, FormalError> {
+    let mut trace = WalkTrace::new();
+    #[cfg(test)]
+    ENTRY_VALIDATIONS.with(|count| count.set((0, 0)));
+    let profile_version = scope.profile_version;
     let objects = target.join("formal-objects-v1");
     directory(&objects)?;
     FileFormalArchiveSourceV1::new(target.to_path_buf())?;
@@ -328,6 +399,16 @@ pub(crate) fn copy_authenticated_closure(
             body.head.clone(),
         ),
     ];
+    if let Some(id) = &body.recovery_handoff {
+        work.push(Visit::RecoveryHandoff(
+            id.clone(),
+            body.recovery_plan
+                .as_ref()
+                .map(|plan| plan.body.pending_handoff_root.clone()),
+        ));
+    } else if body.recovery_plan.is_some() {
+        return Err(invalid("recovery copy original pending collection missing"));
+    }
     let mut inventory = DurableSetClosureInventoryV1 {
         source_checkpoint_digest: blake3::hash(source_checkpoint_bytes).to_hex().to_string(),
         inventory_digest: hash("oasis7.formal.durable_set_inventory_start.v1", &body.head)?,
@@ -484,40 +565,35 @@ pub(crate) fn copy_authenticated_closure(
             }
             Visit::Entry(_, expected) => {
                 let started = trace.start();
-                let FormalRequestStateV1::Qualified { candidate, proof } =
-                    decode::<FormalRequestStateV1>(&bytes)?
-                else {
-                    return Err(invalid(
-                        "healthy copy permanent index contains unresolved slot",
-                    ));
-                };
-                trace.entry_decode_us += elapsed_us(started);
-                trace.entries += 1;
-                trace.entry_bytes += bytes.len() as u64;
-                let record = &proof.decision.record;
-                let head = FormalHeadRefV1 {
-                    position: record.position,
-                    record_id: record.record_id()?,
-                };
-                check_entry_head(&head, expected)?;
-                if candidate.candidate.record != *record {
-                    return Err(invalid("healthy copy qualified material/history binding"));
-                }
-                let started = trace.start();
-                verify_record_material(record, &candidate.material)?;
-                for material in
-                    std::iter::once(&candidate.material).chain(candidate.frozen_material.iter())
-                {
-                    if let Some(descriptor) = material
-                        .native_environment()
-                        .map_err(|e| invalid(e.to_string()))?
+                let entry = decode::<FormalRequestStateV1>(&bytes)?;
+                if let FormalRequestStateV1::Qualified { candidate, proof } = entry {
+                    trace.entry_decode_us += elapsed_us(started);
+                    trace.entries += 1;
+                    trace.entry_bytes += bytes.len() as u64;
+                    let record = &proof.decision.record;
+                    let head = FormalHeadRefV1 {
+                        position: record.position,
+                        record_id: record.record_id()?,
+                    };
+                    check_entry_head(&head, expected)?;
+                    if candidate.candidate.record != *record {
+                        return Err(invalid("healthy copy qualified material/history binding"));
+                    }
+                    let started = trace.start();
+                    verify_record_material(record, &candidate.material)?;
+                    for material in
+                        std::iter::once(&candidate.material).chain(candidate.frozen_material.iter())
                     {
-                        let marker = visits.join(format!(
-                            "native-environment-{}",
-                            descriptor.digest().map_err(invalid)?
-                        ));
-                        if !marker.try_exists().map_err(io)? {
-                            crate::controlled_authority::formal::native_environment::verify_material_chunks(material, |id| {
+                        if let Some(descriptor) = material
+                            .native_environment()
+                            .map_err(|e| invalid(e.to_string()))?
+                        {
+                            let marker = visits.join(format!(
+                                "native-environment-{}",
+                                descriptor.digest().map_err(invalid)?
+                            ));
+                            if !marker.try_exists().map_err(io)? {
+                                crate::controlled_authority::formal::native_environment::verify_material_chunks(material, |id| {
                                 if copy {
                                     source_memo.as_mut().ok_or_else(|| invalid("native copy source absent"))?
                                         .read_object(id)?.ok_or_else(|| invalid("native copy chunk absent"))
@@ -526,56 +602,72 @@ pub(crate) fn copy_authenticated_closure(
                                         &objects.join(id), id)?.ok_or_else(|| invalid("native independent chunk absent"))
                                 }
                             }, |_, _| Ok(()))?;
-                            write_private_marker(&marker, &[])?;
+                                write_private_marker(&marker, &[])?;
+                            }
                         }
                     }
-                }
 
-                trace.material_us += elapsed_us(started);
-                let started = trace.start();
-                enqueue_material(
-                    &candidate.material,
-                    profile_version,
-                    true,
-                    &mut work,
-                    source_memo.as_mut(),
-                )?;
-                trace.enqueue_us += elapsed_us(started);
-                if let Some(material) = &candidate.frozen_material {
-                    let started = trace.start();
-                    verify_frozen_material(
-                        &candidate
-                            .frozen
-                            .as_ref()
-                            .ok_or_else(|| {
-                                invalid("healthy copy frozen material lacks certificate")
-                            })?
-                            .reservation
-                            .body,
-                        material,
-                    )?;
                     trace.material_us += elapsed_us(started);
                     let started = trace.start();
                     enqueue_material(
-                        material,
+                        &candidate.material,
                         profile_version,
-                        false,
+                        true,
                         &mut work,
                         source_memo.as_mut(),
                     )?;
                     trace.enqueue_us += elapsed_us(started);
+                    if let Some(material) = &candidate.frozen_material {
+                        let started = trace.start();
+                        verify_frozen_material(
+                            &candidate
+                                .frozen
+                                .as_ref()
+                                .ok_or_else(|| {
+                                    invalid("healthy copy frozen material lacks certificate")
+                                })?
+                                .reservation
+                                .body,
+                            material,
+                        )?;
+                        trace.material_us += elapsed_us(started);
+                        let started = trace.start();
+                        enqueue_material(
+                            material,
+                            profile_version,
+                            false,
+                            &mut work,
+                            source_memo.as_mut(),
+                        )?;
+                        trace.enqueue_us += elapsed_us(started);
+                    }
+                    // Publish only after all intrinsic checks and closure enqueue
+                    // succeeded. Fresh private run state is discarded on any error.
+                    write_private_marker(
+                        &projection_path,
+                        &serde_cbor::to_vec(&head).map_err(|e| invalid(e.to_string()))?,
+                    )?;
+                    #[cfg(test)]
+                    ENTRY_VALIDATIONS.with(|count| {
+                        let (validated, reused) = count.get();
+                        count.set((validated + 1, reused));
+                    });
+                } else {
+                    if scope.pending.as_deref() != Some(visit.id()) || expected.is_some() {
+                        return Err(invalid(
+                            "copy permanent index contains an unapproved unresolved slot",
+                        ));
+                    }
+                    recovery_repair_copy::enqueue_original_pending(
+                        &entry,
+                        profile_version,
+                        &mut work,
+                        source_memo.as_mut(),
+                        &objects,
+                        source,
+                        copy,
+                    )?;
                 }
-                // Publish only after all intrinsic checks and closure enqueue
-                // succeeded. Fresh private run state is discarded on any error.
-                write_private_marker(
-                    &projection_path,
-                    &serde_cbor::to_vec(&head).map_err(|e| invalid(e.to_string()))?,
-                )?;
-                #[cfg(test)]
-                ENTRY_VALIDATIONS.with(|count| {
-                    let (validated, reused) = count.get();
-                    count.set((validated + 1, reused));
-                });
             }
             Visit::Business(_, expected_depth) => {
                 match BusinessIndexNodeV1::decode(&bytes).map_err(invalid)?.kind {
@@ -598,6 +690,16 @@ pub(crate) fn copy_authenticated_closure(
             Visit::Native(_, size) => {
                 if bytes.len() != *size as usize {
                     return Err(invalid("native copied chunk length"));
+                }
+            }
+            Visit::RecoveryHandoff(_, expected) => {
+                if bytes.len() > RECOVERY_PENDING_HANDOFF_ENCODED_LIMIT_V1 {
+                    return Err(invalid("recovery copy pending object bound"));
+                }
+                let pending: RecoveryPendingHandoffV1 = decode(&bytes)?;
+                let root = pending.root()?;
+                if expected.as_ref().is_some_and(|expected| expected != &root) {
+                    return Err(invalid("recovery copy original pending collection changed"));
                 }
             }
         }

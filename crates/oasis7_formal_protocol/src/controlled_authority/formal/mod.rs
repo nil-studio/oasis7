@@ -8,7 +8,9 @@ pub mod frozen;
 pub mod proof;
 pub mod record;
 pub mod recovery;
+pub mod recovery_plan;
 pub mod types;
+pub mod writer_custody;
 pub use super::fencing;
 pub mod issuer;
 pub use activation::*;
@@ -16,6 +18,13 @@ pub use frozen::*;
 pub use proof::*;
 pub use record::*;
 pub use recovery::*;
+pub use recovery_plan::*;
+pub use writer_custody::*;
+mod recovery_activation;
+pub use recovery_activation::{
+    decode_recovery_activation_input, recovery_activation_input_bytes,
+    recovery_activation_request_digest, verify_recovery_activation_input,
+};
 pub use types::*;
 pub mod business_history;
 pub mod business_index;
@@ -26,6 +35,8 @@ pub mod durable_set_activation;
 pub mod durable_set_transition;
 pub use durable_set_activation::*;
 pub use durable_set_transition::*;
+mod healthy_seal;
+pub use healthy_seal::HealthySealAuthorizationV1;
 pub mod durable_set_install;
 pub use durable_set_install::*;
 pub mod durable_set_bootstrap;

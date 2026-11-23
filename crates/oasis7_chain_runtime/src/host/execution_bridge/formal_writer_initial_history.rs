@@ -19,16 +19,30 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
                 self.committed_initial_bootstrap()?,
             ));
         }
-        let continuation = self
-            .pending_continuation()?
-            .ok_or("retained genesis requires an original pending continuation")?;
-        if continuation.predecessor_committed_height != 0
-            || continuation.context.height != 1
-            || self.anchor.authority().definition().profile_version != 2
-            || self.anchor.authority().definition().epoch != 1
-            || self.anchor.head().record().position != 2
-        {
-            return Err("retained genesis context is unavailable for this pending decision".into());
+        let recovery_control = matches!(
+            self.anchor.head().record().kind,
+            FormalRecordKindV1::RecoveryActivation { .. }
+        );
+        if recovery_control {
+            if !self.recovery_activation_has_initial_bootstrap()? || self.world.state().time != 0 {
+                return Err(
+                    "recovery control does not retain the original genesis Node boundary".into(),
+                );
+            }
+        } else {
+            let continuation = self
+                .pending_continuation()?
+                .ok_or("retained genesis requires an original pending continuation")?;
+            if continuation.predecessor_committed_height != 0
+                || continuation.context.height != 1
+                || self.anchor.authority().definition().profile_version != 2
+                || self.anchor.authority().definition().epoch != 1
+                || self.anchor.head().record().position != 2
+            {
+                return Err(
+                    "retained genesis context is unavailable for this pending decision".into(),
+                );
+            }
         }
         let reader = self
             .business_reader
@@ -56,31 +70,56 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
         .ok_or("retained genesis current business descriptor missing")?;
         let inclusion =
             tree.historical_cut_inclusion(&self.anchor.head().record().world, 1, reader)?;
-        let historical = VerifiedCommittedHistoricalCutV1::verify(
-            &self.anchor,
-            tree.index_root(),
-            &inclusion,
-            1,
-        )
-        .map_err(|error| error.to_string())?;
-        let anchor =
-            VerifiedFormalReadAnchorV1::from_committed_historical_cut(&self.anchor, &historical)
+        let historical = if recovery_control {
+            let initial = self
+                .anchor
+                .verified_initial_authority()
                 .map_err(|error| error.to_string())?;
+            VerifiedCommittedHistoricalCutV1::verify_with_verified_authority(
+                &self.anchor,
+                &initial,
+                tree.index_root(),
+                &inclusion,
+                1,
+            )
+        } else {
+            VerifiedCommittedHistoricalCutV1::verify(&self.anchor, tree.index_root(), &inclusion, 1)
+        }
+        .map_err(|error| error.to_string())?;
+        let anchor = if recovery_control {
+            VerifiedFormalReadAnchorV1::from_committed_historical_cut_with_verified_authority(
+                &self.anchor,
+                &historical,
+            )
+        } else {
+            VerifiedFormalReadAnchorV1::from_committed_historical_cut(&self.anchor, &historical)
+        }
+        .map_err(|error| error.to_string())?;
         if anchor.head().record().kind != FormalRecordKindV1::InitialActivation {
             return Err("retained genesis delegated cut is not InitialActivation".into());
         }
-        let original = &self
-            .pending
-            .as_ref()
-            .ok_or("retained genesis original input missing")?
-            .original
-            .body;
-        if original.next_position != 2
-            || original.parent != anchor.head().head()
-            || original.pre_state_root != anchor.head().record().after_state_root
-            || original.request_digest != self.anchor.head().record().request_digest
-        {
-            return Err("retained genesis is not the exact original height-one predecessor".into());
+        if recovery_control {
+            if anchor.head().record().after_state_root
+                != self.anchor.head().record().after_state_root
+            {
+                return Err("recovery control changed the retained genesis state".into());
+            }
+        } else {
+            let original = &self
+                .pending
+                .as_ref()
+                .ok_or("retained genesis original input missing")?
+                .original
+                .body;
+            if original.next_position != 2
+                || original.parent != anchor.head().head()
+                || original.pre_state_root != anchor.head().record().after_state_root
+                || original.request_digest != self.anchor.head().record().request_digest
+            {
+                return Err(
+                    "retained genesis is not the exact original height-one predecessor".into(),
+                );
+            }
         }
         // Pre-upgrade endpoints durably embedded artifacts inside Qualified
         // entries without separately storing each logical artifact in raw CAS.
@@ -114,12 +153,22 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
                     "retained initial artifact differs from external activation certificate".into(),
                 );
             }
-            let bytes = match cached_initial.as_ref().and_then(|material| {
-                material
-                    .objects
-                    .iter()
-                    .find(|object| &object.content_hash == hash)
-            }) {
+            let bytes = match cached_initial
+                .as_ref()
+                .and_then(|material| {
+                    material
+                        .objects
+                        .iter()
+                        .find(|object| &object.content_hash == hash)
+                })
+                .or_else(|| {
+                    publication
+                        .candidate
+                        .material
+                        .objects
+                        .iter()
+                        .find(|object| &object.content_hash == hash)
+                }) {
                 Some(object) => object.bytes.clone(),
                 None => reader
                     .0

@@ -53,6 +53,12 @@ fn historical_skip_path_is_bounded_exact_and_rejects_fork_missing_and_corrupt_no
         nodes.push((id, node));
     }
     let body = HotBody {
+        healthy_seal_authorization: None,
+        recovery_plan: None,
+        writer_plan_ack: None,
+        recovery_progress: None,
+        recovery_drained: None,
+        recovery_handoff: None,
         data_closure: None,
         version: 1,
         instance_digest: "00".repeat(32),

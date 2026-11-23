@@ -54,6 +54,7 @@ fn governance_authorization_formal_node_hook_uses_qualified_committed_cut() {
         publication_sink: None,
         durable_set_arm: None,
         admission_gate: None,
+        pending_handoff: None,
     };
     let node = oasis7_node::NodeRuntime::new(
         oasis7_node::NodeConfig::new(

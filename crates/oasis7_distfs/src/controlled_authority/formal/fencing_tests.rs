@@ -67,6 +67,8 @@ fn provider_retains_intent_progress_and_unique_instance_but_never_claims_formal_
     guard.finish().unwrap();
     assert_eq!(guard.checkpoint(), &next);
     let body = EpochSealBodyV1 {
+        recovery_plan: None,
+        writer_seal: None,
         schema_version: 1,
         instance: binding.clone(),
         recovery_operation: "e".repeat(64),

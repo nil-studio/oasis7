@@ -1,9 +1,9 @@
 //! Signed test-only recovery evidence; no external checkpoint replacement.
 use super::*;
 use crate::formal_live_recovery_test_support as recovery_test_support;
-use oasis7_world_service::formal_read::{FormalReadFencingEvidenceV1, FormalRecoveryReadStepV1};
 use oasis7_distfs::controlled_authority::fencing::*;
 use oasis7_distfs::controlled_authority::replicated_protocol::HeadAnchor;
+use oasis7_world_service::formal_read::{FormalReadFencingEvidenceV1, FormalRecoveryReadStepV1};
 use serde::Serialize;
 
 pub(super) fn empty_recovery_fixture(
@@ -96,6 +96,8 @@ fn epoch_seal_with_tail(
     };
     let body = EpochSealBodyV1 {
         schema_version: 1,
+        recovery_plan: None,
+        writer_seal: None,
         instance: instance.clone(),
         recovery_operation: fixtures::h(150 + next_epoch as u8),
         highest_complete: complete.clone(),

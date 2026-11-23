@@ -85,7 +85,8 @@ impl Fixture {
             schema_version: 1,
             node_id: "formal-node-a".into(),
             node_keypair_directory: PathBuf::from("node-keys"),
-            writer_key_file: PathBuf::from("writer.key"),
+            writer_key_file: Some(PathBuf::from("writer.key")),
+            writer_custody: None,
             formal_read_trust_file: PathBuf::from("formal-read-trust.json"),
             writer_directory: PathBuf::from("writer"),
             primary: "127.0.0.1:21001".parse().unwrap(),
@@ -153,6 +154,115 @@ fn existing_formal_configuration_defaults_to_legacy_v1_without_serializing_a_new
 }
 
 #[test]
+fn formal_writer_versions_reject_mixed_or_missing_custody_fields_before_key_reads() {
+    let fixture = Fixture::new();
+    let local = serde_json::to_value(&fixture.config).unwrap();
+    let custody = serde_json::json!({
+        "endpoint": "127.0.0.1:21004", "credential_file": "missing-client.key",
+        "minimum_revision": 0,
+    });
+    let mut remote = local.clone();
+    remote["schema_version"] = 2.into();
+    remote.as_object_mut().unwrap().remove("writer_key_file");
+    remote["writer_custody"] = custody.clone();
+    let mut mixed = remote.clone();
+    mixed["writer_key_file"] = serde_json::Value::Null;
+    let mut local_with_remote = local.clone();
+    local_with_remote["writer_custody"] = custody;
+    let mut missing = remote.clone();
+    missing.as_object_mut().unwrap().remove("writer_custody");
+    for wire in [mixed, local_with_remote, missing] {
+        write_private(&fixture.config_path, &serde_json::to_vec(&wire).unwrap());
+        let error = FormalLiveConfigV1::load(&fixture.config_path)
+            .err()
+            .unwrap();
+        assert!(
+            error.contains("schema 2 requires only writer_custody"),
+            "{error}"
+        );
+    }
+    let loaded: FormalLiveConfigV1 = serde_json::from_value(remote.clone()).unwrap();
+    assert!(loaded.validate_writer_mode(&remote).is_ok());
+    assert_eq!(serde_json::to_value(loaded).unwrap(), remote);
+}
+
+#[test]
+fn remote_writer_capability_loads_only_independent_client_credential_without_network_io() {
+    let mut fixture = Fixture::new();
+    fs::remove_file(fixture.root.0.join("writer.key")).unwrap();
+    let credential = fixture.root.0.join("client.key");
+    write_private(
+        &credential,
+        hex::encode(fixtures::key(120).to_bytes()).as_bytes(),
+    );
+    fixture.config.schema_version = 2;
+    fixture.config.writer_key_file = None;
+    fixture.config.writer_custody = Some(FormalWriterCustodyConfigV2 {
+        endpoint: "127.0.0.1:21004".parse().unwrap(),
+        credential_file: credential.clone(),
+        minimum_revision: 7,
+    });
+    let trust: FormalReadTrustConfigV1 =
+        serde_json::from_slice(&fs::read(fixture.root.0.join("formal-read-trust.json")).unwrap())
+            .unwrap();
+    let authority = fixture.anchor.authority();
+    // This constructor uses an independently verified authority. The complete
+    // profile-2 loader and actual RPC consumer run in the protected-process fixture.
+    let signer = fixture
+        .config
+        .load_writer_capability(
+            authority,
+            &[authority],
+            &trust.initial_trust.issuer_public_key,
+        )
+        .unwrap();
+    assert_eq!(
+        signer.public_key_hex(),
+        authority.definition().writer_public_key
+    );
+    assert!(!signer.supports_healthy_durable_set());
+    assert!(!fixture.root.0.join("writer.key").exists());
+    assert_eq!(
+        fs::read_dir(fixture.root.0.join("writer")).unwrap().count(),
+        0
+    );
+    assert_eq!(
+        fixture.config.writer_authentication_input().unwrap(),
+        ("writer_client_credential", credential.as_path())
+    );
+
+    let definition = authority.definition();
+    let policy = authority.policy();
+    for public in [
+        &definition.writer_public_key,
+        &definition.primary.instance.endpoint_public_key,
+        &definition.replica.instance.endpoint_public_key,
+        &policy.fencing_provider_public_key,
+        &policy.recovery_issuer_public_key,
+        &policy.issuer_anchor_public_key,
+        &trust.initial_trust.issuer_public_key,
+    ] {
+        let seed = (0..=100u8)
+            .find(|seed| hex::encode(fixtures::key(*seed).verifying_key().to_bytes()) == *public)
+            .expect("protected fixture authority uses a known isolated test key");
+        write_private(
+            &credential,
+            hex::encode(fixtures::key(seed).to_bytes()).as_bytes(),
+        );
+        let error = fixture
+            .config
+            .load_writer_capability(
+                authority,
+                &[authority],
+                &trust.initial_trust.issuer_public_key,
+            )
+            .err()
+            .expect("custody credential must not be an authority key");
+        assert!(error.contains("must be independent"), "{error}");
+    }
+}
+
+#[test]
 fn formal_loader_rejects_v1_authorities_with_an_explicit_profile_reason() {
     let fixture = Fixture::new();
     fixture.save();
@@ -174,7 +284,8 @@ fn missing_private_paths_are_rejected_without_creating_or_repairing_them() {
         schema_version: 1,
         node_id: "formal-node-a".into(),
         node_keypair_directory: PathBuf::from("missing-node-keys"),
-        writer_key_file: PathBuf::from("missing-writer.key"),
+        writer_key_file: Some(PathBuf::from("missing-writer.key")),
+        writer_custody: None,
         formal_read_trust_file: PathBuf::from("missing-trust.json"),
         writer_directory: PathBuf::from("missing-writer-dir"),
         primary: "127.0.0.1:21001".parse().unwrap(),

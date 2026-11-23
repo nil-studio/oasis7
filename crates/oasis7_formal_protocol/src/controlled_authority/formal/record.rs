@@ -11,6 +11,11 @@ pub const FORMAL_PROFILE: &str = "controlled_single_authority";
 pub enum FormalRecordKindV1 {
     InitialActivation,
     Execution,
+    RecoveryActivation {
+        certificate_digest: String,
+        plan_digest: String,
+        pending_handoff_root: String,
+    },
 }
 /// Canonical logical identity: no writer signature, endpoint receipt, recovery
 /// finalizer or proof envelope is hashed into this record body.
@@ -238,9 +243,11 @@ impl CanonicalRecordV1 {
                 | (8, Some(_))
                 | (9, None)
                 | (10, Some(_))
-        ) || (!matches!(self.schema_version, 1 | 5 | 7 | 9)
-            && self.kind != FormalRecordKindV1::Execution)
-            || self.position == 0
+        ) || match &self.kind {
+            FormalRecordKindV1::InitialActivation => !matches!(self.schema_version, 1 | 5 | 7 | 9),
+            FormalRecordKindV1::Execution => false,
+            FormalRecordKindV1::RecoveryActivation { .. } => !matches!(self.schema_version, 3 | 5),
+        } || self.position == 0
             || self.original_epoch == 0
             || self.artifact_roots.len()
                 != if super::incremental::is_iws_record(self.schema_version) {
@@ -322,7 +329,7 @@ impl CanonicalRecordV1 {
             hash_hex(digest)?;
         }
         work(0)?;
-        match self.kind {
+        match &self.kind {
             FormalRecordKindV1::InitialActivation
                 if self.position != 1
                     || self.frozen_reservation_id.is_some()
@@ -334,6 +341,27 @@ impl CanonicalRecordV1 {
                 return Err(
                     invalid("formal execution requires original frozen reservation").into(),
                 );
+            }
+            FormalRecordKindV1::RecoveryActivation {
+                certificate_digest,
+                plan_digest,
+                pending_handoff_root,
+            } => {
+                for digest in [certificate_digest, plan_digest, pending_handoff_root] {
+                    work(digest.len())?;
+                    hash_hex(digest)?;
+                }
+                if self.frozen_reservation_id.is_some()
+                    || self.handoff.is_some()
+                    || self.durable_set_transition_digest.is_some()
+                    || self.before_state_root != self.after_state_root
+                    || !matches!(self.schema_version, 3 | 5)
+                {
+                    return Err(invalid(
+                        "formal recovery activation must be a state-preserving control record",
+                    )
+                    .into());
+                }
             }
             _ => {}
         }

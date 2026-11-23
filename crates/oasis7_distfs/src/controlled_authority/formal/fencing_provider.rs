@@ -8,6 +8,8 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 static TEMP: AtomicU64 = AtomicU64::new(0);
+#[path = "fencing_writer_provider.rs"]
+pub(super) mod writer;
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Ledger {
@@ -260,24 +262,30 @@ fn private_dir(path: &Path) -> Result<(), FencingError> {
     }
 }
 fn bounded(path: &Path) -> Result<Vec<u8>, FencingError> {
+    read_bounded(path, 128 * 1024)
+}
+fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>, FencingError> {
     no_symlink(path)?;
     let meta = fs::symlink_metadata(path).map_err(io)?;
-    if !meta.is_file() || meta.len() > 128 * 1024 {
+    if !meta.is_file() || meta.len() > limit as u64 {
         return Err(invalid("provider ledger file/size"));
     }
     let mut bytes = Vec::new();
     File::open(path)
         .map_err(io)?
-        .take(128 * 1024 + 1)
+        .take(limit as u64 + 1)
         .read_to_end(&mut bytes)
         .map_err(io)?;
-    if bytes.len() > 128 * 1024 {
+    if bytes.len() > limit {
         return Err(invalid("provider ledger size"));
     }
     Ok(bytes)
 }
 fn atomic(path: &Path, bytes: &[u8]) -> Result<(), FencingError> {
-    if bytes.len() > 128 * 1024 {
+    atomic_bounded(path, bytes, 128 * 1024)
+}
+fn atomic_bounded(path: &Path, bytes: &[u8], limit: usize) -> Result<(), FencingError> {
+    if bytes.len() > limit {
         return Err(invalid("provider ledger limit"));
     }
     no_symlink(path)?;

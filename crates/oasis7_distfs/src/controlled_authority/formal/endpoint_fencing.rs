@@ -15,9 +15,85 @@ impl FileFormalEndpoint {
         next_epoch: u64,
         expected: &fencing::EndpointCheckpointBindingV1,
     ) -> Result<fencing::EpochSealReceiptV1, FormalError> {
+        if self.authority.definition().profile_version == 2 {
+            return Err(invalid(
+                "native profile2 seal requires the independent writer epoch seal",
+            ));
+        }
+        self.seal_epoch_inner(operation, next_epoch, expected, None)
+    }
+
+    pub fn seal_planned_epoch(
+        &mut self,
+        writer_seal: SignedWriterEpochSealV1,
+        expected: &fencing::EndpointCheckpointBindingV1,
+    ) -> Result<fencing::EpochSealReceiptV1, FormalError> {
+        if self.authority.definition().profile_version != 2 {
+            return Err(invalid("planned native recovery requires profile2"));
+        }
+        let operation = writer_seal.body.operation_id.clone();
+        self.seal_epoch_inner(
+            &operation,
+            writer_seal.body.next_epoch,
+            expected,
+            Some(writer_seal),
+        )
+    }
+
+    fn seal_epoch_inner(
+        &mut self,
+        operation: &str,
+        next_epoch: u64,
+        expected: &fencing::EndpointCheckpointBindingV1,
+        writer_seal: Option<SignedWriterEpochSealV1>,
+    ) -> Result<fencing::EpochSealReceiptV1, FormalError> {
         let mut guard = self.guard()?;
+        let plan = self.store.body.recovery_plan.clone();
+        if self.authority.definition().profile_version == 2 {
+            let plan = plan.as_ref().ok_or_else(|| {
+                invalid("native profile2 seal requires the original persisted recovery plan")
+            })?;
+            plan.verify(&self.authority)?;
+            let ack = self.store.body.writer_plan_ack.as_ref().ok_or_else(|| {
+                invalid("native recovery original writer acknowledgement missing")
+            })?;
+            let writer = writer_seal
+                .as_ref()
+                .ok_or_else(|| invalid("native recovery independent writer seal missing"))?;
+            writer.verify_with_ack(plan, &self.authority, ack)?;
+            let drained = self
+                .store
+                .body
+                .recovery_drained
+                .as_ref()
+                .or_else(|| {
+                    self.store
+                        .body
+                        .seal
+                        .as_ref()
+                        .and_then(|seal| seal.writer_seal.as_ref())
+                        .map(|seal| &seal.drained)
+                })
+                .ok_or_else(|| {
+                    invalid("native recovery cannot seal before actual old-epoch drain")
+                })?;
+            if plan.body.intent.operation_id != operation
+                || plan.body.intent.successor.epoch != next_epoch
+                || writer.drained != *drained
+                || drained.verify(plan, &self.authority)? != self.store.body.head
+                || self.store.body.pending.is_some()
+                || self.store.body.recovery_progress.is_some()
+            {
+                return Err(FormalError::Conflict(
+                    "seal differs from the original recovery plan/tail".into(),
+                ));
+            }
+        }
         if let Some(body) = &self.store.body.seal {
-            if body.recovery_operation != operation || body.next_epoch_floor != next_epoch {
+            if body.recovery_operation != operation
+                || body.next_epoch_floor != next_epoch
+                || body.writer_seal != writer_seal
+            {
                 return Err(FormalError::Conflict(
                     "formal original epoch seal operation/floor".into(),
                 ));
@@ -71,7 +147,9 @@ impl FileFormalEndpoint {
             }
         }
         let body = fencing::EpochSealBodyV1 {
-            schema_version: 1,
+            schema_version: if plan.is_some() { 2 } else { 1 },
+            recovery_plan: plan,
+            writer_seal,
             instance: self.instance().clone(),
             recovery_operation: operation.into(),
             highest_complete: HeadAnchor {
@@ -86,6 +164,7 @@ impl FileFormalEndpoint {
         body.validate().map_err(fencing_error)?;
         let mut next = self.store.body.clone();
         next.seal = Some(body.clone());
+        next.recovery_drained = None;
         if let Err(error) = self.publish_native(next, guard.as_mut()) {
             self.poisoned = true;
             return Err(error);

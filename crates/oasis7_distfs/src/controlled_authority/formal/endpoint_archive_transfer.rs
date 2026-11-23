@@ -80,6 +80,7 @@ pub fn verify_formal_archive_transfer(
             "formal archive signed checkpoint/monotonic seal context",
         ));
     }
+    let pending = verify_recovery_handoff_source(&body, original, source.as_ref())?;
     Ok(VerifiedFormalArchiveTransferV1 {
         predecessor_authority_id: body.authority_id,
         instance_digest: body.instance_digest,
@@ -90,7 +91,14 @@ pub fn verify_formal_archive_transfer(
         cut: body.head,
         index: body.index,
         head_node: body.head_node.or(body.imported_head_node),
+        recovery_plan: body.recovery_plan,
+        recovery_handoff: body.recovery_handoff,
+        pending,
         source,
+        checkpoint_bytes: envelope.checkpoint_bytes.clone(),
+        endpoint_public_key: instance.endpoint_public_key.clone(),
+        profile_version: original.definition().profile_version,
+        recovery_copy_max_bytes: None,
     })
 }
 struct LocalArchiveSource {
@@ -156,13 +164,91 @@ pub struct VerifiedFormalArchiveTransferV1 {
     pub(super) cut: FormalHeadRefV1,
     pub(super) index: Option<String>,
     pub(super) head_node: Option<String>,
+    pub(super) recovery_plan: Option<SignedRecoveryPlanV1>,
+    pub(super) recovery_handoff: Option<String>,
+    pub(super) pending: Option<RecoveryPendingHandoffV1>,
     pub(super) source: Arc<dyn FormalArchiveSourceV1>,
+    checkpoint_bytes: Vec<u8>,
+    endpoint_public_key: String,
+    profile_version: u32,
+    recovery_copy_max_bytes: Option<u64>,
 }
 impl VerifiedFormalArchiveTransferV1 {
+    /// Explicit local copy budget for one recovery bootstrap attempt. This is
+    /// not a protected transfer allowance and does not cap retained history.
+    pub fn with_recovery_copy_budget(mut self, max_bytes: u64) -> Result<Self, FormalError> {
+        if max_bytes == 0 {
+            return Err(invalid(
+                "recovery copy requires a positive explicit operation budget",
+            ));
+        }
+        self.recovery_copy_max_bytes = Some(max_bytes);
+        Ok(self)
+    }
+    pub(super) fn recovery_copy_budget(&self) -> Result<u64, FormalError> {
+        self.recovery_copy_max_bytes
+            .ok_or_else(|| invalid("schema3 recovery requires explicit recovery_copy_max_bytes"))
+    }
+    /// The endpoint already holds its native owner lock. A successful copy is
+    /// followed by a fresh graph walk reading only the target's durable bytes.
+    pub(super) fn materialize_recovery_closure(
+        &self,
+        path: &std::path::Path,
+    ) -> Result<(), FormalError> {
+        let budget = self.recovery_copy_budget()?;
+        if self.recovery_plan.is_none() || self.tail != fencing::SealedTailV1::empty() {
+            return Err(invalid(
+                "recovery copy requires the exact planned drained source",
+            ));
+        }
+        let copied = store::durable_set::copy_authenticated_closure(
+            path,
+            &self.checkpoint_bytes,
+            &self.endpoint_public_key,
+            self.source.as_ref(),
+            self.profile_version,
+            budget,
+            true,
+        )?;
+        let local = FileFormalArchiveSourceV1::new(path.to_path_buf())?;
+        let readback = store::durable_set::copy_authenticated_closure(
+            path,
+            &self.checkpoint_bytes,
+            &self.endpoint_public_key,
+            &local,
+            self.profile_version,
+            budget,
+            false,
+        )?;
+        if copied != readback {
+            return Err(invalid(
+                "recovery copy independent local closure inventory differs",
+            ));
+        }
+        Ok(())
+    }
     pub fn cut(&self) -> &FormalHeadRefV1 {
         &self.cut
     }
     pub fn digest(&self) -> Result<String, FormalError> {
+        if let Some(plan) = &self.recovery_plan {
+            return hash(
+                "oasis7.formal.sealed_archive_transfer.v2",
+                &(
+                    &self.predecessor_authority_id,
+                    &self.instance_digest,
+                    &self.seal_digest,
+                    &self.operation_id,
+                    self.next_epoch_floor,
+                    &self.tail,
+                    &self.cut,
+                    &self.index,
+                    &self.head_node,
+                    plan,
+                    &self.recovery_handoff,
+                ),
+            );
+        }
         hash(
             "oasis7.formal.sealed_archive_transfer.v1",
             &(
@@ -228,6 +314,12 @@ impl FileFormalEndpoint {
         {
             return Err(FormalError::FencingUnproven);
         }
+        let source: Arc<dyn FormalArchiveSourceV1> = Arc::new(LocalArchiveSource {
+            source: FileFormalArchiveSourceV1::new(self.store.path.clone())?,
+            fallback: self.store.sources().to_vec(),
+        });
+        let pending =
+            verify_recovery_handoff_source(&self.store.body, &self.authority, source.as_ref())?;
         Ok(VerifiedFormalArchiveTransferV1 {
             predecessor_authority_id: self.authority.authority_id()?,
             instance_digest: self.instance().digest().map_err(fencing_error)?,
@@ -242,12 +334,83 @@ impl FileFormalEndpoint {
                 .body
                 .imported_head_node
                 .clone()),
-            source: Arc::new(LocalArchiveSource {
-                source: FileFormalArchiveSourceV1::new(self.store.path.clone())?,
-                fallback: self.store.sources().to_vec(),
-            }),
+            recovery_plan: self.store.body.recovery_plan.clone(),
+            recovery_handoff: self.store.body.recovery_handoff.clone(),
+            pending,
+            source,
+            checkpoint_bytes: self.store.checkpoint_bytes()?,
+            endpoint_public_key: self.public_key.clone(),
+            profile_version: self.authority.definition().profile_version,
+            recovery_copy_max_bytes: None,
         })
     }
+}
+
+fn verify_recovery_handoff_source(
+    body: &HotBody,
+    authority: &VerifiedAuthorityV1,
+    source: &dyn FormalArchiveSourceV1,
+) -> Result<Option<RecoveryPendingHandoffV1>, FormalError> {
+    let Some(plan) = &body.recovery_plan else {
+        if body
+            .seal
+            .as_ref()
+            .is_some_and(|seal| seal.recovery_plan.is_some())
+        {
+            return Err(invalid(
+                "sealed recovery plan private checkpoint binding missing",
+            ));
+        }
+        return Ok(None);
+    };
+    plan.verify(authority)?;
+    let ack = body
+        .writer_plan_ack
+        .as_ref()
+        .ok_or_else(|| invalid("sealed archive original writer acknowledgement missing"))?;
+    ack.verify(plan, authority)?;
+    let writer = body
+        .seal
+        .as_ref()
+        .and_then(|seal| seal.writer_seal.as_ref())
+        .ok_or_else(|| invalid("sealed archive independent writer epoch seal missing"))?;
+    writer.verify_with_ack(plan, authority, ack)?;
+    if body
+        .seal
+        .as_ref()
+        .and_then(|seal| seal.recovery_plan.as_ref())
+        != Some(plan)
+        || writer.drained.verify(plan, authority)? != body.head
+        || body.pending.is_some()
+        || body.decision_head.is_some()
+        || body.recovery_progress.is_some()
+        || body.recovery_drained.is_some()
+    {
+        return Err(invalid(
+            "sealed archive and original recovery plan disagree",
+        ));
+    }
+    let id = body
+        .recovery_handoff
+        .as_deref()
+        .ok_or_else(|| invalid("sealed recovery handoff reference missing"))?;
+    hash_hex(id)?;
+    let bytes = source
+        .read_object(id)?
+        .ok_or_else(|| invalid("sealed recovery original pending object missing"))?;
+    if bytes.len() > RECOVERY_PENDING_HANDOFF_ENCODED_LIMIT_V1
+        || blake3::hash(&bytes).to_hex().as_str() != id
+    {
+        return Err(invalid("sealed recovery pending object hash/size"));
+    }
+    let pending: RecoveryPendingHandoffV1 =
+        serde_cbor::from_slice(&bytes).map_err(|error| invalid(error.to_string()))?;
+    if pending.root()? != plan.body.pending_handoff_root {
+        return Err(invalid(
+            "sealed recovery pending collection differs from issuer plan",
+        ));
+    }
+    Ok(Some(pending))
 }
 
 #[cfg(test)]

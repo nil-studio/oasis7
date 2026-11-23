@@ -76,7 +76,7 @@ fn verify_permission_depth(
         return Err("recovery bootstrap initial certificate mismatch".into());
     }
     match (view.certificate.body.schema_version, view.prior.is_some()) {
-        (1, false) | (2, true) => {}
+        (1 | 3, false) | (2, true) => {}
         _ => return Err("recovery schema/prior permission mismatch".into()),
     }
     let previous = view
@@ -111,7 +111,7 @@ fn verify_permission_depth(
     };
     let active = anchor.authority();
     let context = match view.certificate.body.schema_version {
-        1 if view.prior.is_none() => None,
+        1 | 3 if view.prior.is_none() => None,
         2 => {
             let previous = previous
                 .as_ref()

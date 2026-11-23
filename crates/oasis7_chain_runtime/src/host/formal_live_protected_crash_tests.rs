@@ -1,9 +1,12 @@
 //! C03 kills the runtime process at fsynced durable protocol boundaries.
 use super::*;
+use crate::execution_bridge_real_tests::real_execution_bridge as bridge;
 use crate::formal_live_service::test_control::{BoundaryControl, Point};
 use std::os::unix::process::ExitStatusExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+#[path = "formal_live_recovery_material_tests.rs"]
+mod material_tests;
 
 #[test]
 #[ignore = "requires OASIS7_FORMAL_ENDPOINT_TEST_BIN; native child fault acceptance"]
@@ -214,6 +217,34 @@ pub(super) fn run_crash_recovery(
         (crate::execution_bridge_real_tests::real_execution_bridge::formal_writer::pending_test_block_hash(&pending_file)?,
          crate::execution_bridge_real_tests::real_execution_bridge::formal_writer::pending_test_position(&pending_file)?)
     };
+    // Establish the oracle before reopening the crashed writer. This is a
+    // separate no-fault execution from the *original* frozen bytes, against
+    // their parent replayed from the configured external trust checkpoint.
+    // No recovered candidate or first successful reopen supplies the answer.
+    let writer_root = pending_file.parent().ok_or("writer root missing")?;
+    material_tests::run(phase, config, &pending_file, &original_block_hash)?;
+    let (original_input, original_material) =
+        bridge::formal_writer::acceptance::original_frozen(writer_root, target_position)?;
+    let validated = crate::formal_live_config::FormalLiveConfigV1::load(config)?;
+    let parent_ref = oasis7_client_api::world_service::FormalReadAnchorRefV1 {
+        position: original_input.body.parent.position,
+        record_id: original_input.body.parent.record_id.clone(),
+        active_authority_id: original_input.body.authority_id.clone(),
+    };
+    let parent = crate::formal_live_history::replay_operation_anchor_from_fixed_origin(
+        &validated,
+        &parent_ref,
+        scenario.expires_at,
+    )?;
+    let oracle = bridge::formal_package::tests::independent_frozen_execution(
+        original_input,
+        original_material,
+        &parent,
+        &root.join("independent-no-fault-execution"),
+        &validated.writer_key,
+        crate::formal_live_runtime::business_reader_for(&validated)?,
+    )?;
+    scenario.report_stage("independent original-input execution oracle completed")?;
     if phase == "primary_published" {
         // Force the retained genesis path to use the endpoint's durable
         // logical artifact CAS, not an old local Published C0 byte cache.
@@ -310,6 +341,37 @@ pub(super) fn run_crash_recovery(
             .history
             .fixed_publication(&original_commit)
             .map_err(|error| error.to_string())?;
+        let (actual_candidate, actual_proof) =
+            bridge::formal_writer::read_published_candidate_at(writer_root, target_position)?
+                .ok_or("CA-R1 exact recovered candidate missing")?;
+        if actual_proof.decision.record != *exact_original.anchor().head().record()
+            || actual_candidate.candidate.record != oracle.candidate.record
+            || actual_candidate.material != oracle.material
+        {
+            return Err(format!(
+                "CA-R1 {phase}/{reopen}: recovered decision/nine-role closure differs from independent no-fault execution"
+            ));
+        }
+        use oasis7_distfs::controlled_authority::replicated_protocol::ArtifactRole;
+        for role in [
+            ArtifactRole::Input,
+            ArtifactRole::Snapshot,
+            ArtifactRole::Journal,
+            ArtifactRole::Result,
+            ArtifactRole::NonceIndex,
+            ArtifactRole::EffectOutbox,
+            ArtifactRole::ExecutionManifest,
+            ArtifactRole::Wasm,
+            ArtifactRole::Rules,
+        ] {
+            if actual_candidate.material.roots.get(&role).is_none()
+                || actual_candidate.material.roots.get(&role) != oracle.material.roots.get(&role)
+            {
+                return Err(format!(
+                    "CA-R1 {phase}/{reopen}: independent {role:?} root differs"
+                ));
+            }
+        }
         if wasm_emit_count(exact_original.world()) != initial_emits + 1 {
             return Err("C03 original Wasmtime effect did not persist exactly once".into());
         }
@@ -333,6 +395,7 @@ pub(super) fn run_crash_recovery(
         scenario.report_stage("exact crash recovery original identity and effect verified")?;
         let before = runtime.published.current()?;
         let emissions = wasm_emit_count(&before.world);
+        let before_effects = nonce_and_effects(&before.world)?;
         let next = before
             .anchor
             .head()
@@ -364,6 +427,11 @@ pub(super) fn run_crash_recovery(
         if wasm_emit_count(&after.world) != emissions || after.world.state().agents.len() != 1 {
             return Err("C03 original retry produced a second Wasmtime/agent effect".into());
         }
+        if nonce_and_effects(&after.world)? != before_effects {
+            return Err(
+                "CA-R1 original retry changed nonce, outbox or capability settlement".into(),
+            );
+        }
         let repeated = lookup_original_commit(&owner, request)?;
         scenario.report_stage("exact crash recovery repeated lookup verified")?;
         let old = runtime
@@ -379,7 +447,7 @@ pub(super) fn run_crash_recovery(
             return Err("C03 original retry changed CommitRef/agent/owner/resources/result".into());
         }
         eprintln!(
-            "C03 phase={phase} reopen={reopen} exact identity/effect/retry assertions passed; stopping same runtime owner"
+            "CA-R1 phase={phase} reopen={reopen} independent_nine_roots=matched nonce_outbox_settlement=unchanged original_identity=matched; stopping same runtime owner"
         );
         stop_after_controlled_publication(&mut runtime, &control, scenario)?;
         scenario.report_stage("exact crash recovery reopen stopped")?;
@@ -390,11 +458,25 @@ pub(super) fn run_crash_recovery(
     Ok(())
 }
 
+fn nonce_and_effects(world: &oasis7_runtime::World) -> Result<Vec<u8>, String> {
+    let snapshot = world.snapshot();
+    serde_cbor::to_vec(&(
+        snapshot.capability_nonce_records,
+        snapshot.state.authenticated_collect_data_last_nonces,
+        snapshot.state.agent_intent_ledger,
+        snapshot.pending_effects,
+        snapshot.inflight_effects,
+        snapshot.capability_budget_accounts,
+        snapshot.capability_effect_receipt_links,
+    ))
+    .map_err(|error| error.to_string())
+}
+
 /// The HTTP assertions run against the real signed service while the writer is
 /// paused just after its immutable publication. Initiate the original graceful
 /// stop before releasing that in-flight callback, so assertion time cannot
 /// manufacture another empty continuation. The production stop path is intact.
-fn stop_after_controlled_publication(
+pub(super) fn stop_after_controlled_publication(
     runtime: &mut FormalLiveRuntime,
     control: &BoundaryControl,
     scenario: ScenarioDeadline,

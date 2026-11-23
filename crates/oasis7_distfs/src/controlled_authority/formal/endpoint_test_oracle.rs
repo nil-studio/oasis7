@@ -104,6 +104,12 @@ impl Oracle {
             // Independent registry pins role, activation and client credential;
             // values in an incoming request never register an identity.
             let mut ledger: Option<Ledger> = None;
+            // This grant belongs to the same original protected ledger and
+            // survives endpoint/client reconnects. It is not a new oracle.
+            let mut repair: Option<(
+                ProtectedRecoveryRepairRequestV1,
+                ProtectedRecoveryRepairGrantV1,
+            )> = None;
             for stream in listener.incoming() {
                 if stopping.load(Ordering::Relaxed) {
                     break;
@@ -118,6 +124,11 @@ impl Oracle {
                     .set_write_timeout(Some(Duration::from_secs(3)))
                     .unwrap();
                 let lease = h(222);
+                let mut repair_lease = false;
+                // Stream state never outlives this exclusive connection. The
+                // verifier retains only the original digest state and hides
+                // the internally computed receipt until its final hash matches.
+                let mut receipt_replay: Option<ProtectedRecoveryReceiptReplayVerifierV1> = None;
                 while !stopping.load(Ordering::Relaxed) {
                     let request = match recv::<SignedMonotonicOracleRequestV1>(&mut stream) {
                         Ok(Some(request)) => request,
@@ -133,17 +144,93 @@ impl Oracle {
                                     &request.body.command,
                                 )
                             });
+                    let planned_credential = ledger.as_ref().and_then(|state| {
+                        let native = state
+                            .pending
+                            .as_ref()
+                            .map_or(state.native.as_slice(), |intent| {
+                                intent.checkpoint_bytes.as_slice()
+                            });
+                        Store::verify_public(native, &instance.endpoint_public_key)
+                            .ok()
+                            .and_then(|body| {
+                                body.recovery_plan.map(|plan| {
+                                    plan.body.authorization.recovery_credential_public_key
+                                })
+                            })
+                    });
+                    let requested_repair_key = match &request.body.command {
+                        MonotonicOracleCommandV1::RepairProtected(repair) => Some(
+                            &repair
+                                .plan
+                                .body
+                                .authorization
+                                .recovery_credential_public_key,
+                        ),
+                        _ => None,
+                    };
+                    let permitted_credential = repair.as_ref().map_or_else(
+                        || {
+                            request.body.authentication_public_key == public(17)
+                                || planned_credential.as_ref()
+                                    == Some(&request.body.authentication_public_key)
+                                || requested_repair_key
+                                    == Some(&request.body.authentication_public_key)
+                        },
+                        |(_, grant)| {
+                            request.body.authentication_public_key
+                                == grant.recovery_credential_public_key
+                                && (repair_lease
+                                    || matches!(
+                                        &request.body.command,
+                                        MonotonicOracleCommandV1::RepairProtected(_)
+                                    ))
+                        },
+                    );
                     if !instance_allowed
-                        || request.body.authentication_public_key != public(17)
+                        || !permitted_credential
                         || request.body.schema_version != 1
                         || request.body.lease.as_ref().is_some_and(|l| l != &lease)
                         || super::super::crypto::verify(
                             "oasis7.formal.monotonic_oracle.request.v1",
                             &request.body,
                             &request.signature,
-                            &public(17),
+                            &request.body.authentication_public_key,
                         )
                         .is_err()
+                    {
+                        break;
+                    }
+                    if let Some(state) = &ledger {
+                        let current =
+                            Store::verify_public(&state.native, &instance.endpoint_public_key)
+                                .unwrap();
+                        let mutation = match &request.body.command {
+                            MonotonicOracleCommandV1::ProtectedSign(signing) => {
+                                signing.purpose != ProtectedEndpointSignaturePurposeV1::RpcResponse
+                            }
+                            MonotonicOracleCommandV1::Begin(_)
+                            | MonotonicOracleCommandV1::Finish
+                            | MonotonicOracleCommandV1::ReplayRecoveryReceipt(_)
+                            | MonotonicOracleCommandV1::BeginReplay(_)
+                            | MonotonicOracleCommandV1::ReplayChunk { .. }
+                            | MonotonicOracleCommandV1::FinishReplay
+                            | MonotonicOracleCommandV1::InstallDurableSet(_)
+                            | MonotonicOracleCommandV1::ActivateDurableSet(_) => true,
+                            _ => false,
+                        };
+                        if oasis7_formal_protocol::controlled_authority::formal::validate_recovery_provider_credential(
+                            &current, &request.body.authentication_public_key, mutation,
+                        ).is_err() {
+                            break;
+                        }
+                    }
+                    if receipt_replay.is_some()
+                        && !matches!(
+                            &request.body.command,
+                            MonotonicOracleCommandV1::ReplayChunk { .. }
+                                | MonotonicOracleCommandV1::FinishReplay
+                        )
                     {
                         break;
                     }
@@ -173,6 +260,180 @@ impl Oracle {
                     }
                     if !handled {
                         match &request.body.command {
+                            MonotonicOracleCommandV1::RepairProtected(wanted) => {
+                                let Some(state) = ledger.as_ref() else { break };
+                                if request.body.lease.is_some()
+                                    || hook.is_some()
+                                    || wanted
+                                        .plan
+                                        .body
+                                        .authorization
+                                        .recovery_credential_public_key
+                                        == public(17)
+                                    || request.body.authentication_public_key
+                                        != wanted
+                                            .plan
+                                            .body
+                                            .authorization
+                                            .recovery_credential_public_key
+                                {
+                                    break;
+                                }
+                                if let Some((original, grant)) = &repair {
+                                    if original != wanted.as_ref()
+                                        || grant.verify_request(&instance, wanted).is_err()
+                                    {
+                                        break;
+                                    }
+                                } else {
+                                    if state.pending.is_some() || state.seal.is_some() {
+                                        break;
+                                    }
+                                    let Ok(native) = Store::verify_public(
+                                        &state.native,
+                                        &instance.endpoint_public_key,
+                                    ) else {
+                                        break;
+                                    };
+                                    let Ok(grant) = authorize_protected_recovery_repair(
+                                        &authority,
+                                        &instance,
+                                        &native,
+                                        &state.native,
+                                        &state.checkpoint,
+                                        wanted,
+                                    ) else {
+                                        break;
+                                    };
+                                    repair = Some((*wanted.clone(), grant));
+                                }
+                                repair_lease = true;
+                            }
+                            MonotonicOracleCommandV1::BeginReplay(header) => {
+                                let Some(state) = ledger.as_ref() else { break };
+                                let Some((repair_request, grant)) = &repair else {
+                                    break;
+                                };
+                                if !repair_lease
+                                    || request.body.lease.as_deref() != Some(lease.as_str())
+                                    || state.pending.is_some()
+                                    || state.seal.is_some()
+                                    || header.signing.checkpoint != state.checkpoint
+                                {
+                                    break;
+                                }
+                                let signature =
+                                    hex::encode(role_key.sign(&header.signing.preimage).to_bytes());
+                                let Ok(verifier) = ProtectedRecoveryReceiptReplayVerifierV1::new(
+                                    &authority,
+                                    &instance,
+                                    repair_request,
+                                    grant,
+                                    *header.clone(),
+                                    signature,
+                                ) else {
+                                    break;
+                                };
+                                receipt_replay = Some(verifier);
+                            }
+                            MonotonicOracleCommandV1::ReplayChunk { offset, bytes } => {
+                                if request.body.lease.as_deref() != Some(lease.as_str()) {
+                                    break;
+                                }
+                                let Some(verifier) = receipt_replay.as_mut() else {
+                                    break;
+                                };
+                                if verifier.push(*offset, bytes).is_err() {
+                                    break;
+                                }
+                            }
+                            MonotonicOracleCommandV1::FinishReplay => {
+                                if request.body.lease.as_deref() != Some(lease.as_str()) {
+                                    break;
+                                }
+                                let Some(verifier) = receipt_replay.take() else {
+                                    break;
+                                };
+                                let Ok((signing, signature)) = verifier.finish() else {
+                                    break;
+                                };
+                                let Some(state) = ledger.as_ref() else { break };
+                                if state.pending.is_some()
+                                    || state.seal.is_some()
+                                    || signing.checkpoint != state.checkpoint
+                                {
+                                    break;
+                                }
+                                let body = ProtectedEndpointSignatureBodyV1 {
+                                    schema_version: 1,
+                                    custody: ProtectedSignerCustodyV1::NonexportableLeaseBoundV1,
+                                    instance_digest: instance.digest().unwrap(),
+                                    resource_binding: resource.clone(),
+                                    checkpoint: state.checkpoint.clone(),
+                                    request_digest: signing.digest().unwrap(),
+                                    challenge: signing.challenge,
+                                    endpoint_signature: signature,
+                                };
+                                protected_signature = Some(ProtectedEndpointSignatureV1 {
+                                    provider_signature: hex::encode(
+                                        key(3)
+                                            .sign(
+                                                &protected_endpoint_signature_signing_bytes(&body)
+                                                    .unwrap(),
+                                            )
+                                            .to_bytes(),
+                                    ),
+                                    body,
+                                });
+                            }
+                            MonotonicOracleCommandV1::ReplayRecoveryReceipt(replay) => {
+                                let Some(state) = ledger.as_ref() else { break };
+                                let Some((repair_request, grant)) = &repair else {
+                                    break;
+                                };
+                                if !repair_lease
+                                    || state.pending.is_some()
+                                    || state.seal.is_some()
+                                    || replay.signing.checkpoint != state.checkpoint
+                                {
+                                    break;
+                                }
+                                let signature =
+                                    hex::encode(role_key.sign(&replay.signing.preimage).to_bytes());
+                                if verify_protected_recovery_receipt_replay(
+                                    &authority,
+                                    &instance,
+                                    repair_request,
+                                    grant,
+                                    replay,
+                                    &signature,
+                                )
+                                .is_err()
+                                {
+                                    break;
+                                }
+                                let body = ProtectedEndpointSignatureBodyV1 {
+                                    schema_version: 1,
+                                    custody: ProtectedSignerCustodyV1::NonexportableLeaseBoundV1,
+                                    instance_digest: instance.digest().unwrap(),
+                                    resource_binding: resource.clone(),
+                                    checkpoint: state.checkpoint.clone(),
+                                    request_digest: replay.signing.digest().unwrap(),
+                                    challenge: replay.signing.challenge.clone(),
+                                    endpoint_signature: signature,
+                                };
+                                protected_signature = Some(ProtectedEndpointSignatureV1 {
+                                    provider_signature: hex::encode(
+                                        key(3)
+                                            .sign(
+                                                &protected_endpoint_signature_signing_bytes(&body)
+                                                    .unwrap(),
+                                            )
+                                            .to_bytes(),
+                                    ),
+                                    body,
+                                });
+                            }
                             MonotonicOracleCommandV1::InitializeProtected(reg) => {
                                 if reg.authority_id != authority.authority_id().unwrap()
                                     || reg.activation_ref != authority.activation_ref()
@@ -264,11 +525,20 @@ impl Oracle {
                             }
                             MonotonicOracleCommandV1::ProtectedSign(signing) => {
                                 let Some(state) = &ledger else { break };
+                                let current = Store::verify_public(
+                                    &state.native,
+                                    &instance.endpoint_public_key,
+                                )
+                                .unwrap();
                                 if signing.validate().is_err()
                                     || signing.instance_digest != instance.digest().unwrap()
                                     || signing.checkpoint != state.checkpoint
                                     || state.pending.is_some()
                                     || (state.seal.is_some() && signing.purpose.mutation())
+                                    || repair.as_ref().is_some_and(|(request, _)| {
+                                        validate_protected_recovery_repair_signing(&authority, &current, request, signing).is_err()
+                                    })
+                                    || oasis7_formal_protocol::controlled_authority::formal::validate_recovery_protected_signing_request(&current, &authority, signing).is_err()
                                 {
                                     break;
                                 }
@@ -323,6 +593,10 @@ impl Oracle {
                                     || body.epoch != instance.authority_epoch
                                     || body.activation_ref != authority.activation_ref()
                                     || body.durable_set != previous.durable_set
+                                    || repair.as_ref().is_some_and(|(request, _)| {
+                                        validate_protected_recovery_repair_transition(&authority, &previous, &body, request).is_err()
+                                    })
+                                    || oasis7_formal_protocol::controlled_authority::formal::validate_recovery_checkpoint_transition(&previous, &body, &authority).is_err()
                                 {
                                     break;
                                 }
@@ -387,6 +661,7 @@ impl Oracle {
                             .then_some(ProtectedSignerCustodyV1::NonexportableLeaseBoundV1),
                         protected_signature,
                         durable_set: hook.as_ref().and_then(|hook| hook.installed_state()),
+                        recovery_repair: repair.as_ref().map(|(_, grant)| grant.clone()),
                     };
                     let reply = SignedMonotonicOracleReplyV1 {
                         signature: signed(monotonic_oracle_reply_signing_bytes(&body).unwrap(), 3),

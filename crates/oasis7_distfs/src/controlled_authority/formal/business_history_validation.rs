@@ -21,7 +21,7 @@ pub(super) fn verify_parent_history_cut<'a>(
             }
             Ok(None)
         }
-        FormalRecordKindV1::Execution => {
+        FormalRecordKindV1::Execution | FormalRecordKindV1::RecoveryActivation { .. } => {
             let parent = parent.ok_or_else(|| {
                 crypto::invalid("profile2 missing opaque authenticated parent checkpoint")
             })?;

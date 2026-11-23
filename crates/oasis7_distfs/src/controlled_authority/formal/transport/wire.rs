@@ -74,6 +74,18 @@ pub(crate) enum Command {
         next_epoch: u64,
         checkpoint: fencing::EndpointCheckpointBindingV1,
     },
+    PrepareRecoveryPlan {
+        plan: Box<SignedRecoveryPlanV1>,
+        pending: Box<RecoveryPendingHandoffV1>,
+        writer_ack: Box<SignedWriterRecoveryPlanAckV1>,
+        checkpoint: fencing::EndpointCheckpointBindingV1,
+    },
+    SealPlanned {
+        writer_seal: Box<SignedWriterEpochSealV1>,
+        checkpoint: fencing::EndpointCheckpointBindingV1,
+    },
+    RecoveryPendingHandoff,
+    RecoveryDrainedProof,
     SealDurableSet {
         transition: Box<SignedNormalDurableSetTransitionV1>,
         checkpoint: fencing::EndpointCheckpointBindingV1,
@@ -117,6 +129,8 @@ pub(crate) enum Value {
     ArchiveObject(Option<Vec<u8>>),
     ArchiveChunk(Option<FormalArchiveChunkV1>),
     Seal(Box<fencing::EpochSealReceiptV1>),
+    RecoveryPendingHandoff(Box<RecoveryPendingHandoffV1>),
+    RecoveryDrainedProof(Box<RecoveryDrainedProofV1>),
     DurableSetSeal(Option<Box<fencing::EpochSealReceiptV1>>),
     BusinessIndexPath(Box<super::super::business_index::BusinessIndexPathV1>),
 }
@@ -229,7 +243,6 @@ pub(super) fn read_before_deadline<T: serde::de::DeserializeOwned>(
     remaining(deadline)?;
     serde_cbor::from_slice(&bytes).map_err(|error| invalid(error.to_string()))
 }
-#[cfg(test)]
 pub(super) fn write_before_deadline<T: Serialize>(
     stream: &mut TcpStream,
     value: &T,

@@ -23,6 +23,8 @@ use std::{
 const PLAN_API: &str = "oasis7.protected-signer-handoff-plan/v1";
 const RECEIPT_API: &str = "oasis7.protected-signer-handoff-receipt/v1";
 
+#[path = "protected_handoff_pending.rs"]
+mod pending;
 #[path = "protected_handoff_readback.rs"]
 mod readback;
 
@@ -182,7 +184,7 @@ pub(super) fn prepare_plan(request: &Request) -> Result<ProtectedSignerHandoffPl
     // configuration fail before any local lifecycle transition.
     restore_successor_endpoints(&successor_inputs, &plan.recovery_permission_digest)?;
     let owner = query_predecessor(&plan)?;
-    if owner.state != "ready" {
+    if !matches!(owner.state.as_str(), "ready" | "frozen") {
         return Err(format!(
             "FENCING_UNPROVEN: exact predecessor owner is not ready ({})",
             owner.state
@@ -382,6 +384,8 @@ fn input_bundle_digest(
     config_file: &Path,
     validated: &ValidatedFormalLiveConfigV1,
 ) -> Result<String, String> {
+    let (authentication_name, authentication_file) =
+        validated.config.writer_authentication_input()?;
     let mut inputs = vec![
         ("formal_config", io::sha256(config_file)?),
         (
@@ -393,7 +397,7 @@ fn input_bundle_digest(
                     .join(super::super::node_keypair_config::PROVISIONED_NODE_KEYPAIR_FILE),
             )?,
         ),
-        ("writer_key", io::sha256(&validated.config.writer_key_file)?),
+        (authentication_name, io::sha256(authentication_file)?),
         (
             "external_formal_read_trust",
             io::sha256(&validated.config.formal_read_trust_file)?,
@@ -478,20 +482,28 @@ fn stop_predecessor(
     plan: &ProtectedSignerHandoffPlanV1,
     timeout: Duration,
 ) -> Result<FormalRuntimeOwnerSnapshotV1, String> {
+    let deadline = std::time::Instant::now() + timeout;
     let before = query_predecessor(plan)?;
     if before.state == "stopped" {
         return Ok(before);
     }
-    if before.state != "ready" {
+    if !matches!(before.state.as_str(), "ready" | "frozen") {
         return Err(format!(
             "ORIGINAL_OUTCOME_UNKNOWN: predecessor owner state is {}",
             before.state
         ));
     }
+    pending::freeze_expected_originals(plan, &before, deadline)?;
+    let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+    if remaining.is_zero() {
+        return Err(
+            "ORIGINAL_OUTCOME_UNKNOWN: predecessor freeze consumed the original stop budget".into(),
+        );
+    }
     let _ = formal_live_runtime::stop_operation_owner(
         &plan.predecessor_config_file,
         &plan.predecessor_instance,
-        timeout.min(Duration::from_secs(60)),
+        remaining.min(Duration::from_secs(60)),
     );
     let after = query_predecessor(plan)?;
     if after.state != "stopped" {

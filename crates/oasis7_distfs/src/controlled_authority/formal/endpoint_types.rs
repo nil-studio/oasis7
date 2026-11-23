@@ -10,16 +10,9 @@ pub struct FormalCandidateMaterialV1 {
     pub frozen_material: Option<ClosedRecord>,
     pub branch: FormalCompletionBranchV1,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FormalPrepareReceiptBodyV1 {
-    pub final_receipt: FormalFinalReceiptBodyV1,
-    pub candidate_material_digest: String,
-}
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FormalPrepareReceiptV1 {
-    pub body: FormalPrepareReceiptBodyV1,
-    pub signature_hex: String,
-}
+pub use oasis7_formal_protocol::controlled_authority::formal::{
+    FormalPrepareReceiptBodyV1, FormalPrepareReceiptV1, formal_prepare_receipt_signing_bytes,
+};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FormalRequestStateV1 {
     Frozen {
@@ -81,11 +74,6 @@ impl FormalRequestStateV1 {
 pub enum FormalQueryOutcomeV1 {
     NotRecorded,
     Recorded(Box<FormalRequestStateV1>),
-}
-pub fn formal_prepare_receipt_signing_bytes(
-    body: &FormalPrepareReceiptBodyV1,
-) -> Result<Vec<u8>, FormalError> {
-    super::crypto::bytes("oasis7.formal.prepare_receipt.sign.v1", body)
 }
 pub fn formal_candidate_material_digest(
     candidate: &FormalCandidateMaterialV1,

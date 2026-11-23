@@ -1,6 +1,8 @@
 //! Independently keyed engineering or protected-signer formal endpoint.
 #[path = "oasis7_durability_endpoint/formal.rs"]
 mod formal_service;
+#[path = "oasis7_durability_endpoint/writer_custody.rs"]
+mod writer_custody_service;
 use oasis7_distfs::controlled_authority::replicated_protocol::{
     EndpointRole, FileEndpoint, FixedTrust, HeadAnchor, transport::EndpointServer,
 };
@@ -85,9 +87,17 @@ fn key(_: &Path) -> Result<ed25519_dalek::SigningKey, String> {
 fn run(arguments: &[String]) -> Result<(), String> {
     if arguments == ["--help".to_string()] {
         println!(
-            "Usage: oasis7_durability_endpoint --config <file>\nSchema 1: independent-key engineering endpoint. Schema 2: formal endpoint with externally pinned initial authorization and protected monotonic oracle; no local receipt/writer keys. Loopback only; cross-host use requires an authenticated encrypted tunnel."
+            "Usage: oasis7_durability_endpoint --config <file>\n       oasis7_durability_endpoint --writer-custody-config <file>\nEndpoint schema 1: independent-key engineering endpoint. Endpoint schema 2: formal endpoint with externally pinned initial authorization and protected monotonic oracle; no local receipt/writer keys. The separate writer custody mode owns its writer key and durable plan/seal ledger in a CONTROLLED_ONLY file service; it does not establish physical rollback protection. Loopback only; cross-host use requires an authenticated encrypted tunnel."
         );
         return Ok(());
+    }
+    if arguments.len() == 2
+        && arguments[0] == "--writer-custody-config"
+        && !arguments[1].starts_with("--")
+    {
+        let path = Path::new(&arguments[1]);
+        let bytes = read(path, 4 * 1024 * 1024)?;
+        return writer_custody_service::run(&bytes, path.parent().unwrap_or(Path::new(".")));
     }
     if arguments.len() != 2 || arguments[0] != "--config" || arguments[1].starts_with("--") {
         return Err("Usage: oasis7_durability_endpoint --config <file>".into());

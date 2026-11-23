@@ -67,7 +67,8 @@ impl FormalNodeWriter for FakeWriter {
             .ok_or("fake writer has no terminal to replace")?;
         let evidence = match &self.head {
             CurrentHeadEvidence::Execution(evidence) => evidence,
-            CurrentHeadEvidence::InitialActivation(_) => {
+            CurrentHeadEvidence::InitialActivation(_)
+            | CurrentHeadEvidence::RecoveryInitialBoundary(_) => {
                 return Err("fake writer has no qualified terminal".into());
             }
         };
@@ -94,7 +95,8 @@ impl FormalNodeWriter for FakeWriter {
             Some(CurrentHeadEvidence::Execution(evidence)) => evidence.formal_record_id.clone(),
             _ => match &self.head {
                 CurrentHeadEvidence::Execution(evidence) => evidence.formal_record_id.clone(),
-                CurrentHeadEvidence::InitialActivation(_) => {
+                CurrentHeadEvidence::InitialActivation(_)
+                | CurrentHeadEvidence::RecoveryInitialBoundary(_) => {
                     return Err("fake writer has no qualified execution result".into());
                 }
             },
@@ -111,7 +113,8 @@ impl FormalNodeWriter for FakeWriter {
     fn committed_execution(&self) -> Result<CommittedExecutionEvidence, String> {
         match &self.head {
             CurrentHeadEvidence::Execution(evidence) => Ok(evidence.as_ref().clone()),
-            CurrentHeadEvidence::InitialActivation(_) => {
+            CurrentHeadEvidence::InitialActivation(_)
+            | CurrentHeadEvidence::RecoveryInitialBoundary(_) => {
                 Err("fake writer has no committed execution".into())
             }
         }

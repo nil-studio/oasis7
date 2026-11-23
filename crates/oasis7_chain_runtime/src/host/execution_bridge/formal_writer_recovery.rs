@@ -1,4 +1,34 @@
 use super::*;
+
+fn require_original_recovery_control(
+    candidate: &FormalCandidateMaterialV1,
+    permission: &VerifiedRecoveryBootstrapV1,
+    anchor: &VerifiedFormalReadAnchorV1,
+) -> Result<(), String> {
+    if !matches!(
+        candidate.candidate.record.kind,
+        FormalRecordKindV1::RecoveryActivation { .. }
+    ) || candidate.branch != FormalCompletionBranchV1::Normal
+        || candidate.frozen.is_some()
+        || candidate.frozen_material.is_some()
+        || anchor.head().head() != permission.recovery().body().sealed_cut
+    {
+        return Err("recovery endpoint asymmetry is not the exact planned control record".into());
+    }
+    verify_formal_candidate(
+        &candidate.candidate,
+        None,
+        anchor.authority(),
+        Some(anchor.head()),
+        None,
+        candidate.branch,
+    )
+    .map_err(|error| error.to_string())?;
+    verify_record_material(&candidate.candidate.record, &candidate.material)
+        .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R> {
     #[expect(
         clippy::too_many_arguments,
@@ -6,7 +36,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
     )]
     pub(crate) fn open_native_recovery(
         root: PathBuf,
-        writer: SigningKey,
+        writer: impl Into<WriterSigningCapabilityV1>,
         release: ReleaseSecurityPolicy,
         trusted: VerifiedFormalReadAnchorV1,
         permission: &VerifiedRecoveryBootstrapV1,
@@ -35,7 +65,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
     )]
     pub(super) fn open_native_context(
         root: PathBuf,
-        writer: SigningKey,
+        writer: impl Into<WriterSigningCapabilityV1>,
         release: ReleaseSecurityPolicy,
         trusted: VerifiedFormalReadAnchorV1,
         permission: Option<&VerifiedRecoveryBootstrapV1>,
@@ -89,36 +119,85 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
                 }
             }
         }
-        if anchor.head().head() != other.head().head()
-            || primary_restore.candidate() != replica_restore.candidate()
-            || primary_restore.proof() != replica_restore.proof()
-            || anchor
+        if anchor
+            .authority()
+            .authority_id()
+            .map_err(|e| e.to_string())?
+            != other
                 .authority()
                 .authority_id()
                 .map_err(|e| e.to_string())?
-                != other
-                    .authority()
-                    .authority_id()
-                    .map_err(|e| e.to_string())?
+        {
+            return Err("native endpoint active authorities differ".into());
+        }
+        let mut source = primary_restore;
+        let mut activate = false;
+        let mut observed_control = Vec::new();
+        if let Some(permission) =
+            permission.filter(|permission| permission.recovery().body().schema_version == 3)
+        {
+            let cut = &permission.recovery().body().sealed_cut;
+            let primary_at_cut = anchor.head().head() == *cut;
+            let replica_at_cut = other.head().head() == *cut;
+            if primary_at_cut || replica_at_cut {
+                activate = true;
+                if primary_at_cut && replica_at_cut {
+                    if primary_restore.candidate() != replica_restore.candidate()
+                        || primary_restore.proof() != replica_restore.proof()
+                    {
+                        return Err(
+                            "recovery endpoints disagree on the original drained publication"
+                                .into(),
+                        );
+                    }
+                } else {
+                    let advanced = if primary_at_cut {
+                        replica_restore.candidate()
+                    } else {
+                        source = replica_restore;
+                        anchor = other.clone();
+                        primary_restore.candidate()
+                    };
+                    // This is the single permissible asymmetric startup: one
+                    // already-qualified control publication, with its exact C
+                    // still retained by the other endpoint. No endpoint is
+                    // rewound and no business result is selected by height.
+                    require_original_recovery_control(advanced, permission, &anchor)?;
+                    observed_control.push(advanced);
+                }
+                for restored in [primary_restore, replica_restore] {
+                    if let Some(state) = restored.pending() {
+                        let candidate = state.candidate().ok_or(
+                            "recovery activation cannot overwrite an unresolved Frozen original",
+                        )?;
+                        require_original_recovery_control(candidate, permission, &anchor)?;
+                        observed_control.push(candidate);
+                    }
+                }
+            }
+        }
+        if !activate
+            && (anchor.head().head() != other.head().head()
+                || primary_restore.candidate() != replica_restore.candidate()
+                || primary_restore.proof() != replica_restore.proof())
         {
             return Err(
                 "OutcomeUnknown: native endpoint heads require original-request reconciliation"
                     .into(),
             );
         }
-        let world = restore_qualified(
-            primary_restore.candidate(),
-            &release,
-            &anchor,
-            reader.clone(),
-        )?;
+        let world = restore_qualified(source.candidate(), &release, &anchor, reader.clone())?;
         let publication = Published {
             schema_version: 1,
-            candidate: primary_restore.candidate().clone(),
-            proof: primary_restore.proof().clone(),
+            candidate: source.candidate().clone(),
+            proof: source.proof().clone(),
         };
-        let mut pending = restored_pending(primary_restore.pending())?;
-        if let Some(other) = restored_pending(replica_restore.pending())? {
+        let mut pending = if activate {
+            None
+        } else {
+            restored_pending(primary_restore.pending())?
+        };
+        if !activate && let Some(other) = restored_pending(replica_restore.pending())? {
             if let Some(first) = &pending {
                 if first.original != other.original
                     || first.material != other.material
@@ -142,7 +221,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
         {
             fill_original_certificate(pending, permission)?;
         }
-        Self::open_inner(
+        let mut instance = Self::open_inner(
             root,
             writer,
             release,
@@ -156,7 +235,14 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
                 recovery: permission.map(|context| context.recovery().clone()),
             }),
         )?
-        .with_business_reader(reader)
+        .with_business_reader(reader)?;
+        if activate {
+            instance.complete_recovery_activation(
+                permission.ok_or("recovery activation permission missing")?,
+                &observed_control,
+            )?;
+        }
+        Ok(instance)
     }
 
     pub(super) fn close_pending_reservation(&mut self) -> Result<(), String> {

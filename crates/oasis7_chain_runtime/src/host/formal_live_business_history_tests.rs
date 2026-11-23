@@ -63,7 +63,7 @@ fn native_resolver_preserves_content_cache_hooks_without_endpoint_io() {
     let resolver = NativeHistoryResolver {
         addresses: [address; 2],
         timeout: std::time::Duration::from_secs(1),
-        authentication: fixtures::key(4),
+        authentication: fixtures::key(4).into(),
         external_origin: anchor.clone(),
         trusted: anchor.clone(),
         permission: None,
@@ -218,7 +218,7 @@ fn prewarm_resolver(
     NativeHistoryResolver {
         addresses: ["127.0.0.1:1".parse().unwrap(); 2],
         timeout: Duration::from_secs(1),
-        authentication: fixtures::key(4),
+        authentication: fixtures::key(4).into(),
         external_origin: anchor.clone(),
         trusted: anchor.clone(),
         permission: None,

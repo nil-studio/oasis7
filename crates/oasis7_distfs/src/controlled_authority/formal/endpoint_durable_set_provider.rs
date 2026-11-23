@@ -193,6 +193,12 @@ pub fn verify_durable_set_native_install_plan(
         1
     };
     let expected = HotBody {
+        healthy_seal_authorization: None,
+        recovery_plan: None,
+        writer_plan_ack: None,
+        recovery_progress: None,
+        recovery_drained: None,
+        recovery_handoff: None,
         data_closure: None,
         version: 1,
         instance_digest: registered_instance.digest().map_err(fencing_error)?,

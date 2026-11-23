@@ -4,6 +4,12 @@ use super::*;
 #[test]
 fn absent_local_data_closure_preserves_original_hot_body_bytes() {
     let body = NativeHotBodyV1 {
+        healthy_seal_authorization: None,
+        recovery_plan: None,
+        writer_plan_ack: None,
+        recovery_progress: None,
+        recovery_drained: None,
+        recovery_handoff: None,
         version: 1,
         instance_digest: "a".into(),
         authority_id: "b".into(),
@@ -83,6 +89,12 @@ fn signed_native_local_reference_requires_the_exact_qualified_entry_and_domain()
         let node_bytes = serde_cbor::to_vec(&node).unwrap();
         let node_id = blake3::hash(&node_bytes).to_hex().to_string();
         let body = NativeHotBodyV1 {
+            healthy_seal_authorization: None,
+            recovery_plan: None,
+            writer_plan_ack: None,
+            recovery_progress: None,
+            recovery_drained: None,
+            recovery_handoff: None,
             version: 1,
             instance_digest: if wrong_domain {
                 h(99)

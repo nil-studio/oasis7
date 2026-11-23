@@ -28,9 +28,14 @@ mod control_wire;
 use control_wire::{bounded_reason, read_message, write_message};
 #[path = "formal_live_runtime_owner_control.rs"]
 mod control;
+#[path = "formal_live_owner_pending.rs"]
+mod pending;
 #[cfg(test)]
 use control::control_work_timeout;
-use control::{send_control, send_control_on_stream};
+use control::{configure_control_stream, send_control, send_control_on_stream, validate_control};
+pub(crate) use pending::control_freeze_pending_handoff;
+#[cfg(test)]
+pub(crate) use pending::wait_for_exact_owner_release;
 
 const OWNER_API: &str = "oasis7.formal-runtime-owner/v1";
 const MAX_CONTROL_BYTES: usize = 16 * 1024;
@@ -126,6 +131,10 @@ struct ControlReply {
     control_error: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     protected_observation: Option<ProtectedPairObservation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pending_handoff: Option<pending::PendingHandoffExportV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pending_import: Option<super::pending_handoff::PendingImportSummary>,
 }
 
 #[path = "formal_live_owner_diagnostics.rs"]
@@ -213,7 +222,14 @@ fn validate_snapshot(
         || expected_incarnation.is_some_and(|value| snapshot.instance.incarnation != value)
         || !matches!(
             snapshot.state.as_str(),
-            "starting" | "ready" | "stopping" | "stopped" | "failed" | "unknown" | "interrupted"
+            "starting"
+                | "ready"
+                | "frozen"
+                | "stopping"
+                | "stopped"
+                | "failed"
+                | "unknown"
+                | "interrupted"
         )
     {
         return Err("formal runtime owner response differs from exact operation/instance".into());
@@ -415,7 +431,9 @@ pub(crate) fn current_operation(
     )
 }
 
-pub(crate) fn observe_operation_owner(config_path: &Path) -> Result<ProtectedPairObservation, String> {
+pub(crate) fn observe_operation_owner(
+    config_path: &Path,
+) -> Result<ProtectedPairObservation, String> {
     let current = current_operation(config_path)?;
     if current.state != "ready" {
         return Err("protected observation requires a ready owner process".into());
@@ -423,9 +441,13 @@ pub(crate) fn observe_operation_owner(config_path: &Path) -> Result<ProtectedPai
     let instance = &current.instance;
     let (_, state, socket) = paths(config_path, &instance.operation_id)?;
     let deadline = Instant::now() + Duration::from_secs(4);
-    let stream = UnixStream::connect(socket).map_err(|_| "formal runtime owner control unavailable")?;
-    let reply = control::send_control_reply(&state, instance, "observe_protected", deadline, stream)?;
-    reply.protected_observation.ok_or_else(|| "protected observation unavailable".into())
+    let stream =
+        UnixStream::connect(socket).map_err(|_| "formal runtime owner control unavailable")?;
+    let reply =
+        control::send_control_reply(&state, instance, "observe_protected", deadline, stream)?;
+    reply
+        .protected_observation
+        .ok_or_else(|| "protected observation unavailable".into())
 }
 
 pub(crate) fn stop_operation(
@@ -601,7 +623,10 @@ pub(crate) fn launch_operation_with_fixed_trust(
             .flatten()
             .map(|status| status.to_string());
         match query {
-            Ok(Some(snapshot)) if snapshot.state == "ready" && worker_exit.is_none() => {
+            Ok(Some(snapshot))
+                if matches!(snapshot.state.as_str(), "ready" | "frozen")
+                    && worker_exit.is_none() =>
+            {
                 if let Some(digest) = expected_read_trust_digest {
                     fixed_trust::check(
                         &operation_root(&root, operation_id)?,
@@ -612,7 +637,7 @@ pub(crate) fn launch_operation_with_fixed_trust(
                 }
                 return Ok(snapshot);
             }
-            Ok(Some(mut snapshot)) if snapshot.state == "ready" => {
+            Ok(Some(mut snapshot)) if matches!(snapshot.state.as_str(), "ready" | "frozen") => {
                 snapshot.state = "unknown".into();
                 snapshot.last_error = Some(append_worker_diagnostic(
                     &format!(
@@ -939,13 +964,22 @@ fn run_owner_with_fixed_trust(
             return Err(error);
         }
     };
+    #[cfg(test)]
+    let _pending_pause = super::tests::protected_process_tests::oracle_support::handoff_tests::pending_tests::install_owner_pause(config_path, &runtime.published)?;
     if let Err(error) = runtime.start() {
         snapshot.state = "failed".into();
         snapshot.last_error = Some(bounded_reason(&error));
         write_owner_record(&state_path, snapshot)?;
         return Err(error);
     }
-    snapshot.state = "ready".into();
+    #[cfg(test)]
+    super::tests::protected_process_tests::oracle_support::handoff_tests::pending_tests::record_actual_import(config_path, runtime.pending_import_report())?;
+    snapshot.state = if runtime.pending_handoff.is_frozen()? {
+        "frozen"
+    } else {
+        "ready"
+    }
+    .into();
     write_owner_record(&state_path, snapshot.clone())?;
 
     let shutdown = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -956,6 +990,10 @@ fn run_owner_with_fixed_trust(
     .map_err(|error| error.to_string())?;
     loop {
         if shutdown.load(std::sync::atomic::Ordering::Acquire) {
+            #[cfg(test)]
+            if let Some(pause) = &_pending_pause {
+                pause.cancel();
+            }
             snapshot.state = "stopping".into();
             write_owner_record(&state_path, snapshot.clone())?;
             match runtime.stop(Duration::from_secs(30)) {
@@ -982,14 +1020,30 @@ fn run_owner_with_fixed_trust(
                     let mut durable_set_status = None;
                     let mut prepared_transition = None;
                     let mut protected_observation = None;
+                    let mut pending_handoff = None;
                     match request.action.as_str() {
                         "query" => {}
+                        "freeze_pending_handoff" => {
+                            if !matches!(snapshot.state.as_str(), "ready" | "frozen") {
+                                return Err("pending handoff owner is not live or frozen".into());
+                            }
+                            pending_handoff = Some(pending::freeze(
+                                &runtime,
+                                Duration::from_millis(request.timeout_ms),
+                            )?);
+                            snapshot.state = "frozen".into();
+                            write_owner_record(&state_path, snapshot.clone())?;
+                        }
                         "observe_protected" => {
                             protected_observation = runtime
                                 .observe_protected_pair(Duration::from_millis(request.timeout_ms))
                                 .ok();
                         }
                         "stop" => {
+                            #[cfg(test)]
+                            if let Some(pause) = &_pending_pause {
+                                pause.cancel();
+                            }
                             stop_started = true;
                             // Publishing stopping consumes the same work budget;
                             // it must not extend runtime.stop's requested interval.
@@ -1054,6 +1108,8 @@ fn run_owner_with_fixed_trust(
                             prepared_transition,
                             control_error: None,
                             protected_observation,
+                            pending_handoff,
+                            pending_import: runtime.pending_import_summary(),
                         },
                     )?;
                     stream
@@ -1081,6 +1137,8 @@ fn run_owner_with_fixed_trust(
                                     prepared_transition: None,
                                     control_error: Some(bounded_reason(&error)),
                                     protected_observation: None,
+                                    pending_handoff: None,
+                                    pending_import: runtime.pending_import_summary(),
                                 },
                             );
                             let _ = stream.shutdown(Shutdown::Both);
@@ -1099,7 +1157,9 @@ fn run_owner_with_fixed_trust(
                                 durable_set_status: None,
                                 prepared_transition: None,
                                 control_error: Some(bounded_reason(&error)),
-                                    protected_observation: None,
+                                protected_observation: None,
+                                pending_handoff: None,
+                                pending_import: runtime.pending_import_summary(),
                             },
                         );
                         if snapshot.state == "stopped" {
@@ -1119,37 +1179,6 @@ fn run_owner_with_fixed_trust(
             }
         }
     }
-}
-
-fn validate_control(
-    request: &ControlRequest,
-    instance: &FormalRuntimeInstanceV1,
-) -> Result<(), String> {
-    if request.api_version != OWNER_API
-        || (request.action == "durable_set") != request.durable_set.is_some()
-        || request.operation_id != instance.operation_id
-        || request.request_digest != instance.request_digest
-        || request.config_digest != instance.config_digest
-        || request.incarnation != instance.incarnation
-        || !(1..=60_000).contains(&request.timeout_ms)
-    {
-        return Err("formal runtime control request differs from exact owner incarnation".into());
-    }
-    Ok(())
-}
-
-fn configure_control_stream(stream: &UnixStream) -> Result<(), String> {
-    // BSD may inherit the listener's nonblocking flag. Control frames use
-    // bounded blocking reads after accept.
-    stream
-        .set_nonblocking(false)
-        .map_err(|error| format!("configure owner control blocking mode: {error}"))?;
-    stream
-        .set_read_timeout(Some(Duration::from_secs(2)))
-        .map_err(|error| format!("configure owner control read timeout: {error}"))?;
-    stream
-        .set_write_timeout(Some(Duration::from_secs(2)))
-        .map_err(|error| format!("configure owner control write timeout: {error}"))
 }
 
 #[cfg(test)]

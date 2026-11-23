@@ -1,6 +1,5 @@
 //! Actual Runtime/Wasmtime R-only recovery. Oracle/issuer custody is simulated.
 use super::super::*;
-use super::recovery_test_support as permission_support;
 use super::{CheckpointParent, HotBody, Store};
 use crate::execution_bridge_real_tests::real_execution_bridge::formal_crash_test_boundary as boundary;
 use oasis7_distfs::controlled_authority::formal::{
@@ -10,6 +9,7 @@ use oasis7_distfs::controlled_authority::formal::{
         verify_formal_archive_transfer,
     },
     issuer::IssuerAnchorV1,
+    writer_signing::WriterSigningCapabilityV1,
 };
 use std::os::unix::process::ExitStatusExt;
 use std::{
@@ -18,17 +18,28 @@ use std::{
     sync::Arc,
 };
 
-#[path = "formal_live_survivor_next_request_tests.rs"]
-mod next_request_tests;
+#[path = "formal_live_survivor_draining_tests.rs"]
+mod draining_tests;
 #[path = "formal_live_survivor_participant_tests.rs"]
 pub(crate) mod governed_participant;
+#[path = "formal_live_survivor_next_request_tests.rs"]
+mod next_request_tests;
+#[path = "formal_live_survivor_repair_tests.rs"]
+mod repair_tests;
+#[path = "formal_live_protected_revalidation_tests.rs"]
+pub(crate) mod revalidation_tests;
 
 pub(in super::super) struct SurvivorResources {
     pub governed_participant: bool,
-    pub primary_child: super::EndpointChild,
-    pub replica_child: super::EndpointChild,
+    pub revalidation: Option<revalidation_tests::RevalidationCase>,
+    pub writer_custody: super::writer_custody_fixture::WriterCustodyFixture,
+    pub primary_child: Option<super::EndpointChild>,
+    pub replica_child: Option<super::EndpointChild>,
     pub pdir: PathBuf,
     pub rdir: PathBuf,
+    pub primary_oracle_address: std::net::SocketAddr,
+    pub primary_config: PathBuf,
+    pub replica_config: PathBuf,
     pub replica_address: std::net::SocketAddr,
     pub authority: VerifiedAuthorityV1,
     pub trust: InitialActivationTrustV1,
@@ -65,12 +76,19 @@ fn protected_endpoint_children_replica_only_frozen_and_prepared_resume_without_o
     for phase in ["survivor_frozen", "survivor_prepared"] {
         // Exercise legacy denial, registration after recovery, and registration
         // as the frozen/prepared original independently, without short-circuiting.
-        for scenario in ["legacy", "registration_after_recovery", "registration_original"] {
+        for scenario in [
+            "legacy",
+            "registration_after_recovery",
+            "registration_original",
+        ] {
             let outcome = thread::Builder::new()
                 .stack_size(32 * 1024 * 1024)
                 .spawn(move || {
                     if scenario != "legacy" {
-                        governed_participant::run_recovery_scenario(phase, scenario == "registration_original")
+                        governed_participant::run_recovery_scenario(
+                            phase,
+                            scenario == "registration_original",
+                        )
                     } else {
                         run_protected_runtime_round_trip(true, Some(phase))
                     }
@@ -83,7 +101,13 @@ fn protected_endpoint_children_replica_only_frozen_and_prepared_resume_without_o
             }
         }
     }
-    assert!(failures.is_empty(), "survivor scenarios failed: {failures:?}");
+    if let Err(error) = revalidation_tests::run_paired_revalidation() {
+        failures.push(format!("paired current/frozen revalidation: {error}"));
+    }
+    assert!(
+        failures.is_empty(),
+        "survivor scenarios failed: {failures:?}"
+    );
 }
 #[allow(clippy::too_many_arguments)]
 pub(in super::super) fn run(
@@ -94,7 +118,7 @@ pub(in super::super) fn run(
     world: &WorldIdentity,
     request: &SubmitIntentRequest<WorldServicePayloadV1>,
     initial_emits: usize,
-    resources: SurvivorResources,
+    mut resources: SurvivorResources,
 ) -> Result<(), String> {
     let root = config.parent().ok_or("survivor config parent")?;
     let phase = if mode == "survivor_frozen" {
@@ -137,12 +161,29 @@ pub(in super::super) fn run(
         .checked_add(1)
         .ok_or("survivor initial position overflow")?;
     read_until_position(&client, world, advanced_position)?;
+    let mut original_request = request.clone();
+    if let Some(case) = &resources.revalidation {
+        revalidation_tests::before_submit(case, &mut original_request)?;
+        let replacement = target_request.with_extension("original.tmp");
+        super::write_private(
+            &replacement,
+            &serde_cbor::to_vec(&original_request).map_err(|e| e.to_string())?,
+        )?;
+        std::fs::rename(&replacement, &target_request).map_err(|e| e.to_string())?;
+        std::fs::File::open(root)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|e| e.to_string())?;
+    }
+    let request = &original_request;
     let admitted = client.submit(request.clone()).map_err(|e| e.to_string())?;
     assert_volatile_admission(admitted, &request.correlation)?;
     wait_file(&mut child, &marker, phase.as_bytes())?;
     child.0.kill().map_err(|e| e.to_string())?;
     assert_eq!(child.0.wait().map_err(|e| e.to_string())?.signal(), Some(9));
     drop(child);
+    if let Some(case) = &resources.revalidation {
+        revalidation_tests::after_frozen(case, request)?;
+    }
     let mut cfg: Value = serde_json::from_slice(&std::fs::read(config).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
     let old_writer = PathBuf::from(
@@ -152,15 +193,30 @@ pub(in super::super) fn run(
     );
     let original_block = crate::execution_bridge_real_tests::real_execution_bridge::formal_writer::pending_test_block_hash(&old_writer.join("pending.cbor"))?;
     let target_position = crate::execution_bridge_real_tests::real_execution_bridge::formal_writer::pending_test_position(&old_writer.join("pending.cbor"))?;
+    // Kept only as an acceptance oracle: the production repair must obtain
+    // these exact signed bytes and their floor from the original provider.
+    let original_primary_checkpoint =
+        std::fs::read(resources.pdir.join("formal-checkpoint-v1.cbor"))
+            .map_err(|error| error.to_string())?;
+    Store::verify_public(
+        &original_primary_checkpoint,
+        &resources
+            .authority
+            .definition()
+            .primary
+            .instance
+            .endpoint_public_key,
+    )
+    .map_err(|_| "original P checkpoint signature before directory loss")?;
     // Delete the necessary endpoint's counterpart, not merely its network route.
-    drop(resources.primary_child);
+    drop(resources.primary_child.take());
     std::fs::remove_dir_all(&resources.pdir).map_err(|e| e.to_string())?;
     let mut replica = RemoteFormalEndpoint::new(
         resources.replica_address,
         Duration::from_secs(30),
         resources.authority.clone(),
         EndpointRole::Replica,
-        fixtures::key(4),
+        WriterSigningCapabilityV1::new(resources.writer_custody.recovery.clone()),
         resources.anchor.head().head(),
     )
     .map_err(|e| e.to_string())?;
@@ -179,15 +235,17 @@ pub(in super::super) fn run(
     if predecessor.head().head() != restored.commit().head() {
         return Err("survivor origin pages did not derive exact sealed cut".into());
     }
-    let (tail, original_candidate, frozen_certificate) =
+    let (tail, original_candidate, frozen_certificate, fixed_material) =
         match restored.pending().ok_or("survivor missing original slot")? {
             FormalRequestStateV1::Frozen {
                 certificate: Some(cert),
+                material,
                 ..
             } if mode == "survivor_frozen" => (
                 RecoveryTailWitnessV1::Frozen(cert.clone()),
                 None,
                 cert.clone(),
+                material.clone(),
             ),
             FormalRequestStateV1::Prepared { candidate, .. } if mode == "survivor_prepared" => {
                 let cert = candidate.frozen.clone().ok_or("prepared missing frozen")?;
@@ -198,23 +256,23 @@ pub(in super::super) fn run(
                     },
                     Some(candidate.candidate.clone()),
                     cert,
+                    candidate
+                        .frozen_material
+                        .clone()
+                        .ok_or("prepared original frozen material")?,
                 )
             }
             _ => return Err("survivor interrupted at wrong durable stage".into()),
         };
-    let cp = replica.checkpoint().map_err(|e| e.to_string())?;
-    let seal = replica
-        .seal_epoch(fixtures::h(240), 2, cp)
-        .map_err(|e| e.to_string())?;
-    let archive = replica.archive_manifest().map_err(|e| e.to_string())?;
-    drop(replica);
-    // Bootstrap below reads a local sealed archive, not the predecessor's RPC.
-    // Reap that exact endpoint first: its background physical-generation
-    // maintenance can still hold an exclusive retire fence after sealing.
-    // Keep the archive bytes and all fencing/permission witnesses unchanged.
-    let mut predecessor_replica = resources.replica_child;
-    predecessor_replica.kill_sigkill_and_wait()?;
-    drop(predecessor_replica);
+    if let Some(case) = &resources.revalidation {
+        revalidation_tests::assert_original_manifest(
+            case,
+            &frozen_certificate
+                .reservation
+                .body
+                .governing_manifest_digest,
+        )?;
+    }
     let p2 = root.join("survivor-primary-2");
     let r2 = root.join("survivor-replica-2");
     super::private_directory(&p2)?;
@@ -242,17 +300,31 @@ pub(in super::super) fn run(
             directory_fingerprint(dir).map_err(|e| e.to_string())?;
         binding.fault_domain_id = format!("simulated-survivor-{n}");
     }
-    let floor = IssuerAnchorV1::initial(resources.authority.policy()).map_err(|e| e.to_string())?;
-    let (permission, verified) = permission_for_necessary_endpoint(
-        &predecessor,
-        &resources.trust,
-        definition,
-        tail,
-        seal,
-        &fixtures::key(1),
-        &fixtures::key(2),
-        floor.clone(),
-    )?;
+    let recovered = repair_tests::recover(repair_tests::Inputs {
+        root,
+        config: &cfg,
+        resources: &mut resources,
+        replica: &mut replica,
+        original_primary_checkpoint: &original_primary_checkpoint,
+        predecessor: &predecessor,
+        successor: definition,
+        fixed: &tail,
+        fixed_material: &fixed_material,
+        frozen: &frozen_certificate,
+        candidate: original_candidate.as_ref(),
+        old_writer: &old_writer,
+        block: &original_block,
+        target: target_position,
+        initial_emits,
+        owner: owner.clone(),
+        request,
+    })?;
+    let permission = recovered.completed.permission;
+    let verified = recovered.completed.verified;
+    let archive = recovered.archive;
+    let drained = recovered.drained;
+    let origin_pages = recovered.origin_pages;
+    drop(replica);
     let transfer = verify_formal_archive_transfer(
         &archive,
         &resources.authority,
@@ -294,10 +366,17 @@ pub(in super::super) fn run(
                 finalizing_authority_id: verified.cut().finalizing_authority_id().into(),
             }),
             index: old.index.clone(),
-            pending: old.pending.clone(),
-            decision_head: old.decision_head.clone(),
+            pending: None,
+            decision_head: None,
             seal: None,
             durable_set: None,
+            data_closure: None,
+            recovery_plan: None,
+            recovery_handoff: old.recovery_handoff.clone(),
+            writer_plan_ack: None,
+            recovery_progress: None,
+            recovery_drained: None,
+            healthy_seal_authorization: None,
         })
     };
     let p_oracle = super::oracle::Oracle::start_registered(
@@ -328,7 +407,8 @@ pub(in super::super) fn run(
             "role":role,"data_dir":dir,"oracle_authentication_key_file":resources.oracle_auth,"oracle_address":address,"listen":"127.0.0.1:0","timeout_ms":30000,
             "recovery_bootstrap":{"predecessor_checkpoint":permission.predecessor_checkpoint,"predecessor_checkpoint_digest":permission.predecessor_checkpoint_digest,
             "certificate":permission.certificate,"fencing":permission.fencing,"tail":permission.tail,"issuer_witness":permission.issuer_witness,
-            "minimum_issuer_anchor":permission.minimum_issuer_anchor,"archive_manifest":archive,"archive_directory":resources.rdir}});
+            "minimum_issuer_anchor":permission.minimum_issuer_anchor,"archive_manifest":archive,"archive_directory":resources.rdir,
+            "recovery_copy_max_bytes":crate::formal_live_planned_recovery_support::recovery_copy_budget(&resources.rdir)?}});
         super::write_private(
             &path,
             &serde_json::to_vec(&value).map_err(|e| e.to_string())?,
@@ -343,14 +423,25 @@ pub(in super::super) fn run(
         &resources.endpoint_binary,
         &endpoint_config(&r2, EndpointRole::Replica, r_oracle.address)?,
     )?;
-    // No original writer private key or local pending survives recovery.
-    std::fs::remove_dir_all(&old_writer).map_err(|e| e.to_string())?;
-    std::fs::remove_file(cfg["writer_key_file"].as_str().ok_or("old writer key")?)
-        .map_err(|e| e.to_string())?;
+    // The Runtime receives only a fresh service capability. The old writer
+    // cache was already removed before the real old-epoch drain.
+    if old_writer.exists() {
+        return Err("original writer cache reappeared during R-only recovery".into());
+    }
+    let successor_custody = super::writer_custody_fixture::WriterCustodyFixture::initialize(
+        &root.join("survivor-successor-writer-custody"),
+        &resources.endpoint_binary,
+        super::writer_custody_fixture::Authorization {
+            authority: verified.recovery().successor(),
+            trust: &resources.trust,
+            certificate: &resources.certificate,
+            recovery: Some((&permission, &permission.minimum_issuer_anchor)),
+        },
+        &fixtures::key(10),
+        [26, 27],
+    )?;
     let writer = root.join("survivor-writer");
     super::private_directory(&writer)?;
-    let key = root.join("survivor-key");
-    super::write_private(&key, hex::encode(fixtures::key(10).to_bytes()).as_bytes())?;
     let pf = root.join("survivor-permission.json");
     super::write_private(
         &pf,
@@ -360,7 +451,7 @@ pub(in super::super) fn run(
     let floor_file = serde_json::json!({"schema_version":1,"world":resources.authority.definition().world,
         "full_policy_digest":resources.authority.policy().digest().map_err(|e| e.to_string())?,
         "recovery_issuer_public_key":resources.authority.policy().recovery_issuer_public_key,
-        "issuer_anchor_public_key":resources.authority.policy().issuer_anchor_public_key,"anchor":floor});
+        "issuer_anchor_public_key":resources.authority.policy().issuer_anchor_public_key,"anchor":permission.minimum_issuer_anchor});
     super::write_private(
         &ff,
         &serde_json::to_vec(&floor_file).map_err(|e| e.to_string())?,
@@ -368,7 +459,11 @@ pub(in super::super) fn run(
     cfg["primary"] = serde_json::to_value(pa).unwrap();
     cfg["replica"] = serde_json::to_value(ra).unwrap();
     cfg["writer_directory"] = serde_json::to_value(writer).unwrap();
-    cfg["writer_key_file"] = serde_json::to_value(key).unwrap();
+    cfg["schema_version"] = 2.into();
+    cfg.as_object_mut()
+        .ok_or("successor runtime config object")?
+        .remove("writer_key_file");
+    cfg["writer_custody"] = successor_custody.runtime_config();
     cfg["approved_initial_file"] = Value::Null;
     cfg["recovery_permission_file"] = serde_json::to_value(pf).unwrap();
     cfg["recovery_issuer_minimum_file"] = serde_json::to_value(ff).unwrap();
@@ -384,13 +479,18 @@ pub(in super::super) fn run(
     std::fs::File::open(root)
         .and_then(|dir| dir.sync_all())
         .map_err(|e| e.to_string())?;
-    let mut original_ref = None;
-    let mut exact_effect = None;
-    for reopen in 0..2 {
+    let original_ref = Some(drained.reference.clone());
+    let exact_effect = Some(drained.effect.clone());
+    for _reopen in 0..2 {
         boundary::reset_execution_attempts(&original_block);
         let mut runtime = FormalLiveRuntime::open_with_native_history(config)?;
         runtime.start()?;
-        wait_for_published_position(&runtime, target_position)?;
+        wait_for_published_position(
+            &runtime,
+            target_position
+                .checked_add(1)
+                .ok_or("survivor control position overflow")?,
+        )?;
         let client = RemoteWorldServiceClient::new(owner.clone()).map_err(|e| e.to_string())?;
         let reference = lookup_original_commit(&client, request)?;
         if reference.position != target_position {
@@ -403,9 +503,8 @@ pub(in super::super) fn run(
         if wasm_emit_count(publication.world()) != initial_emits + 1 {
             return Err("survivor Wasmtime effect not exactly once".into());
         }
-        let expected = usize::from(reopen == 0 && mode == "survivor_frozen");
-        if boundary::execution_attempts() != expected {
-            return Err("survivor reexecuted original candidate or skipped replay".into());
+        if boundary::execution_attempts() != 0 {
+            return Err("successor reexecuted the already drained old-epoch original".into());
         }
         let effect = original_effect(publication.world(), request)?;
         if let Some(original) = &exact_effect {
@@ -413,17 +512,9 @@ pub(in super::super) fn run(
                 return Err("survivor original agent/owner/resources/result changed".into());
             }
         } else {
-            exact_effect = Some(effect);
+            return Err("survivor lost actual old-epoch effect oracle".into());
         }
-        let record = publication.anchor().head().record();
-        if let Some(candidate) = &original_candidate
-            && record != &candidate.record
-        {
-            return Err("survivor rewrote prepared canonical record".into());
-        }
-        if reopen == 0 {
-            original_ref = Some(reference.clone());
-        } else if original_ref.as_ref() != Some(&reference) {
+        if original_ref.as_ref() != Some(&reference) {
             return Err("survivor reopen changed immutable result".into());
         }
         let mut endpoint = RemoteFormalEndpoint::new(
@@ -431,7 +522,7 @@ pub(in super::super) fn run(
             Duration::from_secs(30),
             verified.recovery().successor().clone(),
             EndpointRole::Primary,
-            fixtures::key(10),
+            WriterSigningCapabilityV1::new(successor_custody.normal.clone()),
             reference_to_head(&reference),
         )
         .map_err(|e| e.to_string())?;
@@ -447,14 +538,20 @@ pub(in super::super) fn run(
         if candidate.frozen.as_ref() != Some(&frozen_certificate) {
             return Err("survivor changed original Frozen certificate".into());
         }
+        if proof.decision.record != *drained.anchor.head().record()
+            || candidate.candidate.record != proof.decision.record
+        {
+            return Err("survivor changed the exact old-epoch canonical result".into());
+        }
         if let Some(original) = &original_candidate {
-            if proof.decision.writer_signature_hex != original.writer_signature_hex
-                || proof.decision.branch != FormalCompletionBranchV1::CompletePrepared
+            if &candidate.candidate != original
+                || proof.decision.writer_signature_hex != original.writer_signature_hex
+                || proof.decision.branch != FormalCompletionBranchV1::Normal
             {
                 return Err("survivor resigned prepared original".into());
             }
-        } else if proof.decision.branch != FormalCompletionBranchV1::ReplayFrozen {
-            return Err("survivor missing replay branch".into());
+        } else if proof.decision.branch != FormalCompletionBranchV1::Normal {
+            return Err("survivor lost original old-epoch Normal completion".into());
         }
         let before = runtime.published.current()?;
         let before_emits = wasm_emit_count(&before.world);
@@ -465,8 +562,12 @@ pub(in super::super) fn run(
             .position
             .checked_add(1)
             .ok_or("survivor position overflow")?;
-        let admission = client.submit(request.clone()).map_err(|e| e.to_string())?;
-        assert_volatile_admission(admission, &request.correlation)?;
+        let admission = client.submit(request.clone());
+        if let Some(case) = &resources.revalidation {
+            revalidation_tests::assert_retry_observation(case, admission, request)?;
+        } else {
+            assert_volatile_admission(admission.map_err(|e| e.to_string())?, &request.correlation)?;
+        }
         wait_for_published_position(&runtime, next)?;
         let after = runtime.published.current()?;
         if wasm_emit_count(&after.world) != before_emits
@@ -479,11 +580,7 @@ pub(in super::super) fn run(
             .history
             .fixed_publication(&reference)
             .map_err(|error| format!("survivor later original fixed publication: {error}"))?;
-        if Some(original_effect(
-            original.world(),
-            request,
-        )?) != exact_effect
-        {
+        if Some(original_effect(original.world(), request)?) != exact_effect {
             return Err("survivor duplicate changed original agent/owner/resources/result".into());
         }
         stop_owned_protected_runtime(
@@ -494,7 +591,13 @@ pub(in super::super) fn run(
     }
     if resources.governed_participant {
         return governed_participant::submit_after_recovery(
-            config, owner, world, request, original_ref.as_ref().ok_or("survivor original result missing")?,
+            config,
+            owner,
+            world,
+            request,
+            original_ref
+                .as_ref()
+                .ok_or("survivor original result missing")?,
         );
     }
     next_request_tests::submit_after_recovery(
@@ -515,7 +618,7 @@ fn reference_to_head(reference: &oasis7_client_api::world_service::CommitRef) ->
     }
 }
 
-fn write_origin_pages(
+pub(crate) fn write_origin_pages(
     endpoint: &mut RemoteFormalEndpoint,
     trust: &InitialActivationTrustV1,
     origin: &VerifiedFormalReadAnchorV1,
@@ -590,34 +693,14 @@ fn write_origin_pages(
     Ok(current)
 }
 
-#[allow(clippy::too_many_arguments)]
-fn permission_for_necessary_endpoint(
-    external: &VerifiedFormalReadAnchorV1,
-    trust: &InitialActivationTrustV1,
-    successor: AuthorityDefinitionV1,
-    tail: RecoveryTailWitnessV1,
-    seal: oasis7_distfs::controlled_authority::fencing::EpochSealReceiptV1,
-    issuer_key: &SigningKey,
-    witness_key: &SigningKey,
-    independent_floor: IssuerAnchorV1,
-) -> Result<(RecoveryPermissionBootstrapV1, VerifiedRecoveryBootstrapV1), String> {
-    permission_support::permission_for_fencing(
-        external,
-        trust,
-        successor,
-        tail,
-        FencingBootstrapV1::NecessaryEndpoint {
-            seal: Box::new(seal),
-        },
-        None,
-        issuer_key,
-        witness_key,
-        independent_floor,
-    )
-}
-
-fn original_effect(world: &oasis7_runtime::World, request: &SubmitIntentRequest<WorldServicePayloadV1>) -> Result<Vec<u8>, String> {
-    if matches!(&request.signed_payload, WorldServicePayloadV1::GameParticipantRegister { .. }) {
+fn original_effect(
+    world: &oasis7_runtime::World,
+    request: &SubmitIntentRequest<WorldServicePayloadV1>,
+) -> Result<Vec<u8>, String> {
+    if matches!(
+        &request.signed_payload,
+        WorldServicePayloadV1::GameParticipantRegister { .. }
+    ) {
         governed_participant::registered_effect(world, request)
     } else {
         first_agent_test_effect::first_agent_effect(world, request)

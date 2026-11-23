@@ -15,7 +15,7 @@ enum Operation {
         Box<DurableSetInstallReceiptV1>,
     ),
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Body {
     schema_version: u32,
@@ -23,6 +23,14 @@ struct Body {
     instance_digest: String,
     challenge: String,
     operation: Operation,
+}
+/// Closed legacy management request; custody capabilities explicitly declare
+/// support before a healthy transition is armed.
+pub struct WriterDurableSetRequestV1(Body);
+impl WriterDurableSetRequestV1 {
+    pub(crate) fn signing_bytes(&self) -> Result<Vec<u8>, FormalError> {
+        bytes(DOMAIN, &self.0)
+    }
 }
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -328,7 +336,7 @@ pub struct RemoteDurableSetCandidateV1 {
     timeout: Duration,
     sealed: Arc<VerifiedSealedDurableSetTransitionV1>,
     role: EndpointRole,
-    key: SigningKey,
+    key: WriterSigningCapabilityV1,
 }
 impl RemoteDurableSetCandidateV1 {
     pub fn new(
@@ -336,13 +344,14 @@ impl RemoteDurableSetCandidateV1 {
         timeout: Duration,
         sealed: Arc<VerifiedSealedDurableSetTransitionV1>,
         role: EndpointRole,
-        key: SigningKey,
+        key: impl Into<WriterSigningCapabilityV1>,
     ) -> Result<Self, FormalError> {
+        let key = key.into();
         wire::address(address)?;
         if timeout.is_zero()
             || timeout > Duration::from_secs(60)
-            || hex::encode(key.verifying_key().to_bytes())
-                != sealed.transition().body().successor.writer_public_key
+            || !key.supports_healthy_durable_set()
+            || key.public_key_hex() != sealed.transition().body().successor.writer_public_key
         {
             return Err(invalid("candidate RPC writer/timeout"));
         }
@@ -363,7 +372,9 @@ impl RemoteDurableSetCandidateV1 {
             operation,
         };
         let envelope = Envelope {
-            signature: hex::encode(self.key.sign(&bytes(DOMAIN, &body)?).to_bytes()),
+            signature: self
+                .key
+                .sign_durable_set_candidate(&WriterDurableSetRequestV1(body.clone()))?,
             body,
         };
         let mut stream =

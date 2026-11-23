@@ -3,7 +3,6 @@ use super::{
     controlled_capture as capture, durable_transaction, formal_executor, formal_package,
     snapshot_to_cbor, to_cbor,
 };
-use ed25519_dalek::{Signer, SigningKey};
 use oasis7_distfs::controlled_authority::{
     formal::{
         coordinator::{FormalCoordinator, FormalDurabilityEndpoint},
@@ -23,10 +22,15 @@ use std::path::{Path, PathBuf};
 #[path = "formal_writer_tests.rs"]
 mod tests;
 
+#[cfg(all(test, unix))]
+#[path = "formal_writer_acceptance.rs"]
+pub(crate) mod acceptance;
 #[path = "formal_writer_attempts.rs"]
 mod attempts;
 #[path = "formal_writer_initial_history.rs"]
 mod initial_history;
+#[path = "formal_writer_recovery_activation.rs"]
+mod recovery_activation;
 #[path = "formal_writer_recovery.rs"]
 mod recovery_runtime;
 #[path = "formal_writer_saved_candidate.rs"]
@@ -156,7 +160,7 @@ fn restored_pending(state: Option<&FormalRequestStateV1>) -> Result<Option<Pendi
 pub(crate) struct FormalWriter<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> {
     _lock: std::fs::File,
     root: PathBuf,
-    writer: SigningKey,
+    writer: WriterSigningCapabilityV1,
     release: ReleaseSecurityPolicy,
     world: World,
     anchor: VerifiedFormalReadAnchorV1,
@@ -224,7 +228,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
     #[cfg(test)]
     pub(crate) fn open(
         root: PathBuf,
-        writer: SigningKey,
+        writer: impl Into<WriterSigningCapabilityV1>,
         release: ReleaseSecurityPolicy,
         world: World,
         anchor: VerifiedFormalReadAnchorV1,
@@ -241,7 +245,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
     )]
     pub(crate) fn open_native(
         root: PathBuf,
-        writer: SigningKey,
+        writer: impl Into<WriterSigningCapabilityV1>,
         release: ReleaseSecurityPolicy,
         trusted: VerifiedFormalReadAnchorV1,
         primary_restore: &VerifiedNativeCheckpointRestoreV1,
@@ -270,7 +274,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
     )]
     pub(crate) fn open_initial(
         root: PathBuf,
-        writer: SigningKey,
+        writer: impl Into<WriterSigningCapabilityV1>,
         release: ReleaseSecurityPolicy,
         anchor: VerifiedFormalReadAnchorV1,
         candidate: FormalCandidateMaterialV1,
@@ -316,7 +320,7 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
     )]
     fn open_inner(
         root: PathBuf,
-        writer: SigningKey,
+        writer: impl Into<WriterSigningCapabilityV1>,
         release: ReleaseSecurityPolicy,
         mut world: World,
         mut anchor: VerifiedFormalReadAnchorV1,
@@ -324,10 +328,9 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
         replica: R,
         native: Option<NativePublication>,
     ) -> Result<Self, String> {
+        let writer = writer.into();
         let recovery = native.as_ref().and_then(|native| native.recovery.clone());
-        if hex::encode(writer.verifying_key().to_bytes())
-            != anchor.authority().definition().writer_public_key
-        {
+        if writer.public_key_hex() != anchor.authority().definition().writer_public_key {
             return Err("formal writer key differs from external authority".into());
         }
         if blake3_hex(&super::snapshot_to_cbor(&world.snapshot())?)
@@ -689,7 +692,10 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
     pub(crate) fn committed_initial_bootstrap(
         &self,
     ) -> Result<oasis7_node::NodeExecutionBootstrap, String> {
-        if self.anchor.head().record().kind != FormalRecordKindV1::InitialActivation {
+        if !matches!(
+            self.anchor.head().record().kind,
+            FormalRecordKindV1::InitialActivation | FormalRecordKindV1::RecoveryActivation { .. }
+        ) {
             return Err("formal initial bootstrap requested from execution head".into());
         }
         let publication: Published = read(
@@ -909,11 +915,10 @@ impl<P: FormalDurabilityEndpoint, R: FormalDurabilityEndpoint> FormalWriter<P, R
                         .sum(),
                 )
             });
-            let signature_hex = hex::encode(
-                self.writer
-                    .sign(&frozen_signing_bytes(&body).map_err(|e| e.to_string())?)
-                    .to_bytes(),
-            );
+            let signature_hex = self
+                .writer
+                .sign_frozen(&body)
+                .map_err(|error| error.to_string())?;
             self.pending = Some(Pending {
                 schema_version: 1,
                 original: SignedFormalFrozenV1 {

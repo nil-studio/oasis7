@@ -19,6 +19,7 @@ pub fn recovery_body_digest(body: &RecoveryCertificateBodyV1) -> Result<String, 
         match body.schema_version {
             1 => "oasis7.formal.recovery_certificate.v1",
             2 => "oasis7.formal.recovery_certificate.v2",
+            3 => "oasis7.formal.recovery_certificate.v3",
             _ => return Err(invalid("recovery certificate schema")),
         },
         body,
@@ -28,6 +29,7 @@ fn recovery_signing_domain(body: &RecoveryCertificateBodyV1) -> Result<&'static 
     match body.schema_version {
         1 => Ok("oasis7.formal.recovery_certificate.sign.v1"),
         2 => Ok("oasis7.formal.recovery_certificate.sign.v2"),
+        3 => Ok("oasis7.formal.recovery_certificate.sign.v3"),
         _ => Err(invalid("recovery certificate schema")),
     }
 }
@@ -51,12 +53,12 @@ pub fn validate_recovery_body(
     predecessor: &AuthorityDefinitionV1,
     policy: &RecoveryPolicyV1,
 ) -> Result<(), FormalError> {
-    if body.schema_version != 1 || body.retained_context.is_some() {
+    if !matches!(body.schema_version, 1 | 3) || body.retained_context.is_some() {
         return Err(invalid("v1 recovery refuses retained-context extensions"));
     }
     validate_recovery_body_fields(body, predecessor, policy, false)
 }
-fn validate_recovery_body_fields(
+pub(super) fn validate_recovery_body_fields(
     body: &RecoveryCertificateBodyV1,
     predecessor: &AuthorityDefinitionV1,
     policy: &RecoveryPolicyV1,
@@ -77,8 +79,11 @@ fn validate_recovery_body_fields(
         .position
         .checked_add(1)
         .ok_or_else(|| invalid("recovery position overflow"))?;
-    if (body.schema_version != if retained { 2 } else { 1 })
-        || body.world != predecessor.world
+    if (if retained {
+        body.schema_version != 2
+    } else {
+        !matches!(body.schema_version, 1 | 3)
+    }) || body.world != predecessor.world
         || body.successor.world != body.world
         || body.successor.profile_version != predecessor.profile_version
         || body.predecessor_authority_id != predecessor.authority_id()?
@@ -90,6 +95,11 @@ fn validate_recovery_body_fields(
     {
         return Err(invalid(
             "recovery predecessor/world/epoch/cut/successor boundary",
+        ));
+    }
+    if body.schema_version == 3 && body.tail != RecoveryTailV1::Empty {
+        return Err(invalid(
+            "planned recovery must drain the old epoch before activation",
         ));
     }
     // An old signing identity or storage instance cannot be revived in a new epoch.
@@ -163,7 +173,9 @@ fn validate_recovery_body_fields(
     if let Some(handoff) = handoff {
         handoff.validate(next)?;
     }
-    let expected = if handoff.is_some() {
+    let expected = if body.schema_version == 3 {
+        next.checked_add(1)
+    } else if handoff.is_some() {
         None
     } else if tail_position.is_some() {
         next.checked_add(1)
@@ -196,6 +208,8 @@ pub struct VerifiedRecoveryIntent {
     body: RecoveryCertificateBodyV1,
     policy: RecoveryPolicyV1,
     retained: Option<VerifiedActiveRecoveryContextV2>,
+    plan: Option<SignedRecoveryPlanV1>,
+    sealed_commit: VerifiedFormalCommitV1,
 }
 impl VerifiedRecoveryIntent {
     pub fn body(&self) -> &RecoveryCertificateBodyV1 {
@@ -203,6 +217,9 @@ impl VerifiedRecoveryIntent {
     }
     pub fn policy(&self) -> &RecoveryPolicyV1 {
         &self.policy
+    }
+    pub fn recovery_plan(&self) -> Option<&SignedRecoveryPlanV1> {
+        self.plan.as_ref()
     }
     pub fn verify(
         body: RecoveryCertificateBodyV1,
@@ -354,14 +371,18 @@ impl VerifiedRecoveryIntent {
                 verify_formal_reservation(&frozen.reservation, predecessor, cut)?;
             }
         }
+        let plan =
+            super::recovery_plan::verify_recovery_plan_seals(&body, predecessor, seals, witness)?;
         Ok(Self {
             body,
             policy: predecessor.policy().clone(),
             retained: None,
+            plan,
+            sealed_commit: cut.clone(),
         })
     }
 }
-fn verify_tail_witness(
+pub(super) fn verify_tail_witness(
     body: &RecoveryCertificateBodyV1,
     authority: &VerifiedAuthorityV1,
     witness: &RecoveryTailWitnessV1,
@@ -430,8 +451,18 @@ pub struct VerifiedRecovery {
     pub(crate) certificate_digest: String,
     pub(crate) original: VerifiedAuthorityV1,
     pub(crate) retained_candidate: Option<SignedCanonicalCandidateV1>,
+    pub(crate) plan: Option<SignedRecoveryPlanV1>,
+    sealed_commit: VerifiedFormalCommitV1,
 }
 impl VerifiedRecovery {
+    /// The exact opaque Qualified cut supplied to, and checked by, the native
+    /// recovery intent verifier. This is not reconstructed from plan fields.
+    pub fn sealed_commit(&self) -> &VerifiedFormalCommitV1 {
+        &self.sealed_commit
+    }
+    pub fn recovery_plan(&self) -> Option<&SignedRecoveryPlanV1> {
+        self.plan.as_ref()
+    }
     pub fn original_authority(&self) -> &VerifiedAuthorityV1 {
         &self.original
     }
@@ -508,6 +539,18 @@ impl VerifiedRecovery {
                 _ => None,
             },
             initial_input_digest: None,
+            recovery_activation: if certificate.body.schema_version == 3 {
+                let plan = intent.plan.as_ref().ok_or_else(|| {
+                    invalid("planned recovery activation requires original issuer plan")
+                })?;
+                Some(RecoveryActivationAuthorizationV1 {
+                    certificate_digest: digest.clone(),
+                    plan_digest: plan.digest()?,
+                    pending_handoff_root: plan.body.pending_handoff_root.clone(),
+                })
+            } else {
+                None
+            },
         };
         Ok(Self {
             body: certificate.body.clone(),
@@ -516,6 +559,8 @@ impl VerifiedRecovery {
             certificate_digest: digest,
             original,
             retained_candidate,
+            plan: intent.plan.clone(),
+            sealed_commit: intent.sealed_commit.clone(),
         })
     }
 }

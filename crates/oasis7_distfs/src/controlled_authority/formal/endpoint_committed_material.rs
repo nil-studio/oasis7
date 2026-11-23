@@ -53,7 +53,12 @@ pub(crate) fn verify_committed_historical_material(
     verify_record_material(cut.commit().record(), &candidate.material)?;
     match (&candidate.frozen, &candidate.frozen_material) {
         (Some(cert), Some(material)) => verify_frozen_material(&cert.reservation.body, material)?,
-        (None, None) if cut.commit().record().kind == FormalRecordKindV1::InitialActivation => {}
+        (None, None)
+            if matches!(
+                cut.commit().record().kind,
+                FormalRecordKindV1::InitialActivation
+                    | FormalRecordKindV1::RecoveryActivation { .. }
+            ) => {}
         _ => return Err(invalid("historical material exact original Frozen closure")),
     }
     let result = &candidate.material.roots

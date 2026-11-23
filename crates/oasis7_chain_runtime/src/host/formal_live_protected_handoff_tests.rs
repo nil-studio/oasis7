@@ -14,6 +14,7 @@ use oasis7_distfs::controlled_authority::{
         fencing::directory_fingerprint,
         issuer::IssuerAnchorV1,
         transport::RemoteFormalEndpoint,
+        writer_signing::WriterSigningCapabilityV1,
     },
     replicated_protocol::EndpointRole,
 };
@@ -23,22 +24,27 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
-use super::recovery_test_support;
+use super::writer_custody_fixture::{Authorization, WriterCustodyFixture};
+use crate::formal_live_planned_recovery_support::{PlanInputs, PreparedRecovery};
+#[path = "formal_live_protected_pending_handoff_tests.rs"]
+pub(crate) mod pending_tests;
 
 #[test]
 #[ignore = "requires OASIS7_FORMAL_ENDPOINT_TEST_BIN; oracle and issuer are test simulations"]
 fn protected_endpoint_children_signer_handoff_stops_exact_owner_and_qualifies_successor() {
-    std::thread::Builder::new()
-        .name("formal-protected-handoff-fixture".into())
-        .stack_size(32 * 1024 * 1024)
-        .spawn(run_protected_signer_handoff)
-        .expect("spawn protected handoff fixture thread")
-        .join()
-        .expect("protected handoff fixture thread panicked")
-        .unwrap();
+    for nonempty_pending in [false, true] {
+        std::thread::Builder::new()
+            .name("formal-protected-handoff-fixture".into())
+            .stack_size(32 * 1024 * 1024)
+            .spawn(move || run_protected_signer_handoff(nonempty_pending))
+            .expect("spawn protected handoff fixture thread")
+            .join()
+            .expect("protected handoff fixture thread panicked")
+            .unwrap();
+    }
 }
 
 /// The test harness binary does not understand the production CLI's
@@ -72,7 +78,7 @@ fn protected_handoff_owner_worker() {
         .unwrap_or_else(|error| panic!("formal owner worker failed: {error}"));
 }
 
-fn run_protected_signer_handoff() -> Result<(), String> {
+fn run_protected_signer_handoff(nonempty_pending: bool) -> Result<(), String> {
     let endpoint_binary = std::env::var_os("OASIS7_FORMAL_ENDPOINT_TEST_BIN")
         .ok_or("set OASIS7_FORMAL_ENDPOINT_TEST_BIN to oasis7_durability_endpoint")?;
     let root_guard = PrivateRoot::new()?;
@@ -110,8 +116,11 @@ fn run_protected_signer_handoff() -> Result<(), String> {
         fixtures::h(10),
         fixtures::h(11),
     );
-    let world = oasis7_runtime::World::from_snapshot(snapshot, world.journal().clone())
+    let mut world = oasis7_runtime::World::from_snapshot(snapshot, world.journal().clone())
         .map_err(|error| format!("restore handoff genesis World: {error:?}"))?;
+    if nonempty_pending {
+        super::survivor_tests::governed_participant::install_genesis_policy(&mut world, &identity)?;
+    }
 
     let mut definition = seed_anchor.authority().definition().clone();
     let policy = seed_anchor.authority().policy().clone();
@@ -266,10 +275,17 @@ fn run_protected_signer_handoff() -> Result<(), String> {
         )
         .as_bytes(),
     )?;
-    let predecessor_writer_key_file = root.join("predecessor-writer-key");
-    super::write_private(
-        &predecessor_writer_key_file,
-        hex::encode(predecessor_writer_key.to_bytes()).as_bytes(),
+    let predecessor_custody = WriterCustodyFixture::initialize(
+        &root.join("predecessor-writer-service"),
+        &endpoint_binary,
+        Authorization {
+            authority: &predecessor_authority,
+            trust: &initial_trust,
+            certificate: &initial_certificate,
+            recovery: None,
+        },
+        &predecessor_writer_key,
+        [24, 25],
     )?;
     let predecessor_status_bind = free_loopback_address()?;
     let predecessor_runtime_config = root.join("predecessor-formal-runtime.json");
@@ -277,7 +293,7 @@ fn run_protected_signer_handoff() -> Result<(), String> {
         &predecessor_runtime_config,
         "formal-handoff-test-node",
         &node_keypair_directory,
-        &predecessor_writer_key_file,
+        predecessor_custody.runtime_config(),
         &trust_file,
         &predecessor_writer_directory,
         predecessor_primary_address,
@@ -286,7 +302,22 @@ fn run_protected_signer_handoff() -> Result<(), String> {
         Some(&approved_file),
         None,
         None,
+        None,
     )?;
+    let pending_case = if nonempty_pending {
+        Some(pending_tests::PendingCase::prepare(
+            &predecessor_runtime_config,
+            &world,
+            &WorldIdentity {
+                world_id: identity.world_id.clone(),
+                genesis_digest: identity.genesis_digest.clone(),
+            },
+            &read_trust,
+            predecessor_status_bind,
+        )?)
+    } else {
+        None
+    };
     let predecessor_config_digest = sha256_file(&predecessor_runtime_config)?;
     let predecessor_owner_request_digest = blake3::hash(b"protected-handoff-predecessor-owner")
         .to_hex()
@@ -315,41 +346,68 @@ fn run_protected_signer_handoff() -> Result<(), String> {
     }
     predecessor_owner_guard.set(predecessor_owner.instance.clone());
 
-    // The seals below come from signed RPC responses by the two actual
-    // predecessor endpoint child processes, not from the test issuer helper.
-    let mut seal_primary = make_endpoint(
+    if let Some(case) = &pending_case {
+        case.submit_and_wait_selected()?;
+    }
+    let pending = crate::formal_live_runtime::control_freeze_pending_handoff(
+        &predecessor_runtime_config,
+        &predecessor_owner.instance,
+        Duration::from_secs(30),
+    )?;
+    if let Some(case) = &pending_case {
+        case.verify_frozen_export(&pending)?;
+    } else if !pending.requests.is_empty() {
+        return Err("idle owner handoff unexpectedly admitted a private request".into());
+    }
+    // Freeze blocks new Fixed work under the actual owner admission gate. Any
+    // already Fixed continuation is still allowed to reach old-epoch Qualified
+    // before this empty-fixed plan revokes the normal writer credential.
+    let mut drain_primary = RemoteFormalEndpoint::new(
         predecessor_primary_address,
+        Duration::from_secs(15),
+        predecessor_authority.clone(),
         EndpointRole::Primary,
-        predecessor_authority.clone(),
-        predecessor_writer_key.clone(),
+        WriterSigningCapabilityV1::new(predecessor_custody.normal.clone()),
         genesis.clone(),
-    )?;
-    let mut seal_replica = make_endpoint(
+    )
+    .map_err(|error| error.to_string())?;
+    let mut drain_replica = RemoteFormalEndpoint::new(
         predecessor_replica_address,
-        EndpointRole::Replica,
+        Duration::from_secs(15),
         predecessor_authority.clone(),
-        predecessor_writer_key.clone(),
-        genesis,
+        EndpointRole::Replica,
+        WriterSigningCapabilityV1::new(predecessor_custody.normal.clone()),
+        genesis.clone(),
+    )
+    .map_err(|error| error.to_string())?;
+    let drain_deadline = Instant::now() + Duration::from_secs(30);
+    let drained_position = loop {
+        let p = drain_primary
+            .restore_native_current(&predecessor_authority, None, None)
+            .map_err(|error| error.to_string())?;
+        let r = drain_replica
+            .restore_native_current(&predecessor_authority, None, None)
+            .map_err(|error| error.to_string())?;
+        if p.pending().is_none() && r.pending().is_none() && p.commit().head() == r.commit().head()
+        {
+            break p.commit().record().position;
+        }
+        if Instant::now() >= drain_deadline {
+            return Err(
+                "frozen owner did not finish its actual old-epoch Fixed continuation".into(),
+            );
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    let origin_history = root.join("handoff-original-history");
+    super::private_directory(&origin_history)?;
+    let drained_anchor = super::survivor_tests::write_origin_pages(
+        &mut drain_replica,
+        &initial_trust,
+        &external_anchor,
+        drained_position,
+        &origin_history,
     )?;
-    let recovery_operation_id = fixtures::h(240);
-    let primary_checkpoint = seal_primary
-        .checkpoint()
-        .map_err(|error| format!("read actual predecessor primary checkpoint: {error}"))?;
-    let replica_checkpoint = seal_replica
-        .checkpoint()
-        .map_err(|error| format!("read actual predecessor replica checkpoint: {error}"))?;
-    let primary_seal = seal_primary
-        .seal_epoch(recovery_operation_id.clone(), 2, primary_checkpoint)
-        .map_err(|error| format!("seal actual predecessor primary: {error}"))?;
-    let replica_seal = seal_replica
-        .seal_epoch(recovery_operation_id, 2, replica_checkpoint)
-        .map_err(|error| format!("seal actual predecessor replica: {error}"))?;
-    let primary_archive = seal_primary
-        .archive_manifest()
-        .map_err(|error| format!("read actual predecessor primary archive: {error}"))?;
-    let replica_archive = seal_replica
-        .archive_manifest()
-        .map_err(|error| format!("read actual predecessor replica archive: {error}"))?;
 
     let successor_primary_data = root.join("successor-primary");
     let successor_replica_data = root.join("successor-replica");
@@ -363,7 +421,7 @@ fn run_protected_signer_handoff() -> Result<(), String> {
             .authority_id()
             .map_err(|error| error.to_string())?,
     );
-    successor_definition.valid_from_position = external_anchor
+    successor_definition.valid_from_position = drained_anchor
         .head()
         .record()
         .position
@@ -392,18 +450,76 @@ fn run_protected_signer_handoff() -> Result<(), String> {
     }
     let independent_issuer_floor =
         IssuerAnchorV1::initial(predecessor_authority.policy()).map_err(|e| e.to_string())?;
-    let (recovery_permission, verified_recovery) =
-        recovery_test_support::permission_for_sealed_endpoints(
-            &external_anchor,
-            &initial_trust,
-            successor_definition,
-            RecoveryTailWitnessV1::Empty,
-            [primary_seal.clone(), replica_seal.clone()],
-            None,
-            &fixtures::key(1),
-            &fixtures::key(2),
-            independent_issuer_floor,
-        )?;
+    let prepared = PreparedRecovery::prepare(
+        PlanInputs {
+            directory: &root.join("handoff-original-recovery"),
+            original: &drained_anchor,
+            trust: &initial_trust,
+            operation_id: fixtures::h(240),
+            successor: successor_definition,
+            fixed: &RecoveryTailWitnessV1::Empty,
+            fixed_material: None,
+            pending: &pending,
+            issuer_key: &fixtures::key(1),
+            witness_key: &fixtures::key(2),
+            minimum: independent_issuer_floor,
+            authorization: RecoveryPlanAuthorityV1 {
+                recovery_credential_public_key: predecessor_custody
+                    .recovery_credential_public_key(),
+                isolation_evidence_digest: blake3::hash(
+                    b"software custody: exact owner frozen and normal writer credential revoked",
+                )
+                .to_hex()
+                .to_string(),
+            },
+        },
+        &predecessor_custody.recovery,
+    )?;
+    let mut seal_primary = RemoteFormalEndpoint::new(
+        predecessor_primary_address,
+        Duration::from_secs(15),
+        predecessor_authority.clone(),
+        EndpointRole::Primary,
+        WriterSigningCapabilityV1::new(predecessor_custody.recovery.clone()),
+        drained_anchor.head().head(),
+    )
+    .map_err(|error| error.to_string())?;
+    let mut seal_replica = RemoteFormalEndpoint::new(
+        predecessor_replica_address,
+        Duration::from_secs(15),
+        predecessor_authority.clone(),
+        EndpointRole::Replica,
+        WriterSigningCapabilityV1::new(predecessor_custody.recovery.clone()),
+        drained_anchor.head().head(),
+    )
+    .map_err(|error| error.to_string())?;
+    prepared.install_on(&mut seal_primary)?;
+    prepared.install_on(&mut seal_replica)?;
+    let completed_recovery = prepared.finish(
+        &drained_anchor,
+        &predecessor_custody.recovery,
+        &mut seal_primary,
+        &mut seal_replica,
+    )?;
+    if completed_recovery.drained.qualified.decision.record != *drained_anchor.head().record()
+        || completed_recovery.seals[0].body.highest_complete
+            != completed_recovery.seals[1].body.highest_complete
+    {
+        return Err("handoff changed the actual dual old-epoch drained original".into());
+    }
+    let recovery_permission = completed_recovery.permission;
+    let verified_recovery = completed_recovery.verified;
+    let first_business_position = verified_recovery
+        .recovery()
+        .body()
+        .first_normal_position
+        .ok_or("planned recovery omitted its first business position")?;
+    let primary_archive = seal_primary
+        .archive_manifest()
+        .map_err(|error| format!("read actual predecessor primary archive: {error}"))?;
+    let replica_archive = seal_replica
+        .archive_manifest()
+        .map_err(|error| format!("read actual predecessor replica archive: {error}"))?;
     let issuer_minimum = serde_json::json!({
         "schema_version": 1,
         "world": predecessor_authority.definition().world,
@@ -509,11 +625,20 @@ fn run_protected_signer_handoff() -> Result<(), String> {
     let (_successor_replica_child, successor_replica_address) =
         super::start_endpoint(&endpoint_binary, &successor_replica_config)?;
 
-    let successor_writer_key = fixtures::key(10);
-    let successor_writer_key_file = root.join("successor-writer-key");
-    super::write_private(
-        &successor_writer_key_file,
-        hex::encode(successor_writer_key.to_bytes()).as_bytes(),
+    let successor_custody = WriterCustodyFixture::initialize(
+        &root.join("successor-writer-service"),
+        &endpoint_binary,
+        Authorization {
+            authority: &successor_authority,
+            trust: &initial_trust,
+            certificate: &initial_certificate,
+            recovery: Some((
+                &recovery_permission,
+                &recovery_permission.minimum_issuer_anchor,
+            )),
+        },
+        &fixtures::key(10),
+        [26, 27],
     )?;
     let successor_writer_directory = root.join("successor-writer");
     super::private_directory(&successor_writer_directory)?;
@@ -523,7 +648,7 @@ fn run_protected_signer_handoff() -> Result<(), String> {
         &successor_runtime_config,
         "formal-handoff-test-node",
         &node_keypair_directory,
-        &successor_writer_key_file,
+        successor_custody.runtime_config(),
         &trust_file,
         &successor_writer_directory,
         successor_primary_address,
@@ -532,7 +657,11 @@ fn run_protected_signer_handoff() -> Result<(), String> {
         None,
         Some(&recovery_permission_file),
         Some(&issuer_minimum_file),
+        Some(&origin_history),
     )?;
+    if let Some(case) = &pending_case {
+        case.expect_successor(&successor_runtime_config, &pending)?;
+    }
 
     let request_path = root.join("protected-handoff-request.json");
     let store_directory = root.join("operation-store");
@@ -600,7 +729,7 @@ fn run_protected_signer_handoff() -> Result<(), String> {
         || completed["formal_handoff"]["profile_version"] != 2
         || completed["formal_handoff"]["qualified_position"]
             .as_u64()
-            .is_none_or(|position| position <= 1)
+            .is_none_or(|position| position < first_business_position)
         || completed["formal_handoff"]["recovery_permission_digest"]
             .as_str()
             .is_none()
@@ -637,6 +766,17 @@ fn run_protected_signer_handoff() -> Result<(), String> {
             "successor owner identity/readiness differs: {successor_owner:?}"
         ));
     }
+    let pending_commit = pending_case
+        .as_ref()
+        .map(|case| {
+            case.verify_successor(
+                &successor_runtime_config,
+                successor_status_bind,
+                &pending,
+                first_business_position,
+            )
+        })
+        .transpose()?;
     let predecessor_after = crate::formal_live_runtime::query_operation_owner(
         &predecessor_runtime_config,
         &predecessor_owner.instance.operation_id,
@@ -656,6 +796,18 @@ fn run_protected_signer_handoff() -> Result<(), String> {
     successor_owner_guard.set(successor_owner.instance.clone());
     successor_owner_guard.stop_now()?;
     predecessor_owner_guard.clear();
+    if let (Some(case), Some(committed)) = (&pending_case, &pending_commit) {
+        case.verify_cold(
+            &successor_runtime_config,
+            successor_status_bind,
+            &pending,
+            committed,
+        )?;
+    }
+    eprintln!(
+        "CA-F2 actual_owner_handoff pending_count={} phase=passed",
+        pending.requests.len()
+    );
     drop((
         coordinator,
         primary_oracle,
@@ -703,6 +855,13 @@ fn recovery_hot_body(
         decision_head: None,
         seal: None,
         durable_set: None,
+        data_closure: None,
+        recovery_plan: None,
+        recovery_handoff: predecessor_body.recovery_handoff.clone(),
+        writer_plan_ack: None,
+        recovery_progress: None,
+        recovery_drained: None,
+        healthy_seal_authorization: None,
     })
 }
 
@@ -737,6 +896,7 @@ fn write_recovery_endpoint_config(
             "minimum_issuer_anchor": permission.minimum_issuer_anchor,
             "archive_manifest": archive,
             "archive_directory": archive_directory,
+            "recovery_copy_max_bytes": crate::formal_live_planned_recovery_support::recovery_copy_budget(archive_directory)?,
         },
         "role": role,
         "data_dir": data_dir,
@@ -754,7 +914,7 @@ fn write_runtime_config(
     path: &Path,
     node_id: &str,
     node_keypair_directory: &Path,
-    writer_key_file: &Path,
+    writer_custody: Value,
     trust_file: &Path,
     writer_directory: &Path,
     primary: std::net::SocketAddr,
@@ -763,12 +923,13 @@ fn write_runtime_config(
     approved_initial: Option<&Path>,
     recovery_permission: Option<&Path>,
     recovery_issuer_minimum: Option<&Path>,
+    recovery_origin_history: Option<&Path>,
 ) -> Result<(), String> {
     let value = serde_json::json!({
-        "schema_version": 1,
+        "schema_version": 2,
         "node_id": node_id,
         "node_keypair_directory": node_keypair_directory,
-        "writer_key_file": writer_key_file,
+        "writer_custody": writer_custody,
         "formal_read_trust_file": trust_file,
         "writer_directory": writer_directory,
         "primary": primary,
@@ -778,6 +939,7 @@ fn write_runtime_config(
         "approved_initial_file": approved_initial,
         "recovery_permission_file": recovery_permission,
         "recovery_issuer_minimum_file": recovery_issuer_minimum,
+        "recovery_origin_history_directory": recovery_origin_history,
     });
     super::write_private(
         path,
@@ -843,6 +1005,11 @@ impl OwnerGuard {
                 instance,
                 Duration::from_secs(20),
             )?;
+            crate::formal_live_runtime::owner::wait_for_exact_owner_release(
+                &self.config,
+                instance,
+                Duration::from_secs(20),
+            )?;
         }
         self.instance = None;
         Ok(())
@@ -871,7 +1038,8 @@ impl Drop for OwnerGuard {
                 &self.config_digest,
                 Some(&instance.incarnation),
             )
-            && snapshot.is_some_and(|snapshot| snapshot.state == "ready")
+            && snapshot
+                .is_some_and(|snapshot| matches!(snapshot.state.as_str(), "ready" | "frozen"))
         {
             let _ = crate::formal_live_runtime::stop_operation_owner(
                 &self.config,

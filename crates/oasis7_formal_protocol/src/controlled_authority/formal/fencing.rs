@@ -9,8 +9,11 @@ use std::fmt;
 mod durable_set;
 #[path = "fencing_protected.rs"]
 mod protected;
+#[path = "fencing_recovery_repair.rs"]
+mod recovery_repair;
 pub use durable_set::*;
 pub use protected::*;
+pub use recovery_repair::*;
 pub const SEAL_DOMAIN: &str = "oasis7.endpoint.epoch-seal.v1";
 pub const PROVIDER_DOMAIN: &str = "oasis7.endpoint.monotonic-provider.v1";
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -296,6 +299,12 @@ pub struct EpochSealBodyV1 {
     pub checkpoint_before: EndpointCheckpointBindingV1,
     pub tail: SealedTailV1,
     pub next_epoch_floor: u64,
+    /// Schema2 is the native profile2 pre-seal plan. Omission preserves the
+    /// original schema1 signing bytes for historical and prerequisite seals.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_plan: Option<super::formal::SignedRecoveryPlanV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub writer_seal: Option<super::formal::SignedWriterEpochSealV1>,
 }
 impl EpochSealBodyV1 {
     pub fn validate(&self) -> Result<(), FencingError> {
@@ -303,14 +312,53 @@ impl EpochSealBodyV1 {
         self.checkpoint_before.validate()?;
         canonical_hash(&self.recovery_operation)?;
         canonical_hash(&self.highest_complete.decision_hash)?;
-        if self.schema_version != 1
-            || self.next_epoch_floor <= self.instance.authority_epoch
+        if !matches!(
+            (
+                self.schema_version,
+                self.recovery_plan.is_some(),
+                self.writer_seal.is_some()
+            ),
+            (1, false, false) | (2, true, true)
+        ) || self.next_epoch_floor <= self.instance.authority_epoch
             || (self.highest_complete.position != 0 && !self.highest_complete.qualified)
             || self.checkpoint_before.head.position < self.highest_complete.position
             || self.checkpoint_before.head.position
                 > self.highest_complete.position.saturating_add(1)
         {
             return Err(invalid("epoch seal boundary"));
+        }
+        if let Some(plan) = &self.recovery_plan {
+            let intent = &plan.body.intent;
+            let writer = self
+                .writer_seal
+                .as_ref()
+                .ok_or_else(|| invalid("native recovery writer seal missing"))?;
+            if intent.operation_id != self.recovery_operation
+                || intent.predecessor_epoch != self.instance.authority_epoch
+                || intent.world.world_id != self.instance.world_id
+                || intent.world.chain_id != self.instance.chain_id
+                || intent.world.genesis_digest != self.instance.genesis_digest
+                || writer.body.cut.position != self.highest_complete.position
+                || writer.body.cut.record_id != self.highest_complete.decision_hash
+                || intent.successor.epoch != self.next_epoch_floor
+                || writer.body.plan_digest
+                    != plan.digest().map_err(|error| invalid(error.to_string()))?
+                || writer.body.operation_id != intent.operation_id
+                || writer.body.world != intent.world
+                || writer.body.authority_id != intent.predecessor_authority_id
+                || writer.body.authority_epoch != intent.predecessor_epoch
+                || writer.body.pending_handoff_root != plan.body.pending_handoff_root
+                || writer.body.cut.position.checked_add(1)
+                    != Some(intent.successor.valid_from_position)
+                || writer.body.next_epoch != intent.successor.epoch
+            {
+                return Err(invalid("epoch seal pre-persisted plan binding"));
+            }
+            if self.tail != SealedTailV1::empty() {
+                return Err(invalid(
+                    "planned epoch seal requires drained original continuation",
+                ));
+            }
         }
         if self.checkpoint_before.head.position == self.highest_complete.position {
             if self.checkpoint_before.head != self.highest_complete
@@ -571,6 +619,15 @@ pub struct CheckpointIntentV1 {
 /// Held across checkpoint publication AND receipt signing. Production providers
 /// must guarantee nonrollback progress and exclusive signer/storage identity.
 pub trait MonotonicEndpointGuard: Send {
+    fn recovery_repair_grant(&self) -> Option<&ProtectedRecoveryRepairGrantV1> {
+        None
+    }
+    fn replay_recovery_receipt(
+        &mut self,
+        _request: ProtectedRecoveryReceiptReplayV1,
+    ) -> Result<ProtectedEndpointSignatureV1, FencingError> {
+        Err(FencingError::FencingUnproven)
+    }
     fn sign_endpoint(
         &mut self,
         _request: ProtectedEndpointSigningRequestV1,
@@ -591,6 +648,15 @@ pub trait MonotonicEndpointGuard: Send {
     fn evidence(&self) -> Result<MonotonicProviderEvidenceV1, FencingError>;
 }
 pub trait MonotonicEndpointProvider: Send + Sync {
+    /// Reopen only the original protected ledger. An unavailable ledger or a
+    /// provider without this recovery contract must never initialize a new one.
+    fn repair_protected(
+        &self,
+        _instance: &EndpointInstanceBindingV1,
+        _request: ProtectedRecoveryRepairRequestV1,
+    ) -> Result<Box<dyn MonotonicEndpointGuard>, FencingError> {
+        Err(FencingError::FencingUnproven)
+    }
     fn install_durable_set(
         &self,
         _instance: &EndpointInstanceBindingV1,

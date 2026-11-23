@@ -82,6 +82,7 @@ fn reply(
         native_checkpoint_bytes: None,
         protected_custody: None,
         durable_set: None,
+        recovery_repair: None,
         protected_signature: None,
     };
     let reply = SignedMonotonicOracleReplyV1 {

@@ -182,6 +182,12 @@ fn make_candidate(
         EndpointRole::Replica => 1,
     };
     let initial = HotBody {
+        healthy_seal_authorization: None,
+        recovery_plan: None,
+        writer_plan_ack: None,
+        recovery_progress: None,
+        recovery_drained: None,
+        recovery_handoff: None,
         data_closure: None,
         version: 1,
         instance_digest: instance.digest().map_err(fencing_error)?,

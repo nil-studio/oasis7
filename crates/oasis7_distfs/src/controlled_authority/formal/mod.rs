@@ -14,13 +14,16 @@ pub mod endpoint;
 pub mod full_sync_issuer;
 pub mod issuer;
 pub mod transport;
+pub mod writer_signing;
 pub use activation::*;
 pub use frozen::*;
 pub use full_sync_issuer::DurableFullSyncIssuerV2;
+pub use oasis7_formal_protocol::controlled_authority::formal::HealthySealAuthorizationV1;
 pub use proof::*;
 pub use record::*;
 pub use recovery::*;
 pub use types::*;
+pub use writer_signing::*;
 #[cfg(test)]
 mod tests;
 

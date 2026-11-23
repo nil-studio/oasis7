@@ -20,6 +20,7 @@ fn installed(
         .ok_or(FencingError::FencingUnproven)?;
     if (state.pending.is_some() && installed.activation_digest.is_none())
         || state.seal.is_some()
+        || state.recovery_repair.is_some()
         || state.protected_custody != Some(ProtectedSignerCustodyV1::NonexportableLeaseBoundV1)
         || installed.transition_digest != sealed.transition().digest()
         || installed.successor_authority_id

@@ -47,11 +47,19 @@ impl VerifiedAuthorityV1 {
             &self.context_digest_payload(),
             ctx,
         )?;
-        match &self.durable_set_activation_digest {
-            None => Ok(legacy),
+        let versioned = match &self.durable_set_activation_digest {
+            None => legacy,
             Some(digest) => hash_paid(
                 "oasis7.formal.verified_authority_context.v2",
                 &(&*legacy, digest),
+                ctx,
+            )?,
+        };
+        match &self.recovery_activation {
+            None => Ok(versioned),
+            Some(activation) => hash_paid(
+                "oasis7.formal.verified_authority_context.v3",
+                &(&*versioned, activation),
                 ctx,
             ),
         }

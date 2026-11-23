@@ -133,6 +133,8 @@ impl FileEndpoint {
                 .map_err(fencing_error)?;
         }
         let body = EpochSealBodyV1 {
+            recovery_plan: None,
+            writer_seal: None,
             schema_version: 1,
             instance,
             recovery_operation,

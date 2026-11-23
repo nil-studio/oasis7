@@ -112,6 +112,9 @@ mod formal_live_reconcile;
 #[cfg(test)]
 #[path = "host/formal_live_recovery_test_support.rs"]
 mod formal_live_recovery_test_support;
+#[cfg(all(test, unix))]
+#[path = "host/formal_live_planned_recovery_support.rs"]
+mod formal_live_planned_recovery_support;
 #[cfg(unix)]
 #[path = "host/formal_live_runtime.rs"]
 mod formal_live_runtime;

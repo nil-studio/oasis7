@@ -48,7 +48,11 @@ fn stop_reserves_reply_time_without_extending_caller_budget() {
         control_work_timeout("query", Duration::from_secs(2)).unwrap(),
         Duration::from_secs(2)
     );
-    for total in [Duration::ZERO, Duration::from_nanos(1), Duration::from_millis(1)] {
+    for total in [
+        Duration::ZERO,
+        Duration::from_nanos(1),
+        Duration::from_millis(1),
+    ] {
         assert!(control_work_timeout("stop", total).is_err());
     }
 }
@@ -84,6 +88,8 @@ fn bounded_stop_receives_pending_after_server_uses_its_work_budget() {
                 durable_set_status: None,
                 prepared_transition: None,
                 protected_observation: None,
+                pending_handoff: None,
+                pending_import: None,
                 control_error: Some(
                     "formal Node stop is still pending; runtime remains owned".into(),
                 ),
@@ -124,6 +130,8 @@ fn stop_reply_still_rejects_a_different_owner_incarnation() {
                 durable_set_status: None,
                 prepared_transition: None,
                 protected_observation: None,
+                pending_handoff: None,
+                pending_import: None,
                 control_error: None,
             },
         )

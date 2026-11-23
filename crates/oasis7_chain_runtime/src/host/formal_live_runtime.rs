@@ -30,6 +30,7 @@ use oasis7_distfs::controlled_authority::{
         },
         coordinator::FormalDurabilityEndpoint,
         transport::RemoteFormalEndpoint,
+        writer_signing::FormalWriterSignerV1,
     },
     replicated_protocol::EndpointRole,
 };
@@ -41,8 +42,12 @@ use std::{
     time::Duration,
 };
 
+#[path = "formal_live_runtime_healthy.rs"]
+mod healthy;
 #[path = "formal_live_open_timing.rs"]
 mod open_timing;
+#[path = "formal_live_pending_handoff.rs"]
+pub(crate) mod pending_handoff;
 #[path = "formal_live_runtime_quiesce.rs"]
 mod quiesce;
 use open_timing::OpenTiming;
@@ -51,16 +56,16 @@ pub(crate) const BUSINESS_NODE_CACHE_BYTES: usize = 64 * 1024 * 1024;
 pub(crate) const BUSINESS_NODE_CACHE_ENTRIES: usize = 16_384;
 
 #[cfg(unix)]
-#[path = "formal_live_runtime_owner.rs"]
-mod owner;
-#[cfg(unix)]
 #[path = "formal_live_runtime_observation.rs"]
 pub(super) mod observation;
+#[cfg(unix)]
+#[path = "formal_live_runtime_owner.rs"]
+mod owner;
 #[cfg(unix)]
 pub(crate) use owner::observe_operation_owner;
 #[cfg(unix)]
 pub(crate) use owner::{
-    DurableSetControlRequestV1, control_durable_set_transition,
+    DurableSetControlRequestV1, control_durable_set_transition, control_freeze_pending_handoff,
     control_prepare_durable_set_transition,
 };
 #[cfg(unix)]
@@ -83,6 +88,8 @@ pub(crate) struct FormalLiveRuntime {
     history: Arc<dyn FormalLiveHistoryResolver>,
     state: FormalLiveState,
     admission_gate: Arc<Mutex<()>>,
+    pending_handoff: Arc<pending_handoff::FormalPendingHandoffQueue>,
+    pending_import_report: Option<pending_handoff::PendingImportReport>,
     durable_set_arm:
         Arc<super::execution_bridge::formal_durable_set_arm::FormalDurableSetArmControlV1>,
     server: Option<FormalHttpServer>,
@@ -366,6 +373,35 @@ impl FormalLiveRuntime {
                     activation,
                     &*business_reader,
                 )?
+            } else if let Some(permission) = validated.recovery.as_ref()
+                && permission.recovery().body().schema_version == 3
+            {
+                // The writer owns the one permitted C / recovery-Control C+1
+                // reconciliation. Passing both independently verified restores
+                // lets it finish that exact control publication before Node
+                // admission; the ordinary repair path cannot infer this step.
+                let mut primary = primary;
+                let mut replica = replica;
+                let p = primary
+                    .restore_native_current_cached(
+                        permission.original_authority(),
+                        Some(permission.recovery()),
+                        Some(permission.cut()),
+                        &*business_reader,
+                    )
+                    .map_err(|error| format!("formal primary recovery native restore: {error}"))?;
+                let r = replica
+                    .restore_native_current_cached(
+                        permission.original_authority(),
+                        Some(permission.recovery()),
+                        Some(permission.cut()),
+                        &*business_reader,
+                    )
+                    .map_err(|error| format!("formal replica recovery native restore: {error}"))?;
+                super::formal_live_reconcile::DualNativeRestore {
+                    primary: (primary, p),
+                    replica: (replica, r),
+                }
             } else {
                 super::formal_live_reconcile::restore_dual_native(
                     primary,
@@ -490,6 +526,12 @@ impl FormalLiveRuntime {
             (None, published.clone())
         };
         let admission_gate = Arc::new(Mutex::new(()));
+        let pending_handoff = Arc::new(pending_handoff::FormalPendingHandoffQueue::open(
+            &validated.config.writer_directory,
+            &active_authority
+                .authority_id()
+                .map_err(|error| error.to_string())?,
+        )?);
         let durable_set_arm = Arc::new(
             super::execution_bridge::formal_durable_set_arm::FormalDurableSetArmControlV1::new(
                 validated.config.writer_directory.clone(),
@@ -499,6 +541,7 @@ impl FormalLiveRuntime {
         let hook = FormalNodeHook::new(writer)?
             .with_identity_lease(Arc::clone(&identity_lease))
             .with_durable_set_arm(Arc::clone(&durable_set_arm), Arc::clone(&admission_gate))?
+            .with_pending_handoff_queue(Arc::clone(&pending_handoff))
             .with_publication_sink(sink)?;
         let node_config = local_single_authority_node_config(&node_id, &world.world_id)?;
         let genesis = hook.genesis_bootstrap()?;
@@ -522,6 +565,8 @@ impl FormalLiveRuntime {
             history,
             state: FormalLiveState::default(),
             admission_gate,
+            pending_handoff,
+            pending_import_report: None,
             durable_set_arm,
             server: None,
             stop_worker: None,
@@ -548,149 +593,10 @@ impl FormalLiveRuntime {
             .advance_stopped_storage_maintenance()
     }
 
-    /// Arm the exact next healthy durable-set boundary for the currently
-    /// running owner. This only persists old-writer-signed intent; it does not
-    /// execute a boundary, seal endpoints, or activate a successor authority.
-    pub(crate) fn arm_durable_set_transition(
-        &self,
-        operation_id: &str,
-        transition: SignedNormalDurableSetTransitionV1,
-    ) -> Result<super::execution_bridge::formal_durable_set_arm::DurableSetArmStatusV1, String>
-    {
-        let _admission = self
-            .admission_gate
-            .lock()
-            .map_err(|_| "formal Node admission gate poisoned")?;
-        if !self.started || !self.state.ready.load(std::sync::atomic::Ordering::Acquire) {
-            return Err("formal runtime is not ready to admit a durable-set arm".into());
-        }
-        let cut = self.published.current()?;
-        self.durable_set_arm
-            .arm(operation_id, transition, &cut.anchor)
-    }
-
-    /// Select and sign the next boundary under the same gate as public submit.
-    pub(crate) fn prepare_durable_set_transition(
-        &self,
-        operation_id: &str,
-        mut replica: oasis7_distfs::controlled_authority::formal::EndpointSignerBindingV1,
-        timeout: Duration,
-    ) -> Result<SignedNormalDurableSetTransitionV1, String> {
-        use ed25519_dalek::Signer;
-        use oasis7_distfs::controlled_authority::formal::{
-            NormalDurableSetTransitionBodyV1, normal_durable_set_transition_signing_bytes,
-        };
-        if timeout.is_zero() || timeout > Duration::from_secs(60) {
-            return Err("durable-set preparation timeout in (0,60s]".into());
-        }
-        let deadline =
-            std::time::Instant::now() + timeout.saturating_sub(Duration::from_millis(100));
-        {
-            let _admission = quiesce::acquire_for_idempotency_read(&self.admission_gate, deadline)?;
-            let cut = self.published.current()?;
-            if let Some(existing) = self
-                .durable_set_arm
-                .existing_for_operation(operation_id, &cut.anchor)?
-            {
-                replica.instance.authority_epoch = existing.body.successor.epoch;
-                if existing.body.successor.replica != replica {
-                    return Err("Conflict: original durable-set replica target differs".into());
-                }
-                return Ok(existing);
-            }
-        }
-        let _admission = quiesce::acquire_after_pending_clear(
-            &self.admission_gate,
-            || self.durable_set_arm.pending_open(),
-            deadline,
-        )?;
-        let cut = self.published.current()?;
-        if let Some(existing) = self
-            .durable_set_arm
-            .existing_for_operation(operation_id, &cut.anchor)?
-        {
-            replica.instance.authority_epoch = existing.body.successor.epoch;
-            if existing.body.successor.replica != replica {
-                return Err("Conflict: original durable-set replica target differs".into());
-            }
-            return Ok(existing);
-        }
-        if !self.started || !self.state.ready.load(std::sync::atomic::Ordering::Acquire) {
-            return Err("formal runtime is not ready to prepare a durable-set arm".into());
-        }
-        let authority = cut.anchor.authority();
-        let mut successor = authority.definition().clone();
-        let boundary = cut
-            .anchor
-            .head()
-            .record()
-            .position
-            .checked_add(1)
-            .ok_or("durable-set boundary overflow")?;
-        successor.epoch = successor
-            .epoch
-            .checked_add(1)
-            .ok_or("durable-set epoch overflow")?;
-        successor.valid_from_position = boundary
-            .checked_add(1)
-            .ok_or("durable-set valid position overflow")?;
-        successor.predecessor_authority_id =
-            Some(authority.authority_id().map_err(|e| e.to_string())?);
-        successor.primary.instance.authority_epoch = successor.epoch;
-        replica.instance.authority_epoch = successor.epoch;
-        successor.replica = replica;
-        let mut body = NormalDurableSetTransitionBodyV1 {
-            schema_version: 1,
-            world: successor.world.clone(),
-            predecessor_authority_id: authority.authority_id().map_err(|e| e.to_string())?,
-            predecessor: cut.anchor.head().head(),
-            boundary_position: boundary,
-            operation_id: operation_id.to_owned(),
-            successor,
-            independent_closure_root: "0".repeat(64),
-        };
-        body.independent_closure_root = body.copy_contract_digest().map_err(|e| e.to_string())?;
-        let transition = SignedNormalDurableSetTransitionV1 {
-            writer_signature_hex: hex::encode(
-                self.validated
-                    .writer_key
-                    .sign(
-                        &normal_durable_set_transition_signing_bytes(&body)
-                            .map_err(|e| e.to_string())?,
-                    )
-                    .to_bytes(),
-            ),
-            body,
-        };
-        quiesce::arm_before_deadline(deadline, || {
-            self.durable_set_arm
-                .arm(operation_id, transition.clone(), &cut.anchor)
-        })?;
-        Ok(transition)
-    }
-
-    /// Read the durable arm status against the exact currently published
-    /// opaque anchor. Local arm bytes never count as a qualified commit or
-    /// activation proof.
-    pub(crate) fn query_durable_set_transition(
-        &self,
-        operation_id: &str,
-        boundary_position: u64,
-    ) -> Result<
-        Option<super::execution_bridge::formal_durable_set_arm::DurableSetArmStatusV1>,
-        String,
-    > {
-        let _admission = self
-            .admission_gate
-            .lock()
-            .map_err(|_| "formal Node admission gate poisoned")?;
-        let cut = self.published.current()?;
-        self.durable_set_arm
-            .query(operation_id, boundary_position, &cut.anchor)
-    }
-
     pub(crate) fn start(&mut self) -> Result<(), String> {
-        let gate = self.validated.build_full_sync_read_gate(&self.node_signer)?;
+        let gate = self
+            .validated
+            .build_full_sync_read_gate(&self.node_signer)?;
         self.start_with_full_sync_read_authorization(gate)
     }
 
@@ -732,17 +638,18 @@ impl FormalLiveRuntime {
             Arc::clone(&self.history),
             self.state.clone(),
             Arc::clone(&self.admission_gate),
-        );
+        )
+        .with_pending_handoff_queue(Arc::clone(&self.pending_handoff));
         let service = match full_sync_read_gate {
             Some(gate) => service.with_full_sync_read_gate(gate)?,
             None => service,
         };
         let service = Arc::new(service);
-        let _admission = self
-            .admission_gate
+        let admission_gate = Arc::clone(&self.admission_gate);
+        let _admission = admission_gate
             .lock()
             .map_err(|_| "formal Node admission gate poisoned")?;
-        let server = service.serve_loopback(self.validated.config.status_bind)?;
+        let server = Arc::clone(&service).serve_loopback(self.validated.config.status_bind)?;
         if let Some(delivery) = &mut self.effect_delivery
             && let Err(error) = delivery.start(self.state.clone())
         {
@@ -783,11 +690,24 @@ impl FormalLiveRuntime {
         if let Ok(mut last_error) = self.state.last_error.lock() {
             *last_error = None;
         }
+        self.server = Some(server);
+        self.started = true;
+        if let Err(error) = self.import_recovery_pending(&service, &_admission) {
+            // The gate still excludes every new Frozen and external Submit.
+            // Preserve all originals and prevent a partially queued import
+            // from executing after this failed startup releases admission.
+            self.pending_handoff.halt_incomplete_import()?;
+            self.state
+                .ready
+                .store(false, std::sync::atomic::Ordering::Release);
+            if let Ok(mut last_error) = self.state.last_error.lock() {
+                *last_error = Some(error.clone());
+            }
+            return Err(error);
+        }
         self.state
             .ready
             .store(true, std::sync::atomic::Ordering::Release);
-        self.server = Some(server);
-        self.started = true;
         Ok(())
     }
 

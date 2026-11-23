@@ -469,6 +469,32 @@ identity 的 canonical 编码排序，在 `pending_handoff` 域计算 `pending_h
 原决定；seal 后的新 epoch activation 由创世预授权证书闭合，不再要求已经退役的旧 key
 签新记录。新 activation 沿 C 接续同一历史，不执行游戏动作或制造新资产。
 
+#### Writer custody 服务的实际消费边界
+
+正式 Runtime 的 `FormalLiveConfigV1` schema 2 仅加载独立客户端凭据：
+`writer_custody` 指定 loopback endpoint、`credential_file` 与外部固定的
+`minimum_revision`；writer 公钥和 authority 身份来自已验证的授权链，不从服务响应
+反向发现信任。该 schema 禁止 `writer_key_file`，包括显式 `null`。schema 1 的原本地
+key 配置保持兼容，但它不能证明旧进程在服务端失去最终签名资格。
+
+实际 writer 服务通过 `oasis7_durability_endpoint --writer-custody-config <file>`
+独立启动。其配置持有 writer key、固定的普通与恢复凭据公钥、原授权链、存储模式及
+独立 revision 下界。`initialize` 只接受全新空目录；`open_existing` 必须读取同一
+目录绑定、authority、凭据和恢复授权的原签名账。缺账、缺稳定锁、损坏、绑定改变或
+低于外部下界均在发布 listener 前拒绝，不能自动生成空 epoch。
+
+该入口使用 `ControlledFileWriterProvider`：原文件租约覆盖校验、持久迁移与最终签名，
+写入完成须同步文件并原子替换、同步父目录。普通凭据和计划限定的恢复凭据分别认证；
+Runtime 只调用 Frozen、原 candidate 和封闭 endpoint 请求等既有签名用途，没有任意
+bytes 签名能力。请求绑定 authority、challenge 与 revision，下游 endpoint 的认证签名
+与该次 RPC 共用原绝对期限。回包丢失保持 unknown，只能查询或重试原计划／原 seal，
+不因此创建新的恢复身份。
+
+此 provider 是 `CONTROLLED_ONLY` 的本地文件与进程崩溃实现。它提供实际服务端撤权、
+持久账与冷重开的软件消费链；普通文件 IO 不证明非导出密钥、管理员反回滚、独立备份
+或物理故障域。这些部署事实仍须按上文的真实隔离与保护要求独立取证。当前远程能力
+未实现的健康 durable-set 变更在 arm 前拒绝，不从恢复能力推导另一类变更权限。
+
 #### 单域丢失、半完成 epoch 与旧盘
 
 单域失效时先硬隔离失效角色的旧实例，再从幸存端完整 qualified 前缀、可确认 head、
@@ -476,6 +502,24 @@ identity 的 canonical 编码排序，在 `pending_handoff` 域计算 `pending_h
 若排空需要缺失 endpoint 的回执，先以原 endpoint ID/key 恢复其受控服务并复制完整闭包，
 两端核对后才进入原 E 的受限 draining。角色换 key/端点的正式生效只能发生在 E+1；
 同身份恢复旧服务也必须证明旧实例无法再签写，不能并行运行两个持有原 key 的实例。
+
+原数据目录完全丢失时，普通初始化与 acquire 仍拒绝用新目录指纹替换原 instance。
+显式 `recovery_repair_bootstrap` 消费原 issuer 签名计划、原固定请求、writer 确认、
+私有 pending 交接文件、幸存端 checkpoint 与 archive，以及独立最低 revision 和显式
+复制字节预算。恢复授权由原 protected provider 在原排他租约内签发，固定同一计划、
+恢复凭据、新目录指纹、原角色和原签名 native checkpoint；逻辑 endpoint ID/key、
+authority 与原单调账不变。授权一旦生效，原普通凭据不能继续签写；服务冷重开只能
+继续同一授权，不能把缺账解释为允许初始化。
+
+幸存端只提供按原 hash 查找的不可变材料，不为丢失角色生成 checkpoint 或最低锚。
+恢复先重建原 pending/index 的确切 bytes，再沿原 protected native root 复制并验证
+完整闭包，随后仅从本地目录独立重验相同 inventory；移除幸存端读取后备并持久安装
+原计划后才发布 listener。未齐全、损坏、预算不足或无法重建原 bytes 时保持拒绝。
+若只丢失已持久化的原角色收据，provider 仅在原计划允许的 Frozen/Prepared 签名用途
+内计算签名；原收据前后 bytes 以至多 64 KiB 分块传输，连同签名总计不超过 64 MiB，
+沿用原 1 MiB frame 限制。同一 lease 的所有分块共用一个绝对期限，完整原 pending
+hash 核对成功前不得向客户端释放签名。缺块、乱序、换授权或失回包均不产生新回执
+资格，也不允许通过续期或自动改写原请求重试。
 
 计划或 seal 只写到一端后崩溃，不把它视为取消：重启合并可验证的单调状态，只能完成
 同一 recovery_id/新绑定；C 一旦在 drained 阶段固定也不可改变。尚未 sealed 的端点不得

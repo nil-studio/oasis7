@@ -38,7 +38,7 @@ impl Archive {
         let resolver = NativeHistoryResolver {
             addresses: ["127.0.0.1:1".parse().unwrap(); 2],
             timeout: Duration::from_secs(10),
-            authentication: fixtures::key(4),
+            authentication: fixtures::key(4).into(),
             external_origin: origin.clone(),
             trusted: origin.clone(),
             permission: None,

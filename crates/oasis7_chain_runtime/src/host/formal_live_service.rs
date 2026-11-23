@@ -12,8 +12,8 @@ use oasis7::world_service::{
     formal_read_service::{FormalCommittedReadService, FormalReadPublication},
     game_task, gameplay,
     wire::{
-        AuthenticatedLookup, CHANGES_PATH, LOOKUP_PATH, SUBMIT_PATH, SignedReadRequest,
-        VIEW_PATH, WorldServicePayloadV1,
+        AuthenticatedLookup, CHANGES_PATH, LOOKUP_PATH, SUBMIT_PATH, SignedReadRequest, VIEW_PATH,
+        WorldServicePayloadV1,
     },
 };
 use oasis7_client_api::world_service::{
@@ -46,6 +46,9 @@ pub(crate) mod test_control;
 #[cfg(test)]
 #[path = "formal_live_service_tests.rs"]
 mod tests;
+
+#[path = "formal_live_pending_submit.rs"]
+mod pending_submit;
 
 #[path = "formal_live_payload_authority.rs"]
 mod payload_authority;
@@ -111,9 +114,10 @@ impl PublishedReadState {
         let current = self.current.lock().map_err(|_| {
             FormalReadError::Internal("formal read publication lock poisoned".into())
         })?;
-        current.as_ref().cloned().ok_or_else(|| {
-            FormalReadError::NotReady("formal read publication is not ready".into())
-        })
+        current
+            .as_ref()
+            .cloned()
+            .ok_or_else(|| FormalReadError::NotReady("formal read publication is not ready".into()))
     }
 
     /// Borrow one atomic World/anchor cut for a small local observation. The
@@ -164,7 +168,8 @@ impl PublishedReadState {
     ) -> Result<(), String> {
         // Validate the full immutable cut before making it visible. The lock
         // replaces World and anchor together, so a reader can never mix heads.
-        FormalReadPublication::new(anchor.clone(), world.clone()).map_err(|error| error.to_string())?;
+        FormalReadPublication::new(anchor.clone(), world.clone())
+            .map_err(|error| error.to_string())?;
         let mut current = self
             .current
             .lock()
@@ -218,7 +223,9 @@ pub(crate) trait FormalLiveHistoryResolver: Send + Sync {
         )>,
         FormalReadError,
     > {
-        Err(FormalReadError::HistoryUnavailable("HistoryUnavailable: authenticated business history is unavailable".into()))
+        Err(FormalReadError::HistoryUnavailable(
+            "HistoryUnavailable: authenticated business history is unavailable".into(),
+        ))
     }
     /// Resolve a lookup from the exact publication selected and verified by
     /// `read_view`. Production lookup uses this typed path; the DTO-based
@@ -236,14 +243,19 @@ pub(crate) trait FormalLiveHistoryResolver: Send + Sync {
         )>,
         FormalReadError,
     > {
-        Err(FormalReadError::HistoryUnavailable("HistoryUnavailable: authenticated business history is unavailable".into()))
+        Err(FormalReadError::HistoryUnavailable(
+            "HistoryUnavailable: authenticated business history is unavailable".into(),
+        ))
     }
     fn origin_publication(
         &self,
         anchor: &FormalReadAnchorRefV1,
     ) -> Result<FormalReadPublication, FormalReadError>;
 
-    fn fixed_publication(&self, commit: &CommitRef) -> Result<FormalReadPublication, FormalReadError>;
+    fn fixed_publication(
+        &self,
+        commit: &CommitRef,
+    ) -> Result<FormalReadPublication, FormalReadError>;
 
     /// Select the exact native publication no more than `max_steps` after the
     /// caller's current anchor, capped at the live head. Implementations must
@@ -269,7 +281,9 @@ pub(crate) trait FormalLiveHistoryResolver: Send + Sync {
         &self,
         _anchor: &VerifiedFormalReadAnchorV1,
     ) -> Result<ClosedRecord, FormalReadError> {
-        Err(FormalReadError::HistoryUnavailable("HistoryUnavailable: full-sync committed material is unavailable".into()))
+        Err(FormalReadError::HistoryUnavailable(
+            "HistoryUnavailable: full-sync committed material is unavailable".into(),
+        ))
     }
 
     /// Read one content-addressed retained-history object. The caller must
@@ -280,7 +294,9 @@ pub(crate) trait FormalLiveHistoryResolver: Send + Sync {
         _anchor: &VerifiedFormalReadAnchorV1,
         _digest: &str,
     ) -> Result<Option<Vec<u8>>, FormalReadError> {
-        Err(FormalReadError::HistoryUnavailable("HistoryUnavailable: full-sync retained CAS is unavailable".into()))
+        Err(FormalReadError::HistoryUnavailable(
+            "HistoryUnavailable: full-sync retained CAS is unavailable".into(),
+        ))
     }
 
     /// Warm the shared content-addressed cache from private local publications
@@ -396,6 +412,8 @@ pub(crate) struct FormalLiveService {
     state: FormalLiveState,
     admission_gate: Arc<Mutex<()>>,
     full_sync_read_gate: Option<Arc<full_sync_read_gate::FullSyncV3ReadGate>>,
+    pending_handoff:
+        Option<Arc<super::formal_live_runtime::pending_handoff::FormalPendingHandoffQueue>>,
 }
 impl FormalLiveService {
     #[expect(
@@ -425,7 +443,16 @@ impl FormalLiveService {
             state,
             admission_gate,
             full_sync_read_gate: None,
+            pending_handoff: None,
         }
+    }
+
+    pub(crate) fn with_pending_handoff_queue(
+        mut self,
+        pending: Arc<super::formal_live_runtime::pending_handoff::FormalPendingHandoffQueue>,
+    ) -> Self {
+        self.pending_handoff = Some(pending);
+        self
     }
 
     pub(crate) fn with_full_sync_read_gate(
@@ -590,10 +617,17 @@ impl FormalLiveService {
             .admission_gate
             .is_poisoned()
             .then_some("Node admission gate poisoned");
+        let pending_error = self.pending_handoff.as_ref().and_then(|pending| {
+            pending
+                .ensure_new_frozen_allowed()
+                .err()
+                .map(|_| "formal pending handoff admission is closed")
+        });
         let last_error = state_error
             .or(node_error)
             .or(runtime_error)
-            .or(admission_error);
+            .or(admission_error)
+            .or(pending_error);
         let ready = self.state.ready.load(Ordering::Acquire)
             && !stopping
             && node_running
@@ -676,8 +710,10 @@ impl FormalLiveService {
     fn read_view(
         &self,
         signed: &SignedReadRequest<ReadWorldViewRequest>,
-    ) -> Result<ReadWorldViewResponse<oasis7_world_projection::WorldServiceProjection>, FormalReadError>
-    {
+    ) -> Result<
+        ReadWorldViewResponse<oasis7_world_projection::WorldServiceProjection>,
+        FormalReadError,
+    > {
         self.read_view_with_publication(signed)
             .map(|(response, _publication)| response)
     }
@@ -715,16 +751,21 @@ impl FormalLiveService {
         let degraded_read_only =
             !status.ready && self.state.ready.load(Ordering::Acquire) && status.state == "degraded";
         if !status.ready && !degraded_read_only {
-            return Err(FormalReadError::NotReady("formal runtime is not ready".into()));
+            return Err(FormalReadError::NotReady(
+                "formal runtime is not ready".into(),
+            ));
         }
         let request = &signed.request;
         request
             .validate_formal_shape()
             .map_err(|error| FormalReadError::RequestRejected(error.to_string()))?;
         if request.world != self.world {
-            return Err(FormalReadError::RequestRejected("formal read requires the configured world".into()));
+            return Err(FormalReadError::RequestRejected(
+                "formal read requires the configured world".into(),
+            ));
         }
-        authority::verify_read_request(VIEW_PATH, signed).map_err(FormalReadError::RequestRejected)?;
+        authority::verify_read_request(VIEW_PATH, signed)
+            .map_err(FormalReadError::RequestRejected)?;
         let current = self.published.current_for_read()?;
         if degraded_read_only {
             // A failed write path may keep serving the last independently
@@ -733,15 +774,19 @@ impl FormalLiveService {
             // CommitRef, and its normal proof verification below remains in
             // force. The fixed CommitRef is only a selector; it cannot create
             // or advance the opaque published anchor.
-            let fixed = request
-                .fixed_commit
-                .as_ref()
-                .ok_or_else(|| FormalReadError::RequestRejected("formal runtime is degraded; an exact committed read is required".into()))?;
+            let fixed = request.fixed_commit.as_ref().ok_or_else(|| {
+                FormalReadError::RequestRejected(
+                    "formal runtime is degraded; an exact committed read is required".into(),
+                )
+            })?;
             if fixed.world != self.world
                 || fixed.position != current.anchor.head().record().position
                 || fixed.execution_block_hash != current.anchor.head().head().record_id
             {
-                return Err(FormalReadError::RequestRejected("formal runtime is degraded; only its last qualified CommitRef is readable".into()));
+                return Err(FormalReadError::RequestRejected(
+                    "formal runtime is degraded; only its last qualified CommitRef is readable"
+                        .into(),
+                ));
             }
         }
         // Always authorize against the currently published World before
@@ -749,10 +794,9 @@ impl FormalLiveService {
         // permission state must never revive a revoked Agent reader.
         FormalReadPublication::new(current.anchor.clone(), current.world.clone())?
             .authorize_audience(&request.scope_id, &signed.subject_public_key)?;
-        let origin_ref = request
-            .formal_anchor
-            .as_ref()
-            .ok_or_else(|| FormalReadError::RequestRejected("formal read caller anchor missing".into()))?;
+        let origin_ref = request.formal_anchor.as_ref().ok_or_else(|| {
+            FormalReadError::RequestRejected("formal read caller anchor missing".into())
+        })?;
         #[cfg(test)]
         lookup_stage("authorization_and_current_publication");
         let origin = if *origin_ref == anchor_ref(&current.anchor)? {
@@ -777,7 +821,10 @@ impl FormalLiveService {
             if !same_anchor(&target_anchor, &current.anchor)? {
                 if target_anchor.head().record().position > current.anchor.head().record().position
                 {
-                    return Err(FormalReadError::HistoryUnavailable("HistoryUnavailable: fixed formal read is ahead of the live publisher".into()));
+                    return Err(FormalReadError::HistoryUnavailable(
+                        "HistoryUnavailable: fixed formal read is ahead of the live publisher"
+                            .into(),
+                    ));
                 }
                 let live_publication =
                     FormalReadPublication::new(current.anchor.clone(), current.world.clone())?;
@@ -787,10 +834,15 @@ impl FormalLiveService {
                     MAX_FORMAL_HISTORY_STEPS,
                 )?;
                 if target_to_live.schema_version != 1 {
-                    return Err(FormalReadError::Integrity("formal fixed-to-live history schema".into()));
+                    return Err(FormalReadError::Integrity(
+                        "formal fixed-to-live history schema".into(),
+                    ));
                 }
                 if target_to_live.steps.len() > MAX_FORMAL_HISTORY_STEPS {
-                    return Err(FormalReadError::HistoryUnavailable("HistoryUnavailable: fixed-to-live history exceeds the 128-step bound".into()));
+                    return Err(FormalReadError::HistoryUnavailable(
+                        "HistoryUnavailable: fixed-to-live history exceeds the 128-step bound"
+                            .into(),
+                    ));
                 }
                 let live_probe = ReadWorldViewRequest {
                     observation_nonce: Some("07".repeat(32)),
@@ -807,20 +859,23 @@ impl FormalLiveService {
                     VIEW_PATH,
                     live_probe,
                     &hex::encode(self.signer.to_bytes()),
-                ).map_err(FormalReadError::Internal)?;
+                )
+                .map_err(FormalReadError::Internal)?;
                 let live_service = FormalCommittedReadService::new(
                     self.trust.initial_trust.clone(),
                     live_publication,
                 )?;
                 let live_response = live_service.read(&live_probe, &target, &target_to_live)?;
                 let mut verifier =
-                    FormalReadVerifier::new(&self.trust.initial_trust, target_anchor.clone()).map_err(FormalReadError::Integrity)?;
+                    FormalReadVerifier::new(&self.trust.initial_trust, target_anchor.clone())
+                        .map_err(FormalReadError::Integrity)?;
                 oasis7_world_projection::formal_read::verify_view(
                     &mut verifier,
                     &live_response,
                     &live_probe.request,
                     &live_probe.subject_public_key,
-                ).map_err(FormalReadError::Integrity)?;
+                )
+                .map_err(FormalReadError::Integrity)?;
             }
             target
         } else {
@@ -833,7 +888,11 @@ impl FormalLiveService {
                 .record()
                 .position
                 .checked_sub(origin_anchor.head().record().position)
-                .ok_or_else(|| FormalReadError::HistoryUnavailable("HistoryUnavailable: caller anchor is ahead of live publication".into()))?;
+                .ok_or_else(|| {
+                    FormalReadError::HistoryUnavailable(
+                        "HistoryUnavailable: caller anchor is ahead of live publication".into(),
+                    )
+                })?;
             if distance > MAX_FORMAL_HISTORY_STEPS as u64 {
                 self.history.forward_publication(
                     &origin_anchor,
@@ -846,7 +905,9 @@ impl FormalLiveService {
         };
         let target_anchor = target.anchor().clone();
         if target_anchor.head().record().position > current.anchor.head().record().position {
-            return Err(FormalReadError::HistoryUnavailable("HistoryUnavailable: selected formal cut is ahead of live publisher".into()));
+            return Err(FormalReadError::HistoryUnavailable(
+                "HistoryUnavailable: selected formal cut is ahead of live publisher".into(),
+            ));
         }
         let history = if same_anchor(&origin_anchor, &target_anchor)? {
             FormalReadHistoryV1 {
@@ -858,10 +919,14 @@ impl FormalLiveService {
                 .history_page(&origin_anchor, &target_anchor, MAX_FORMAL_HISTORY_STEPS)?
         };
         if history.schema_version != 1 {
-            return Err(FormalReadError::Integrity("formal read history schema".into()));
+            return Err(FormalReadError::Integrity(
+                "formal read history schema".into(),
+            ));
         }
         if history.steps.len() > MAX_FORMAL_HISTORY_STEPS {
-            return Err(FormalReadError::HistoryUnavailable("HistoryUnavailable: formal read history page exceeds the 128-step bound".into()));
+            return Err(FormalReadError::HistoryUnavailable(
+                "HistoryUnavailable: formal read history page exceeds the 128-step bound".into(),
+            ));
         }
         #[cfg(test)]
         lookup_stage("target_selection_and_history_page");
@@ -891,103 +956,6 @@ impl FormalLiveService {
                 signed_error_with_digest(status, SUBMIT_PATH, digest, code, &message, &self.signer)
             }
         }
-    }
-
-    fn submit(
-        &self,
-        request: SubmitIntentRequest<WorldServicePayloadV1>,
-    ) -> Result<IntentResponse<serde_json::Value>, (u16, &'static str, String)> {
-        let _admission = self.admission_gate.lock().map_err(|_| {
-            (
-                503,
-                "runtime_unavailable",
-                "Node admission gate poisoned".into(),
-            )
-        })?;
-        request
-            .validate()
-            .map_err(|error| (400, "invalid_request", error.to_string()))?;
-        if !self.runtime_status().ready {
-            return Err((503, "not_ready", "formal runtime is not ready".into()));
-        }
-        if request
-            .deadline_unix_ms
-            .is_some_and(|deadline| deadline < now_unix_ms())
-        {
-            return Err((408, "expired", "submit deadline has expired".into()));
-        }
-        let cut = self
-            .published
-            .current()
-            .map_err(|error| (503, "not_ready", error))?;
-        if request.correlation.key.world != self.world {
-            return Err((
-                400,
-                "world_mismatch",
-                "submit world differs from formal runtime".into(),
-            ));
-        }
-        let actual_correlation =
-            correlation::derive_correlation(self.world.clone(), &request.signed_payload)
-                .map_err(|error| (400, "invalid_payload", error))?;
-        if actual_correlation != request.correlation {
-            return Err((
-                400,
-                "correlation_mismatch",
-                "signed payload correlation mismatch".into(),
-            ));
-        }
-        validate_payload(&cut.world, &request.signed_payload)
-            .map_err(|error| (400, "invalid_payload", error))?;
-        if let WorldServicePayloadV1::GameParticipantRegister { owner, admission } =
-            &request.signed_payload
-        {
-            let binding = cut
-                .world
-                .current_cognition_runtime_binding()
-                .map_err(|e| (400, "invalid_payload", format!("{e:?}")))?;
-            oasis7_runtime::service_admission::participant::validate_registration(
-                &cut.world,
-                owner,
-                admission,
-                &binding.branch_id,
-                binding.reorg_epoch,
-            )
-            .map_err(|e| (400, "invalid_payload", e))?;
-        }
-        let key_digest = correlation::key_digest(&request.correlation.key)
-            .map_err(|error| (400, "invalid_payload", error))?;
-        let digest = blake3::hash(key_digest.as_bytes());
-        let action_id =
-            u64::from_be_bytes(digest.as_bytes()[..8].try_into().expect("hash width")).max(1);
-        let action = oasis7_world_service::correlation::encode_consensus_intent(&request)
-            .map_err(|error| (400, "invalid_payload", error))?;
-        let runtime = self.runtime.lock().map_err(|_| {
-            (
-                503,
-                "runtime_unavailable",
-                "Node runtime lock poisoned".into(),
-            )
-        })?;
-        runtime
-            .submit_consensus_action_payload(action_id, action)
-            .map_err(|error| {
-                (
-                    503,
-                    "action_queue_unavailable",
-                    format!("Node action queue rejected submit: {error:?}"),
-                )
-            })?;
-        Ok(IntentResponse {
-            terminal_recovery_authority: None,
-            formal_profile: Some(FormalReadProfileV1::controlled()),
-            execution_evidence_scope: None,
-            contract_version: WORLD_SERVICE_CONTRACT_VERSION,
-            correlation: actual_correlation,
-            outcome: IntentOutcome::Received {
-                durability: AdmissionDurability::Volatile,
-            },
-        })
     }
 
     fn handle_lookup(&self, body: &[u8]) -> HttpReply {
@@ -1083,7 +1051,9 @@ impl FormalLiveService {
     }
 }
 
-fn anchor_ref(anchor: &VerifiedFormalReadAnchorV1) -> Result<FormalReadAnchorRefV1, FormalReadError> {
+fn anchor_ref(
+    anchor: &VerifiedFormalReadAnchorV1,
+) -> Result<FormalReadAnchorRefV1, FormalReadError> {
     Ok(FormalReadAnchorRefV1 {
         position: anchor.head().record().position,
         record_id: anchor.head().head().record_id.clone(),
@@ -1099,7 +1069,9 @@ fn validate_anchor_ref(
     anchor: &VerifiedFormalReadAnchorV1,
 ) -> Result<(), FormalReadError> {
     if &anchor_ref(anchor)? != expected {
-        return Err(FormalReadError::Integrity("formal read origin differs from exact caller anchor".into()));
+        return Err(FormalReadError::Integrity(
+            "formal read origin differs from exact caller anchor".into(),
+        ));
     }
     Ok(())
 }

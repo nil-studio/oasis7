@@ -5,6 +5,8 @@ use super::*;
 mod healthy_bootstrap;
 #[path = "recovery.rs"]
 mod recovery_bootstrap;
+#[path = "recovery_repair.rs"]
+mod recovery_repair;
 use oasis7_distfs::controlled_authority::formal::{
     self,
     endpoint::{FileFormalEndpoint, FormalEndpointAuthorizationV1},
@@ -22,6 +24,8 @@ struct FormalConfig {
     recovery_bootstrap: Option<recovery_bootstrap::RecoveryBootstrap>,
     #[serde(default)]
     healthy_bootstrap: Option<healthy_bootstrap::HealthyBootstrap>,
+    #[serde(default)]
+    recovery_repair_bootstrap: Option<recovery_repair::RecoveryRepairBootstrap>,
     role: EndpointRole,
     data_dir: PathBuf,
     oracle_authentication_key_file: PathBuf,
@@ -59,6 +63,21 @@ pub(super) fn run(bytes: &[u8], config_parent: &Path) -> Result<(), String> {
     let initial_authority =
         formal::verify_initial_activation(&config.initial_certificate, &config.initial_trust)
             .map_err(|e| e.to_string())?;
+    if [
+        config.healthy_bootstrap.is_some(),
+        config.recovery_bootstrap.is_some(),
+        config.recovery_repair_bootstrap.is_some(),
+    ]
+    .into_iter()
+    .filter(|chosen| *chosen)
+    .count()
+        > 1
+    {
+        return Err(
+            "healthy, recovery and original-provider repair bootstrap are mutually exclusive"
+                .into(),
+        );
+    }
     if let Some(bootstrap) = config.healthy_bootstrap {
         if config.recovery_bootstrap.is_some() {
             return Err("healthy bootstrap cannot mix recovery authorization".into());
@@ -84,7 +103,29 @@ pub(super) fn run(bytes: &[u8], config_parent: &Path) -> Result<(), String> {
             Duration::from_millis(config.timeout_ms),
         );
     }
-    let (authorization, archive) = if let Some(mut bootstrap) = config.recovery_bootstrap {
+    let (authorization, archive, repair) = if let Some(bootstrap) = config.recovery_repair_bootstrap
+    {
+        if config.initial_qualified.is_some() {
+            return Err("repair bootstrap cannot mix a separate initial parent".into());
+        }
+        let input = bootstrap.verify(
+            initial_authority,
+            &config.initial_trust,
+            &config.initial_certificate,
+            config_parent,
+            &config.data_dir,
+        )?;
+        (
+            FormalEndpointAuthorizationV1 {
+                authority: input.authority.clone(),
+                original: input.authority.clone(),
+                recovery: None,
+                parent: None,
+            },
+            None,
+            Some(input),
+        )
+    } else if let Some(mut bootstrap) = config.recovery_bootstrap {
         if config.initial_qualified.is_some() {
             return Err("recovery bootstrap cannot mix separate initial parent".into());
         }
@@ -92,8 +133,9 @@ pub(super) fn run(bytes: &[u8], config_parent: &Path) -> Result<(), String> {
             &config.initial_trust,
             &config.initial_certificate,
             config_parent,
+            &config.data_dir,
         )?;
-        (verified.authorization, Some(verified.archive))
+        (verified.authorization, Some(verified.archive), None)
     } else {
         let parent = config
             .initial_qualified
@@ -109,6 +151,7 @@ pub(super) fn run(bytes: &[u8], config_parent: &Path) -> Result<(), String> {
                 parent,
             },
             None,
+            None,
         )
     };
     let authority = &authorization.authority;
@@ -116,6 +159,18 @@ pub(super) fn run(bytes: &[u8], config_parent: &Path) -> Result<(), String> {
     // no writer or endpoint private-key field, including aliases.
     let authentication = key(&config.oracle_authentication_key_file)?;
     let public = hex::encode(authentication.verifying_key().to_bytes());
+    if repair.as_ref().is_some_and(|repair| {
+        public
+            != repair
+                .plan
+                .body
+                .authorization
+                .recovery_credential_public_key
+    }) {
+        return Err(
+            "repair requires the exact recovery credential bound by the signed plan".into(),
+        );
+    }
     if [
         authority.definition().writer_public_key.as_str(),
         authority
@@ -182,13 +237,22 @@ pub(super) fn run(bytes: &[u8], config_parent: &Path) -> Result<(), String> {
         },
     )
     .map_err(|e| e.to_string())?;
-    let endpoint = FileFormalEndpoint::open_protected(
-        &config.data_dir,
-        authorization,
-        config.role,
-        Arc::new(provider),
-        archive.as_ref(),
-    )
+    let endpoint = if let Some(repair) = repair {
+        FileFormalEndpoint::repair_protected_original(
+            &config.data_dir,
+            config.role,
+            Arc::new(provider),
+            repair,
+        )
+    } else {
+        FileFormalEndpoint::open_protected(
+            &config.data_dir,
+            authorization,
+            config.role,
+            Arc::new(provider),
+            archive.as_ref(),
+        )
+    }
     .map_err(|e| match e {
         formal::FormalError::FencingUnproven => "FENCING_UNPROVEN".into(),
         other => format!(

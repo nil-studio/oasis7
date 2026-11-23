@@ -11,6 +11,7 @@ use std::{
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Point {
+    BeforeFrozen,
     BeforeResume,
     CandidateSaved,
     Published,
@@ -139,10 +140,8 @@ impl BoundaryControl {
         self.shared.changed.notify_all();
         Ok(())
     }
-}
 
-impl Drop for BoundaryControl {
-    fn drop(&mut self) {
+    pub(crate) fn cancel(&self) {
         let mut state = self
             .shared
             .state
@@ -152,6 +151,12 @@ impl Drop for BoundaryControl {
         state.target = None;
         state.paused = None;
         self.shared.changed.notify_all();
+    }
+}
+
+impl Drop for BoundaryControl {
+    fn drop(&mut self) {
+        self.cancel();
     }
 }
 
@@ -208,6 +213,21 @@ impl BoundaryState {
             state = next;
         }
         Ok(())
+    }
+
+    /// Pause after Node selected the actual proposal but before the formal
+    /// admission gate. The fixture can freeze its real pending owner queue.
+    pub(crate) fn before_frozen(&self, context: &NodeExecutionCommitContext) -> Result<(), String> {
+        self.arrive(
+            Observation {
+                point: Point::BeforeFrozen,
+                position: context.height,
+                record_id: None,
+                node_block_hash: Some(context.node_block_hash.clone()),
+                action_count: context.committed_actions.len(),
+            },
+            Some(context),
+        )
     }
 
     pub(crate) fn published(&self, position: u64) -> Result<(), String> {

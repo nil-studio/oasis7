@@ -156,6 +156,8 @@ fn healthy_durable_set_activation_rejects_local_seal_and_unsigned_install_status
     let seal = |instance: &fencing::EndpointInstanceBindingV1, signer| {
         fencing::EpochSealReceiptV1::sign(
             fencing::EpochSealBodyV1 {
+                recovery_plan: None,
+                writer_seal: None,
                 schema_version: 1,
                 instance: instance.clone(),
                 recovery_operation: transition.digest().into(),
@@ -236,6 +238,8 @@ fn signed_activation_fixture(
     };
     let seal = |instance: &fencing::EndpointInstanceBindingV1, signer| {
         let body = fencing::EpochSealBodyV1 {
+            recovery_plan: None,
+            writer_seal: None,
             schema_version: 1,
             instance: instance.clone(),
             recovery_operation: transition.digest().into(),

@@ -47,8 +47,31 @@ pub struct VerifiedAuthorityV1 {
     pub(crate) recovery_cut: Option<FormalHeadRefV1>,
     pub(crate) recovery_retained_record: Option<String>,
     pub(crate) initial_input_digest: Option<String>,
+    pub(crate) recovery_activation: Option<RecoveryActivationAuthorizationV1>,
+}
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecoveryActivationAuthorizationV1 {
+    pub certificate_digest: String,
+    pub plan_digest: String,
+    pub pending_handoff_root: String,
+}
+impl RecoveryActivationAuthorizationV1 {
+    pub fn validate(&self) -> Result<(), FormalError> {
+        for digest in [
+            &self.certificate_digest,
+            &self.plan_digest,
+            &self.pending_handoff_root,
+        ] {
+            hash_hex(digest)?;
+        }
+        Ok(())
+    }
 }
 impl VerifiedAuthorityV1 {
+    pub fn recovery_activation(&self) -> Option<&RecoveryActivationAuthorizationV1> {
+        self.recovery_activation.as_ref()
+    }
     /// Verified initial activation body retained with this authority lineage.
     /// Reading the signed payload does not grant authority or permit mutation.
     pub fn initial_body(&self) -> Option<&InitialActivationBodyV1> {
@@ -81,11 +104,18 @@ impl VerifiedAuthorityV1 {
             "oasis7.formal.verified_authority_context.v1",
             &self.context_digest_payload(),
         )?;
-        match &self.durable_set_activation_digest {
-            None => Ok(legacy),
+        let versioned = match &self.durable_set_activation_digest {
+            None => legacy,
             Some(digest) => hash(
                 "oasis7.formal.verified_authority_context.v2",
                 &(legacy, digest),
+            )?,
+        };
+        match &self.recovery_activation {
+            None => Ok(versioned),
+            Some(activation) => hash(
+                "oasis7.formal.verified_authority_context.v3",
+                &(versioned, activation),
             ),
         }
     }
@@ -227,5 +257,6 @@ pub fn verify_initial_activation(
         recovery_cut: None,
         recovery_retained_record: None,
         initial_input_digest: Some(input_digest),
+        recovery_activation: None,
     })
 }

@@ -3,7 +3,7 @@ use super::{
     ExecutionBridgeRecord, ExecutionExternalEffectMaterialization, controlled_capture as capture,
     to_cbor,
 };
-use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
+use ed25519_dalek::{Signature, VerifyingKey};
 use oasis7_distfs::controlled_authority::{
     formal::{coordinator::ExecutableFormalFrozenV1, endpoint::FormalCandidateMaterialV1, *},
     replicated_protocol::{ArtifactObject, ArtifactRole, ClosedRecord},
@@ -586,7 +586,7 @@ pub(super) fn candidate_with_business_reader(
     after_world: &World,
     record: &ExecutionBridgeRecord,
     effect: &ExecutionExternalEffectMaterialization,
-    writer: &SigningKey,
+    writer: &dyn FormalWriterSignerV1,
     business_reader: &impl oasis7_distfs::controlled_authority::formal::business_index::BusinessIndexNodeReader,
     retained_outputs: Option<&FormalRetainedExecutionOutputs>,
     recovery: Option<&VerifiedRecovery>,
@@ -607,9 +607,7 @@ pub(super) fn candidate_with_business_reader(
     } else {
         authority
     };
-    if hex::encode(writer.verifying_key().as_bytes())
-        != signing_authority.definition().writer_public_key
-    {
+    if writer.public_key_hex() != signing_authority.definition().writer_public_key {
         return Err("formal candidate original writer key mismatch".into());
     }
     let (before_world, continuation) = restore_executable(
@@ -908,12 +906,12 @@ pub(super) fn candidate_with_business_reader(
         .matches_record(&canonical)
         .map_err(|e| e.to_string())?;
     let signature = writer
-        .sign(&canonical_candidate_signing_bytes(&canonical).map_err(|e| e.to_string())?)
-        .to_bytes();
+        .sign_candidate(&canonical, Some(frozen.certificate()))
+        .map_err(|error| error.to_string())?;
     let candidate = FormalCandidateMaterialV1 {
         candidate: SignedCanonicalCandidateV1 {
             record: canonical,
-            writer_signature_hex: hex::encode(signature),
+            writer_signature_hex: signature,
         },
         material,
         frozen: Some(frozen.certificate().clone()),

@@ -95,11 +95,18 @@ pub fn normal_durable_set_transition_signing_bytes(
 /// Constructed only after the old configuration's exact Qualified boundary.
 pub struct VerifiedNormalDurableSetTransitionV1 {
     pub(super) body: NormalDurableSetTransitionBodyV1,
+    pub(super) writer_signature_hex: String,
     pub(super) old: VerifiedAuthorityV1,
     pub(super) boundary: VerifiedFormalCommitV1,
     pub(super) digest: String,
 }
 impl VerifiedNormalDurableSetTransitionV1 {
+    pub fn signed(&self) -> SignedNormalDurableSetTransitionV1 {
+        SignedNormalDurableSetTransitionV1 {
+            body: self.body.clone(),
+            writer_signature_hex: self.writer_signature_hex.clone(),
+        }
+    }
     pub fn predecessor_authority(&self) -> &VerifiedAuthorityV1 {
         &self.old
     }
@@ -149,6 +156,7 @@ pub fn verify_normal_durable_set_transition(
     }
     Ok(VerifiedNormalDurableSetTransitionV1 {
         body: signed.body.clone(),
+        writer_signature_hex: signed.writer_signature_hex.clone(),
         old: authority.clone(),
         boundary: boundary.clone(),
         digest,

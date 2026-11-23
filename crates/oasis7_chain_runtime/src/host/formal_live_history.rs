@@ -186,7 +186,8 @@ fn checked_permissions(
 struct NativeHistoryResolver {
     addresses: [SocketAddr; 2],
     timeout: Duration,
-    authentication: ed25519_dalek::SigningKey,
+    authentication:
+        oasis7_distfs::controlled_authority::formal::writer_signing::WriterSigningCapabilityV1,
     external_origin: VerifiedFormalReadAnchorV1,
     trusted: VerifiedFormalReadAnchorV1,
     permission: Option<VerifiedRecoveryBootstrapV1>,

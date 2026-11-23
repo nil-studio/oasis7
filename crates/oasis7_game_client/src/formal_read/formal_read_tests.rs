@@ -127,6 +127,8 @@ fn epoch_seal(
         head: complete.clone(),
     };
     let body = EpochSealBodyV1 {
+        recovery_plan: None,
+        writer_seal: None,
         schema_version: 1,
         instance: instance.clone(),
         recovery_operation: operation_id.to_owned(),

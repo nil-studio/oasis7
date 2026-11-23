@@ -162,7 +162,12 @@ pub(crate) fn restore_native_with_durable_set(
     }
     match (&candidate.frozen, &candidate.frozen_material) {
         (Some(cert), Some(material)) => verify_frozen_material(&cert.reservation.body, material)?,
-        (None, None) if proof.decision.record.kind == FormalRecordKindV1::InitialActivation => {}
+        (None, None)
+            if matches!(
+                proof.decision.record.kind,
+                FormalRecordKindV1::InitialActivation
+                    | FormalRecordKindV1::RecoveryActivation { .. }
+            ) => {}
         _ => return Err(invalid("native restore full original frozen material")),
     }
     let mut business_parent = None;

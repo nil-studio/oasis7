@@ -21,7 +21,7 @@ pub struct RemoteFormalEndpoint {
     operation_deadline: Option<Instant>,
     authority: VerifiedAuthorityV1,
     role: EndpointRole,
-    key: SigningKey,
+    key: WriterSigningCapabilityV1,
     minimum: FormalHeadRefV1,
     last_checkpoint: Option<fencing::EndpointCheckpointBindingV1>,
     last_native_context: Option<VerifiedNativeRpcContextV1>,
@@ -35,10 +35,10 @@ impl RemoteFormalEndpoint {
         timeout: Duration,
         authority: VerifiedAuthorityV1,
         role: EndpointRole,
-        key: SigningKey,
+        key: impl Into<WriterSigningCapabilityV1>,
         minimum: FormalHeadRefV1,
     ) -> Result<Self, FormalError> {
-        Self::new_inner(address, timeout, authority, role, key, minimum, None)
+        Self::new_inner(address, timeout, authority, role, key.into(), minimum, None)
     }
     pub fn new_archive_reader(
         address: SocketAddr,
@@ -54,14 +54,22 @@ impl RemoteFormalEndpoint {
             return Err(invalid("sealed archive grant target instance"));
         }
         let minimum = grant.body.sealed_cut.clone();
-        Self::new_inner(address, timeout, authority, role, key, minimum, Some(grant))
+        Self::new_inner(
+            address,
+            timeout,
+            authority,
+            role,
+            key.into(),
+            minimum,
+            Some(grant),
+        )
     }
     fn new_inner(
         address: SocketAddr,
         timeout: Duration,
         authority: VerifiedAuthorityV1,
         role: EndpointRole,
-        key: SigningKey,
+        key: WriterSigningCapabilityV1,
         minimum: FormalHeadRefV1,
         archive_read_grant: Option<SignedArchiveReadGrantV1>,
     ) -> Result<Self, FormalError> {
@@ -76,7 +84,7 @@ impl RemoteFormalEndpoint {
             .map_or(authority.definition().writer_public_key.as_str(), |grant| {
                 grant.body.reader_public_key.as_str()
             });
-        if expected_key != hex::encode(key.verifying_key().to_bytes()) {
+        if expected_key != key.public_key_hex() {
             return Err(invalid(
                 "formal RPC writer key does not match verified active authority",
             ));
@@ -124,6 +132,10 @@ impl RemoteFormalEndpoint {
     }
 
     fn call_verified(&mut self, command: Command) -> Result<(ResponseBody, bool), FormalError> {
+        let deadline = self
+            .operation_deadline
+            .unwrap_or_else(|| Instant::now() + self.timeout);
+        self.remaining_timeout(deadline)?;
         let body = RequestBody {
             schema_version: 1,
             world: self.authority.definition().world.clone(),
@@ -139,12 +151,12 @@ impl RemoteFormalEndpoint {
         };
         let digest = hash("oasis7.formal.endpoint.rpc.request_digest.v1", &body)?;
         let request = Request {
-            signature: hex::encode(self.key.sign(&bytes(REQUEST_DOMAIN, &body)?).to_bytes()),
+            signature: self.key.sign_endpoint_request_before(
+                &WriterEndpointRequestV1::new(body.clone()),
+                deadline,
+            )?,
             body,
         };
-        let deadline = self
-            .operation_deadline
-            .unwrap_or_else(|| Instant::now() + self.timeout);
         let mut stream =
             wire::connect_and_write_before_deadline(&self.address, &request, deadline)?;
         let response: Response = wire::read_before_deadline(&mut stream, deadline)?;
@@ -277,6 +289,54 @@ impl RemoteFormalEndpoint {
     }
     pub fn into_archive_source(self) -> Arc<dyn FormalArchiveSourceV1> {
         Arc::new(RemoteArchiveSource(Mutex::new(self)))
+    }
+    pub fn prepare_recovery_plan(
+        &mut self,
+        plan: SignedRecoveryPlanV1,
+        pending: RecoveryPendingHandoffV1,
+        writer_ack: SignedWriterRecoveryPlanAckV1,
+        checkpoint: fencing::EndpointCheckpointBindingV1,
+    ) -> Result<(), FormalError> {
+        match self
+            .call(Command::PrepareRecoveryPlan {
+                plan: Box::new(plan),
+                pending: Box::new(pending),
+                writer_ack: Box::new(writer_ack),
+                checkpoint,
+            })?
+            .0
+        {
+            Value::Complete => Ok(()),
+            _ => Err(invalid("formal RPC recovery plan response type")),
+        }
+    }
+    pub fn seal_planned_epoch(
+        &mut self,
+        writer_seal: SignedWriterEpochSealV1,
+        checkpoint: fencing::EndpointCheckpointBindingV1,
+    ) -> Result<fencing::EpochSealReceiptV1, FormalError> {
+        match self
+            .call(Command::SealPlanned {
+                writer_seal: Box::new(writer_seal),
+                checkpoint,
+            })?
+            .0
+        {
+            Value::Seal(seal) => Ok(*seal),
+            _ => Err(invalid("formal RPC planned seal response type")),
+        }
+    }
+    pub fn recovery_pending_handoff(&mut self) -> Result<RecoveryPendingHandoffV1, FormalError> {
+        match self.call(Command::RecoveryPendingHandoff)?.0 {
+            Value::RecoveryPendingHandoff(pending) => Ok(*pending),
+            _ => Err(invalid("formal RPC recovery pending response type")),
+        }
+    }
+    pub fn recovery_drained_proof(&mut self) -> Result<RecoveryDrainedProofV1, FormalError> {
+        match self.call(Command::RecoveryDrainedProof)?.0 {
+            Value::RecoveryDrainedProof(proof) => Ok(*proof),
+            _ => Err(invalid("formal RPC recovery drained proof response type")),
+        }
     }
     pub fn seal_durable_set(
         &mut self,

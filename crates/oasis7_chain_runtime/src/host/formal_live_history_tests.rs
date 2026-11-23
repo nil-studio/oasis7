@@ -1,14 +1,14 @@
 use super::business::OriginHistoryProofPages;
 use super::*;
-#[cfg(unix)]
-use oasis7_world_service::formal_read::{
-    FormalReadHistoryPageV1, FormalReadHistoryV1, FormalReadReplayCursorV1,
-};
 use oasis7_distfs::controlled_authority::{
     LocalRequestIdentity,
     fencing::*,
     formal::*,
     replicated_protocol::{ArtifactRole, EndpointRole, HeadAnchor},
+};
+#[cfg(unix)]
+use oasis7_world_service::formal_read::{
+    FormalReadHistoryPageV1, FormalReadHistoryV1, FormalReadReplayCursorV1,
 };
 use serde::Serialize;
 #[cfg(unix)]
@@ -153,6 +153,8 @@ fn epoch_seal_with_tail(
     };
     let body = EpochSealBodyV1 {
         schema_version: 1,
+        recovery_plan: None,
+        writer_seal: None,
         instance: instance.clone(),
         recovery_operation: fixtures::h(150 + next_epoch as u8),
         highest_complete: complete.clone(),
@@ -762,7 +764,7 @@ fn only_exact_verified_pending_recovery_target_is_optional_for_prewarm() {
     let ordinary_resolver = NativeHistoryResolver {
         addresses: ["127.0.0.1:1".parse().unwrap(); 2],
         timeout: Duration::from_secs(2),
-        authentication: fixtures::key(4),
+        authentication: fixtures::key(4).into(),
         external_origin: origin.clone(),
         trusted: pending_target.clone(),
         permission: Some(pending_permission.clone()),

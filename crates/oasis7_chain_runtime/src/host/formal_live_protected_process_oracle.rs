@@ -8,7 +8,7 @@
 use self::fencing::*;
 use ed25519_dalek::{Signer, SigningKey};
 use oasis7_distfs::controlled_authority::{
-    formal::{self, CanonicalRecordV1, FormalHeadRefV1, VerifiedAuthorityV1},
+    formal::{self, VerifiedAuthorityV1},
     replicated_protocol::{EndpointRole, HeadAnchor},
 };
 use serde::{Deserialize, Serialize};
@@ -23,32 +23,9 @@ use std::{
     time::Duration,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct HotBody {
-    pub version: u32,
-    pub instance_digest: String,
-    pub authority_id: String,
-    pub activation_ref: String,
-    pub epoch: u64,
-    pub revision: u64,
-    pub head: FormalHeadRefV1,
-    pub head_node: Option<String>,
-    pub imported_head_node: Option<String>,
-    pub import_digest: Option<String>,
-    pub base_parent: Option<CheckpointParent>,
-    pub index: Option<String>,
-    pub pending: Option<String>,
-    pub decision_head: Option<FormalHeadRefV1>,
-    pub seal: Option<EpochSealBodyV1>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub durable_set: Option<DurableSetNativeBindingV1>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(super) struct CheckpointParent {
-    pub record: CanonicalRecordV1,
-    pub finalizing_authority_id: String,
-}
+pub(super) use oasis7_formal_protocol::controlled_authority::formal::proof::{
+    NativeCheckpointParentV1 as CheckpointParent, NativeHotBodyV1 as HotBody,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Hot {
@@ -213,36 +190,55 @@ pub(crate) fn start_endpoint(
     binary: &std::ffi::OsStr,
     config: &Path,
 ) -> Result<(EndpointChild, std::net::SocketAddr), String> {
+    start_service(
+        binary,
+        config,
+        "--config",
+        "formal_endpoint_listening=",
+        "protected endpoint",
+    )
+}
+
+fn start_service(
+    binary: &std::ffi::OsStr,
+    config: &Path,
+    argument: &str,
+    ready_prefix: &str,
+    label: &str,
+) -> Result<(EndpointChild, std::net::SocketAddr), String> {
     use std::{
         io::BufRead,
         process::{Command, Stdio},
     };
 
     let mut child = Command::new(binary)
-        .arg("--config")
+        .arg(argument)
         .arg(config)
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()
-        .map_err(|error| format!("start protected endpoint child: {error}"))?;
+        .map_err(|error| format!("start {label} child: {error}"))?;
     let stdout = child
         .stdout
         .take()
-        .ok_or("protected endpoint child stdout unavailable")?;
+        .ok_or_else(|| format!("{label} child stdout unavailable"))?;
     let mut reader = std::io::BufReader::new(stdout);
     let endpoint = EndpointChild(child);
     let mut line = String::new();
     reader
         .read_line(&mut line)
-        .map_err(|error| format!("read protected endpoint readiness: {error}"))?;
+        .map_err(|error| format!("read {label} readiness: {error}"))?;
     let address = line
         .trim()
-        .strip_prefix("formal_endpoint_listening=")
-        .ok_or_else(|| format!("protected endpoint exited before readiness: {line:?}"))?
+        .strip_prefix(ready_prefix)
+        .ok_or_else(|| format!("{label} exited before readiness: {line:?}"))?
         .parse()
-        .map_err(|error| format!("parse protected endpoint address: {error}"))?;
+        .map_err(|error| format!("parse {label} address: {error}"))?;
     Ok((endpoint, address))
 }
+
+#[path = "formal_live_writer_custody_fixture.rs"]
+pub(crate) mod writer_custody_fixture;
 
 #[path = "formal_live_child_ready_marker.rs"]
 mod child_ready_marker;
@@ -293,12 +289,10 @@ pub(super) fn unique_private_root() -> Result<PathBuf, String> {
 
 #[cfg(test)]
 #[path = "formal_live_protected_handoff_tests.rs"]
-mod handoff_tests;
+pub(crate) mod handoff_tests;
 
 #[path = "formal_live_protected_survivor_tests.rs"]
 pub(super) mod survivor_tests;
-
-use crate::formal_live_recovery_test_support as recovery_test_support;
 
 #[path = "formal_live_protected_durable_set_oracle.rs"]
 pub(super) mod durable_set_oracle;

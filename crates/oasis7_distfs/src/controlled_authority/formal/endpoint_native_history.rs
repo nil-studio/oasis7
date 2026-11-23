@@ -208,7 +208,12 @@ pub(crate) fn restore_native_position(
     }
     match (&candidate.frozen, &candidate.frozen_material) {
         (Some(cert), Some(material)) => verify_frozen_material(&cert.reservation.body, material)?,
-        (None, None) if proof.decision.record.kind == FormalRecordKindV1::InitialActivation => {}
+        (None, None)
+            if matches!(
+                proof.decision.record.kind,
+                FormalRecordKindV1::InitialActivation
+                    | FormalRecordKindV1::RecoveryActivation { .. }
+            ) => {}
         _ => return Err(invalid("historical original frozen material closure")),
     }
     let mut business_parent = None;

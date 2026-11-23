@@ -80,7 +80,7 @@ fn resolver_for_startup_history_tests(
     NativeHistoryResolver {
         addresses: ["127.0.0.1:1".parse().unwrap(); 2],
         timeout: Duration::from_secs(2),
-        authentication: fixtures::key(4),
+        authentication: fixtures::key(4).into(),
         external_origin: origin.clone(),
         trusted,
         permission: latest.cloned(),

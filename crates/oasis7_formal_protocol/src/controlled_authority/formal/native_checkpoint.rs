@@ -28,6 +28,20 @@ pub struct NativeHotBodyV1 {
     pub decision_head: Option<FormalHeadRefV1>,
     pub seal: Option<fencing::EpochSealBodyV1>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub healthy_seal_authorization: Option<Box<HealthySealAuthorizationV1>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_plan: Option<SignedRecoveryPlanV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub writer_plan_ack: Option<SignedWriterRecoveryPlanAckV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_progress: Option<RecoveryDrainProgressV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_drained: Option<RecoveryDrainedProofV1>,
+    /// Hash of the complete private pending collection, including an explicitly
+    /// stored empty collection. It is not inferred from an absent object.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_handoff: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub durable_set: Option<fencing::DurableSetNativeBindingV1>,
     /// Local-only complete-data commitment. No execution or consensus grant.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -407,6 +421,12 @@ mod tests {
         };
         let node = put(serde_cbor::to_vec(&node).unwrap());
         let body = NativeHotBodyV1 {
+            healthy_seal_authorization: None,
+            recovery_plan: None,
+            writer_plan_ack: None,
+            recovery_progress: None,
+            recovery_drained: None,
+            recovery_handoff: None,
             version: 1,
             instance_digest: authority.definition().primary.instance.digest().unwrap(),
             authority_id: authority.authority_id().unwrap(),
@@ -632,6 +652,12 @@ mod tests {
         };
         let node = put(serde_cbor::to_vec(&node).unwrap());
         let body = NativeHotBodyV1 {
+            healthy_seal_authorization: None,
+            recovery_plan: None,
+            writer_plan_ack: None,
+            recovery_progress: None,
+            recovery_drained: None,
+            recovery_handoff: None,
             version: 1,
             instance_digest: authority.definition().primary.instance.digest().unwrap(),
             authority_id: authority.authority_id().unwrap(),

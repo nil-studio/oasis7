@@ -12,6 +12,57 @@ pub(super) fn initial_hot(
     instance: &fencing::EndpointInstanceBindingV1,
     archive: Option<&VerifiedFormalArchiveTransferV1>,
 ) -> Result<(HotBody, Sources), FormalError> {
+    initial_hot_for_mode(
+        authority,
+        original,
+        recovery,
+        parent,
+        instance,
+        archive,
+        InitialRecoveryMode::New,
+    )
+}
+
+enum InitialRecoveryMode<'a> {
+    New,
+    Existing(&'a HotBody),
+    HistoricalFixture,
+}
+
+/// Explicit historical-image construction for controlled tests only. It grants
+/// no production bootstrap permission and still verifies the exact old signed
+/// authorization, archive, candidate and endpoint binding.
+pub(super) fn initial_hot_historical_fixture(
+    authority: &VerifiedAuthorityV1,
+    original: &VerifiedAuthorityV1,
+    recovery: &Option<VerifiedRecovery>,
+    parent: &Option<VerifiedFormalCommitV1>,
+    instance: &fencing::EndpointInstanceBindingV1,
+    archive: Option<&VerifiedFormalArchiveTransferV1>,
+) -> Result<(HotBody, Sources), FormalError> {
+    if !cfg!(test) {
+        return Err(FormalError::FencingUnproven);
+    }
+    initial_hot_for_mode(
+        authority,
+        original,
+        recovery,
+        parent,
+        instance,
+        archive,
+        InitialRecoveryMode::HistoricalFixture,
+    )
+}
+
+fn initial_hot_for_mode(
+    authority: &VerifiedAuthorityV1,
+    original: &VerifiedAuthorityV1,
+    recovery: &Option<VerifiedRecovery>,
+    parent: &Option<VerifiedFormalCommitV1>,
+    instance: &fencing::EndpointInstanceBindingV1,
+    archive: Option<&VerifiedFormalArchiveTransferV1>,
+    mode: InitialRecoveryMode<'_>,
+) -> Result<(HotBody, Sources), FormalError> {
     if let Some(recovery) = recovery
         && recovery.original_authority().authority_id()? != original.authority_id()?
     {
@@ -28,6 +79,12 @@ pub(super) fn initial_hot(
         authority.definition().world.genesis_head()?
     };
     let mut initial = HotBody {
+        healthy_seal_authorization: None,
+        recovery_plan: None,
+        writer_plan_ack: None,
+        recovery_progress: None,
+        recovery_drained: None,
+        recovery_handoff: None,
         data_closure: None,
         version: 1,
         instance_digest: instance.digest().map_err(fencing_error)?,
@@ -57,6 +114,57 @@ pub(super) fn initial_hot(
         let recovery = recovery
             .as_ref()
             .ok_or_else(|| invalid("formal archive import without verified recovery"))?;
+        if authority.definition().profile_version == 2 && recovery.body().schema_version != 3 {
+            match mode {
+                InitialRecoveryMode::Existing(existing)
+                    if matches!(recovery.body().schema_version, 1 | 2)
+                        && existing.version == 1
+                        && existing.instance_digest == initial.instance_digest
+                        && existing.authority_id == initial.authority_id
+                        && existing.epoch == initial.epoch
+                        && existing.activation_ref == initial.activation_ref
+                        && existing.import_digest.as_deref()
+                            == Some(archive.digest()?.as_str())
+                        && existing.head.position >= initial.head.position =>
+                {
+                    // An existing legacy owner may already hold a new plan.
+                    // The same provider floor and complete native plan/ack/
+                    // pending/drain verification still run before it opens.
+                }
+                InitialRecoveryMode::HistoricalFixture => {}
+                _ => {
+                    return Err(invalid(
+                        "new profile2 bootstrap requires the actual drained schema3 recovery",
+                    ));
+                }
+            }
+        } else if authority.definition().profile_version == 2 {
+            if recovery.body().tail != RecoveryTailV1::Empty
+                || archive.tail != fencing::SealedTailV1::empty()
+            {
+                return Err(invalid(
+                    "new profile2 bootstrap requires the actual drained schema3 recovery",
+                ));
+            }
+            let plan = recovery.recovery_plan().ok_or_else(|| {
+                invalid("new native profile2 bootstrap requires a verified original recovery plan")
+            })?;
+            if archive.recovery_plan.as_ref() != Some(plan)
+                || archive
+                    .pending
+                    .as_ref()
+                    .map(RecoveryPendingHandoffV1::root)
+                    .transpose()?
+                    .as_deref()
+                    != Some(plan.body.pending_handoff_root.as_str())
+                || archive.recovery_handoff.is_none()
+            {
+                return Err(invalid(
+                    "native recovery bootstrap missing or changed private plan handoff",
+                ));
+            }
+            initial.recovery_handoff = archive.recovery_handoff.clone();
+        }
         if archive.predecessor_authority_id != recovery.predecessor().authority_id()?
             || archive.operation_id != recovery.body().operation_id
             || archive.cut != recovery.body().sealed_cut
@@ -155,8 +263,11 @@ impl FileFormalEndpoint {
         let instance = self.instance().clone();
         let policy = self.signing_policy();
         let local = self.key.clone();
+        let authority = self.authority.clone();
+        let previous = self.store.body.clone();
         self.store
             .publish_with(next, guard, &self.public_key, |body, gate| {
+                validate_recovery_checkpoint_transition(&previous, body, &authority)?;
                 endpoint_sign(
                     &instance,
                     &policy,
@@ -247,8 +358,6 @@ impl FileFormalEndpoint {
             EndpointRole::Replica => &authority.definition().replica.instance,
         };
         instance.verify_directory(path).map_err(fencing_error)?;
-        let (initial, sources) =
-            initial_hot(&authority, &original, &recovery, &parent, instance, archive)?;
         let file = path.join("formal-checkpoint-v1.cbor");
         let existing = match fs::symlink_metadata(&file) {
             Ok(metadata) => {
@@ -269,6 +378,30 @@ impl FileFormalEndpoint {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
             Err(error) => return Err(FormalError::Io(error.to_string())),
         };
+        let existing_body = existing
+            .as_ref()
+            .map(|bytes| Store::verify_public(bytes, &instance.endpoint_public_key))
+            .transpose()?;
+        let (initial, sources) = match existing_body.as_ref() {
+            Some(body) => initial_hot_for_mode(
+                &authority,
+                &original,
+                &recovery,
+                &parent,
+                instance,
+                archive,
+                InitialRecoveryMode::Existing(body),
+            )?,
+            None => initial_hot(&authority, &original, &recovery, &parent, instance, archive)?,
+        };
+        if recovery
+            .as_ref()
+            .is_some_and(|recovery| recovery.body().schema_version == 3)
+        {
+            archive
+                .ok_or_else(|| invalid("native recovery archive missing"))?
+                .recovery_copy_budget()?;
+        }
         let registration = fencing::ProtectedEndpointRegistrationV1 {
             authority_id: authority.authority_id()?,
             activation_ref: authority.activation_ref().into(),
@@ -288,6 +421,25 @@ impl FileFormalEndpoint {
         }
         let public_key = instance.endpoint_public_key.clone();
         let mut store = Store::open_signed(path, initial, &public_key, bytes, sources)?;
+        if recovery
+            .as_ref()
+            .is_some_and(|recovery| recovery.body().schema_version == 3)
+        {
+            archive
+                .ok_or_else(|| invalid("native recovery archive missing"))?
+                .materialize_recovery_closure(path)?;
+            // Future recovery/export must stand on this owner's complete local
+            // originals, including the predecessor's imported index/history.
+            store.clear_recovery_sources();
+        }
+        if let Some(archive) = archive
+            && let Some(pending) = &archive.pending
+        {
+            let id = store.put(pending)?;
+            if Some(&id) != store.body.recovery_handoff.as_ref() {
+                return Err(invalid("native recovery local handoff readback differs"));
+            }
+        }
         store.reconcile_public(guard.as_mut(), &public_key)?;
         fencing::verify_monotonic_checkpoint_evidence(
             &guard.evidence().map_err(fencing_error)?,

@@ -79,6 +79,7 @@ impl VerifiedDurableSetActivationV1 {
         // supplies bytes whose digest and writer authorization matched above.
         let transition = VerifiedNormalDurableSetTransitionV1 {
             body: signed.body.clone(),
+            writer_signature_hex: signed.writer_signature_hex.clone(),
             old: self.predecessor.clone(),
             boundary: self.boundary.clone(),
             digest: self.transition_digest.clone(),
@@ -221,6 +222,7 @@ pub fn verify_durable_set_activation(
         recovery_cut: Some(transition.boundary.head()),
         recovery_retained_record: None,
         initial_input_digest: None,
+        recovery_activation: None,
     };
     Ok(VerifiedDurableSetActivationV1 {
         successor,

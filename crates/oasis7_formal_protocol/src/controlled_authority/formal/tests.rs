@@ -235,6 +235,8 @@ fn recovery_rejects_shadow_fencer_and_asymmetric_prepared_downgrade() {
         replica_receipt_digest: None,
     };
     let seal_body = |instance, tail| fencing::EpochSealBodyV1 {
+        recovery_plan: None,
+        writer_seal: None,
         schema_version: 1,
         instance,
         recovery_operation: h(70),
