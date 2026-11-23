@@ -156,6 +156,21 @@ class Ownership(unittest.TestCase):
                         pending.append(dependency.get('package', name))
         self.assertTrue({'oasis7', 'oasis7_node', 'oasis7_wasm_executor', 'oasis7_distfs', 'oasis7_cas'}.isdisjoint(visited))
 
+    def test_service_correlation_payload_owner_is_native_and_legacy_source_is_retired(self):
+        """Regression ratchet: canonical Service encoding must not move back into the umbrella."""
+        old = ROOT / 'crates/oasis7/src/world_service/correlation.rs'
+        current = ROOT / 'crates/oasis7_world_service/src/correlation.rs'
+        self.assertFalse(old.exists(), old)
+        source = current.read_text()
+        for symbol in ('pub fn encode_consensus_intent(', 'pub fn encode_cleanup_consensus_v2('):
+            self.assertIn(symbol, source)
+        self.assertIn('crate::consensus_action_payload::*', source)
+        legacy = (ROOT / 'crates/oasis7/src/world_service/mod.rs').read_text()
+        self.assertNotIn('pub mod correlation;', legacy)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::world_service::correlation::', rust.read_text(), str(rust))
+
     def test_world_library_does_not_own_launcher_or_network_hosting(self):
         source = ROOT / 'crates/oasis7/src'
         self.assertFalse((source / 'launcher_bootstrap_peers.rs').exists())
