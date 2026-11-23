@@ -1,7 +1,8 @@
 //! Pure simulator runner telemetry types; no model, archive or async host I/O.
 //! The host AgentRunner retains scheduling and actual execution ownership.
 
-use crate::{Action, AgentDecision, RuntimePerfSnapshot, WorldTime};
+use crate::{Action, AgentDecision, AgentDecisionTrace, RuntimePerfSnapshot, WorldTime};
+use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 // ============================================================================
@@ -122,9 +123,25 @@ pub enum SkippedReason {
     NotInWorld,
 }
 
+/// Derive the previously host-local LLM latency sample from the immutable
+/// pure decision trace. Missing diagnostics remain zero, with no clock IO.
+pub fn llm_api_duration_from_trace(decision_trace: Option<&AgentDecisionTrace>) -> Duration {
+    let llm_api_latency_ms = decision_trace
+        .and_then(|trace| trace.llm_diagnostics.as_ref())
+        .and_then(|diagnostics| diagnostics.latency_ms)
+        .unwrap_or(0);
+    Duration::from_millis(llm_api_latency_ms)
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn absent_llm_trace_has_zero_sample() {
+        assert_eq!(llm_api_duration_from_trace(None), Duration::ZERO);
+    }
 
     #[test]
     fn metrics_default_keeps_finite_legacy_wire_values() {
