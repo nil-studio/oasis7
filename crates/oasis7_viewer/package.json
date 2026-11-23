@@ -37,7 +37,7 @@
   },
   "devDependencies": {
     "@solidjs/testing-library": "^0.8.10",
-    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/jest-dom": "^8.0.0",
     "@testing-library/user-event": "^14.6.13",
     "jsdom": "^31.0.1",
     "vite": "^8.3.8",
