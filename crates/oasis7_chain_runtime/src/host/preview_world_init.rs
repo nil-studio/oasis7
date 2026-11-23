@@ -446,7 +446,7 @@ fn initialize(options: &Options) -> Result<Receipt, String> {
             hash,
             "devlocal-preview-initialization-v1",
         );
-        world = oasis7::runtime_host::world::from_snapshot_with_release_security_policy(
+        world = oasis7_runtime_host::world::from_snapshot_with_release_security_policy(
             snapshot,
             world.journal().clone(),
             ReleaseSecurityPolicy::production_hardened(),

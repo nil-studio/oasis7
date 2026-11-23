@@ -217,7 +217,7 @@ fn execute_with_business_reader(
             )
             .map_err(|e| format!("{e:?}"))?
     } else {
-        oasis7::runtime_host::world::from_snapshot(output_snapshot, output_journal)
+        oasis7_runtime_host::world::from_snapshot(output_snapshot, output_journal)
             .map_err(|e| format!("{e:?}"))?
     };
     let reader = business_reader.cloned().unwrap_or_else(|| {

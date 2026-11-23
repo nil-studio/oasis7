@@ -432,7 +432,7 @@ fn rebuild(config_path: &Path) -> Result<RebuiltRequest, String> {
         let journal: Journal = oasis7_world_state::codec::journal_from_cbor(&journal_bytes)
             .map_err(|error| format!("formal World journal CBOR: {error}"))
             .map_err(|error| error.to_string())?;
-        let world = oasis7::runtime_host::world::from_snapshot(snapshot, journal)
+        let world = oasis7_runtime_host::world::from_snapshot(snapshot, journal)
             .map_err(|error| format!("restore explicit formal World boundary: {error:?}"))?;
         let release = ReleaseSecurityPolicy::production_hardened();
         let mut closure = match config.mode {

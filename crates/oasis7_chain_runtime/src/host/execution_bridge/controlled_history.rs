@@ -259,7 +259,7 @@ fn validate_published_initial_anchor(
     }
     // Validate the published diagnostic context exactly as the existing driver
     // constructed it; it is never interpreted as a formal genesis identity.
-    let world = oasis7::runtime_host::world::from_snapshot(snapshot.clone(), journal.clone())
+    let world = oasis7_runtime_host::world::from_snapshot(snapshot.clone(), journal.clone())
         .map_err(|e| format!("published anchor restore: {e:?}"))?;
     let commit = execution_resource_commit_hash(&record.world_id, record.height);
     let resource_hash = execution_resource_context_hash(&record.world_id);
@@ -313,7 +313,7 @@ fn reexecute(
     let journal: Journal =
         oasis7_world_state::codec::journal_from_cbor(&preparation.before_journal)
             .map_err(|error| error.to_string())?;
-    let mut world = oasis7::runtime_host::world::from_snapshot(before, journal)
+    let mut world = oasis7_runtime_host::world::from_snapshot(before, journal)
         .map_err(|e| format!("world restore: {e:?}"))?
         .with_release_security_policy(preparation.release_security_policy.clone());
     let context = &preparation.context;

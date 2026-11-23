@@ -112,7 +112,7 @@ impl NodeRuntimeExecutionDriver {
             {
                 return Err("BFT execution cannot start with local or DevLocal bootstrap".into());
             }
-            let execution_world = oasis7::runtime_host::world::new_production_hardened()
+            let execution_world = oasis7_runtime_host::world::new_production_hardened()
                 .with_release_security_policy(config.release_security_policy.clone());
             let execution_sandbox: Box<dyn ModuleSandbox + Send> = Box::new(
                 WasmExecutor::new(WasmExecutorConfig::default())
