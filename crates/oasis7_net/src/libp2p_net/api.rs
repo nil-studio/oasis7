@@ -178,6 +178,32 @@ impl Libp2pNetwork {
         budget: Box<dyn crate::EncodedExchangeBudget>,
     ) -> Result<Vec<u8>, WorldError> {
         let exchange = super::encoded_exchange::Exchange::new(budget);
+        if self.command_tx.is_closed() {
+            return Err(command_failure_context(
+                WorldError::NetworkProtocolUnavailable {
+                    protocol: "libp2p command queue disconnected".into(),
+                },
+                FailureOrigin::LocalTransport,
+                Some(protocol),
+            ));
+        }
+        super::request_deadline::prepare_encoded_request(
+            oasis7_proto::distributed_net::NetworkRequest {
+                protocol: protocol.to_owned(),
+                payload: payload.to_vec(),
+            },
+            &exchange,
+        )
+        .map_err(|error| {
+            command_failure_context(
+                super::outbound_failure::request_failure_world_error(
+                    libp2p::request_response::OutboundFailure::Io(error),
+                    "encoded request admission failed".into(),
+                ),
+                FailureOrigin::LocalTransport,
+                Some(protocol),
+            )
+        })?;
         let deadline = exchange.deadline();
         self.request_to_peer_bounded(
             protocol,

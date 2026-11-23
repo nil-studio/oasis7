@@ -1,4 +1,5 @@
 //! Restore the exact saved installation without granting a network attempt.
+use super::operation_failure::{LocalBlocker, OperationFailure};
 use super::operation_snapshot::Snapshot as OperationSnapshot;
 use super::*;
 use std::time::Instant;
@@ -23,7 +24,7 @@ impl VerifiedRepair {
         request: serde_json::Value,
         snapshot: &OperationSnapshot,
         cas: &LocalCasStore,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, OperationFailure> {
         snapshot.validate()?;
         let installation = snapshot
             .installation
@@ -78,7 +79,10 @@ impl VerifiedRepair {
             .checked_add(missing_bytes)
             .is_none_or(|total| total > cas_lifecycle::MAX_FULL_SYNC_CAS_BYTES)
         {
-            return Err("operation_budget_exhausted: original repair CAS capacity".into());
+            return Err(OperationFailure::new(
+                LocalBlocker::BudgetExhausted,
+                "operation_budget_exhausted: original repair CAS capacity",
+            ));
         }
         Ok(Self {
             identity: snapshot.identity.clone(),
@@ -160,11 +164,30 @@ impl FormalFullSyncSession {
         }
         cas_lifecycle::verify_loaded_world_pins(&self.cas, &restored.retained_cas_hashes)?;
         let history = self.history.observation()?;
-        let latest = self
-            .history
-            .last_verified_cut()
-            .ok_or("installation lacks durable verified history")?;
-        if !nondecreasing_cut(&restored.cut, latest) {
+        // A zero-page history is the exact externally pinned C0, not a
+        // missing proof. Replay from that independent pin and require the
+        // installed cut's exact authenticated boundary even for this case.
+        let providers = self.config.providers();
+        let client = providers::build_read_client(
+            &self.config,
+            providers.first().ok_or("missing provider")?,
+            &self.node_private_key_hex,
+            Duration::from_millis(self.config.request_timeout_ms),
+        )?;
+        let (_, original) = history_chain::PersistedFormalReadHistoryV1::verify_read_only(
+            &self.config,
+            &client,
+            Arc::clone(&self.cas),
+            self.cas.root(),
+            Some(&restored.cut),
+            true,
+        )?;
+        let original = original.ok_or("installation lacks its authenticated history boundary")?;
+        if cut_from_anchor(&original)? != restored.cut {
+            return Err("operation_recovery_required: installed history boundary changed".into());
+        }
+        let latest = cut_from_anchor(&client.formal_current_anchor().map_err(|e| e.to_string())?)?;
+        if !nondecreasing_cut(&restored.cut, &latest) {
             return Err(
                 "operation_recovery_required: original installation left verified history".into(),
             );
@@ -264,11 +287,9 @@ impl FormalFullSyncSession {
         };
         let receipt = self.confirm_installed(&restored, deadline)?;
         receipt.require_snapshot(snapshot)?;
-        let latest = self
-            .history
-            .last_verified_cut()
-            .cloned()
-            .ok_or("verified history missing")?;
+        // The replayed client also covers a zero-page C0 history; a local
+        // `last_verified_cut` is intentionally absent until the first page.
+        let latest = cut_from_anchor(&client.formal_current_anchor().map_err(|e| e.to_string())?)?;
         self.status.last_verified_cut = Some(latest.clone());
         self.status.loaded_cut = Some(restored.cut.clone());
         self.status.lag_positions = Some(latest.position - restored.cut.position);

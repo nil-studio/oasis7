@@ -1,6 +1,7 @@
 //! Bounded terminal diagnostics are part of the same atomic ledger revision.
 //! The ring never supplies authority or replaces independently pinned history.
 use super::super::local_io;
+use super::operation_failure::{LocalBlocker, OperationFailure};
 use super::operation_snapshot::{Identity, Snapshot};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -181,7 +182,7 @@ impl TerminalIndex {
 
     /// Called only after local original World/readback and independent pins
     /// establish that no private operation journal is an installation input.
-    pub(super) fn append(&mut self, snapshot: &Snapshot) -> Result<(), String> {
+    pub(super) fn append(&mut self, snapshot: &Snapshot) -> Result<(), OperationFailure> {
         let installation = snapshot
             .installation
             .as_ref()
@@ -231,37 +232,49 @@ impl TerminalIndex {
             .len()
             > MAX_TERMINAL_BYTES
         {
-            return Err("operation_budget_exhausted: terminal summary capacity".into());
+            return Err(OperationFailure::new(
+                LocalBlocker::BudgetExhausted,
+                "operation_budget_exhausted: terminal summary capacity",
+            ));
         }
-        self.completed_operations = self
-            .completed_operations
-            .checked_add(1)
-            .ok_or("terminal count overflow")?;
+        self.completed_operations = self.completed_operations.checked_add(1).ok_or_else(|| {
+            OperationFailure::new(LocalBlocker::BudgetExhausted, "terminal count overflow")
+        })?;
         self.encoded_tx_actual = self
             .encoded_tx_actual
             .checked_add(snapshot.encoded_tx_actual)
-            .ok_or("terminal tx overflow")?;
+            .ok_or_else(|| {
+                OperationFailure::new(LocalBlocker::BudgetExhausted, "terminal tx overflow")
+            })?;
         self.encoded_rx_actual = self
             .encoded_rx_actual
             .checked_add(snapshot.encoded_rx_actual)
-            .ok_or("terminal rx overflow")?;
+            .ok_or_else(|| {
+                OperationFailure::new(LocalBlocker::BudgetExhausted, "terminal rx overflow")
+            })?;
         self.unknown_final_charged = self
             .unknown_final_charged
             .checked_add(snapshot.unknown_final_charged)
-            .ok_or("terminal unknown overflow")?;
+            .ok_or_else(|| {
+                OperationFailure::new(LocalBlocker::BudgetExhausted, "terminal unknown overflow")
+            })?;
         self.exchanges_started = self
             .exchanges_started
             .checked_add(snapshot.exchanges_started)
-            .ok_or("terminal exchange overflow")?;
+            .ok_or_else(|| {
+                OperationFailure::new(LocalBlocker::BudgetExhausted, "terminal exchange overflow")
+            })?;
         self.attempts_used = self
             .attempts_used
             .checked_add(snapshot.attempts_used)
-            .ok_or("terminal attempt overflow")?;
+            .ok_or_else(|| {
+                OperationFailure::new(LocalBlocker::BudgetExhausted, "terminal attempt overflow")
+            })?;
         self.chain_head = Some(local_io::digest(&summary)?);
         self.summaries.push(summary);
         if self.summaries.len() > MAX_TERMINALS {
             self.summaries.remove(0);
         }
-        self.validate()
+        self.validate().map_err(Into::into)
     }
 }

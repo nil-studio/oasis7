@@ -174,9 +174,9 @@ fn pair(quic: bool) -> (Libp2pNetwork, Libp2pNetwork) {
         ..Libp2pNetworkConfig::default()
     });
     wait_until(|| !server.listening_addrs().is_empty());
-    let remote = server.listening_addrs()[0]
-        .clone()
-        .with(libp2p::multiaddr::Protocol::P2p(server.peer_id()));
+    let remote = format!("{}/p2p/{}", server.listening_addrs()[0], server.peer_id())
+        .parse()
+        .unwrap();
     let client = Libp2pNetwork::new(Libp2pNetworkConfig {
         listen_addrs: vec![address.parse().unwrap()],
         bootstrap_peers: vec![remote],
@@ -311,6 +311,111 @@ fn real_wire_cancel_keeps_unknown_original_reservation_after_cold_open() {
     for independent_cancel in [false, true] {
         wire_cancel_case(independent_cancel);
     }
+}
+
+struct CancelAfterAdmission {
+    inner: SoftwareExchange,
+    cancelled: AtomicBool,
+}
+
+impl EncodedExchangeBudget for CancelAfterAdmission {
+    fn deadline(&self) -> Instant {
+        self.inner.deadline()
+    }
+    fn check_active(&self) -> io::Result<()> {
+        self.inner.check_active()?;
+        if self.cancelled.load(Ordering::Acquire) {
+            return Err(io::Error::other(
+                "this exchange was cancelled after durable admission",
+            ));
+        }
+        Ok(())
+    }
+    fn start(&self, bytes: usize) -> io::Result<()> {
+        self.inner.start(bytes)?;
+        self.cancelled.store(true, Ordering::Release);
+        Ok(())
+    }
+    fn reserve(
+        &self,
+        direction: EncodedIoDirection,
+        bytes: usize,
+    ) -> io::Result<Box<dyn EncodedIoReservation>> {
+        self.inner.reserve(direction, bytes)
+    }
+    fn finish(&self) -> io::Result<()> {
+        self.inner.finish()
+    }
+}
+
+#[test]
+fn real_predispatch_cancel_spends_exchange_limit_and_cold_ledger_preserves_known_zero() {
+    let (server, client) = pair(false);
+    let protocol = "/aw/rr/1.0.0/durable-admitted-cancel";
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&calls);
+    server
+        .register_handler(
+            protocol,
+            Box::new(move |body| {
+                observed.fetch_add(1, Ordering::AcqRel);
+                Ok(body.to_vec())
+            }),
+        )
+        .unwrap();
+    let temp = TestDir::new();
+    let path = temp.path().join("operation.json");
+    let mut policy = policy();
+    policy.max_exchanges = 1;
+    let (state, identity) = original(&path, &policy, protocol);
+    let deadline = state.lock().unwrap().attempt.deadline();
+    let error = client
+        .request_to_peer_with_encoded_budget(
+            protocol,
+            &[24, 255],
+            server.peer_id(),
+            Box::new(CancelAfterAdmission {
+                inner: SoftwareExchange::new(Arc::clone(&state)),
+                cancelled: AtomicBool::new(false),
+            }),
+        )
+        .unwrap_err();
+    assert!(format!("{error:?}").contains("cancelled after durable admission"));
+    wait_until(|| Arc::strong_count(&state) == 1);
+    let before = state.lock().unwrap().ledger.snapshot().clone();
+    assert_eq!((before.exchanges_started, before.attempts_used), (1, 1));
+    assert_eq!(
+        (
+            before.encoded_tx_actual,
+            before.encoded_rx_actual,
+            before.unknown_final_charged
+        ),
+        (0, 0, 0)
+    );
+    assert_eq!(before.charged().unwrap(), 0);
+    assert!(before.reservation.is_none() && before.active_request.is_none());
+    assert_eq!(state.lock().unwrap().stopped_exchanges, 1);
+    // Only that exchange was cancelled. The original operation and attempt are
+    // still active, so this independent refusal must be the spent count cap.
+    let error = client
+        .request_to_peer_with_encoded_budget(
+            protocol,
+            &[24, 255],
+            server.peer_id(),
+            Box::new(SoftwareExchange::new(Arc::clone(&state))),
+        )
+        .unwrap_err();
+    assert!(format!("{error:?}").contains("operation_budget_exhausted: exchanges"));
+    wait_until(|| Arc::strong_count(&state) == 1);
+    assert_eq!(state.lock().unwrap().ledger.snapshot(), &before);
+    assert_eq!(state.lock().unwrap().attempt.deadline(), deadline);
+    assert_eq!(calls.load(Ordering::Acquire), 0);
+    assert!(Instant::now() < deadline);
+    drop(state);
+    let mut reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
+    assert_eq!(reopened.snapshot(), &before);
+    assert!(reopened.begin_attempt().is_err());
+    assert_eq!(reopened.snapshot(), &before);
 }
 
 fn wire_cancel_case(independent_cancel: bool) {

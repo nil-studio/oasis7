@@ -75,7 +75,14 @@ impl Ledger {
         };
         self.check_cancellation()?;
         if Instant::now() >= deadline {
-            return Err(expired.into());
+            return Err(self.local_error(
+                if self.recovered {
+                    LocalBlocker::RecoveryRequired
+                } else {
+                    LocalBlocker::AttemptExpired
+                },
+                expired,
+            ));
         }
         if self.path != data.join("state/full-sync/operation.json")
             || owner.binding_digest()? != self.state.identity.binding_digest
@@ -138,17 +145,33 @@ impl Ledger {
             .terminal_index
             .take()
             .ok_or("terminal continuity unavailable")?;
-        terminal.append(&next)?;
+        terminal
+            .append(&next)
+            .map_err(|error| self.local_error(error.blocker, &error.message))?;
         next.terminal_index = Some(terminal);
         owner.require_directory(data)?;
         self.check_cancellation()?;
         if Instant::now() >= deadline {
-            return Err(expired.into());
+            return Err(self.local_error(
+                if self.recovered {
+                    LocalBlocker::RecoveryRequired
+                } else {
+                    LocalBlocker::AttemptExpired
+                },
+                expired,
+            ));
         }
         self.save_exact(next)?;
         if Instant::now() >= deadline {
             self.poisoned = true;
-            return Err(expired.into());
+            return Err(self.local_error(
+                if self.recovered {
+                    LocalBlocker::RecoveryRequired
+                } else {
+                    LocalBlocker::AttemptExpired
+                },
+                expired,
+            ));
         }
         if let Err(error) = self.check_cancellation() {
             self.poisoned = true;
@@ -232,7 +255,8 @@ impl Ledger {
         next.terminal_index
             .as_ref()
             .unwrap()
-            .require_next_capacity(&next.policy)?;
+            .require_next_capacity(&next.policy)
+            .map_err(|error| self.local_error(LocalBlocker::BudgetExhausted, &error))?;
         self.save_exact(next)?;
         if Instant::now() >= deadline {
             self.poisoned = true;

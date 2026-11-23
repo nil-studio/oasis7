@@ -102,7 +102,7 @@ impl PollSession {
             }
             Self::Budgeted(driver) => super::super::formal_full_sync::operation_status::running(
                 node,
-                &driver.observation.lock().map_err(|e| e.to_string())?,
+                &*driver.observation.lock().map_err(|e| e.to_string())?,
             ),
         }
     }
@@ -293,7 +293,7 @@ fn supervise_inner(
                         if let Some(live) = &live_observation {
                             let status = super::super::formal_full_sync::operation_status::running(
                                 config,
-                                &live.lock().map_err(|e| e.to_string())?,
+                                &*live.lock().map_err(|e| e.to_string())?,
                             )?;
                             io::write(&status_path, &status)?;
                         }

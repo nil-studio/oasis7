@@ -263,7 +263,11 @@ fn original_request_cannot_be_attached_to_another_transport_policy() {
         Ok(_) => panic!("different transport was admitted"),
         Err(error) => error,
     };
-    assert!(error.contains("transport policy differs from the original operation request"));
+    assert!(
+        error
+            .message
+            .contains("transport policy differs from the original operation request")
+    );
     let reopened = Ledger::open(&path, &identity, &policy, 0).unwrap();
     assert_eq!(reopened.snapshot(), &before);
     assert_eq!(reopened.snapshot().exchanges_started, 0);
@@ -338,6 +342,7 @@ fn exercise_real_owned_worker(selected: Option<bool>) {
         denied
             .err()
             .unwrap()
+            .message
             .contains("requires an independent issuer grant")
     );
     assert!(!data.join("state/full-sync").exists());
@@ -420,7 +425,7 @@ fn exercise_real_owned_worker(selected: Option<bool>) {
                 )
                 .err()
                 .expect("invalid selected operation resumed");
-                assert!(error.contains(expected), "{error}");
+                assert!(error.message.contains(expected), "{error}");
                 assert_eq!(std::fs::read(&ledger_path).unwrap(), before);
             }
             local_io::write(&ledger_path, &original_disk).unwrap();
@@ -483,6 +488,7 @@ fn exercise_real_owned_worker(selected: Option<bool>) {
         selected
             .err()
             .unwrap()
+            .message
             .contains("unpublished continuity is unavailable")
     );
     let resumed = InitialBudgetedSession::prepare(&node, &instance, owner);
@@ -490,6 +496,7 @@ fn exercise_real_owned_worker(selected: Option<bool>) {
         resumed
             .err()
             .unwrap()
+            .message
             .contains("original full-sync state exists")
     );
     assert_eq!(std::fs::read(&ledger_path).unwrap(), before);

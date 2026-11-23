@@ -42,6 +42,7 @@ struct ObservedProxy {
     endpoint: String,
     observations: Arc<Mutex<Vec<ExchangeObservation>>>,
     reject: Arc<Mutex<Option<String>>>,
+    signed_reject: Arc<Mutex<Option<String>>>,
     pause: Arc<Mutex<Option<Pause>>>,
     delay_ms: Arc<AtomicU64>,
     stopped: Arc<AtomicBool>,
@@ -55,12 +56,14 @@ impl ObservedProxy {
         let endpoint = format!("http://{}", listener.local_addr().unwrap());
         let observations = Arc::new(Mutex::new(Vec::new()));
         let reject = Arc::new(Mutex::new(None::<String>));
+        let signed_reject = Arc::new(Mutex::new(None::<String>));
         let pause = Arc::new(Mutex::new(None::<Pause>));
         let delay_ms = Arc::new(AtomicU64::new(0));
         let stopped = Arc::new(AtomicBool::new(false));
-        let (seen, denied, paused, delay, stop) = (
+        let (seen, denied, signed_denied, paused, delay, stop) = (
             Arc::clone(&observations),
             Arc::clone(&reject),
+            Arc::clone(&signed_reject),
             Arc::clone(&pause),
             Arc::clone(&delay_ms),
             Arc::clone(&stopped),
@@ -104,7 +107,19 @@ impl ObservedProxy {
                             false
                         }
                     };
-                    let (response_header, response_body) = if rejected {
+                    let signed_rejected = {
+                        let mut route = signed_denied.lock().unwrap();
+                        if route.as_deref() == Some(&path) {
+                            route.take();
+                            true
+                        } else {
+                            false
+                        }
+                    };
+                    let (response_header, response_body) = if signed_rejected {
+                        let body = signed_diagnostic_error(&path, &body)?;
+                        (format!("HTTP/1.1 400 Bad Request\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).into_bytes(), body)
+                    } else if rejected {
                         let body = b"{\"error\":\"fixture temporary provider failure\",\"details\":\"count the entire error body\"}".to_vec();
                         (format!("HTTP/1.1 503 Service Unavailable\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).into_bytes(), body)
                     } else {
@@ -146,6 +161,7 @@ impl ObservedProxy {
             endpoint,
             observations,
             reject,
+            signed_reject,
             pause,
             delay_ms,
             stopped,
@@ -178,6 +194,53 @@ impl Drop for ObservedProxy {
             worker.join().unwrap();
         }
     }
+}
+
+const REMOTE_DIAGNOSTIC: &str =
+    "attempt_expired operation_budget_exhausted installation_repair_attempt_failed:";
+
+fn signed_diagnostic_error(path: &str, body: &[u8]) -> Result<Vec<u8>, String> {
+    use oasis7_client_api::world_service::{SignedReadRequest, VIEW_PATH};
+    fn digest<Q: serde::de::DeserializeOwned + serde::Serialize>(
+        path: &str,
+        body: &[u8],
+    ) -> Result<String, String> {
+        let request: SignedReadRequest<Q> =
+            serde_json::from_slice(body).map_err(|e| e.to_string())?;
+        authority::verify_read_request(path, &request)?;
+        authority::request_digest(path, &request)
+    }
+    let request_digest = match path {
+        VIEW_PATH => digest::<ReadWorldViewRequest>(path, body)?,
+        FORMAL_FULL_SYNC_MANIFEST_PATH => digest::<FormalFullSyncManifestRequestV1>(path, body)?,
+        oasis7_client_api::world_service_full_sync::FORMAL_FULL_SYNC_OBJECT_PATH => {
+            digest::<FormalFullSyncObjectRequestV1>(path, body)?
+        }
+        _ => return Err("unexpected signed rejection route".into()),
+    };
+    let payload = super::super::super::FormalFullSyncServiceErrorV1 {
+        api_version: "oasis7.formal-live-error/v1".into(),
+        code: "full_sync_rejected".into(),
+        message: REMOTE_DIAGNOSTIC.into(),
+    };
+    let response = authority::sign_service_response(
+        path,
+        request_digest.clone(),
+        payload,
+        &hex::encode(test_key(91).to_bytes()),
+    )?;
+    let encoded = serde_json::to_vec(&response).map_err(|e| e.to_string())?;
+    // Verify the emitted original, including the generic view error's decoder,
+    // against the independently configured service key and exact signed request.
+    let decoded: SignedServiceResponse<Value> =
+        serde_json::from_slice(&encoded).map_err(|e| e.to_string())?;
+    authority::verify_service_response(
+        path,
+        &request_digest,
+        &decoded,
+        &hex::encode(test_key(91).verifying_key().to_bytes()),
+    )?;
+    Ok(encoded)
 }
 
 fn read_http_message(stream: &mut TcpStream, limit: usize) -> Result<(Vec<u8>, Vec<u8>), String> {
@@ -220,10 +283,30 @@ struct BudgetFixture {
 }
 impl BudgetFixture {
     fn new(failover: bool, configure: impl FnOnce(&mut Value), binary: Option<PathBuf>) -> Self {
+        Self::new_at(failover, false, configure, binary)
+    }
+    fn new_at(
+        failover: bool,
+        advance_from_c0: bool,
+        configure: impl FnOnce(&mut Value),
+        binary: Option<PathBuf>,
+    ) -> Self {
         let (world, trust, anchor, material, proof) = full_sync_fixture();
-        let expected_world = oasis7_world_state::codec::snapshot_cbor(&world.snapshot()).unwrap();
-        let expected = cut(&anchor);
+        let successor =
+            advance_from_c0.then(|| same_epoch_successor_fixture(&world, &anchor, &material));
+        let expected_world = oasis7_world_state::codec::snapshot_cbor(
+            &successor
+                .as_ref()
+                .map_or(&world, |next| &next.world)
+                .snapshot(),
+        )
+        .unwrap();
+        let expected = cut(successor.as_ref().map_or(&anchor, |next| &next.anchor));
         let service = start_live_service(world, trust.clone(), anchor, material, proof);
+        if let Some(next) = successor {
+            service.5.push(next.clone());
+            service.4.publish(next.world, next.anchor).unwrap();
+        }
         let primary = ObservedProxy::new(&service.1);
         let alternate = failover.then(|| ObservedProxy::new(&service.1));
         let mut seed = super::super::failover_tests::config(
@@ -610,7 +693,9 @@ fn budgeted_missing_original_with_no_attempt_cannot_download_or_change_pins() {
 #[test]
 fn budgeted_bad_material_and_missing_history_cannot_authorize_original_repair() {
     for failure in ["material_hash", "history_page"] {
-        let fixture = BudgetFixture::new(false, |_| {}, None);
+        // C0 intentionally has no proof pages. The missing-history vector must
+        // first receive and persist a real C0 -> C1 signed page.
+        let fixture = BudgetFixture::new_at(false, failure == "history_page", |_| {}, None);
         let original = fixture.interrupted_installation("pins_durable");
         let root = fixture.node.identity.data_dir.join("state/full-sync");
         let cas = LocalCasStore::new(&root);
@@ -629,8 +714,9 @@ fn budgeted_bad_material_and_missing_history_cannot_authorize_original_repair() 
             let manifest = head["manifest_digest"]
                 .as_str()
                 .expect("real fixture history page");
-            let bytes = fs::read(cas.blobs_dir().join(format!("{manifest}.blob"))).unwrap();
-            let entry: Value = serde_json::from_slice(&bytes).unwrap();
+            assert!(head["page_count"].as_u64().unwrap() > 0);
+            let bytes = cas.get_verified(manifest).unwrap();
+            let entry: Value = serde_cbor::from_slice(&bytes).unwrap();
             let page = entry["page_digest"].as_str().unwrap();
             fs::remove_file(cas.blobs_dir().join(format!("{page}.blob"))).unwrap();
         }
@@ -679,6 +765,63 @@ fn budgeted_same_native_owner_retries_original_after_real_view_error() {
 }
 
 #[test]
+fn budgeted_signed_remote_diagnostics_cannot_choose_local_blocker() {
+    for route in [
+        oasis7_client_api::world_service::VIEW_PATH,
+        FORMAL_FULL_SYNC_MANIFEST_PATH,
+        oasis7_client_api::world_service_full_sync::FORMAL_FULL_SYNC_OBJECT_PATH,
+    ] {
+        let fixture = BudgetFixture::new(false, |_| {}, None);
+        *fixture.primary.signed_reject.lock().unwrap() = Some(route.into());
+        let mut driver = fixture.driver(1);
+        driver.poll();
+        assert!(driver.retained_world().is_none(), "{route}");
+        let original = fixture.snapshot();
+        assert_eq!(original.attempts_used, 1);
+        assert!(original.charged().unwrap() < original.policy.max_encoded_io_bytes);
+        let observed = fixture.observations();
+        assert!(observed.iter().any(|e| e.path == route && e.status == 400));
+        assert_eq!(
+            original.encoded_tx_actual,
+            observed.iter().map(|e| e.tx as u64).sum::<u64>()
+        );
+        assert_eq!(
+            original.encoded_rx_actual,
+            observed.iter().map(|e| e.rx as u64).sum::<u64>()
+        );
+        {
+            let live = driver.observation.lock().unwrap();
+            assert!(
+                live.base["error"]
+                    .as_str()
+                    .unwrap()
+                    .contains(REMOTE_DIAGNOSTIC),
+                "{route}: {}",
+                live.base
+            );
+            assert_eq!(
+                live.base["blocker"], "operation_recovery_required",
+                "{route}: {}",
+                live.base
+            );
+        }
+        // The remote text neither grants another attempt nor makes a normal
+        // bounded retry permanently unavailable. The next poll keeps originals.
+        driver.poll();
+        fixture.require_world(&driver);
+        let completed = fixture.snapshot();
+        assert_eq!(completed.identity, original.identity);
+        assert_eq!(
+            completed.original_request_json,
+            original.original_request_json
+        );
+        assert_eq!(completed.attempt_owner, original.attempt_owner);
+        assert_eq!(completed.attempts_used, 2);
+        fixture.require_wire_accounting(&completed);
+    }
+}
+
+#[test]
 fn budgeted_repeated_poll_cannot_reset_exhausted_operation_or_attempts() {
     let fixture = BudgetFixture::new(
         false,
@@ -700,6 +843,10 @@ fn budgeted_repeated_poll_cannot_reset_exhausted_operation_or_attempts() {
     assert_eq!(after.encoded_rx_actual, original.encoded_rx_actual);
     assert_eq!(after.exchanges_started, 1);
     assert_eq!(after.attempts_used, after.policy.max_attempts);
+    assert_eq!(
+        driver.observation.lock().unwrap().base["blocker"],
+        "operation_budget_exhausted"
+    );
     assert!(driver.retained_world().is_none());
     assert_eq!(
         after.terminal_index.as_ref().unwrap().completed_operations,
@@ -726,6 +873,10 @@ fn budgeted_real_deadline_stops_failover_without_refreshing_attempt() {
     assert_eq!(after.exchanges_started, 1);
     assert!(fixture.alternate.as_ref().unwrap().observed().is_empty());
     assert!(driver.retained_world().is_none());
+    assert_eq!(
+        driver.observation.lock().unwrap().base["blocker"],
+        "attempt_expired"
+    );
 }
 
 /// Executed by the already registered shipping lifecycle CLI case, with the

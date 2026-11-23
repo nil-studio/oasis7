@@ -3,7 +3,7 @@ use std::{
     fmt, io,
     pin::Pin,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     task::{Context, Poll},
@@ -21,6 +21,7 @@ pub(super) struct Exchange {
     deadline: Instant,
     started: AtomicBool,
     finished: AtomicBool,
+    encoded_request: Mutex<Option<Vec<u8>>>,
 }
 
 impl fmt::Debug for Exchange {
@@ -39,6 +40,7 @@ impl Exchange {
             deadline,
             started: AtomicBool::new(false),
             finished: AtomicBool::new(false),
+            encoded_request: Mutex::new(None),
         })
     }
 
@@ -63,16 +65,48 @@ impl Exchange {
         self.check_deadline()
     }
 
-    pub(super) fn start(&self, bytes: usize) -> io::Result<()> {
+    pub(super) fn prepare(&self, bytes: Vec<u8>) -> io::Result<()> {
         self.check_active()?;
+        let mut encoded = self
+            .encoded_request
+            .lock()
+            .map_err(|_| io::Error::other("encoded request poisoned"))?;
+        if self.started.load(Ordering::Acquire) || encoded.is_some() {
+            return Err(io::Error::other("encoded request already prepared"));
+        }
+        *encoded = Some(bytes);
+        Ok(())
+    }
+
+    pub(super) fn admit(&self) -> io::Result<()> {
+        self.check_active()?;
+        let size = self
+            .encoded_request
+            .lock()
+            .map_err(|_| io::Error::other("encoded request poisoned"))?
+            .as_ref()
+            .ok_or_else(|| io::Error::other("encoded request was not prepared"))?
+            .len();
         if self.finished.load(Ordering::Acquire) || self.started.swap(true, Ordering::AcqRel) {
             return Err(io::Error::other(
                 "encoded exchange already admitted or stopped",
             ));
         }
-        self.budget.start(bytes)?;
+        self.budget.start(size)?;
         // A late durable admission does not authorize even the first stream poll.
         self.check_active()
+    }
+
+    pub(super) fn take_encoded_request(&self) -> io::Result<Vec<u8>> {
+        self.check_active()?;
+        if !self.started.load(Ordering::Acquire) {
+            return Err(io::Error::other("encoded exchange was not admitted"));
+        }
+        self.encoded_request
+            .lock()
+            .map_err(|_| io::Error::other("encoded request poisoned"))?
+            .take()
+            .ok_or_else(|| io::Error::other("encoded request was not prepared or was already sent"))
     }
 
     pub(super) fn finish(&self) -> io::Result<()> {

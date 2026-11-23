@@ -4,6 +4,7 @@
 //! delivery to the peer. A pending reservation survives restart unchanged.
 use super::super::local_io;
 pub(super) use super::operation_config::FormalFullSyncTransferPolicyV1 as Policy;
+use super::operation_failure::{LocalBlocker, OperationFailure};
 use super::operation_snapshot::{
     API, MAX_LEDGER_JSON, MAX_REQUEST_BODY, MAX_WINDOW, read_snapshot,
 };
@@ -53,6 +54,7 @@ pub(super) struct Ledger {
     next_owner: Option<AttemptOwner>,
     repairing_installation: bool,
     cancellation: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    local_failure: std::cell::Cell<Option<LocalBlocker>>,
 }
 
 #[path = "formal_full_sync_operation_completion.rs"]
@@ -167,6 +169,7 @@ impl Ledger {
             next_owner: None,
             repairing_installation: false,
             cancellation: None,
+            local_failure: std::cell::Cell::new(None),
         })
     }
 
@@ -205,6 +208,7 @@ impl Ledger {
             next_owner: None,
             repairing_installation: false,
             cancellation: None,
+            local_failure: std::cell::Cell::new(None),
         })
     }
 
@@ -216,6 +220,30 @@ impl Ledger {
 
     pub fn snapshot(&self) -> &Snapshot {
         &self.state
+    }
+
+    pub(super) fn failure(&self, message: String) -> OperationFailure {
+        OperationFailure::new(self.local_failure.get().unwrap_or_default(), message)
+    }
+
+    pub(super) fn failure_reason(&self, attempt: &AttemptPermit) -> LocalBlocker {
+        if let Some(reason) = self.local_failure.get() {
+            return reason;
+        }
+        if Instant::now() >= attempt.deadline {
+            LocalBlocker::AttemptExpired
+        } else {
+            LocalBlocker::RecoveryRequired
+        }
+    }
+
+    fn local_error(&self, blocker: LocalBlocker, message: &str) -> String {
+        // Preserve the first locally produced cause through cleanup; neither
+        // a later cancellation nor a remote diagnostic can relabel it.
+        if self.local_failure.get().is_none() {
+            self.local_failure.set(Some(blocker));
+        }
+        message.to_owned()
     }
 
     pub(super) fn bind_cancellation(
@@ -388,7 +416,10 @@ impl Ledger {
             );
         }
         if self.state.attempts_used >= self.state.policy.max_attempts {
-            return Err("operation_budget_exhausted: attempts".into());
+            return Err(self.local_error(
+                LocalBlocker::BudgetExhausted,
+                "operation_budget_exhausted: attempts",
+            ));
         }
         let mut next = self.state.clone();
         if let Some(nonce) = next.active_attempt_nonce.take() {
@@ -417,6 +448,7 @@ impl Ledger {
         }
         // Freeze this new attempt's original deadline before the durable
         // recovery transition. A slow fsync must not buy additional runtime.
+        self.local_failure.set(None);
         let started = Instant::now();
         let attempt_deadline = started
             .checked_add(Duration::from_millis(self.state.policy.attempt_timeout_ms))
@@ -428,7 +460,7 @@ impl Ledger {
         }
         if Instant::now() >= attempt_deadline {
             self.poisoned = true;
-            return Err("attempt_expired".into());
+            return Err(self.local_error(LocalBlocker::AttemptExpired, "attempt_expired"));
         }
         self.recovered = false;
         self.reopen_deadline = None;
@@ -443,6 +475,7 @@ impl Ledger {
     }
 
     pub fn begin_attempt(&mut self) -> Result<AttemptPermit, String> {
+        self.local_failure.set(None);
         self.begin_attempt_from(Instant::now())
     }
 
@@ -461,7 +494,10 @@ impl Ledger {
             );
         }
         if self.state.attempts_used == self.state.policy.max_attempts {
-            return Err("operation_budget_exhausted: attempts".into());
+            return Err(self.local_error(
+                LocalBlocker::BudgetExhausted,
+                "operation_budget_exhausted: attempts",
+            ));
         }
         let mut next = self.state.clone();
         next.attempts_used += 1;
@@ -476,7 +512,7 @@ impl Ledger {
             // The attempted transition is already durable. Preserve its spent
             // slot for fenced recovery, never grant a fresh transport permit.
             self.poisoned = true;
-            return Err("attempt_expired".into());
+            return Err(self.local_error(LocalBlocker::AttemptExpired, "attempt_expired"));
         }
         Ok(AttemptPermit {
             identity: self.state.identity.clone(),
@@ -493,7 +529,10 @@ impl Ledger {
             .as_ref()
             .is_some_and(|flag| flag.load(std::sync::atomic::Ordering::SeqCst))
         {
-            return Err("operation_recovery_required: worker cancelled".into());
+            return Err(self.local_error(
+                LocalBlocker::RecoveryRequired,
+                "operation_recovery_required: worker cancelled",
+            ));
         }
         Ok(())
     }
@@ -509,7 +548,7 @@ impl Ledger {
             return Err("operation_recovery_required: stale attempt permit".into());
         }
         if Instant::now() >= permit.deadline {
-            return Err("attempt_expired".into());
+            return Err(self.local_error(LocalBlocker::AttemptExpired, "attempt_expired"));
         }
         Ok(())
     }
@@ -573,7 +612,7 @@ impl Ledger {
             // The original bytes and the spent attempt stay durable, but a
             // late selected target may not authorize another manifest read.
             self.poisoned = true;
-            return Err("attempt_expired".into());
+            return Err(self.local_error(LocalBlocker::AttemptExpired, "attempt_expired"));
         }
         Ok(())
     }
@@ -641,7 +680,7 @@ impl Ledger {
             // expired. Never authorize the external pin CAS with late fsync.
             // Preserve unknown/pending state for explicit fenced recovery.
             self.poisoned = true;
-            return Err("attempt_expired".into());
+            return Err(self.local_error(LocalBlocker::AttemptExpired, "attempt_expired"));
         }
         Ok(())
     }
@@ -693,7 +732,10 @@ impl Ledger {
         if next.proof_pages > next.policy.max_proof_pages
             || next.proof_bytes > next.policy.max_proof_bytes
         {
-            return Err("operation_budget_exhausted: proof".into());
+            return Err(self.local_error(
+                LocalBlocker::BudgetExhausted,
+                "operation_budget_exhausted: proof",
+            ));
         }
         self.save(next)
     }
@@ -726,7 +768,10 @@ impl Ledger {
             .checked_add(bytes)
             .ok_or("material bytes overflow")?;
         if next.material_bytes > next.material_limit || next.materials.len() >= 65_536 {
-            return Err("operation_budget_exhausted: material".into());
+            return Err(self.local_error(
+                LocalBlocker::BudgetExhausted,
+                "operation_budget_exhausted: material",
+            ));
         }
         next.materials.insert(digest.into(), bytes);
         self.save(next)
@@ -767,7 +812,10 @@ impl Ledger {
             || self.state.exchanges_started == self.state.policy.max_exchanges
             || self.state.charged()? == self.state.policy.max_encoded_io_bytes
         {
-            return Err("operation_budget_exhausted: exchanges".into());
+            return Err(self.local_error(
+                LocalBlocker::BudgetExhausted,
+                "operation_budget_exhausted: exchanges",
+            ));
         }
         if tx_credit > MAX_REQUEST_BODY
             || rx_credit > MAX_WINDOW
@@ -781,11 +829,17 @@ impl Ledger {
             .max_encoded_io_bytes
             .checked_sub(self.state.charged()?)
             .ok_or("invalid charged body credit")?;
-        let rx_available = remaining
-            .checked_sub(tx_credit)
-            .ok_or("operation_budget_exhausted: initial HTTP body credit")?;
+        let rx_available = remaining.checked_sub(tx_credit).ok_or_else(|| {
+            self.local_error(
+                LocalBlocker::BudgetExhausted,
+                "operation_budget_exhausted: initial HTTP body credit",
+            )
+        })?;
         if rx_credit > 0 && rx_available == 0 {
-            return Err("operation_budget_exhausted: initial HTTP body credit".into());
+            return Err(self.local_error(
+                LocalBlocker::BudgetExhausted,
+                "operation_budget_exhausted: initial HTTP body credit",
+            ));
         }
         let rx_credit = rx_credit.min(rx_available);
         let initial = tx_credit
@@ -798,7 +852,10 @@ impl Ledger {
             .ok_or("initial credit overflow")?
             > self.state.policy.max_encoded_io_bytes
         {
-            return Err("operation_budget_exhausted: initial HTTP body credit".into());
+            return Err(self.local_error(
+                LocalBlocker::BudgetExhausted,
+                "operation_budget_exhausted: initial HTTP body credit",
+            ));
         }
         let mut next = self.state.clone();
         next.exchanges_started = next
@@ -816,7 +873,7 @@ impl Ledger {
             // Admission is already durable, but no I/O permit escaped. Retain
             // the paid original request and require explicit fenced recovery.
             self.poisoned = true;
-            return Err("attempt_expired".into());
+            return Err(self.local_error(LocalBlocker::AttemptExpired, "attempt_expired"));
         }
         if let Err(error) = self.check_attempt(permit) {
             // Cancellation may arrive while the original admission is being
@@ -849,7 +906,10 @@ impl Ledger {
             .ok_or("body window credit overflow")?;
         let size = (desired as u64).min(MAX_WINDOW).min(available);
         if size == 0 {
-            return Err("operation_budget_exhausted: encoded body window".into());
+            return Err(self.local_error(
+                LocalBlocker::BudgetExhausted,
+                "operation_budget_exhausted: encoded body window",
+            ));
         }
         Ok(size as usize)
     }
@@ -895,7 +955,10 @@ impl Ledger {
             .ok_or("body credit overflow")?
             > self.state.policy.max_encoded_io_bytes
         {
-            return Err("operation_budget_exhausted: encoded body bytes".into());
+            return Err(self.local_error(
+                LocalBlocker::BudgetExhausted,
+                "operation_budget_exhausted: encoded body bytes",
+            ));
         }
         let mut next = self.state.clone();
         match direction {
@@ -922,7 +985,7 @@ impl Ledger {
             // The original reservation is not refunded on unknown or late
             // persistence; no token is returned to authorize transport I/O.
             self.poisoned = true;
-            return Err("attempt_expired".into());
+            return Err(self.local_error(LocalBlocker::AttemptExpired, "attempt_expired"));
         }
         if let Err(error) = self.check_attempt(permit) {
             self.poisoned = true;

@@ -74,6 +74,9 @@ mod native_environment;
 #[path = "formal_full_sync_operation_config.rs"]
 mod operation_config;
 #[cfg(unix)]
+#[path = "formal_full_sync_operation_failure.rs"]
+mod operation_failure;
+#[cfg(unix)]
 #[path = "formal_full_sync_operation_ledger.rs"]
 mod operation_ledger;
 #[path = "formal_full_sync_operation_snapshot.rs"]

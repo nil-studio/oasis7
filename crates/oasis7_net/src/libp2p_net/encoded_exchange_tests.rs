@@ -15,6 +15,7 @@ pub(super) struct Ledger {
     pub(super) unknown: usize,
     pub(super) active: bool,
     pub(super) starts: Vec<usize>,
+    pub(super) max_exchanges: Option<usize>,
     pub(super) finishes: usize,
     pub(super) zeros: usize,
     next: u64,
@@ -52,6 +53,7 @@ pub(super) struct Budget {
     delay: Delay,
     cancelled: Arc<AtomicBool>,
     cancel_at: CancelAt,
+    after_active: Option<Box<dyn Fn() + Send + Sync>>,
 }
 
 impl Budget {
@@ -64,6 +66,7 @@ impl Budget {
             delay: Delay::None,
             cancelled: Arc::new(AtomicBool::new(false)),
             cancel_at: CancelAt::None,
+            after_active: None,
         }
     }
 }
@@ -122,6 +125,9 @@ impl EncodedExchangeBudget for Budget {
         self.deadline
     }
     fn check_active(&self) -> io::Result<()> {
+        if let Some(after_active) = &self.after_active {
+            after_active();
+        }
         if self.delay == Delay::Active {
             std::thread::sleep(Duration::from_millis(300));
         }
@@ -135,6 +141,9 @@ impl EncodedExchangeBudget for Budget {
             let mut ledger = self.ledger.lock().unwrap();
             if ledger.active
                 || ledger.unknown != 0
+                || ledger
+                    .max_exchanges
+                    .is_some_and(|maximum| ledger.starts.len() >= maximum)
                 || bytes > ledger.limit.saturating_sub(ledger.spent())
             {
                 return Err(io::Error::other(
@@ -340,15 +349,31 @@ fn runtime() -> tokio::runtime::Runtime {
         .build()
         .unwrap()
 }
-fn local(budget: Budget) -> LocalRequest {
-    LocalRequest {
-        message: NetworkRequest {
-            protocol: "/meter".into(),
-            payload: vec![0, 24, 255],
-        },
-        deadline: Some(tokio::time::Instant::from_std(budget.deadline)),
-        exchange: Some(Exchange::new(Box::new(budget))),
-    }
+async fn write_local(
+    codec: &mut RequestCodec,
+    protocol: &StreamProtocol,
+    io: &mut PartialIo,
+    budget: Budget,
+) -> io::Result<()> {
+    let deadline = Some(tokio::time::Instant::from_std(budget.deadline));
+    let message = NetworkRequest {
+        protocol: "/meter".into(),
+        payload: vec![0, 24, 255],
+    };
+    let exchange = Exchange::new(Box::new(budget));
+    super::super::request_deadline::prepare_encoded_request(message.clone(), &exchange)?;
+    exchange.admit()?;
+    codec
+        .write_request(
+            protocol,
+            io,
+            LocalRequest {
+                message,
+                deadline,
+                exchange: Some(exchange),
+            },
+        )
+        .await
 }
 
 #[test]
@@ -360,17 +385,14 @@ fn actual_codec_counts_complete_cbor_and_short_io_with_known_eof() {
         let mut io = PartialIo::new(Arc::clone(&state), expected_response.clone());
         let mut codec = RequestCodec::default();
         let protocol = StreamProtocol::new("/test/actual-codec");
-        codec
-            .write_request(
-                &protocol,
-                &mut io,
-                local(Budget::new(
-                    Arc::clone(&state),
-                    Instant::now() + Duration::from_secs(2),
-                )),
-            )
-            .await
-            .unwrap();
+        write_local(
+            &mut codec,
+            &protocol,
+            &mut io,
+            Budget::new(Arc::clone(&state), Instant::now() + Duration::from_secs(2)),
+        )
+        .await
+        .unwrap();
         let result = codec.read_response(&protocol, &mut io).await.unwrap();
         assert_eq!(result.payload, [255, 0, 24]);
         assert_eq!(io.written, expected_request);
@@ -395,16 +417,16 @@ fn codec_partial_error_and_timeout_keep_only_unconfirmed_progress_unknown() {
             io.stop_after = 2;
             io.stop = stop;
             let mut codec = RequestCodec::default();
-            let result = codec
-                .write_request(
-                    &StreamProtocol::new("/test/partial"),
-                    &mut io,
-                    local(Budget::new(
-                        Arc::clone(&state),
-                        Instant::now() + Duration::from_millis(300),
-                    )),
-                )
-                .await;
+            let result = write_local(
+                &mut codec,
+                &StreamProtocol::new("/test/partial"),
+                &mut io,
+                Budget::new(
+                    Arc::clone(&state),
+                    Instant::now() + Duration::from_millis(300),
+                ),
+            )
+            .await;
             assert!(result.is_err());
             drop(codec);
             let actual = state.lock().unwrap();
@@ -425,13 +447,11 @@ fn dropping_pending_codec_future_does_not_refund_or_finish_its_live_owner() {
         io.stop = Stop::Pending;
         let mut codec = RequestCodec::default();
         let protocol = StreamProtocol::new("/test/cancel");
-        let mut future = Box::pin(codec.write_request(
+        let mut future = Box::pin(write_local(
+            &mut codec,
             &protocol,
             &mut io,
-            local(Budget::new(
-                Arc::clone(&state),
-                Instant::now() + Duration::from_secs(2),
-            )),
+            Budget::new(Arc::clone(&state), Instant::now() + Duration::from_secs(2)),
         ));
         let waker = noop_waker();
         assert!(
@@ -460,7 +480,7 @@ fn pending_write_rechecks_original_cancellation_before_reusing_its_reservation()
         let cancelled = Arc::clone(&budget.cancelled);
         let mut codec = RequestCodec::default();
         let protocol = StreamProtocol::new("/test/pending-write-cancel");
-        let mut future = Box::pin(codec.write_request(&protocol, &mut io, local(budget)));
+        let mut future = Box::pin(write_local(&mut codec, &protocol, &mut io, budget));
         let waker = noop_waker();
         let mut context = Context::from_waker(&waker);
         assert!(future.as_mut().poll(&mut context).is_pending());
@@ -501,8 +521,7 @@ fn pending_response_rechecks_original_cancellation_and_keeps_unknown_credit() {
         let cancelled = Arc::clone(&budget.cancelled);
         let mut codec = RequestCodec::default();
         let protocol = StreamProtocol::new("/test/pending-read-cancel");
-        codec
-            .write_request(&protocol, &mut io, local(budget))
+        write_local(&mut codec, &protocol, &mut io, budget)
             .await
             .unwrap();
         let write_calls = io.calls;
@@ -542,18 +561,15 @@ fn write_zero_is_known_zero_but_partial_response_error_is_not() {
         let mut codec = RequestCodec::default();
         let protocol = StreamProtocol::new("/test/zero");
         assert_eq!(
-            codec
-                .write_request(
-                    &protocol,
-                    &mut io,
-                    local(Budget::new(
-                        Arc::clone(&state),
-                        Instant::now() + Duration::from_secs(2)
-                    ))
-                )
-                .await
-                .unwrap_err()
-                .kind(),
+            write_local(
+                &mut codec,
+                &protocol,
+                &mut io,
+                Budget::new(Arc::clone(&state), Instant::now() + Duration::from_secs(2))
+            )
+            .await
+            .unwrap_err()
+            .kind(),
             io::ErrorKind::WriteZero
         );
         drop(codec);
@@ -567,17 +583,14 @@ fn write_zero_is_known_zero_but_partial_response_error_is_not() {
         io.stop_after = 2;
         io.stop = Stop::Error;
         let mut codec = RequestCodec::default();
-        codec
-            .write_request(
-                &protocol,
-                &mut io,
-                local(Budget::new(
-                    Arc::clone(&state),
-                    Instant::now() + Duration::from_secs(2),
-                )),
-            )
-            .await
-            .unwrap();
+        write_local(
+            &mut codec,
+            &protocol,
+            &mut io,
+            Budget::new(Arc::clone(&state), Instant::now() + Duration::from_secs(2)),
+        )
+        .await
+        .unwrap();
         assert!(codec.read_response(&protocol, &mut io).await.is_err());
         let actual = state.lock().unwrap();
         assert_eq!(actual.rx, 2);
@@ -599,14 +612,14 @@ fn late_activity_check_start_reserve_and_settlement_never_authorize_more_io() {
             budget.delay = delay;
             let mut codec = RequestCodec::default();
             assert!(
-                codec
-                    .write_request(
-                        &StreamProtocol::new("/test/late-durable"),
-                        &mut io,
-                        local(budget)
-                    )
-                    .await
-                    .is_err()
+                write_local(
+                    &mut codec,
+                    &StreamProtocol::new("/test/late-durable"),
+                    &mut io,
+                    budget
+                )
+                .await
+                .is_err()
             );
             drop(codec);
             let actual = state.lock().unwrap();
@@ -628,14 +641,14 @@ fn cancellation_during_durable_callbacks_never_authorizes_more_io() {
             budget.cancel_at = cancel_at;
             let mut codec = RequestCodec::default();
             assert!(
-                codec
-                    .write_request(
-                        &StreamProtocol::new("/test/cancel-durable-return"),
-                        &mut io,
-                        local(budget)
-                    )
-                    .await
-                    .is_err()
+                write_local(
+                    &mut codec,
+                    &StreamProtocol::new("/test/cancel-durable-return"),
+                    &mut io,
+                    budget
+                )
+                .await
+                .is_err()
             );
             assert!(Instant::now() < deadline);
             drop(codec);
@@ -650,3 +663,6 @@ fn cancellation_during_durable_callbacks_never_authorizes_more_io() {
 
 #[path = "encoded_exchange_network_tests.rs"]
 mod network_tests;
+
+#[path = "encoded_exchange_dispatch_tests.rs"]
+mod dispatch_tests;

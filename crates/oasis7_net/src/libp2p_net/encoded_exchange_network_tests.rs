@@ -40,6 +40,158 @@ fn pair(quic: bool) -> (Libp2pNetwork, Libp2pNetwork) {
 }
 
 #[test]
+fn known_local_connection_gap_rejects_before_exchange_admission() {
+    let client = Libp2pNetwork::new(Libp2pNetworkConfig::default());
+    let protocol = "/aw/rr/1.0.0/encoded-dispatch-gap";
+    let body = [24, 255];
+    let state = ledger(1024);
+    let error = client
+        .request_to_peer_with_encoded_budget(
+            protocol,
+            &body,
+            libp2p::PeerId::random(),
+            Box::new(Budget::new(
+                Arc::clone(&state),
+                Instant::now() + Duration::from_secs(5),
+            )),
+        )
+        .unwrap_err();
+    assert_eq!(
+        error.network_failure(Some(protocol)).cause,
+        oasis7_proto::network_failure::FailureCause::ConnectionGap
+    );
+    wait_until(|| Arc::strong_count(&state) == 1);
+    let actual = state.lock().unwrap();
+    // The runtime's existing local gate rejected before any network dispatch;
+    // no socket or codec was polled and no exchange may be manufactured.
+    assert!(actual.starts.is_empty());
+    assert_eq!(
+        (actual.tx, actual.rx, actual.unknown, actual.finishes),
+        (0, 0, 0, 0)
+    );
+    assert!(actual.pending.is_empty());
+}
+
+pub(super) struct UnsupportedPeer {
+    pub(super) peer: libp2p::PeerId,
+    stopped: Arc<AtomicBool>,
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+impl UnsupportedPeer {
+    pub(super) fn connect() -> (Self, Libp2pNetwork) {
+        use futures::{
+            StreamExt,
+            future::{Either, select},
+        };
+        let key = libp2p::identity::Keypair::generate_ed25519();
+        let peer = key.public().to_peer_id();
+        let stopped = Arc::new(AtomicBool::new(false));
+        let stop = Arc::clone(&stopped);
+        let (ready, listening) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async move {
+                    let mut swarm = libp2p::SwarmBuilder::with_existing_identity(key)
+                        .with_tokio()
+                        .with_tcp(
+                            libp2p::tcp::Config::default(),
+                            libp2p::noise::Config::new,
+                            libp2p::yamux::Config::default,
+                        )
+                        .unwrap()
+                        .with_behaviour(|_| libp2p::swarm::dummy::Behaviour)
+                        .unwrap()
+                        .with_swarm_config(|config| {
+                            config.with_idle_connection_timeout(Duration::from_secs(30))
+                        })
+                        .build();
+                    swarm
+                        .listen_on("/ip4/127.0.0.1/tcp/0".parse().unwrap())
+                        .unwrap();
+                    let mut ready = Some(ready);
+                    while !stop.load(Ordering::Acquire) {
+                        if let Either::Left((
+                            libp2p::swarm::SwarmEvent::NewListenAddr { address, .. },
+                            _,
+                        )) = select(
+                            swarm.select_next_some(),
+                            Box::pin(tokio::time::sleep(Duration::from_millis(5))),
+                        )
+                        .await
+                            && let Some(ready) = ready.take()
+                        {
+                            ready.send(address).unwrap();
+                        }
+                    }
+                });
+        });
+        let address = listening.recv_timeout(Duration::from_secs(5)).unwrap();
+        let client = Libp2pNetwork::new(Libp2pNetworkConfig {
+            bootstrap_peers: vec![address.with(libp2p::multiaddr::Protocol::P2p(peer))],
+            ..Libp2pNetworkConfig::default()
+        });
+        wait_until(|| client.connected_peers().contains(&peer));
+        (
+            Self {
+                peer,
+                stopped,
+                worker: Some(worker),
+            },
+            client,
+        )
+    }
+}
+
+impl Drop for UnsupportedPeer {
+    fn drop(&mut self) {
+        self.stopped.store(true, Ordering::Release);
+        if let Some(worker) = self.worker.take() {
+            worker.join().unwrap();
+        }
+    }
+}
+
+#[test]
+fn real_protocol_rejection_is_counted_before_codec_entry() {
+    let (server, client) = UnsupportedPeer::connect();
+    let protocol = "/aw/rr/1.0.0/encoded-negotiation-failure";
+    let body = [24, 255];
+    let state = ledger(1024);
+    // The public synchronous API also remains callable from an existing
+    // futures executor; preparing an in-memory codec must not nest LocalPool.
+    let error = futures::executor::block_on(async {
+        client.request_to_peer_with_encoded_budget(
+            protocol,
+            &body,
+            server.peer,
+            Box::new(Budget::new(
+                Arc::clone(&state),
+                Instant::now() + Duration::from_secs(5),
+            )),
+        )
+    })
+    .unwrap_err();
+    assert_eq!(
+        error.network_failure(Some(protocol)).cause,
+        oasis7_proto::network_failure::FailureCause::MissingHandler
+    );
+    wait_until(|| Arc::strong_count(&state) == 1);
+    let actual = state.lock().unwrap();
+    // Noise/TCP is actually established; the remote rejects the stream
+    // protocol before application encoding can be written or read.
+    assert_eq!(actual.starts, [request_bytes(protocol, &body).len()]);
+    assert_eq!(
+        (actual.tx, actual.rx, actual.unknown, actual.finishes),
+        (0, 0, 0, 1)
+    );
+    assert!(actual.pending.is_empty());
+}
+
+#[test]
 fn real_tcp_and_quic_consumer_keeps_two_exchanges_on_the_original_encoded_account() {
     for quic in [false, true] {
         let (server, client) = pair(quic);

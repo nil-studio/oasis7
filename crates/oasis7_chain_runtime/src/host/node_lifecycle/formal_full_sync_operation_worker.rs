@@ -4,6 +4,7 @@ use super::super::{
     model::{CONFIG_FILE, NodeConfig},
     process::ProcessOwnership,
 };
+use super::operation_failure::{LocalBlocker, OperationFailure};
 use super::{
     FormalFullSyncConfigV1, FormalFullSyncConfigV2, FormalFullSyncCutV1, FormalFullSyncSession,
     FormalFullSyncStatusV1, LocalCasStore, attempt::FullSyncTargetV1, cut_from_anchor,
@@ -99,7 +100,7 @@ impl BudgetedDriver {
         Ok(())
     }
 
-    fn fail(&mut self, error: String, permanent: bool) {
+    fn fail(&mut self, error: OperationFailure, permanent: bool) {
         self.blocked |= permanent;
         let mut live = self
             .observation
@@ -109,15 +110,8 @@ impl BudgetedDriver {
         live.base["ready"] = false.into();
         live.base["world_loaded"] = false.into();
         live.base["state"] = "blocked".into();
-        live.base["error"] = error.clone().into();
-        live.base["blocker"] = if error.contains("attempt_expired") {
-            "attempt_expired"
-        } else if error.contains("operation_budget_exhausted") {
-            "operation_budget_exhausted"
-        } else {
-            "operation_recovery_required"
-        }
-        .into();
+        live.base["error"] = error.message.into();
+        live.base["blocker"] = error.blocker.as_str().into();
     }
 
     pub(in super::super) fn poll(&mut self) {
@@ -134,7 +128,7 @@ impl BudgetedDriver {
             _ => match read_snapshot(&path) {
                 Ok(snapshot) => Some(snapshot),
                 Err(error) => {
-                    self.fail(error, true);
+                    self.fail(error.into(), true);
                     return;
                 }
             },
@@ -161,11 +155,11 @@ impl BudgetedDriver {
                     self.restored = Some(restored);
                     self.advance = true;
                     if let Err(error) = self.publish(&session, None) {
-                        self.fail(error, true);
+                        self.fail(error.into(), true);
                     }
                 }
                 Err(error) => {
-                    let may_retry = error.starts_with("installation_repair_attempt_failed:");
+                    let may_retry = error.retry_installation;
                     self.fail(error, !may_retry);
                 }
             }
@@ -252,7 +246,7 @@ impl BudgetedDriver {
             // The synchronous poll has returned and dropping it ends the
             // transport/writer lease. The next poll may admit a bounded attempt
             // on this exact ledger, or perform one bounded local recovery.
-            self.fail(error, false);
+            self.fail(worker.exchange.local_failure(error), false);
         }
     }
 }
@@ -471,7 +465,8 @@ impl InitialBudgetedSession {
         owner: Arc<ProcessOwnership>,
         stop: Arc<AtomicBool>,
         observation: &Arc<Mutex<super::operation_status::LiveObservation>>,
-    ) -> Result<(FormalFullSyncSession, super::RestoredFormalFullSyncWorldV1), String> {
+    ) -> Result<(FormalFullSyncSession, super::RestoredFormalFullSyncWorldV1), OperationFailure>
+    {
         let started = Instant::now();
         let inputs = OperationInputs::validate(node, instance, &owner)?;
         let deadline = started
@@ -543,12 +538,9 @@ impl InitialBudgetedSession {
                 &cas,
             )?;
             ledger.bind_attempt_owner(&owner, &node.identity.data_dir, instance)?;
-            let attempt = ledger.resume_installation_repair(
-                &owner,
-                &node.identity.data_dir,
-                &repair,
-                deadline,
-            )?;
+            let attempt = ledger
+                .resume_installation_repair(&owner, &node.identity.data_dir, &repair, deadline)
+                .map_err(|error| ledger.failure(error))?;
             let (attempt_started, attempt_deadline) = attempt.clock();
             let exchange = Arc::new(
                 inputs
@@ -561,7 +553,9 @@ impl InitialBudgetedSession {
                 serde_json::from_value(original["initial_minimum"].clone())
                     .map_err(|e| e.to_string())?,
             );
-            session.bind_shared_exchange(exchange.clone(), &original)?;
+            session
+                .bind_shared_exchange(exchange.clone(), &original)
+                .map_err(|error| exchange.local_failure(error))?;
             let admitted = exchange.snapshot();
             {
                 let mut live = observation.lock().map_err(|e| e.to_string())?;
@@ -586,8 +580,7 @@ impl InitialBudgetedSession {
                 session.set_world_loaded(true);
                 Ok((session, restored))
             })();
-            return outcome
-                .map_err(|error: String| format!("installation_repair_attempt_failed: {error}"));
+            return outcome.map_err(|error: String| exchange.local_failure(error).repair_attempt());
         }
         ledger.bind_cancellation(Arc::clone(&stop))?;
         let (restored, receipt) = session.recover_original_installation(&snapshot, deadline)?;
@@ -595,7 +588,9 @@ impl InitialBudgetedSession {
         if stop.load(Ordering::SeqCst) {
             return Err("operation_recovery_required: worker cancelled".into());
         }
-        ledger.complete_installation(&owner, &node.identity.data_dir, &receipt, deadline)?;
+        ledger
+            .complete_installation(&owner, &node.identity.data_dir, &receipt, deadline)
+            .map_err(|error| ledger.failure(error))?;
         session.set_world_loaded(true);
         Ok((session, restored))
     }
@@ -605,7 +600,7 @@ impl InitialBudgetedSession {
         instance: &LocalInstance,
         owner: Arc<ProcessOwnership>,
         previous: &super::RestoredFormalFullSyncWorldV1,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, OperationFailure> {
         let started = Instant::now();
         let inputs = OperationInputs::validate(node, instance, &owner)?;
         let deadline = started
@@ -650,9 +645,13 @@ impl InitialBudgetedSession {
         if ledger.snapshot() != &snapshot {
             return Err("previous operation changed before rollover".into());
         }
-        ledger.begin_next_operation(&owner, &directory, &receipt, &request, deadline)?;
+        ledger
+            .begin_next_operation(&owner, &directory, &receipt, &request, deadline)
+            .map_err(|error| ledger.failure(error))?;
         ledger.bind_attempt_owner(&owner, &directory, instance)?;
-        let attempt = ledger.begin_attempt()?;
+        let attempt = ledger
+            .begin_attempt()
+            .map_err(|error| ledger.failure(error))?;
         Self::attach(
             owner,
             directory,
@@ -668,7 +667,7 @@ impl InitialBudgetedSession {
         node: &NodeConfig,
         instance: &LocalInstance,
         owner: Arc<ProcessOwnership>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, OperationFailure> {
         let directory = node.identity.data_dir.clone();
         let inputs = OperationInputs::validate(node, instance, &owner)?;
         if instance.generation != 1 {
@@ -682,7 +681,7 @@ impl InitialBudgetedSession {
                 return Err("operation_recovery_required: original full-sync state exists".into());
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-            Err(error) => return Err(error.to_string()),
+            Err(error) => return Err(error.to_string().into()),
         }
         owner.require_directory(&directory)?;
         local_io::private_dir(&state)?;
@@ -712,7 +711,9 @@ impl InitialBudgetedSession {
             &directory,
         )?;
         ledger.bind_attempt_owner(&owner, &directory, instance)?;
-        let attempt = ledger.begin_attempt()?;
+        let attempt = ledger
+            .begin_attempt()
+            .map_err(|error| ledger.failure(error))?;
         Self::attach(
             owner,
             directory,
@@ -728,7 +729,7 @@ impl InitialBudgetedSession {
         node: &NodeConfig,
         instance: &LocalInstance,
         owner: Arc<ProcessOwnership>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, OperationFailure> {
         Self::resume_unpublished(node, instance, owner, false)
     }
 
@@ -736,7 +737,7 @@ impl InitialBudgetedSession {
         node: &NodeConfig,
         instance: &LocalInstance,
         owner: Arc<ProcessOwnership>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, OperationFailure> {
         Self::resume_unpublished(node, instance, owner, true)
     }
 
@@ -745,7 +746,7 @@ impl InitialBudgetedSession {
         instance: &LocalInstance,
         owner: Arc<ProcessOwnership>,
         expect_selected: bool,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, OperationFailure> {
         let started = Instant::now();
         let directory = node.identity.data_dir.clone();
         let inputs = OperationInputs::validate(node, instance, &owner)?;
@@ -766,7 +767,10 @@ impl InitialBudgetedSession {
             );
         }
         if snapshot.attempts_used >= policy.max_attempts {
-            return Err("operation_budget_exhausted: attempts".into());
+            return Err(OperationFailure::new(
+                LocalBlocker::BudgetExhausted,
+                "operation_budget_exhausted: attempts",
+            ));
         }
         let original: Value = serde_json::from_slice(
             snapshot
@@ -814,10 +818,11 @@ impl InitialBudgetedSession {
         ledger.bind_attempt_owner(&owner, &directory, instance)?;
         let attempt = match selected {
             Some(target) => {
-                ledger.resume_unpublished(&owner, &directory, &original, Some(target), deadline)?
+                ledger.resume_unpublished(&owner, &directory, &original, Some(target), deadline)
             }
-            None => ledger.resume_before_target(&owner, &directory, &original, deadline)?,
-        };
+            None => ledger.resume_before_target(&owner, &directory, &original, deadline),
+        }
+        .map_err(|error| ledger.failure(error))?;
         Self::attach(
             owner,
             directory,
@@ -837,13 +842,15 @@ impl InitialBudgetedSession {
         ledger: operation_ledger::Ledger,
         attempt: operation_ledger::AttemptPermit,
         request: &Value,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, OperationFailure> {
         let exchange = Arc::new(
             transport
                 .admit(ledger, attempt)?
                 .with_owner(Arc::clone(&owner), directory.clone())?,
         );
-        session.bind_shared_exchange(exchange.clone(), request)?;
+        session
+            .bind_shared_exchange(exchange.clone(), request)
+            .map_err(|error| exchange.local_failure(error))?;
         Ok(Self {
             owner,
             directory,

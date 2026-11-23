@@ -176,12 +176,13 @@ env -u RUSTC_WRAPPER OASIS7_FORMAL_NODE_TEST_BIN="$PWD/target/debug/oasis7_chain
 | 消费链 | 必需观测与拒绝边界 |
 | --- | --- |
 | controlled-v2 HTTP → 实际 World | 独立 loopback proxy 逐次记录原签名请求和响应正文 octets，包括 view、manifest、对象与真实 503 错误；同 cut 的独立 pinned provider 接续后，账本 actual 与观察值相等，实际保留 World 的 canonical snapshot 与原夹具相等。 |
+| 本地原因与远端诊断 | view、manifest、object 的实际签名错误正文包含预算、期限和恢复关键词时，仍只呈现普通恢复 blocker；完整正文照常计费，原 operation 上的合法后续 attempt 仍受原有限额度约束。真实本地额度耗尽和原期限到达分别呈现明确 blocker。 |
 | 原 operation 的后续 attempt | 同 native owner 的真实 view 失败后重试成功，operation/request/owner 不变而 attempt 增加；交换耗尽和慢响应不能换新 operation、免费 failover 或刷新原绝对期限。 |
-| 安装中断与本地恢复 | 在 durable intent 和 durable pins 两个真实边界终止旧 worker，再冷开同原 target。移除 HTTP source 后仍能原件读回；坏原 decision/roots、坏 material hash 和缺历史 proof 必须在新 pin 写入与网络前拒绝。 |
+| 安装中断与本地恢复 | 在 durable intent 和 durable pins 两个真实边界终止旧 worker，再冷开同原 target。移除 HTTP source 后仍能原件读回；零页历史须严格绑定外部 C0，缺页负例使用真实 C0→C1 已持久页；坏原 decision/roots、坏 material hash 和缺历史 proof 必须在新 pin 写入与网络前拒绝。 |
 | 缺失原对象 | 独立重放原 history 并核原 decision 后，只以新受限 attempt 获取原 manifest/roots 内缺失对象；不请求新 view、manifest 或目标。无 attempt 余量时 pin shard 与 ledger 原字节不变，也没有新 HTTP。 |
 | 周期与累计容量 | 真实同步超过 16 周期后摘要仍最多 16 项，累计 actual/exchanges 与独立网络观察相等；停止 source 后冷开保持原 ledger。注入无累计计数余量后，下一 poll 在新 I/O 前阻塞且不重置计数。 |
 | shipping native 接管 | 暂停实际 HTTP 后固定原进程身份并终止该进程，等待真实 native lock 释放；新 generation 保留原请求、actual 和未知预留。安装明确读回后未知量等额封存为 `unknown_final_charged`，不伪装 actual、不退款。 |
-| libp2p 完整编码账 | 真实 TCP／QUIC、完整 CBOR DTO、typed 远端错误、partial/取消/超额及多 stream 独立账；Runtime 测试内软件 adapter 将同一个实际持久 Ledger/AttemptPermit 接到两次真实 exchange，验证第三次拒绝、并发第二 caller 不释放第一占用、取消与冷开收费守恒。 |
+| libp2p 完整编码账 | 真实 TCP／QUIC、完整 CBOR DTO、typed 远端错误、partial/取消/超额及多 stream 独立账；本地无连接或关队列在准入前拒绝不计次，准入后的真实协议拒绝与拨号失败保留交换次数，即使编码正文 actual 为零；Runtime 测试内软件 adapter 将同一个实际持久 Ledger/AttemptPermit 接到两次真实 exchange，验证第三次拒绝、并发第二 caller 不释放第一占用、取消与冷开收费守恒。 |
 
 Net 生产接口的调用方必须提供原 operation 的持久准入、预留、可信结算、活性检查和结束语义。当前 codec 的 EOF framing 不额外虚构长度前缀；受测 bytes 包含实际 `NetworkRequest`／`NetworkResponse` 的完整外层。HTTP adapter 仍只计签名 JSON 正文，两者是明确分开的版本映射。软件 Ledger adapter 不授予 BFT FullReadOnly，也不提供 protected 4 GiB no-refund reservation、minimum/get/adopt 权限或真实 checkpoint 安装；这些组合由对应 wire-3 消费者和受保护后端验收。
 

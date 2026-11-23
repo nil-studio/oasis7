@@ -94,6 +94,20 @@ impl SharedOperationExchange {
             .map_err(|_| "operation cancellation binding already set".into())
     }
 
+    pub(super) fn local_failure(
+        &self,
+        message: String,
+    ) -> super::operation_failure::OperationFailure {
+        let guard = self
+            .active
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        super::operation_failure::OperationFailure::new(
+            guard.ledger.failure_reason(&guard.attempt),
+            message,
+        )
+    }
+
     pub(super) fn clock(&self) -> (std::time::Instant, std::time::Instant) {
         self.active.lock().unwrap().attempt.clock()
     }
@@ -266,8 +280,10 @@ impl PreparedTransport {
         self,
         ledger: Ledger,
         attempt: AttemptPermit,
-    ) -> Result<SharedOperationExchange, String> {
-        ledger.check_attempt(&attempt)?;
+    ) -> Result<SharedOperationExchange, super::operation_failure::OperationFailure> {
+        ledger
+            .check_attempt(&attempt)
+            .map_err(|error| ledger.failure(error))?;
         let original: serde_json::Value = serde_json::from_slice(
             ledger
                 .snapshot()

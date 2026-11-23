@@ -8,7 +8,7 @@ use std::{
 };
 
 use futures::{
-    AsyncRead, AsyncWrite, AsyncWriteExt,
+    AsyncRead, AsyncWrite, AsyncWriteExt, FutureExt,
     future::{Either, select},
 };
 use libp2p::{
@@ -131,6 +131,27 @@ impl Clone for RequestCodec {
     }
 }
 
+/// Encode once with the actual pinned codec before command dispatch. The runtime
+/// admits after its existing local peer gate and before dialing or negotiation;
+/// the stream later consumes these same bytes.
+pub(super) fn prepare_encoded_request(
+    message: NetworkRequest,
+    exchange: &Arc<super::encoded_exchange::Exchange>,
+) -> io::Result<()> {
+    exchange.check_active()?;
+    let mut codec = cbor::codec::Codec::<NetworkRequest, NetworkResponse>::default();
+    let mut encoded = futures::io::Cursor::new(Vec::new());
+    codec
+        .write_request(
+            &StreamProtocol::new(oasis7_proto::distributed::RR_PROTOCOL_PREFIX),
+            &mut encoded,
+            message,
+        )
+        .now_or_never()
+        .ok_or_else(|| io::Error::other("in-memory request encoding did not complete"))??;
+    exchange.prepare(encoded.into_inner())
+}
+
 impl Codec for RequestCodec {
     type Protocol = StreamProtocol;
     type Request = LocalRequest;
@@ -211,17 +232,10 @@ impl Codec for RequestCodec {
             if Instant::now() >= deadline {
                 return Err(elapsed());
             }
-            // Use the pinned production codec itself, not a payload estimate or
-            // a second serializer. These exact encoded bytes are then sent.
-            let mut encoded = futures::io::Cursor::new(Vec::new());
-            self.inner
-                .write_request(protocol, &mut encoded, request.message)
-                .await?;
-            let encoded = encoded.into_inner();
-            if Instant::now() >= deadline {
-                return Err(elapsed());
-            }
-            exchange.start(encoded.len())?;
+            // The API encoded and the runtime admitted before network dispatch.
+            // Missing or reused bytes fail closed, never encode
+            // or admit a second time after stream negotiation.
+            let encoded = exchange.take_encoded_request()?;
             if Instant::now() >= deadline {
                 return Err(elapsed());
             }

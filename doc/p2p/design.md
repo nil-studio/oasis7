@@ -600,7 +600,7 @@ partial read或普通 I/O Err 后仍按计量点实际已读／已写 bytes 结�
 
 一次恢复使用显式`reopen_timeout_ms`、并发1和原持久材料/历史容量；超时报告blocked，当前进程不自动重置计时自旋。缺本地原件时不得在已过期attempt内补下载；仍有合法正常attempt余量时以新fenced attempt在原账下载原件，否则保持阻塞。wire3原事务的认证get/adopt等必要RPC，必须消费原保护合同已预留的恢复/transfer额度、fresh challenge及当前lease，不能从本节获得免费RPC或新签名窗口。它的合法已提交minimum恢复权不依赖旧attempt仍在计时；材料或原累计额度实际不足仍明确blocked，不降minimum。
 
-**六类错误与无副作用。** 保留[正式读取错误分类](#formal-read-error-classification)的请求/绑定、实际授权、未就绪、合格历史不可用、内部失败、完整性/副本分歧；HTTP status/code映射和未签名`signature_failure`边界不变。新增本地预算/期限阻断使用独立typed reason（`operation_budget_exhausted`、`attempt_expired`、`operation_recovery_required`），不能把它们伪装成远端`HistoryUnavailable`或扩大权限。能切换provider的错误仍仅沿已有允许路径、原目标、剩余额度和同deadline；history/CAS integrity/publication poisoned仍停止failover。费用取决于实际计量事件，不由错误类别统一收费；任一错误不授予提交、重试新操作、降minimum或绕过effect-publication的机会。
+**六类错误与无副作用。** 保留[正式读取错误分类](#formal-read-error-classification)的请求/绑定、实际授权、未就绪、合格历史不可用、内部失败、完整性/副本分歧；HTTP status/code映射和未签名`signature_failure`边界不变。新增本地预算/期限阻断使用独立typed reason（`operation_budget_exhausted`、`attempt_expired`、`operation_recovery_required`），不能把它们伪装成远端`HistoryUnavailable`或扩大权限。本地 reason 只由原账本、原绝对期限和已准入恢复阶段产生；包括合法签名的远端诊断在内，任何错误正文都不能按关键词选择本地 blocker 或恢复重试权限。能切换provider的错误仍仅沿已有允许路径、原目标、剩余额度和同deadline；history/CAS integrity/publication poisoned仍停止failover。费用取决于实际计量事件，不由错误类别统一收费；任一错误不授予提交、重试新操作、降minimum或绕过effect-publication的机会。
 
 **版本化状态与来源。** 新状态使用`oasis7.formal-full-sync-status/v2`，保留既有`last_verified_cut`、`loaded_cut`、`lag_positions`与只读/可服务区别，并增加只读`operation`对象。字段由同一实际ledger/调用路径产生，report/replay不修改producer事实：
 
@@ -614,7 +614,7 @@ partial read或普通 I/O Err 后仍按计量点实际已读／已写 bytes 结�
 
 若使用libp2p，计量点必须覆盖实际序列化的完整`NetworkRequest`/`NetworkResponse`及协议自有frame前缀，包含envelope/签名/状态/编码膨胀，不能只加内层`payload.len()`；Noise/QUIC/TCP/IP开销仍不冒充已计量。
 
-当前生产接缝为 `oasis7_net::encoded_exchange::EncodedExchangeBudget` 及 `Libp2pNetwork::request_to_peer_with_encoded_budget`／保留 typed 授权错误的 authenticated 入口。调用方预绑定原 operation/attempt，`start` 取得实际 codec 编码的完整请求长度后持久准入，`reserve` 为新窗口在首次底层 I/O poll 前持久预留，Pending 时保留并复用同一 reservation；`settle` 只登记可信返回的实际量，`check_active` 在每次 poll（包括 Pending reservation 复用）之前及回调后复查原 owner/取消/期限，`finish` 在真实 codec 退出时结束占用。预留 token 未结算而被释放时保留 unknown charge；调用方 timeout 不证明 codec 已终止。当前 pinned libp2p CBOR codec 使用 `cbor4ii` 编码完整 DTO 并以 EOF 结束，没有额外固定长度前缀；实际编码一次并发送同一字节，不用另一种 serializer 估长。未来协议新增前缀须在同一计量点明确纳入。
+当前生产接缝为 `oasis7_net::encoded_exchange::EncodedExchangeBudget` 及 `Libp2pNetwork::request_to_peer_with_encoded_budget`／保留 typed 授权错误的 authenticated 入口。调用方预绑定原 operation/attempt，`start` 在已有本地派发门禁通过后、实际拨号与协议协商前，按一次 codec 编码的完整请求长度持久准入；未通过本地门禁不增加交换次数，准入后的连接或协议失败保留次数。原编码字节由同一 exchange 独占发送一次，`reserve` 为新窗口在首次底层 I/O poll 前持久预留，Pending 时保留并复用同一 reservation；`settle` 只登记可信返回的实际量，`check_active` 在每次 poll（包括 Pending reservation 复用）之前及回调后复查原 owner/取消/期限，`finish` 在真实 codec 退出时结束占用。预留 token 未结算而被释放时保留 unknown charge；调用方 timeout 不证明 codec 已终止。当前 pinned libp2p CBOR codec 使用 `cbor4ii` 编码完整 DTO 并以 EOF 结束，没有额外固定长度前缀；实际编码一次并发送同一字节，不用另一种 serializer 估长。未来协议新增前缀须在同一计量点明确纳入。
 
 每次完整消息的原上限、当前授权释放限制和真实encoded bytes与原transfer账同时检查。wire3的受保护ledger、get/adopt及恢复权限沿其主责，不能将controlled本机文件ledger当成它的信任来源。只共享已映射的有限计量/期限原语，不自动互认证据、授予FullReadOnly或宣称BFT整次同步已实现。
 

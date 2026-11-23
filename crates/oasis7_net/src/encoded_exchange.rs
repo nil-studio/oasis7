@@ -42,7 +42,12 @@ pub trait EncodedExchangeBudget: Send + Sync {
     /// deadline remains the bound on a pending stream that has not been woken.
     fn check_active(&self) -> io::Result<()>;
 
-    /// Admit exactly one exchange using the actual codec's complete request size.
+    /// Admit exactly one exchange using the actual codec's complete request size,
+    /// after local dispatch checks and before network dispatch, dialing or
+    /// protocol negotiation. A failed connection or
+    /// post-admission dispatch must retain that exchange's spent count, even if
+    /// no encoded application bytes were polled. Local encoding or admission
+    /// rejection does not manufacture an exchange or actual byte count.
     /// This may reserve response credit, but cannot create a new operation or
     /// renew its attempt. Failure must preserve any ambiguous durable admission.
     fn start(&self, encoded_request_bytes: usize) -> io::Result<()>;
@@ -54,8 +59,10 @@ pub trait EncodedExchangeBudget: Send + Sync {
         max_bytes: usize,
     ) -> io::Result<Box<dyn EncodedIoReservation>>;
 
-    /// The codec has stopped using this exchange, including on error or cancel.
-    /// This can precede `start` if dispatch failed. Unresolved reservations stay
+    /// Dispatch and the codec have stopped using this exchange, including errors
+    /// or cancellation. This can precede `start` on a known local rejection.
+    /// A known unused initial credit may be released; admitted exchange counts
+    /// and unresolved reservations stay
     /// charged; they cannot be refunded merely because the stream has stopped.
     /// A failed finish must leave the original ledger blocked or poisoned.
     fn finish(&self) -> io::Result<()>;
