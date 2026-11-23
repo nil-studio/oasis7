@@ -1016,3 +1016,26 @@ fn native_initial_ledger_durably_publishes_the_complete_original_request() {
 #[cfg(feature = "node-libp2p")]
 #[path = "formal_full_sync_operation_wire_tests.rs"]
 mod wire_tests;
+
+#[test]
+fn incomplete_operation_does_not_admit_an_unverified_grant_transition() {
+    let temp = TestDir::new();
+    let path = temp.path().join("operation.json");
+    let policy = policy();
+    let ledger = Ledger::create(&path, identity(&policy), policy).unwrap();
+    let original = serde_json::json!({
+        "node_identity": {"grant": "old"},
+        "config": {"grant": "old"}
+    });
+    let current_identity = serde_json::json!({"grant": "new"});
+    let current_config = serde_json::json!({"grant": "new"});
+    assert!(
+        !super::grant_transition::permits(
+            ledger.snapshot(),
+            &original,
+            &current_identity,
+            &current_config
+        )
+        .unwrap()
+    );
+}

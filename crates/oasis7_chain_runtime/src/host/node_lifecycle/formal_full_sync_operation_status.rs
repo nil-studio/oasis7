@@ -57,8 +57,13 @@ fn read_bound_snapshot(node: &NodeConfig) -> Result<Option<Snapshot>, String> {
     .map_err(|e| e.to_string())?;
     if snapshot.policy != configured.transfer_policy
         || snapshot.material_limit != configured.max_total_sync_bytes
-        || original["node_identity"]
-            != serde_json::to_value(&node.identity).map_err(|e| e.to_string())?
+        || !super::grant_transition::permits(
+            &snapshot,
+            &original,
+            &serde_json::to_value(&node.identity).map_err(|e| e.to_string())?,
+            &serde_json::to_value(configured.read_material_config())
+                .map_err(|e| e.to_string())?,
+        )?
         || original["native_owner_binding"].as_str()
             != Some(snapshot.identity.binding_digest.as_str())
     {

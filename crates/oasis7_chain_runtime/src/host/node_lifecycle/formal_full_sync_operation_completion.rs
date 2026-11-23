@@ -217,9 +217,7 @@ impl Ledger {
         .map_err(|e| e.to_string())?;
         for field in [
             "api_version",
-            "config",
             "transfer_policy",
-            "node_identity",
             "native_owner_binding",
             "node_public_key",
             "transport_binding",
@@ -229,6 +227,16 @@ impl Ledger {
                     "operation_recovery_required: next cycle changed immutable identity".into(),
                 );
             }
+        }
+        if !super::super::grant_transition::permits(
+            &self.state,
+            &original,
+            &request["node_identity"],
+            &request["config"],
+        )? {
+            return Err(
+                "operation_recovery_required: next cycle changed immutable grant binding".into(),
+            );
         }
         let mut next = self.state.clone();
         next.identity.operation_id = local_io::random_id()?;

@@ -61,6 +61,8 @@ mod dns;
 mod failover;
 #[path = "formal_full_sync_grant_reconcile.rs"]
 mod grant_reconcile;
+#[path = "formal_full_sync_grant_transition.rs"]
+mod grant_transition;
 #[path = "formal_full_sync_history.rs"]
 pub(super) mod history_chain;
 #[cfg(unix)]
@@ -207,18 +209,56 @@ pub(super) fn install_grant(
             }));
         }
     }
-    *node
+    let mut renewed = node.clone();
+    *renewed
         .identity
         .chain
         .formal_full_sync_grant_mut()
         .ok_or("full-sync profile disappeared during grant install")? = Some(grant.clone());
-    super::local_io::write(&instance_data.join(super::model::CONFIG_FILE), &node)?;
+    if node.identity.chain.budgeted_formal_full_sync().is_some() {
+        let path = instance_data.join("state/full-sync/operation.json");
+        match std::fs::symlink_metadata(&path) {
+            Ok(_) => {
+                let snapshot = operation_snapshot::read_snapshot(&path)?;
+                let original: serde_json::Value = serde_json::from_slice(
+                    snapshot
+                        .original_request_json
+                        .as_deref()
+                        .ok_or("grant renewal requires the original durable request")?,
+                )
+                .map_err(|e| e.to_string())?;
+                let renewed_config = renewed
+                    .identity
+                    .chain
+                    .budgeted_formal_full_sync()
+                    .ok_or("renewed budgeted configuration missing")?
+                    .read_material_config();
+                if !grant_transition::permits(
+                    &snapshot,
+                    &original,
+                    &serde_json::to_value(&renewed.identity).map_err(|e| e.to_string())?,
+                    &serde_json::to_value(&renewed_config).map_err(|e| e.to_string())?,
+                )? {
+                    return Err("grant renewal requires a completed original operation".into());
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound && current.is_none() => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Err("grant renewal cannot discard an existing operation ledger".into());
+            }
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    // The ledger remains immutable. A completed terminal plus a monotonic,
+    // independently signed grant permits the next cold startup to verify both
+    // old and new credentials; there is no cross-file half-written ledger.
+    super::local_io::write(&instance_data.join(super::model::CONFIG_FILE), &renewed)?;
     Ok(serde_json::json!({
         "installed": true,
         "changed": true,
         "grant_epoch": grant.body.grant_epoch,
         "authority_epoch": grant.body.authority_epoch,
-        "config_digest": super::local_io::digest(&node)?
+        "config_digest": super::local_io::digest(&renewed)?
     }))
 }
 

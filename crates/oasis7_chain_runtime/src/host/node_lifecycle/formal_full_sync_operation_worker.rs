@@ -11,6 +11,7 @@ use super::{
     FormalFullSyncConfigV1, FormalFullSyncConfigV2, FormalFullSyncCutV1, FormalFullSyncSession,
     LocalCasStore, attempt::FullSyncTargetV1, cut_from_anchor, history_chain, nondecreasing_cut,
     now_unix_ms, operation_ledger, operation_snapshot::read_snapshot, providers, shared_exchange,
+    grant_transition,
     validate_grant_for_node,
 };
 use serde_json::Value;
@@ -329,8 +330,9 @@ impl<'a> OperationInputs<'a> {
         root: &Path,
         original: &Value,
         selected: Option<&[u8]>,
+        snapshot: &super::operation_snapshot::Snapshot,
     ) -> Result<Option<FullSyncTargetV1>, String> {
-        self.verify_recovery_history_mode(root, original, selected, false)
+        self.verify_recovery_history_mode(root, original, selected, false, snapshot)
     }
 
     fn verify_recovery_history_mode(
@@ -339,12 +341,16 @@ impl<'a> OperationInputs<'a> {
         original: &Value,
         selected: Option<&[u8]>,
         repair: bool,
+        snapshot: &super::operation_snapshot::Snapshot,
     ) -> Result<Option<FullSyncTargetV1>, String> {
-        if original["node_identity"] != self.node_identity
+        if !grant_transition::permits(
+            snapshot,
+            original,
+            &self.node_identity,
+            &serde_json::to_value(&self.read).map_err(|error| error.to_string())?,
+        )?
             || original["native_owner_binding"].as_str() != Some(self.owner_binding.as_str())
             || original["transport_binding"].as_str() != Some(self.transport.binding_digest())
-            || original["config"]
-                != serde_json::to_value(&self.read).map_err(|error| error.to_string())?
             || original["transfer_policy"]
                 != serde_json::to_value(&self.configured.transfer_policy)
                     .map_err(|error| error.to_string())?
@@ -391,7 +397,10 @@ impl<'a> OperationInputs<'a> {
             "initial_minimum_record": minimum_anchor.head().record(),
             "transport_binding": self.transport.binding_digest(),
         }));
-        if expected != *original {
+        let mut previous_request = expected.clone();
+        previous_request["config"] = original["config"].clone();
+        previous_request["node_identity"] = original["node_identity"].clone();
+        if previous_request != *original {
             return Err("original request differs from the authenticated minimum and owner".into());
         }
         let anchor = client
@@ -510,6 +519,7 @@ impl InitialBudgetedSession {
             &original,
             snapshot.verified_target_json.as_deref(),
             missing,
+            &snapshot,
         )?;
         if Instant::now() >= deadline || stop.load(Ordering::SeqCst) {
             return Err("operation_reopen_expired".into());
@@ -626,6 +636,7 @@ impl InitialBudgetedSession {
             &root,
             &original,
             snapshot.verified_target_json.as_deref(),
+            &snapshot,
         )?;
         let session = FormalFullSyncSession::open(
             inputs.read.clone(),
@@ -785,7 +796,8 @@ impl InitialBudgetedSession {
         )
         .map_err(|error| error.to_string())?;
         let selected = snapshot.verified_target_json.as_deref();
-        let recovery_target = inputs.verify_recovery_history(&sync_root, &original, selected)?;
+        let recovery_target =
+            inputs.verify_recovery_history(&sync_root, &original, selected, &snapshot)?;
         owner.require_directory(&directory)?;
         if Instant::now() >= deadline {
             return Err("operation_reopen_expired".into());
