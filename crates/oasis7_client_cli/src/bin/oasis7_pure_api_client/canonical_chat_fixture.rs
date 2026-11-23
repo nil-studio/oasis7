@@ -178,7 +178,7 @@ pub(super) fn canonical_fixture(recover_after_timeout: bool, key_format: Option<
                             .subject_public_key
                     );
                 }
-                let mut projection = oasis7::world_service::projection::from_authenticated_world(
+                let mut projection = oasis7_world_service::projection::from_authenticated_world(
                     &world,
                     owner,
                     &signed.subject_public_key,
