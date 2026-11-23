@@ -3899,6 +3899,8 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         self.assertIn('needs: build\n', publish_header)
         self.assertIn('packages: write\n', publish_header)
         self.assertIn('rm -f "ci-${target}.tar"\n', publish_job)
+        self.assertIn('docker rmi "$ref" "oasis7-ci-${target}:candidate"\n', publish_job)
+        self.assertNotIn('if [[ "$target" == "browser" ]]', publish_job)
         for target in ('runtime', 'build', 'browser', 'rust-build', 'rust-wasm-build'):
             self.assertIn(f'          name: ci-image-{target}\n', publish_job)
             self.assertIn(f'        run: bash "$RUNNER_TEMP/publish-ci-image.sh" {target}\n', publish_job)
@@ -7157,6 +7159,7 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
         )
         self.assertEqual(CONFIG.get('main_fast_range_recovery_version'), 1)
         self.assertEqual(CONFIG.get('draft_pr_heavy_ci_skip_version'), 1)
+        self.assertEqual(CONFIG.get('auxiliary_workflow_consolidation_version'), 1)
 
         gate = JOBS['required-gate']
         self.assertIn(

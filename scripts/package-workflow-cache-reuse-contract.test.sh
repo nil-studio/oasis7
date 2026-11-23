@@ -431,6 +431,9 @@ for wf_label, wf_text, allow_candidate in (
     assert "    cache-mode: none\n" in plan_body, wf_label
     assert "    permissions:\n      contents: read\n      actions: read\n" in plan_body, wf_label
     assert "      - uses: actions/checkout@" in plan_body and "ref: ${{ github.workflow_sha }}\n" in plan_body, wf_label
+    assert "          fetch-depth: 0\n" in plan_body, wf_label
+    assert "          persist-credentials: false\n" in plan_body, wf_label
+    assert plan_body.count("GH_TOKEN:") == 1, wf_label
     assert "      - name: Require complete CI for the exact package source\n" in plan_body, wf_label
     assert "SOURCE_SHA: ${{ steps.source.outputs.checkoutSha }}" in plan_body, wf_label
     assert "GITHUB_WORKFLOW_SHA: ${{ github.workflow_sha }}" in plan_body, wf_label

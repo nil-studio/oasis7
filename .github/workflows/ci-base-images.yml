@@ -163,9 +163,7 @@ jobs:
           docker push "$ref"
           digest=$(docker buildx imagetools inspect "$ref" --format "{{json .Manifest}}" | jq -er .digest)
           printf "%s@%s\n" "$image" "$digest" >> "$GITHUB_STEP_SUMMARY"
-          if [[ "$target" == "browser" ]]; then
-            docker rmi "$ref" "oasis7-ci-${target}:candidate"
-          fi
+          docker rmi "$ref" "oasis7-ci-${target}:candidate"
           EOF
           chmod 0700 "$RUNNER_TEMP/publish-ci-image.sh"
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333

@@ -77,6 +77,7 @@
   "ecs_workspace_upload_budget_version": 2,
   "main_fast_range_recovery_version": 1,
   "draft_pr_heavy_ci_skip_version": 1,
+  "auxiliary_workflow_consolidation_version": 1,
   "ordinary_harness_costs": {
     "version": 1,
     "fallback_ms": 60000,
