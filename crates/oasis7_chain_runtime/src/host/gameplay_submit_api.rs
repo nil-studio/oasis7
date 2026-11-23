@@ -215,10 +215,10 @@ fn handle_gameplay_submit(
         let identity =
             super::execution_bridge::world_service_read::identity(execution_world_dir, &world_id)?;
         let signed_payload =
-            oasis7::world_service::WorldServicePayloadV1::GameplayJson(body.to_vec());
-        let correlation = oasis7::world_service::derive_correlation(identity, &signed_payload)?;
+            oasis7_world_service::WorldServicePayloadV1::GameplayJson(body.to_vec());
+        let correlation = oasis7_world_service::derive_correlation(identity, &signed_payload)?;
         oasis7_world_service::correlation::encode_consensus_intent(
-            &oasis7::world_service::SubmitIntentRequest {
+            &oasis7_world_service::SubmitIntentRequest {
                 contract_version: 1,
                 correlation,
                 deadline_unix_ms: None,
@@ -424,7 +424,7 @@ fn original_digest(bytes: &[u8]) -> Result<String, String> {
         .as_ref()
         .ok_or("original query requires signature")?;
     verify_gameplay_action_auth_proof(&request, proof)?;
-    oasis7::world_service::request_digest("legacy-gameplay", &request)
+    oasis7_world_service::request_digest("legacy-gameplay", &request)
 }
 
 fn record_accepted_request(

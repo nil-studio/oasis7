@@ -1,5 +1,5 @@
 use super::*;
-use oasis7::runtime::{Action, World};
+use oasis7_runtime::{Action, World};
 use oasis7_client_api::world_service::{
     CommitRef, EventCursor, ExecutionBinding, IntentOutcome, IntentResponse, ProjectionVersion,
     ReadWorldViewResponse,

@@ -8,10 +8,10 @@ use super::*;
 
 fn governance_snapshot_response() -> Value {
     let mut snapshot = oasis7::simulator::WorldKernel::new().snapshot();
-    let mut runtime = oasis7::runtime::World::new().snapshot();
+    let mut runtime = oasis7_runtime::World::new().snapshot();
     runtime.governance_finality_epoch_snapshots.insert(
         0,
-        oasis7::runtime::GovernanceFinalityEpochSnapshot::default(),
+        oasis7_runtime::GovernanceFinalityEpochSnapshot::default(),
     );
     snapshot.runtime_snapshot = Some(runtime);
     serde_json::to_value(ViewerResponse::Snapshot { snapshot }).expect("snapshot wire JSON")

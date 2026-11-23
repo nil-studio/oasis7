@@ -5,7 +5,7 @@ use super::execution_bridge as bridge;
 use super::execution_bridge_real_tests::real_execution_bridge as bridge;
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use oasis7_runtime_host::bootstrap::bootstrap_formal_release_runtime_world as viewer_bootstrap_formal_release_runtime_world;
-use oasis7::runtime_host::ordinary_starter::{self, OrdinaryStarterPoolV1};
+use oasis7_world_service::ordinary_starter::{self, OrdinaryStarterPoolV1};
 use oasis7_world_service::WorldIdentity;
 use oasis7_node::{NodeConfig, NodeRole, NodeRuntime};
 use oasis7_proto::storage_profile::StorageProfileConfig;
