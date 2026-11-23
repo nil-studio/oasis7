@@ -37,14 +37,6 @@ RETIREMENT_INPUT_CONTRACTS = {
     '.gitattributes': None,
     'scripts/unified-world-code-terminology-scan.sh': {'baseline'},
     'scripts/unified-world-code-terminology-scan.test.sh': {'baseline'},
-    'scripts/fixtures/document-corpus-v3/legacy/document-corpus-inventory.json':
-        {'baseline', 'doc_checker_contracts'},
-    'scripts/fixtures/document-corpus-v3/legacy/document-semantic-review-overrides.json':
-        {'baseline', 'doc_checker_contracts'},
-    'scripts/fixtures/document-corpus-v3/legacy/inventory.json':
-        {'baseline', 'doc_checker_contracts'},
-    'scripts/fixtures/document-corpus-v3/legacy/manifest.json':
-        {'baseline', 'doc_checker_contracts'},
 }
 
 
@@ -106,9 +98,9 @@ class Selection(unittest.TestCase):
                             selector.select(config, self.base, head)
                         self.assertIn(path, str(caught.exception))
                         self.base = head
-            registered = 'scripts/fixtures/document-corpus-v3/legacy/inventory.json'
-            unknown = 'scripts/fixtures/document-corpus-v3/legacy/renamed.json'
-            self.write(registered, '{}\n')
+            registered = 'scripts/unified-world-code-terminology-scan.sh'
+            unknown = 'scripts/unified-world-code-terminology-renamed.sh'
+            self.write(registered, '#!/usr/bin/env bash\n')
             self.base = self.commit()
             for source, target in ((registered, unknown), (unknown, registered)):
                 with self.subTest(source=source, target=target):
@@ -121,8 +113,7 @@ class Selection(unittest.TestCase):
 
     def test_retirement_input_registration_requires_the_trusted_baseline(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        registration_reasons = {'git_checkout_attributes', 'unified_world_terminology',
-                                'document_corpus_fixture_contracts'}
+        registration_reasons = {'git_checkout_attributes', 'unified_world_terminology'}
         old = dict(config, rules=[rule for rule in config['rules']
                                   if rule['reason'] not in registration_reasons])
         self.write('scripts/ci-required-scope.json', json.dumps(config))
@@ -173,8 +164,7 @@ class Selection(unittest.TestCase):
 
     def test_ci_download_exact_registration_and_old_baseline(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        paths = ('scripts/install-ci-trunk.sh', 'scripts/install-ci-trunk.test.sh',
-                 'scripts/install-ci-wasm-opt.py', 'scripts/install-ci-wasm-opt.test.py')
+        paths = ('scripts/install-ci-trunk.sh', 'scripts/install-ci-trunk.test.sh')
         expected = {'baseline', 'workflow_governance', 'packaging_contracts', 'launcher_web',
                     'macos_package_contract'}
         old = dict(config, rules=[r for r in config['rules'] if r['reason'] != 'ci_download_contracts'])
@@ -302,28 +292,6 @@ class Selection(unittest.TestCase):
                     self.base = self.commit()
             unknown = 'scripts/engineering_telemetry_renamed.py'
             self.git('mv', paths[0], unknown)
-            with self.assertRaises(selector.UnknownInputsError):
-                selector.select(config, self.base, self.commit())
-
-    def test_dot_todo_exact_registration_and_old_baseline(self):
-        config = json.loads((HERE / 'ci-required-scope.json').read_text())
-        old = dict(config, rules=[r for r in config['rules'] if r['reason'] != 'dot_todo_contracts'])
-        with patch.object(selector, 'cargo_graph', return_value=({}, {}, {})):
-            for path in ('scripts/dot-todo.py', 'scripts/dot-todo.test.py'):
-                with self.subTest(path=path):
-                    self.write(path, '# synthetic input')
-                    head = self.commit()
-                    self.assertEqual(set(selector.select(config, self.base, head)['groups']),
-                                     {'baseline', 'workflow_governance'})
-                    with self.assertRaises(selector.UnknownInputsError):
-                        selector.select(old, self.base, head)
-                    self.base = head
-                    self.git('rm', path)
-                    head = self.commit()
-                    self.assertEqual(set(selector.select(config, self.base, head)['groups']),
-                                     {'baseline', 'workflow_governance'})
-                    self.base = head
-            self.write('scripts/dot-todo-extra.py', '# unregistered neighbor')
             with self.assertRaises(selector.UnknownInputsError):
                 selector.select(config, self.base, self.commit())
 

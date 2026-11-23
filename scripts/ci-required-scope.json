@@ -2109,18 +2109,6 @@
     },
     {
       "match": [
-        "scripts/fixtures/document-corpus-v3/legacy/document-corpus-inventory.json",
-        "scripts/fixtures/document-corpus-v3/legacy/document-semantic-review-overrides.json",
-        "scripts/fixtures/document-corpus-v3/legacy/inventory.json",
-        "scripts/fixtures/document-corpus-v3/legacy/manifest.json"
-      ],
-      "groups": [
-        "doc_checker_contracts"
-      ],
-      "reason": "document_corpus_fixture_contracts"
-    },
-    {
-      "match": [
         "scripts/pr-review-threads.py",
         "scripts/pr-review-threads.test.py"
       ],
@@ -2247,21 +2235,6 @@
       ],
       "groups": [],
       "reason": "documents"
-    },
-    {
-      "match": [
-        "scripts/shared-devnet-blocker-packet-smoke.sh",
-        "scripts/shared-devnet-blocker-packet.sh",
-        "scripts/shared-devnet-rehearsal-smoke.sh",
-        "scripts/shared-devnet-rehearsal.sh",
-        "scripts/shared-network-track-gate-smoke.sh",
-        "scripts/shared-network-track-gate.sh",
-        "scripts/wasm-bindgen-test-runner.sh"
-      ],
-      "groups": [
-        "operational_contracts"
-      ],
-      "reason": "retired_legacy_scripts"
     },
     {
       "match": [
@@ -2475,9 +2448,7 @@
     {
       "match": [
         "scripts/install-ci-trunk.sh",
-        "scripts/install-ci-trunk.test.sh",
-        "scripts/install-ci-wasm-opt.py",
-        "scripts/install-ci-wasm-opt.test.py"
+        "scripts/install-ci-trunk.test.sh"
       ],
       "groups": [
         "workflow_governance",
@@ -2511,16 +2482,6 @@
         "workflow_governance"
       ],
       "reason": "engineering_telemetry_contracts"
-    },
-    {
-      "match": [
-        "scripts/dot-todo.py",
-        "scripts/dot-todo.test.py"
-      ],
-      "groups": [
-        "workflow_governance"
-      ],
-      "reason": "dot_todo_contracts"
     },
     {
       "match": [
