@@ -65,7 +65,10 @@ fn runtime_provider_compat_snapshot_exposes_agent_execution_debug_contexts() {
     let (base_url, serve) = spawn_runtime_provider_probe_server();
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_loopback_http");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_MODE_ENV,
+            "provider_loopback_http",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
@@ -73,11 +76,17 @@ fn runtime_provider_compat_snapshot_exposes_agent_execution_debug_contexts() {
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_PROFILE_ENV,
+            "oasis7_p0_low_freq_npc",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_EXECUTION_LANE_ENV,
+            "player_parity",
+        );
     }
     let mut server = ViewerRuntimeLiveServer::new(
         ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal)
@@ -171,7 +180,10 @@ fn assert_runtime_provider_alias_snapshot(initialization_delay: Duration) {
     thread::sleep(initialization_delay);
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "agent_direct_connect");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_MODE_ENV,
+            "agent_direct_connect",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
@@ -179,7 +191,10 @@ fn assert_runtime_provider_alias_snapshot(initialization_delay: Duration) {
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_PROFILE_ENV,
+            "oasis7_p0_low_freq_npc",
+        );
     }
     let mut server = ViewerRuntimeLiveServer::new(
         ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal)
@@ -410,7 +425,10 @@ fn compat_snapshot_surfaces_agent_override_causality_from_runtime_events() {
     let (base_url, serve) = spawn_runtime_provider_probe_server();
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_loopback_http");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_MODE_ENV,
+            "provider_loopback_http",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
@@ -418,11 +436,17 @@ fn compat_snapshot_surfaces_agent_override_causality_from_runtime_events() {
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_PROFILE_ENV,
+            "oasis7_p0_low_freq_npc",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_EXECUTION_LANE_ENV,
+            "player_parity",
+        );
     }
     let mut server = ViewerRuntimeLiveServer::new(
         ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal)

@@ -52,7 +52,10 @@ pub(super) fn lock_test_llm_env() -> oasis7_hosted_access::process_env::ProcessE
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7_hosted_access::process_env::set_var(crate::simulator::ENV_LLM_API_KEY, "test-api-key");
+        oasis7_hosted_access::process_env::set_var(
+            crate::simulator::ENV_LLM_API_KEY,
+            "test-api-key",
+        );
     }
     guard
 }
@@ -111,7 +114,8 @@ pub(super) fn clear_hosted_strong_auth_env() {
     }
 }
 
-pub(super) fn lock_test_hosted_strong_auth_env() -> oasis7_hosted_access::process_env::ProcessEnvGuard {
+pub(super) fn lock_test_hosted_strong_auth_env()
+-> oasis7_hosted_access::process_env::ProcessEnvGuard {
     let guard = oasis7_hosted_access::process_env::lock_process_env();
     clear_hosted_strong_auth_env();
     guard
