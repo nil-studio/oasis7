@@ -14,24 +14,15 @@ mod recovery;
 fn native_healthy_management_recovers_uncertain_activation_before_and_after_provider_commit() {
     exercise_native_install(true);
 }
+// Isolate heavyweight native proof construction without relaxing the default
+// test thread stack, the remote transport path, or any original assertion.
+#[inline(never)]
+fn build_native_install_setup<T>(build: impl FnOnce() -> T) -> T {
+    build()
+}
+
 fn exercise_native_install(recover_uncertain_activation: bool) {
     let fixture = Fixture::new();
-    let po = Oracle::start(&fixture, EndpointRole::Primary);
-    let ro = Oracle::start(&fixture, EndpointRole::Replica);
-    let resource = fixture
-        .authority
-        .policy()
-        .authorized_fencing_resource_bindings[0]
-        .clone();
-    let pp = InstallProvider::new(
-        fixture.pdir.clone(),
-        5,
-        resource.clone(),
-        Some(po.provider(&fixture)),
-    );
-    let next_dir = fixture.path.join("new-replica");
-    fs::create_dir(&next_dir).unwrap();
-    let rp = InstallProvider::new(next_dir.clone(), 12, resource, None);
     let open = |role, provider: Arc<dyn MonotonicEndpointProvider>| {
         FileFormalEndpoint::open_protected(
             if role == EndpointRole::Primary {
@@ -51,87 +42,109 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
         )
         .unwrap()
     };
-    let mut coordinator = FormalCoordinator::new(
-        open(EndpointRole::Primary, pp.clone()),
-        open(EndpointRole::Replica, ro.provider(&fixture)),
-        fixture.authority.clone(),
-        fixture.authority.clone(),
-        None,
-        None,
-    )
-    .unwrap();
-    let initial = coordinator.submit(fixture.initial.clone()).unwrap();
-    let parent = verify_formal_qualified(&initial, &fixture.authority, None, None).unwrap();
-    let mut definition = fixture.authority.definition().clone();
-    definition.epoch = 2;
-    definition.valid_from_position = 3;
-    definition.predecessor_authority_id = Some(fixture.authority.authority_id().unwrap());
-    definition.primary.instance.authority_epoch = 2;
-    definition.replica.instance.authority_epoch = 2;
-    definition.replica.instance.endpoint_public_key = public(12);
-    definition.replica.instance.instance_id = h(120);
-    definition.replica.instance.storage_id = h(121);
-    definition.replica.instance.storage_fingerprint = directory_fingerprint(&next_dir).unwrap();
-    definition.replica.instance.endpoint_id = "new-replica".into();
-    definition.replica.fault_domain_id = "new-r".into();
-    let mut body = NormalDurableSetTransitionBodyV1 {
-        schema_version: 1,
-        world: definition.world.clone(),
-        predecessor_authority_id: fixture.authority.authority_id().unwrap(),
-        predecessor: parent.head(),
-        boundary_position: 2,
-        operation_id: h(123),
-        successor: definition,
-        independent_closure_root: h(124),
-    };
-    body.independent_closure_root = body.copy_contract_digest().unwrap();
-    let signed_transition = SignedNormalDurableSetTransitionV1 {
-        writer_signature_hex: signed(
-            normal_durable_set_transition_signing_bytes(&body).unwrap(),
-            4,
-        ),
-        body,
-    };
-    let (frozen, material) = fixture.frozen(&parent, 61);
-    let executable = coordinator.freeze(frozen, material).unwrap();
-    let mut candidate = fixture.candidate(&executable);
-    candidate.candidate.record.schema_version = 2;
-    candidate.candidate.record.durable_set_transition_digest =
-        Some(signed_transition.body.digest().unwrap());
-    candidate.candidate.writer_signature_hex = signed(
-        canonical_candidate_signing_bytes(&candidate.candidate.record).unwrap(),
-        4,
-    );
-    let proof = coordinator.submit(candidate).unwrap();
-    let boundary =
-        verify_formal_qualified(&proof, &fixture.authority, Some(&parent), None).unwrap();
-    let transition = verify_normal_durable_set_transition(
-        &signed_transition,
-        &fixture.authority,
-        &parent,
-        &boundary,
-    )
-    .unwrap();
-    let (p, r) = coordinator.endpoints_mut();
-    let pcp = p.checkpoint().unwrap();
-    let rcp = r.checkpoint().unwrap();
-    let primary_seal = p.seal_durable_set(&transition, &pcp).unwrap();
-    let replica_seal = r.seal_durable_set(&transition, &rcp).unwrap();
-    let manifest = r.archive_manifest().unwrap();
-    let sealed = Arc::new(
-        verify_sealed_durable_set_transition(
-            &DurableSetSealedEvidenceV1 {
-                transition: signed_transition,
-                primary_seal,
-                replica_seal,
-            },
-            &fixture.authority,
-            &parent,
-            &boundary,
-        )
-        .unwrap(),
-    );
-    drop(coordinator);
+    // Keep the staged candidate/transition construction separate from the
+    // independent remote copy, activation and cold-reopen consumers.
+    let (_po, ro, pp, rp, next_dir, sealed, boundary, manifest) =
+        build_native_install_setup(|| {
+            let po = Oracle::start(&fixture, EndpointRole::Primary);
+            let ro = Oracle::start(&fixture, EndpointRole::Replica);
+            let resource = fixture
+                .authority
+                .policy()
+                .authorized_fencing_resource_bindings[0]
+                .clone();
+            let pp = InstallProvider::new(
+                fixture.pdir.clone(),
+                5,
+                resource.clone(),
+                Some(po.provider(&fixture)),
+            );
+            let next_dir = fixture.path.join("new-replica");
+            fs::create_dir(&next_dir).unwrap();
+            let rp = InstallProvider::new(next_dir.clone(), 12, resource, None);
+            let mut coordinator = FormalCoordinator::new(
+                open(EndpointRole::Primary, pp.clone()),
+                open(EndpointRole::Replica, ro.provider(&fixture)),
+                fixture.authority.clone(),
+                fixture.authority.clone(),
+                None,
+                None,
+            )
+            .unwrap();
+            let initial = coordinator.submit(fixture.initial.clone()).unwrap();
+            let parent = verify_formal_qualified(&initial, &fixture.authority, None, None).unwrap();
+            let mut definition = fixture.authority.definition().clone();
+            definition.epoch = 2;
+            definition.valid_from_position = 3;
+            definition.predecessor_authority_id = Some(fixture.authority.authority_id().unwrap());
+            definition.primary.instance.authority_epoch = 2;
+            definition.replica.instance.authority_epoch = 2;
+            definition.replica.instance.endpoint_public_key = public(12);
+            definition.replica.instance.instance_id = h(120);
+            definition.replica.instance.storage_id = h(121);
+            definition.replica.instance.storage_fingerprint = directory_fingerprint(&next_dir).unwrap();
+            definition.replica.instance.endpoint_id = "new-replica".into();
+            definition.replica.fault_domain_id = "new-r".into();
+            let mut body = NormalDurableSetTransitionBodyV1 {
+                schema_version: 1,
+                world: definition.world.clone(),
+                predecessor_authority_id: fixture.authority.authority_id().unwrap(),
+                predecessor: parent.head(),
+                boundary_position: 2,
+                operation_id: h(123),
+                successor: definition,
+                independent_closure_root: h(124),
+            };
+            body.independent_closure_root = body.copy_contract_digest().unwrap();
+            let signed_transition = SignedNormalDurableSetTransitionV1 {
+                writer_signature_hex: signed(
+                    normal_durable_set_transition_signing_bytes(&body).unwrap(),
+                    4,
+                ),
+                body,
+            };
+            let (frozen, material) = fixture.frozen(&parent, 61);
+            let executable = coordinator.freeze(frozen, material).unwrap();
+            let mut candidate = fixture.candidate(&executable);
+            candidate.candidate.record.schema_version = 2;
+            candidate.candidate.record.durable_set_transition_digest =
+                Some(signed_transition.body.digest().unwrap());
+            candidate.candidate.writer_signature_hex = signed(
+                canonical_candidate_signing_bytes(&candidate.candidate.record).unwrap(),
+                4,
+            );
+            let proof = coordinator.submit(candidate).unwrap();
+            let boundary =
+                verify_formal_qualified(&proof, &fixture.authority, Some(&parent), None).unwrap();
+            let transition = verify_normal_durable_set_transition(
+                &signed_transition,
+                &fixture.authority,
+                &parent,
+                &boundary,
+            )
+            .unwrap();
+            let (p, r) = coordinator.endpoints_mut();
+            let pcp = p.checkpoint().unwrap();
+            let rcp = r.checkpoint().unwrap();
+            let primary_seal = p.seal_durable_set(&transition, &pcp).unwrap();
+            let replica_seal = r.seal_durable_set(&transition, &rcp).unwrap();
+            let manifest = r.archive_manifest().unwrap();
+            let sealed = Arc::new(
+                verify_sealed_durable_set_transition(
+                    &DurableSetSealedEvidenceV1 {
+                        transition: signed_transition,
+                        primary_seal,
+                        replica_seal,
+                    },
+                    &fixture.authority,
+                    &parent,
+                    &boundary,
+                )
+                .unwrap(),
+            );
+            drop(coordinator);
+            (po, ro, pp, rp, next_dir, sealed, boundary, manifest)
+        });
     let (source, source_owner) = remote_sealed_source(
         open(EndpointRole::Replica, ro.provider(&fixture)),
         &fixture,

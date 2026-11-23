@@ -177,232 +177,243 @@ pub(super) fn normal_execution_proof_with_signers(
     )
 }
 
+// Keep the large initial proof setup off the later replay/qualification frame.
+// No thread-stack override, altered protocol fixture, or skipped assertions.
+#[inline(never)]
+fn build_frozen_replay_setup<T>(build: impl FnOnce() -> T) -> T {
+    build()
+}
+
 #[test]
 fn replay_frozen_origin_qualification_imports_exact_non_normal_token() {
     // Recovery lineage only reaches profile 2 if the external genesis pin is
     // profile 2. The historical-inclusion verifier intentionally rejects a
     // profile-1 current authority even when its root descriptor is otherwise
     // well formed.
-    let (world, trust, anchor, _initial_proof) = profile2_initial_fixture();
-    let origin = anchor.checkpoint();
-    let origin_digest = origin.digest().unwrap();
-    let original = anchor.authority();
-    let frozen = FormalFrozenBodyV1 {
-        schema_version: 1,
-        world: original.definition().world.clone(),
-        authority_id: original.authority_id().unwrap(),
-        epoch: original.definition().epoch,
-        activation_ref: original.activation_ref().to_owned(),
-        parent: anchor.head().head(),
-        next_position: anchor.head().record().position + 1,
-        request_digest: h(60),
-        payload_digest: h(61),
-        runtime_manifest_digest: anchor.head().record().runtime_manifest_digest.clone(),
-        governing_manifest_digest: anchor.head().record().governing_manifest_digest.clone(),
-        execution_policy_digest: anchor.head().record().execution_policy_digest.clone(),
-        pre_state_root: anchor.head().record().after_state_root.clone(),
-        frozen_material_digest: h(62),
-        handoff: None,
-    };
-    let frozen_certificate = FormalFrozenCertificateV1 {
-        reservation: SignedFormalFrozenV1 {
-            signature_hex: sign(frozen_signing_bytes(&frozen).unwrap(), 4),
-            body: frozen.clone(),
-        },
-        primary: FormalFrozenReceiptV1 {
-            signature_hex: sign(
-                frozen_receipt_signing_bytes(&FormalFrozenReceiptBodyV1 {
-                    authority_id: original.authority_id().unwrap(),
-                    role: EndpointRole::Primary,
-                    instance_digest: original.definition().primary.instance.digest().unwrap(),
-                    reservation_id: frozen.reservation_id().unwrap(),
-                })
-                .unwrap(),
-                5,
-            ),
-            body: FormalFrozenReceiptBodyV1 {
+    let (world, trust, checkpoint, qualified_origin_digest, historical_anchor) =
+        build_frozen_replay_setup(|| {
+            let (world, trust, anchor, _initial_proof) = profile2_initial_fixture();
+            let origin = anchor.checkpoint();
+            let origin_digest = origin.digest().unwrap();
+            let original = anchor.authority();
+            let frozen = FormalFrozenBodyV1 {
+                schema_version: 1,
+                world: original.definition().world.clone(),
                 authority_id: original.authority_id().unwrap(),
-                role: EndpointRole::Primary,
-                instance_digest: original.definition().primary.instance.digest().unwrap(),
-                reservation_id: frozen.reservation_id().unwrap(),
-            },
-        },
-        replica: FormalFrozenReceiptV1 {
-            signature_hex: sign(
-                frozen_receipt_signing_bytes(&FormalFrozenReceiptBodyV1 {
-                    authority_id: original.authority_id().unwrap(),
-                    role: EndpointRole::Replica,
-                    instance_digest: original.definition().replica.instance.digest().unwrap(),
-                    reservation_id: frozen.reservation_id().unwrap(),
-                })
-                .unwrap(),
-                6,
-            ),
-            body: FormalFrozenReceiptBodyV1 {
-                authority_id: original.authority_id().unwrap(),
-                role: EndpointRole::Replica,
-                instance_digest: original.definition().replica.instance.digest().unwrap(),
-                reservation_id: frozen.reservation_id().unwrap(),
-            },
-        },
-    };
-    let recovery_tail = RecoveryTailWitnessV1::Frozen(frozen_certificate.clone());
-    let next2 = super::successor(original, 2, 13, 14, 15, 2);
-    let minimum =
-        oasis7_formal_protocol::controlled_authority::formal::issuer::IssuerAnchorV1::initial(
-            original.policy(),
-        )
-        .unwrap();
-    let (step2, issuer_anchor2) = super::recovery_step(
-        original,
-        anchor.head(),
-        next2,
-        recovery_tail.clone(),
-        None,
-        1,
-        minimum,
-        [5, 6],
-    );
-    let recovery2 = super::super::history::verify_recovery_step(&step2, &anchor, None)
-        .unwrap()
-        .recovery;
-    let context3 = VerifiedActiveRecoveryContextV2::from_previous(
-        &recovery2,
-        original,
-        anchor.head(),
-        &recovery_tail,
-    )
-    .unwrap();
-    let next3 = super::successor(recovery2.successor(), 3, 23, 24, 25, 2);
-    let (step3, _) = super::recovery_step(
-        recovery2.successor(),
-        anchor.head(),
-        next3,
-        recovery_tail,
-        Some(&context3),
-        2,
-        issuer_anchor2,
-        [14, 15],
-    );
-    let recovery3 = super::super::history::verify_recovery_step(&step3, &anchor, Some(&recovery2))
-        .unwrap()
-        .recovery;
-    let mut record = anchor.head().record().clone();
-    record.kind = FormalRecordKindV1::Execution;
-    record.position = frozen.next_position;
-    record.parent_record_id = frozen.parent.record_id.clone();
-    record.request_digest = frozen.request_digest.clone();
-    record.payload_digest = frozen.payload_digest.clone();
-    record.frozen_reservation_id = Some(frozen.reservation_id().unwrap());
-    record.before_state_root = frozen.pre_state_root.clone();
-    record.after_state_root = h(63);
-    record.action_root = h(64);
-    record.event_root = h(65);
-    record.result_root = h(66);
-    record.projection_root = fixtures::protocol_world::commitments_for_world(&world)
-        .unwrap()
-        .root()
-        .unwrap();
-    record.artifact_roots.insert(
-        ArtifactRole::ExecutionManifest,
-        frozen.runtime_manifest_digest.clone(),
-    );
-    let candidate = SignedCanonicalCandidateV1 {
-        writer_signature_hex: sign(canonical_candidate_signing_bytes(&record).unwrap(), 23),
-        record: record.clone(),
-    };
-    let context = verify_formal_candidate(
-        &candidate,
-        Some(&frozen_certificate),
-        original,
-        Some(anchor.head()),
-        Some(&recovery3),
-        FormalCompletionBranchV1::ReplayFrozen,
-    )
-    .unwrap();
-    let receipt = |role, key_id| FormalFinalReceiptV1 {
-        signature_hex: sign(
-            formal_final_receipt_signing_bytes(&context.receipt_body(role).unwrap()).unwrap(),
-            key_id,
-        ),
-        body: context.receipt_body(role).unwrap(),
-    };
-    let decision = FormalDecisionProofV1 {
-        schema_version: 1,
-        record: record.clone(),
-        branch: FormalCompletionBranchV1::ReplayFrozen,
-        writer_signature_hex: candidate.writer_signature_hex,
-        frozen: Some(frozen_certificate),
-        primary: receipt(EndpointRole::Primary, 24),
-        replica: receipt(EndpointRole::Replica, 25),
-    };
-    let verified_decision =
-        verify_formal_decision(&decision, original, Some(anchor.head()), Some(&recovery3)).unwrap();
-    let completion_receipt = |role, key_id| FormalProofCompleteReceiptV1 {
-        signature_hex: sign(
-            formal_proof_complete_signing_bytes(
-                &verified_decision.complete_receipt_body(role).unwrap(),
+                epoch: original.definition().epoch,
+                activation_ref: original.activation_ref().to_owned(),
+                parent: anchor.head().head(),
+                next_position: anchor.head().record().position + 1,
+                request_digest: h(60),
+                payload_digest: h(61),
+                runtime_manifest_digest: anchor.head().record().runtime_manifest_digest.clone(),
+                governing_manifest_digest: anchor.head().record().governing_manifest_digest.clone(),
+                execution_policy_digest: anchor.head().record().execution_policy_digest.clone(),
+                pre_state_root: anchor.head().record().after_state_root.clone(),
+                frozen_material_digest: h(62),
+                handoff: None,
+            };
+            let frozen_certificate = FormalFrozenCertificateV1 {
+                reservation: SignedFormalFrozenV1 {
+                    signature_hex: sign(frozen_signing_bytes(&frozen).unwrap(), 4),
+                    body: frozen.clone(),
+                },
+                primary: FormalFrozenReceiptV1 {
+                    signature_hex: sign(
+                        frozen_receipt_signing_bytes(&FormalFrozenReceiptBodyV1 {
+                            authority_id: original.authority_id().unwrap(),
+                            role: EndpointRole::Primary,
+                            instance_digest: original.definition().primary.instance.digest().unwrap(),
+                            reservation_id: frozen.reservation_id().unwrap(),
+                        })
+                        .unwrap(),
+                        5,
+                    ),
+                    body: FormalFrozenReceiptBodyV1 {
+                        authority_id: original.authority_id().unwrap(),
+                        role: EndpointRole::Primary,
+                        instance_digest: original.definition().primary.instance.digest().unwrap(),
+                        reservation_id: frozen.reservation_id().unwrap(),
+                    },
+                },
+                replica: FormalFrozenReceiptV1 {
+                    signature_hex: sign(
+                        frozen_receipt_signing_bytes(&FormalFrozenReceiptBodyV1 {
+                            authority_id: original.authority_id().unwrap(),
+                            role: EndpointRole::Replica,
+                            instance_digest: original.definition().replica.instance.digest().unwrap(),
+                            reservation_id: frozen.reservation_id().unwrap(),
+                        })
+                        .unwrap(),
+                        6,
+                    ),
+                    body: FormalFrozenReceiptBodyV1 {
+                        authority_id: original.authority_id().unwrap(),
+                        role: EndpointRole::Replica,
+                        instance_digest: original.definition().replica.instance.digest().unwrap(),
+                        reservation_id: frozen.reservation_id().unwrap(),
+                    },
+                },
+            };
+            let recovery_tail = RecoveryTailWitnessV1::Frozen(frozen_certificate.clone());
+            let next2 = super::successor(original, 2, 13, 14, 15, 2);
+            let minimum =
+                oasis7_formal_protocol::controlled_authority::formal::issuer::IssuerAnchorV1::initial(
+                    original.policy(),
+                )
+                .unwrap();
+            let (step2, issuer_anchor2) = super::recovery_step(
+                original,
+                anchor.head(),
+                next2,
+                recovery_tail.clone(),
+                None,
+                1,
+                minimum,
+                [5, 6],
+            );
+            let recovery2 = super::super::history::verify_recovery_step(&step2, &anchor, None)
+                .unwrap()
+                .recovery;
+            let context3 = VerifiedActiveRecoveryContextV2::from_previous(
+                &recovery2,
+                original,
+                anchor.head(),
+                &recovery_tail,
             )
-            .unwrap(),
-            key_id,
-        ),
-        body: verified_decision.complete_receipt_body(role).unwrap(),
-    };
-    let completion = FormalQualifiedCommitProofV1 {
-        schema_version: 1,
-        decision,
-        primary_complete: completion_receipt(EndpointRole::Primary, 24),
-        replica_complete: completion_receipt(EndpointRole::Replica, 25),
-    };
-    let replay = FormalReadHistoryV1 {
-        schema_version: 1,
-        steps: vec![
-            FormalReadStepV1::Recovery(Box::new(step2)),
-            FormalReadStepV1::Recovery(Box::new(step3)),
-            FormalReadStepV1::Commit(Box::new(completion.clone())),
-        ],
-    };
-    // The sidecar/request stay anchored at E1 while the CommitRef describes
-    // the exact post-replay cut proven by the attached history.
-    let mut target_reader = FormalReadVerifier::new(&trust, anchor.clone()).unwrap();
-    target_reader.replay_history_steps(&replay.steps).unwrap();
-    let (request, mut response) = super::response(
-        &world,
-        &anchor,
-        FormalReadHistoryV1 {
-            schema_version: 1,
-            steps: vec![],
-        },
-    );
-    let committed_ref = commit_ref(&target_reader.current, &response.view);
-    response.version.commit = committed_ref.clone();
-    response.continuation.commit = committed_ref;
-    response.formal_proof.as_mut().unwrap().history_cbor_hex = replay.encode_hex().unwrap();
-    let mut reader = FormalReadVerifier::new(&trust, anchor.clone()).unwrap();
-    let observed = reader.verify_view(&response, &request, &public(7)).unwrap();
-    let historical_anchor = observed.read_anchor().clone();
-    let qualified_origin = reader.current.checkpoint();
-    let qualified_origin_digest = qualified_origin.digest().unwrap();
-    let completion_digest = formal_qualified_proof_digest(&completion).unwrap();
-    let checkpoint = FormalReadCheckpointV2 {
-        schema_version: 2,
-        origin: qualified_origin.clone(),
-        origin_digest: qualified_origin_digest.clone(),
-        origin_qualification: Some(FormalReadOriginQualificationV2 {
-            base: origin,
-            base_digest: origin_digest,
-            history: replay,
-            origin_record: observed.commit().record().clone(),
-            finalizing_authority_id: observed.commit().finalizing_authority_id().to_owned(),
-            qualified_proof: completion,
-            qualified_proof_digest: completion_digest.clone(),
-        }),
-        history: FormalReadHistoryV1 {
-            schema_version: 1,
-            steps: vec![],
-        },
-        current: qualified_origin,
-    };
+            .unwrap();
+            let next3 = super::successor(recovery2.successor(), 3, 23, 24, 25, 2);
+            let (step3, _) = super::recovery_step(
+                recovery2.successor(),
+                anchor.head(),
+                next3,
+                recovery_tail,
+                Some(&context3),
+                2,
+                issuer_anchor2,
+                [14, 15],
+            );
+            let recovery3 = super::super::history::verify_recovery_step(&step3, &anchor, Some(&recovery2))
+                .unwrap()
+                .recovery;
+            let mut record = anchor.head().record().clone();
+            record.kind = FormalRecordKindV1::Execution;
+            record.position = frozen.next_position;
+            record.parent_record_id = frozen.parent.record_id.clone();
+            record.request_digest = frozen.request_digest.clone();
+            record.payload_digest = frozen.payload_digest.clone();
+            record.frozen_reservation_id = Some(frozen.reservation_id().unwrap());
+            record.before_state_root = frozen.pre_state_root.clone();
+            record.after_state_root = h(63);
+            record.action_root = h(64);
+            record.event_root = h(65);
+            record.result_root = h(66);
+            record.projection_root = fixtures::protocol_world::commitments_for_world(&world)
+                .unwrap()
+                .root()
+                .unwrap();
+            record.artifact_roots.insert(
+                ArtifactRole::ExecutionManifest,
+                frozen.runtime_manifest_digest.clone(),
+            );
+            let candidate = SignedCanonicalCandidateV1 {
+                writer_signature_hex: sign(canonical_candidate_signing_bytes(&record).unwrap(), 23),
+                record: record.clone(),
+            };
+            let context = verify_formal_candidate(
+                &candidate,
+                Some(&frozen_certificate),
+                original,
+                Some(anchor.head()),
+                Some(&recovery3),
+                FormalCompletionBranchV1::ReplayFrozen,
+            )
+            .unwrap();
+            let receipt = |role, key_id| FormalFinalReceiptV1 {
+                signature_hex: sign(
+                    formal_final_receipt_signing_bytes(&context.receipt_body(role).unwrap()).unwrap(),
+                    key_id,
+                ),
+                body: context.receipt_body(role).unwrap(),
+            };
+            let decision = FormalDecisionProofV1 {
+                schema_version: 1,
+                record: record.clone(),
+                branch: FormalCompletionBranchV1::ReplayFrozen,
+                writer_signature_hex: candidate.writer_signature_hex,
+                frozen: Some(frozen_certificate),
+                primary: receipt(EndpointRole::Primary, 24),
+                replica: receipt(EndpointRole::Replica, 25),
+            };
+            let verified_decision =
+                verify_formal_decision(&decision, original, Some(anchor.head()), Some(&recovery3)).unwrap();
+            let completion_receipt = |role, key_id| FormalProofCompleteReceiptV1 {
+                signature_hex: sign(
+                    formal_proof_complete_signing_bytes(
+                        &verified_decision.complete_receipt_body(role).unwrap(),
+                    )
+                    .unwrap(),
+                    key_id,
+                ),
+                body: verified_decision.complete_receipt_body(role).unwrap(),
+            };
+            let completion = FormalQualifiedCommitProofV1 {
+                schema_version: 1,
+                decision,
+                primary_complete: completion_receipt(EndpointRole::Primary, 24),
+                replica_complete: completion_receipt(EndpointRole::Replica, 25),
+            };
+            let replay = FormalReadHistoryV1 {
+                schema_version: 1,
+                steps: vec![
+                    FormalReadStepV1::Recovery(Box::new(step2)),
+                    FormalReadStepV1::Recovery(Box::new(step3)),
+                    FormalReadStepV1::Commit(Box::new(completion.clone())),
+                ],
+            };
+            // The sidecar/request stay anchored at E1 while the CommitRef describes
+            // the exact post-replay cut proven by the attached history.
+            let mut target_reader = FormalReadVerifier::new(&trust, anchor.clone()).unwrap();
+            target_reader.replay_history_steps(&replay.steps).unwrap();
+            let (request, mut response) = super::response(
+                &world,
+                &anchor,
+                FormalReadHistoryV1 {
+                    schema_version: 1,
+                    steps: vec![],
+                },
+            );
+            let committed_ref = commit_ref(&target_reader.current, &response.view);
+            response.version.commit = committed_ref.clone();
+            response.continuation.commit = committed_ref;
+            response.formal_proof.as_mut().unwrap().history_cbor_hex = replay.encode_hex().unwrap();
+            let mut reader = FormalReadVerifier::new(&trust, anchor.clone()).unwrap();
+            let observed = reader.verify_view(&response, &request, &public(7)).unwrap();
+            let historical_anchor = observed.read_anchor().clone();
+            let qualified_origin = reader.current.checkpoint();
+            let qualified_origin_digest = qualified_origin.digest().unwrap();
+            let completion_digest = formal_qualified_proof_digest(&completion).unwrap();
+            let checkpoint = FormalReadCheckpointV2 {
+                schema_version: 2,
+                origin: qualified_origin.clone(),
+                origin_digest: qualified_origin_digest.clone(),
+                origin_qualification: Some(FormalReadOriginQualificationV2 {
+                    base: origin,
+                    base_digest: origin_digest,
+                    history: replay,
+                    origin_record: observed.commit().record().clone(),
+                    finalizing_authority_id: observed.commit().finalizing_authority_id().to_owned(),
+                    qualified_proof: completion,
+                    qualified_proof_digest: completion_digest.clone(),
+                }),
+                history: FormalReadHistoryV1 {
+                    schema_version: 1,
+                    steps: vec![],
+                },
+                current: qualified_origin,
+            };
+            (world, trust, Box::new(checkpoint), qualified_origin_digest, historical_anchor)
+        });
     let checkpoint_digest = checkpoint.digest().unwrap();
     let mut imported = FormalReadVerifier::from_fixed_checkpoint_v2(
         &trust,
