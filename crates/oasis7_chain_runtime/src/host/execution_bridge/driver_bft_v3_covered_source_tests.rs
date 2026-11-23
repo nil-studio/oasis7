@@ -577,14 +577,13 @@ fn activation_case(received: bool) {
     let cold_digest = cold_dependency.unwrap()["digest"].as_str().unwrap();
     if let Some(package) = &package {
         let mut extra = package.clone();
+        let reference: oasis7_distfs::protected_bft_v3::BftSuccessorWindowArchiveRefV1 =
+            serde_json::from_value(cold_dependency.unwrap().clone()).unwrap();
         extra.dependency_nodes.push((
             cold_digest.to_owned(),
-            fs::read(
-                archive_store
-                    .blobs_dir()
-                    .join(format!("{cold_digest}.blob")),
-            )
-            .unwrap(),
+            archive
+                .load_object(&reference, reference.bytes as usize)
+                .unwrap(),
         ));
         extra.dependency_nodes.sort_by(|a, b| a.0.cmp(&b.0));
         let extra = oasis7_node::decode_bft_v3_private_candidate_package(
