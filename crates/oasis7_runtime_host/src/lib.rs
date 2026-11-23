@@ -1,4 +1,5 @@
 //! Native L4 process-local World construction and recovery; no lower-layer reverse dependency.
+pub mod bootstrap;
 pub mod gameplay_actions;
 pub mod gameplay_service;
 

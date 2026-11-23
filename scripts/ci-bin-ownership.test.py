@@ -263,6 +263,34 @@ class Ownership(unittest.TestCase):
                 deps.update(target.get('dependencies', {}))
             self.assertIn('oasis7_runtime_host', deps, package)
 
+        # The L4 bootstrap closure is enforced under this original, stable
+        # architecture test identity; the trusted governance baseline disallows
+        # silently introducing an unregistered standalone Python test.
+        legacy = ROOT / 'crates/oasis7/src/runtime_host/bootstrap.rs'
+        native = ROOT / 'crates/oasis7_runtime_host/src/bootstrap.rs'
+        self.assertIn('pub use oasis7_runtime_host::bootstrap::*;', legacy.read_text())
+        self.assertNotIn('fn bootstrap_formal_release_runtime_world(', legacy.read_text())
+        source = native.read_text()
+        for symbol in (
+            'pub fn bootstrap_formal_release_runtime_world(',
+            'pub fn bootstrap_runtime_world_with_chunk_runtime(',
+            'fn install_starter_factory_authorities(',
+            'native_formal_release_bootstrap_installs_original_agent_and_resources',
+        ):
+            self.assertIn(symbol, source)
+        self.assertNotIn('crate::runtime_host::', source)
+        self.assertIn('pub fn bootstrap_generated_sidecar_runtime_world_with_chunk_runtime(', legacy.read_text())
+        self.assertIn('WorldKernel::load_from_dir(', legacy.read_text())
+        self.assertNotIn('fn install_starter_factory_authorities(', legacy.read_text())
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                actual = rust.read_text()
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_formal_release_runtime_world', actual, str(rust))
+                self.assertNotIn('oasis7::runtime_host::bootstrap::bootstrap_runtime_world_with_chunk_runtime', actual, str(rust))
+        host = manifest('oasis7_runtime_host')['dependencies']
+        self.assertIn('oasis7_simulator', host)
+        self.assertNotIn('oasis7', host)
+
     def test_world_library_does_not_own_launcher_or_network_hosting(self):
         source = ROOT / 'crates/oasis7/src'
         self.assertFalse((source / 'launcher_bootstrap_peers.rs').exists())
