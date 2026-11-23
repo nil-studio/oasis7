@@ -76,6 +76,14 @@ allowed_snippets = {
         "shared_devnet|shared_network)",
         '{"shared_devnet", "shared_network"}',
     ),
+    "scripts/ci-required-scope.json": (
+        '"scripts/shared-devnet-blocker-packet-smoke.sh"',
+        '"scripts/shared-devnet-blocker-packet.sh"',
+        '"scripts/shared-devnet-rehearsal-smoke.sh"',
+        '"scripts/shared-devnet-rehearsal.sh"',
+        '"scripts/shared-network-track-gate-smoke.sh"',
+        '"scripts/shared-network-track-gate.sh"',
+    ),
     "scripts/shared-devnet-blocker-packet.sh": (
         "shared-devnet-blocker-packet.sh is a legacy compatibility wrapper",
     ),
