@@ -108,7 +108,7 @@ pub(super) fn verify_successor_h_plus_one(
     boundary: &VerifiedFormalCommitV1,
 ) -> Result<(), String> {
     let progress = &record["healthy_durable_set_progress"];
-    let activation_step: oasis7::world_service::formal_read::FormalNormalDurableSetReadStepV1 =
+    let activation_step: oasis7_world_service::formal_read::FormalNormalDurableSetReadStepV1 =
         serde_json::from_value(progress["activation_step"].clone())
             .map_err(|error| format!("decode fixed-C0 activation evidence: {error}"))?;
     let verified_transition = verify_normal_durable_set_transition(

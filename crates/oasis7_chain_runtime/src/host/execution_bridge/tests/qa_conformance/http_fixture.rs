@@ -220,7 +220,7 @@ impl Outage {
 }
 pub(super) fn record_lookup_digest(bytes: &[u8], observed: &Arc<Mutex<Vec<String>>>) {
     let body = crate::feedback_submit_api::extract_http_json_body(bytes).unwrap();
-    let request: oasis7::world_service::wire::AuthenticatedLookup =
+    let request: oasis7_world_service::wire::AuthenticatedLookup =
         serde_json::from_slice(body).unwrap();
     let digest = correlation::key_digest(&request.request.key).unwrap();
     let mut observed = observed.lock().unwrap();
@@ -614,7 +614,7 @@ impl WorldGate {
             resume_correlation_digest: candidate.correlation_digest.clone(),
             resume_payload_digest: candidate.payload_digest.clone(),
         };
-        let selector_digest = match oasis7::world_service::authority::request_digest(
+        let selector_digest = match oasis7_world_service::authority::request_digest(
             "resume-view-selector-v1",
             &selector,
         ) {
@@ -778,7 +778,7 @@ impl WorldGate {
         drop(state);
 
         let request_digest =
-            oasis7::world_service::authority::request_digest(VIEW_PATH, &request.request)
+            oasis7_world_service::authority::request_digest(VIEW_PATH, &request.request)
                 .expect("verified Resume View request has digest");
         write_new_json(
             &root.join("world-resume-view-started"),
@@ -892,7 +892,7 @@ impl WorldGate {
             else {
                 return GateDisposition::Continue;
             };
-            if oasis7::world_service::authority::verify_read_request(VIEW_PATH, &request).is_err() {
+            if oasis7_world_service::authority::verify_read_request(VIEW_PATH, &request).is_err() {
                 return GateDisposition::Continue;
             }
             if request.request.validate().is_err() {
@@ -916,7 +916,7 @@ impl WorldGate {
                 }
                 let min_commit = request.request.min_commit.as_ref().unwrap();
                 let request_digest =
-                    oasis7::world_service::authority::request_digest(VIEW_PATH, &request.request)
+                    oasis7_world_service::authority::request_digest(VIEW_PATH, &request.request)
                         .unwrap();
                 started_record = serde_json::to_vec(&serde_json::json!({
                     "signature_verified": true,

@@ -805,7 +805,7 @@ fn gate_rejects_wrong_query_nonce_wrong_incarnation_and_unavailable_history() {
     let wrong_incarnation_gate = test_gate(&fixture2, source2, 24);
     let (mut server2, endpoint2, _, node2, _, _) = start_live_service_with_read_gate(
         world2,
-        oasis7::world_service::client::FormalReadTrustConfigV1 {
+        oasis7_world_service::client::FormalReadTrustConfigV1 {
             initial_trust: trust2.initial_trust.clone(),
             checkpoint: anchor2.checkpoint(),
             checkpoint_digest: anchor2.checkpoint().digest().unwrap(),

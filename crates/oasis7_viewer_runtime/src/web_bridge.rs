@@ -3,7 +3,7 @@ use std::net::{Shutdown, TcpListener, TcpStream};
 use std::thread;
 use std::time::Duration;
 
-use oasis7::world_service::client::RemoteWorldServiceClient;
+use oasis7_world_service::client::RemoteWorldServiceClient;
 use tracing::Level;
 use tungstenite::error::ProtocolError;
 use tungstenite::handshake::HandshakeError;

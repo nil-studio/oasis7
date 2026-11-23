@@ -290,8 +290,8 @@ pub(super) fn verify_retained_evidence_and_fail_closed_on_missing_history(
     assert_eq!(error["error"], "private_goal_recovery_required");
     assert!(error.get("payload").is_none());
     let owner_request = sign_read_request(
-        oasis7::world_service::private_goal_read::GOAL_CURRENT_PATH,
-        oasis7::world_service::private_goal_read::CurrentGoalRequest {
+        oasis7_world_service::private_goal_read::GOAL_CURRENT_PATH,
+        oasis7_world_service::private_goal_read::CurrentGoalRequest {
             schema_revision: 1,
             world: (*world).clone(),
             agent_id: "agent-a".into(),
@@ -305,7 +305,7 @@ pub(super) fn verify_retained_evidence_and_fail_closed_on_missing_history(
         runtime,
         signer,
         Some(store),
-        oasis7::world_service::private_goal_read::GOAL_CURRENT_PATH,
+        oasis7_world_service::private_goal_read::GOAL_CURRENT_PATH,
         &owner_request,
         "",
     );

@@ -47,7 +47,7 @@ fn serve_custody_world_http_fixture() {
     let root = dir.canonicalize().unwrap();
     // Test-only private storage, separate from public world/records/store roots.
     // Its wrapping key and path never leave this process or the ready metadata.
-    let private = oasis7::world_service::private_goal_store::PrivateGoalStore::open(
+    let private = oasis7_world_service::private_goal_store::PrivateGoalStore::open(
         &root.join("private-goals"),
         [7; 32],
     )

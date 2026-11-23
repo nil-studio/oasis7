@@ -96,7 +96,7 @@ impl LiveFixture {
             genesis_digest: "trace-fixture-genesis".into(),
         };
         let base_commit = fixture_commit(&identity, 1);
-        let mut projection = oasis7::world_service::projection::from_world(&server.world, None)
+        let mut projection = oasis7_world_service::projection::from_world(&server.world, None)
             .expect("project fixture world");
         projection.runtime_binding = None;
         if let Some(events) = events {
@@ -723,7 +723,7 @@ fn periodic_snapshot_reaches_every_primed_session_after_another_connection_advan
             .world
             .clone();
         let mut projection =
-            oasis7::world_service::projection::from_world(&server.world, None).unwrap();
+            oasis7_world_service::projection::from_world(&server.world, None).unwrap();
         projection.runtime_binding = None;
         let time = server.world.state().time;
         server.verified_world_view = Some(verified_fixture_assertion(

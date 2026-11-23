@@ -654,8 +654,8 @@ fn read_generated_cut(
     )
     .unwrap();
     let cut = ledger.verified_cut(height, id).unwrap();
-    let publication=oasis7::world_service::formal_bft_header_read_service::FormalBftHeaderReadPublicationV4::new(
-        oasis7::world_service::formal_bft_header_read_service::FormalBftHeaderReadPublicationInputV4{
+    let publication=oasis7_world_service::formal_bft_header_read_service::FormalBftHeaderReadPublicationV4::new(
+        oasis7_world_service::formal_bft_header_read_service::FormalBftHeaderReadPublicationInputV4{
             handoff_anchor:h.anchor.clone(),target_config:h.target.clone(),exact_target:FormalBftHeaderReadTargetV4{height,header_id:id.into()},
             certified_prefix:cut.certified_prefix(),committed_world:cut.world(),result_tree:cut.result_tree(),
         }).unwrap();

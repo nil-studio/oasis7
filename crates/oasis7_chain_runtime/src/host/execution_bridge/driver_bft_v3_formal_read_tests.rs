@@ -305,7 +305,7 @@ fn read_case() {
             .unwrap();
     let request = verifier.request("public", [9; 32]).unwrap();
     let signed: SignedReadRequest<FormalBftHeaderReadRequestV4> =
-        oasis7::world_service::authority::sign_read_request(
+        oasis7_world_service::authority::sign_read_request(
             FORMAL_BFT_HEADER_READ_PATH_V4,
             request.clone(),
             &hex::encode(reader.to_bytes()),
@@ -393,7 +393,7 @@ fn read_case() {
         transport.call::<_, serde_json::Value>(FORMAL_BFT_READ_PATH_V2, &signed),
         404,
     );
-    let old_signed = oasis7::world_service::authority::sign_read_request(
+    let old_signed = oasis7_world_service::authority::sign_read_request(
         FORMAL_BFT_READ_PATH_V2,
         request,
         &hex::encode(reader.to_bytes()),
