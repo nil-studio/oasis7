@@ -8,8 +8,7 @@ use super::super::{
 use super::failover_tests::{config, local_instance};
 use super::*;
 
-#[path = "formal_full_sync_operation_worker.rs"]
-mod operation_worker;
+use super::super::operation_worker;
 
 #[test]
 fn shared_operation_binds_real_formal_read_and_material_routes() {
@@ -281,7 +280,7 @@ fn selected_target_cold_recovery_does_not_follow_an_advanced_provider() {
 }
 
 #[test]
-fn selected_target_cold_recovery_rejects_a_later_durable_head() {
+fn selected_target_cold_recovery_replays_original_boundary_with_a_later_durable_head() {
     exercise_real_owned_worker(Some(true));
 }
 
@@ -324,6 +323,7 @@ fn exercise_real_owned_worker(selected: Option<bool>) {
     let node = model::initialize(anchor, &data, None, "127.0.0.1:43170").unwrap();
     let instance_for = |node: &model::NodeConfig| LocalInstance {
         config_digest: local_io::digest(node).unwrap(),
+        incarnation: local_io::random_id().unwrap(),
         ..local_instance("v4-owned")
     };
     let initial = actions::status(&data).unwrap();
@@ -425,7 +425,6 @@ fn exercise_real_owned_worker(selected: Option<bool>) {
             }
             local_io::write(&ledger_path, &original_disk).unwrap();
         }
-        let before = std::fs::read(&ledger_path).unwrap();
         let result = InitialBudgetedSession::resume_selected_target(
             &node,
             &new_instance,
@@ -435,14 +434,6 @@ fn exercise_real_owned_worker(selected: Option<bool>) {
             cas.get(&orphan).unwrap(),
             b"retain unrelated CAS during cold admission"
         );
-        if selected == Some(true) {
-            let error = result.err().expect("later durable head accepted");
-            assert!(error.contains("target differs"), "{error}");
-            assert_eq!(std::fs::read(&ledger_path).unwrap(), before);
-            server.stop().unwrap();
-            runtime.lock().unwrap().stop().unwrap();
-            return;
-        }
         result.unwrap()
     } else {
         InitialBudgetedSession::resume_pre_target(&node, &new_instance, Arc::clone(&owner)).unwrap()

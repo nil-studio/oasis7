@@ -145,7 +145,7 @@ impl Libp2pNetwork {
             .resource_budget
             .as_ref()
             .map(|_| super::request_deadline::deadline_in(timeout));
-        self.request_to_peer_bounded(protocol, payload, peer, timeout, deadline)
+        self.request_to_peer_bounded(protocol, payload, peer, timeout, deadline, None)
     }
 
     /// Apply an absolute bound to caller wait and command dispatch.
@@ -163,6 +163,29 @@ impl Libp2pNetwork {
             peer,
             deadline.saturating_duration_since(Instant::now()),
             Some(tokio::time::Instant::from_std(deadline)),
+            None,
+        )
+    }
+
+    /// Use one already bound original-operation budget for the actual complete
+    /// encoded request and response, including error replies and partial I/O.
+    /// This does not create read authority or a protected transfer ledger.
+    pub fn request_to_peer_with_encoded_budget(
+        &self,
+        protocol: &str,
+        payload: &[u8],
+        peer: PeerId,
+        budget: Box<dyn crate::EncodedExchangeBudget>,
+    ) -> Result<Vec<u8>, WorldError> {
+        let exchange = super::encoded_exchange::Exchange::new(budget);
+        let deadline = exchange.deadline();
+        self.request_to_peer_bounded(
+            protocol,
+            payload,
+            peer,
+            deadline.saturating_duration_since(Instant::now()),
+            Some(tokio::time::Instant::from_std(deadline)),
+            Some(exchange),
         )
     }
 
@@ -173,6 +196,7 @@ impl Libp2pNetwork {
         peer: PeerId,
         timeout: Duration,
         deadline: Option<tokio::time::Instant>,
+        exchange: Option<Arc<super::encoded_exchange::Exchange>>,
     ) -> Result<Vec<u8>, WorldError> {
         let contextualize =
             |error| command_failure_context(error, FailureOrigin::LocalTransport, Some(protocol));
@@ -183,6 +207,7 @@ impl Libp2pNetwork {
             payload: payload.to_vec(),
             peer,
             deadline,
+            exchange,
             response: sender,
         })?;
         let operation = format!("request_to_peer protocol={protocol} peer={peer}");

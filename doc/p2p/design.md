@@ -527,7 +527,7 @@ Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4、O7-REQ-103d7ad7-33f2-4
 
 #### des-p2p-full-sync-operation-budget-v1
 
-Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4、O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3、O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b。承接[长期同步容量要求](prd.md#p2p-full-sync-capacity-checkpoint)。本节定义待实现的版本化整次操作合同；已有实现已在单次 `sync_latest()` 内共享目标 cut 和按 digest 去重的材料预算。该材料预算不是实际传输计数，现有配置和状态不声明本节的持久接续、绝对期限与传输账已经实现。
+Trace refs: O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4、O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3、O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b。承接[长期同步容量要求](prd.md#p2p-full-sync-capacity-checkpoint)。本节定义版本化整次操作合同。Unix shipping 生命周期的 V2 消费者通过 `BudgetedDriver` 保留同一持久 operation，真实 HTTP 的 view、manifest、对象及错误正文共用原账，原安装 exact readback 与实际 World 保留后才报告 ready；下一周期才原子轮转。V1 保留原材料预算行为。libp2p 提供可由原 operation 实现的 opaque 编码计量接口；其软件账本验收不替代 wire-3 的受保护后端和 FullReadOnly 消费者组合。可重复执行入口见[整次操作验收](../testing/manual/testing-manual-s4-distributed-and-governance-drills.manual.md#full-sync-operation-consumer-acceptance)。
 
 **适用对象与版本。** 第一实施对象为 controlled authority `profile_version=2` 下的 `formal_full_state_sync_read_only_v1`，入口为 `FormalFullSyncSession::sync_latest → sync_across_providers → sync_latest_inner`，包含获取/复查正式 view、manifest、record/retained/native 对象及本地只读安装。新增 `oasis7.formal-full-sync-transfer-policy/v1` 是本地客户端预算合同；它不扩展旧签名请求字段，也不是读权或 finality 证明。配置接入位置固定如下，全部继续严格拒绝未知字段，不从一个版本猜测另一个版本：
 
@@ -612,7 +612,11 @@ partial read或普通 I/O Err 后仍按计量点实际已读／已写 bytes 结�
 
 **wire3映射边界。** `FullSyncAttemptV1::verified_anchor`的controlled-v2检查不删除，旧`/v1/formal/full-sync/*` DTO不因此接受BFT。wire3 FullReadOnly消费者须显式绑定原C0/H/minimum、独立FullReadOnly读权及对应checkpoint/proof/闭包版本。这里引用的 [successor 合同固定候选 `1d9e9d574dbf52cb81bf5f218e83179516972d4a`](https://github.com/nil-studio/oasis7/blob/1d9e9d574dbf52cb81bf5f218e83179516972d4a/doc/p2p/design.md#des-p2p-bft-successor-window-v1) 尚未合入，是后续组合输入，不能称为 main 已实施。该候选约定的512 MiB单次材料、累计4 GiB归档/transfer、不退款reservation和同原 minimum 事务恢复规则，须在采用对应版本后继续独立满足；本节HTTP政策的8 GiB上界不覆盖或提高它们，实际短回复也不能用本节unused-credit规则冲销原合同已消费的reservation。若 successor 主责最终改变版本或边界，须显式重新验证映射，不能静默继承此处候选假设。
 
-若使用libp2p，计量点必须覆盖实际序列化的完整`NetworkRequest`/`NetworkResponse`及协议自有frame前缀，包含envelope/签名/状态/编码膨胀，不能只加内层`payload.len()`；Noise/QUIC/TCP/IP开销仍不冒充已计量。每次完整消息的原上限、当前授权释放限制和真实encoded bytes与原transfer账同时检查。wire3的受保护ledger、get/adopt及恢复权限沿其主责，不能将controlled本机文件ledger当成它的信任来源。只共享已映射的有限计量/期限原语，不自动互认证据、授予FullReadOnly或宣称BFT整次同步已实现。
+若使用libp2p，计量点必须覆盖实际序列化的完整`NetworkRequest`/`NetworkResponse`及协议自有frame前缀，包含envelope/签名/状态/编码膨胀，不能只加内层`payload.len()`；Noise/QUIC/TCP/IP开销仍不冒充已计量。
+
+当前生产接缝为 `oasis7_net::encoded_exchange::EncodedExchangeBudget` 及 `Libp2pNetwork::request_to_peer_with_encoded_budget`／保留 typed 授权错误的 authenticated 入口。调用方预绑定原 operation/attempt，`start` 取得实际 codec 编码的完整请求长度后持久准入，`reserve` 为新窗口在首次底层 I/O poll 前持久预留，Pending 时保留并复用同一 reservation；`settle` 只登记可信返回的实际量，`check_active` 在每次 poll（包括 Pending reservation 复用）之前及回调后复查原 owner/取消/期限，`finish` 在真实 codec 退出时结束占用。预留 token 未结算而被释放时保留 unknown charge；调用方 timeout 不证明 codec 已终止。当前 pinned libp2p CBOR codec 使用 `cbor4ii` 编码完整 DTO 并以 EOF 结束，没有额外固定长度前缀；实际编码一次并发送同一字节，不用另一种 serializer 估长。未来协议新增前缀须在同一计量点明确纳入。
+
+每次完整消息的原上限、当前授权释放限制和真实encoded bytes与原transfer账同时检查。wire3的受保护ledger、get/adopt及恢复权限沿其主责，不能将controlled本机文件ledger当成它的信任来源。只共享已映射的有限计量/期限原语，不自动互认证据、授予FullReadOnly或宣称BFT整次同步已实现。
 
 **独立验证。** 实现须通过真实HTTP producer→客户端→本地安装，而非只测试计数器：同cut双provider失败后续接成功；重复digest只收一次材料但重复编码正文全计；partial/错误正文、计量前拒绝、坏proof与坏hash各按正确阶段计账；最大JSON byte-array编码仍符合旧response bound；deadline在provider切换、慢body、解码及发布边界均不刷新；崩溃后未定credit不消失、fenced新attempt不改原请求/账且最多既定次数；旧owner迟到终态不释放新permit；本地history重放不收网络量；超过16次周期成功后终态索引仍有界、unknown／pending／minimum依赖不能被轮转清理且容量不足明确阻塞；已提交minimum在attempt过期后恢复原安装且不降水位/执行新效果。各向量固定原件、编码bytes、预算、受测source与expected结果，分别说明软件本机、真实保护及未验证范围。只有后续实现、开发自测及适用真实组合完成后，才能声明相应支持能力。
 

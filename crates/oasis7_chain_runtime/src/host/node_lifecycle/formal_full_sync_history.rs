@@ -11,7 +11,7 @@ use oasis7_world_service::formal_read::{
 use std::collections::BTreeSet;
 
 const HISTORY_HEAD_FILE: &str = "formal-full-sync-history-head.json";
-const MAX_HISTORY_CHAIN_PAGES: u64 = 65_536;
+pub(super) const MAX_HISTORY_CHAIN_PAGES: u64 = 65_536;
 pub(super) const MAX_HISTORY_CHAIN_BYTES: u64 = 4 * 1024 * 1024 * 1024;
 const MAX_HISTORY_MANIFEST_BYTES: usize = 4096;
 pub(super) const MAX_HISTORY_MANIFEST_CHAIN_BYTES: usize = 64 * 1024 * 1024;
@@ -63,6 +63,54 @@ pub(super) type ReadOnlyHistory = (
 );
 
 impl PersistedFormalReadHistoryV1 {
+    /// Repair preflight authenticates every original proof page from C0 without
+    /// stabilizing/pruning material pins. It cannot waive a missing/bad proof.
+    /// The normal full history/CAS check is required again after repair.
+    #[cfg(unix)]
+    pub(super) fn verify_original_for_repair(
+        config: &FormalFullSyncConfigV1,
+        client: &RemoteWorldServiceClient,
+        cas: Arc<LocalCasStore>,
+        root: &Path,
+        minimum: &FormalFullSyncCutV1,
+    ) -> Result<VerifiedFormalReadAnchorV1, String> {
+        let head_path = root.join(HISTORY_HEAD_FILE);
+        super::super::local_io::regular(&head_path)?;
+        let head = super::super::local_io::read(&head_path)?;
+        let cursor = client.formal_replay_cursor().map_err(|e| e.to_string())?;
+        let mut history = Self {
+            cas,
+            head_path,
+            trust_identity_digest: trust_identity_digest(config)?,
+            head,
+            history_pins: BTreeSet::new(),
+            poisoned: false,
+        };
+        history
+            .restore(config, client, &cursor, false, Some(minimum), true)?
+            .ok_or_else(|| "original authenticated history boundary is missing".into())
+    }
+
+    /// Values from the exact durable head already authenticated by page replay.
+    pub(super) fn observation(&self) -> Result<serde_json::Value, String> {
+        if self.poisoned {
+            return Err("HistoryUnavailable: history is poisoned".into());
+        }
+        let actual: FormalFullSyncHistoryHeadV1 = super::super::local_io::read(&self.head_path)?;
+        if serde_json::to_value(&actual).map_err(|e| e.to_string())?
+            != serde_json::to_value(&self.head).map_err(|e| e.to_string())?
+        {
+            return Err("HistoryUnavailable: history head changed during observation".into());
+        }
+        Ok(serde_json::json!({
+            "pages": actual.page_count,
+            "proof_bytes": actual.total_page_bytes,
+            "manifest_bytes": actual.total_manifest_bytes,
+            "manifest_digest": actual.manifest_digest,
+            "last_verified_cut": actual.last_verified_cut,
+        }))
+    }
+
     /// Replay the retained pages from external C0 and optionally require an
     /// immutable stage cut to occur in that exact authenticated lineage.
     pub(super) fn verify_read_only_at_least(

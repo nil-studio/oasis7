@@ -9,6 +9,7 @@ use super::operation_snapshot::{
 };
 pub(super) use super::operation_snapshot::{Direction, Identity, Reservation, Snapshot};
 use super::operation_snapshot::{InterruptedAttempt, Publication};
+use super::operation_terminal::{AttemptOwner, TerminalIndex};
 use serde::Serialize;
 use sha2::Digest;
 use std::path::{Path, PathBuf};
@@ -20,10 +21,14 @@ pub(super) struct AttemptPermit {
     number: u64,
     nonce: String,
     deadline: Instant,
+    started: Instant,
 }
 impl AttemptPermit {
     pub fn deadline(&self) -> Instant {
         self.deadline
+    }
+    pub fn clock(&self) -> (Instant, Instant) {
+        (self.started, self.deadline)
     }
 }
 
@@ -45,7 +50,13 @@ pub(super) struct Ledger {
     poisoned: bool,
     recovered: bool,
     reopen_deadline: Option<Instant>,
+    next_owner: Option<AttemptOwner>,
+    repairing_installation: bool,
+    cancellation: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
+
+#[path = "formal_full_sync_operation_completion.rs"]
+mod completion;
 
 impl Ledger {
     /// Explicit first initialization only; never called as an open fallback.
@@ -116,6 +127,10 @@ impl Ledger {
             verified_target_json: None,
             publication: None,
             publication_journal_version: Some(1),
+            installation: None,
+            terminal_index: Some(TerminalIndex::default()),
+            attempt_owner: None,
+            repair_attempt: false,
             proof_pages: 0,
             proof_bytes: 0,
             material_limit,
@@ -149,6 +164,9 @@ impl Ledger {
             poisoned: false,
             recovered: false,
             reopen_deadline: None,
+            next_owner: None,
+            repairing_installation: false,
+            cancellation: None,
         })
     }
 
@@ -184,6 +202,9 @@ impl Ledger {
             poisoned: false,
             recovered: true,
             reopen_deadline: Some(deadline),
+            next_owner: None,
+            repairing_installation: false,
+            cancellation: None,
         })
     }
 
@@ -195,6 +216,45 @@ impl Ledger {
 
     pub fn snapshot(&self) -> &Snapshot {
         &self.state
+    }
+
+    pub(super) fn bind_cancellation(
+        &mut self,
+        flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> Result<(), String> {
+        if self.cancellation.is_some() || (!self.recovered && self.state.active_request.is_some()) {
+            return Err("operation cancellation must bind before real I/O".into());
+        }
+        self.cancellation = Some(flag);
+        Ok(())
+    }
+
+    /// The generation is diagnostic binding; exclusive native ownership and
+    /// the live ledger writer lock, not these strings, establish fencing.
+    pub(super) fn bind_attempt_owner(
+        &mut self,
+        owner: &super::super::process::ProcessOwnership,
+        data: &Path,
+        instance: &super::super::LocalInstance,
+    ) -> Result<(), String> {
+        owner.require_directory(data)?;
+        if self.path != data.join("state/full-sync/operation.json")
+            || owner.binding_digest()? != self.state.identity.binding_digest
+        {
+            return Err("operation_recovery_required: owner binding changed".into());
+        }
+        let next = AttemptOwner {
+            generation: instance.generation,
+            incarnation: instance.incarnation.clone(),
+        };
+        if self.state.attempt_owner.as_ref().is_some_and(|old| {
+            next.generation < old.generation
+                || (next.generation == old.generation && next.incarnation != old.incarnation)
+        }) {
+            return Err("operation_recovery_required: stale owner incarnation".into());
+        }
+        self.next_owner = Some(next);
+        Ok(())
     }
 
     fn save(&mut self, next: Snapshot) -> Result<(), String> {
@@ -279,6 +339,18 @@ impl Ledger {
         verified_target: Option<&[u8]>,
         deadline_cap: Instant,
     ) -> Result<AttemptPermit, String> {
+        self.resume_operation(owner, data, request, verified_target, deadline_cap, false)
+    }
+
+    fn resume_operation(
+        &mut self,
+        owner: &super::super::process::ProcessOwnership,
+        data: &Path,
+        request: &serde_json::Value,
+        verified_target: Option<&[u8]>,
+        deadline_cap: Instant,
+        repair: bool,
+    ) -> Result<AttemptPermit, String> {
         let deadline = self
             .reopen_deadline
             .ok_or("not a reopened operation")?
@@ -287,7 +359,13 @@ impl Ledger {
             || self.poisoned
             || Instant::now() >= deadline
             || self.state.publication_journal_version != Some(1)
-            || self.state.publication.is_some()
+            || (self.state.publication.is_some() != repair)
+            || (repair
+                && !self
+                    .state
+                    .installation
+                    .as_ref()
+                    .is_some_and(|i| !i.completed))
             || self.state.verified_target_json.as_deref() != verified_target
         {
             return Err("operation_recovery_required: unpublished recovery unavailable".into());
@@ -322,11 +400,14 @@ impl Ledger {
                 tx_credit: std::mem::take(&mut next.tx_credit),
                 rx_credit: std::mem::take(&mut next.rx_credit),
                 reservation: next.reservation.take(),
+                owner: next.attempt_owner.clone(),
             });
         }
         next.attempts_used += 1;
         let nonce = local_io::random_id()?;
         next.active_attempt_nonce = Some(nonce.clone());
+        next.attempt_owner = self.next_owner.clone();
+        next.repair_attempt = repair;
         if next.charged()? != self.state.charged()? {
             return Err("recovery changed charged budget".into());
         }
@@ -336,7 +417,8 @@ impl Ledger {
         }
         // Freeze this new attempt's original deadline before the durable
         // recovery transition. A slow fsync must not buy additional runtime.
-        let attempt_deadline = Instant::now()
+        let started = Instant::now();
+        let attempt_deadline = started
             .checked_add(Duration::from_millis(self.state.policy.attempt_timeout_ms))
             .ok_or("attempt deadline overflow")?;
         self.save_exact(next)?;
@@ -350,11 +432,13 @@ impl Ledger {
         }
         self.recovered = false;
         self.reopen_deadline = None;
+        self.repairing_installation = repair;
         Ok(AttemptPermit {
             identity: self.state.identity.clone(),
             number: self.state.attempts_used,
             nonce,
             deadline: attempt_deadline,
+            started,
         })
     }
 
@@ -383,6 +467,7 @@ impl Ledger {
         next.attempts_used += 1;
         let nonce = local_io::random_id()?;
         next.active_attempt_nonce = Some(nonce.clone());
+        next.attempt_owner = self.next_owner.clone();
         let deadline = started
             .checked_add(Duration::from_millis(self.state.policy.attempt_timeout_ms))
             .ok_or("attempt deadline overflow")?;
@@ -398,10 +483,23 @@ impl Ledger {
             number: self.state.attempts_used,
             nonce,
             deadline,
+            started,
         })
     }
 
+    fn check_cancellation(&self) -> Result<(), String> {
+        if self
+            .cancellation
+            .as_ref()
+            .is_some_and(|flag| flag.load(std::sync::atomic::Ordering::SeqCst))
+        {
+            return Err("operation_recovery_required: worker cancelled".into());
+        }
+        Ok(())
+    }
+
     pub(super) fn check_attempt(&self, permit: &AttemptPermit) -> Result<(), String> {
+        self.check_cancellation()?;
         if self.recovered
             || self.poisoned
             || permit.identity != self.state.identity
@@ -430,7 +528,7 @@ impl Ledger {
                 .state
                 .publication
                 .as_ref()
-                .is_some_and(|publication| !publication.completed)
+                .is_some_and(|publication| !publication.completed && !self.repairing_installation)
         {
             return Err("operation_recovery_required: attempt cannot terminate".into());
         }
@@ -526,6 +624,14 @@ impl Ledger {
         let mut next = self.state.clone();
         next.publication = Some(Publication {
             intent_digest: local_io::digest(&(cut, roots_digest))?,
+            installation_input_digest: self
+                .state
+                .installation
+                .as_ref()
+                .map(|installation| {
+                    local_io::digest(&(&installation.manifest, &installation.retained_cas_hashes))
+                })
+                .transpose()?,
             attempt_no: permit.number,
             completed: false,
         });
@@ -651,7 +757,7 @@ impl Ledger {
         // Even a pending/unknown publication must not start another HTTP
         // exchange: its external effect may already exist and its admission
         // boundary is no longer a read-only synchronization operation.
-        if self.state.publication.is_some() {
+        if self.state.publication.is_some() && !self.repairing_installation {
             return Err("operation_recovery_required: publication has already started".into());
         }
         if self.state.active_request.is_some() || self.state.reservation.is_some() {
@@ -711,6 +817,12 @@ impl Ledger {
             // the paid original request and require explicit fenced recovery.
             self.poisoned = true;
             return Err("attempt_expired".into());
+        }
+        if let Err(error) = self.check_attempt(permit) {
+            // Cancellation may arrive while the original admission is being
+            // persisted. Its credit stays paid, but no socket permit escapes.
+            self.poisoned = true;
+            return Err(error);
         }
         Ok(ExchangePermit {
             identity: self.state.identity.clone(),
@@ -811,6 +923,10 @@ impl Ledger {
             // persistence; no token is returned to authorize transport I/O.
             self.poisoned = true;
             return Err("attempt_expired".into());
+        }
+        if let Err(error) = self.check_attempt(permit) {
+            self.poisoned = true;
+            return Err(error);
         }
         Ok(token)
     }

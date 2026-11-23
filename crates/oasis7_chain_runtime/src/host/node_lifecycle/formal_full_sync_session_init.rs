@@ -94,6 +94,11 @@ impl FormalFullSyncSession {
             active_provider_index: 0,
             shared_exchange: None,
             recovery_target: None,
+            recovery_minimum: None,
+            local_recovery_deadline: None,
+            cancellation: None,
+            #[cfg(test)]
+            publication_fault: None,
             node_private_key_hex,
             node_public_key_hex,
             cas,
@@ -108,7 +113,7 @@ impl FormalFullSyncSession {
 
     /// Capture the original verified minimum, not a provider's advertised head.
     /// This is request preparation only, not owner admission or recovery.
-    #[cfg(all(test, unix))]
+    #[cfg(unix)]
     pub(super) fn prepare_operation_request(
         &self,
         policy: &operation_ledger::Policy,
@@ -158,7 +163,7 @@ impl FormalFullSyncSession {
     }
 
     /// Explicit operation dependency for the shared-exchange validation fixture.
-    #[cfg(all(test, unix))]
+    #[cfg(unix)]
     pub(in super::super) fn bind_shared_exchange(
         &mut self,
         exchange: Arc<dyn oasis7_game_client::formal_sync_exchange::FullSyncExchange>,
@@ -178,8 +183,16 @@ impl FormalFullSyncSession {
             .formal_current_anchor()
             .map_err(|error| error.to_string())?;
         let minimum = cut_from_anchor(&anchor)?;
-        let minimum_matches = if let Some(target) = &self.recovery_target {
-            target.cut == minimum
+        let minimum_matches = if let Some(original_minimum) = &self.recovery_minimum {
+            original_request.get("initial_minimum")
+                == Some(&serde_json::to_value(original_minimum).map_err(|e| e.to_string())?)
+                && nondecreasing_cut(original_minimum, &minimum)
+                && self
+                    .recovery_target
+                    .as_ref()
+                    .is_none_or(|target| nondecreasing_cut(&target.cut, &minimum))
+        } else if let Some(target) = &self.recovery_target {
+            nondecreasing_cut(&target.cut, &minimum)
         } else {
             original_request.get("initial_minimum")
                 == Some(&serde_json::to_value(&minimum).map_err(|error| error.to_string())?)

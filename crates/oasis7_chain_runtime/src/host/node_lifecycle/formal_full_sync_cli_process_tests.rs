@@ -2,6 +2,9 @@
 //! management service or new World/authority is provisioned by these tests.
 use super::*;
 use serde_json::Value;
+#[cfg(unix)]
+#[path = "formal_full_sync_operation_lifecycle_tests.rs"]
+mod budgeted_tests;
 #[path = "formal_full_sync_cli_recovery_fixture.rs"]
 mod recovery_fixture;
 #[path = "formal_full_sync_sampling_fixture.rs"]
@@ -489,6 +492,10 @@ fn run_cli_join_with_sources(
 #[ignore = "requires shipping OASIS7_FORMAL_NODE_TEST_BIN; actual autonomous full/state-sync CLI"]
 fn formal_full_state_sync_cli_init_join_restart_preserves_external_c0() {
     run_cli_join(false).unwrap();
+    #[cfg(unix)]
+    budgeted_tests::budgeted_shipping_cli_completes_seventeen_cycles_and_local_cold_readback();
+    #[cfg(target_os = "linux")]
+    budgeted_tests::budgeted_shipping_cli_native_takeover_keeps_original_unknown_charge();
 }
 #[test]
 #[ignore = "requires shipping OASIS7_FORMAL_NODE_TEST_BIN; actual moving-head state-sync CLI"]

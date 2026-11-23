@@ -44,18 +44,17 @@ use std::{
     },
     time::Duration,
 };
-// Experimental disk/TCP accounting harness only. These modules do not enable
-// V2 configuration, change V1 behavior, or grant production sync capability.
+// V2 uses the same real session with a durable, explicitly admitted transport.
 #[path = "formal_full_sync_attempt.rs"]
 mod attempt;
 #[path = "formal_full_sync_cas.rs"]
 pub(super) mod cas_lifecycle;
 #[path = "formal_full_sync_compatibility.rs"]
 mod compatibility;
-#[cfg(all(test, unix))]
+#[cfg(unix)]
 #[path = "formal_full_sync_direct_http.rs"]
 mod direct_http;
-#[cfg(all(test, unix))]
+#[cfg(unix)]
 #[path = "formal_full_sync_dns.rs"]
 mod dns;
 #[path = "formal_full_sync_failover.rs"]
@@ -64,34 +63,42 @@ mod failover;
 mod grant_reconcile;
 #[path = "formal_full_sync_history.rs"]
 pub(super) mod history_chain;
-#[cfg(all(test, unix))]
+#[cfg(unix)]
+#[path = "formal_full_sync_installation.rs"]
+mod installation;
+#[cfg(unix)]
 #[path = "formal_full_sync_metered_io.rs"]
 mod metered_io;
 #[path = "formal_full_sync_native.rs"]
 mod native_environment;
 #[path = "formal_full_sync_operation_config.rs"]
 mod operation_config;
+#[cfg(unix)]
+#[path = "formal_full_sync_operation_ledger.rs"]
+mod operation_ledger;
 #[path = "formal_full_sync_operation_snapshot.rs"]
 mod operation_snapshot;
 #[path = "formal_full_sync_operation_status.rs"]
-mod operation_status;
-#[cfg(all(test, unix))]
-#[path = "formal_full_sync_operation_ledger.rs"]
-mod operation_ledger;
+pub(super) mod operation_status;
+#[path = "formal_full_sync_operation_terminal.rs"]
+mod operation_terminal;
 #[cfg(all(test, unix))]
 #[path = "formal_full_sync_operation_tests.rs"]
 mod operation_tests;
+#[cfg(unix)]
+#[path = "formal_full_sync_operation_worker.rs"]
+pub(super) mod operation_worker;
 #[path = "formal_full_sync_providers.rs"]
 mod providers;
 #[path = "formal_full_sync_session_init.rs"]
 mod session_init;
-#[cfg(all(test, unix))]
+#[cfg(unix)]
 #[path = "formal_full_sync_shared_exchange.rs"]
 mod shared_exchange;
-#[cfg(all(test, unix))]
+#[cfg(unix)]
 #[path = "formal_full_sync_tls_http.rs"]
 mod tls_http;
-#[cfg(all(test, unix))]
+#[cfg(unix)]
 #[path = "formal_full_sync_tls_io.rs"]
 mod tls_io;
 use attempt::{
@@ -102,9 +109,9 @@ use cas_lifecycle::CasBudget;
 pub(super) use compatibility::probe_runtime_compatibility;
 pub(super) use operation_config::{FULL_SYNC_CONFIG_V2, FormalFullSyncConfigV2};
 pub(super) use operation_status::observe as observe_operation_status;
-pub(crate) use providers::{FormalFullSyncConfigV1, FormalFullSyncEndpointV1};
 #[cfg(test)]
 use providers::MAX_SYNC_PROVIDERS;
+pub(crate) use providers::{FormalFullSyncConfigV1, FormalFullSyncEndpointV1};
 
 const API_VERSION: &str = "oasis7.formal-full-state-sync/v1";
 pub(crate) const PROFILE: &str = "formal_full_state_sync_read_only_v1";
@@ -158,9 +165,17 @@ pub(super) fn install_grant(
     grant_reconcile::require_completed_start(&instance_data, current.as_ref())?;
     let mut node = super::model::NodeConfig::load(&config_path)?;
     node.verify_identity()?;
-    let previous_config = node.identity.chain.formal_full_sync().cloned()
-        .or_else(|| node.identity.chain.budgeted_formal_full_sync()
-            .map(FormalFullSyncConfigV2::read_material_config))
+    let previous_config = node
+        .identity
+        .chain
+        .formal_full_sync()
+        .cloned()
+        .or_else(|| {
+            node.identity
+                .chain
+                .budgeted_formal_full_sync()
+                .map(FormalFullSyncConfigV2::read_material_config)
+        })
         .ok_or("full-sync grant can only be installed for a formal full-state sync node")?;
     let grant: FormalNodeReadGrantV1 = super::local_io::read(grant_path)?;
     let (keypair, _) =
@@ -189,7 +204,10 @@ pub(super) fn install_grant(
             }));
         }
     }
-    *node.identity.chain.formal_full_sync_grant_mut()
+    *node
+        .identity
+        .chain
+        .formal_full_sync_grant_mut()
         .ok_or("full-sync profile disappeared during grant install")? = Some(grant.clone());
     super::local_io::write(&instance_data.join(super::model::CONFIG_FILE), &node)?;
     Ok(serde_json::json!({
@@ -258,6 +276,7 @@ pub(crate) struct RestoredFormalFullSyncWorldV1 {
     pub world: World,
     pub cut: FormalFullSyncCutV1,
     retained_cas_hashes: std::collections::BTreeSet<String>,
+    manifest: FormalFullSyncManifestV1,
 }
 
 pub(crate) struct FormalFullSyncSession {
@@ -267,6 +286,11 @@ pub(crate) struct FormalFullSyncSession {
     active_provider_index: usize,
     shared_exchange: Option<Arc<dyn oasis7_game_client::formal_sync_exchange::FullSyncExchange>>,
     recovery_target: Option<attempt::FullSyncTargetV1>,
+    recovery_minimum: Option<FormalFullSyncCutV1>,
+    local_recovery_deadline: Option<std::time::Instant>,
+    cancellation: Option<Arc<AtomicBool>>,
+    #[cfg(test)]
+    publication_fault: Option<Arc<dyn Fn(&str) + Send + Sync>>,
     node_private_key_hex: String,
     node_public_key_hex: String,
     cas: Arc<LocalCasStore>,
@@ -329,11 +353,28 @@ impl FormalFullSyncSession {
         result
     }
 
-    fn check_operation_active(&mut self) -> Result<(), String> {
-        if let Some(exchange) = &self.shared_exchange
-            && let Err(error) = exchange.check_active()
+    fn require_operation_active(&self) -> Result<(), String> {
+        if self
+            .cancellation
+            .as_ref()
+            .is_some_and(|flag| flag.load(Ordering::SeqCst))
         {
-            let error = error.to_string();
+            return Err("operation_recovery_required: worker cancelled".into());
+        }
+        if self
+            .local_recovery_deadline
+            .is_some_and(|deadline| std::time::Instant::now() >= deadline)
+        {
+            return Err("operation_reopen_expired".into());
+        }
+        if let Some(exchange) = &self.shared_exchange {
+            exchange.check_active().map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    fn check_operation_active(&mut self) -> Result<(), String> {
+        if let Err(error) = self.require_operation_active() {
             self.fail(&error);
             return Err(error);
         }
@@ -426,6 +467,12 @@ impl FormalFullSyncSession {
                     let cut = serde_json::to_value(&restored.cut).map_err(|e| e.to_string())?;
                     let roots = super::local_io::digest(&restored.retained_cas_hashes)?;
                     exchange
+                        .prepare_installation(
+                            &serde_json::to_value(&restored.manifest).map_err(|e| e.to_string())?,
+                            &restored.retained_cas_hashes,
+                        )
+                        .map_err(|e| e.to_string())?;
+                    exchange
                         .begin_publication(&cut, &roots)
                         .map_err(|e| e.to_string())?;
                     Some((cut, roots))
@@ -434,11 +481,16 @@ impl FormalFullSyncSession {
                 };
                 // Intent persistence may have exhausted the attempt deadline.
                 self.check_operation_active()?;
+                #[cfg(test)]
+                if let Some(fault) = &self.publication_fault {
+                    fault("intent_durable");
+                }
                 if let Err(error) = cas_lifecycle::replace_loaded_world_pins(
                     &self.cas,
                     &restored.retained_cas_hashes,
                 ) {
-                    self.cas_publication_poisoned = error.outcome_unknown();
+                    self.cas_publication_poisoned =
+                        error.outcome_unknown() || self.shared_exchange.is_some();
                     let error = error.to_string();
                     self.fail(&error);
                     let cleanup = cas_lifecycle::cleanup_after_failed_candidate(
@@ -453,6 +505,10 @@ impl FormalFullSyncSession {
                             "{error}; full-sync orphan cleanup also failed: {cleanup_error}"
                         ),
                     });
+                }
+                #[cfg(test)]
+                if let Some(fault) = &self.publication_fault {
+                    fault("pins_durable");
                 }
                 if let (Some(exchange), Some((cut, roots))) = (&self.shared_exchange, publication)
                     && let Err(error) = exchange.complete_publication(&cut, &roots)
@@ -561,66 +617,7 @@ impl FormalFullSyncSession {
         }
 
         let manifest = self.fetch_manifest(&cut)?;
-        let material = self.fetch_record_closure(&anchor, &cut, &manifest, &mut attempt.budget)?;
-        let _snapshot_hash = material
-            .roots
-            .get(&ArtifactRole::Snapshot)
-            .ok_or("verified record has no Snapshot artifact")?;
-        let journal_hash = material
-            .roots
-            .get(&ArtifactRole::Journal)
-            .ok_or("verified record has no Journal artifact")?;
-        let expanded_snapshot = material.snapshot_bytes().map_err(|e| e.to_string())?;
-        let snapshot_bytes = expanded_snapshot.as_slice();
-        let journal_bytes = object_bytes(&material, journal_hash)?;
-        if blake3::hash(snapshot_bytes).to_hex().as_str() != cut.after_state_root {
-            return Err("full-sync Snapshot does not match qualified after_state_root".into());
-        }
-        let snapshot: Snapshot = oasis7_world_state::codec::snapshot_from_cbor(snapshot_bytes)
-            .map_err(|error| format!("full-sync Snapshot decode: {error}"))?;
-        let journal: Journal = oasis7_world_state::codec::journal_from_cbor(journal_bytes)
-            .map_err(|error| format!("full-sync Journal decode: {error}"))
-            .map_err(|error| error.to_string())?;
-        if oasis7_world_state::codec::snapshot_cbor(&snapshot).map_err(|error| error.to_string())?
-            != snapshot_bytes
-            || oasis7_world_state::codec::journal_cbor(&journal)
-                .map_err(|error| error.to_string())?
-                != journal_bytes
-        {
-            return Err("full-sync Snapshot or Journal is not canonical CBOR".into());
-        }
-        let retained = snapshot
-            .state
-            .retained_history_root
-            .as_ref()
-            .ok_or("full-state sync requires a retained-history root")?;
-        if manifest.retained_history_root_digest.as_deref() != Some(&retained.root_digest) {
-            return Err("full-sync manifest retained root differs from qualified Snapshot".into());
-        }
-        let parent = VerifiedFormalRetainedHistoryParentV1::verify(&anchor, snapshot_bytes)?;
-        let tree_leaves = self.fetch_retained_tree(
-            &cut,
-            &retained.root_digest,
-            &retained.index_root,
-            &mut attempt.budget,
-        )?;
-        if tree_leaves != retained.index_root.leaf_count {
-            return Err("full-sync retained tree leaf count mismatch".into());
-        }
-        let reader = Arc::new(LocalVerifiedBusinessIndexReader {
-            store: Arc::clone(&self.cas),
-            integrity_poisoned: Arc::clone(&self.cas_integrity_poisoned),
-        });
-        self.check_operation_active()?;
-        let world = oasis7::runtime_host::world::from_verified_formal_snapshot(
-            snapshot, journal, parent, reader,
-        )
-        .map_err(|error| format!("full-sync cold restore: {error:?}"))?;
-        let restored_bytes = oasis7_world_state::codec::snapshot_cbor(&world.snapshot())
-            .map_err(|error| format!("full-sync restored Snapshot encode: {error}"))?;
-        if blake3::hash(&restored_bytes).to_hex().as_str() != cut.after_state_root {
-            return Err("cold-restored World differs from qualified after_state_root".into());
-        }
+        let world = self.restore_candidate_world(&anchor, &cut, &manifest, &mut attempt.budget)?;
         // Read one more independently verified page after transfer. The
         // ordinary reader verifier has advanced from `cut`, so same-epoch
         // writes are a proven descendant. Keep this immutable snapshot
@@ -661,7 +658,75 @@ impl FormalFullSyncSession {
             world,
             cut,
             retained_cas_hashes,
+            manifest,
         })
+    }
+
+    fn restore_candidate_world(
+        &mut self,
+        anchor: &VerifiedFormalReadAnchorV1,
+        cut: &FormalFullSyncCutV1,
+        manifest: &FormalFullSyncManifestV1,
+        budget: &mut CasBudget,
+    ) -> Result<World, String> {
+        let material = self.fetch_record_closure(anchor, cut, manifest, budget)?;
+        let _snapshot_hash = material
+            .roots
+            .get(&ArtifactRole::Snapshot)
+            .ok_or("verified record has no Snapshot artifact")?;
+        let journal_hash = material
+            .roots
+            .get(&ArtifactRole::Journal)
+            .ok_or("verified record has no Journal artifact")?;
+        let expanded_snapshot = material.snapshot_bytes().map_err(|e| e.to_string())?;
+        let snapshot_bytes = expanded_snapshot.as_slice();
+        let journal_bytes = object_bytes(&material, journal_hash)?;
+        if blake3::hash(snapshot_bytes).to_hex().as_str() != cut.after_state_root {
+            return Err("full-sync Snapshot does not match qualified after_state_root".into());
+        }
+        let snapshot: Snapshot = oasis7_world_state::codec::snapshot_from_cbor(snapshot_bytes)
+            .map_err(|error| format!("full-sync Snapshot decode: {error}"))?;
+        let journal: Journal = oasis7_world_state::codec::journal_from_cbor(journal_bytes)
+            .map_err(|error| format!("full-sync Journal decode: {error}"))
+            .map_err(|error| error.to_string())?;
+        if oasis7_world_state::codec::snapshot_cbor(&snapshot).map_err(|error| error.to_string())?
+            != snapshot_bytes
+            || oasis7_world_state::codec::journal_cbor(&journal)
+                .map_err(|error| error.to_string())?
+                != journal_bytes
+        {
+            return Err("full-sync Snapshot or Journal is not canonical CBOR".into());
+        }
+        let retained = snapshot
+            .state
+            .retained_history_root
+            .as_ref()
+            .ok_or("full-state sync requires a retained-history root")?;
+        if manifest.retained_history_root_digest.as_deref() != Some(&retained.root_digest) {
+            return Err("full-sync manifest retained root differs from qualified Snapshot".into());
+        }
+        let parent = VerifiedFormalRetainedHistoryParentV1::verify(anchor, snapshot_bytes)?;
+        let tree_leaves =
+            self.fetch_retained_tree(&cut, &retained.root_digest, &retained.index_root, budget)?;
+        if tree_leaves != retained.index_root.leaf_count {
+            return Err("full-sync retained tree leaf count mismatch".into());
+        }
+        let reader = Arc::new(LocalVerifiedBusinessIndexReader {
+            store: Arc::clone(&self.cas),
+            integrity_poisoned: Arc::clone(&self.cas_integrity_poisoned),
+        });
+        self.check_operation_active()?;
+        let world = oasis7::runtime_host::world::from_verified_formal_snapshot(
+            snapshot, journal, parent, reader,
+        )
+        .map_err(|error| format!("full-sync cold restore: {error:?}"))?;
+        let restored_bytes = oasis7_world_state::codec::snapshot_cbor(&world.snapshot())
+            .map_err(|error| format!("full-sync restored Snapshot encode: {error}"))?;
+        if blake3::hash(&restored_bytes).to_hex().as_str() != cut.after_state_root {
+            return Err("cold-restored World differs from qualified after_state_root".into());
+        }
+        self.check_operation_active()?;
+        Ok(world)
     }
 
     fn fetch_record_closure(
@@ -733,6 +798,7 @@ impl FormalFullSyncSession {
     /// integrity evidence; it poisons the session so another provider cannot
     /// make the same damaged local state appear healthy.
     fn read_cached_object(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
+        self.require_operation_active()?;
         let result = verified_local_object(&self.cas, digest);
         if result.is_err() {
             self.cas_integrity_poisoned.store(true, Ordering::Release);
@@ -741,6 +807,7 @@ impl FormalFullSyncSession {
     }
 
     fn persist_cas_object(&self, digest: &str, bytes: &[u8]) -> Result<(), String> {
+        self.require_operation_active()?;
         match self.cas.put(digest, bytes) {
             Ok(()) => Ok(()),
             Err(error) => {
@@ -751,6 +818,13 @@ impl FormalFullSyncSession {
     }
 
     fn read_current_view(&mut self) -> Result<VerifiedWorldView, String> {
+        if self.local_recovery_deadline.is_some() {
+            return Err(
+                "operation_recovery_required: local installation recovery cannot issue network I/O"
+                    .into(),
+            );
+        }
+        self.check_operation_active()?;
         let view = self
             .client
             .read_view(ReadWorldViewRequest {
@@ -772,8 +846,10 @@ impl FormalFullSyncSession {
         // durable-cursor checks. Another provider must start from a fresh
         // verifier replayed from the unchanged durable chain. Persistence
         // uncertainty itself marks the history poisoned in the writer.
+        self.check_operation_active()?;
         self.history
             .persist_verified_view(&self.config, &self.client, &view, &anchor)?;
+        self.check_operation_active()?;
         Ok(view)
     }
 
@@ -1017,6 +1093,13 @@ impl FormalFullSyncSession {
         Q: Serialize,
         P: DeserializeOwned + Serialize,
     {
+        if self.local_recovery_deadline.is_some() {
+            return Err(
+                "operation_recovery_required: local installation recovery cannot issue network I/O"
+                    .into(),
+            );
+        }
+        self.require_operation_active()?;
         let signed = authority::sign_read_request(path, request, &self.node_private_key_hex)?;
         if signed.subject_public_key != self.node_public_key_hex {
             return Err("full-sync request signer identity changed".into());

@@ -83,15 +83,34 @@ impl Behaviour {
         message: NetworkRequest,
         caller_deadline: Option<tokio::time::Instant>,
     ) -> request_response::OutboundRequestId {
+        self.send_rr_request_with_exchange(peer, message, caller_deadline, None)
+    }
+
+    pub(super) fn send_rr_request_with_exchange(
+        &mut self,
+        peer: &PeerId,
+        message: NetworkRequest,
+        caller_deadline: Option<tokio::time::Instant>,
+        exchange: Option<std::sync::Arc<super::encoded_exchange::Exchange>>,
+    ) -> request_response::OutboundRequestId {
         // Legacy keeps its existing on-wire protocol timers. The command's
         // caller bound has already been applied to waiting and dispatch.
         let deadline = self.request_timeout.map(|timeout| {
             let configured = deadline_in(timeout);
             caller_deadline.map_or(configured, |caller| configured.min(caller))
         });
-        self.inner
-            .request_response
-            .send_request(peer, LocalRequest { message, deadline })
+        let deadline = exchange.as_ref().map_or(deadline, |exchange| {
+            let original = tokio::time::Instant::from_std(exchange.deadline());
+            Some(deadline.map_or(original, |configured| configured.min(original)))
+        });
+        self.inner.request_response.send_request(
+            peer,
+            LocalRequest {
+                message,
+                deadline,
+                exchange,
+            },
+        )
     }
 
     pub(super) fn note_handshake_deadline(&self) {

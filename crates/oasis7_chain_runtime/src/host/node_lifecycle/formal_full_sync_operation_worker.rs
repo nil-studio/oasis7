@@ -1,10 +1,10 @@
 //! Initial operation admission and fenced pre-target restart.
-use super::super::super::super::{
+use super::super::{
     LocalInstance, local_io,
     model::{CONFIG_FILE, NodeConfig},
     process::ProcessOwnership,
 };
-use super::super::super::{
+use super::{
     FormalFullSyncConfigV1, FormalFullSyncConfigV2, FormalFullSyncCutV1, FormalFullSyncSession,
     FormalFullSyncStatusV1, LocalCasStore, attempt::FullSyncTargetV1, cut_from_anchor,
     history_chain, nondecreasing_cut, now_unix_ms, operation_ledger,
@@ -14,15 +14,247 @@ use serde_json::Value;
 use std::{
     fs, io,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
-pub(super) struct InitialBudgetedSession {
+pub(in super::super) struct InitialBudgetedSession {
     owner: Arc<ProcessOwnership>,
     directory: PathBuf,
     session: FormalFullSyncSession,
     exchange: Arc<shared_exchange::SharedOperationExchange>,
+}
+
+/// A supervisor retains this consumer and its World for the native incarnation.
+/// Every later poll inspects the one original ledger; errors cannot allocate a
+/// fresh operation. Only an acknowledged local installation enables rollover.
+pub(in super::super) struct BudgetedDriver {
+    node: NodeConfig,
+    instance: LocalInstance,
+    owner: Arc<ProcessOwnership>,
+    stop: Arc<AtomicBool>,
+    pub(in super::super) observation: Arc<Mutex<super::operation_status::LiveObservation>>,
+    restored: Option<super::RestoredFormalFullSyncWorldV1>,
+    advance: bool,
+    blocked: bool,
+}
+
+impl BudgetedDriver {
+    #[cfg(test)]
+    pub(super) fn retained_world(&self) -> Option<&oasis7_runtime::World> {
+        self.restored.as_ref().map(|restored| &restored.world)
+    }
+    pub(in super::super) fn new(
+        node: NodeConfig,
+        instance: LocalInstance,
+        owner: Arc<ProcessOwnership>,
+        stop: Arc<AtomicBool>,
+    ) -> Result<Self, String> {
+        owner.require_directory(&node.identity.data_dir)?;
+        let mut base =
+            super::operation_status::observe(&node).ok_or("missing operation configuration")?;
+        base["incarnation"] = instance.incarnation.clone().into();
+        base["generation"] = instance.generation.into();
+        base["config_digest"] = instance.config_digest.clone().into();
+        base["state"] = "starting".into();
+        base["blocker"] = Value::Null;
+        Ok(Self {
+            node,
+            instance,
+            owner,
+            stop,
+            observation: Arc::new(Mutex::new(super::operation_status::LiveObservation {
+                base,
+                ..Default::default()
+            })),
+            restored: None,
+            advance: false,
+            blocked: false,
+        })
+    }
+
+    pub(in super::super) fn poll_interval(&self) -> Duration {
+        Duration::from_millis(
+            self.node
+                .identity
+                .chain
+                .budgeted_formal_full_sync()
+                .unwrap()
+                .poll_interval_ms,
+        )
+    }
+
+    fn publish(
+        &self,
+        session: &FormalFullSyncSession,
+        clock: Option<(String, u64, Instant, Instant)>,
+    ) -> Result<(), String> {
+        let mut live = self.observation.lock().map_err(|e| e.to_string())?;
+        live.base = serde_json::to_value(session.status()).map_err(|e| e.to_string())?;
+        live.clock = clock;
+        live.history = session.history.observation()?;
+        Ok(())
+    }
+
+    fn fail(&mut self, error: String, permanent: bool) {
+        self.blocked |= permanent;
+        let mut live = self
+            .observation
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        live.clock = None;
+        live.base["ready"] = false.into();
+        live.base["world_loaded"] = false.into();
+        live.base["state"] = "blocked".into();
+        live.base["error"] = error.clone().into();
+        live.base["blocker"] = if error.contains("attempt_expired") {
+            "attempt_expired"
+        } else if error.contains("operation_budget_exhausted") {
+            "operation_budget_exhausted"
+        } else {
+            "operation_recovery_required"
+        }
+        .into();
+    }
+
+    pub(in super::super) fn poll(&mut self) {
+        if self.blocked || self.stop.load(Ordering::SeqCst) {
+            return;
+        }
+        let path = self
+            .node
+            .identity
+            .data_dir
+            .join("state/full-sync/operation.json");
+        let snapshot = match fs::symlink_metadata(&path) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+            _ => match read_snapshot(&path) {
+                Ok(snapshot) => Some(snapshot),
+                Err(error) => {
+                    self.fail(error, true);
+                    return;
+                }
+            },
+        };
+        if snapshot.as_ref().is_some_and(|s| s.publication.is_some()) && !self.advance {
+            let started = Instant::now();
+            {
+                let mut live = self
+                    .observation
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                live.reopen_elapsed_ms = None;
+                live.reopen_result = None;
+            }
+            let result = InitialBudgetedSession::recover_installation(
+                &self.node,
+                &self.instance,
+                Arc::clone(&self.owner),
+                Arc::clone(&self.stop),
+                &self.observation,
+            );
+            match result {
+                Ok((session, restored)) => {
+                    self.restored = Some(restored);
+                    self.advance = true;
+                    if let Err(error) = self.publish(&session, None) {
+                        self.fail(error, true);
+                    }
+                }
+                Err(error) => {
+                    let may_retry = error.starts_with("installation_repair_attempt_failed:");
+                    self.fail(error, !may_retry);
+                }
+            }
+            let mut live = self
+                .observation
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            // A repair is a separately admitted attempt. Its HTTP duration is
+            // not time spent reopening the original local ledger/history.
+            if live.reopen_result.as_deref() != Some("repair_attempt_admitted") {
+                live.reopen_elapsed_ms =
+                    Some(started.elapsed().as_millis().min(u64::MAX as u128) as u64);
+                live.reopen_result = Some(
+                    if self.advance {
+                        "original_installation_read_back"
+                    } else {
+                        "blocked"
+                    }
+                    .into(),
+                );
+            }
+            return;
+        }
+        let preparation = if self.advance {
+            InitialBudgetedSession::prepare_next(
+                &self.node,
+                &self.instance,
+                Arc::clone(&self.owner),
+                self.restored
+                    .as_ref()
+                    .expect("completed cycle retains its World"),
+            )
+        } else if let Some(snapshot) = &snapshot {
+            InitialBudgetedSession::resume_unpublished(
+                &self.node,
+                &self.instance,
+                Arc::clone(&self.owner),
+                snapshot.verified_target_json.is_some(),
+            )
+        } else {
+            InitialBudgetedSession::prepare(&self.node, &self.instance, Arc::clone(&self.owner))
+        };
+        let mut worker = match preparation {
+            Ok(worker) => worker,
+            Err(error) => {
+                self.fail(error, true);
+                return;
+            }
+        };
+        self.advance = false;
+        let result = (|| {
+            worker.exchange.set_cancellation(Arc::clone(&self.stop))?;
+            worker.session.cancellation = Some(Arc::clone(&self.stop));
+            worker.session.begin_poll();
+            let state = worker.exchange.snapshot();
+            let (started, deadline) = worker.exchange.clock();
+            self.publish(
+                &worker.session,
+                Some((
+                    state.identity.operation_id,
+                    state.attempts_used,
+                    started,
+                    deadline,
+                )),
+            )?;
+            let restored = worker.session.sync_latest()?;
+            let receipt = worker.session.confirm_installed(&restored, deadline)?;
+            worker.exchange.complete_installation(&receipt)?;
+            // The actual World moves into the same consumer before readiness
+            // is observable. A cold process must restore it again from originals.
+            self.restored = Some(restored);
+            worker.session.set_world_loaded(true);
+            self.advance = true;
+            if snapshot.is_none() {
+                self.observation
+                    .lock()
+                    .map_err(|e| e.to_string())?
+                    .checkpoint_observed = Some(started);
+            }
+            self.publish(&worker.session, None)
+        })();
+        if let Err(error) = result {
+            let _ = self.publish(&worker.session, None);
+            // The synchronous poll has returned and dropping it ends the
+            // transport/writer lease. The next poll may admit a bounded attempt
+            // on this exact ledger, or perform one bounded local recovery.
+            self.fail(error, false);
+        }
+    }
 }
 
 struct OperationInputs<'a> {
@@ -60,7 +292,7 @@ impl<'a> OperationInputs<'a> {
             .as_ref()
             .ok_or("initial budgeted operation requires an independent issuer grant")?;
         let (keypair, _) =
-            super::super::super::super::super::node_keypair_config::read_existing_node_keypair_in_secure_config_dir(
+            super::super::super::node_keypair_config::read_existing_node_keypair_in_secure_config_dir(
                 &data.join("keys"),
             )?;
         let read = configured.read_material_config();
@@ -101,6 +333,16 @@ impl<'a> OperationInputs<'a> {
         original: &Value,
         selected: Option<&[u8]>,
     ) -> Result<Option<FullSyncTargetV1>, String> {
+        self.verify_recovery_history_mode(root, original, selected, false)
+    }
+
+    fn verify_recovery_history_mode(
+        &self,
+        root: &Path,
+        original: &Value,
+        selected: Option<&[u8]>,
+        repair: bool,
+    ) -> Result<Option<FullSyncTargetV1>, String> {
         if original["node_identity"] != self.node_identity
             || original["native_owner_binding"].as_str() != Some(self.owner_binding.as_str())
             || original["transport_binding"].as_str() != Some(self.transport.binding_digest())
@@ -122,16 +364,26 @@ impl<'a> OperationInputs<'a> {
         let minimum: FormalFullSyncCutV1 =
             serde_json::from_value(original["initial_minimum"].clone())
                 .map_err(|error| error.to_string())?;
-        let (_, minimum_anchor) = history_chain::PersistedFormalReadHistoryV1::verify_read_only(
-            &self.read,
-            &client,
-            Arc::new(LocalCasStore::new(root)),
-            root,
-            Some(&minimum),
-            true,
-        )?;
-        let minimum_anchor =
-            minimum_anchor.ok_or("original minimum is missing from authenticated history")?;
+        let minimum_anchor = if repair {
+            history_chain::PersistedFormalReadHistoryV1::verify_original_for_repair(
+                &self.read,
+                &client,
+                Arc::new(LocalCasStore::new(root)),
+                root,
+                &minimum,
+            )?
+        } else {
+            history_chain::PersistedFormalReadHistoryV1::verify_read_only(
+                &self.read,
+                &client,
+                Arc::new(LocalCasStore::new(root)),
+                root,
+                Some(&minimum),
+                true,
+            )?
+            .1
+            .ok_or("original minimum is missing from authenticated history")?
+        };
         let grant = self.read.grant.as_ref().ok_or("missing recovery grant")?;
         let expected = self.attach_binding(serde_json::json!({
             "api_version": "oasis7.full-sync-original-operation-request/v1",
@@ -150,16 +402,49 @@ impl<'a> OperationInputs<'a> {
             .map_err(|error| error.to_string())?;
         let cut = cut_from_anchor(&anchor)?;
         let Some(selected) = selected else {
-            if cut != minimum {
-                return Err("original minimum differs before pre-target recovery".into());
+            if !nondecreasing_cut(&minimum, &cut) {
+                return Err("original minimum is absent before pre-target recovery".into());
             }
             return Ok(None);
         };
-        let expected = serde_json::to_vec(&(&cut, anchor.head().record()))
-            .map_err(|error| error.to_string())?;
-        if selected != expected || !nondecreasing_cut(&minimum, &cut) {
-            return Err("selected target differs from authenticated durable head".into());
+        let saved: Value = serde_json::from_slice(selected).map_err(|e| e.to_string())?;
+        let selected_cut: FormalFullSyncCutV1 =
+            serde_json::from_value(saved[0].clone()).map_err(|e| e.to_string())?;
+        let selected_client = providers::build_read_client(
+            &self.read,
+            providers.first().ok_or("missing recovery provider")?,
+            &self.private_key_hex,
+            Duration::from_millis(self.read.request_timeout_ms),
+        )?;
+        let anchor = if repair {
+            history_chain::PersistedFormalReadHistoryV1::verify_original_for_repair(
+                &self.read,
+                &selected_client,
+                Arc::new(LocalCasStore::new(root)),
+                root,
+                &selected_cut,
+            )?
+        } else {
+            history_chain::PersistedFormalReadHistoryV1::verify_read_only(
+                &self.read,
+                &selected_client,
+                Arc::new(LocalCasStore::new(root)),
+                root,
+                Some(&selected_cut),
+                true,
+            )?
+            .1
+            .ok_or("original selected target missing from authenticated history")?
+        };
+        let expected = serde_json::to_vec(&(&selected_cut, anchor.head().record()))
+            .map_err(|e| e.to_string())?;
+        if selected != expected
+            || !nondecreasing_cut(&minimum, &selected_cut)
+            || !nondecreasing_cut(&selected_cut, &cut)
+        {
+            return Err("selected target differs from authenticated durable history".into());
         }
+        let cut = selected_cut;
         grant.verify(
             &self.read.formal_read_trust.initial_trust.issuer_public_key,
             &cut.world,
@@ -174,6 +459,211 @@ impl<'a> OperationInputs<'a> {
 }
 
 impl InitialBudgetedSession {
+    #[cfg(test)]
+    pub(super) fn interrupt_publication_at(&mut self, phase: &'static str) {
+        self.session.publication_fault = Some(Arc::new(move |observed| {
+            assert_ne!(observed, phase, "injected worker termination at {phase}");
+        }));
+    }
+    fn recover_installation(
+        node: &NodeConfig,
+        instance: &LocalInstance,
+        owner: Arc<ProcessOwnership>,
+        stop: Arc<AtomicBool>,
+        observation: &Arc<Mutex<super::operation_status::LiveObservation>>,
+    ) -> Result<(FormalFullSyncSession, super::RestoredFormalFullSyncWorldV1), String> {
+        let started = Instant::now();
+        let inputs = OperationInputs::validate(node, instance, &owner)?;
+        let deadline = started
+            .checked_add(Duration::from_millis(
+                inputs.configured.transfer_policy.reopen_timeout_ms,
+            ))
+            .ok_or("operation reopen deadline overflow")?;
+        let root = node.identity.data_dir.join("state/full-sync");
+        let path = root.join("operation.json");
+        let snapshot = read_snapshot(&path)?;
+        if snapshot.identity.binding_digest != inputs.owner_binding
+            || snapshot.publication_journal_version != Some(1)
+            || snapshot.publication.is_none()
+        {
+            return Err(
+                "operation_recovery_required: original publication continuity missing".into(),
+            );
+        }
+        let original: Value = serde_json::from_slice(
+            snapshot
+                .original_request_json
+                .as_deref()
+                .ok_or("original request missing")?,
+        )
+        .map_err(|e| e.to_string())?;
+        let cas = LocalCasStore::new(&root);
+        let mut missing = false;
+        for hash in &snapshot
+            .installation
+            .as_ref()
+            .ok_or("original installation inputs missing")?
+            .retained_cas_hashes
+        {
+            missing |= super::verified_local_object(&cas, hash)?.is_none();
+        }
+        let target = inputs.verify_recovery_history_mode(
+            &root,
+            &original,
+            snapshot.verified_target_json.as_deref(),
+            missing,
+        )?;
+        if Instant::now() >= deadline || stop.load(Ordering::SeqCst) {
+            return Err("operation_reopen_expired".into());
+        }
+        let mut ledger = operation_ledger::Ledger::open(
+            &path,
+            &snapshot.identity,
+            &inputs.configured.transfer_policy,
+            inputs.configured.max_total_sync_bytes,
+        )?;
+        if ledger.snapshot() != &snapshot {
+            return Err("original installation changed during recovery".into());
+        }
+        let mut session = FormalFullSyncSession::open(
+            inputs.read.clone(),
+            inputs.private_key_hex.clone(),
+            &root,
+            instance,
+            false,
+        )?;
+        session.recovery_target = target.clone();
+        session.cancellation = Some(Arc::clone(&stop));
+        if missing {
+            use oasis7_game_client::formal_sync_exchange::FullSyncExchange;
+            let repair = super::installation::VerifiedRepair::prepare(
+                target.ok_or("original repair target missing")?,
+                original.clone(),
+                &snapshot,
+                &cas,
+            )?;
+            ledger.bind_attempt_owner(&owner, &node.identity.data_dir, instance)?;
+            let attempt = ledger.resume_installation_repair(
+                &owner,
+                &node.identity.data_dir,
+                &repair,
+                deadline,
+            )?;
+            let (attempt_started, attempt_deadline) = attempt.clock();
+            let exchange = Arc::new(
+                inputs
+                    .transport
+                    .admit(ledger, attempt)?
+                    .with_owner(Arc::clone(&owner), node.identity.data_dir.clone())?,
+            );
+            exchange.set_cancellation(Arc::clone(&stop))?;
+            session.recovery_minimum = Some(
+                serde_json::from_value(original["initial_minimum"].clone())
+                    .map_err(|e| e.to_string())?,
+            );
+            session.bind_shared_exchange(exchange.clone(), &original)?;
+            let admitted = exchange.snapshot();
+            {
+                let mut live = observation.lock().map_err(|e| e.to_string())?;
+                live.clock = Some((
+                    admitted.identity.operation_id.clone(),
+                    admitted.attempts_used,
+                    attempt_started,
+                    attempt_deadline,
+                ));
+                live.reopen_elapsed_ms =
+                    Some(started.elapsed().as_millis().min(u64::MAX as u128) as u64);
+                live.reopen_result = Some("repair_attempt_admitted".into());
+                live.base["state"] = "repairing_original_installation".into();
+                live.base["ready"] = false.into();
+            }
+            let result = session.recover_original_installation(&admitted, attempt_deadline);
+            let finished = exchange.finish_attempt().map_err(|e| e.to_string());
+            let outcome = (|| {
+                let (restored, receipt) = result?;
+                finished?;
+                exchange.complete_installation(&receipt)?;
+                session.set_world_loaded(true);
+                Ok((session, restored))
+            })();
+            return outcome
+                .map_err(|error: String| format!("installation_repair_attempt_failed: {error}"));
+        }
+        ledger.bind_cancellation(Arc::clone(&stop))?;
+        let (restored, receipt) = session.recover_original_installation(&snapshot, deadline)?;
+        owner.require_directory(&node.identity.data_dir)?;
+        if stop.load(Ordering::SeqCst) {
+            return Err("operation_recovery_required: worker cancelled".into());
+        }
+        ledger.complete_installation(&owner, &node.identity.data_dir, &receipt, deadline)?;
+        session.set_world_loaded(true);
+        Ok((session, restored))
+    }
+
+    fn prepare_next(
+        node: &NodeConfig,
+        instance: &LocalInstance,
+        owner: Arc<ProcessOwnership>,
+        previous: &super::RestoredFormalFullSyncWorldV1,
+    ) -> Result<Self, String> {
+        let started = Instant::now();
+        let inputs = OperationInputs::validate(node, instance, &owner)?;
+        let deadline = started
+            .checked_add(Duration::from_millis(
+                inputs.configured.transfer_policy.reopen_timeout_ms,
+            ))
+            .ok_or("operation reopen deadline overflow")?;
+        let directory = node.identity.data_dir.clone();
+        let root = directory.join("state/full-sync");
+        let path = root.join("operation.json");
+        let snapshot = read_snapshot(&path)?;
+        let original: Value = serde_json::from_slice(
+            snapshot
+                .original_request_json
+                .as_deref()
+                .ok_or("original request missing")?,
+        )
+        .map_err(|e| e.to_string())?;
+        inputs.verify_recovery_history(
+            &root,
+            &original,
+            snapshot.verified_target_json.as_deref(),
+        )?;
+        let session = FormalFullSyncSession::open(
+            inputs.read.clone(),
+            inputs.private_key_hex.clone(),
+            &root,
+            instance,
+            false,
+        )?;
+        let receipt = session.confirm_installed(previous, deadline)?;
+        let request = inputs.attach_binding(
+            session
+                .prepare_operation_request(&inputs.configured.transfer_policy, &inputs.transport)?,
+        );
+        let mut ledger = operation_ledger::Ledger::open(
+            &path,
+            &snapshot.identity,
+            &inputs.configured.transfer_policy,
+            inputs.configured.max_total_sync_bytes,
+        )?;
+        if ledger.snapshot() != &snapshot {
+            return Err("previous operation changed before rollover".into());
+        }
+        ledger.begin_next_operation(&owner, &directory, &receipt, &request, deadline)?;
+        ledger.bind_attempt_owner(&owner, &directory, instance)?;
+        let attempt = ledger.begin_attempt()?;
+        Self::attach(
+            owner,
+            directory,
+            inputs.transport,
+            session,
+            ledger,
+            attempt,
+            &request,
+        )
+    }
+
     pub(super) fn prepare(
         node: &NodeConfig,
         instance: &LocalInstance,
@@ -181,6 +671,9 @@ impl InitialBudgetedSession {
     ) -> Result<Self, String> {
         let directory = node.identity.data_dir.clone();
         let inputs = OperationInputs::validate(node, instance, &owner)?;
+        if instance.generation != 1 {
+            return Err("operation_recovery_required: a later incarnation cannot initialize a missing original ledger".into());
+        }
         let state = directory.join("state");
         let sync_root = state.join("full-sync");
         local_io::reject_symlinks(&sync_root)?;
@@ -218,6 +711,7 @@ impl InitialBudgetedSession {
             &owner,
             &directory,
         )?;
+        ledger.bind_attempt_owner(&owner, &directory, instance)?;
         let attempt = ledger.begin_attempt()?;
         Self::attach(
             owner,
@@ -308,21 +802,16 @@ impl InitialBudgetedSession {
                 .client
                 .formal_current_anchor()
                 .map_err(|error| error.to_string())?;
-            if cut_from_anchor(&current)? != target.cut
-                || current.head().record() != target.anchor.head().record()
-            {
+            if !nondecreasing_cut(&target.cut, &cut_from_anchor(&current)?) {
                 return Err("selected history changed during session open".into());
             }
-        } else {
-            let request = inputs
-                .attach_binding(session.prepare_operation_request(policy, &inputs.transport)?);
-            if request != original {
-                return Err(
-                    "operation differs from original request after CAS initialization".into(),
-                );
-            }
         }
+        session.recovery_minimum = Some(
+            serde_json::from_value(original["initial_minimum"].clone())
+                .map_err(|e| e.to_string())?,
+        );
         session.recovery_target = recovery_target;
+        ledger.bind_attempt_owner(&owner, &directory, instance)?;
         let attempt = match selected {
             Some(target) => {
                 ledger.resume_unpublished(&owner, &directory, &original, Some(target), deadline)?
@@ -363,6 +852,7 @@ impl InitialBudgetedSession {
         })
     }
 
+    #[cfg(test)]
     pub(super) fn sample_selected_target(
         &mut self,
         select: bool,
@@ -371,7 +861,7 @@ impl InitialBudgetedSession {
 
         self.owner.require_directory(&self.directory)?;
         let view = self.session.read_best_effort_current_view()?;
-        let anchor = super::super::verified_anchor(&view, &self.session.config)?;
+        let anchor = super::verified_anchor(&view, &self.session.config)?;
         let cut = cut_from_anchor(&anchor)?;
         if select {
             let target = serde_json::to_vec(&(&cut, anchor.head().record()))
@@ -383,6 +873,7 @@ impl InitialBudgetedSession {
         Ok(cut)
     }
 
+    #[cfg(test)]
     pub(super) fn run_once(
         mut self,
     ) -> Result<(FormalFullSyncStatusV1, operation_ledger::Snapshot), String> {
