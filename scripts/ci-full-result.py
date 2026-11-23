@@ -113,13 +113,13 @@ def definition_digest(root, revision):
             raise ValueError("invalid trusted workspace_support_direct_gate_version definition")
     if "contract_job_consolidation_version" in config:
         if (type(config["contract_job_consolidation_version"]) is not int
-                or config["contract_job_consolidation_version"] not in (1, 2)):
+                or config["contract_job_consolidation_version"] not in (1, 2, 3)):
             raise ValueError("invalid trusted contract_job_consolidation_version definition")
     if "group_jobs" in config or "contract_job_consolidation_version" in config:
         overrides = config.get("group_jobs")
         groups = config.get("groups")
         if (type(config.get("contract_job_consolidation_version")) is not int
-                or config.get("contract_job_consolidation_version") not in (1, 2)
+                or config.get("contract_job_consolidation_version") not in (1, 2, 3)
                 or not isinstance(groups, list) or not isinstance(overrides, dict) or not overrides):
             raise ValueError("invalid trusted contract job consolidation definition")
         default_jobs = {group.replace("_", "-") for group in groups if isinstance(group, str)}

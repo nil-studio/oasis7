@@ -486,8 +486,11 @@ def validate_jobs(plan, needs):
     split = enabled(plan)
     expected = {'workspace-support-legacy': selected and not split,
                 'workspace-support-other': split and 'other' in plan.get('workspace_support_partitions', []),
-                **{f'custody-{component}': split for component in COMPONENTS},
+                'custody-native': split,
+                'custody-wasm-production': split,
                 'custody-native-contracts': split, 'custody-node': split}
+    if 'custody-wasm-approval' in needs:
+        expected['custody-wasm-approval'] = split
     if separate_proof(plan) and 'custody-wasm-contracts' in needs:
         expected['custody-wasm-contracts'] = True
     if set(needs) != {'select', *expected}:
