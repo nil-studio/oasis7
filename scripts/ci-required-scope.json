@@ -1307,6 +1307,8 @@
     "scripts/ci-tool-cache.test.py": ["workflow_governance"],
     "scripts/ci-worker-build.py": ["workflow_governance"],
     "scripts/ci-worker-build.test.py": ["workflow_governance"],
+    "scripts/ci-hosted-login-package.py": ["workflow_governance", "packaging_contracts"],
+    "scripts/ci-hosted-login-package.test.py": ["workflow_governance", "packaging_contracts"],
     "scripts/ci-ecs-build-metrics.py": ["compile_metrics"],
     "scripts/ci-ecs-build-metrics.test.py": ["compile_metrics"],
     "scripts/ci-ecs-cache.py": ["compile_metrics"],
@@ -1352,6 +1354,7 @@
     "scripts/plan-rust-required-scope.test.py": ["workflow_governance"]
   },
   "workflow_governance_python_tests": [
+    "scripts/ci-hosted-login-package.test.py",
     "scripts/plan-rust-required-scope.test.py",
     "scripts/ci-local-check-plan.test.py",
     "scripts/ci-local-check.test.py",
@@ -1390,6 +1393,14 @@
   ],
   "python_control_contract_version": 1,
   "python_control_contracts": {
+    "scripts/ci-hosted-login-package.py": {
+      "group": "packaging_contracts",
+      "tests": ["scripts/ci-hosted-login-package.test.py"]
+    },
+    "scripts/ci-hosted-login-package.test.py": {
+      "group": "packaging_contracts",
+      "tests": ["scripts/ci-hosted-login-package.test.py"]
+    },
     "scripts/ci-linux-mold.test.py": {
       "group": "workflow_governance",
       "tests": ["scripts/ci-linux-mold.test.py", "scripts/ci-workflow.test.py"]
