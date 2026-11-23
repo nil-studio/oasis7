@@ -4645,17 +4645,23 @@ run_cargo() {
 
     def test_download_caches_follow_actual_worksets(self):
         node_jobs={name for name,job in JOBS.items() if 'uses: actions/setup-node@' in job}
-        self.assertEqual(node_jobs,{'viewer-js-required','viewer-performance-report','site-quality','launcher-web','workspace-support-legacy','workspace-support-other','custody-native','custody-wasm-production','custody-node','full-regression','candidate-full-regression','doc-checker-contracts'})
+        self.assertEqual(node_jobs,{'viewer-js-required','viewer-performance-report','site-quality','launcher-web','workspace-support-legacy','workspace-support-other','custody-native','custody-wasm-production','custody-node','full-regression','candidate-full-regression'})
         self.assertIn("node-version: '24'", JOBS['site-quality'])
-        # Doc-checker exercises only native Node built-ins for the real Viewer alias
-        # fixture; it must have pinned Node, but must not need npm install/cache.
+        # Doc-checker needs Node built-ins, but is not an npm installation/cache
+        # consumer: preserve the trusted original direct setup-node workset.
         doc_checker = JOBS['doc-checker-contracts']
-        self.assertIn("node-version: '22'", doc_checker)
-        self.assertIn('Verify Node for the Viewer distribution contract', doc_checker)
-        self.assertIn('node --version', doc_checker)
+        self.assertIn('uses: ./.github/actions/setup-doc-checker-node', doc_checker)
         self.assertIn('--group "doc_checker_contracts"', doc_checker)
+        self.assertNotIn('uses: actions/setup-node@', doc_checker)
         self.assertNotIn('npm ci', doc_checker)
-        for name in node_jobs - {'site-quality','workspace-support-legacy','workspace-support-other','custody-native','custody-wasm-production','custody-node','doc-checker-contracts'}:
+        node_action = (ROOT / '.github/actions/setup-doc-checker-node/action.yml').read_text()
+        self.assertIn('using: composite', node_action)
+        self.assertIn('uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1', node_action)
+        self.assertIn("node-version: '22'", node_action)
+        self.assertIn('Verify Node for the Viewer distribution contract', node_action)
+        self.assertIn('node --version', node_action)
+        self.assertIn('process.versions.node', node_action)
+        for name in node_jobs - {'site-quality','workspace-support-legacy','workspace-support-other','custody-native','custody-wasm-production','custody-node'}:
             self.assertIn('cache: npm',JOBS[name])
             self.assertIn('cache-dependency-path: crates/oasis7_viewer/package-lock.json',JOBS[name])
             self.assertIn('npm ci --prefix crates/oasis7_viewer',JOBS[name])
