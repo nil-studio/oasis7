@@ -23,8 +23,11 @@ fn costs() -> (ResourceDelta, ResourceDelta) {
     )
 }
 
-fn fee(disposition: RuleActionDisposition) -> StagedRuleFeeSettlement {
-    let (general, with_distance) = costs();
+fn fee<'a>(
+    general: &'a ResourceDelta,
+    with_distance: &'a ResourceDelta,
+    disposition: RuleActionDisposition,
+) -> StagedRuleFeeSettlement<'a> {
     StagedRuleFeeSettlement {
         general,
         with_distance,
@@ -41,7 +44,12 @@ fn staged_rule_fee_keeps_rejected_then_accepted_movement_scope_on_one_real_world
 
     // First nonempty fee: denied movement only pays the original general
     // attempt cost. The Stage 1 view must not change canonical memory.
-    let rejected = fee(RuleActionDisposition::RejectedMovement);
+    let (general, with_distance) = costs();
+    let rejected = fee(
+        &general,
+        &with_distance,
+        RuleActionDisposition::RejectedMovement,
+    );
     let prepared = {
         let view = BorrowedWorldView::new(&world).unwrap();
         rejected
@@ -79,7 +87,7 @@ fn staged_rule_fee_keeps_rejected_then_accepted_movement_scope_on_one_real_world
 
     // The next accepted fee uses the already-priced total exactly once,
     // borrowing the same canonical world rather than creating a shadow pool.
-    let accepted = fee(RuleActionDisposition::Accepted);
+    let accepted = fee(&general, &with_distance, RuleActionDisposition::Accepted);
     let prepared = {
         let view = BorrowedWorldView::new(&world).unwrap();
         accepted
@@ -100,7 +108,12 @@ fn staged_fee_rejects_missing_balance_without_charge_or_publication() {
     let mut world = World::new();
     world.set_resource_balance(ResourceKind::Data, 1);
     let before_journal = world.journal().clone();
-    let transition = fee(RuleActionDisposition::RejectedMovement);
+    let (general, with_distance) = costs();
+    let transition = fee(
+        &general,
+        &with_distance,
+        RuleActionDisposition::RejectedMovement,
+    );
     let error = {
         let view = BorrowedWorldView::new(&world).unwrap();
         transition
@@ -121,13 +134,15 @@ fn staged_fee_overflow_preserves_original_checked_arithmetic_and_all_balances() 
     let mut world = World::new();
     world.set_resource_balance(ResourceKind::Data, i64::MAX);
     world.set_resource_balance(ResourceKind::Electricity, 5);
-    let transition = StagedRuleFeeSettlement {
-        general: ResourceDelta {
-            entries: BTreeMap::from([(ResourceKind::Data, 1)]),
-        },
-        with_distance: ResourceDelta::default(),
-        disposition: RuleActionDisposition::RejectedMovement,
+    let general = ResourceDelta {
+        entries: BTreeMap::from([(ResourceKind::Data, 1)]),
     };
+    let with_distance = ResourceDelta::default();
+    let transition = fee(
+        &general,
+        &with_distance,
+        RuleActionDisposition::RejectedMovement,
+    );
     let error = {
         let view = BorrowedWorldView::new(&world).unwrap();
         transition
@@ -156,9 +171,10 @@ fn staged_fee_overflow_preserves_original_checked_arithmetic_and_all_balances() 
 fn staged_fee_rejects_stale_world_head_after_prepare() {
     let mut world = World::new();
     world.set_resource_balance(ResourceKind::Data, 12);
+    let (general, with_distance) = costs();
     let prepared = {
         let view = BorrowedWorldView::new(&world).unwrap();
-        fee(RuleActionDisposition::RejectedMovement)
+        fee(&general, &with_distance, RuleActionDisposition::RejectedMovement)
             .prepare(&view, &TransitionContext::default())
             .unwrap()
     };
