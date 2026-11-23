@@ -4,12 +4,14 @@ use super::super::{
     model::{CONFIG_FILE, NodeConfig},
     process::ProcessOwnership,
 };
+#[cfg(test)]
+use super::FormalFullSyncStatusV1;
 use super::operation_failure::{LocalBlocker, OperationFailure};
 use super::{
     FormalFullSyncConfigV1, FormalFullSyncConfigV2, FormalFullSyncCutV1, FormalFullSyncSession,
-    FormalFullSyncStatusV1, LocalCasStore, attempt::FullSyncTargetV1, cut_from_anchor,
-    history_chain, nondecreasing_cut, now_unix_ms, operation_ledger,
-    operation_snapshot::read_snapshot, providers, shared_exchange, validate_grant_for_node,
+    LocalCasStore, attempt::FullSyncTargetV1, cut_from_anchor, history_chain, nondecreasing_cut,
+    now_unix_ms, operation_ledger, operation_snapshot::read_snapshot, providers, shared_exchange,
+    validate_grant_for_node,
 };
 use serde_json::Value;
 use std::{
@@ -23,8 +25,9 @@ use std::{
 };
 
 pub(in super::super) struct InitialBudgetedSession {
-    owner: Arc<ProcessOwnership>,
-    directory: PathBuf,
+    // Keep the native ownership guard alive for this entire session.
+    _owner: Arc<ProcessOwnership>,
+    _directory: PathBuf,
     session: FormalFullSyncSession,
     exchange: Arc<shared_exchange::SharedOperationExchange>,
 }
@@ -725,6 +728,7 @@ impl InitialBudgetedSession {
         )
     }
 
+    #[cfg(test)]
     pub(super) fn resume_pre_target(
         node: &NodeConfig,
         instance: &LocalInstance,
@@ -733,6 +737,7 @@ impl InitialBudgetedSession {
         Self::resume_unpublished(node, instance, owner, false)
     }
 
+    #[cfg(test)]
     pub(super) fn resume_selected_target(
         node: &NodeConfig,
         instance: &LocalInstance,
@@ -852,8 +857,8 @@ impl InitialBudgetedSession {
             .bind_shared_exchange(exchange.clone(), request)
             .map_err(|error| exchange.local_failure(error))?;
         Ok(Self {
-            owner,
-            directory,
+            _owner: owner,
+            _directory: directory,
             session,
             exchange,
         })
@@ -866,7 +871,7 @@ impl InitialBudgetedSession {
     ) -> Result<FormalFullSyncCutV1, String> {
         use oasis7_game_client::formal_sync_exchange::FullSyncExchange;
 
-        self.owner.require_directory(&self.directory)?;
+        self._owner.require_directory(&self._directory)?;
         let view = self.session.read_best_effort_current_view()?;
         let anchor = super::verified_anchor(&view, &self.session.config)?;
         let cut = cut_from_anchor(&anchor)?;
@@ -884,10 +889,10 @@ impl InitialBudgetedSession {
     pub(super) fn run_once(
         mut self,
     ) -> Result<(FormalFullSyncStatusV1, operation_ledger::Snapshot), String> {
-        self.owner.require_directory(&self.directory)?;
+        self._owner.require_directory(&self._directory)?;
         self.session.begin_poll();
         let restored = self.session.sync_latest()?;
-        self.owner.require_directory(&self.directory)?;
+        self._owner.require_directory(&self._directory)?;
         drop(restored);
         self.session.set_world_loaded(false);
         let status = self.session.status().clone();

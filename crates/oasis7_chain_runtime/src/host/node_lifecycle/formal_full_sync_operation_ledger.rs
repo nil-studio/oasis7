@@ -11,7 +11,9 @@ use super::operation_snapshot::{
 pub(super) use super::operation_snapshot::{Direction, Identity, Reservation, Snapshot};
 use super::operation_snapshot::{InterruptedAttempt, Publication};
 use super::operation_terminal::{AttemptOwner, TerminalIndex};
+#[cfg(test)]
 use serde::Serialize;
+#[cfg(test)]
 use sha2::Digest;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -62,10 +64,12 @@ mod completion;
 
 impl Ledger {
     /// Explicit first initialization only; never called as an open fallback.
+    #[cfg(test)]
     pub fn create(path: &Path, identity: Identity, policy: Policy) -> Result<Self, String> {
         Self::create_with_material_limit(path, identity, policy, 0)
     }
 
+    #[cfg(test)]
     pub fn create_with_material_limit(
         path: &Path,
         identity: Identity,
@@ -321,6 +325,7 @@ impl Ledger {
     /// Bind and retain the complete original request before first admission.
     /// Hash-only ledgers remain useful for observing old experimental state,
     /// but cannot be attached to the shared operation transport.
+    #[cfg(test)]
     pub fn bind_original_request<T: Serialize>(&mut self, request: &T) -> Result<(), String> {
         if self.recovered || self.poisoned {
             return Err("operation_recovery_required: request binding unavailable".into());
