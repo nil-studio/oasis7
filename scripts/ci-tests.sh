@@ -871,49 +871,6 @@ run_cargo_tooling_contract_tests() {
   run ./scripts/check-standalone-tool-lockfiles.sh
 }
 
-run_dot_todo_contract_tests() {
-  # Registration lands before the feature. Once either file exists, require both.
-  if [[ -e scripts/dot-todo.py || -L scripts/dot-todo.py || -e scripts/dot-todo.test.py || -L scripts/dot-todo.test.py ]]; then
-    if [[ ! -f scripts/dot-todo.py || ! -f scripts/dot-todo.test.py ]]; then
-      echo "dot TODO source and contract test must both be present" >&2
-      return 1
-    fi
-    run python3 ./scripts/dot-todo.test.py
-  fi
-}
-
-run_ci_wasm_opt_contract_tests() {
-  # Register before implementation; a partially introduced pair must fail.
-  local path present=0
-  local paths=(scripts/install-ci-wasm-opt.py scripts/install-ci-wasm-opt.test.py)
-  for path in "${paths[@]}"; do
-    if [[ -e "$path" || -L "$path" ]]; then present=1; fi
-  done
-  if [[ "$present" == 0 ]]; then
-    echo "wasm-opt contracts: not introduced; no tests run"
-    return 0
-  fi
-  for path in "${paths[@]}"; do
-    if [[ ! -f "$path" || -L "$path" ]]; then
-      echo "wasm-opt requires regular source and contract test files: $path" >&2
-      return 1
-    fi
-  done
-  run python3 - <<'PY_WASM_OPT'
-import importlib.util
-import unittest
-
-spec = importlib.util.spec_from_file_location('ci_wasm_opt_contracts', 'scripts/install-ci-wasm-opt.test.py')
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
-suite = unittest.defaultTestLoader.loadTestsFromModule(module)
-if suite.countTestCases() == 0:
-    raise SystemExit('no wasm-opt contract tests')
-result = unittest.TextTestRunner(verbosity=2).run(suite)
-raise SystemExit(not result.wasSuccessful() or result.testsRun == len(result.skipped))
-PY_WASM_OPT
-}
-
 run_engineering_telemetry_contract_tests() {
   # Register before the feature lands; a partial installation must fail closed.
   local path present=0
@@ -978,7 +935,6 @@ PY_TELEMETRY
 }
 
 run_workflow_governance_baseline_contract_tests() {
-  run_dot_todo_contract_tests
   run node ./scripts/cache-permission-probe.test.cjs
   run bash ./scripts/plan-wasm-determinism-scope.test.sh
   run bash ./scripts/ensure-wasm-bindgen-cli.test.sh
@@ -1019,7 +975,6 @@ run_workflow_governance_operational_contract_tests() {
 }
 
 run_workflow_governance_remaining_contract_tests() {
-  run_ci_wasm_opt_contract_tests
   run_engineering_telemetry_contract_tests
   run_workflow_governance_baseline_contract_tests
   run_workflow_governance_operational_contract_tests

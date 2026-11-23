@@ -1307,6 +1307,8 @@
     "scripts/ci-tool-cache.test.py": ["workflow_governance"],
     "scripts/ci-worker-build.py": ["workflow_governance"],
     "scripts/ci-worker-build.test.py": ["workflow_governance"],
+    "scripts/ci-hosted-login-package.py": ["workflow_governance", "packaging_contracts"],
+    "scripts/ci-hosted-login-package.test.py": ["workflow_governance", "packaging_contracts"],
     "scripts/ci-ecs-build-metrics.py": ["compile_metrics"],
     "scripts/ci-ecs-build-metrics.test.py": ["compile_metrics"],
     "scripts/ci-ecs-cache.py": ["compile_metrics"],
@@ -1352,6 +1354,7 @@
     "scripts/plan-rust-required-scope.test.py": ["workflow_governance"]
   },
   "workflow_governance_python_tests": [
+    "scripts/ci-hosted-login-package.test.py",
     "scripts/plan-rust-required-scope.test.py",
     "scripts/ci-local-check-plan.test.py",
     "scripts/ci-local-check.test.py",
@@ -1390,6 +1393,14 @@
   ],
   "python_control_contract_version": 1,
   "python_control_contracts": {
+    "scripts/ci-hosted-login-package.py": {
+      "group": "packaging_contracts",
+      "tests": ["scripts/ci-hosted-login-package.test.py"]
+    },
+    "scripts/ci-hosted-login-package.test.py": {
+      "group": "packaging_contracts",
+      "tests": ["scripts/ci-hosted-login-package.test.py"]
+    },
     "scripts/ci-linux-mold.test.py": {
       "group": "workflow_governance",
       "tests": ["scripts/ci-linux-mold.test.py", "scripts/ci-workflow.test.py"]
@@ -2110,18 +2121,6 @@
     },
     {
       "match": [
-        "scripts/fixtures/document-corpus-v3/legacy/document-corpus-inventory.json",
-        "scripts/fixtures/document-corpus-v3/legacy/document-semantic-review-overrides.json",
-        "scripts/fixtures/document-corpus-v3/legacy/inventory.json",
-        "scripts/fixtures/document-corpus-v3/legacy/manifest.json"
-      ],
-      "groups": [
-        "doc_checker_contracts"
-      ],
-      "reason": "document_corpus_fixture_contracts"
-    },
-    {
-      "match": [
         "scripts/pr-review-threads.py",
         "scripts/pr-review-threads.test.py"
       ],
@@ -2188,7 +2187,10 @@
       "reason": "m1_storage_wasm_consumers"
     },
     {
-      "match": ["vendor-libp2p-quic-0.14.0/**"],
+      "match": [
+        "vendor-libp2p-quic-0.14.0/**",
+        "vendor/libp2p-quic-0.15.0/**"
+      ],
       "groups": ["rust_baseline", "net", "node"],
       "reason": "quic_patch_consumers"
     },
@@ -2202,7 +2204,10 @@
       "reason": "swarm_patch_consumers"
     },
     {
-      "match": ["vendor-if-watch-3.2.2/**"],
+      "match": [
+        "vendor-if-watch-3.2.2/**",
+        "vendor/if-watch-3.2.2/**"
+      ],
       "groups": ["rust_baseline", "net", "node"],
       "reason": "if_watch_patch_consumers"
     },
@@ -2252,21 +2257,6 @@
       ],
       "groups": [],
       "reason": "documents"
-    },
-    {
-      "match": [
-        "scripts/shared-devnet-blocker-packet-smoke.sh",
-        "scripts/shared-devnet-blocker-packet.sh",
-        "scripts/shared-devnet-rehearsal-smoke.sh",
-        "scripts/shared-devnet-rehearsal.sh",
-        "scripts/shared-network-track-gate-smoke.sh",
-        "scripts/shared-network-track-gate.sh",
-        "scripts/wasm-bindgen-test-runner.sh"
-      ],
-      "groups": [
-        "operational_contracts"
-      ],
-      "reason": "retired_legacy_scripts"
     },
     {
       "match": [
@@ -2480,9 +2470,7 @@
     {
       "match": [
         "scripts/install-ci-trunk.sh",
-        "scripts/install-ci-trunk.test.sh",
-        "scripts/install-ci-wasm-opt.py",
-        "scripts/install-ci-wasm-opt.test.py"
+        "scripts/install-ci-trunk.test.sh"
       ],
       "groups": [
         "workflow_governance",
@@ -2516,16 +2504,6 @@
         "workflow_governance"
       ],
       "reason": "engineering_telemetry_contracts"
-    },
-    {
-      "match": [
-        "scripts/dot-todo.py",
-        "scripts/dot-todo.test.py"
-      ],
-      "groups": [
-        "workflow_governance"
-      ],
-      "reason": "dot_todo_contracts"
     },
     {
       "match": [

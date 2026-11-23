@@ -41,15 +41,9 @@ impl<R: ValueNodeReader> ValueNodeReader for Counted<'_, R> {
     }
 }
 pub(super) fn fixed_scalar_receiver_cost_excludes_unchanged_text_and_vectors() {
-    for compression in [PageCompression::Raw, PageCompression::Zstd] {
-        let mut observed = Vec::new();
-        for (text_bytes, tags) in [(8_000, 4), (420_000, 64)] {
-            let memory = MemoryBudget::new(128 << 20, 16 << 20).unwrap();
-            let _caller = memory.reserve(2 << 20, MemoryClass::Ordinary).unwrap();
-            let dir = Directory::new();
-            let store =
-                IncrementalPageStore::create(&dir.0.join("pages"), memory.clone(), compression)
-                    .unwrap();
+    let prepared: Vec<_> = [(8_000, 4), (420_000, 64)]
+        .into_iter()
+        .map(|(text_bytes, tags)| {
             let mut source = source();
             source.pending_material_transits.clear();
             source.recipe_completion_receipts.clear();
@@ -58,7 +52,22 @@ pub(super) fn fixed_scalar_receiver_cost_excludes_unchanged_text_and_vectors() {
             let recipe = source.pending_recipe_jobs.get_mut(&u64::MAX).unwrap();
             recipe.requester_agent_id = format!("原/{}", "x".repeat(text_bytes));
             recipe.bottleneck_tags = vec!["same-original-tag".to_owned(); tags];
-            let roots = seed(&store, &memory, &source);
+            (text_bytes, tags, prepare_seed(&source))
+        })
+        .collect();
+    for compression in [PageCompression::Raw, PageCompression::Zstd] {
+        let mut observed = Vec::new();
+        for (text_bytes, tags, snapshot) in &prepared {
+            let text_bytes = *text_bytes;
+            let tags = *tags;
+            let memory = MemoryBudget::new(128 << 20, 16 << 20).unwrap();
+            let _caller = memory.reserve(2 << 20, MemoryClass::Ordinary).unwrap();
+            let dir = Directory::new();
+            let store =
+                IncrementalPageStore::create(&dir.0.join("pages"), memory.clone(), compression)
+                    .unwrap();
+            flush_pages(&store, &memory, &snapshot.pages);
+            let roots = snapshot.roots.clone();
             let qualification = boundaries::qualify_full(&store, &memory, &roots);
             assert_eq!(qualification.record_counts(), [1, 0, 0, 0, 0]);
             let parent = parent(roots);
@@ -67,7 +76,7 @@ pub(super) fn fixed_scalar_receiver_cost_excludes_unchanged_text_and_vectors() {
                 .state_session(physical_scope(), MemoryClass::Ordinary)
                 .unwrap();
             let values = store.value_session(physical_scope());
-            let mut writer = store.value_session(physical_scope());
+            let mut writer = StagedPages::with_store(&store, &memory);
             let mut tx = ExecutionTransaction::begin(
                 parent.clone(),
                 [0x94; 32],
@@ -138,6 +147,11 @@ pub(super) fn fixed_scalar_receiver_cost_excludes_unchanged_text_and_vectors() {
             let guard = tx.guard();
             let sealed = tx.seal(&guard, &live, 1).unwrap();
             assert_eq!(sealed.record.writes.len(), 1);
+            let staged = writer.into_reachable(
+                [],
+                sealed.record.writes.iter().filter_map(|w| w.mutation.after),
+            );
+            flush_pages(&store, &memory, &staged);
             let provider = store.value_session(physical_scope());
             let counted = Counted {
                 source: &provider,

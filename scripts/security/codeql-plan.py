@@ -45,13 +45,16 @@ ISSUE_METADATA_INPUTS = {
     '.github/ISSUE_TEMPLATE/test.yml',
 }
 
-# Exact non-Rust/non-Markdown files in fixed root vendor patches. Neighboring or
+# Exact non-Rust/non-Markdown files in fixed vendor patches. Neighboring or
 # version-bumped paths remain unregistered and fail closed until reviewed.
 VENDOR_RUST_METADATA_INPUTS = {
     'vendor-if-watch-3.2.2/Cargo.toml.orig',
     'vendor-libp2p-quic-0.14.0/.gitignore',
     'vendor-libp2p-quic-0.14.0/LICENSE',
     'vendor-libp2p-swarm-0.48.0/LICENSE',
+    'vendor/if-watch-3.2.2/Cargo.toml.orig',
+    'vendor/libp2p-quic-0.15.0/.gitignore',
+    'vendor/libp2p-quic-0.15.0/LICENSE',
 }
 
 VENDOR_PROVENANCE_INPUTS = {
@@ -61,46 +64,10 @@ VENDOR_PROVENANCE_INPUTS = {
     'vendor-libp2p-rendezvous-0.18.1/src/generated/rpc.proto',
     'vendor-libp2p-rendezvous-0.18.1/upstream-source-sha256.json',
     'vendor-libp2p-swarm-0.48.0/upstream-source-sha256.json',
+    'vendor/if-watch-3.2.2/upstream-source-sha256.json',
+    'vendor/libp2p-quic-0.15.0/local-patch-sha256.json',
+    'vendor/libp2p-quic-0.15.0/upstream-source-sha256.json',
 }
-
-
-def retired_document_metadata_path(path):
-    # This is a bounded deletion migration, not a registration of live inputs.
-    # The caller also proves the old path exists, the new path does not, and
-    # the former document readers are absent from the selected source head.
-    return path in {
-        'doc/.governance/document-corpus-inventory.json',
-        'doc/testing/evidence/inventory.json',
-        'doc/.governance/top-level-directory-registry.json',
-        'scripts/fixtures/document-corpus-v3/legacy/document-corpus-inventory.json',
-        'scripts/fixtures/document-corpus-v3/legacy/document-semantic-review-overrides.json',
-        'scripts/fixtures/document-corpus-v3/legacy/inventory.json',
-        'scripts/fixtures/document-corpus-v3/legacy/manifest.json',
-    } or re.fullmatch(
-        r'doc/\.governance/document-corpus/(?:'
-        r'(?:objects|semantic/entries|evidence/entries)/[0-9a-f]{2}/[0-9a-f]{64}'
-        r'|(?:semantic/bundles|evidence/groups)/[a-z0-9-]{1,96})\.json', path) is not None
-
-
-def document_metadata_readers_retired(root, head, head_files):
-    readers = {
-        'scripts/document_corpus.py', 'scripts/document_evidence_policy.py',
-        'scripts/document-corpus-inventory.py', 'scripts/document-corpus-inventory-check.py',
-        'scripts/doc-evidence-inventory-check.py',
-        '.github/workflows/document-corpus-platform.yml',
-    }
-    if readers.intersection(head_files):
-        return False
-    # The two remaining shell entrypoints used to read the registry and the
-    # frozen corpus fixtures. Inspect their committed bytes, never import or
-    # execute candidate code. A surviving reference keeps deletion unproven.
-    for path in ('scripts/doc-governance-check.sh', 'scripts/unified-world-code-terminology-scan.sh'):
-        if path in head_files:
-            source = git(root, 'show', head + ':' + path).decode('utf-8', 'strict')
-            if re.search(r'document[-_]corpus|document_evidence_policy|'
-                         r'top-level-directory-registry\.json|doc/testing/evidence/inventory\.json', source):
-                return False
-    return True
 
 
 def batch_modes(raw):
@@ -222,10 +189,6 @@ def plan(args):
     changed = changes(root, ids['merge_base'], ids['source_head'])
     if set(changed) & (base_links | head_links):
         raise ValueError('changed symbolic link requires explicit coverage review')
-    deleted_paths = set(changed).intersection(base_files).difference(head_files)
-    retired_deletions = {path for path in deleted_paths if retired_document_metadata_path(path)}
-    if retired_deletions and not document_metadata_readers_retired(root, ids['source_head'], head_files):
-        retired_deletions.clear()
     manifests = {side: [p for p in files if pathlib.PurePosixPath(p).name == 'Cargo.toml' and not p.startswith('third_party/')]
                  for side, files in [('base', base_files), ('head', head_files)]}
     reasons = {u: [] for u, _ in UNITS}
@@ -319,10 +282,6 @@ def plan(args):
             add('actions-repo', path)
         elif path in ISSUE_METADATA_INPUTS:
             # GitHub renders these as form data, not executable Actions YAML.
-            pass
-        elif path in retired_deletions:
-            # No live document reader remains. Old/new Rust include/build
-            # consumers are still selected below; unknown JSON stays closed.
             pass
         elif path in WASM_CANDIDATE_INPUTS:
             add('python-repo', path)

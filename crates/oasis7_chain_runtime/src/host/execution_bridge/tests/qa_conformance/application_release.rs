@@ -20,7 +20,7 @@ pub(super) fn verify_release(public: &RemoteWorldServiceClient) {
             .join("release-private-lineage.json"),
     );
     config.world_service_agent_signer = Some(
-        oasis7::world_service::client::WorldServiceAgentSignerConfig {
+        oasis7_world_service::client::WorldServiceAgentSignerConfig {
             private_key_hex: hex::encode([8u8; 32]),
             delegation_generation: 1,
         },

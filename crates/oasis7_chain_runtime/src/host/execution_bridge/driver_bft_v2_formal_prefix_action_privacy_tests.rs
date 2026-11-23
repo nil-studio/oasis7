@@ -2,13 +2,13 @@
 //! original action bytes in a public or single-Agent light-read proof.
 use super::prefix_ledger_tests::open_prefix;
 use super::*;
-use oasis7::world_service::formal_bft_prefix_read_service::{
+use oasis7_world_service::formal_bft_prefix_read_service::{
     FormalBftReadPublicationInputV3, FormalBftReadPublicationV3,
 };
-use oasis7::world_service::formal_bft_read_service::{
+use oasis7_world_service::formal_bft_read_service::{
     FormalBftReadPublicationInputV2, FormalBftReadPublicationV2,
 };
-use oasis7::world_service::formal_read_error::FormalReadError;
+use oasis7_world_service::formal_read_error::FormalReadError;
 use oasis7_client_api::world_service::*;
 use oasis7_node::NodeConsensusAction;
 use oasis7_world_service::consensus_action_payload::{
@@ -106,17 +106,17 @@ fn action_case() {
     .unwrap();
     let request = verifier.request("public", [42; 32]).unwrap();
     let reader = fixtures::key(120);
-    let signed = oasis7::world_service::authority::sign_read_request(
+    let signed = oasis7_world_service::authority::sign_read_request(
         FORMAL_BFT_READ_PATH_V3,
         request.clone(),
         &hex::encode(reader.to_bytes()),
     )
     .unwrap();
-    let audience = oasis7::world_service::formal_projection::ProjectionAudienceV1::public();
+    let audience = oasis7_world_service::formal_projection::ProjectionAudienceV1::public();
     let tree =
-        oasis7::world_service::formal_projection::commitments_for_world(cut.world()).unwrap();
+        oasis7_world_service::formal_projection::commitments_for_world(cut.world()).unwrap();
     let inclusion = tree.inclusion(&audience).unwrap();
-    let view = oasis7::world_service::projection::from_formal_committed_world(
+    let view = oasis7_world_service::projection::from_formal_committed_world(
         cut.world(),
         None,
         &signed.subject_public_key,

@@ -95,6 +95,7 @@ pub(super) enum Command {
         payload: Vec<u8>,
         peer: PeerId,
         deadline: Option<tokio::time::Instant>,
+        exchange: Option<Arc<super::encoded_exchange::Exchange>>,
         response: CommandResponseSender<Vec<u8>>,
     },
     RegisterAuthenticatedHandler {
@@ -809,6 +810,7 @@ pub(super) fn handle_command(
             payload,
             peer,
             deadline,
+            exchange,
             response,
         }) => {
             if !request_peer_is_connected_or_active(
@@ -827,13 +829,25 @@ pub(super) fn handle_command(
                 ))));
                 return CommandOutcome::Continue;
             }
+            if let Some(exchange) = &exchange
+                && let Err(error) = exchange.admit()
+            {
+                let error = super::outbound_failure::request_failure_world_error(
+                    request_response::OutboundFailure::Io(error),
+                    "encoded exchange admission failed".into(),
+                );
+                let facts = error.network_failure(Some(&protocol));
+                let _ = response.send(Err(error.with_network_failure(facts)));
+                return CommandOutcome::Continue;
+            }
             let payload_len = payload.len();
             let pending_protocol = protocol.clone();
             record_request_outbound(ctx.event_traffic_metrics, protocol.as_str(), payload_len);
-            let request_id = swarm.behaviour_mut().send_rr_request(
+            let request_id = swarm.behaviour_mut().send_rr_request_with_exchange(
                 &peer,
                 NetworkRequest { protocol, payload },
                 deadline,
+                exchange,
             );
             pending.insert(
                 request_id,

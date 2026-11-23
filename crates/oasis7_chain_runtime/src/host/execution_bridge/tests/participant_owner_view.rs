@@ -54,7 +54,7 @@ pub(super) fn exercise(
         .send()
         .unwrap();
     let fresh = pin(root, identity);
-    let projection_error = oasis7::world_service::projection::from_committed_world(
+    let projection_error = oasis7_world_service::projection::from_committed_world(
         &fresh.world,
         Some(&receipt.agent_id),
         &receipt.owner_public_key,

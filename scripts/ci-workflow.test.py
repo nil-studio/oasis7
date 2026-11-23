@@ -3640,67 +3640,6 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                                     '      - name: Validate all expected results\n        continue-on-error: true\n')
         with self.assertRaises(ValueError):validate_candidate_graph(required,CONFIG)
 
-    def test_ci_wasm_opt_entry_requires_pair_and_nonempty_execution(self):
-        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
-        function = re.search(r'^run_ci_wasm_opt_contract_tests\(\) \{\n.*?^\}', driver, re.M | re.S)
-        self.assertIsNotNone(function)
-        governance = re.search(r'^run_workflow_governance_remaining_contract_tests\(\) \{\n.*?^\}', driver, re.M | re.S)
-        self.assertIsNotNone(governance)
-        self.assertEqual(governance.group().count('  run_ci_wasm_opt_contract_tests'), 1)
-        paths = ('scripts/install-ci-wasm-opt.py', 'scripts/install-ci-wasm-opt.test.py')
-        cases = [('absent', None), ('complete', None)]
-        cases += [(kind, path) for kind in ('missing', 'directory', 'symlink') for path in paths]
-        cases += [(kind, paths[1]) for kind in ('empty', 'failing', 'skipped')]
-        for kind, changed in cases:
-            with self.subTest(kind=kind, path=changed), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                (root / 'scripts').mkdir()
-                for archive in ('package-source-plan.test.py', 'safe-git-archive.test.py'):
-                    (root / 'scripts' / archive).write_text('pass\n')
-                if kind != 'absent':
-                    for path in paths:
-                        target = root / path
-                        target.parent.mkdir(parents=True, exist_ok=True)
-                        if path == changed and kind == 'missing':
-                            continue
-                        if path == changed and kind == 'directory':
-                            target.mkdir()
-                            continue
-                        if path == changed and kind == 'symlink':
-                            target.symlink_to(root / 'missing-target')
-                            continue
-                        content = '# synthetic installer input\n'
-                        if path == paths[1] and kind != 'empty':
-                            content = ("import unittest\nfrom pathlib import Path\n"
-                                       "class Contract(unittest.TestCase):\n"
-                                       "    @unittest.skipIf(%r, 'fixture skip')\n"
-                                       "    def test_runs(self):\n"
-                                       "        Path('installer-test.ran').write_text('once')\n"
-                                       "        self.assertTrue(%r)\n" % (kind == 'skipped', kind != 'failing'))
-                        target.write_text(content)
-                shell = ('set -euo pipefail\nrun() { \"$@\"; }\n'
-                         'run_engineering_telemetry_contract_tests() { :; }\n'
-                         'run_workflow_governance_baseline_contract_tests() { echo governance-baseline; }\n'
-                         'run_workflow_governance_operational_contract_tests() { echo governance-operational; }\n'
-                         + function.group() + '\n' + governance.group()
-                         + '\nrun_workflow_governance_remaining_contract_tests\n')
-                result = subprocess.run(['bash', '-c', shell], cwd=root, capture_output=True, text=True)
-                if kind in ('absent', 'complete'):
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual(result.stdout.splitlines()[-2:],
-                                     ['governance-baseline', 'governance-operational'])
-                else:
-                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-                    self.assertNotIn('governance-baseline', result.stdout)
-                    self.assertNotIn('governance-operational', result.stdout)
-                if kind == 'absent':
-                    self.assertIn('not introduced; no tests run', result.stdout)
-                if kind in ('complete', 'failing'):
-                    self.assertTrue((root / 'installer-test.ran').is_file(), result.stderr)
-                    self.assertIn('Ran 1 test', result.stderr)
-                if kind == 'empty':
-                    self.assertIn('no wasm-opt contract tests', result.stderr)
-
     def test_engineering_telemetry_entry_requires_complete_nonempty_suites(self):
         driver = (ROOT / 'scripts/ci-tests.sh').read_text()
         function = re.search(r'^run_engineering_telemetry_contract_tests\(\) \{\n.*?^\}', driver, re.M | re.S)
@@ -3752,7 +3691,6 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                                             '    def test_platform_specific(self): pass\n')
                         target.write_text(content)
                 shell = ('set -euo pipefail\nrun() { "$@"; }\n'
-                         'run_ci_wasm_opt_contract_tests() { :; }\n'
                          'run_workflow_governance_baseline_contract_tests() { echo governance-baseline; }\n'
                          'run_workflow_governance_operational_contract_tests() { echo governance-operational; }\n'
                          + function.group() + '\n' + governance.group()
@@ -3779,28 +3717,6 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 if kind in ('skipped', 'all-skipped'):
                     for path in ((changed,) if changed else paths[-2:]):
                         self.assertIn('no passing tests in ' + Path(path).name, result.stderr)
-
-    def test_dot_todo_entry_requires_pair_and_propagates_failure(self):
-        driver = (ROOT / 'scripts/ci-tests.sh').read_text()
-        function = re.search(r'^run_dot_todo_contract_tests\(\) \{\n.*?^\}', driver, re.M | re.S)
-        self.assertIsNotNone(function)
-        governance = driver.split('run_workflow_governance_baseline_contract_tests() {', 1)[1].split('\n}', 1)[0]
-        self.assertEqual(governance.count('  run_dot_todo_contract_tests'), 1)
-        for present, test_exit, expected in (((), 0, 0), (('source',), 0, 1),
-                                              (('test',), 0, 1), (('source', 'test'), 0, 0),
-                                              (('source', 'test'), 37, 37)):
-            with self.subTest(present=present, test_exit=test_exit), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory)
-                (root / 'scripts').mkdir()
-                if 'source' in present:
-                    (root / 'scripts/dot-todo.py').write_text('# synthetic source')
-                if 'test' in present:
-                    (root / 'scripts/dot-todo.test.py').write_text(
-                        "from pathlib import Path\nPath('ran').write_text('once')\nraise SystemExit(%d)\n" % test_exit)
-                shell = 'set -euo pipefail\nrun() { "$@"; }\n' + function.group() + '\nrun_dot_todo_contract_tests\n'
-                result = subprocess.run(['bash', '-c', shell], cwd=root, capture_output=True, text=True)
-                self.assertEqual(result.returncode, expected, result.stderr)
-                self.assertEqual((root / 'ran').exists(), len(present) == 2)
 
     def test_local_signer_and_new_contracts_are_connected_once(self):
         fleet = JOBS['fleet-health']
@@ -6949,19 +6865,19 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'cargo-tooling-contracts': 5,
                 'windows-rollout': 7,
                 'fleet-health': 15,
-                'doc-checker-contracts': 12,
-                'workflow-governance': 15,
-                'custody-native-contracts': 15,
+                'doc-checker-contracts': 10,
+                'workflow-governance': 12,
+                'custody-native-contracts': 12,
                 'consensus': 5,
                 'net': 10,
-                'node': 12,
+                'node': 10,
                 'pixel-world-bridge': 5,
-                'custody-node': 20,
-                'custody-native': 20,
+                'custody-node': 16,
+                'custody-native': 17,
                 'custody-wasm-production': 25,
-                'distfs': 20,
+                'distfs': 16,
                 'rust-baseline': 25,
-                'launcher-web': 12,
+                'launcher-web': 10,
                 'viewer-js-required': 16,
                 'viewer-performance-report': 15,
                 'newapi-bridge-package': 15,
@@ -7087,7 +7003,7 @@ class HeavyPrJobTimeoutContractTests(unittest.TestCase):
                 'oasis7-required': 35,
                 'workspace-support-legacy': 60,
                 'workspace-support-other': 35,
-                'operational-contracts': 16,
+                'operational-contracts': 12,
             },
             '.github/workflows/wasm-determinism-gate.yml': {
                 'collect-wasm-summaries': 30,

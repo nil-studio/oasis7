@@ -8,7 +8,7 @@ use std::{
 };
 
 use futures::{
-    AsyncRead, AsyncWrite, AsyncWriteExt,
+    AsyncRead, AsyncWrite, AsyncWriteExt, FutureExt,
     future::{Either, select},
 };
 use libp2p::{
@@ -74,6 +74,7 @@ pub(super) fn dispatch_local_handler(
 pub(super) struct LocalRequest {
     pub(super) message: NetworkRequest,
     pub(super) deadline: Option<Instant>,
+    pub(super) exchange: Option<Arc<super::encoded_exchange::Exchange>>,
 }
 
 pub(super) fn deadline_in(timeout: Duration) -> Instant {
@@ -92,7 +93,7 @@ impl std::fmt::Display for RequestDeadlineElapsed {
 
 impl std::error::Error for RequestDeadlineElapsed {}
 
-fn elapsed() -> io::Error {
+pub(super) fn elapsed() -> io::Error {
     io::Error::new(io::ErrorKind::TimedOut, RequestDeadlineElapsed)
 }
 
@@ -109,12 +110,46 @@ async fn before_deadline<T>(
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub(super) struct RequestCodec {
     inner: cbor::codec::Codec<NetworkRequest, NetworkResponse>,
     // The request-response handler clones one codec per stream. This is populated
     // only when that instance writes an outbound application request.
     outbound_deadline: Option<Instant>,
+    outbound_exchange: Option<Arc<super::encoded_exchange::Exchange>>,
+}
+
+impl Clone for RequestCodec {
+    fn clone(&self) -> Self {
+        // libp2p clones the configured codec for each new stream. Local exchange
+        // identity and deadline must never propagate into another stream.
+        Self {
+            inner: self.inner.clone(),
+            outbound_deadline: None,
+            outbound_exchange: None,
+        }
+    }
+}
+
+/// Encode once with the actual pinned codec before command dispatch. The runtime
+/// admits after its existing local peer gate and before dialing or negotiation;
+/// the stream later consumes these same bytes.
+pub(super) fn prepare_encoded_request(
+    message: NetworkRequest,
+    exchange: &Arc<super::encoded_exchange::Exchange>,
+) -> io::Result<()> {
+    exchange.check_active()?;
+    let mut codec = cbor::codec::Codec::<NetworkRequest, NetworkResponse>::default();
+    let mut encoded = futures::io::Cursor::new(Vec::new());
+    codec
+        .write_request(
+            &StreamProtocol::new(oasis7_proto::distributed::RR_PROTOCOL_PREFIX),
+            &mut encoded,
+            message,
+        )
+        .now_or_never()
+        .ok_or_else(|| io::Error::other("in-memory request encoding did not complete"))??;
+    exchange.prepare(encoded.into_inner())
 }
 
 impl Codec for RequestCodec {
@@ -133,6 +168,7 @@ impl Codec for RequestCodec {
         Ok(LocalRequest {
             message: self.inner.read_request(protocol, io).await?,
             deadline: None,
+            exchange: None,
         })
     }
 
@@ -144,6 +180,31 @@ impl Codec for RequestCodec {
     where
         T: AsyncRead + Unpin + Send,
     {
+        if let Some(exchange) = &self.outbound_exchange {
+            let exchange = Arc::clone(exchange);
+            let original = Instant::from_std(exchange.deadline());
+            let deadline = self
+                .outbound_deadline
+                .map_or(original, |bound| bound.min(original));
+            let result = {
+                let mut metered = super::encoded_exchange::MeteredIo::new(
+                    io,
+                    Arc::clone(&exchange),
+                    deadline.into_std(),
+                );
+                before_deadline(deadline, self.inner.read_response(protocol, &mut metered)).await
+            };
+            // All read futures and their reservation guards have stopped. The
+            // caller's synchronous timeout does not run this cleanup early.
+            let finished = exchange.finish();
+            let response = result?;
+            finished?;
+            exchange.check_deadline()?;
+            if Instant::now() >= deadline {
+                return Err(elapsed());
+            }
+            return Ok(response);
+        }
         let read = self.inner.read_response(protocol, io);
         match self.outbound_deadline {
             Some(deadline) => before_deadline(deadline, read).await,
@@ -161,6 +222,32 @@ impl Codec for RequestCodec {
         T: AsyncWrite + Unpin + Send,
     {
         self.outbound_deadline = request.deadline;
+        if let Some(exchange) = request.exchange {
+            self.outbound_exchange = Some(Arc::clone(&exchange));
+            exchange.check_active()?;
+            let original = Instant::from_std(exchange.deadline());
+            let deadline = request
+                .deadline
+                .map_or(original, |bound| bound.min(original));
+            if Instant::now() >= deadline {
+                return Err(elapsed());
+            }
+            // The API encoded and the runtime admitted before network dispatch.
+            // Missing or reused bytes fail closed, never encode
+            // or admit a second time after stream negotiation.
+            let encoded = exchange.take_encoded_request()?;
+            if Instant::now() >= deadline {
+                return Err(elapsed());
+            }
+            let mut metered =
+                super::encoded_exchange::MeteredIo::new(io, exchange, deadline.into_std());
+            return before_deadline(deadline, async {
+                metered.write_all(&encoded).await?;
+                metered.close().await
+            })
+            .await;
+        }
+        self.outbound_exchange = None;
         match request.deadline {
             Some(deadline) => {
                 before_deadline(deadline, async {
@@ -233,6 +320,7 @@ mod tests {
                             LocalRequest {
                                 message: request(),
                                 deadline,
+                                exchange: None,
                             },
                         )
                         .await
@@ -316,6 +404,7 @@ mod tests {
                         LocalRequest {
                             message: request(),
                             deadline: Some(deadline_in(Duration::from_millis(30))),
+                            exchange: None,
                         },
                     )
                     .await

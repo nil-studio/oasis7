@@ -228,9 +228,9 @@ pub(super) fn verify_captured_response(
                 serde_json::from_slice(body).unwrap();
             let signed: SignedServiceResponse<IntentResponse<serde_json::Value>> =
                 serde_json::from_slice(payload).unwrap();
-            oasis7::world_service::authority::verify_service_response(
+            oasis7_world_service::authority::verify_service_response(
                 path,
-                &oasis7::world_service::authority::request_digest(path, &request).unwrap(),
+                &oasis7_world_service::authority::request_digest(path, &request).unwrap(),
                 &signed,
                 public_key,
             )
@@ -248,9 +248,9 @@ pub(super) fn verify_captured_response(
             let signed: SignedServiceResponse<
                 ReadWorldViewResponse<oasis7_world_projection::WorldServiceProjection>,
             > = serde_json::from_slice(payload).unwrap();
-            oasis7::world_service::authority::verify_service_response(
+            oasis7_world_service::authority::verify_service_response(
                 path,
-                &oasis7::world_service::authority::request_digest(path, &request).unwrap(),
+                &oasis7_world_service::authority::request_digest(path, &request).unwrap(),
                 &signed,
                 public_key,
             )
@@ -262,9 +262,9 @@ pub(super) fn verify_captured_response(
                 serde_json::from_slice(body).unwrap();
             let signed: SignedServiceResponse<ReadWorldChangesResponse<serde_json::Value>> =
                 serde_json::from_slice(payload).unwrap();
-            oasis7::world_service::authority::verify_service_response(
+            oasis7_world_service::authority::verify_service_response(
                 path,
-                &oasis7::world_service::authority::request_digest(path, &request).unwrap(),
+                &oasis7_world_service::authority::request_digest(path, &request).unwrap(),
                 &signed,
                 public_key,
             )
@@ -281,9 +281,9 @@ pub(super) fn verify_captured_response(
             let request: wire::AuthenticatedLookup = serde_json::from_slice(body).unwrap();
             let signed: SignedServiceResponse<IntentResponse<serde_json::Value>> =
                 serde_json::from_slice(payload).unwrap();
-            oasis7::world_service::authority::verify_service_response(
+            oasis7_world_service::authority::verify_service_response(
                 path,
-                &oasis7::world_service::authority::request_digest(path, &request).unwrap(),
+                &oasis7_world_service::authority::request_digest(path, &request).unwrap(),
                 &signed,
                 public_key,
             )

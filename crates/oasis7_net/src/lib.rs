@@ -3,6 +3,7 @@
 mod client;
 mod dht;
 mod dht_cache;
+pub mod encoded_exchange;
 mod gateway;
 mod head_sync;
 mod head_tracking;
@@ -81,6 +82,7 @@ pub use client::DistributedClient;
 pub use dht::{DistributedDht, InMemoryDht};
 pub use dht_cache::{CachedDht, DhtCacheConfig};
 pub use distributed_storage::{ExecutionWriteConfig, ExecutionWriteResult};
+pub use encoded_exchange::{EncodedExchangeBudget, EncodedIoDirection, EncodedIoReservation};
 pub use error::WorldError;
 pub use gateway::{ActionGateway, NetworkGateway, SubmitActionReceipt};
 pub use head_tracking::{HeadTracker, HeadUpdateDecision};

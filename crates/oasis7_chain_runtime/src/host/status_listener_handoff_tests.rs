@@ -45,7 +45,7 @@ fn startup_status_listener_handoff_preserves_socket_and_releases_replication_gua
     let runtime = Arc::new(Mutex::new(NodeRuntime::new(node_config)));
     let private_key_hex = hex::encode([9u8; 32]);
     let signer = feedback_submit_api::FeedbackSubmitSigner {
-        public_key_hex: oasis7::world_service::sign_read_request(
+        public_key_hex: oasis7_world_service::sign_read_request(
             "service",
             (),
             private_key_hex.as_str(),

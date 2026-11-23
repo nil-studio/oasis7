@@ -712,7 +712,7 @@ fn real_request_deadline_survives_natural_byte_window_recovery() {
                     protocol: "/test/window-deadline".into(),
                     payload: payload.to_vec(),
                 };
-                let expired = client.behaviour_mut().request_response.send_request(&peer, super::super::request_deadline::LocalRequest { message: request(b"expired"), deadline: None });
+                let expired = client.behaviour_mut().request_response.send_request(&peer, super::super::request_deadline::LocalRequest { message: request(b"expired"), deadline: None, exchange: None });
                 loop {
                     match select(client.select_next_some(), server.select_next_some()).await {
                         Either::Left((SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
@@ -734,7 +734,7 @@ fn real_request_deadline_survives_natural_byte_window_recovery() {
                 // The seeded full charge must be gone even if control I/O ran.
                 assert!(window.snapshot().unwrap().charged_bytes.total < 16_384);
 
-                let fresh = client.behaviour_mut().request_response.send_request(&peer, super::super::request_deadline::LocalRequest { message: request(b"fresh"), deadline: None });
+                let fresh = client.behaviour_mut().request_response.send_request(&peer, super::super::request_deadline::LocalRequest { message: request(b"fresh"), deadline: None, exchange: None });
                 loop {
                     match select(client.select_next_some(), server.select_next_some()).await {
                         Either::Right((SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(

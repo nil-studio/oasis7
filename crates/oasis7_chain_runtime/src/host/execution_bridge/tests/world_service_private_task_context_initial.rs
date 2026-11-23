@@ -233,7 +233,7 @@ pub(super) fn prepare_and_reopen_task_context(
     let changed = sign_read_request(TASK_CONTEXT_PREPARE_PATH, changed, delegate).unwrap();
     assert!(matches!(
         store.lookup_task_context(&changed),
-        Err(oasis7::world_service::private_goal_store::PrivateTaskContextError::Conflict)
+        Err(oasis7_world_service::private_goal_store::PrivateTaskContextError::Conflict)
     ));
     let get = sign_read_request(
         TASK_CONTEXT_READ_PATH,

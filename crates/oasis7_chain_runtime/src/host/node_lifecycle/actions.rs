@@ -185,6 +185,7 @@ fn start_with_runtime_artifact(
     if current
         .as_ref()
         .is_some_and(|i| !matches!(i.state.as_str(), "stopped" | "failed"))
+        && config.identity.chain.budgeted_formal_full_sync().is_none()
     {
         return Err("new start action requires an observed terminal generation; reuse the live instance or reconcile its original action".into());
     }
@@ -300,8 +301,11 @@ pub(crate) fn status(data: &Path) -> Result<serde_json::Value, String> {
         if status["config_digest"] != io::digest(&config)? {
             return Err("node configuration changed between status observations".into());
         }
-        status["formal_full_state_sync"] = super::formal_full_sync::observe_operation_status(&config)
-            .ok_or("operation status requires its exact V4/V2 node binding")?;
+        if status["formal_full_state_sync"].is_null() {
+            status["formal_full_state_sync"] =
+                super::formal_full_sync::observe_operation_status(&config)
+                    .ok_or("operation status requires its exact V4/V2 node binding")?;
+        }
     }
     Ok(status)
 }

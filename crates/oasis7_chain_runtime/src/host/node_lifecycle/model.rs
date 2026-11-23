@@ -411,7 +411,9 @@ impl ChainAnchor {
     }
     pub(super) fn local_role(&self) -> &'static str {
         match self {
-            Self::FormalFullStateSync(_) | Self::BudgetedFormalFullStateSync(_) => "full_state_sync",
+            Self::FormalFullStateSync(_) | Self::BudgetedFormalFullStateSync(_) => {
+                "full_state_sync"
+            }
             Self::Compatibility(_) | Self::FormalPublicObserver(_) => "observer",
         }
     }
@@ -420,7 +422,9 @@ impl ChainAnchor {
     ) -> Option<&super::formal_observer::FormalObserverConfigV1> {
         match self {
             Self::FormalPublicObserver(anchor) => Some(&anchor.formal_observer),
-            Self::Compatibility(_) | Self::FormalFullStateSync(_) | Self::BudgetedFormalFullStateSync(_) => None,
+            Self::Compatibility(_)
+            | Self::FormalFullStateSync(_)
+            | Self::BudgetedFormalFullStateSync(_) => None,
         }
     }
     pub(super) fn formal_full_sync(
@@ -428,7 +432,9 @@ impl ChainAnchor {
     ) -> Option<&super::formal_full_sync::FormalFullSyncConfigV1> {
         match self {
             Self::FormalFullStateSync(anchor) => Some(&anchor.formal_full_sync),
-            Self::Compatibility(_) | Self::FormalPublicObserver(_) | Self::BudgetedFormalFullStateSync(_) => None,
+            Self::Compatibility(_)
+            | Self::FormalPublicObserver(_)
+            | Self::BudgetedFormalFullStateSync(_) => None,
         }
     }
     pub(super) fn budgeted_formal_full_sync(
@@ -436,12 +442,15 @@ impl ChainAnchor {
     ) -> Option<&super::formal_full_sync::FormalFullSyncConfigV2> {
         match self {
             Self::BudgetedFormalFullStateSync(anchor) => Some(&anchor.formal_full_sync),
-            Self::Compatibility(_) | Self::FormalPublicObserver(_) | Self::FormalFullStateSync(_) => None,
+            Self::Compatibility(_)
+            | Self::FormalPublicObserver(_)
+            | Self::FormalFullStateSync(_) => None,
         }
     }
     pub(super) fn formal_full_sync_grant_mut(
         &mut self,
-    ) -> Option<&mut Option<oasis7_client_api::world_service_full_sync::FormalNodeReadGrantV1>> {
+    ) -> Option<&mut Option<oasis7_client_api::world_service_full_sync::FormalNodeReadGrantV1>>
+    {
         match self {
             Self::FormalFullStateSync(anchor) => Some(&mut anchor.formal_full_sync.grant),
             Self::BudgetedFormalFullStateSync(anchor) => Some(&mut anchor.formal_full_sync.grant),
@@ -639,13 +648,20 @@ impl NodeConfig {
         if bound_identity != configured_identity {
             return Err("local node config changed fixed identity/world binding".into());
         }
-        let budgeted_read = config.identity.chain.budgeted_formal_full_sync()
+        let budgeted_read = config
+            .identity
+            .chain
+            .budgeted_formal_full_sync()
             .map(|full_sync| {
                 full_sync.validate()?;
                 Ok::<_, String>(full_sync.read_material_config())
             })
             .transpose()?;
-        if let Some(full_sync) = config.identity.chain.formal_full_sync().or(budgeted_read.as_ref())
+        if let Some(full_sync) = config
+            .identity
+            .chain
+            .formal_full_sync()
+            .or(budgeted_read.as_ref())
             && let Some(grant) = full_sync.grant.as_ref()
         {
             let (keypair, _) =
@@ -662,8 +678,20 @@ impl NodeConfig {
         Ok(config)
     }
     pub(super) fn require_active_worker_profile(&self) -> Result<(), String> {
+        #[cfg(not(unix))]
         if self.identity.chain.budgeted_formal_full_sync().is_some() {
-            return Err("operation-budgeted full sync has no active worker consumer".into());
+            return Err("operation-budgeted full sync requires native Unix ownership".into());
+        }
+        if self
+            .identity
+            .chain
+            .budgeted_formal_full_sync()
+            .is_some_and(|config| config.grant.is_none())
+        {
+            return Err(
+                "operation-budgeted full sync requires an independent issuer grant before start"
+                    .into(),
+            );
         }
         Ok(())
     }

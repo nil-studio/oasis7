@@ -24,7 +24,7 @@ impl WorldGate {
         else {
             return;
         };
-        if oasis7::world_service::authority::verify_read_request(CHANGES_PATH, &request).is_err()
+        if oasis7_world_service::authority::verify_read_request(CHANGES_PATH, &request).is_err()
             || request.request.validate().is_err()
         {
             return;

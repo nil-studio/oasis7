@@ -125,9 +125,9 @@ fn real_tcp_production_listener_pressure_deadline_and_recovery() {
         Ok(response) => {
             assert_eq!(response.status().as_u16(), 200);
             let signed: SignedServiceResponse<DescribeWorldResponse> = response.json().unwrap();
-            oasis7::world_service::authority::verify_service_response(
+            oasis7_world_service::authority::verify_service_response(
                 "/v1/world/describe",
-                &oasis7::world_service::authority::request_digest(
+                &oasis7_world_service::authority::request_digest(
                     "/v1/world/describe",
                     &signed_request,
                 )
