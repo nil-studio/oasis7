@@ -1,5 +1,5 @@
 use super::*;
-use oasis7::world_service::*;
+use oasis7_world_service::*;
 use oasis7_client_api::world_service as authority;
 #[cfg(unix)]
 use std::io::Read;
