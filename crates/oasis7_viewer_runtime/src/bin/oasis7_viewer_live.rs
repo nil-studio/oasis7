@@ -5,7 +5,7 @@ use std::process;
 use std::thread;
 
 use oasis7::observability::init_tracing;
-use oasis7::runtime::MajorWorldEventVisibilityPermission;
+use oasis7_runtime::MajorWorldEventVisibilityPermission;
 use oasis7_simulator::WorldScenario;
 use oasis7_viewer_runtime::viewer::{
     ChainLinkPolicy, ProviderBackedBootstrapAuthorityV1, ViewerLiveDecisionMode,
