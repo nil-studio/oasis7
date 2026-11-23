@@ -1,0 +1,15 @@
+name: Set up pinned Node for doc-checker Viewer contract
+description: Supply the exact Node runtime required by the real Viewer dist alias fixture without modifying other npm cache worksets
+runs:
+  using: composite
+  steps:
+    - name: Configure pinned Node 22
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: '22'
+    - name: Verify Node for the Viewer distribution contract
+      shell: bash
+      run: |
+        set -euo pipefail
+        node --version
+        node -e 'if (Number(process.versions.node.split(".")[0]) !== 22) process.exit(1)'
