@@ -88,14 +88,17 @@ def valid_plan(source, sample='runtime-world'):
     return plan
 
 
-def fixture_planner(repo, consumer_groups=None, sample='runtime-world'):
+def fixture_planner(repo, consumer_groups=None, sample='runtime-world', *, world_state_net=True):
     """Run a real planner subprocess without compiling a product workspace."""
     plan = valid_plan('unused', sample)
     if sample == 'world-state-unit-tests':
         package_groups = {'oasis7_world_state': ['oasis7_required'], 'oasis7_distfs': ['distfs'],
                           'oasis7_net': ['net'], 'oasis7_node': ['node']}
         (repo / 'scripts/ci-required-scope.json').write_text(json.dumps({'package_groups': package_groups}))
-        plan['affected_packages'] = sorted(package_groups)
+        plan['affected_packages'] = sorted(name for name in package_groups
+                                           if world_state_net or name != 'oasis7_net')
+        if not world_state_net:
+            plan['ordinary_unit_test_excluded_groups'] = ['distfs', 'node']
     if consumer_groups:
         plan['groups'] = sorted(PREVIEW.EXPECTED_GROUPS | consumer_groups.keys())
         plan['affected_packages'] = ['oasis7_runtime', 'oasis7_world_state',
@@ -340,11 +343,32 @@ class Preview(unittest.TestCase):
                              {'ordinary_unit_test_sources': {}}, {'ordinary_unit_test_proof_refs': []},
                              {'ordinary_unit_test_proof_refs': source}, {'ordinary_unit_test_proof_refs': {source: True}},
                              {'ordinary_unit_test_proof_refs': [source, source]},
-                             {'ordinary_unit_test_excluded_groups': []}, {'ordinary_unit_test_excluded_targets': []},
+                             {'ordinary_unit_test_excluded_groups': []},
+                             {'ordinary_unit_test_excluded_groups': ['distfs', 'node']},
+                             {'ordinary_unit_test_excluded_targets': []},
                              {'oasis7_required_packages': ['oasis7_runtime']},
                              {'ordinary_fast_targets': valid_plan(source)['ordinary_fast_targets']}):
                 with self.subTest(mutation=mutation), self.assertRaises(ValueError):
-                    PREVIEW.validate_plan(plan | mutation, source, sample=sample)
+                    PREVIEW.validate_plan(plan | mutation, source, sample=sample, repo=repo)
+
+    def test_world_unit_sample_replays_exclusions_after_reverse_dependency_removal(self):
+        sample = 'world-state-unit-tests'
+        with tempfile.TemporaryDirectory() as directory:
+            repo, base = fixture(directory)
+            fixture_planner(repo, sample=sample, world_state_net=False)
+            write_files(repo, {PREVIEW.SAMPLES[sample]['paths'][0]: '#[test] fn behavior() {}\n',
+                               'scripts/ci-tests.sh': '# changed driver\n'})
+            source = commit(repo, 'private source diagnostic without reverse net consumer')
+            path = Path(directory) / 'plan.json'
+            metadata = PREVIEW.plan_preview(repo, base, source, path, sample=sample)
+            plan = json.loads(path.read_text())
+            PREVIEW.restore_baseline(repo, metadata, sample=sample, plan=plan,
+                                     group='oasis7_required', partition='all')
+            for groups in (['distfs'], ['distfs', 'net', 'node'], ['distfs', 'node', 'node']):
+                with self.subTest(groups=groups), self.assertRaises(ValueError):
+                    PREVIEW.restore_baseline(repo, metadata, sample=sample,
+                        plan=plan | {'ordinary_unit_test_excluded_groups': groups},
+                        group='oasis7_required', partition='all')
 
     def test_executable_image_sample_restores_with_exact_leaf_target_and_features(self):
         sample = 'executable-image'
