@@ -579,8 +579,12 @@ fn hosted_registration_recovery_not_committed_keeps_grant_retryable_after_restar
     );
 
     unsafe {
-        oasis7_hosted_access::process_env::remove_var(crate::viewer::HOSTED_REGISTRATION_ISSUER_PUBLIC_KEY_ENV);
-        oasis7_hosted_access::process_env::remove_var(crate::viewer::HOSTED_REGISTRATION_REPLAY_LEDGER_PATH_ENV);
+        oasis7_hosted_access::process_env::remove_var(
+            crate::viewer::HOSTED_REGISTRATION_ISSUER_PUBLIC_KEY_ENV,
+        );
+        oasis7_hosted_access::process_env::remove_var(
+            crate::viewer::HOSTED_REGISTRATION_REPLAY_LEDGER_PATH_ENV,
+        );
     }
     let _ = std::fs::remove_dir_all(recovery_dir);
     let _ = std::fs::remove_dir_all(other_recovery_dir);
@@ -721,8 +725,12 @@ fn hosted_registration_grant_rotates_reload_key_without_requiring_login() {
     assert!(replay_error.message.contains("registration grant replay"));
 
     unsafe {
-        oasis7_hosted_access::process_env::remove_var(crate::viewer::HOSTED_REGISTRATION_ISSUER_PUBLIC_KEY_ENV);
-        oasis7_hosted_access::process_env::remove_var(crate::viewer::HOSTED_REGISTRATION_REPLAY_LEDGER_PATH_ENV);
+        oasis7_hosted_access::process_env::remove_var(
+            crate::viewer::HOSTED_REGISTRATION_ISSUER_PUBLIC_KEY_ENV,
+        );
+        oasis7_hosted_access::process_env::remove_var(
+            crate::viewer::HOSTED_REGISTRATION_REPLAY_LEDGER_PATH_ENV,
+        );
     }
     let _ = std::fs::remove_dir_all(replay_dir);
 }

@@ -161,7 +161,10 @@ fn runtime_step_control_requests_llm_decision_and_advances_with_provider_backed_
     });
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_loopback_http");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_MODE_ENV,
+            "provider_loopback_http",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
@@ -169,11 +172,17 @@ fn runtime_step_control_requests_llm_decision_and_advances_with_provider_backed_
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_PROFILE_ENV,
+            "oasis7_p0_low_freq_npc",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_EXECUTION_LANE_ENV,
+            "player_parity",
+        );
     }
 
     let test_world_id = format!("live-runtime-{}", WorldScenario::Minimal.as_str());
@@ -622,11 +631,23 @@ fn runtime_provider_action_receipt_recovers_after_sidecar_finalization_checkpoin
     });
     // SAFETY: This test holds the canonical provider environment lock.
     unsafe {
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_loopback_http");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_MODE_ENV,
+            "provider_loopback_http",
+        );
         oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, base_url);
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
-        oasis7_hosted_access::process_env::set_var("OASIS7_TEST_PROVIDER_ACTION_FAULT", "persistence");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_PROFILE_ENV,
+            "oasis7_p0_low_freq_npc",
+        );
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_EXECUTION_LANE_ENV,
+            "player_parity",
+        );
+        oasis7_hosted_access::process_env::set_var(
+            "OASIS7_TEST_PROVIDER_ACTION_FAULT",
+            "persistence",
+        );
     }
     let world_id = "provider-action-receipt-recovery";
     let finality_block_hash =

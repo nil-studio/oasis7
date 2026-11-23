@@ -85,10 +85,19 @@ fn assert_provider_wait_post_admission_fault_is_compensated(
     });
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_loopback_http");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_MODE_ENV,
+            "provider_loopback_http",
+        );
         oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, base_url);
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_PROFILE_ENV,
+            "oasis7_p0_low_freq_npc",
+        );
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_EXECUTION_LANE_ENV,
+            "player_parity",
+        );
     }
     let world_id = format!("wait-compensation-{fault_name}");
     let finality_block_hash =
@@ -430,11 +439,23 @@ fn runtime_provider_wait_real_checkpoint_blocker_retries_same_server_then_reload
     });
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_loopback_http");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_MODE_ENV,
+            "provider_loopback_http",
+        );
         oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, base_url);
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
-        oasis7_hosted_access::process_env::set_var("OASIS7_TEST_PROVIDER_WAIT_FAULT", "persistence_blocker");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_PROFILE_ENV,
+            "oasis7_p0_low_freq_npc",
+        );
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_EXECUTION_LANE_ENV,
+            "player_parity",
+        );
+        oasis7_hosted_access::process_env::set_var(
+            "OASIS7_TEST_PROVIDER_WAIT_FAULT",
+            "persistence_blocker",
+        );
     }
     let world_id = "wait-real-checkpoint-blocker";
     let finality_block_hash =
@@ -674,10 +695,19 @@ fn runtime_provider_feedback_delivery_failure_survives_reload_without_readmissio
     });
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_loopback_http");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_MODE_ENV,
+            "provider_loopback_http",
+        );
         oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, base_url);
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_PROFILE_ENV,
+            "oasis7_p0_low_freq_npc",
+        );
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_EXECUTION_LANE_ENV,
+            "player_parity",
+        );
     }
     let world_id = "feedback-delivery-recovery";
     let finality_block_hash =
@@ -960,10 +990,19 @@ fn runtime_provider_backed_wake_resumes_with_fresh_request_and_origin_lineage() 
     });
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_loopback_http");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_MODE_ENV,
+            "provider_loopback_http",
+        );
         oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, base_url);
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
-        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_PROFILE_ENV,
+            "oasis7_p0_low_freq_npc",
+        );
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_EXECUTION_LANE_ENV,
+            "player_parity",
+        );
     }
     let world_id = format!("wake-runtime-{}", WorldScenario::Minimal.as_str());
     let finality_block_hash =
