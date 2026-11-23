@@ -48,7 +48,38 @@ CUSTODY_NODE_SHARDS = (0, 1, 2)
 LEGACY_CUSTODY_NODE_SHARDS = (0, 1, 2, 3)
 CUSTODY_NODE_SHARDS_VERSION = 2
 ORDINARY_DYNAMIC_PARTITION_VERSION = 1
-CONTRACT_JOB_CONSOLIDATION_VERSION = 1
+CONTRACT_JOB_CONSOLIDATION_VERSION = 2
+CONTRACT_JOB_CONSOLIDATION_VERSIONS = (1, 2)
+ORDINARY_SCOPE_CONFIG_SLICE_VERSION = 1
+STANDALONE_CARGO_MANIFEST_SCOPE_VERSION = 1
+WORKSPACE_SUPPORT_DIRECT_GATE_VERSION = 1
+ORDINARY_SCOPE_SLICE_KEYS = frozenset((
+    'ordinary_harness_costs',
+    'ordinary_fast_targets',
+    'ordinary_fast_rules',
+    'ordinary_fast_component_rules',
+    'ordinary_unit_test_targets',
+    'ordinary_scale_contract',
+    'formal_deferred_ordinary_cases',
+))
+FORBIDDEN_SCOPED_CONTROL_PATHS = frozenset((
+    '.github/workflows/rust.yml',
+    '.github/workflows/command-center.yml',
+    'scripts/ci-tests.sh',
+    'scripts/ci-required-scope.json',
+    'scripts/ci-formal-process-suites.json',
+    'scripts/plan-rust-required-scope.sh',
+))
+FORBIDDEN_SCOPED_CONTROL_PREFIXES = (
+    '.github/actions/setup-linux-mold/',
+    '.github/actions/cache-permission-probe/',
+)
+ADDITIVE_GOVERNANCE_ALLOWED_GITHUB_PREFIXES = (
+    '.github/workflows/codeql',
+    '.github/ISSUE_TEMPLATE/',
+    '.github/pull_request_template.md',
+    '.github/instructions/',
+)
 FORMAL_SUITES = ('runtime-protocol', 'world-history', 'healthy-set', 'storage-recovery', 'lifecycle-cli')
 SUPPORT_PROFILES = (
     'oasis7_agent_api', 'oasis7_agent_harness', 'oasis7_browser_game_client', 'oasis7_client_api', 'oasis7_game_client', 'oasis7_model_provider',
@@ -164,7 +195,7 @@ def additive_governance_registration(config, comparisons, paths, *, repo=None):
         # control has its own contract. Only already-scoped diagnostic workflows
         # may accompany this one shell registration exception.
         if (any(fnmatch.fnmatchcase(path, pattern) for pattern in CONTROL)
-                and (scoped is None or not path.startswith('.github/'))):
+                and (scoped is None or not path.startswith(ADDITIVE_GOVERNANCE_ALLOWED_GITHUB_PREFIXES))):
             return None
         selected = set(scoped or ())
         matched = scoped is not None
@@ -213,6 +244,145 @@ def additive_governance_registration(config, comparisons, paths, *, repo=None):
         return sorted(additions) or None
     except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError, UnicodeError):
         return None
+
+
+def _strict_json_object(raw):
+    def unique_pairs(items):
+        obj = {}
+        for key, value in items:
+            if key in obj:
+                raise ValueError(f'duplicate JSON key: {key}')
+            obj[key] = value
+        return obj
+
+    parsed = json.loads(raw.decode('utf-8'), object_pairs_hook=unique_pairs)
+    if not isinstance(parsed, dict):
+        raise ValueError('scope configuration must be a JSON object')
+    return parsed
+
+
+def _git_regular_blob_bytes(ref, path, *, max_bytes=4 * 1024 * 1024, repo=None):
+    record = git('ls-tree', '-z', ref, '--', path, repo=repo).split(b'\0')
+    if len(record) == 1 and record[0] == b'':
+        return None
+    if len(record) != 2 or record[1] != b'':
+        raise ValueError(f'expected at most one tracked entry for {path}')
+    metadata, name = record[0].split(b'\t', 1)
+    mode, kind, oid = metadata.decode('ascii').split()
+    if name.decode('utf-8', 'surrogateescape') != path or kind != 'blob' or mode not in ('100644', '100755'):
+        raise ValueError(f'non-regular Git entry for {path}')
+    if int(git('cat-file', '-s', oid, repo=repo)) > max_bytes:
+        raise ValueError(f'oversized Git blob for {path}')
+    return git('cat-file', 'blob', oid, repo=repo)
+
+
+def scoped_scope_config_groups(config, comparisons, paths, *, repo=None):
+    """Narrow ci-required-scope.json only when changed top-level keys stay inside ordinary test slices."""
+    target = 'scripts/ci-required-scope.json'
+    version = config.get('ordinary_scope_config_slice_version')
+    if (target not in paths or 'scripts/ci-tests.sh' in paths or not comparisons
+            or type(version) is not int or version != ORDINARY_SCOPE_CONFIG_SLICE_VERSION):
+        return None
+    try:
+        changed_keys = set()
+        for before, after in comparisons:
+            old_raw = _git_regular_blob_bytes(before, target, repo=repo)
+            new_raw = _git_regular_blob_bytes(after, target, repo=repo)
+            if old_raw is None or new_raw is None:
+                return None
+            old_cfg = validate_config(_strict_json_object(old_raw))
+            new_cfg = validate_config(_strict_json_object(new_raw))
+            changed_keys.update(
+                key for key in set(old_cfg) | set(new_cfg)
+                if old_cfg.get(key) != new_cfg.get(key)
+            )
+        if not changed_keys or not changed_keys <= ORDINARY_SCOPE_SLICE_KEYS:
+            return None
+        selected = {'workflow_governance', 'rust_baseline', 'oasis7_required'}
+        widens_policy = bool(changed_keys - {'ordinary_harness_costs'})
+        if widens_policy:
+            selected.update(('consensus', 'node', 'distfs'))
+        return selected, widens_policy
+    except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError, UnicodeError):
+        return None
+
+
+def _classify_standalone_cargo_path(path):
+    if (not isinstance(path, str) or posixpath.normpath(path) != path
+            or path.startswith('/') or '..' in path.split('/')
+            or any(ch in path for ch in ('\\', '*', '?', '[', ']'))):
+        return None
+    parts = path.split('/')
+    if parts[-1] not in ('Cargo.toml', 'Cargo.lock'):
+        return None
+    if len(parts) == 4 and parts[:2] == ['crates', 'oasis7_builtin_wasm_modules'] and parts[2] and parts[2] != '_templates':
+        groups = {'rust_baseline', 'cargo_tooling_contracts', 'distfs', 'oasis7_required', 'workspace_support'}
+        if parts[2] == 'm1_power_storage':
+            groups.add('launcher_web')
+        return groups, {'oasis7_wasm_build', 'wasm_build_suite'}
+    if path in {
+        'tools/oasis7-command-center/Cargo.toml',
+        'tools/oasis7-command-center/Cargo.lock',
+        'tools/oasis7-command-center/core/Cargo.toml',
+        'tools/oasis7-command-center/src-tauri/Cargo.toml',
+    }:
+        return {'rust_baseline', 'cargo_tooling_contracts', 'command_center'}, set()
+    if path in {
+        'tools/wasm_build_suite/templates/minimal_module/Cargo.toml',
+        'tools/wasm_build_suite/templates/minimal_module/Cargo.lock',
+    }:
+        return {'rust_baseline', 'cargo_tooling_contracts', 'workspace_support'}, {'wasm_build_suite'}
+    if len(parts) == 4 and parts[:2] == ['tests', 'libp2p-compat'] and parts[2] in {'common', 'candidate', 'legacy'}:
+        return {'rust_baseline', 'cargo_tooling_contracts', 'net'}, set()
+    return None
+
+
+def standalone_cargo_manifest_selection(config, graphs, graph_refs, comparisons, paths, *, repo=None):
+    """Scope non-root-workspace standalone manifests/lockfiles only after proving root isolation."""
+    version = config.get('standalone_cargo_manifest_scope_version')
+    unique_refs = list(dict.fromkeys(graph_refs))
+    if (not comparisons or not graphs or len(graphs) != len(unique_refs)
+            or type(version) is not int or version != STANDALONE_CARGO_MANIFEST_SCOPE_VERSION):
+        return {}
+    classified = {}
+    for path in paths:
+        if posixpath.basename(path) in ('Cargo.toml', 'Cargo.lock'):
+            entry = _classify_standalone_cargo_path(path)
+            if entry is not None:
+                classified[path] = entry
+    if not classified:
+        return {}
+    try:
+        root_dirs = {directory for manifests, _, _ in graphs for directory, _ in manifests.values()}
+        for ref in unique_refs:
+            raw_root = _git_regular_blob_bytes(ref, 'Cargo.toml', repo=repo)
+            if raw_root is None:
+                return {}
+            root_toml = tomllib.loads(raw_root.decode('utf-8'))
+            workspace = root_toml.get('workspace', {})
+            for dep in workspace.get('dependencies', {}).values():
+                if isinstance(dep, dict) and isinstance(dep.get('path'), str):
+                    root_dirs.add(posixpath.normpath(dep['path']))
+            for registry in root_toml.get('patch', {}).values():
+                if isinstance(registry, dict):
+                    for dep in registry.values():
+                        if isinstance(dep, dict) and isinstance(dep.get('path'), str):
+                            root_dirs.add(posixpath.normpath(dep['path']))
+        for path in classified:
+            directory = posixpath.dirname(path)
+            if directory in root_dirs:
+                return {}
+            for before, after in comparisons:
+                for rev in (before, after):
+                    raw = _git_regular_blob_bytes(rev, path, repo=repo)
+                    if raw is None:
+                        continue
+                    parsed = tomllib.loads(raw.decode('utf-8'))
+                    if path.endswith('Cargo.toml') and 'patch' in parsed:
+                        return {}
+        return classified
+    except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError, UnicodeError):
+        return {}
 
 
 def independent_target_input(path, directory, manifest):
@@ -991,13 +1161,15 @@ def validate_config(config):
     if not isinstance(scoped, dict):
         raise ValueError('invalid scoped control inventory')
     for path, selected in scoped.items():
-        python_control = (exact_python_script(path)
-                          and any(fnmatch.fnmatchcase(path, pattern) for pattern in CONTROL))
-        if (not isinstance(path, str) or not (path.startswith('.github/') or python_control)
+        scripts_control = (isinstance(path, str) and path.startswith('scripts/')
+                           and any(fnmatch.fnmatchcase(path, pattern) for pattern in CONTROL))
+        if (not isinstance(path, str) or not (path.startswith('.github/') or scripts_control)
+                or path in FORBIDDEN_SCOPED_CONTROL_PATHS
+                or path.startswith(FORBIDDEN_SCOPED_CONTROL_PREFIXES)
                 or path.endswith('/') or posixpath.normpath(path) != path
                 or any(character in path for character in ('\\', '*', '?', '[', ']'))
                 or '..' in path.split('/') or any(ord(character) < 32 for character in path)
-                or not isinstance(selected, list)
+                or not isinstance(selected, list) or (scripts_control and not selected)
                 or any(not isinstance(group, str) or group not in groups for group in selected)
                 or len(selected) != len(set(selected))):
             raise ValueError('invalid scoped control path or groups')
@@ -1137,7 +1309,7 @@ def validate_config(config):
     if 'contract_job_consolidation_version' in config or 'group_jobs' in config:
         overrides = config.get('group_jobs')
         if (type(config.get('contract_job_consolidation_version')) is not int
-                or config['contract_job_consolidation_version'] != CONTRACT_JOB_CONSOLIDATION_VERSION
+                or config['contract_job_consolidation_version'] not in CONTRACT_JOB_CONSOLIDATION_VERSIONS
                 or config.get('fast_scope_version') != FAST_PLAN_VERSION
                 or not isinstance(overrides, dict) or not overrides):
             raise ValueError('invalid contract job consolidation capability')
@@ -1146,6 +1318,23 @@ def validate_config(config):
             if (group not in config['groups'] or not isinstance(job, str)
                     or job not in default_jobs or job == group.replace('_', '-')):
                 raise ValueError('invalid consolidated group job mapping')
+    if 'ordinary_scope_config_slice_version' in config:
+        if (type(config['ordinary_scope_config_slice_version']) is not int
+                or config['ordinary_scope_config_slice_version'] != ORDINARY_SCOPE_CONFIG_SLICE_VERSION
+                or config.get('fast_scope_version') != FAST_PLAN_VERSION):
+            raise ValueError('invalid ordinary scope config slice capability')
+    if 'standalone_cargo_manifest_scope_version' in config:
+        if (type(config['standalone_cargo_manifest_scope_version']) is not int
+                or config['standalone_cargo_manifest_scope_version'] != STANDALONE_CARGO_MANIFEST_SCOPE_VERSION
+                or config.get('fast_scope_version') != FAST_PLAN_VERSION):
+            raise ValueError('invalid standalone Cargo manifest scope capability')
+    if 'workspace_support_direct_gate_version' in config:
+        if (type(config['workspace_support_direct_gate_version']) is not int
+                or config['workspace_support_direct_gate_version'] != WORKSPACE_SUPPORT_DIRECT_GATE_VERSION
+                or type(config.get('workspace_support_partition_version')) is not int
+                or config['workspace_support_partition_version'] != 1
+                or config.get('fast_scope_version') != FAST_PLAN_VERSION):
+            raise ValueError('invalid direct workspace support gate capability')
     if 'ordinary_harness_costs' in config:
         if config.get('ordinary_artifact_partition_version') not in (1, 2):
             raise ValueError('ordinary harness costs require artifact partitions')
@@ -3611,9 +3800,10 @@ def add_ordinary_scale_contract(config, plan, paths, path_affected, comparisons,
 
 
 def complete_ordinary_partitions(config, plan):
-    if (config.get('contract_job_consolidation_version') == CONTRACT_JOB_CONSOLIDATION_VERSION
+    if (type(config.get('contract_job_consolidation_version')) is int
+            and config['contract_job_consolidation_version'] in CONTRACT_JOB_CONSOLIDATION_VERSIONS
             and plan.get('fast_plan_version') == FAST_PLAN_VERSION):
-        plan['contract_job_consolidation_version'] = CONTRACT_JOB_CONSOLIDATION_VERSION
+        plan['contract_job_consolidation_version'] = config['contract_job_consolidation_version']
     # The unchanged producer already supplies both default snapshots and the
     # runtime/component libraries. Actual nonempty inventories remain checked
     # at build and consumption; smaller policy migrations keep the all owner.
@@ -3702,6 +3892,16 @@ def complete_ordinary_partitions(config, plan):
                     plan['custody_compile_proof_version'] = CUSTODY_COMPILE_PROOF_VERSION
                 else:
                     plan['reasons'].append('tested source retains complete legacy custody approval proofs')
+        elif (type(config.get('workspace_support_direct_gate_version')) is int
+                and config['workspace_support_direct_gate_version'] == WORKSPACE_SUPPORT_DIRECT_GATE_VERSION
+                and plan.get('fast_plan_version') == FAST_PLAN_VERSION
+                and plan.get('execution_profile') in ('pr-fast', 'main-fast')
+                and plan.get('workspace_support_partitions') == ['other']
+                and 'oasis7_custody_worker' not in plan.get('workspace_support_profiles', ())
+                and not workspace_support_requires_host(plan)
+                and tested_source_supports_capability(plan, 'workspace_support_direct_gate_version',
+                                                      WORKSPACE_SUPPORT_DIRECT_GATE_VERSION)):
+            plan['workspace_support_direct_gate_version'] = WORKSPACE_SUPPORT_DIRECT_GATE_VERSION
 
 
 def tested_source_supports_capability(plan, field, expected_version):
@@ -3806,7 +4006,7 @@ def full_plan(config, profile, source_head, test_head=None, policy_ref=None, for
 def fast_plan(config, plan, base, source, tested, paths, affected, path_affected,
               path_rules, additions, profile, formal_inventory=None, policy_ref=None,
               comparisons=None, feature_owners=None, feature_manifests=None, test_target_roots=None,
-              source_inputs=None):
+              source_inputs=None, *, scope_config_policy_changed=False):
     if config.get('fast_scope_version') != FAST_PLAN_VERSION:
         # The version capability comes from BASE. Candidate metadata cannot opt in.
         raise ValueError('fast profiles require trusted baseline fast_scope_version')
@@ -3814,6 +4014,8 @@ def fast_plan(config, plan, base, source, tested, paths, affected, path_affected
     conservative = plan['scope'] == 'full'
     exceptions = []
     policy_paths, ignored_risk, production_cfg_paths = set(), False, set()
+    if scope_config_policy_changed and not conservative:
+        policy_paths.add('scripts/ci-required-scope.json')
     selected_core = affected & set(config['oasis7_required_packages'])
     native_fast_candidate = None
     support_owners = {contract['package'] for contract in config.get('ordinary_fast_support_contracts', [])}
@@ -4268,6 +4470,7 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
     test_target_roots = {}
     source_inputs = {}
     policy_comparisons = snapshot['comparisons'] if snapshot is not None else [(base, source_head)]
+    scope_config_slice = None
     try:
         # Push/source-only checks retain the event range. For PR merge checks,
         # exclude target history already present in the actual first parent.
@@ -4365,6 +4568,12 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
                 reasons.append('uncertain Git/dependency inputs: ' + str(error))
         reported_embeds = False
         governance_registrations = additive_governance_registration(config, policy_comparisons, paths)
+        if profile in ('pr-fast', 'main-fast') and not full:
+            scope_config_slice = scoped_scope_config_groups(config, policy_comparisons, paths)
+            standalone_manifests = standalone_cargo_manifest_selection(
+                config, graphs, graph_refs, policy_comparisons, paths)
+        else:
+            standalone_manifests = {}
         for path in paths:
             path_affected[path] = set()
             path_rules[path] = set()
@@ -4381,6 +4590,16 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
                 path_rules[path].add('workflow_governance')
                 reasons.append('proved additive diagnostic test registration: '
                                + ', '.join(governance_registrations))
+            elif path == 'scripts/ci-required-scope.json' and scope_config_slice is not None:
+                chosen.update(scope_config_slice[0])
+                path_rules[path].update(scope_config_slice[0])
+                reasons.append('scoped ordinary CI configuration slice changed: ' + path)
+            elif path in standalone_manifests:
+                manifest_groups, manifest_profiles = standalone_manifests[path]
+                chosen.update(manifest_groups)
+                path_rules[path].update(manifest_groups)
+                path_support_profiles.update(manifest_profiles)
+                reasons.append('scoped standalone Cargo manifest/lockfile changed: ' + path)
             elif controlled:
                 full = True
                 reasons.append('shared build or CI control changed: ' + path)
@@ -4504,7 +4723,8 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
             raise ValueError('select requires a fast execution profile')
         return fast_plan(config, plan, base, source_head, test_head, paths, affected,
                          path_affected, path_rules, additions, profile, formal_inventory, policy_ref,
-                         policy_comparisons, feature_owners, feature_manifests, test_target_roots, source_inputs)
+                         policy_comparisons, feature_owners, feature_manifests, test_target_roots, source_inputs,
+                         scope_config_policy_changed=bool(scope_config_slice and scope_config_slice[1]))
     return plan
 
 
