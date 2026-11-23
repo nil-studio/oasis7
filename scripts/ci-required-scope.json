@@ -2263,6 +2263,18 @@
     },
     {
       "match": [
+        "tools/voxel_asset_pipeline/DESIGN.md",
+        "tools/voxel_asset_pipeline/README.md",
+        "tools/voxel_asset_pipeline/requirements.txt",
+        "tools/voxel_asset_pipeline/six_view_to_voxel_model.py",
+        "tools/voxel_asset_pipeline/tests/test_six_view_to_voxel_model.py",
+        "tools/voxel_asset_pipeline/tests/test_source_cleanup_cli.py"
+      ],
+      "groups": [],
+      "reason": "retired_voxel_asset_pipeline"
+    },
+    {
+      "match": [
         "scripts/oasis7-pure-api-parity-smoke.sh",
         "scripts/governance-registry-drill.sh",
         "scripts/governed-rollback-v2-drill.sh",
