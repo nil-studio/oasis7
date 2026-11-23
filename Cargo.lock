@@ -6888,6 +6888,7 @@ dependencies = [
  "oasis7_formal_protocol",
  "oasis7_hosted_access",
  "oasis7_node",
+ "oasis7_observability",
  "oasis7_proto",
  "oasis7_runtime",
  "oasis7_runtime_host",

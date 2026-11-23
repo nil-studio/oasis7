@@ -7,9 +7,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use oasis7::observability::emit_stderr_or_event;
 use oasis7_distfs::StorageChallengeProbeCursorState;
 use oasis7_node::{NodeRole, NodeRuntime, PosConsensusStatus};
+use oasis7_observability::emit_stderr_or_event;
 use oasis7_runtime::{
     Action as RuntimeAction, BlobStore, LocalCasStore, NodePointsConfig,
     NodePointsRuntimeCollector, NodePointsRuntimeCollectorSnapshot, NodePointsRuntimeHeuristics,

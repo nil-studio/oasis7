@@ -28,6 +28,27 @@ def manifest(package):
 
 
 class Ownership(unittest.TestCase):
+    def test_chain_and_viewer_observability_use_native_owner(self):
+        """The actual process startup and diagnostics must share one native owner."""
+        native = ROOT / 'crates/oasis7_observability/src/lib.rs'
+        source = native.read_text()
+        for function in ('init_tracing', 'emit_stderr_or_event', 'resolve_trace_session_id'):
+            self.assertIn(f'pub fn {function}(', source)
+        for package in ('oasis7_chain_runtime', 'oasis7_viewer_runtime'):
+            deps = manifest(package)['target']['cfg(not(target_arch = "wasm32"))']['dependencies']
+            self.assertEqual(deps['oasis7_observability'], {'path': '../oasis7_observability'})
+            for rust in (ROOT / 'crates' / package / 'src').rglob('*.rs'):
+                self.assertNotIn('oasis7::observability::', rust.read_text(), str(rust))
+        for package, relative, function in (
+            ('oasis7_chain_runtime', 'host.rs', 'resolve_trace_session_id'),
+            ('oasis7_chain_runtime', 'host/execution_bridge/driver_observability.rs', 'emit_stderr_or_event'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_live.rs', 'resolve_trace_session_id'),
+            ('oasis7_viewer_runtime', 'bin/oasis7_viewer_server.rs', 'init_tracing'),
+            ('oasis7_viewer_runtime', 'web_bridge.rs', 'emit_stderr_or_event'),
+        ):
+            source = (ROOT / 'crates' / package / 'src' / relative).read_text()
+            self.assertIn(f'oasis7_observability::{function}', source, relative)
+
     def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
         """Fail closed for both accepted two-argument host seams during native migration.
 
