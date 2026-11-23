@@ -38,6 +38,7 @@ mod peer_record_refresh;
 mod peer_record_store;
 mod peer_record_time;
 mod receiver_floor;
+mod rendezvous_client;
 mod rendezvous_operations;
 mod rendezvous_trigger;
 use peer_record_cache::PeerRecordCache;
