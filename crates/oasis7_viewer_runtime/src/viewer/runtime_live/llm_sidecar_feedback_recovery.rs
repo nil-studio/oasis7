@@ -71,7 +71,7 @@ mod tests {
 
     #[test]
     fn recovery_fence_filters_only_the_agent_session_with_bad_history() {
-        let mut world = crate::runtime_host::world::new();
+        let mut world = oasis7_oasis7_runtime_host::world::new();
         for feedback in [
             feedback("agent-a", "session-a", 1, "a-1"),
             feedback("agent-b", "session-b", 1, "b-1"),
@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn local_runtime_recovery_uses_world_authority_projection_before_dispatch() {
-        let mut world = crate::runtime_host::world::new();
+        let mut world = oasis7_oasis7_runtime_host::world::new();
         let feedback = feedback("agent-a", "session-a", 2, "feedback-gap");
         world
             .enqueue_runtime_feedback(crate::runtime_host::feedback::feedback_to_api(&feedback))

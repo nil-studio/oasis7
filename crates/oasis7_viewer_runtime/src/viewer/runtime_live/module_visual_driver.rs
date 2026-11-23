@@ -370,7 +370,7 @@ mod tests {
             .module_registry
             .active
             .insert(MODULE_ID.to_string(), VERSION.to_string());
-        *world = crate::runtime_host::world::from_snapshot(snapshot, world.journal().clone())?;
+        *world = oasis7_oasis7_runtime_host::world::from_snapshot(snapshot, world.journal().clone())?;
         Ok(MODULE_ID.to_string())
     }
 
@@ -397,7 +397,7 @@ mod tests {
 
     #[test]
     fn fresh_world_does_not_bootstrap_test_driver_module() {
-        let world = crate::runtime_host::world::new();
+        let world = oasis7_oasis7_runtime_host::world::new();
         assert!(
             !world
                 .module_registry()
@@ -418,7 +418,7 @@ mod tests {
         let command_path = test_path();
         let _ = fs::remove_file(&command_path);
         let _ = fs::remove_file(ack_path_for(&command_path));
-        let mut world = crate::runtime_host::world::new();
+        let mut world = oasis7_oasis7_runtime_host::world::new();
         let mut driver = RuntimeModuleVisualDriver {
             command_path: command_path.clone(),
             ack_path: ack_path_for(&command_path),
