@@ -19,7 +19,7 @@ impl NativeBudgetEnvSnapshot {
             .collect();
         for key in keys {
             // SAFETY: the caller holds the canonical provider environment lock.
-            unsafe { oasis7::env_mut::remove_var(key) };
+            unsafe { oasis7_hosted_access::process_env::remove_var(key) };
         }
         Self { previous }
     }
@@ -32,8 +32,8 @@ impl Drop for NativeBudgetEnvSnapshot {
             // SAFETY: the snapshot is dropped while the test retains the lock.
             unsafe {
                 match value {
-                    Some(value) => oasis7::env_mut::set_var(key, value),
-                    None => oasis7::env_mut::remove_var(key),
+                    Some(value) => oasis7_hosted_access::process_env::set_var(key, value),
+                    None => oasis7_hosted_access::process_env::remove_var(key),
                 }
             }
         }
@@ -116,12 +116,12 @@ fn native_budget_denial_round_trips_through_live_sidecar_without_effects() {
     ]);
     // SAFETY: the canonical provider lock serializes this test's environment setup.
     unsafe {
-        oasis7::env_mut::set_var(crate::simulator::ENV_LLM_MODEL, "gpt-runtime-budget-test");
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(crate::simulator::ENV_LLM_MODEL, "gpt-runtime-budget-test");
+        oasis7_hosted_access::process_env::set_var(
             crate::simulator::ENV_LLM_BASE_URL,
             "https://example.invalid/v1",
         );
-        oasis7::env_mut::set_var(crate::simulator::ENV_LLM_API_KEY, "test-key");
+        oasis7_hosted_access::process_env::set_var(crate::simulator::ENV_LLM_API_KEY, "test-key");
     }
     let config =
         crate::viewer::ViewerRuntimeLiveServerConfig::new(oasis7_simulator::WorldScenario::Minimal)
@@ -287,12 +287,12 @@ fn budget_wait_without_response_context_enters_terminal_cleanup() {
     ]);
     // SAFETY: the canonical provider lock serializes this test's environment setup.
     unsafe {
-        oasis7::env_mut::set_var(crate::simulator::ENV_LLM_MODEL, "gpt-runtime-budget-test");
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(crate::simulator::ENV_LLM_MODEL, "gpt-runtime-budget-test");
+        oasis7_hosted_access::process_env::set_var(
             crate::simulator::ENV_LLM_BASE_URL,
             "https://example.invalid/v1",
         );
-        oasis7::env_mut::set_var(crate::simulator::ENV_LLM_API_KEY, "test-key");
+        oasis7_hosted_access::process_env::set_var(crate::simulator::ENV_LLM_API_KEY, "test-key");
     }
     let config =
         crate::viewer::ViewerRuntimeLiveServerConfig::new(oasis7_simulator::WorldScenario::Minimal)

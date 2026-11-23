@@ -127,12 +127,12 @@ fn generation_changed_restore_releases_active_reserved_lease_before_fresh_planni
     ]);
     // SAFETY: the canonical provider lock serializes this test's environment setup.
     unsafe {
-        oasis7::env_mut::set_var(crate::simulator::ENV_LLM_MODEL, "generation-change-test");
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(crate::simulator::ENV_LLM_MODEL, "generation-change-test");
+        oasis7_hosted_access::process_env::set_var(
             crate::simulator::ENV_LLM_BASE_URL,
             "https://example.invalid/v1",
         );
-        oasis7::env_mut::set_var(crate::simulator::ENV_LLM_API_KEY, "test-key");
+        oasis7_hosted_access::process_env::set_var(crate::simulator::ENV_LLM_API_KEY, "test-key");
     }
     let provider =
         crate::simulator::MockDecisionProvider::new("generation-change-recovery-provider");

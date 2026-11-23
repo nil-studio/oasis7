@@ -809,10 +809,10 @@ fn owner_signed_memory_correction_applies_to_matching_provider_receipt_and_reloa
     });
     // SAFETY: the shared provider environment lock serializes this test lane.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_loopback_http");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, mock_server.base_url());
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
-        oasis7::env_mut::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
+        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_loopback_http");
+        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, mock_server.base_url());
+        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
+        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
     }
 
     let lineage_path = std::env::temp_dir().join(format!(
