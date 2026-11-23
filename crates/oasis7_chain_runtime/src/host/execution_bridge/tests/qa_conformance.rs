@@ -998,7 +998,7 @@ fn commit_request(
             let digest = correlation::key_digest(&request.correlation.key).unwrap();
             let hash = blake3::hash(digest.as_bytes());
             let action_id = u64::from_be_bytes(hash.as_bytes()[..8].try_into().unwrap()).max(1);
-            let bytes = correlation::encode_consensus_intent(&request).unwrap();
+            let bytes = oasis7_world_service::correlation::encode_consensus_intent(&request).unwrap();
             NodeConsensusAction::from_payload(action_id, "node-a", bytes).unwrap()
         })
         .collect::<Vec<_>>();
