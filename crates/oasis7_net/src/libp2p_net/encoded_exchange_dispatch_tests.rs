@@ -134,10 +134,17 @@ fn actual_no_address_and_refused_tcp_dials_spend_original_exchange_count() {
                     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
                     let port = listener.local_addr().unwrap().port();
                     drop(listener);
-                    swarm.add_peer_address(
-                        peer,
-                        format!("/ip4/127.0.0.1/tcp/{port}").parse().unwrap(),
-                    );
+                    let address: libp2p::Multiaddr =
+                        format!("/ip4/127.0.0.1/tcp/{port}").parse().unwrap();
+                    // A protocol cache alone grants no dial authority. Bind
+                    // this actual transport attempt to its configured peer
+                    // and endpoint, as the production dial gate requires.
+                    let policy = swarm.behaviour().discovery_dial_policy();
+                    policy.set_configured(&[address
+                        .clone()
+                        .with(libp2p::multiaddr::Protocol::P2p(peer))]);
+                    assert!(policy.permits(Some(peer), &address));
+                    swarm.add_peer_address(peer, address);
                 } else {
                     // A synchronous NoAddresses failure is delivered to the
                     // behaviour, without an OutgoingConnectionError event.
@@ -154,11 +161,16 @@ fn actual_no_address_and_refused_tcp_dials_spend_original_exchange_count() {
                     None,
                     Some(exchange),
                 );
-                tokio::time::timeout(Duration::from_secs(3), async {
-                    let mut saw_transport_failure = false;
-                    let mut saw_request_failure = false;
+                let mut saw_transport_failure = false;
+                let mut saw_request_failure = false;
+                let mut observations = Vec::new();
+                let completed = tokio::time::timeout(Duration::from_secs(3), async {
                     while !saw_request_failure || (with_address && !saw_transport_failure) {
-                        match swarm.select_next_some().await {
+                        let event = swarm.select_next_some().await;
+                        if observations.len() < 16 {
+                            observations.push(format!("{event:?}"));
+                        }
+                        match event {
                             SwarmEvent::OutgoingConnectionError {
                                 peer_id: Some(failed),
                                 error,
@@ -179,8 +191,12 @@ fn actual_no_address_and_refused_tcp_dials_spend_original_exchange_count() {
                         }
                     }
                 })
-                .await
-                .unwrap();
+                .await;
+                assert!(
+                    completed.is_ok(),
+                    "dial with_address={with_address}, transport_failure={saw_transport_failure}, \
+                     request_failure={saw_request_failure}, events={observations:?}"
+                );
             }
             drop(swarm);
             let third = Exchange::new(Box::new(Budget::new(Arc::clone(&state), deadline)));
