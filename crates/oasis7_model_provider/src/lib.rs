@@ -11,5 +11,7 @@ pub mod harness_adapter;
 
 /// Legacy simulator compatibility; never used by session-scoped BYOK.
 pub mod legacy;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod legacy_model_adapter;
 // Preserve the existing simulator and explicit legacy test API.
 pub use legacy::*;
