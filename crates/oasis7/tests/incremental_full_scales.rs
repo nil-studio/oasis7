@@ -2,29 +2,29 @@
 #![cfg(all(unix, not(target_arch = "wasm32"), feature = "test_tier_full"))]
 
 #[allow(dead_code)]
-#[path = "support/incremental_inventory_fixture.rs"]
+#[path = "../../oasis7_runtime/tests/support/incremental_inventory_fixture.rs"]
 mod fixture;
 #[allow(dead_code)]
-#[path = "support/incremental_cognition_fixture.rs"]
+#[path = "../../oasis7_runtime/tests/support/incremental_cognition_fixture.rs"]
 mod incremental_cognition_fixture;
-#[path = "support/incremental_cognition_scaling.rs"]
+#[path = "../../oasis7_runtime/tests/support/incremental_cognition_scaling.rs"]
 mod incremental_cognition_scaling;
-#[path = "support/incremental_factory_authority_fixture.rs"]
+#[path = "../../oasis7_runtime/tests/support/incremental_factory_authority_fixture.rs"]
 mod incremental_factory_authority_fixture;
-#[path = "support/incremental_factory_authority_scaling.rs"]
+#[path = "../../oasis7_runtime/tests/support/incremental_factory_authority_scaling.rs"]
 mod incremental_factory_authority_scaling;
-#[path = "support/incremental_main_token_policy_fixture.rs"]
+#[path = "../../oasis7_runtime/tests/support/incremental_main_token_policy_fixture.rs"]
 mod incremental_main_token_policy_fixture;
-#[path = "support/incremental_main_token_policy_scaling.rs"]
+#[path = "../../oasis7_runtime/tests/support/incremental_main_token_policy_scaling.rs"]
 mod incremental_main_token_policy_scaling;
-#[path = "support/incremental_module_state_step.rs"]
+#[path = "../../oasis7_runtime/tests/support/incremental_module_state_step.rs"]
 mod incremental_module_state_step;
-#[path = "support/incremental_runtime_effect_fixture.rs"]
+#[path = "../../oasis7_runtime/tests/support/incremental_runtime_effect_fixture.rs"]
 mod incremental_runtime_effect_fixture;
-#[path = "support/incremental_runtime_effect_scaling.rs"]
+#[path = "../../oasis7_runtime/tests/support/incremental_runtime_effect_scaling.rs"]
 mod incremental_runtime_effect_scaling;
 #[allow(dead_code)]
-#[path = "support/incremental_agent_event.rs"]
+#[path = "../../oasis7_runtime/tests/support/incremental_agent_event.rs"]
 mod support;
 
 #[test]

@@ -10,7 +10,7 @@ use oasis7_runtime::{
 };
 use serde_json::json;
 #[allow(dead_code)]
-#[path = "../../oasis7/tests/support/incremental_inventory_fixture.rs"]
+#[path = "support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, logical, physical};
 const PROFILE: &str = " outer-profile\0界 ";

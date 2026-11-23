@@ -13,7 +13,7 @@ use oasis7_runtime::{
     incremental_field_read::*,
 };
 #[allow(dead_code)]
-#[path = "../../oasis7/tests/support/incremental_inventory_fixture.rs"]
+#[path = "support/incremental_inventory_fixture.rs"]
 mod fixture;
 use fixture::{Directory, logical, physical};
 #[path = "support/incremental_auth_noop_cancel.rs"]
