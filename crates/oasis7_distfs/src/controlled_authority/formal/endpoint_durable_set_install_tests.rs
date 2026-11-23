@@ -44,7 +44,7 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
     };
     // Keep the staged candidate/transition construction separate from the
     // independent remote copy, activation and cold-reopen consumers.
-    let (_po, ro, pp, rp, next_dir, sealed, boundary, manifest) =
+    let (_po, ro, pp, rp, next_dir, sealed, boundary, manifest, pcp) =
         build_native_install_setup(|| {
             let po = Oracle::start(&fixture, EndpointRole::Primary);
             let ro = Oracle::start(&fixture, EndpointRole::Replica);
@@ -144,7 +144,7 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
                 .unwrap(),
             );
             drop(coordinator);
-            (po, ro, pp, rp, next_dir, sealed, boundary, manifest)
+            (po, ro, pp, rp, next_dir, sealed, boundary, manifest, pcp)
         });
     let (source, source_owner) = remote_sealed_source(
         open(EndpointRole::Replica, ro.provider(&fixture)),

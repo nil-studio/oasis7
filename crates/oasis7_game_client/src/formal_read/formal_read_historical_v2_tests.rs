@@ -190,7 +190,7 @@ fn replay_frozen_origin_qualification_imports_exact_non_normal_token() {
     // profile 2. The historical-inclusion verifier intentionally rejects a
     // profile-1 current authority even when its root descriptor is otherwise
     // well formed.
-    let (world, trust, checkpoint, qualified_origin_digest, historical_anchor) =
+    let (world, trust, checkpoint, qualified_origin_digest, historical_anchor, observed_record) =
         build_frozen_replay_setup(|| {
             let (world, trust, anchor, _initial_proof) = profile2_initial_fixture();
             let origin = anchor.checkpoint();
@@ -420,7 +420,14 @@ fn replay_frozen_origin_qualification_imports_exact_non_normal_token() {
                 },
                 current: qualified_origin,
             };
-            (world, trust, Box::new(checkpoint), qualified_origin_digest, historical_anchor)
+            (
+                world,
+                trust,
+                Box::new(checkpoint),
+                qualified_origin_digest,
+                historical_anchor,
+                observed.commit().record().clone(),
+            )
         });
     let checkpoint_digest = checkpoint.digest().unwrap();
     let mut imported = FormalReadVerifier::from_fixed_checkpoint_v2(
@@ -435,7 +442,7 @@ fn replay_frozen_origin_qualification_imports_exact_non_normal_token() {
         .values()
         .find(|entry| entry.proof.decision.branch == FormalCompletionBranchV1::ReplayFrozen)
         .expect("replay import retains exact non-Normal proof token");
-    assert_eq!(token.proof.decision.record, *observed.commit().record());
+    assert_eq!(token.proof.decision.record, observed_record);
     assert!(token.recovery.is_some());
     assert!(token.retained_context.is_some());
     assert_eq!(imported.verified_recovery_contexts.len(), 2);
