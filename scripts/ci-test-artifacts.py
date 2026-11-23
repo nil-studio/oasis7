@@ -1462,7 +1462,7 @@ class BuildObservation:
                 self.observer = subprocess.Popen([
                     sys.executable, str(Path(__file__).with_name('package-ecs-resource-monitor.py')),
                     '--out', str(self.directory / 'resources.json'), '--pid', str(process.pid),
-                    '--label', self.variant, '--heartbeat-seconds', '20', '--disk-path', str(ROOT)], cwd=ROOT)
+                    '--disk-path', str(ROOT), '--label', self.variant, '--heartbeat-seconds', '20'], cwd=ROOT)
             except OSError as error:
                 self.warn(error)
 
