@@ -118,6 +118,10 @@ class Ownership(unittest.TestCase):
             source = (chain / relative).read_text()
             self.assertNotIn('oasis7::runtime_host::ordinary_starter::', source, relative)
             self.assertIn('oasis7_world_service::ordinary_starter::', source, relative)
+        gameplay_test = (chain / 'execution_bridge/tests/world_service.rs').read_text()
+        self.assertIn('use oasis7_runtime_host::gameplay_service as gameplay;', gameplay_test)
+        self.assertNotIn('use oasis7_world_service::gameplay;', gameplay_test)
+        self.assertIn('gameplay::authenticated_action_with_origin(&world,', gameplay_test)
         for relative in ('canonical_chat_fixture.rs', 'tests.rs'):
             source = (client / relative).read_text()
             self.assertNotIn('oasis7::runtime::', source, relative)
