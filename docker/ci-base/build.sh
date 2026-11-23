@@ -73,6 +73,17 @@ if [[ "$target" == build ]]; then
   '
 fi
 
+if [[ "$target" == build || "$target" == rust-build || "$target" == rust-wasm-build ]]; then
+  docker run --rm --platform linux/amd64 --network none --user 65534:65534 \
+    "$image" bash -ec '
+      report=$(mktemp)
+      trap "rm -- \"$report\"" EXIT
+      LC_ALL=C /usr/bin/time -v -o "$report" /usr/bin/true
+      grep -Eq "Maximum resident set size \(kbytes\): [0-9]+$" "$report"
+      grep -Eq "Exit status: 0$" "$report"
+    '
+fi
+
 if [[ "$target" == browser ]]; then
   docker run --rm --platform linux/amd64 --network none --user 65534:65534 \
     --env HOME=/tmp "$image" node -e '

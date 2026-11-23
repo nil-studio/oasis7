@@ -917,7 +917,7 @@ jobs:
       needs.package-native.result == 'success' && needs.full-regression-qualification.result == 'success'
     cache-mode: none
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:

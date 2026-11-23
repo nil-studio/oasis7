@@ -37,7 +37,7 @@ const MAX_FEEDBACK_REPLAY_ENTRIES: usize = 8;
 
 pub use oasis7_agent_harness::FinalityBindingV1;
 
-pub use super::continuous_agent_budget::BudgetContractV1;
+pub use oasis7_agent_harness::BudgetContractV1;
 
 /// The additive outer request wrapper.  `transport_attempt` is intentionally
 /// retained for observability but excluded from identity bytes.  The legacy

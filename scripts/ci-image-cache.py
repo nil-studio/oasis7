@@ -51,8 +51,6 @@ def build_variants(root, profile):
         native('net', ['-p', 'oasis7_net', '--lib'])
         cargo('if-watch', 'test', ['--manifest-path', './vendor-if-watch-3.2.2/Cargo.toml',
                                   '--target-dir', './target', '--all-features', '--lib'])
-        cargo('rendezvous', 'test', ['--manifest-path', './vendor-libp2p-rendezvous-0.18.1/Cargo.toml',
-                                    '--target-dir', './target', '--lib'])
         native('net-libp2p', ['-p', 'oasis7_net', '--features', 'libp2p', '--lib'])
         wasm = {'CC_wasm32_unknown_unknown': 'clang', 'AR_wasm32_unknown_unknown': 'llvm-ar'}
         cargo('net-wasm', 'check', ['-p', 'oasis7_net', '--no-default-features',

@@ -296,6 +296,8 @@ class TestContractJobs(unittest.TestCase):
         self.assertNotIn("actions/setup-python", op_section)
         self.assertIn("setup-linux-mold", pkg_section)
         self.assertIn("*linux-mold-tools-checkout", pkg_section)
+        self.assertIn("fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&", pkg_section)
+        self.assertNotIn("contract_job_consolidation_version", op_section)
 
     def test_live_repository_passes_check(self):
         with patch("sys.stdout", new_callable=io.StringIO):

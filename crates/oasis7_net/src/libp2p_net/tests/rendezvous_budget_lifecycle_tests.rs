@@ -92,7 +92,7 @@ fn schedule_discover(
 
 fn handle_client_event(
     swarm: &mut Swarm<super::super::swarm_behaviour::Behaviour>,
-    event: rendezvous::client::Event,
+    event: super::super::rendezvous_client::Event,
     pending_registers: &mut HashSet<PeerId>,
     registered_nodes: &mut HashSet<PeerId>,
     pending_discovers: &mut HashSet<PeerId>,
@@ -140,17 +140,17 @@ fn register_event(
     request_id: request_response::OutboundRequestId,
     rendezvous_node: PeerId,
     succeeded: bool,
-) -> rendezvous::client::Event {
+) -> super::super::rendezvous_client::Event {
     let namespace = rendezvous::Namespace::from_static("oasis7-budget-test");
     if succeeded {
-        rendezvous::client::Event::Registered {
+        super::super::rendezvous_client::Event::Registered {
             request_id,
             rendezvous_node,
             ttl: 300,
             namespace,
         }
     } else {
-        rendezvous::client::Event::RegisterFailed {
+        super::super::rendezvous_client::Event::RegisterFailed {
             request_id,
             rendezvous_node,
             namespace,
@@ -163,16 +163,16 @@ fn discover_event(
     request_id: request_response::OutboundRequestId,
     rendezvous_node: PeerId,
     succeeded: bool,
-) -> rendezvous::client::Event {
+) -> super::super::rendezvous_client::Event {
     if succeeded {
-        rendezvous::client::Event::Discovered {
+        super::super::rendezvous_client::Event::Discovered {
             request_id,
             rendezvous_node,
             registrations: Vec::new(),
             cookie: rendezvous::Cookie::for_all_namespaces(),
         }
     } else {
-        rendezvous::client::Event::DiscoverFailed {
+        super::super::rendezvous_client::Event::DiscoverFailed {
             request_id,
             rendezvous_node,
             namespace: None,
@@ -412,7 +412,7 @@ fn acknowledged_zero_ttl_does_not_suppress_live_reregistration() {
         );
         handle_client_event(
             &mut swarm,
-            rendezvous::client::Event::Registered {
+            super::super::rendezvous_client::Event::Registered {
                 request_id: old_id,
                 rendezvous_node: remote_peer_id,
                 ttl: 0,
@@ -844,11 +844,11 @@ fn real_wrong_kind_response_emits_failure_id_and_releases_production_budget() {
                         _,
                     )) if matches!(
                         &event,
-                        rendezvous::client::Event::RegisterFailed { request_id: id, .. }
+                        super::super::rendezvous_client::Event::RegisterFailed { request_id: id, .. }
                             if *id == request_id
                     ) =>
                     {
-                        let rendezvous::client::Event::RegisterFailed { error, .. } = &event else {
+                        let super::super::rendezvous_client::Event::RegisterFailed { error, .. } = &event else {
                             unreachable!();
                         };
                         assert_eq!(*error, rendezvous::ErrorCode::InternalError);
