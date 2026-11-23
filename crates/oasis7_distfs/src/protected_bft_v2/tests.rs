@@ -34,6 +34,7 @@ use super::wire::{
 };
 
 mod security;
+mod tcp_fixture;
 mod transition_recovery_tests;
 
 struct TestKey(SigningKey);
@@ -618,7 +619,8 @@ fn remote_provider_acquires_polls_and_releases_a_real_tcp_session() {
 #[test]
 fn pending_transition_install_survives_disconnect_reacquire_and_exact_retry() {
     let fixture = installable_harness();
-    let (address, server) = spawn_tcp_server(fixture.service.clone(), 3);
+    let server = tcp_fixture::spawn(fixture.service.clone());
+    let address = server.address();
     let provider = RemoteBftSignerProviderV2::new(
         address,
         Duration::from_secs(3),
@@ -744,6 +746,7 @@ fn pending_transition_install_survives_disconnect_reacquire_and_exact_retry() {
         vec![completed.receipt.clone()]
     );
     drop(recovered_lease);
+    security::wait_for_released_generation(&fixture, completed.checkpoint.lease_generation + 1);
 
     let mut final_lease = provider.acquire(&fixture.binding).unwrap();
     let final_checkpoint = final_lease.checkpoint().unwrap();
@@ -782,7 +785,7 @@ fn pending_transition_install_survives_disconnect_reacquire_and_exact_retry() {
         final_checkpoint.lease_generation
     );
     drop(final_lease);
-    server.join().unwrap();
+    server.finish();
 
     let stored = fixture.backend.snapshot();
     assert_eq!(stored.state.install_receipts, vec![completed.receipt]);
