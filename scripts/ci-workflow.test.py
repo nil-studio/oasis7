@@ -3696,6 +3696,82 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
                 self.assertNotEqual(invalid.returncode, 0)
                 self.assertEqual(invalid.stdout, '')
 
+    def test_ci_base_candidate_planner_pairs_shallow_merge_with_first_parent(self):
+        planner_dir = ROOT / 'docker/ci-base'
+        workflow = '.github/workflows/rust.yml'
+        baseline = (
+            'env:\n'
+            '  RUST_TOOLCHAIN: 1.96.0\n'
+            '  OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11\n'
+            '  OASIS7_WASM_TARGET: wasm32-unknown-unknown\n'
+        )
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / 'repo'
+            root.mkdir()
+
+            def git(*args, cwd=root):
+                return subprocess.check_output(['git', *args], cwd=cwd, text=True, stderr=subprocess.STDOUT).strip()
+
+            git('init', '-q')
+            git('config', 'user.name', 'CI Fixture')
+            git('config', 'user.email', 'ci@example.invalid')
+            git('config', 'commit.gpgsign', 'false')
+            for name in ('plan-candidate.sh', 'toolchain-contract.sh'):
+                path = root / 'docker/ci-base' / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text((planner_dir / name).read_text())
+            (root / workflow).parent.mkdir(parents=True)
+            (root / workflow).write_text(baseline)
+            git('add', '--all')
+            git('commit', '-qm', 'event base')
+            event_base = git('rev-parse', 'HEAD')
+            git('branch', 'candidate')
+            (root / workflow).write_text(baseline.replace('1.96.0', '1.96.1'))
+            (root / 'docker/ci-base/Dockerfile').write_text('FROM scratch\n')
+            git('add', '--all')
+            git('commit', '-qam', 'main toolchain update')
+            real_base = git('rev-parse', 'HEAD')
+            git('switch', '-q', 'candidate')
+            (root / 'README.md').write_text('candidate change\n')
+            git('add', '--all')
+            git('commit', '-qm', 'candidate source')
+            source = git('rev-parse', 'HEAD')
+            git('switch', '-q', '--detach', real_base)
+            git('merge', '-q', '--no-ff', 'candidate', '-m', 'synthetic merge')
+            tested = git('rev-parse', 'HEAD')
+            drifted = subprocess.check_output(
+                ['bash', 'docker/ci-base/plan-candidate.sh', event_base], cwd=root, text=True,
+            )
+            self.assertEqual(json.loads(drifted), {
+                'target': ['runtime', 'build', 'browser', 'rust-build', 'rust-wasm-build'],
+            })
+            clone = Path(temp) / 'shallow'
+            git('clone', '-q', '--depth=2', root.as_uri(), str(clone))
+            self.assertEqual(git('rev-parse', '--is-shallow-repository', cwd=clone), 'true')
+
+            def plan(*args):
+                return subprocess.run(
+                    ['bash', 'docker/ci-base/plan-candidate.sh', *args],
+                    cwd=clone, text=True, capture_output=True,
+                )
+
+            verified = plan('--print-verified-pr-base', tested, source)
+            self.assertEqual(verified.returncode, 0, verified.stderr)
+            self.assertEqual(verified.stdout.strip(), real_base)
+            self.assertNotEqual(plan(event_base).returncode, 0)
+            matrix = plan(real_base)
+            self.assertEqual(matrix.returncode, 0, matrix.stderr)
+            self.assertEqual(json.loads(matrix.stdout), {'target': []})
+            for expected_tree, expected_source in ((source, source), (tested, real_base)):
+                invalid = plan('--print-verified-pr-base', expected_tree, expected_source)
+                self.assertNotEqual(invalid.returncode, 0)
+                self.assertEqual(invalid.stdout, '')
+            git('switch', '-q', '--detach', source, cwd=clone)
+            invalid = plan('--print-verified-pr-base', source, event_base)
+            self.assertNotEqual(invalid.returncode, 0)
+            self.assertEqual(invalid.stdout, '')
+
     def test_pr_auxiliary_workflows_scope_triggers_and_skip_drafts(self):
         ci_base = (ROOT / '.github/workflows/ci-base-images.yml').read_text()
         ci_base_pr = ci_base.split('  pull_request:\n', 1)[1].split('  workflow_dispatch:\n', 1)[0]
@@ -3703,8 +3779,20 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
         ci_base_jobs = workflow_jobs(ci_base)
         self.assertIn("if: github.event_name == 'pull_request' && !github.event.pull_request.draft", ci_base_jobs['plan'])
         self.assertIn('persist-credentials: false', ci_base_jobs['plan'])
-        self.assertIn('BASE_SHA: ${{ github.event.pull_request.base.sha }}', ci_base_jobs['plan'])
-        self.assertIn('plan-candidate.sh "$BASE_SHA"', ci_base_jobs['plan'])
+        self.assertIn('ref: ${{ github.sha }}', ci_base_jobs['plan'])
+        self.assertIn('TESTED_SHA: ${{ github.sha }}', ci_base_jobs['plan'])
+        self.assertIn('SOURCE_SHA: ${{ github.event.pull_request.head.sha }}', ci_base_jobs['plan'])
+        self.assertIn('--print-verified-pr-base "$TESTED_SHA" "$SOURCE_SHA"', ci_base_jobs['plan'])
+        self.assertIn('plan-candidate.sh "$base_sha"', ci_base_jobs['plan'])
+        self.assertIn('base_sha: ${{ steps.select.outputs.base_sha }}', ci_base_jobs['plan'])
+        self.assertIn('tested_sha: ${{ steps.select.outputs.tested_sha }}', ci_base_jobs['plan'])
+        self.assertIn("ref: ${{ github.event_name == 'pull_request' && needs.plan.outputs.tested_sha || github.sha }}",
+                      ci_base_jobs['build'])
+        self.assertIn('--print-verified-pr-base "$TESTED_SHA" "$SOURCE_SHA"', ci_base_jobs['build'])
+        self.assertIn('[[ "$TESTED_SHA" == "$GITHUB_SHA" ]]', ci_base_jobs['build'])
+        self.assertIn('[[ "$actual_base" == "$BASE_SHA" ]]', ci_base_jobs['build'])
+        self.assertIn('OASIS7_PRODUCT_DOC_BASE: ${{ needs.plan.outputs.base_sha }}', ci_base_jobs['build'])
+        self.assertIn('OASIS7_PRODUCT_DOC_HEAD: ${{ needs.plan.outputs.tested_sha }}', ci_base_jobs['build'])
         self.assertIn("needs.plan.result == 'success'", ci_base_jobs['build'])
         self.assertIn("""needs.plan.outputs.matrix != '{"target":[]}'""", ci_base_jobs['build'])
         self.assertIn("github.event_name != 'pull_request' && github.ref == 'refs/heads/main'", ci_base_jobs['build'])

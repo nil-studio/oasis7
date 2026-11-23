@@ -6,6 +6,26 @@ source docker/ci-base/toolchain-contract.sh
 
 # Check the candidate merge tree against its exact base. A missing or
 # inconsistent endpoint must not silently skip image verification.
+if [[ ${1:-} == --print-verified-pr-base ]]; then
+  [[ $# == 3 ]] || exit 1
+  tested=$2
+  source=$3
+  if [[ ! $tested =~ ^[a-f0-9]{40}$ || ! $source =~ ^[a-f0-9]{40}$ || $(git rev-parse --verify HEAD) != "$tested" ]]; then
+    printf '%s\n' 'Candidate checkout does not match the expected merge commit.' >&2
+    exit 1
+  fi
+  # %P reads exact commit parents even at the edge of a shallow checkout.
+  read -r -a parents <<< "$(git show -s --format=%P "$tested")"
+  if [[ ${#parents[@]} != 2 || ${parents[1]} != "$source" ]]; then
+    printf '%s\n' 'Candidate merge commit does not bind the expected PR source.' >&2
+    exit 1
+  fi
+  git cat-file -e "${parents[0]}^{commit}"
+  git cat-file -e "${parents[1]}^{commit}"
+  printf '%s\n' "${parents[0]}"
+  exit 0
+fi
+
 base=${1:-}
 [[ "$base" =~ ^[a-f0-9]{40}$ ]]
 tested=$(git rev-parse --verify HEAD)
