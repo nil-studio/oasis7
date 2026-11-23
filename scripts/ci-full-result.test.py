@@ -2290,7 +2290,8 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
         verified = module.verify_receipt(receipt, run, jobs, source=A, repository="nil-studio/oasis7",
                                          workflow_id=7, config=CONFIG, digest="definition")
         self.assertEqual(verified, receipt)
-        for retired_job in ("compile-metrics", "consensus", "pixel-world-bridge", "viewer-performance-report"):
+        for retired_job in ("compile-metrics", "consensus", "pixel-world-bridge", "viewer-performance-report",
+                            "packaging-contracts", "cargo-tooling-contracts", "windows-rollout"):
             broken = copy.deepcopy(receipt)
             broken["needs"][retired_job] = {"result": "success"}
             with self.subTest(retired_job=retired_job), self.assertRaises(ValueError):

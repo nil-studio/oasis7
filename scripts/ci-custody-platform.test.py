@@ -702,6 +702,13 @@ else: record([name, *a])
                 changed[job]['result'] = state
                 with self.subTest(job=job, state=state), self.assertRaises(ValueError):
                     C.validate_jobs(self.plan, changed)
+        consolidated_wasm = {k: v for k, v in needs.items() if k != 'custody-wasm-approval'}
+        self.assertTrue(C.validate_jobs(self.plan, consolidated_wasm))
+        for bad in ('failure', 'cancelled', 'skipped', None):
+            failed_wasm = copy.deepcopy(consolidated_wasm)
+            failed_wasm['custody-wasm-production'] = dict(result=bad)
+            with self.subTest(consolidated_wasm=bad), self.assertRaises(ValueError):
+                C.validate_jobs(self.plan, failed_wasm)
         legacy = dict(self.plan)
         del legacy['custody_execution_version']
         for job in needs:
