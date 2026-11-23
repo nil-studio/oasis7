@@ -113,8 +113,12 @@ fn hosted_registration_persist_failure_rolls_back_binding_and_keeps_grant_retrya
     assert_eq!(ack.status, AuthoritativeRecoveryStatus::SessionRegistered);
 
     unsafe {
-        oasis7_hosted_access::process_env::remove_var(crate::viewer::HOSTED_REGISTRATION_ISSUER_PUBLIC_KEY_ENV);
-        oasis7_hosted_access::process_env::remove_var(crate::viewer::HOSTED_REGISTRATION_REPLAY_LEDGER_PATH_ENV);
+        oasis7_hosted_access::process_env::remove_var(
+            crate::viewer::HOSTED_REGISTRATION_ISSUER_PUBLIC_KEY_ENV,
+        );
+        oasis7_hosted_access::process_env::remove_var(
+            crate::viewer::HOSTED_REGISTRATION_REPLAY_LEDGER_PATH_ENV,
+        );
     }
     let _ = std::fs::remove_dir_all(replay_dir);
 }
