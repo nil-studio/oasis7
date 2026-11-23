@@ -1,6 +1,6 @@
 //! Single operation transport owner used by both signed full-sync exits.
 //! Origins and trusted TLS/DNS configuration are frozen before attempt admission.
-//! V2 boot and original-owner takeover require their own completed wiring.
+//! V2 lifecycle holds the native owner until this operation's real work exits.
 use super::operation_ledger::{AttemptPermit, Ledger};
 use super::{direct_http, tls_http};
 use oasis7_game_client::{
@@ -11,7 +11,10 @@ use rustls::{ClientConfig, pki_types::ServerName};
 use std::{
     collections::BTreeMap,
     net::SocketAddr,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 struct ActiveOperation {
@@ -29,7 +32,11 @@ pub(super) struct SharedOperationExchange {
     active: Mutex<ActiveOperation>,
     endpoints: BTreeMap<String, ApprovedEndpoint>,
     tls_config: Option<Arc<ClientConfig>>,
-    owner: Option<(Arc<super::super::process::ProcessOwnership>, std::path::PathBuf)>,
+    owner: Option<(
+        Arc<super::super::process::ProcessOwnership>,
+        std::path::PathBuf,
+    )>,
+    cancellation: OnceLock<Arc<AtomicBool>>,
 }
 impl SharedOperationExchange {
     pub(super) fn with_owner(
@@ -38,8 +45,15 @@ impl SharedOperationExchange {
         directory: std::path::PathBuf,
     ) -> Result<Self, String> {
         owner.require_directory(&directory)?;
-        if self.active.get_mut().map_err(|error| error.to_string())?
-            .ledger.snapshot().identity.binding_digest != owner.binding_digest()?
+        if self
+            .active
+            .get_mut()
+            .map_err(|error| error.to_string())?
+            .ledger
+            .snapshot()
+            .identity
+            .binding_digest
+            != owner.binding_digest()?
         {
             return Err("operation ledger differs from its native owner binding".into());
         }
@@ -49,14 +63,72 @@ impl SharedOperationExchange {
 
     fn require_owner(&self) -> Result<(), WorldServiceClientError> {
         if let Some((owner, directory)) = &self.owner {
-            owner.require_directory(directory).map_err(WorldServiceClientError::Transport)?;
+            owner
+                .require_directory(directory)
+                .map_err(WorldServiceClientError::Transport)?;
+        }
+        if self
+            .cancellation
+            .get()
+            .is_some_and(|flag| flag.load(Ordering::SeqCst))
+        {
+            return Err(WorldServiceClientError::Transport(
+                "operation_recovery_required: worker cancelled".into(),
+            ));
         }
         Ok(())
     }
 
-    #[cfg(test)]
     pub fn snapshot(&self) -> super::operation_ledger::Snapshot {
         self.active.lock().unwrap().ledger.snapshot().clone()
+    }
+
+    pub(super) fn set_cancellation(&self, flag: Arc<AtomicBool>) -> Result<(), String> {
+        self.active
+            .try_lock()
+            .map_err(|_| "operation occupied or poisoned")?
+            .ledger
+            .bind_cancellation(Arc::clone(&flag))?;
+        self.cancellation
+            .set(flag)
+            .map_err(|_| "operation cancellation binding already set".into())
+    }
+
+    pub(super) fn local_failure(
+        &self,
+        message: String,
+    ) -> super::operation_failure::OperationFailure {
+        let guard = self
+            .active
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        super::operation_failure::OperationFailure::new(
+            guard.ledger.failure_reason(&guard.attempt),
+            message,
+        )
+    }
+
+    pub(super) fn clock(&self) -> (std::time::Instant, std::time::Instant) {
+        self.active.lock().unwrap().attempt.clock()
+    }
+
+    pub(super) fn complete_installation(
+        &self,
+        receipt: &super::installation::VerifiedInstallation,
+    ) -> Result<(), String> {
+        self.require_owner().map_err(|e| e.to_string())?;
+        let (owner, directory) = self
+            .owner
+            .as_ref()
+            .ok_or("installation requires native owner")?;
+        let mut guard = self
+            .active
+            .try_lock()
+            .map_err(|_| "operation occupied or poisoned")?;
+        let deadline = guard.attempt.deadline();
+        guard
+            .ledger
+            .complete_installation(owner, directory, receipt, deadline)
     }
 }
 
@@ -208,8 +280,10 @@ impl PreparedTransport {
         self,
         ledger: Ledger,
         attempt: AttemptPermit,
-    ) -> Result<SharedOperationExchange, String> {
-        ledger.check_attempt(&attempt)?;
+    ) -> Result<SharedOperationExchange, super::operation_failure::OperationFailure> {
+        ledger
+            .check_attempt(&attempt)
+            .map_err(|error| ledger.failure(error))?;
         let original: serde_json::Value = serde_json::from_slice(
             ledger
                 .snapshot()
@@ -246,6 +320,7 @@ impl PreparedTransport {
             endpoints: self.endpoints,
             tls_config: self.tls_config,
             owner: None,
+            cancellation: OnceLock::new(),
         })
     }
 }
@@ -288,6 +363,21 @@ impl FullSyncExchange for SharedOperationExchange {
             .begin_publication(&active.attempt, cut, roots_digest)
             .map_err(WorldServiceClientError::Transport)
     }
+    fn prepare_installation(
+        &self,
+        manifest: &serde_json::Value,
+        retained_cas_hashes: &std::collections::BTreeSet<String>,
+    ) -> Result<(), WorldServiceClientError> {
+        self.require_owner()?;
+        let mut guard = self.active.try_lock().map_err(|_| {
+            WorldServiceClientError::Transport("operation occupied or poisoned".into())
+        })?;
+        let active = &mut *guard;
+        active
+            .ledger
+            .prepare_installation(&active.attempt, manifest, retained_cas_hashes)
+            .map_err(WorldServiceClientError::Transport)
+    }
     fn complete_publication(
         &self,
         cut: &serde_json::Value,
@@ -314,7 +404,13 @@ impl FullSyncExchange for SharedOperationExchange {
             .map_err(WorldServiceClientError::Transport)
     }
     fn finish_attempt(&self) -> Result<(), WorldServiceClientError> {
-        self.require_owner()?;
+        // Cancellation blocks new work; exact accounting cleanup still belongs
+        // to this worker while its native ownership remains held.
+        if let Some((owner, directory)) = &self.owner {
+            owner
+                .require_directory(directory)
+                .map_err(WorldServiceClientError::Transport)?;
+        }
         let mut guard = self.active.try_lock().map_err(|_| {
             WorldServiceClientError::Transport("operation occupied or poisoned".into())
         })?;
@@ -377,6 +473,36 @@ impl FullSyncExchange for SharedOperationExchange {
             )
         })?;
         let active = &mut *guard;
+        if let Some(installation) = active.ledger.snapshot().installation.as_ref()
+            && active.ledger.snapshot().publication.is_some()
+        {
+            // Repair has a newly admitted bounded attempt but keeps the
+            // original decision. It can fetch only the saved exact objects.
+            let signed: oasis7_client_api::world_service::SignedReadRequest<
+                oasis7_client_api::world_service_full_sync::FormalFullSyncObjectRequestV1,
+            > = serde_json::from_slice(request.signed_body).map_err(|error| {
+                WorldServiceClientError::Configuration(format!("original repair request: {error}"))
+            })?;
+            signed
+                .request
+                .validate()
+                .map_err(WorldServiceClientError::Configuration)?;
+            if !active.ledger.snapshot().repair_attempt
+                || request.path
+                    != oasis7_client_api::world_service_full_sync::FORMAL_FULL_SYNC_OBJECT_PATH
+                || serde_json::to_value(&signed.request.cut)
+                    .map_err(|e| WorldServiceClientError::Configuration(e.to_string()))?
+                    != installation.manifest["cut"]
+                || !installation
+                    .retained_cas_hashes
+                    .contains(&signed.request.content_hash)
+            {
+                return Err(WorldServiceClientError::Configuration(
+                    "original installation repair cannot change target or issue another route"
+                        .into(),
+                ));
+            }
+        }
         let response = if let Some(name) = &address.tls_name {
             tls_http::post(
                 tls_http::Request {

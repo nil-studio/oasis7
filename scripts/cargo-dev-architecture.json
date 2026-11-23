@@ -13,6 +13,9 @@
       ],
       "forbidden": [
         {
+          "name": "oasis7_runtime_host"
+        },
+        {
           "name": "oasis7"
         },
         {
@@ -95,6 +98,9 @@
         }
       ],
       "forbidden": [
+        {
+          "name": "oasis7_runtime_host"
+        },
         {
           "name": "oasis7"
         },
@@ -184,6 +190,9 @@
         }
       ],
       "forbidden": [
+        {
+          "name": "oasis7_runtime_host"
+        },
         {
           "name": "oasis7"
         },
@@ -312,6 +321,9 @@
       ],
       "forbidden": [
         {
+          "name": "oasis7_runtime_host"
+        },
+        {
           "name": "oasis7"
         },
         {
@@ -401,6 +413,9 @@
         }
       ],
       "forbidden": [
+        {
+          "name": "oasis7_runtime_host"
+        },
         {
           "name": "oasis7"
         },
@@ -650,6 +665,9 @@
       ],
       "forbidden": [
         {
+          "name": "oasis7_runtime_host"
+        },
+        {
           "name": "oasis7_runtime"
         },
         {
@@ -776,6 +794,9 @@
       ],
       "forbidden": [
         {
+          "name": "oasis7_runtime_host"
+        },
+        {
           "name": "oasis7"
         }
       ],
@@ -853,6 +874,9 @@
         }
       ],
       "forbidden": [
+        {
+          "name": "oasis7_runtime_host"
+        },
         {
           "name": "oasis7"
         },
@@ -982,6 +1006,9 @@
         }
       ],
       "forbidden": [
+        {
+          "name": "oasis7_runtime_host"
+        },
         {
           "name": "oasis7"
         },
@@ -1127,6 +1154,9 @@
       ],
       "forbidden": [
         {
+          "name": "oasis7_runtime_host"
+        },
+        {
           "name": "oasis7"
         },
         {
@@ -1219,6 +1249,9 @@
         }
       ],
       "forbidden": [
+        {
+          "name": "oasis7_runtime_host"
+        },
         {
           "name": "libp2p"
         },
@@ -1421,6 +1454,9 @@
       ],
       "forbidden": [
         {
+          "name": "oasis7_runtime_host"
+        },
+        {
           "name": "libp2p"
         },
         {
@@ -1621,6 +1657,9 @@
         }
       ],
       "forbidden": [
+        {
+          "name": "oasis7_runtime_host"
+        },
         {
           "name": "libp2p"
         },

@@ -219,9 +219,9 @@ pub(in super::super) fn assert_recovery_delta(
     let WorldServicePayloadV1::Cognition(original_signed) = &original_payload else {
         panic!("actual original checkpoint Cognition required")
     };
-    oasis7::world_service::authority::verify_read_request("cognition", original_signed).unwrap();
+    oasis7_world_service::authority::verify_read_request("cognition", original_signed).unwrap();
     assert_eq!(
-        oasis7::world_service::derive_correlation(
+        oasis7_world_service::derive_correlation(
             original_correlation.key.world.clone(),
             &original_payload
         )
@@ -265,7 +265,7 @@ pub(in super::super) fn assert_recovery_delta(
                     .find(|issued| issued.correlation.key == request.request.key)
                     .expect("recovery Lookup must match actual pre-crash Submit");
                 assert_eq!(
-                    oasis7::world_service::derive_correlation(
+                    oasis7_world_service::derive_correlation(
                         issued.correlation.key.world.clone(),
                         &issued.signed_payload
                     )
@@ -288,11 +288,11 @@ pub(in super::super) fn assert_full_ack_readback(fixture: &Fixture, ack: &serde_
     let WorldServicePayloadV1::FeedbackAck(signed) = &payload else {
         panic!("signed original ACK required")
     };
-    oasis7::world_service::authority::verify_read_request("feedback_ack", signed).unwrap();
+    oasis7_world_service::authority::verify_read_request("feedback_ack", signed).unwrap();
     let expected: oasis7_client_api::world_service::RequestCorrelation =
         serde_json::from_value(ack["correlation"].clone()).unwrap();
     assert_eq!(
-        oasis7::world_service::derive_correlation(expected.key.world.clone(), &payload).unwrap(),
+        oasis7_world_service::derive_correlation(expected.key.world.clone(), &payload).unwrap(),
         expected
     );
     let response = fixture
@@ -395,12 +395,12 @@ pub(in super::super) fn recompute_tampered_private_acceptance(
         signed.signature_hex, old_signature,
         "attacker must retain original Agent signature"
     );
-    assert!(oasis7::world_service::authority::verify_read_request("feedback_ack", signed).is_err());
+    assert!(oasis7_world_service::authority::verify_read_request("feedback_ack", signed).is_err());
     let old: oasis7_client_api::world_service::RequestCorrelation =
         serde_json::from_value(ack["correlation"].clone()).unwrap();
     let mut new = old.clone();
     new.payload_digest =
-        oasis7::world_service::authority::request_digest("intent", &payload).unwrap();
+        oasis7_world_service::authority::request_digest("intent", &payload).unwrap();
     let ack = &mut altered["provider_service_pending"]["agent-a"]["feedback_ack"];
     ack["payload"] = serde_json::to_value(payload).unwrap();
     ack["correlation"] = serde_json::to_value(new).unwrap();
@@ -414,18 +414,18 @@ pub(in super::super) fn replace_ack_signer(original: &serde_json::Value) -> serd
     let WorldServicePayloadV1::FeedbackAck(signed) = payload else {
         panic!("real ACK required")
     };
-    let foreign = oasis7::world_service::authority::sign_read_request(
+    let foreign = oasis7_world_service::authority::sign_read_request(
         "feedback_ack",
         signed.request,
         &hex::encode([37u8; 32]),
     )
     .unwrap();
     assert_ne!(foreign.subject_public_key, signed.subject_public_key);
-    oasis7::world_service::authority::verify_read_request("feedback_ack", &foreign).unwrap();
+    oasis7_world_service::authority::verify_read_request("feedback_ack", &foreign).unwrap();
     let payload = WorldServicePayloadV1::FeedbackAck(foreign);
     let old: oasis7_client_api::world_service::RequestCorrelation =
         serde_json::from_value(ack["correlation"].clone()).unwrap();
-    let new = oasis7::world_service::derive_correlation(old.key.world, &payload).unwrap();
+    let new = oasis7_world_service::derive_correlation(old.key.world, &payload).unwrap();
     let ack = &mut altered["provider_service_pending"]["agent-a"]["feedback_ack"];
     ack["payload"] = serde_json::to_value(payload).unwrap();
     ack["correlation"] = serde_json::to_value(new).unwrap();

@@ -2,7 +2,7 @@
 use super::super::{local_io as io, model, tests::Fixture};
 use super::describe_with_minimum;
 use crate::execution_bridge_real_tests::real_execution_bridge as bridge;
-use oasis7::world_service::WorldIdentity;
+use oasis7_world_service::WorldIdentity;
 use oasis7_node::{NodeExecutionCommitContext, NodeExecutionHook, compute_consensus_action_root};
 use oasis7_runtime::{
     BlobStore, ChainResourceDerivationContext, LocalCasStore, ReleaseSecurityPolicy,
@@ -26,7 +26,7 @@ impl PersistedFixture {
         let world_dir = state.join("world");
         let records = state.join("records");
         let world_id = config.identity.chain.world_id();
-        let mut world = oasis7::runtime_host::world::new();
+        let mut world = oasis7_runtime_host::world::new();
         world.step().expect("actual World tick");
         world
             .bind_cognition_runtime(world_id, "main", 0, None, "pending", 0)
@@ -165,7 +165,7 @@ fn shipping_compatibility_descriptor_rejects_valid_cas_snapshot_outside_exact_re
     fixture
         .describe()
         .expect("establish valid real fixture before substitution");
-    let world = oasis7::runtime_host::world::load_from_dir(&fixture.world).unwrap();
+    let world = oasis7_runtime_host::world::load_from_dir(&fixture.world).unwrap();
     let substituted = serde_cbor::to_vec(&world.snapshot()).unwrap();
     let snapshot_root = oasis7_runtime::blake3_hex(&substituted);
     let latest_path = fixture.records.join("latest.json");

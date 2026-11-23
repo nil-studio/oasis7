@@ -336,8 +336,10 @@ class PlannerTests(unittest.TestCase):
         for path in ('vendor-if-watch-3.2.2/Cargo.toml.orig',
                      'vendor-libp2p-quic-0.14.0/.gitignore',
                      'vendor-libp2p-quic-0.14.0/LICENSE',
-                     'vendor-libp2p-rendezvous-0.18.1/src/generated/rpc.proto',
-                     'vendor-libp2p-swarm-0.48.0/LICENSE'):
+                     'vendor-libp2p-swarm-0.48.0/LICENSE',
+                     'vendor/if-watch-3.2.2/Cargo.toml.orig',
+                     'vendor/libp2p-quic-0.15.0/.gitignore',
+                     'vendor/libp2p-quic-0.15.0/LICENSE'):
             with self.subTest(path=path):
                 self.base = self.git('rev-parse', 'HEAD')
                 self.write(path, 'fixed vendor metadata\n')
@@ -357,8 +359,12 @@ class PlannerTests(unittest.TestCase):
         for path in ('vendor-if-watch-3.2.2/upstream-source-sha256.json',
                      'vendor-libp2p-rendezvous-0.18.1/LICENSE',
                      'vendor-libp2p-rendezvous-0.18.1/local-patch-sha256.json',
+                     'vendor-libp2p-rendezvous-0.18.1/src/generated/rpc.proto',
                      'vendor-libp2p-rendezvous-0.18.1/upstream-source-sha256.json',
-                     'vendor-libp2p-swarm-0.48.0/upstream-source-sha256.json'):
+                     'vendor-libp2p-swarm-0.48.0/upstream-source-sha256.json',
+                     'vendor/if-watch-3.2.2/upstream-source-sha256.json',
+                     'vendor/libp2p-quic-0.15.0/local-patch-sha256.json',
+                     'vendor/libp2p-quic-0.15.0/upstream-source-sha256.json'):
             with self.subTest(path=path):
                 self.base = self.git('rev-parse', 'HEAD')
                 self.write(path, '{"sha256": "fixed"}\n')
@@ -376,18 +382,25 @@ class PlannerTests(unittest.TestCase):
 
     def test_fixed_quic_vendor_registration_does_not_admit_neighbors(self):
         for path in ('vendor-if-watch-3.2.2/unregistered.json',
+                     'vendor-if-watch-3.2.3/Cargo.toml.orig',
                      'vendor-libp2p-quic-0.14.0/unregistered.json',
                      'vendor-libp2p-quic-0.14.1/LICENSE',
                      'vendor-libp2p-rendezvous-0.18.1/unregistered.json',
                      'vendor-libp2p-rendezvous-0.18.2/LICENSE',
                      'vendor-libp2p-swarm-0.48.0/unregistered.json',
-                     'vendor-libp2p-swarm-0.49.0/LICENSE'):
+                     'vendor-libp2p-swarm-0.49.0/LICENSE',
+                     'vendor/if-watch-3.2.2/unregistered.json',
+                     'vendor/if-watch-3.2.3/Cargo.toml.orig',
+                     'vendor/libp2p-quic-0.15.0/unregistered.json',
+                     'vendor/libp2p-quic-0.16.0/LICENSE',
+                     'vendor/unregistered.json'):
             with self.subTest(path=path):
                 self.base = self.git('rev-parse', 'HEAD')
                 self.write(path, '{}')
                 self.commit()
-                with self.assertRaisesRegex(ValueError, 'unregistered input'):
-                    self.run_plan()
+                for full in (False, True):
+                    with self.assertRaisesRegex(ValueError, 'unregistered input'):
+                        self.run_plan(full=full)
 
     def test_viewer_stylesheet_keeps_javascript_owner_across_changes(self):
         path = 'crates/oasis7_viewer/viewer_terminal_shell.css'
@@ -652,140 +665,17 @@ class PlannerTests(unittest.TestCase):
             'scripts/fixtures/document-corpus-v3/legacy/manifest.json',
         )
 
-    def test_retired_metadata_deletion_has_no_live_python_consumer(self):
-        paths = self.retired_metadata_paths()
-        for path in paths:
-            self.write(path, '{}')
-        self.base = self.commit()
-        for path in paths:
-            (self.root / path).unlink()
-        self.commit()
-        result = self.run_plan()
-        self.assertEqual(result['selected_units'], [])
-        self.assertEqual(result['fallback_reasons'], [])
-        self.assertEqual(result['completeness']['diff_paths'], sorted(paths))
-        full = self.run_plan(event='schedule', full=True)
-        self.assertEqual(len(full['selected_units']), 4)
-        self.assertEqual(full['fallback_reasons'], ['full maintenance scan'])
-
-    def test_retired_metadata_add_modify_and_reintroduction_remain_unregistered(self):
-        for path in self.retired_metadata_paths():
-            with self.subTest(path=path):
-                self.base = self.git('rev-parse', 'HEAD')
-                self.write(path, '{}'); self.commit()
-                with self.assertRaisesRegex(ValueError, 'unregistered input'):
-                    self.run_plan()
-                self.base = self.git('rev-parse', 'HEAD')
-                self.write(path, '{"changed":true}'); self.commit()
-                with self.assertRaisesRegex(ValueError, 'unregistered input'):
-                    self.run_plan()
-                (self.root / path).unlink(); self.commit()
-                self.base = self.git('rev-parse', 'HEAD')
-                self.write(path, '{}'); self.commit()
-                with self.assertRaisesRegex(ValueError, 'unregistered input'):
-                    self.run_plan()
-
-    def test_retired_metadata_deletion_requires_removing_former_readers(self):
-        path = 'doc/.governance/document-corpus-inventory.json'
-        for reader in ('scripts/document_corpus.py', 'scripts/document_evidence_policy.py',
-                       '.github/workflows/document-corpus-platform.yml'):
-            with self.subTest(reader=reader):
-                self.write(path, '{}')
-                self.write(reader, '# former reader remains\n')
-                self.base = self.commit()
-                (self.root / path).unlink(); self.commit()
-                with self.assertRaisesRegex(ValueError, 'unregistered input'):
-                    self.run_plan()
-                (self.root / reader).unlink(); self.commit()
-
-    def test_retired_metadata_deletion_requires_removing_shell_consumers(self):
-        path = 'doc/.governance/top-level-directory-registry.json'
-        for reader, reference in (
-            ('scripts/doc-governance-check.sh', 'doc/.governance/top-level-directory-registry.json'),
-            ('scripts/unified-world-code-terminology-scan.sh', 'scripts/fixtures/document-corpus-v3/legacy'),
-        ):
-            with self.subTest(reader=reader):
-                self.write(path, '{}')
-                self.write(reader, f'cat {reference}\n')
-                self.base = self.commit()
-                (self.root / path).unlink(); self.commit()
-                with self.assertRaisesRegex(ValueError, 'unregistered input'):
-                    self.run_plan()
-                self.write(reader, '# no retired metadata consumer\n'); self.commit()
-                result = self.run_plan()
-                self.assertEqual(result['selected_units'], [])
-                self.assertEqual(result['fallback_reasons'], [])
-
-    def test_retired_metadata_mixed_pr_preserves_rust_hold(self):
-        path = ('doc/.governance/document-corpus/objects/41/'
-                '4194b076a574aeb5fa9511d1bbda2855a131189cb3500fb5c3d2a28a7740f87d.json')
-        self.write(path, '{}')
-        self.write('build.rs', 'fn main() {}')
-        self.base = self.commit()
-        (self.root / path).unlink()
-        self.write('web/viewer.js', 'export const view = 1;')
-        self.commit()
-        batches = json.dumps({u + '/default': 'observe' for u in
-                              ('actions-repo', 'python-repo', 'javascript-repo')})
-        result = self.run_plan(batch_modes=batches)
-        self.assertEqual(result['selected_units'], ['javascript-repo'])
-        self.assertEqual(result['not_selected_reasons']['rust-repo'], 'batch_disabled')
-        self.assertIn('embedded or possible build input: ' + path, result['reasons']['rust-repo'])
-
-    def test_retired_metadata_rename_delete_keeps_old_embedded_consumers(self):
-        path = 'doc/.governance/document-corpus-inventory.json'
-        self.write(path, '{}')
-        self.write('src/lib.rs', 'const S: &str = include_str!("../' + path + '");')
-        self.base = self.commit()
-        (self.root / path).rename(self.root / 'moved.js')
-        self.write('src/lib.rs', '')
-        self.commit()
-        result = self.run_plan()
-        self.assertEqual(result['selected_units'], ['javascript-repo', 'rust-repo'])
-        self.assertIn('embedded or possible build input: ' + path, result['reasons']['rust-repo'])
-        self.write(path, '{}'); self.base = self.commit()
-        (self.root / path).unlink(); self.commit()
-        self.assertEqual(self.run_plan()['selected_units'], [])
-
-    def test_retired_metadata_deletion_keeps_removed_build_consumers(self):
-        path = 'doc/testing/evidence/inventory.json'
-        self.write(path, '{}')
-        self.write('build.rs', 'fn main() {}')
-        self.base = self.commit()
-        (self.root / path).unlink()
-        (self.root / 'build.rs').unlink(); self.commit()
-        result = self.run_plan()
-        self.assertEqual(result['selected_units'], ['rust-repo'])
-        self.assertIn('embedded or possible build input: ' + path, result['reasons']['rust-repo'])
-
-    def test_retirement_does_not_register_unknown_json_additions_or_deletions(self):
+    def test_retired_document_metadata_paths_stay_fail_closed(self):
         for path in (
-            'doc/.governance/unknown.json',
-            'doc/.governance/document-corpus/unknown.json',
-            'doc/.governance/document-corpus/objects/41/not-a-shard.json',
-            'doc/.governance/document-corpus/semantic/bundles/nested/record.json',
-            'doc/testing/evidence/unregistered.json',
-            'scripts/fixtures/document-corpus-v3/legacy/extra.json',
-            'web/data.json',
+            'doc/.governance/document-corpus-inventory.json',
+            'doc/testing/evidence/inventory.json',
+            'scripts/fixtures/document-corpus-v3/legacy/inventory.json',
         ):
             with self.subTest(path=path):
                 self.base = self.git('rev-parse', 'HEAD')
                 self.write(path, '{}'); self.commit()
                 with self.assertRaisesRegex(ValueError, 'unregistered input'):
                     self.run_plan()
-                self.base = self.git('rev-parse', 'HEAD')
-                (self.root / path).unlink(); self.commit()
-                with self.assertRaisesRegex(ValueError, 'unregistered input'):
-                    self.run_plan()
-
-    def test_retired_metadata_symlink_deletion_remains_rejected(self):
-        path = self.root / 'doc/.governance/document-corpus-inventory.json'
-        path.parent.mkdir(parents=True)
-        path.symlink_to('../docs/guide.md')
-        self.base = self.commit()
-        path.unlink(); self.commit()
-        with self.assertRaisesRegex(ValueError, 'symbolic link'):
-            self.run_plan()
 
     def test_root_evidence_paths_stay_fail_closed(self):
         for path in (

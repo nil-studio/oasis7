@@ -48,13 +48,8 @@ jobs:
     if: >-
       github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
       (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix:
-        component: [fonts-noto-cjk, fonts-freefont-ttf, chrome]
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -69,39 +64,84 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
         with:
           python-version: '3.12'
-      - name: Identify exact browser archive
+      - name: Identify exact browser archives
         id: browser-meta
-        env:
-          BROWSER_COMPONENT: ${{ matrix.component }}
-        run: python3 scripts/ci-browser-deps.py metadata --component "$BROWSER_COMPONENT" --github-output "$GITHUB_OUTPUT"
-      - name: Restore exact browser archive
-        id: browser-archive
+        run: python3 scripts/ci-browser-deps.py metadata --browser agent --github-output "$GITHUB_OUTPUT"
+      - name: Restore exact CJK font archive
+        id: browser-archive-noto
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ steps.browser-meta.outputs.root }}
-          key: ${{ steps.browser-meta.outputs.key }}
-      - name: Fetch or verify pinned browser archive
-        id: prepare-browser
-        env:
-          BROWSER_COMPONENT: ${{ matrix.component }}
-        run: python3 scripts/ci-browser-deps.py fetch --component "$BROWSER_COMPONENT"
-      - name: Admit bounded browser archive cache
-        id: browser-admission
-        if: steps.browser-archive.outputs.cache-hit != 'true'
+          path: ${{ steps.browser-meta.outputs.fonts_noto_cjk_root }}
+          key: ${{ steps.browser-meta.outputs.fonts_noto_cjk_key }}
+      - name: Fetch or verify pinned CJK font archive
+        id: prepare-browser-noto
+        run: python3 scripts/ci-browser-deps.py fetch --component fonts-noto-cjk
+      - name: Admit bounded CJK font archive cache
+        id: browser-admission-noto
+        if: steps.browser-archive-noto.outputs.cache-hit != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          BROWSER_COMPONENT: ${{ matrix.component }}
-          BROWSER_CACHE_KEY: ${{ steps.browser-meta.outputs.key }}
-        run: python3 scripts/ci-browser-deps.py admit-save --component "$BROWSER_COMPONENT" --key "$BROWSER_CACHE_KEY" --github-output "$GITHUB_OUTPUT"
-      - name: Save verified browser archive
+          BROWSER_CACHE_KEY: ${{ steps.browser-meta.outputs.fonts_noto_cjk_key }}
+        run: python3 scripts/ci-browser-deps.py admit-save --component fonts-noto-cjk --key "$BROWSER_CACHE_KEY" --github-output "$GITHUB_OUTPUT"
+      - name: Save verified CJK font archive
         if: >-
-          success() && steps.prepare-browser.outcome == 'success' &&
-          steps.browser-archive.outputs.cache-hit != 'true' &&
-          steps.browser-admission.outcome == 'success' && steps.browser-admission.outputs.save == 'true'
+          success() && steps.prepare-browser-noto.outcome == 'success' &&
+          steps.browser-archive-noto.outputs.cache-hit != 'true' &&
+          steps.browser-admission-noto.outcome == 'success' && steps.browser-admission-noto.outputs.save == 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ${{ steps.browser-meta.outputs.root }}
-          key: ${{ steps.browser-meta.outputs.key }}
+          path: ${{ steps.browser-meta.outputs.fonts_noto_cjk_root }}
+          key: ${{ steps.browser-meta.outputs.fonts_noto_cjk_key }}
+      - name: Restore exact Freefont archive
+        id: browser-archive-freefont
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.browser-meta.outputs.fonts_freefont_ttf_root }}
+          key: ${{ steps.browser-meta.outputs.fonts_freefont_ttf_key }}
+      - name: Fetch or verify pinned Freefont archive
+        id: prepare-browser-freefont
+        run: python3 scripts/ci-browser-deps.py fetch --component fonts-freefont-ttf
+      - name: Admit bounded Freefont archive cache
+        id: browser-admission-freefont
+        if: steps.browser-archive-freefont.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BROWSER_CACHE_KEY: ${{ steps.browser-meta.outputs.fonts_freefont_ttf_key }}
+        run: python3 scripts/ci-browser-deps.py admit-save --component fonts-freefont-ttf --key "$BROWSER_CACHE_KEY" --github-output "$GITHUB_OUTPUT"
+      - name: Save verified Freefont archive
+        if: >-
+          success() && steps.prepare-browser-freefont.outcome == 'success' &&
+          steps.browser-archive-freefont.outputs.cache-hit != 'true' &&
+          steps.browser-admission-freefont.outcome == 'success' && steps.browser-admission-freefont.outputs.save == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.browser-meta.outputs.fonts_freefont_ttf_root }}
+          key: ${{ steps.browser-meta.outputs.fonts_freefont_ttf_key }}
+      - name: Restore exact Chrome archive
+        id: browser-archive-chrome
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.browser-meta.outputs.chrome_root }}
+          key: ${{ steps.browser-meta.outputs.chrome_key }}
+      - name: Fetch or verify pinned Chrome archive
+        id: prepare-browser-chrome
+        run: python3 scripts/ci-browser-deps.py fetch --component chrome
+      - name: Admit bounded Chrome archive cache
+        id: browser-admission-chrome
+        if: steps.browser-archive-chrome.outputs.cache-hit != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BROWSER_CACHE_KEY: ${{ steps.browser-meta.outputs.chrome_key }}
+        run: python3 scripts/ci-browser-deps.py admit-save --component chrome --key "$BROWSER_CACHE_KEY" --github-output "$GITHUB_OUTPUT"
+      - name: Save verified Chrome archive
+        if: >-
+          success() && steps.prepare-browser-chrome.outcome == 'success' &&
+          steps.browser-archive-chrome.outputs.cache-hit != 'true' &&
+          steps.browser-admission-chrome.outcome == 'success' && steps.browser-admission-chrome.outputs.save == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.browser-meta.outputs.chrome_root }}
+          key: ${{ steps.browser-meta.outputs.chrome_key }}
 
   worker-build-cache:
     cache-mode: write
@@ -333,89 +373,12 @@ jobs:
           env -u RUSTC_WRAPPER cargo check --locked -p oasis7_custody_core --target wasm32-unknown-unknown --lib
           env -u RUSTC_WRAPPER cargo test --locked -p oasis7_newapi_bridge_service --bin oasis7_newapi_bridge_service --no-run
 
-  plan-image-component-cache:
-    cache-mode: none
-    permissions: {}
-    if: >-
-      github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
-      (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' &&
-       (inputs.run_mode == 'full' || inputs.run_mode == 'image-native' ||
-        (inputs.run_mode == 'image-support' && github.repository == 'nil-studio/oasis7'))))
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    outputs:
-      rows: ${{ steps.plan.outputs.rows }}
-    steps:
-      - id: plan
-        shell: bash
-        env:
-          MODE: ${{ inputs.run_mode }}
-        run: |
-          rows=$(jq -ce --arg mode "$MODE" '
-            if $mode == "image-support" then map(select(.profile == "support")) else . end
-            | select(length > 0)
-          ' <<'JSON'
-          [
-            {
-              "profile": "native",
-              "family": "rust-image-components",
-              "image": "ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f",
-              "namespace": "ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f",
-              "options": "",
-              "mold-dir": ""
-            },
-            {
-              "profile": "node",
-              "family": "rust-image-components",
-              "image": "ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f",
-              "namespace": "ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f",
-              "options": "--user 1001:1001",
-              "mold-dir": "oasis7-node-mold"
-            },
-            {
-              "profile": "net",
-              "family": "rust-image-net",
-              "image": "ghcr.io/nil-studio/oasis7/ci-rust-wasm-build@sha256:57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6",
-              "namespace": "ci-rust-wasm-build-57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6",
-              "options": "--user 1001:1001",
-              "mold-dir": "oasis7-net-mold"
-            },
-            {
-              "profile": "launcher",
-              "family": "rust-image-launcher",
-              "image": "ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6",
-              "namespace": "ci-rust-build-cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6",
-              "options": "",
-              "mold-dir": ""
-            },
-            {
-              "profile": "tooling",
-              "family": "rust-image-tooling",
-              "image": "ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc",
-              "namespace": "ci-rust-build-d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc",
-              "options": "",
-              "mold-dir": ""
-            },
-            {
-              "profile": "support",
-              "family": "rust-image-support",
-              "image": "ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2",
-              "namespace": "ci-rust-build-822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2",
-              "options": "",
-              "mold-dir": ""
-            }
-          ]
-          JSON
-          )
-          printf 'rows=%s\n' "$rows" >> "$GITHUB_OUTPUT"
-
   rust-image-component-cache:
     cache-mode: write
     permissions:
       contents: read
       actions: read
       packages: read
-    needs: plan-image-component-cache
     if: >-
       github.ref == 'refs/heads/main' && github.workflow_sha == github.sha &&
       (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' &&
@@ -427,9 +390,23 @@ jobs:
       # simultaneous matrix uploads. Other writers retain their own admission.
       max-parallel: 1
       matrix:
-        include: ${{ fromJSON(needs.plan-image-component-cache.outputs.rows) }}
+        include: >-
+          ${{
+            inputs.run_mode == 'image-support' &&
+            fromJSON('[
+              {"profile":"support","family":"rust-image-support","image":"ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2","namespace":"ci-rust-build-822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2","options":"","mold-dir":""}
+            ]') ||
+            fromJSON('[
+              {"profile":"native","family":"rust-image-components","image":"ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f","namespace":"ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f","options":"","mold-dir":""},
+              {"profile":"node","family":"rust-image-components","image":"ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f","namespace":"ci-rust-build-bc886637f7bf153dfb60df5c8f56e82949a8f4d9ec2ffd571750eae2fe1a795f","options":"--user 1001:1001","mold-dir":"oasis7-node-mold"},
+              {"profile":"net","family":"rust-image-net","image":"ghcr.io/nil-studio/oasis7/ci-rust-wasm-build@sha256:57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6","namespace":"ci-rust-wasm-build-57c5784d5c038fbd43037bdf2b6c1bdaed3a5e4433354b21a5eee39797da3aa6","options":"--user 1001:1001","mold-dir":"oasis7-net-mold"},
+              {"profile":"launcher","family":"rust-image-launcher","image":"ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6","namespace":"ci-rust-build-cdc889675ddb97eb24bb13bf1f49722efb4750d2a01094b8676996c4f95f46c6","options":"","mold-dir":""},
+              {"profile":"tooling","family":"rust-image-tooling","image":"ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc","namespace":"ci-rust-build-d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc","options":"","mold-dir":""},
+              {"profile":"support","family":"rust-image-support","image":"ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2","namespace":"ci-rust-build-822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2","options":"","mold-dir":""}
+            ]')
+          }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 35
     container:
       image: ${{ matrix.image }}
       options: ${{ matrix.options }}

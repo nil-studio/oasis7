@@ -4,7 +4,7 @@
 //! its pin names an externally qualified controlled-profile H and the exact
 //! BFT profile target committed by that H.
 use super::super::super::storage as common_storage;
-use oasis7::world_service::CanonicalIntentResultV1;
+use oasis7_world_service::CanonicalIntentResultV1;
 use oasis7_consensus::tendermint_v2::{
     BftProfileTargetV1, FormalBftExecutionCommitmentV1, VerifiedBftHandoffTargetV1,
 };

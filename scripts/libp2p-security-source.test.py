@@ -20,17 +20,13 @@ class NetworkSourceContract(unittest.TestCase):
             self.assertFalse(dep["default-features"])
             self.assertTrue(dep["optional"])
         lock = tomllib.loads((ROOT / "Cargo.lock").read_text())
-        for name in ("libp2p", "libp2p-core"):
+        for name in ("libp2p", "libp2p-core", "libp2p-rendezvous"):
             packages = [p for p in lock["package"] if p["name"] == name]
             self.assertEqual(len(packages), 1)
             self.assertEqual(packages[0]["source"], f"git+{URL}?rev={REVISION}#{REVISION}")
-        rendezvous = [p for p in lock["package"] if p["name"] == "libp2p-rendezvous"]
-        self.assertEqual(len(rendezvous), 1)
-        self.assertEqual(rendezvous[0]["version"], "0.18.1")
-        self.assertNotIn("source", rendezvous[0])
         root = tomllib.loads((ROOT / "Cargo.toml").read_text())
-        self.assertEqual(root["patch"][URL]["libp2p-rendezvous"]["path"],
-                         "vendor-libp2p-rendezvous-0.18.1")
+        self.assertNotIn("libp2p-rendezvous", root["patch"][URL])
+        self.assertFalse((ROOT / "vendor-libp2p-rendezvous-0.18.1").exists())
         timers = [p for p in lock["package"] if p["name"] == "futures-timer"]
         self.assertTrue(all(tuple(map(int, p["version"].split("."))) >= (3, 0, 4) for p in timers))
 
@@ -43,7 +39,7 @@ class NetworkSourceContract(unittest.TestCase):
         self.assertNotIn("!Cargo.toml", context_policy)
         self.assertNotIn("!Cargo.lock", context_policy)
         paths = [root["patch"][URL][name]["path"]
-                 for name in ("libp2p-swarm", "libp2p-rendezvous", "libp2p-quic")]
+                 for name in ("libp2p-swarm", "libp2p-quic")]
         paths.append(root["patch"]["crates-io"]["if-watch"]["path"])
         for patch in paths:
             self.assertTrue((ROOT / patch / "Cargo.toml").is_file())
@@ -92,36 +88,14 @@ class NetworkSourceContract(unittest.TestCase):
             self.assertEqual(len(watcher), 1)
             self.assertNotIn("source", watcher[0])
 
-    def test_rendezvous_has_only_the_reviewed_client_patch(self):
-        vendor = ROOT / "vendor-libp2p-rendezvous-0.18.1"
-        upstream = json.loads((vendor / "upstream-source-sha256.json").read_text())
-        patch = json.loads((vendor / "local-patch-sha256.json").read_text())
-        self.assertEqual(set(patch), {"src/client.rs", "src/client/tests.rs"})
-        actual = {str(p.relative_to(vendor)): hashlib.sha256(p.read_bytes()).hexdigest()
-                  for p in (vendor / "src").rglob("*") if p.is_file()}
-        actual["LICENSE"] = hashlib.sha256((vendor / "LICENSE").read_bytes()).hexdigest()
-        self.assertEqual(actual, upstream | patch)
-        self.assertFalse((vendor / "build.rs").exists())
-        self.assertEqual(hashlib.sha256((vendor / "Cargo.toml").read_bytes()).hexdigest(),
-                         "7981199de037abcb15b66bbad8c709a7908d9c5d7f265a81a829b3b49d41bd98")
-        manifest = tomllib.loads((vendor / "Cargo.toml").read_text())
-        self.assertEqual(manifest["package"]["metadata"]["oasis7-compat"]["upstream-revision"], REVISION)
-        for name in ("libp2p-core", "libp2p-swarm", "libp2p-request-response", "prost-codec"):
-            self.assertEqual((manifest["dependencies"][name]["git"],
-                              manifest["dependencies"][name]["rev"]), (URL, REVISION))
-        self.assertEqual(manifest["patch"][URL]["libp2p-swarm"]["path"],
-                         "../vendor-libp2p-swarm-0.48.0")
-
-    def test_swarm_snapshot_matches_transport_admission_patch(self):
+    def test_swarm_snapshot_matches_upstream_sources(self):
         vendor = ROOT / "vendor-libp2p-swarm-0.48.0"
         hashes = json.loads((vendor / "upstream-source-sha256.json").read_text())
-        hashes.update({
-            "src/lib.rs": "c7eff68dae28f3f2ecf25afbfccb66a620c9867a5d2b51e523e3a6f3b234f9b8",
-            "src/transport_attempt.rs": "dc9d12894502d57485e50a4ce91c131c45879879cc4a7c7f761a9014fbfd9e9d",
-        })
         actual = {str(p.relative_to(vendor)): hashlib.sha256(p.read_bytes()).hexdigest()
                   for p in (vendor / "src").rglob("*.rs")}
         self.assertEqual(actual, hashes)
+        self.assertFalse((vendor / "src/transport_attempt.rs").exists())
+        self.assertFalse((vendor / "OASIS7-PATCH.md").exists())
         manifest = tomllib.loads((vendor / "Cargo.toml").read_text())
         self.assertEqual(manifest["package"]["metadata"]["oasis7-compat"]["upstream-revision"], REVISION)
         self.assertEqual(manifest["dependencies"]["futures-timer"]["version"], "3.0.4")

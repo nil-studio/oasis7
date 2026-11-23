@@ -1,7 +1,83 @@
-//! Session construction and immutable operation attachment.
+//! Session lifecycle and immutable operation attachment.
 use super::*;
 
 impl FormalFullSyncSession {
+    pub(crate) fn status(&self) -> &FormalFullSyncStatusV1 {
+        &self.status
+    }
+
+    pub(crate) fn poll_interval(&self) -> Duration {
+        Duration::from_millis(self.config.poll_interval_ms)
+    }
+
+    pub(crate) fn begin_poll(&mut self) {
+        self.status.ready = false;
+        self.status.can_propose = false;
+        self.status.state_root_verified = false;
+        self.status.world_loaded = false;
+        self.status.loaded_cut = None;
+        self.status.lag_positions = None;
+        self.status.catch_up_pending = false;
+        self.status.state = if self.config.grant.is_some() {
+            "syncing"
+        } else {
+            "blocked_missing_issuer_grant"
+        }
+        .into();
+        // Preserve the last observed failure while a retry is in flight. A
+        // successful sync below is the only path that clears this field.
+        self.status.last_checked_unix_ms = now_unix_ms();
+    }
+
+    pub(crate) fn set_world_loaded(&mut self, loaded: bool) {
+        self.status.world_loaded = loaded;
+        if !loaded {
+            self.status.ready = false;
+        }
+    }
+
+    /// Cold-restores the qualified snapshot; a failed poll withdraws readiness.
+    pub(crate) fn sync_latest(&mut self) -> Result<RestoredFormalFullSyncWorldV1, String> {
+        self.check_operation_active()?;
+        let result = self.sync_latest_owned();
+        if let Some(exchange) = &self.shared_exchange
+            && let Err(error) = exchange.finish_attempt()
+        {
+            let error = error.to_string();
+            self.fail(&error);
+            return Err(error);
+        }
+        result
+    }
+
+    pub(super) fn require_operation_active(&self) -> Result<(), String> {
+        if self
+            .cancellation
+            .as_ref()
+            .is_some_and(|flag| flag.load(Ordering::SeqCst))
+        {
+            return Err("operation_recovery_required: worker cancelled".into());
+        }
+        if self
+            .local_recovery_deadline
+            .is_some_and(|deadline| std::time::Instant::now() >= deadline)
+        {
+            return Err("operation_reopen_expired".into());
+        }
+        if let Some(exchange) = &self.shared_exchange {
+            exchange.check_active().map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn check_operation_active(&mut self) -> Result<(), String> {
+        if let Err(error) = self.require_operation_active() {
+            self.fail(&error);
+            return Err(error);
+        }
+        Ok(())
+    }
+
     /// Construct from an already loaded, privately held node identity. The
     /// grant must bind that key; local process ownership alone grants nothing.
     pub(crate) fn new(
@@ -94,6 +170,11 @@ impl FormalFullSyncSession {
             active_provider_index: 0,
             shared_exchange: None,
             recovery_target: None,
+            recovery_minimum: None,
+            local_recovery_deadline: None,
+            cancellation: None,
+            #[cfg(test)]
+            publication_fault: None,
             node_private_key_hex,
             node_public_key_hex,
             cas,
@@ -108,7 +189,7 @@ impl FormalFullSyncSession {
 
     /// Capture the original verified minimum, not a provider's advertised head.
     /// This is request preparation only, not owner admission or recovery.
-    #[cfg(all(test, unix))]
+    #[cfg(unix)]
     pub(super) fn prepare_operation_request(
         &self,
         policy: &operation_ledger::Policy,
@@ -158,7 +239,7 @@ impl FormalFullSyncSession {
     }
 
     /// Explicit operation dependency for the shared-exchange validation fixture.
-    #[cfg(all(test, unix))]
+    #[cfg(unix)]
     pub(in super::super) fn bind_shared_exchange(
         &mut self,
         exchange: Arc<dyn oasis7_game_client::formal_sync_exchange::FullSyncExchange>,
@@ -178,8 +259,16 @@ impl FormalFullSyncSession {
             .formal_current_anchor()
             .map_err(|error| error.to_string())?;
         let minimum = cut_from_anchor(&anchor)?;
-        let minimum_matches = if let Some(target) = &self.recovery_target {
-            target.cut == minimum
+        let minimum_matches = if let Some(original_minimum) = &self.recovery_minimum {
+            original_request.get("initial_minimum")
+                == Some(&serde_json::to_value(original_minimum).map_err(|e| e.to_string())?)
+                && nondecreasing_cut(original_minimum, &minimum)
+                && self
+                    .recovery_target
+                    .as_ref()
+                    .is_none_or(|target| nondecreasing_cut(&target.cut, &minimum))
+        } else if let Some(target) = &self.recovery_target {
+            nondecreasing_cut(&target.cut, &minimum)
         } else {
             original_request.get("initial_minimum")
                 == Some(&serde_json::to_value(&minimum).map_err(|error| error.to_string())?)

@@ -28,6 +28,13 @@ pub trait FullSyncExchange: Send + Sync {
     /// Persist the complete locally verified cut and original record before
     /// material I/O. This is identity retention, not independent verification.
     fn bind_verified_target(&self, target_json: &[u8]) -> Result<(), WorldServiceClientError>;
+    /// Retain the complete bounded original installation references before its
+    /// publication intent. These are recovery inputs, not verified authority.
+    fn prepare_installation(
+        &self,
+        manifest: &serde_json::Value,
+        retained_cas_hashes: &std::collections::BTreeSet<String>,
+    ) -> Result<(), WorldServiceClientError>;
     /// Journal exact local CAS publication before changing roots. Completion
     /// means only roots were acknowledged, never World installation/readiness.
     fn begin_publication(

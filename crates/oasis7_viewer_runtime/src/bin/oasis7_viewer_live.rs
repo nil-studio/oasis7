@@ -136,10 +136,10 @@ fn run_viewer(options: CliOptions) -> Result<(), String> {
     );
     let server = initialize_viewer_server(&options)?;
     let game_read_client = if options.game_api_read {
-        let config = oasis7::world_service::client::WorldServiceClientConfig::from_env()?
+        let config = oasis7_world_service::client::WorldServiceClientConfig::from_env()?
             .ok_or("--game-api-read requires authenticated World Service configuration")?;
         Some(
-            oasis7::world_service::client::RemoteWorldServiceClient::new(config)
+            oasis7_world_service::client::RemoteWorldServiceClient::new(config)
                 .map_err(|error| error.to_string())?,
         )
     } else {
@@ -223,8 +223,8 @@ fn initialize_viewer_server(options: &CliOptions) -> Result<ViewerRuntimeLiveSer
     let mut config = world_service_bootstrap::configure(
         config,
         options.allow_debug_scenario && options.chain_status_bind.is_none(),
-        oasis7::world_service::client::WorldServiceClientConfig::from_env()?,
-        oasis7::world_service::client::WorldServiceAgentSignerConfig::from_env()?,
+        oasis7_world_service::client::WorldServiceClientConfig::from_env()?,
+        oasis7_world_service::client::WorldServiceAgentSignerConfig::from_env()?,
     )?;
     validate_execution_world_boundary(options, config.world_service.is_some())?;
     if config.world_service.is_some() && options.debug_scenario.is_some() {

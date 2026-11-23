@@ -33,10 +33,12 @@ cache-mode: read
 
 jobs:
   build-linux-x86-64:
-    name: hosted-login-linux-x86-64
+    name: Build Hosted Login native binaries
     if: inputs.run_mode != 'release-deps'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    outputs:
+      artifact-id: ${{ steps.stage.outputs.artifact-id }}
     permissions:
       contents: read
       packages: read
@@ -60,6 +62,9 @@ jobs:
         name: Trust the checked-out workspace path in the job container
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
+      - &hosted-verify-source
+        name: Verify exact package source
+        run: test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
       - &hosted-mold
         name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
@@ -113,12 +118,7 @@ jobs:
             --bin oasis7_game_launcher \
             --bin oasis7_viewer_live
 
-      - name: Stage viewer web dist
-        run: |
-          ./scripts/build-viewer-software-safe.sh
-          ./scripts/copy-viewer-web-dist.sh --dist-dir output/hosted-login/web
-
-      - name: Stage deployable artifact
+      - name: Stage native binaries and identity
         run: |
           mkdir -p output/hosted-login/bin
           cp "target/${{ steps.profile.outputs.binary_dir }}/oasis7_game_launcher" \
@@ -138,8 +138,96 @@ jobs:
           (
             cd output/hosted-login
             sha256sum bin/oasis7_game_launcher_v3 bin/oasis7_viewer_live > SHA256SUMS
-            tar -czf ../hosted-login-linux-x86_64.tar.gz .
           )
+          tar -czf "$RUNNER_TEMP/stage.tar.gz" -C output/hosted-login .
+          python3 scripts/ci-hosted-login-package.py seal "$RUNNER_TEMP" native "$GITHUB_SHA"
+
+      - name: Upload native stage
+        id: stage
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: hosted-login-native-stage-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/stage.tar.gz
+            ${{ runner.temp }}/stage.json
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+  build-viewer:
+    name: Build Hosted Login Viewer web dist
+    if: inputs.run_mode != 'release-deps'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      artifact-id: ${{ steps.stage.outputs.artifact-id }}
+    permissions:
+      contents: read
+      packages: read
+    container: *hosted-login-container
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - *hosted-checkout
+      - *hosted-safe-directory
+      - *hosted-verify-source
+      - *hosted-mold
+      - *hosted-toolchain
+      - *hosted-node
+      - name: Stage viewer web dist
+        run: |
+          ./scripts/build-viewer-software-safe.sh
+          ./scripts/copy-viewer-web-dist.sh --dist-dir output/hosted-login/web
+          tar -czf "$RUNNER_TEMP/stage.tar.gz" -C output/hosted-login web
+          python3 scripts/ci-hosted-login-package.py seal "$RUNNER_TEMP" viewer "$GITHUB_SHA"
+      - name: Upload Viewer stage
+        id: stage
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: hosted-login-viewer-stage-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/stage.tar.gz
+            ${{ runner.temp }}/stage.json
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+  assemble:
+    name: hosted-login-linux-x86-64
+    if: inputs.run_mode != 'release-deps'
+    needs: [build-linux-x86-64, build-viewer]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - *hosted-checkout
+      - *hosted-verify-source
+      - name: Verify exact producer artifact IDs
+        shell: bash
+        env:
+          NATIVE_ARTIFACT_ID: ${{ needs.build-linux-x86-64.outputs.artifact-id }}
+          VIEWER_ARTIFACT_ID: ${{ needs.build-viewer.outputs.artifact-id }}
+        run: |
+          [[ "$NATIVE_ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$VIEWER_ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          test "$NATIVE_ARTIFACT_ID" != "$VIEWER_ARTIFACT_ID"
+      - name: Download native stage from this run
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.build-linux-x86-64.outputs.artifact-id }}
+          path: ${{ runner.temp }}/hosted-native
+      - name: Download Viewer stage from this run
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: ${{ needs.build-viewer.outputs.artifact-id }}
+          path: ${{ runner.temp }}/hosted-viewer
+      - name: Verify and stage deployable artifact
+        env:
+          BUILD_PROFILE: ${{ inputs.build_profile }}
+        run: |
+          python3 scripts/ci-hosted-login-package.py assemble "$RUNNER_TEMP" "$GITHUB_SHA" "$BUILD_PROFILE"
+          mkdir -p output
+          tar -czf output/hosted-login-linux-x86_64.tar.gz -C "$RUNNER_TEMP/hosted-login" .
 
       - name: Upload hosted login Linux artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

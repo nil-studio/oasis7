@@ -5,7 +5,7 @@ use crate::formal_live_service::{
     PublishedReadState,
 };
 use ed25519_dalek::{Signer, SigningKey};
-use oasis7::world_service::{
+use oasis7_world_service::{
     authority,
     formal_read::{FormalReadHistoryV1, FormalReadStepV1, MAX_FORMAL_HISTORY_STEPS},
     formal_read_service::FormalReadPublication,
@@ -77,7 +77,7 @@ fn endpoint(
 
 fn full_sync_fixture() -> (
     World,
-    oasis7::world_service::client::FormalReadTrustConfigV1,
+    oasis7_world_service::client::FormalReadTrustConfigV1,
     VerifiedFormalReadAnchorV1,
     ClosedRecord,
     FormalQualifiedCommitProofV1,
@@ -89,12 +89,12 @@ fn full_sync_fixture_with_result(
     result_bytes: Vec<u8>,
 ) -> (
     World,
-    oasis7::world_service::client::FormalReadTrustConfigV1,
+    oasis7_world_service::client::FormalReadTrustConfigV1,
     VerifiedFormalReadAnchorV1,
     ClosedRecord,
     FormalQualifiedCommitProofV1,
 ) {
-    let mut world = oasis7::runtime_host::world::new_production_hardened()
+    let mut world = oasis7_runtime_host::world::new_production_hardened()
         .try_with_cognition_scheduler(
             oasis7_runtime::SchedulerPolicyV1 {
                 schema_version: oasis7_runtime::SchedulerPolicyV1::SCHEMA_VERSION.into(),
@@ -127,7 +127,7 @@ fn full_sync_fixture_with_result(
         test_hash(10),
         test_hash(11),
     );
-    world = oasis7::runtime_host::world::from_snapshot(snapshot, world.journal().clone()).unwrap();
+    world = oasis7_runtime_host::world::from_snapshot(snapshot, world.journal().clone()).unwrap();
     let snapshot = world.snapshot();
     let snapshot_bytes = serde_cbor::to_vec(&snapshot).unwrap();
     let journal_bytes = serde_cbor::to_vec(world.journal()).unwrap();
@@ -216,7 +216,7 @@ fn full_sync_fixture_with_result(
     let mut roots = role_roots;
     roots.insert(ArtifactRole::Input, payload_digest.clone());
     role_bytes.insert(ArtifactRole::Input, input_bytes);
-    let projection_root = oasis7::world_service::formal_projection::commitments_for_world(&world)
+    let projection_root = oasis7_world_service::formal_projection::commitments_for_world(&world)
         .unwrap()
         .root()
         .unwrap();
@@ -270,7 +270,7 @@ fn full_sync_fixture_with_result(
     )
     .unwrap();
     let checkpoint = anchor.checkpoint();
-    let formal_trust = oasis7::world_service::client::FormalReadTrustConfigV1 {
+    let formal_trust = oasis7_world_service::client::FormalReadTrustConfigV1 {
         initial_trust: trust,
         checkpoint_digest: checkpoint.digest().unwrap(),
         checkpoint,
@@ -289,7 +289,7 @@ type LiveServiceFixture = (
 
 fn start_live_service(
     world: World,
-    trust: oasis7::world_service::client::FormalReadTrustConfigV1,
+    trust: oasis7_world_service::client::FormalReadTrustConfigV1,
     anchor: VerifiedFormalReadAnchorV1,
     material: ClosedRecord,
     proof: FormalQualifiedCommitProofV1,
@@ -299,7 +299,7 @@ fn start_live_service(
 
 fn start_live_service_with_read_gate(
     world: World,
-    trust: oasis7::world_service::client::FormalReadTrustConfigV1,
+    trust: oasis7_world_service::client::FormalReadTrustConfigV1,
     anchor: VerifiedFormalReadAnchorV1,
     material: ClosedRecord,
     proof: FormalQualifiedCommitProofV1,
@@ -618,7 +618,7 @@ fn same_epoch_successor_fixture(
 
 fn externally_pinned_recovered_anchor(
     anchor: &VerifiedFormalReadAnchorV1,
-    trust: &oasis7::world_service::client::FormalReadTrustConfigV1,
+    trust: &oasis7_world_service::client::FormalReadTrustConfigV1,
 ) -> VerifiedFormalReadAnchorV1 {
     // This fixture tests the service's current-epoch grant gate from a typed,
     // independently pinned checkpoint. Recovery-certificate validation is
@@ -1124,10 +1124,12 @@ fn operation_budget_is_bound_to_v4_chain_and_local_identity() {
     let node_path = data.join(model::CONFIG_FILE);
     assert_eq!(model::NodeConfig::load(&node_path).unwrap(), node);
     let path = node_path.to_str().unwrap();
+    // V2 now has a shipping consumer. An unadmitted _run still cannot acquire
+    // a lifecycle identity; real start/grant/World behavior is exercised below.
     assert!(
-        run(["start", "--config", path].into_iter())
+        node.require_active_worker_profile()
             .unwrap_err()
-            .contains("no active worker consumer")
+            .contains("independent issuer grant")
     );
     assert!(
         run([
@@ -1138,8 +1140,7 @@ fn operation_budget_is_bound_to_v4_chain_and_local_identity() {
             "not-an-admitted-incarnation"
         ]
         .into_iter())
-        .unwrap_err()
-        .contains("no active worker consumer")
+        .is_err()
     );
     assert!(!data.join("state/full-sync").exists());
 

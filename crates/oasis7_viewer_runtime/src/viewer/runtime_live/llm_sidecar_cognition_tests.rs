@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn runtime_continuation_hydration_reads_typed_active_projection() {
-    let mut world = crate::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     let mut continuation: crate::runtime::AgentContinuation =
         serde_json::from_value(serde_json::json!({
             "schema_version": "agent-continuation.v1",
@@ -45,7 +45,7 @@ fn runtime_continuation_hydration_reads_typed_active_projection() {
         .expect("typed continuation fixture is authoritative");
     let mut snapshot = world.snapshot();
     snapshot.cognition["continuations"] = serde_json::to_value([continuation.clone()]).unwrap();
-    world = crate::runtime_host::world::from_snapshot(snapshot, world.journal().clone())
+    world = oasis7_runtime_host::world::from_snapshot(snapshot, world.journal().clone())
         .expect("restore typed continuation fixture through public checkpoint boundary");
     let wake: crate::runtime::SchedulerWakeV1 = serde_json::from_value(serde_json::json!({
         "schema_version": "scheduler-wake.v1",
@@ -83,7 +83,7 @@ fn runtime_continuation_hydration_reads_typed_active_projection() {
 
 #[test]
 fn fresh_resume_leaves_past_schedule_tick_for_runtime_derivation() {
-    let world = crate::runtime_host::world::new();
+    let world = oasis7_runtime_host::world::new();
     let continuation: crate::runtime::AgentContinuation = serde_json::from_value(serde_json::json!({
         "schema_version": "agent-continuation.v1",
         "continuation_id": "continuation-past", "wake_id": "wake-past",

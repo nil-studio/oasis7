@@ -130,7 +130,7 @@ fn public_testnet_loaded_manifest_with_paths(
 #[test]
 fn world_registry_overrides_node_controller_binding() {
     let temp_dir = temp_dir("registry-override");
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     world
         .set_governance_main_token_controller_registry(GovernanceMainTokenControllerRegistry {
             genesis_controller_account_id: "msig.genesis.v1".to_string(),
@@ -202,7 +202,7 @@ fn world_registry_overrides_node_controller_binding() {
 #[test]
 fn world_finality_registry_overrides_node_pos_config() {
     let temp_dir = temp_dir("finality-override");
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     world
         .set_governance_finality_signer_registry(GovernanceFinalitySignerRegistry {
             slot_id: "governance.finality.v1".to_string(),
@@ -498,7 +498,7 @@ fn network_tier_genesis_bootstrap_initializes_full_governance_world_for_empty_ob
     )
     .expect("bootstrap governance world");
 
-    let world = oasis7::runtime_host::world::load_from_dir(execution_world_dir.as_path())
+    let world = oasis7_runtime_host::world::load_from_dir(execution_world_dir.as_path())
         .expect("load world");
     let finality_registry = world
         .resolve_governance_effective_finality_signer_registry()
@@ -733,7 +733,7 @@ fn network_tier_genesis_bootstrap_resolves_repo_root_relative_child_refs() {
     )
     .expect("bootstrap governance world");
 
-    let world = oasis7::runtime_host::world::load_from_dir(execution_world_dir.as_path())
+    let world = oasis7_runtime_host::world::load_from_dir(execution_world_dir.as_path())
         .expect("load world");
     let finality_registry = world
         .resolve_governance_effective_finality_signer_registry()
@@ -849,7 +849,7 @@ fn genesis_public_manifest_preserves_explicit_three_of_four_threshold() {
         Some(&public_testnet_loaded_manifest()),
     )
     .expect("ensure genesis registry");
-    let world = oasis7::runtime_host::world::load_from_dir(temp_dir.as_path()).expect("load world");
+    let world = oasis7_runtime_host::world::load_from_dir(temp_dir.as_path()).expect("load world");
     let registry = world
         .resolve_governance_effective_finality_signer_registry()
         .expect("resolve registry")
@@ -862,7 +862,7 @@ fn genesis_public_manifest_preserves_explicit_three_of_four_threshold() {
 #[test]
 fn genesis_validator_registry_rejects_existing_world_without_registry() {
     let temp_dir = temp_dir("genesis-existing-world");
-    let world = oasis7::runtime_host::world::new();
+    let world = oasis7_runtime_host::world::new();
     world.save_to_dir(&temp_dir).expect("save existing world");
     let manifest_path = temp_dir.join("genesis-validator-registry.json");
     std::fs::write(
@@ -903,7 +903,7 @@ fn genesis_validator_registry_rejects_existing_world_without_registry() {
 #[test]
 fn genesis_validator_registry_allows_existing_world_with_registry() {
     let temp_dir = temp_dir("genesis-existing-world-with-registry");
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     world
         .set_governance_finality_signer_registry(GovernanceFinalitySignerRegistry {
             slot_id: "governance.finality.v1".to_string(),
@@ -950,7 +950,7 @@ fn genesis_validator_registry_allows_existing_world_with_registry() {
 #[test]
 fn public_tier_existing_world_with_finality_but_without_rollback_registry_fails_startup() {
     let temp_dir = temp_dir("public-existing-world-missing-rollback-registry");
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     world
         .set_governance_finality_signer_registry(GovernanceFinalitySignerRegistry {
             slot_id: "governance.finality.v1".to_string(),
@@ -1003,7 +1003,7 @@ fn public_tier_without_world_registry_or_genesis_manifest_fails() {
 #[test]
 fn world_finality_registry_strips_slot_prefix_from_validator_ids() {
     let temp_dir = temp_dir("finality-prefix-override");
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     world
         .set_governance_finality_signer_registry(GovernanceFinalitySignerRegistry {
             slot_id: "governance.finality.v1".to_string(),

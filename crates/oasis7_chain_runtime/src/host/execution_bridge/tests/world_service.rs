@@ -39,7 +39,7 @@ fn request(
 }
 
 pub(crate) fn live_fixture_world(world_id: &str, public: &str) -> RuntimeWorld {
-    let mut world = oasis7::runtime_host::world::new_with_state(WorldState::default());
+    let mut world = oasis7_runtime_host::world::new_with_state(WorldState::default());
     world.submit_action(Action::RegisterAgent {
         agent_id: "agent-a".into(),
         pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),
@@ -357,7 +357,7 @@ fn service_recipe_preserves_authenticated_origin_consensus_context_and_replay() 
         .unwrap()
         .subject_public_key;
     let mut gameplay = oasis7_viewer_runtime::viewer::GameplayActionRequest {
-        action_id: oasis7::runtime_host::gameplay_actions::ACTION_SCHEDULE_SMELTER_IRON_INGOT
+        action_id: oasis7_runtime_host::gameplay_actions::ACTION_SCHEDULE_SMELTER_IRON_INGOT
             .into(),
         target_agent_id: "builder-a".into(),
         actor_agent_id: None,
@@ -393,7 +393,7 @@ fn service_recipe_preserves_authenticated_origin_consensus_context_and_replay() 
         committed_actions: vec![committed.clone()],
         committed_at_unix_ms: 3000,
     };
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     for index in 0..4 {
         world.submit_action(Action::RegisterAgent {
             agent_id: format!("queued-{index}"),
@@ -430,7 +430,7 @@ fn service_recipe_preserves_authenticated_origin_consensus_context_and_replay() 
     assert_eq!(snapshot.pending_actions[4].action, action);
     let dir = temp_dir("service-recipe-origin");
     world.save_to_dir(&dir).unwrap();
-    let restored = oasis7::runtime_host::world::load_from_dir(&dir).unwrap();
+    let restored = oasis7_runtime_host::world::load_from_dir(&dir).unwrap();
     assert_eq!(
         restored.snapshot().pending_actions[4].committed_recipe_origin,
         Some(origin)

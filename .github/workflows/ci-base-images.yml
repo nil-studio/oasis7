@@ -184,28 +184,56 @@ jobs:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 15
     permissions:
       packages: write
-    strategy:
-      matrix:
-        target: [runtime, build, browser, rust-build, rust-wasm-build]
     steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
-        with:
-          name: ci-image-${{ matrix.target }}
-      - name: Publish verified image
+      - name: Log in to GHCR and prepare image publisher
         env:
-          TARGET: ${{ matrix.target }}
           GHCR_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          docker load -i "ci-${TARGET}.tar"
-          image="ghcr.io/${GITHUB_REPOSITORY,,}/ci-${TARGET}"
-          ref="${image}:${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          docker tag "oasis7-ci-${TARGET}:candidate" "$ref"
           printf "%s" "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          trap 'docker logout ghcr.io' EXIT
+          cat > "$RUNNER_TEMP/publish-ci-image.sh" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          target="$1"
+          docker load -i "ci-${target}.tar"
+          rm -f "ci-${target}.tar"
+          image="ghcr.io/${GITHUB_REPOSITORY,,}/ci-${target}"
+          ref="${image}:${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker tag "oasis7-ci-${target}:candidate" "$ref"
           docker push "$ref"
           digest=$(docker buildx imagetools inspect "$ref" --format "{{json .Manifest}}" | jq -er .digest)
           printf "%s@%s\n" "$image" "$digest" >> "$GITHUB_STEP_SUMMARY"
+          docker rmi "$ref" "oasis7-ci-${target}:candidate"
+          EOF
+          chmod 0700 "$RUNNER_TEMP/publish-ci-image.sh"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: ci-image-runtime
+      - name: Publish verified runtime image
+        run: bash "$RUNNER_TEMP/publish-ci-image.sh" runtime
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: ci-image-build
+      - name: Publish verified build image
+        run: bash "$RUNNER_TEMP/publish-ci-image.sh" build
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: ci-image-browser
+      - name: Publish verified browser image
+        run: bash "$RUNNER_TEMP/publish-ci-image.sh" browser
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: ci-image-rust-build
+      - name: Publish verified rust-build image
+        run: bash "$RUNNER_TEMP/publish-ci-image.sh" rust-build
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: ci-image-rust-wasm-build
+      - name: Publish verified rust-wasm-build image
+        run: bash "$RUNNER_TEMP/publish-ci-image.sh" rust-wasm-build
+      - name: Log out of GHCR
+        if: always()
+        run: docker logout ghcr.io

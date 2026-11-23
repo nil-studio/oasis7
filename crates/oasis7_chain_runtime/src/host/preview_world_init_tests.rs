@@ -473,7 +473,7 @@ fn original_cas_genesis_and_private_consumer_corruption_fail_closed() {
     fs::write(&private, original).unwrap();
     let identity = receipt.world;
     let commit =
-        serde_json::from_value::<oasis7::world_service::CommitRef>(receipt.published_commit)
+        serde_json::from_value::<oasis7_world_service::CommitRef>(receipt.published_commit)
             .unwrap();
     let pin = bridge::world_service_read::pin(
         &o.root.join("records"),

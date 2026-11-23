@@ -45,7 +45,7 @@ fn validator_help_dispatches_before_runtime_configuration() {
 
 #[test]
 fn wait_uses_resolved_membership_and_observation_never_invents_effective_height() {
-    use oasis7::world_service::{
+    use oasis7_world_service::{
         ExecutionBinding, PublicMembershipCandidate, PublicMembershipRegistry, WorldIdentity,
     };
     let commit = CommitRef {

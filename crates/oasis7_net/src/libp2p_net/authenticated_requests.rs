@@ -164,6 +164,23 @@ impl Libp2pNetwork {
         let bytes = self.request_to_peer_with_timeout(protocol, payload, peer, timeout)?;
         decode_reply(bytes)
     }
+
+    /// The entire authenticated envelope and typed remote error are charged by
+    /// the same actual codec before decoding the application reply.
+    pub fn request_authenticated_to_peer_with_encoded_budget(
+        &self,
+        protocol: &str,
+        payload: &[u8],
+        peer: libp2p::PeerId,
+        budget: Box<dyn crate::EncodedExchangeBudget>,
+    ) -> Result<Vec<u8>, WorldError> {
+        if !reserved(protocol) || payload.len() > AUTHENTICATED_REQUEST_MAX_BYTES {
+            let _ = budget.finish();
+            return Err(rejected("authenticated request namespace/byte bound"));
+        }
+        let bytes = self.request_to_peer_with_encoded_budget(protocol, payload, peer, budget)?;
+        decode_reply(bytes)
+    }
     /// Uses real Noise/QUIC connection identity and admission before reserving a
     /// response worker. Does not expose this capability through DistributedNetwork.
     pub fn register_authenticated_context_handler_with_admission(

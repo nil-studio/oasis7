@@ -186,7 +186,7 @@ fn authenticated_stale_rejection_publishes_exact_outbox_without_business_effect_
     assert!(canonical.receipt.is_null());
     assert_eq!(canonical.request, original);
     let history =
-        oasis7::world_service::projection::feedback_history_from_world(&world, "agent-a").unwrap();
+        oasis7_world_service::projection::feedback_history_from_world(&world, "agent-a").unwrap();
     assert_eq!(history.records.len(), 1);
     assert!(history.records[0].receipt_lineage.is_none());
     let before = serde_json::to_value(world.snapshot()).unwrap();

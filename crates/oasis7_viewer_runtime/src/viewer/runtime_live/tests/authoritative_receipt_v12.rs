@@ -107,7 +107,7 @@ fn persisted_player_attribution_rejects_later_system_authored_resolution_atomica
         })
         .expect("player attribution persists");
     let restored =
-        crate::runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
+        oasis7_runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
             .expect("load generation")
             .expect("persisted generation");
     let generation: RuntimeAuthoritativeRecoveryGeneration =
@@ -220,7 +220,7 @@ fn complete_receipt_requires_governance_auth_and_replay_stays_rejected_after_res
     assert_eq!(receipt.authorization_nonce, rollback_nonce);
 
     let restored =
-        crate::runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
+        oasis7_runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
             .expect("load generation")
             .expect("persisted generation");
     let generation: RuntimeAuthoritativeRecoveryGeneration =

@@ -154,6 +154,35 @@ For first use, run `bft-header node --config ABS --print-binding` without `--act
 
 The shipping CLI regression first prints this binding without a provider, then preserves an original private candidate before any provider WAL and submits a different new action. It requires the original candidate to commit first with unchanged bytes and the new action to finish afterward. The publication-failure case injects an error after canonical pins are durable, checks that no applied batch or new World is exposed, and cold-opens with an empty external reader to complete the same QC before a second write. A separate real Node/native-TCP/provider regression uses an explicit deterministic test execution hook: 1025 prequeued action IDs must produce independently decoded protocol-valid batches across multiple heights without loss or duplicate delivery. It exercises production queue selection and consumption, not 1025 actual World executions; the actual World, CLI and durable recovery cases above cover that execution boundary. Other regressions test exact CBOR framing and one-element admission boundaries, and require the original completion after both same-Runtime restart and a provider confirmation that commits before returning an unknown result. Fully applied history with no matching pending operation must not be replayed; notification-budget or lock failures must retain the original queue and eligibility. The uncertain-CAS test explicitly fences the old lease generation in its memory backend after the failed provider session ends, without changing committed protocol state; automatic production backend recovery is not supplied. These are local software paths with object-level failure injection, not physical power-loss evidence.
 
+<a id="full-sync-operation-consumer-acceptance"></a>
+#### 整次 full-sync operation 的真实消费者验收
+
+Trace refs: `O7-REQ-3f7d612d-5a6a-4d6d-bb0e-722c44d986f4`、`O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3`、`O7-REQ-ee563883-fe1d-4192-b58b-53251d32920b`。合同：[des-p2p-full-sync-operation-budget-v1](../../../doc/p2p/design.md#des-p2p-full-sync-operation-budget-v1)；运行入口：[local node lifecycle](../../../doc/p2p/blockchain/local-node-lifecycle.runbook.md)。
+
+在同一固定 source、同一默认 features 与目标目录上串行执行：
+
+```bash
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_chain_runtime --lib formal_full_sync -- --test-threads=1
+env -u RUSTC_WRAPPER cargo test --locked -p oasis7_net --lib encoded_exchange -- --test-threads=1
+env -u RUSTC_WRAPPER cargo build --locked -p oasis7_chain_runtime --bin oasis7_chain_runtime
+env -u RUSTC_WRAPPER OASIS7_FORMAL_NODE_TEST_BIN="$PWD/target/debug/oasis7_chain_runtime" cargo test --locked -p oasis7_chain_runtime --lib node_lifecycle::formal_full_sync::tests::cli_process_tests::formal_full_state_sync_cli_init_join_restart_preserves_external_c0 -- --ignored --exact --test-threads=1 --nocapture
+```
+
+最后一条是现有 `lifecycle-cli` 正式套件已注册的 shipping outer case；它保留原 V1 init/join/restart，并连续调用两个 V2 场景。日志必须分别出现 `formal_budgeted_cli case=seventeen_cycles_and_cold_readback phase=passed` 与 Linux 上的 `formal_budgeted_cli case=native_takeover_original_unknown_charge phase=passed`，带实际周期／generation／unknown 计数。普通 `cargo test` 对该 outer 的 ignored 结果不是这些场景的执行证据。正式 artifact runner 使用同包候选 runtime 注入 `OASIS7_FORMAL_NODE_TEST_BIN`，按 exact case 加 `--ignored` 执行，不以测试二进制代替 shipping CLI。
+
+| 消费链 | 必需观测与拒绝边界 |
+| --- | --- |
+| controlled-v2 HTTP → 实际 World | 独立 loopback proxy 逐次记录原签名请求和响应正文 octets，包括 view、manifest、对象与真实 503 错误；同 cut 的独立 pinned provider 接续后，账本 actual 与观察值相等，实际保留 World 的 canonical snapshot 与原夹具相等。 |
+| 本地原因与远端诊断 | view、manifest、object 的实际签名错误正文包含预算、期限和恢复关键词时，仍只呈现普通恢复 blocker；完整正文照常计费，原 operation 上的合法后续 attempt 仍受原有限额度约束。真实本地额度耗尽和原期限到达分别呈现明确 blocker。 |
+| 原 operation 的后续 attempt | 同 native owner 的真实 view 失败后重试成功，operation/request/owner 不变而 attempt 增加；交换耗尽和慢响应不能换新 operation、免费 failover 或刷新原绝对期限。 |
+| 安装中断与本地恢复 | 在 durable intent 和 durable pins 两个真实边界终止旧 worker，再冷开同原 target。移除 HTTP source 后仍能原件读回；零页历史须严格绑定外部 C0，缺页负例使用真实 C0→C1 已持久页；坏原 decision/roots、坏 material hash 和缺历史 proof 必须在新 pin 写入与网络前拒绝。 |
+| 缺失原对象 | 独立重放原 history 并核原 decision 后，只以新受限 attempt 获取原 manifest/roots 内缺失对象；不请求新 view、manifest 或目标。无 attempt 余量时 pin shard 与 ledger 原字节不变，也没有新 HTTP。 |
+| 周期与累计容量 | 真实同步超过 16 周期后摘要仍最多 16 项，累计 actual/exchanges 与独立网络观察相等；停止 source 后冷开保持原 ledger。注入无累计计数余量后，下一 poll 在新 I/O 前阻塞且不重置计数。 |
+| shipping native 接管 | 暂停实际 HTTP 后固定原进程身份并终止该进程，等待真实 native lock 释放；新 generation 保留原请求、actual 和未知预留。安装明确读回后未知量等额封存为 `unknown_final_charged`，不伪装 actual、不退款。 |
+| libp2p 完整编码账 | 真实 TCP／QUIC、完整 CBOR DTO、typed 远端错误、partial/取消/超额及多 stream 独立账；本地无连接或关队列在准入前拒绝不计次，准入后的真实协议拒绝与拨号失败保留交换次数，即使编码正文 actual 为零；Runtime 测试内软件 adapter 将同一个实际持久 Ledger/AttemptPermit 接到两次真实 exchange，验证第三次拒绝、并发第二 caller 不释放第一占用、取消与冷开收费守恒。 |
+
+Net 生产接口的调用方必须提供原 operation 的持久准入、预留、可信结算、活性检查和结束语义。当前 codec 的 EOF framing 不额外虚构长度前缀；受测 bytes 包含实际 `NetworkRequest`／`NetworkResponse` 的完整外层。HTTP adapter 仍只计签名 JSON 正文，两者是明确分开的版本映射。软件 Ledger adapter 不授予 BFT FullReadOnly，也不提供 protected 4 GiB no-refund reservation、minimum/get/adopt 权限或真实 checkpoint 安装；这些组合由对应 wire-3 消费者和受保护后端验收。
+
 #### 原 covered H 与首个 Local/Received 的独立归档验证
 
 本入口承接 [wire-3 原私有候选保留合同](../../../doc/p2p/design.md#des-p2p-bft-header-node-v3)，使用显式准备、原 Fresh activation 和首个 Pending Reserve，不启用普通 Node 的 covered-source 签名。`bft-header node --config ABS --source-config ABS` 的源配置为 schema 1，要求独立固定的 `creation_identity` 与 `attestor`；准备模式 `--prepare-private-source` 可先输出供独立 provision 审查的 binding/marker，`--activate-private-source` 再通过已配置的原生 provider 保留原 activation。后续 `archive_directory` 必须是与 live CAS、records、replication 分离的已有私有目录。

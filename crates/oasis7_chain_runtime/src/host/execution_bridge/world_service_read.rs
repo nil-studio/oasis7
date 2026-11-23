@@ -1,7 +1,7 @@
 //! One immutable record pins snapshot, journal and proof. Mutable cache paths
 //! are never a read authority for WorldService.
 use super::{ExecutionBridgeRecord, WorldHeadProofV1, checkpoint};
-use oasis7::world_service::*;
+use oasis7_world_service::*;
 use oasis7_runtime::{Journal, LocalCasStore, Snapshot, World, blake3_hex};
 use std::path::Path;
 
@@ -61,13 +61,13 @@ impl RestoreContext {
         journal: Journal,
     ) -> Result<World, oasis7_runtime::WorldError> {
         if let Some(local) = &self.local {
-            oasis7::runtime_host::world::from_snapshot_with_devlocal_participant_authority(
+            oasis7_runtime_host::world::from_snapshot_with_devlocal_participant_authority(
                 snapshot,
                 journal,
                 local.clone(),
             )
         } else {
-            oasis7::runtime_host::world::from_snapshot_with_release_security_policy(
+            oasis7_runtime_host::world::from_snapshot_with_release_security_policy(
                 snapshot,
                 journal,
                 self.release.clone(),
@@ -298,7 +298,7 @@ fn verify_archived_initial_publication_inner(
     }
     let world = match context {
         Some(context) => context.restore(snapshot, journal),
-        None => oasis7::runtime_host::world::from_snapshot(snapshot, journal),
+        None => oasis7_runtime_host::world::from_snapshot(snapshot, journal),
     }
     .map_err(|error| {
         if let Some(observer) = observer {

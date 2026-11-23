@@ -8,10 +8,8 @@ license = "MIT"
 path = "src/lib.rs"
 
 [features]
-default = ["self_tests", "libp2p"]
-libp2p = ["dep:libp2p", "dep:futures", "dep:pin-project", "dep:tokio"]
-# Kept one release cycle until trusted-baseline ci-image-cache.test.py drops self_tests check.
-self_tests = []
+default = ["libp2p"]
+libp2p = ["dep:futures", "dep:futures-timer", "dep:libp2p", "dep:pin-project", "dep:prost", "dep:tokio"]
 
 [dependencies]
 blake3 = "1"
@@ -26,7 +24,9 @@ pin-project = { version = "1", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 futures = { version = "0.3", optional = true }
+futures-timer = { version = "3.0", optional = true }
 libp2p = { git = "https://github.com/libp2p/rust-libp2p", rev = "2d8497b2615086bd88018ef3a1fb32bc613a07ca", optional = true, default-features = false, features = ["autonat", "cbor", "dcutr", "gossipsub", "kad", "macros", "noise", "quic", "relay", "rendezvous", "request-response", "tcp", "tokio", "yamux"] }
+prost = { version = "0.14", optional = true }
 tokio = { version = "1", optional = true, features = ["rt", "sync", "time"] }
 
 [dev-dependencies]

@@ -565,7 +565,7 @@ impl PackageFixture {
         let world_source = Path::new(env!("CARGO_MANIFEST_DIR")).join(
             "../../doc/testing/evidence/public-testnet-governed-bootstrap-world-2026-06-06/world",
         );
-        let world = oasis7::runtime_host::world::from_snapshot(
+        let world = oasis7_runtime_host::world::from_snapshot(
             Snapshot::load_json(world_source.join("snapshot.json")).unwrap(),
             Journal::load_json(world_source.join("journal.json")).unwrap(),
         )

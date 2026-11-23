@@ -1,6 +1,6 @@
 //! Real participant World read, honestly Blocked without a preinstalled resource grant.
 use super::*;
-use oasis7::world_service::{
+use oasis7_world_service::{
     private_goal_prepare::sign_goal_prepare, private_goal_read::publication,
     private_goal_store::PrivateGoalStore,
 };

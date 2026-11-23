@@ -18,7 +18,7 @@ MANAGED_GROUPS = ("operational_contracts", "packaging_contracts")
 
 # Linux mold linker setup required for native host Cargo linking in packaging contracts.
 GROUPS_WITH_MOLD = {"packaging_contracts"}
-GROUP_TIMEOUT_MINUTES = {"operational_contracts": 20, "packaging_contracts": 5}
+GROUP_TIMEOUT_MINUTES = {"operational_contracts": 12, "packaging_contracts": 5}
 
 
 def render_job(group: str) -> str:
@@ -100,11 +100,15 @@ def render_job(group: str) -> str:
             '          cargo +"$RUST_TOOLCHAIN" fmt --version\n'
             '          cargo +"$RUST_TOOLCHAIN" clippy --version\n'
         )
+    consolidation_guard = ""
+    if group == "packaging_contracts":
+        consolidation_guard = "      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&\n"
     return (
         f"  {job_id}:\n"
         f"    needs: select\n"
         f"    if: >-\n"
         f"      always() && !cancelled() && needs.select.result == 'success' &&\n"
+        f"{consolidation_guard}"
         f"      (needs.select.outputs.run_{group} == 'true' ||\n"
         f"       fromJSON(needs.select.outputs.plan).scope == 'full')\n"
         f"    runs-on: ubuntu-24.04\n"

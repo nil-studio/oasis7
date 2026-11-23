@@ -1,6 +1,7 @@
 use super::*;
 use std::cell::Cell;
 struct FinalPut<'a, W> {
+    staged: StagedPages<'a>,
     inner: W,
     store: &'a IncrementalPageStore,
     memory: &'a MemoryBudget,
@@ -20,7 +21,11 @@ impl<W: ValueNodeWriter> ValueNodeWriter for FinalPut<'_, W> {
                 .windows(b"oasis7.iws.record-root.v1\0".len())
                 .any(|b| b == b"oasis7.iws.record-root.v1\0");
         if !root_ref {
-            return self.inner.put_node(id, bytes);
+            return self.staged.put_node(id, bytes);
+        }
+        let pending = self.staged.take_all();
+        if !pending.is_empty() {
+            flush_pages(self.store, self.memory, &pending);
         }
         let before = self.store.read_page(
             &id,
@@ -58,14 +63,14 @@ impl<W: ValueNodeWriter> ValueNodeWriter for FinalPut<'_, W> {
         Ok(())
     }
 }
-impl<W: StatePageWriter> StatePageWriter for FinalPut<'_, W> {
+impl<W: ValueNodeWriter> StatePageWriter for FinalPut<'_, W> {
     fn put_state_pages_cancelled(
         &mut self,
         delta: &ReservedValue<StateDeltaV1>,
         memory: &MemoryBudget,
         cancelled: &mut dyn FnMut() -> bool,
     ) -> Result<(), ValueTreeError> {
-        self.inner
+        self.staged
             .put_state_pages_cancelled(delta, memory, cancelled)
     }
 }
@@ -76,7 +81,7 @@ pub(super) fn final_real_root_put_cancel_or_failure_never_seals_the_successful_p
         let dir = Directory::new();
         let store = IncrementalPageStore::create(&dir.0.join("pages"), memory.clone(), compression)
             .unwrap();
-        let roots = seed(&store, &memory, &source());
+        let roots = seed_default(&store, &memory);
         let parent = parent(roots);
         let live = parent.fence().unwrap();
         for fail in [false, true] {
@@ -88,6 +93,7 @@ pub(super) fn final_real_root_put_cancel_or_failure_never_seals_the_successful_p
             let cancelled = Cell::new(false);
             let published = Cell::new(0);
             let mut writer = FinalPut {
+                staged: StagedPages::new(&memory),
                 inner: store.value_session(physical_scope()),
                 store: &store,
                 memory: &memory,
@@ -165,6 +171,7 @@ pub(super) fn final_real_root_put_cancel_or_failure_never_seals_the_successful_p
                     .unwrap()
                 );
                 assert!(write.io.write_bytes_remaining < logical().write_bytes_remaining);
+                flush_pages(&store, &memory, &write.sink.staged.take_all());
                 armed.set(true);
                 let guard = read.transaction.guard();
                 result = change_industry_cell_overlay_v1(

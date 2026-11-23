@@ -92,7 +92,7 @@ fn configured_sidecar(
     let mut sidecar = RuntimeLlmSidecar::new(ViewerLiveDecisionMode::Llm);
     let binding = cognition.request.request_context.runtime_binding.clone();
     let mut projection =
-        oasis7::world_service::projection::from_world(&crate::runtime_host::world::new(), None)
+        oasis7_world_service::projection::from_world(&oasis7_runtime_host::world::new(), None)
             .expect("projection");
     projection.runtime_binding = Some(binding.clone());
     projection.scheduler_wakes = wakes;
@@ -581,10 +581,10 @@ fn service_handoff_restart_preserves_only_exact_checkpointed_wake_then_cleans_up
     binding.base_tick = post_commit_tick;
     binding.base_world_hash = post_commit_hash.clone();
     after_restart
-        .restore_provider_lineage(&crate::runtime_host::world::new())
+        .restore_provider_lineage(&oasis7_runtime_host::world::new())
         .expect("restore exact signed checkpoint and wake mirror");
     after_restart
-        .sync_runtime_wakes(&crate::runtime_host::world::new())
+        .sync_runtime_wakes(&oasis7_runtime_host::world::new())
         .expect("preserve terminal wake covered by exact checkpoint");
     assert_eq!(
         after_restart.pending_runtime_wakes.get(&target.wake_id),
@@ -659,10 +659,10 @@ fn service_handoff_restart_fences_missing_or_mismatched_checkpoint() {
     );
     let mut after_restart = configured_sidecar(&cognition, Vec::new(), missing_path.clone());
     after_restart
-        .restore_provider_lineage(&crate::runtime_host::world::new())
+        .restore_provider_lineage(&oasis7_runtime_host::world::new())
         .expect("restore mirror without handoff checkpoint");
     let error = after_restart
-        .sync_runtime_wakes(&crate::runtime_host::world::new())
+        .sync_runtime_wakes(&oasis7_runtime_host::world::new())
         .expect_err("missing exact checkpoint fails closed");
     assert!(
         error.contains("lacks its signed handoff checkpoint"),
@@ -682,10 +682,10 @@ fn service_handoff_restart_fences_missing_or_mismatched_checkpoint() {
     persist_recovery_handoff(&mut before_restart, &cognition, &target, wrong_operation);
     let mut after_restart = configured_sidecar(&cognition, Vec::new(), mismatch_path.clone());
     after_restart
-        .restore_provider_lineage(&crate::runtime_host::world::new())
+        .restore_provider_lineage(&oasis7_runtime_host::world::new())
         .expect("restore signed but wrong-target checkpoint");
     let error = after_restart
-        .sync_runtime_wakes(&crate::runtime_host::world::new())
+        .sync_runtime_wakes(&oasis7_runtime_host::world::new())
         .expect_err("wrong signed wake target fails closed");
     assert!(error.contains("checkpoint identity mismatch"), "{error}");
     assert_eq!(

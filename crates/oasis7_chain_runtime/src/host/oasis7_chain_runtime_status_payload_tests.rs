@@ -593,7 +593,7 @@ fn build_chain_status_payload_warns_when_transfer_lifecycle_failures_cross_thres
 #[test]
 fn build_chain_status_payload_surfaces_persisted_module_tick_routing_metrics() {
     let dir = temp_dir("module-routing-status");
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     install_tick_module(&mut world);
     let mut sandbox = CountingSandbox::default();
     world
@@ -646,7 +646,7 @@ fn build_chain_status_payload_surfaces_persisted_module_tick_routing_metrics() {
 #[test]
 fn build_chain_status_payload_warns_when_module_tick_routing_is_degraded() {
     let dir = temp_dir("module-routing-observability-alert");
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     install_tick_module(&mut world);
     world.save_to_dir(&dir).expect("save execution world");
     let snapshot_path = dir.join("snapshot.json");
@@ -686,7 +686,7 @@ fn build_chain_status_payload_warns_when_module_tick_routing_is_degraded() {
 #[test]
 fn build_chain_status_payload_does_not_warn_for_historical_module_tick_miss_after_recovery() {
     let dir = temp_dir("module-routing-observability-historical-miss");
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     install_tick_module(&mut world);
     world.save_to_dir(&dir).expect("save execution world");
     let snapshot_path = dir.join("snapshot.json");
@@ -724,7 +724,7 @@ fn build_chain_status_payload_does_not_warn_for_historical_module_tick_miss_afte
 #[test]
 fn build_chain_status_payload_does_not_claim_persisted_module_tick_duration_degradation() {
     let dir = temp_dir("module-routing-observability-one-slow-route");
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     install_tick_module(&mut world);
     world.save_to_dir(&dir).expect("save execution world");
     let snapshot_path = dir.join("snapshot.json");
@@ -764,7 +764,7 @@ fn build_chain_status_payload_does_not_claim_persisted_module_tick_duration_degr
 #[test]
 fn build_chain_status_payload_warns_for_sustained_slow_live_module_tick_routes() {
     let dir = temp_dir("module-routing-observability-sustained-slow-live");
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     install_tick_module(&mut world);
     let mut sandbox = SlowRecurringTickSandbox::default();
     for _ in 0..4 {

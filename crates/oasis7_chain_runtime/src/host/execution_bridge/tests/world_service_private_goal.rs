@@ -1,5 +1,5 @@
 use super::*;
-use oasis7::world_service::{
+use oasis7_world_service::{
     private_goal_prepare::sign_goal_prepare,
     private_goal_read::*,
     private_goal_store::{PreparedGoalReceiptV1, PrivateGoalStore},
@@ -126,7 +126,7 @@ pub(super) fn consumer<T>(
     signer: &crate::feedback_submit_api::FeedbackSubmitSigner,
     store: &PrivateGoalStore,
     world: &WorldIdentity,
-    call: impl FnOnce(&oasis7::world_service::client::RemoteWorldServiceClient) -> T,
+    call: impl FnOnce(&oasis7_world_service::client::RemoteWorldServiceClient) -> T,
 ) -> T {
     // Functional recovery requests rebuild canonical worlds and fsync private
     // records, so normal consumer fixtures retain a bounded 30s response budget.
@@ -156,9 +156,9 @@ fn consumer_with_delivery_hook<T>(
     world: &WorldIdentity,
     request_timeout: std::time::Duration,
     before_delivery: impl FnOnce() + Send,
-    call: impl FnOnce(&oasis7::world_service::client::RemoteWorldServiceClient) -> T,
+    call: impl FnOnce(&oasis7_world_service::client::RemoteWorldServiceClient) -> T,
 ) -> (T, &'static str) {
-    use oasis7::world_service::client::{RemoteWorldServiceClient, WorldServiceClientConfig};
+    use oasis7_world_service::client::{RemoteWorldServiceClient, WorldServiceClientConfig};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let client = RemoteWorldServiceClient::new(WorldServiceClientConfig {
         endpoint: format!("http://{}", listener.local_addr().unwrap()),
@@ -379,7 +379,7 @@ fn private_goal_native_tcp_prepare_publish_read_restart_and_recovery() {
     );
     assert!(matches!(
         timed_out,
-        Err(oasis7::world_service::client::WorldServiceClientError::Transport(ref reason))
+        Err(oasis7_world_service::client::WorldServiceClientError::Transport(ref reason))
             if reason == "private transport timed out"
     ));
     assert!(

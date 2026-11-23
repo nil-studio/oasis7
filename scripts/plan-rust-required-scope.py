@@ -48,8 +48,8 @@ CUSTODY_NODE_SHARDS = (0, 1, 2)
 LEGACY_CUSTODY_NODE_SHARDS = (0, 1, 2, 3)
 CUSTODY_NODE_SHARDS_VERSION = 2
 ORDINARY_DYNAMIC_PARTITION_VERSION = 1
-CONTRACT_JOB_CONSOLIDATION_VERSION = 2
-CONTRACT_JOB_CONSOLIDATION_VERSIONS = (1, 2)
+CONTRACT_JOB_CONSOLIDATION_VERSION = 3
+CONTRACT_JOB_CONSOLIDATION_VERSIONS = (1, 2, 3)
 ORDINARY_SCOPE_CONFIG_SLICE_VERSION = 1
 STANDALONE_CARGO_MANIFEST_SCOPE_VERSION = 1
 WORKSPACE_SUPPORT_DIRECT_GATE_VERSION = 1
@@ -1335,6 +1335,10 @@ def validate_config(config):
                 or config['workspace_support_partition_version'] != 1
                 or config.get('fast_scope_version') != FAST_PLAN_VERSION):
             raise ValueError('invalid direct workspace support gate capability')
+    if 'auxiliary_workflow_consolidation_version' in config:
+        if (type(config['auxiliary_workflow_consolidation_version']) is not int
+                or config['auxiliary_workflow_consolidation_version'] != 1):
+            raise ValueError('invalid auxiliary workflow consolidation capability')
     if 'ordinary_harness_costs' in config:
         if config.get('ordinary_artifact_partition_version') not in (1, 2):
             raise ValueError('ordinary harness costs require artifact partitions')

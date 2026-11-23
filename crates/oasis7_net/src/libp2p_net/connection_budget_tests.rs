@@ -14,7 +14,7 @@ use libp2p::{
     multiaddr::Protocol,
     relay,
     swarm::{
-        DialError, ListenError, Swarm, SwarmEvent,
+        Config, DialError, ListenError, Swarm, SwarmEvent,
         dial_opts::{DialOpts, PeerCondition},
     },
 };
@@ -575,10 +575,11 @@ async fn dial_relay_circuit(
 #[test]
 fn kademlia_and_rendezvous_use_one_window_on_the_same_authenticated_connection() {
     use crate::libp2p_net::{
+        rendezvous_client,
         wire_byte_window::{WireByteLimits, WireByteWindow},
         wire_bytes::Libp2pWireByteCounters,
     };
-    use libp2p::{kad, rendezvous};
+    use libp2p::kad;
 
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -642,13 +643,13 @@ fn kademlia_and_rendezvous_use_one_window_on_the_same_authenticated_connection()
                 loop {
                     match budgeted_event(&mut source, &mut server).await {
                         SwarmEvent::Behaviour(BehaviourEvent::RendezvousClient(
-                            rendezvous::client::Event::Discovered { request_id, rendezvous_node, .. },
+                            rendezvous_client::Event::Discovered { request_id, rendezvous_node, .. },
                         )) if request_id == request => {
                             assert_eq!(rendezvous_node, peer);
                             break;
                         }
                         SwarmEvent::Behaviour(BehaviourEvent::RendezvousClient(
-                            rendezvous::client::Event::DiscoverFailed { request_id, error, .. },
+                            rendezvous_client::Event::DiscoverFailed { request_id, error, .. },
                         )) if request_id == request => panic!("real rendezvous query failed: {error:?}"),
                         _ => {}
                     }
@@ -711,7 +712,7 @@ fn real_request_deadline_survives_natural_byte_window_recovery() {
                     protocol: "/test/window-deadline".into(),
                     payload: payload.to_vec(),
                 };
-                let expired = client.behaviour_mut().request_response.send_request(&peer, super::super::request_deadline::LocalRequest { message: request(b"expired"), deadline: None });
+                let expired = client.behaviour_mut().request_response.send_request(&peer, super::super::request_deadline::LocalRequest { message: request(b"expired"), deadline: None, exchange: None });
                 loop {
                     match select(client.select_next_some(), server.select_next_some()).await {
                         Either::Left((SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
@@ -733,7 +734,7 @@ fn real_request_deadline_survives_natural_byte_window_recovery() {
                 // The seeded full charge must be gone even if control I/O ran.
                 assert!(window.snapshot().unwrap().charged_bytes.total < 16_384);
 
-                let fresh = client.behaviour_mut().request_response.send_request(&peer, super::super::request_deadline::LocalRequest { message: request(b"fresh"), deadline: None });
+                let fresh = client.behaviour_mut().request_response.send_request(&peer, super::super::request_deadline::LocalRequest { message: request(b"fresh"), deadline: None, exchange: None });
                 loop {
                     match select(client.select_next_some(), server.select_next_some()).await {
                         Either::Right((SwarmEvent::Behaviour(BehaviourEvent::RequestResponse(
@@ -869,7 +870,7 @@ fn stale_and_mixed_dial_errors_are_scoped_to_the_exact_retry_path() {
     use crate::libp2p_net::transport_paths::{
         DialedTransportPath, bootstrap_transport_path_state, take_retryable_transport_path,
     };
-    use libp2p::{core::transport::TransportError, swarm::TransportHandshakeDeadlineElapsed};
+    use libp2p::core::transport::TransportError;
     use std::collections::HashMap;
 
     let peer = Keypair::generate_ed25519().public().to_peer_id();

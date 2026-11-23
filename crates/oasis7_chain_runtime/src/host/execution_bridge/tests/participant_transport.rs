@@ -40,7 +40,7 @@ pub(super) fn serve_with_private(
     signer: &crate::feedback_submit_api::FeedbackSubmitSigner,
     stop: &AtomicBool,
     dropped: &AtomicBool,
-    private: Option<&oasis7::world_service::private_goal_store::PrivateGoalStore>,
+    private: Option<&oasis7_world_service::private_goal_store::PrivateGoalStore>,
 ) {
     serve_with_private_settlement(
         listener, node, root, signer, stop, dropped, private, false, None,
@@ -60,7 +60,7 @@ pub(super) fn serve_with_private_settlement(
     signer: &crate::feedback_submit_api::FeedbackSubmitSigner,
     stop: &AtomicBool,
     dropped: &AtomicBool,
-    private: Option<&oasis7::world_service::private_goal_store::PrivateGoalStore>,
+    private: Option<&oasis7_world_service::private_goal_store::PrivateGoalStore>,
     settle_submits: bool,
     baseline_marker: Option<&Path>,
 ) {

@@ -81,7 +81,7 @@
 | --- | --- |
 | [native recipe quote](../../../crates/oasis7_runtime/src/domains/industrial/recipe_quote.rs)与[选择校验](../../../crates/oasis7_agent_api/src/world_quote/recipe.rs) | 从 canonical ID/batches 构造 plan；私有 world clone 复用真实授权与准入，预览不预留或结算。核对实际 consume/output ledger、产物/副产物和原拒绝。 |
 | [native factory quote](../../../crates/oasis7_runtime/src/domains/industrial/factory_quote.rs)与[选择校验](../../../crates/oasis7_agent_api/src/world_quote/factory.rs) | kind 与实例 ID 分别绑定；实际 owner、site/location authority、建造消费与 construction power 一并核验。 |
-| [首局动作构造](../../../crates/oasis7/src/runtime_host/gameplay_actions.rs)、[feasibility](../../../crates/oasis7_world_state/src/state/starter_industrial.rs)与[结算写入](../../../crates/oasis7_world_state/src/state/industry_transition/recipe_lifecycle.rs) | 固定动作参数、profile/revision 与持久 milestone 各自沿原权威；目录更新不能自动修改首局动作、完成条件或已确认历史。 |
+| [首局动作构造](../../../crates/oasis7_runtime_host/src/gameplay_actions.rs)、[feasibility](../../../crates/oasis7_world_state/src/state/starter_industrial.rs)与[结算写入](../../../crates/oasis7_world_state/src/state/industry_transition/recipe_lifecycle.rs) | 固定动作参数、profile/revision 与持久 milestone 各自沿原权威；目录更新不能自动修改首局动作、完成条件或已确认历史。 |
 | [首局表达](../../world-simulator/viewer/first-session-content-delivery.design.md#content-source-boundary) | 采用当前候选已发布的事实，不用此表补齐未发布数量、单位、状态或执行按钮。 |
 
 <a id="starter-and-initial-state-applicability"></a>
@@ -94,7 +94,7 @@
 | 配置或来源 | 已核实的作用 | 内容交接时必须保留的差异 |
 | --- | --- | --- |
 | [minimal.json](../../../crates/oasis7_simulator/scenarios/minimal.json) / [resource_bootstrap.json](../../../crates/oasis7_simulator/scenarios/resource_bootstrap.json) | named Simulator 场景输入；后者显式配置 Agent 的 data/electricity 与 origin 的 data | JSON 未列出的值仍受有效默认配置和具体初始化消费者影响；场景名不证明完整工业投入。 |
-| [formal_release_default_seed_model](../../../crates/oasis7/src/runtime_host/gameplay_actions.rs) | 程序内构造 seed/config、关闭 origin、启用碎片及 bootstrap chunk、生成一个 starter Agent | 该入口不是直接读取上述两个 JSON；交接保留程序版本和 effective config，不能只记录 seed 或场景标签。 |
+| [formal_release_default_seed_model](../../../crates/oasis7_runtime_host/src/gameplay_actions.rs) | 程序内构造 seed/config、关闭 origin、启用碎片及 bootstrap chunk、生成一个 starter Agent | 该入口不是直接读取上述两个 JSON；交接保留程序版本和 effective config，不能只记录 seed 或场景标签。 |
 | [bootstrap_formal_release_runtime_world](../../../crates/oasis7/src/runtime_host/bootstrap.rs)及 `install_starter_factory_authorities` | 建立 starter 主体、地点/厂址 authority、两种固定实例的 profile/construction power；分别准备 owner 建造账本、`site-smelter` 的铁矿/燃料和 `site-assembler` 的铁锭输入 | world 总库存、owner 建造材料与 site 配方输入是不同来源。bootstrap 的预置是初态，不是玩家已生产、已运输或已完成目标的证据；具体数值沿源及当前快照。 |
 | 同文件的 `bootstrap_runtime_world_with_chunk_runtime` / generated sidecar 路径 | 将选定 Simulator 模型投影为 Runtime，并沿自己的初始化路径处理主体和工业准备 | 与上述固定 starter 入口分别取证；按[场景消费矩阵](../../world-simulator/scenario/scenario-files.prd.md#场景初始化与消费入口矩阵)核对默认 Agent 与模型保留范围。 |
 | [DevLocal preview 初始化](../../../crates/oasis7_chain_runtime/src/host/preview_world_init.rs) / [formal world 初始化](../../../crates/oasis7_chain_runtime/src/host/world_initialization.rs) | 前者声明 fresh technical preview；后者消费外部准备的 snapshot/journal 与授权材料 | 函数名含 formal/release 不授予正式世界发行、治理激活或 finality；已有 snapshot 的内容取自其真实来源，不假定由本 starter bootstrap 生成。 |

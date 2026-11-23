@@ -35,6 +35,7 @@ ed25519-dalek = { version = "3", features = ["rand_core"] }
 getrandom = "0.4"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+oasis7_runtime_host = { path = "../oasis7_runtime_host" }
 oasis7_executable_image = { path = "../oasis7_executable_image", optional = true }
 oasis7_game_client = { path = "../oasis7_game_client" }
 zeroize = "1"
@@ -74,9 +75,10 @@ oasis7_viewer_runtime = { path = "../oasis7_viewer_runtime", default-features = 
 oasis7 = { path = "../oasis7", default-features = false, features = ["test_tier_required"] }
 oasis7_node = { version = "0.1.0", path = "../oasis7_node", default-features = false, features = ["test-hooks"] }
 
-[target.'cfg(unix)'.dev-dependencies]
+[target.'cfg(unix)'.dependencies]
 hickory-resolver = { version = "0.26.3", default-features = false, features = ["tokio", "system-config"] }
 tokio = { version = "1", features = ["rt", "net", "time"] }
 rustls = { version = "0.23", default-features = false, features = ["std", "ring", "tls12"] }
 webpki-roots = "1.0.10"
+[target.'cfg(unix)'.dev-dependencies]
 rcgen = "0.13.2"

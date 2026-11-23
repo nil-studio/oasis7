@@ -55,15 +55,14 @@ fn schema() -> [u8; 32] {
     b
 }
 macro_rules! member {
-    ($store:expr,$memory:expr,$key:expr,$payload:expr) => {{
-        let mut values = $store.value_session(physical_scope());
+    ($sink:expr,$memory:expr,$key:expr,$payload:expr) => {{
         write_member_record_v1(
             field(),
             WorldFieldRecordKindV1::Entry,
             &$key,
             $payload,
             &mut MemberRecordWriteContext {
-                sink: &mut values,
+                sink: $sink,
                 memory: $memory,
                 io: &mut logical(),
                 key_work: &mut SemanticKeyBudget {
@@ -131,6 +130,7 @@ pub(super) fn original_child(
 fn child_changes(
     store: &IncrementalPageStore,
     memory: &MemoryBudget,
+    sink: &mut StagedPages<'_>,
     child: StateRootV1,
     changes: Vec<(WorldFieldKeyV1, Option<[u8; 32]>)>,
 ) -> StateRootV1 {
@@ -148,12 +148,11 @@ fn child_changes(
     rows.sort_by(|a, b| a.key.cmp(&b.key));
     let charge = memory.reserve(16 << 20, MemoryClass::Ordinary).unwrap();
     let delta = charge.retain(StateDeltaV1::build(child, rows, &state, 8 << 20).unwrap());
-    let mut writer = store.value_session(physical_scope());
-    writer.put_state_pages(&delta, memory).unwrap();
+    sink.put_state_pages(&delta, memory).unwrap();
     delta.after.clone()
 }
 fn outer_reference(
-    store: &IncrementalPageStore,
+    sink: &mut StagedPages<'_>,
     memory: &MemoryBudget,
     child: StateRootV1,
 ) -> MemberRecordV1 {
@@ -164,7 +163,7 @@ fn outer_reference(
     )
     .unwrap();
     member!(
-        store,
+        sink,
         memory,
         u64::MAX,
         MemberPayloadRefV1::RecordRoot(&reference)
@@ -173,6 +172,7 @@ fn outer_reference(
 fn changed_roots(
     store: &IncrementalPageStore,
     memory: &MemoryBudget,
+    sink: &mut StagedPages<'_>,
     roots: &RootSetV1,
     outer: &WorldFieldKeyV1,
     value: [u8; 32],
@@ -200,10 +200,7 @@ fn changed_roots(
         )
         .unwrap(),
     );
-    store
-        .value_session(physical_scope())
-        .put_state_pages(&delta, memory)
-        .unwrap();
+    sink.put_state_pages(&delta, memory).unwrap();
     let mut roots = roots.clone();
     roots.state[index] = delta.after.clone();
     roots
@@ -251,6 +248,7 @@ fn raw(
 fn swapped_leaf_paths(
     store: &IncrementalPageStore,
     memory: &MemoryBudget,
+    sink: &mut StagedPages<'_>,
     child: &StateRootV1,
 ) -> StateRootV1 {
     // Both complete authenticated leaf key/value pairs remain exactly original;
@@ -287,12 +285,6 @@ fn swapped_leaf_paths(
     }
     let mut ordered: Vec<_> = branches.into_iter().collect();
     ordered.sort_by_key(|(_, (depth, _, _))| std::cmp::Reverse(*depth));
-    let cancel = std::sync::atomic::AtomicBool::new(false);
-    let mut io = physical_scope();
-    let mut never = || false;
-    let mut writer = store
-        .buffered_page_writer(&mut io, &cancel, &mut never)
-        .unwrap();
     for (old, (depth, children, mut bytes)) in ordered {
         let mut changed = false;
         for (slot, kid) in children.into_iter().enumerate() {
@@ -312,14 +304,12 @@ fn swapped_leaf_paths(
             .verified_links()
             .unwrap();
             let charge = memory.reserve(bytes.len(), MemoryClass::Ordinary).unwrap();
-            writer
-                .put_node(*digest.as_bytes(), charge.retain(bytes))
+            sink.put_node(*digest.as_bytes(), charge.retain(bytes))
                 .unwrap();
             replaced.insert(old, digest.to_hex().to_string());
         }
         assert!(depth < 256);
     }
-    writer.finish().unwrap();
     let mut bad = child.clone();
     bad.node_root = replaced.remove(&child.node_root).unwrap();
     bad
@@ -331,18 +321,18 @@ pub(super) fn malformed_raw_and_changed_closures_are_rejected() {
     let store =
         IncrementalPageStore::create(&dir.0.join("pages"), memory.clone(), PageCompression::Raw)
             .unwrap();
-    let source = source();
-    let roots = seed(&store, &memory, &source);
+    let roots = seed_default(&store, &memory);
     let qualification = raw(&store, &memory, &roots).unwrap();
     assert_eq!(qualification.record_counts(), [1, 1, 1, 1, 1]);
     let (outer, _, child) = original_child(&store, &memory, &roots);
     let parent = parent(roots.clone());
     let live = parent.fence().unwrap();
     for case in 0..8 {
+        let mut stage = StagedPages::new(&memory);
         let bad = match case {
             0 => {
                 let row = member!(
-                    &store,
+                    &mut stage,
                     &memory,
                     (((), "record"), "unknown_column"),
                     MemberPayloadRefV1::Unit
@@ -350,13 +340,14 @@ pub(super) fn malformed_raw_and_changed_closures_are_rejected() {
                 child_changes(
                     &store,
                     &memory,
+                    &mut stage,
                     child.clone(),
                     vec![(row.field_key, Some(row.value_root))],
                 )
             }
             1 => {
                 let row = member!(
-                    &store,
+                    &mut stage,
                     &memory,
                     ((((), "record"), "bottleneck_tags"), "not-an-index"),
                     MemberPayloadRefV1::I64(17)
@@ -364,14 +355,21 @@ pub(super) fn malformed_raw_and_changed_closures_are_rejected() {
                 child_changes(
                     &store,
                     &memory,
+                    &mut stage,
                     child.clone(),
                     vec![(row.field_key, Some(row.value_root))],
                 )
             }
-            2 => child_changes(&store, &memory, child.clone(), vec![(key(&[0]), None)]),
+            2 => child_changes(
+                &store,
+                &memory,
+                &mut stage,
+                child.clone(),
+                vec![(key(&[0]), None)],
+            ),
             3 => {
                 let row = member!(
-                    &store,
+                    &mut stage,
                     &memory,
                     (((), "record"), "industrial_root_ref"),
                     MemberPayloadRefV1::Bool(true)
@@ -379,13 +377,14 @@ pub(super) fn malformed_raw_and_changed_closures_are_rejected() {
                 child_changes(
                     &store,
                     &memory,
+                    &mut stage,
                     child.clone(),
                     vec![(row.field_key, Some(row.value_root))],
                 )
             }
             4 => {
                 let row = member!(
-                    &store,
+                    &mut stage,
                     &memory,
                     ((((), "record"), "bottleneck_tags"), ()),
                     MemberPayloadRefV1::U64(3)
@@ -393,19 +392,20 @@ pub(super) fn malformed_raw_and_changed_closures_are_rejected() {
                 child_changes(
                     &store,
                     &memory,
+                    &mut stage,
                     child.clone(),
                     vec![(row.field_key, Some(row.value_root))],
                 )
             }
             5 => {
                 let marker = member!(
-                    &store,
+                    &mut stage,
                     &memory,
                     ((((), "record"), "consume"), ()),
                     MemberPayloadRefV1::U64(2)
                 );
                 let kind = member!(
-                    &store,
+                    &mut stage,
                     &memory,
                     (((((), "record"), "consume"), 1u64), "kind"),
                     MemberPayloadRefV1::Text("tail")
@@ -413,6 +413,7 @@ pub(super) fn malformed_raw_and_changed_closures_are_rejected() {
                 child_changes(
                     &store,
                     &memory,
+                    &mut stage,
                     child.clone(),
                     vec![
                         (marker.field_key, Some(marker.value_root)),
@@ -425,10 +426,18 @@ pub(super) fn malformed_raw_and_changed_closures_are_rejected() {
                 bad.leaf_count += 1;
                 bad
             }
-            _ => swapped_leaf_paths(&store, &memory, &child),
+            _ => swapped_leaf_paths(&store, &memory, &mut stage, &child),
         };
-        let reference = outer_reference(&store, &memory, bad);
-        let bad_roots = changed_roots(&store, &memory, &roots, &outer, reference.value_root);
+        let reference = outer_reference(&mut stage, &memory, bad);
+        let bad_roots = changed_roots(
+            &store,
+            &memory,
+            &mut stage,
+            &roots,
+            &outer,
+            reference.value_root,
+        );
+        flush_pages(&store, &memory, &stage.take_all());
         let raw_result = raw(&store, &memory, &bad_roots);
         assert!(
             matches!(raw_result, Err(ValueTreeError::Invalid(_))),

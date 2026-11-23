@@ -442,6 +442,7 @@ fn handle_command_request_to_peer_accepts_active_transport_peer() {
             payload: b"ping".to_vec(),
             peer: active_peer,
             deadline: None,
+            exchange: None,
             response: sender,
         }),
         CommandStateRefs {

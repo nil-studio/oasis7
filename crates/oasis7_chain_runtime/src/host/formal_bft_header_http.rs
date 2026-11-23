@@ -1,7 +1,7 @@
 //! Loopback transport for a durable, independently verified fixed BFT cut.
 //! No controlled-profile route or write operation is installed by this server.
 use ed25519_dalek::SigningKey;
-use oasis7::world_service::{
+use oasis7_world_service::{
     authority, formal_bft_header_read_service::FormalBftHeaderReadPublicationV4,
     formal_read_error::FormalReadError,
 };

@@ -1,6 +1,6 @@
 //! SDK -> real HTTP admission queue -> ordinary Node engine -> terminal receipts.
 use super::*;
-use oasis7::world_service::client::{RemoteWorldServiceClient, WorldServicePort};
+use oasis7_world_service::client::{RemoteWorldServiceClient, WorldServicePort};
 use oasis7_node::NodeExecutionCommitResult;
 
 struct SharedDriver(Arc<Mutex<bridge::NodeRuntimeExecutionDriver>>);
@@ -102,7 +102,7 @@ pub(super) fn run(
             }
         });
         let client = RemoteWorldServiceClient::new(
-            oasis7::world_service::client::WorldServiceClientConfig {
+            oasis7_world_service::client::WorldServiceClientConfig {
                 formal_read_trust: None,
                 endpoint,
                 trusted_service_public_key: receipt.service_public_key.clone(),

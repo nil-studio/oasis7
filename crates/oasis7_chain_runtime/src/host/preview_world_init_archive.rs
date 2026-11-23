@@ -2,7 +2,7 @@
 //! Live CAS retention may collect these historical objects after this bundle
 //! has been written; the current head remains validated from live CAS.
 use super::{Options, Receipt, bridge, files};
-use oasis7::world_service::{CommitRef, WorldIdentity};
+use oasis7_world_service::{CommitRef, WorldIdentity};
 use oasis7_runtime::{LocalCasStore, blake3_hex};
 use serde::{Deserialize, Serialize};
 use std::path::Path;

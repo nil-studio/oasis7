@@ -29,7 +29,7 @@ pub(super) fn config(
     endpoint: String,
     service_key: String,
     alternates: Vec<FormalFullSyncEndpointV1>,
-    trust: oasis7::world_service::client::FormalReadTrustConfigV1,
+    trust: oasis7_world_service::client::FormalReadTrustConfigV1,
     node_key: &ed25519_dalek::SigningKey,
 ) -> FormalFullSyncConfigV1 {
     let now = SystemTime::now()

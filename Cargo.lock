@@ -5408,6 +5408,7 @@ dependencies = [
 [[package]]
 name = "libp2p-rendezvous"
 version = "0.18.1"
+source = "git+https://github.com/libp2p/rust-libp2p?rev=2d8497b2615086bd88018ef3a1fb32bc613a07ca#2d8497b2615086bd88018ef3a1fb32bc613a07ca"
 dependencies = [
  "asynchronous-codec",
  "bimap",
@@ -6108,6 +6109,7 @@ dependencies = [
  "oasis7_observability",
  "oasis7_proto",
  "oasis7_runtime",
+ "oasis7_runtime_host",
  "oasis7_simulator",
  "oasis7_wasm_abi",
  "oasis7_wasm_executor",
@@ -6211,6 +6213,7 @@ dependencies = [
  "oasis7_observability",
  "oasis7_proto",
  "oasis7_runtime",
+ "oasis7_runtime_host",
  "oasis7_simulator",
  "oasis7_viewer_runtime",
  "oasis7_wasm_abi",
@@ -6266,6 +6269,7 @@ dependencies = [
  "oasis7",
  "oasis7_client_api",
  "oasis7_proto",
+ "oasis7_runtime_host",
  "oasis7_simulator",
  "oasis7_viewer_runtime",
  "reqwest 0.13.5",
@@ -6627,11 +6631,13 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "futures",
+ "futures-timer",
  "hex",
  "libp2p",
  "oasis7_proto",
  "oasis7_wasm_abi",
  "pin-project",
+ "prost 0.14.4",
  "serde",
  "serde_cbor_2",
  "serde_json",
@@ -6694,6 +6700,7 @@ dependencies = [
  "oasis7_hosted_access",
  "oasis7_proto",
  "oasis7_runtime",
+ "oasis7_runtime_host",
  "oasis7_simulator",
  "oasis7_wasm_abi",
  "oasis7_world_service",
@@ -6756,6 +6763,7 @@ version = "0.1.0"
 dependencies = [
  "oasis7",
  "oasis7_agent_api",
+ "oasis7_runtime_host",
  "oasis7_simulator",
  "oasis7_wasm_abi",
  "serde",
@@ -6793,6 +6801,20 @@ dependencies = [
  "sha2 0.11.0",
  "unicode-normalization",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "oasis7_runtime_host"
+version = "0.1.0"
+dependencies = [
+ "oasis7_agent_api",
+ "oasis7_client_api",
+ "oasis7_formal_protocol",
+ "oasis7_proto",
+ "oasis7_runtime",
+ "oasis7_simulator",
+ "oasis7_wasm_abi",
+ "oasis7_world_service",
 ]
 
 [[package]]
@@ -6865,6 +6887,7 @@ dependencies = [
  "oasis7_node",
  "oasis7_proto",
  "oasis7_runtime",
+ "oasis7_runtime_host",
  "oasis7_simulator",
  "oasis7_viewer_codec",
  "oasis7_wasm_abi",

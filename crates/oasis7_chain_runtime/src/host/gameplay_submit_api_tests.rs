@@ -128,7 +128,7 @@ fn collect_data_world_dir(
         std::process::id()
     ));
     let _ = std::fs::remove_dir_all(path.as_path());
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     world.submit_action(Action::RegisterAgent {
         agent_id: agent_id.to_string(),
         pos: oasis7_agent_api::world_action::GeoPos {

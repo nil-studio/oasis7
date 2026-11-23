@@ -4,7 +4,7 @@
 //! identities, create storage, discover trust from an endpoint, or promote the
 //! engineering configuration into a formal profile.
 use ed25519_dalek::SigningKey;
-use oasis7::world_service::client::FormalReadTrustConfigV1;
+use oasis7_world_service::client::FormalReadTrustConfigV1;
 use oasis7_distfs::controlled_authority::formal::{
     FormalCompletionBranchV1, FormalQualifiedCommitProofV1, FormalRecordKindV1,
     VerifiedFormalReadAnchorV1, endpoint::FormalCandidateMaterialV1, verify_formal_candidate,

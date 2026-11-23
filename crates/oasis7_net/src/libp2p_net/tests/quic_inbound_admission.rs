@@ -221,21 +221,31 @@ fn quic_inbound_permit_is_checked_before_upgrade_and_held_until_close() {
                 let admission = Arc::clone(&may_enter);
                 let permit_drops = Arc::clone(&dropped);
                 let seen = Arc::clone(&attempts);
-                let config = Config::with_tokio_executor()
-                    .with_idle_connection_timeout(Duration::from_secs(30))
-                    .with_inbound_transport_admission(move |id, local, remote| {
+                let gate = crate::libp2p_net::transport_admission::TransportAdmissionGate::inbound_only(
+                    move |id, local, remote| {
                         seen.lock().unwrap().push((id, local.clone(), remote.clone()));
                         if !admission.load(Ordering::SeqCst) {
                             return Err(ConnectionDenied::new(io::Error::other("no permit")));
                         }
                         Ok(Box::new(Permit(Arc::clone(&permit_drops))))
-                    });
+                    },
+                );
+                let config = Config::with_tokio_executor()
+                    .with_idle_connection_timeout(Duration::from_secs(30));
                 let server_key = Keypair::generate_ed25519();
-                let transport = quic::tokio::Transport::new(quic::Config::new(&server_key))
-                    .map(|(peer, muxer), _| (peer, StreamMuxerBox::new(muxer)))
+                let transport = gate
+                    .wrap_transport(
+                        quic::tokio::Transport::new(quic::Config::new(&server_key))
+                            .map(|(peer, muxer), _| (peer, StreamMuxerBox::new(muxer)))
+                            .boxed(),
+                    )
                     .boxed();
                 let server_peer = server_key.public().to_peer_id();
-                let mut server = Swarm::new(transport, dummy::Behaviour, server_peer, config);
+                let behaviour = crate::libp2p_net::transport_admission::AdmissionBehaviour::new(
+                    dummy::Behaviour,
+                    gate,
+                );
+                let mut server = Swarm::new(transport, behaviour, server_peer, config);
                 server
                     .listen_on("/ip4/127.0.0.1/udp/0/quic-v1".parse().unwrap())
                     .unwrap();

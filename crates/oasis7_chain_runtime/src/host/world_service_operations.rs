@@ -33,7 +33,7 @@ pub(super) fn describe(
         DescribeWorldResponse {
             formal_profile: None,
             execution_evidence_scope: service.guarded.map(|_| {
-                oasis7::world_service::verified_view::CONTROLLED_PREREQUISITE_READ_SCOPE.into()
+                oasis7_world_service::verified_view::CONTROLLED_PREREQUISITE_READ_SCOPE.into()
             }),
             contract_version: WORLD_SERVICE_CONTRACT_VERSION,
             world: service.identity.clone(),
@@ -197,7 +197,7 @@ pub(super) fn submit(
             terminal_recovery_authority: None,
             formal_profile: None,
             execution_evidence_scope: service.guarded.map(|_| {
-                oasis7::world_service::verified_view::CONTROLLED_PREREQUISITE_READ_SCOPE.into()
+                oasis7_world_service::verified_view::CONTROLLED_PREREQUISITE_READ_SCOPE.into()
             }),
             contract_version: WORLD_SERVICE_CONTRACT_VERSION,
             correlation,
@@ -267,7 +267,7 @@ fn lookup_with_mode(
             terminal_recovery_authority,
             formal_profile: None,
             execution_evidence_scope: service.guarded.map(|_| {
-                oasis7::world_service::verified_view::CONTROLLED_PREREQUISITE_READ_SCOPE.into()
+                oasis7_world_service::verified_view::CONTROLLED_PREREQUISITE_READ_SCOPE.into()
             }),
             contract_version: WORLD_SERVICE_CONTRACT_VERSION,
             outcome: existing,
@@ -365,7 +365,7 @@ fn view_profile(
         formal_profile: None,
         formal_proof: None,
         execution_evidence_scope: service.guarded.map(|_| {
-            oasis7::world_service::verified_view::CONTROLLED_PREREQUISITE_READ_SCOPE.into()
+            oasis7_world_service::verified_view::CONTROLLED_PREREQUISITE_READ_SCOPE.into()
         }),
         contract_version: WORLD_SERVICE_CONTRACT_VERSION,
         version: version(&pinned, &request.request.scope_id, &projection)?,
@@ -435,7 +435,7 @@ pub(super) fn changes(
     let mut response = ReadWorldChangesResponse {
         formal_profile: None,
         execution_evidence_scope: service.guarded.map(|_| {
-            oasis7::world_service::verified_view::CONTROLLED_PREREQUISITE_READ_SCOPE.into()
+            oasis7_world_service::verified_view::CONTROLLED_PREREQUISITE_READ_SCOPE.into()
         }),
         contract_version: WORLD_SERVICE_CONTRACT_VERSION,
         changes: Vec::new(),

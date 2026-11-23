@@ -421,7 +421,7 @@ impl GuardedExecutionDriver {
         private_directory(&candidate_root)?;
         let world_dir = candidate_root.join("world");
         private_directory(&world_dir)?;
-        let identity = oasis7::world_service::WorldIdentity {
+        let identity = oasis7_world_service::WorldIdentity {
             world_id: self.authority.policy.trust.world_id.clone(),
             genesis_digest: self.authority.policy.trust.genesis_digest.clone(),
         };

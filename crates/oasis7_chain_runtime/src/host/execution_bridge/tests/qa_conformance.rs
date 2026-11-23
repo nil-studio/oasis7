@@ -68,10 +68,10 @@ mod strict_http;
 mod topology_no_mount;
 mod topology_pressure;
 mod viewer_process;
-use oasis7::world_service::client::{
+use oasis7_world_service::client::{
     RemoteWorldServiceClient, WorldServiceClientConfig, WorldServicePort,
 };
-use oasis7::world_service::*;
+use oasis7_world_service::*;
 use oasis7_node::{
     NodeConfig, NodeConsensusAction, NodeExecutionCommitResult, NodeExecutionHook, NodeRuntime,
 };
@@ -176,7 +176,7 @@ impl Fixture {
                 },
             );
         }
-        let mut world = oasis7::runtime_host::world::new_with_state(state);
+        let mut world = oasis7_runtime_host::world::new_with_state(state);
         if scheduler {
             use oasis7_runtime::SchedulerPolicyV1;
             world = world
@@ -1160,7 +1160,7 @@ fn real_tcp_tampered_service_response_is_not_trusted() {
     assert!(
         matches!(
             fixture.client.describe(),
-            Err(oasis7::world_service::client::WorldServiceClientError::Assurance(_))
+            Err(oasis7_world_service::client::WorldServiceClientError::Assurance(_))
         ),
         "tampered actual service response must fail configured trust"
     );

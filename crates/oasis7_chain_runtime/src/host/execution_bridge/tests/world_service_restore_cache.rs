@@ -2,7 +2,7 @@ use super::*;
 use std::cell::Cell;
 
 fn input() -> (Snapshot, Journal) {
-    let world = oasis7::runtime_host::world::new();
+    let world = oasis7_runtime_host::world::new();
     (world.snapshot(), world.journal().clone())
 }
 
@@ -17,7 +17,7 @@ fn successful_restore_reuse_skips_repeated_restore_and_isolates_consumer_mutatio
     let calls = Cell::new(0);
     let run = || {
         calls.set(calls.get() + 1);
-        oasis7::runtime_host::world::from_snapshot(snapshot.clone(), journal.clone())
+        oasis7_runtime_host::world::from_snapshot(snapshot.clone(), journal.clone())
     };
     let baseline = restore_with(&cache, key.clone(), run).unwrap();
     let mut returned = restore_with(&cache, key.clone(), run).unwrap();
@@ -45,7 +45,7 @@ fn complete_journal_key_failures_and_oversized_entries_do_not_reuse_restore() {
     let (snapshot, journal) = input();
     let run = || {
         calls.set(calls.get() + 1);
-        oasis7::runtime_host::world::from_snapshot(snapshot.clone(), journal.clone())
+        oasis7_runtime_host::world::from_snapshot(snapshot.clone(), journal.clone())
     };
     let first = Key::from_bytes(b"same-snapshot", b"full-journal-a");
     let different_journal = Key::from_bytes(b"same-snapshot", b"full-journal-b");
@@ -116,7 +116,7 @@ fn fifo_capacity_and_poison_fallback_preserve_actual_restore() {
     let (snapshot, journal) = input();
     let run = || {
         calls.set(calls.get() + 1);
-        oasis7::runtime_host::world::from_snapshot(snapshot.clone(), journal.clone())
+        oasis7_runtime_host::world::from_snapshot(snapshot.clone(), journal.clone())
     };
     let first = Key::from_bytes(b"first", b"journal");
     restore_with(&cache, first.clone(), run).unwrap();
@@ -148,7 +148,7 @@ fn fifo_capacity_and_poison_fallback_preserve_actual_restore() {
 fn same_complete_journal_with_different_snapshot_bytes_restores_distinct_worlds() {
     let cache = Mutex::new(RestoreCache::default());
     let (first, journal) = input();
-    let other_world = oasis7::runtime_host::world::new_with_state(oasis7_runtime::WorldState {
+    let other_world = oasis7_runtime_host::world::new_with_state(oasis7_runtime::WorldState {
         world_rules: None,
         time: 7,
         ..oasis7_runtime::WorldState::default()
@@ -196,7 +196,7 @@ fn same_complete_journal_with_different_snapshot_bytes_restores_distinct_worlds(
 
 pub(super) fn local_context(seed: u8) -> super::super::RestoreContext {
     let release = oasis7_runtime::ReleaseSecurityPolicy::default();
-    let public = oasis7::world_service::sign_read_request("test", (), &hex::encode([seed; 32]))
+    let public = oasis7_world_service::sign_read_request("test", (), &hex::encode([seed; 32]))
         .unwrap()
         .subject_public_key;
     let local = oasis7_runtime::DevLocalParticipantAuthority::new(
@@ -310,7 +310,7 @@ fn warm_local_policy_history_remains_rejected_without_matching_operator_context(
     use oasis7_agent_api::game::{DecimalU64, GameIdentityNamespaceV1};
     use oasis7_runtime::service_admission::{participant::*, participant_policy::*};
     let context = local_context(77);
-    let original = oasis7::runtime_host::world::new();
+    let original = oasis7_runtime_host::world::new();
     let snapshot = original.snapshot_with_chain_resource_context(
         oasis7_runtime::ChainResourceDerivationContext {
             world_id: "local-world",
@@ -340,7 +340,7 @@ fn warm_local_policy_history_remains_rejected_without_matching_operator_context(
             environment_id: "test".into(),
             instance_epoch: DecimalU64(1),
         },
-        issuer_public_key: oasis7::world_service::sign_read_request("test", (), &issuer_key)
+        issuer_public_key: oasis7_world_service::sign_read_request("test", (), &issuer_key)
             .unwrap()
             .subject_public_key,
         generation: 1,
@@ -365,11 +365,11 @@ fn warm_local_policy_history_remains_rejected_without_matching_operator_context(
         legacy_owner_state_digest: world.participant_legacy_owner_state_digest().unwrap(),
         entries: vec![],
     };
-    let authorization = oasis7::world_service::sign_read_request(
+    let authorization = oasis7_world_service::sign_read_request(
         devlocal_policy_signing_domain(1),
         DevLocalParticipantPolicyAuthorizationV1 {
             policy: policy.clone(),
-            manifest: oasis7::world_service::sign_read_request(
+            manifest: oasis7_world_service::sign_read_request(
                 PARTICIPANT_MIGRATION_MANIFEST_DOMAIN,
                 manifest,
                 &issuer_key,
