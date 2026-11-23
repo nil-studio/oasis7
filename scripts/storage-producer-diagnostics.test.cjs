@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const {execFileSync} = require('node:child_process');
 const {buildEnvironment, snapshot, uploadSnapshot, downloadUploader, main, execute, MAX_BYTES} = require('./storage-producer-diagnostics.cjs');
-const identity = {GITHUB_SHA: 'a'.repeat(40), GITHUB_RUN_ID: '1', GITHUB_RUN_ATTEMPT: '2', GITHUB_REF: 'refs/heads/main', GITHUB_EVENT_NAME: 'workflow_dispatch', SOURCE_SHA: 'a'.repeat(40)};
+const identity = {GITHUB_SHA: 'a'.repeat(40), GITHUB_RUN_ID: '1', GITHUB_RUN_ATTEMPT: '2', GITHUB_REF: 'refs/heads/main', GITHUB_EVENT_NAME: 'workflow_dispatch', SOURCE_SHA: 'a'.repeat(40), GITHUB_WORKFLOW_SHA: 'a'.repeat(40), GITHUB_REPOSITORY: 'nil-studio/oasis7'};
 async function temporary(fn) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'storage-diag-test-'));
   try { await fn(dir); } finally { await fs.rm(dir, {recursive: true, force: true}); }
@@ -21,6 +21,8 @@ test('snapshot is explicit non-acceptance identity and bounded process details',
     unlisted_secret: 'secret', latest: {processes: Array.from({length: 100}, (_, pid) => ({pid, unlisted_secret: 'secret'}))}}}));
   const data = JSON.parse(await snapshot(dir, {...identity, ACTIONS_RUNTIME_TOKEN: 'secret'}, 3));
   assert.equal(data.diagnostic_only, true); assert.equal(data.sequence, 3);
+  assert.ok(data.orchestrator.rss_bytes > 0);
+  assert.match(data.orchestrator.scope, /Excludes Cargo and upload child/);
   assert.equal(data.resources.process_tree.latest.processes.length, 64);
   assert.equal(data.resources.process_tree.latest.omitted_processes, 36);
   assert.equal(data.build, null); assert.ok(!JSON.stringify(data).includes('secret'));
@@ -59,7 +61,7 @@ test('missing uploader cannot turn a failed build green or retry it', () => temp
   execFileSync('git', ['init', '-q', dir]);
   execFileSync('git', ['-C', dir, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'fixture']);
   const sha = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], {encoding: 'utf8'}).trim();
-  const code = await main({env: {...identity, GITHUB_SHA: sha, SOURCE_SHA: sha, RUNNER_TEMP: dir, GITHUB_WORKSPACE: dir,
+  const code = await main({env: {...identity, GITHUB_SHA: sha, SOURCE_SHA: sha, GITHUB_WORKFLOW_SHA: sha, RUNNER_TEMP: dir, GITHUB_WORKSPACE: dir,
     STORAGE_ARTIFACT_CHECKOUT: await fs.realpath(dir),
     ACTIONS_RUNTIME_TOKEN: 'secret'}, fetchImpl: async () => { throw Error('offline'); },
     runBuild: async options => { builds++; assert.equal(options.env.ACTIONS_RUNTIME_TOKEN, undefined); return 17; }});
@@ -110,4 +112,20 @@ test('FIFO diagnostic report is rejected before a blocking read', {skip: process
   const started = Date.now();
   const result = JSON.parse(await snapshot(dir, identity, 1));
   assert.equal(result.resources, null); assert.ok(Date.now() - started < 1000);
+}));
+
+test('fake-build transport receipts cannot be mistaken for normal producer observations', () => temporary(async dir => {
+  const probe = JSON.parse(await snapshot(dir, {...identity, GITHUB_JOB: 'diagnostics-probe'}, 1));
+  const normal = JSON.parse(await snapshot(dir, {...identity, GITHUB_JOB: 'build-components'}, 1));
+  assert.equal(probe.diagnostic_only, true); assert.equal(probe.probe_only, true);
+  assert.equal(normal.diagnostic_only, true); assert.equal(normal.probe_only, false);
+}));
+
+test('fork main and a different workflow source cannot obtain live diagnostics', () => temporary(async dir => {
+  for (const change of [{GITHUB_REPOSITORY: 'fork/oasis7'}, {GITHUB_WORKFLOW_SHA: 'b'.repeat(40)}]) {
+    let calls = 0;
+    await assert.rejects(main({env: {...identity, GITHUB_WORKSPACE: dir, RUNNER_TEMP: dir, ...change},
+      runBuild: async () => { calls++; }, fetchImpl: async () => { calls++; }}), /trusted main/);
+    assert.equal(calls, 0);
+  }
 }));

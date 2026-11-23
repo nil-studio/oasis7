@@ -58,6 +58,8 @@ runner 失联时尾上传和日志端点都可能不可用，因此仅明确绑�
 
 artifact 名字及快照绑定 source、run、attempt、component 和递增序号，诊断不是可消费的 native component，也不参与 bundle 身份汇总。只有官方上传成功返回且可独立读取的 artifact 才证明该快照已保存；最后成功快照与失联之间仍可能缺失，网络或进程同时中断时不能保证保存事故瞬间。不得以诊断到达、构建结束或旧 source 的成功组件代签本轮完整归档及默认分片验收。首次实际诊断必须记录上传次数、大小、失败及时间开销；不改变既有 runner、150 分钟预算、profile、缓存和覆盖。
 
+手动输入 `diagnostics_probe` 默认 false，正式默认分片与汇总继续完整运行。显式启用时仅可信 main 的 `diagnostics-probe` job 在 5 分钟内使用固定官方 Node action 调用相同 uploader 主函数，以短 Python 进程和原资源观察器代替 Cargo；不构建或合并 native component，不运行正式验收汇总。快照额外带 `probe_only: true`，正常 producer 为 false；两者始终 `diagnostic_only: true`。该短实测须独立下载已确认 artifact，核 ZIP/成员摘要、source/run/attempt、白名单和真实观察器指标，不能凭控制台 ACK 或 workflow 绿色代签。短实测通过后，完整长构建仍需单独授权与同 source 的全新组件。
+
 ### attempt-release 的镜像消费边界
 
 仅该分片在预制镜像内运行完整 Python driver 与真实子进程，使用 Docker init、runner 的同 UID/GID 和默认 PID namespace，不增加 capabilities、privileged 或 host PID。一个 mode 0700 的 runner 文件系统目录单独 bind，TMPDIR 与采样 results 都在该目录内；预检核对宿主传入的 device/inode、容器目录身份和同 device，拒绝 overlay/tmpfs，避免资源采样只观察另一个盘。case 私有根仍由原 fixture 创建，P/R、attempt 和原字节之间的文件系统关系不变。上传只保留结果与诊断，显式排除该目录下 tmp/**（同时承载 HOME）的全部文件，避免失败时残留语料、native 原字节或进程私有文件进入结果归档。

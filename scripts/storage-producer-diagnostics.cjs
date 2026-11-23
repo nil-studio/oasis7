@@ -68,9 +68,13 @@ function projectResources(value) {
           comm: text(process.comm, 64), state: text(process.state, 1), cpu_seconds: decimal(process.cpu_seconds)}))} : null}};
 }
 async function snapshot(directory, env, sequence) {
-  const receipt = {schema: 1, diagnostic_only: true, source_sha: env.GITHUB_SHA,
+  const receipt = {schema: 1, diagnostic_only: true, probe_only: env.GITHUB_JOB === 'diagnostics-probe', source_sha: env.GITHUB_SHA,
     run_id: env.GITHUB_RUN_ID, attempt: env.GITHUB_RUN_ATTEMPT,
-    component: 'storage-required', image: env.STORAGE_BUILD_IMAGE || null, sequence, observed_at: new Date().toISOString()};
+    component: 'storage-required', image: env.STORAGE_BUILD_IMAGE || null, sequence, observed_at: new Date().toISOString(),
+    orchestrator: {rss_bytes: process.memoryUsage().rss,
+      cpu_user_microseconds: process.resourceUsage().userCPUTime,
+      cpu_system_microseconds: process.resourceUsage().systemCPUTime,
+      scope: 'Current Node action process; CPU is lifetime cumulative, RSS is sampled. Excludes Cargo and upload child.'}};
   for (const [key, name] of [['build', 'build.json'], ['resources', 'resources.json']]) {
     try { receipt[key] = (key === 'build' ? projectBuild : projectResources)(await readJson(path.join(directory, 'formal-required', name))); }
     catch { receipt[key] = null; }
@@ -137,7 +141,8 @@ async function uploadSnapshot(uploader, file, name, env, executeImpl = execute) 
 }
 async function main({env = process.env, runBuild, fetchImpl = fetch, executeImpl = execute} = {}) {
   const root = env.GITHUB_WORKSPACE;
-  if (env.GITHUB_REF !== 'refs/heads/main' || env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || env.SOURCE_SHA !== env.GITHUB_SHA)
+  if (env.GITHUB_REPOSITORY !== 'nil-studio/oasis7' || env.GITHUB_REF !== 'refs/heads/main' ||
+      env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || env.SOURCE_SHA !== env.GITHUB_SHA || env.GITHUB_WORKFLOW_SHA !== env.GITHUB_SHA)
     throw Error('live diagnostics require trusted main dispatch source');
   if (!root || !env.RUNNER_TEMP || !/^[a-f0-9]{40}$/.test(env.GITHUB_SHA || '') ||
       !/^\d+$/.test(env.GITHUB_RUN_ID || '') || !/^[1-9]\d*$/.test(env.GITHUB_RUN_ATTEMPT || ''))
