@@ -3,7 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const {buildEnvironment, snapshot, uploadSnapshot, downloadUploader, main, MAX_BYTES} = require('./storage-producer-diagnostics.cjs');
+const {execFileSync} = require('node:child_process');
+const {buildEnvironment, snapshot, uploadSnapshot, downloadUploader, main, execute, MAX_BYTES} = require('./storage-producer-diagnostics.cjs');
 const identity = {GITHUB_SHA: 'a'.repeat(40), GITHUB_RUN_ID: '1', GITHUB_RUN_ATTEMPT: '2', GITHUB_REF: 'refs/heads/main', GITHUB_EVENT_NAME: 'workflow_dispatch', SOURCE_SHA: 'a'.repeat(40)};
 async function temporary(fn) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'storage-diag-test-'));
@@ -34,10 +35,11 @@ test('snapshot rejects symlink and oversized source without reading contents', (
 }));
 test('official output acknowledgement supports multiline core output protocol', () => temporary(async dir => {
   const file = path.join(dir, 'snapshot.json'); await fs.writeFile(file, '{}');
-  const result = await uploadSnapshot('official.cjs', file, 'unique', {ACTIONS_RUNTIME_TOKEN: 'secret'},
+  const result = await uploadSnapshot('official.cjs', file, 'unique', {ACTIONS_RUNTIME_TOKEN: 'secret', NODE_OPTIONS: '--require=existing-cache-admission.cjs'},
     async (args, options, timeout) => {
       assert.equal(timeout, 30000); assert.equal(options.env.INPUT_OVERWRITE, 'false');
       assert.equal(options.env.ACTIONS_RUNTIME_TOKEN, 'secret');
+      assert.equal(options.env.NODE_OPTIONS, '--require=existing-cache-admission.cjs');
       await fs.writeFile(options.env.GITHUB_OUTPUT, 'artifact-id<<marker\n123\nmarker\nartifact-digest<<digest\n' + 'b'.repeat(64) + '\ndigest\n');
       return 0;
     });
@@ -54,7 +56,11 @@ test('download rejects modified official bytes', () => temporary(async dir => {
 }));
 test('missing uploader cannot turn a failed build green or retry it', () => temporary(async dir => {
   let builds = 0;
-  const code = await main({env: {...identity, RUNNER_TEMP: dir, GITHUB_WORKSPACE: dir,
+  execFileSync('git', ['init', '-q', dir]);
+  execFileSync('git', ['-C', dir, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'fixture']);
+  const sha = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], {encoding: 'utf8'}).trim();
+  const code = await main({env: {...identity, GITHUB_SHA: sha, SOURCE_SHA: sha, RUNNER_TEMP: dir, GITHUB_WORKSPACE: dir,
+    STORAGE_ARTIFACT_CHECKOUT: await fs.realpath(dir),
     ACTIONS_RUNTIME_TOKEN: 'secret'}, fetchImpl: async () => { throw Error('offline'); },
     runBuild: async options => { builds++; assert.equal(options.env.ACTIONS_RUNTIME_TOKEN, undefined); return 17; }});
   assert.equal(code, 17); assert.equal(builds, 1);
@@ -78,4 +84,30 @@ test('candidate source cannot enter live action even with supplied runtime crede
     GITHUB_WORKSPACE: dir, RUNNER_TEMP: dir, ACTIONS_RUNTIME_TOKEN: 'secret'},
     runBuild: async () => { builds++; }, fetchImpl: async () => { downloads++; }}), /trusted main/);
   assert.equal(builds, 0); assert.equal(downloads, 0);
+}));
+
+test('upload subprocess deadline terminates only its own child', async () => {
+  const started = Date.now();
+  const code = await execute(['-e', 'setInterval(() => {}, 1000)'],
+    {stdio: ['ignore', 'ignore', 'ignore']}, 50);
+  assert.equal(code, 1); assert.ok(Date.now() - started < 2000);
+});
+
+test('checkout path and actual Git source are checked before uploader or Cargo', () => temporary(async dir => {
+  let downloads = 0, builds = 0;
+  const options = {env: {...identity, RUNNER_TEMP: dir, GITHUB_WORKSPACE: dir, STORAGE_ARTIFACT_CHECKOUT: '/wrong'},
+    runBuild: async () => { builds++; }, fetchImpl: async () => { downloads++; }};
+  await assert.rejects(main(options), /checkout path/);
+  execFileSync('git', ['init', '-q', dir]);
+  execFileSync('git', ['-C', dir, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'fixture']);
+  options.env.STORAGE_ARTIFACT_CHECKOUT = await fs.realpath(dir);
+  await assert.rejects(main(options), /checkout source/);
+  assert.equal(builds, 0); assert.equal(downloads, 0);
+}));
+test('FIFO diagnostic report is rejected before a blocking read', {skip: process.platform === 'win32'}, () => temporary(async dir => {
+  await fs.mkdir(path.join(dir, 'formal-required'));
+  execFileSync('mkfifo', [path.join(dir, 'formal-required/resources.json')]);
+  const started = Date.now();
+  const result = JSON.parse(await snapshot(dir, identity, 1));
+  assert.equal(result.resources, null); assert.ok(Date.now() - started < 1000);
 }));

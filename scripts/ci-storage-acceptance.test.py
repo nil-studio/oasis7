@@ -348,12 +348,22 @@ class Contracts(unittest.TestCase):
         self.assertIn(variable + ": ${{ matrix.group == 'full-node' && '1' || '' }}", step)
         self.assertIn('python3 scripts/ci-storage-acceptance.py run', step)
 
+    def test_live_producer_diagnostics_behavioral_contracts(self):
+        result = subprocess.run(['node', '--test', str(HERE / 'storage-producer-diagnostics.test.cjs')],
+                                cwd=HERE.parent, capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('tests 12', result.stdout)
+        self.assertIn('fail 0', result.stdout)
+
     def test_live_producer_diagnostics_keep_candidate_builds_on_original_no_token_path(self):
         workflow = (HERE.parent / '.github/workflows/storage-acceptance.yml').read_text()
         live, rest = workflow.split('      - name: Build required component with in-build diagnostics\n', 1)[1].split(
             '      - name: Build and inventory exact native acceptance executables\n', 1)
         self.assertIn("if: matrix.component == 'storage-required' && github.ref == 'refs/heads/main'", live)
         self.assertIn('uses: ./.github/actions/storage-producer-diagnostics', live)
+        implementation = (HERE / 'storage-producer-diagnostics.cjs').read_text()
+        official_pin = re.search(r"const UPLOAD_SHA = '([0-9a-f]{40})'", implementation).group(1)
+        self.assertIn('uses: actions/upload-artifact@' + official_pin, workflow)
         original = rest.split('      - uses: actions/upload-artifact@', 1)[0]
         self.assertIn("if: matrix.component != 'storage-required' || github.ref != 'refs/heads/main'", original)
         self.assertIn('python3 scripts/ci-storage-acceptance.py build --component "$COMPONENT"', original)

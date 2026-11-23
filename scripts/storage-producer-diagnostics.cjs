@@ -3,7 +3,7 @@ const fs = require('node:fs/promises');
 const {constants} = require('node:fs');
 const path = require('node:path');
 const {createHash} = require('node:crypto');
-const {spawn} = require('node:child_process');
+const {spawn, execFileSync} = require('node:child_process');
 const UPLOAD_SHA = 'cf430e030ddbb5b0abf93d22962f4752f3646cd9';
 const UPLOAD_DIGEST = 'c0e58b240360573e6d6c82ea1bb22deff4f85883e00211a52bd27822c3a22617';
 const MAX_BYTES = 256 * 1024, MAX_SNAPSHOTS = 31, INTERVAL_MS = 300000;
@@ -13,7 +13,7 @@ function buildEnvironment(env) {
     !['ACTIONS_RUNTIME_TOKEN', 'ACTIONS_RESULTS_URL', 'ACTIONS_CACHE_URL', 'GITHUB_TOKEN', 'GH_TOKEN'].includes(key)));
 }
 async function readJson(file) {
-  const handle = await fs.open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const handle = await fs.open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const stat = await handle.stat();
     if (!stat.isFile() || stat.size > MAX_BYTES) throw Error('invalid diagnostic file');
@@ -120,7 +120,6 @@ async function uploadSnapshot(uploader, file, name, env, executeImpl = execute) 
     INPUT_NAME: name, INPUT_PATH: file, 'INPUT_IF-NO-FILES-FOUND': 'error',
     'INPUT_RETENTION-DAYS': '2', 'INPUT_COMPRESSION-LEVEL': '1', INPUT_OVERWRITE: 'false',
     'INPUT_INCLUDE-HIDDEN-FILES': 'false', INPUT_ARCHIVE: 'true'};
-  delete uploadEnv.NODE_OPTIONS;
   const code = await executeImpl([uploader], {env: uploadEnv, stdio: ['ignore', 'ignore', 'ignore']}, 30000);
   if (code !== 0) throw Error('diagnostic upload unsuccessful');
   const text = await fs.readFile(output, 'utf8');
@@ -143,6 +142,11 @@ async function main({env = process.env, runBuild, fetchImpl = fetch, executeImpl
   if (!root || !env.RUNNER_TEMP || !/^[a-f0-9]{40}$/.test(env.GITHUB_SHA || '') ||
       !/^\d+$/.test(env.GITHUB_RUN_ID || '') || !/^[1-9]\d*$/.test(env.GITHUB_RUN_ATTEMPT || ''))
     throw Error('invalid producer identity');
+  const actualRoot = await fs.realpath(root);
+  if (actualRoot !== env.STORAGE_ARTIFACT_CHECKOUT) throw Error('producer checkout path mismatch');
+  const actualHead = execFileSync('git', ['rev-parse', 'HEAD'], {
+    cwd: actualRoot, env: buildEnvironment(env), timeout: 5000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore']}).trim();
+  if (actualHead !== env.SOURCE_SHA) throw Error('producer checkout source mismatch');
   const directory = await fs.mkdtemp(path.join(env.RUNNER_TEMP, 'storage-required-diagnostics-'));
   const diagnostics = path.join(directory, 'observation');
   const uploader = path.join(directory, 'upload-artifact.mjs');
@@ -168,8 +172,9 @@ async function main({env = process.env, runBuild, fetchImpl = fetch, executeImpl
   try {
     code = await runBuild({root, diagnostics, env: buildEnvironment(env)});
   } finally { clearInterval(timer); }
+  const pendingAtExit = busy;
   await inflight;
-  await publish();
+  if (!pendingAtExit) await publish();
   return code;
 }
 module.exports = {...module.exports, execute, downloadUploader, uploadSnapshot, main};
