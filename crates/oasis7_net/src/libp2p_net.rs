@@ -55,6 +55,7 @@ mod runtime_support;
 mod swarm_behaviour;
 mod swarm_reachability_events;
 mod traffic_metrics;
+mod transport_admission;
 mod transport_paths;
 mod utils;
 mod wire_byte_window;

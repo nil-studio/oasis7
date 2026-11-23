@@ -14,7 +14,7 @@ use libp2p::{
     multiaddr::Protocol,
     relay,
     swarm::{
-        DialError, ListenError, Swarm, SwarmEvent,
+        Config, DialError, ListenError, Swarm, SwarmEvent,
         dial_opts::{DialOpts, PeerCondition},
     },
 };
@@ -870,7 +870,7 @@ fn stale_and_mixed_dial_errors_are_scoped_to_the_exact_retry_path() {
     use crate::libp2p_net::transport_paths::{
         DialedTransportPath, bootstrap_transport_path_state, take_retryable_transport_path,
     };
-    use libp2p::{core::transport::TransportError, swarm::TransportHandshakeDeadlineElapsed};
+    use libp2p::core::transport::TransportError;
     use std::collections::HashMap;
 
     let peer = Keypair::generate_ed25519().public().to_peer_id();

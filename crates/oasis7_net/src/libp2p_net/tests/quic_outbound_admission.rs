@@ -72,20 +72,29 @@ impl Transport for RecordingTransport {
     }
 }
 
-fn swarm(config: Config, dialed: Arc<Mutex<Vec<Multiaddr>>>) -> Swarm<dummy::Behaviour> {
+use crate::libp2p_net::transport_admission::{
+    AdmissionBehaviour, OutboundAttemptBudgetDenied, TransportAdmissionGate,
+    has_transport_error_cause,
+};
+
+fn swarm(
+    gate: TransportAdmissionGate,
+    dialed: Arc<Mutex<Vec<Multiaddr>>>,
+) -> Swarm<AdmissionBehaviour<dummy::Behaviour>> {
     let key = Keypair::generate_ed25519();
     let transport = quic::tokio::Transport::new(quic::Config::new(&key))
         .map(|(peer, muxer), _| (peer, StreamMuxerBox::new(muxer)))
         .boxed();
+    let recording = RecordingTransport {
+        inner: transport,
+        dialed,
+    }
+    .boxed();
     Swarm::new(
-        RecordingTransport {
-            inner: transport,
-            dialed,
-        }
-        .boxed(),
-        dummy::Behaviour,
+        gate.wrap_transport(recording).boxed(),
+        AdmissionBehaviour::new(dummy::Behaviour, gate),
         key.public().to_peer_id(),
-        config.with_idle_connection_timeout(Duration::from_secs(30)),
+        Config::with_tokio_executor().with_idle_connection_timeout(Duration::from_secs(30)),
     )
 }
 
@@ -97,7 +106,7 @@ fn a_multiaddress_dial_checks_each_attempt_and_holds_the_winner_until_close() {
         .unwrap()
         .block_on(async {
             tokio::time::timeout(Duration::from_secs(10), async {
-                let mut listener = swarm(Config::with_tokio_executor(), Arc::default());
+                let mut listener = swarm(TransportAdmissionGate::default(), Arc::default());
                 let listener_peer = *listener.local_peer_id();
                 let listen: Multiaddr = "/ip4/127.0.0.1/udp/0/quic-v1".parse().unwrap();
                 listener.listen_on(listen.clone()).unwrap();
@@ -138,16 +147,19 @@ fn a_multiaddress_dial_checks_each_attempt_and_holds_the_winner_until_close() {
                 let refused = denied.clone();
                 let dialed = Arc::new(Mutex::new(Vec::new()));
                 let observed_dials = Arc::clone(&dialed);
-                let mut dialer = swarm(Config::with_tokio_executor().with_outbound_transport_admission(
-                    move |connection, peer: Option<PeerId>, address| {
-                        assert!(!observed_dials.lock().unwrap().contains(address));
-                        attempts.lock().unwrap().push((connection, peer, address.clone()));
-                        if address == &refused {
-                            return Err(ConnectionDenied::new(io::Error::other("denied address")));
-                        }
-                        Ok(Box::new(Permit(Arc::clone(&permit_drops))))
-                    },
-                ), Arc::clone(&dialed));
+                let mut dialer = swarm(
+                    TransportAdmissionGate::outbound_only(
+                        move |connection, peer: Option<PeerId>, address| {
+                            assert!(!observed_dials.lock().unwrap().contains(address));
+                            attempts.lock().unwrap().push((connection, peer, address.clone()));
+                            if address == &refused {
+                                return Err(ConnectionDenied::new(io::Error::other("denied address")));
+                            }
+                            Ok(Box::new(Permit(Arc::clone(&permit_drops))))
+                        },
+                    ),
+                    Arc::clone(&dialed),
+                );
                 let opts = DialOpts::peer_id(listener_peer)
                     .addresses(vec![
                         denied.clone(),
@@ -162,7 +174,7 @@ fn a_multiaddress_dial_checks_each_attempt_and_holds_the_winner_until_close() {
                 assert_eq!(
                     &*admitted.lock().unwrap(),
                     &[
-                        (connection, Some(listener_peer), denied),
+                        (connection, Some(listener_peer), denied.clone()),
                         (connection, Some(listener_peer), unsupported.clone()),
                         (connection, Some(listener_peer), supported.clone()),
                         (connection, Some(listener_peer), cancelled.clone()),
@@ -186,8 +198,14 @@ fn a_multiaddress_dial_checks_each_attempt_and_holds_the_winner_until_close() {
                             assert_eq!(connection_id, connection);
                             assert_eq!(endpoint.get_remote_address(), &supported);
                             let failures = concurrent_dial_errors.unwrap();
-                            assert_eq!(failures.len(), 1);
-                            assert_eq!(failures[0].0, unsupported);
+                            assert_eq!(failures.len(), 2);
+                            assert_eq!(failures[0].0, denied);
+                            assert!(matches!(
+                                &failures[0].1,
+                                TransportError::Other(err)
+                                    if has_transport_error_cause::<OutboundAttemptBudgetDenied>(err)
+                            ));
+                            assert_eq!(failures[1].0, unsupported);
                             break;
                         }
                         SwarmEvent::OutgoingConnectionError { error, .. } => {
@@ -212,7 +230,7 @@ fn a_multiaddress_dial_checks_each_attempt_and_holds_the_winner_until_close() {
 
                 let blocked_dials = Arc::new(Mutex::new(Vec::new()));
                 let mut blocked = swarm(
-                    Config::with_tokio_executor().with_outbound_transport_admission(|_, _, _| {
+                    TransportAdmissionGate::outbound_only(|_, _, _| {
                         Err(ConnectionDenied::new(io::Error::other("no permits")))
                     }),
                     Arc::clone(&blocked_dials),
