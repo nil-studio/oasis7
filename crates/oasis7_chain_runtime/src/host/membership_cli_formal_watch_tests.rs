@@ -3,7 +3,7 @@
 use super::watch_tcp::{CHILD_ENV, CHILD_FILTER, observations, receive, send};
 use crate::formal_read_fixtures as fixtures;
 use fixtures::*;
-use oasis7::world_service::{
+use oasis7_world_service::{
     SignedReadRequest, authority,
     client::FormalReadTrustConfigV1,
     formal_read::{FormalReadHistoryV1, FormalReadStepV1},

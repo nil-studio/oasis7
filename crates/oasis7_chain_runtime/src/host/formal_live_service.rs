@@ -5,17 +5,20 @@
 //! existing signed action, then queues it in the actual `NodeRuntime`; this
 //! adapter never records results or edits the World itself.
 use ed25519_dalek::SigningKey;
-pub(crate) use oasis7::world_service::formal_read_error::{FormalReadError, FormalReadResult};
-use oasis7::world_service::{
+pub(crate) use oasis7_world_service::formal_read_error::{FormalReadError, FormalReadResult};
+use oasis7_world_service::{
     agent_authority, agent_chat, authority, correlation,
     formal_read::{FormalReadHistoryV1, FormalReadVerifier, MAX_FORMAL_HISTORY_STEPS},
     formal_read_service::{FormalCommittedReadService, FormalReadPublication},
-    game_task, gameplay,
+    game_task,
     wire::{
         AuthenticatedLookup, CHANGES_PATH, LOOKUP_PATH, SUBMIT_PATH, SignedReadRequest,
         VIEW_PATH, WorldServicePayloadV1,
     },
 };
+// Gameplay submission assembly still requires its L4 adapter; native Service owns
+// generic authentication, but cannot construct the Runtime action on its own.
+use oasis7::world_service::gameplay;
 use oasis7_client_api::world_service::{
     AdmissionDurability, CommitRef, FormalReadAnchorRefV1, FormalReadProfileV1, IntentOutcome,
     IntentResponse, ReadWorldChangesRequest, ReadWorldViewRequest, ReadWorldViewResponse,
@@ -390,7 +393,7 @@ pub(crate) struct FormalLiveService {
     signer: SigningKey,
     runtime: Arc<Mutex<NodeRuntime>>,
     published: Arc<PublishedReadState>,
-    trust: oasis7::world_service::client::FormalReadTrustConfigV1,
+    trust: oasis7_world_service::client::FormalReadTrustConfigV1,
     history: Arc<dyn FormalLiveHistoryResolver>,
     full_sync_material_cache: Mutex<FullSyncMaterialCache>,
     state: FormalLiveState,
@@ -408,7 +411,7 @@ impl FormalLiveService {
         signer: SigningKey,
         runtime: Arc<Mutex<NodeRuntime>>,
         published: Arc<PublishedReadState>,
-        trust: oasis7::world_service::client::FormalReadTrustConfigV1,
+        trust: oasis7_world_service::client::FormalReadTrustConfigV1,
         history: Arc<dyn FormalLiveHistoryResolver>,
         state: FormalLiveState,
         admission_gate: Arc<Mutex<()>>,
@@ -992,7 +995,7 @@ impl FormalLiveService {
 
     fn handle_lookup(&self, body: &[u8]) -> HttpReply {
         if let Ok(request) =
-            parse_strict::<oasis7::world_service::wire::FormalAuthenticatedLookupV1>(body)
+            parse_strict::<oasis7_world_service::wire::FormalAuthenticatedLookupV1>(body)
         {
             return self.handle_formal_lookup(request);
         }
@@ -1038,7 +1041,7 @@ impl FormalLiveService {
 
     fn handle_changes(&self, body: &[u8]) -> HttpReply {
         if let Ok(request) =
-            parse_strict::<oasis7::world_service::wire::FormalAuthenticatedChangesV1>(body)
+            parse_strict::<oasis7_world_service::wire::FormalAuthenticatedChangesV1>(body)
         {
             return self.handle_formal_changes(request);
         }

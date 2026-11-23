@@ -934,7 +934,7 @@ impl ViewerRuntimeLiveServer {
 
 #[cfg(test)]
 fn test_first_agent_spawn_pos() -> Result<crate::geometry::GeoPos, String> {
-    let (_, model) = oasis7::runtime_host::gameplay_actions::formal_release_default_seed_model()?;
+    let (_, model) = oasis7_runtime_host::gameplay_actions::formal_release_default_seed_model()?;
     model
         .agents
         .get(oasis7_client_api::gameplay_actions::FIRST_AGENT_CLAIM_TARGET_AGENT_ID)

@@ -12,7 +12,7 @@ pub(super) fn boundary_selector(
     let mut anchor = case.initial_anchor.clone();
     if position <= anchor.head().record().position
         || position.saturating_sub(anchor.head().record().position)
-            > oasis7::world_service::formal_read::MAX_FORMAL_HISTORY_STEPS as u64
+            > oasis7_world_service::formal_read::MAX_FORMAL_HISTORY_STEPS as u64
     {
         return Err("exact H fixture selector requires bounded forward qualified history".into());
     }
@@ -35,7 +35,7 @@ pub(super) fn boundary_selector(
         anchor = anchor
             .after_verified_commit(case.authority.clone(), commit)
             .map_err(|error| error.to_string())?;
-        steps.push(oasis7::world_service::formal_read::FormalReadStepV1::Commit(Box::new(proof)));
+        steps.push(oasis7_world_service::formal_read::FormalReadStepV1::Commit(Box::new(proof)));
         selected = Some(candidate);
     }
     // Replay actual signed proof pages through the client's original C0 pin.
@@ -62,10 +62,10 @@ pub(super) fn boundary_selector(
             .formal_read_trust
             .as_ref()
             .ok_or("exact H lookup needs original external C0 trust")?;
-        let page = oasis7::world_service::formal_read::FormalReadHistoryPageV1 {
+        let page = oasis7_world_service::formal_read::FormalReadHistoryPageV1 {
             schema_version: 1,
             start,
-            history: oasis7::world_service::formal_read::FormalReadHistoryV1 {
+            history: oasis7_world_service::formal_read::FormalReadHistoryV1 {
                 schema_version: 1,
                 steps,
             },
@@ -105,7 +105,7 @@ pub(super) fn boundary_selector(
     // This checks canonical Snapshot, identity, governing and projection roots
     // against the opaque qualified anchor before deriving a read selector.
     let publication =
-        oasis7::world_service::formal_read_service::FormalReadPublication::new(anchor, world)
+        oasis7_world_service::formal_read_service::FormalReadPublication::new(anchor, world)
             .map_err(|error| error.to_string())?;
     let projection = fixtures::projection(publication.world());
     let fixed = fixtures::commit_ref(publication.anchor(), &projection);
@@ -130,7 +130,7 @@ pub(super) fn qualified_lineage(
     let mut anchor = case.initial_anchor.clone();
     if position <= anchor.head().record().position
         || position.saturating_sub(anchor.head().record().position)
-            > oasis7::world_service::formal_read::MAX_FORMAL_HISTORY_STEPS as u64
+            > oasis7_world_service::formal_read::MAX_FORMAL_HISTORY_STEPS as u64
     {
         return Err("provision H lineage exceeds bounded original C0 history".into());
     }

@@ -287,33 +287,46 @@ def browser_archive_cache_writer(job):
     for required in ('cache-mode: write', 'contents: read', 'actions: read',
                      "github.ref == 'refs/heads/main'", 'github.workflow_sha == github.sha',
                      "github.event_name == 'schedule'", "github.event_name == 'workflow_dispatch'",
-                     "inputs.run_mode == 'full'", 'max-parallel: 1',
-                     'component: [fonts-noto-cjk, fonts-freefont-ttf, chrome]'):
+                     "inputs.run_mode == 'full'", 'runs-on: ubuntu-24.04'):
         assert required in header, 'browser cache requires the bounded trusted main writer'
+    assert 'strategy:' not in header and 'matrix:' not in header
     timeout_match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', header, re.M)
-    assert timeout_match and 0 < int(timeout_match.group(1)) <= 5, 'browser cache requires bounded timeout-minutes <= 5'
+    assert timeout_match and 0 < int(timeout_match.group(1)) <= 10, 'browser cache requires bounded timeout-minutes <= 10'
     assert 'actions: write' not in job and 'secrets.' not in job and 'continue-on-error' not in job
     assert 'test "$(git rev-parse HEAD)" = "$GITHUB_SHA"' in job
     assert 'persist-credentials: false' in job
+    assert 'python3 scripts/ci-browser-deps.py metadata --browser agent --github-output "$GITHUB_OUTPUT"' in job
     steps = re.findall(r'^      - .*?(?=^      - |\Z)', job, re.M | re.S)
     restores = [step for step in steps if 'uses: actions/cache/restore@' in step]
     saves = [step for step in steps if 'uses: actions/cache/save@' in step]
     admissions = [step for step in steps if 'ci-browser-deps.py admit-save' in step]
-    assert len(restores) == len(saves) == len(admissions) == 1
-    for step in (*restores, *saves):
-        assert 'key: ${{ steps.browser-meta.outputs.key }}' in step
-        assert 'path: ${{ steps.browser-meta.outputs.root }}' in step
-        assert 'restore-keys:' not in step
-    for required in ('success()', "steps.prepare-browser.outcome == 'success'",
-                     "steps.browser-archive.outputs.cache-hit != 'true'",
-                     "steps.browser-admission.outcome == 'success'",
-                     "steps.browser-admission.outputs.save == 'true'"):
-        assert required in saves[0], 'browser cache requires verified preparation and capacity admission'
-    assert 'ci-browser-deps.py fetch --component "$BROWSER_COMPONENT"' in job
-    assert 'id: browser-admission' in admissions[0]
-    assert '"$BROWSER_CACHE_KEY"' in admissions[0] and '--github-output "$GITHUB_OUTPUT"' in admissions[0]
-    assert 'GH_TOKEN: ${{ github.token }}' in admissions[0] and job.count('GH_TOKEN:') == 1
-    return admissions[0]
+    expected_components = (
+        ('fonts-noto-cjk', 'fonts_noto_cjk', 'noto'),
+        ('fonts-freefont-ttf', 'fonts_freefont_ttf', 'freefont'),
+        ('chrome', 'chrome', 'chrome'),
+    )
+    assert len(restores) == len(saves) == len(admissions) == len(expected_components)
+    for idx, (component, prefix, slug) in enumerate(expected_components):
+        restore, save, admission = restores[idx], saves[idx], admissions[idx]
+        for step in (restore, save):
+            assert f'key: ${{{{ steps.browser-meta.outputs.{prefix}_key }}}}' in step
+            assert f'path: ${{{{ steps.browser-meta.outputs.{prefix}_root }}}}' in step
+            assert 'restore-keys:' not in step
+        assert f'id: browser-archive-{slug}\n' in restore
+        assert f'python3 scripts/ci-browser-deps.py fetch --component {component}\n' in job
+        for required in ('success()', f"steps.prepare-browser-{slug}.outcome == 'success'",
+                         f"steps.browser-archive-{slug}.outputs.cache-hit != 'true'",
+                         f"steps.browser-admission-{slug}.outcome == 'success'",
+                         f"steps.browser-admission-{slug}.outputs.save == 'true'"):
+            assert required in save, 'browser cache requires verified preparation and capacity admission'
+        assert f'id: browser-admission-{slug}\n' in admission
+        assert f"if: steps.browser-archive-{slug}.outputs.cache-hit != 'true'\n" in admission
+        assert f'BROWSER_CACHE_KEY: ${{{{ steps.browser-meta.outputs.{prefix}_key }}}}\n' in admission
+        assert f'ci-browser-deps.py admit-save --component {component} --key "$BROWSER_CACHE_KEY" --github-output "$GITHUB_OUTPUT"' in admission
+        assert 'GH_TOKEN: ${{ github.token }}' in admission and admission.count('GH_TOKEN:') == 1
+        assert job.index(restore) < job.index(f'id: prepare-browser-{slug}\n') < job.index(admission) < job.index(save)
+    assert job.count('GH_TOKEN:') == len(expected_components)
+    return admissions
 
 
 def image_cache_admission_layout(job, cache, save_condition):
@@ -351,9 +364,18 @@ def component_image_cache_writer(job, families, readers=JOBS, planner=None):
     timeout_match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', header, re.M)
     assert timeout_match and 0 < int(timeout_match.group(1)) <= 35, 'component image writer needs bounded timeout-minutes <= 35'
     if planner is None:
-        records = re.findall(r'^          - profile: ([a-z]+)\n((?:^            .+\n)+)', header, re.M)
-        rows = {profile: dict((key, value.strip("'")) for key, value in re.findall(
-            r'^            ([a-z-]+): (.*)$', body, re.M)) for profile, body in records}
+        json_blocks = re.findall(r"fromJSON\('(\[.*?\])'\)", header, re.DOTALL)
+        if json_blocks:
+            assert len(json_blocks) == 2 and "inputs.run_mode == 'image-support' &&" in header
+            support_records = json.loads(' '.join(json_blocks[0].split()))
+            records = json.loads(' '.join(json_blocks[1].split()))
+            assert support_records == [row for row in records if row.get('profile') == 'support']
+            rows = {row['profile']: {key: value for key, value in row.items() if key != 'profile'}
+                    for row in records}
+        else:
+            records = re.findall(r'^          - profile: ([a-z]+)\n((?:^            .+\n)+)', header, re.M)
+            rows = {profile: dict((key, value.strip("'")) for key, value in re.findall(
+                r'^            ([a-z-]+): (.*)$', body, re.M)) for profile, body in records}
     else:
         assert 'needs: plan-image-component-cache' in header
         assert 'include: ${{ fromJSON(needs.plan-image-component-cache.outputs.rows) }}' in header
@@ -1105,17 +1127,24 @@ class Workflow(unittest.TestCase):
             with self.subTest(change=changed), self.assertRaises(AssertionError):
                 component_image_cache_writer(changed, families, planner=planner)
         row_mutations = (
-            ('profile: node', 'profile: native', '"profile": "node"', '"profile": "native"'),
+            ('profile: node', 'profile: native', '"profile":"node"', '"profile":"native"',
+             '"profile": "node"', '"profile": "native"'),
             ('mold-dir: oasis7-node-mold', 'mold-dir: oasis7-other-mold',
+             '"mold-dir":"oasis7-node-mold"', '"mold-dir":"oasis7-other-mold"',
              '"mold-dir": "oasis7-node-mold"', '"mold-dir": "oasis7-other-mold"'),
-            ('options: --user 1001:1001', "options: ''", '"options": "--user 1001:1001"', '"options": ""'),
+            ('options: --user 1001:1001', "options: ''",
+             '"options":"--user 1001:1001"', '"options":""',
+             '"options": "--user 1001:1001"', '"options": ""'),
             ('family: rust-image-net', 'family: rust-image-components',
+             '"family":"rust-image-net"', '"family":"rust-image-components"',
              '"family": "rust-image-net"', '"family": "rust-image-components"'),
         )
-        for old_static, new_static, old_planned, new_planned in row_mutations:
+        for old_static, new_static, old_inline, new_inline, old_planned, new_planned in row_mutations:
             with self.subTest(original=old_static), self.assertRaises(AssertionError):
                 if planner is None:
-                    component_image_cache_writer(job.replace(old_static, new_static, 1), families)
+                    mutated = (job.replace(old_inline, new_inline, 1)
+                               if 'fromJSON(' in job else job.replace(old_static, new_static, 1))
+                    component_image_cache_writer(mutated, families)
                 else:
                     component_image_cache_writer(job, families,
                                                  planner=planner.replace(old_planned, new_planned, 1))
@@ -1156,6 +1185,8 @@ class Workflow(unittest.TestCase):
     def test_component_image_writer_runs_only_for_current_main_cache_events(self):
         workflow, _ = self.shared_cache_workflow()
         job = workflow_jobs(workflow)['rust-image-component-cache']
+        supports_image_support = ('plan-image-component-cache' in workflow_jobs(workflow)
+                                  or 'image-support' in workflow.split('jobs:', 1)[0])
         expression = ' '.join(job.split('    if:', 1)[1].split('    strategy:', 1)[0]
                               .strip().removeprefix('>-').split())
         for event, ref, matching, mode, repository in itertools.product(
@@ -1170,8 +1201,8 @@ class Workflow(unittest.TestCase):
             with self.subTest(event=event, ref=ref, matching=matching, mode=mode):
                 self.assertEqual(eval(predicate.replace('&&', ' and ').replace('||', ' or '), {'__builtins__': {}}, {}),
                     ref == 'refs/heads/main' and matching and (event == 'schedule'
-                    or event == 'workflow_dispatch' and (mode in ('full', 'image-native') or mode == 'image-support' and repository == 'nil-studio/oasis7'
-                        and 'plan-image-component-cache' in workflow_jobs(workflow))))
+                    or event == 'workflow_dispatch' and (mode in ('full', 'image-native')
+                        or mode == 'image-support' and repository == 'nil-studio/oasis7' and supports_image_support)))
 
     def test_component_cache_planner_runs_the_complete_or_support_only_matrix(self):
         workflow, _ = self.shared_cache_workflow()
@@ -1179,6 +1210,24 @@ class Workflow(unittest.TestCase):
         planner = jobs.get('plan-image-component-cache')
         writer = jobs['rust-image-component-cache']
         if planner is None:
+            if 'fromJSON(' in writer:
+                self.assertIn('image-support', workflow.split('jobs:', 1)[0])
+                include_expr = writer.split('        include:', 1)[1].split('\n    runs-on:', 1)[0]
+                include_expr = ' '.join(include_expr.strip().removeprefix('>-').split())
+                self.assertTrue(include_expr.startswith('${{') and include_expr.endswith('}}'))
+                inner = include_expr[3:-2].strip()
+                full_rows = None
+                for mode in ('', 'full', 'image-native', 'image-support'):
+                    expr = inner.replace('inputs.run_mode', repr(mode)).replace('&&', ' and ').replace('||', ' or ')
+                    rows = eval(expr, {'__builtins__': {}}, {'fromJSON': json.loads})
+                    profiles = [row['profile'] for row in rows]
+                    if mode == 'image-support':
+                        self.assertEqual(profiles, ['support'])
+                        self.assertEqual(rows, [row for row in full_rows if row['profile'] == 'support'])
+                    else:
+                        self.assertEqual(profiles, ['native', 'node', 'net', 'launcher', 'tooling', 'support'])
+                        full_rows = rows
+                return
             self.assertNotIn('image-support', workflow.split('jobs:', 1)[0])
             self.assertIn('matrix:\n        include:\n', writer)
             self.assertEqual(re.findall(r'^          - profile: ([a-z]+)$', writer, re.M),
@@ -3839,6 +3888,23 @@ with pathlib.Path(a.github_output).open('a') as f: f.write('plan='+json.dumps(pl
             "if: (github.event_name == 'pull_request' && !github.event.pull_request.draft) || github.ref == 'refs/heads/main'",
             ci_base,
         )
+        ci_base_jobs = workflow_jobs(ci_base)
+        self.assertEqual(set(ci_base_jobs), {'build', 'publish'})
+        self.assertIn('target: [runtime, build, browser, rust-build, rust-wasm-build]\n', ci_base_jobs['build'])
+        publish_job = ci_base_jobs['publish']
+        publish_header = publish_job.split('    steps:', 1)[0]
+        self.assertNotIn('strategy:', publish_header)
+        self.assertNotIn('matrix:', publish_header)
+        self.assertIn("if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'\n", publish_header)
+        self.assertIn('needs: build\n', publish_header)
+        self.assertIn('packages: write\n', publish_header)
+        self.assertIn('rm -f "ci-${target}.tar"\n', publish_job)
+        self.assertIn('docker rmi "$ref" "oasis7-ci-${target}:candidate"\n', publish_job)
+        self.assertNotIn('if [[ "$target" == "browser" ]]', publish_job)
+        for target in ('runtime', 'build', 'browser', 'rust-build', 'rust-wasm-build'):
+            self.assertIn(f'          name: ci-image-{target}\n', publish_job)
+            self.assertIn(f'        run: bash "$RUNNER_TEMP/publish-ci-image.sh" {target}\n', publish_job)
+        self.assertIn('      - name: Log out of GHCR\n        if: always()\n        run: docker logout ghcr.io\n', publish_job)
 
         wasm_wf = (ROOT / '.github/workflows/wasm-determinism-gate.yml').read_text()
         wasm_pr = wasm_wf.split('  pull_request:\n', 1)[1].split('  workflow_dispatch:\n', 1)[0]
@@ -4399,7 +4465,8 @@ run_cargo() {
         modes = ['full']
         if image_writer:
             modes.append('image-native')
-        if 'plan-image-component-cache' in workflow_jobs(workflow):
+        if ('plan-image-component-cache' in workflow_jobs(workflow)
+                or 'image-support' in workflow_jobs(workflow).get('rust-image-component-cache', '')):
             modes.append('image-support')
         self.assertIn(f'options: [{", ".join(modes)}]', on)
         self.assertNotIn('source_ref', on)
@@ -4789,8 +4856,8 @@ run_cargo() {
                 self.assertNotIn('github.token', writer)
                 continue
             if name == 'browser-archive-cache':
-                admission = browser_archive_cache_writer(writer)
-                without_admitted_uploads = without_admitted_uploads.replace(admission, '', 1)
+                for admission in browser_archive_cache_writer(writer):
+                    without_admitted_uploads = without_admitted_uploads.replace(admission, '', 1)
                 continue
             if name == 'worker-build-cache':
                 admission = worker_tool_cache_writer(writer)
@@ -6270,17 +6337,22 @@ class BrowserDownloadCache(unittest.TestCase):
     def test_archive_writer_rejects_foreign_identity_unbounded_restore_and_unadmitted_save(self):
         writer = workflow_jobs((ROOT / '.github/workflows/rust-cache.yml').read_text())['browser-archive-cache']
         browser_archive_cache_writer(writer)
-        for before, after in (
-                ("github.ref == 'refs/heads/main'", 'true'),
-                ('github.workflow_sha == github.sha', 'true'),
-                ("inputs.run_mode == 'full'", 'true'),
-                ('key: ${{ steps.browser-meta.outputs.key }}', 'key: unbound'),
-                ('path: ${{ steps.browser-meta.outputs.root }}', 'path: ${{ github.workspace }}'),
-                ("steps.prepare-browser.outcome == 'success'", 'true'),
-                ("steps.browser-admission.outputs.save == 'true'", 'true'),
-                ('ci-browser-deps.py admit-save', 'ci-browser-deps.py metadata')):
+        mutations = [
+            ("github.ref == 'refs/heads/main'", 'true'),
+            ('github.workflow_sha == github.sha', 'true'),
+            ("inputs.run_mode == 'full'", 'true'),
+            ('ci-browser-deps.py admit-save', 'ci-browser-deps.py metadata'),
+        ]
+        for prefix, slug in (('fonts_noto_cjk', 'noto'), ('fonts_freefont_ttf', 'freefont'), ('chrome', 'chrome')):
+            mutations.extend([
+                (f'key: ${{{{ steps.browser-meta.outputs.{prefix}_key }}}}', 'key: unbound'),
+                (f'path: ${{{{ steps.browser-meta.outputs.{prefix}_root }}}}', 'path: ${{ github.workspace }}'),
+                (f"steps.prepare-browser-{slug}.outcome == 'success'", 'true'),
+                (f"steps.browser-admission-{slug}.outputs.save == 'true'", 'true'),
+            ])
+        for before, after in mutations:
             with self.subTest(before=before), self.assertRaises(AssertionError):
-                browser_archive_cache_writer(writer.replace(before, after))
+                browser_archive_cache_writer(writer.replace(before, after, 1))
         with self.assertRaises(AssertionError):
             browser_archive_cache_writer(writer.replace('          key:', '          restore-keys: ci-browser-\n          key:', 1))
 
@@ -6877,7 +6949,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'cargo-tooling-contracts': 5,
                 'windows-rollout': 7,
                 'fleet-health': 15,
-                'doc-checker-contracts': 15,
+                'doc-checker-contracts': 12,
                 'workflow-governance': 15,
                 'custody-native-contracts': 15,
                 'consensus': 5,
@@ -6888,7 +6960,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'custody-native': 20,
                 'custody-wasm-production': 25,
                 'distfs': 20,
-                'rust-baseline': 30,
+                'rust-baseline': 25,
                 'launcher-web': 12,
                 'viewer-js-required': 16,
                 'viewer-performance-report': 15,
@@ -6923,7 +6995,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
             },
             '.github/workflows/ci-base-images.yml': {
                 'build': 40,
-                'publish': 5,
+                'publish': 15,
             },
             '.github/workflows/native-cache-diagnostic.yml': {
                 'diagnose': 35,
@@ -6955,7 +7027,6 @@ class ReleasePackagingJobTimeoutContractTests(unittest.TestCase):
     def test_release_packaging_workflows_declare_bounded_timeout_minutes_for_all_jobs(self):
         expected_limits = {
             '.github/workflows/testnet-packages.yml': {
-                'full-regression-qualification': 5,
                 'plan': 5,
                 'build-web-dist': 35,
                 'package-native': 180,
@@ -6963,7 +7034,6 @@ class ReleasePackagingJobTimeoutContractTests(unittest.TestCase):
                 'package-installers': 120,
             },
             '.github/workflows/mainnet-packages.yml': {
-                'full-regression-qualification': 5,
                 'plan': 5,
                 'release_gate_runtime_core': 60,
                 'release_gate_runtime_support': 60,
@@ -6976,7 +7046,6 @@ class ReleasePackagingJobTimeoutContractTests(unittest.TestCase):
                 'package-index': 5,
             },
             '.github/workflows/release-packages.yml': {
-                'full-regression-qualification': 5,
                 'cache-bootstrap-maintenance': 5,
                 'cache-maintenance': 5,
                 'plan': 5,
@@ -7017,8 +7086,8 @@ class HeavyPrJobTimeoutContractTests(unittest.TestCase):
                 'formal-test-build-trusted': 60,
                 'oasis7-required': 35,
                 'workspace-support-legacy': 60,
-                'workspace-support-other': 40,
-                'operational-contracts': 20,
+                'workspace-support-other': 35,
+                'operational-contracts': 16,
             },
             '.github/workflows/wasm-determinism-gate.yml': {
                 'collect-wasm-summaries': 30,
@@ -7090,6 +7159,7 @@ class PriorityRunnerRoutingContractTests(unittest.TestCase):
         )
         self.assertEqual(CONFIG.get('main_fast_range_recovery_version'), 1)
         self.assertEqual(CONFIG.get('draft_pr_heavy_ci_skip_version'), 1)
+        self.assertEqual(CONFIG.get('auxiliary_workflow_consolidation_version'), 1)
 
         gate = JOBS['required-gate']
         self.assertIn(

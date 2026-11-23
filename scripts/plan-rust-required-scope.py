@@ -1335,6 +1335,10 @@ def validate_config(config):
                 or config['workspace_support_partition_version'] != 1
                 or config.get('fast_scope_version') != FAST_PLAN_VERSION):
             raise ValueError('invalid direct workspace support gate capability')
+    if 'auxiliary_workflow_consolidation_version' in config:
+        if (type(config['auxiliary_workflow_consolidation_version']) is not int
+                or config['auxiliary_workflow_consolidation_version'] != 1):
+            raise ValueError('invalid auxiliary workflow consolidation capability')
     if 'ordinary_harness_costs' in config:
         if config.get('ordinary_artifact_partition_version') not in (1, 2):
             raise ValueError('ordinary harness costs require artifact partitions')

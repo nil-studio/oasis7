@@ -263,12 +263,12 @@ impl FormalBftHeaderExecutionV3 {
             },
         )?;
         let projection_root =
-            oasis7::world_service::formal_projection::commitments_for_world(&executed.world)?
+            oasis7_world_service::formal_projection::commitments_for_world(&executed.world)?
                 .root()?;
         let new_results = newly_recorded_results(parent, &executed.world)?;
         let parent_result_root = self.parent_result_tree.root()?;
         let result_update = FormalBusinessResultTreeV1::extend_bft_successor(
-            oasis7::world_service::formal_result::FormalBftResultSuccessorInputV1 {
+            oasis7_world_service::formal_result::FormalBftResultSuccessorInputV1 {
                 world: &executed.world,
                 identity: &self.parent_record.world,
                 height: schedule.height(),

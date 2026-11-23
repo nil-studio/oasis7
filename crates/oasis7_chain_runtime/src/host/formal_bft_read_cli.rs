@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
-use oasis7::world_service::client::FormalReadTrustConfigV1;
+use oasis7_world_service::client::FormalReadTrustConfigV1;
 use oasis7_client_api::world_service::{
     FormalBftReadTargetV2, MAX_FORMAL_BFT_CERTIFICATE_BYTES_V2,
 };
@@ -363,8 +363,8 @@ fn serve(config_path: &Path, shutdown: Option<Arc<AtomicBool>>) -> Result<(), St
         return Err("existing durable formal BFT cut differs from configured exact H+1 pin".into());
     }
     let publication =
-        oasis7::world_service::formal_bft_read_service::FormalBftReadPublicationV2::new(
-            oasis7::world_service::formal_bft_read_service::FormalBftReadPublicationInputV2 {
+        oasis7_world_service::formal_bft_read_service::FormalBftReadPublicationV2::new(
+            oasis7_world_service::formal_bft_read_service::FormalBftReadPublicationInputV2 {
                 handoff_anchor: input.anchor,
                 target_config: input.config.target,
                 exact_target: input.config.exact_target,

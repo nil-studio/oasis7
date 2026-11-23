@@ -1,7 +1,7 @@
 //! Native confidential task input; canonical prefix admission is separate.
 use super::*;
-use oasis7::world_service::private_goal_store::PrivateTaskContextError;
-use oasis7::world_service::private_task_context::*;
+use oasis7_world_service::private_goal_store::PrivateTaskContextError;
+use oasis7_world_service::private_task_context::*;
 use oasis7_agent_api::game::{GameTaskFenceV1, TaskContextIdentityV1};
 #[path = "world_service_private_task_context_snapshot.rs"]
 mod context_snapshot;
@@ -380,10 +380,10 @@ pub(super) fn process(
     if projection::handles(path) {
         return projection::process(service, store, path, body, before_delivery);
     }
-    if path == oasis7::world_service::task_recipe_quote::TASK_RECIPE_QUOTE_PATH {
+    if path == oasis7_world_service::task_recipe_quote::TASK_RECIPE_QUOTE_PATH {
         return recipe_quote::process(service, store, body, before_delivery);
     }
-    if path == oasis7::world_service::task_factory_quote::TASK_FACTORY_QUOTE_PATH {
+    if path == oasis7_world_service::task_factory_quote::TASK_FACTORY_QUOTE_PATH {
         return factory_quote::process(service, store, body, before_delivery);
     }
     if matches!(path, TASK_CONTEXT_READ_PATH | TASK_CONTEXT_LIVE_READ_PATH) {

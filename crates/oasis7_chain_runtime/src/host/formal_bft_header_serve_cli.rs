@@ -60,7 +60,7 @@ pub(super) fn run(config_path: &Path, shutdown: Option<Arc<AtomicBool>>) -> Resu
             record_validation_rejection(ValidationRejection::ExactDurableCut);
             "header read service exact durable replay rejected"
         })?;
-    use oasis7::world_service::formal_bft_header_read_service::{
+    use oasis7_world_service::formal_bft_header_read_service::{
         FormalBftHeaderReadPublicationInputV4, FormalBftHeaderReadPublicationV4,
     };
     let publication =

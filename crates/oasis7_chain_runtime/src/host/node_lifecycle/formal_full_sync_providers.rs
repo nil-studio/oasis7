@@ -1,7 +1,7 @@
 //! Validated, independently pinned full-state-sync source endpoints.
 
 use super::*;
-use oasis7::world_service::client::WorldServiceClientConfig;
+use oasis7_world_service::client::WorldServiceClientConfig;
 use std::net::IpAddr;
 
 const MAX_REQUEST_TIMEOUT_MS: u64 = 60_000;

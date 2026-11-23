@@ -1,7 +1,7 @@
 //! Public projection observer. Local process/key ownership never supplies world
 //! trust, latest-head freshness, validator membership or full-state sync proof.
 use super::LocalInstance;
-use oasis7::world_service::{
+use oasis7_world_service::{
     client::{
         FormalReadTrustConfigV1, RemoteWorldServiceClient, WorldServiceClientConfig,
         WorldServiceClientError, WorldServicePort,
