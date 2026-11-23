@@ -115,8 +115,9 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
                 4,
             );
             let proof = coordinator.submit(candidate).unwrap();
-            let boundary =
-                verify_formal_qualified(&proof, &fixture.authority, Some(&parent), None).unwrap();
+            let boundary = Box::new(
+                verify_formal_qualified(&proof, &fixture.authority, Some(&parent), None).unwrap(),
+            );
             let transition = verify_normal_durable_set_transition(
                 &signed_transition,
                 &fixture.authority,
@@ -125,11 +126,11 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
             )
             .unwrap();
             let (p, r) = coordinator.endpoints_mut();
-            let pcp = p.checkpoint().unwrap();
+            let pcp = Box::new(p.checkpoint().unwrap());
             let rcp = r.checkpoint().unwrap();
             let primary_seal = p.seal_durable_set(&transition, &pcp).unwrap();
             let replica_seal = r.seal_durable_set(&transition, &rcp).unwrap();
-            let manifest = r.archive_manifest().unwrap();
+            let manifest = Box::new(r.archive_manifest().unwrap());
             let sealed = Arc::new(
                 verify_sealed_durable_set_transition(
                     &DurableSetSealedEvidenceV1 {
@@ -159,7 +160,7 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
     let mut rc = DurableSetCandidateV1::stage_replica(
         &next_dir,
         sealed.clone(),
-        manifest,
+        *manifest,
         source,
         rp.clone(),
         64 * 1024 * 1024,
@@ -306,7 +307,7 @@ fn exercise_native_install(recover_uncertain_activation: bool) {
         activation.successor().clone(),
         activation.successor().clone(),
         None,
-        Some(boundary.clone()),
+        Some((*boundary).clone()),
     )
     .unwrap();
     let (mut freeze, material) = fixture.frozen(&boundary, 62);
