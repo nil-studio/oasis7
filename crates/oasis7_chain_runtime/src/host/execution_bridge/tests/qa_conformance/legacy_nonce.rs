@@ -44,7 +44,7 @@ fn commit_legacy(
     original: &SubmitIntentRequest<WorldServicePayloadV1>,
     public: &str,
 ) {
-    use oasis7::consensus_action_payload::{
+    use oasis7_world_service::consensus_action_payload::{
         ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
     };
     let key = correlation::key_digest(&original.correlation.key).unwrap();

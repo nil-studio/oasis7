@@ -294,6 +294,31 @@ Run canonical `env -u RUSTC_WRAPPER cargo test -p oasis7_net --lib` and downstre
 Observe limits, cumulative starts and bounded rejection reasons in existing traffic metrics. This is a per-process automatic discovery work limit, not wire-byte accounting, a total connection/CPU budget, durable anti-replay, source fairness, physical topology proof or deployment evidence. Local publication/provider announcements, inbound rendezvous server service and registration-list validation, application-driven operations and protocol-internal messages retain their own limits. Outgoing rendezvous client register/discover are included in the shared work budget. New network instances start a new budget; no restart-resistant quota is claimed.
 
 
+<a id="discovery-resource-budget-v1"></a>
+### 发现连接占用与累计子流预算
+
+Trace refs: `O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3`；主责合同为[发现资源预算](../../p2p/network/mainnet-private-reachability-architecture.design.md#discovery-resource-budget-v1)。标准 development node／local-provider 的 `runtime.p2p_resource_budget` 必须显式提供九项限额；测试夹具的额度是固定输入，不是产品默认值。
+
+在同一候选和 Unix 开发环境运行以下 canonical 入口，保留默认 `wasmtime` 和 `node-libp2p` features，使正向 provider 进程测试实际被编译和执行：
+
+```sh
+env -u RUSTC_WRAPPER cargo test -p oasis7_net --features libp2p --lib --locked
+env -u RUSTC_WRAPPER cargo test -p oasis7_chain_runtime --test host_api --locked
+```
+
+| 真实入口与固定输入 | 独立观察及判定 |
+| --- | --- |
+| `host_api::shipping_budget_process`：实际二进制的 `dev node --config` 和 `dev local-provider --config`，同一份显式配置、TCP＋QUIC 监听 | 非法额度在运行时文件副作用前拒绝；正向进程经认证 RR 成功返回可独立解码的原 peer record，核对 peer／world／policy，并观察双向实际字节。provider 使用可执行 WASM，重开原 world 后核对模块授予和原 authority。不得把畸形请求、unsupported 响应或只有 HTTP ready 当正向协议成功。 |
+| Net `connection_budget` 的真实 TCP／QUIC／relay、多地址竞速和 pending 测试 | 以 socket、真实 Swarm 终态和独立对端核对 total／pending／unknown inbound／outbound／per-peer；认证拒绝和请求关闭不能提前退款，真实终止后才恢复，重复或迟到事件不释放其他 attempt。 |
+| 同一认证连接上的 Kademlia／rendezvous；真实业务 RR／gossip 与 relay 嵌套流 | 下层固定样本与接收端结果对照收、发和总量，巨大响应在完整读取前等待或拒绝；协议切换不另起账本，relay 两个受控边界分别计费。 |
+| `wire_byte_window`、vectored I/O 与真实 muxer | 部分／空输入、Pending、可信零进展错误、不确定进展、提交前后取消及并发读写分别核对 `A`、`C`、`U=A+C`、`R`；底层回调期间不持有账本锁，预留不会造成额外额度。 |
+| `real_quic_window_waits_sixty_seconds_and_does_not_revive_cancelled_payload`，以及原 deadline 回归 | 实际等待至少 60 秒，自然出窗后独立对端只收到仍有效的新内容；取消内容不复活。另以合成单调时刻参考序列核对最多 61 桶和精确到期，这组边界测试不替代真实等待。 |
+| 原配置停止并冷重开 node／provider | 原实例必须先完成合法 RR 且有双向计费；新实例 ID 不同且预算为零，原身份、provider authority 与 world 授予保持。只证明新实例新账，不声称跨重启累计配额。 |
+
+自然窗口测试有真实等待，不能为缩短执行时间而改 origin 或把它替换为预先老化的账本。继续执行上节固定 rendezvous client 和旧工作预算回归，保留 128／32／4 门禁、启动次数不退款及精确协议终态释放。严格 JSON、正式 profile 混用、配置逐层传递和状态投影的对应 Client API／Node／Host 测试由受影响 CI 一并核对。
+
+实际记录须包含 source／tested SHA、执行命令和 features、transport／显式限额、成功／拒绝／恢复及独立对端结果。开发环境测试不证明公网来源独立性、正式 authority lane 隔离、恶意主机回滚防护、provider 的付费模型业务资格或攻击下公平性。
+
 <a id="discovery-record-refresh"></a>
 ### Discovery record before-expiry refresh
 

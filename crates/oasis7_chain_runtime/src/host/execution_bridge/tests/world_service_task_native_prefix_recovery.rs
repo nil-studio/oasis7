@@ -56,7 +56,7 @@ impl oasis7_node::NodeExecutionHook for GatedPrefixHook {
         expected_hash: Option<&str>,
         expected_root: Option<&str>,
     ) -> Result<oasis7_node::NodeExecutionCommitResult, String> {
-        use oasis7::consensus_action_payload::{
+        use oasis7_world_service::consensus_action_payload::{
             ConsensusActionPayloadBody, ConsensusActionPayloadEnvelope,
         };
         let prefix = context.committed_actions.iter().find_map(|action| {

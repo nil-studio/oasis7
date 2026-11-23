@@ -174,7 +174,7 @@ Trace ID: O7-REQ-b189f0a2-0425-4985-9a5d-86179428b586
   - `doc/engineering/workflow/source-of-truth.md`
   - historical engineering full-PRD review triplet（后续已删除；历史审读证据见 Git history logs，当前追踪入口见 `doc/engineering/prd.index.md` 与模块入口）
   - historical world-simulator PRD review checklist snapshot（后续已删除；当前 world-simulator truth 见 `doc/world-simulator/README.md`、`doc/world-simulator/prd.index.md`、`doc/world-simulator/prd.md` 与 `doc/world-simulator/design.md`）
-  - historical self-evolution file-based PM background: `doc/engineering/self-evolution/file-based-self-evolution-management-2026-03-30.design.md`; current task truth / evidence rules live in `doc/engineering/workflow/source-of-truth.md`
+  - historical self-evolution file-based PM (`PRD-ENGINEERING-021`) retired and traceable via Git history; current task truth / evidence rules live in `doc/engineering/workflow/source-of-truth.md`
   - current self-evolution, memory, reflection and external-workflow boundaries: `doc/engineering/workflow/source-of-truth.md`; pending scope is retained in `doc/engineering/prd.md`, and default-vs-library skill reachability is in `.agents/skills/README.md`
   - current document organization and consumption-layer rules: `doc/engineering/doc-governance/doc-structure-standard.design.md`; inventory and maintenance-cost follow-up routing: `doc/engineering/governance/README.md`
   - `doc/testing/evidence/README.md`（当前 testing evidence 子域分流与维护边界；一次性路径落位专题已退役）

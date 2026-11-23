@@ -3,9 +3,6 @@ use super::{
     parse_gameplay_submit_request, reset_gameplay_submit_state_for_tests,
 };
 use ed25519_dalek::SigningKey;
-use oasis7::consensus_action_payload::{
-    ConsensusActionPayloadBody, decode_consensus_action_payload,
-};
 use oasis7_node::{
     NodeConfig, NodeExecutionCommitContext, NodeExecutionCommitResult, NodeExecutionHook, NodeRole,
     NodeRuntime,
@@ -14,6 +11,9 @@ use oasis7_runtime::Action;
 use oasis7_viewer_runtime::viewer::{
     CollectDataCommand, CollectDataRequest, GameplayActionRequest, sign_collect_data_auth_proof,
     sign_gameplay_action_auth_proof,
+};
+use oasis7_world_service::consensus_action_payload::{
+    ConsensusActionPayloadBody, decode_consensus_action_payload,
 };
 use std::io::Read;
 use std::net::{TcpListener, TcpStream};
@@ -903,7 +903,7 @@ fn committed_recipe_origin_ack_hash_matches_actual_nonce_bound_payload() {
             {
                 assert_eq!(action.payload_hash, hashes.last().unwrap().as_str());
                 let envelope =
-                    oasis7::consensus_action_payload::decode_consensus_action_payload_envelope(
+                    oasis7_world_service::consensus_action_payload::decode_consensus_action_payload_envelope(
                         &action.payload_cbor,
                     )
                     .unwrap();

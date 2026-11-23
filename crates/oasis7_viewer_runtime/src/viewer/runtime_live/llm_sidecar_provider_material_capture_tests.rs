@@ -449,10 +449,22 @@ fn live_server_owner_configuration_reaches_provider_sidecar_and_adapter() {
     // SAFETY: This test owns the canonical provider environment lock and
     // restores the previous process environment when it exits.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_loopback_http");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, base_url.as_str());
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
-        oasis7::env_mut::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_MODE_ENV,
+            "provider_loopback_http",
+        );
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_URL_ENV,
+            base_url.as_str(),
+        );
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_PROFILE_ENV,
+            "oasis7_p0_low_freq_npc",
+        );
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_EXECUTION_LANE_ENV,
+            "player_parity",
+        );
     }
 
     let server_thread = thread::spawn(move || {

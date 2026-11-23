@@ -9,6 +9,7 @@ pub mod chain_resource_hash;
 pub mod formal_projection;
 pub mod geometry;
 pub mod ledger;
+pub mod rule_settlement;
 pub mod world_entity;
 pub mod world_geometry;
 pub mod world_resource;

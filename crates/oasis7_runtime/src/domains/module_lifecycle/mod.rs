@@ -5,6 +5,7 @@
 //! shared root transaction view and install infallibly through [`RootInstallContext`]
 //! after Stage 2 commit confirmation.
 
+#[cfg(any(test, feature = "test_tier_required", feature = "test-support"))]
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -16,12 +17,12 @@ use crate::world::transition::{
     TransitionContext, TransitionReject,
 };
 use crate::{
-    CausedBy, DomainEvent, ModuleProfileChanges, ModuleRegistry, TickConsensusRecord, World,
-    WorldError, WorldEvent, WorldEventBody, WorldEventId,
+    CausedBy, DomainEvent, ModuleProfileChanges, TickConsensusRecord, World, WorldError,
+    WorldEvent, WorldEventBody, WorldEventId,
 };
 
 #[cfg(any(test, feature = "test_tier_required", feature = "test-support"))]
-use crate::{ModuleChangeSet, ProposalId};
+use crate::{ModuleChangeSet, ModuleRegistry, ProposalId};
 
 /// Typed delta for module artifact deployment registration (`module_artifacts` + `module_artifact_bytes`).
 #[derive(Debug, Clone)]

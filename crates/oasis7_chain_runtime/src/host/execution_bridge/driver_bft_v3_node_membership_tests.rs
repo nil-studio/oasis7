@@ -1,11 +1,11 @@
 //! Actual signed governance, four Noise nodes and native provider install ACK.
 //! Issuer witness/clock and signer backend remain explicit memory test doubles.
 use super::*;
-use oasis7::consensus_action_payload::{
-    ConsensusActionAuthEnvelope, ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
-};
 use oasis7_runtime::Action as RuntimeAction;
 use oasis7_runtime::{GovernanceFinalitySignerRegistry, GovernanceValidatorAdmissionStatus};
+use oasis7_world_service::consensus_action_payload::{
+    ConsensusActionAuthEnvelope, ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
+};
 
 #[path = "driver_bft_v3_node_membership_fault_tests.rs"]
 mod fault_cases;

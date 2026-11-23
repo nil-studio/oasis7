@@ -6,6 +6,7 @@ python3 - "$ROOT_DIR" <<'PY'
 from pathlib import Path
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -186,6 +187,62 @@ with tempfile.TemporaryDirectory(prefix="release-trunk-contract-") as directory:
     env["TEST_INSTALL_EXIT"] = "42"
     assert invoke(install).returncode == 42, "installer failure must propagate"
     assert invoke(testnet_install).returncode == 42, "Testnet installer failure must propagate"
+
+# Exercise the real Testnet shell using Trunk's metadata protocol and real offline Cargo.
+with tempfile.TemporaryDirectory(prefix="testnet-trunk-lock-") as directory:
+    fixture = Path(directory)
+    launcher = fixture / "crates/oasis7_client_launcher"
+    cargo = shutil.which("cargo")
+    assert cargo, "Testnet Launcher contract requires Cargo"
+    for name, package in ((launcher, "launcher"), (launcher / "aaa", "aaa"),
+                          (launcher / "bbb", "bbb"), (launcher / "ccc", "ccc")):
+        (name / "src").mkdir(parents=True)
+        (name / "src/lib.rs").touch()
+        (name / "Cargo.toml").write_text(
+            f'[package]\nname = "{package}"\nversion = "0.1.0"\nedition = "2021"\n'
+        )
+    manifest = launcher / "Cargo.toml"
+    manifest.write_text(manifest.read_text() + '[dependencies]\naaa = {path = "aaa"}\nbbb = {path = "bbb"}\n')
+    subprocess.run([cargo, "generate-lockfile", "--offline"], cwd=launcher, check=True, capture_output=True)
+    lock = launcher / "Cargo.lock"
+    canonical = lock.read_bytes()
+    source_lock = canonical.replace(b' "aaa",\n "bbb",', b' "bbb",\n "aaa",')
+    assert source_lock != canonical
+    lock.write_bytes(source_lock)
+
+    (fixture / "scripts").mkdir()
+    for name in ("build-viewer-software-safe", "copy-viewer-web-dist", "package-viewer-web-delivery"):
+        script = fixture / "scripts" / (name + ".sh")
+        script.write_text("#!/bin/bash\nexit 0\n")
+        script.chmod(0o755)
+    bin_dir = fixture / "bin"
+    bin_dir.mkdir()
+    trunk = bin_dir / "trunk"
+    trunk.write_text(
+        '#!/bin/bash\nset -euo pipefail\n'
+        '"${CARGO:-cargo}" metadata --offline --format-version 1 --manifest-path Cargo.toml > /dev/null\n'
+        '[[ "$*" == "build --release --locked --dist ../../output/testnet-packages/web-launcher-dist" ]]\n'
+        'touch "$TRUNK_BUILT"\n'
+    )
+    trunk.chmod(0o755)
+    temp = fixture / "runner temp"
+    temp.mkdir()
+    built = fixture / "launcher-built"
+    env = dict(os.environ, PATH=str(bin_dir) + os.pathsep + os.environ["PATH"],
+               RUNNER_TEMP=str(temp), TRUNK_BUILT=str(built))
+    env.pop("CARGO", None)
+    command = ["bash", "-e", "-o", "pipefail", "-c", run(step(testnet_web, "Build web dists"))]
+    result = subprocess.run(command, cwd=fixture, env=env, capture_output=True, text=True)
+    assert lock.read_bytes() == source_lock, "Launcher Trunk metadata modified the planned lockfile"
+    assert result.returncode == 0 and built.is_file(), result.stderr
+    assert not list(temp.iterdir()), "Launcher Cargo adapter must be temporary"
+
+    built.unlink()
+    manifest.write_text(manifest.read_text() + 'ccc = {path = "ccc"}\n')
+    result = subprocess.run(command, cwd=fixture, env=env, capture_output=True, text=True)
+    assert result.returncode != 0 and "--locked" in result.stderr, result.stderr
+    assert not built.exists(), "Trunk must stop before build when metadata needs a different lock"
+    assert lock.read_bytes() == source_lock and not list(temp.iterdir())
 
 print(f"ok: Release and Testnet restore the shared archive and always verify Trunk {version}; source preflight and failure paths pass")
 PY

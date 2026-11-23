@@ -92,7 +92,16 @@ class Ownership(unittest.TestCase):
                             pending.append(dependency.get('package', name))
         tools = manifest('oasis7_protocol_tools')
         self.assertEqual(tools['features']['default'], [])
-        self.assertIn('oasis7', tools['dev-dependencies'])
+        self.assertNotIn('oasis7', tools['dev-dependencies'])
+        self.assertEqual(tools['dev-dependencies']['oasis7_runtime'], {
+            'path': '../oasis7_runtime',
+            'default-features': False,
+            'features': ['test_tier_required'],
+        })
+        self.assertEqual(tools['dev-dependencies']['oasis7_world_service'], {
+            'path': '../oasis7_world_service',
+            'default-features': False,
+        })
 
     def test_client_production_does_not_enable_world_execution_features(self):
         data = manifest('oasis7_client_cli')

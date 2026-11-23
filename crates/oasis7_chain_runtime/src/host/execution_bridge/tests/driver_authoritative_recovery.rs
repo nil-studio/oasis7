@@ -9,15 +9,15 @@ use super::super::external_effect::{
     persist_execution_external_effect_materialization,
 };
 use super::*;
-use oasis7::consensus_action_payload::{
-    ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
-};
 use oasis7_node::{
     NodeConsensusAction, NodeExecutionCommitContext, NodeExecutionHook,
     compute_consensus_action_root,
 };
 use oasis7_runtime::{LocalCasStore, blake3_hex};
 use oasis7_simulator::{Action as SimulatorAction, ActionSubmitter};
+use oasis7_world_service::consensus_action_payload::{
+    ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
+};
 
 pub(super) fn simulator_committed_action(action_id: u64, max_amount: i64) -> NodeConsensusAction {
     let payload =

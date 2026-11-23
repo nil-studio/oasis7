@@ -254,9 +254,10 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", WORKFLOW)
         self.assertIn("github.event.pull_request.number || github.run_id", WORKFLOW)
         plan_if = "github.event_name != 'pull_request' || (github.event.action != 'closed' && !github.event.pull_request.draft && vars.OASIS7_CODEQL_MODE != '' && vars.OASIS7_CODEQL_MODE != 'off' && vars.OASIS7_CODEQL_MODE != 'baseline')"
-        summary_if = "always() && (github.event_name != 'pull_request' || (github.event.action != 'closed' && !github.event.pull_request.draft && vars.OASIS7_CODEQL_MODE != '' && vars.OASIS7_CODEQL_MODE != 'off' && vars.OASIS7_CODEQL_MODE != 'baseline' && (needs.plan.result != 'success' || needs.plan.outputs.has_units == 'true')))"
         self.assertIn("if: " + plan_if, WORKFLOW)
-        self.assertIn("if: " + summary_if, WORKFLOW)
+        self.assertNotIn("\n  summary:\n", WORKFLOW)
+        self.assertNotIn("name: CodeQL / summary", WORKFLOW)
+        self.assertIn("Finding status: unknown; see native Security.", WORKFLOW)
         self.assertIn("if: needs.plan.outputs.has_units == 'true'", WORKFLOW)
         self.assertIn("fail-fast: false", WORKFLOW)
         self.assertNotRegex(WORKFLOW, r"(?m)^  push:")
@@ -270,24 +271,19 @@ class WorkflowTests(unittest.TestCase):
 
         for event in ('schedule', 'workflow_dispatch', 'pull_request'):
             for mode in ('', 'off', 'baseline', 'observe', 'invalid_typo'):
-                for draft, action, plan_res, has_units in (
-                        (False, 'synchronize', 'success', 'false'),
-                        (False, 'synchronize', 'success', 'true'),
-                        (False, 'synchronize', 'failure', 'false'),
-                        (True, 'synchronize', 'skipped', ''),
-                        (False, 'closed', 'skipped', '')):
+                for draft, action in (
+                        (False, 'synchronize'),
+                        (True, 'synchronize'),
+                        (False, 'closed'),
+                        (True, 'converted_to_draft')):
                     values = {
                         'always()': True, 'github.event_name': event, 'github.event.action': action,
                         'github.event.pull_request.draft': draft, 'vars.OASIS7_CODEQL_MODE': mode,
-                        'needs.plan.result': plan_res, 'needs.plan.outputs.has_units': has_units,
                     }
                     expected_plan = (event != 'pull_request' or
                                      (action != 'closed' and not draft and mode not in ('', 'off', 'baseline')))
-                    expected_summary = (event != 'pull_request' or
-                                        (expected_plan and (plan_res != 'success' or has_units == 'true')))
-                    with self.subTest(event=event, mode=mode, draft=draft, action=action, plan_res=plan_res, has_units=has_units):
+                    with self.subTest(event=event, mode=mode, draft=draft, action=action):
                         self.assertEqual(eval_guard(plan_if, values), expected_plan)
-                        self.assertEqual(eval_guard(summary_if, values), expected_summary)
 
     def test_rust_native_preparation_scope_budget_and_artifact(self):
         step = WORKFLOW.split('      - id: rust_native\n', 1)[1].split('      - id:', 1)[0]
@@ -296,7 +292,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("CODEQL_NATIVE_SOURCE_PROFILE: ${{ needs.plan.outputs.profile == 'default' && github.event_name != 'pull_request' && 'ubuntu-archive-https' || 'runner-sources' }}", step)
         self.assertNotIn('Debug::pkgAcquire::Worker', step)
         self.assertNotIn('NativeObservation', step)
-        artifact = WORKFLOW.split('      - name: Persist Rust native preparation evidence\n', 1)[1].split('\n  summary:', 1)[0]
+        artifact = WORKFLOW.split('      - name: Persist Rust native preparation evidence\n', 1)[1]
         self.assertIn("if: always() && matrix.language == 'rust' && steps.rust_native.outcome != 'skipped'", artifact)
         self.assertIn('path: ${{ runner.temp }}/codeql-rust-native', artifact)
         self.assertNotIn('codeql-upload-evidence', artifact)
@@ -432,7 +428,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("if: success() && steps.execution.outputs.status == 'success'", upload)
         self.assertIn('category: ${{ matrix.category }}', upload)
         self.assertIn('sha: ${{ needs.plan.outputs.checkout }}', upload)
-        artifact = WORKFLOW.split('      - name: Persist Rust production evidence\n', 1)[1].split('\n  summary:', 1)[0]
+        artifact = WORKFLOW.split('      - name: Persist Rust production evidence\n', 1)[1].split('\n      - name: Persist Rust native preparation evidence\n', 1)[0]
         self.assertIn('path: ${{ runner.temp }}/codeql-rust-production-evidence', artifact)
         self.assertNotIn('codeql_databases', artifact)
         self.assertNotIn('codeql-upload-evidence', artifact)

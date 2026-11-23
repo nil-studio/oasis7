@@ -6,7 +6,7 @@ fn runtime_agent_chat_echo_env_enqueues_agent_spoke_virtual_event() {
     let _guard = lock_test_llm_env();
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(RUNTIME_AGENT_CHAT_ECHO_ENV, "1");
+        oasis7_hosted_access::process_env::set_var(RUNTIME_AGENT_CHAT_ECHO_ENV, "1");
     }
     let mut server = ViewerRuntimeLiveServer::new(
         ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal)
@@ -84,19 +84,19 @@ fn runtime_agent_chat_echo_env_accepts_chat_without_llm_runner_config() {
     clear_runtime_provider_env();
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(RUNTIME_AGENT_CHAT_ECHO_ENV, "1");
+        oasis7_hosted_access::process_env::set_var(RUNTIME_AGENT_CHAT_ECHO_ENV, "1");
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var(crate::simulator::ENV_LLM_MODEL);
+        oasis7_hosted_access::process_env::remove_var(crate::simulator::ENV_LLM_MODEL);
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var(crate::simulator::ENV_LLM_BASE_URL);
+        oasis7_hosted_access::process_env::remove_var(crate::simulator::ENV_LLM_BASE_URL);
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::remove_var(crate::simulator::ENV_LLM_API_KEY);
+        oasis7_hosted_access::process_env::remove_var(crate::simulator::ENV_LLM_API_KEY);
     }
     let mut server = ViewerRuntimeLiveServer::new(
         ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal)
@@ -161,7 +161,7 @@ fn runtime_agent_chat_echo_removed_old_brand_env_is_ignored() {
     let _guard = lock_test_llm_env();
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             removed_old_brand_runtime_live_env("RUNTIME_AGENT_CHAT_ECHO"),
             "1",
         );
@@ -228,7 +228,7 @@ fn runtime_agent_chat_echo_removed_old_brand_env_is_ignored() {
 fn private_chat_echo_requires_signed_owner_and_preserves_queue_for_owner() {
     let _guard = lock_test_llm_env();
     unsafe {
-        oasis7::env_mut::set_var(RUNTIME_AGENT_CHAT_ECHO_ENV, "1");
+        oasis7_hosted_access::process_env::set_var(RUNTIME_AGENT_CHAT_ECHO_ENV, "1");
     }
     let mut server = ViewerRuntimeLiveServer::new(
         ViewerRuntimeLiveServerConfig::new(WorldScenario::Minimal)

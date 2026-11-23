@@ -168,7 +168,11 @@ jobs:
                                  'status': plan['status'], 'checkout': checkout}.items():
                   output.write(key + '=' + value + '\n')
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
-              summary.write('CodeQL plan (diagnostic; no merge authority)\n```json\n' + json.dumps(plan, indent=2) + '\n```\n')
+              summary.write(
+                  f"CodeQL plan: {plan['status']} (profile={profile}, units={len(rows)}; "
+                  "diagnostic, no merge authority)\n"
+                  "Finding status: unknown; see native Security.\n```json\n"
+                  + json.dumps(plan, indent=2) + '\n```\n')
           PY
 
   analyze:
@@ -526,18 +530,3 @@ jobs:
           if-no-files-found: error
           overwrite: false
           retention-days: 7
-
-  summary:
-    name: CodeQL / summary
-    needs: [plan, analyze]
-    if: always() && (github.event_name != 'pull_request' || (github.event.action != 'closed' && !github.event.pull_request.draft && vars.OASIS7_CODEQL_MODE != '' && vars.OASIS7_CODEQL_MODE != 'off' && vars.OASIS7_CODEQL_MODE != 'baseline' && (needs.plan.result != 'success' || needs.plan.outputs.has_units == 'true')))
-    runs-on: ubuntu-24.04
-    timeout-minutes: 2
-    steps:
-      - name: Preserve actual plan and scan conclusions
-        env:
-          PLAN: ${{ needs.plan.result }}
-          STATUS: ${{ needs.plan.outputs.status }}
-          ANALYZE: ${{ needs.analyze.result }}
-        run: |
-          printf 'CodeQL plan: %s (%s)\nScan jobs: %s\nFinding status: unknown; see native Security.\n' "$PLAN" "$STATUS" "$ANALYZE" >> "$GITHUB_STEP_SUMMARY"

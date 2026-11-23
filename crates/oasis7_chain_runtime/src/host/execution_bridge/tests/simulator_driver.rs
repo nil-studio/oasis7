@@ -4,15 +4,15 @@ use super::super::driver::{
 use super::super::external_effect::load_execution_external_effect_materialization;
 use super::temp_dir;
 use super::*;
-use oasis7::consensus_action_payload::{
-    ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
-};
 use oasis7::simulator::{WorldSnapshot, initialize_kernel};
 use oasis7_agent_api::world_geometry::ChunkCoord;
 use oasis7_node::{NodeExecutionCommitContext, NodeExecutionHook, compute_consensus_action_root};
 use oasis7_runtime::LocalCasStore;
 use oasis7_simulator::{
     Action as SimulatorAction, ActionSubmitter, WorldConfig, WorldInitConfig, WorldScenario,
+};
+use oasis7_world_service::consensus_action_payload::{
+    ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
 };
 use std::fs;
 

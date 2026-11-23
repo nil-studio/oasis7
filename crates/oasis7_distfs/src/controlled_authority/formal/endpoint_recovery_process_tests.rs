@@ -229,6 +229,172 @@ fn recovered_endpoint_children_import_ready_complete_original_and_reopen_without
 fn recovered_endpoint_children_consecutive_epoch_before_first_completion_preserves_original() {
     run_recovery(true);
 }
+// CA-R2 developer-software negative matrix at the *real successor process*
+// boundary. Custody/floor witnesses are simulations here; they cannot assert
+// that a physical provider or signer is rollback-resistant.
+fn assert_corrupt_recovery_bootstraps_reject_before_listen(
+    binary: &std::ffi::OsStr,
+    fixture: &Fixture,
+    original_configs: &[std::path::PathBuf],
+) {
+    use std::io::Read;
+    use std::time::{Duration, Instant};
+
+    // Regular files avoid a blocked pipe reader if a failed endpoint leaves
+    // grandchildren holding stdout/stderr open. Keep both streams bounded and
+    // private; never echo untrusted config paths or secret material into CI.
+    const MAX_CAPTURE_BYTES: u64 = 64 * 1024;
+    fn read_bounded(path: &Path, limit: u64) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        fs::File::open(path)
+            .unwrap()
+            .take(limit + 1)
+            .read_to_end(&mut bytes)
+            .unwrap();
+        assert!(
+            bytes.len() as u64 <= limit,
+            "CA-R2 child output exceeded limit"
+        );
+        bytes
+    }
+    assert_eq!(original_configs.len(), 2, "CA-R2 needs both P/R roles");
+    for (role_index, config) in original_configs.iter().enumerate() {
+        let role = ["primary", "replica"][role_index];
+        let source: serde_json::Value = serde_json::from_slice(&fs::read(config).unwrap()).unwrap();
+        let mut variants = Vec::new();
+
+        // A missing immutable predecessor CAS cannot be substituted with the
+        // current/live directory, even when all signed certificates are intact.
+        let mut absent_archive = source.clone();
+        absent_archive["recovery_bootstrap"]["archive_directory"] = serde_json::Value::String(
+            fixture
+                .path
+                .join("unprovisioned-original-archive")
+                .to_string_lossy()
+                .into_owned(),
+        );
+        variants.push(("missing-original-archive", absent_archive));
+
+        // The signed issuer witness fixes the one-use successor. A signature
+        // that has the right length but no attestation must not authorize it.
+        let mut forged_witness = source.clone();
+        forged_witness["recovery_bootstrap"]["issuer_witness"]["signature_hex"] =
+            serde_json::Value::String("00".repeat(64));
+        variants.push(("forged-issuer-witness", forged_witness));
+
+        // An otherwise valid witness for a different minimum is not a
+        // license to rewind the anti-rollback anchor of this exact request.
+        let mut changed_floor = source.clone();
+        changed_floor["recovery_bootstrap"]["minimum_issuer_anchor"]["digest"] =
+            serde_json::Value::String(h(219));
+        variants.push(("wrong-minimum-anchor", changed_floor));
+
+        // Missing exact authoritative inventory must not be reconstructed
+        // from live files or accepted merely because the snapshot exists.
+        let mut missing_manifest = source.clone();
+        missing_manifest["recovery_bootstrap"]["archive_manifest"] = serde_json::Value::Null;
+        variants.push(("missing-original-manifest", missing_manifest));
+
+        for (label, variant) in variants {
+            let file = fixture
+                .path
+                .join(format!("reject-{role_index}-{label}.json"));
+            fs::write(&file, serde_json::to_vec(&variant).unwrap()).unwrap();
+            let stdout_path = fixture
+                .path
+                .join(format!("reject-{role_index}-{label}.stdout"));
+            let stderr_path = fixture
+                .path
+                .join(format!("reject-{role_index}-{label}.stderr"));
+            let capture = |path: &Path| {
+                fs::OpenOptions::new()
+                    .create_new(true)
+                    .write(true)
+                    .mode(0o600)
+                    .open(path)
+                    .unwrap()
+            };
+            let mut child = Command::new(binary)
+                .arg("--config")
+                .arg(&file)
+                .stdout(Stdio::from(capture(&stdout_path)))
+                .stderr(Stdio::from(capture(&stderr_path)))
+                .spawn()
+                .unwrap();
+            let deadline = Instant::now() + Duration::from_secs(6);
+            loop {
+                let oversized = [&stdout_path, &stderr_path]
+                    .iter()
+                    .any(|path| fs::metadata(path).unwrap().len() > MAX_CAPTURE_BYTES);
+                if oversized {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    panic!("CA-R2 {role}/{label} exceeded bounded process output");
+                }
+                if let Some(status) = child.try_wait().unwrap() {
+                    let stdout = read_bounded(&stdout_path, MAX_CAPTURE_BYTES);
+                    let stderr = read_bounded(&stderr_path, MAX_CAPTURE_BYTES);
+                    assert!(
+                        !status.success(),
+                        "CA-R2 {role}/{label} accepted an untrusted bootstrap: {status}"
+                    );
+                    assert!(
+                        !String::from_utf8_lossy(&stdout).contains("formal_endpoint_listening="),
+                        "CA-R2 {role}/{label} announced a writable successor"
+                    );
+                    let diagnostic = String::from_utf8_lossy(&stderr);
+                    // Assert the actual startup error matches the corrupted
+                    // input, not an unrelated missing binary or early failure.
+                    // Log only a reviewed category, not raw stderr/credentials.
+                    let reason = match label {
+                        "missing-original-archive"
+                            if diagnostic.contains("No such file")
+                                || diagnostic.contains("formal archive") =>
+                        {
+                            "archive-unavailable"
+                        }
+                        "forged-issuer-witness"
+                            if diagnostic.contains("signature")
+                                || diagnostic.contains("issuer/witness") =>
+                        {
+                            "issuer-signature-untrusted"
+                        }
+                        "wrong-minimum-anchor"
+                            if diagnostic.contains("ISSUER_UNPROVEN")
+                                || diagnostic.contains("independently retained floor") =>
+                        {
+                            "minimum-floor-untrusted"
+                        }
+                        "missing-original-manifest"
+                            if diagnostic.contains("invalid type")
+                                || diagnostic.contains("archive_manifest")
+                                || diagnostic.contains("missing field") =>
+                        {
+                            "archive-manifest-invalid"
+                        }
+                        _ => panic!(
+                            "CA-R2 {role}/{label} returned an unrelated or empty startup error (bytes={})",
+                            stderr.len()
+                        ),
+                    };
+                    eprintln!(
+                        "CA-R2 child role={role} mutation={label} exit={status} listening=false rejection={reason} stdout_bytes={} stderr_bytes={}",
+                        stdout.len(),
+                        stderr.len()
+                    );
+                    break;
+                }
+                if Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    panic!("CA-R2 {role}/{label} timed out before startup rejection");
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        }
+    }
+}
+
 fn run_recovery(consecutive: bool) {
     let binary = std::env::var_os("OASIS7_FORMAL_ENDPOINT_TEST_BIN").unwrap();
     let fixture = Fixture::new();
@@ -467,6 +633,10 @@ fn run_recovery(consecutive: bool) {
         fs::write(&config,serde_json::to_vec(&serde_json::json!({"schema_version":2,"initial_trust":trust,"initial_certificate":initial,"initial_qualified":null,"role":role,"data_dir":dir,"oracle_authentication_key_file":authfile,"oracle_address":oracle.address,"listen":"127.0.0.1:0","timeout_ms":3000,"recovery_bootstrap":{"predecessor_checkpoint":anchor.checkpoint(),"predecessor_checkpoint_digest":anchor.checkpoint().digest().unwrap(),"certificate":certificate,"fencing":{"Dual":{"primary":ps,"replica":rs}},"tail":tail,"issuer_witness":witness,"minimum_issuer_anchor":minimum,"archive_manifest":manifest,"archive_directory":archive}})).unwrap()).unwrap();
         new_configs.push(config);
     }
+    // Refused bootstraps must not poison the original Ready recovery. The
+    // correct P/R children start immediately afterwards and recover the exact
+    // original candidate before the next legitimate request.
+    assert_corrupt_recovery_bootstraps_reject_before_listen(&binary, &fixture, &new_configs);
     let (mut p2, p2addr) = start(&binary, &new_configs[0]);
     let (mut r2, r2addr) = start(&binary, &new_configs[1]);
     let restored_cut = remote(

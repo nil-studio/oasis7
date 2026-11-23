@@ -1,10 +1,10 @@
 //! The production formal wrapper verifies governance against its committed cut.
 use super::*;
 use ed25519_dalek::{Signer, SigningKey};
-use oasis7::consensus_action_payload::{
+use oasis7_runtime::Action;
+use oasis7_world_service::consensus_action_payload::{
     ConsensusActionAuthEnvelope, ConsensusActionPayloadBody, ConsensusActionPayloadEnvelope,
 };
-use oasis7_runtime::Action;
 
 #[test]
 fn governance_authorization_formal_node_hook_uses_qualified_committed_cut() {

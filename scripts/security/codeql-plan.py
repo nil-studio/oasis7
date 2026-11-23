@@ -45,13 +45,22 @@ ISSUE_METADATA_INPUTS = {
     '.github/ISSUE_TEMPLATE/test.yml',
 }
 
+# Exact non-Rust/non-Markdown files in fixed root vendor patches. Neighboring or
+# version-bumped paths remain unregistered and fail closed until reviewed.
+VENDOR_RUST_METADATA_INPUTS = {
+    'vendor-if-watch-3.2.2/Cargo.toml.orig',
+    'vendor-libp2p-quic-0.14.0/.gitignore',
+    'vendor-libp2p-quic-0.14.0/LICENSE',
+    'vendor-libp2p-rendezvous-0.18.1/src/generated/rpc.proto',
+    'vendor-libp2p-swarm-0.48.0/LICENSE',
+}
 
-# Exact orphaned root evidence PNG screenshots permitted for deletion-only
-# cleanup (#6398 / #6403). New or modified paths under evidence/ stay closed.
-RETIRED_ROOT_EVIDENCE_PATHS = {
-    'evidence/issue-1973/selected-target-polish.png',
-    'evidence/pr-234/viewer-entry-after-advance.png',
-    'evidence/pr-234/viewer-entry-before.png',
+VENDOR_PROVENANCE_INPUTS = {
+    'vendor-if-watch-3.2.2/upstream-source-sha256.json',
+    'vendor-libp2p-rendezvous-0.18.1/LICENSE',
+    'vendor-libp2p-rendezvous-0.18.1/local-patch-sha256.json',
+    'vendor-libp2p-rendezvous-0.18.1/upstream-source-sha256.json',
+    'vendor-libp2p-swarm-0.48.0/upstream-source-sha256.json',
 }
 
 
@@ -217,7 +226,6 @@ def plan(args):
     retired_deletions = {path for path in deleted_paths if retired_document_metadata_path(path)}
     if retired_deletions and not document_metadata_readers_retired(root, ids['source_head'], head_files):
         retired_deletions.clear()
-    retired_deletions |= deleted_paths.intersection(RETIRED_ROOT_EVIDENCE_PATHS)
     manifests = {side: [p for p in files if pathlib.PurePosixPath(p).name == 'Cargo.toml' and not p.startswith('third_party/')]
                  for side, files in [('base', base_files), ('head', head_files)]}
     reasons = {u: [] for u, _ in UNITS}
@@ -269,9 +277,14 @@ def plan(args):
             all_units('scan configuration: ' + path)
         elif name == '.gitattributes':
             all_units('Git checkout attributes: ' + path)
-        elif path in ('vendor-libp2p-quic-0.14.0/.gitignore', 'vendor-libp2p-quic-0.14.0/LICENSE'):
-            # Metadata travels with this fixed Rust dependency; do not treat
+        elif path in VENDOR_RUST_METADATA_INPUTS:
+            # Metadata travels with these fixed Rust dependencies; do not treat
             # neighboring unclassified files as registered or excluded.
+            add('rust-repo', path)
+        elif path in VENDOR_PROVENANCE_INPUTS:
+            # Consumed by scripts/libp2p-security-source.test.py and paired with
+            # the fixed Rust vendor packages; neighboring files stay closed.
+            add('python-repo', path)
             add('rust-repo', path)
         elif suffix == '.rs' or name in ('Cargo.toml', 'Cargo.lock', 'rust-toolchain', 'rust-toolchain.toml') or path.startswith('.cargo/'):
             add('rust-repo', path)

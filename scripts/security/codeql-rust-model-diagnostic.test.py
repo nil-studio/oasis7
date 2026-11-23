@@ -675,7 +675,16 @@ class Workflow(unittest.TestCase):
             expression=re.sub(r'!(?!=)', 'not ', expression.replace('&&', ' and ').replace('||', ' or '))
             with self.subTest(mode=mode):
                 self.assertEqual(bool(eval(' '.join(expression.split()), {'__builtins__':{}}, {})), expected)
-        self.assertIn("if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')",text)
+        self.assertIn(
+            "if: >-\n"
+            "      always() && (github.event_name == 'push' ||\n"
+            "      (github.event_name == 'pull_request' &&\n"
+            "       (github.event.action != 'labeled' ||\n"
+            "        (github.event.label.name == 'ci-priority' &&\n"
+            "         github.event.pull_request.head.repo.full_name == github.repository &&\n"
+            "         !github.event.pull_request.draft))))",
+            text,
+        )
         self.assertEqual(m.MODEL_BUNDLE_VERSIONS,('2.27.2','2.27.3'))
         for version in m.MODEL_BUNDLE_VERSIONS:self.assertIn(version,job);self.assertIn(m.BUNDLES[version]['sha256'],job)
         self.assertIn(' + 1080 ',job);self.assertIn('64 * 1024**2',job)

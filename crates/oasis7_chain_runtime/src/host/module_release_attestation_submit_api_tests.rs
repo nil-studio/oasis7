@@ -4,14 +4,14 @@ use super::{
     maybe_handle_module_release_attestation_submit_request,
     parse_module_release_attestation_submit_request,
 };
-use oasis7::consensus_action_payload::{
-    ConsensusActionPayloadBody, decode_consensus_action_payload,
-};
 use oasis7_node::{
     NodeConfig, NodeExecutionCommitContext, NodeExecutionCommitResult, NodeExecutionHook, NodeRole,
     NodeRuntime,
 };
 use oasis7_runtime::Action;
+use oasis7_world_service::consensus_action_payload::{
+    ConsensusActionPayloadBody, decode_consensus_action_payload,
+};
 use std::io::Read;
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::Ordering;

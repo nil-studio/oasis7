@@ -114,7 +114,7 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；本节承接 [REQ-DCS-
 
 新版本记录的启用、旧版本的限时兼容和退役必须由受信网络配置明确规定；不能替旧记录合成 sequence、修改签名字段或用旧版本覆盖已接纳的新版本。所有来源共享有界的缓存、查询和重试预算，容量状态进入既有 status summary；同一逻辑发现轮次或速率窗口内，更换 provider、来源标签或重建工作项不重置累计预算。
 
-对连接占用和累计传输的首个实施版本，采用[发现资源预算合同](mainnet-private-reachability-architecture.design.md#discovery-resource-budget-v1)：标准 development host 显式选择版本并提供完整限额，限制该 Libp2p 实例实际连接／尝试占用与共享 60 秒滚动子流传输总量。额度跨 provider、来源、协议和工作重建共享，只有窗口自然出窗恢复已消耗的传输额度；失败与重试不得退款，未知入站也不得绕过连接准入。产品未提供默认数值时不得静默补值或声称已启用。共享包络会限制业务 RR／gossip 等非发现流量，不提供正式 authority 各 lane 的独立带宽或共识活性保证；正式 profile 接入前仍须完成独立 lane 适配和隔离验收，不得以 development opt-in 放宽既有要求。本合同已固定，运行时接线与成功／拒绝／恢复证据仍由 [#5506](https://github.com/nil-studio/oasis7/issues/5506) 承接；原工作预算与跨重启配额的状态不因本次设计改变。
+对连接占用和累计传输的首个实施版本，采用[发现资源预算合同](mainnet-private-reachability-architecture.design.md#discovery-resource-budget-v1)：标准 development host 显式选择版本并提供完整限额，限制该 Libp2p 实例实际连接／尝试占用与共享 60 秒滚动子流传输总量。额度跨 provider、来源、协议和工作重建共享，只有窗口自然出窗恢复已消耗的传输额度；失败与重试不得退款，未知入站也不得绕过连接准入。产品未提供默认数值时不得静默补值或声称已启用。共享包络会限制业务 RR／gossip 等非发现流量，不提供正式 authority 各 lane 的独立带宽或共识活性保证；正式 profile 接入前仍须完成独立 lane 适配和隔离验收，不得以 development opt-in 放宽既有要求。标准 development node／local-provider 已支持该显式配置并传入同一网络实例，成功／拒绝／恢复的候选证据由 [#5506](https://github.com/nil-studio/oasis7/issues/5506) 承接，验证入口见[资源预算验证](../../testing/manual/testing-manual-planned-and-discovery.manual.md#discovery-resource-budget-v1)；原工作预算与跨重启配额的边界不变。
 
 - 系统设计状态：已覆盖。
 - 系统设计依据：[Peer record 接纳、刷新与版本迁移](mainnet-private-reachability-architecture.design.md#peer-record-lifecycle)。
