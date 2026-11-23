@@ -53,7 +53,7 @@
 | [小说 V50](../../../site/story/releases/v50/README.md) | 15 章、1 间章和 1 尾声，共 17 个阅读单元 | Markdown 是当前中文阅读源；不是 17 个游戏任务或英文正文。阅读顺序、原文保持和旧版本边界沿原索引。 |
 | [传播制作目录](../../../site/social/xiaohongshu/README.md)及[既有八图 manifest](../../readme/production/assets/xhs-ai-economy-2026-06-18/asset-manifest.md) | `site/social/` 有 20 个 HTML 和 66 个 PNG；另一个原制作包有 8 PNG、1 生成脚本及原 storyboard／manifest | 分别按原包追踪源与导出，不把 HTML 与导出逐个当新原作。数量只说明在库文件；实际发布、外部研究来源、字体和图像权利须按原包核实。 |
 
-工具 gallery、历史截图／证据、文档演示和第三方技能素材继续属于各自工具或证据入口。它们只有被明确选入游戏／发行内容后才成为该次制作输入；在仓库内可找到不等于已经采用。六视图机器人仍是[工具原型](../../../tools/voxel_asset_pipeline/DESIGN.md#asset-contract)：没有取得所选正式源图、产物和实际加载链时，不给正式机器人资产计数。
+工具 gallery、历史截图／证据、文档演示和第三方技能素材继续属于各自工具或证据入口。它们只有被明确选入游戏／发行内容后才成为该次制作输入；在仓库内可找到不等于已经采用。原六视图机器人离线体素原型（`tools/voxel_asset_pipeline/`）因未接入正式源图、产物和 Viewer 加载链已按 #6647 退役（可从 Git history 追溯），不计入正式机器人资产。
 
 另有[Viewer 音频内容方案](../../world-simulator/viewer/viewer-audio-content-delivery.design.md#audio-content-recipes)定义 S00／S01／S02 三份程序化提示配方；这是新增设计输入，不是上述源码基线已有的三个音频文件。实际生成器、参考声波、运行消费和试听分别交付，制作状态不能相加为三件已完成资产。音乐、空间环境声与配音采用该专题的当前取舍和重评条件。
 
@@ -74,7 +74,7 @@
 | 官网图像、SVG 与 raster 导出 | §3.1 的具体路径、Git 版本、原 [Site 设计](../../site/github-pages/public-site-discovery-and-showcase.design.md)和公开 provenance 标签 | SVG 可编辑只证明形式；raster 文件不等于原生编辑源、生成输入或完整权利材料。原作者、外部／生成来源未有对应记录时，明确该项缺口，不把概念图写为运行截图。 |
 | 原传播包 | 八图包有 [generate_carousel.py](../../readme/production/assets/xhs-ai-economy-2026-06-18/generate_carousel.py)、storyboard、manifest；其 manifest 说明外部研究材料未随仓库提交 | 生成脚本和上传顺序不替代外部资料、图像、字体、署名与复用依据；继续使用原受控来源入口，不在公开文档复制凭据或未授权材料。 |
 | Pixel World 原生 CJK fallback | Noto Sans SC Regular 2.004，固定上游 `notofonts/noto-cjk@f8d157532fbfaeda587e826d4cd5b21a49186f7c` 的原样 SC 地区 OTF；[资产及 OFL](../../../crates/pixel_world_bridge/assets/fonts/noto-sans-sc/README.md)记录原始路径、SHA-256、版权、大小与覆盖边界 | OFL 1.1 允许随软件嵌入及再分发并要求附版权与许可；源码目录保留全文，每个 WASM backend 通过 `native_font_notices()`保留全文。未采用 Launcher 微软雅黑，不把此证据扩写为其他资产权利齐备。 |
-| 六视图／后续外部或生成素材 | [工具合同](../../../tools/voxel_asset_pipeline/DESIGN.md#source-image-contract)规定实际源图和导出格式 | 采用时绑定真实源图／输出、工具及相关输入来源；不可确定重建的输出保留其固定版本。合成测试长方体不是正式机器人源，生成服务名也不是完整权利证明。 |
+| 六视图／后续外部或生成素材 | 原 `tools/voxel_asset_pipeline/` 离线原型已按 #6647 退役；后续若采用体素或外部生成管线须由对应现行工具合同规定源图与导出格式 | 采用时绑定真实源图／输出、工具及相关输入来源；不可确定重建的输出保留其固定版本。合成测试长方体不是正式机器人源，生成服务名也不是完整权利证明。 |
 
 权利核对是所声明用途的材料核对，不能把未取得材料改写成“违规已证实”或“可自由复用”。已核范围写明具体文件／版本、用途、限制和证据；有未决输入时保留该内容的采用限制，原 owner 补证、换源或调整对外内容。尚未核实的材料不支持“全资产权利齐备”或正式发行结论。
 

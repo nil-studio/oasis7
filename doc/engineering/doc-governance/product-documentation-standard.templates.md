@@ -379,6 +379,6 @@ Prompt 主题必须保留：目标 Agent 与控制资格、对话/配置区分�
 | 示例 | 复用的设计与交付入口 | 依规范应区分的内容 |
 | --- | --- | --- |
 | Viewer 静态设计稿 | [UI/UX 交付说明](../../world-simulator/viewer/viewer-page-module-design-2026-06-18.design.md#detailed-uiux-handoff)、[覆盖目录](../../world-simulator/viewer/assets/ui-ux/full-function/coverage-catalog.json)、[W01 世界目标稿](../../world-simulator/viewer/assets/ui-ux/full-function/world-diagnostics/W01-world-targets.svg)、[W09 窄屏稿](../../world-simulator/viewer/assets/ui-ux/full-function/world-diagnostics/W09-narrow-world.svg) | 原设计拥有交互语义；SVG 是设计目标；派生目录保留来源修订和区域映射，按各项 runtime/test_status 读取未运行边界。静态稿和映射不能证明真实焦点、输入、排版或世界结果，实际验证沿原 QA 方法取证。 |
-| 体素资产制作 | [制作工具设计](../../../tools/voxel_asset_pipeline/DESIGN.md#asset-contract)及其输入、导出与输出说明 | 工具拥有六视图、尺度、格式和生成/评估方法；具体资产入口另行定位选定源图、版本、成品及来源/许可。工具文档保留本地预览与评估产物不提交的规则；工具存在或生成成功不能证明正式资产齐备、运行接入或游戏内品质已验收。 |
+| 体素资产制作（示例边界） | 若后续引入体素资产工具，须在对应工具设计文档中明确输入、导出与输出说明（原未接入原型 `tools/voxel_asset_pipeline/` 已按 #6647 退役，可从 Git history 追溯） | 具体资产入口须另行定位选定源图、版本、成品及来源/许可；工具存在或生成成功不能证明正式资产齐备、运行接入或游戏内品质已验收。 |
 
 两例都可沿“真实上游 → 设计条款 → 原内容/素材入口 → 适用方法与证据”追踪。源文件和权利资料未核清时保持未知；小说的版本与文本交付另由 [story 入口](../../../site/story/README.md)说明，可玩事件、任务或对话仍需对应游戏规则与内容明确承接。

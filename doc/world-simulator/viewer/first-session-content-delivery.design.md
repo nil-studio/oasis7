@@ -171,7 +171,7 @@ C01～C03 在当前目标旁说明本次分工：玩家选择目标、约束及�
 | 共享像素世界；视觉交互设计 | [atlas.svg](assets/ui-ux/pixel-world/atlas.svg)、[scene.svg](assets/ui-ux/pixel-world/scene.svg) 与 [build.py](assets/ui-ux/pixel-world/build.py)；场景 320×180、tile／Agent 16×16、Smelter 48×48；尺寸、锚点、导出和消费者沿[像素素材合同](viewer-world-visual-content-delivery.design.md#pixel-world-design-assets) | 方案／结果与图 16／17 内嵌同源几何，原型加载派生 PNG；HUD 不栅格化。均为设计消费，尚未成为 Bevy 的贴图包或真实工厂布局 | 本次代码原生像素素材，无外部图片／模型输入。图形色彩、矿点和建筑外观不声明实际库存、可建造性或运行状态。 |
 | 阻塞、无安全方案与世界构图参考；视觉交互设计 | [goal-execution-blocked.svg](assets/ui-ux/full-function/gameplay/frames/goal-execution-blocked.svg)、[fallback-choices.svg](assets/ui-ux/full-function/gameplay/frames/fallback-choices.svg)、[fallback-no-safe.svg](assets/ui-ux/full-function/gameplay/frames/fallback-no-safe.svg)、[W01](assets/ui-ux/full-function/world-diagnostics/W01-world-targets.svg)、[W09](assets/ui-ux/full-function/world-diagnostics/W09-narrow-world.svg)；字段关系沿 [R-GAME-11](viewer-gameplay-details-uiux.design.md#r-game-11)/[R-GAME-15](viewer-gameplay-details-uiux.design.md#r-game-15) | 可编辑参考；只承接各自画出的状态，不提供未画出的所有首局帧，也不作为生产世界渲染实现 | 可核仓库文件及固定版本；外部依赖与逐项权利未完整审定，不能把仓库 LICENSE 当成所有素材自动授权。 |
 
-本次不交付 Smelter/Assembler 专用模型、动画、音效包或图稿内字体文件；[voxel 工具合同](../../../tools/voxel_asset_pipeline/DESIGN.md#asset-contract)存在也不能证明这些素材已制作。若实际候选消费其他模型/字体/音频，实施方从其原资产入口补定位与权利依据，再纳入该候选验收。
+本次不交付 Smelter/Assembler 专用模型、动画、音效包或图稿内字体文件；原 `tools/voxel_asset_pipeline` 离线原型已退役（可从 Git history 追溯），不构成已制作素材证明。若实际候选消费其他模型/字体/音频，实施方从其原资产入口补定位与权利依据，再纳入该候选验收。
 
 <a id="delivery-handoff"></a>
 ### 4.2 共用制作、多人交接与变更传播
