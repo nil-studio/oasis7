@@ -9174,5 +9174,162 @@ class WorkspaceMemberCargoAndScopedCfgTests(unittest.TestCase):
                     selector.validate_config(cfg)
 
 
+class MainFastHistoricalRetiredPathsTests(WorkspaceMemberCargoAndScopedCfgTests):
+    def test_bridges_only_historically_deleted_and_retired_paths_in_widened_main_fast_range(self):
+        # Simulate exact main sequence: legacy file in range_base -> registered in c1 -> deleted in c2 -> rule retired in policy_sha
+        self.write('scripts/retired-devnet-smoke.sh', '#!/usr/bin/env bash\nexit 0\n')
+        range_base = self.commit()
+
+        cfg_with_rule = copy.deepcopy(self.config)
+        cfg_with_rule['rules'].append({
+            'match': ['scripts/retired-devnet-smoke.sh'],
+            'groups': ['operational_contracts'],
+            'reason': 'retired_legacy_scripts',
+        })
+        self.write('scripts/ci-required-scope.json', json.dumps(cfg_with_rule, indent=2) + '\n')
+        self.commit()
+
+        # Commit D on main deletes the script while its rule is present in D^1
+        os.remove('scripts/retired-devnet-smoke.sh')
+        self.git('add', '-A')
+        self.commit()
+
+        # Commit B (policy_sha) retires the rule from ci-required-scope.json
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config, indent=2) + '\n')
+        policy_sha = self.commit()
+
+        # Commit C (head) makes an ordinary Rust edit
+        self.write('crates/oasis7_runtime_host/src/lib.rs', 'pub fn host() { let _ = 1; }\n')
+        head_sha = self.commit()
+
+        # In main-fast with range_base < policy_sha, the historically deleted + rule-retired path bridges cleanly
+        plan = selector.select(
+            self.config, range_base, head_sha, head_sha,
+            profile='main-fast', policy_ref=policy_sha,
+        )
+        self.assertIn('operational_contracts', plan['groups'])
+        self.assertTrue(any(
+            'bridged historical retired path in main-fast range: scripts/retired-devnet-smoke.sh' == r
+            for r in plan['reasons']
+        ))
+
+        # pr-fast MUST still reject unknown paths even with the same commits
+        with self.assertRaises(selector.UnknownInputsError):
+            selector.select(
+                self.config, range_base, head_sha, head_sha,
+                profile='pr-fast', policy_ref=policy_sha,
+            )
+
+        # Unwidened main-fast (base == policy_sha) and widened main-fast where the file still
+        # existed at policy_sha MUST both reject newly deleted unregistered paths!
+        self.git('checkout', '-q', range_base)
+        self.write('scripts/unregistered-now.sh', '#!/usr/bin/env bash\n')
+        rb_with_unreg = self.commit()
+        self.write('crates/oasis7_runtime_host/src/lib.rs', 'pub fn host() { let _ = 9; }\n')
+        unreg_policy = self.commit()
+        os.remove('scripts/unregistered-now.sh')
+        self.git('add', '-A')
+        unreg_head = self.commit()
+        for b_ref in (unreg_policy, rb_with_unreg):
+            with self.assertRaises(selector.UnknownInputsError):
+                selector.select(
+                    self.config, b_ref, unreg_head, unreg_head,
+                    profile='main-fast', policy_ref=unreg_policy,
+                )
+
+        # Re-introducing the retired path in head MUST still fail UnknownInputsError
+        self.git('checkout', '-q', head_sha)
+        self.write('scripts/retired-devnet-smoke.sh', '#!/usr/bin/env bash\necho back\n')
+        reintroduced_head = self.commit()
+        with self.assertRaises(selector.UnknownInputsError):
+            selector.select(
+                self.config, range_base, reintroduced_head, reintroduced_head,
+                profile='main-fast', policy_ref=policy_sha,
+            )
+
+        # If historical rule mapped to a group name no longer in current groups, fall back to scope=full
+        self.git('checkout', '-q', range_base)
+        cfg_retired_group = copy.deepcopy(self.config)
+        cfg_retired_group['rules'].append({
+            'match': ['scripts/retired-group-tool.sh'],
+            'groups': ['obsolete_group_name'],
+            'reason': 'obsolete_group_rule',
+        })
+        self.write('scripts/ci-required-scope.json', json.dumps(cfg_retired_group, indent=2) + '\n')
+        self.write('scripts/retired-group-tool.sh', '#!/usr/bin/env bash\n')
+        rb2 = self.commit()
+        os.remove('scripts/retired-group-tool.sh')
+        self.write('scripts/ci-required-scope.json', json.dumps(self.config, indent=2) + '\n')
+        self.git('add', '-A')
+        pol2 = self.commit()
+        self.write('crates/oasis7_runtime_host/src/lib.rs', 'pub fn host() { let _ = 2; }\n')
+        hd2 = self.commit()
+        fallback_plan = selector.select(
+            self.config, rb2, hd2, hd2,
+            profile='main-fast', policy_ref=pol2,
+        )
+        self.assertEqual(fallback_plan['scope'], 'full')
+        self.assertTrue(any(
+            'historical retired path group fallback in main-fast range: scripts/retired-group-tool.sh' == r
+            for r in fallback_plan['reasons']
+        ))
+
+    def test_function_pointer_signature_preserves_let_cfg_owner_stability_and_move_detection(self):
+        target_path = 'crates/oasis7_runtime_host/src/lib.rs'
+        self.write(
+            target_path,
+            'pub fn alpha(cb: fn()) {\n'
+            '    cb();\n'
+            '    #[cfg(target_os = "macos")]\n'
+            '    let _x = 1;\n'
+            '}\n'
+            'pub fn beta(cb: fn()) {\n'
+            '    cb();\n'
+            '}\n',
+        )
+        base_fn_ptr = self.commit()
+
+        # Prepending an unrelated fn(f: fn()) helper must not destabilize alpha's unchanged macos let gate
+        self.write(
+            target_path,
+            'pub fn helper(f: fn()) { f(); }\n'
+            'pub fn alpha(cb: fn()) {\n'
+            '    cb();\n'
+            '    #[cfg(target_os = "macos")]\n'
+            '    let _x = 1;\n'
+            '}\n'
+            'pub fn beta(cb: fn()) {\n'
+            '    cb();\n'
+            '}\n',
+        )
+        stable_head = self.commit()
+        policy_paths, ignored_risk, prod_cfg = selector.changed_test_policy(
+            base_fn_ptr, stable_head, [target_path], {target_path: {'oasis7_runtime_host'}},
+            set(self.config['oasis7_required_packages']), {}, set(),
+        )
+        self.assertEqual((policy_paths, ignored_risk, prod_cfg), ([], False, []))
+
+        # Moving the #[cfg(target_os = "macos")] let statement from alpha(cb: fn()) to beta(cb: fn()) MUST be detected!
+        self.git('checkout', '-q', base_fn_ptr)
+        self.write(
+            target_path,
+            'pub fn alpha(cb: fn()) {\n'
+            '    cb();\n'
+            '}\n'
+            'pub fn beta(cb: fn()) {\n'
+            '    cb();\n'
+            '    #[cfg(target_os = "macos")]\n'
+            '    let _x = 1;\n'
+            '}\n',
+        )
+        moved_head = self.commit()
+        policy_paths2, _, prod_cfg2 = selector.changed_test_policy(
+            base_fn_ptr, moved_head, [target_path], {target_path: {'oasis7_runtime_host'}},
+            set(self.config['oasis7_required_packages']), {}, set(),
+        )
+        self.assertEqual(policy_paths2, [])
+        self.assertEqual(prod_cfg2, [target_path])
+
+
 if __name__ == '__main__':
     unittest.main()

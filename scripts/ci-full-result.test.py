@@ -2240,6 +2240,11 @@ class MainFastRangeRecoveryTests(unittest.TestCase):
         self.assertEqual(module.resolve_main_fast_base(api_initial, self.repo, m1, m2), m0)
 
     def test_rejects_non_ancestor_before_and_never_narrows_wide_push(self):
+        import inspect
+        self.assertEqual(
+            inspect.signature(module.resolve_main_fast_base).parameters["max_commits"].default,
+            160,
+        )
         m0, m1, m2, m3, m4 = self.commits
         api = self.make_api([self.run_item(30, m3, "completed", "success")])
         # Push already spans m1..m4 (> max_commits=2): must keep m1, never narrow to m3!

@@ -786,6 +786,17 @@ def rust_literal_path(value):
     return plain.group(1) if plain else raw.group(2) if raw else None
 
 
+_RUST_WS_RE = re.compile(r'\s+')
+_RUST_BLOCK_COMMENT_STEP_RE = re.compile(r'/\*|\*/')
+_RUST_RAW_STRING_RE = re.compile(r'(?:br|cr|r)(#*)"')
+_RUST_STRING_BODY_RE = re.compile(r'(?:[^"\\]|\\.)*"', re.DOTALL)
+_RUST_IDENT_RE = re.compile(r'(?:r#)?(?:[^\W\d]|_)\w*')
+_RUST_LITERAL_SUFFIX_RE = re.compile(r'(?:[^\W\d]|_)\w*')
+_RUST_NUMBER_RE = re.compile(r'[0-9][0-9_]*(?:\.[0-9_]+)?(?:[eE][+-]?[0-9_]+)?')
+_RUST_CHAR_RE = re.compile(r"(?:b)?'(?:[^'\\\r\n]|\\(?:[nrt0\\'\"]|x[0-9a-fA-F]{2}|u\{[0-9a-fA-F_]+\}))'")
+_RUST_PLAIN_STRING_TOKEN_RE = re.compile(r'(?:b|c)?"([^"\\\r\n]*)"')
+
+
 def rust_source_inputs(source, return_tokens=False, with_module_paths=False, with_module_safety=False):
     """Read literal tokens and real include calls without expanding candidate macros.
 
@@ -795,84 +806,102 @@ def rust_source_inputs(source, return_tokens=False, with_module_paths=False, wit
     """
     tokens = []
     position = 0
-    raw_string = re.compile(r'(?:br|cr|r)(#*)"')
-    identifier = re.compile(r'(?:r#)?(?:[^\W\d]|_)\w*')
-    literal_suffix = re.compile(r'(?:[^\W\d]|_)\w*')
-    number_literal = re.compile(r'[0-9][0-9_]*(?:\.[0-9_]+)?(?:[eE][+-]?[0-9_]+)?')
-    character = re.compile(r"(?:b)?'(?:[^'\\\r\n]|\\(?:[nrt0\\'\"]|x[0-9a-fA-F]{2}|u\{[0-9a-fA-F_]+\}))'")
+    source_len = len(source)
+    ws_match = _RUST_WS_RE.match
+    block_step_search = _RUST_BLOCK_COMMENT_STEP_RE.search
+    raw_string_match = _RUST_RAW_STRING_RE.match
+    string_body_match = _RUST_STRING_BODY_RE.match
+    ident_match = _RUST_IDENT_RE.match
+    suffix_match = _RUST_LITERAL_SUFFIX_RE.match
+    number_match = _RUST_NUMBER_RE.match
+    char_match = _RUST_CHAR_RE.match
+    tokens_append = tokens.append
 
     def append_literal(kind, start, end):
         # Literal suffixes are part of the token, even in arbitrary macro input.
         # For example, discard!("example"include_str!(...)) contains no include.
-        suffix = literal_suffix.match(source, end)
-        if suffix:
-            end = suffix.end()
-            while end < len(source) and ('_' + source[end]).isidentifier():
-                end += 1
-            kind = 'suffixed_literal'
-        tokens.append((kind, source[start:end], start))
+        if end < source_len:
+            c_end = source[end]
+            if c_end == '_' or ('a' <= c_end <= 'z') or ('A' <= c_end <= 'Z') or not c_end.isascii():
+                suffix = suffix_match(source, end)
+                if suffix:
+                    end = suffix.end()
+                    if end < source_len and not source[end].isascii():
+                        while end < source_len and ('_' + source[end]).isidentifier():
+                            end += 1
+                    kind = 'suffixed_literal'
+        tokens_append((kind, source[start:end], start))
         return end
 
-    while position < len(source):
+    while position < source_len:
+        ws = ws_match(source, position)
+        if ws:
+            position = ws.end()
+            if position >= source_len:
+                break
         start = position
-        if source[position].isspace():
+        ch = source[position]
+        if ch == '/':
+            if source.startswith('//', position):
+                end = source.find('\n', position + 2)
+                position = source_len if end < 0 else end + 1
+                continue
+            if source.startswith('/*', position):
+                depth = 1
+                position += 2
+                while depth:
+                    step = block_step_search(source, position)
+                    if step is None:
+                        raise ValueError('unterminated Rust block comment')
+                    depth += 1 if step.group(0) == '/*' else -1
+                    position = step.end()
+                continue
+            tokens_append(('punctuation', ch, position))
             position += 1
             continue
-        if source.startswith('//', position):
-            end = source.find('\n', position + 2)
-            position = len(source) if end < 0 else end
-            continue
-        if source.startswith('/*', position):
-            depth = 1
-            position += 2
-            while depth and position < len(source):
-                if source.startswith('/*', position):
-                    depth += 1
-                    position += 2
-                elif source.startswith('*/', position):
-                    depth -= 1
-                    position += 2
-                else:
+        if ch in ('"', "'", 'b', 'c', 'r'):
+            if ch in ('r', 'b', 'c'):
+                raw = raw_string_match(source, position)
+                if raw:
+                    closing_delim = '"' + raw.group(1)
+                    end = source.find(closing_delim, raw.end())
+                    if end < 0:
+                        raise ValueError('unterminated Rust raw string')
+                    position = append_literal('string', start, end + len(closing_delim))
+                    continue
+            if ch == '"' or (ch in ('b', 'c') and position + 1 < source_len and source[position + 1] == '"'):
+                quote = position if ch == '"' else position + 1
+                body = string_body_match(source, quote + 1)
+                if body is None:
+                    raise ValueError('unterminated Rust string')
+                position = append_literal('string', start, body.end())
+                continue
+            if ch == "'" or (ch == 'b' and position + 1 < source_len and source[position + 1] == "'"):
+                char = char_match(source, position)
+                if char:
+                    position = append_literal('character', start, char.end())
+                    continue
+                if ch == "'":
+                    # A lifetime's apostrophe is punctuation, not a greedy quoted string.
+                    tokens_append(('punctuation', ch, position))
                     position += 1
-            if depth:
-                raise ValueError('unterminated Rust block comment')
-            continue
-        raw = raw_string.match(source, position)
-        if raw:
-            closing = '"' + raw.group(1)
-            end = source.find(closing, raw.end())
-            if end < 0:
-                raise ValueError('unterminated Rust raw string')
-            position = append_literal('string', start, end + len(closing))
-            continue
-        quote = position + int(source.startswith(('b"', 'c"'), position))
-        if source[quote] == '"':
-            position = quote + 1
-            while position < len(source) and source[position] != '"':
-                position += 2 if source[position] == '\\' else 1
-            if position >= len(source):
-                raise ValueError('unterminated Rust string')
-            position = append_literal('string', start, position + 1)
-            continue
-        char = character.match(source, position)
-        if char:
-            position = append_literal('character', start, char.end())
-            continue
-        if source[position].isascii() and source[position].isdigit():
-            number = number_literal.match(source, position)
+                    continue
+        if '0' <= ch <= '9':
+            number = number_match(source, position)
             position = append_literal('number', start, number.end())
             continue
-        name = identifier.match(source, position)
-        if name:
-            position = name.end()
-            # Python's \w omits combining marks accepted in Rust identifiers.
-            # Do not split a longer identifier into a false include macro.
-            while position < len(source) and ('_' + source[position]).isidentifier():
-                position += 1
-            tokens.append(('identifier', source[start:position], start))
-            continue
-        # A lifetime's apostrophe is punctuation, not a greedy quoted string.
-        tokens.append(('punctuation', source[position], position))
+        if ch == '_' or ('a' <= ch <= 'z') or ('A' <= ch <= 'Z') or not ch.isascii():
+            name = ident_match(source, position)
+            if name:
+                position = name.end()
+                # Python's \w omits combining marks accepted in Rust identifiers.
+                # Do not split a longer identifier into a false include macro.
+                if position < source_len and not source[position].isascii():
+                    while position < source_len and ('_' + source[position]).isidentifier():
+                        position += 1
+                tokens_append(('identifier', source[start:position], start))
+                continue
+        tokens_append(('punctuation', ch, position))
         position += 1
 
     closing = {}
@@ -900,8 +929,8 @@ def rust_source_inputs(source, return_tokens=False, with_module_paths=False, wit
     for index, (kind, value, start) in enumerate(tokens):
         if kind == 'string':
             previous = len(literals)
-            literal = re.fullmatch(r'(?:b|c)?"([^"\\\r\n]*)"', value)
-            raw = raw_string.match(value)
+            literal = _RUST_PLAIN_STRING_TOKEN_RE.fullmatch(value)
+            raw = raw_string_match(value)
             if literal:
                 literals.append(literal.group(1))
             elif raw:
@@ -2458,8 +2487,38 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                     and (len(values) == 4 or (values[4:5] == ('(',) and values[-1] == ')')))
                 or builtin_attribute(values, ('allow', 'warn', 'deny', 'forbid', 'expect', 'doc', 'should_panic')))
 
-    def attributes(source, native_linux=False):
-        tokens, closing = rust_source_inputs(source, return_tokens=True)
+    bracket_index_cache = {}
+
+    def bracket_ancestors_of(tokens, closing):
+        cache_key = id(closing)
+        cached = bracket_index_cache.get(cache_key)
+        if cached is not None and cached[0] is closing:
+            return cached[1]
+        enclosing = [None] * len(tokens)
+        parent_map = {}
+        stack = []
+        for idx in range(len(tokens)):
+            if stack and stack[-1][1] == idx:
+                stack.pop()
+            enclosing[idx] = stack[-1][0] if stack else None
+            if idx in closing:
+                parent_map[idx] = enclosing[idx]
+                stack.append((idx, closing[idx]))
+
+        def ancestors(idx):
+            res = []
+            cur = enclosing[idx] if 0 <= idx < len(enclosing) else None
+            while cur is not None:
+                res.append(cur)
+                cur = parent_map[cur]
+            return res
+
+        bracket_index_cache[cache_key] = (closing, ancestors)
+        return ancestors
+
+    def attributes(source, native_linux=False, pretokenized=None):
+        tokens, closing = pretokenized if pretokenized is not None else rust_source_inputs(source, return_tokens=True)
+        ancestors_of = bracket_ancestors_of(tokens, closing)
         selection, ignored, test_owners = set(), set(), set()
         annotations, ordinary_context = set(), set()
         lexical_annotations = []
@@ -2485,8 +2544,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             occurrence = occurrences.get(key, 0)
             occurrences[key] = occurrence + 1
             item_owners[index] = (*key, occurrence)
-            if not any(start < index < stop and start not in module_braces
-                       for start, stop in closing.items()):
+            if not any(b not in module_braces for b in ancestors_of(index)):
                 ordinary_context.add(item_owners[index])
         # A local `let` cfg is not an item. Absolute token offsets are not
         # lexical identities: inserting an unrelated struct must not make an
@@ -2495,7 +2553,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         # statement tokens and their enclosing qualified function as identity.
         # Changed expressions/initializers, new statements and moved scopes
         # remain additions and go through the existing validated-driver check.
-        function_bodies, function_starts = [], {}
+        function_bodies, function_starts, function_body_by_left = [], {}, {}
         for start, owner in item_owners.items():
             if owner[0] != 'fn':
                 continue
@@ -2506,22 +2564,24 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 else:
                     cursor += 1
             if cursor in closing and tokens[cursor][1] == '{':
-                function_bodies.append((cursor, closing[cursor], owner))
+                body_entry = (cursor, closing[cursor], owner)
+                function_bodies.append(body_entry)
+                function_body_by_left.setdefault(cursor, body_entry)
                 function_starts[cursor] = start
         statement_owners, statement_occurrences, statement_context = {}, {}, {}
         for start, (_, value, _) in enumerate(tokens):
             if value != 'let':
                 continue
-            bodies = [(left, right, owner) for left, right, owner in function_bodies
-                      if left < start < right]
-            if not bodies:
+            ancestors = ancestors_of(start)
+            innermost_left = next((b for b in ancestors if b in function_body_by_left), None)
+            if innermost_left is None:
                 continue
-            left, right, function = min(bodies, key=lambda body: body[1] - body[0])
-            if any(opening < left < right < stop and tokens[opening][1] == '{'
-                   and opening not in module_braces for opening, stop in closing.items()):
+            left, right, function = function_body_by_left[innermost_left]
+            if any(right < closing[opening] and tokens[opening][1] == '{'
+                   and opening not in module_braces for opening in ancestors_of(left)):
                 continue  # Impl/trait/nested-function/macro owners remain conservative.
-            if any(left < opening < start < stop <= right and tokens[opening][1] == '{'
-                   for opening, stop in closing.items()):
+            if any(left < opening and closing[opening] <= right and tokens[opening][1] == '{'
+                   for opening in ancestors):
                 continue  # Nested blocks/macros retain conservative handling.
             end = start + 1
             while end < right and tokens[end][1] != ';':
@@ -2591,8 +2651,8 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         stable_functions, function_occurrences = {}, {}
         for left, right, _ in function_bodies:
             start = function_starts[left]
-            parents = [opening for opening, stop in closing.items()
-                       if opening < start < right < stop and opening not in module_braces]
+            parents = [opening for opening in ancestors_of(start)
+                       if right < closing[opening] and opening not in module_braces]
             if len(parents) > 1 or parents and parents[0] not in plain_impls:
                 continue  # Nested functions, traits and macro token trees.
             start = declaration_start(start)
@@ -2611,8 +2671,9 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                         if (opening and tokens[opening - 1][1] == '!')
                         or (opening > 1 and tokens[opening - 2][1] == '!'
                             and tokens[opening - 1][0] == 'identifier')]
+        macro_openings = {opening for opening, _ in macro_ranges}
         statement_context = {owner: context for owner, context in statement_context.items()
-                             if not any(left < context[2] < right for left, right in macro_ranges)}
+                             if not any(b in macro_openings for b in ancestors_of(context[2]))}
 
         # Direct method-call statements have a smaller complete lexical owner
         # than the whole method body. Keep an unchanged cfg hook stable when a
@@ -2656,6 +2717,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 cursor = closing[cursor + 2] + 1
             return transparent_attributes(left + 1, cursor)
 
+        file_transparent_inner = transparent_inner_attributes(-1, len(tokens))
         method_impls, method_impl_occurrences = {}, {}
         for start, owner in item_owners.items():
             if owner[0] != 'impl':
@@ -2663,9 +2725,8 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             declaration = declaration_start(start)
             if (not direct_declaration(declaration)
                     or not transparent_attributes(declaration, start)
-                    or not transparent_inner_attributes(-1, len(tokens))
-                    or any(left < start < right and left not in module_braces
-                           for left, right in closing.items())):
+                    or not file_transparent_inner
+                    or any(left not in module_braces for left in ancestors_of(start))):
                 continue
             end = start + 1
             while end < len(tokens) and tokens[end][1] not in ('{', ';'):
@@ -2709,8 +2770,8 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         for left, right, _ in function_bodies:
             start = function_starts[left]
             declaration = declaration_start(start)
-            parents = [opening for opening, stop in closing.items()
-                       if opening < start < right < stop and opening not in module_braces]
+            parents = [opening for opening in ancestors_of(start)
+                       if right < closing[opening] and opening not in module_braces]
             if (len(parents) != 1 or parents[0] not in method_impls
                     or tokens[start + 1][0] != 'identifier'
                     or not direct_declaration(declaration)
@@ -2751,10 +2812,11 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                         break
 
         def enclosing_function_owner(index, fallback):
-            bodies = [left for left, right, _ in function_bodies if left < index < right]
-            if not bodies or any(left < index < right for left, right in macro_ranges):
+            ancestors = ancestors_of(index)
+            innermost = next((b for b in ancestors if b in function_body_by_left), None)
+            if innermost is None or any(b in macro_openings for b in ancestors):
                 return fallback
-            scope = stable_functions.get(max(bodies))
+            scope = stable_functions.get(innermost)
             if scope is None:
                 return fallback
             start, _, identity = scope
@@ -2804,9 +2866,20 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 test_owners.add(owner)
             if values[0] == 'ignore':
                 ignored.add(owner)
-        ordinary_items = {owner for owner in ordinary_context
-                          if all(ordinary_attribute(attribute, native_linux)
-                                 for attribute, target in annotations if applies_to(target, owner))}
+        attrs_by_target = {}
+        module_attrs = []
+        for attribute, target in annotations:
+            attrs_by_target.setdefault(target, []).append(attribute)
+            if target[0] in ('mod', 'module'):
+                module_attrs.append((attribute, target))
+        ordinary_items = {
+            owner for owner in ordinary_context
+            if all(ordinary_attribute(attribute, native_linux)
+                   for attribute in attrs_by_target.get(owner, ()))
+            and all(ordinary_attribute(attribute, native_linux)
+                    for attribute, target in module_attrs
+                    if target != owner and (not target[1] or owner[1].startswith(target[1] + '::')))
+        }
 
         def test_region_fingerprint():
             # A filtered harness cannot witness arbitrary edits to tests in a
@@ -2828,8 +2901,10 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
             # offsets or a whitelist of supposedly harmless macro names.
             macro_definitions = {index for index, (_, value, _) in enumerate(tokens[:-1])
                                  if value.removeprefix('r#') == 'macro_rules' and tokens[index + 1][1] == '!'}
+            macro_def_list = sorted(macro_definitions)
+            item_owner_list = sorted(item_owners)
             macro_inputs = []
-            for opening, stop in macro_ranges:
+            for opening, stop in sorted(macro_ranges):
                 if (opening > 1 and tokens[opening - 1][1] == '!'
                         and tokens[opening - 2][0] == 'identifier'
                         and tokens[opening - 2][1] not in ('if', 'while', 'match', 'return', 'break', 'yield')):
@@ -2847,28 +2922,39 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 if start and tokens[start - 1][1] == '$':
                     start -= 1  # Preserve $crate in a containing macro's input.
                 macro_inputs.append((start, stop))
+            macro_inputs.sort()
+            macro_input_starts = [s for s, _ in macro_inputs]
             opaque_items = (bool(macro_definitions)
                             or bool(macro_inputs)
                             or any(values[0] != 'cfg' and not ordinary_attribute(values, native_linux)
-                                   and not any(left < index < right for left, right, _ in function_bodies)
+                                   and not any(b in function_body_by_left for b in ancestors_of(index))
                                    for values, _, index, _, _ in lexical_annotations))
             if opaque_items:
                 ordinary_tokens = set()
                 for left, right, _ in function_bodies:
                     start = function_starts[left]
                     declaration = declaration_start(start)
-                    parents = [opening for opening, stop in closing.items()
-                               if opening < start < right < stop and opening not in module_braces]
-                    calls = [(opening, stop) for opening, stop in macro_inputs if left < opening < stop < right]
+                    parents = [opening for opening in ancestors_of(start)
+                               if right < closing[opening] and opening not in module_braces]
+                    call_idx = bisect_right(macro_input_starts, left)
+                    calls = []
+                    while call_idx < len(macro_inputs) and macro_inputs[call_idx][0] < right:
+                        if macro_inputs[call_idx][1] < right:
+                            calls.append(macro_inputs[call_idx])
+                        call_idx += 1
+                    md_idx = bisect_right(macro_def_list, left)
+                    has_macro_def = md_idx < len(macro_def_list) and macro_def_list[md_idx] < right
+                    io_idx = bisect_right(item_owner_list, left)
+                    has_local_item = io_idx < len(item_owner_list) and item_owner_list[io_idx] < right
                     if (len(parents) > 1 or parents and parents[0] not in method_impls
                             or not direct_declaration(declaration) or not complete_header(start, left)
                             or not transparent_attributes(declaration, start)
-                            or not transparent_inner_attributes(-1, len(tokens))
-                            or any(opening < start < stop for opening, stop in macro_ranges)
-                            or any(left < index < right for index in macro_definitions)
+                            or not file_transparent_inner
+                            or any(b in macro_openings for b in ancestors_of(start))
+                            or has_macro_def
                             # Local aliases/items can change an unchanged
                             # invocation's binding or expansion context.
-                            or calls and (any(left < index < right for index in item_owners)
+                            or calls and (has_local_item
                                           or any(value == 'extern' for _, value, _ in tokens[left + 1:right]))
                             or any(not transparent_attributes(declaration_start(opening - 2), opening - 2)
                                    or not transparent_inner_attributes(opening, stop)
@@ -2895,10 +2981,11 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                     indices = [index for _, target, index, _, _ in lexical_annotations if target == owner]
                     bodies = set()
                     for index in indices:
-                        enclosing = [body for body in function_bodies if body[0] < index < body[1]]
-                        if not enclosing or any(left < index < right for left, right in macro_ranges):
+                        ancestors = ancestors_of(index)
+                        innermost = next((b for b in ancestors if b in function_body_by_left), None)
+                        if innermost is None or any(b in macro_openings for b in ancestors):
                             return None
-                        bodies.add(min(enclosing, key=lambda body: body[1] - body[0]))
+                        bodies.add(function_body_by_left[innermost])
                     if len(bodies) != 1:
                         return None
                     # Unknown nested statement/field ownership can only prove
@@ -2911,8 +2998,8 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                 declaration = declaration_start(start)
                 if not transparent_attributes(declaration, start):
                     return None
-                parents = [left for left, right in closing.items()
-                           if left < start < right and tokens[left][1] == '{' and left not in module_braces]
+                parents = [left for left in ancestors_of(start)
+                           if tokens[left][1] == '{' and left not in module_braces]
                 if len(parents) > 1 or parents and parents[0] not in method_impls:
                     return None
                 if owner[0] == 'fn':
@@ -2941,12 +3028,12 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         # Keep stable named/occurrence owners for edit comparison. Compilation
         # additionally needs the actual module instance, not a same-name prefix.
         tokens, closing, modules = info[7], info[8], info[10]
+        ancestors_of = bracket_ancestors_of(tokens, closing)
         scoped = []
         for attribute, owner, index, target, inner in info[12]:
             if inner:
-                containers = [(left, right) for left, right in closing.items()
-                              if tokens[left][1] == '{' and left < index < right]
-                left, right = min(containers, key=lambda pair: pair[1] - pair[0]) if containers else (-1, len(tokens))
+                brace = next((left for left in ancestors_of(index) if tokens[left][1] == '{'), None)
+                left, right = (brace, closing[brace]) if brace is not None else (-1, len(tokens))
                 applies = left < position < right
             else:
                 applies = target == position or any(
@@ -3065,15 +3152,46 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         return (enabled_gate(attribute, native, features) if attribute[0] in ('cfg', 'cfg_attr')
                 else ordinary_attribute(attribute, native))
 
+    source_owners_cache, candidate_cache = {}, {}
+    uncertain_module_set = set(source_inputs.get('uncertain_modules', ()))
+
     def source_owners(path):
-        return {name for name, directory in directories.items()
-                if path.startswith(directory + '/') or not directory}
+        owners = source_owners_cache.get(path)
+        if owners is None:
+            owners = frozenset(name for name, directory in directories.items()
+                               if path.startswith(directory + '/') or not directory)
+            source_owners_cache[path] = owners
+        return owners
+
+    tokenized_sources = {}
 
     def parsed(path, native):
         key = path, native
         if key not in parsed_sources:
-            parsed_sources[key] = attributes(sources[path].decode('utf-8', 'replace'), native)
+            text = sources[path].decode('utf-8', 'replace')
+            tok = tokenized_sources.get(path)
+            if tok is None:
+                tok = rust_source_inputs(text, return_tokens=True)
+                tokenized_sources[path] = tok
+            parsed_sources[key] = attributes(text, native, tok)
         return parsed_sources[key]
+
+    def candidate_parents(path):
+        cached = candidate_cache.get(path)
+        if cached is not None:
+            return cached
+        owners = source_owners(path)
+        stem = (posixpath.basename(posixpath.dirname(path)) if path.endswith('/mod.rs')
+                else posixpath.basename(path).removesuffix('.rs'))
+        name = re.compile(rb'(?<![A-Za-z0-9_])' + re.escape(stem.encode()) + rb'(?![A-Za-z0-9_])')
+        base_bytes = posixpath.basename(path).encode()
+        stem_bytes = stem.encode()
+        cached = [candidate for candidate, contents in sources.items()
+                  if candidate in uncertain_module_set
+                  or ((source_owners(candidate) == owners or base_bytes in contents)
+                      and ((stem_bytes in contents and name.search(contents)) or base_bytes in contents))]
+        candidate_cache[path] = cached
+        return cached
 
     def parents(path, native, selected_features=None, selected_root=None):
         """Find every literal mod/include reference without expanding macros.
@@ -3085,13 +3203,7 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
         if key in parent_cache:
             return parent_cache[key]
         owners = source_owners(path)
-        stem = (posixpath.basename(posixpath.dirname(path)) if path.endswith('/mod.rs')
-                else posixpath.basename(path).removesuffix('.rs'))
-        name = re.compile(rb'(?<![A-Za-z0-9_])' + re.escape(stem.encode()) + rb'(?![A-Za-z0-9_])')
-        candidates = [candidate for candidate, contents in sources.items()
-                      if candidate in source_inputs.get('uncertain_modules', ())
-                      or ((source_owners(candidate) == owners or posixpath.basename(path).encode() in contents)
-                          and (name.search(contents) or posixpath.basename(path).encode() in contents))]
+        candidates = candidate_parents(path)
         references, provenance = [], []
         for parent in candidates:
             info = parsed(parent, native)
@@ -3109,6 +3221,8 @@ def changed_test_policy(base, source, paths, feature_owners, feature_packages, a
                                 else parent.removesuffix('.rs'))
             for index, owner in items.items():
                 kind = tokens[index][1]
+                if not (kind == 'mod' and index + 2 < len(tokens) and tokens[index + 2][1] == ';') and kind != 'include':
+                    continue
                 inline = tuple(name for start, end, name in modules if start < index < end)
                 scoped = lexical_attributes(info, index)
                 attributes_here = [attribute for attribute, _ in scoped]
@@ -4948,6 +5062,109 @@ def _select(config, base, source_head, test_head=None, additions=(), profile=Non
     except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError) as error:
         full = True
         reasons.append('uncertain Git/dependency inputs: ' + str(error))
+    if unknown_paths and profile == 'main-fast' and snapshot is None and policy_ref is not None:
+        try:
+            base_oid = resolve_commit(base)
+            policy_oid = resolve_commit(policy_ref)
+            source_oid = resolve_commit(source_head)
+            test_oid = resolve_commit(test_head or source_head)
+            if base_oid != policy_oid and subprocess.run(
+                ['git', 'merge-base', '--is-ancestor', base_oid, policy_oid],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            ).returncode == 0:
+                cfg_cache = {}
+
+                def load_hist_cfg(rev):
+                    if rev not in cfg_cache:
+                        raw = _git_regular_blob_bytes(rev, 'scripts/ci-required-scope.json')
+                        try:
+                            cfg_cache[rev] = _strict_json_object(raw) if raw is not None else None
+                        except (ValueError, UnicodeError):
+                            cfg_cache[rev] = None
+                    return cfg_cache[rev]
+
+                remaining_unknown = []
+                for path in unknown_paths:
+                    if (not git('--literal-pathspecs', 'ls-tree', base_oid, '--', path).strip()
+                            or any(git('--literal-pathspecs', 'ls-tree', rev, '--', path).strip()
+                                   for rev in {policy_oid, source_oid, test_oid})):
+                        remaining_unknown.append(path)
+                        continue
+                    deletions = git(
+                        '--literal-pathspecs', 'log', '--first-parent', '--no-renames',
+                        '--diff-filter=D', '--format=%H', f'{base_oid}..{policy_oid}', '--', path,
+                    ).decode('utf-8', 'replace').splitlines()
+                    if not deletions:
+                        remaining_unknown.append(path)
+                        continue
+                    all_authorized = True
+                    hist_groups = set()
+                    hist_full = False
+                    hist_support_profiles = set()
+                    for del_oid in deletions:
+                        auth_oid = resolve_commit(f'{del_oid}^1')
+                        if subprocess.run(
+                            ['git', 'merge-base', '--is-ancestor', base_oid, auth_oid],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                        ).returncode != 0:
+                            all_authorized = False
+                            break
+                        hist_cfg = load_hist_cfg(auth_oid)
+                        if hist_cfg is None:
+                            all_authorized = False
+                            break
+                        hist_control = hist_cfg.get('control_paths', ())
+                        hist_scoped = hist_cfg.get('scoped_control_paths', {})
+                        hist_py = (python_control_inputs(hist_cfg)
+                                   if isinstance(hist_cfg.get('python_control_contracts'), dict) else {})
+                        hist_rules = hist_cfg.get('rules', ())
+                        hist_support = hist_cfg.get('workspace_support_profile_paths', {})
+                        matched_hist = False
+                        if (isinstance(hist_control, list)
+                                and any(isinstance(p, str) and fnmatch.fnmatchcase(path, p) for p in hist_control)):
+                            matched_hist = True
+                            hist_full = True
+                        if isinstance(hist_scoped, dict) and isinstance(hist_scoped.get(path), list):
+                            matched_hist = True
+                            hist_groups.update(hist_scoped[path])
+                        if path in hist_py:
+                            matched_hist = True
+                            hist_groups.update(hist_py[path])
+                        if isinstance(hist_rules, list):
+                            for rule in hist_rules:
+                                if (isinstance(rule, dict)
+                                        and isinstance(rule.get('match'), list)
+                                        and any(isinstance(p, str) and fnmatch.fnmatchcase(path, p) for p in rule['match'])
+                                        and not any(isinstance(p, str) and fnmatch.fnmatchcase(path, p)
+                                                    for p in rule.get('exclude', ()))):
+                                    matched_hist = True
+                                    hist_groups.update(rule.get('groups', ()))
+                                    hist_full |= bool(rule.get('full', False))
+                        if not matched_hist:
+                            all_authorized = False
+                            break
+                        if isinstance(hist_support, dict):
+                            for support_profile, patterns in hist_support.items():
+                                if (support_profile in SUPPORT_PROFILES and isinstance(patterns, list)
+                                        and any(isinstance(p, str) and fnmatch.fnmatchcase(path, p) for p in patterns)):
+                                    hist_groups.add('workspace_support')
+                                    hist_support_profiles.add(support_profile)
+                    if not all_authorized:
+                        remaining_unknown.append(path)
+                        continue
+                    path_support_profiles.update(hist_support_profiles)
+                    if (hist_full
+                            or any(not isinstance(g, str) or g not in groups for g in hist_groups)):
+                        full = True
+                        reasons.append('historical retired path group fallback in main-fast range: ' + path)
+                    else:
+                        chosen.update(hist_groups)
+                        path_rules[path].update(hist_groups)
+                        support_rule |= 'workspace_support' in hist_groups
+                        reasons.append('bridged historical retired path in main-fast range: ' + path)
+                unknown_paths = remaining_unknown
+        except (OSError, subprocess.CalledProcessError, ValueError, KeyError, TypeError, UnicodeError):
+            pass
     if unknown_paths:
         raise UnknownInputsError(unknown_paths)
     python_controls = python_control_plan(config, paths)
