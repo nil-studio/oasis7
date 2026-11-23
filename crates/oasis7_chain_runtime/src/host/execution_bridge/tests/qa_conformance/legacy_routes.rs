@@ -51,7 +51,7 @@ fn real_tcp_legacy_status_and_signed_gameplay_preserve_original_auth_bytes() {
         NodeConsensusAction::from_payload(
             action_id,
             "node-a",
-            correlation::encode_consensus_intent(&original).unwrap(),
+            oasis7_world_service::correlation::encode_consensus_intent(&original).unwrap(),
         )
         .unwrap(),
     ];

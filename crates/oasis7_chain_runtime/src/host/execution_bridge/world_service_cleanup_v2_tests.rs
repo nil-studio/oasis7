@@ -88,7 +88,7 @@ fn fixture() -> (
     let payload = WorldServicePayloadV1::GameExecutorControl(stop);
     let legacy = SubmitIntentRequest {
         contract_version: 1,
-        correlation: oasis7::world_service::correlation::derive_correlation(world, &payload)
+        correlation: oasis7_world_service::correlation::derive_correlation(world, &payload)
             .unwrap(),
         signed_payload: payload,
         deadline_unix_ms: None,
@@ -112,7 +112,7 @@ fn context(actions: Vec<oasis7_node::NodeConsensusAction>) -> NodeExecutionCommi
 #[test]
 fn cleanup_v2_actual_catalog_decodes_explicit_body_and_keeps_legacy_capture_bytes() {
     let (close, legacy) = fixture();
-    let bytes = oasis7::world_service::correlation::encode_cleanup_consensus_v2(&close).unwrap();
+    let bytes = oasis7_world_service::correlation::encode_cleanup_consensus_v2(&close).unwrap();
     let action = oasis7_node::NodeConsensusAction::from_payload(1, "transport", bytes).unwrap();
     let (runtime, simulator, bootstrap, inputs) =
         super::super::driver_replicated_input::decode_committed_actions(&context(vec![action]))
@@ -182,7 +182,7 @@ fn cleanup_v2_requires_runtime_begun_context_without_caller_clock_escape() {
 fn cleanup_v2_catalog_rejects_ignored_additional_cbor_fields() {
     use oasis7_world_service::consensus_action_payload::*;
     let (close, _) = fixture();
-    let bytes = oasis7::world_service::correlation::encode_cleanup_consensus_v2(&close).unwrap();
+    let bytes = oasis7_world_service::correlation::encode_cleanup_consensus_v2(&close).unwrap();
     let positive = decode_consensus_action_payload_envelope(&bytes).unwrap();
     let mut value: serde_cbor::Value = serde_cbor::from_slice(&bytes).unwrap();
     let serde_cbor::Value::Map(top) = &mut value else {
@@ -235,7 +235,7 @@ fn cleanup_v2_public_encoder_crosses_node_and_execution_boundaries() {
     };
     let (close, _) = fixture();
     close.verify_owner_signature().unwrap();
-    let bytes = oasis7::world_service::correlation::encode_cleanup_consensus_v2(&close).unwrap();
+    let bytes = oasis7_world_service::correlation::encode_cleanup_consensus_v2(&close).unwrap();
     let decoded =
         oasis7_world_service::consensus_action_payload::decode_consensus_action_payload_envelope(
             &bytes,
@@ -328,7 +328,7 @@ fn cleanup_v2_public_encoder_crosses_node_and_execution_boundaries() {
 #[test]
 fn cleanup_v2_alignment_preserves_legacy_public_and_null_auth_envelopes() {
     let (_, legacy) = fixture();
-    let bytes = oasis7::world_service::correlation::encode_consensus_intent(&legacy).unwrap();
+    let bytes = oasis7_world_service::correlation::encode_consensus_intent(&legacy).unwrap();
     for explicit_null in [false, true] {
         let wire = if explicit_null {
             let mut envelope: serde_cbor::Value = serde_cbor::from_slice(&bytes).unwrap();
@@ -365,6 +365,6 @@ fn cleanup_v2_alignment_preserves_legacy_public_and_null_auth_envelopes() {
     }
     assert_eq!(
         bytes,
-        oasis7::world_service::correlation::encode_consensus_intent(&legacy).unwrap()
+        oasis7_world_service::correlation::encode_consensus_intent(&legacy).unwrap()
     );
 }

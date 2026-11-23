@@ -95,7 +95,7 @@ fn preview_history_reconstructs_compacted_original_without_changing_source() {
     let result_key = correlation::key_digest(&request.correlation.key).unwrap();
     node.submit_consensus_action_payload(
         9001,
-        correlation::encode_consensus_intent(&request).unwrap(),
+        oasis7_world_service::correlation::encode_consensus_intent(&request).unwrap(),
     )
     .unwrap();
     node.start().unwrap();

@@ -345,7 +345,7 @@ pub(super) fn run_crash_recovery(
         control.arm(
             Point::Published,
             Some(next),
-            Some(correlation::encode_consensus_intent(request)?),
+            Some(oasis7_world_service::correlation::encode_consensus_intent(request)?),
             scenario.expires_at,
         )?;
         wait_for_published_position(&runtime, next)?;

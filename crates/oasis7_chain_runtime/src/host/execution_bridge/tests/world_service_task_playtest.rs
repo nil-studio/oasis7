@@ -111,7 +111,7 @@ fn assert_legacy_prefix_base_rejection(
     world: &RuntimeWorld,
     prefix: &SubmitIntentRequest<WorldServicePayloadV1>,
 ) {
-    let key = oasis7::world_service::correlation::key_digest(&prefix.correlation.key).unwrap();
+    let key = oasis7_world_service::correlation::key_digest(&prefix.correlation.key).unwrap();
     assert_eq!(
         world.capability_revocation_state().world_service_results[&key]["rejected"],
         "scheduler base binding changed",

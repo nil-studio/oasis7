@@ -305,7 +305,7 @@ fn retry_original_at_exact_publication(
     control.arm(
         Point::Published,
         Some(expected_position),
-        Some(correlation::encode_consensus_intent(original)?),
+        Some(oasis7_world_service::correlation::encode_consensus_intent(original)?),
         action_deadline,
     )?;
     let observed = control
