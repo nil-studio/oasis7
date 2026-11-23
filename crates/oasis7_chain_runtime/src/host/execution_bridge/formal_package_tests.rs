@@ -324,7 +324,7 @@ fn formal_initial_existing_world_has_complete_approved_material_and_stable_ident
         .unwrap(),
     );
     let mut legacy_world =
-        oasis7::runtime_host::world::from_snapshot(world.snapshot(), world.journal().clone())
+        oasis7_runtime_host::world::from_snapshot(world.snapshot(), world.journal().clone())
             .unwrap();
     legacy_world
         .record_world_service_result(CanonicalIntentResultV1 {

@@ -344,7 +344,7 @@ fn formal_changes_empty_range_is_qualified_and_substituted_stream_is_rejected() 
 fn world_with_owner() -> (World, SigningKey) {
     let owner = fixtures::key(71);
     let owner_public = hex::encode(owner.verifying_key().to_bytes());
-    let mut world = oasis7::runtime_host::world::new_with_state(WorldState::default())
+    let mut world = oasis7_runtime_host::world::new_with_state(WorldState::default())
         .try_with_cognition_scheduler(
             SchedulerPolicyV1 {
                 schema_version: SchedulerPolicyV1::SCHEMA_VERSION.into(),

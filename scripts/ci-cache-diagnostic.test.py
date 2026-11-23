@@ -147,6 +147,9 @@ class CollectorTests(unittest.TestCase):
         self.assertIn('save-if: false', text)
         self.assertNotIn('actions/cache/save@', text)
         self.assertNotIn('schedule:', text)
+        self.assertNotIn('pull_request:', text)
+        self.assertNotIn('collector-tests:', text)
+        self.assertIn('python3 -B scripts/ci-cache-diagnostic.test.py -v', text)
         self.assertIn("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'", text)
 
     def test_real_workflow_env_when_checkout_available(self):

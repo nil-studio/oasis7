@@ -17,7 +17,7 @@ impl Fixture {
         let root = temp_dir("service-record-before-cache");
         let world_dir = root.join("world");
         let records = root.join("records");
-        let mut world = oasis7::runtime_host::world::new();
+        let mut world = oasis7_runtime_host::world::new();
         world.step().unwrap();
         world
             .bind_cognition_runtime("cold-world", "main", 0, None, "pending", 0)

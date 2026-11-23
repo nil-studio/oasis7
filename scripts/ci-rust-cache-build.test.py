@@ -284,47 +284,97 @@ def compile_context(call):
 class CacheBuildTests(unittest.TestCase):
     maxDiff = None
 
+    @classmethod
+    def setUpClass(cls):
+        cls._template_dir = tempfile.TemporaryDirectory(prefix='oasis7-cache-build-template-')
+        cls.addClassCleanup(cls._template_dir.cleanup)
+        cls._template_root = Path(cls._template_dir.name)
+        config_path = cls._template_root / 'scripts/ci-required-scope.json'
+        config_path.parent.mkdir()
+        shutil.copyfile(ROOT / 'scripts/ci-required-scope.json', config_path)
+        shutil.copyfile(ROOT / 'Cargo.toml', cls._template_root / 'Cargo.toml')
+        workspace = tomllib.loads((ROOT / 'Cargo.toml').read_text())['workspace']
+        for member in workspace['members']:
+            for directory in ROOT.glob(member):
+                destination = cls._template_root / directory.relative_to(ROOT) / 'Cargo.toml'
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(directory / 'Cargo.toml', destination)
+        cls._base_config = json.loads(config_path.read_text())
+        cargo = cls._template_root / 'cargo'
+        cargo.write_text(r'''#!/usr/bin/env bash
+set -euo pipefail
+json_str_into() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\t'/\\t}"
+  REPLY="\"$s\""
+}
+json_opt_env_into() {
+  local name="$1"
+  if [[ -n "${!name+x}" ]]; then
+    json_str_into "${!name}"
+  else
+    REPLY="null"
+  fi
+}
+number=1
+if [[ -f "$TEST_CARGO_LOG" ]]; then
+  mapfile -t _existing < "$TEST_CARGO_LOG"
+  number=$(( ${#_existing[@]} + 1 ))
+fi
+args_json=""
+sep=""
+has_json_fmt=0
+for arg in "$@"; do
+  json_str_into "$arg"
+  args_json+="${sep}${REPLY}"
+  sep=", "
+  if [[ "$arg" == "--message-format=json" ]]; then
+    has_json_fmt=1
+  fi
+done
+json_opt_env_into RUSTC_WRAPPER; j_wrap="$REPLY"
+json_str_into "$PWD"; j_cwd="$REPLY"
+json_opt_env_into OASIS7_WASM_BUILD_STD; j_std="$REPLY"
+json_opt_env_into CARGO_INCREMENTAL; j_inc="$REPLY"
+json_opt_env_into CARGO_PROFILE_DEV_DEBUG; j_dev="$REPLY"
+json_opt_env_into CARGO_PROFILE_TEST_DEBUG; j_test="$REPLY"
+printf '{"args": [%s], "wrapper": %s, "cwd": %s, "environment": {"OASIS7_WASM_BUILD_STD": %s, "CARGO_INCREMENTAL": %s, "CARGO_PROFILE_DEV_DEBUG": %s, "CARGO_PROFILE_TEST_DEBUG": %s}}\n' \
+  "$args_json" "$j_wrap" "$j_cwd" "$j_std" "$j_inc" "$j_dev" "$j_test" >> "$TEST_CARGO_LOG"
+if [[ "$number" == "${TEST_FAIL_CALL:-}" ]]; then
+  exit 23
+fi
+if (( has_json_fmt == 1 )); then
+  args=("$@")
+  mkdir -p "$PWD/recorded-binaries"
+  for (( i = 0; i + 1 < ${#args[@]}; i++ )); do
+    if [[ "${args[$i]}" == "--bin" ]]; then
+      name="${args[$((i + 1))]}"
+      binary="$PWD/recorded-binaries/$name"
+      printf '#!/bin/sh\nexit 97\n' > "$binary"
+      chmod 0755 "$binary"
+      json_str_into "$name"; j_name="$REPLY"
+      json_str_into "$binary"; j_bin="$REPLY"
+      printf '{"reason": "compiler-artifact", "target": {"name": %s}, "executable": %s}\n' \
+        "$j_name" "$j_bin"
+    fi
+  done
+fi
+''')
+        cargo.chmod(0o755)
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory(prefix='oasis7-periodic-cache-build-')
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
+        shutil.copytree(self._template_root, self.root, dirs_exist_ok=True)
         self.log = self.root / 'cargo.jsonl'
         self.behaviors = self.root / 'behavior.jsonl'
         self.config_path = self.root / 'scripts/ci-required-scope.json'
-        self.config_path.parent.mkdir()
-        shutil.copyfile(ROOT / 'scripts/ci-required-scope.json', self.config_path)
-        shutil.copyfile(ROOT / 'Cargo.toml', self.root / 'Cargo.toml')
-        workspace = tomllib.loads((ROOT / 'Cargo.toml').read_text())['workspace']
-        for member in workspace['members']:
-            for directory in ROOT.glob(member):
-                destination = self.root / directory.relative_to(ROOT) / 'Cargo.toml'
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(directory / 'Cargo.toml', destination)
-        self.config = json.loads(self.config_path.read_text())
-        cargo = self.root / 'cargo'
-        cargo.write_text(f'#!{sys.executable}\n' + r'''
-import json, os, pathlib, sys
-log = pathlib.Path(os.environ['TEST_CARGO_LOG'])
-number = len(log.read_text().splitlines()) + 1 if log.exists() else 1
-record = {'args': sys.argv[1:], 'wrapper': os.environ.get('RUSTC_WRAPPER'), 'cwd': os.getcwd(),
-          'environment': {name: os.environ.get(name) for name in
-          ('OASIS7_WASM_BUILD_STD', 'CARGO_INCREMENTAL', 'CARGO_PROFILE_DEV_DEBUG', 'CARGO_PROFILE_TEST_DEBUG')}}
-with log.open('a') as stream:
-    stream.write(json.dumps(record) + '\n')
-if str(number) == os.environ.get('TEST_FAIL_CALL'):
-    raise SystemExit(23)
-if '--message-format=json' in sys.argv:
-    for index, argument in enumerate(sys.argv[:-1]):
-        if argument == '--bin':
-            name = sys.argv[index + 1]
-            binary = pathlib.Path.cwd() / 'recorded-binaries' / name
-            binary.parent.mkdir(exist_ok=True)
-            binary.write_text('#!/bin/sh\nexit 97\n')
-            binary.chmod(0o755)
-            print(json.dumps({'reason': 'compiler-artifact', 'target': {'name': name},
-                              'executable': str(binary)}))
-''')
-        cargo.chmod(0o755)
+        self.config = copy.deepcopy(self._base_config)
         self.env = dict(os.environ, PATH=str(self.root) + os.pathsep + os.environ['PATH'],
                         CI='true', CI_VERBOSE='0', TEST_CARGO_LOG=str(self.log),
                         TEST_BEHAVIOR_LOG=str(self.behaviors), RUSTC_WRAPPER='must-be-unset',

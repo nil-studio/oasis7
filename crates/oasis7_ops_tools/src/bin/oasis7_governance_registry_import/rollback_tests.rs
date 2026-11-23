@@ -73,7 +73,7 @@ fn import_bootstraps_persists_and_rotates_fixed_rollback_authority_slots() {
     })
     .expect("bootstrap governed rollback authorities");
     let bootstrapped =
-        oasis7::runtime_host::world::load_from_dir(&world_dir).expect("reload bootstrap");
+        oasis7_runtime_host::world::load_from_dir(&world_dir).expect("reload bootstrap");
     assert_eq!(
         bootstrapped.snapshot().rollback_authority_registry,
         expected_rollback_registry(OLD_ON_CALL, OLD_GOVERNANCE)
@@ -90,7 +90,7 @@ fn import_bootstraps_persists_and_rotates_fixed_rollback_authority_slots() {
         default_threshold: 1,
     })
     .expect("rotate governed rollback authorities");
-    let rotated = oasis7::runtime_host::world::load_from_dir(world_dir).expect("reload rotation");
+    let rotated = oasis7_runtime_host::world::load_from_dir(world_dir).expect("reload rotation");
     assert_eq!(
         rotated.snapshot().rollback_authority_registry,
         expected_rollback_registry(NEW_ON_CALL, NEW_GOVERNANCE)
@@ -105,7 +105,7 @@ fn invalid_rollback_authority_manifest_is_rejected_without_world_overwrite() {
     std::fs::create_dir_all(&root).expect("create root");
     let world_dir = root.join("world");
     let manifest_path = root.join("public_manifest.json");
-    let mut baseline = oasis7::runtime_host::world::new_production_hardened();
+    let mut baseline = oasis7_runtime_host::world::new_production_hardened();
     baseline
         .set_rollback_authority_registry(expected_rollback_registry(ON_CALL, GOVERNANCE))
         .expect("seed registry");
@@ -141,7 +141,7 @@ fn invalid_rollback_authority_manifest_is_rejected_without_world_overwrite() {
         {
             unexpectedly_accepted.push(label);
         }
-        if oasis7::runtime_host::world::load_from_dir(&world_dir)
+        if oasis7_runtime_host::world::load_from_dir(&world_dir)
             .expect("reload baseline")
             .snapshot()
             != baseline_snapshot

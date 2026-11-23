@@ -100,11 +100,15 @@ def render_job(group: str) -> str:
             '          cargo +"$RUST_TOOLCHAIN" fmt --version\n'
             '          cargo +"$RUST_TOOLCHAIN" clippy --version\n'
         )
+    consolidation_guard = ""
+    if group == "packaging_contracts":
+        consolidation_guard = "      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 3 &&\n"
     return (
         f"  {job_id}:\n"
         f"    needs: select\n"
         f"    if: >-\n"
         f"      always() && !cancelled() && needs.select.result == 'success' &&\n"
+        f"{consolidation_guard}"
         f"      (needs.select.outputs.run_{group} == 'true' ||\n"
         f"       fromJSON(needs.select.outputs.plan).scope == 'full')\n"
         f"    runs-on: ubuntu-24.04\n"

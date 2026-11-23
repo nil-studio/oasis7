@@ -6,7 +6,7 @@ on:
     types: [labeled]
 
 concurrency:
-  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+  group: ${{ github.workflow }}-${{ github.event.label.name == 'ci-fast-preview' && !github.event.pull_request.draft && format('pr-{0}', github.event.pull_request.number) || format('pr-label-noop-{0}', github.run_id) }}
   cancel-in-progress: true
 
 permissions:

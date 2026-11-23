@@ -72,7 +72,7 @@ impl ViewerRuntimeLiveServer {
                     committed_height: view.version().commit.position,
                     source: (None, None),
                     source_epoch: 0,
-                    world: crate::runtime_host::world::new_with_state(
+                    world: oasis7_runtime_host::world::new_with_state(
                         view.projection().state.clone(),
                     ),
                     verified_view: Some(view),

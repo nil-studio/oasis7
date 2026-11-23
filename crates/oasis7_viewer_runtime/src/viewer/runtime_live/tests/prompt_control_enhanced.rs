@@ -617,7 +617,7 @@ fn runtime_prompt_control_hosted_local_mock_missing_context_and_wrong_tuple_fail
         !RuntimeLlmSidecar::new(ViewerLiveDecisionMode::Llm).supports_prompt_control_result(),
         "valid tuple without an installed Hosted Runtime fixture must remain disabled"
     );
-    let mut empty_world = crate::runtime_host::world::new();
+    let mut empty_world = oasis7_runtime_host::world::new();
     let fixture_error = crate::viewer::runtime_live::control_plane::install_hosted_local_mock_test_capability_fixtures(
         &mut empty_world,
         true,

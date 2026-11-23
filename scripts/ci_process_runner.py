@@ -212,6 +212,9 @@ def cleanup(process, marker):
     if Path('/proc').is_dir():
         # Never signal a saved PID without checking its current ownership and starttime.
         initial = owned_processes(marker, process.pid)
+        if not initial:
+            process.poll()
+            return 'clean', False
         for sig in (signal.SIGTERM, signal.SIGKILL):
             pending = owned_processes(marker, process.pid)
             for pid, identity in pending.items():
@@ -283,6 +286,7 @@ def _run(command, cwd, env, suite, name, results, expected_count, timeout_second
     capture = _Capture()
     live = live_output()
     stop_reader = threading.Event()
+    reader_done = threading.Event()
     reader_fds = []
     def consume(pipe):
         try:
@@ -309,6 +313,7 @@ def _run(command, cwd, env, suite, name, results, expected_count, timeout_second
             pipe.close()
             for fd in reader_fds:
                 os.close(fd)
+            reader_done.set()
     process = None
     try:
         # The reader and each queued packet own independent duplicates, so a
@@ -353,7 +358,15 @@ def _run(command, cwd, env, suite, name, results, expected_count, timeout_second
             if now >= next_heartbeat:
                 live.emit(f'\nsuite={suite} test={name} elapsed={int(now-start)}s state=running\n'.encode(), fd=stdout_fd)
                 next_heartbeat = now + heartbeat_seconds
-            time.sleep(min(0.2, heartbeat_seconds, max(0, start + timeout_seconds - now)))
+            wait_cap = 0.05 if cancellation_event is not None else 0.2
+            wait_budget = min(wait_cap, max(0, next_heartbeat - now), max(0, start + timeout_seconds - now))
+            if not reader_done.is_set():
+                reader_done.wait(timeout=wait_budget)
+            elif wait_budget > 0:
+                try:
+                    process.wait(timeout=min(0.05, wait_budget))
+                except subprocess.TimeoutExpired:
+                    pass
     except InterruptedError:
         cancelled = True
     finally:

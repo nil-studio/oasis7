@@ -138,7 +138,7 @@ fn invalid_supplied_strict_audit_is_atomic_after_all_clear_across_restart() {
     let readiness_before = server.rollback_readiness.clone();
     let consumed_before = server.consumed_strict_audit_nonces.clone();
     let generation_before =
-        crate::runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
+        oasis7_runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
             .expect("load generation before invalid audit")
             .expect("generation before invalid audit");
     let receipt_before = serde_json::to_vec(
@@ -161,7 +161,7 @@ fn invalid_supplied_strict_audit_is_atomic_after_all_clear_across_restart() {
     assert_eq!(server.consumed_strict_audit_nonces, consumed_before);
 
     let generation_after =
-        crate::runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
+        oasis7_runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
             .expect("load generation after invalid audit")
             .expect("generation after invalid audit");
     assert_eq!(

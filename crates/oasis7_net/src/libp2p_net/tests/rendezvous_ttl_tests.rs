@@ -147,7 +147,7 @@ fn discovery_ttl_boundaries_survive_timer_poll_and_subsequent_request() {
             );
             let mut client = swarm(
                 &client_key,
-                rendezvous::client::Behaviour::new(client_key.clone()),
+                super::super::rendezvous_client::Behaviour::new(client_key.clone()),
             );
             server.listen_on("/memory/0".parse().unwrap()).unwrap();
             let address = loop {
@@ -180,10 +180,12 @@ fn discovery_ttl_boundaries_survive_timer_poll_and_subsequent_request() {
                     .await
                 {
                     futures::future::Either::Left((event, _)) => match event {
-                        SwarmEvent::Behaviour(rendezvous::client::Event::Discovered {
-                            registrations,
-                            ..
-                        }) => {
+                        SwarmEvent::Behaviour(
+                            super::super::rendezvous_client::Event::Discovered {
+                                registrations,
+                                ..
+                            },
+                        ) => {
                             assert_eq!(registrations[0].ttl, ttls[received]);
                             assert_eq!(
                                 registrations[0].record.peer_id(),
@@ -199,10 +201,11 @@ fn discovery_ttl_boundaries_survive_timer_poll_and_subsequent_request() {
                                 );
                             }
                         }
-                        SwarmEvent::Behaviour(rendezvous::client::Event::DiscoverFailed {
-                            error,
-                            ..
-                        }) => panic!("fixture rejected: {error:?}"),
+                        SwarmEvent::Behaviour(
+                            super::super::rendezvous_client::Event::DiscoverFailed {
+                                error, ..
+                            },
+                        ) => panic!("fixture rejected: {error:?}"),
                         _ => {}
                     },
                     futures::future::Either::Right((

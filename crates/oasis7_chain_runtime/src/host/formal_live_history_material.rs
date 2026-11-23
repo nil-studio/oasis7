@@ -319,7 +319,7 @@ impl NativeHistoryResolver {
             let parent =
                 oasis7_runtime::VerifiedFormalRetainedHistoryParentV1::verify(anchor, &bytes)
                     .map_err(FormalReadError::Integrity)?;
-            oasis7::runtime_host::world::from_verified_formal_snapshot(
+            oasis7_runtime_host::world::from_verified_formal_snapshot(
                 snapshot,
                 journal,
                 parent,
@@ -331,7 +331,7 @@ impl NativeHistoryResolver {
                     "profile2 historical restore requires retained-history descriptor".into(),
                 ));
             }
-            oasis7::runtime_host::world::from_snapshot(snapshot, journal)
+            oasis7_runtime_host::world::from_snapshot(snapshot, journal)
         }
         .map_err(|e| FormalReadError::Integrity(format!("{e:?}")))?
         .with_release_security_policy(self.release.clone());

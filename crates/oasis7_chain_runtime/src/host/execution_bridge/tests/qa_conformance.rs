@@ -176,7 +176,7 @@ impl Fixture {
                 },
             );
         }
-        let mut world = oasis7::runtime_host::world::new_with_state(state);
+        let mut world = oasis7_runtime_host::world::new_with_state(state);
         if scheduler {
             use oasis7_runtime::SchedulerPolicyV1;
             world = world

@@ -268,7 +268,7 @@ fn readiness_reevaluation_stays_blocked_without_fresh_strict_audit_evidence() {
         "persisted all-clear evidence records the observed candidate root"
     );
     let restored =
-        crate::runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
+        oasis7_runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
             .expect("load generation")
             .expect("persisted generation");
     let generation: RuntimeAuthoritativeRecoveryGeneration =
@@ -561,7 +561,7 @@ fn durable_receipt_does_not_fabricate_player_compensation_for_system_events() {
     assert!(classified.compensation.is_none());
 
     let restored_generation =
-        crate::runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
+        oasis7_runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
             .expect("load generation")
             .expect("committed recovery generation");
     let generation: RuntimeAuthoritativeRecoveryGeneration =
@@ -945,7 +945,7 @@ fn authorized_rejected_compensation_transition_survives_restart() {
         "GetRollbackReceipt must preserve Reevaluate readiness for rejected terminal cases"
     );
     let restored =
-        crate::runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
+        oasis7_runtime_host::world::load_authoritative_recovery_generation(&recovery_dir)
             .expect("load generation")
             .expect("durable generation");
     let restored_generation: RuntimeAuthoritativeRecoveryGeneration =

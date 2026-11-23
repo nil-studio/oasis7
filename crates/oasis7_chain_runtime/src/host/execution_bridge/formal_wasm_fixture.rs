@@ -131,7 +131,7 @@ pub(crate) fn world_with_formal_history() -> World {
 
 fn prepared_wasm_world(identity: &FormalWorldIdentityV1, initialize_formal_history: bool) -> World {
     // Module admission precedes external initial activation; this is a test setup.
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     world.set_policy(PolicySet::allow_all());
     if initialize_formal_history {
         world.initialize_empty_formal_history().unwrap();
@@ -157,5 +157,5 @@ fn prepared_wasm_world(identity: &FormalWorldIdentityV1, initialize_formal_histo
         fixtures::h(10),
         fixtures::h(11),
     );
-    oasis7::runtime_host::world::from_snapshot(snapshot, world.journal().clone()).unwrap()
+    oasis7_runtime_host::world::from_snapshot(snapshot, world.journal().clone()).unwrap()
 }

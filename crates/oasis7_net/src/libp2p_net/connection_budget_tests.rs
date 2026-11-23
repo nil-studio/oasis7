@@ -575,10 +575,11 @@ async fn dial_relay_circuit(
 #[test]
 fn kademlia_and_rendezvous_use_one_window_on_the_same_authenticated_connection() {
     use crate::libp2p_net::{
+        rendezvous_client,
         wire_byte_window::{WireByteLimits, WireByteWindow},
         wire_bytes::Libp2pWireByteCounters,
     };
-    use libp2p::{kad, rendezvous};
+    use libp2p::kad;
 
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -642,13 +643,13 @@ fn kademlia_and_rendezvous_use_one_window_on_the_same_authenticated_connection()
                 loop {
                     match budgeted_event(&mut source, &mut server).await {
                         SwarmEvent::Behaviour(BehaviourEvent::RendezvousClient(
-                            rendezvous::client::Event::Discovered { request_id, rendezvous_node, .. },
+                            rendezvous_client::Event::Discovered { request_id, rendezvous_node, .. },
                         )) if request_id == request => {
                             assert_eq!(rendezvous_node, peer);
                             break;
                         }
                         SwarmEvent::Behaviour(BehaviourEvent::RendezvousClient(
-                            rendezvous::client::Event::DiscoverFailed { request_id, error, .. },
+                            rendezvous_client::Event::DiscoverFailed { request_id, error, .. },
                         )) if request_id == request => panic!("real rendezvous query failed: {error:?}"),
                         _ => {}
                     }
