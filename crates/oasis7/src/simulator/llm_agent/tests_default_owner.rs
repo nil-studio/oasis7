@@ -15,4 +15,3 @@ fn llm_config_blank_prompt_uses_canonical_harness_default() {
         );
     }
 }
-
