@@ -2188,7 +2188,10 @@
       "reason": "m1_storage_wasm_consumers"
     },
     {
-      "match": ["vendor-libp2p-quic-0.14.0/**"],
+      "match": [
+        "vendor-libp2p-quic-0.14.0/**",
+        "vendor/libp2p-quic-0.15.0/**"
+      ],
       "groups": ["rust_baseline", "net", "node"],
       "reason": "quic_patch_consumers"
     },
@@ -2202,7 +2205,10 @@
       "reason": "swarm_patch_consumers"
     },
     {
-      "match": ["vendor-if-watch-3.2.2/**"],
+      "match": [
+        "vendor-if-watch-3.2.2/**",
+        "vendor/if-watch-3.2.2/**"
+      ],
       "groups": ["rust_baseline", "net", "node"],
       "reason": "if_watch_patch_consumers"
     },

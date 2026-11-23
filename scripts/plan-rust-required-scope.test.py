@@ -569,7 +569,13 @@ class Selection(unittest.TestCase):
                      'vendor-libp2p-quic-0.14.0/src/transport.rs',
                      'vendor-libp2p-quic-0.14.0/tests/smoke.rs',
                      'vendor-libp2p-quic-0.14.0/LICENSE',
-                     'vendor-libp2p-quic-0.14.0/.gitignore'):
+                     'vendor-libp2p-quic-0.14.0/.gitignore',
+                     'vendor/libp2p-quic-0.15.0/src/connection/connecting.rs',
+                     'vendor/libp2p-quic-0.15.0/src/transport.rs',
+                     'vendor/libp2p-quic-0.15.0/LICENSE',
+                     'vendor/libp2p-quic-0.15.0/.gitignore',
+                     'vendor/libp2p-quic-0.15.0/upstream-source-sha256.json',
+                     'vendor/libp2p-quic-0.15.0/local-patch-sha256.json'):
             with self.subTest(path=path):
                 base = self.git('rev-parse', 'HEAD')
                 self.write(path, 'QUIC patch input')
@@ -579,10 +585,14 @@ class Selection(unittest.TestCase):
                 self.assertTrue({'rust_baseline', 'net', 'node'}.issubset(plan['groups']))
                 with self.assertRaises(selector.UnknownInputsError):
                     selector.select(old, base, head)
-        base = self.git('rev-parse', 'HEAD')
-        self.write('vendor-libp2p-quic-0.15.0/src/transport.rs', 'unregistered version')
-        with self.assertRaises(selector.UnknownInputsError):
-            selector.select(config, base, self.commit())
+        for path in ('vendor-libp2p-quic-0.15.0/src/transport.rs',
+                     'vendor/libp2p-quic-0.16.0/src/transport.rs',
+                     'vendor/unregistered.json'):
+            with self.subTest(path=path):
+                base = self.git('rev-parse', 'HEAD')
+                self.write(path, 'unregistered version')
+                with self.assertRaises(selector.UnknownInputsError):
+                    selector.select(config, base, self.commit())
 
     def test_fixed_swarm_patch_sources_select_network_consumers(self):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
@@ -627,7 +637,11 @@ class Selection(unittest.TestCase):
         config = json.loads((HERE / 'ci-required-scope.json').read_text())
         for path in ('vendor-if-watch-3.2.2/src/linux.rs',
                      'vendor-if-watch-3.2.2/upstream-source-sha256.json',
-                     'vendor-if-watch-3.2.2/Cargo.toml'):
+                     'vendor-if-watch-3.2.2/Cargo.toml',
+                     'vendor/if-watch-3.2.2/src/linux.rs',
+                     'vendor/if-watch-3.2.2/upstream-source-sha256.json',
+                     'vendor/if-watch-3.2.2/Cargo.toml.orig',
+                     'vendor/if-watch-3.2.2/Cargo.toml'):
             with self.subTest(path=path):
                 case_base = self.git('rev-parse', 'HEAD')
                 content = ('[package]\nname="if-watch"\nversion="3.2.2"\n'
@@ -637,6 +651,10 @@ class Selection(unittest.TestCase):
                 self.assertTrue({'rust_baseline', 'net', 'node'}.issubset(plan['groups']))
                 # Manifest controls intentionally retain the existing full scope.
                 self.assertEqual(plan['scope'], 'full' if path.endswith('Cargo.toml') else 'targeted')
+        case_base = self.git('rev-parse', 'HEAD')
+        self.write('vendor/if-watch-3.2.3/src/linux.rs', 'unregistered version')
+        with self.assertRaises(selector.UnknownInputsError):
+            selector.select(config, case_base, self.commit())
 
     def native_generated_fixture(self, register=True):
         # Retain the real producer and its three OUT_DIR consumers. A workspace
