@@ -67,7 +67,7 @@ PY
 | 步骤 | 静态输入与具体检查 | 实际候选追加证据 |
 | --- | --- | --- |
 | 识别入口 | 读[场景消费矩阵](../../world-simulator/scenario/scenario-files.prd.md#场景初始化与消费入口矩阵)，确认 named scenario、generated sidecar、固定 starter 或既有 snapshot | 原运行入口、source/tested tree、world/profile/revision、实际配置与 snapshot 来源。 |
-| 还原生成输入 | 读所选 JSON、有效 defaults 或 [formal_release_default_seed_model](../../../crates/oasis7/src/runtime_host/gameplay_actions.rs)；记录 origin、Agent、seed、fragment/bootstrap chunk 的来源 | 比较实际初态模型与来源；generated provenance 沿原合同分别报告存在、内容绑定及可复现证据。 |
+| 还原生成输入 | 读所选 JSON、有效 defaults 或 [formal_release_default_seed_model](../../../crates/oasis7_runtime_host/src/gameplay_actions.rs)；记录 origin、Agent、seed、fragment/bootstrap chunk 的来源 | 比较实际初态模型与来源；generated provenance 沿原合同分别报告存在、内容绑定及可复现证据。 |
 | 还原 Runtime 准备 | 读 [bootstrap.rs](../../../crates/oasis7/src/runtime_host/bootstrap.rs) 实际调用链，区分 world 库存、owner 建造账本与两个 site 账本；核 site owner、location 与 construction power/profile | 授权读取该候选的实际 ledger/authority。源中有预置不能证明现存世界仍有这些材料。 |
 | 核对首局资格 | 读 [starter_industrial.rs](../../../crates/oasis7_world_state/src/state/starter_industrial.rs) 的 profile、固定实例、feasibility 与持久 milestone 条件 | 同一 fresh snapshot 的 `candidate_available` 或 `no_safe_starter_chain`、blocker/next_action/next_recheck；生产完成再核匹配 receipt 和 owner-bound 正量结果。 |
 

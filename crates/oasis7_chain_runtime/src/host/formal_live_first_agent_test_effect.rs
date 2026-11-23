@@ -16,9 +16,9 @@ pub(super) fn first_agent_effect(
             .as_ref()
             .ok_or("first-agent signature missing")?,
     )?;
-    if action.action_id != oasis7::runtime_host::gameplay_actions::ACTION_CLAIM_FIRST_AGENT
+    if action.action_id != oasis7_runtime_host::gameplay_actions::ACTION_CLAIM_FIRST_AGENT
         || action.target_agent_id
-            != oasis7::runtime_host::gameplay_actions::FIRST_AGENT_CLAIM_TARGET_AGENT_ID
+            != oasis7_runtime_host::gameplay_actions::FIRST_AGENT_CLAIM_TARGET_AGENT_ID
         || verified.player_id != "owner"
         || Some(&verified.public_key) != action.public_key.as_ref()
         || world.state().agents.len() != 1

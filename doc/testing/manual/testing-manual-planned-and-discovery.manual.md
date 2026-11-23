@@ -150,7 +150,7 @@ Trace refs: O7-REQ-e84d3e5c-af7c-4293-8d02-3b466af6dbfa；[准确专业接受关
 <a id="uws-v-local-spawn"></a>
 ### UWS-V-LOCAL-SPAWN：本地默认初始化
 
-对固定 candidate 执行 `cargo test -p oasis7_viewer_runtime --lib bootstrap_formal_release_runtime_world_uses_seeded_fragment_bootstrap_agent`，先确认 discovery 命中该具名测试。沿 [support.rs](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/support.rs) 原 fixture 核本地默认 Agent 坐标与 [gameplay_actions.rs](../../../crates/oasis7/src/runtime_host/gameplay_actions.rs) 所取 seed-model 坐标，保存版本、有效配置、模型坐标、命令和原输出。该断言不验证正式 Agent location_id、链 provenance、claim 完整流程或玩家可读性；对应范围继续待验证，本次未运行。
+对固定 candidate 执行 `cargo test -p oasis7_viewer_runtime --lib bootstrap_formal_release_runtime_world_uses_seeded_fragment_bootstrap_agent`，先确认 discovery 命中该具名测试。沿 [support.rs](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/support.rs) 原 fixture 核本地默认 Agent 坐标与 [gameplay_actions.rs](../../../crates/oasis7_runtime_host/src/gameplay_actions.rs) 所取 seed-model 坐标，保存版本、有效配置、模型坐标、命令和原输出。该断言不验证正式 Agent location_id、链 provenance、claim 完整流程或玩家可读性；对应范围继续待验证，本次未运行。
 
 该具名旧 fixture 仅是正例。负例计划尚待实现：在隔离测试构造中使运行时 Agent 坐标不同于同一 seed-model Agent 坐标，或保持 seed 不变而改有效场景配置后仍错误复用旧坐标；按本地接线原 oracle，该比较必须报告不一致而不能通过。负例用于验证比较/接线，不新增生产 fallback 或正式 claim 模型。无 frag/边界降级沿出生专题原验证，不由本 fixture 代签。保存受控差异、两组坐标和预期/实际 verdict；目前没有声称该负例测试已存在。
 

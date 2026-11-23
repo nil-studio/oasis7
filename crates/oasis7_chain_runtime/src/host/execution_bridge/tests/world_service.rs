@@ -357,7 +357,7 @@ fn service_recipe_preserves_authenticated_origin_consensus_context_and_replay() 
         .unwrap()
         .subject_public_key;
     let mut gameplay = oasis7_viewer_runtime::viewer::GameplayActionRequest {
-        action_id: oasis7::runtime_host::gameplay_actions::ACTION_SCHEDULE_SMELTER_IRON_INGOT
+        action_id: oasis7_runtime_host::gameplay_actions::ACTION_SCHEDULE_SMELTER_IRON_INGOT
             .into(),
         target_agent_id: "builder-a".into(),
         actor_agent_id: None,

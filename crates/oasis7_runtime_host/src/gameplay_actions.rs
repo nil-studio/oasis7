@@ -1,15 +1,9 @@
-#[cfg(not(target_arch = "wasm32"))]
-use crate::{
-    geometry::GeoPos,
-    runtime::{Action as RuntimeAction, RecipeExecutionPlan},
-    simulator::{
-        AgentSpawnConfig, AsteroidFragmentInitConfig, ChunkCoord, OriginLocationConfig,
-        ResourceKind, ResourceStock, WorldConfig, WorldInitConfig, WorldModel, build_world_model,
-    },
-};
-#[cfg(not(target_arch = "wasm32"))]
 use oasis7_proto::viewer::{GameplayActionError, GameplayActionRequest};
-#[cfg(not(target_arch = "wasm32"))]
+use oasis7_runtime::{Action as RuntimeAction, RecipeExecutionPlan};
+use oasis7_simulator::{
+    AgentSpawnConfig, AsteroidFragmentInitConfig, ChunkCoord, GeoPos, OriginLocationConfig,
+    ResourceKind, ResourceStock, WorldConfig, WorldInitConfig, WorldModel, build_world_model,
+};
 use oasis7_wasm_abi::{FactoryModuleSpec, MaterialStack};
 
 pub use oasis7_client_api::gameplay_actions::*;
@@ -20,35 +14,21 @@ pub use oasis7_client_api::gameplay_actions::*;
 // batches at 4 electricity each.
 pub const STARTER_INDUSTRIAL_ELECTRICITY: i64 = 10 + (12 * 8) + 10 + (4 * 4);
 
-#[cfg(not(target_arch = "wasm32"))]
 const RECIPE_SMELTER_IRON_INGOT: &str = "recipe.smelter.iron_ingot";
-#[cfg(not(target_arch = "wasm32"))]
 const RECIPE_SMELTER_COPPER_WIRE: &str = "recipe.smelter.copper_wire";
-#[cfg(not(target_arch = "wasm32"))]
 const RECIPE_SMELTER_POLYMER_RESIN: &str = "recipe.smelter.polymer_resin";
-#[cfg(not(target_arch = "wasm32"))]
 const RECIPE_SMELTER_ALLOY_PLATE: &str = "recipe.smelter.alloy_plate";
-#[cfg(not(target_arch = "wasm32"))]
 const RECIPE_ASSEMBLER_GEAR: &str = "recipe.assembler.gear";
-#[cfg(not(target_arch = "wasm32"))]
 const RECIPE_ASSEMBLER_CONTROL_CHIP: &str = "recipe.assembler.control_chip";
-#[cfg(not(target_arch = "wasm32"))]
 const RECIPE_ASSEMBLER_MOTOR_MK1: &str = "recipe.assembler.motor_mk1";
-#[cfg(not(target_arch = "wasm32"))]
 const RECIPE_ASSEMBLER_LOGISTICS_DRONE: &str = "recipe.assembler.logistics_drone";
-#[cfg(not(target_arch = "wasm32"))]
 const RECIPE_ASSEMBLER_SENSOR_PACK: &str = "recipe.assembler.sensor_pack";
-#[cfg(not(target_arch = "wasm32"))]
 const RECIPE_ASSEMBLER_MODULE_RACK: &str = "recipe.assembler.module_rack";
-#[cfg(not(target_arch = "wasm32"))]
 const RECIPE_ASSEMBLER_FACTORY_CORE: &str = "recipe.assembler.factory_core";
 
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) const FORMAL_RELEASE_DEFAULT_WORLD_SEED: u64 = 0x0A51_5700_0000_0001;
-#[cfg(not(target_arch = "wasm32"))]
 const FORMAL_RELEASE_DEFAULT_BOOTSTRAP_CHUNK: ChunkCoord = ChunkCoord { x: 0, y: 0, z: 0 };
 
-#[cfg(not(target_arch = "wasm32"))]
 pub fn build_runtime_action_from_gameplay_request(
     request: &GameplayActionRequest,
 ) -> Result<RuntimeAction, GameplayActionError> {
@@ -184,7 +164,6 @@ pub fn build_runtime_action_from_gameplay_request(
     Ok(action)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 pub fn runtime_factory_build_action(
     builder_agent_id: &str,
     site_id: &str,
@@ -198,7 +177,6 @@ pub fn runtime_factory_build_action(
     })
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 pub fn runtime_schedule_recipe_action(
     requester_agent_id: &str,
     factory_id: &str,
@@ -215,7 +193,6 @@ pub fn runtime_schedule_recipe_action(
     })
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 fn required_actor_agent_id(request: &GameplayActionRequest) -> Result<String, GameplayActionError> {
     let actor_agent_id = request
         .actor_agent_id
@@ -234,7 +211,6 @@ fn required_actor_agent_id(request: &GameplayActionRequest) -> Result<String, Ga
     Ok(actor_agent_id.to_string())
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 fn required_player_id(request: &GameplayActionRequest) -> Result<String, GameplayActionError> {
     let player_id = request.player_id.trim();
     if player_id.is_empty() {
@@ -251,7 +227,6 @@ fn required_player_id(request: &GameplayActionRequest) -> Result<String, Gamepla
     Ok(player_id.to_string())
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 pub fn formal_release_default_seed_model() -> Result<(WorldConfig, WorldModel), String> {
     let config = WorldConfig::default();
     let mut starter_resources = ResourceStock::new();
@@ -287,7 +262,6 @@ pub fn formal_release_default_seed_model() -> Result<(WorldConfig, WorldModel), 
     Ok((config, model))
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn formal_release_default_first_agent_spawn_pos() -> Result<GeoPos, String> {
     let (_, model) = formal_release_default_seed_model()?;
     model
@@ -302,7 +276,6 @@ pub(crate) fn formal_release_default_first_agent_spawn_pos() -> Result<GeoPos, S
         })
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 fn require_first_agent_claim_target(
     request: &GameplayActionRequest,
     target_agent_id: &str,
@@ -321,17 +294,14 @@ fn require_first_agent_claim_target(
     Ok(target_agent_id.to_string())
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 fn factory_spec_for_kind(factory_kind: &str, factory_id: &str) -> Option<FactoryModuleSpec> {
-    crate::runtime::builtin_factory_spec(factory_kind, factory_id)
+    oasis7_runtime::builtin_factory_spec(factory_kind, factory_id)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 fn recipe_plan_for_id(recipe_id: &str, accepted_batches: u32) -> Option<RecipeExecutionPlan> {
-    crate::runtime::builtin_recipe_plan(recipe_id, accepted_batches)
+    oasis7_runtime::builtin_recipe_plan(recipe_id, accepted_batches)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 pub fn first_delivery_preview_inputs(action_id: &str) -> Option<Vec<MaterialStack>> {
     match action_id {
         ACTION_BUILD_ASSEMBLER_MK1 => {
@@ -348,5 +318,63 @@ pub fn first_delivery_preview_inputs(action_id: &str) -> Option<Vec<MaterialStac
             recipe_plan_for_id(RECIPE_ASSEMBLER_FACTORY_CORE, 1).map(|plan| plan.consume)
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod native_owner_tests {
+    use super::*;
+
+    fn request(action: &str, target: &str) -> GameplayActionRequest {
+        GameplayActionRequest {
+            action_id: action.to_string(),
+            target_agent_id: target.to_string(),
+            actor_agent_id: None,
+            player_id: "owner".to_string(),
+            public_key: None,
+            auth: None,
+        }
+    }
+
+    #[test]
+    fn original_gameplay_admission_rejects_blank_target() {
+        let error =
+            build_runtime_action_from_gameplay_request(&request(ACTION_CLAIM_FIRST_AGENT, "  "))
+                .expect_err("blank target must not be admitted");
+        assert_eq!(error.code, "target_agent_required");
+    }
+
+    #[test]
+    fn first_agent_action_uses_exact_canonical_seed_position() {
+        let (_, model) = formal_release_default_seed_model().expect("canonical starter seed");
+        let position = formal_release_default_first_agent_spawn_pos().expect("spawn position");
+        assert_eq!(model.agents.len(), 1);
+        assert_eq!(
+            model
+                .agents
+                .get(FIRST_AGENT_CLAIM_TARGET_AGENT_ID)
+                .map(|agent| agent.pos),
+            Some(position)
+        );
+        let action = build_runtime_action_from_gameplay_request(&request(
+            ACTION_CLAIM_FIRST_AGENT,
+            FIRST_AGENT_CLAIM_TARGET_AGENT_ID,
+        ))
+        .expect("first agent claim action");
+        assert!(matches!(
+            action,
+            RuntimeAction::RegisterAgent { agent_id, pos }
+                if agent_id == FIRST_AGENT_CLAIM_TARGET_AGENT_ID && pos == position
+        ));
+    }
+
+    #[test]
+    fn first_claim_rejects_mismatched_agent_id() {
+        let error = build_runtime_action_from_gameplay_request(&request(
+            ACTION_CLAIM_FIRST_AGENT,
+            "different-agent",
+        ))
+        .expect_err("claim target must match canonical starter");
+        assert_eq!(error.code, "invalid_first_agent_claim_target");
     }
 }
