@@ -1,0 +1,127 @@
+name: Explicit full gate replay
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [codex/engineering-explicit-full-gate-replay-base]
+    paths: [.github/workflows/explicit-full-gate-replay.yml]
+
+permissions:
+  contents: read
+  actions: read
+  packages: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  host:
+    if: &isolated github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'codex/engineering-explicit-full-gate-replay'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - &checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: f96212086dca52a4ee8af481f4d84f12f7011677
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - &download
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          artifact-ids: 14585735543,14576043249,14574908881
+          run-id: 44619146209
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/historical-full
+      - &replay
+        name: Replay exact checks with existing full receipt inputs
+        run: |
+          python3 --version
+          git --version
+          test "$(git rev-parse HEAD)" = f96212086dca52a4ee8af481f4d84f12f7011677
+          python3 - <<'PY'
+          import hashlib, json, os, re, shutil, subprocess, sys
+          from pathlib import Path
+
+          assert os.getuid() != 0
+          assert sys.version_info[:2] == (3, 12)
+          source = 'f96212086dca52a4ee8af481f4d84f12f7011677'
+          candidate = 'edd82b24b95b68b67ecdd79f26e33bff5539e7f1'
+          run_temp = Path(os.environ['RUNNER_TEMP'])
+          frozen = run_temp / 'historical-full'
+          manifest = {
+              'ci-authority-44619146209-1/ci-formal-plan.py': '22853300f3eb81ee4533a83b4dc5b937e4a839fbd590cf051b0b141a72c8bdb3',
+              'ci-authority-44619146209-1/ci-formal-process-suites.json': '3250bc2945689a2fbd7dc6fffce7520f12cf52fc1ebf1a4fd7a5529a342aa5bf',
+              'ci-authority-44619146209-1/ci-full-result.py': 'bea49bd8d3956bad1d51d86b7c60d0be0a5104054e131786bc3d20c92abf2576',
+              'ci-authority-44619146209-1/ci-python-control-contracts.py': '7472d2952fedebc3c08bbf9b726fd02f2d7f7c15e4231d52217a7d791648254c',
+              'ci-authority-44619146209-1/ci-required-result.py': 'a5c267d0d56c13f5b9276763496c500ee5a2d937ba23106ed3d3faf00e133fa1',
+              'ci-authority-44619146209-1/ci-required-scope.json': '0af0ec8fa74e6d3bdd3871ba9f31614384f2e0016a9ca4f8920381b2ecaf937b',
+              'ci-authority-44619146209-1/plan-rust-required-scope.py': 'ecb781c0cd53082a0c81db1e05a9758fe05741f58a562957153382f21d1272c8',
+              'ci-full-result-44619146209-1/full-result.json': '74bad37a1695f980107999d58f47e5cfdf50b548d6d225b86d0bbe226780405c',
+              'ci-selection-44619146209-1/selection.json': 'b4b36fea94422a179f4c3d7c1843b5245e5eeabfa1659a8086dfaf91a5136802',
+          }
+          assert {str(path.relative_to(frozen)) for path in frozen.rglob('*') if path.is_file()} == set(manifest)
+          for item, digest in manifest.items():
+              assert hashlib.sha256((frozen / item).read_bytes()).hexdigest() == digest, item
+          old_bytes = (frozen / 'ci-full-result-44619146209-1/full-result.json').read_bytes()
+          old_result = json.loads(old_bytes)
+          context = old_result['context']
+          assert context == {
+              'event_name': 'schedule', 'ref': 'refs/heads/main',
+              'repository': 'nil-studio/oasis7', 'run_id': 44619146209, 'run_attempt': 1,
+              'workflow_ref': 'nil-studio/oasis7/.github/workflows/rust.yml@refs/heads/main',
+              'workflow_sha': source,
+          }
+          needs = old_result['needs']
+          assert needs['select']['result'] == 'success'
+          select = needs['select']['outputs']
+          assert all(select[name] == source for name in ('source_sha', 'tested_sha', 'policy_sha'))
+          assert select['authority_artifact'] == 'ci-authority-44619146209-1'
+          assert select['selection_artifact'] == 'ci-selection-44619146209-1'
+          authority = frozen / select['authority_artifact']
+          for path in authority.iterdir():
+              assert path.read_bytes() == subprocess.check_output(['git', 'show', f'{source}:scripts/{path.name}'])
+          shutil.copytree(authority, run_temp / 'ci-authority')
+          shutil.copyfile(frozen / select['selection_artifact'] / 'selection.json', run_temp / 'selection.json')
+          workflow = subprocess.check_output(['git', 'show', f'{candidate}:.github/workflows/rust.yml'], text=True)
+
+          def command(step):
+              block = workflow.split(step + '\n', 1)[1].split('        run: |\n', 1)[1]
+              return '\n'.join(line[10:] for line in block.split('\n      - ', 1)[0].splitlines()) + '\n'
+
+          env = dict(os.environ, SOURCE_SHA=source, TESTED_SHA=source, POLICY_SHA=source,
+                     WORKFLOW_PLAN=select['plan'], EVENT_NAME='schedule', REF='refs/heads/main',
+                     WORKFLOW_SHA=source, RUN_MODE='', NEEDS=json.dumps(needs))
+          env.update({'GITHUB_' + key.upper(): str(value) for key, value in context.items()})
+          for step in (
+              '      - &validate-complete-selection',
+              '      - name: Require complete full inventory and exact source',
+          ):
+              subprocess.run(['bash', '--noprofile', '--norc', '-euo', 'pipefail', '-c', command(step)],
+                             env=env, check=True)
+          reproduced = run_temp / 'full-result.json'
+          assert reproduced.read_bytes() == old_bytes
+          print(f'Replayed existing evidence for source {source}: {len(needs)} needs; {len(old_bytes)} matching receipt bytes.')
+          reproduced.unlink()
+          PY
+
+  image:
+    if: *isolated
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-runtime@sha256:3984caa42d82963f93af752bf79e3a07838f2c94279cfbb2deeb08f715cd62c9
+      options: --user 1001:1001
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    steps:
+      - *checkout
+      - name: Trust the checked-out workspace path in the job container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - *download
+      - *replay
