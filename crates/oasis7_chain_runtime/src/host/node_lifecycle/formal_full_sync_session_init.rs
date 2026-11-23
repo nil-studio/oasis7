@@ -1,7 +1,83 @@
-//! Session construction and immutable operation attachment.
+//! Session lifecycle and immutable operation attachment.
 use super::*;
 
 impl FormalFullSyncSession {
+    pub(crate) fn status(&self) -> &FormalFullSyncStatusV1 {
+        &self.status
+    }
+
+    pub(crate) fn poll_interval(&self) -> Duration {
+        Duration::from_millis(self.config.poll_interval_ms)
+    }
+
+    pub(crate) fn begin_poll(&mut self) {
+        self.status.ready = false;
+        self.status.can_propose = false;
+        self.status.state_root_verified = false;
+        self.status.world_loaded = false;
+        self.status.loaded_cut = None;
+        self.status.lag_positions = None;
+        self.status.catch_up_pending = false;
+        self.status.state = if self.config.grant.is_some() {
+            "syncing"
+        } else {
+            "blocked_missing_issuer_grant"
+        }
+        .into();
+        // Preserve the last observed failure while a retry is in flight. A
+        // successful sync below is the only path that clears this field.
+        self.status.last_checked_unix_ms = now_unix_ms();
+    }
+
+    pub(crate) fn set_world_loaded(&mut self, loaded: bool) {
+        self.status.world_loaded = loaded;
+        if !loaded {
+            self.status.ready = false;
+        }
+    }
+
+    /// Cold-restores the qualified snapshot; a failed poll withdraws readiness.
+    pub(crate) fn sync_latest(&mut self) -> Result<RestoredFormalFullSyncWorldV1, String> {
+        self.check_operation_active()?;
+        let result = self.sync_latest_owned();
+        if let Some(exchange) = &self.shared_exchange
+            && let Err(error) = exchange.finish_attempt()
+        {
+            let error = error.to_string();
+            self.fail(&error);
+            return Err(error);
+        }
+        result
+    }
+
+    pub(super) fn require_operation_active(&self) -> Result<(), String> {
+        if self
+            .cancellation
+            .as_ref()
+            .is_some_and(|flag| flag.load(Ordering::SeqCst))
+        {
+            return Err("operation_recovery_required: worker cancelled".into());
+        }
+        if self
+            .local_recovery_deadline
+            .is_some_and(|deadline| std::time::Instant::now() >= deadline)
+        {
+            return Err("operation_reopen_expired".into());
+        }
+        if let Some(exchange) = &self.shared_exchange {
+            exchange.check_active().map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn check_operation_active(&mut self) -> Result<(), String> {
+        if let Err(error) = self.require_operation_active() {
+            self.fail(&error);
+            return Err(error);
+        }
+        Ok(())
+    }
+
     /// Construct from an already loaded, privately held node identity. The
     /// grant must bind that key; local process ownership alone grants nothing.
     pub(crate) fn new(
