@@ -125,6 +125,20 @@ jobs:
     needs: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: read
+    container:
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb
+      options: --user 1001:1001
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      OASIS7_WASM_TOOLCHAIN: nightly-2025-12-11
     steps:
       # Use the executing workflow tools before restoring the complete source checkout.
       - name: Check out workflow linker setup
@@ -135,11 +149,15 @@ jobs:
           sparse-checkout: .github/actions/setup-linux-mold
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
+        with:
+          install-dir: ${{ runner.temp }}/oasis7-testnet-web-mold
       # Omitting sparse-checkout disables it and restores the full business source.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.plan.outputs.checkoutSha }}
           persist-credentials: false
+      - name: Trust the checked-out workspace path in the job container
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Verify planned source HEAD
         shell: bash
         env:
@@ -158,19 +176,22 @@ jobs:
           node-version: '22'
       - name: Install viewer web dependencies
         run: npm ci --prefix crates/oasis7_viewer
-      - name: Install pinned Rust toolchain
+      - name: Verify the preinstalled Rust and WASM target
         run: |
-          rustup toolchain install "${RUST_TOOLCHAIN}" --profile default
-          rustup target add wasm32-unknown-unknown --toolchain "${RUST_TOOLCHAIN}"
-          rustup default "${RUST_TOOLCHAIN}"
+          set -euo pipefail
+          test "$(id -u)" = 1001
+          cargo +"$RUST_TOOLCHAIN" --version
+          test "$(rustc --version)" = "$(rustc +"$RUST_TOOLCHAIN" --version)"
+          rustup target list --installed --toolchain "$RUST_TOOLCHAIN" | grep -Fx wasm32-unknown-unknown
       - name: Normalize Rust cache toolchains
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         shell: bash
-        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN"
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         if: hashFiles('scripts/ci-rust-cache-toolchains.py') != ''
         with:
-          shared-key: release-packages-web-wasm-trusted-v3
+          shared-key: testnet-web-ci-rust-build-068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb
+          add-rust-environment-hash-key: true
           save-if: false
           cache-on-failure: false
       - name: Restore pinned Trunk release archive
