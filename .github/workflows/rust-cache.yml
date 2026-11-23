@@ -429,7 +429,7 @@ jobs:
       matrix:
         include: ${{ fromJSON(needs.plan-image-component-cache.outputs.rows) }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 35
     container:
       image: ${{ matrix.image }}
       options: ${{ matrix.options }}

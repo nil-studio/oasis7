@@ -349,7 +349,7 @@ def component_image_cache_writer(job, families, readers=JOBS, planner=None):
                      'image: ${{ matrix.image }}', 'options: ${{ matrix.options }}'):
         assert required in header, 'component image writer needs its complete trusted main layout'
     timeout_match = re.search(r'^    timeout-minutes:\s*(\d+)\s*$', header, re.M)
-    assert timeout_match and 0 < int(timeout_match.group(1)) <= 60, 'component image writer needs bounded timeout-minutes <= 60'
+    assert timeout_match and 0 < int(timeout_match.group(1)) <= 35, 'component image writer needs bounded timeout-minutes <= 35'
     if planner is None:
         records = re.findall(r'^          - profile: ([a-z]+)\n((?:^            .+\n)+)', header, re.M)
         rows = {profile: dict((key, value.strip("'")) for key, value in re.findall(
@@ -6846,6 +6846,7 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
             '.github/workflows/ecs-packages.yml': {
                 'web': 25,
                 'package': 20,
+                'publish-preview': 10,
             },
             '.github/workflows/newapi-bridge-service-package.yml': {
                 'package-linux-x86-64': 15,
@@ -6866,6 +6867,10 @@ class StablePrJobTimeoutContractTests(unittest.TestCase):
                 'verify': 130,
                 'attempt-release-reference': 50,
                 'summary': 5,
+            },
+            '.github/workflows/wasm-darwin-docker-evidence.yml': {
+                'collect-darwin-docker-summaries': 90,
+                'verify-with-linux-summaries': 45,
             },
         }
         for rel_path, limits in expected_limits.items():
@@ -6917,7 +6922,7 @@ class ReleasePackagingJobTimeoutContractTests(unittest.TestCase):
                 'release_gate': 5,
                 'build-web-dist': 35,
                 'package-native': 180,
-                'publish-release': 20,
+                'publish-release': 10,
             },
         }
         for rel_path, limits in expected_limits.items():
