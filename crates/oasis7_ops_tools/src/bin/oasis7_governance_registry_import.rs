@@ -242,7 +242,9 @@ fn reconcile_latest_tick_consensus_state_root(
     record.block.execution_digest.state_projection_hash = state_root;
     record.certificate.block_hash = record.block.block_hash();
     let reconciled = oasis7_runtime_host::world::from_snapshot(snapshot, world.journal().clone())
-        .map_err(|err| format!("rebuild world after state-root reconciliation failed: {err:?}"))?;
+        .map_err(|err| {
+            format!("rebuild world after state-root reconciliation failed: {err:?}")
+        })?;
     Ok((reconciled, Some(reconciled_tick)))
 }
 

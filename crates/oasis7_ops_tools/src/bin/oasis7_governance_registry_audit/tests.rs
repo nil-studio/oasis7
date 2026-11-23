@@ -562,8 +562,8 @@ fn strict_manifest_audit_requires_exact_rollback_authority_registry_match() {
     const DRIFTED_GOVERNANCE: &str =
         "3333333333333333333333333333333333333333333333333333333333333333";
     let (world_dir, manifest_path) = write_world_and_manifest();
-    let mut world = oasis7_runtime_host::world::load_from_dir(world_dir.as_path())
-        .expect("load fixture world");
+    let mut world =
+        oasis7_runtime_host::world::load_from_dir(world_dir.as_path()).expect("load fixture world");
     world
         .set_rollback_authority_registry(rollback_registry(ON_CALL, GOVERNANCE))
         .expect("set governed rollback registry");
