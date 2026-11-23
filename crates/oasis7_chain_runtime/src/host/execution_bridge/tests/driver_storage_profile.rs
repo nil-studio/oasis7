@@ -125,7 +125,7 @@ fn dev_local_storage_profile_clears_pristine_frozen_supply_from_existing_executi
     let world_dir = dir.join("world");
     let records_dir = dir.join("records");
     let storage_root = dir.join("store");
-    let mut world = oasis7::runtime_host::world::new();
+    let mut world = oasis7_runtime_host::world::new();
     world.set_main_token_config(production_hardened_main_token_config());
     persist_execution_world(world_dir.as_path(), &world).expect("persist release-like world");
 

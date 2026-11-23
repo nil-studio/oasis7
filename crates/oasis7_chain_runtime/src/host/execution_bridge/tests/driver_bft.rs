@@ -49,7 +49,7 @@ pub(super) fn validator_set(scope: &BftScopeV1, keys: &[SigningKey]) -> BftValid
 }
 
 pub(super) fn bft_genesis_world(scope: &BftScopeV1) -> RuntimeWorld {
-    let world = oasis7::runtime_host::world::new_production_hardened();
+    let world = oasis7_runtime_host::world::new_production_hardened();
     let manifest = world.chain_resource_manifest();
     let snapshot = world.snapshot_with_chain_resource_context(
         ChainResourceDerivationContext {
