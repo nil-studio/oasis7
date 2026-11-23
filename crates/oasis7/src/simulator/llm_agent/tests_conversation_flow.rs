@@ -432,7 +432,7 @@ fn llm_prompt_profile_uses_relaxed_token_budget_for_stability() {
 
 #[test]
 fn llm_config_uses_default_system_prompt() {
-    let mut vars = fixture_provider_env();
+    let vars = fixture_provider_env();
 
     let config = LlmAgentConfig::from_env_with(|key| vars.get(key).cloned(), "").unwrap();
     assert_eq!(
