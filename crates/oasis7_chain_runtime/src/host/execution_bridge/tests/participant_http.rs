@@ -1,6 +1,6 @@
 //! Real loopback HTTP handlers, NodeRuntime worker and execution bridge; private fixture only.
 use super::*;
-use oasis7::world_service::client::{
+use oasis7_world_service::client::{
     RemoteWorldServiceClient, WorldServiceClientConfig, WorldServicePort,
 };
 use oasis7_agent_api::game::*;
@@ -484,7 +484,7 @@ pub(super) fn serve_live_context_fixture(
     node: &Arc<Mutex<oasis7_node::NodeRuntime>>,
     root: &Path,
     signer: &crate::feedback_submit_api::FeedbackSubmitSigner,
-    private: &oasis7::world_service::private_goal_store::PrivateGoalStore,
+    private: &oasis7_world_service::private_goal_store::PrivateGoalStore,
     stop: &AtomicBool,
     counts: Arc<[std::sync::atomic::AtomicUsize; 2]>,
 ) {

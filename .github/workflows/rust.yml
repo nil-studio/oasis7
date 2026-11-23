@@ -4451,7 +4451,7 @@ jobs:
       contents: read
       packages: read
     container:
-      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:3395596ee4a090242b77a42ec9f67a5b1b1758b707bed70907107bdfbdc932bf
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:f121df903f97527a7097134d39f25822c46a3775152768a9cbd591fe65ee987c
       credentials:
         username: ${{ github.actor }}
         password: ${{ github.token }}
@@ -4470,6 +4470,10 @@ jobs:
           persist-credentials: false
       - name: Trust the checked-out workspace path in the job container
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Verify preinstalled jq for package source contracts
+        run: |
+          jq --version
+          jq -e '.ready == true' <<< '{"ready":true}' >/dev/null
       - name: Prepare the Markdown runtime with preinstalled Python
         if: >-
           needs.select.outputs.run_doc_checker_contracts == 'true' ||

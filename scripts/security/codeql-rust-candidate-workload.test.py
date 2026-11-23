@@ -164,55 +164,84 @@ class ArityPatch(unittest.TestCase):
 
 class Workload(unittest.TestCase):
     """Real filesystem and oracles; only external CLI and hosted checkout observations are substituted."""
-    def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name).resolve()
-        self.source, self.runner = self.root / 'source', self.root / 'runner'
-        self.source.mkdir(); self.runner.mkdir()
-        self.official, self.db, self.checkpoint = [self.runner / n for n in ('bundle', 'db', 'official-evidence')]
-        for p in (self.official, self.db, self.checkpoint): p.mkdir()
-        self.out, self.work = self.runner / 'candidate-evidence', self.runner / 'candidate-work'
-        self.output = self.runner / 'github-output'; self.output.write_text('')
-        self.published = self.official / 'qlpacks/codeql/rust-queries/0.1.46'
-        (self.published / 'queries/support').mkdir(parents=True)
-        (self.published / 'queries/support/Stats.qll').write_text('predicate support() { any() }\n')
-        self.entries = []
+    @classmethod
+    def setUpClass(cls):
+        cls._template_dir = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls._template_dir.cleanup)
+        troot = Path(cls._template_dir.name).resolve()
+        tsource, trunner = troot / 'source', troot / 'runner'
+        tsource.mkdir(); trunner.mkdir()
+        tofficial, tdb, tcheckpoint = [trunner / n for n in ('bundle', 'db', 'official-evidence')]
+        for p in (tofficial, tdb, tcheckpoint):
+            p.mkdir()
+        (trunner / 'github-output').write_text('')
+        published = tofficial / 'qlpacks/codeql/rust-queries/0.1.46'
+        (published / 'queries/support').mkdir(parents=True)
+        (published / 'queries/support/Stats.qll').write_text('predicate support() { any() }\n')
+        cls._entries = []
         for i in range(37):
-            path = self.published / ('queries/Q' + str(i).zfill(2) + '.ql')
+            path = published / ('queries/Q' + str(i).zfill(2) + '.ql')
             path.write_text('/** @id rust/example-' + str(i) + ' */\nimport support.Stats\nselect 1\n')
-            self.entries.append(dict(relative=str(path.relative_to(self.published)), id='rust/example-' + str(i), sha256=m.runtime.digest(path)))
+            cls._entries.append(dict(relative=str(path.relative_to(published)), id='rust/example-' + str(i), sha256=m.runtime.digest(path)))
             path.with_suffix('.qlx').write_text('compiled stock; must never be copied')
-        (self.published / 'queries/NonDefault.ql').write_text('select 2\n')
-        (self.published / '.codeql/libraries/stock').mkdir(parents=True)
-        (self.published / '.codeql/libraries/stock/TypeInference.qll').write_text('embedded stock')
-        for name in ('qlpack.yml', 'codeql-pack.lock.yml', '.packinfo'): (self.published / name).write_text('published binding')
-        (self.published / 'codeql-suites').mkdir()
-        (self.published / 'codeql-suites/rust-code-scanning.qls').write_text('- queries: queries\n')
-        self.suite_sha = m.runtime.digest(self.published / 'codeql-suites/rust-code-scanning.qls')
-        self.entries_sha = hashlib.sha256(json.dumps(self.entries, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-        self.suite = dict(query_root=str(self.published), suite_sha256=self.suite_sha, queries=self.entries)
-        self.suite_helper = self.official / 'qlpacks/codeql/suite-helpers/1.0.61'
-        self.suite_helper.mkdir(parents=True)
-        (self.suite_helper / 'qlpack.yml').write_text('name: codeql/suite-helpers\nversion: 1.0.61\nlibrary: false\ndependencies: {}\n')
-        self.closure = {}
+        (published / 'queries/NonDefault.ql').write_text('select 2\n')
+        (published / '.codeql/libraries/stock').mkdir(parents=True)
+        (published / '.codeql/libraries/stock/TypeInference.qll').write_text('embedded stock')
+        for name in ('qlpack.yml', 'codeql-pack.lock.yml', '.packinfo'):
+            (published / name).write_text('published binding')
+        (published / 'codeql-suites').mkdir()
+        (published / 'codeql-suites/rust-code-scanning.qls').write_text('- queries: queries\n')
+        cls._suite_sha = m.runtime.digest(published / 'codeql-suites/rust-code-scanning.qls')
+        cls._entries_sha = hashlib.sha256(json.dumps(cls._entries, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+        suite_helper = tofficial / 'qlpacks/codeql/suite-helpers/1.0.61'
+        suite_helper.mkdir(parents=True)
+        (suite_helper / 'qlpack.yml').write_text('name: codeql/suite-helpers\nversion: 1.0.61\nlibrary: false\ndependencies: {}\n')
+        cls._closure_specs = {}
         for name in ['rust-all', 'typeinference', *['fixture-' + str(i) for i in range(11)]]:
             version = '0.0.42' if name == 'typeinference' else '0.2.25'
-            root = self.official / 'qlpacks/codeql' / name / version; root.mkdir(parents=True)
+            rel_root = Path('qlpacks/codeql') / name / version
+            root = tofficial / rel_root
+            root.mkdir(parents=True)
             (root / 'qlpack.yml').write_text('library: true\nname: codeql/' + name + '\nversion: ' + version + '\ndependencies: {}\n')
-            self.closure['codeql/' + name] = dict(name='codeql/' + name, version=version, dependencies={}, manifest_sha256=m.runtime.digest(root / 'qlpack.yml'), root=str(root))
-        shared = Path(self.closure['codeql/typeinference']['root'])
+            cls._closure_specs['codeql/' + name] = (
+                dict(name='codeql/' + name, version=version, dependencies={}, manifest_sha256=m.runtime.digest(root / 'qlpack.yml')),
+                rel_root,
+            )
+        shared = tofficial / cls._closure_specs['codeql/typeinference'][1]
         (shared / m.SHARED_FILE).parent.mkdir(parents=True)
         (shared / m.SHARED_FILE).write_text('stock-shared')
         (shared / 'Unchanged.qll').write_text('unchanged shared support')
-        original = Path(self.closure['codeql/rust-all']['root'])
+        original = tofficial / cls._closure_specs['codeql/rust-all'][1]
         (original / m.comparison.TYPE_FILE).parent.mkdir(parents=True)
         (original / m.comparison.TYPE_FILE).write_text('stock')
         (original / m.TRAIT_PATH_FILE).write_text('stock-path')
-        self.core_bytes=b'extensions:\n'+m.MODEL_MARKER+b'      # Existing fixed models\n'
+        cls._core_bytes = b'extensions:\n' + m.MODEL_MARKER + b'      # Existing fixed models\n'
         (original / m.MODEL_FILE).parent.mkdir(parents=True)
-        (original / m.MODEL_FILE).write_bytes(self.core_bytes)
+        (original / m.MODEL_FILE).write_bytes(cls._core_bytes)
         (original / 'rust.dbscheme').write_text('schema')
-        (self.db / 'codeql-database.yml').write_text('language: rust\nfinalised: true\n')
+        (tdb / 'codeql-database.yml').write_text('language: rust\nfinalised: true\n')
+        cls._db_metadata_sha = m.runtime.digest(tdb / 'codeql-database.yml')
+        cls._template_root = troot
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        shutil.copytree(self._template_root, self.root, dirs_exist_ok=True)
+        self.source, self.runner = self.root / 'source', self.root / 'runner'
+        self.official, self.db, self.checkpoint = [self.runner / n for n in ('bundle', 'db', 'official-evidence')]
+        self.out, self.work = self.runner / 'candidate-evidence', self.runner / 'candidate-work'
+        self.output = self.runner / 'github-output'
+        self.published = self.official / 'qlpacks/codeql/rust-queries/0.1.46'
+        self.entries = [dict(entry) for entry in self._entries]
+        self.suite_sha = self._suite_sha
+        self.entries_sha = self._entries_sha
+        self.suite = dict(query_root=str(self.published), suite_sha256=self.suite_sha, queries=self.entries)
+        self.suite_helper = self.official / 'qlpacks/codeql/suite-helpers/1.0.61'
+        self.closure = {
+            key: dict(meta, dependencies=dict(meta['dependencies']), root=str(self.official / rel_root))
+            for key, (meta, rel_root) in self._closure_specs.items()
+        }
+        self.core_bytes = self._core_bytes
         self.deadline = time.time() + 5000
         self.budget = dict(mode=m.MODE, job_budget_seconds=5400, fixed_job_deadline=self.deadline,
                            analysis_allocated_at=time.time() - 10, analysis_allocated_minutes=73,
@@ -229,14 +258,15 @@ class Workload(unittest.TestCase):
                            verification_admitted=True, extraction_checkpoint='PASS', archived_source='PASS',
                            default_result_verification='NOT_REQUESTED', public_semantics='NOT_REQUESTED', after_identity=self.protected,
                            absolute_action_deadline={'status': 'PASS'},
-                           database_metadata_sha256=m.runtime.digest(self.db / 'codeql-database.yml'))
+                           database_metadata_sha256=self._db_metadata_sha)
         self.provenance = dict(candidate='/cargo/git/libp2p-0.57.0', legacy='/cargo/registry/libp2p-0.56.0')
         for name, value in [('capacity-budget', self.budget), ('default-suite', self.suite), ('library-closure', self.closure),
                             ('resources', self.resources), ('libp2p-provenance', self.provenance),
                             ('capacity-prepare-terminal', dict(common, status='PREPARED', image_contract_version=m.IMAGE_CONTRACT)),
                             ('capacity-capture-terminal', self.capture), ('capacity-finish-terminal', self.finish),
-                            ('semantic-query-contract', m.capacity.semantic_contract(self.source,image_version=m.IMAGE_CONTRACT)),
-                            ('semantic-query-inputs', {n: hashlib.sha256(t.encode()).hexdigest() for n, t in m.capacity.semantic_queries(self.source,image_version=m.IMAGE_CONTRACT).items()})]:
+                            ('semantic-query-contract', m.capacity.semantic_contract(self.source, image_version=m.IMAGE_CONTRACT)),
+                            ('semantic-query-inputs', {n: hashlib.sha256(t.encode()).hexdigest()
+                                                       for n, t in m.capacity.semantic_queries(self.source, image_version=m.IMAGE_CONTRACT).items()})]:
             self.write(self.checkpoint / (name + '.json'), value)
         self.write(self.checkpoint / 'hashes.json', {p.name: m.runtime.digest(p) for p in self.checkpoint.iterdir()})
         self.calls = []; self.failed_stage = self.mutate = self.oracle_failure = self.bad_decode = self.bad_header = None

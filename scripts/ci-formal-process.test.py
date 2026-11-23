@@ -1605,13 +1605,23 @@ class DistfsClippyHandoff(unittest.TestCase):
                 path.write_text('#!/usr/bin/env bash\nexit 0\n')
                 path.chmod(0o755)
             cargo = binary / 'cargo'
-            cargo.write_text('''#!/usr/bin/env python3
-import json, os, sys
-args = sys.argv[1:]
-with open(os.environ['CARGO_LOG'], 'a') as stream:
-    stream.write(json.dumps(args) + '\\n')
-if args[0] == 'clippy' and args[args.index('-p') + 1] == os.environ['FAIL_CLIPPY_PACKAGE']:
-    sys.exit(19)
+            cargo.write_text('''#!/usr/bin/env bash
+set -euo pipefail
+args_json=""; sep=""
+for arg in "$@"; do
+  s="${arg//\\\\/\\\\\\\\}"; s="${s//\\"/\\\\\\"}"
+  args_json+="${sep}\\"${s}\\""; sep=", "
+done
+printf '[%s]\\n' "$args_json" >> "$CARGO_LOG"
+if [[ "${1:-}" == "clippy" && -n "${FAIL_CLIPPY_PACKAGE:-}" ]]; then
+  args=("$@")
+  for (( i = 0; i + 1 < ${#args[@]}; i++ )); do
+    if [[ "${args[$i]}" == "-p" ]]; then
+      [[ "${args[$((i + 1))]}" != "$FAIL_CLIPPY_PACKAGE" ]] || exit 19
+      break
+    fi
+  done
+fi
 ''')
             cargo.chmod(0o755)
             subprocess.run(['git', 'init', '-q', str(repo)], check=True)
@@ -1760,14 +1770,25 @@ class DistfsNamedIntegrationDriver(unittest.TestCase):
             (crate / 'tests/other.rs').write_text('#[test] fn unrelated() {}\n')
             named = crate / 'tests/incremental_industry_jobs.rs'
             cargo = binary / 'cargo'
-            cargo.write_text('''#!/usr/bin/env python3
-import json, os, sys
-args = sys.argv[1:]
-with open(os.environ['CARGO_LOG'], 'a') as stream:
-    stream.write(json.dumps(args) + '\\n')
-if ('--test' in args and args[args.index('--test') + 1] == 'incremental_industry_jobs'
-        and args[0] == os.environ.get('FAIL_NAMED_COMMAND')):
-    sys.exit(23 if args[0] == 'test' else 29)
+            cargo.write_text('''#!/usr/bin/env bash
+set -euo pipefail
+args_json=""; sep=""
+for arg in "$@"; do
+  s="${arg//\\\\/\\\\\\\\}"; s="${s//\\"/\\\\\\"}"
+  args_json+="${sep}\\"${s}\\""; sep=", "
+done
+printf '[%s]\\n' "$args_json" >> "$CARGO_LOG"
+if [[ "${1:-}" == "${FAIL_NAMED_COMMAND:-}" && -n "${1:-}" ]]; then
+  args=("$@")
+  for (( i = 0; i + 1 < ${#args[@]}; i++ )); do
+    if [[ "${args[$i]}" == "--test" ]]; then
+      if [[ "${args[$((i + 1))]}" == "incremental_industry_jobs" ]]; then
+        if [[ "$1" == "test" ]]; then exit 23; else exit 29; fi
+      fi
+      break
+    fi
+  done
+fi
 ''')
             cargo.chmod(0o755)
             subprocess.run(['git', 'init', '-q', str(repo)], check=True)
@@ -3883,10 +3904,18 @@ class DriverCoverage(unittest.TestCase):
             log, selection = temporary / 'calls', temporary / 'selection.json'
             selection.write_text(json.dumps(selected))
             cargo = temporary / 'cargo'
-            cargo.write_text('#!' + sys.executable + '\nimport json,os,sys\n'
-                'args=[arg for arg in sys.argv[1:] if arg!="--verbose"]\n'
-                'with open(os.environ["CARGO_CALLS"],"a") as stream: stream.write(json.dumps(args)+"\\n")\n'
-                'raise SystemExit(19 if os.environ.get("FAIL_CARGO")==args[0] else 0)\n')
+            cargo.write_text('''#!/usr/bin/env bash
+set -euo pipefail
+args_json=""; sep=""; first_arg=""
+for arg in "$@"; do
+  [[ "$arg" == "--verbose" ]] && continue
+  [[ -n "$first_arg" ]] || first_arg="$arg"
+  s="${arg//\\\\/\\\\\\\\}"; s="${s//\\"/\\\\\\"}"
+  args_json+="${sep}\\"${s}\\""; sep=", "
+done
+printf '[%s]\\n' "$args_json" >> "$CARGO_CALLS"
+[[ -z "${FAIL_CARGO:-}" || "$FAIL_CARGO" != "$first_arg" ]] || exit 19
+''')
             cargo.chmod(0o755)
             environment = dict(os.environ, PATH=str(temporary) + os.pathsep + os.environ['PATH'],
                 CARGO_CALLS=str(log), SOURCE_SHA=sha, CI_VERBOSE='1',
@@ -3930,10 +3959,18 @@ class DriverCoverage(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             temporary = Path(temporary)
             executable = temporary / 'cargo'
-            executable.write_text('#!' + sys.executable + '\nimport json,os,sys\n'
-                'args = [arg for arg in sys.argv[1:] if arg != "--verbose"]\n'
-                'with open(os.environ["CARGO_CALLS"],"a") as stream: stream.write(json.dumps(args)+"\\n")\n'
-                'raise SystemExit(19 if os.environ.get("FAIL_CARGO") == args[0] else 0)\n')
+            executable.write_text('''#!/usr/bin/env bash
+set -euo pipefail
+args_json=""; sep=""; first_arg=""
+for arg in "$@"; do
+  [[ "$arg" == "--verbose" ]] && continue
+  [[ -n "$first_arg" ]] || first_arg="$arg"
+  s="${arg//\\\\/\\\\\\\\}"; s="${s//\\"/\\\\\\"}"
+  args_json+="${sep}\\"${s}\\""; sep=", "
+done
+printf '[%s]\\n' "$args_json" >> "$CARGO_CALLS"
+[[ -z "${FAIL_CARGO:-}" || "$FAIL_CARGO" != "$first_arg" ]] || exit 19
+''')
             executable.chmod(0o755)
             selection = temporary / 'selection.json'
             selection.write_text(json.dumps(selected))
@@ -4015,13 +4052,23 @@ class DriverCoverage(unittest.TestCase):
                 path.write_text('#!/usr/bin/env bash\nexit 0\n')
                 path.chmod(0o755)
             cargo = binary / 'cargo'
-            cargo.write_text('''#!/usr/bin/env python3
-import json, os, sys
-args = sys.argv[1:]
-with open(os.environ['CARGO_LOG'], 'a') as stream:
-    stream.write(json.dumps(args) + '\\n')
-if args[0] == 'clippy' and args[args.index('-p') + 1] == os.environ['FAIL_CLIPPY_PACKAGE']:
-    sys.exit(19)
+            cargo.write_text('''#!/usr/bin/env bash
+set -euo pipefail
+args_json=""; sep=""
+for arg in "$@"; do
+  s="${arg//\\\\/\\\\\\\\}"; s="${s//\\"/\\\\\\"}"
+  args_json+="${sep}\\"${s}\\""; sep=", "
+done
+printf '[%s]\\n' "$args_json" >> "$CARGO_LOG"
+if [[ "${1:-}" == "clippy" && -n "${FAIL_CLIPPY_PACKAGE:-}" ]]; then
+  args=("$@")
+  for (( i = 0; i + 1 < ${#args[@]}; i++ )); do
+    if [[ "${args[$i]}" == "-p" ]]; then
+      [[ "${args[$((i + 1))]}" != "$FAIL_CLIPPY_PACKAGE" ]] || exit 19
+      break
+    fi
+  done
+fi
 ''')
             cargo.chmod(0o755)
             subprocess.run(['git', 'init', '-q', str(repo)], check=True)

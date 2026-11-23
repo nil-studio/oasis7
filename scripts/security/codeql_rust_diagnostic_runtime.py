@@ -23,7 +23,24 @@ CLEANUP_SECONDS = sum(wait for _, wait in CLEANUP_SIGNALS)
 
 
 def output_bytes(root):
-    return sum(p.stat().st_size for p in root.rglob('*') if p.is_file())
+    total = 0
+    stack = [os.fspath(root)]
+    while stack:
+        current = stack.pop()
+        try:
+            scandir_it = os.scandir(current)
+        except OSError:
+            continue
+        with scandir_it as entries:
+            for entry in entries:
+                try:
+                    if entry.is_dir(follow_symlinks=False):
+                        stack.append(entry.path)
+                    elif entry.is_file(follow_symlinks=True):
+                        total += entry.stat(follow_symlinks=True).st_size
+                except OSError:
+                    continue
+    return total
 
 
 def evidence_write(path, data, root, terminal=False):
@@ -572,7 +589,7 @@ def _run(argv, cwd, output, end, timeout, root, env, file_limit=CAP, evaluator=N
                         detail_file.write(data); detail_file.flush()
                         detail.written(data)
                 last_sample = time.monotonic()
-            events = selector.select(.05)
+            events = selector.select(0 if proc.poll() is not None else .05)
             for key, _ in events:
                 chunk = os.read(key.fd, 65536)
                 if not chunk:

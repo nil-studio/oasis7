@@ -28,6 +28,17 @@ def manifest(package):
 
 
 class Ownership(unittest.TestCase):
+    def test_chain_native_world_service_keeps_actual_gameplay_host_seam(self):
+        """Do not accidentally select the generic three-argument admission API."""
+        root = ROOT / 'crates/oasis7_chain_runtime/src/host'
+        for relative in ('world_service_api.rs', 'execution_bridge/world_service_execution.rs'):
+            source = (root / relative).read_text()
+            self.assertIn('use oasis7_world_service::*;', source, relative)
+            self.assertIn('use oasis7::world_service::gameplay;', source, relative)
+            self.assertNotIn('use oasis7::world_service::*;', source, relative)
+            self.assertNotIn('use oasis7_world_service::gameplay;', source, relative)
+            self.assertIn('gameplay::authenticated_action', source, relative)
+
     def test_core_is_library_and_original_executable_names_survive_once(self):
         core = manifest('oasis7')
         self.assertIs(core['package']['autobins'], False)

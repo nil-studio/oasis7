@@ -1,6 +1,6 @@
 //! Explicit prepared-world live service for independent formal-Skill gameplay.
 use super::*;
-use oasis7::world_service::{
+use oasis7_world_service::{
     client::{RemoteWorldServiceClient, WorldServiceClientConfig, WorldServicePort},
     private_goal_prepare::sign_goal_prepare,
     private_goal_read::publication,
@@ -78,10 +78,10 @@ struct CleanupCategories {
 }
 fn report_cleanup_boundary(
     phase: &'static str,
-    error: &oasis7::world_service::client::WorldServiceClientError,
+    error: &oasis7_world_service::client::WorldServiceClientError,
     categories: &CleanupCategories,
 ) {
-    use oasis7::world_service::client::WorldServiceClientError;
+    use oasis7_world_service::client::WorldServiceClientError;
     let (class, status) = match error {
         WorldServiceClientError::Configuration(_) => ("configuration", None),
         WorldServiceClientError::Transport(_) => ("transport", None),
@@ -98,9 +98,9 @@ fn report_cleanup_boundary(
 // These negative samples deliberately preserve the historical exact-base
 // contract; subsequent attempts exercise the current lease-aware SDK.
 fn legacy_first_prefix(
-    mut intent: oasis7::world_service::SchedulerIntentV1,
+    mut intent: oasis7_world_service::SchedulerIntentV1,
     attempt: usize,
-) -> oasis7::world_service::SchedulerIntentV1 {
+) -> oasis7_world_service::SchedulerIntentV1 {
     if attempt == 0 {
         intent.task_prefix_binding_revision = 0;
     }
@@ -139,13 +139,13 @@ fn settle_cleanup_original(
                 Ok(SubmitObservation::OutcomeUnknown(_)) => {
                     categories.submit_unknown += 1;
                 }
-                Err(oasis7::world_service::client::WorldServiceClientError::Transport(_)) => {
+                Err(oasis7_world_service::client::WorldServiceClientError::Transport(_)) => {
                     categories.submit_transport += 1
                 }
-                Err(oasis7::world_service::client::WorldServiceClientError::Cooldown {
+                Err(oasis7_world_service::client::WorldServiceClientError::Cooldown {
                     ..
                 }) => categories.cooldown += 1,
-                Err(oasis7::world_service::client::WorldServiceClientError::Rejected {
+                Err(oasis7_world_service::client::WorldServiceClientError::Rejected {
                     status: 503,
                     ..
                 }) => {
@@ -183,10 +183,10 @@ fn settle_cleanup_original(
                 IntentOutcome::Received { .. } => categories.lookup_received += 1,
                 IntentOutcome::HistoryUnavailable => categories.lookup_history_unavailable += 1,
             },
-            Err(oasis7::world_service::client::WorldServiceClientError::Transport(_)) => {
+            Err(oasis7_world_service::client::WorldServiceClientError::Transport(_)) => {
                 categories.lookup_transport += 1
             }
-            Err(oasis7::world_service::client::WorldServiceClientError::Cooldown { .. }) => {
+            Err(oasis7_world_service::client::WorldServiceClientError::Cooldown { .. }) => {
                 categories.cooldown += 1
             }
             Err(error) => {
@@ -253,7 +253,7 @@ fn verified_terminal_stale_action(
         "terminal proof must not rely on context expiry"
     );
     let control =
-        oasis7::world_service::game_task::current_control(world, &identity.fence.agent_id)
+        oasis7_world_service::game_task::current_control(world, &identity.fence.agent_id)
             .unwrap()
             .unwrap();
     assert!(
@@ -331,7 +331,7 @@ fn verified_terminal_stale_action(
         "terminal stale feedback disposition must verify"
     );
     assert!(
-        oasis7::world_service::game_task::validate_task_context_capture(
+        oasis7_world_service::game_task::validate_task_context_capture(
             world,
             identity,
             &signed.subject_public_key
@@ -912,7 +912,7 @@ fn run_prepared_world_service_configured(
                 let observed = owner_client.submit(submission.clone()).unwrap();
                 assert!(!matches!(
                     observed,
-                    oasis7::world_service::SubmitObservation::OutcomeUnknown(_)
+                    oasis7_world_service::SubmitObservation::OutcomeUnknown(_)
                 ));
                 goal2_submission = Some(submission);
             }
@@ -1055,15 +1055,15 @@ impl PreparedWorldKind {
 }
 fn task_private_route_tag(path: &str) -> &'static str {
     match path.split('?').next().unwrap_or(path) {
-        oasis7::world_service::private_task_context::TASK_CONTEXT_PREPARE_PATH => {
+        oasis7_world_service::private_task_context::TASK_CONTEXT_PREPARE_PATH => {
             "task_context_prepare"
         }
-        oasis7::world_service::private_task_context::TASK_CONTEXT_READ_PATH => "task_context_read",
-        oasis7::world_service::private_task_context::TASK_SNAPSHOT_PATH => "task_snapshot",
-        oasis7::world_service::task_recipe_quote::TASK_RECIPE_QUOTE_PATH => "task_recipe_quote",
-        oasis7::world_service::task_factory_quote::TASK_FACTORY_QUOTE_PATH => "task_factory_quote",
-        oasis7::world_service::private_goal_read::GOAL_PREPARE_PATH => "goal_prepare",
-        oasis7::world_service::private_goal_read::GOAL_CURRENT_PATH => "goal_current",
+        oasis7_world_service::private_task_context::TASK_CONTEXT_READ_PATH => "task_context_read",
+        oasis7_world_service::private_task_context::TASK_SNAPSHOT_PATH => "task_snapshot",
+        oasis7_world_service::task_recipe_quote::TASK_RECIPE_QUOTE_PATH => "task_recipe_quote",
+        oasis7_world_service::task_factory_quote::TASK_FACTORY_QUOTE_PATH => "task_factory_quote",
+        oasis7_world_service::private_goal_read::GOAL_PREPARE_PATH => "goal_prepare",
+        oasis7_world_service::private_goal_read::GOAL_CURRENT_PATH => "goal_current",
         _ => "other",
     }
 }
@@ -1071,7 +1071,7 @@ fn task_private_route_tag(path: &str) -> &'static str {
 mod starter_chain_playtest;
 
 pub(super) fn retry_private<T>(
-    mut read: impl FnMut() -> Result<T, oasis7::world_service::client::WorldServiceClientError>,
+    mut read: impl FnMut() -> Result<T, oasis7_world_service::client::WorldServiceClientError>,
     deadline: Instant,
 ) -> T {
     loop {
@@ -1082,8 +1082,8 @@ pub(super) fn retry_private<T>(
         match read() {
             Ok(value) => return value,
             Err(
-                oasis7::world_service::client::WorldServiceClientError::Transport(_)
-                | oasis7::world_service::client::WorldServiceClientError::Cooldown { .. },
+                oasis7_world_service::client::WorldServiceClientError::Transport(_)
+                | oasis7_world_service::client::WorldServiceClientError::Cooldown { .. },
             ) => std::thread::sleep(Duration::from_millis(100)),
             Err(e) => panic!("private original read failed: {e}"),
         }

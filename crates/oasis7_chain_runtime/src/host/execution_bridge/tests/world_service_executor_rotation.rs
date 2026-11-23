@@ -1,6 +1,6 @@
 use super::private_goal_tests::{consumer, http};
 use super::*;
-use oasis7::world_service::{
+use oasis7_world_service::{
     private_goal_prepare::sign_goal_prepare, private_goal_read::publication,
     private_goal_store::PrivateGoalStore, private_task_context::*,
 };

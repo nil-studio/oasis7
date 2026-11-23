@@ -1,7 +1,7 @@
 //! Fresh participant → public finite claim → real native industrial actions.
 //! No per-participant bootstrap inventory, provider fixture, or test grant.
 use super::*;
-use oasis7::world_service::{
+use oasis7_world_service::{
     private_goal_prepare::sign_goal_prepare, private_goal_read::publication,
     private_goal_store::PrivateGoalStore, private_task_context::*, task_factory_quote::*,
     task_recipe_quote::*,
@@ -677,7 +677,7 @@ fn run_ordinary_first_session(handoff_ready: Option<&Path>) {
                         captured.current_public_context = quote.current_public_context;
                         break quote.quote.action;
                     }
-                    Err(oasis7::world_service::client::WorldServiceClientError::Rejected {
+                    Err(oasis7_world_service::client::WorldServiceClientError::Rejected {
                         status: 409,
                         ..
                     }) => {
@@ -798,7 +798,7 @@ fn run_ordinary_first_session(handoff_ready: Option<&Path>) {
                         captured.current_public_context = quote.current_public_context;
                         break quote.quote.action;
                     }
-                    Err(oasis7::world_service::client::WorldServiceClientError::Rejected {
+                    Err(oasis7_world_service::client::WorldServiceClientError::Rejected {
                         status: 409,
                         ..
                     }) => {

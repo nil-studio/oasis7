@@ -568,7 +568,7 @@ pub(super) fn restore_executable(
 /// Encode an actual executed result under the original formal reservation.
 /// Canonical output identity excludes all receipts and finalizer envelopes.
 pub(super) struct FormalRetainedExecutionOutputs {
-    pub new_results: Vec<oasis7::world_service::CanonicalIntentResultV1>,
+    pub new_results: Vec<oasis7_world_service::CanonicalIntentResultV1>,
     pub event_root: String,
     pub unpruned_journal: oasis7_runtime::Journal,
     pub journal_cursors: Vec<(u64, u64)>,
@@ -828,7 +828,7 @@ pub(super) fn candidate_with_business_reader(
         handoff: body.handoff.clone(),
     };
     if let Some(previous) = &manifest.business_tree {
-        use oasis7::world_service::{
+        use oasis7_world_service::{
             CanonicalIntentResultV1, formal_result::FormalBusinessResultTreeV1,
         };
         use oasis7_distfs::controlled_authority::formal::business_material::{
