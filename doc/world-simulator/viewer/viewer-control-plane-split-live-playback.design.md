@@ -220,7 +220,7 @@ Owner 为 `viewer_engineer` 与 `runtime_engineer`，`qa_engineer` 核对场景�
 6. Chat 的 `accepted` 和 Prompt apply/rollback 的 guidance 结果可保留在 `recent_feedback`，但不据此固定世界的 `execution_state`、因果信息或 `response_window_class`；这些值继续来自当前世界事实。请求成功不能证明 Agent 已执行后续意图。
 7. 取消等待、关闭面板或断开只停止本地等待，不取消已经提交的世界动作。`OutcomeUnknown` 沿原请求 lookup 确认，不能换 nonce 重交；仅有最终权威结果才能说明世界效果。世界故障与请求拒绝不得制造或覆盖无关动作的 Runtime 结果。
 
-内部上下文与缓存不加入 legacy 必填 wire 字段，不承担重启恢复。复用 [session policy](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/session_policy.rs)、[owner read 失效处理](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/owner_read.rs) 和 [world-service correlation](../../../crates/oasis7/src/world_service/correlation.rs)；未授权响应保留通用诊断，不附带其他玩家身份、私有 trace 或世界内部细节。
+内部上下文与缓存不加入 legacy 必填 wire 字段，不承担重启恢复。复用 [session policy](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/session_policy.rs)、[owner read 失效处理](../../../crates/oasis7_viewer_runtime/src/viewer/runtime_live/owner_read.rs) 和 [world-service correlation](../../../crates/oasis7_world_service/src/correlation.rs)；未授权响应保留通用诊断，不附带其他玩家身份、私有 trace 或世界内部细节。
 
 <a id="gameplay-original-result-lookup"></a>
 ### 浏览器与 Runtime 重启后的原请求回读

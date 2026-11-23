@@ -55,6 +55,8 @@ DEPENDENCY_PLATFORMS = {
         'ci-rust-build-d35b866df7219a041165b3da463865465f8c3ab481a315c2b9a5afe23c92cecc',
         'ci-rust-build-822b05e151a77828e600b742ac3ec80449fbc41be107fcd724b20ce01a5afbf2')},
     **{name: frozenset({('Linux', 'x64')}) for name in LEGACY_DEPENDENCY_NAMESPACES},
+    'hosted-login-linux-x86-64-ci-rust-build-068f6982d684c23a39e4b52e56f35f307da388c5893c7837c10b5882ec7dd9fb':
+        frozenset({('Linux', 'x64')}),
     'ci-formal-debug-deps-trusted-v1': frozenset({('Linux', 'x64')}),
     'ci-formal-endpoint-deps-trusted-v1': frozenset({('Linux', 'x64')}),
     'release-packages-web-wasm-trusted-v3': frozenset({('Linux', 'x64')}),

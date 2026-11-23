@@ -1081,19 +1081,14 @@ impl World {
     }
 
     pub(super) fn apply_resource_delta(&mut self, delta: &ResourceDelta) -> Result<(), WorldError> {
-        let mut planned = Vec::with_capacity(delta.entries.len());
-        for (kind, amount) in &delta.entries {
-            let current = self.resource_balance(*kind);
-            let next = current.checked_add(*amount).ok_or_else(|| {
-                WorldError::ResourceBalanceInvalid {
-                    reason: format!(
-                        "resource balance overflow: kind={kind:?} current={current} delta={amount}"
-                    ),
-                }
-            })?;
-            planned.push((*kind, next));
-        }
-
+        // This is the original live consumer: retain the once-only install
+        // site, but share the exact checked arithmetic with root-staged fees.
+        let scope = crate::domains::monetary::StagedRuleFeeSettlement {
+            general: delta,
+            with_distance: delta,
+            disposition: oasis7_domain_types::rule_settlement::RuleActionDisposition::Accepted,
+        };
+        let planned = scope.plan_checked(&self.state.resources)?;
         for (kind, next) in planned {
             self.state.resources.insert(kind, next);
         }

@@ -58,4 +58,5 @@ pub use crate::node_bft_v3_runtime::private_exchange::{
     NodeBftCommittedReadAuthorizationV3, NodeBftCommittedReadCredentialsV3,
     NodeBftLibp2pPrivateCandidateExchangeV3, NodeBftPrivateExchangeConfigV3,
     NodeBftPrivateReadAuthorizationV3, NodeBftPrivateReadGateV3, NodeBftPrivateReadScopeV3,
+    decode_bft_v3_private_candidate_package, encode_bft_v3_private_candidate_package,
 };

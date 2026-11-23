@@ -223,7 +223,7 @@ fn actual_node_unknown_restart_preserves_original_signed_request_and_private_pre
     // local missing-record absence alone would instead be a protocol rejection.
     fs::write(&fixture.replica, b"fixture transport unavailable").unwrap();
     let request = fixture.request();
-    let action = correlation::encode_consensus_intent(&request).unwrap();
+    let action = oasis7_world_service::correlation::encode_consensus_intent(&request).unwrap();
     let mut node = fixture.node(driver);
     node.submit_consensus_action_payload(42, action).unwrap();
     node.start().unwrap();
@@ -386,7 +386,7 @@ fn guarded_read_capture_barrier_never_returns_unpublished_successor() {
     let mut node = fixture.node(driver);
     node.submit_consensus_action_payload(
         42,
-        correlation::encode_consensus_intent(&request).unwrap(),
+        oasis7_world_service::correlation::encode_consensus_intent(&request).unwrap(),
     )
     .unwrap();
     node.start().unwrap();
@@ -492,7 +492,7 @@ fn signed_http_pure_client_requires_explicit_prerequisite_policy_for_all_operati
     let mut node = fixture.node(driver);
     node.submit_consensus_action_payload(
         42,
-        correlation::encode_consensus_intent(&request).unwrap(),
+        oasis7_world_service::correlation::encode_consensus_intent(&request).unwrap(),
     )
     .unwrap();
     node.start().unwrap();

@@ -519,7 +519,7 @@ impl ViewerRuntimeLiveServer {
         origin: Option<GameplayFeedbackOrigin>,
     ) {
         if let Some(mut origin) = origin
-            && let Ok(key) = crate::world_service::correlation::key_digest(&correlation.key)
+            && let Ok(key) = oasis7_world_service::correlation::key_digest(&correlation.key)
         {
             // A retry retains the first correlation fence. A fresh reader may
             // have acquired newer optional context since that first request;
@@ -585,7 +585,7 @@ impl ViewerRuntimeLiveServer {
         correlation: &RequestCorrelation,
         mut candidate: Option<GameplayFeedbackOrigin>,
     ) -> Option<GameplayFeedbackOrigin> {
-        if let Ok(key) = crate::world_service::correlation::key_digest(&correlation.key)
+        if let Ok(key) = oasis7_world_service::correlation::key_digest(&correlation.key)
             && let Some(record) = self
                 .pending_gameplay_feedback
                 .get(&(key, correlation.payload_digest.clone()))
@@ -604,7 +604,7 @@ impl ViewerRuntimeLiveServer {
         correlation: &RequestCorrelation,
         feedback: PlayerGameplayRecentFeedback,
     ) {
-        let Ok(key) = crate::world_service::correlation::key_digest(&correlation.key) else {
+        let Ok(key) = oasis7_world_service::correlation::key_digest(&correlation.key) else {
             return;
         };
         if let Some(record) = self

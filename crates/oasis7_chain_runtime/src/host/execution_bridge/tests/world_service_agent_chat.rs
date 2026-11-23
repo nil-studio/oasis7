@@ -391,7 +391,7 @@ fn canonical_chat_same_block_nonce_fence_and_duplicate_preserve_first_goal() {
             NodeConsensusAction::from_payload(
                 i as u64 + 1,
                 "node-a",
-                correlation::encode_consensus_intent(request).unwrap(),
+                oasis7_world_service::correlation::encode_consensus_intent(request).unwrap(),
             )
             .unwrap()
         })

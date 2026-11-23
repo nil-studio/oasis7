@@ -16,7 +16,13 @@ use publication_metadata::PublicationReservationV1;
 mod publication_plan;
 use publication_plan::planned_publication_bytes;
 
-#[derive(Deserialize, Serialize)]
+#[path = "driver_bft_v3_original_source_archive.rs"]
+mod original_source_archive;
+pub(crate) use original_source_archive::{
+    ArchivedOriginalSourceReaderV1, OriginalSourceArchivePinV1,
+};
+
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct OriginalCandidateArchivePinV1 {
     pub(crate) reference: BftPrivateRetentionAdmissionInputRefV1,
@@ -53,6 +59,34 @@ struct OriginalCandidateData {
     references: Vec<String>,
     publication_reservation_ref: String,
     protected_source_origin_ref: String,
+}
+
+/// Native Node starts each first-height preview by restoring the qualified H.
+/// Record those authenticated history reads as well as the candidate transition,
+/// without adding cold H branches that the original Node never accessed.
+fn received_candidate_parent(
+    execution: &FormalBftHeaderExecutionV3,
+    reader: Arc<formal_dependencies::RecordingBusinessIndexReaderV1>,
+) -> Result<FormalBftHeaderExecutionV3, String> {
+    let mut candidate = execution.with_candidate_reader(reader)?;
+    let parent = &candidate.parent_world;
+    let snapshot = parent.snapshot();
+    let journal = parent.journal().clone();
+    let snapshot_bytes = oasis7_world_state::codec::snapshot_cbor(&snapshot).map_err(error)?;
+    let journal_bytes = oasis7_world_state::codec::journal_cbor(&journal).map_err(error)?;
+    let restored = parent
+        .restore_snapshot_with_attached_formal_history(snapshot, journal)
+        .map_err(|error| format!("restore original Received H: {error:?}"))?
+        .with_release_security_policy(parent.release_security_policy().clone());
+    if oasis7_world_state::codec::snapshot_cbor(&restored.snapshot()).map_err(error)?
+        != snapshot_bytes
+        || oasis7_world_state::codec::journal_cbor(restored.journal()).map_err(error)?
+            != journal_bytes
+    {
+        return Err("original Received H restore changed authenticated bytes".into());
+    }
+    candidate.parent_world = restored;
+    Ok(candidate)
 }
 
 impl OriginalCandidateArchivePinV1 {
@@ -234,7 +268,20 @@ impl OriginalCandidateArchivePinV1 {
             .iter()
             .map(|(digest, bytes)| (digest.clone(), bytes.len()))
             .collect();
-        let executed = execution.execute_closed_candidate(&candidate.actions_cbor, dependencies)?;
+        let executed = if data.schema_version == 10 {
+            let reader = formal_dependencies::RecordingBusinessIndexReaderV1::new_strict(
+                execution.retained_nodes.clone(),
+                dependencies,
+            )?;
+            let parent = received_candidate_parent(execution, reader.clone())?;
+            let executed = parent.execute(&candidate.actions_cbor)?;
+            if !reader.all_recorded_nodes_accessed()? {
+                return Err("original Received contains unobserved dependencies".into());
+            }
+            executed
+        } else {
+            execution.execute_closed_candidate(&candidate.actions_cbor, dependencies)?
+        };
         if executed.candidate.header != candidate.public_value.header
             || executed.candidate.commitment != candidate.public_value.execution_commitment
         {
@@ -373,6 +420,75 @@ impl FormalBftHeaderLedgerExecutionV3 {
         ),
         String,
     > {
+        self.archive_first_original_input(archive, binding, attestor, marker, actions, None)
+    }
+
+    /// A transport package becomes an original Received only after the actual
+    /// qualified H independently reproduces its header and exact dependencies.
+    pub(crate) fn archive_first_original_received(
+        &self,
+        archive: &LocalBftSuccessorArchiveStoreV1,
+        binding: &oasis7_distfs::protected_bft_v3::BftSignerBindingV3,
+        attestor: &oasis7_distfs::protected_bft_v3::BftPrivateRetentionAttestorV1,
+        marker: &BftPrivateRetentionCreationMarkerV1,
+        package: &oasis7_node::NodeBftPrivateCandidatePackageV3,
+    ) -> Result<
+        (
+            BftSuccessorWindowSourceV1,
+            OriginalCandidateArchivePinV1,
+            ReplayedOriginalCandidateV1,
+            u64,
+        ),
+        String,
+    > {
+        if package.dependency_nodes.len() > MAX_RETAINED_INDEX_NODES
+            || !package
+                .dependency_nodes
+                .windows(2)
+                .all(|nodes| nodes[0].0 < nodes[1].0)
+        {
+            return Err("original Received dependency order/count differs".into());
+        }
+        let mut total = 0usize;
+        for (digest, bytes) in &package.dependency_nodes {
+            formal_dependencies::validate_node(digest, bytes)?;
+            total = total
+                .checked_add(bytes.len())
+                .filter(|bytes| *bytes <= MAX_RETAINED_INDEX_TOTAL_BYTES)
+                .ok_or("original Received dependency byte capacity")?;
+        }
+        oasis7_consensus::formal_bft_payload_v3::ValidatedBftPrivatePayloadV3::decode(
+            package.candidate.public_value.validate_binding()?,
+            &package.candidate.actions_cbor,
+        )
+        .map_err(error)?;
+        self.archive_first_original_input(
+            archive,
+            binding,
+            attestor,
+            marker,
+            package.candidate.actions_cbor.clone(),
+            Some(package),
+        )
+    }
+
+    fn archive_first_original_input(
+        &self,
+        archive: &LocalBftSuccessorArchiveStoreV1,
+        binding: &oasis7_distfs::protected_bft_v3::BftSignerBindingV3,
+        attestor: &oasis7_distfs::protected_bft_v3::BftPrivateRetentionAttestorV1,
+        marker: &BftPrivateRetentionCreationMarkerV1,
+        actions: Vec<u8>,
+        received: Option<&oasis7_node::NodeBftPrivateCandidatePackageV3>,
+    ) -> Result<
+        (
+            BftSuccessorWindowSourceV1,
+            OriginalCandidateArchivePinV1,
+            ReplayedOriginalCandidateV1,
+            u64,
+        ),
+        String,
+    > {
         use oasis7_distfs::protected_bft_v3::{
             BftPrivateRetentionInputObjectV1, BftPrivateRetentionKeyV1,
         };
@@ -399,9 +515,30 @@ impl FormalBftHeaderLedgerExecutionV3 {
             execution.retained_nodes.clone(),
             Vec::new(),
         )?;
-        let candidate_context = execution.with_candidate_reader(recorder.clone())?;
+        let candidate_context = if received.is_some() {
+            received_candidate_parent(&execution, recorder.clone())?
+        } else {
+            execution.with_candidate_reader(recorder.clone())?
+        };
         let executed = candidate_context.execute(&actions)?;
         let dependencies = recorder.accessed_nodes()?;
+        if let Some(package) = received {
+            if package.candidate.public_value.header != executed.candidate.header
+                || package.candidate.public_value.execution_commitment
+                    != executed.candidate.commitment
+            {
+                return Err("original Received differs from actual qualified H execution".into());
+            }
+            if dependencies.iter().ne(package
+                .dependency_nodes
+                .iter()
+                .map(|(digest, bytes)| (digest, bytes)))
+            {
+                return Err(
+                    "original Received dependency closure differs from actual transition".into(),
+                );
+            }
+        }
         let publication_bytes = planned_publication_bytes(
             &execution.schedule,
             &executed,
@@ -433,8 +570,13 @@ impl FormalBftHeaderLedgerExecutionV3 {
         let header_id = executed.candidate.header.block_id()?;
         let height = executed.candidate.commitment.height;
         let data = OriginalCandidateData {
-            schema_version: 9,
-            domain: "oasis7.formal.bft.node_private_protected_input.v1".into(),
+            schema_version: if received.is_some() { 10 } else { 9 },
+            domain: if received.is_some() {
+                "oasis7.formal.bft.node_private_protected_received_input.v1"
+            } else {
+                "oasis7.formal.bft.node_private_protected_input.v1"
+            }
+            .into(),
             origin: false,
             ledger_origin_digest: origin.clone(),
             material_identity: binding.material_identity.clone(),
@@ -534,7 +676,11 @@ impl FormalBftHeaderLedgerExecutionV3 {
             self.origin.retained_nodes.recorded_nodes().unwrap(),
         )
         .unwrap();
-        let original = self.origin.with_candidate_reader(recorder.clone()).unwrap();
+        let original = if mutation == Some("first-received") {
+            received_candidate_parent(&self.origin, recorder.clone()).unwrap()
+        } else {
+            self.origin.with_candidate_reader(recorder.clone()).unwrap()
+        };
         let executed = original.execute(&actions_cbor).unwrap();
         let candidate = &executed.candidate;
         let state_root = candidate.commitment.state_root.clone();

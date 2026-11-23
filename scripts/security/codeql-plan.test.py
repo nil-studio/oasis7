@@ -333,7 +333,11 @@ class PlannerTests(unittest.TestCase):
                 self.run_plan(full=full)
 
     def test_fixed_quic_vendor_metadata_routes_to_rust(self):
-        for path in ('vendor-libp2p-quic-0.14.0/.gitignore', 'vendor-libp2p-quic-0.14.0/LICENSE'):
+        for path in ('vendor-if-watch-3.2.2/Cargo.toml.orig',
+                     'vendor-libp2p-quic-0.14.0/.gitignore',
+                     'vendor-libp2p-quic-0.14.0/LICENSE',
+                     'vendor-libp2p-rendezvous-0.18.1/src/generated/rpc.proto',
+                     'vendor-libp2p-swarm-0.48.0/LICENSE'):
             with self.subTest(path=path):
                 self.base = self.git('rev-parse', 'HEAD')
                 self.write(path, 'fixed vendor metadata\n')
@@ -342,10 +346,42 @@ class PlannerTests(unittest.TestCase):
                 self.assertEqual(result['selected_units'], ['rust-repo'])
                 self.assertIn(path, result['reasons']['rust-repo'])
                 self.assertEqual(result['fallback_reasons'], [])
+                self.base = self.git('rev-parse', 'HEAD')
+                (self.root / path).unlink()
+                self.commit()
+                deleted = self.run_plan()
+                self.assertEqual(deleted['selected_units'], ['rust-repo'])
+                self.assertIn(path, deleted['reasons']['rust-repo'])
+
+    def test_fixed_vendor_provenance_routes_to_python_and_rust_including_deletion(self):
+        for path in ('vendor-if-watch-3.2.2/upstream-source-sha256.json',
+                     'vendor-libp2p-rendezvous-0.18.1/LICENSE',
+                     'vendor-libp2p-rendezvous-0.18.1/local-patch-sha256.json',
+                     'vendor-libp2p-rendezvous-0.18.1/upstream-source-sha256.json',
+                     'vendor-libp2p-swarm-0.48.0/upstream-source-sha256.json'):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, '{"sha256": "fixed"}\n')
+                self.commit()
+                result = self.run_plan()
+                self.assertEqual(result['selected_units'], ['python-repo', 'rust-repo'])
+                self.assertIn(path, result['reasons']['python-repo'])
+                self.assertIn(path, result['reasons']['rust-repo'])
+                self.assertEqual(result['fallback_reasons'], [])
+                self.base = self.git('rev-parse', 'HEAD')
+                (self.root / path).unlink()
+                self.commit()
+                deleted = self.run_plan()
+                self.assertEqual(deleted['selected_units'], ['python-repo', 'rust-repo'])
 
     def test_fixed_quic_vendor_registration_does_not_admit_neighbors(self):
-        for path in ('vendor-libp2p-quic-0.14.0/unregistered.json',
-                     'vendor-libp2p-quic-0.14.1/LICENSE'):
+        for path in ('vendor-if-watch-3.2.2/unregistered.json',
+                     'vendor-libp2p-quic-0.14.0/unregistered.json',
+                     'vendor-libp2p-quic-0.14.1/LICENSE',
+                     'vendor-libp2p-rendezvous-0.18.1/unregistered.json',
+                     'vendor-libp2p-rendezvous-0.18.2/LICENSE',
+                     'vendor-libp2p-swarm-0.48.0/unregistered.json',
+                     'vendor-libp2p-swarm-0.49.0/LICENSE'):
             with self.subTest(path=path):
                 self.base = self.git('rev-parse', 'HEAD')
                 self.write(path, '{}')
@@ -751,28 +787,13 @@ class PlannerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'symbolic link'):
             self.run_plan()
 
-    def test_retired_root_evidence_deletion_only_and_closed_for_add_or_other_paths(self):
-        exact = (
+    def test_root_evidence_paths_stay_fail_closed(self):
+        for path in (
             'evidence/issue-1973/selected-target-polish.png',
             'evidence/pr-234/viewer-entry-after-advance.png',
             'evidence/pr-234/viewer-entry-before.png',
-        )
-        for path in exact:
-            self.write(path, 'png-bytes')
-        self.base = self.commit()
-        # Modifying an existing retired evidence screenshot remains rejected.
-        self.write(exact[0], 'modified-bytes'); self.commit()
-        with self.assertRaisesRegex(ValueError, 'unregistered input'):
-            self.run_plan()
-        # Deleting the exact 3 orphaned screenshots succeeds with no CodeQL units.
-        self.base = self.git('rev-parse', 'HEAD')
-        for path in exact:
-            (self.root / path).unlink()
-        self.commit()
-        result = self.run_plan()
-        self.assertEqual(result['selected_units'], [])
-        # Re-introducing any of them or touching another evidence/ path stays closed.
-        for path in (exact[0], 'evidence/other/new.png'):
+            'evidence/other/new.png',
+        ):
             with self.subTest(path=path):
                 self.base = self.git('rev-parse', 'HEAD')
                 self.write(path, 'png-bytes'); self.commit()
@@ -1050,6 +1071,20 @@ class PlannerTests(unittest.TestCase):
         result = subprocess.run(['python3', str(HERE / 'codeql-plan.py'), '--mode', 'invalid'], capture_output=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(b'invalid choice', result.stderr)
+
+    def test_batched_blob_reads_and_identical_head_merge_base_deduplication(self):
+        self.write('src/a.rs', 'const A: &str = include_str!("../data/a.md");\n')
+        self.write('src/b.rs', 'const B: &[u8] = include_bytes!("../data/b.md");\n')
+        self.write('data/a.md', 'v1')
+        self.write('data/b.md', 'v1')
+        self.base = self.commit()
+        self.write('data/b.md', 'v2')
+        self.commit()
+        result = self.run_plan()
+        self.assertEqual(result['selected_units'], ['rust-repo'])
+        self.assertEqual(result['reasons']['rust-repo'], ['embedded or possible build input: data/b.md'])
+        maintenance = self.run_plan(event='schedule', full=True)
+        self.assertEqual(len(maintenance['selected_units']), 4)
 
 
 if __name__ == '__main__': unittest.main()

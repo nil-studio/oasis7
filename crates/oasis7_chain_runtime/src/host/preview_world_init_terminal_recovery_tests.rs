@@ -29,7 +29,7 @@ fn commit(
             NodeConsensusAction::from_payload(
                 id,
                 "expiry-node",
-                correlation::encode_consensus_intent(&request).unwrap(),
+                oasis7_world_service::correlation::encode_consensus_intent(&request).unwrap(),
             )
             .unwrap()
         })

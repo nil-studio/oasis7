@@ -8,7 +8,7 @@ use std::sync::Mutex;
 const SOURCE_COMPILER_ENV: &str = "OASIS7_MODULE_SOURCE_COMPILER";
 
 fn source_compiler_env_lock() -> &'static Mutex<()> {
-    crate::env_mut::process_env_lock()
+    oasis7_hosted_access::process_env::process_env_lock()
 }
 
 struct EnvVarGuard {
@@ -31,13 +31,13 @@ impl Drop for EnvVarGuard {
             Some(value) => {
                 // SAFETY: This test/setup code mutates process environment in a controlled scope.
                 unsafe {
-                    oasis7::env_mut::set_var(self.key, value);
+                    oasis7_hosted_access::process_env::set_var(self.key, value);
                 }
             }
             None => {
                 // SAFETY: This test/setup code mutates process environment in a controlled scope.
                 unsafe {
-                    oasis7::env_mut::remove_var(self.key);
+                    oasis7_hosted_access::process_env::remove_var(self.key);
                 }
             }
         }
@@ -101,7 +101,7 @@ fn module_lifecycle_compile_from_source_deploys_artifact() {
     write_fake_source_compiler(script_path.as_path(), compiled_text);
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(SOURCE_COMPILER_ENV, script_path.as_os_str());
+        oasis7_hosted_access::process_env::set_var(SOURCE_COMPILER_ENV, script_path.as_os_str());
     }
 
     let mut kernel = setup_kernel_with_agent("agent-1");

@@ -1,6 +1,6 @@
-use crate::runtime;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use oasis7_client_api::MainTokenTransfer;
+use oasis7_runtime as runtime;
 use oasis7_simulator::{Action as SimulatorAction, ActionSubmitter};
 use serde::Serialize;
 
@@ -27,8 +27,8 @@ pub type ConsensusActionPayloadBody =
     oasis7_client_api::consensus_action_wire::ConsensusActionPayloadBody<
         SimulatorAction,
         ActionSubmitter,
-        crate::world_service::task_cleanup_v2::TaskCleanupSubmitV2,
-        crate::world_service::SubmitIntentRequest<crate::world_service::WorldServicePayloadV1>,
+        crate::task_cleanup_v2::TaskCleanupSubmitV2,
+        crate::SubmitIntentRequest<crate::WorldServicePayloadV1>,
     >;
 pub type ConsensusActionPayloadEnvelope =
     oasis7_client_api::consensus_action_wire::ConsensusActionPayloadEnvelope<

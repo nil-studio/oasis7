@@ -4,15 +4,15 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use oasis7::consensus_action_payload::{
-    ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
-};
 use oasis7::runtime_host::gameplay_actions::build_runtime_action_from_gameplay_request;
 use oasis7_client_api::viewer_auth::{
     VerifiedPlayerAuth, verify_collect_data_auth_proof, verify_gameplay_action_auth_proof,
 };
 use oasis7_node::NodeRuntime;
 use oasis7_proto::viewer::{CollectDataCommand, GameplayActionRequest};
+use oasis7_world_service::consensus_action_payload::{
+    ConsensusActionPayloadEnvelope, encode_consensus_action_payload,
+};
 use serde::{Deserialize, Serialize};
 
 const GAMEPLAY_SUBMIT_PATH: &str = "/v1/chain/gameplay/submit";
@@ -217,7 +217,7 @@ fn handle_gameplay_submit(
         let signed_payload =
             oasis7::world_service::WorldServicePayloadV1::GameplayJson(body.to_vec());
         let correlation = oasis7::world_service::derive_correlation(identity, &signed_payload)?;
-        oasis7::world_service::correlation::encode_consensus_intent(
+        oasis7_world_service::correlation::encode_consensus_intent(
             &oasis7::world_service::SubmitIntentRequest {
                 contract_version: 1,
                 correlation,

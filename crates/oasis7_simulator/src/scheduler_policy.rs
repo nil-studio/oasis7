@@ -5,6 +5,29 @@
 use crate::WorldTime;
 use serde::{Deserialize, Serialize};
 
+/// Select the first eligible Agent ID after the previous cursor, wrapping to
+/// the first eligible ID when necessary. The input order must be deterministic
+/// (the Host's BTreeMap is ordered). Readiness is computed lazily so the Host
+/// retains its original short-circuit behavior and owns all admission checks.
+///
+/// This pure selector has no World/AgentRunner/Host state or external authority.
+pub fn choose_next_ready_agent_id_v1<'a>(
+    ordered: impl IntoIterator<Item = (&'a str, bool)>,
+    cursor: Option<&str>,
+) -> Option<&'a str> {
+    let mut first_ready = None;
+    for (id, ready) in ordered {
+        if !ready {
+            continue;
+        }
+        first_ready.get_or_insert(id);
+        if cursor.is_some_and(|last| id > last) {
+            return Some(id);
+        }
+    }
+    first_ready
+}
+
 /// Quota limits for an agent.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentQuota {
@@ -182,5 +205,40 @@ mod tests {
         state.record_action(100, &policy);
         assert_eq!(state, RateLimitState::default());
         assert!(!state.is_limited(100, &policy));
+    }
+
+    #[test]
+    fn ready_agent_cursor_rotates_and_wraps_without_selecting_blocked_agents() {
+        let agents = [("a", true), ("b", false), ("c", true)];
+        for (cursor, expected) in [
+            (None, Some("a")),
+            (Some("a"), Some("c")),
+            (Some("b"), Some("c")),
+            (Some("c"), Some("a")),
+            (Some("z"), Some("a")),
+        ] {
+            assert_eq!(choose_next_ready_agent_id_v1(agents, cursor), expected);
+        }
+        assert_eq!(choose_next_ready_agent_id_v1([("a", false)], None), None);
+        assert_eq!(
+            choose_next_ready_agent_id_v1([] as [(&str, bool); 0], Some("a")),
+            None
+        );
+    }
+
+    #[test]
+    fn selection_does_not_evaluate_later_candidates_after_cursor_match() {
+        let mut visited = 0;
+        let selected = choose_next_ready_agent_id_v1(
+            [("a", true), ("b", true), ("c", true)]
+                .into_iter()
+                .map(|(id, ready)| {
+                    visited += 1;
+                    (id, ready)
+                }),
+            Some("a"),
+        );
+        assert_eq!(selected, Some("b"));
+        assert_eq!(visited, 2);
     }
 }

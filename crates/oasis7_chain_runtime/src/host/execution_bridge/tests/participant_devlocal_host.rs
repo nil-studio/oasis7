@@ -170,22 +170,38 @@ fn devlocal_host_signed_policy_candidate_rolls_back_then_commits_and_restores() 
         &driver.world_dir,
         &ReleaseSecurityPolicy::default(),
         control.authority.as_ref(),
-    ).expect("Host governance override must restore activated DevLocal policy with trusted context");
-    let node_config = || oasis7_node::NodeConfig::new("node-a", "w1", oasis7_node::NodeRole::Sequencer).unwrap();
+    )
+    .expect("Host governance override must restore activated DevLocal policy with trusted context");
+    let node_config =
+        || oasis7_node::NodeConfig::new("node-a", "w1", oasis7_node::NodeRole::Sequencer).unwrap();
     let read_governance = |policy: &ReleaseSecurityPolicy, authority| {
         crate::governance_registry::apply_world_governance_registry_overrides_with_context(
-            node_config(), &driver.world_dir, policy, authority,
+            node_config(),
+            &driver.world_dir,
+            policy,
+            authority,
         )
     };
     assert!(read_governance(&ReleaseSecurityPolicy::default(), None).is_err());
     let wrong_authority = oasis7_runtime::DevLocalParticipantAuthority::new(
         oasis7_proto::storage_profile::StorageProfile::DevLocal,
         &ReleaseSecurityPolicy::default(),
-        hex::encode(ed25519_dalek::SigningKey::from_bytes(&[73; 32]).verifying_key().to_bytes()),
-    ).unwrap();
+        hex::encode(
+            ed25519_dalek::SigningKey::from_bytes(&[73; 32])
+                .verifying_key()
+                .to_bytes(),
+        ),
+    )
+    .unwrap();
     assert!(read_governance(&ReleaseSecurityPolicy::default(), Some(&wrong_authority)).is_err());
     assert!(read_governance(&ReleaseSecurityPolicy::production_hardened(), None).is_err());
-    assert!(read_governance(&ReleaseSecurityPolicy::production_hardened(), control.authority.as_ref()).is_err());
+    assert!(
+        read_governance(
+            &ReleaseSecurityPolicy::production_hardened(),
+            control.authority.as_ref()
+        )
+        .is_err()
+    );
     // Normal persisted snapshot and pre-policy snapshot plus signed journal tail
     // must pass the same governance read, without reconstructing trust from either.
     for (label, snapshot) in [
@@ -195,27 +211,55 @@ fn devlocal_host_signed_policy_candidate_rolls_back_then_commits_and_restores() 
         let path = dir.join(format!("governance-{label}"));
         fs::create_dir(&path).unwrap();
         snapshot.save_json(path.join("snapshot.json")).unwrap();
-        driver.execution_world.journal().save_json(path.join("journal.json")).unwrap();
+        driver
+            .execution_world
+            .journal()
+            .save_json(path.join("journal.json"))
+            .unwrap();
         crate::governance_registry::apply_world_governance_registry_overrides_with_context(
-            node_config(), &path, &ReleaseSecurityPolicy::default(), control.authority.as_ref(),
-        ).unwrap_or_else(|error| panic!("governance restore {label}: {error}"));
-        assert!(crate::governance_registry::apply_world_governance_registry_overrides_with_context(
-            node_config(), &path, &ReleaseSecurityPolicy::default(), None,
-        ).is_err());
+            node_config(),
+            &path,
+            &ReleaseSecurityPolicy::default(),
+            control.authority.as_ref(),
+        )
+        .unwrap_or_else(|error| panic!("governance restore {label}: {error}"));
+        assert!(
+            crate::governance_registry::apply_world_governance_registry_overrides_with_context(
+                node_config(),
+                &path,
+                &ReleaseSecurityPolicy::default(),
+                None,
+            )
+            .is_err()
+        );
     }
     let formal_path = dir.join("governance-conflicting-formal-authority");
     fs::create_dir(&formal_path).unwrap();
     let mut formal_snapshot = driver.execution_world.snapshot();
     formal_snapshot.state.governance_finality_signer_registry = Some(Default::default());
-    formal_snapshot.save_json(formal_path.join("snapshot.json")).unwrap();
-    driver.execution_world.journal().save_json(formal_path.join("journal.json")).unwrap();
-    let formal_error = match crate::governance_registry::apply_world_governance_registry_overrides_with_context(
-        node_config(), &formal_path, &ReleaseSecurityPolicy::default(), control.authority.as_ref(),
-    ) {
-        Err(error) => error,
-        Ok(_) => panic!("mixed formal authority must remain rejected"),
-    };
-    assert!(formal_error.contains("DevLocal participant authority conflicts with effective world authority"), "{formal_error}");
+    formal_snapshot
+        .save_json(formal_path.join("snapshot.json"))
+        .unwrap();
+    driver
+        .execution_world
+        .journal()
+        .save_json(formal_path.join("journal.json"))
+        .unwrap();
+    let formal_error =
+        match crate::governance_registry::apply_world_governance_registry_overrides_with_context(
+            node_config(),
+            &formal_path,
+            &ReleaseSecurityPolicy::default(),
+            control.authority.as_ref(),
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("mixed formal authority must remain rejected"),
+        };
+    assert!(
+        formal_error
+            .contains("DevLocal participant authority conflicts with effective world authority"),
+        "{formal_error}"
+    );
     let registry = driver
         .execution_world
         .participant_registry_digest()
@@ -487,8 +531,8 @@ fn devlocal_host_rejects_unsigned_formal_admission_and_conflicted_recovery_witho
         operator_owner: "ops.team".into(),
         public_manifest_hash: "manifest:candidate.fixture".into(),
     };
-    let payload = oasis7::consensus_action_payload::encode_consensus_action_payload(
-        &oasis7::consensus_action_payload::ConsensusActionPayloadEnvelope::from_runtime_action(
+    let payload = oasis7_world_service::consensus_action_payload::encode_consensus_action_payload(
+        &oasis7_world_service::consensus_action_payload::ConsensusActionPayloadEnvelope::from_runtime_action(
             action,
         ),
     )

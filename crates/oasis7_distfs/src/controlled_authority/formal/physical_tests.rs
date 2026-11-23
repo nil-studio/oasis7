@@ -45,7 +45,7 @@ fn physical_lease_conflict_identifies_guard_and_preserves_exclusion() {
     );
     #[cfg(unix)]
     {
-        let metadata = writer.metadata().unwrap();
+        let metadata = writer.0.metadata().unwrap();
         assert!(
             message.contains(&format!("dev={} inode={}", metadata.dev(), metadata.ino())),
             "{message}"

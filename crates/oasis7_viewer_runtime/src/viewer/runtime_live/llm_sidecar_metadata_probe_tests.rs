@@ -31,7 +31,7 @@ impl EnvRestore {
         // SAFETY: Every test holds the canonical provider environment lock.
         for key in KEYS {
             unsafe {
-                oasis7::env_mut::remove_var(key);
+                oasis7_hosted_access::process_env::remove_var(key);
             }
         }
         Self(previous)
@@ -43,8 +43,8 @@ impl Drop for EnvRestore {
             // SAFETY: The lock outlives this restore guard.
             unsafe {
                 match value {
-                    Some(value) => oasis7::env_mut::set_var(key, value),
-                    None => oasis7::env_mut::remove_var(key),
+                    Some(value) => oasis7_hosted_access::process_env::set_var(key, value),
+                    None => oasis7_hosted_access::process_env::remove_var(key),
                 }
             }
         }
@@ -63,7 +63,7 @@ fn configure(endpoint: &str) {
             (VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity"),
             (VIEWER_AGENT_PROVIDER_URL_ENV, endpoint),
         ] {
-            oasis7::env_mut::set_var(key, value);
+            oasis7_hosted_access::process_env::set_var(key, value);
         }
     }
 }

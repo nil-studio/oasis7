@@ -2,11 +2,13 @@
 use super::*;
 #[cfg(not(test))]
 use crate::execution_bridge::{
-    FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3, OriginalCandidateArchivePinV1,
+    ArchivedOriginalSourceReaderV1, FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3,
+    OriginalCandidateArchivePinV1, OriginalSourceArchivePinV1,
 };
 #[cfg(test)]
 use crate::execution_bridge_real_tests::real_execution_bridge::{
-    FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3, OriginalCandidateArchivePinV1,
+    ArchivedOriginalSourceReaderV1, FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3,
+    OriginalCandidateArchivePinV1, OriginalSourceArchivePinV1,
 };
 use oasis7_consensus::tendermint_v1::BftTimeoutsV1;
 use oasis7_distfs::protected_bft_v3::{
@@ -93,6 +95,7 @@ pub(super) fn run<'a>(
 ) -> Result<(), String> {
     let mut config = None;
     let mut actions = None;
+    let mut package = None;
     let mut print_binding = false;
     let mut source_action = None;
     let mut source_config = None;
@@ -103,6 +106,8 @@ pub(super) fn run<'a>(
             "--prepare-private-source"
                 | "--activate-private-source"
                 | "--archive-first-private-source-input"
+                | "--archive-first-received-private-source-input"
+                | "--verify-first-private-source-archive"
                 | "--reserve-first-private-source-input"
         ) {
             if source_action.replace(option).is_some() {
@@ -127,6 +132,7 @@ pub(super) fn run<'a>(
         let slot = match option {
             "--config" => &mut config,
             "--actions" => &mut actions,
+            "--package" => &mut package,
             "--source-config" => &mut source_config,
             _ => return Err("unsupported header Node option".into()),
         };
@@ -149,19 +155,33 @@ pub(super) fn run<'a>(
         }
         let source_config =
             source_config.ok_or("private source operation requires --source-config")?;
-        let mode = match (action, actions.as_deref()) {
-            ("--prepare-private-source", None) => private_source::Mode::Prepare,
-            ("--activate-private-source", None) => private_source::Mode::Activate,
-            ("--reserve-first-private-source-input", None) => private_source::Mode::ReserveFirst,
-            ("--archive-first-private-source-input", Some(path)) => {
+        let mode = match (action, actions.as_deref(), package.as_deref()) {
+            ("--prepare-private-source", None, None) => private_source::Mode::Prepare,
+            ("--activate-private-source", None, None) => private_source::Mode::Activate,
+            ("--reserve-first-private-source-input", None, None) => {
+                private_source::Mode::ReserveFirst
+            }
+            ("--verify-first-private-source-archive", None, None) => {
+                private_source::Mode::VerifyArchive
+            }
+            ("--archive-first-private-source-input", Some(path), None) => {
                 private_source::Mode::ArchiveFirst(path)
             }
-            _ => return Err("only first private input archiving requires --actions".into()),
+            ("--archive-first-received-private-source-input", None, Some(path)) => {
+                private_source::Mode::ArchiveReceived(path)
+            }
+            _ => return Err(
+                "original Local archive requires --actions; Received archive requires --package"
+                    .into(),
+            ),
         };
         return private_source::run(&config, &source_config, mode);
     }
     if source_config.is_some() {
         return Err("--source-config requires a private source operation".into());
+    }
+    if package.is_some() {
+        return Err("--package requires original Received archiving".into());
     }
     if print_binding {
         if serve {

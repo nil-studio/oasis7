@@ -6,8 +6,6 @@ use super::super::driver::{
 };
 use super::super::external_effect::load_execution_external_effect_materialization;
 use super::*;
-use oasis7::consensus_action_payload::ConsensusActionPayloadEnvelope;
-use oasis7::consensus_action_payload::encode_consensus_action_payload;
 use oasis7_node::{NodeExecutionCommitContext, NodeExecutionHook, compute_consensus_action_root};
 use oasis7_proto::storage_profile::StorageProfileConfig;
 use oasis7_runtime::{
@@ -19,6 +17,8 @@ use oasis7_runtime::{
 use oasis7_simulator::{Action as SimulatorAction, ActionSubmitter};
 use oasis7_wasm_abi::ModuleCallFailure;
 use oasis7_wasm_executor::FixedSandbox;
+use oasis7_world_service::consensus_action_payload::ConsensusActionPayloadEnvelope;
+use oasis7_world_service::consensus_action_payload::encode_consensus_action_payload;
 
 #[test]
 fn chain_runtime_persistence_recovery_roundtrip() {

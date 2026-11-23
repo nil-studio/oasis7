@@ -180,7 +180,7 @@
 <a id="economic-contract-genesis-allocation"></a>
 ### 冻结分配可核算到各bucket与recipient的既有专业接受关系
 
-Trace refs: O7-REQ-585609e7-ee93-4315-b9c7-fe58857164b4；唯一声明：[世界规则根结果](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-genesis-allocation)。
+Trace refs: O7-REQ-585609e7-ee93-4315-b9c7-fe58857164b4；唯一声明：[世界规则根结果](../../product/world-rules-core-gameplay/node-economy-contract-reception.prd.md#req-wr-economic-genesis-allocation)。
 
 - 原义务：SC-1/8、AC-1/8/9/12/13、DEC-TOKEN-INIT-009；按既有冻结总量和七桶参数核算分配及recipient vested_balance；采用原runtime rounding，创世custody account不等于treasury bucket。
 - 原验证入口：[本文件验证与决策记录](#6-validation--decision-record)；具体业务场景仍按本文件第4章与原AC，不以§6文档迁移检查代签业务测试。
@@ -189,7 +189,7 @@ Trace refs: O7-REQ-585609e7-ee93-4315-b9c7-fe58857164b4；唯一声明：[世界
 <a id="economic-contract-genesis-control"></a>
 ### 控制主体与个人受益及释放边界分别可审计的既有专业接受关系
 
-Trace refs: O7-REQ-2ee6964f-7c70-453c-958d-616b07c5d9d9；唯一声明：[世界规则根结果](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-genesis-control)。
+Trace refs: O7-REQ-2ee6964f-7c70-453c-958d-616b07c5d9d9；唯一声明：[世界规则根结果](../../product/world-rules-core-gameplay/node-economy-contract-reception.prd.md#req-wr-economic-genesis-control)。
 
 - 原义务：SC-2..4、AC-2..5、DEC-TOKEN-INIT-002/004；项目战略控制、协议储备、个人直接受益与外部流通分别核算；原vesting、claim、genesis_liquid与首年释放门槛继续独立约束。
 - 原验证入口：[本文件验证与决策记录](#6-validation--decision-record)；具体业务场景仍按本文件第4章与原AC，不以§6文档迁移检查代签业务测试。
@@ -198,7 +198,7 @@ Trace refs: O7-REQ-2ee6964f-7c70-453c-958d-616b07c5d9d9；唯一声明：[世界
 <a id="economic-contract-genesis-freeze"></a>
 ### 逻辑冻结不等于真实mint-ready的既有专业接受关系
 
-Trace refs: O7-REQ-6ca62d73-1934-4a80-bb18-1c21e35e2a15；唯一声明：[世界规则根结果](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-genesis-freeze)。
+Trace refs: O7-REQ-6ca62d73-1934-4a80-bb18-1c21e35e2a15；唯一声明：[世界规则根结果](../../product/world-rules-core-gameplay/node-economy-contract-reception.prd.md#req-wr-economic-genesis-freeze)。
 
 - 原义务：SC-6、AC-11、DEC-TOKEN-INIT-006、正式执行清单；slot逻辑冻结与public signer规则不代替真实recipient/controller绑定、个人受益表和最终QA pass；pending或conditional状态不授予mint许可。
 - 原验证入口：[本文件验证与决策记录](#6-validation--decision-record)；具体业务场景仍按本文件第4章与原AC，不以§6文档迁移检查代签业务测试。
@@ -207,7 +207,7 @@ Trace refs: O7-REQ-6ca62d73-1934-4a80-bb18-1c21e35e2a15；唯一声明：[世界
 <a id="economic-contract-genesis-reward"></a>
 ### 独立reserve只消费最终复核的批准记录的既有专业接受关系
 
-Trace refs: O7-REQ-e84d3e5c-af7c-4293-8d02-3b466af6dbfa；唯一声明：[世界规则根结果](../../product/world-rules-core-gameplay/prd.md#req-wr-economic-genesis-reward)。
+Trace refs: O7-REQ-e84d3e5c-af7c-4293-8d02-3b466af6dbfa；唯一声明：[世界规则根结果](../../product/world-rules-core-gameplay/node-economy-contract-reception.prd.md#req-wr-economic-genesis-reward)。
 
 - 原义务：AC-6/10、DEC-TOKEN-INIT-003/005、Execution Path Decision；独立reward reserve只按canonical README ledger中approved且完成distribution前actual-value review的最终金额执行；资格/评分仍归pack/ledger，不并ecosystem_pool，不按登录或游玩自动发放。
 - 原验证入口：[本文件验证与决策记录](#6-validation--decision-record)；具体业务场景仍按本文件第4章与原AC，不以§6文档迁移检查代签业务测试。

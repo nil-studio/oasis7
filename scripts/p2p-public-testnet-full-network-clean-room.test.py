@@ -3,9 +3,13 @@
 
 from __future__ import annotations
 
+import atexit
+import contextlib
+import importlib.machinery
 import importlib.util
 import copy
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -13,6 +17,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import types
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -30,37 +35,38 @@ FIXTURE_PEERS = {
     "windows-observer": "12D3KooWtriadtestnetwindowsobserver",
     "macos-observer": "12D3KooWtriadtestnetfourthlocal",
 }
+_COMPILED_MODULE_CODE: dict[str, types.CodeType] = {}
+
+
+def _load_compiled_module(name: str, path: Path) -> types.ModuleType:
+    key = str(path.resolve())
+    code = _COMPILED_MODULE_CODE.get(key)
+    if code is None:
+        if not path.is_file():
+            raise AssertionError(f"cannot load module: {path}")
+        code = compile(path.read_bytes(), str(path), "exec")
+        _COMPILED_MODULE_CODE[key] = code
+    spec = importlib.machinery.ModuleSpec(name, None, origin=str(path))
+    module = importlib.util.module_from_spec(spec)
+    module.__file__ = str(path)
+    exec(code, module.__dict__)
+    return module
 
 
 def load_module():
-    spec = importlib.util.spec_from_file_location("full_network_clean_room", MODULE_PATH)
-    if spec is None or spec.loader is None:
-        raise AssertionError(f"cannot load clean-room module: {MODULE_PATH}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    module = _load_compiled_module("full_network_clean_room", MODULE_PATH)
     # Fixture-generator compatibility only; production never reads this field.
     module.CANONICAL_PEER_REGISTRY = dict(FIXTURE_PEERS)
     return module
 
 
 def load_sidecar_module():
-    spec = importlib.util.spec_from_file_location("identity_receipt_v2_sidecar", SIDECAR_PATH)
-    if spec is None or spec.loader is None:
-        raise AssertionError(f"cannot load identity receipt v2 sidecar: {SIDECAR_PATH}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return _load_compiled_module("identity_receipt_v2_sidecar", SIDECAR_PATH)
 
 
 def load_signing_test_module():
-    spec = importlib.util.spec_from_file_location(
-        "identity_v2_signing_tool_fixture", SIGNING_TEST_PATH
-    )
-    if spec is None or spec.loader is None:
-        raise AssertionError(f"cannot load signing fixture: {SIGNING_TEST_PATH}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return _load_compiled_module("identity_v2_signing_tool_fixture", SIGNING_TEST_PATH)
+
 
 
 def _fixture_digest(path: Path) -> str:
@@ -125,9 +131,16 @@ class FullNetworkCleanRoomPlanTests(unittest.TestCase):
                     self.assertEqual((rejected, publish.call_count, output.exists()), (True, 0, False),
                                      "unchanged receipts must reject mutated checkpoint/nested payload before publication")
 
+    _baseline_evidence_cache: dict[str, object] | None = None
+    _baseline_distinct_evidence_cache: dict[str, object] | None = None
+    _baseline_artifacts_map: dict[str, dict[str, Path]] | None = None
+    _cached_baseline_verified: dict[str, dict[str, object]] | None = None
+    _baseline_evidence_file_digests: tuple[tuple[Path, str], ...] = ()
+    _atexit_registered = False
+
     @classmethod
     def setUpClass(cls) -> None:
-        """Create one independent, real-crypto v2 map before request mutations."""
+        """Create one independent, real-crypto v2 authority before request mutations."""
         if cls._baseline_fixture_ready:
             return
         cls._baseline_module = load_module()
@@ -137,6 +150,7 @@ class FullNetworkCleanRoomPlanTests(unittest.TestCase):
         )
         cls._baseline_signing.setUp()
         cls._semantic_signature_cache = {}
+        cls._semantic_root_info = None
         cls._configure_semantic_authority(cls._baseline_module)
         cls._baseline_signing.peer_registry = cls._baseline_signing.root / "managed-peers.json"
         peer_authority = cls._baseline_module._peer_registry_authority()
@@ -149,6 +163,7 @@ class FullNetworkCleanRoomPlanTests(unittest.TestCase):
         })
         peer_authority.REGISTRY_PATH.chmod(0o600)
         peer_authority.REGISTRY_SHA256 = _fixture_digest(peer_authority.REGISTRY_PATH)
+        cls._baseline_peer_pins = (peer_authority.REGISTRY_PATH, peer_authority.REGISTRY_SHA256)
         cls._baseline_impact_directory = tempfile.TemporaryDirectory(
             prefix="oasis7-planner-baseline-"
         )
@@ -158,27 +173,171 @@ class FullNetworkCleanRoomPlanTests(unittest.TestCase):
         builder._impact_path = Path(cls._baseline_impact_directory.name) / "consumer-impact.json"
         builder._baseline_request = builder._input()
         builder._align_signing_context()
-        builder._baseline_artifacts = builder._make_baseline_signed_artifacts(label="baseline")
-        cls._baseline_evidence = builder._write_baseline_evidence_map(
-            builder._baseline_artifacts, label="baseline"
+        cls._baseline_anchor_pins = (
+            cls._baseline_signing.verifier,
+            _fixture_digest(cls._baseline_signing.verifier),
+            cls._baseline_signing.trust,
+            _fixture_digest(cls._baseline_signing.trust),
+            cls._baseline_signing.registry,
+            _fixture_digest(cls._baseline_signing.registry),
         )
-        distinct_artifacts = builder._make_baseline_signed_artifacts(
-            expected_uid=1001, expected_gid=1002, label="distinct-uid-gid"
+        cls._baseline_anchor_stats = tuple(
+            (p.stat().st_mode, p.stat().st_uid, p.stat().st_ino)
+            for p in (cls._baseline_signing.verifier, cls._baseline_signing.trust, cls._baseline_signing.registry)
         )
-        cls._baseline_distinct_evidence = builder._write_baseline_evidence_map(
-            distinct_artifacts, label="distinct-uid-gid"
-        )
+        cls._baseline_evidence_cache = None
+        cls._baseline_distinct_evidence_cache = None
+        cls._baseline_artifacts_map = None
+        cls._cached_baseline_verified = None
+        cls._baseline_evidence_file_digests = ()
         cls._baseline_request = builder._baseline_request
         cls._baseline_builder = builder
         cls._baseline_fixture_ready = True
+        if not cls._atexit_registered:
+            atexit.register(cls.tearDownClass)
+            cls._atexit_registered = True
+
+    @classmethod
+    def _collect_evidence_file_digests(cls, evidence: dict[str, object]) -> tuple[tuple[Path, str], ...]:
+        items: list[tuple[Path, str]] = []
+        for top_key in ("context", "plan_intent"):
+            desc = evidence[top_key]
+            items.append((Path(desc["path"]), str(desc["sha256"])))
+        for entry in evidence["entries"]:
+            for field in (
+                "raw_v1", "prepare_manifest", "payload", "provider_attestation",
+                "unsigned_envelope", "signed_envelope", "verification",
+            ):
+                desc = entry[field]
+                items.append((Path(desc["path"]), str(desc["sha256"])))
+        return tuple(items)
+
+    @classmethod
+    def _ensure_baseline_evidence(cls) -> None:
+        cls.setUpClass()
+        if cls._baseline_evidence_cache is not None:
+            return
+        builder = cls._baseline_builder
+        artifacts = builder._make_baseline_signed_artifacts(label="baseline")
+        cls._baseline_artifacts_map = artifacts
+        cls._baseline_evidence_cache = builder._write_baseline_evidence_map(
+            artifacts, label="baseline"
+        )
+        cls._baseline_evidence_file_digests = cls._collect_evidence_file_digests(
+            cls._baseline_evidence_cache
+        )
+
+    @classmethod
+    def _get_baseline_evidence(cls) -> dict[str, object]:
+        cls._ensure_baseline_evidence()
+        assert cls._baseline_evidence_cache is not None
+        return cls._baseline_evidence_cache
+
+    @classmethod
+    def _get_baseline_distinct_evidence(cls) -> dict[str, object]:
+        cls.setUpClass()
+        if cls._baseline_distinct_evidence_cache is None:
+            builder = cls._baseline_builder
+            distinct_artifacts = builder._make_baseline_signed_artifacts(
+                expected_uid=1001, expected_gid=1002, label="distinct-uid-gid"
+            )
+            cls._baseline_distinct_evidence_cache = builder._write_baseline_evidence_map(
+                distinct_artifacts, label="distinct-uid-gid"
+            )
+        return cls._baseline_distinct_evidence_cache
+
+    @property
+    def _baseline_artifacts(self) -> dict[str, dict[str, Path]]:
+        if hasattr(self, "_instance_baseline_artifacts"):
+            return self._instance_baseline_artifacts
+        type(self)._ensure_baseline_evidence()
+        assert type(self)._baseline_artifacts_map is not None
+        return type(self)._baseline_artifacts_map
+
+    @_baseline_artifacts.setter
+    def _baseline_artifacts(self, value: dict[str, dict[str, Path]]) -> None:
+        self._instance_baseline_artifacts = value
+
+    @property
+    def _baseline_identity_v2_evidence(self) -> dict[str, object]:
+        if not hasattr(self, "_instance_baseline_identity_v2_evidence"):
+            self._instance_baseline_identity_v2_evidence = copy.deepcopy(
+                type(self)._get_baseline_evidence()
+            )
+        return self._instance_baseline_identity_v2_evidence
+
+    @_baseline_identity_v2_evidence.setter
+    def _baseline_identity_v2_evidence(self, value: dict[str, object]) -> None:
+        self._instance_baseline_identity_v2_evidence = value
 
     @classmethod
     def tearDownClass(cls) -> None:
         if not cls._baseline_fixture_ready:
             return
+        cls._in_process_signing_modules.pop(id(cls._baseline_signing), None)
         cls._baseline_signing.tearDown()
         cls._baseline_impact_directory.cleanup()
+        cls._baseline_evidence_cache = None
+        cls._baseline_distinct_evidence_cache = None
+        cls._baseline_artifacts_map = None
+        cls._cached_baseline_verified = None
+        cls._baseline_evidence_file_digests = ()
+        cls._semantic_root_info = None
         cls._baseline_fixture_ready = False
+
+    def _can_reuse_cached_baseline_verification(
+        self, evidence: object, context_path: Path, intent_path: Path
+    ) -> bool:
+        baseline = type(self)
+        if baseline._cached_baseline_verified is None or baseline._baseline_evidence_cache is None:
+            return False
+        if self.module.subprocess.run is not subprocess.run:
+            return False
+        if not baseline._baseline_signing.verifier_invocation_marker.exists():
+            return False
+        current_pins = (
+            self.module.IDENTITY_V2_VERIFY_TOOL_PATH,
+            self.module.IDENTITY_V2_VERIFY_TOOL_SHA256,
+            self.module.IDENTITY_V2_TRUST_CONFIG_PATH,
+            self.module.IDENTITY_V2_TRUST_CONFIG_SHA256,
+            self.module.IDENTITY_V2_PROVIDER_REGISTRY_PATH,
+            self.module.IDENTITY_V2_PROVIDER_REGISTRY_SHA256,
+        )
+        if current_pins != baseline._baseline_anchor_pins:
+            return False
+        try:
+            anchor_files = (
+                baseline._baseline_signing.verifier,
+                baseline._baseline_signing.trust,
+                baseline._baseline_signing.registry,
+            )
+            for idx, anchor_path in enumerate(anchor_files):
+                st = anchor_path.lstat()
+                if (st.st_mode, st.st_uid, st.st_ino) != baseline._baseline_anchor_stats[idx]:
+                    return False
+                if _fixture_digest(anchor_path) != baseline._baseline_anchor_pins[idx * 2 + 1]:
+                    return False
+            peer_auth = self.module._peer_registry_authority()
+            if (peer_auth.REGISTRY_PATH, peer_auth.REGISTRY_SHA256) != baseline._baseline_peer_pins:
+                return False
+            if _fixture_digest(peer_auth.REGISTRY_PATH) != baseline._baseline_peer_pins[1]:
+                return False
+            if evidence != baseline._baseline_evidence_cache:
+                return False
+            if (
+                Path(context_path).resolve() != Path(baseline._baseline_evidence_cache["context"]["path"]).resolve()
+                or Path(intent_path).resolve() != Path(baseline._baseline_evidence_cache["plan_intent"]["path"]).resolve()
+            ):
+                return False
+            for file_path, expected_sha in baseline._baseline_evidence_file_digests:
+                st = file_path.lstat()
+                if not stat.S_ISREG(st.st_mode) or (st.st_mode & 0o777) != 0o600 or st.st_uid != os.getuid():
+                    return False
+                if _fixture_digest(file_path) != expected_sha:
+                    return False
+        except OSError:
+            return False
+        return True
 
     def setUp(self) -> None:
         type(self).setUpClass()
@@ -188,29 +347,40 @@ class FullNetworkCleanRoomPlanTests(unittest.TestCase):
         self._impact_path = Path(self._impact_directory.name) / "consumer-impact.json"
         baseline = type(self)
         self.module._PEER_REGISTRY_MODULE = baseline._baseline_module._peer_registry_authority()
-        self._baseline_identity_v2_evidence = copy.deepcopy(baseline._baseline_evidence)
         self._build_plan_without_evidence = self.module.build_plan
-        self.module.IDENTITY_V2_VERIFY_TOOL_PATH = baseline._baseline_signing.verifier
-        self.module.IDENTITY_V2_VERIFY_TOOL_SHA256 = hashlib.sha256(
-            baseline._baseline_signing.verifier.read_bytes()
-        ).hexdigest()
-        self.module.IDENTITY_V2_TRUST_CONFIG_PATH = baseline._baseline_signing.trust
-        self.module.IDENTITY_V2_TRUST_CONFIG_SHA256 = hashlib.sha256(
-            baseline._baseline_signing.trust.read_bytes()
-        ).hexdigest()
-        self.module.IDENTITY_V2_PROVIDER_REGISTRY_PATH = baseline._baseline_signing.registry
-        self.module.IDENTITY_V2_PROVIDER_REGISTRY_SHA256 = hashlib.sha256(
-            baseline._baseline_signing.registry.read_bytes()
-        ).hexdigest()
+        (
+            self.module.IDENTITY_V2_VERIFY_TOOL_PATH,
+            self.module.IDENTITY_V2_VERIFY_TOOL_SHA256,
+            self.module.IDENTITY_V2_TRUST_CONFIG_PATH,
+            self.module.IDENTITY_V2_TRUST_CONFIG_SHA256,
+            self.module.IDENTITY_V2_PROVIDER_REGISTRY_PATH,
+            self.module.IDENTITY_V2_PROVIDER_REGISTRY_SHA256,
+        ) = baseline._baseline_anchor_pins
+
+        original_verify = self.module._independently_verify_identity_v2_entries
+
+        def cached_verify(evidence, context_path, intent_path):
+            if self._can_reuse_cached_baseline_verification(evidence, context_path, intent_path):
+                return copy.deepcopy(baseline._cached_baseline_verified)
+            verified = original_verify(evidence, context_path, intent_path)
+            if (
+                baseline._cached_baseline_verified is None
+                and baseline._baseline_evidence_cache is not None
+                and evidence == baseline._baseline_evidence_cache
+                and self.module.subprocess.run is subprocess.run
+            ):
+                baseline._cached_baseline_verified = copy.deepcopy(verified)
+            return verified
+
+        self.module._independently_verify_identity_v2_entries = cached_verify
 
         original_build_plan = self.module.build_plan
 
         def build_plan_with_baseline_evidence(
             request: dict[str, object], **kwargs: object
         ) -> dict[str, object]:
-            kwargs.setdefault(
-                "identity_v2_evidence", copy.deepcopy(self._baseline_identity_v2_evidence)
-            )
+            if "identity_v2_evidence" not in kwargs:
+                kwargs["identity_v2_evidence"] = copy.deepcopy(self._baseline_identity_v2_evidence)
             return original_build_plan(request, **kwargs)
 
         # Keep the legacy test bodies focused on their request mutation while
@@ -372,36 +542,104 @@ class FullNetworkCleanRoomPlanTests(unittest.TestCase):
             },
         )
 
+    _in_process_signing_modules: dict[int, tuple[types.ModuleType, types.ModuleType]] = {}
+
+    def _run_signing_tool_in_process(
+        self, *args: str, authority_pins: tuple[str, str] | None = None
+    ) -> subprocess.CompletedProcess[bytes]:
+        signing = self.signing
+        cached_pair = type(self)._in_process_signing_modules.get(id(signing))
+        tool_path = ROOT / "scripts" / "p2p-public-testnet-identity-v2-signing-tool.py"
+        adapter_path = ROOT / "scripts" / "p2p-public-testnet-full-network-clean-room-adapter.py"
+        if cached_pair is None:
+            adapter_mod = _load_compiled_module("oasis7_identity_v2_adapter", adapter_path)
+            previous_adapter = sys.modules.get("oasis7_identity_v2_adapter")
+            sys.modules["oasis7_identity_v2_adapter"] = adapter_mod
+            try:
+                tool_mod = _load_compiled_module("oasis7_identity_v2_signing_tool", tool_path)
+            finally:
+                if previous_adapter is None:
+                    sys.modules.pop("oasis7_identity_v2_adapter", None)
+                else:
+                    sys.modules["oasis7_identity_v2_adapter"] = previous_adapter
+            type(self)._in_process_signing_modules[id(signing)] = (adapter_mod, tool_mod)
+        else:
+            adapter_mod, tool_mod = cached_pair
+        trusted_config_sha256, trusted_registry_sha256 = authority_pins or (
+            _fixture_digest(signing.trust),
+            _fixture_digest(signing.registry),
+        )
+        adapter_mod.CANONICAL_TRUST_ROOT_PATH = str(signing.governance_root)
+        adapter_mod.CANONICAL_TRUST_ROOT_FILE_SHA256 = (
+            "f278bc8f060cd6777d68f086fc3131edc5d6b5a6080bde09208ba69a69e3ef66"
+        )
+        adapter_mod.CANONICAL_TRUST_ROOT_OWNER_UID = os.getuid()
+        adapter_mod.CANONICAL_TRUST_ROOT_MODE = "0600"
+        tool_mod.DEPLOYED_TRUST_CONFIG = signing.trust
+        tool_mod.DEPLOYED_PROVIDER_REGISTRY = signing.registry
+        tool_mod.PINNED_TRUST_CONFIG_SHA256 = trusted_config_sha256
+        tool_mod.PINNED_PROVIDER_REGISTRY_SHA256 = trusted_registry_sha256
+        tool_mod.DEPLOYED_GOVERNANCE_ROOT = signing.governance_root
+        if hasattr(signing, "peer_registry"):
+            peer_auth = tool_mod._peer_registry_authority()
+            peer_auth.REGISTRY_PATH = Path(str(signing.peer_registry))
+            peer_auth.REGISTRY_SHA256 = _fixture_digest(signing.peer_registry)
+        previous_adapter = sys.modules.get("oasis7_identity_v2_adapter")
+        sys.modules["oasis7_identity_v2_adapter"] = adapter_mod
+        out_buf, err_buf = io.StringIO(), io.StringIO()
+        try:
+            with contextlib.redirect_stdout(out_buf), contextlib.redirect_stderr(err_buf):
+                try:
+                    rc = tool_mod.main(list(args))
+                except SystemExit as exc:
+                    rc = exc.code if isinstance(exc.code, int) else (0 if exc.code is None else 1)
+        finally:
+            if previous_adapter is None:
+                sys.modules.pop("oasis7_identity_v2_adapter", None)
+            else:
+                sys.modules["oasis7_identity_v2_adapter"] = previous_adapter
+        return subprocess.CompletedProcess(
+            [sys.executable, str(tool_path), *args],
+            rc,
+            out_buf.getvalue().encode("utf-8"),
+            err_buf.getvalue().encode("utf-8"),
+        )
+
     def _make_baseline_signed_artifacts(
         self, *, expected_uid: int = 0, expected_gid: int = 0, label: str
     ) -> dict[str, dict[str, Path]]:
         artifacts: dict[str, dict[str, Path]] = {}
-        for node in self._baseline_request["nodes"]:
-            name = str(node["name"])
-            self._write_baseline_node_raw_and_template(
-                node, expected_uid=expected_uid, expected_gid=expected_gid
-            )
-            stem = "planner-baseline-" + name
-            payload, manifest, _, attestation, unsigned = self.signing._prepare_sign_assemble(stem)
-            verified, verification = self.signing._verify(unsigned)
-            node_dir = self.signing.root / "planner-baseline-artifacts"
-            node_dir.mkdir(mode=0o700, exist_ok=True)
-            copied: dict[str, Path] = {}
-            source_paths = {
-                "raw_v1": self.signing.raw,
-                "prepare_manifest": manifest,
-                "payload": payload,
-                "provider_attestation": attestation,
-                "unsigned_envelope": unsigned,
-                "signed_envelope": verified,
-                "verification": verification,
-            }
-            for field, source in source_paths.items():
-                destination = node_dir / f"{label}-{name}.{field}"
-                shutil.copyfile(source, destination)
-                destination.chmod(0o600)
-                copied[field] = destination
-            artifacts[name] = copied
+        original_run = self.signing._run
+        self.signing._run = self._run_signing_tool_in_process
+        try:
+            for node in self._baseline_request["nodes"]:
+                name = str(node["name"])
+                self._write_baseline_node_raw_and_template(
+                    node, expected_uid=expected_uid, expected_gid=expected_gid
+                )
+                stem = "planner-baseline-" + name
+                payload, manifest, _, attestation, unsigned = self.signing._prepare_sign_assemble(stem)
+                verified, verification = self.signing._verify(unsigned)
+                node_dir = self.signing.root / "planner-baseline-artifacts"
+                node_dir.mkdir(mode=0o700, exist_ok=True)
+                copied: dict[str, Path] = {}
+                source_paths = {
+                    "raw_v1": self.signing.raw,
+                    "prepare_manifest": manifest,
+                    "payload": payload,
+                    "provider_attestation": attestation,
+                    "unsigned_envelope": unsigned,
+                    "signed_envelope": verified,
+                    "verification": verification,
+                }
+                for field, source in source_paths.items():
+                    destination = node_dir / f"{label}-{name}.{field}"
+                    shutil.copyfile(source, destination)
+                    destination.chmod(0o600)
+                    copied[field] = destination
+                artifacts[name] = copied
+        finally:
+            self.signing._run = original_run
         return artifacts
 
     def _write_baseline_evidence_map(
@@ -664,22 +902,25 @@ class FullNetworkCleanRoomPlanTests(unittest.TestCase):
         """Relocate only the live authority fixture; use the real strict verifier."""
         signing = cls._baseline_signing
         authority = module._semantic_signing_authority()._load_adapter_module()
-        key = signing.public_key.read_bytes()
-        body = {"schema_version": "oasis7.validator_pair_provenance_trust_root.v1",
-                "root_id": authority.CANONICAL_TRUST_ROOT_ID,
-                "network_id": module.CANONICAL_NETWORK_ID,
-                "allowlist": [{"signer_id": "governance-signer", "algorithm": "ed25519",
-                               "public_key_hex": key.hex(),
-                               "public_key_sha256": hashlib.sha256(key).hexdigest()}]}
-        body["root_digest"] = hashlib.sha256(json.dumps(
-            body, ensure_ascii=True, sort_keys=True, separators=(",", ":")
-        ).encode()).hexdigest()
-        path = signing.root / "semantic-governance-root.json"
-        _write_fixture_json(path, body)
-        path.chmod(0o600)
-        authority.CANONICAL_TRUST_ROOT_PATH = str(path)
-        authority.CANONICAL_TRUST_ROOT_FILE_SHA256 = _fixture_digest(path)
-        authority.CANONICAL_TRUST_ROOT_DIGEST = body["root_digest"]
+        if cls._semantic_root_info is None:
+            key = signing.public_key.read_bytes()
+            body = {"schema_version": "oasis7.validator_pair_provenance_trust_root.v1",
+                    "root_id": authority.CANONICAL_TRUST_ROOT_ID,
+                    "network_id": module.CANONICAL_NETWORK_ID,
+                    "allowlist": [{"signer_id": "governance-signer", "algorithm": "ed25519",
+                                   "public_key_hex": key.hex(),
+                                   "public_key_sha256": hashlib.sha256(key).hexdigest()}]}
+            body["root_digest"] = hashlib.sha256(json.dumps(
+                body, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+            ).encode()).hexdigest()
+            path = signing.root / "semantic-governance-root.json"
+            _write_fixture_json(path, body)
+            path.chmod(0o600)
+            cls._semantic_root_info = (str(path), _fixture_digest(path), body["root_digest"])
+        root_path, root_file_sha, root_digest = cls._semantic_root_info
+        authority.CANONICAL_TRUST_ROOT_PATH = root_path
+        authority.CANONICAL_TRUST_ROOT_FILE_SHA256 = root_file_sha
+        authority.CANONICAL_TRUST_ROOT_DIGEST = root_digest
         authority.CANONICAL_TRUST_ROOT_OWNER_UID = os.getuid()
 
     def _sign_semantic_fixture(self, request):
@@ -1389,7 +1630,7 @@ class FullNetworkCleanRoomPlanTests(unittest.TestCase):
             )
 
         plan = self._build_plan_with_evidence(
-            request, type(self)._baseline_distinct_evidence
+            request, type(self)._get_baseline_distinct_evidence()
         )
         for node in plan["nodes"]:
             inventory_node = plan["deployment_inventory"]["nodes"][node["name"]]

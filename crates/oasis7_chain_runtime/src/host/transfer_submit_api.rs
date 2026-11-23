@@ -4,14 +4,14 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use oasis7::consensus_action_payload::{
+use oasis7_node::NodeRuntime;
+use oasis7_runtime::Action;
+use oasis7_world_service::consensus_action_payload::{
     ConsensusActionAuthEnvelope, ConsensusActionPayloadBody, ConsensusActionPayloadEnvelope,
     MainTokenActionAuthError, MainTokenActionAuthProof, MainTokenActionAuthScheme,
     decode_consensus_action_payload, encode_consensus_action_payload,
     verify_main_token_runtime_action_auth,
 };
-use oasis7_node::NodeRuntime;
-use oasis7_runtime::Action;
 use serde::{Deserialize, Serialize};
 
 #[path = "transfer_submit_explorer_p1_api.rs"]

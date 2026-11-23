@@ -436,8 +436,8 @@ fn formal_actual_wasm_execution_replays_the_identical_closed_candidate() {
     let action = oasis7_node::NodeConsensusAction::from_payload(
         1,
         "node-a",
-        oasis7::consensus_action_payload::encode_consensus_action_payload(
-            &oasis7::consensus_action_payload::ConsensusActionPayloadEnvelope::from_runtime_action(
+        oasis7_world_service::consensus_action_payload::encode_consensus_action_payload(
+            &oasis7_world_service::consensus_action_payload::ConsensusActionPayloadEnvelope::from_runtime_action(
                 oasis7_runtime::Action::RegisterAgent {
                     agent_id: "formal-wasm-agent".into(),
                     pos: oasis7_agent_api::world_action::GeoPos::new(0, 0, 0),

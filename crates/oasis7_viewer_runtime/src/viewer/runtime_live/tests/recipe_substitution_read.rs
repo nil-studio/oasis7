@@ -14,8 +14,8 @@ impl Drop for ProviderScope {
             // SAFETY: the shared environment guard remains held through drop.
             unsafe {
                 match previous {
-                    Some(value) => oasis7::env_mut::set_var(name, value),
-                    None => oasis7::env_mut::remove_var(name),
+                    Some(value) => oasis7_hosted_access::process_env::set_var(name, value),
+                    None => oasis7_hosted_access::process_env::remove_var(name),
                 }
             }
         }
@@ -45,13 +45,31 @@ fn owner_fixture() -> (ViewerRuntimeLiveServer, String, ProviderScope) {
     .collect();
     // SAFETY: this scope holds the shared provider environment lock until drop.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_MODE_ENV, "provider_loopback_http");
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, mock.base_url());
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
-        oasis7::env_mut::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
-        oasis7::env_mut::set_var(crate::simulator::ENV_LLM_BASE_URL, mock.base_url());
-        oasis7::env_mut::set_var(crate::simulator::ENV_LLM_MODEL, "read-only-local-fixture");
-        oasis7::env_mut::set_var(crate::simulator::ENV_LLM_API_KEY, "local-fixture-key");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_MODE_ENV,
+            "provider_loopback_http",
+        );
+        oasis7_hosted_access::process_env::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, mock.base_url());
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_PROFILE_ENV,
+            "oasis7_p0_low_freq_npc",
+        );
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_EXECUTION_LANE_ENV,
+            "player_parity",
+        );
+        oasis7_hosted_access::process_env::set_var(
+            crate::simulator::ENV_LLM_BASE_URL,
+            mock.base_url(),
+        );
+        oasis7_hosted_access::process_env::set_var(
+            crate::simulator::ENV_LLM_MODEL,
+            "read-only-local-fixture",
+        );
+        oasis7_hosted_access::process_env::set_var(
+            crate::simulator::ENV_LLM_API_KEY,
+            "local-fixture-key",
+        );
     }
     let provider = ProviderScope {
         previous_llm,

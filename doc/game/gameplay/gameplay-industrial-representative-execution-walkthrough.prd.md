@@ -1,6 +1,6 @@
 # 代表性工业配方执行 Walkthrough 合同
 
-- 上层产品映射：承接 [`world-rules-core-gameplay` 的代表性配方执行档案](../../product/world-rules-core-gameplay/prd.md#root-sc28-profile) 与 SC-28；本合同把跨域档案转成玩家可执行、可复盘的单一路径。
+- 上层产品映射：承接 [`world-rules-core-gameplay` 的代表性配方执行档案](../../product/world-rules-core-gameplay/root-sc-status-and-ownership.prd.md#root-sc28-profile) 与 SC-28；本合同把跨域档案转成玩家可执行、可复盘的单一路径。
 - Authority 分工：产品层拥有档案形状与完成承诺，M4 拥有材料账本、批次、物流边、容量、损耗、buffer 与 terminal 事实，`world-runtime` 拥有状态、事件、receipt、持久化与 replay；gameplay 只拥有玩家顺序、取舍、收益、失败恢复与 progression 语义。
 - 当前任务状态与历史变更：GitHub task issue evidence 与 Git history；本文件是玩法合同，不把目标规则或未来组合验证写成当前实现事实。
 
@@ -21,7 +21,7 @@ fixture 档案必须同时提供 factory/recipe authority 与 fit、两类 input
 <a id="representative-profile-policy"></a>
 ### 2.1 本轮选定的具体代表档案与用途
 
-Trace refs: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117；准确上游为 [root-sc28-profile](../../product/world-rules-core-gameplay/prd.md#root-sc28-profile)。本 PR 提议采用 RIE-IRON-1/v1 作为当前 SC-28 的最小完整设计样本；owner 采纳后成为该样本的设计基线。新增的样本路线、容量、qualification 标签、观察窗口和终端用途是本次明确选择，不写成历史已批准或当前入口已支持的政策，也不成为其他配方/首局的默认值。
+Trace refs: O7-REQ-6951ebb2-04c7-4a7e-a3af-338856dce117；准确上游为 [root-sc28-profile](../../product/world-rules-core-gameplay/root-sc-status-and-ownership.prd.md#root-sc28-profile)。本 PR 提议采用 RIE-IRON-1/v1 作为当前 SC-28 的最小完整设计样本；owner 采纳后成为该样本的设计基线。新增的样本路线、容量、qualification 标签、观察窗口和终端用途是本次明确选择，不写成历史已批准或当前入口已支持的政策，也不成为其他配方/首局的默认值。
 
 [唯一完整可编辑档案](../../world-runtime/runtime/representative-industrial-execution-profile.design.md#rie-profile)选用既有原生 Smelter 与 exact iron 配方一批；两类输入先核真实来源、到达与独立quality/custody，再经原共享escrow一次齐套消费。有限有损输入物流、合法full-only量子、原power/验证费用、主iron与mandatory slag的原子bundle、有限终端和正常预算在同一版本中逐项给出；不再以“以后由profile补齐”代替这份样本。
 

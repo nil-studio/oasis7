@@ -5,7 +5,7 @@ on:
     branches: ["main"]
   pull_request:
     branches: ["main"]
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
   schedule:
     - cron: "17,37,57 * * * *"
   workflow_dispatch:
@@ -38,7 +38,7 @@ on:
         options: [release, dev]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && format('push-{0}', github.ref) || github.event_name == 'schedule' && format('periodic-observe-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full') && format('candidate-full-{0}-{1}', github.ref, inputs.source_ref || github.sha) || format('run-{0}', github.run_id) }}
+  group: ${{ github.workflow }}-${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && (github.event.label.name != 'ci-priority' || github.event.pull_request.head.repo.full_name != github.repository || github.event.pull_request.draft)) && format('pr-label-noop-{0}', github.run_id) || github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.event_name == 'push' && format('push-{0}', github.ref) || github.event_name == 'schedule' && format('periodic-observe-{0}', github.run_id) || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full') && format('candidate-full-{0}-{1}', github.ref, inputs.source_ref || github.sha) || format('run-{0}', github.run_id) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
 
 permissions:
@@ -181,7 +181,11 @@ jobs:
     needs: periodic-admission
     if: >-
       always() && !cancelled() &&
-      (github.event_name != 'pull_request' || !github.event.pull_request.draft) &&
+      (github.event_name != 'pull_request' ||
+       (!github.event.pull_request.draft &&
+        (github.event.action != 'labeled' ||
+         (github.event.label.name == 'ci-priority' &&
+          github.event.pull_request.head.repo.full_name == github.repository)))) &&
       (github.event_name != 'workflow_dispatch' || inputs.run_mode == 'full') &&
       (github.event_name != 'schedule' ||
        (needs.periodic-admission.result == 'success' && needs.periodic-admission.outputs.run_full == 'true'))
@@ -362,6 +366,23 @@ jobs:
           capability = 'ordinary_main_fast_cache_writer_version'
           if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1):
               raise ValueError('invalid ordinary main-fast cache writer capability')
+          capability = 'ordinary_dynamic_partition_version'
+          if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1
+                  or type(plan.get('ordinary_artifact_partition_version')) is not int or plan['ordinary_artifact_partition_version'] != 2
+                  or type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1):
+              raise ValueError('invalid ordinary dynamic partition capability')
+          capability = 'contract_job_consolidation_version'
+          if capability in plan and (type(plan[capability]) is not int or plan[capability] not in (1, 2)
+                  or type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1):
+              raise ValueError('invalid contract job consolidation capability')
+          capability = 'workspace_support_direct_gate_version'
+          if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1
+                  or type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1
+                  or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
+                  or plan.get('custody_execution_version') == 1
+                  or type(plan.get('workspace_support_partition_version')) is not int or plan['workspace_support_partition_version'] != 1
+                  or plan.get('workspace_support_partitions') != ['other']):
+              raise ValueError('invalid direct workspace support gate capability')
           capability = 'custody_policy_tests_version'
           if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1
                   or type(plan.get('custody_compile_proof_version')) is not int or plan['custody_compile_proof_version'] != 1
@@ -378,7 +399,8 @@ jobs:
           fields = (
               'scope', 'execution_profile', 'fast_plan_version', 'fast_execution_version',
               'ordinary_execution', 'ordinary_artifact_delivery_version', 'ordinary_artifact_partition_version',
-              'ordinary_main_fast_cache_writer_version',
+              'ordinary_dynamic_partition_version', 'ordinary_main_fast_cache_writer_version',
+              'contract_job_consolidation_version', 'workspace_support_direct_gate_version',
               'oasis7_required_packages', 'custody_execution_version', 'custody_node_shards', 'custody_compile_proof_version', 'custody_policy_tests_version',
               'python_control_contract_version', 'groups', 'source_sha', 'tested_sha', 'policy_sha',
               'check_inventory_version', 'fast_plan_exceptions',
@@ -611,9 +633,9 @@ jobs:
           retention-days: 14
 
   pr-fast-preview-plan:
-    if: github.event_name == 'pull_request' && !github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'ci-fast-preview')
+    if: github.event_name == 'pull_request' && github.event.action != 'labeled' && !github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'ci-fast-preview')
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     permissions:
       contents: read
       packages: read
@@ -736,7 +758,7 @@ jobs:
       - name: Stabilize Rust toolchains for ordinary execution
         if: matrix.group != 'baseline'
         run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
-      - uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2
         if: matrix.group == 'rust_baseline'
         with:
           tool: cargo-deny@0.19.9
@@ -824,6 +846,10 @@ jobs:
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_baseline == 'true' ||
+       ((fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 1 ||
+         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2) &&
+        (needs.select.outputs.run_codex_agent_config_validation == 'true' ||
+         needs.select.outputs.run_macos_package_contract == 'true')) ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
     timeout-minutes: 5
@@ -848,12 +874,26 @@ jobs:
       - name: Trust the checked-out workspace path in the job container
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Install Markdown runtime
+        if: >-
+          needs.select.outputs.run_baseline == 'true' ||
+          ((fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 1 ||
+            fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2) &&
+           needs.select.outputs.run_codex_agent_config_validation == 'true') ||
+          fromJSON(needs.select.outputs.plan).scope == 'full' ||
+          fromJSON(needs.select.outputs.plan).scope == 'explicit-full'
         run: |
           python3 -c 'import sys; assert sys.version_info[:2] == (3, 12)'
           python3 -m venv "$RUNNER_TEMP/baseline-venv"
           "$RUNNER_TEMP/baseline-venv/bin/python3" -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
           printf '%s\n' "$RUNNER_TEMP/baseline-venv/bin" >> "$GITHUB_PATH"
       - name: Resolve tested product-document range
+        if: >-
+          needs.select.outputs.run_baseline == 'true' ||
+          ((fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 1 ||
+            fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2) &&
+           needs.select.outputs.run_codex_agent_config_validation == 'true') ||
+          fromJSON(needs.select.outputs.plan).scope == 'full' ||
+          fromJSON(needs.select.outputs.plan).scope == 'explicit-full'
         shell: bash
         env:
           CI_PROFILE: ${{ fromJSON(needs.select.outputs.plan).execution_profile }}
@@ -872,11 +912,29 @@ jobs:
               --tested-oid "$GITHUB_SHA" >>"$GITHUB_ENV"
           fi
       - name: Execute selected group
+        if: >-
+          needs.select.outputs.run_baseline == 'true' ||
+          ((fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 1 ||
+            fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2) &&
+           needs.select.outputs.run_codex_agent_config_validation == 'true') ||
+          fromJSON(needs.select.outputs.plan).scope == 'full' ||
+          fromJSON(needs.select.outputs.plan).scope == 'explicit-full'
         shell: bash
         env:
           CI_VERBOSE: "1"
           OASIS7_CI_PROFILE: ${{ fromJSON(needs.select.outputs.plan).execution_profile }}
         run: bash ./scripts/ci-tests.sh required --group "baseline" --repo-root "$GITHUB_WORKSPACE"
+      - name: Execute consolidated macOS package contract
+        if: >-
+          (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 1 ||
+           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2) &&
+          (needs.select.outputs.run_macos_package_contract == 'true' ||
+           fromJSON(needs.select.outputs.plan).scope == 'full' ||
+           fromJSON(needs.select.outputs.plan).scope == 'explicit-full')
+        shell: bash
+        run: |
+          file --version
+          bash ./scripts/testnet-packages-macos-arm64-contract.test.sh
 
   rust-baseline:
     needs: select
@@ -935,7 +993,7 @@ jobs:
           add-rust-environment-hash-key: true
           env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
           cache-on-failure: false
-      - uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2
         with:
           tool: cargo-deny@0.19.9
       - name: Execute selected group
@@ -1156,7 +1214,7 @@ jobs:
           retention-days: 2
       - &ordinary-upload-integrations-0-artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: (fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 1 || fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 2)
+        if: (fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 1 || fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 2) && fromJSON(needs.select.outputs.ordinary_partitions)[3]
         with:
           name: native-tests-${{ fromJSON(needs.select.outputs.ordinary_partitions)[3] }}-${{ github.sha }}
           path: ${{ runner.temp }}/ordinary-archives/${{ fromJSON(needs.select.outputs.ordinary_partitions)[3] }}.tar.gz
@@ -1166,7 +1224,7 @@ jobs:
           retention-days: 2
       - &ordinary-upload-integrations-1-artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: (fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 1 || fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 2)
+        if: (fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 1 || fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version == 2) && fromJSON(needs.select.outputs.ordinary_partitions)[4]
         with:
           name: native-tests-${{ fromJSON(needs.select.outputs.ordinary_partitions)[4] }}-${{ github.sha }}
           path: ${{ runner.temp }}/ordinary-archives/${{ fromJSON(needs.select.outputs.ordinary_partitions)[4] }}.tar.gz
@@ -1299,28 +1357,6 @@ jobs:
       - *ordinary-upload-ordinary-workspace-cache-diagnostics
       - *ordinary-report-candidate-build-capacity-on-failure
 
-  oasis7-test-build:
-    needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]
-    if: >-
-      always() && needs.select.result == 'success' &&
-      !(fromJSON(needs.select.outputs.plan).fast_execution_version == 1 &&
-        fromJSON(needs.select.outputs.plan).ordinary_execution == 'inline') &&
-      (needs.select.outputs.run_oasis7_required == 'true' ||
-       fromJSON(needs.select.outputs.plan).scope == 'explicit-full' ||
-       fromJSON(needs.select.outputs.plan).scope == 'full')
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 5
-    steps:
-      - name: Require exactly one successful ordinary producer
-        env:
-          CANDIDATE_RESULT: ${{ needs.oasis7-test-build-candidate.result }}
-          TRUSTED_RESULT: ${{ needs.oasis7-test-build-trusted.result }}
-        run: |
-          case "$CANDIDATE_RESULT:$TRUSTED_RESULT" in
-            success:skipped|skipped:success) ;;
-            *) echo "::error::ordinary producer results: $CANDIDATE_RESULT / $TRUSTED_RESULT"; exit 1 ;;
-          esac
-
   formal-debug-build:
     cache-mode: read
     permissions:
@@ -1406,7 +1442,7 @@ jobs:
           github.workflow_sha == github.sha && needs.select.outputs.trusted_source == 'true' &&
           (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
         env:
-          OASIS7_FORMAL_BUILD_INPUTS: ${{ hashFiles('scripts/ci-test-artifacts.py', 'scripts/ci-formal-process-suites.json') }}
+          OASIS7_FORMAL_BUILD_INPUTS: ${{ hashFiles('scripts/ci-formal-process-suites.json') }}
         with:
           save-if: false
           shared-key: ci-formal-debug-deps-trusted-v1
@@ -1421,7 +1457,7 @@ jobs:
           (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')) &&
           steps.dependency-cache-tools.outcome == 'success'
         env:
-          OASIS7_FORMAL_BUILD_INPUTS: ${{ hashFiles('scripts/ci-test-artifacts.py', 'scripts/ci-formal-process-suites.json') }}
+          OASIS7_FORMAL_BUILD_INPUTS: ${{ hashFiles('scripts/ci-formal-process-suites.json') }}
           PATH: ${{ steps.dependency-cache-tools.outputs.path }}
           OASIS7_DEPENDENCY_CACHE_FAMILY: formal-debug
           OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
@@ -1689,7 +1725,7 @@ jobs:
           github.workflow_sha == github.sha && needs.select.outputs.trusted_source == 'true' &&
           (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')))
         env:
-          OASIS7_FORMAL_BUILD_INPUTS: ${{ hashFiles('scripts/ci-test-artifacts.py', 'scripts/ci-formal-process-suites.json') }}
+          OASIS7_FORMAL_BUILD_INPUTS: ${{ hashFiles('scripts/ci-formal-process-suites.json') }}
         with:
           save-if: false
           shared-key: ci-formal-endpoint-deps-trusted-v1
@@ -1704,7 +1740,7 @@ jobs:
           (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full')) &&
           steps.dependency-cache-tools.outcome == 'success'
         env:
-          OASIS7_FORMAL_BUILD_INPUTS: ${{ hashFiles('scripts/ci-test-artifacts.py', 'scripts/ci-formal-process-suites.json') }}
+          OASIS7_FORMAL_BUILD_INPUTS: ${{ hashFiles('scripts/ci-formal-process-suites.json') }}
           PATH: ${{ steps.dependency-cache-tools.outputs.path }}
           OASIS7_DEPENDENCY_CACHE_FAMILY: formal-endpoint
           OASIS7_DEPENDENCY_CACHE_BUDGET_BYTES: ${{ env.CI_CACHE_REPOSITORY_BUDGET_BYTES }}
@@ -2105,15 +2141,19 @@ jobs:
 
   oasis7-required:
     name: oasis7-required (${{ matrix.partition }})
-    needs: [select, oasis7-test-build]
+    needs: [select, oasis7-test-build-candidate, oasis7-test-build-trusted]
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
       (((fromJSON(needs.select.outputs.plan).fast_execution_version == 1 &&
          fromJSON(needs.select.outputs.plan).ordinary_execution == 'inline') &&
-        needs.oasis7-test-build.result == 'skipped') ||
+        needs.oasis7-test-build-candidate.result == 'skipped' &&
+        needs.oasis7-test-build-trusted.result == 'skipped') ||
        (!(fromJSON(needs.select.outputs.plan).fast_execution_version == 1 &&
           fromJSON(needs.select.outputs.plan).ordinary_execution == 'inline') &&
-        needs.oasis7-test-build.result == 'success')) &&
+        ((needs.oasis7-test-build-candidate.result == 'success' &&
+          needs.oasis7-test-build-trusted.result == 'skipped') ||
+         (needs.oasis7-test-build-candidate.result == 'skipped' &&
+          needs.oasis7-test-build-trusted.result == 'success')))) &&
       (needs.select.outputs.run_oasis7_required == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -2251,54 +2291,6 @@ jobs:
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
         run: bash ./scripts/ci-tests.sh required --group "oasis7_required" --plan "$RUNNER_TEMP/selection.json" --ordinary-partition "$ORDINARY_PARTITION" --repo-root "$GITHUB_WORKSPACE"
 
-  pr-ordinary-delivery-preview:
-    needs: [select, oasis7-test-build]
-    if: >-
-      always() && !cancelled() && github.event_name == 'pull_request' &&
-      needs.select.result == 'success' && needs.oasis7-test-build.result == 'success' &&
-      fromJSON(needs.select.outputs.plan).ordinary_artifact_partition_version == 1 &&
-      (fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version != 1 && fromJSON(needs.select.outputs.plan).ordinary_artifact_delivery_version != 2)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.select.outputs.tested_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: ${{ needs.select.outputs.selection_artifact }}
-          path: ${{ runner.temp }}
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: native-tests-${{ github.sha }}
-          path: ${{ runner.temp }}
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        with:
-          python-version: '3.12'
-      - name: Install native libraries
-        shell: bash
-        timeout-minutes: 11
-        run: |
-          sudo -n --preserve-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,RUNNER_OS,ImageOS,HTTP_PROXY,HTTPS_PROXY,ALL_PROXY,http_proxy,https_proxy,all_proxy,NO_PROXY,no_proxy,APT_CONFIG,RES_OPTIONS,LOCALDOMAIN,HOSTALIASES /usr/bin/python3 scripts/ci-apt-install.py --budget-seconds 600 --hosted-dns-recovery -- pkg-config libwayland-dev wayland-protocols libxkbcommon-dev libx11-dev libxi-dev libxcursor-dev libxrandr-dev libxinerama-dev libasound2-dev libudev-dev
-      - name: Measure diagnostic transport of the unchanged ordinary producer output
-        env:
-          SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
-        run: |
-          python3 scripts/ci-test-artifacts.py measure-ordinary-delivery \
-            --plan "$RUNNER_TEMP/selection.json" --input-archive "$RUNNER_TEMP/native-tests.tar.gz" \
-            --bundle "$RUNNER_TEMP/ordinary-delivery-preview"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: always()
-        with:
-          name: ordinary-delivery-preview-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/ordinary-delivery-preview/*.json
-          if-no-files-found: warn
-          retention-days: 14
-
   formal-process-tests:
     needs: [select, formal-test-build, formal-test-build-trusted]
     if: >-
@@ -2390,10 +2382,17 @@ jobs:
 
   formal-process:
     needs: [select, formal-test-build, formal-test-build-trusted, formal-process-tests]
-    if: always() && needs.select.result != 'skipped' && (github.event_name != 'workflow_dispatch' || inputs.run_mode == 'full')
+    if: >-
+      always() && needs.select.result != 'skipped' &&
+      (needs.select.result != 'success' || needs.select.outputs.run_formal_process == 'true') &&
+      (github.event_name != 'workflow_dispatch' || inputs.run_mode == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
     timeout-minutes: 5
     steps:
+      - name: Require successful formal planning
+        env:
+          SELECT_RESULT: ${{ needs.select.result }}
+        run: test "$SELECT_RESULT" = success
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.select.outputs.authority_artifact }}
@@ -2409,6 +2408,7 @@ jobs:
     needs: select
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 2 &&
       (needs.select.outputs.run_consensus == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -2550,9 +2550,11 @@ jobs:
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_node == 'true' ||
+       (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2 &&
+        needs.select.outputs.run_consensus == 'true') ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 15
+    timeout-minutes: 12
     permissions:
       contents: read
       packages: read
@@ -2606,12 +2608,21 @@ jobs:
           CI_VERBOSE: "1"
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
+          RUN_NODE: ${{ needs.select.outputs.run_node }}
+          RUN_CONSENSUS: ${{ needs.select.outputs.run_consensus }}
+          CI_SCOPE: ${{ fromJSON(needs.select.outputs.plan).scope }}
+          CONSOLIDATION_VERSION: ${{ fromJSON(needs.select.outputs.plan).contract_job_consolidation_version }}
         run: |
           if [[ "$(id -u)" == 0 ]]; then
             echo "::error::Node permission tests require an unprivileged user."
             exit 1
           fi
-          bash ./scripts/ci-tests.sh required --group "node" --repo-root "$GITHUB_WORKSPACE"
+          if [[ "$RUN_NODE" == true || "$CI_SCOPE" == full || "$CI_SCOPE" == explicit-full || "$CONSOLIDATION_VERSION" != 2 ]]; then
+            bash ./scripts/ci-tests.sh required --group "node" --repo-root "$GITHUB_WORKSPACE"
+          fi
+          if [[ "$CONSOLIDATION_VERSION" == 2 && ( "$RUN_CONSENSUS" == true || "$CI_SCOPE" == full || "$CI_SCOPE" == explicit-full ) ]]; then
+            bash ./scripts/ci-tests.sh required --group "consensus" --repo-root "$GITHUB_WORKSPACE"
+          fi
 
   net:
     needs: select
@@ -2690,9 +2701,11 @@ jobs:
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_viewer_js_required == 'true' ||
+       (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2 &&
+        needs.select.outputs.run_viewer_performance_report == 'true') ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 20
+    timeout-minutes: 16
     steps:
       - *linux-mold-tools-checkout
       - name: Configure mold for Linux host linking
@@ -2782,7 +2795,26 @@ jobs:
           CI_VERBOSE: "1"
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
-        run: bash ./scripts/ci-tests.sh required --group "viewer_js_required" --repo-root "$GITHUB_WORKSPACE"
+          RUN_VIEWER_JS_REQUIRED: ${{ needs.select.outputs.run_viewer_js_required }}
+          CI_SCOPE: ${{ fromJSON(needs.select.outputs.plan).scope }}
+          CONSOLIDATION_VERSION: ${{ fromJSON(needs.select.outputs.plan).contract_job_consolidation_version }}
+        run: |
+          if [[ "$RUN_VIEWER_JS_REQUIRED" == true || "$CI_SCOPE" == full || "$CI_SCOPE" == explicit-full || "$CONSOLIDATION_VERSION" != 2 ]]; then
+            bash ./scripts/ci-tests.sh required --group "viewer_js_required" --repo-root "$GITHUB_WORKSPACE"
+          fi
+      - name: Execute Viewer performance report
+        id: viewer-performance
+        if: >-
+          fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2 &&
+          (needs.select.outputs.run_viewer_performance_report == 'true' ||
+           fromJSON(needs.select.outputs.plan).scope == 'full' ||
+           fromJSON(needs.select.outputs.plan).scope == 'explicit-full')
+        shell: bash
+        env:
+          CI_VERBOSE: "1"
+          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
+          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
+        run: bash ./scripts/ci-tests.sh required --group "viewer_performance_report" --repo-root "$GITHUB_WORKSPACE"
       - name: Upload browser functional regression evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -2791,11 +2823,24 @@ jobs:
           path: output/playwright/browser-functional-regression
           if-no-files-found: warn
           retention-days: 7
+      - name: Upload Viewer performance evidence
+        if: >-
+          always() &&
+          (steps.viewer-performance.outcome == 'success' ||
+           steps.viewer-performance.outcome == 'failure')
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: viewer-performance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: output/ci/viewer-performance/**
+          if-no-files-found: error
+          retention-days: 7
+
 
   viewer-performance-report:
     needs: select
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 2 &&
       (needs.select.outputs.run_viewer_performance_report == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -2896,6 +2941,7 @@ jobs:
     needs: select
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 2 &&
       (needs.select.outputs.run_pixel_world_bridge == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -2960,7 +3006,7 @@ jobs:
       (needs.select.outputs.run_launcher_web == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 15
+    timeout-minutes: 12
     permissions:
       contents: read
       packages: read
@@ -3036,6 +3082,7 @@ jobs:
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
       fromJSON(needs.select.outputs.plan).custody_execution_version != 1 &&
+      fromJSON(needs.select.outputs.plan).workspace_support_direct_gate_version != 1 &&
       (needs.select.outputs.run_workspace_support == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ubuntu-24.04
@@ -3167,14 +3214,15 @@ jobs:
     needs: select
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
-      fromJSON(needs.select.outputs.plan).custody_execution_version == 1 &&
+      (fromJSON(needs.select.outputs.plan).custody_execution_version == 1 ||
+       fromJSON(needs.select.outputs.plan).workspace_support_direct_gate_version == 1) &&
       contains(fromJSON(needs.select.outputs.workspace_support_partitions), 'other')
     strategy:
       fail-fast: false
       matrix:
         execution: ${{ fromJSON(needs.select.outputs.workspace_support_host != 'false' && '["host","image"]' || '["image"]') }}
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 60
+    timeout-minutes: 40
     permissions:
       contents: read
       packages: read
@@ -3374,14 +3422,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - &linux-mold-shallow-tools-checkout
-        name: Check out workflow linker setup
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.workflow_sha }}
-          persist-credentials: false
-          fetch-depth: 1
-          sparse-checkout: ${{ (needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha) && '.github/actions/setup-linux-mold' || '' }}
+      - *linux-mold-tools-checkout
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
         with:
@@ -3390,14 +3431,31 @@ jobs:
         if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
+          fetch-depth: 0
           persist-credentials: false
       - name: Trust the checked-out workspace path in the job container
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - name: Verify the preinstalled Rust for native contracts
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+      - name: Verify the preinstalled Rust toolchains
         run: |
+          set -euo pipefail
           rustc +"$RUST_TOOLCHAIN" -vV
+          rustc +"$OASIS7_WASM_TOOLCHAIN" -vV
           cargo +"$RUST_TOOLCHAIN" clippy --version
           cargo +"$RUST_TOOLCHAIN" fmt --version
+          rustup target list --installed --toolchain "$RUST_TOOLCHAIN" | grep -Fx wasm32-unknown-unknown
+          rustup target list --installed --toolchain "$OASIS7_WASM_TOOLCHAIN" | grep -Fx "$OASIS7_WASM_TARGET"
+      - name: Stabilize Rust cache toolchains
+        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          save-if: false
+          shared-key: ci-rust-build-0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3
+          add-rust-environment-hash-key: true
+          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
+          cache-on-failure: false
       - name: Execute all native custody contracts
         env:
           RUSTUP_TOOLCHAIN: ${{ env.RUST_TOOLCHAIN }}
@@ -3405,7 +3463,9 @@ jobs:
           test "$(id -u)" -ne 0
           bash crates/oasis7_custody_worker/scripts/verify.sh --stage native-contracts
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: fromJSON(needs.select.outputs.plan).custody_policy_tests_version == 1
+        if: >-
+          fromJSON(needs.select.outputs.plan).custody_policy_tests_version == 1 ||
+          fromJSON(needs.select.outputs.plan).custody_compile_proof_version == 1
         with:
           name: ${{ needs.select.outputs.selection_artifact }}
           path: ${{ runner.temp }}
@@ -3418,6 +3478,26 @@ jobs:
           OASIS7_SUPPORT_TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
           OASIS7_SUPPORT_POLICY_SHA: ${{ needs.select.outputs.policy_sha }}
         run: python3 scripts/ci-custody-platform.py policy-tests --plan "$RUNNER_TEMP/selection.json"
+      - name: Execute complete custody WASM compile proofs
+        if: fromJSON(needs.select.outputs.plan).custody_compile_proof_version == 1
+        shell: bash
+        env:
+          CUSTODY_COMPONENT: wasm-contracts
+          OASIS7_SUPPORT_CAPACITY: "1"
+          OASIS7_SUPPORT_SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
+          OASIS7_SUPPORT_TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
+          OASIS7_SUPPORT_POLICY_SHA: ${{ needs.select.outputs.policy_sha }}
+          OASIS7_SUPPORT_RANGE_BASE: ${{ needs.select.outputs.range_base }}
+          CUSTODY_SELECTION_SHA256: ${{ fromJSON(needs.select.outputs.plan).selection_sha256 }}
+        run: |
+          stage="$(python3 scripts/ci-custody-platform.py stage --plan "$RUNNER_TEMP/selection.json" --component "$CUSTODY_COMPONENT")"
+          bash crates/oasis7_custody_worker/scripts/verify.sh --stage "$stage"
+          if [[ "$stage" == wasm-approval || "$stage" == wasm-contracts ]]; then
+            driver_dir="$GITHUB_WORKSPACE/scripts"
+            ci_python="$(bash "$driver_dir/find-python-with-module.sh" tomllib)"
+            source scripts/ci-tests.sh
+            run_worker_wasm_compile_profiles
+          fi
 
   custody-native:
     needs: select
@@ -3425,7 +3505,7 @@ jobs:
       always() && !cancelled() && needs.select.result == 'success' &&
       fromJSON(needs.select.outputs.plan).custody_execution_version == 1
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 25
+    timeout-minutes: 20
     outputs:
       artifact: ${{ steps.bundle.outputs.artifact }}
       attempt: ${{ steps.bundle.outputs.attempt }}
@@ -3586,83 +3666,6 @@ jobs:
       OASIS7_SUPPORT_RANGE_BASE: ${{ needs.select.outputs.range_base }}
     steps: *custody-build-steps
 
-  custody-wasm-contracts:
-    needs: select
-    if: >-
-      always() && !cancelled() && needs.select.result == 'success' &&
-      fromJSON(needs.select.outputs.plan).custody_execution_version == 1 &&
-      fromJSON(needs.select.outputs.plan).custody_compile_proof_version == 1
-    runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      packages: read
-    container:
-      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ github.token }}
-    defaults:
-      run:
-        shell: bash
-    env:
-      CUSTODY_COMPONENT: wasm-contracts
-      OASIS7_SUPPORT_CAPACITY: "1"
-      OASIS7_SUPPORT_SOURCE_SHA: ${{ needs.select.outputs.source_sha }}
-      OASIS7_SUPPORT_TESTED_SHA: ${{ needs.select.outputs.tested_sha }}
-      OASIS7_SUPPORT_POLICY_SHA: ${{ needs.select.outputs.policy_sha }}
-      OASIS7_SUPPORT_RANGE_BASE: ${{ needs.select.outputs.range_base }}
-    steps:
-      - *linux-mold-tools-checkout
-      - name: Configure mold for Linux host linking
-        uses: ./.github/actions/setup-linux-mold
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
-        with:
-          ref: ${{ needs.select.outputs.tested_sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Trust the checked-out workspace path in the job container
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
-        with:
-          python-version: '3.12'
-      - name: Verify the preinstalled Rust toolchains
-        run: |
-          set -euo pipefail
-          rustc +"$RUST_TOOLCHAIN" -vV
-          rustc +"$OASIS7_WASM_TOOLCHAIN" -vV
-          cargo +"$RUST_TOOLCHAIN" clippy --version
-          cargo +"$RUST_TOOLCHAIN" fmt --version
-          rustup target list --installed --toolchain "$RUST_TOOLCHAIN" | grep -Fx wasm32-unknown-unknown
-          rustup target list --installed --toolchain "$OASIS7_WASM_TOOLCHAIN" | grep -Fx "$OASIS7_WASM_TARGET"
-      - name: Stabilize Rust cache toolchains
-        run: python3 scripts/ci-rust-cache-toolchains.py "$RUST_TOOLCHAIN" "$OASIS7_WASM_TOOLCHAIN"
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
-        with:
-          save-if: false
-          shared-key: ci-rust-build-0b13d0b5ba9051617eb6ab77a5af324f066af79bb2753d664b780535c2fe13a3
-          add-rust-environment-hash-key: true
-          env-vars: CARGO CC CFLAGS CXX CMAKE RUST OASIS7_WASM
-          cache-on-failure: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: ${{ needs.select.outputs.selection_artifact }}
-          path: ${{ runner.temp }}
-      - name: Execute complete custody WASM compile proofs
-        shell: bash
-        env:
-          CUSTODY_SELECTION_SHA256: ${{ fromJSON(needs.select.outputs.plan).selection_sha256 }}
-        run: |
-          stage="$(python3 scripts/ci-custody-platform.py stage --plan "$RUNNER_TEMP/selection.json" --component "$CUSTODY_COMPONENT")"
-          bash crates/oasis7_custody_worker/scripts/verify.sh --stage "$stage"
-          if [[ "$stage" == wasm-approval || "$stage" == wasm-contracts ]]; then
-            driver_dir="$GITHUB_WORKSPACE/scripts"
-            ci_python="$(bash "$driver_dir/find-python-with-module.sh" tomllib)"
-            source scripts/ci-tests.sh
-            run_worker_wasm_compile_profiles
-          fi
-
   custody-node:
     name: custody-node (${{ matrix.shard }})
     needs: [select, custody-native, custody-wasm-production, custody-wasm-approval]
@@ -3693,7 +3696,14 @@ jobs:
     steps:
       - name: Verify preinstalled custody tools
         run: gdb --version && gcc --version && pkg-config --version
-      - *linux-mold-shallow-tools-checkout
+      - &linux-mold-shallow-tools-checkout
+        name: Check out workflow linker setup
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          fetch-depth: 1
+          sparse-checkout: ${{ (needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha) && '.github/actions/setup-linux-mold' || '' }}
       - name: Configure mold for Linux host linking
         uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -3775,11 +3785,13 @@ jobs:
           retention-days: 7
 
   workspace-support:
-    needs: [select, workspace-support-legacy, workspace-support-other, custody-native-contracts, custody-wasm-contracts, custody-native, custody-wasm-production, custody-wasm-approval, custody-node]
+    needs: [select, workspace-support-legacy, workspace-support-other, custody-native-contracts, custody-native, custody-wasm-production, custody-wasm-approval, custody-node]
     if: >-
       always() && needs.select.result != 'skipped' &&
-      (needs.select.result != 'success' || needs.select.outputs.run_workspace_support == 'true' ||
-       fromJSON(needs.select.outputs.plan).scope == 'full')
+      (needs.select.result != 'success' ||
+       (fromJSON(needs.select.outputs.plan).workspace_support_direct_gate_version != 1 &&
+        (needs.select.outputs.run_workspace_support == 'true' ||
+         fromJSON(needs.select.outputs.plan).scope == 'full')))
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
     timeout-minutes: 5
     steps:
@@ -3812,10 +3824,9 @@ jobs:
           from pathlib import Path
           plan = json.loads((Path(os.environ['RUNNER_TEMP']) / 'selection.json').read_bytes())
           needs = json.loads(os.environ['SUPPORT_NEEDS'])
-          if 'custody_compile_proof_version' not in plan:
-              proof = needs.pop('custody-wasm-contracts', None)
-              if not isinstance(proof, dict) or proof.get('result') != 'skipped':
-                  raise ValueError('unselected custody proof must be present and skipped')
+          if (isinstance(plan, dict) and plan.get('custody_compile_proof_version') == 1
+                  and 'custody-wasm-contracts' not in needs and 'custody-native-contracts' in needs):
+              needs['custody-wasm-contracts'] = needs['custody-native-contracts']
           print(json.dumps(needs, separators=(',', ':')))
           PY
           )"
@@ -3826,6 +3837,8 @@ jobs:
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_scenario_regression == 'true' ||
+       (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2 &&
+        needs.select.outputs.run_pixel_world_bridge == 'true') ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
     timeout-minutes: 5
@@ -3865,6 +3878,8 @@ jobs:
           rustc +"$RUST_TOOLCHAIN" -vV
           rustc +"$OASIS7_WASM_TOOLCHAIN" -vV
           cargo +"$RUST_TOOLCHAIN" clippy --version
+          cargo +"$RUST_TOOLCHAIN" fmt --version
+          rustup target list --installed --toolchain "$RUST_TOOLCHAIN" | grep -Fx wasm32-unknown-unknown
           rustup target list --installed --toolchain "$OASIS7_WASM_TOOLCHAIN" | grep -Fx "$OASIS7_WASM_TARGET"
       - name: Stabilize Rust cache toolchains
         shell: bash
@@ -3882,12 +3897,21 @@ jobs:
           CI_VERBOSE: "1"
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
+          RUN_SCENARIO_REGRESSION: ${{ needs.select.outputs.run_scenario_regression }}
+          RUN_PIXEL_WORLD_BRIDGE: ${{ needs.select.outputs.run_pixel_world_bridge }}
+          CI_SCOPE: ${{ fromJSON(needs.select.outputs.plan).scope }}
+          CONSOLIDATION_VERSION: ${{ fromJSON(needs.select.outputs.plan).contract_job_consolidation_version }}
         run: |
           if [[ "$(id -u)" == 0 ]]; then
             echo "::error::Scenario tests require an unprivileged user."
             exit 1
           fi
-          bash ./scripts/ci-tests.sh required --group "scenario_regression" --repo-root "$GITHUB_WORKSPACE"
+          if [[ "$RUN_SCENARIO_REGRESSION" == true || "$CI_SCOPE" == full || "$CI_SCOPE" == explicit-full || "$CONSOLIDATION_VERSION" != 2 ]]; then
+            bash ./scripts/ci-tests.sh required --group "scenario_regression" --repo-root "$GITHUB_WORKSPACE"
+          fi
+          if [[ "$CONSOLIDATION_VERSION" == 2 && ( "$RUN_PIXEL_WORLD_BRIDGE" == true || "$CI_SCOPE" == full || "$CI_SCOPE" == explicit-full ) ]]; then
+            bash ./scripts/ci-tests.sh required --group "pixel_world_bridge" --repo-root "$GITHUB_WORKSPACE"
+          fi
 
   # BEGIN GENERATED contract-jobs-v1
   # Generated by scripts/ci-contract-jobs.py. Do not edit directly.
@@ -4125,6 +4149,8 @@ jobs:
     needs: select
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 1 &&
+      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 2 &&
       (needs.select.outputs.run_codex_agent_config_validation == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -4157,6 +4183,8 @@ jobs:
     needs: select
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 1 &&
+      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 2 &&
       (needs.select.outputs.run_compile_metrics == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -4259,14 +4287,17 @@ jobs:
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
       (needs.select.outputs.run_doc_checker_contracts == 'true' ||
+       ((fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 1 ||
+         fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2) &&
+        needs.select.outputs.run_compile_metrics == 'true') ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
-    timeout-minutes: 15
+    timeout-minutes: 12
     permissions:
       contents: read
       packages: read
     container:
-      image: ghcr.io/nil-studio/oasis7/ci-runtime@sha256:14ef7ecc92a75d99af0723dbb0fa131b24c40ac2f83eed748fde1698c35c4258
+      image: ghcr.io/nil-studio/oasis7/ci-rust-build@sha256:3395596ee4a090242b77a42ec9f67a5b1b1758b707bed70907107bdfbdc932bf
       credentials:
         username: ${{ github.actor }}
         password: ${{ github.token }}
@@ -4274,7 +4305,11 @@ jobs:
       run:
         shell: bash
     steps:
+      - *linux-mold-tools-checkout
+      - name: Configure mold for Linux host linking
+        uses: ./.github/actions/setup-linux-mold
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ needs.select.outputs.tested_sha == '' || github.workflow_sha != needs.select.outputs.tested_sha }}
         with:
           ref: ${{ needs.select.outputs.tested_sha }}
           fetch-depth: 0
@@ -4282,18 +4317,52 @@ jobs:
       - name: Trust the checked-out workspace path in the job container
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Prepare the Markdown runtime with preinstalled Python
+        if: >-
+          needs.select.outputs.run_doc_checker_contracts == 'true' ||
+          fromJSON(needs.select.outputs.plan).scope == 'full' ||
+          fromJSON(needs.select.outputs.plan).scope == 'explicit-full'
         run: |
           python3 -c 'import sys; assert sys.version_info[:2] == (3, 12)'
           python3 -m venv "$RUNNER_TEMP/doc-checker-venv"
           "$RUNNER_TEMP/doc-checker-venv/bin/python3" -m pip install --disable-pip-version-check --requirement scripts/doc-governance-requirements.txt
           printf '%s\n' "$RUNNER_TEMP/doc-checker-venv/bin" >> "$GITHUB_PATH"
       - name: Execute selected group
+        if: >-
+          needs.select.outputs.run_doc_checker_contracts == 'true' ||
+          fromJSON(needs.select.outputs.plan).scope == 'full' ||
+          fromJSON(needs.select.outputs.plan).scope == 'explicit-full'
         shell: bash
         env:
           CI_VERBOSE: "1"
           OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
           OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
         run: bash ./scripts/ci-tests.sh required --group "doc_checker_contracts" --repo-root "$GITHUB_WORKSPACE"
+      - name: Verify preinstalled Rust for build measurement contract fixtures
+        if: >-
+          (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 1 ||
+           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2) &&
+          (needs.select.outputs.run_compile_metrics == 'true' ||
+           fromJSON(needs.select.outputs.plan).scope == 'full' ||
+           fromJSON(needs.select.outputs.plan).scope == 'explicit-full')
+        run: |
+          set -euo pipefail
+          rustc +"$RUST_TOOLCHAIN" -vV
+          cargo +"$RUST_TOOLCHAIN" --version
+          cargo +"$RUST_TOOLCHAIN" fmt --version
+          cargo +"$RUST_TOOLCHAIN" clippy --version
+      - name: Execute consolidated compile metrics group
+        if: >-
+          (fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 1 ||
+           fromJSON(needs.select.outputs.plan).contract_job_consolidation_version == 2) &&
+          (needs.select.outputs.run_compile_metrics == 'true' ||
+           fromJSON(needs.select.outputs.plan).scope == 'full' ||
+           fromJSON(needs.select.outputs.plan).scope == 'explicit-full')
+        shell: bash
+        env:
+          CI_VERBOSE: "1"
+          OASIS7_PRODUCT_DOC_BASE: ${{ needs.select.outputs.range_base }}
+          OASIS7_PRODUCT_DOC_HEAD: ${{ needs.select.outputs.tested_sha }}
+        run: bash ./scripts/ci-tests.sh required --group "compile_metrics" --repo-root "$GITHUB_WORKSPACE"
 
   cargo-tooling-contracts:
     needs: select
@@ -4363,7 +4432,7 @@ jobs:
       (needs.select.outputs.run_windows_rollout == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: windows-2022
-    timeout-minutes: 10
+    timeout-minutes: 7
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -4383,6 +4452,8 @@ jobs:
     needs: select
     if: >-
       always() && !cancelled() && needs.select.result == 'success' &&
+      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 1 &&
+      fromJSON(needs.select.outputs.plan).contract_job_consolidation_version != 2 &&
       (needs.select.outputs.run_macos_package_contract == 'true' ||
        fromJSON(needs.select.outputs.plan).scope == 'full')
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
@@ -4485,10 +4556,16 @@ jobs:
 
   required-gate:
     name: required-gate
-    if: always() && (github.event_name == 'pull_request' || github.event_name == 'push')
+    if: >-
+      always() && (github.event_name == 'push' ||
+      (github.event_name == 'pull_request' &&
+       (github.event.action != 'labeled' ||
+        (github.event.label.name == 'ci-priority' &&
+         github.event.pull_request.head.repo.full_name == github.repository &&
+         !github.event.pull_request.draft))))
     runs-on: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'ci-priority') && 'oasis7-priority-linux' || 'ubuntu-24.04' }}
     timeout-minutes: 5
-    needs: [select, command-center, baseline, rust-baseline, oasis7-required, formal-process, consensus, distfs, node, net, viewer-js-required, viewer-performance-report, pixel-world-bridge, launcher-web, workspace-support, scenario-regression, operational-contracts, packaging-contracts, workflow-governance, codex-agent-config-validation, compile-metrics, site-quality, doc-checker-contracts, cargo-tooling-contracts, windows-rollout, macos-package-contract, fleet-health]
+    needs: [select, command-center, baseline, rust-baseline, oasis7-required, formal-process, consensus, distfs, node, net, viewer-js-required, viewer-performance-report, pixel-world-bridge, launcher-web, workspace-support, workspace-support-other, scenario-regression, operational-contracts, packaging-contracts, workflow-governance, codex-agent-config-validation, compile-metrics, site-quality, doc-checker-contracts, cargo-tooling-contracts, windows-rollout, macos-package-contract, fleet-health]
     steps:
       - name: Require successful scope planning
         env:
@@ -4534,6 +4611,23 @@ jobs:
           capability = 'ordinary_main_fast_cache_writer_version'
           if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1):
               raise ValueError('invalid ordinary main-fast cache writer capability')
+          capability = 'ordinary_dynamic_partition_version'
+          if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1
+                  or type(plan.get('ordinary_artifact_partition_version')) is not int or plan['ordinary_artifact_partition_version'] != 2
+                  or type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1):
+              raise ValueError('invalid ordinary dynamic partition capability')
+          capability = 'contract_job_consolidation_version'
+          if capability in plan and (type(plan[capability]) is not int or plan[capability] not in (1, 2)
+                  or type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1):
+              raise ValueError('invalid contract job consolidation capability')
+          capability = 'workspace_support_direct_gate_version'
+          if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1
+                  or type(plan.get('fast_plan_version')) is not int or plan['fast_plan_version'] != 1
+                  or plan.get('execution_profile') not in ('pr-fast', 'main-fast')
+                  or plan.get('custody_execution_version') == 1
+                  or type(plan.get('workspace_support_partition_version')) is not int or plan['workspace_support_partition_version'] != 1
+                  or plan.get('workspace_support_partitions') != ['other']):
+              raise ValueError('invalid direct workspace support gate capability')
           capability = 'custody_policy_tests_version'
           if capability in plan and (type(plan[capability]) is not int or plan[capability] != 1
                   or type(plan.get('custody_compile_proof_version')) is not int or plan['custody_compile_proof_version'] != 1
@@ -4554,7 +4648,8 @@ jobs:
           fields = (
               'scope', 'execution_profile', 'fast_plan_version', 'fast_execution_version',
               'ordinary_execution', 'ordinary_artifact_delivery_version', 'ordinary_artifact_partition_version',
-              'ordinary_main_fast_cache_writer_version',
+              'ordinary_dynamic_partition_version', 'ordinary_main_fast_cache_writer_version',
+              'contract_job_consolidation_version', 'workspace_support_direct_gate_version',
               'oasis7_required_packages', 'custody_execution_version', 'custody_node_shards', 'custody_compile_proof_version', 'custody_policy_tests_version',
               'python_control_contract_version', 'groups', 'source_sha', 'tested_sha', 'policy_sha',
               'check_inventory_version', 'fast_plan_exceptions',
@@ -4640,7 +4735,7 @@ jobs:
           rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
           rustup target add wasm32-unknown-unknown
       - name: Install cargo-deny
-        uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2
+        uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2
         with:
           tool: cargo-deny@0.19.9
       - name: Install system deps
@@ -4808,7 +4903,7 @@ jobs:
           rustup target add "${OASIS7_WASM_TARGET}" --toolchain "${OASIS7_WASM_TOOLCHAIN}"
           rustup target add wasm32-unknown-unknown
       - name: Install cargo-deny
-        uses: taiki-e/install-action@4a76afe23f9e08d2d9550fb56e556444e8611d21 # v2
+        uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2
         with:
           tool: cargo-deny@0.19.9
       - name: Install system deps
@@ -4910,7 +5005,7 @@ jobs:
        (github.event_name == 'workflow_dispatch' && inputs.run_mode == 'full'))
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    needs: [select, command-center, baseline, rust-baseline, oasis7-required, formal-process, consensus, distfs, node, net, viewer-js-required, viewer-performance-report, pixel-world-bridge, launcher-web, workspace-support, scenario-regression, operational-contracts, packaging-contracts, workflow-governance, codex-agent-config-validation, compile-metrics, site-quality, doc-checker-contracts, cargo-tooling-contracts, windows-rollout, macos-package-contract, fleet-health, oasis7-test-build, full-regression, candidate-full-regression]
+    needs: [select, command-center, baseline, rust-baseline, oasis7-required, formal-process, consensus, distfs, node, net, viewer-js-required, viewer-performance-report, pixel-world-bridge, launcher-web, workspace-support, scenario-regression, operational-contracts, packaging-contracts, workflow-governance, codex-agent-config-validation, compile-metrics, site-quality, doc-checker-contracts, cargo-tooling-contracts, windows-rollout, macos-package-contract, fleet-health, oasis7-test-build-candidate, oasis7-test-build-trusted, full-regression, candidate-full-regression]
     steps:
       - name: Require successful full planning
         env:
@@ -4978,7 +5073,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.run_mode == 'newapi_bridge_package'
     name: newapi-bridge-linux-x86-64
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 15
     permissions:
       contents: read
       packages: read

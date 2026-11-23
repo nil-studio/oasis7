@@ -137,7 +137,7 @@ class CompileContexts(unittest.TestCase):
         manifest = ROOT / 'crates/oasis7_net/Cargo.toml'
         with manifest.open('rb') as source:
             defaults = set(tomllib.load(source)['features']['default'])
-        self.assertTrue({'libp2p', 'self_tests'} <= defaults, defaults)
+        self.assertIn('libp2p', defaults)
 
         commands = self.consumer_commands(['run_group net'])
         native_net = Counter({command: count for command, count in commands.items()

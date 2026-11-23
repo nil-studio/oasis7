@@ -135,8 +135,8 @@ fn export_fixture_kind(root: &Path, with_simulator_action: bool) {
         },
     );
     let committed_actions = if with_simulator_action {
-        let payload = oasis7::consensus_action_payload::encode_consensus_action_payload(
-            &oasis7::consensus_action_payload::ConsensusActionPayloadEnvelope::from_simulator_action(
+        let payload = oasis7_world_service::consensus_action_payload::encode_consensus_action_payload(
+            &oasis7_world_service::consensus_action_payload::ConsensusActionPayloadEnvelope::from_simulator_action(
                 oasis7_simulator::Action::HarvestRadiation { agent_id: "agent-0".into(), max_amount: 1 },
                 oasis7_simulator::ActionSubmitter::System,
             )).unwrap();

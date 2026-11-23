@@ -30,7 +30,7 @@ fn runtime_live_llm_timeout_respects_env_ceiling_without_expanding_budget() {
     clear_runtime_provider_env();
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(RUNTIME_LIVE_LLM_TIMEOUT_ENV, "9000");
+        oasis7_hosted_access::process_env::set_var(RUNTIME_LIVE_LLM_TIMEOUT_ENV, "9000");
     }
 
     assert_eq!(
@@ -51,43 +51,73 @@ fn provider_settings_from_env_parses_profile_and_timeout() {
     clear_runtime_provider_env();
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_DECISION_SOURCE_ENV, "provider_backed");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_DECISION_SOURCE_ENV,
+            "provider_backed",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_BACKEND_ENV, "provider_local_bridge");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_BACKEND_ENV,
+            "provider_local_bridge",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_CONTRACT_ENV, "worldsim_provider_v1");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_CONTRACT_ENV,
+            "worldsim_provider_v1",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_TRANSPORT_ENV, "loopback_http");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_TRANSPORT_ENV,
+            "loopback_http",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, "http://127.0.0.1:5841");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_URL_ENV,
+            "http://127.0.0.1:5841",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_CONNECT_TIMEOUT_MS_ENV, "4200");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_CONNECT_TIMEOUT_MS_ENV,
+            "4200",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_DECISION_TIMEOUT_MS_ENV, "6100");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_DECISION_TIMEOUT_MS_ENV,
+            "6100",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_PROFILE_ENV,
+            "oasis7_p0_low_freq_npc",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_EXECUTION_LANE_ENV,
+            "player_parity",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_AUTH_TOKEN_ENV, "secret-token");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_AUTH_TOKEN_ENV,
+            "secret-token",
+        );
     }
     let settings = super::control_plane::runtime_provider_settings_from_env()
         .expect("settings parse")
@@ -110,39 +140,66 @@ fn provider_settings_from_env_accepts_remote_https_transport() {
     clear_runtime_provider_env();
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_DECISION_SOURCE_ENV, "provider_backed");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_DECISION_SOURCE_ENV,
+            "provider_backed",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_BACKEND_ENV, "provider_local_bridge");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_BACKEND_ENV,
+            "provider_local_bridge",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_CONTRACT_ENV, "worldsim_provider_v1");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_CONTRACT_ENV,
+            "worldsim_provider_v1",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_TRANSPORT_ENV, "remote_https");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_TRANSPORT_ENV,
+            "remote_https",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, "https://provider.example");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_URL_ENV,
+            "https://provider.example",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_CONNECT_TIMEOUT_MS_ENV, "4200");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_CONNECT_TIMEOUT_MS_ENV,
+            "4200",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_PROFILE_ENV,
+            "oasis7_p0_low_freq_npc",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_EXECUTION_LANE_ENV, "player_parity");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_EXECUTION_LANE_ENV,
+            "player_parity",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_AUTH_TOKEN_ENV, "secret-token");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_AUTH_TOKEN_ENV,
+            "secret-token",
+        );
     }
     let settings = super::control_plane::runtime_provider_settings_from_env()
         .expect("settings parse")
@@ -159,27 +216,45 @@ fn provider_settings_from_env_accepts_local_mock_backend() {
     clear_runtime_provider_env();
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_DECISION_SOURCE_ENV, "provider_backed");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_DECISION_SOURCE_ENV,
+            "provider_backed",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_BACKEND_ENV, "provider_local_mock");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_BACKEND_ENV,
+            "provider_local_mock",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_CONTRACT_ENV, "worldsim_provider_v1");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_CONTRACT_ENV,
+            "worldsim_provider_v1",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_TRANSPORT_ENV, "loopback_http");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_TRANSPORT_ENV,
+            "loopback_http",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_URL_ENV, "http://127.0.0.1:5841");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_URL_ENV,
+            "http://127.0.0.1:5841",
+        );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(VIEWER_AGENT_PROVIDER_PROFILE_ENV, "oasis7_p0_low_freq_npc");
+        oasis7_hosted_access::process_env::set_var(
+            VIEWER_AGENT_PROVIDER_PROFILE_ENV,
+            "oasis7_p0_low_freq_npc",
+        );
     }
     let settings = super::control_plane::runtime_provider_settings_from_env()
         .expect("settings parse")
@@ -197,42 +272,42 @@ fn provider_settings_from_env_rejects_removed_old_brand_prefix() {
     clear_runtime_provider_env();
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             removed_old_brand_runtime_live_env("AGENT_PROVIDER_MODE"),
             "provider_loopback_http",
         );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             removed_old_brand_runtime_live_env("AGENT_PROVIDER_URL"),
             "http://127.0.0.1:5842",
         );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             removed_old_brand_runtime_live_env("AGENT_PROVIDER_CONNECT_TIMEOUT_MS"),
             "4300",
         );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             removed_old_brand_runtime_live_env("AGENT_PROVIDER_PROFILE"),
             "oasis7_p0_low_freq_npc",
         );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             removed_old_brand_runtime_live_env("AGENT_EXECUTION_LANE"),
             "player_parity",
         );
     }
     // SAFETY: This test/setup code mutates process environment in a controlled scope.
     unsafe {
-        oasis7::env_mut::set_var(
+        oasis7_hosted_access::process_env::set_var(
             removed_old_brand_runtime_live_env("AGENT_PROVIDER_AUTH_TOKEN"),
             "removed-old-brand-token",
         );

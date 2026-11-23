@@ -191,10 +191,20 @@ fn validate_initialized(root: &Path) -> Result<(), FormalError> {
     roots::count(root)?;
     Ok(())
 }
+/// Releases the open-file-description flock before closing so a concurrent
+/// `fork` (e.g., `Command::new` before `execve`) cannot keep a dropped lease busy.
+#[derive(Debug)]
+pub(crate) struct LeaseGuard(File);
+impl Drop for LeaseGuard {
+    fn drop(&mut self) {
+        let _ = File::unlock(&self.0);
+    }
+}
+
 /// Kernel leases use open file descriptions, not PID/mtime/TTL. A crashed
 /// process loses its lease; a surviving reader retains it across writer death.
 /// The durable fixed lock inode must never be renamed or replaced.
-pub(super) fn pin(root: &Path, exclusive: bool) -> Result<Option<File>, FormalError> {
+pub(super) fn pin(root: &Path, exclusive: bool) -> Result<Option<LeaseGuard>, FormalError> {
     let path = root.join(GUARD);
     paths::parents(&path)?;
     match fs::symlink_metadata(&path) {
@@ -237,15 +247,15 @@ pub(super) fn pin(root: &Path, exclusive: bool) -> Result<Option<File>, FormalEr
     } else {
         file.try_lock_shared().map_err(lease_error)?;
     }
-    Ok(Some(file))
+    Ok(Some(LeaseGuard(file)))
 }
 /// Lock ordering is always retirement fence (shared), then publication mutex.
 /// Readers take only the first. Immutable append is safe while they retain it;
 /// generation selection and reclamation still require exclusive retirement.
 pub(crate) struct PublicationGuard {
     root: PathBuf,
-    _publication: Option<File>,
-    _retirement: Option<File>,
+    _publication: Option<LeaseGuard>,
+    _retirement: Option<LeaseGuard>,
 }
 pub(crate) fn publication_guard(root: &Path) -> Result<PublicationGuard, FormalError> {
     let retirement = pin(root, false)?;
@@ -264,7 +274,7 @@ pub(crate) fn publication_guard(root: &Path) -> Result<PublicationGuard, FormalE
         }
         file.try_lock()
             .map_err(|_| FormalError::Conflict("physical publication busy".into()))?;
-        Some(file)
+        Some(LeaseGuard(file))
     } else {
         None
     };

@@ -485,7 +485,7 @@ fn governance_authorization_raw_action_missing_proof_is_rejected() {
 
 #[test]
 fn governance_authorization_real_node_driver_ingress_rejects_before_queueing() {
-    use oasis7::consensus_action_payload::{
+    use oasis7_world_service::consensus_action_payload::{
         ConsensusActionAuthEnvelope, ConsensusActionPayloadBody, ConsensusActionPayloadEnvelope,
     };
     let world = qualified_world();

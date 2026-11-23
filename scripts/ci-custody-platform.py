@@ -23,7 +23,8 @@ CAPTURE_SPEC.loader.exec_module(workerd_capture)
 
 WORKER = Path('crates/oasis7_custody_worker')
 COMPONENTS = ('native', 'wasm-production', 'wasm-approval')
-SHARDS = [0, 1, 2, 3]
+SHARDS = [0, 1, 2]
+ALLOWED_SHARDS = ([0, 1, 2], [0, 1, 2, 3])
 ROLES = ('identity', 'owner', 'executor', 'recovery-fence', 'native-harness')
 SCHEMA = 'oasis7.custody-platform/v1'
 # Complete Node file durations from run 42934311475, jobs
@@ -91,6 +92,16 @@ def load(path):
     return json.loads(path.read_text())
 
 
+def plan_shards(plan=None):
+    if isinstance(plan, dict) and 'custody_node_shards' in plan:
+        shards = plan['custody_node_shards']
+        if (not isinstance(shards, list) or any(type(item) is not int for item in shards)
+                or shards not in ALLOWED_SHARDS):
+            raise ValueError('incomplete custody execution plan')
+        return list(shards)
+    return list(SHARDS)
+
+
 def enabled(plan):
     version = plan.get('custody_execution_version')
     policy_tests = 'custody_policy_tests_version' in plan
@@ -122,7 +133,7 @@ def enabled(plan):
             or 'oasis7_custody_worker' not in plan.get('workspace_support_profiles', [])
             or plan.get('workspace_support_partition_version') != 1
             or 'custody' not in plan.get('workspace_support_partitions', [])
-            or plan.get('custody_node_shards') != SHARDS
+            or plan.get('custody_node_shards') not in ALLOWED_SHARDS
             or any(type(item) is not int for item in plan['custody_node_shards'])):
         raise ValueError('incomplete custody execution plan')
     return True
@@ -188,14 +199,15 @@ def inventory(root):
     return rows
 
 
-def partition(rows):
+def partition(rows, shards=None):
     # Known long files use measured complete-case weights; new files use a
     # deterministic size estimate. Weight changes never remove tests.
-    batches = [[] for _ in SHARDS]
-    weights = [0 for _ in SHARDS]
+    active = list(SHARDS if shards is None else shards)
+    batches = [[] for _ in active]
+    weights = [0 for _ in active]
     weight = lambda row: FILE_SECONDS.get(row['path'], max(1, row['size'] / 1000))
     for row in sorted(rows, key=lambda row: (-weight(row), row['path'])):
-        index = min(SHARDS, key=lambda index: (weights[index], index))
+        index = min(active, key=lambda index: (weights[index], index))
         batches[index].append(row['path'])
         weights[index] += weight(row)
     return [sorted(batch) for batch in batches]
@@ -365,9 +377,10 @@ def tap_summary(text, filename):
 def execute(root, plan, shard, results, run_id, attempt, capture_workerd=False):
     context = identity(root, plan, run_id)
     positive_attempt(attempt)
-    if type(shard) is not int or shard not in SHARDS:
+    shards = plan_shards(plan)
+    if type(shard) is not int or shard not in shards:
         raise ValueError('invalid custody shard')
-    files = partition(context['tests'])[shard]
+    files = partition(context['tests'], shards)[shard]
     if not files:
         raise ValueError('empty custody shard')
     results.mkdir(parents=True, exist_ok=False)
@@ -433,14 +446,15 @@ def execute(root, plan, shard, results, run_id, attempt, capture_workerd=False):
 def validate_results(root, plan, paths, run_id, attempt, capture_workerd=False):
     context = identity(root, plan, run_id)
     positive_attempt(attempt)
-    batches = partition(context['tests'])
+    shards = plan_shards(plan)
+    batches = partition(context['tests'], shards)
     seen = set()
     for path in paths:
         receipt = load(path)
         shard = receipt.get('shard')
         producer = receipt.get('consumer_attempt')
         if (receipt.get('schema') != SCHEMA or receipt.get('context') != context
-                or type(shard) is not int or shard not in SHARDS or shard in seen
+                or type(shard) is not int or shard not in shards or shard in seen
                 or type(producer) is not int or not 1 <= producer <= attempt):
             raise ValueError('custody result identity mismatch')
         rows = receipt.get('files')
@@ -461,7 +475,7 @@ def validate_results(root, plan, paths, run_id, attempt, capture_workerd=False):
                     or process.get('cleanup_result') != 'clean' or process.get('log_complete') is not True):
                 raise ValueError('custody process did not complete cleanly')
         seen.add(shard)
-    if seen != set(SHARDS):
+    if seen != set(shards):
         raise ValueError('missing custody shard results')
 
 
@@ -474,7 +488,7 @@ def validate_jobs(plan, needs):
                 'workspace-support-other': split and 'other' in plan.get('workspace_support_partitions', []),
                 **{f'custody-{component}': split for component in COMPONENTS},
                 'custody-native-contracts': split, 'custody-node': split}
-    if separate_proof(plan):
+    if separate_proof(plan) and 'custody-wasm-contracts' in needs:
         expected['custody-wasm-contracts'] = True
     if set(needs) != {'select', *expected}:
         raise ValueError('unknown or missing support dependencies')

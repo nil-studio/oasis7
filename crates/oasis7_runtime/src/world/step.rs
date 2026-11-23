@@ -715,7 +715,19 @@ impl World {
                         WorldEventBody::Domain(DomainEvent::ActionRejected { .. })
                     ) && let Some(rejection_cost) = movement_rejection_cost
                     {
-                        decision.cost = rejection_cost;
+                        // Select the already-verified general rule result, not
+                        // distance pricing for an action that did not move.
+                        // Actual debit remains in the one existing Runtime
+                        // publication path below; never charge twice.
+                        let quote = oasis7_domain_types::rule_settlement::RuleSettlementPolicy::quote(
+                            &oasis7_domain_types::rule_settlement::AuthoritativeDebit,
+                            oasis7_domain_types::rule_settlement::RuleSettlementInput {
+                                general: &rejection_cost,
+                                with_distance: &decision.cost,
+                                disposition: oasis7_domain_types::rule_settlement::RuleActionDisposition::RejectedMovement,
+                            },
+                        );
+                        decision.cost = quote.selected.clone();
                     }
                     Some(outcome)
                 } else {

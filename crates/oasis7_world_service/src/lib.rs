@@ -5,6 +5,8 @@ pub mod authority;
 // Client implementation is owned by oasis7_game_client; integrated below.
 pub mod client;
 mod cognition_disposition;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod consensus_action_payload;
 pub mod correlation;
 pub use cognition_disposition::{
     AuthenticatedCognitionDisposition, ValidatedStaleCognitionRejection,

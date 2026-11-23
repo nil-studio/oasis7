@@ -152,7 +152,7 @@ DHT peer-record 的本地保存与转发期限不晚于签名剩余 TTL，其他
 <a id="discovery-resource-budget-v1"></a>
 ### 发现连接占用与累计传输预算合同
 
-Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；承接配对 PRD 的 [peer record 容量要求](mainnet-private-reachability-architecture.prd.md#peer-record-lifecycle)。本节固定 `v1-discovery-resource-budget-1` 的实施合同，**尚不表示运行时已实现或验收**；实现与真实网络证据继续由 [#5506](https://github.com/nil-studio/oasis7/issues/5506) 承接。
+Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；承接配对 PRD 的 [peer record 容量要求](mainnet-private-reachability-architecture.prd.md#peer-record-lifecycle)。本节固定 `v1-discovery-resource-budget-1` 的实施合同。标准 development host 已接入严格配置、共享连接准入、累计子流计费和状态投影；可复用验证方法见[资源预算验证](../../testing/manual/testing-manual-planned-and-discovery.manual.md#discovery-resource-budget-v1)，准确候选的执行结果与剩余义务由 [#5506](https://github.com/nil-studio/oasis7/issues/5506) 承接。此能力不证明正式 authority lane 隔离或真实公网验收。
 
 #### 适用实例、版本与配置来源
 
@@ -162,7 +162,7 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；承接配对 PRD 的 [
 
 实施配置取值固定为 `Legacy` 或 `SubstreamV1 { ... }`。沿用真实的 `oasis7_chain_runtime dev node --config PATH`／`dev local-provider --config PATH` 入口，在 `api_version = "oasis7.development-node/v1"` 的 [DevelopmentNodeConfigV1](../../../crates/oasis7_client_api/src/development_node_config.rs) 中新增 `runtime.p2p_resource_budget` 对象。其 `profile` 字段只接受序列化字符串 `legacy` 或 `v1-discovery-resource-budget-1`：前者不得附带限额，后者必须在该对象中完整提供下表九个字段；未知字段、重复字段、`null` 和错误数值类型均拒绝。整个 `p2p_resource_budget` 字段缺省时为 Legacy，序列化可省略该缺省字段，旧配置继续可读。
 
-这是待实现的新配置字段，不是当前二进制已经支持的用法。沿用 [development_runtime::read_config](../../../crates/oasis7_chain_runtime/src/host/development_runtime.rs) 既有 1 MiB 输入上限及严格 JSON 解析，`into_options`／`from_options` 和 node／net 配置转换必须完整保留该对象；不新增绕过严格 typed config 的独立覆盖参数。旧二进制拒绝新字段时不能删除字段重试。状态输出采用相同 profile 字符串。显式新版本不能从 32 并发、30 秒 idle timeout、traffic profile 或 PeerManager 比例推导新限额，也不能静默回退 legacy；所有数值由部署配置显式给出，本合同不声明产品默认额度。
+该配置沿用 [development_runtime::read_config](../../../crates/oasis7_chain_runtime/src/host/development_runtime.rs) 既有 1 MiB 输入上限及严格 JSON 解析，`into_options`／`from_options` 和 node／net 配置转换完整保留该对象；不提供绕过严格 typed config 的独立覆盖参数。旧二进制拒绝新字段时不能删除字段重试。状态输出采用相同 profile 字符串。显式新版本不能从 32 并发、30 秒 idle timeout、traffic profile 或 PeerManager 比例推导新限额，也不能静默回退 legacy；所有数值由部署配置显式给出，本合同不声明产品默认额度。
 
 | 必填字段 | 单位与验证 | 含义 |
 | --- | --- | --- |
@@ -226,7 +226,7 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；承接配对 PRD 的 [
 
 现有 status summary 应增加有界投影：所选 profile、已校验额度、连接总占用／pending 分类、窗口内分开的 `actual_bytes`（`A`）、`uncertain_charge_bytes`（`C`）、`charged_bytes`（`U`）及 `reserved_bytes`（`R`），各含收、发、总量；另有固定枚举的最近拒绝原因与下一可尝试单调延迟。原因枚举至少区分 `connection_total`、`pending_total`、`pending_inbound`、`pending_outbound`、`per_peer`、`bytes_in`、`bytes_out`、`bytes_total`；无余额时可保守给出最早桶到期时间，不能保证届时操作一定成功。没有单独的 healthy 赋权，不能按远端标签新增无界指标。新实例开始新账并输出新的实例边界；进程重启、宿主多实例及其他网络组件不共享本配额，本版本不防止操作者靠重启取得新额度，也不把系统时间回拨作为回收依据。
 
-下列是实现验收要求，本次合同文档不提供已运行证据：
+下列是实现验收要求；测试入口和独立观察点见[资源预算验证](../../testing/manual/testing-manual-planned-and-discovery.manual.md#discovery-resource-budget-v1)，实际运行证据保留在相应 Task／PR：
 
 | 场景／实际入口 | 必须核对的结果 |
 | --- | --- |
@@ -238,7 +238,7 @@ Trace refs: O7-REQ-103d7ad7-33f2-41b8-a741-a9c4b383b4c3；承接配对 PRD 的 [
 | 同窗切换 provider／代理／重建工作；窗口边界、慢传输和自然恢复 | 预算无重置；任意 60 秒成功字节不超额，保守桶最多多等至多 1 秒；deadline 不延长，恢复不复活旧请求；旧 128／32／4 等门禁无回归 |
 | 多实例／重启与独立 lane 声明 | 明确是各实例新账，不能报告跨重启累计保证；共享 development 证据不代签正式 authority lane 隔离、真实公网或抗攻击公平性 |
 
-验收须绑定实现 PR 的准确 SHA、完整显式限额与 transport/profile、真实启动入口、成功／拒绝／恢复事件及账本投影；定向账本测试不能替代真实 transport 证据。已有 [工作预算验证](../../../testing-manual.md#discovery-work-budget)继续保留。文档合入只解除实施合同缺口，#5506 的代码接线、缺配置拒启、跨路径真实网络与原工作门禁回归仍须完成后才可关闭。
+验收须绑定实现 PR 的准确 SHA、完整显式限额与 transport/profile、真实启动入口、成功／拒绝／恢复事件及账本投影；定向账本测试不能替代真实 transport 证据。已有 [工作预算验证](../../../testing-manual.md#discovery-work-budget)继续保留。#5506 的代码接线、缺配置拒启、跨路径真实网络与原工作门禁回归须在适用评审、检查和合入完成后共同判定；单个测试通过或文档更新不能代替完整验收。
 
 <a id="discovery-record-refresh"></a>
 ### 当前 v1 到期前刷新

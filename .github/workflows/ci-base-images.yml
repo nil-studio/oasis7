@@ -54,7 +54,7 @@ jobs:
         needs.plan.outputs.matrix != '' && needs.plan.outputs.matrix != '{"target":[]}') ||
        (github.event_name != 'pull_request' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-24.04
-    timeout-minutes: 55
+    timeout-minutes: 40
     permissions:
       contents: read
     strategy:
@@ -157,7 +157,7 @@ jobs:
             oasis7-ci-rust-wasm-build:candidate \
             bash ./scripts/ci-tests.sh required --group net --repo-root /workspace
       - name: Scan OS vulnerabilities
-        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: oasis7-ci-${{ matrix.target }}:candidate
           scanners: vuln
@@ -184,7 +184,7 @@ jobs:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 5
     permissions:
       packages: write
     strategy:

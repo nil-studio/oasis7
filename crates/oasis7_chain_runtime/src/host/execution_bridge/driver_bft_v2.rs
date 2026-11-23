@@ -7,9 +7,6 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use super::ClosedRuntimeAction;
-use oasis7::consensus_action_payload::{
-    ConsensusActionPayloadBody, decode_consensus_action_payload_envelope,
-};
 use oasis7_consensus::tendermint_v2::{
     BftHeightProposerScheduleV2, VerifiedBftCommitCertificateV2,
 };
@@ -27,6 +24,9 @@ use oasis7_runtime::{
     World as RuntimeWorld, blake3_hex,
 };
 use oasis7_wasm_executor::{WasmExecutor, WasmExecutorConfig};
+use oasis7_world_service::consensus_action_payload::{
+    ConsensusActionPayloadBody, decode_consensus_action_payload_envelope,
+};
 use serde::Serialize;
 
 #[path = "driver_bft_v2_execution.rs"]
@@ -38,10 +38,11 @@ mod governance;
 #[path = "driver_bft_v2_storage.rs"]
 mod storage;
 pub(crate) use formal_read::{
-    CommittedPrefixArchiveRefV1, FormalBftHeaderExecutionV3, FormalBftHeaderLedgerExecutionV3,
-    FormalBftHeaderNodeDriverV3, FormalBftPrefixExecutionV1, FormalBftReadExecutionV1,
-    OriginalCandidateArchivePinV1, PRIVATE_HEADER_PREFIX_MAX_BYTES_V3, PrivateHeaderPrefixV3,
-    ReplayedCommittedPrefixV1, ReplayedOriginalCandidateV1,
+    ArchivedOriginalSourceReaderV1, CommittedPrefixArchiveRefV1, FormalBftHeaderExecutionV3,
+    FormalBftHeaderLedgerExecutionV3, FormalBftHeaderNodeDriverV3, FormalBftPrefixExecutionV1,
+    FormalBftReadExecutionV1, OriginalCandidateArchivePinV1, OriginalSourceArchivePinV1,
+    PRIVATE_HEADER_PREFIX_MAX_BYTES_V3, PrivateHeaderPrefixV3, ReplayedCommittedPrefixV1,
+    ReplayedOriginalCandidateV1,
 };
 use governance::{
     has_validator_set_change_action_v2, transition_metadata_for_schedule,

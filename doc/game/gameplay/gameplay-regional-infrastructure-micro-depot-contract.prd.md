@@ -137,7 +137,7 @@ M1–M4 是目标验收顺序，不是当前可用性、mainline 合入、阶段
   - `doc/game/gameplay/gameplay-indirect-control-agency-contract.prd.md`
   - `doc/product/world-rules-core-gameplay/prd.md`（产品承诺）与 `doc/game/gameplay/gameplay-top-level-design.prd.md`（玩法合同）
   - `doc/game/gameplay/gameplay-agent-claim-economy-contract.prd.md`
-  - `doc/world-simulator/viewer/viewer-pixel-world-player-leverage-production-readability-2026-05-28.brainstorm.md`
+  - `doc/world-simulator/viewer/viewer-pixel-world-player-readable-rendering.design.md`
 - Edge Cases & Error Handling:
   - Empty `regional_blocker_receipt_id`: install is refused; player receives a blocker explaining that a prior repair/logistics causal reference is required. Unknown/non-empty provenance is not validated in the current slice because no canonical repair/logistics receipt producer or regional-pressure evidence ledger exists; authenticated provenance remains a future fail-closed gate.
   - Duplicate `owner_claim_id + location_id`: install is refused with existing depot pointer and inspect/reclaim option.

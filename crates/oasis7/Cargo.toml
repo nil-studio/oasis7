@@ -8,11 +8,6 @@ license = "MIT"
 [lib]
 path = "src/lib.rs"
 
-[[test]]
-name = "incremental_full_scales"
-path = "tests/incremental_full_scales.rs"
-required-features = ["test_tier_full"]
-
 [dependencies]
 oasis7_runtime = { path = "../oasis7_runtime", default-features = false }
 oasis7_simulator = { path = "../oasis7_simulator" }
@@ -30,10 +25,11 @@ serde_cbor = { package = "serde_cbor_2", version = "0.13" }
 blake3 = "1"
 ed25519-dalek = { version = "3", features = ["rand_core"] }
 
+oasis7_hosted_access = { path = "../oasis7_hosted_access" }
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 oasis7_world_service = { path = "../oasis7_world_service", default-features = false }
 oasis7_observability = { path = "../oasis7_observability" }
-oasis7_hosted_access = { path = "../oasis7_hosted_access" }
 oasis7_model_provider = { path = "../oasis7_model_provider" }
 reqwest = { version = "0.13.4", features = ["blocking", "json", "rustls"], default-features = false }
 toml = "0.9.12"

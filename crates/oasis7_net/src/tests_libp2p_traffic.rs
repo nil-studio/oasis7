@@ -154,7 +154,16 @@ fn typed_net_budget_caps_real_business_substream_before_remote_decode() {
 
 #[test]
 fn active_bootstrap_respects_the_real_outbound_byte_limit() {
-    exercise_active_business_substream("/ip4/127.0.0.1/tcp/0", ResourceBudgetRejection::BytesOut);
+    for address in ["/ip4/127.0.0.1/tcp/0", "/ip4/127.0.0.1/udp/0/quic-v1"] {
+        exercise_active_business_substream(address, ResourceBudgetRejection::BytesOut);
+    }
+}
+
+#[test]
+fn real_response_read_obeys_the_inbound_limit_before_full_decode() {
+    for address in ["/ip4/127.0.0.1/tcp/0", "/ip4/127.0.0.1/udp/0/quic-v1"] {
+        exercise_active_business_substream(address, ResourceBudgetRejection::BytesIn);
+    }
 }
 
 fn exercise_active_business_substream(address: &str, reason: ResourceBudgetRejection) {
@@ -168,11 +177,16 @@ fn exercise_active_business_substream(address: &str, reason: ResourceBudgetRejec
     } else {
         16384
     };
+    let inbound_limit: u64 = if reason == ResourceBudgetRejection::BytesIn {
+        8192
+    } else {
+        16384
+    };
     let profile = serde_json::from_value(serde_json::json!({
         "profile": "v1-discovery-resource-budget-1",
         "connections_total": 3, "pending_connections_total": 2, "pending_inbound_unknown": 1,
         "pending_outbound": 2, "connections_per_peer": 1, "handshake_timeout_ms": 3000,
-        "bytes_in_per_window": 16384, "bytes_out_per_window": outbound_limit,
+        "bytes_in_per_window": inbound_limit, "bytes_out_per_window": outbound_limit,
         "bytes_total_per_window": 16384
     }))
     .unwrap();
@@ -190,7 +204,15 @@ fn exercise_active_business_substream(address: &str, reason: ResourceBudgetRejec
             protocol,
             Box::new(move |payload| {
                 observer.fetch_add(1, Ordering::Relaxed);
-                Ok(payload.to_vec())
+                Ok(
+                    if reason == ResourceBudgetRejection::BytesIn
+                        && payload == b"oversized-response"
+                    {
+                        vec![7; 32768]
+                    } else {
+                        payload.to_vec()
+                    },
+                )
             }),
         )
         .unwrap();
@@ -227,15 +249,24 @@ fn exercise_active_business_substream(address: &str, reason: ResourceBudgetRejec
         b"probe",
     );
     assert_eq!(seen.load(Ordering::Relaxed), 1);
+    let oversized = if reason == ResourceBudgetRejection::BytesIn {
+        b"oversized-response".to_vec()
+    } else {
+        vec![7; 32768]
+    };
     assert!(
         client
-            .request_to_peer_with_timeout(protocol, &[7; 32768], peer, Duration::from_secs(3))
+            .request_to_peer_with_timeout(protocol, &oversized, peer, Duration::from_secs(3))
             .is_err()
     );
     assert_eq!(
         seen.load(Ordering::Relaxed),
-        1,
-        "receiver decoded an over-budget request"
+        if reason == ResourceBudgetRejection::BytesIn {
+            2
+        } else {
+            1
+        },
+        "the server handled an unexpected number of admissible requests"
     );
 
     let status = client.traffic_metrics_snapshot().resource_budget;
@@ -249,7 +280,11 @@ fn exercise_active_business_substream(address: &str, reason: ResourceBudgetRejec
         (1, 0, 1)
     );
     let bytes = status.bytes.unwrap();
-    if reason == ResourceBudgetRejection::BytesOut {
+    if reason == ResourceBudgetRejection::BytesIn {
+        assert_eq!(bytes.actual_bytes.inbound, inbound_limit);
+        assert_eq!(bytes.charged_bytes.inbound, inbound_limit);
+        assert!(bytes.charged_bytes.total < 16384);
+    } else if reason == ResourceBudgetRejection::BytesOut {
         assert_eq!(bytes.actual_bytes.outbound, outbound_limit);
         assert_eq!(bytes.charged_bytes.outbound, outbound_limit);
         assert!(bytes.charged_bytes.total < 16384);
@@ -313,6 +348,12 @@ fn real_transport_deadline_reports_a_fixed_budget_status() {
 
 #[test]
 fn typed_net_budget_caps_real_gossip_before_delivery() {
+    for address in ["/ip4/127.0.0.1/tcp/0", "/ip4/127.0.0.1/udp/0/quic-v1"] {
+        exercise_real_gossip_budget_before_delivery(address);
+    }
+}
+
+fn exercise_real_gossip_budget_before_delivery(address: &str) {
     let profile = serde_json::from_str(
         r#"{"profile":"v1-discovery-resource-budget-1",
         "connections_total":3,"pending_connections_total":2,"pending_inbound_unknown":1,
@@ -322,7 +363,7 @@ fn typed_net_budget_caps_real_gossip_before_delivery() {
     .unwrap();
     let receiver = Libp2pNetwork::try_new(Libp2pNetworkConfig {
         p2p_resource_budget: profile,
-        listen_addrs: vec!["/ip4/127.0.0.1/tcp/0".parse().unwrap()],
+        listen_addrs: vec![address.parse().unwrap()],
         enable_autonat: false,
         ..Libp2pNetworkConfig::default()
     })

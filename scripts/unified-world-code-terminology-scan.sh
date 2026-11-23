@@ -76,11 +76,13 @@ allowed_snippets = {
         "shared_devnet|shared_network)",
         '{"shared_devnet", "shared_network"}',
     ),
-    "scripts/shared-devnet-blocker-packet.sh": (
-        "shared-devnet-blocker-packet.sh is a legacy compatibility wrapper",
-    ),
-    "scripts/shared-devnet-rehearsal.sh": (
-        "shared-devnet-rehearsal.sh is a legacy compatibility wrapper",
+    "scripts/ci-required-scope.json": (
+        '"scripts/shared-devnet-blocker-packet-smoke.sh"',
+        '"scripts/shared-devnet-blocker-packet.sh"',
+        '"scripts/shared-devnet-rehearsal-smoke.sh"',
+        '"scripts/shared-devnet-rehearsal.sh"',
+        '"scripts/shared-network-track-gate-smoke.sh"',
+        '"scripts/shared-network-track-gate.sh"',
     ),
     "scripts/legacy-shared-devnet-provenance-smoke.sh": (
         "authority=doc/testing/evidence/legacy-shared-devnet-provenance-2026-07-26.md",
@@ -91,16 +93,9 @@ allowed_snippets = {
         'active generated shared_devnet capture reference remains',
         'legacy-shared-devnet-provenance-smoke',
     ),
-    "scripts/shared-network-track-gate.sh": (
-        "shared-network-track-gate.sh is a legacy compatibility wrapper",
-    ),
-    "scripts/shared-network-track-gate-smoke.sh": (
-        'shared_network_track_gate_smoke',
-    ),
     "doc/p2p/blockchain/formal-network-tiers-testnet-mechanism.prd.md": (
         "doc/p2p/blockchain/formal-network-tiers-testnet-mechanism.prd.md",
-        "scripts/shared-network-track-gate.sh",
-    ),
+        ),
     "doc/p2p/prd.md": (
         "doc/p2p/blockchain/formal-network-tiers-testnet-mechanism.prd.md",
     ),
@@ -113,12 +108,7 @@ allowed_path_names = {
     "doc/testing/templates/shared-network-promotion-record-template.md",
     "doc/testing/templates/shared-network-rollback-target-template.md",
     "doc/testing/templates/shared-network-shared-access-check-template.md",
-    "scripts/shared-devnet-blocker-packet-smoke.sh",
-    "scripts/shared-devnet-blocker-packet.sh",
-    "scripts/shared-devnet-rehearsal-smoke.sh",
-    "scripts/shared-devnet-rehearsal.sh",
     "scripts/legacy-shared-devnet-provenance-smoke.sh",
-    "scripts/shared-network-track-gate-smoke.sh",
     "scripts/shared-network-track-gate.sh",
 }
 
