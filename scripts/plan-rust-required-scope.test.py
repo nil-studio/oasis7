@@ -567,7 +567,10 @@ class Selection(unittest.TestCase):
         for path in ('vendor-libp2p-swarm-0.48.0/src/lib.rs',
                      'vendor-libp2p-swarm-0.48.0/src/outbound_attempt.rs',
                      'vendor-libp2p-swarm-0.48.0/LICENSE',
-                     'vendor-libp2p-swarm-0.48.0/upstream-source-sha256.json'):
+                     'vendor-libp2p-swarm-0.48.0/upstream-source-sha256.json',
+                     'vendor/libp2p-swarm-0.49.0/src/lib.rs',
+                     'vendor/libp2p-swarm-0.49.0/LICENSE',
+                     'vendor/libp2p-swarm-0.49.0/upstream-source-sha256.json'):
             with self.subTest(path=path):
                 base = self.git('rev-parse', 'HEAD')
                 self.write(path, 'fixed Swarm patch source')
@@ -576,7 +579,10 @@ class Selection(unittest.TestCase):
                 self.assertTrue({'rust_baseline', 'net', 'node'}.issubset(plan['groups']))
         for path in ('vendor-libp2p-swarm-0.48.0/unregistered.json',
                      'vendor-libp2p-swarm-0.49.0/src/lib.rs',
-                     'vendor-libp2p-swarm-0.49.0/LICENSE'):
+                     'vendor-libp2p-swarm-0.49.0/LICENSE',
+                     'vendor/libp2p-swarm-0.49.0/unregistered.json',
+                     'vendor/libp2p-swarm-0.50.0/src/lib.rs',
+                     'vendor/libp2p-swarm-0.50.0/LICENSE'):
             with self.subTest(path=path):
                 base = self.git('rev-parse', 'HEAD')
                 self.write(path, 'unregistered input')
