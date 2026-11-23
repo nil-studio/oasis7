@@ -333,7 +333,11 @@ class PlannerTests(unittest.TestCase):
                 self.run_plan(full=full)
 
     def test_fixed_quic_vendor_metadata_routes_to_rust(self):
-        for path in ('vendor-libp2p-quic-0.14.0/.gitignore', 'vendor-libp2p-quic-0.14.0/LICENSE'):
+        for path in ('vendor-if-watch-3.2.2/Cargo.toml.orig',
+                     'vendor-libp2p-quic-0.14.0/.gitignore',
+                     'vendor-libp2p-quic-0.14.0/LICENSE',
+                     'vendor-libp2p-rendezvous-0.18.1/src/generated/rpc.proto',
+                     'vendor-libp2p-swarm-0.48.0/LICENSE'):
             with self.subTest(path=path):
                 self.base = self.git('rev-parse', 'HEAD')
                 self.write(path, 'fixed vendor metadata\n')
@@ -342,10 +346,42 @@ class PlannerTests(unittest.TestCase):
                 self.assertEqual(result['selected_units'], ['rust-repo'])
                 self.assertIn(path, result['reasons']['rust-repo'])
                 self.assertEqual(result['fallback_reasons'], [])
+                self.base = self.git('rev-parse', 'HEAD')
+                (self.root / path).unlink()
+                self.commit()
+                deleted = self.run_plan()
+                self.assertEqual(deleted['selected_units'], ['rust-repo'])
+                self.assertIn(path, deleted['reasons']['rust-repo'])
+
+    def test_fixed_vendor_provenance_routes_to_python_and_rust_including_deletion(self):
+        for path in ('vendor-if-watch-3.2.2/upstream-source-sha256.json',
+                     'vendor-libp2p-rendezvous-0.18.1/LICENSE',
+                     'vendor-libp2p-rendezvous-0.18.1/local-patch-sha256.json',
+                     'vendor-libp2p-rendezvous-0.18.1/upstream-source-sha256.json',
+                     'vendor-libp2p-swarm-0.48.0/upstream-source-sha256.json'):
+            with self.subTest(path=path):
+                self.base = self.git('rev-parse', 'HEAD')
+                self.write(path, '{"sha256": "fixed"}\n')
+                self.commit()
+                result = self.run_plan()
+                self.assertEqual(result['selected_units'], ['python-repo', 'rust-repo'])
+                self.assertIn(path, result['reasons']['python-repo'])
+                self.assertIn(path, result['reasons']['rust-repo'])
+                self.assertEqual(result['fallback_reasons'], [])
+                self.base = self.git('rev-parse', 'HEAD')
+                (self.root / path).unlink()
+                self.commit()
+                deleted = self.run_plan()
+                self.assertEqual(deleted['selected_units'], ['python-repo', 'rust-repo'])
 
     def test_fixed_quic_vendor_registration_does_not_admit_neighbors(self):
-        for path in ('vendor-libp2p-quic-0.14.0/unregistered.json',
-                     'vendor-libp2p-quic-0.14.1/LICENSE'):
+        for path in ('vendor-if-watch-3.2.2/unregistered.json',
+                     'vendor-libp2p-quic-0.14.0/unregistered.json',
+                     'vendor-libp2p-quic-0.14.1/LICENSE',
+                     'vendor-libp2p-rendezvous-0.18.1/unregistered.json',
+                     'vendor-libp2p-rendezvous-0.18.2/LICENSE',
+                     'vendor-libp2p-swarm-0.48.0/unregistered.json',
+                     'vendor-libp2p-swarm-0.49.0/LICENSE'):
             with self.subTest(path=path):
                 self.base = self.git('rev-parse', 'HEAD')
                 self.write(path, '{}')
